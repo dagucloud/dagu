@@ -171,9 +171,10 @@ func TestNotificationMonitorWithoutDestinationsAdvancesCursorWithoutReadingEvent
 	cfg.UrgentWindow = 5 * time.Millisecond
 	cfg.SuccessWindow = 5 * time.Millisecond
 
-	monitor := newFileNotificationMonitor(
+	monitor := chatbridge.NewNotificationMonitor(
 		service,
-		filepath.Join(t.TempDir(), "state.json"),
+		nil,
+		nil,
 		transport,
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 		cfg,

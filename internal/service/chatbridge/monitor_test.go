@@ -16,6 +16,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	filemonitor "github.com/dagucloud/dagu/v2/internal/persis/file/monitor"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -357,9 +358,10 @@ func TestNotificationMonitor_BootstrapDeliversStartupEvent(t *testing.T) {
 	cfg.PollInterval = 10 * time.Millisecond
 	cfg.SeenEvictInterval = time.Hour
 	cfg.UrgentWindow = 10 * time.Millisecond
-	monitor := newFileBackedMonitor(
+	monitor := NewNotificationMonitor(
 		service,
-		filepath.Join(t.TempDir(), "state.json"),
+		filemonitor.NewStateStore(filepath.Join(t.TempDir(), "state.json")),
+		nil,
 		transport,
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 		cfg,
