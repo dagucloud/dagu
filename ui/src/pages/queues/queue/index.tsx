@@ -23,6 +23,7 @@ import {
 import { RefreshButton } from '@/components/ui/refresh-button';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { DAGRunDetailsModal } from '@/features/dag-runs/components/dag-run-details';
+import { formatQueuedCount } from '@/features/queues/components/QueueCard';
 import QueueRunsTable from '@/features/queues/components/QueueRunsTable';
 import {
   QueueBatchResult,
@@ -288,7 +289,12 @@ function QueueDetailsPage() {
           </div>
           <div className="flex items-baseline gap-1">
             <span className="text-lg font-light tabular-nums text-foreground">
-              {isLoading && !queue ? '-' : queue?.queuedCount || 0}
+              {isLoading && !queue
+                ? '-'
+                : formatQueuedCount(
+                    queue?.queuedCount || 0,
+                    queue?.queuedCountCapped === true
+                  )}
             </span>
             <span className="text-xs">queued</span>
           </div>
@@ -339,7 +345,12 @@ function QueueDetailsPage() {
               <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex flex-wrap items-center gap-3">
                   <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    Queued ({queue?.queuedCount || 0})
+                    Queued (
+                    {formatQueuedCount(
+                      queue?.queuedCount || 0,
+                      queue?.queuedCountCapped === true
+                    )}
+                    )
                   </span>
                   <span className="text-xs text-muted-foreground">
                     {selectionSummary}

@@ -14,6 +14,7 @@ interface QueueCardProps {
 function QueueCard({ queue }: QueueCardProps) {
   const runningCount = queue.runningCount || 0;
   const queuedCount = queue.queuedCount || 0;
+  const queuedCapped = queue.queuedCountCapped === true;
   const utilization = queue.maxConcurrency
     ? Math.round((runningCount / queue.maxConcurrency) * 100)
     : null;
@@ -29,7 +30,7 @@ function QueueCard({ queue }: QueueCardProps) {
             {queue.name}
           </h3>
           <p className="mt-1 text-sm text-muted-foreground">
-            {formatActivityLine(runningCount, queuedCount)}
+            {formatActivityLine(runningCount, queuedCount, queuedCapped)}
           </p>
         </div>
         <ChevronRight className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground transition-transform duration-200 group-hover:translate-x-0.5" />
@@ -59,7 +60,7 @@ function QueueCard({ queue }: QueueCardProps) {
         <SummaryStat label="Running" value={runningCount} />
         <SummaryStat
           label="Queued"
-          value={queuedCount}
+          value={formatQueuedCount(queuedCount, queuedCapped)}
           emphasized={queuedCount > 0}
         />
       </div>
@@ -67,12 +68,23 @@ function QueueCard({ queue }: QueueCardProps) {
   );
 }
 
-function formatActivityLine(runningCount: number, queuedCount: number): string {
+// formatQueuedCount renders a capped count as a lower bound, e.g. "500+",
+// so a truncated server-side scan is never shown as an exact total.
+export function formatQueuedCount(count: number, capped: boolean): string {
+  return capped ? `${count}+` : `${count}`;
+}
+
+function formatActivityLine(
+  runningCount: number,
+  queuedCount: number,
+  queuedCapped = false
+): string {
+  const queuedLabel = formatQueuedCount(queuedCount, queuedCapped);
   if (queuedCount > 0 && runningCount > 0) {
-    return `${queuedCount} queued, ${runningCount} running`;
+    return `${queuedLabel} queued, ${runningCount} running`;
   }
   if (queuedCount > 0) {
-    return `${queuedCount} queued`;
+    return `${queuedLabel} queued`;
   }
   if (runningCount > 0) {
     return `${runningCount} running`;

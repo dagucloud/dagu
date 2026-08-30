@@ -27,6 +27,15 @@ const (
 	queueCursorScanBatch  = 64
 )
 
+// queuedCountScanCap bounds how many queued items a single count may scan.
+// Counting is O(items) with a status read per item, so an uncapped scan on a
+// deep queue can take tens of seconds and stall both GET /queues and the queues
+// SSE topic. Past the cap the count is reported as a lower bound via the
+// queuedCountCapped/totalQueuedCapped flags.
+//
+// Declared as a var so tests can lower it instead of enqueuing thousands of runs.
+var queuedCountScanCap = 500
+
 // ListQueues implements api.StrictServerInterface.
 func (a *API) ListQueues(ctx context.Context, _ api.ListQueuesRequestObject) (api.ListQueuesResponseObject, error) {
 	queueMap, err := a.collectQueues(ctx, "")
@@ -41,6 +50,7 @@ func (a *API) ListQueues(ctx context.Context, _ api.ListQueuesRequestObject) (ap
 	}
 	sort.Strings(queueNames)
 	var totalRunning, totalQueued, totalCapacity int
+	var totalQueuedCapped bool
 	for _, queueName := range queueNames {
 		q := queueMap[queueName]
 		queue, err := a.toQueueResource(ctx, q)
@@ -49,6 +59,7 @@ func (a *API) ListQueues(ctx context.Context, _ api.ListQueuesRequestObject) (ap
 		}
 		totalRunning += len(q.running)
 		totalQueued += q.queuedCount
+		totalQueuedCapped = totalQueuedCapped || q.queuedCountCapped
 		if q.maxConcurrency > 0 {
 			totalCapacity += q.maxConcurrency
 		}
@@ -71,6 +82,9 @@ func (a *API) ListQueues(ctx context.Context, _ api.ListQueuesRequestObject) (ap
 			TotalCapacity:         totalCapacity,
 			UtilizationPercentage: utilizationPercentage,
 		},
+	}
+	if totalQueuedCapped {
+		response.Summary.TotalQueuedCapped = &totalQueuedCapped
 	}
 
 	return api.ListQueues200JSONResponse(response), nil
@@ -153,6 +167,9 @@ type queueInfo struct {
 	maxConcurrency int
 	running        []api.DAGRunSummary
 	queuedCount    int
+	// queuedCountCapped reports that queuedCount hit queuedCountScanCap and is
+	// therefore a lower bound rather than an exact total.
+	queuedCountCapped bool
 }
 
 // getOrCreateQueue returns an existing queue from the map or creates a new one.
@@ -265,7 +282,7 @@ func (a *API) collectQueues(ctx context.Context, onlyQueue string) (map[string]*
 	}
 
 	if onlyQueue != "" {
-		count, err := a.countVisibleQueuedItems(ctx, onlyQueue)
+		count, capped, err := a.countVisibleQueuedItems(ctx, onlyQueue)
 		if err != nil {
 			return nil, &Error{
 				Code:       api.ErrorCodeInternalError,
@@ -276,6 +293,7 @@ func (a *API) collectQueues(ctx context.Context, onlyQueue string) (map[string]*
 		if count > 0 {
 			queue := getOrCreateQueue(queueMap, onlyQueue, a.config)
 			queue.queuedCount = count
+			queue.queuedCountCapped = capped
 		}
 	} else {
 		queueNames, err := a.queueStore.QueueList(ctx)
@@ -287,7 +305,7 @@ func (a *API) collectQueues(ctx context.Context, onlyQueue string) (map[string]*
 			}
 		}
 		for _, queueName := range queueNames {
-			count, err := a.countVisibleQueuedItems(ctx, queueName)
+			count, capped, err := a.countVisibleQueuedItems(ctx, queueName)
 			if err != nil {
 				logger.Warn(ctx, "Failed to get queue length",
 					tag.Queue(queueName),
@@ -296,6 +314,7 @@ func (a *API) collectQueues(ctx context.Context, onlyQueue string) (map[string]*
 			}
 			queue := getOrCreateQueue(queueMap, queueName, a.config)
 			queue.queuedCount = count
+			queue.queuedCountCapped = capped
 		}
 	}
 
@@ -313,6 +332,10 @@ func (a *API) toQueueResource(_ context.Context, q *queueInfo) (api.Queue, error
 		Running:      q.running,
 		RunningCount: len(q.running),
 		QueuedCount:  q.queuedCount,
+	}
+	if q.queuedCountCapped {
+		capped := true
+		queue.QueuedCountCapped = &capped
 	}
 	if q.maxConcurrency > 0 {
 		queue.MaxConcurrency = &q.maxConcurrency
@@ -379,16 +402,23 @@ func (a *API) listVisibleQueuedItems(ctx context.Context, queueName string, limi
 	return items, currentCursor, nil
 }
 
-func (a *API) countVisibleQueuedItems(ctx context.Context, queueName string) (int, error) {
+// countVisibleQueuedItems counts queued items that are not already running.
+//
+// The scan is bounded by queuedCountScanCap. Counting requires a status read per
+// item to exclude items whose run has already started, so an unbounded scan is
+// O(queue depth) in filesystem operations and makes deep queues unservable. When
+// the cap is reached, counting stops and the returned bool reports that the count
+// is a lower bound.
+func (a *API) countVisibleQueuedItems(ctx context.Context, queueName string) (int, bool, error) {
 	if a.queueStore == nil {
-		return 0, nil
+		return 0, false, nil
 	}
 	count := 0
 	cursor := ""
 	for {
 		page, err := a.queueStore.ListCursor(ctx, queueName, cursor, queueCursorScanBatch)
 		if err != nil {
-			return 0, err
+			return 0, false, err
 		}
 		for _, queuedItem := range page.Items {
 			dagRunRef, err := queuedItem.Data()
@@ -398,10 +428,13 @@ func (a *API) countVisibleQueuedItems(ctx context.Context, queueName string) (in
 			summary, err := a.fetchDAGRunSummary(ctx, *dagRunRef)
 			if err == nil && summary.Status != api.StatusRunning {
 				count++
+				if count >= queuedCountScanCap {
+					return count, true, nil
+				}
 			}
 		}
 		if !page.HasMore {
-			return count, nil
+			return count, false, nil
 		}
 		cursor = page.NextCursor
 	}

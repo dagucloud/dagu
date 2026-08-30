@@ -5827,8 +5827,10 @@ export interface components {
             maxConcurrency?: number;
             /** @description Number of currently running DAG-runs */
             runningCount: number;
-            /** @description Number of queued DAG-runs waiting to execute */
+            /** @description Number of queued DAG-runs waiting to execute. When queuedCountCapped is true this is a lower bound, not an exact total. */
             queuedCount: number;
+            /** @description True when counting stopped at the server-side scan cap, so queuedCount is a lower bound rather than an exact total */
+            queuedCountCapped?: boolean;
             /** @description List of currently running DAG-runs (bounded by maxConcurrency) */
             running: components["schemas"]["DAGRunSummary"][];
         };
@@ -5845,8 +5847,10 @@ export interface components {
             totalQueues: number;
             /** @description Total DAG-runs currently executing */
             totalRunning: number;
-            /** @description Total DAG-runs waiting in queues */
+            /** @description Total DAG-runs waiting in queues. When totalQueuedCapped is true this is a lower bound, not an exact total. */
             totalQueued: number;
+            /** @description True when at least one queue's count reached the server-side scan cap, so totalQueued is a lower bound */
+            totalQueuedCapped?: boolean;
             /** @description Sum of all queue maxConcurrency values */
             totalCapacity: number;
             /**
