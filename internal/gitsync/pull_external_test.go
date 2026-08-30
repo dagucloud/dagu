@@ -661,6 +661,51 @@ func TestSupportingFileWriteLifecycle(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(dagsDir, "scripts", "job.sh"))
 }
 
+func TestSupportingFileExecutableModePreserved(t *testing.T) {
+	t.Parallel()
+
+	env := newPullExternalPushTest(t, []pullExternalTestFile{
+		{path: "scripts/single.sh", content: "echo initial\n", executable: true},
+		{path: "scripts/batch.sh", content: "echo initial\n", executable: true},
+	})
+
+	status, err := env.svc.GetStatus(env.ctx)
+	require.NoError(t, err)
+	assert.Equal(t, gitsync.StatusSynced, status.Items["scripts/single.sh"].Status)
+	assert.Equal(t, gitsync.StatusSynced, status.Items["scripts/batch.sh"].Status)
+
+	require.NoError(t, os.WriteFile(
+		filepath.Join(env.dagsDir, "scripts", "single.sh"),
+		[]byte("echo single\n"),
+		0600,
+	))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(env.dagsDir, "scripts", "batch.sh"),
+		[]byte("echo batch\n"),
+		0600,
+	))
+	_, err = env.svc.GetStatus(env.ctx)
+	require.NoError(t, err)
+
+	_, err = env.svc.Publish(env.ctx, "scripts/single.sh", "publish single", false)
+	require.NoError(t, err)
+	_, err = env.svc.PublishAll(env.ctx, "publish batch", []string{"scripts/batch.sh"})
+	require.NoError(t, err)
+
+	assert.Equal(t, filemode.Executable, pullExternalHeadFile(t, env.remoteRepo, "scripts/single.sh").Mode)
+	assert.Equal(t, filemode.Executable, pullExternalHeadFile(t, env.remoteRepo, "scripts/batch.sh").Mode)
+
+	require.NoError(t, env.svc.Move(
+		env.ctx,
+		"scripts/single.sh",
+		"scripts/moved.sh",
+		"move executable",
+		false,
+	))
+	assertPullExternalHeadFileMissing(t, env.remoteRepo, "scripts/single.sh")
+	assert.Equal(t, filemode.Executable, pullExternalHeadFile(t, env.remoteRepo, "scripts/moved.sh").Mode)
+}
+
 func TestPullAdoptsLegacyDocsDirectory(t *testing.T) {
 	t.Parallel()
 
@@ -828,8 +873,9 @@ func TestPullSyncsWikiPageAttachments(t *testing.T) {
 }
 
 type pullExternalTestFile struct {
-	path    string
-	content string
+	path       string
+	content    string
+	executable bool
 }
 
 type pullExternalPushTest struct {
@@ -860,7 +906,11 @@ func newPullExternalPushTest(t *testing.T, files []pullExternalTestFile) *pullEx
 	seedRepo := initPullExternalTestRepo(t, seedPath)
 	var baseHead plumbing.Hash
 	for _, file := range files {
-		baseHead = commitPullExternalTestFile(t, seedRepo, seedPath, file.path, file.content, "add "+file.path)
+		if file.executable {
+			baseHead = commitPullExternalExecutableFile(t, seedRepo, seedPath, file.path, file.content, "add "+file.path)
+		} else {
+			baseHead = commitPullExternalTestFile(t, seedRepo, seedPath, file.path, file.content, "add "+file.path)
+		}
 	}
 	_, err = seedRepo.CreateRemote(&gitconfig.RemoteConfig{Name: "upstream", URLs: []string{remotePath}})
 	require.NoError(t, err)
@@ -987,6 +1037,12 @@ func commitPullExternalExecutableFile(t *testing.T, repo *git.Repository, repoPa
 	require.NoError(t, err)
 	_, err = wt.Add(filePath)
 	require.NoError(t, err)
+	idx, err := repo.Storer.Index()
+	require.NoError(t, err)
+	entry, err := idx.Entry(filepath.ToSlash(filePath))
+	require.NoError(t, err)
+	entry.Mode = filemode.Executable
+	require.NoError(t, repo.Storer.SetIndex(idx))
 
 	hash, err := wt.Commit(message, &git.CommitOptions{
 		Author: &object.Signature{
