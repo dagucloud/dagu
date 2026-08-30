@@ -36,6 +36,34 @@ const (
 // Declared as a var so tests can lower it instead of enqueuing thousands of runs.
 var queuedCountScanCap = 500
 
+// queuedCountRequestScanCap bounds how many queued entries a single request may
+// scan across all queues combined. The per-queue cap alone does not bound a
+// request: collectQueues counts every queue returned by QueueList, so the total
+// would still grow with the number of queues.
+//
+// Declared as a var for the same reason as queuedCountScanCap.
+var queuedCountRequestScanCap = 2000
+
+// scanBudget bounds the queued entries one request may scan in total, shared
+// across every queue that request counts.
+type scanBudget struct {
+	remaining int
+}
+
+func newScanBudget(total int) *scanBudget {
+	return &scanBudget{remaining: total}
+}
+
+func (b *scanBudget) exhausted() bool {
+	return b != nil && b.remaining <= 0
+}
+
+func (b *scanBudget) consume() {
+	if b != nil && b.remaining > 0 {
+		b.remaining--
+	}
+}
+
 // ListQueues implements api.StrictServerInterface.
 func (a *API) ListQueues(ctx context.Context, _ api.ListQueuesRequestObject) (api.ListQueuesResponseObject, error) {
 	queueMap, err := a.collectQueues(ctx, "")
@@ -281,8 +309,11 @@ func (a *API) collectQueues(ctx context.Context, onlyQueue string) (map[string]*
 		return queueMap, nil
 	}
 
+	// One budget shared by every queue counted in this request.
+	budget := newScanBudget(queuedCountRequestScanCap)
+
 	if onlyQueue != "" {
-		count, capped, err := a.countVisibleQueuedItems(ctx, onlyQueue)
+		count, capped, err := a.countVisibleQueuedItems(ctx, onlyQueue, budget)
 		if err != nil {
 			return nil, &Error{
 				Code:       api.ErrorCodeInternalError,
@@ -307,7 +338,7 @@ func (a *API) collectQueues(ctx context.Context, onlyQueue string) (map[string]*
 			}
 		}
 		for _, queueName := range queueNames {
-			count, capped, err := a.countVisibleQueuedItems(ctx, queueName)
+			count, capped, err := a.countVisibleQueuedItems(ctx, queueName, budget)
 			if err != nil {
 				logger.Warn(ctx, "Failed to get queue length",
 					tag.Queue(queueName),
@@ -406,14 +437,20 @@ func (a *API) listVisibleQueuedItems(ctx context.Context, queueName string, limi
 
 // countVisibleQueuedItems counts queued items that are not already running.
 //
-// The scan is bounded by queuedCountScanCap. Counting requires a status read per
-// item to exclude items whose run has already started, so an unbounded scan is
-// O(queue depth) in filesystem operations and makes deep queues unservable. When
-// the cap is reached, counting stops and the returned bool reports that the count
-// is a lower bound.
-func (a *API) countVisibleQueuedItems(ctx context.Context, queueName string) (int, bool, error) {
+// The scan is bounded twice: by queuedCountScanCap for this queue, and by the
+// caller's shared budget for the request as a whole. Counting requires a status
+// read per entry to exclude entries whose run has already started, so without
+// both bounds the cost grows with queue depth and with the number of queues.
+// When either bound is reached, counting stops and the returned bool reports
+// that the count is a lower bound.
+func (a *API) countVisibleQueuedItems(ctx context.Context, queueName string, budget *scanBudget) (int, bool, error) {
 	if a.queueStore == nil {
 		return 0, false, nil
+	}
+	if budget.exhausted() {
+		// Earlier queues already consumed the request budget. Report zero as a
+		// lower bound rather than spending more reads on this one.
+		return 0, true, nil
 	}
 	count := 0
 	scanned := 0
@@ -424,6 +461,12 @@ func (a *API) countVisibleQueuedItems(ctx context.Context, queueName string) (in
 			return 0, false, err
 		}
 		for i, queuedItem := range page.Items {
+			if budget.exhausted() {
+				// This entry and everything after it stays unscanned.
+				return count, true, nil
+			}
+			budget.consume()
+
 			// Every entry costs a status read, whether or not it ends up visible,
 			// so the cap tracks entries processed rather than entries counted.
 			// Capping on the visible count alone would leave a queue made up of

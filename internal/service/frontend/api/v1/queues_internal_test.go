@@ -473,3 +473,49 @@ func TestGetQueueCapsScanWhenRunningEntriesPrecedeQueuedEntries(t *testing.T) {
 	require.NotNil(t, queueResp.QueuedCountCapped)
 	assert.True(t, *queueResp.QueuedCountCapped, "a truncated scan is reported as a lower bound")
 }
+
+func TestListQueuesBoundsTotalScanAcrossQueues(t *testing.T) {
+	// Not parallel: this test temporarily lowers the package-level scan caps.
+	originalQueueCap, originalRequestCap := queuedCountScanCap, queuedCountRequestScanCap
+	queuedCountScanCap = 100      // effectively disabled, so only the request budget bites
+	queuedCountRequestScanCap = 5 // total across all queues
+	t.Cleanup(func() {
+		queuedCountScanCap = originalQueueCap
+		queuedCountRequestScanCap = originalRequestCap
+	})
+
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	dagRunRepository := testutil.NewFileDAGRunRepository(filepath.Join(tmpDir, "dag-runs"), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
+	queueStore := store.NewQueueStore(file.NewCollection(filepath.Join(tmpDir, "queue")))
+	procRepository := newTestProcRepository(filepath.Join(tmpDir, "proc"))
+
+	// Four queues of four entries each: 16 entries, far above the request budget.
+	// The per-queue cap alone would not bound this, since each queue is small.
+	for q := range 4 {
+		for i := range 4 {
+			createQueuedQueueRun(t, ctx, dagRunRepository, queueStore,
+				fmt.Sprintf("budget-q-%d", q), fmt.Sprintf("q%d-run-%d", q, i), ir.Queued)
+		}
+	}
+
+	a := &API{
+		dagRunRepository:    dagRunRepository,
+		queueStore:          queueStore,
+		procRepository:      procRepository,
+		config:              &config.Config{},
+		leaseStaleThreshold: time.Minute,
+	}
+
+	resp, err := a.ListQueues(ctx, openapiv1.ListQueuesRequestObject{})
+	require.NoError(t, err)
+
+	listResp, ok := resp.(openapiv1.ListQueues200JSONResponse)
+	require.True(t, ok)
+
+	assert.LessOrEqual(t, listResp.Summary.TotalQueued, queuedCountRequestScanCap,
+		"the whole request must not count more entries than the shared budget allows")
+	require.NotNil(t, listResp.Summary.TotalQueuedCapped)
+	assert.True(t, *listResp.Summary.TotalQueuedCapped,
+		"exhausting the request budget marks the total as a lower bound")
+}
