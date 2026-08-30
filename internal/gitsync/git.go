@@ -726,6 +726,12 @@ func (c *GitClient) ListTrackedFiles() ([]TrackedFile, error) {
 		}
 		switch file.Mode {
 		case filemode.Regular, filemode.Deprecated, filemode.Executable:
+			if strings.Contains(file.Name, `\`) {
+				return &ValidationError{
+					Field:   "path",
+					Message: fmt.Sprintf("tracked path %q contains an unsupported backslash", file.Name),
+				}
+			}
 			files = append(files, TrackedFile{
 				Path:       file.Name,
 				Executable: file.Mode == filemode.Executable,

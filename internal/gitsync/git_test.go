@@ -150,6 +150,25 @@ func TestGitClientListTrackedFilesRejectsWindowsVolumes(t *testing.T) {
 	}
 }
 
+func TestGitClientListTrackedFilesRejectsBackslashes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows filenames cannot contain backslashes")
+	}
+
+	repoPath := t.TempDir()
+	repo := initGitTestRepo(t, repoPath)
+	require.NoError(t, os.Mkdir(filepath.Join(repoPath, "folder"), 0755))
+	commitGitTestFile(t, repo, repoPath, "folder/item.txt", "slash\n", "add slash path")
+	commitGitTestFile(t, repo, repoPath, `folder\item.txt`, "backslash\n", "add backslash path")
+
+	client := NewGitClient(&Config{}, repoPath)
+	client.repo = repo
+	_, err := client.ListTrackedFiles()
+	var validationErr *ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	require.ErrorContains(t, err, "unsupported backslash")
+}
+
 func TestGitClient_AddAndCommit_NoChanges(t *testing.T) {
 	repoPath := t.TempDir()
 
