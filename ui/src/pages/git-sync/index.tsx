@@ -187,7 +187,7 @@ export default function GitSyncPage() {
   const [selectedDags, setSelectedDags] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
   const userTouchedSelectionRef = useRef(false);
-  const prevPublishableRef = useRef<string>('');
+  const prevPublishableRef = useRef<string>('[]');
   const [searchParams, setSearchParams] = useSearchParams();
 
   useEffect(() => {
@@ -268,20 +268,21 @@ export default function GitSyncPage() {
   const deferredSearchQuery = useDeferredValue(searchQuery);
 
   const publishableKey = useMemo(() => {
-    return syncRows
-      .filter(
-        ({ item }) =>
-          item.status === SyncStatus.modified ||
-          item.status === SyncStatus.untracked
-      )
-      .map(({ itemId }) => itemId)
-      .sort()
-      .join(',');
+    return JSON.stringify(
+      syncRows
+        .filter(
+          ({ item }) =>
+            item.status === SyncStatus.modified ||
+            item.status === SyncStatus.untracked
+        )
+        .map(({ itemId }) => itemId)
+        .sort()
+    );
   }, [syncRows]);
 
   useEffect(() => {
     userTouchedSelectionRef.current = false;
-    prevPublishableRef.current = '';
+    prevPublishableRef.current = '[]';
     setSelectedDags(new Set());
   }, [remoteNode]);
 
@@ -292,10 +293,8 @@ export default function GitSyncPage() {
 
   // Auto-select publishable items without overriding manual choices on polling.
   useEffect(() => {
-    const next = publishableKey ? publishableKey.split(',') : [];
-    const prev = prevPublishableRef.current
-      ? prevPublishableRef.current.split(',')
-      : [];
+    const next = JSON.parse(publishableKey) as string[];
+    const prev = JSON.parse(prevPublishableRef.current) as string[];
     const prevSet = new Set(prev);
 
     setSelectedDags((current) => {
