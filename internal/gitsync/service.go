@@ -1042,23 +1042,16 @@ func (s *serviceImpl) Publish(ctx context.Context, dagID, message string, force 
 	if executable {
 		perm = 0700
 	}
-	if err := safeWriteFileWithinBase(s.gitClient.repoPath, repoAbsPath, content, perm); err != nil {
-		return nil, fmt.Errorf("failed to write to repo: %w", err)
-	}
-
-	// Commit
 	if message == "" {
 		message = fmt.Sprintf("Update %s", dagID)
 	}
-	if err := s.gitClient.addFileMode(repoFilePath, executable); err != nil {
-		return nil, err
-	}
-	commitHash, err := s.gitClient.CommitStaged(message)
+	commitHash, err := s.gitClient.commitAndPush(ctx, message, func() error {
+		if err := safeWriteFileWithinBase(s.gitClient.repoPath, repoAbsPath, content, perm); err != nil {
+			return fmt.Errorf("failed to write to repo: %w", err)
+		}
+		return s.gitClient.addFileMode(repoFilePath, executable)
+	})
 	if err != nil {
-		return nil, err
-	}
-
-	if err := s.gitClient.Push(ctx); err != nil {
 		return nil, err
 	}
 
@@ -1103,62 +1096,55 @@ func (s *serviceImpl) PublishAll(ctx context.Context, message string, dagIDs []s
 		return nil, err
 	}
 
-	// Copy files and track which succeeded
 	successfulDAGs := make([]string, 0, len(publishTargets))
-	for _, dagID := range publishTargets {
-		dagState := state.Items[dagID]
-		fileExtension := s.syncItemFileExtension(dagID, dagState)
-		dagFilePath, err := s.safeItemFilePath(dagID, dagState.Kind, fileExtension)
-		if err != nil {
-			return nil, err
-		}
-		repoFilePath, err := s.safeItemRepoPath(dagID, dagState.Kind, fileExtension)
-		if err != nil {
-			return nil, err
-		}
-		repoAbsPath := s.gitClient.GetFilePath(repoFilePath)
-
-		content, err := s.readItemFile(dagID, dagState.Kind, dagFilePath)
-		if err != nil {
-			result.Errors = append(result.Errors, SyncError{ItemID: dagID, Message: err.Error()})
-			continue
-		}
-
-		executable := dagState.Kind == SyncItemKindFile && dagState.LastSyncedExecutable
-		if info, err := os.Stat(dagFilePath); err == nil && dagState.Kind == SyncItemKindFile {
-			executable = executableMode(info.Mode(), executable)
-		}
-		perm := os.FileMode(0600)
-		if executable {
-			perm = 0700
-		}
-		if err := safeWriteFileWithinBase(s.gitClient.repoPath, repoAbsPath, content, perm); err != nil {
-			result.Errors = append(result.Errors, SyncError{ItemID: dagID, Message: err.Error()})
-			continue
-		}
-		if err := s.gitClient.addFileMode(repoFilePath, executable); err != nil {
-			return nil, err
-		}
-
-		successfulDAGs = append(successfulDAGs, dagID)
-	}
-
-	// Check if any files were successfully staged
-	if len(successfulDAGs) == 0 {
-		return nil, fmt.Errorf("all files failed to copy: %d error(s)", len(result.Errors))
-	}
-
-	// Commit staged files only (do not restage ".")
 	if message == "" {
-		message = fmt.Sprintf("Update %d sync item(s)", len(successfulDAGs))
+		message = "Update sync items"
 	}
-	commitHash, err := s.gitClient.CommitStaged(message)
-	if err != nil {
-		return nil, err
-	}
+	commitHash, err := s.gitClient.commitAndPush(ctx, message, func() error {
+		for _, dagID := range publishTargets {
+			dagState := state.Items[dagID]
+			fileExtension := s.syncItemFileExtension(dagID, dagState)
+			dagFilePath, err := s.safeItemFilePath(dagID, dagState.Kind, fileExtension)
+			if err != nil {
+				return err
+			}
+			repoFilePath, err := s.safeItemRepoPath(dagID, dagState.Kind, fileExtension)
+			if err != nil {
+				return err
+			}
+			repoAbsPath := s.gitClient.GetFilePath(repoFilePath)
 
-	// Push
-	if err := s.gitClient.Push(ctx); err != nil {
+			content, err := s.readItemFile(dagID, dagState.Kind, dagFilePath)
+			if err != nil {
+				result.Errors = append(result.Errors, SyncError{ItemID: dagID, Message: err.Error()})
+				continue
+			}
+
+			executable := dagState.Kind == SyncItemKindFile && dagState.LastSyncedExecutable
+			if info, err := os.Stat(dagFilePath); err == nil && dagState.Kind == SyncItemKindFile {
+				executable = executableMode(info.Mode(), executable)
+			}
+			perm := os.FileMode(0600)
+			if executable {
+				perm = 0700
+			}
+			if err := safeWriteFileWithinBase(s.gitClient.repoPath, repoAbsPath, content, perm); err != nil {
+				result.Errors = append(result.Errors, SyncError{ItemID: dagID, Message: err.Error()})
+				continue
+			}
+			if err := s.gitClient.addFileMode(repoFilePath, executable); err != nil {
+				return err
+			}
+
+			successfulDAGs = append(successfulDAGs, dagID)
+		}
+
+		if len(successfulDAGs) == 0 {
+			return fmt.Errorf("all files failed to copy: %d error(s)", len(result.Errors))
+		}
+		return nil
+	})
+	if err != nil {
 		return nil, err
 	}
 

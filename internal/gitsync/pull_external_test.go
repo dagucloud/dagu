@@ -500,6 +500,55 @@ func TestRejectedPushPreservesDestructiveTargets(t *testing.T) {
 	}
 }
 
+func TestFailedPublishRemainsModified(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		publish func(context.Context, gitsync.Service) error
+	}{
+		{
+			name: "single",
+			publish: func(ctx context.Context, svc gitsync.Service) error {
+				_, err := svc.Publish(ctx, "scripts/run.sh", "publish script", false)
+				return err
+			},
+		},
+		{
+			name: "batch",
+			publish: func(ctx context.Context, svc gitsync.Service) error {
+				_, err := svc.PublishAll(ctx, "publish scripts", []string{"scripts/run.sh"})
+				return err
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env := newPullExternalPushTest(t, []pullExternalTestFile{
+				{path: "scripts/run.sh", content: "echo remote\n"},
+			})
+			localPath := filepath.Join(env.dagsDir, "scripts", "run.sh")
+			require.NoError(t, os.WriteFile(localPath, []byte("echo edited\n"), 0600))
+			status, err := env.svc.GetStatus(env.ctx)
+			require.NoError(t, err)
+			require.Equal(t, gitsync.StatusModified, status.Items["scripts/run.sh"].Status)
+
+			failedCtx, cancel := context.WithCancel(env.ctx)
+			cancel()
+			err = tc.publish(failedCtx, env.svc)
+			require.ErrorIs(t, err, context.Canceled)
+			assertPullExternalCloneAt(t, env.dataDir, env.baseHead)
+
+			_, err = env.svc.Pull(env.ctx)
+			require.NoError(t, err)
+			status, err = env.svc.GetStatus(env.ctx)
+			require.NoError(t, err)
+			assert.Equal(t, gitsync.StatusModified, status.Items["scripts/run.sh"].Status)
+			assert.Equal(t, "echo remote\n", pullExternalFileContent(t, env.remoteRepo, "scripts/run.sh"))
+
+			require.NoError(t, tc.publish(env.ctx, env.svc))
+			assert.Equal(t, "echo edited\n", pullExternalFileContent(t, env.remoteRepo, "scripts/run.sh"))
+		})
+	}
+}
+
 func TestSupportingFileModeChangeIsModified(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows does not expose the Git executable bit as a POSIX mode")
