@@ -563,6 +563,22 @@ func (s *serviceImpl) repoFileItem(file TrackedFile) (repoSyncItem, bool) {
 	return repoSyncItem{id: relPath, repoPath: repoPath, kind: SyncItemKindFile, executable: file.Executable}, true
 }
 
+func (s *serviceImpl) trackedItemRepoPaths() (map[string][]string, error) {
+	trackedFiles, err := s.gitClient.ListTrackedFiles()
+	if err != nil {
+		return nil, err
+	}
+
+	paths := make(map[string][]string)
+	for _, trackedFile := range trackedFiles {
+		item, ok := s.repoFileItem(trackedFile)
+		if ok {
+			paths[item.id] = append(paths[item.id], item.repoPath)
+		}
+	}
+	return paths, nil
+}
+
 func (s *serviceImpl) syncRemoteFileDeletes(state *State, repoFileSet map[string]struct{}, remoteCommit string) ([]string, []string, error) {
 	var deleted []string
 	var conflicts []string
@@ -1030,14 +1046,13 @@ func (s *serviceImpl) Publish(ctx context.Context, dagID, message string, force 
 	}
 	var replacementPaths []string
 	if dagState.RemoteDeleted {
-		trackedFiles, err := s.gitClient.ListTrackedFiles()
+		trackedPaths, err := s.trackedItemRepoPaths()
 		if err != nil {
 			return nil, err
 		}
-		for _, trackedFile := range trackedFiles {
-			item, ok := s.repoFileItem(trackedFile)
-			if ok && item.id == dagID && item.repoPath != repoFilePath {
-				replacementPaths = append(replacementPaths, item.repoPath)
+		for _, trackedPath := range trackedPaths[dagID] {
+			if trackedPath != repoFilePath {
+				replacementPaths = append(replacementPaths, trackedPath)
 			}
 		}
 	}
@@ -1398,24 +1413,37 @@ func (s *serviceImpl) Delete(ctx context.Context, itemID, message string, force 
 	if err := s.gitClient.Open(); err != nil {
 		return err
 	}
-	if dagState.RemoteDeleted {
-		if err := s.removeItemFile(itemID, dagState); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("failed to remove local file %q: %w", itemID, err)
-		}
-		delete(state.Items, itemID)
-		return s.stateManager.Save(state)
-	}
-
 	fileExtension := s.syncItemFileExtension(itemID, dagState)
 	repoPath, err := s.safeItemRepoPath(itemID, dagState.Kind, fileExtension)
 	if err != nil {
 		return err
+	}
+	var replacementPaths []string
+	if dagState.RemoteDeleted {
+		trackedPaths, err := s.trackedItemRepoPaths()
+		if err != nil {
+			return err
+		}
+		replacementPaths = trackedPaths[itemID]
+		if len(replacementPaths) == 0 {
+			if err := s.removeItemFile(itemID, dagState); err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("failed to remove local file %q: %w", itemID, err)
+			}
+			delete(state.Items, itemID)
+			return s.stateManager.Save(state)
+		}
 	}
 
 	if message == "" {
 		message = fmt.Sprintf("Delete %s", itemID)
 	}
 	commitHash, err := s.gitClient.commitAndPush(ctx, message, func() error {
+		if dagState.RemoteDeleted {
+			if err := s.gitClient.RemoveFiles(replacementPaths); err != nil {
+				return fmt.Errorf("failed to stage removal of %q: %w", itemID, err)
+			}
+			return nil
+		}
 		if err := s.gitClient.RemoveFile(repoPath); err != nil && dagState.Status != StatusMissing {
 			return fmt.Errorf("failed to stage removal of %q: %w", itemID, err)
 		}
@@ -1452,13 +1480,15 @@ func (s *serviceImpl) DeleteBatch(ctx context.Context, itemIDs []string, message
 
 	// Phase 1: validate and de-duplicate all items before any mutation.
 	type deleteTarget struct {
-		itemID        string
-		status        SyncStatus
-		repoPath      string
-		remoteDeleted bool
+		itemID           string
+		status           SyncStatus
+		repoPath         string
+		replacementPaths []string
+		remoteDeleted    bool
 	}
 	var targets []deleteTarget
 	seen := make(map[string]struct{}, len(itemIDs))
+	hasRemoteDeleted := false
 
 	for _, itemID := range itemIDs {
 		if _, dup := seen[itemID]; dup {
@@ -1509,6 +1539,7 @@ func (s *serviceImpl) DeleteBatch(ctx context.Context, itemIDs []string, message
 			repoPath:      repoPath,
 			remoteDeleted: dagState.RemoteDeleted,
 		})
+		hasRemoteDeleted = hasRemoteDeleted || dagState.RemoteDeleted
 	}
 
 	if len(targets) == 0 {
@@ -1520,9 +1551,21 @@ func (s *serviceImpl) DeleteBatch(ctx context.Context, itemIDs []string, message
 		return nil, err
 	}
 
+	if hasRemoteDeleted {
+		trackedPaths, err := s.trackedItemRepoPaths()
+		if err != nil {
+			return nil, err
+		}
+		for i := range targets {
+			if targets[i].remoteDeleted {
+				targets[i].replacementPaths = trackedPaths[targets[i].itemID]
+			}
+		}
+	}
+
 	staged := false
 	for _, t := range targets {
-		if !t.remoteDeleted {
+		if !t.remoteDeleted || len(t.replacementPaths) > 0 {
 			staged = true
 		}
 	}
@@ -1535,6 +1578,12 @@ func (s *serviceImpl) DeleteBatch(ctx context.Context, itemIDs []string, message
 		commitHash, err = s.gitClient.commitAndPush(ctx, message, func() error {
 			for _, t := range targets {
 				if t.remoteDeleted {
+					if len(t.replacementPaths) == 0 {
+						continue
+					}
+					if err := s.gitClient.RemoveFiles(t.replacementPaths); err != nil {
+						return fmt.Errorf("failed to stage removal of %q: %w", t.itemID, err)
+					}
 					continue
 				}
 				if err := s.gitClient.RemoveFile(t.repoPath); err != nil && t.status != StatusMissing {
@@ -1553,7 +1602,7 @@ func (s *serviceImpl) DeleteBatch(ctx context.Context, itemIDs []string, message
 	for _, t := range targets {
 		itemState := state.Items[t.itemID]
 		if err := s.removeItemFile(t.itemID, itemState); err != nil && !os.IsNotExist(err) {
-			if !t.remoteDeleted {
+			if !t.remoteDeleted || len(t.replacementPaths) > 0 {
 				s.markRemoteDeleteConflict(itemState, commitHash)
 			}
 			removeErr = errors.Join(removeErr, fmt.Errorf("failed to remove local file %q: %w", t.itemID, err))

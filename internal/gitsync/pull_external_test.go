@@ -616,6 +616,79 @@ func TestForcePublishResolvesRemoteKindChange(t *testing.T) {
 	}
 }
 
+func TestForceDeleteResolvesRemoteKindChange(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		initialPath     string
+		replacementPath string
+		batch           bool
+	}{
+		{
+			name:            "single delete supporting file replaced by DAG",
+			initialPath:     "task",
+			replacementPath: "task.yaml",
+		},
+		{
+			name:            "batch delete DAG replaced by supporting file",
+			initialPath:     "task.yaml",
+			replacementPath: "task",
+			batch:           true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env := newPullExternalPushTest(t, []pullExternalTestFile{{
+				path:    tc.initialPath,
+				content: "initial\n",
+			}})
+			require.NoError(t, os.WriteFile(
+				filepath.Join(env.dagsDir, filepath.FromSlash(tc.initialPath)),
+				[]byte("local change\n"),
+				0600,
+			))
+
+			worktree, err := env.seedRepo.Worktree()
+			require.NoError(t, err)
+			_, err = worktree.Remove(tc.initialPath)
+			require.NoError(t, err)
+			commitPullExternalTestFile(
+				t, env.seedRepo, env.seedPath, tc.replacementPath, "remote replacement\n", "replace kind",
+			)
+			require.NoError(t, env.seedRepo.Push(&git.PushOptions{
+				RemoteName: "upstream",
+				RefSpecs: []gitconfig.RefSpec{
+					"refs/heads/main:refs/heads/main",
+				},
+			}))
+
+			result, err := env.svc.Pull(env.ctx)
+			require.NoError(t, err)
+			assert.Contains(t, result.Conflicts, "task")
+
+			if tc.batch {
+				deleted, err := env.svc.DeleteBatch(env.ctx, []string{"task"}, "delete task", true)
+				require.NoError(t, err)
+				assert.Equal(t, []string{"task"}, deleted)
+			} else {
+				require.NoError(t, env.svc.Delete(env.ctx, "task", "delete task", true))
+			}
+
+			assertPullExternalHeadFileMissing(t, env.remoteRepo, tc.initialPath)
+			assertPullExternalHeadFileMissing(t, env.remoteRepo, tc.replacementPath)
+			for _, filePath := range []string{tc.initialPath, tc.replacementPath} {
+				_, err := os.Stat(filepath.Join(env.dagsDir, filepath.FromSlash(filePath)))
+				assert.True(t, os.IsNotExist(err))
+			}
+
+			result, err = env.svc.Pull(env.ctx)
+			require.NoError(t, err)
+			assert.NotContains(t, result.Synced, "task")
+			status, err := env.svc.GetStatus(env.ctx)
+			require.NoError(t, err)
+			assert.NotContains(t, status.Items, "task")
+		})
+	}
+}
+
 func TestSupportingFileNamedBaseOperations(t *testing.T) {
 	env := newPullExternalPushTest(t, []pullExternalTestFile{{
 		path:    "base",
