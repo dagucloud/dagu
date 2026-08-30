@@ -4,17 +4,141 @@
 package api
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/remotenode"
+	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type remoteSyncAuthService struct {
+	AuthService
+	user *auth.User
+}
+
+func (s remoteSyncAuthService) GetUserFromToken(context.Context, string) (*auth.User, error) {
+	return s.user, nil
+}
+
+func (s remoteSyncAuthService) HasAPIKeyStore() bool {
+	return false
+}
+
+func TestRemoteSyncAuthorization(t *testing.T) {
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		user       *auth.User
+		wantStatus int
+		wantCall   bool
+	}{
+		{
+			name:   "scoped user cannot read",
+			method: http.MethodGet,
+			path:   "/api/v1/sync/status",
+			user: &auth.User{
+				Role: auth.RoleViewer,
+				WorkspaceAccess: &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{
+					{Workspace: "ops", Role: auth.RoleDeveloper},
+				}},
+			},
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name:       "operator cannot write",
+			method:     http.MethodPost,
+			path:       "/api/v1/sync/pull",
+			user:       &auth.User{Role: auth.RoleOperator, WorkspaceAccess: auth.AllWorkspaceAccess()},
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name:       "developer cannot test connection",
+			method:     http.MethodPost,
+			path:       "/api/v1/sync/test-connection",
+			user:       &auth.User{Role: auth.RoleDeveloper, WorkspaceAccess: auth.AllWorkspaceAccess()},
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name:       "viewer can read",
+			method:     http.MethodGet,
+			path:       "/api/v1/sync/status",
+			user:       &auth.User{Role: auth.RoleViewer, WorkspaceAccess: auth.AllWorkspaceAccess()},
+			wantStatus: http.StatusOK,
+			wantCall:   true,
+		},
+		{
+			name:       "developer can write",
+			method:     http.MethodPost,
+			path:       "/api/v1/sync/pull",
+			user:       &auth.User{Role: auth.RoleDeveloper, WorkspaceAccess: auth.AllWorkspaceAccess()},
+			wantStatus: http.StatusOK,
+			wantCall:   true,
+		},
+		{
+			name:       "admin can test connection",
+			method:     http.MethodPost,
+			path:       "/api/v1/sync/test-connection",
+			user:       &auth.User{Role: auth.RoleAdmin, WorkspaceAccess: auth.AllWorkspaceAccess()},
+			wantStatus: http.StatusOK,
+			wantCall:   true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var remoteCalled atomic.Bool
+			remoteServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				remoteCalled.Store(true)
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"success":true}`))
+			}))
+			t.Cleanup(remoteServer.Close)
+
+			resolver := remotenode.NewResolver([]config.RemoteNode{{
+				Name:       "edge",
+				APIBaseURL: remoteServer.URL + "/api/v1",
+			}}, nil)
+			cfg := &config.Config{
+				Server: config.Server{
+					APIBasePath:      "/api/v1",
+					StrictValidation: true,
+					Auth: config.Auth{
+						Mode: config.AuthModeBuiltin,
+					},
+					Permissions: map[config.Permission]bool{
+						config.PermissionWriteDAGs: true,
+					},
+				},
+			}
+			a := &API{
+				config:             cfg,
+				authService:        remoteSyncAuthService{user: test.user},
+				remoteNodeResolver: resolver,
+			}
+			router := chi.NewRouter()
+			require.NoError(t, a.ConfigureRoutes(t.Context(), router, time.Second))
+
+			request := httptest.NewRequest(test.method, test.path+"?remoteNode=edge", nil)
+			request.Header.Set("Authorization", "Bearer caller-token")
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, request)
+
+			assert.Equal(t, test.wantStatus, recorder.Code)
+			assert.Equal(t, test.wantCall, remoteCalled.Load())
+		})
+	}
+}
 
 func TestRemoteNodeProxyPreservesHumanTaskCompletionRequest(t *testing.T) {
 	const rawBody = "{\n  \"count\": 9007199254740993\n}\n"

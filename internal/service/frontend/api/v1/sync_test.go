@@ -10,6 +10,7 @@ import (
 	"time"
 
 	apigen "github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/gitsync"
 	"github.com/stretchr/testify/assert"
@@ -111,6 +112,8 @@ func (m *mockSyncService) TestConnection(_ context.Context) (*gitsync.Connection
 	return nil, nil
 }
 
+type syncAuthService struct{ AuthService }
+
 func newSyncAPIForTest(syncSvc SyncService) *API {
 	return &API{
 		config: &config.Config{
@@ -121,6 +124,156 @@ func newSyncAPIForTest(syncSvc SyncService) *API {
 			},
 		},
 		syncService: syncSvc,
+	}
+}
+
+func TestSyncAuthorizationPolicy(t *testing.T) {
+	t.Parallel()
+
+	a := newSyncAPIForTest(&mockSyncService{})
+	a.authService = syncAuthService{}
+	tests := []struct {
+		name      string
+		user      *auth.User
+		read      bool
+		write     bool
+		admin     bool
+		unauthErr error
+	}{
+		{name: "admin", user: &auth.User{Role: auth.RoleAdmin, WorkspaceAccess: auth.AllWorkspaceAccess()}, read: true, write: true, admin: true},
+		{name: "manager", user: &auth.User{Role: auth.RoleManager, WorkspaceAccess: auth.AllWorkspaceAccess()}, read: true, write: true},
+		{name: "developer", user: &auth.User{Role: auth.RoleDeveloper, WorkspaceAccess: auth.AllWorkspaceAccess()}, read: true, write: true},
+		{name: "operator", user: &auth.User{Role: auth.RoleOperator, WorkspaceAccess: auth.AllWorkspaceAccess()}, read: true},
+		{name: "viewer", user: &auth.User{Role: auth.RoleViewer, WorkspaceAccess: auth.AllWorkspaceAccess()}, read: true},
+		{
+			name: "scoped developer",
+			user: &auth.User{
+				Role: auth.RoleViewer,
+				WorkspaceAccess: &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{
+					{Workspace: "ops", Role: auth.RoleDeveloper},
+				}},
+			},
+		},
+		{name: "unauthenticated", unauthErr: errAuthRequired},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := t.Context()
+			if test.user != nil {
+				ctx = auth.WithUser(ctx, test.user)
+			}
+
+			assertSyncPermission(t, a.requireSyncRead(ctx), test.read, test.unauthErr)
+			assertSyncPermission(t, a.requireSyncWrite(ctx), test.write, test.unauthErr)
+			assertSyncPermission(t, a.requireAdmin(ctx), test.admin, test.unauthErr)
+		})
+	}
+}
+
+func assertSyncPermission(t *testing.T, err error, allowed bool, unauthErr error) {
+	t.Helper()
+	if allowed {
+		require.NoError(t, err)
+		return
+	}
+	if unauthErr != nil {
+		require.ErrorIs(t, err, unauthErr)
+		return
+	}
+	require.ErrorIs(t, err, errInsufficientPermissions)
+}
+
+func TestSyncHandlerAuthorization(t *testing.T) {
+	t.Parallel()
+
+	a := newSyncAPIForTest(&mockSyncService{})
+	a.authService = syncAuthService{}
+	allWorkspaceOperator := auth.WithUser(t.Context(), &auth.User{
+		Role:            auth.RoleOperator,
+		WorkspaceAccess: auth.AllWorkspaceAccess(),
+	})
+	allWorkspaceDeveloper := auth.WithUser(t.Context(), &auth.User{
+		Role:            auth.RoleDeveloper,
+		WorkspaceAccess: auth.AllWorkspaceAccess(),
+	})
+	scopedViewer := auth.WithUser(t.Context(), &auth.User{
+		Role: auth.RoleViewer,
+		WorkspaceAccess: &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{
+			{Workspace: "ops", Role: auth.RoleViewer},
+		}},
+	})
+
+	tests := map[string]struct {
+		ctx  context.Context
+		call func(context.Context) error
+	}{
+		"get status": {ctx: scopedViewer, call: func(ctx context.Context) error {
+			_, err := a.GetSyncStatus(ctx, apigen.GetSyncStatusRequestObject{})
+			return err
+		}},
+		"get config": {ctx: scopedViewer, call: func(ctx context.Context) error {
+			_, err := a.GetSyncConfig(ctx, apigen.GetSyncConfigRequestObject{})
+			return err
+		}},
+		"get diff": {ctx: scopedViewer, call: func(ctx context.Context) error {
+			_, err := a.GetSyncItemDiff(ctx, apigen.GetSyncItemDiffRequestObject{ItemId: "task"})
+			return err
+		}},
+		"test connection": {ctx: allWorkspaceDeveloper, call: func(ctx context.Context) error {
+			_, err := a.SyncTestConnection(ctx, apigen.SyncTestConnectionRequestObject{})
+			return err
+		}},
+		"update config": {ctx: allWorkspaceDeveloper, call: func(ctx context.Context) error {
+			_, err := a.UpdateSyncConfig(ctx, apigen.UpdateSyncConfigRequestObject{})
+			return err
+		}},
+		"pull": {ctx: allWorkspaceOperator, call: func(ctx context.Context) error {
+			_, err := a.SyncPull(ctx, apigen.SyncPullRequestObject{})
+			return err
+		}},
+		"publish all": {ctx: allWorkspaceOperator, call: func(ctx context.Context) error {
+			_, err := a.SyncPublishAll(ctx, apigen.SyncPublishAllRequestObject{})
+			return err
+		}},
+		"publish item": {ctx: allWorkspaceOperator, call: func(ctx context.Context) error {
+			_, err := a.PublishSyncItem(ctx, apigen.PublishSyncItemRequestObject{ItemId: "task"})
+			return err
+		}},
+		"discard item": {ctx: allWorkspaceOperator, call: func(ctx context.Context) error {
+			_, err := a.DiscardSyncItemChanges(ctx, apigen.DiscardSyncItemChangesRequestObject{ItemId: "task"})
+			return err
+		}},
+		"forget item": {ctx: allWorkspaceOperator, call: func(ctx context.Context) error {
+			_, err := a.ForgetSyncItem(ctx, apigen.ForgetSyncItemRequestObject{ItemId: "task"})
+			return err
+		}},
+		"cleanup": {ctx: allWorkspaceOperator, call: func(ctx context.Context) error {
+			_, err := a.SyncCleanup(ctx, apigen.SyncCleanupRequestObject{})
+			return err
+		}},
+		"delete item": {ctx: allWorkspaceOperator, call: func(ctx context.Context) error {
+			_, err := a.DeleteSyncItem(ctx, apigen.DeleteSyncItemRequestObject{ItemId: "task"})
+			return err
+		}},
+		"delete missing": {ctx: allWorkspaceOperator, call: func(ctx context.Context) error {
+			_, err := a.SyncDeleteMissing(ctx, apigen.SyncDeleteMissingRequestObject{})
+			return err
+		}},
+		"delete batch": {ctx: allWorkspaceOperator, call: func(ctx context.Context) error {
+			_, err := a.SyncDeleteBatch(ctx, apigen.SyncDeleteBatchRequestObject{})
+			return err
+		}},
+		"move item": {ctx: allWorkspaceOperator, call: func(ctx context.Context) error {
+			_, err := a.MoveSyncItem(ctx, apigen.MoveSyncItemRequestObject{ItemId: "task"})
+			return err
+		}},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			require.ErrorIs(t, test.call(test.ctx), errInsufficientPermissions)
+		})
 	}
 }
 
