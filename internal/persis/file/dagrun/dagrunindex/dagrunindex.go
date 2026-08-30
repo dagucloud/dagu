@@ -111,7 +111,15 @@ func TryLoadForDay(ctx context.Context, dayDir string, dagRunDirs []os.DirEntry)
 			}, nil
 		}
 
-		entries, fromIndex, rebuildErr := RebuildForDay(dayDir, dagRunDirs)
+		// The index does not cover the day exactly, which on an actively
+		// scheduled day is the normal case. Reuse whatever it still describes
+		// correctly and rescan only the remainder.
+		var cached map[string]Entry
+		if readErr == nil {
+			cached = usableIndexEntries(dayDir, idx, runDirs)
+		}
+
+		entries, fromIndex, rebuildErr := rebuildForDay(dayDir, dagRunDirs, cached)
 		if rebuildErr != nil {
 			return dayLoadResult{}, rebuildErr
 		}
@@ -146,15 +154,30 @@ func TryLoadForDay(ctx context.Context, dayDir string, dagRunDirs []os.DirEntry)
 // RebuildForDay scans a day directory, discovers latest attempts, reads statuses,
 // and writes the index if all runs are terminal.
 func RebuildForDay(dayDir string, dagRunDirs []os.DirEntry) ([]Entry, bool, error) {
+	return rebuildForDay(dayDir, dagRunDirs, nil)
+}
+
+// rebuildForDay scans a day directory, reusing the cached entries the caller has
+// already validated against disk and reading status only for the runs those do
+// not cover. Passing a nil cache scans everything.
+func rebuildForDay(dayDir string, dagRunDirs []os.DirEntry, cached map[string]Entry) ([]Entry, bool, error) {
 	runDirs := filterDAGRunDirs(dagRunDirs)
 	if len(runDirs) == 0 {
 		return nil, false, nil
 	}
 
 	entries := make([]Entry, 0, len(runDirs))
-	allTerminal := true
+	terminal := make([]Entry, 0, len(runDirs))
 
 	for _, rd := range runDirs {
+		if cachedEntry, ok := cached[rd.Name()]; ok {
+			// Only terminal runs are ever written to the index, and the caller
+			// has confirmed this entry still matches disk.
+			entries = append(entries, cachedEntry)
+			terminal = append(terminal, cachedEntry)
+			continue
+		}
+
 		runDir := filepath.Join(dayDir, rd.Name())
 		runDirInfo, err := os.Stat(runDir)
 		if err != nil {
@@ -180,10 +203,6 @@ func RebuildForDay(dayDir string, dagRunDirs []os.DirEntry) ([]Entry, bool, erro
 			continue
 		}
 
-		if status.Status.IsActive() {
-			allTerminal = false
-		}
-
 		// Parse dag run ID from directory name.
 		dagRunID := parseDagRunID(rd.Name())
 
@@ -191,7 +210,7 @@ func RebuildForDay(dayDir string, dagRunDirs []os.DirEntry) ([]Entry, bool, erro
 		startedAt := parseTimeToUnix(status.StartedAt)
 		finishedAt := parseTimeToUnix(status.FinishedAt)
 
-		entries = append(entries, Entry{
+		entry := Entry{
 			DagRunDir:            rd.Name(),
 			DagRunID:             dagRunID,
 			LatestAttemptDir:     latestAttemptDir,
@@ -222,12 +241,21 @@ func RebuildForDay(dayDir string, dagRunDirs []os.DirEntry) ([]Entry, bool, erro
 			latestStatusSize:     statusInfo.Size(),
 			latestStatusModTime:  statusInfo.ModTime().UnixNano(),
 			runDirModTime:        runDirInfo.ModTime().UnixNano(),
-		})
+		}
+
+		entries = append(entries, entry)
+		if !status.Status.IsActive() {
+			terminal = append(terminal, entry)
+		}
 	}
 
-	// Write index only if all runs are terminal and there are enough runs.
-	if allTerminal && len(entries) >= MinRunsForIndex {
-		if err := writeIndex(dayDir, entries); err != nil {
+	// Persist the terminal subset. A day that still has active runs keeps an
+	// index for everything already finished, so the next read only has to scan
+	// the runs that are still moving. Requiring the whole day to be terminal
+	// meant a single active run forfeited caching for every finished run beside
+	// it, which never resolves on a frequently scheduled instance.
+	if len(terminal) >= MinRunsForIndex {
+		if err := writeIndex(dayDir, terminal); err != nil {
 			// Non-fatal: just don't write the index.
 			return entries, false, nil
 		}
@@ -255,6 +283,53 @@ func readIndex(indexPath string) (*indexv1.DAGRunIndex, error) {
 		return nil, fmt.Errorf("version mismatch: got %d, want %d", idx.Version, IndexVersion)
 	}
 	return &idx, nil
+}
+
+// usableIndexEntries returns the index entries that still match disk, keyed by
+// run directory name. Entries whose run directory has gone, or whose run
+// directory or status file has changed since the index was written, are left out
+// so the caller rescans exactly those runs.
+//
+// Each check costs two stats, against a read plus a JSON parse for a rescan.
+func usableIndexEntries(dayDir string, idx *indexv1.DAGRunIndex, runDirs []os.DirEntry) map[string]Entry {
+	if idx == nil || len(idx.Entries) == 0 {
+		return nil
+	}
+
+	fsSet := make(map[string]struct{}, len(runDirs))
+	for _, d := range runDirs {
+		fsSet[d.Name()] = struct{}{}
+	}
+
+	usable := make(map[string]Entry, len(idx.Entries))
+	for _, entry := range protoToEntries(idx.Entries) {
+		if _, ok := fsSet[entry.DagRunDir]; !ok {
+			continue
+		}
+		if !entryMatchesDisk(dayDir, entry) {
+			continue
+		}
+		usable[entry.DagRunDir] = entry
+	}
+	return usable
+}
+
+// entryMatchesDisk reports whether an index entry still describes what is on
+// disk. A retried run gains an attempt, which changes the run directory mtime,
+// so a stale entry is rejected and rescanned.
+func entryMatchesDisk(dayDir string, entry Entry) bool {
+	runDir := filepath.Join(dayDir, entry.DagRunDir)
+	runDirInfo, err := os.Stat(runDir)
+	if err != nil || runDirInfo.ModTime().UnixNano() != entry.runDirModTime {
+		return false
+	}
+
+	statusInfo, err := os.Stat(filepath.Join(runDir, entry.LatestAttemptDir, statusFile))
+	if err != nil {
+		return false
+	}
+	return statusInfo.Size() == entry.latestStatusSize &&
+		statusInfo.ModTime().UnixNano() == entry.latestStatusModTime
 }
 
 func validateIndex(dayDir string, idx *indexv1.DAGRunIndex, runDirs []os.DirEntry) bool {

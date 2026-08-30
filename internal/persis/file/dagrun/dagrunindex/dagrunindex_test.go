@@ -4,6 +4,7 @@
 package dagrunindex
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -365,12 +366,17 @@ func TestRebuildForDay_MixedStatuses(t *testing.T) {
 
 	entries, fromIndex, err := TryLoadForDay(t.Context(), dayDir, readDayDir(t, dayDir))
 	require.NoError(t, err)
-	assert.Len(t, entries, 12)
-	assert.False(t, fromIndex) // Not all terminal, so no index written.
+	assert.Len(t, entries, 12, "every run in the day is returned")
+	assert.True(t, fromIndex, "the terminal runs are indexed even though two are still active")
 
-	// Verify no index file was created.
-	_, statErr := os.Stat(filepath.Join(dayDir, IndexFileName))
-	assert.True(t, os.IsNotExist(statErr))
+	// The index is written for the finished runs only. Active runs are excluded
+	// so they are rescanned until they reach a terminal state.
+	idx, err := readIndex(filepath.Join(dayDir, IndexFileName))
+	require.NoError(t, err)
+	assert.Len(t, idx.Entries, 10, "only the terminal runs are indexed")
+	for _, e := range idx.Entries {
+		assert.NotContains(t, e.DagRunDir, "active", "active runs must not be indexed")
+	}
 }
 
 func TestParseStatusFile_MultiLine(t *testing.T) {
@@ -555,4 +561,62 @@ func TestRebuildForDay_EmptyAttempts(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, entries) // No valid attempts found.
 	assert.False(t, fromIndex)
+}
+
+// TestTryLoadForDay_ReusesIndexedTerminalRunsWhileDayIsActive proves the partial
+// index is actually consulted: a terminal run whose status file has been made
+// unparseable, without changing its size or mtime, is still served from the
+// index. A rescan would drop it, so its presence shows it was not re-read.
+func TestTryLoadForDay_ReusesIndexedTerminalRunsWhileDayIsActive(t *testing.T) {
+	dayDir := t.TempDir()
+	createDayDir(t, dayDir, 10, ir.Succeeded)
+
+	// One active run keeps the day from ever being fully terminal.
+	activeDir := filepath.Join(dayDir, "dag-run_20240115_130000Z_active0")
+	activeAttempt := filepath.Join(activeDir, "attempt_20240115_130000_001Z_abc123")
+	require.NoError(t, os.MkdirAll(activeAttempt, 0750))
+	activeStatus, err := json.Marshal(ir.DAGRunStatus{
+		Name: "test", DAGRunID: "active0", AttemptID: "abc123",
+		Status: ir.Running, StartedAt: "2024-01-15T13:00:00Z",
+	})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(activeAttempt, "status.jsonl"), append(activeStatus, '\n'), 0600))
+
+	// First load writes the index for the ten terminal runs.
+	first, fromIndex, err := TryLoadForDay(t.Context(), dayDir, readDayDir(t, dayDir))
+	require.NoError(t, err)
+	require.True(t, fromIndex)
+	require.Len(t, first, 11)
+
+	// Corrupt one indexed run's status in place, preserving size and mtime so the
+	// entry still validates. Only a re-read would notice.
+	victim := ""
+	for _, e := range first {
+		if e.DagRunDir != "dag-run_20240115_130000Z_active0" {
+			victim = e.DagRunDir
+			break
+		}
+	}
+	require.NotEmpty(t, victim)
+
+	statusPath := filepath.Join(dayDir, victim, "attempt_20240115_120000_001Z_abc123", "status.jsonl")
+	original, err := os.ReadFile(statusPath)
+	require.NoError(t, err)
+	info, err := os.Stat(statusPath)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(statusPath, bytes.Repeat([]byte("x"), len(original)), 0600))
+	require.NoError(t, os.Chtimes(statusPath, info.ModTime(), info.ModTime()))
+
+	second, _, err := TryLoadForDay(t.Context(), dayDir, readDayDir(t, dayDir))
+	require.NoError(t, err)
+	assert.Len(t, second, 11, "the corrupted run is served from the index, not re-read")
+
+	found := false
+	for _, e := range second {
+		if e.DagRunDir == victim {
+			found = true
+			assert.Equal(t, ir.Succeeded, e.Status, "cached status survives the unreadable file")
+		}
+	}
+	assert.True(t, found, "indexed run must still be present")
 }
