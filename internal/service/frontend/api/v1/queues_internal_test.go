@@ -433,3 +433,43 @@ func TestGetQueueReportsExactQueuedCountBelowCap(t *testing.T) {
 	assert.Equal(t, 4, queueResp.QueuedCount)
 	assert.Nil(t, queueResp.QueuedCountCapped, "an exact count sets no capped flag")
 }
+
+func TestGetQueueCapsScanWhenRunningEntriesPrecedeQueuedEntries(t *testing.T) {
+	// Not parallel: this test temporarily lowers the package-level scan cap.
+	originalCap := queuedCountScanCap
+	queuedCountScanCap = 3
+	t.Cleanup(func() { queuedCountScanCap = originalCap })
+
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	dagRunRepository := testutil.NewFileDAGRunRepository(filepath.Join(tmpDir, "dag-runs"), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
+	queueStore := store.NewQueueStore(file.NewCollection(filepath.Join(tmpDir, "queue")))
+	procRepository := newTestProcRepository(filepath.Join(tmpDir, "proc"))
+
+	// More running entries than the cap, ahead of any visible queued entry.
+	// These are invisible to the count but still cost a status read each, so the
+	// scan must stop on them rather than running to the end of the queue.
+	for i := range 4 {
+		createQueuedQueueRun(t, ctx, dagRunRepository, queueStore, "running-heavy-q", fmt.Sprintf("running-run-%d", i), ir.Running)
+	}
+	for i := range 2 {
+		createQueuedQueueRun(t, ctx, dagRunRepository, queueStore, "running-heavy-q", fmt.Sprintf("queued-run-%d", i), ir.Queued)
+	}
+
+	a := &API{
+		dagRunRepository:    dagRunRepository,
+		queueStore:          queueStore,
+		procRepository:      procRepository,
+		config:              &config.Config{},
+		leaseStaleThreshold: time.Minute,
+	}
+
+	resp, err := a.GetQueue(ctx, openapiv1.GetQueueRequestObject{Name: "running-heavy-q"})
+	require.NoError(t, err)
+
+	queueResp, ok := resp.(openapiv1.GetQueue200JSONResponse)
+	require.True(t, ok)
+	assert.Equal(t, 0, queueResp.QueuedCount, "scan stopped inside the running entries, before any visible one")
+	require.NotNil(t, queueResp.QueuedCountCapped)
+	assert.True(t, *queueResp.QueuedCountCapped, "a truncated scan is reported as a lower bound")
+}

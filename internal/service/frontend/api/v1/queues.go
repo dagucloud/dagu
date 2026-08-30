@@ -290,7 +290,9 @@ func (a *API) collectQueues(ctx context.Context, onlyQueue string) (map[string]*
 				HTTPStatus: 500,
 			}
 		}
-		if count > 0 {
+		// A capped scan proves entries exist even when none seen so far were
+		// visible, so the queue must still surface rather than read as absent.
+		if count > 0 || capped {
 			queue := getOrCreateQueue(queueMap, onlyQueue, a.config)
 			queue.queuedCount = count
 			queue.queuedCountCapped = capped
@@ -414,23 +416,32 @@ func (a *API) countVisibleQueuedItems(ctx context.Context, queueName string) (in
 		return 0, false, nil
 	}
 	count := 0
+	scanned := 0
 	cursor := ""
 	for {
 		page, err := a.queueStore.ListCursor(ctx, queueName, cursor, queueCursorScanBatch)
 		if err != nil {
 			return 0, false, err
 		}
-		for _, queuedItem := range page.Items {
+		for i, queuedItem := range page.Items {
+			// Every entry costs a status read, whether or not it ends up visible,
+			// so the cap tracks entries processed rather than entries counted.
+			// Capping on the visible count alone would leave a queue made up of
+			// running or unreadable entries scanning without bound.
+			scanned++
+
 			dagRunRef, err := queuedItem.Data()
-			if err != nil {
-				continue
-			}
-			summary, err := a.fetchDAGRunSummary(ctx, *dagRunRef)
-			if err == nil && summary.Status != api.StatusRunning {
-				count++
-				if count >= queuedCountScanCap {
-					return count, true, nil
+			if err == nil {
+				summary, err := a.fetchDAGRunSummary(ctx, *dagRunRef)
+				if err == nil && summary.Status != api.StatusRunning {
+					count++
 				}
+			}
+
+			if scanned >= queuedCountScanCap {
+				// Only a lower bound if entries actually remain unscanned.
+				remaining := i+1 < len(page.Items) || page.HasMore
+				return count, remaining, nil
 			}
 		}
 		if !page.HasMore {
