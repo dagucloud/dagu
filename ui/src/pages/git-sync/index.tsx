@@ -25,7 +25,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { AppBarContext } from '@/contexts/AppBarContext';
-import { useCanWrite } from '@/contexts/AuthContext';
+import { useCanWriteGitSync, useIsAdmin } from '@/contexts/AuthContext';
 import { useClient, useQuery } from '@/hooks/api';
 import dayjs from '@/lib/dayjs';
 import { cn } from '@/lib/utils';
@@ -146,7 +146,8 @@ export default function GitSyncPage() {
   const appBarContext = useContext(AppBarContext);
   const { setTitle } = appBarContext;
   const client = useClient();
-  const canWrite = useCanWrite();
+  const canWrite = useCanWriteGitSync();
+  const isAdmin = useIsAdmin();
   const { showToast } = useSimpleToast();
   const { showError } = useErrorModal();
 
@@ -999,14 +1000,16 @@ export default function GitSyncPage() {
                   : 'Never'}
               </span>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full mt-2"
-              onClick={handleTestConnection}
-            >
-              Test Connection
-            </Button>
+            {isAdmin && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full mt-2"
+                onClick={handleTestConnection}
+              >
+                Test Connection
+              </Button>
+            )}
           </div>
         </DialogContent>
       </Dialog>

@@ -14,6 +14,7 @@ import { defaultWorkspaceSelection } from '@/lib/workspace';
 const useAuthMock = vi.fn();
 const useIsAdminMock = vi.fn();
 const useCanAccessSystemStatusMock = vi.fn();
+const useCanAccessGitSyncMock = vi.fn();
 const useCanViewEventLogsMock = vi.fn();
 const useCanManageWebhooksMock = vi.fn();
 const useCanManageProfilesMock = vi.fn();
@@ -26,6 +27,7 @@ vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => useAuthMock(),
   useIsAdmin: () => useIsAdminMock(),
   useCanAccessSystemStatus: () => useCanAccessSystemStatusMock(),
+  useCanAccessGitSync: () => useCanAccessGitSyncMock(),
   useCanViewEventLogs: () => useCanViewEventLogsMock(),
   useCanManageWebhooks: () => useCanManageWebhooksMock(),
   useCanManageProfiles: () => useCanManageProfilesMock(),
@@ -149,6 +151,7 @@ beforeEach(() => {
   });
   useIsAdminMock.mockReturnValue(true);
   useCanAccessSystemStatusMock.mockReturnValue(true);
+  useCanAccessGitSyncMock.mockReturnValue(true);
   useCanViewEventLogsMock.mockReturnValue(true);
   useCanManageWebhooksMock.mockReturnValue(true);
   useCanManageProfilesMock.mockReturnValue(true);
@@ -288,6 +291,37 @@ describe('sidebar menu', () => {
       expect(item).toBeVisible();
       expect(item.querySelector('svg')).toBeNull();
     }
+  });
+
+  it('shows Git Sync to all-workspace viewers', () => {
+    useAuthMock.mockReturnValue({
+      user: {
+        id: 'viewer-1',
+        username: 'viewer',
+        role: UserRole.viewer,
+        workspaceAccess: { all: true, grants: [] },
+      },
+    });
+
+    renderMenu('/git-sync');
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Toggle Workflows section' })
+    );
+
+    expect(screen.getByRole('link', { name: 'Git Sync' })).toBeVisible();
+  });
+
+  it('hides Git Sync from workspace-scoped users', () => {
+    useCanAccessGitSyncMock.mockReturnValue(false);
+
+    renderMenu('/git-sync');
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Toggle Workflows section' })
+    );
+
+    expect(
+      screen.queryByRole('link', { name: 'Git Sync' })
+    ).not.toBeInTheDocument();
   });
 
   it('expands the executions section', () => {

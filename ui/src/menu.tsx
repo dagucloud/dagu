@@ -8,6 +8,7 @@ import {
 import { UserMenu } from '@/components/UserMenu';
 import {
   useCanAccessSystemStatus,
+  useCanAccessGitSync,
   useCanViewEventLogs,
   useCanManageWebhooks,
   useCanManageProfiles,
@@ -505,6 +506,7 @@ export const mainListItems = React.forwardRef<
       : roleAtLeast(user?.role ?? null, UserRole.developer);
   const canManageIncidents = canManageNotifications;
   const canAccessSystemStatus = useCanAccessSystemStatus();
+  const canAccessGitSync = useCanAccessGitSync();
   const canManageWebhooks = useCanManageWebhooks();
   const canManageProfiles = useCanManageProfiles();
   const canViewEventLogs = useCanViewEventLogs();
@@ -732,7 +734,7 @@ export const mainListItems = React.forwardRef<
               onClick={onNavItemClick}
               customColor={customColor}
             />
-            {canWrite && config.gitSyncEnabled && (
+            {canAccessGitSync && config.gitSyncEnabled && (
               <NavItem
                 to="/git-sync"
                 text="Git Sync"

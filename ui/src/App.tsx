@@ -19,7 +19,7 @@ import { QueryFeedback } from './components/QueryFeedback';
 import { ErrorModalProvider } from '@/components/ui/error-modal';
 import { ToastProvider } from '@/components/ui/simple-toast';
 import { AppBarContext } from './contexts/AppBarContext';
-import { AuthProvider } from './contexts/AuthContext';
+import { AuthProvider, useCanAccessGitSync } from './contexts/AuthContext';
 import {
   Config,
   ConfigContext,
@@ -167,6 +167,16 @@ function AdminElement({
   return (
     <ProtectedRoute requiredRole={UserRole.admin}>{children}</ProtectedRoute>
   );
+}
+
+function GitSyncElement({
+  children,
+}: {
+  children: React.ReactElement;
+}): React.ReactElement {
+  const canAccess = useCanAccessGitSync();
+  if (!canAccess) return <Navigate to="/" replace />;
+  return children;
 }
 
 function ManagerElement({
@@ -860,9 +870,9 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                       <Route
                                         path="/git-sync"
                                         element={
-                                          <AdminElement>
+                                          <GitSyncElement>
                                             <GitSyncPage />
-                                          </AdminElement>
+                                          </GitSyncElement>
                                         }
                                       />
                                     </LazyRoutes>

@@ -24,6 +24,7 @@ import {
 } from '@/lib/authSession';
 import {
   effectiveWorkspaceRole,
+  normalizeAccess,
   roleAtLeast,
   workspaceRoleTarget,
 } from '@/lib/workspaceAccess';
@@ -248,6 +249,24 @@ export function useCanWriteForWorkspace(workspace?: string | null): boolean {
   return roleAtLeast(
     effectiveWorkspaceRole(user, workspace ?? ''),
     UserRole.developer
+  );
+}
+
+export function useCanAccessGitSync(): boolean {
+  const { user } = useAuth();
+  const config = useConfig();
+  if (config.authMode !== 'builtin') return true;
+  return !!user && normalizeAccess(user.workspaceAccess).all;
+}
+
+export function useCanWriteGitSync(): boolean {
+  const { user } = useAuth();
+  const config = useConfig();
+  if (config.authMode !== 'builtin') return config.permissions.writeDags;
+  return (
+    !!user &&
+    normalizeAccess(user.workspaceAccess).all &&
+    roleAtLeast(user.role, UserRole.developer)
   );
 }
 

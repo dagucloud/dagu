@@ -9,6 +9,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+  isAdmin: false,
   mutateStatus: vi.fn(),
   post: vi.fn(),
   showError: vi.fn(),
@@ -22,7 +23,8 @@ vi.mock('@/hooks/api', () => ({
 }));
 
 vi.mock('@/contexts/AuthContext', () => ({
-  useCanWrite: () => true,
+  useCanWriteGitSync: () => true,
+  useIsAdmin: () => mocks.isAdmin,
 }));
 
 vi.mock('@/contexts/UserPreference', () => ({
@@ -93,6 +95,17 @@ beforeEach(() => {
 });
 
 describe('GitSyncPage', () => {
+  it('hides connection testing from non-admin users', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByTitle('Configuration'));
+
+    expect(
+      screen.queryByRole('button', { name: 'Test Connection' })
+    ).not.toBeInTheDocument();
+  });
+
   it('batch publishes comma-containing item IDs unchanged', async () => {
     const user = userEvent.setup();
     renderPage();
