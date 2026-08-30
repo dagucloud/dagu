@@ -616,6 +616,33 @@ func TestForcePublishResolvesRemoteKindChange(t *testing.T) {
 	}
 }
 
+func TestSupportingFileNamedBaseOperations(t *testing.T) {
+	env := newPullExternalPushTest(t, []pullExternalTestFile{{
+		path:    "base",
+		content: "initial\n",
+	}})
+	localPath := filepath.Join(env.dagsDir, "base")
+	require.NoError(t, os.WriteFile(localPath, []byte("edited\n"), 0600))
+	status, err := env.svc.GetStatus(env.ctx)
+	require.NoError(t, err)
+	require.Equal(t, gitsync.StatusModified, status.Items["base"].Status)
+
+	_, err = env.svc.PublishAll(env.ctx, "publish base", []string{"base"})
+	require.NoError(t, err)
+	assert.Equal(t, "edited\n", pullExternalFileContent(t, env.remoteRepo, "base"))
+
+	require.NoError(t, env.svc.Move(env.ctx, "base", "renamed", "move base", false))
+	assertPullExternalHeadFileMissing(t, env.remoteRepo, "base")
+	assert.Equal(t, "edited\n", pullExternalFileContent(t, env.remoteRepo, "renamed"))
+	assert.NoFileExists(t, localPath)
+	assert.Equal(t, "edited\n", readPullExternalTestFile(t, filepath.Join(env.dagsDir, "renamed")))
+	status, err = env.svc.GetStatus(env.ctx)
+	require.NoError(t, err)
+	assert.NotContains(t, status.Items, "base")
+	assert.Equal(t, gitsync.SyncItemKindFile, status.Items["renamed"].Kind)
+	assert.Equal(t, gitsync.StatusSynced, status.Items["renamed"].Status)
+}
+
 func TestSupportingFileModeChangeIsModified(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows does not expose the Git executable bit as a POSIX mode")

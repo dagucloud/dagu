@@ -1639,20 +1639,6 @@ func (s *serviceImpl) Move(ctx context.Context, oldID, newID, message string, fo
 	if err := s.validatePushEnabled(); err != nil {
 		return err
 	}
-	normalized, err := normalizeDAGID(oldID)
-	if err != nil {
-		return err
-	}
-	if normalized != oldID {
-		return &InvalidDAGIDError{DAGID: oldID, Reason: fmt.Sprintf("must be normalized as %q", normalized)}
-	}
-	normalized, err = normalizeDAGID(newID)
-	if err != nil {
-		return err
-	}
-	if normalized != newID {
-		return &InvalidDAGIDError{DAGID: newID, Reason: fmt.Sprintf("must be normalized as %q", normalized)}
-	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1663,25 +1649,29 @@ func (s *serviceImpl) Move(ctx context.Context, oldID, newID, message string, fo
 	}
 
 	oldState, exists := state.Items[oldID]
-	if !exists {
-		if SyncItemKindForID(oldID) != SyncItemKindForID(newID) {
-			return &ValidationError{Field: "newItemId", Message: "source and destination must have the same item type"}
-		}
-		return &DAGNotFoundError{DAGID: oldID}
+	kind := SyncItemKindForID(oldID)
+	if exists && oldState.Kind != "" {
+		kind = oldState.Kind
 	}
-	normalized, err = normalizeItemID(oldID, oldState.Kind)
+	normalized, err := normalizeItemID(oldID, kind)
 	if err != nil {
 		return err
 	}
 	if normalized != oldID {
 		return &InvalidDAGIDError{DAGID: oldID, Reason: fmt.Sprintf("must be normalized as %q", normalized)}
 	}
-	normalized, err = normalizeItemID(newID, oldState.Kind)
+	normalized, err = normalizeItemID(newID, kind)
 	if err != nil {
 		return err
 	}
 	if normalized != newID {
 		return &InvalidDAGIDError{DAGID: newID, Reason: fmt.Sprintf("must be normalized as %q", normalized)}
+	}
+	if !exists {
+		if SyncItemKindForID(oldID) != SyncItemKindForID(newID) {
+			return &ValidationError{Field: "newItemId", Message: "source and destination must have the same item type"}
+		}
+		return &DAGNotFoundError{DAGID: oldID}
 	}
 	if oldState.Kind == SyncItemKindWikiPageAsset && !isValidAssetItemID(newID) {
 		return &ValidationError{Field: "newItemId", Message: "destination is not a valid attachment path"}
@@ -2311,7 +2301,11 @@ func (s *serviceImpl) resolvePublishTargets(state *State, dagIDs []string) ([]st
 			}
 		}
 
-		normalized, err := normalizeDAGID(dagID)
+		kind := SyncItemKindForID(dagID)
+		if dagState := state.Items[dagID]; dagState != nil && dagState.Kind != "" {
+			kind = dagState.Kind
+		}
+		normalized, err := normalizeItemID(dagID, kind)
 		if err != nil {
 			return nil, err
 		}
