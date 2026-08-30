@@ -549,6 +549,73 @@ func TestFailedPublishRemainsModified(t *testing.T) {
 	}
 }
 
+func TestForcePublishResolvesRemoteKindChange(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		initialPath     string
+		replacementPath string
+		localContent    string
+		kind            gitsync.SyncItemKind
+	}{
+		{
+			name:            "DAG replaces supporting file",
+			initialPath:     "task",
+			replacementPath: "task.yaml",
+			localContent:    "local file\n",
+			kind:            gitsync.SyncItemKindFile,
+		},
+		{
+			name:            "supporting file replaces DAG",
+			initialPath:     "task.yaml",
+			replacementPath: "task",
+			localContent:    "steps:\n  - command: local\n",
+			kind:            gitsync.SyncItemKindDAG,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env := newPullExternalPushTest(t, []pullExternalTestFile{{
+				path:    tc.initialPath,
+				content: "initial\n",
+			}})
+			require.NoError(t, os.WriteFile(
+				filepath.Join(env.dagsDir, filepath.FromSlash(tc.initialPath)),
+				[]byte(tc.localContent),
+				0600,
+			))
+
+			worktree, err := env.seedRepo.Worktree()
+			require.NoError(t, err)
+			_, err = worktree.Remove(tc.initialPath)
+			require.NoError(t, err)
+			commitPullExternalTestFile(
+				t, env.seedRepo, env.seedPath, tc.replacementPath, "remote replacement\n", "replace kind",
+			)
+			require.NoError(t, env.seedRepo.Push(&git.PushOptions{
+				RemoteName: "upstream",
+				RefSpecs: []gitconfig.RefSpec{
+					"refs/heads/main:refs/heads/main",
+				},
+			}))
+
+			result, err := env.svc.Pull(env.ctx)
+			require.NoError(t, err)
+			assert.Contains(t, result.Conflicts, "task")
+
+			_, err = env.svc.Publish(env.ctx, "task", "keep local kind", true)
+			require.NoError(t, err)
+			assert.Equal(t, tc.localContent, pullExternalFileContent(t, env.remoteRepo, tc.initialPath))
+			assertPullExternalHeadFileMissing(t, env.remoteRepo, tc.replacementPath)
+
+			_, err = env.svc.Pull(env.ctx)
+			require.NoError(t, err)
+			status, err := env.svc.GetStatus(env.ctx)
+			require.NoError(t, err)
+			assert.Equal(t, gitsync.StatusSynced, status.Items["task"].Status)
+			assert.Equal(t, tc.kind, status.Items["task"].Kind)
+		})
+	}
+}
+
 func TestSupportingFileModeChangeIsModified(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows does not expose the Git executable bit as a POSIX mode")

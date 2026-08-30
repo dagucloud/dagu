@@ -1028,6 +1028,19 @@ func (s *serviceImpl) Publish(ctx context.Context, dagID, message string, force 
 	if err := s.gitClient.Open(); err != nil {
 		return nil, err
 	}
+	var replacementPaths []string
+	if dagState.RemoteDeleted {
+		trackedFiles, err := s.gitClient.ListTrackedFiles()
+		if err != nil {
+			return nil, err
+		}
+		for _, trackedFile := range trackedFiles {
+			item, ok := s.repoFileItem(trackedFile)
+			if ok && item.id == dagID && item.repoPath != repoFilePath {
+				replacementPaths = append(replacementPaths, item.repoPath)
+			}
+		}
+	}
 
 	content, err := s.readItemFile(dagID, dagState.Kind, dagFilePath)
 	if err != nil {
@@ -1048,6 +1061,9 @@ func (s *serviceImpl) Publish(ctx context.Context, dagID, message string, force 
 	commitHash, err := s.gitClient.commitAndPush(ctx, message, func() error {
 		if err := safeWriteFileWithinBase(s.gitClient.repoPath, repoAbsPath, content, perm); err != nil {
 			return fmt.Errorf("failed to write to repo: %w", err)
+		}
+		if err := s.gitClient.RemoveFiles(replacementPaths); err != nil {
+			return err
 		}
 		return s.gitClient.addFileMode(repoFilePath, executable)
 	})
