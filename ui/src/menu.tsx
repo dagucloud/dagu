@@ -50,6 +50,8 @@ import { AppBarContext } from './contexts/AppBarContext';
 import { useViews } from '@/hooks/useViews';
 import { useUserPreferences } from './contexts/UserPreference';
 import { WorkspaceSelector } from './components/workspace/WorkspaceSelector';
+import { LanguageSelector } from './components/LanguageSelector';
+import { useI18n } from './i18n/I18nProvider';
 
 type NavItemProps = {
   to: string;
@@ -512,6 +514,7 @@ export const mainListItems = React.forwardRef<
   const canViewEventLogs = useCanViewEventLogs();
   const canViewAuditLogs = useCanViewAuditLogs();
   const { preferences, updatePreference } = useUserPreferences();
+  const { t } = useI18n();
 
   const theme = preferences.theme || 'dark';
   const title = config.title || DEFAULT_TITLE;
@@ -686,7 +689,7 @@ export const mainListItems = React.forwardRef<
 
           <NavItem
             to="/"
-            text="Overview"
+            text={t('navigation.overview')}
             icon={<Gauge size={18} />}
             isOpen={isOpen}
             onClick={onNavItemClick}
@@ -697,7 +700,7 @@ export const mainListItems = React.forwardRef<
           <NavGroup
             groupKey="workflows"
             icon={<Network size={18} />}
-            label="Workflows"
+            label={t('navigation.workflows')}
             isOpen={isOpen}
             basePath={[
               '/dags',
@@ -713,7 +716,7 @@ export const mainListItems = React.forwardRef<
           >
             <NavItem
               to="/search"
-              text="Search"
+              text={t('navigation.search')}
               isOpen={isOpen}
               onClick={onNavItemClick}
               customColor={customColor}
@@ -721,7 +724,7 @@ export const mainListItems = React.forwardRef<
             {canWrite && (
               <NavItem
                 to="/base-config"
-                text="Base Config"
+                text={t('navigation.baseConfig')}
                 isOpen={isOpen}
                 onClick={onNavItemClick}
                 customColor={customColor}
@@ -729,7 +732,7 @@ export const mainListItems = React.forwardRef<
             )}
             <NavItem
               to="/wiki"
-              text="Wiki"
+              text={t('navigation.wiki')}
               isOpen={isOpen}
               onClick={onNavItemClick}
               customColor={customColor}
@@ -737,7 +740,7 @@ export const mainListItems = React.forwardRef<
             {canAccessGitSync && config.gitSyncEnabled && (
               <NavItem
                 to="/git-sync"
-                text="Git Sync"
+                text={t('navigation.gitSync')}
                 isOpen={isOpen}
                 onClick={onNavItemClick}
                 customColor={customColor}
@@ -748,7 +751,7 @@ export const mainListItems = React.forwardRef<
           <NavGroup
             groupKey="execution"
             icon={<History size={18} />}
-            label="Executions"
+            label={t('navigation.executions')}
             isOpen={isOpen}
             basePath={['/dag-runs', '/queues']}
             to="/dag-runs"
@@ -757,7 +760,7 @@ export const mainListItems = React.forwardRef<
           >
             <NavItem
               to="/queues"
-              text="Queues"
+              text={t('navigation.queues')}
               isOpen={isOpen}
               onClick={onNavItemClick}
               customColor={customColor}
@@ -768,7 +771,7 @@ export const mainListItems = React.forwardRef<
             <NavGroup
               groupKey="monitor"
               icon={<Activity size={18} />}
-              label="Monitor"
+              label={t('navigation.monitor')}
               isOpen={isOpen}
               basePath={['/event-logs', '/audit-logs', '/system-status']}
               to="/system-status"
@@ -778,7 +781,7 @@ export const mainListItems = React.forwardRef<
               {canViewEventLogs && (
                 <NavItem
                   to="/event-logs"
-                  text="Events"
+                  text={t('navigation.events')}
                   isOpen={isOpen}
                   onClick={onNavItemClick}
                   customColor={customColor}
@@ -787,7 +790,7 @@ export const mainListItems = React.forwardRef<
               {canViewAuditLogs && (
                 <NavItem
                   to="/audit-logs"
-                  text="Audit Logs"
+                  text={t('navigation.auditLogs')}
                   isOpen={isOpen}
                   onClick={onNavItemClick}
                   customColor={customColor}
@@ -800,7 +803,7 @@ export const mainListItems = React.forwardRef<
             <NavGroup
               groupKey="notifications"
               icon={<Bell size={18} />}
-              label="Notifications"
+              label={t('navigation.notifications')}
               isOpen={isOpen}
               basePath={[
                 '/notifications',
@@ -813,14 +816,14 @@ export const mainListItems = React.forwardRef<
             >
               <NavItem
                 to="/notification-rules"
-                text="Rules"
+                text={t('navigation.rules')}
                 isOpen={isOpen}
                 onClick={onNavItemClick}
                 customColor={customColor}
               />
               <NavItem
                 to="/notification-channels"
-                text="Channels"
+                text={t('navigation.channels')}
                 isOpen={isOpen}
                 onClick={onNavItemClick}
                 customColor={customColor}
@@ -832,7 +835,7 @@ export const mainListItems = React.forwardRef<
             <NavGroup
               groupKey="incidents"
               icon={<AlertTriangle size={18} />}
-              label="Incidents"
+              label={t('navigation.incidents')}
               isOpen={isOpen}
               basePath={[
                 '/incidents',
@@ -845,14 +848,14 @@ export const mainListItems = React.forwardRef<
             >
               <NavItem
                 to="/incident-providers"
-                text="Connections"
+                text={t('navigation.connections')}
                 isOpen={isOpen}
                 onClick={onNavItemClick}
                 customColor={customColor}
               />
               <NavItem
                 to="/incident-policies"
-                text="Routing"
+                text={t('navigation.routing')}
                 isOpen={isOpen}
                 onClick={onNavItemClick}
                 customColor={customColor}
@@ -995,6 +998,7 @@ export const mainListItems = React.forwardRef<
             label={theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
             isOpen={isOpen}
           />
+          <LanguageSelector compact={!isOpen} />
           <UserMenu isCollapsed={!isOpen} />
         </div>
         {config.version && (

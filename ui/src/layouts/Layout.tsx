@@ -11,6 +11,7 @@ import * as React from 'react';
 import { useLocation } from 'react-router-dom';
 import { ContentNavigation } from './ContentNavigation';
 import { mainListItems as MainListItems } from '../menu';
+import { useI18n } from '@/i18n/I18nProvider';
 
 /**
  * Choose a readable foreground color (black or white) that contrasts with the given background color.
@@ -90,6 +91,7 @@ type LayoutProps = {
 function Content({ navbarColor, children }: LayoutProps) {
   const config = useConfig();
   const location = useLocation();
+  const { t } = useI18n();
 
   const hasCustomColor: boolean = Boolean(
     navbarColor && navbarColor.trim() !== ''
@@ -231,7 +233,7 @@ function Content({ navbarColor, children }: LayoutProps) {
             ref={openMenuButtonRef}
             className="p-2 rounded-md hover:bg-muted transition-colors"
             onClick={() => setIsMobileSidebarOpen(true)}
-            aria-label="Open menu"
+            aria-label={t('navigation.openMenu')}
           >
             <Menu className="h-5 w-5" />
           </button>

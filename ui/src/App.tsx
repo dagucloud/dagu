@@ -51,6 +51,7 @@ import { UserRole } from './api/v1/schema';
 import LoginPage from './pages/login';
 import SetupPage from './pages/setup';
 import LoadingIndicator from '@/components/ui/loading-indicator';
+import { I18nProvider } from '@/i18n/I18nProvider';
 
 const AdministrationPage = React.lazy(() => import('./pages/administration'));
 const APIKeysPage = React.lazy(() => import('./pages/api-keys'));
@@ -898,7 +899,9 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
 function App({ config }: Props): React.ReactElement {
   return (
     <UserPreferencesProvider>
-      <AppInner config={config} />
+      <I18nProvider>
+        <AppInner config={config} />
+      </I18nProvider>
     </UserPreferencesProvider>
   );
 }

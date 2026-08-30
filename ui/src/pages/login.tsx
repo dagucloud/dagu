@@ -13,8 +13,10 @@ import {
   CheckCircle,
   ShieldCheck,
 } from 'lucide-react';
+import { useI18n } from '@/i18n/I18nProvider';
 
 export default function LoginPage() {
+  const { t } = useI18n();
   const config = useConfig();
   const {
     login,
@@ -55,9 +57,9 @@ export default function LoginPage() {
       setError(errorParam);
     }
     if (welcomeParam === 'true') {
-      setWelcomeMessage('Welcome! Your account has been created.');
+      setWelcomeMessage(t('auth.welcomeAccountCreated'));
     }
-  }, [searchParams, location.hash, navigate, from]);
+  }, [searchParams, location.hash, navigate, from, t]);
 
   // Redirect to setup page if initial admin account hasn't been created.
   // Wait for auth state to settle (isLoading=false) to avoid acting on
@@ -102,7 +104,7 @@ export default function LoginPage() {
         <div className="text-center space-y-2">
           <h1 className="text-2xl font-bold">{config.title || 'Dagu'}</h1>
           <p className="text-sm text-muted-foreground">
-            Sign in to your account
+            {t('auth.signInToAccount')}
           </p>
         </div>
 
@@ -124,7 +126,7 @@ export default function LoginPage() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="username" className="text-sm">
-                Username
+                {t('auth.username')}
               </Label>
               <Input
                 id="username"
@@ -140,7 +142,7 @@ export default function LoginPage() {
 
             <div className="space-y-1.5">
               <Label htmlFor="password" className="text-sm">
-                Password
+                {t('auth.password')}
               </Label>
               <Input
                 id="password"
@@ -155,7 +157,7 @@ export default function LoginPage() {
 
             <Button type="submit" className="w-full h-9" disabled={isLoading}>
               <LogIn className="h-4 w-4" />
-              {isLoading ? 'Signing in...' : 'Sign In'}
+              {isLoading ? t('auth.signingIn') : t('auth.signIn')}
             </Button>
           </form>
 
@@ -167,7 +169,7 @@ export default function LoginPage() {
                 </div>
                 <div className="relative flex justify-center text-xs uppercase">
                   <span className="bg-background px-2 text-muted-foreground">
-                    or
+                    {t('auth.or')}
                   </span>
                 </div>
               </div>
@@ -180,7 +182,7 @@ export default function LoginPage() {
                   onClick={handleOIDCLogin}
                 >
                   <KeyRound className="h-4 w-4" />
-                  {config.oidcButtonLabel || 'Login with SSO'}
+                    {config.oidcButtonLabel || t('auth.loginWithSso')}
                 </Button>
               )}
 
@@ -188,7 +190,7 @@ export default function LoginPage() {
                 <Button asChild variant="outline" className="w-full h-9">
                   <a href={`${config.basePath}/proxy-login`}>
                     <ShieldCheck className="h-4 w-4" />
-                    {config.proxyButtonLabel || 'Continue with SSO'}
+                    {config.proxyButtonLabel || t('auth.continueWithSso')}
                   </a>
                 </Button>
               )}

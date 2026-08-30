@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useState } from 'react';
 import { writeLocalStorage } from '@/lib/local-storage-migration';
 
 export type DAGRunsViewMode = 'list' | 'grouped';
+export type Locale = 'en' | 'zh-CN';
 
 export type WikiSortField = 'name' | 'type' | 'mtime';
 export type WikiSortOrder = 'asc' | 'desc';
@@ -11,6 +12,7 @@ export type UserPreferences = {
   dagRunsViewMode: DAGRunsViewMode;
   logWrap: boolean;
   theme: 'light' | 'dark';
+  locale: Locale;
   safeMode: boolean;
   wikiSortField: WikiSortField;
   wikiSortOrder: WikiSortOrder;
@@ -29,6 +31,7 @@ const defaultPreferences: UserPreferences = {
   dagRunsViewMode: 'list',
   logWrap: true,
   theme: 'light', // Default to light theme (from main branch)
+  locale: 'en',
   safeMode: false,
   wikiSortField: 'type',
   wikiSortOrder: 'asc',
@@ -42,6 +45,10 @@ function isWikiSortOrder(value: unknown): value is WikiSortOrder {
   return value === 'asc' || value === 'desc';
 }
 
+function isLocale(value: unknown): value is Locale {
+  return value === 'en' || value === 'zh-CN';
+}
+
 function loadPreferences(): UserPreferences {
   try {
     const saved = localStorage.getItem('user_preferences');
@@ -53,6 +60,9 @@ function loadPreferences(): UserPreferences {
     const migrated = {
       ...defaultPreferences,
       ...preferences,
+      locale: isLocale(preferences.locale)
+        ? preferences.locale
+        : defaultPreferences.locale,
       wikiSortField: isWikiSortField(preferences.wikiSortField)
         ? preferences.wikiSortField
         : isWikiSortField(preferences.docSortField)
