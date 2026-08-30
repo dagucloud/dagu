@@ -7,9 +7,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -259,13 +261,31 @@ func (c *GitClient) Pull(ctx context.Context) (*PullResult, error) {
 }
 
 func (c *GitClient) pullWorktree(ctx context.Context, wt *git.Worktree, auth transport.AuthMethod) error {
-	return wt.PullContext(ctx, &git.PullOptions{
+	clean, err := c.cleanWorktree(wt)
+	if err != nil {
+		return err
+	}
+	if !clean {
+		return git.ErrUnstagedChanges
+	}
+
+	err = wt.PullContext(ctx, &git.PullOptions{
 		Auth:          auth,
 		RemoteName:    "origin",
 		ReferenceName: plumbing.NewBranchReferenceName(c.cfg.Branch),
 		SingleBranch:  true,
 		Force:         true,
 	})
+	if runtime.GOOS != "windows" || !errors.Is(err, git.ErrUnstagedChanges) {
+		return err
+	}
+
+	// The worktree was verified before go-git's mode-sensitive reset.
+	head, headErr := c.repo.Head()
+	if headErr != nil {
+		return headErr
+	}
+	return wt.Reset(&git.ResetOptions{Mode: git.HardReset, Commit: head.Hash()})
 }
 
 func (c *GitClient) isShallow() bool {
@@ -401,6 +421,30 @@ func (c *GitClient) addFile(filePath string) error {
 	return nil
 }
 
+func (c *GitClient) addFileMode(filePath string, executable bool) error {
+	if err := c.addFile(filePath); err != nil {
+		return err
+	}
+
+	idx, err := c.repo.Storer.Index()
+	if err != nil {
+		return fmt.Errorf("failed to read Git index: %w", err)
+	}
+	entry, err := idx.Entry(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to find staged file: %w", err)
+	}
+	entry.Mode = filemode.Regular
+	if executable {
+		entry.Mode = filemode.Executable
+	}
+	if err := c.repo.Storer.SetIndex(idx); err != nil {
+		return fmt.Errorf("failed to update Git index: %w", err)
+	}
+
+	return nil
+}
+
 // RemoveFile stages a file removal (does not commit).
 func (c *GitClient) RemoveFile(filePath string) error {
 	if err := c.requireRepo(); err != nil {
@@ -477,11 +521,11 @@ func (c *GitClient) commitAndPush(ctx context.Context, message string, stage fun
 	if err != nil {
 		return "", fmt.Errorf("failed to get worktree: %w", err)
 	}
-	status, err := worktree.Status()
+	clean, err := c.cleanWorktree(worktree)
 	if err != nil {
 		return "", fmt.Errorf("failed to inspect worktree: %w", err)
 	}
-	if !status.IsClean() {
+	if !clean {
 		return "", errors.New("cannot mutate dirty Git sync clone; pull to reconcile")
 	}
 
@@ -508,6 +552,61 @@ func (c *GitClient) commitAndPush(ctx context.Context, message string, stage fun
 	}
 
 	return commitHash, nil
+}
+
+func (c *GitClient) cleanWorktree(worktree *git.Worktree) (bool, error) {
+	status, err := worktree.Status()
+	if err != nil {
+		return false, err
+	}
+	if runtime.GOOS != "windows" || status.IsClean() {
+		return status.IsClean(), nil
+	}
+
+	idx, err := c.repo.Storer.Index()
+	if err != nil {
+		return false, err
+	}
+	// Windows reports tracked executable files as mode-only modifications.
+	for filePath, fileStatus := range status {
+		if fileStatus.Staging == git.Unmodified && fileStatus.Worktree == git.Unmodified {
+			continue
+		}
+		if fileStatus.Staging != git.Unmodified || fileStatus.Worktree != git.Modified {
+			return false, nil
+		}
+
+		entry, err := idx.Entry(filePath)
+		if err != nil || entry.Mode != filemode.Executable {
+			return false, nil
+		}
+		info, err := worktree.Filesystem.Lstat(filePath)
+		if err != nil {
+			return false, err
+		}
+		if !info.Mode().IsRegular() {
+			return false, nil
+		}
+
+		file, err := worktree.Filesystem.Open(filePath)
+		if err != nil {
+			return false, err
+		}
+		hasher := plumbing.NewHasher(plumbing.BlobObject, info.Size())
+		_, copyErr := io.Copy(&hasher, file)
+		closeErr := file.Close()
+		if copyErr != nil {
+			return false, copyErr
+		}
+		if closeErr != nil {
+			return false, closeErr
+		}
+		if hasher.Sum() != entry.Hash {
+			return false, nil
+		}
+	}
+
+	return true, nil
 }
 
 // Push pushes commits to the remote.

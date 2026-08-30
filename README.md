@@ -947,7 +947,7 @@ OIDC variables: `DAGU_AUTH_OIDC_CLIENT_ID`, `DAGU_AUTH_OIDC_CLIENT_SECRET`, `DAG
 
 ### Git Sync
 
-Git Sync copies Git-tracked supporting files into the DAGs directory. Workflow and Wiki files retain their existing handling; supporting file IDs include their extension and preserve the executable bit on platforms that expose POSIX file modes.
+Git Sync copies Git-tracked supporting files into the DAGs directory. Workflow and Wiki files retain their existing handling; supporting file IDs include their extension and preserve the executable bit. On Windows, Git Sync retains the repository mode when publishing because local execute-bit changes cannot be detected.
 
 | Variable | Default | Description |
 |----------|---------|-------------|

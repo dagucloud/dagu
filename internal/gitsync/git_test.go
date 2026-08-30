@@ -235,10 +235,14 @@ func TestGitClientCommitAndPushPreservesDirtyClone(t *testing.T) {
 		},
 	}, repoPath)
 	client.repo = repo
+	require.NoError(t, os.Chmod(filepath.Join(repoPath, "dag.yaml"), 0755))
+	require.NoError(t, client.addFileMode("dag.yaml", true))
+	_, err := client.CommitStaged("make executable")
+	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(repoPath, "dag.yaml"), []byte("local edit\n"), 0644))
 
 	stageCalled := false
-	_, err := client.commitAndPush(context.Background(), "mutation", func() error {
+	_, err = client.commitAndPush(context.Background(), "mutation", func() error {
 		stageCalled = true
 		return errors.New("stage failed")
 	})

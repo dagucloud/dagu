@@ -13,6 +13,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -413,11 +414,16 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 			continue
 		}
 
-		localExecutable := false
+		localExecutable := remoteExecutable
+		if itemState != nil {
+			localExecutable = itemState.LastSyncedExecutable
+		}
 		if item.kind == SyncItemKindFile {
 			if info, statErr := os.Stat(localPath); statErr == nil {
-				localExecutable = isExecutable(info.Mode())
+				localExecutable = executableMode(info.Mode(), localExecutable)
 			}
+		} else {
+			localExecutable = false
 		}
 		localMatchesRemote := localHash == repoHash && localExecutable == remoteExecutable
 
@@ -623,7 +629,7 @@ func (s *serviceImpl) localItemMatchesBase(itemID string, itemState *SyncItemSta
 		return false, err
 	}
 
-	localExecutable := itemState.Kind == SyncItemKindFile && isExecutable(info.Mode())
+	localExecutable := itemState.Kind == SyncItemKindFile && executableMode(info.Mode(), itemState.LastSyncedExecutable)
 	itemState.LocalHash = localHash
 	itemState.LocalExecutable = localExecutable
 	updateStatCache(itemState, info)
@@ -862,7 +868,7 @@ func (s *serviceImpl) refreshLocalHashes(state *State) bool {
 			continue
 		}
 
-		localExecutable := dagState.Kind == SyncItemKindFile && isExecutable(info.Mode())
+		localExecutable := dagState.Kind == SyncItemKindFile && executableMode(info.Mode(), dagState.LastSyncedExecutable)
 		if statMatchesCache(dagState, info) && dagState.LocalExecutable == localExecutable {
 			continue
 		}
@@ -940,7 +946,7 @@ func (s *serviceImpl) reconcile(state *State) bool {
 				if err != nil {
 					continue
 				}
-				localExecutable := dagState.Kind == SyncItemKindFile && isExecutable(info.Mode())
+				localExecutable := dagState.Kind == SyncItemKindFile && executableMode(info.Mode(), dagState.LastSyncedExecutable)
 				if currentHash == dagState.LastSyncedHash &&
 					(dagState.Kind != SyncItemKindFile || localExecutable == dagState.LastSyncedExecutable) {
 					dagState.Status = StatusSynced
@@ -1028,9 +1034,9 @@ func (s *serviceImpl) Publish(ctx context.Context, dagID, message string, force 
 		return nil, fmt.Errorf("failed to read sync item file: %w", err)
 	}
 
-	executable := false
+	executable := dagState.Kind == SyncItemKindFile && dagState.LastSyncedExecutable
 	if info, err := os.Stat(dagFilePath); err == nil && dagState.Kind == SyncItemKindFile {
-		executable = isExecutable(info.Mode())
+		executable = executableMode(info.Mode(), executable)
 	}
 	perm := os.FileMode(0600)
 	if executable {
@@ -1044,7 +1050,10 @@ func (s *serviceImpl) Publish(ctx context.Context, dagID, message string, force 
 	if message == "" {
 		message = fmt.Sprintf("Update %s", dagID)
 	}
-	commitHash, err := s.gitClient.AddAndCommit(repoFilePath, message)
+	if err := s.gitClient.addFileMode(repoFilePath, executable); err != nil {
+		return nil, err
+	}
+	commitHash, err := s.gitClient.CommitStaged(message)
 	if err != nil {
 		return nil, err
 	}
@@ -1096,8 +1105,6 @@ func (s *serviceImpl) PublishAll(ctx context.Context, message string, dagIDs []s
 
 	// Copy files and track which succeeded
 	successfulDAGs := make([]string, 0, len(publishTargets))
-	stagedFiles := make([]string, 0, len(publishTargets))
-
 	for _, dagID := range publishTargets {
 		dagState := state.Items[dagID]
 		fileExtension := s.syncItemFileExtension(dagID, dagState)
@@ -1117,33 +1124,28 @@ func (s *serviceImpl) PublishAll(ctx context.Context, message string, dagIDs []s
 			continue
 		}
 
+		executable := dagState.Kind == SyncItemKindFile && dagState.LastSyncedExecutable
+		if info, err := os.Stat(dagFilePath); err == nil && dagState.Kind == SyncItemKindFile {
+			executable = executableMode(info.Mode(), executable)
+		}
 		perm := os.FileMode(0600)
-		if info, err := os.Stat(dagFilePath); err == nil && dagState.Kind == SyncItemKindFile && isExecutable(info.Mode()) {
+		if executable {
 			perm = 0700
 		}
 		if err := safeWriteFileWithinBase(s.gitClient.repoPath, repoAbsPath, content, perm); err != nil {
 			result.Errors = append(result.Errors, SyncError{ItemID: dagID, Message: err.Error()})
 			continue
 		}
+		if err := s.gitClient.addFileMode(repoFilePath, executable); err != nil {
+			return nil, err
+		}
 
 		successfulDAGs = append(successfulDAGs, dagID)
-		stagedFiles = append(stagedFiles, repoFilePath)
 	}
 
 	// Check if any files were successfully staged
 	if len(successfulDAGs) == 0 {
 		return nil, fmt.Errorf("all files failed to copy: %d error(s)", len(result.Errors))
-	}
-
-	// Stage only the successful files
-	wt, err := s.gitClient.repo.Worktree()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get worktree: %w", err)
-	}
-	for _, file := range stagedFiles {
-		if _, err := wt.Add(file); err != nil {
-			return nil, fmt.Errorf("failed to stage file %s: %w", file, err)
-		}
 	}
 
 	// Commit staged files only (do not restage ".")
@@ -1170,9 +1172,9 @@ func (s *serviceImpl) PublishAll(ctx context.Context, message string, dagIDs []s
 		}
 		content, _ := s.readItemFile(dagID, dagState.Kind, dagFilePath)
 		contentHash := ComputeContentHash(content)
-		executable := false
+		executable := dagState.Kind == SyncItemKindFile && dagState.LastSyncedExecutable
 		if info, err := os.Stat(dagFilePath); err == nil && dagState.Kind == SyncItemKindFile {
-			executable = isExecutable(info.Mode())
+			executable = executableMode(info.Mode(), executable)
 		}
 		newState := s.newSyncedItemState(dagState.Kind, fileExtension, commitHash, contentHash, executable)
 		if fi, err := os.Stat(dagFilePath); err == nil {
@@ -1784,7 +1786,7 @@ func (s *serviceImpl) Move(ctx context.Context, oldID, newID, message string, fo
 		return err
 	}
 
-	executable := oldState.Kind == SyncItemKindFile && isExecutable(fileInfo.Mode())
+	executable := oldState.Kind == SyncItemKindFile && executableMode(fileInfo.Mode(), oldState.LastSyncedExecutable)
 	newRepoAbsPath := s.gitClient.GetFilePath(newRepoPath)
 	perm := os.FileMode(0600)
 	if executable {
@@ -1799,7 +1801,7 @@ func (s *serviceImpl) Move(ctx context.Context, oldID, newID, message string, fo
 		}
 		// The source can already be absent in retroactive moves.
 		_ = s.gitClient.RemoveFile(oldRepoPath)
-		return s.gitClient.addFile(newRepoPath)
+		return s.gitClient.addFileMode(newRepoPath, executable)
 	})
 	if err != nil {
 		return err
@@ -2014,9 +2016,9 @@ func (s *serviceImpl) GetSyncItemDiff(_ context.Context, itemID string) (*SyncIt
 	}
 
 	if itemState.Kind == SyncItemKindFile {
-		localExecutable := itemState.LocalExecutable
+		localExecutable := itemState.LastSyncedExecutable
 		if localInfo != nil {
-			localExecutable = isExecutable(localInfo.Mode())
+			localExecutable = executableMode(localInfo.Mode(), localExecutable)
 		}
 		diff.LocalExecutable = &localExecutable
 		remoteExecutable := itemState.LastSyncedExecutable
@@ -3012,6 +3014,15 @@ func normalizeItemID(itemID string, kind SyncItemKind) (string, error) {
 
 func isExecutable(mode os.FileMode) bool {
 	return mode.Perm()&0100 != 0
+}
+
+func executableMode(mode os.FileMode, fallback bool) bool {
+	// Windows does not expose Git's executable bit through file modes.
+	if runtime.GOOS == "windows" {
+		return fallback
+	}
+
+	return isExecutable(mode)
 }
 
 func (s *serviceImpl) safeDAGIDToFilePath(dagID, fileExtension string) (string, error) {
