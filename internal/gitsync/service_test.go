@@ -1339,6 +1339,13 @@ func TestMove_RequiresMatchingItemKinds(t *testing.T) {
 	var validationErr *ValidationError
 	require.ErrorAs(t, err, &validationErr)
 	assert.Equal(t, "newItemId", validationErr.Field)
+
+	require.NoError(t, impl.stateManager.Save(&State{Version: 1, Items: map[string]*SyncItemState{
+		"task": {Kind: SyncItemKindDAG, Status: StatusSynced},
+	}}))
+	err = impl.Move(context.Background(), "task", "wiki/.attachments/page/task", "", false)
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "newItemId", validationErr.Field)
 }
 
 func TestMove_ConflictSource_WithoutForce_Rejected(t *testing.T) {

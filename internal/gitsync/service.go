@@ -1728,7 +1728,7 @@ func (s *serviceImpl) Move(ctx context.Context, oldID, newID, message string, fo
 	if oldState.Kind == SyncItemKindWikiPage && !isWikiPageFile(newID) {
 		return &ValidationError{Field: "newItemId", Message: "source and destination must have the same item type"}
 	}
-	if oldState.Kind == SyncItemKindDAG && isWikiPageFile(newID) {
+	if oldState.Kind == SyncItemKindDAG && SyncItemKindForID(newID) != SyncItemKindDAG {
 		return &ValidationError{Field: "newItemId", Message: "source and destination must have the same item type"}
 	}
 	if oldState.Kind == SyncItemKindFile {
