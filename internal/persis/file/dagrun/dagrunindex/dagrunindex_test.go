@@ -620,3 +620,84 @@ func TestTryLoadForDay_ReusesIndexedTerminalRunsWhileDayIsActive(t *testing.T) {
 	}
 	assert.True(t, found, "indexed run must still be present")
 }
+
+// TestTryLoadForDay_DoesNotRewriteIndexWhenTerminalSubsetIsUnchanged guards the
+// cost of the partial index. A partial index never satisfies validateIndex, so
+// every read reaches the rebuild path. Rewriting there would turn each read into
+// a durable, fsync'd write proportional to the finished runs in the day.
+func TestTryLoadForDay_DoesNotRewriteIndexWhenTerminalSubsetIsUnchanged(t *testing.T) {
+	dayDir := t.TempDir()
+	createDayDir(t, dayDir, 10, ir.Succeeded)
+
+	// One active run keeps the day from ever being fully terminal.
+	activeAttempt := filepath.Join(dayDir, "dag-run_20240115_130000Z_active0", "attempt_20240115_130000_001Z_abc123")
+	require.NoError(t, os.MkdirAll(activeAttempt, 0750))
+	activeStatus, err := json.Marshal(ir.DAGRunStatus{
+		Name: "test", DAGRunID: "active0", AttemptID: "abc123",
+		Status: ir.Running, StartedAt: "2024-01-15T13:00:00Z",
+	})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(activeAttempt, "status.jsonl"), append(activeStatus, '\n'), 0600))
+
+	// First read writes the index for the ten terminal runs.
+	_, _, err = TryLoadForDay(t.Context(), dayDir, readDayDir(t, dayDir))
+	require.NoError(t, err)
+
+	indexPath := filepath.Join(dayDir, IndexFileName)
+	before, err := os.Stat(indexPath)
+	require.NoError(t, err)
+
+	// Age the index so any rewrite is detectable by mtime.
+	stale := before.ModTime().Add(-time.Hour)
+	require.NoError(t, os.Chtimes(indexPath, stale, stale))
+
+	// Further reads change nothing: the same ten runs are terminal, and the
+	// active one is still active.
+	for range 3 {
+		_, _, err = TryLoadForDay(t.Context(), dayDir, readDayDir(t, dayDir))
+		require.NoError(t, err)
+	}
+
+	after, err := os.Stat(indexPath)
+	require.NoError(t, err)
+	assert.Equal(t, stale.UnixNano(), after.ModTime().UnixNano(),
+		"reads must not rewrite an index whose terminal subset is unchanged")
+}
+
+// TestTryLoadForDay_RewritesIndexWhenAnotherRunFinishes confirms the skip does
+// not stop the index growing as runs reach a terminal state.
+func TestTryLoadForDay_RewritesIndexWhenAnotherRunFinishes(t *testing.T) {
+	dayDir := t.TempDir()
+	createDayDir(t, dayDir, 10, ir.Succeeded)
+
+	runDir := filepath.Join(dayDir, "dag-run_20240115_130000Z_active0")
+	attemptDir := filepath.Join(runDir, "attempt_20240115_130000_001Z_abc123")
+	require.NoError(t, os.MkdirAll(attemptDir, 0750))
+	statusPath := filepath.Join(attemptDir, "status.jsonl")
+
+	writeStatus := func(st ir.Status) {
+		data, err := json.Marshal(ir.DAGRunStatus{
+			Name: "test", DAGRunID: "active0", AttemptID: "abc123",
+			Status: st, StartedAt: "2024-01-15T13:00:00Z",
+		})
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(statusPath, append(data, '\n'), 0600))
+	}
+
+	writeStatus(ir.Running)
+	_, _, err := TryLoadForDay(t.Context(), dayDir, readDayDir(t, dayDir))
+	require.NoError(t, err)
+
+	idx, err := readIndex(filepath.Join(dayDir, IndexFileName))
+	require.NoError(t, err)
+	require.Len(t, idx.Entries, 10, "the active run is not indexed while running")
+
+	// The run finishes; the next read must pick it up.
+	writeStatus(ir.Succeeded)
+	_, _, err = TryLoadForDay(t.Context(), dayDir, readDayDir(t, dayDir))
+	require.NoError(t, err)
+
+	idx, err = readIndex(filepath.Join(dayDir, IndexFileName))
+	require.NoError(t, err)
+	assert.Len(t, idx.Entries, 11, "a newly finished run is added to the index")
+}

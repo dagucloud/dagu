@@ -115,11 +115,13 @@ func TryLoadForDay(ctx context.Context, dayDir string, dagRunDirs []os.DirEntry)
 		// scheduled day is the normal case. Reuse whatever it still describes
 		// correctly and rescan only the remainder.
 		var cached map[string]Entry
+		indexedCount := 0
 		if readErr == nil {
 			cached = usableIndexEntries(dayDir, idx, runDirs)
+			indexedCount = len(idx.Entries)
 		}
 
-		entries, fromIndex, rebuildErr := rebuildForDay(dayDir, dagRunDirs, cached)
+		entries, fromIndex, rebuildErr := rebuildForDay(dayDir, dagRunDirs, cached, indexedCount)
 		if rebuildErr != nil {
 			return dayLoadResult{}, rebuildErr
 		}
@@ -154,13 +156,15 @@ func TryLoadForDay(ctx context.Context, dayDir string, dagRunDirs []os.DirEntry)
 // RebuildForDay scans a day directory, discovers latest attempts, reads statuses,
 // and writes the index if all runs are terminal.
 func RebuildForDay(dayDir string, dagRunDirs []os.DirEntry) ([]Entry, bool, error) {
-	return rebuildForDay(dayDir, dagRunDirs, nil)
+	return rebuildForDay(dayDir, dagRunDirs, nil, 0)
 }
 
 // rebuildForDay scans a day directory, reusing the cached entries the caller has
 // already validated against disk and reading status only for the runs those do
 // not cover. Passing a nil cache scans everything.
-func rebuildForDay(dayDir string, dagRunDirs []os.DirEntry, cached map[string]Entry) ([]Entry, bool, error) {
+// indexedCount is how many entries the on-disk index holds, so an unchanged
+// terminal subset can be detected and the rewrite skipped.
+func rebuildForDay(dayDir string, dagRunDirs []os.DirEntry, cached map[string]Entry, indexedCount int) ([]Entry, bool, error) {
 	runDirs := filterDAGRunDirs(dagRunDirs)
 	if len(runDirs) == 0 {
 		return nil, false, nil
@@ -168,9 +172,11 @@ func rebuildForDay(dayDir string, dagRunDirs []os.DirEntry, cached map[string]En
 
 	entries := make([]Entry, 0, len(runDirs))
 	terminal := make([]Entry, 0, len(runDirs))
+	reused := 0
 
 	for _, rd := range runDirs {
 		if cachedEntry, ok := cached[rd.Name()]; ok {
+			reused++
 			// Only terminal runs are ever written to the index, and the caller
 			// has confirmed this entry still matches disk.
 			entries = append(entries, cachedEntry)
@@ -255,6 +261,14 @@ func rebuildForDay(dayDir string, dagRunDirs []os.DirEntry, cached map[string]En
 	// meant a single active run forfeited caching for every finished run beside
 	// it, which never resolves on a frequently scheduled instance.
 	if len(terminal) >= MinRunsForIndex {
+		// Nothing new became terminal and the on-disk index holds exactly the
+		// entries reused, so it already describes this subset. Rewriting would
+		// make every read a durable write, because a partial index never
+		// satisfies validateIndex and so always reaches this path.
+		if reused == len(terminal) && reused == indexedCount {
+			return entries, true, nil
+		}
+
 		if err := writeIndex(dayDir, terminal); err != nil {
 			// Non-fatal: just don't write the index.
 			return entries, false, nil
