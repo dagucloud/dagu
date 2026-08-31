@@ -106,10 +106,16 @@ func toStep(obj ir.Step) api.Step {
 
 	commands := make([]api.CommandEntry, len(obj.Commands))
 	for i, cmd := range obj.Commands {
-		commands[i] = api.CommandEntry{
+		entry := api.CommandEntry{
 			Command: cmd.Command,
 			Args:    ptrOf(cmd.Args),
 		}
+		// Harness prompts live in CmdWithArgs to preserve multiline text.
+		if obj.ExecutorConfig.Type == "harness" && cmd.CmdWithArgs != "" {
+			entry.Command = cmd.CmdWithArgs
+			entry.Args = nil
+		}
+		commands[i] = entry
 	}
 
 	step := api.Step{

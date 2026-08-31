@@ -59,5 +59,6 @@ describe('DAGStepTableRow', () => {
     );
 
     expect(screen.getByText('Script defined')).toBeInTheDocument();
+    expect(screen.getByText('Review the repository')).toBeInTheDocument();
   });
 });

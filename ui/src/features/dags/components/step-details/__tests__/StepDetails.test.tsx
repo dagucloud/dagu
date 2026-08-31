@@ -8,6 +8,27 @@ import type { components } from '@/api/v1/schema';
 import { StepDetails } from '../StepDetails';
 
 describe('StepDetails', () => {
+  it('renders harness commands as a prompt', () => {
+    const prompt = 'Review the implementation.\nReport every finding.';
+    const step = {
+      name: 'review',
+      commands: [{ command: prompt }],
+      executorConfig: {
+        type: 'harness',
+        config: {
+          provider: 'claude',
+        },
+      },
+    } as components['schemas']['Step'];
+
+    render(<StepDetails step={step} />);
+
+    expect(screen.getByText('Prompt')).toBeInTheDocument();
+    expect(screen.getByText(/Review the implementation/).textContent).toBe(
+      prompt
+    );
+  });
+
   it('renders log executor messages as a first-class message field', () => {
     const step = {
       name: 'announce',

@@ -5,6 +5,7 @@ import { components } from '@/api/v1/schema';
 import { Badge } from '@/components/ui/badge';
 import BorderedBox from '@/components/ui/bordered-box';
 import { getLogMessageFromConfig } from '@/lib/executor-utils';
+import { getHarnessStepSummary } from '@/lib/harness-step';
 import React from 'react';
 import { LogStepMessage } from '../dag-details/LogStepMessage';
 
@@ -55,6 +56,7 @@ const STEP_FIELD_LABELS: Record<string, string> = {
 };
 
 export function StepDetails({ step }: { step: Step }) {
+  const harnessPrompt = getHarnessStepSummary(step)?.prompt ?? null;
   const fields = React.useMemo(() => {
     const entries = Object.entries(step)
       .filter(([key]) => key !== 'name')
@@ -82,14 +84,21 @@ export function StepDetails({ step }: { step: Step }) {
 
   return (
     <div className="space-y-4">
-      {fields.map(([key, value]) => (
-        <StepField
-          key={key}
-          label={STEP_FIELD_LABELS[key] || toTitleLabel(key)}
-          name={key}
-          value={value}
-        />
-      ))}
+      {fields.map(([key, value]) => {
+        const isHarnessPrompt = key === 'commands' && harnessPrompt !== null;
+        return (
+          <StepField
+            key={key}
+            label={
+              isHarnessPrompt
+                ? 'Prompt'
+                : STEP_FIELD_LABELS[key] || toTitleLabel(key)
+            }
+            name={isHarnessPrompt ? 'prompt' : key}
+            value={isHarnessPrompt ? harnessPrompt : value}
+          />
+        );
+      })}
     </div>
   );
 }

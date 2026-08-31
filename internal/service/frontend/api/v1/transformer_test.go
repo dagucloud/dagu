@@ -27,6 +27,21 @@ func writeArtifactFile(t *testing.T) string {
 	return dir
 }
 
+func TestToStepIncludesHarnessPrompt(t *testing.T) {
+	prompt := "Review the implementation.\nReport every finding.\n"
+	step := toStep(ir.Step{
+		Commands: []ir.CommandEntry{{CmdWithArgs: prompt}},
+		ExecutorConfig: ir.ExecutorConfig{
+			Type: "harness",
+		},
+	})
+
+	require.NotNil(t, step.Commands)
+	require.Len(t, *step.Commands, 1)
+	assert.Equal(t, prompt, (*step.Commands)[0].Command)
+	assert.Nil(t, (*step.Commands)[0].Args)
+}
+
 func TestToDAGRunSummaryIncludesScheduleTime(t *testing.T) {
 	status := ir.DAGRunStatus{
 		Name:           "test-dag",
