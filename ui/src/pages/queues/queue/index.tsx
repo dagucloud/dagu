@@ -128,6 +128,8 @@ function QueueDetailsPage() {
   );
 
   const refreshToken = React.useMemo(() => queueRefreshToken(queue), [queue]);
+  const mayHaveQueuedItems =
+    (queue?.queuedCount ?? 0) > 0 || queue?.queuedCountCapped === true;
   const {
     items: queuedItems,
     error: queuedItemsError,
@@ -137,7 +139,7 @@ function QueueDetailsPage() {
     loadMore,
     reload,
   } = useQueuedItemsFeed({
-    enabled: Boolean(queue && (queue.queuedCount || 0) > 0),
+    enabled: mayHaveQueuedItems,
     queueName,
     refreshToken,
   });
@@ -439,7 +441,7 @@ function QueueDetailsPage() {
                     </div>
                   )}
                 </>
-              ) : queue && queue.queuedCount > 0 ? (
+              ) : mayHaveQueuedItems ? (
                 <div className="space-y-3 rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground">
                   <div>
                     No visible queued items were returned for this queue.
