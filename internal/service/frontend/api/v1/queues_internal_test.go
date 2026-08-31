@@ -222,6 +222,78 @@ func TestListQueueItemsUsesCursorPaginationAndSkipsRunningEntries(t *testing.T) 
 	assert.Nil(t, secondPage.NextCursor)
 }
 
+func TestListQueueItemsCapsScannedEntries(t *testing.T) {
+	// Not parallel: this test temporarily lowers the package-level scan cap.
+	originalCap := queueItemsScanCap
+	queueItemsScanCap = 3
+	t.Cleanup(func() { queueItemsScanCap = originalCap })
+
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	dagRunRepository := testutil.NewFileDAGRunRepository(filepath.Join(tmpDir, "dag-runs"), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
+	queueStore := store.NewQueueStore(file.NewCollection(filepath.Join(tmpDir, "queue")))
+	procRepository := newTestProcRepository(filepath.Join(tmpDir, "proc"))
+
+	for i := range 4 {
+		createQueuedQueueRun(t, ctx, dagRunRepository, queueStore, "scan-cap-q", fmt.Sprintf("running-run-%d", i), ir.Running)
+	}
+	for i := range 2 {
+		createQueuedQueueRun(t, ctx, dagRunRepository, queueStore, "scan-cap-q", fmt.Sprintf("queued-run-%d", i), ir.Queued)
+	}
+	for i := range 3 {
+		createQueuedQueueRun(t, ctx, dagRunRepository, queueStore, "exact-cap-q", fmt.Sprintf("running-run-%d", i), ir.Running)
+	}
+
+	a := &API{
+		dagRunRepository: dagRunRepository,
+		queueStore:       queueStore,
+		procRepository:   procRepository,
+		config:           &config.Config{},
+	}
+
+	firstResp, err := a.ListQueueItems(ctx, openapiv1.ListQueueItemsRequestObject{
+		Name: "scan-cap-q",
+		Params: openapiv1.ListQueueItemsParams{
+			Limit: queueListLimitPtr(2),
+		},
+	})
+	require.NoError(t, err)
+
+	firstPage, ok := firstResp.(openapiv1.ListQueueItems200JSONResponse)
+	require.True(t, ok)
+	assert.Empty(t, firstPage.Items)
+	require.NotNil(t, firstPage.NextCursor)
+
+	secondResp, err := a.ListQueueItems(ctx, openapiv1.ListQueueItemsRequestObject{
+		Name: "scan-cap-q",
+		Params: openapiv1.ListQueueItemsParams{
+			Limit:  queueListLimitPtr(2),
+			Cursor: firstPage.NextCursor,
+		},
+	})
+	require.NoError(t, err)
+
+	secondPage, ok := secondResp.(openapiv1.ListQueueItems200JSONResponse)
+	require.True(t, ok)
+	require.Len(t, secondPage.Items, 2)
+	assert.Equal(t, "queued-run-0", secondPage.Items[0].DagRunId)
+	assert.Equal(t, "queued-run-1", secondPage.Items[1].DagRunId)
+	assert.Nil(t, secondPage.NextCursor)
+
+	exactResp, err := a.ListQueueItems(ctx, openapiv1.ListQueueItemsRequestObject{
+		Name: "exact-cap-q",
+		Params: openapiv1.ListQueueItemsParams{
+			Limit: queueListLimitPtr(2),
+		},
+	})
+	require.NoError(t, err)
+
+	exactPage, ok := exactResp.(openapiv1.ListQueueItems200JSONResponse)
+	require.True(t, ok)
+	assert.Empty(t, exactPage.Items)
+	assert.Nil(t, exactPage.NextCursor)
+}
+
 func TestListQueuesReturnsDeterministicQueueOrder(t *testing.T) {
 	t.Parallel()
 

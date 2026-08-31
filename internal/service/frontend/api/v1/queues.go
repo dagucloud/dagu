@@ -27,6 +27,9 @@ const (
 	queueCursorScanBatch  = 64
 )
 
+// queueItemsScanCap bounds records scanned by one item-list request.
+var queueItemsScanCap = 500
+
 // queuedCountScanCap bounds how many queued items a single count may scan.
 // Counting is O(items) with a status read per item, so an uncapped scan on a
 // deep queue can take tens of seconds and stall both GET /queues and the queues
@@ -383,8 +386,9 @@ func (a *API) listVisibleQueuedItems(ctx context.Context, queueName string, limi
 
 	items := make([]api.DAGRunSummary, 0, limit)
 	currentCursor := cursor
-	for len(items) < limit {
-		batchSize := min(max(limit-len(items), 1), queueCursorScanBatch)
+	scanned := 0
+	for len(items) < limit && scanned < queueItemsScanCap {
+		batchSize := min(max(limit-len(items), 1), queueCursorScanBatch, queueItemsScanCap-scanned)
 		page, err := a.queueStore.ListCursor(ctx, queueName, currentCursor, batchSize)
 		if err != nil {
 			return nil, "", err
@@ -392,6 +396,7 @@ func (a *API) listVisibleQueuedItems(ctx context.Context, queueName string, limi
 		if len(page.Items) == 0 {
 			return items, "", nil
 		}
+		scanned += len(page.Items)
 
 		for _, queuedItem := range page.Items {
 			dagRunRef, err := queuedItem.Data()
