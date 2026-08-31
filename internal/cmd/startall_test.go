@@ -28,7 +28,7 @@ func TestStartAllCommand(t *testing.T) {
 	})
 	t.Run("StartAllWithConfig", func(t *testing.T) {
 		th := test.SetupCommand(t)
-		cancelWhenLogContains(t, th, "Coordinator initialization")
+		cancelWhenLogContains(t, th, "Scheduler initialization", "Coordinator initialization")
 		th.RunCommand(t, cmd.StartAll(), test.CmdTest{
 			Args: []string{
 				"start-all",
