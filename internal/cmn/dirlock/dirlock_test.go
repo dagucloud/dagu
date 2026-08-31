@@ -131,9 +131,8 @@ func TestTryLock(t *testing.T) {
 }
 
 func TestLock(t *testing.T) {
-	tmpDir := t.TempDir()
-
 	t.Run("AcquireImmediately", func(t *testing.T) {
+		tmpDir := t.TempDir()
 		lock := New(tmpDir, nil)
 
 		ctx := context.Background()
@@ -147,38 +146,33 @@ func TestLock(t *testing.T) {
 	})
 
 	t.Run("WaitForLock", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		waiting := make(chan struct{})
 		lock1 := New(tmpDir, &LockOptions{
 			RetryInterval: 10 * time.Millisecond,
 		})
 
 		lock2 := New(tmpDir, &LockOptions{
 			RetryInterval: 10 * time.Millisecond,
+			OnWait: func() {
+				close(waiting)
+			},
 		})
 
 		// First lock acquired
 		err := lock1.TryLock()
 		require.NoError(t, err)
 
-		// Start goroutine to release lock after delay
-		released := make(chan bool)
+		ctx := t.Context()
+
+		lockErr := make(chan error, 1)
 		go func() {
-			time.Sleep(30 * time.Millisecond)
-			_ = lock1.Unlock()
-			released <- true
+			lockErr <- lock2.Lock(ctx)
 		}()
 
-		// Second lock should wait and then acquire
-		ctx := context.Background()
-		err = lock2.Lock(ctx)
-		require.NoError(t, err)
-
-		// Verify the lock was released before we acquired it
-		select {
-		case <-released:
-			// Good, lock was released
-		case <-time.After(100 * time.Millisecond):
-			t.Fatal("Lock was not released in time")
-		}
+		<-waiting
+		require.NoError(t, lock1.Unlock())
+		require.NoError(t, <-lockErr)
 
 		// Cleanup
 		err = lock2.Unlock()
@@ -186,6 +180,7 @@ func TestLock(t *testing.T) {
 	})
 
 	t.Run("ContextCancellation", func(t *testing.T) {
+		tmpDir := t.TempDir()
 		lock1 := New(tmpDir, nil)
 		lock2 := New(tmpDir, nil)
 
@@ -193,13 +188,12 @@ func TestLock(t *testing.T) {
 		err := lock1.TryLock()
 		require.NoError(t, err)
 
-		// Try to acquire with context that gets cancelled
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
-		defer cancel()
+		// Try to acquire with a canceled context.
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
 
 		err = lock2.Lock(ctx)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "context deadline exceeded")
+		require.ErrorIs(t, err, context.Canceled)
 		require.False(t, lock2.IsHeldByMe())
 
 		// Cleanup
