@@ -454,6 +454,19 @@ function QueueDetailsPage() {
                       </Button>
                     </div>
                   )}
+                  {!queuedItemsError && hasMore && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleLoadMore}
+                      disabled={isLoadingMore}
+                    >
+                      {isLoadingMore && (
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                      )}
+                      {isLoadingMore ? 'Scanning...' : 'Continue scanning'}
+                    </Button>
+                  )}
                 </div>
               ) : (
                 <div className="rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground">

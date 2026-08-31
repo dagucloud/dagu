@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { components, QueueType } from '@/api/v1/schema';
@@ -74,6 +74,11 @@ describe('QueueDetailsPage', () => {
   });
 
   it('loads items when a capped lower-bound count is zero', async () => {
+    getMock.mockResolvedValueOnce({
+      data: { items: [], nextCursor: 'cursor-1' },
+      error: undefined,
+    });
+
     renderPage(cappedZeroQueue);
 
     await waitFor(() => {
@@ -90,6 +95,22 @@ describe('QueueDetailsPage', () => {
     expect(
       screen.queryByText('No queued items in this queue.')
     ).not.toBeInTheDocument();
+
+    expect(getMock).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Continue scanning' }));
+
+    await waitFor(() => {
+      expect(getMock).toHaveBeenCalledTimes(2);
+    });
+    expect(getMock).toHaveBeenNthCalledWith(
+      2,
+      '/queues/{name}/items',
+      expect.objectContaining({
+        params: expect.objectContaining({
+          query: expect.objectContaining({ cursor: 'cursor-1' }),
+        }),
+      })
+    );
   });
 
   it('does not load items when an exact count is zero', async () => {
