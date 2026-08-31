@@ -19,8 +19,8 @@ export function LanguageSelector({ compact = false }: { compact?: boolean }) {
         aria-label={t('language.select')}
         className={
           compact
-            ? 'h-7 w-7 border-transparent px-1 [&>svg:last-child]:hidden'
-            : 'h-7 w-full'
+            ? 'h-7 w-7 border-transparent px-1 py-1 [&>svg:last-child]:hidden'
+            : 'h-7 w-full py-1'
         }
       >
         <Languages className="h-4 w-4 shrink-0" />
