@@ -294,7 +294,7 @@ function Content({ navbarColor, children }: LayoutProps) {
               <button
                 ref={closeMenuButtonRef}
                 type="button"
-                aria-label="Close menu"
+                aria-label={t('navigation.closeMenu')}
                 onClick={closeMobileSidebar}
                 className="p-1.5 hover:bg-sidebar-hover rounded-md transition-colors"
               >

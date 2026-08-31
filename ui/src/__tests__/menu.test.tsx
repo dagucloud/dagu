@@ -8,6 +8,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { UserRole, ViewSpecType, ViewWorkspaceScope } from '@/api/v1/schema';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { ConfigContext, type Config } from '@/contexts/ConfigContext';
+import { UserPreferencesProvider } from '@/contexts/UserPreference';
+import { I18nProvider } from '@/i18n/I18nProvider';
 import { mainListItems as MainListItems } from '../menu';
 import { defaultWorkspaceSelection } from '@/lib/workspace';
 
@@ -20,7 +22,6 @@ const useCanManageWebhooksMock = vi.fn();
 const useCanManageProfilesMock = vi.fn();
 const useCanViewAuditLogsMock = vi.fn();
 const useHasFeatureMock = vi.fn();
-const updatePreferenceMock = vi.fn();
 const useViewsMock = vi.fn();
 
 vi.mock('@/contexts/AuthContext', () => ({
@@ -45,13 +46,6 @@ vi.mock('@/hooks/useLicense', () => ({
     community: false,
     source: 'test',
     warningCode: '',
-  }),
-}));
-
-vi.mock('../contexts/UserPreference', () => ({
-  useUserPreferences: () => ({
-    preferences: { theme: 'dark' },
-    updatePreference: updatePreferenceMock,
   }),
 }));
 
@@ -113,37 +107,43 @@ const config: Config = {
 function renderMenu(
   initialEntry = '/cockpit',
   configOverride: Partial<Config> = {},
-  appBarOverride: Partial<React.ContextType<typeof AppBarContext>> = {}
+  appBarOverride: Partial<React.ContextType<typeof AppBarContext>> = {},
+  isOpen = true
 ): void {
   render(
-    <MemoryRouter initialEntries={[initialEntry]}>
-      <ConfigContext.Provider value={{ ...config, ...configOverride }}>
-        <AppBarContext.Provider
-          value={{
-            title: '',
-            setTitle: vi.fn(),
-            remoteNodes: ['local'],
-            setRemoteNodes: vi.fn(),
-            selectedRemoteNode: 'local',
-            selectRemoteNode: vi.fn(),
-            workspaces: [],
-            workspaceError: null,
-            workspaceSelection: defaultWorkspaceSelection(),
-            selectWorkspace: vi.fn(),
-            createWorkspace: vi.fn(),
-            deleteWorkspace: vi.fn(),
-            ...appBarOverride,
-          }}
-        >
-          <MainListItems isOpen />
-        </AppBarContext.Provider>
-      </ConfigContext.Provider>
-    </MemoryRouter>
+    <UserPreferencesProvider>
+      <I18nProvider>
+        <MemoryRouter initialEntries={[initialEntry]}>
+          <ConfigContext.Provider value={{ ...config, ...configOverride }}>
+            <AppBarContext.Provider
+              value={{
+                title: '',
+                setTitle: vi.fn(),
+                remoteNodes: ['local'],
+                setRemoteNodes: vi.fn(),
+                selectedRemoteNode: 'local',
+                selectRemoteNode: vi.fn(),
+                workspaces: [],
+                workspaceError: null,
+                workspaceSelection: defaultWorkspaceSelection(),
+                selectWorkspace: vi.fn(),
+                createWorkspace: vi.fn(),
+                deleteWorkspace: vi.fn(),
+                ...appBarOverride,
+              }}
+            >
+              <MainListItems isOpen={isOpen} />
+            </AppBarContext.Provider>
+          </ConfigContext.Provider>
+        </MemoryRouter>
+      </I18nProvider>
+    </UserPreferencesProvider>
   );
 }
 
 beforeEach(() => {
   localStorage.clear();
+  document.documentElement.lang = 'en';
   useViewsMock.mockReset();
   useViewsMock.mockReturnValue({ views: [] });
   useAuthMock.mockReturnValue({
@@ -160,6 +160,57 @@ beforeEach(() => {
 });
 
 describe('sidebar menu', () => {
+  it('localizes shell controls without English wrappers', () => {
+    localStorage.setItem(
+      'user_preferences',
+      JSON.stringify({ locale: 'zh-CN' })
+    );
+    renderMenu(
+      '/cockpit',
+      {},
+      { remoteNodes: ['local', 'worker-a'], selectedRemoteNode: 'worker-a' }
+    );
+
+    expect(
+      screen.getByRole('combobox', { name: '远程节点' })
+    ).toHaveTextContent('worker-a');
+    expect(
+      screen.getByRole('button', { name: '收起侧边栏' })
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '集成' })).toHaveAttribute(
+      'href',
+      '/integrations'
+    );
+    expect(screen.getByRole('button', { name: '集成' })).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    );
+    expect(
+      screen.queryByRole('button', { name: /Toggle .* section/ })
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '配置与密钥' })).toHaveAttribute(
+      'href',
+      '/profiles'
+    );
+    expect(screen.getByRole('link', { name: '系统管理' })).toHaveAttribute(
+      'href',
+      '/administration'
+    );
+    expect(
+      screen.getByRole('button', { name: '深色模式' })
+    ).toBeInTheDocument();
+  });
+
+  it('keeps the compact language selector within its trigger', () => {
+    renderMenu('/cockpit', {}, {}, false);
+
+    const languageSelector = screen.getByRole('combobox', {
+      name: 'Language',
+    });
+    expect(languageSelector).toHaveClass('h-7', 'w-7');
+    expect(languageSelector.className).toContain('[&>svg:last-child]:hidden');
+  });
+
   it('hides the remote node selector when local is the only option', () => {
     renderMenu('/cockpit', {}, { remoteNodes: ['local'] });
 
@@ -195,7 +246,7 @@ describe('sidebar menu', () => {
       'page'
     );
     expect(
-      screen.queryByRole('button', { name: 'Toggle Overview section' })
+      screen.queryByRole('button', { name: 'Overview' })
     ).not.toBeInTheDocument();
     expect(
       screen.queryByRole('link', { name: 'Timeline' })
@@ -207,9 +258,10 @@ describe('sidebar menu', () => {
       'href',
       '/dags'
     );
-    expect(
-      screen.getByRole('button', { name: 'Toggle Workflows section' })
-    ).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: 'Workflows' })).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    );
     expect(
       screen.queryByRole('link', { name: 'Definitions' })
     ).not.toBeInTheDocument();
@@ -220,22 +272,24 @@ describe('sidebar menu', () => {
       'href',
       '/dag-runs'
     );
-    expect(
-      screen.getByRole('button', { name: 'Toggle Executions section' })
-    ).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: 'Executions' })).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    );
     expect(screen.getByRole('link', { name: 'Monitor' })).toHaveAttribute(
       'href',
       '/system-status'
     );
-    expect(
-      screen.getByRole('button', { name: 'Toggle Monitor section' })
-    ).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: 'Monitor' })).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    );
     expect(screen.getByRole('link', { name: 'Notifications' })).toHaveAttribute(
       'href',
       '/notifications'
     );
     expect(
-      screen.getByRole('button', { name: 'Toggle Notifications section' })
+      screen.getByRole('button', { name: 'Notifications' })
     ).toHaveAttribute('aria-expanded', 'false');
     expect(
       screen.queryByRole('link', { name: 'Rules' })
@@ -248,7 +302,7 @@ describe('sidebar menu', () => {
       '/integrations'
     );
     expect(
-      screen.getByRole('button', { name: 'Toggle Integrations section' })
+      screen.getByRole('button', { name: 'Integrations' })
     ).toHaveAttribute('aria-expanded', 'false');
     expect(
       screen.getByRole('link', { name: 'Profiles & Secrets' })
@@ -257,7 +311,7 @@ describe('sidebar menu', () => {
       screen.getByRole('link', { name: 'Administration' })
     ).toHaveAttribute('href', '/administration');
     expect(
-      screen.getByRole('button', { name: 'Toggle Administration section' })
+      screen.getByRole('button', { name: 'Administration' })
     ).toHaveAttribute('aria-expanded', 'false');
 
     expect(
@@ -272,15 +326,15 @@ describe('sidebar menu', () => {
     renderMenu();
 
     fireEvent.click(screen.getByRole('link', { name: 'Workflows' }));
-    expect(
-      screen.getByRole('button', { name: 'Toggle Workflows section' })
-    ).toHaveAttribute('aria-expanded', 'false');
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Toggle Workflows section' })
+    expect(screen.getByRole('button', { name: 'Workflows' })).toHaveAttribute(
+      'aria-expanded',
+      'false'
     );
-    expect(
-      screen.getByRole('button', { name: 'Toggle Workflows section' })
-    ).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(screen.getByRole('button', { name: 'Workflows' }));
+    expect(screen.getByRole('button', { name: 'Workflows' })).toHaveAttribute(
+      'aria-expanded',
+      'true'
+    );
     expect(screen.queryByRole('link', { name: 'Definitions' })).toBeNull();
     const submenuItems = [
       screen.getByRole('link', { name: 'Search' }),
@@ -304,9 +358,7 @@ describe('sidebar menu', () => {
     });
 
     renderMenu('/git-sync');
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Toggle Workflows section' })
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Workflows' }));
 
     expect(screen.getByRole('link', { name: 'Git Sync' })).toBeVisible();
   });
@@ -315,9 +367,7 @@ describe('sidebar menu', () => {
     useCanAccessGitSyncMock.mockReturnValue(false);
 
     renderMenu('/git-sync');
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Toggle Workflows section' })
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Workflows' }));
 
     expect(
       screen.queryByRole('link', { name: 'Git Sync' })
@@ -327,9 +377,7 @@ describe('sidebar menu', () => {
   it('expands the executions section', () => {
     renderMenu();
 
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Toggle Executions section' })
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Executions' }));
     expect(screen.queryByRole('link', { name: 'Runs' })).toBeNull();
     const queueLink = screen.getByRole('link', { name: 'Queues' });
     expect(queueLink).toBeVisible();
@@ -339,9 +387,7 @@ describe('sidebar menu', () => {
   it('expands the monitor section', () => {
     renderMenu();
 
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Toggle Monitor section' })
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Monitor' }));
     expect(
       screen.queryByRole('link', { name: 'System Status' })
     ).not.toBeInTheDocument();
@@ -358,9 +404,7 @@ describe('sidebar menu', () => {
   it('expands the notifications section', () => {
     renderMenu();
 
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Toggle Notifications section' })
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Notifications' }));
     const notificationSubmenuItems = [
       screen.getByRole('link', { name: 'Rules' }),
       screen.getByRole('link', { name: 'Channels' }),
@@ -381,9 +425,7 @@ describe('sidebar menu', () => {
   it('expands integration and administration nested sections', () => {
     renderMenu();
 
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Toggle Integrations section' })
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Integrations' }));
     const integrationSubmenuItems = [
       screen.getByRole('link', { name: 'Webhooks' }),
       screen.getByRole('link', { name: 'API Reference' }),
@@ -392,14 +434,12 @@ describe('sidebar menu', () => {
       expect(item).toBeVisible();
       expect(item.querySelector('svg')).toBeNull();
     }
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Toggle Administration section' })
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Administration' }));
     const accessSection = screen.getByRole('button', {
-      name: 'Access section',
+      name: 'Access',
     });
     const infrastructureSection = screen.getByRole('button', {
-      name: 'Infrastructure section',
+      name: 'Infrastructure',
     });
     expect(accessSection).toBeVisible();
     expect(
@@ -423,7 +463,7 @@ describe('sidebar menu', () => {
 
     // Overview stays a flat link, not an accordion.
     expect(
-      screen.queryByRole('button', { name: 'Toggle Overview section' })
+      screen.queryByRole('button', { name: 'Overview' })
     ).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Overview' })).toHaveAttribute(
       'href',
@@ -569,7 +609,7 @@ describe('sidebar menu', () => {
 
     expect(
       screen.getByRole('button', {
-        name: new RegExp(`toggle ${label} section`, 'i'),
+        name: new RegExp(`^${label}$`, 'i'),
       })
     ).toHaveAttribute('aria-expanded', 'false');
   });
@@ -583,15 +623,14 @@ describe('sidebar menu', () => {
 
     renderMenu('/administration');
 
-    fireEvent.click(
-      screen.getByRole('button', { name: /toggle administration section/i })
-    );
+    fireEvent.click(screen.getByRole('button', { name: /^administration$/i }));
 
+    expect(screen.getByRole('button', { name: /^access$/i })).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    );
     expect(
-      screen.getByRole('button', { name: /access section/i })
-    ).toHaveAttribute('aria-expanded', 'false');
-    expect(
-      screen.getByRole('button', { name: /infrastructure section/i })
+      screen.getByRole('button', { name: /^infrastructure$/i })
     ).toHaveAttribute('aria-expanded', 'false');
   });
 
@@ -600,18 +639,14 @@ describe('sidebar menu', () => {
 
     renderMenu();
 
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Toggle Monitor section' })
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Monitor' }));
     expect(screen.getByRole('link', { name: 'Audit Logs' })).toBeVisible();
     expect(
       screen.queryByRole('link', { name: 'Audit Logs (Pro)' })
     ).not.toBeInTheDocument();
 
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Toggle Administration section' })
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Access section' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Administration' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Access' }));
     expect(screen.getByRole('link', { name: 'Users' })).toBeVisible();
     expect(
       screen.queryByRole('link', { name: 'Users (Pro)' })

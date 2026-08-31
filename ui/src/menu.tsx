@@ -430,7 +430,7 @@ function NavGroup({
               onClick={() => setIsExpanded((prev) => !prev)}
               className="flex h-full w-8 flex-shrink-0 items-center justify-center focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring"
               aria-expanded={effectivelyExpanded}
-              aria-label={`Toggle ${label} section`}
+              aria-label={label}
             >
               <div style={chevronStyle}>
                 <ChevronDown size={14} />
@@ -444,7 +444,7 @@ function NavGroup({
             className={headerClassName}
             title={isOpen ? '' : label}
             aria-expanded={effectivelyExpanded}
-            aria-label={`${label} section`}
+            aria-label={label}
           >
             {activeIndicator}
             {labelNode}
@@ -535,7 +535,11 @@ export const mainListItems = React.forwardRef<
             'text-sidebar-foreground',
             sidebarItemClassName
           )}
-          aria-label={isOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+          aria-label={
+            isOpen
+              ? t('navigation.collapseSidebar')
+              : t('navigation.expandSidebar')
+          }
         >
           {/* Expand icon (character) - visible when collapsed */}
           <div
@@ -621,7 +625,7 @@ export const mainListItems = React.forwardRef<
                       onValueChange={selectRemoteNode}
                     >
                       <SelectTrigger
-                        aria-label="Remote node"
+                        aria-label={t('navigation.remoteNode')}
                         className={cn(
                           'h-9 text-xs text-sidebar-foreground rounded-md',
                           isOpen
@@ -866,7 +870,7 @@ export const mainListItems = React.forwardRef<
           <NavGroup
             groupKey="integrations"
             icon={<Webhook size={18} />}
-            label="Integrations"
+            label={t('navigation.integrations')}
             isOpen={isOpen}
             basePath={['/integrations', '/webhooks', '/api-docs']}
             to="/integrations"
@@ -876,7 +880,7 @@ export const mainListItems = React.forwardRef<
             {canManageWebhooks && (
               <NavItem
                 to="/webhooks"
-                text="Webhooks"
+                text={t('navigation.webhooks')}
                 isOpen={isOpen}
                 onClick={onNavItemClick}
                 customColor={customColor}
@@ -884,7 +888,7 @@ export const mainListItems = React.forwardRef<
             )}
             <NavItem
               to="/api-docs"
-              text="API Reference"
+              text={t('navigation.apiReference')}
               isOpen={isOpen}
               onClick={onNavItemClick}
               customColor={customColor}
@@ -894,7 +898,7 @@ export const mainListItems = React.forwardRef<
           {canManageProfiles && (
             <NavItem
               to="/profiles"
-              text="Profiles & Secrets"
+              text={t('navigation.profilesSecrets')}
               icon={<SlidersHorizontal size={18} />}
               isOpen={isOpen}
               onClick={onNavItemClick}
@@ -906,7 +910,7 @@ export const mainListItems = React.forwardRef<
             <NavGroup
               groupKey="administration"
               icon={<Shield size={18} />}
-              label="Administration"
+              label={t('navigation.administration')}
               isOpen={isOpen}
               basePath={[
                 '/users',
@@ -924,7 +928,7 @@ export const mainListItems = React.forwardRef<
               {config.authMode === 'builtin' && (
                 <NavGroup
                   groupKey="administration-access"
-                  label="Access"
+                  label={t('navigation.access')}
                   isOpen={isOpen}
                   basePath={['/users', '/api-keys']}
                   customColor={customColor}
@@ -932,14 +936,14 @@ export const mainListItems = React.forwardRef<
                 >
                   <NavItem
                     to="/users"
-                    text="Users"
+                    text={t('navigation.users')}
                     isOpen={isOpen}
                     onClick={onNavItemClick}
                     customColor={customColor}
                   />
                   <NavItem
                     to="/api-keys"
-                    text="API Keys"
+                    text={t('navigation.apiKeys')}
                     isOpen={isOpen}
                     onClick={onNavItemClick}
                     customColor={customColor}
@@ -949,7 +953,7 @@ export const mainListItems = React.forwardRef<
 
               <NavGroup
                 groupKey="administration-infrastructure"
-                label="Infrastructure"
+                label={t('navigation.infrastructure')}
                 isOpen={isOpen}
                 basePath={['/remote-nodes', '/terminal', '/license']}
                 customColor={customColor}
@@ -957,7 +961,7 @@ export const mainListItems = React.forwardRef<
               >
                 <NavItem
                   to="/remote-nodes"
-                  text="Remote Nodes"
+                  text={t('navigation.remoteNodes')}
                   isOpen={isOpen}
                   onClick={onNavItemClick}
                   customColor={customColor}
@@ -965,7 +969,7 @@ export const mainListItems = React.forwardRef<
                 {config.terminalEnabled && (
                   <NavItem
                     to="/terminal"
-                    text="Terminal"
+                    text={t('navigation.terminal')}
                     isOpen={isOpen}
                     onClick={onNavItemClick}
                     customColor={customColor}
@@ -973,7 +977,7 @@ export const mainListItems = React.forwardRef<
                 )}
                 <NavItem
                   to="/license"
-                  text="License"
+                  text={t('navigation.license')}
                   isOpen={isOpen}
                   onClick={onNavItemClick}
                   customColor={customColor}
@@ -995,7 +999,9 @@ export const mainListItems = React.forwardRef<
           <SidebarButton
             onClick={toggleTheme}
             icon={theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
-            label={theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+            label={
+              theme === 'dark' ? t('theme.lightMode') : t('theme.darkMode')
+            }
             isOpen={isOpen}
           />
           <LanguageSelector compact={!isOpen} />

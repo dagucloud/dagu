@@ -12,6 +12,8 @@ import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConfigContext, type Config } from '@/contexts/ConfigContext';
+import { UserPreferencesProvider } from '@/contexts/UserPreference';
+import { I18nProvider } from '@/i18n/I18nProvider';
 import Layout from '../Layout';
 
 vi.mock('@/components/LicenseBanner', () => ({
@@ -33,19 +35,24 @@ const config = {
 
 function renderLayout(path: string, configOverride?: Partial<Config>) {
   return render(
-    <MemoryRouter initialEntries={[path]}>
-      <ConfigContext.Provider value={{ ...config, ...configOverride }}>
-        <Layout>
-          <div>Page Content</div>
-        </Layout>
-      </ConfigContext.Provider>
-    </MemoryRouter>
+    <UserPreferencesProvider>
+      <I18nProvider>
+        <MemoryRouter initialEntries={[path]}>
+          <ConfigContext.Provider value={{ ...config, ...configOverride }}>
+            <Layout>
+              <div>Page Content</div>
+            </Layout>
+          </ConfigContext.Provider>
+        </MemoryRouter>
+      </I18nProvider>
+    </UserPreferencesProvider>
   );
 }
 
 describe('Layout', () => {
   beforeEach(() => {
     localStorage.clear();
+    document.documentElement.lang = 'en';
     Object.defineProperty(window, 'innerWidth', {
       configurable: true,
       value: 1024,
@@ -114,5 +121,21 @@ describe('Layout', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     await waitFor(() => expect(openButton).toHaveFocus());
+  });
+
+  it('localizes mobile navigation controls', () => {
+    localStorage.setItem(
+      'user_preferences',
+      JSON.stringify({ locale: 'zh-CN' })
+    );
+    renderLayout('/home');
+
+    fireEvent.click(screen.getByRole('button', { name: '打开菜单' }));
+
+    expect(
+      within(screen.getByRole('dialog')).getByRole('button', {
+        name: '关闭菜单',
+      })
+    ).toBeInTheDocument();
   });
 });

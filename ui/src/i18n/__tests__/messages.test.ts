@@ -11,6 +11,13 @@ describe('translations', () => {
     expect(translate('zh-CN', 'auth.signIn')).toBe('登录');
   });
 
+  it('translates the remaining application shell', () => {
+    expect(translate('zh-CN', 'navigation.integrations')).toBe('集成');
+    expect(translate('zh-CN', 'navigation.profilesSecrets')).toBe('配置与密钥');
+    expect(translate('zh-CN', 'navigation.administration')).toBe('系统管理');
+    expect(translate('zh-CN', 'theme.darkMode')).toBe('深色模式');
+  });
+
   it('keeps every Chinese catalog key aligned with English', () => {
     expect(Object.keys(messages['zh-CN']).sort()).toEqual(
       Object.keys(messages.en).sort()

@@ -17,7 +17,11 @@ export function LanguageSelector({ compact = false }: { compact?: boolean }) {
     >
       <SelectTrigger
         aria-label={t('language.select')}
-        className={compact ? 'h-9 w-9 border-transparent px-2' : 'h-7 w-full'}
+        className={
+          compact
+            ? 'h-7 w-7 border-transparent px-1 [&>svg:last-child]:hidden'
+            : 'h-7 w-full'
+        }
       >
         <Languages className="h-4 w-4 shrink-0" />
         {!compact && <SelectValue />}
