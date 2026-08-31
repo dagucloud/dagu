@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo } from 'react';
+import { createContext, useContext, useEffect, useMemo } from 'react';
 import { useUserPreferences, type Locale } from '@/contexts/UserPreference';
 import { translate, type TranslationKey } from './messages';
 
@@ -18,6 +18,11 @@ const I18nContext = createContext<I18nContextValue>(defaultI18nContext);
 
 export function I18nProvider({ children }: { children: React.ReactNode }) {
   const { preferences, updatePreference } = useUserPreferences();
+
+  useEffect(() => {
+    document.documentElement.lang = preferences.locale;
+  }, [preferences.locale]);
+
   const value = useMemo<I18nContextValue>(
     () => ({
       locale: preferences.locale,

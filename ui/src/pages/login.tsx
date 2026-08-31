@@ -5,6 +5,7 @@ import { useConfig } from '@/contexts/ConfigContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { LanguageSelector } from '@/components/LanguageSelector';
 import { setAuthSession } from '@/lib/authSession';
 import {
   AlertCircle,
@@ -101,6 +102,11 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-muted/50">
       <div className="w-full max-w-sm p-6 space-y-6">
+        <div className="flex justify-end">
+          <div className="w-48">
+            <LanguageSelector />
+          </div>
+        </div>
         <div className="text-center space-y-2">
           <h1 className="text-2xl font-bold">{config.title || 'Dagu'}</h1>
           <p className="text-sm text-muted-foreground">
@@ -182,7 +188,7 @@ export default function LoginPage() {
                   onClick={handleOIDCLogin}
                 >
                   <KeyRound className="h-4 w-4" />
-                    {config.oidcButtonLabel || t('auth.loginWithSso')}
+                  {config.oidcButtonLabel || t('auth.loginWithSso')}
                 </Button>
               )}
 

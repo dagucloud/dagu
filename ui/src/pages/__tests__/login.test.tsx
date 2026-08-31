@@ -1,11 +1,14 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ConfigContext, type Config } from '@/contexts/ConfigContext';
+import { UserPreferencesProvider } from '@/contexts/UserPreference';
+import { I18nProvider } from '@/i18n/I18nProvider';
 import LoginPage from '../login';
 
 vi.mock('@/contexts/AuthContext', () => ({
@@ -16,6 +19,12 @@ vi.mock('@/contexts/AuthContext', () => ({
     setupRequired: false,
   }),
 }));
+
+// Radix Select requires pointer-capture APIs missing from jsdom.
+Object.defineProperty(HTMLElement.prototype, 'hasPointerCapture', {
+  configurable: true,
+  value: () => false,
+});
 
 function makeConfig(overrides: Partial<Config> = {}): Config {
   return {
@@ -70,15 +79,24 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
 
 function renderLogin(config: Config) {
   render(
-    <MemoryRouter initialEntries={['/login']}>
-      <ConfigContext.Provider value={config}>
-        <LoginPage />
-      </ConfigContext.Provider>
-    </MemoryRouter>
+    <UserPreferencesProvider>
+      <I18nProvider>
+        <MemoryRouter initialEntries={['/login']}>
+          <ConfigContext.Provider value={config}>
+            <LoginPage />
+          </ConfigContext.Provider>
+        </MemoryRouter>
+      </I18nProvider>
+    </UserPreferencesProvider>
   );
 }
 
-describe('LoginPage proxy login', () => {
+describe('LoginPage', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    document.documentElement.lang = 'en';
+  });
+
   it('renders the configured explicit login link', () => {
     renderLogin(
       makeConfig({
@@ -97,5 +115,25 @@ describe('LoginPage proxy login', () => {
     renderLogin(makeConfig());
 
     expect(screen.queryByText('or')).not.toBeInTheDocument();
+  });
+
+  it('allows language selection before authentication', async () => {
+    const user = userEvent.setup();
+    renderLogin(makeConfig());
+
+    const languageSelector = screen.getByRole('combobox', {
+      name: 'Language',
+    });
+    expect(languageSelector).toHaveClass('h-7');
+    await user.click(languageSelector);
+    await user.click(
+      await screen.findByRole('option', { name: 'Chinese (Simplified)' })
+    );
+
+    expect(screen.getByRole('button', { name: '登录' })).toBeInTheDocument();
+    expect(
+      JSON.parse(localStorage.getItem('user_preferences') ?? '{}')
+    ).toEqual(expect.objectContaining({ locale: 'zh-CN' }));
+    await waitFor(() => expect(document.documentElement.lang).toBe('zh-CN'));
   });
 });
