@@ -100,6 +100,15 @@ func TestDAGChangeAuditMetadata(t *testing.T) {
 				Name: "old",
 			},
 		},
+		{
+			name: "set profile",
+			input: changeInput{
+				Mode:    changeModeApply,
+				Type:    changeTypeSetDAGProfile,
+				Name:    "old",
+				Profile: "fudosan",
+			},
+		},
 	}
 
 	for _, test := range tests {
@@ -111,6 +120,9 @@ func TestDAGChangeAuditMetadata(t *testing.T) {
 			require.Equal(t, test.input.Name, metadata.Attributes["dag_name"])
 			if test.wantNew != "" {
 				require.Equal(t, test.wantNew, metadata.Attributes["new_dag_name"])
+			}
+			if test.input.Profile != "" {
+				require.Equal(t, test.input.Profile, metadata.Attributes["profile"])
 			}
 		})
 	}

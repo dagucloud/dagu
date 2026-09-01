@@ -263,6 +263,11 @@ func changeAuditMetadata(input changeInput) toolAuditMetadata {
 		attributes["new_dag_name"] = input.NewName
 	case changeTypeDeleteDAG:
 		attributes["dag_name"] = input.Name
+	case changeTypeSetDAGProfile, changeTypeClearDAGProfile:
+		attributes["dag_name"] = input.Name
+		if input.Profile != "" {
+			attributes["profile"] = input.Profile
+		}
 	default:
 		resourceType = "doc"
 		resourceID = input.Path

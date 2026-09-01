@@ -13,7 +13,7 @@ import (
 const instructions = `Dagu exposes a compact MCP surface for DAG workflow operations.
 
 Use dagu_read for current state, Wiki pages, and trusted reference resources.
-Use dagu_change with mode=preview before mode=apply when editing DAG YAML or Wiki pages.
+Use dagu_change with mode=preview before mode=apply when editing DAG YAML, DAG default profiles, or Wiki pages.
 Use dagu_execute for start, enqueue, retry, and stop. retry and stop are actions inside dagu_execute.
 MCP Apps hosts can render run-related dagu_read and dagu_execute results in Dagu's interactive run inspector.
 To follow a run to completion, pass wait=true to dagu_execute, or read the returned dagu://runs/... resource, or subscribe to it to receive a resource update notification when the run reaches a terminal state.`
@@ -52,6 +52,8 @@ Authoring rules:
 - Use shell $NAME only when the target shell or process should read the variable at execution time.
 - Single-line run values are shell commands. Array-form run entries run one by one. Multi-line run values are scripts.
 - Dagu does not split shell syntax such as pipes, redirects, &&, or ; into separate Dagu commands.
+- DAG YAML does not contain the server-side default runtime profile. A schedule profile is an activation filter: the schedule runs only when it matches the DAG's effective default profile. Read it with dagu_read target=dag_profile. Set or clear it with dagu_change type=set_dag_profile or clear_dag_profile.
+- A DAG profile change is visible to the scheduler on its next minute tick. Time spent under a non-matching profile is not scheduler downtime, so catch-up does not replay those schedule slots.
 - Declared value outputs use a step-level outputs field and write records to DAGU_OUTPUT_FILE. Later steps read them as ${steps.step_id.outputs.name}.
 - type: build is for local workflows that transform stable regular-file inputs into reusable file outputs.
 - A build path step declares named inputs entries with path and at most one outputs entry with path. Only host command or shell steps without containers may declare build paths. Matching canonical producer-output and consumer-input paths infer dependencies, and each output path must have one producer.
@@ -80,14 +82,14 @@ Authoring rules:
 
 The server intentionally exposes three tools.
 
-- dagu_read: read DAGs, DAG specs, Wiki pages, DAG-runs, logs, list views, and reference resources.
-- dagu_change: preview or apply DAG YAML and workspace-aware Wiki changes.
+- dagu_read: read DAGs, DAG specs, DAG default profiles, Wiki pages, DAG-runs, logs, list views, and reference resources.
+- dagu_change: preview or apply DAG YAML, DAG default profile, and workspace-aware Wiki changes.
 - dagu_execute: start, enqueue, retry, or stop a DAG-run.
 
 Detailed tool references:
 
 - dagu://reference/read-tool: dagu_read inputs, targets, URI mode, query parameters, outputs, and errors.
-- dagu://reference/change-tool: dagu_change preview and apply contract for DAG YAML and Wiki changes.
+- dagu://reference/change-tool: dagu_change preview and apply contract for DAG YAML, DAG profiles, and Wiki changes.
 - dagu://reference/execute-tool: dagu_execute start, enqueue, retry, and stop contract.
 - dagu://reference/apps: interactive run inspector behavior for MCP Apps hosts.
 
@@ -124,8 +126,8 @@ Addressing:
 
 Fields:
 
-- target: required in target mode. Values are references, reference, dags, dag, dag_spec, dag_search, wiki, wiki_page, wiki_search, runs, run, run_logs, and step_log.
-- name: DAG name or reference topic name. Required for dag, dag_spec, run, run_logs, and step_log. Optional for reference; defaults to authoring. Forbidden for references, dags, and runs.
+- target: required in target mode. Values are references, reference, dags, dag, dag_spec, dag_profile, dag_search, wiki, wiki_page, wiki_search, runs, run, run_logs, and step_log.
+- name: DAG name or reference topic name. Required for dag, dag_spec, dag_profile, run, run_logs, and step_log. Optional for reference; defaults to authoring. Forbidden for references, dags, and runs.
 - dagRunId: required for run, run_logs, and step_log. Forbidden for other targets.
 - subRunId: optional child DAG-run ID for run and step_log. The name and dagRunId fields identify its root run.
 - stepName: required for step_log. Forbidden for other targets.
@@ -145,6 +147,7 @@ Targets:
 - dags lists DAGs.
 - dag reads DAG details.
 - dag_spec reads the current DAG YAML.
+- dag_profile reads the DAG's configured profile, effective profile, and source. The source is dag, workspace, or none.
 - dag_search searches DAG definition content and returns matching DAGs with line-level snippets. Continue with nextCursor while keeping search and workspace unchanged.
 - wiki lists the Wiki tree or a flat page list. In tree mode, page and perPage select direct children of the workspace or prefix, and each returned directory includes its descendants. In flat mode, they select individual pages.
 - wiki_page reads one Markdown Wiki page.
@@ -189,15 +192,16 @@ Errors:
 			description: "Detailed dagu_change input, output, and error reference.",
 			text: `# dagu_change reference
 
-Purpose: validate or apply DAG definition and Markdown Wiki changes.
+Purpose: validate or apply DAG definition, DAG default profile, and Markdown Wiki changes.
 
 Fields:
 
 - mode: preview or apply. Defaults to preview.
-- type: upsert_dag, rename_dag, delete_dag, upsert_wiki_page, rename_wiki_page, or delete_wiki_page. Defaults to upsert_dag.
+- type: upsert_dag, rename_dag, delete_dag, set_dag_profile, clear_dag_profile, upsert_wiki_page, rename_wiki_page, or delete_wiki_page. Defaults to upsert_dag.
 - name: DAG name. Required for DAG changes.
 - spec: complete DAG YAML. Required for upsert_dag.
 - newName: destination DAG name. Required for rename_dag.
+- profile: selectable runtime profile name. Required for set_dag_profile and forbidden for clear_dag_profile.
 - workspace: default or a named workspace. Required for Wiki changes; all is not allowed.
 - path: Wiki page or directory path without .md. Required for Wiki changes.
 - content: full Markdown content. Required for upsert_wiki_page; empty content is allowed.
@@ -207,6 +211,7 @@ Mode behavior:
 
 - preview validates the requested operation and reads the required current state without writing.
 - apply repeats validation and performs the requested operation through Dagu's API; Wiki operations remain workspace-aware.
+- set_dag_profile and clear_dag_profile change server-side DAG settings, not YAML. The scheduler reads the change on its next minute tick.
 - rename_dag changes the stored DAG identifier without rewriting the YAML name or historical runs.
 - delete_dag removes the DAG definition using Dagu's existing deletion behavior.
 - upsert_wiki_page creates a missing page or updates an existing page.
@@ -215,7 +220,8 @@ Mode behavior:
 Output:
 
 - Successful result text describes the previewed or applied change.
-- DAG output has dagName, valid, applied, and dagUri while the target exists. Upsert output also has errors; rename output has newDagName and newDagUri, and omits the stale source dagUri after apply.
+- DAG output has dagName, valid, and applied. Definition changes include dagUri while the target exists. Profile changes include profile, which is null when clearing.
+- A valid upsert with profile-scoped schedules includes warning code profile_scoped_schedule_requires_default and the sorted profile names. Set a matching effective default with set_dag_profile when the schedule should be active.
 - Wiki output has workspace, path, valid, applied, and wikiPageUri when the target is a page. docUri remains as a compatibility alias.
 
 Errors:

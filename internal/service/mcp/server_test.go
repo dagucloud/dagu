@@ -16,9 +16,13 @@ import (
 
 	daguapi "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/dagsettings"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
+	persiststore "github.com/dagucloud/dagu/v2/internal/persis/store"
+	persisttestutil "github.com/dagucloud/dagu/v2/internal/persis/testutil"
+	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	frontendapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
@@ -141,6 +145,34 @@ func TestDAGChangeInputValidation(t *testing.T) {
 			input: `{"type":"delete_dag","name":"old"}`,
 		},
 		{
+			name:  "set profile",
+			input: `{"type":"set_dag_profile","name":"old","profile":"fudosan"}`,
+		},
+		{
+			name:  "clear profile",
+			input: `{"type":"clear_dag_profile","name":"old"}`,
+		},
+		{
+			name:      "set profile requires profile",
+			input:     `{"type":"set_dag_profile","name":"old"}`,
+			wantField: changeFieldProfile,
+		},
+		{
+			name:      "set profile rejects blank profile",
+			input:     `{"type":"set_dag_profile","name":"old","profile":" "}`,
+			wantField: changeFieldProfile,
+		},
+		{
+			name:      "clear profile rejects profile",
+			input:     `{"type":"clear_dag_profile","name":"old","profile":"fudosan"}`,
+			wantField: changeFieldProfile,
+		},
+		{
+			name:      "set profile rejects spec",
+			input:     `{"type":"set_dag_profile","name":"old","profile":"fudosan","spec":"steps: []"}`,
+			wantField: changeFieldSpec,
+		},
+		{
 			name:      "rename requires destination",
 			input:     `{"type":"rename_dag","name":"old"}`,
 			wantField: changeFieldNewName,
@@ -180,6 +212,178 @@ func TestDAGChangeInputValidation(t *testing.T) {
 			require.Equal(t, test.wantField, changeErr.Field)
 		})
 	}
+}
+
+func TestDAGProfileChanges(t *testing.T) {
+	ctx := context.Background()
+	dagStore := testutil.NewFileDAGRepository(t.TempDir(), filedag.WithSkipExamples(true))
+	require.NoError(t, dagStore.Create(ctx, "profile-dag", []byte("name: profile-dag\nsteps: []\n")))
+	backend := persisttestutil.NewMemoryBackend()
+	settingsStore, err := persiststore.NewDAGSettingsStore(backend.Collection(persis.CollectionDAGSettings))
+	require.NoError(t, err)
+	profileStore, err := persiststore.NewProfileStore(backend.Collection(persis.CollectionProfiles))
+	require.NoError(t, err)
+	runtimeProfile, err := profile.New(profile.CreateInput{Name: "fudosan"}, time.Now())
+	require.NoError(t, err)
+	require.NoError(t, profileStore.Create(ctx, runtimeProfile))
+
+	api := frontendapi.New(
+		dagStore,
+		nil,
+		nil,
+		nil,
+		runtime.Manager{},
+		&config.Config{},
+		nil,
+		nil,
+		prometheus.NewRegistry(),
+		nil,
+		frontendapi.WithDAGSettingsStore(settingsStore),
+		frontendapi.WithProfileStore(profileStore),
+	)
+	session := connectTestClient(t, ctx, NewServer(api))
+	missing := callTool(t, ctx, session, toolChange, changeInput{
+		Type:    changeTypeSetDAGProfile,
+		Name:    "profile-dag",
+		Profile: "missing",
+	})
+	require.True(t, missing.IsError)
+	require.Equal(t, changeErrorResourceNotFound, structuredMap(t, missing)["code"])
+
+	set := changeInput{
+		Type:    changeTypeSetDAGProfile,
+		Name:    "profile-dag",
+		Profile: "fudosan",
+	}
+	preview := callTool(t, ctx, session, toolChange, set)
+	require.False(t, preview.IsError)
+	require.Equal(t, false, structuredMap(t, preview)["applied"])
+	_, err = settingsStore.Get(ctx, set.Name)
+	require.ErrorIs(t, err, dagsettings.ErrNotFound)
+
+	set.Mode = changeModeApply
+	applied := callTool(t, ctx, session, toolChange, set)
+	require.False(t, applied.IsError)
+	require.Equal(t, true, structuredMap(t, applied)["applied"])
+	settings, err := settingsStore.Get(ctx, set.Name)
+	require.NoError(t, err)
+	require.Equal(t, set.Profile, settings.Profile)
+
+	read := callTool(t, ctx, session, toolRead, readInput{Target: readTargetDAGProfile, Name: set.Name})
+	require.False(t, read.IsError)
+	data, ok := structuredMap(t, read)["data"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, map[string]any{
+		"dagName":           set.Name,
+		"configuredProfile": set.Profile,
+		"effectiveProfile":  set.Profile,
+		"source":            "dag",
+	}, data)
+
+	clear := changeInput{Type: changeTypeClearDAGProfile, Name: set.Name}
+	preview = callTool(t, ctx, session, toolChange, clear)
+	require.False(t, preview.IsError)
+	settings, err = settingsStore.Get(ctx, set.Name)
+	require.NoError(t, err)
+	require.Equal(t, set.Profile, settings.Profile)
+
+	clear.Mode = changeModeApply
+	applied = callTool(t, ctx, session, toolChange, clear)
+	require.False(t, applied.IsError)
+	_, err = settingsStore.Get(ctx, set.Name)
+	require.ErrorIs(t, err, dagsettings.ErrNotFound)
+
+	read = callTool(t, ctx, session, toolRead, readInput{Target: readTargetDAGProfile, Name: set.Name})
+	require.False(t, read.IsError)
+	data, ok = structuredMap(t, read)["data"].(map[string]any)
+	require.True(t, ok)
+	require.Nil(t, data["configuredProfile"])
+	require.Nil(t, data["effectiveProfile"])
+	require.Equal(t, "none", data["source"])
+}
+
+func TestReadDAGProfileUsesWorkspaceDefault(t *testing.T) {
+	ctx := context.Background()
+	dagStore := testutil.NewFileDAGRepository(t.TempDir(), filedag.WithSkipExamples(true))
+	require.NoError(t, dagStore.Create(ctx, "workspace-dag", []byte("name: workspace-dag\nlabels: [workspace=ops]\nsteps: []\n")))
+	backend := persisttestutil.NewMemoryBackend()
+	settingsStore, err := persiststore.NewDAGSettingsStore(backend.Collection(persis.CollectionDAGSettings))
+	require.NoError(t, err)
+	profileStore, err := persiststore.NewProfileStore(backend.Collection(persis.CollectionProfiles))
+	require.NoError(t, err)
+	runtimeProfile, err := profile.New(profile.CreateInput{Name: "fudosan"}, time.Now())
+	require.NoError(t, err)
+	require.NoError(t, profileStore.Create(ctx, runtimeProfile))
+	ref, err := profile.WorkspaceInheritedRef("ops")
+	require.NoError(t, err)
+	defaults, err := profile.NewInherited(ref, profile.InheritedCreateInput{}, time.Now())
+	require.NoError(t, err)
+	defaults.DefaultProfile = runtimeProfile.Name
+	require.NoError(t, profileStore.Create(ctx, defaults))
+
+	api := frontendapi.New(
+		dagStore,
+		nil,
+		nil,
+		nil,
+		runtime.Manager{},
+		&config.Config{},
+		nil,
+		nil,
+		prometheus.NewRegistry(),
+		nil,
+		frontendapi.WithDAGSettingsStore(settingsStore),
+		frontendapi.WithProfileStore(profileStore),
+	)
+	session := connectTestClient(t, ctx, NewServer(api))
+
+	result := callTool(t, ctx, session, toolRead, readInput{Target: readTargetDAGProfile, Name: "workspace-dag"})
+	require.False(t, result.IsError)
+	data, ok := structuredMap(t, result)["data"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "workspace-dag", data["dagName"])
+	require.Nil(t, data["configuredProfile"])
+	require.Equal(t, "fudosan", data["effectiveProfile"])
+	require.Equal(t, "workspace", data["source"])
+}
+
+func TestProfileScopedScheduleWarning(t *testing.T) {
+	ctx := context.Background()
+	dagStore := testutil.NewFileDAGRepository(t.TempDir(), filedag.WithSkipExamples(true))
+	api := frontendapi.New(dagStore, nil, nil, nil, runtime.Manager{}, &config.Config{}, nil, nil, prometheus.NewRegistry(), nil)
+	session := connectTestClient(t, ctx, NewServer(api))
+
+	result := callTool(t, ctx, session, toolChange, changeInput{
+		Type: changeTypeUpsertDAG,
+		Name: "scheduled-dag",
+		Spec: `name: scheduled-dag
+schedule:
+  - expression: "0 * * * *"
+    profile: zeta
+  - expression: "30 * * * *"
+    profile: alpha
+  - expression: "45 * * * *"
+    profile: zeta
+steps:
+  - run: echo ok
+`,
+	})
+	require.False(t, result.IsError)
+	warnings, ok := structuredMap(t, result)["warnings"].([]any)
+	require.True(t, ok)
+	require.Equal(t, []any{map[string]any{
+		"code":     "profile_scoped_schedule_requires_default",
+		"profiles": []any{"alpha", "zeta"},
+		"message":  "Profile-scoped schedules require a matching effective DAG default profile.",
+	}}, warnings)
+
+	result = callTool(t, ctx, session, toolChange, changeInput{
+		Type: changeTypeUpsertDAG,
+		Name: "scheduled-dag",
+		Spec: "name: scheduled-dag\nschedule: [\"0 * * * *\"]\nsteps:\n  - run: echo ok\n",
+	})
+	require.False(t, result.IsError)
+	require.NotContains(t, structuredMap(t, result), "warnings")
 }
 
 func TestRetryRequiresStepNameForIncludeDownstream(t *testing.T) {
@@ -514,6 +718,8 @@ func TestServerExposesReferenceResourcesAndPrompts(t *testing.T) {
 	require.Contains(t, authoring.Contents[0].Text, "type: build")
 	require.Contains(t, authoring.Contents[0].Text, "${outputs.name}")
 	require.Contains(t, authoring.Contents[0].Text, "Build workflows are local-only")
+	require.Contains(t, authoring.Contents[0].Text, "schedule profile is an activation filter")
+	require.Contains(t, authoring.Contents[0].Text, "target=dag_profile")
 
 	prompts, err := session.ListPrompts(ctx, nil)
 	require.NoError(t, err)

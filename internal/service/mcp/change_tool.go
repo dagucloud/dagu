@@ -7,10 +7,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"sort"
 	"strings"
 
+	daguapi "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	frontendapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
@@ -22,12 +24,14 @@ const (
 	changeModePreview = "preview"
 	changeModeApply   = "apply"
 
-	changeTypeUpsertDAG      = "upsert_dag"
-	changeTypeRenameDAG      = "rename_dag"
-	changeTypeDeleteDAG      = "delete_dag"
-	changeTypeUpsertWikiPage = "upsert_wiki_page"
-	changeTypeRenameWikiPage = "rename_wiki_page"
-	changeTypeDeleteWikiPage = "delete_wiki_page"
+	changeTypeUpsertDAG       = "upsert_dag"
+	changeTypeRenameDAG       = "rename_dag"
+	changeTypeDeleteDAG       = "delete_dag"
+	changeTypeSetDAGProfile   = "set_dag_profile"
+	changeTypeClearDAGProfile = "clear_dag_profile"
+	changeTypeUpsertWikiPage  = "upsert_wiki_page"
+	changeTypeRenameWikiPage  = "rename_wiki_page"
+	changeTypeDeleteWikiPage  = "delete_wiki_page"
 
 	legacyChangeTypeUpsertDoc = "upsert_doc"
 	legacyChangeTypeRenameDoc = "rename_doc"
@@ -47,6 +51,7 @@ const (
 	changeFieldName                  = "name"
 	changeFieldNewName               = "newName"
 	changeFieldSpec                  = "spec"
+	changeFieldProfile               = "profile"
 	changeFieldWorkspace             = "workspace"
 	changeFieldPath                  = "path"
 	changeFieldContent               = "content"
@@ -82,7 +87,7 @@ func changeToolInputSchema() json.RawMessage {
 			},
 			"type": {
 				"type": "string",
-				"enum": ["upsert_dag", "rename_dag", "delete_dag", "upsert_wiki_page", "rename_wiki_page", "delete_wiki_page"],
+				"enum": ["upsert_dag", "rename_dag", "delete_dag", "set_dag_profile", "clear_dag_profile", "upsert_wiki_page", "rename_wiki_page", "delete_wiki_page"],
 				"description": "Change type. Defaults to upsert_dag."
 			},
 			"name": {
@@ -96,6 +101,10 @@ func changeToolInputSchema() json.RawMessage {
 			"newName": {
 				"type": "string",
 				"description": "Destination DAG name for rename_dag."
+			},
+			"profile": {
+				"type": "string",
+				"description": "Runtime profile name for set_dag_profile."
 			},
 			"workspace": {
 				"type": "string",
@@ -125,6 +134,14 @@ func changeToolInputSchema() json.RawMessage {
 			},
 			{
 				"properties": {"type": {"enum": ["delete_dag"]}},
+				"required": ["type", "name"]
+			},
+			{
+				"properties": {"type": {"enum": ["set_dag_profile"]}},
+				"required": ["type", "name", "profile"]
+			},
+			{
+				"properties": {"type": {"enum": ["clear_dag_profile"]}},
 				"required": ["type", "name"]
 			},
 			{
@@ -180,6 +197,8 @@ func (svc *Service) changeToolImpl(ctx context.Context, input changeInput) (*mcp
 		return svc.changeRenameDAG(ctx, input)
 	case changeTypeDeleteDAG:
 		return svc.changeDeleteDAG(ctx, input)
+	case changeTypeSetDAGProfile, changeTypeClearDAGProfile:
+		return svc.changeDAGProfile(ctx, input)
 	case changeTypeUpsertWikiPage:
 		return svc.changeUpsertWikiPage(ctx, input)
 	case changeTypeRenameWikiPage:
@@ -212,6 +231,9 @@ func (svc *Service) changeDAG(ctx context.Context, input changeInput) (*mcpsdk.C
 	}
 	if validation.Valid && validation.Dag != nil {
 		output["dag"] = validation.Dag
+		if warnings := profileScheduleWarnings(validation.Dag.Schedule); len(warnings) > 0 {
+			output["warnings"] = warnings
+		}
 	}
 
 	if !validation.Valid {
@@ -230,6 +252,90 @@ func (svc *Service) changeDAG(ctx context.Context, input changeInput) (*mcpsdk.C
 	output["updated"] = !created
 
 	return resultWithLinks("DAG change applied.", linkForDAGSpec(input.Name)), output, nil
+}
+
+func (svc *Service) changeDAGProfile(ctx context.Context, input changeInput) (*mcpsdk.CallToolResult, map[string]any, error) {
+	profileName := input.Profile
+	if canonicalChangeType(input.Type) == changeTypeClearDAGProfile {
+		profileName = ""
+	}
+	output := map[string]any{
+		"mode":       input.Mode,
+		"type":       input.Type,
+		"dagName":    input.Name,
+		"profile":    nullableString(profileName),
+		"valid":      true,
+		"applied":    false,
+		"references": defaultReferenceURIs(),
+	}
+	if input.Mode == changeModePreview {
+		resolved, err := svc.api.ValidateDAGProfileUpdate(ctx, input.Name, profileName)
+		if err != nil {
+			return nil, nil, err
+		}
+		output["profile"] = nullableString(resolved)
+		return resultWithLinks("DAG profile change is valid. Re-run with mode=apply to write it."), output, nil
+	}
+
+	if profileName == "" {
+		resp, err := svc.api.DeleteDAGSettings(ctx, daguapi.DeleteDAGSettingsRequestObject{
+			FileName: daguapi.DAGFileName(input.Name),
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		if _, ok := resp.(daguapi.DeleteDAGSettings204Response); !ok {
+			return nil, nil, fmt.Errorf("unexpected delete DAG settings response %T", resp)
+		}
+	} else {
+		profile := daguapi.RuntimeProfileName(profileName)
+		resp, err := svc.api.UpdateDAGSettings(ctx, daguapi.UpdateDAGSettingsRequestObject{
+			FileName: daguapi.DAGFileName(input.Name),
+			Body:     &daguapi.UpdateDAGSettingsJSONRequestBody{Profile: &profile},
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		switch resp.(type) {
+		case daguapi.UpdateDAGSettings200JSONResponse, *daguapi.UpdateDAGSettings200JSONResponse:
+		default:
+			return nil, nil, fmt.Errorf("unexpected update DAG settings response %T", resp)
+		}
+	}
+	output["applied"] = true
+	return resultWithLinks("DAG profile change applied. The scheduler will use it on its next minute tick."), output, nil
+}
+
+func profileScheduleWarnings(schedule *[]daguapi.Schedule) []map[string]any {
+	if schedule == nil {
+		return nil
+	}
+	profiles := make(map[string]struct{})
+	for _, entry := range *schedule {
+		if entry.Profile != nil && *entry.Profile != "" {
+			profiles[string(*entry.Profile)] = struct{}{}
+		}
+	}
+	if len(profiles) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(profiles))
+	for name := range profiles {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return []map[string]any{{
+		"code":     "profile_scoped_schedule_requires_default",
+		"profiles": names,
+		"message":  "Profile-scoped schedules require a matching effective DAG default profile.",
+	}}
+}
+
+func nullableString(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
 }
 
 func (svc *Service) changeRenameDAG(ctx context.Context, input changeInput) (*mcpsdk.CallToolResult, map[string]any, error) {
@@ -461,6 +567,8 @@ func parseChangeToolInput(raw json.RawMessage) (changeInput, *changeToolError) {
 			input.NewName = strings.TrimSpace(text)
 		case changeFieldSpec:
 			input.Spec = text
+		case changeFieldProfile:
+			input.Profile = strings.TrimSpace(text)
 		case changeFieldWorkspace:
 			input.Workspace = strings.TrimSpace(text)
 		case changeFieldPath:
@@ -502,6 +610,7 @@ func isChangeInputField(field string) bool {
 		changeFieldName,
 		changeFieldNewName,
 		changeFieldSpec,
+		changeFieldProfile,
 		changeFieldWorkspace,
 		changeFieldPath,
 		changeFieldContent,
@@ -517,6 +626,8 @@ func isSupportedChangeType(changeType string) bool {
 	case changeTypeUpsertDAG,
 		changeTypeRenameDAG,
 		changeTypeDeleteDAG,
+		changeTypeSetDAGProfile,
+		changeTypeClearDAGProfile,
 		changeTypeUpsertWikiPage,
 		changeTypeRenameWikiPage,
 		changeTypeDeleteWikiPage:
@@ -556,6 +667,13 @@ func validateChangeInput(input changeInput, fields map[string]json.RawMessage) *
 		allowed[changeFieldNewName] = true
 		required = []string{changeFieldName, changeFieldNewName}
 	case changeTypeDeleteDAG:
+		allowed[changeFieldName] = true
+		required = []string{changeFieldName}
+	case changeTypeSetDAGProfile:
+		allowed[changeFieldName] = true
+		allowed[changeFieldProfile] = true
+		required = []string{changeFieldName, changeFieldProfile}
+	case changeTypeClearDAGProfile:
 		allowed[changeFieldName] = true
 		required = []string{changeFieldName}
 	case changeTypeUpsertWikiPage:
@@ -600,7 +718,7 @@ func validateChangeInput(input changeInput, fields map[string]json.RawMessage) *
 		if strings.TrimSpace(input.Spec) == "" {
 			return changeInputError(input, "The spec field is required.", changeFieldSpec)
 		}
-	case changeTypeRenameDAG, changeTypeDeleteDAG:
+	case changeTypeRenameDAG, changeTypeDeleteDAG, changeTypeSetDAGProfile, changeTypeClearDAGProfile:
 		if input.Name == "" {
 			return changeInputError(input, "The name field is required.", changeFieldName)
 		}
@@ -617,6 +735,9 @@ func validateChangeInput(input changeInput, fields map[string]json.RawMessage) *
 			if input.Name == input.NewName {
 				return changeInputError(input, "The newName field must differ from name.", changeFieldNewName)
 			}
+		}
+		if changeType == changeTypeSetDAGProfile && input.Profile == "" {
+			return changeInputError(input, "The profile field is required.", changeFieldProfile)
 		}
 	default:
 		if input.Workspace == "" {

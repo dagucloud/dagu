@@ -28,6 +28,7 @@ const (
 	readTargetDAGs       = "dags"
 	readTargetDAG        = "dag"
 	readTargetDAGSpec    = "dag_spec"
+	readTargetDAGProfile = "dag_profile"
 	readTargetDAGSearch  = "dag_search"
 	readTargetWiki       = "wiki"
 	readTargetWikiPage   = "wiki_page"
@@ -75,8 +76,8 @@ const (
 )
 
 type readInput struct {
-	Target    string `json:"target" jsonschema:"Read target: dags, dag, dag_spec, dag_search, wiki, wiki_page, wiki_search, runs, run, run_logs, step_log, or reference."`
-	Name      string `json:"name,omitempty" jsonschema:"DAG name for dag, dag_spec, run, run_logs, and step_log targets."`
+	Target    string `json:"target" jsonschema:"Read target: dags, dag, dag_spec, dag_profile, dag_search, wiki, wiki_page, wiki_search, runs, run, run_logs, step_log, or reference."`
+	Name      string `json:"name,omitempty" jsonschema:"DAG name for dag, dag_spec, dag_profile, run, run_logs, and step_log targets."`
 	DAGRunID  string `json:"dagRunId,omitempty" jsonschema:"DAG-run ID for run, run_logs, and step_log targets. The value latest is accepted where Dagu accepts it."`
 	SubRunID  string `json:"subRunId,omitempty" jsonschema:"Child DAG-run ID for run and step_log targets, addressed under the root run identified by name and dagRunId."`
 	StepName  string `json:"stepName,omitempty" jsonschema:"Step name for the step_log target."`
@@ -96,7 +97,7 @@ func readToolInputSchema() json.RawMessage {
 		"properties": {
 			"target": {
 				"type": "string",
-				"enum": ["references", "reference", "dags", "dag", "dag_spec", "dag_search", "wiki", "wiki_page", "wiki_search", "runs", "run", "run_logs", "step_log"],
+				"enum": ["references", "reference", "dags", "dag", "dag_spec", "dag_profile", "dag_search", "wiki", "wiki_page", "wiki_search", "runs", "run", "run_logs", "step_log"],
 				"description": "Read target."
 			},
 			"name": {
@@ -233,6 +234,14 @@ func (svc *Service) readToolImpl(ctx context.Context, input readInput) (*mcpsdk.
 				data = normalizeDAGSpec(raw, input.Name)
 			}
 		}
+	case readTargetDAGProfile:
+		if err = svc.requireAPI(); err == nil {
+			var selection frontendapi.DAGProfileSelection
+			selection, err = svc.api.GetDAGProfileSelection(ctx, input.Name)
+			if err == nil {
+				data = dagProfileData(input.Name, selection)
+			}
+		}
 	case readTargetDAGSearch:
 		if err = svc.requireAPI(); err == nil {
 			data, err = svc.searchDAGs(ctx, input.Workspace, input.Search, input.Cursor, input.Limit)
@@ -347,6 +356,21 @@ func readResultMessage(input readInput, data any) string {
 		return "Dagu read completed."
 	}
 	return "Dagu read completed.\n\n" + string(payload)
+}
+
+func dagProfileData(name string, selection frontendapi.DAGProfileSelection) map[string]any {
+	source := "none"
+	if selection.Configured != "" {
+		source = "dag"
+	} else if selection.Effective != "" {
+		source = "workspace"
+	}
+	return map[string]any{
+		"dagName":           name,
+		"configuredProfile": nullableString(selection.Configured),
+		"effectiveProfile":  nullableString(selection.Effective),
+		"source":            source,
+	}
 }
 
 func parseReadToolInput(raw json.RawMessage) (readInput, *readToolError) {
@@ -753,7 +777,7 @@ func validateTargetReadInput(input *readInput) *readToolError {
 		if err := validateReadQuery(input.Target, input.Query, false, ""); err != nil {
 			return err
 		}
-	case readTargetDAG:
+	case readTargetDAG, readTargetDAGProfile:
 		if input.Name == "" {
 			return missingTargetField(input.Target, readFieldName)
 		}

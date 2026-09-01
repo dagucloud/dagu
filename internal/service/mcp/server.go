@@ -99,10 +99,11 @@ func NewServer(api *frontendapi.API) *mcpsdk.Server {
 
 type changeInput struct {
 	Mode      string `json:"mode,omitempty" jsonschema:"preview or apply. Defaults to preview."`
-	Type      string `json:"type,omitempty" jsonschema:"Change type: upsert_dag, rename_dag, delete_dag, upsert_wiki_page, rename_wiki_page, or delete_wiki_page."`
+	Type      string `json:"type,omitempty" jsonschema:"DAG definition, DAG profile, or Wiki change type."`
 	Name      string `json:"name,omitempty" jsonschema:"DAG name for DAG changes."`
 	NewName   string `json:"newName,omitempty" jsonschema:"Destination DAG name for rename_dag."`
 	Spec      string `json:"spec,omitempty" jsonschema:"DAG YAML specification for upsert_dag."`
+	Profile   string `json:"profile,omitempty" jsonschema:"Runtime profile name for set_dag_profile."`
 	Workspace string `json:"workspace,omitempty" jsonschema:"Wiki workspace for Wiki changes: default or a named workspace."`
 	Path      string `json:"path,omitempty" jsonschema:"Wiki page or directory path for Wiki changes."`
 	Content   string `json:"content,omitempty" jsonschema:"Markdown content for upsert_wiki_page."`
@@ -117,7 +118,7 @@ func registerTools(server *mcpsdk.Server, svc *Service) {
 		Meta:        runInspectorToolMeta(),
 		Name:        toolRead,
 		Title:       "Read Dagu state",
-		Description: "Read DAG specs, workspace-aware Wiki pages, DAG-run details, logs, list views, and Dagu MCP reference resources.",
+		Description: "Read DAG specs and default profiles, workspace-aware Wiki pages, DAG-run details, logs, list views, and Dagu MCP reference resources.",
 		InputSchema: readToolInputSchema(),
 		Annotations: &mcpsdk.ToolAnnotations{
 			OpenWorldHint: falsePtr,
@@ -129,7 +130,7 @@ func registerTools(server *mcpsdk.Server, svc *Service) {
 	server.AddTool(&mcpsdk.Tool{
 		Name:        toolChange,
 		Title:       "Preview or apply Dagu changes",
-		Description: "Validate and optionally apply DAG definition or Markdown Wiki changes. Wiki changes are workspace-aware. Use mode=preview before mode=apply unless the user explicitly asked to write immediately.",
+		Description: "Validate and optionally apply DAG definitions, DAG default profiles, or Markdown Wiki changes. Wiki changes are workspace-aware. Use mode=preview before mode=apply unless the user explicitly asked to write immediately.",
 		InputSchema: changeToolInputSchema(),
 		Annotations: &mcpsdk.ToolAnnotations{
 			DestructiveHint: truePtr,
@@ -176,7 +177,7 @@ func registerResources(server *mcpsdk.Server, svc *Service) {
 		URITemplate: "dagu://dags/{name}/spec",
 		Name:        "dag_spec",
 		Title:       "DAG spec",
-		Description: "Current YAML spec for a DAG.",
+		Description: "Current YAML spec for a DAG. Server-side settings such as the default runtime profile are separate; read target=dag_profile.",
 		MIMEType:    resourceMIMEYAML,
 	}, svc.readResource)
 
