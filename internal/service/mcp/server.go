@@ -375,23 +375,8 @@ func (svc *Service) searchDAGs(ctx context.Context, workspace, search, cursor st
 	return output, nil
 }
 
-func (svc *Service) validateDAGSpec(ctx context.Context, name, spec string) (*daguapi.ValidateDAGSpec200JSONResponse, error) {
-	body := &daguapi.ValidateDAGSpecJSONRequestBody{
-		Name: &name,
-		Spec: spec,
-	}
-	resp, err := svc.api.ValidateDAGSpec(ctx, daguapi.ValidateDAGSpecRequestObject{Body: body})
-	if err != nil {
-		return nil, err
-	}
-	switch r := resp.(type) {
-	case *daguapi.ValidateDAGSpec200JSONResponse:
-		return r, nil
-	case daguapi.ValidateDAGSpec200JSONResponse:
-		return &r, nil
-	default:
-		return nil, fmt.Errorf("unexpected validate DAG spec response %T", resp)
-	}
+func (svc *Service) validateDAGSpec(ctx context.Context, name, spec string) (*daguapi.ValidateDAGSpec200JSONResponse, *ir.DAG, error) {
+	return svc.api.ValidateDAGSpecData(ctx, name, spec)
 }
 
 func (svc *Service) upsertDAG(ctx context.Context, name, spec string) (bool, error) {

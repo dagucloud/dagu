@@ -358,12 +358,12 @@ func TestProfileScopedScheduleWarning(t *testing.T) {
 		Name: "scheduled-dag",
 		Spec: `name: scheduled-dag
 schedule:
-  - expression: "0 * * * *"
-    profile: zeta
-  - expression: "30 * * * *"
-    profile: alpha
-  - expression: "45 * * * *"
-    profile: zeta
+  stop:
+    - expression: "15 * * * *"
+      profile: zeta
+  restart:
+    - expression: "45 * * * *"
+      profile: alpha
 steps:
   - run: echo ok
 `,

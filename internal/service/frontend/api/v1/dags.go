@@ -96,10 +96,14 @@ func (a *API) ValidateDAGSpec(ctx context.Context, request api.ValidateDAGSpecRe
 	if request.Body.Name != nil {
 		name = *request.Body.Name
 	}
+	response, _, err := a.ValidateDAGSpecData(ctx, name, request.Body.Spec)
+	return response, err
+}
 
-	// Load the DAG spec
+// ValidateDAGSpecData validates a DAG spec and returns its canonical form.
+func (a *API) ValidateDAGSpecData(ctx context.Context, name, spec string) (*api.ValidateDAGSpec200JSONResponse, *ir.DAG, error) {
 	dag, err := a.dagRepository.LoadSpec(ctx,
-		[]byte(request.Body.Spec),
+		[]byte(spec),
 		name,
 		persis.DAGLoadOptions{AllowBuildErrors: true},
 	)
@@ -108,8 +112,7 @@ func (a *API) ValidateDAGSpec(ctx context.Context, request api.ValidateDAGSpecRe
 	if loadErrs, ok := errors.AsType[ir.ErrorList](err); ok {
 		errs = loadErrs.ToStringList()
 	} else if err != nil {
-		// Unexpected fatal error
-		return nil, err
+		return nil, nil, err
 	}
 
 	if dag != nil && len(dag.BuildErrors) > 0 {
@@ -124,7 +127,7 @@ func (a *API) ValidateDAGSpec(ctx context.Context, request api.ValidateDAGSpecRe
 		Valid:  len(errs) == 0,
 		Dag:    details,
 		Errors: errs,
-	}, nil
+	}, dag, nil
 }
 
 func (a *API) CreateNewDAG(ctx context.Context, request api.CreateNewDAGRequestObject) (api.CreateNewDAGResponseObject, error) {

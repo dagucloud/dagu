@@ -211,7 +211,7 @@ func (svc *Service) changeToolImpl(ctx context.Context, input changeInput) (*mcp
 }
 
 func (svc *Service) changeDAG(ctx context.Context, input changeInput) (*mcpsdk.CallToolResult, map[string]any, error) {
-	validation, err := svc.validateDAGSpec(ctx, input.Name, input.Spec)
+	validation, dag, err := svc.validateDAGSpec(ctx, input.Name, input.Spec)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -231,7 +231,7 @@ func (svc *Service) changeDAG(ctx context.Context, input changeInput) (*mcpsdk.C
 	}
 	if validation.Valid && validation.Dag != nil {
 		output["dag"] = validation.Dag
-		if warnings := profileScheduleWarnings(validation.Dag.Schedule); len(warnings) > 0 {
+		if warnings := profileScheduleWarnings(dag.Schedule, dag.StopSchedule, dag.RestartSchedule); len(warnings) > 0 {
 			output["warnings"] = warnings
 		}
 	}
@@ -306,14 +306,13 @@ func (svc *Service) changeDAGProfile(ctx context.Context, input changeInput) (*m
 	return resultWithLinks("DAG profile change applied. The scheduler will use it on its next minute tick."), output, nil
 }
 
-func profileScheduleWarnings(schedule *[]daguapi.Schedule) []map[string]any {
-	if schedule == nil {
-		return nil
-	}
+func profileScheduleWarnings(schedules ...[]ir.Schedule) []map[string]any {
 	profiles := make(map[string]struct{})
-	for _, entry := range *schedule {
-		if entry.Profile != nil && *entry.Profile != "" {
-			profiles[string(*entry.Profile)] = struct{}{}
+	for _, schedule := range schedules {
+		for _, entry := range schedule {
+			if entry.Profile != "" {
+				profiles[entry.Profile] = struct{}{}
+			}
 		}
 	}
 	if len(profiles) == 0 {
