@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler/filenotify"
 	"github.com/fsnotify/fsnotify"
 )
@@ -22,7 +23,6 @@ const (
 	defaultAppStreamBufferSize = 32
 	appStreamDebounceInterval  = 200 * time.Millisecond
 	wikiPollingInterval        = 30 * time.Second
-	schedulerStateDirName      = "scheduler"
 	schedulerStateFileName     = "state.json"
 )
 
@@ -663,7 +663,7 @@ func NewAppStreamService(cfg AppStreamConfig) (*AppStreamService, error) {
 	}
 	if cfg.Paths.DataDir != "" {
 		service.watchers = append(service.watchers, newDirectoryWatcher(
-			filepath.Join(cfg.Paths.DataDir, schedulerStateDirName),
+			persisfile.SchedulerStateDir(cfg.Paths),
 			true,
 			service.handleSchedulerStateEvent,
 			service.publishReset,

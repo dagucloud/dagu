@@ -28,6 +28,13 @@ type collectionSpec struct {
 
 var _ persis.Backend = (*Backend)(nil)
 
+const schedulerStateDirName = "scheduler"
+
+// SchedulerStateDir returns the file-backend directory for scheduler state.
+func SchedulerStateDir(paths config.PathsConfig) string {
+	return filepath.Join(paths.DataDir, schedulerStateDirName)
+}
+
 // NewBackend creates a file backend from the configured persistence paths.
 // It does not access the filesystem; collections create directories lazily.
 func NewBackend(paths config.PathsConfig) *Backend {
@@ -51,7 +58,7 @@ func NewBackend(paths config.PathsConfig) *Backend {
 			persis.CollectionProfiles:         {dir: filepath.Join(paths.DataDir, "profiles"), indented: true},
 			persis.CollectionQueue:            {dir: paths.QueueDir},
 			persis.CollectionRemoteNodes:      {dir: paths.RemoteNodesDir, indented: true},
-			persis.CollectionSchedulerState:   {dir: filepath.Join(paths.DataDir, "scheduler"), indented: true},
+			persis.CollectionSchedulerState:   {dir: SchedulerStateDir(paths), indented: true},
 			persis.CollectionSecrets:          {dir: filepath.Join(paths.DataDir, "secrets"), indented: true},
 			persis.CollectionUpgradeCheck:     {dir: filepath.Join(paths.DataDir, "upgrade"), indented: true},
 			persis.CollectionUsers:            {dir: paths.UsersDir, indented: true},
