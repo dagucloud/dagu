@@ -24,6 +24,7 @@ import (
 
 	authmodel "github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
 	apiv1 "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
@@ -288,6 +289,93 @@ steps:
 
 	require.Eventually(t, func() bool {
 		return fetches.Load() >= 2
+	}, 3*time.Second, 20*time.Millisecond)
+
+	cancel()
+	require.Eventually(t, func() bool {
+		select {
+		case <-done:
+			return true
+		default:
+			return false
+		}
+	}, time.Second, 10*time.Millisecond)
+}
+
+// TestSchedulerStateWake verifies durable scheduler projection changes refresh
+// DAG-list SSE while checkpoint-only writes stay silent.
+func TestSchedulerStateWake(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	schedulerDir := filepath.Join(dataDir, "scheduler")
+	require.NoError(t, os.MkdirAll(schedulerDir, 0750))
+
+	srv := &Server{
+		config: &config.Config{
+			Paths: config.PathsConfig{
+				DataDir: dataDir,
+			},
+		},
+		apiV1:        &apiv1.API{},
+		eventService: eventstore.New(nil),
+	}
+
+	router := chi.NewMux()
+	srv.setupSSERoute(testContext(t), router, "/api/v1")
+	require.NotNil(t, srv.appStream)
+	require.NotNil(t, srv.sseMultiplexer)
+	t.Cleanup(func() {
+		if srv.appStream != nil {
+			srv.appStream.Shutdown()
+		}
+		if srv.sseMultiplexer != nil {
+			srv.sseMultiplexer.Shutdown()
+		}
+	})
+
+	var fetches atomic.Int64
+	srv.sseMultiplexer.RegisterFetcher(sse.TopicTypeDAGsList, func(context.Context, string) (any, error) {
+		return map[string]any{
+			"fetches": fetches.Add(1),
+		}, nil
+	})
+
+	handler := sse.NewMultiplexHandler(srv.sseMultiplexer, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		req := httptest.NewRequest(
+			http.MethodGet,
+			"/api/v1/events/stream?topic="+url.QueryEscape("dagslist:page=1&perPage=100"),
+			nil,
+		).WithContext(ctx)
+		handler.HandleStream(httptest.NewRecorder(), req)
+	}()
+
+	require.Eventually(t, func() bool {
+		return fetches.Load() == 1
+	}, time.Second, 10*time.Millisecond)
+
+	require.NoError(t, fileutil.WriteFileAtomic(
+		filepath.Join(schedulerDir, "checkpoint.json"),
+		[]byte(`{"lastTick":"2026-09-01T00:00:00Z"}`),
+		0600,
+	))
+	require.Never(t, func() bool {
+		return fetches.Load() > 1
+	}, 500*time.Millisecond, 20*time.Millisecond)
+
+	require.NoError(t, fileutil.WriteFileAtomic(
+		filepath.Join(schedulerDir, "state.json"),
+		[]byte(`{"records":[]}`),
+		0600,
+	))
+	require.Eventually(t, func() bool {
+		return fetches.Load() == 2
 	}, 3*time.Second, 20*time.Millisecond)
 
 	cancel()

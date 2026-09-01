@@ -1302,6 +1302,8 @@ func (srv *Server) wakeMultiplexedTopicsForAppEvent(event sse.AppEvent) {
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGsList)
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAG)
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGHistory)
+	case sse.AppEventTypeScheduler:
+		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGsList)
 	case sse.AppEventTypeQueue:
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeQueues)
 		if event.QueueName != "" {
