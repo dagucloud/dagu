@@ -38,7 +38,12 @@ export function LanguageSelector({
           compact && 'w-7 justify-center px-1 [&>svg:last-child]:hidden'
         )}
       >
-        <Languages className="h-4 w-4 shrink-0" />
+        <Languages
+          className={cn(
+            'h-4 w-4 shrink-0',
+            variant === 'sidebar' && 'text-sidebar-foreground'
+          )}
+        />
         {!compact && <SelectValue />}
       </SelectTrigger>
       <SelectContent>

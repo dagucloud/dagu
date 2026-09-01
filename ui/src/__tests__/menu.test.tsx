@@ -211,6 +211,17 @@ describe('sidebar menu', () => {
     expect(languageSelector.className).toContain('[&>svg:last-child]:hidden');
   });
 
+  it('uses the sidebar color for the language icon', () => {
+    renderMenu('/cockpit');
+
+    const languageSelector = screen.getByRole('combobox', {
+      name: 'Language',
+    });
+    expect(languageSelector.querySelector('svg')).toHaveClass(
+      'text-sidebar-foreground'
+    );
+  });
+
   it('hides the remote node selector when local is the only option', () => {
     renderMenu('/cockpit', {}, { remoteNodes: ['local'] });
 
