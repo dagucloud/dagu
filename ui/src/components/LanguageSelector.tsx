@@ -33,7 +33,7 @@ export function LanguageSelector({
         className={cn(
           'h-7 border-transparent bg-transparent px-2 py-1 text-xs shadow-none hover:border-transparent',
           variant === 'sidebar'
-            ? 'w-full text-sidebar-foreground hover:bg-sidebar-hover focus-visible:border-sidebar-ring'
+            ? 'w-full justify-start text-sidebar-foreground hover:bg-sidebar-hover focus-visible:border-sidebar-ring [&>svg:last-child]:ml-auto'
             : 'w-auto text-muted-foreground hover:bg-muted hover:text-foreground',
           compact && 'w-7 justify-center px-1 [&>svg:last-child]:hidden'
         )}
