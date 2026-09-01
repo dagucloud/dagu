@@ -228,7 +228,7 @@ Errors:
 
 - invalid_tool_input for missing or incompatible fields, invalid paths, unknown mode, unknown type, or malformed input.
 - unauthorized when the caller cannot perform the requested write.
-- resource_not_found when a rename or delete source does not exist. A misspelled DAG name carries close existing names under details.didYouMean.
+- resource_not_found when a rename or delete source does not exist, or when set_dag_profile names a missing profile. A misspelled DAG name carries close existing names under details.didYouMean.
 - conflict when a DAG rename destination exists or a Wiki path conflicts with another file or directory.
 - internal_error for unexpected failures.`,
 		},

@@ -40,7 +40,7 @@ func TestChangeToolIdentityAndInputSchema(t *testing.T) {
 
 	properties, ok := schema["properties"].(map[string]any)
 	require.True(t, ok)
-	for _, field := range []string{"mode", "type", "name", "spec", "newName", "workspace", "path", "content", "newPath"} {
+	for _, field := range []string{"mode", "type", "name", "spec", "newName", "profile", "workspace", "path", "content", "newPath"} {
 		property, ok := properties[field].(map[string]any)
 		require.True(t, ok)
 		require.Equal(t, "string", property["type"])
@@ -61,6 +61,14 @@ func TestChangeToolIdentityAndInputSchema(t *testing.T) {
 		},
 		"delete_dag": {
 			types:    []any{"delete_dag"},
+			required: []any{"type", "name"},
+		},
+		"set_dag_profile": {
+			types:    []any{"set_dag_profile"},
+			required: []any{"type", "name", "profile"},
+		},
+		"clear_dag_profile": {
+			types:    []any{"clear_dag_profile"},
 			required: []any{"type", "name"},
 		},
 		"upsert_wiki_page": {
