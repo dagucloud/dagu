@@ -102,11 +102,6 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-muted/50">
       <div className="w-full max-w-sm p-6 space-y-6">
-        <div className="flex justify-end">
-          <div className="w-48">
-            <LanguageSelector />
-          </div>
-        </div>
         <div className="text-center space-y-2">
           <h1 className="text-2xl font-bold">{config.title || 'Dagu'}</h1>
           <p className="text-sm text-muted-foreground">
@@ -202,6 +197,9 @@ export default function LoginPage() {
               )}
             </>
           )}
+        </div>
+        <div className="flex justify-center">
+          <LanguageSelector />
         </div>
       </div>
     </div>

@@ -1004,7 +1004,7 @@ export const mainListItems = React.forwardRef<
             }
             isOpen={isOpen}
           />
-          <LanguageSelector compact={!isOpen} />
+          <LanguageSelector variant="sidebar" compact={!isOpen} />
           <UserMenu isCollapsed={!isOpen} />
         </div>
         {config.version && (

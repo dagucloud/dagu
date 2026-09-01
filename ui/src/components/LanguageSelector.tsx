@@ -1,5 +1,6 @@
 import { Languages } from 'lucide-react';
 import { useI18n } from '@/i18n/I18nProvider';
+import { cn } from '@/lib/utils';
 import {
   Select,
   SelectContent,
@@ -8,8 +9,19 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
-export function LanguageSelector({ compact = false }: { compact?: boolean }) {
+type LanguageSelectorProps = {
+  compact?: boolean;
+  variant?: 'login' | 'sidebar';
+};
+
+export function LanguageSelector({
+  compact = false,
+  variant = 'login',
+}: LanguageSelectorProps) {
   const { locale, setLocale, t } = useI18n();
+  const language =
+    locale === 'en' ? t('language.english') : t('language.chinese');
+
   return (
     <Select
       value={locale}
@@ -17,11 +29,14 @@ export function LanguageSelector({ compact = false }: { compact?: boolean }) {
     >
       <SelectTrigger
         aria-label={t('language.select')}
-        className={
-          compact
-            ? 'h-7 w-7 border-transparent px-1 py-1 [&>svg:last-child]:hidden'
-            : 'h-7 w-full py-1'
-        }
+        title={compact ? language : undefined}
+        className={cn(
+          'h-7 border-transparent bg-transparent px-2 py-1 text-xs shadow-none hover:border-transparent',
+          variant === 'sidebar'
+            ? 'w-full text-sidebar-foreground hover:bg-sidebar-hover focus-visible:border-sidebar-ring'
+            : 'w-auto text-muted-foreground hover:bg-muted hover:text-foreground',
+          compact && 'w-7 justify-center px-1 [&>svg:last-child]:hidden'
+        )}
       >
         <Languages className="h-4 w-4 shrink-0" />
         {!compact && <SelectValue />}
