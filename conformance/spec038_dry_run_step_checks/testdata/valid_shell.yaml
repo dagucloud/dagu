@@ -1,0 +1,7 @@
+working_dir: .
+steps:
+  - id: check
+    run: printf 'ok\n'
+    with:
+      shell: sh
+    stdout: valid-shell.out
