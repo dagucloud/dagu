@@ -52,6 +52,7 @@ import * as React from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
+import { useI18n } from '@/i18n/I18nProvider';
 
 type EventLogEntry = components['schemas']['EventLogEntry'];
 type EventLogsResponse = components['schemas']['EventLogsResponse'];
@@ -287,7 +288,9 @@ function useEventLogFeed(
   );
   const headFirstEntryID = headEntries[0]?.id ?? '';
   const headLastEntryID =
-    headEntries.length > 0 ? (headEntries[headEntries.length - 1]?.id ?? '') : '';
+    headEntries.length > 0
+      ? (headEntries[headEntries.length - 1]?.id ?? '')
+      : '';
   const headNextCursor = data?.nextCursor ?? '';
   const currentNextCursor =
     continuationCursorOverride === undefined
@@ -360,7 +363,6 @@ function useEventLogFeed(
     setAutoRefresh,
     lastUpdatedAt,
     entries,
-    hasLoadedMore,
     hasMoreEntries,
     isAutoRefreshAvailable,
     isLoadingMore,
@@ -371,6 +373,7 @@ function useEventLogFeed(
 }
 
 export default function EventLogsPage() {
+  const { ts } = useI18n();
   const client = useClient();
   const config = useConfig();
   const canViewEventLogs = useCanViewEventLogs();
@@ -822,7 +825,6 @@ export default function EventLogsPage() {
     setAutoRefresh,
     lastUpdatedAt,
     entries,
-    hasLoadedMore,
     hasMoreEntries,
     isAutoRefreshAvailable,
     isLoadingMore,
@@ -849,7 +851,7 @@ export default function EventLogsPage() {
     return (
       <div className="flex items-center justify-center h-64">
         <p className="text-muted-foreground">
-          <I18nText text={"You do not have permission to access this page."} />
+          <I18nText text={'You do not have permission to access this page.'} />
         </p>
       </div>
     );
@@ -860,20 +862,38 @@ export default function EventLogsPage() {
       <div className="flex flex-col gap-4 max-w-7xl h-full">
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div>
-            <h1 className="text-lg font-semibold"><I18nText text={"Events"} /></h1>
+            <h1 className="text-lg font-semibold">
+              <I18nText text={'Events'} />
+            </h1>
             <p className="text-sm text-muted-foreground">
-              <I18nText text={"Recent DAG-run outcome events for the selected remote node"} />
+              <I18nText
+                text={
+                  'Recent DAG-run outcome events for the selected remote node'
+                }
+              />
             </p>
             <p className="text-xs text-muted-foreground mt-1">
-              {lastUpdatedAt
-                ? `Last updated ${formatTimestamp(lastUpdatedAt.toISOString())}`
-                : <I18nText text={"Waiting for the first response"} />}
-              {autoRefresh && isAutoRefreshAvailable
-                ? <I18nText text={" • Refreshing every 5 seconds"} />
-                : ''}
-              {!isAutoRefreshAvailable
-                ? <I18nText text={" • Auto-refresh is disabled after loading older events"} />
-                : ''}
+              {lastUpdatedAt ? (
+                ts('Last updated {time}', {
+                  time: formatTimestamp(lastUpdatedAt.toISOString()),
+                })
+              ) : (
+                <I18nText text="Waiting for the first response" />
+              )}
+              {autoRefresh && isAutoRefreshAvailable ? (
+                <I18nText text={' • Refreshing every 5 seconds'} />
+              ) : (
+                ''
+              )}
+              {!isAutoRefreshAvailable ? (
+                <I18nText
+                  text={
+                    ' • Auto-refresh is disabled after loading older events'
+                  }
+                />
+              ) : (
+                ''
+              )}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -885,11 +905,15 @@ export default function EventLogsPage() {
                 }
               }}
               disabled={!isAutoRefreshAvailable}
-              aria-label={`Auto-refresh ${autoRefresh ? 'enabled' : 'disabled'}`}
+              aria-label={ts('Auto-refresh {state}', {
+                state: ts(autoRefresh ? 'enabled' : 'disabled'),
+              })}
               title={
                 isAutoRefreshAvailable
-                  ? `Toggle auto-refresh (currently ${autoRefresh ? 'ON' : 'OFF'})`
-                  : 'Auto-refresh is disabled after loading older events'
+                  ? ts('Toggle auto-refresh (currently {state})', {
+                      state: ts(autoRefresh ? 'ON' : 'OFF'),
+                    })
+                  : ts('Auto-refresh is disabled after loading older events')
               }
             >
               <Activity
@@ -898,7 +922,12 @@ export default function EventLogsPage() {
                   autoRefresh && isAutoRefreshAvailable && 'text-success'
                 )}
               />
-              <I18nText text={"Auto:"} /> {autoRefresh && isAutoRefreshAvailable ? <I18nText text={"ON"} /> : <I18nText text={"OFF"} />}
+              <I18nText text={'Auto:'} />{' '}
+              {autoRefresh && isAutoRefreshAvailable ? (
+                <I18nText text={'ON'} />
+              ) : (
+                <I18nText text={'OFF'} />
+              )}
             </Button>
             <RefreshButton onRefresh={handleRefresh} />
           </div>
@@ -911,48 +940,56 @@ export default function EventLogsPage() {
               onValueChange={(value) => updateDraftFilters({ type: value })}
             >
               <SelectTrigger className="w-[180px] h-8">
-                <I18nProps><SelectValue placeholder="All outcomes" /></I18nProps>
+                <I18nProps>
+                  <SelectValue placeholder="All outcomes" />
+                </I18nProps>
               </SelectTrigger>
               <SelectContent>
                 {EVENT_TYPE_OPTIONS.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
-                    {option.label}
+                    <I18nText text={option.label} />
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
             <div className="relative">
               <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
-              <I18nProps><Input
-                value={draftFilters.dagName}
+              <I18nProps>
+                <Input
+                  value={draftFilters.dagName}
+                  onChange={(event) =>
+                    updateDraftFilters({ dagName: event.target.value })
+                  }
+                  onKeyDown={handleKeyDown}
+                  placeholder="Filter by DAG name"
+                  className="h-8 w-[220px] pl-7"
+                />
+              </I18nProps>
+            </div>
+            <I18nProps>
+              <Input
+                value={draftFilters.dagRunId}
                 onChange={(event) =>
-                  updateDraftFilters({ dagName: event.target.value })
+                  updateDraftFilters({ dagRunId: event.target.value })
                 }
                 onKeyDown={handleKeyDown}
-                placeholder="Filter by DAG name"
-                className="h-8 w-[220px] pl-7"
-              /></I18nProps>
-            </div>
-            <I18nProps><Input
-              value={draftFilters.dagRunId}
-              onChange={(event) =>
-                updateDraftFilters({ dagRunId: event.target.value })
-              }
-              onKeyDown={handleKeyDown}
-              placeholder="DAG run ID"
-              className="h-8 w-[220px]"
-            /></I18nProps>
-            <I18nProps><Input
-              value={draftFilters.attemptId}
-              onChange={(event) =>
-                updateDraftFilters({ attemptId: event.target.value })
-              }
-              onKeyDown={handleKeyDown}
-              placeholder="Attempt ID"
-              className="h-8 w-[180px]"
-            /></I18nProps>
+                placeholder="DAG run ID"
+                className="h-8 w-[220px]"
+              />
+            </I18nProps>
+            <I18nProps>
+              <Input
+                value={draftFilters.attemptId}
+                onChange={(event) =>
+                  updateDraftFilters({ attemptId: event.target.value })
+                }
+                onKeyDown={handleKeyDown}
+                placeholder="Attempt ID"
+                className="h-8 w-[180px]"
+              />
+            </I18nProps>
             <Button type="button" size="sm" onClick={handleApplyFilters}>
-              <I18nText text={"Apply Filters"} />
+              <I18nText text={'Apply Filters'} />
             </Button>
             <Button
               type="button"
@@ -961,37 +998,45 @@ export default function EventLogsPage() {
               onClick={handleClearFilters}
             >
               <FilterX className="h-4 w-4" />
-              <I18nText text={"Clear"} />
+              <I18nText text={'Clear'} />
             </Button>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <I18nProps><ToggleGroup aria-label="Date range mode">
-              <I18nProps><ToggleButton
-                value="preset"
-                groupValue={draftFilters.dateRangeMode}
-                onClick={() => handleDateRangeModeChange('preset')}
-                aria-label="Quick select"
-              >
-                <I18nText text={"Quick"} />
-              </ToggleButton></I18nProps>
-              <I18nProps><ToggleButton
-                value="specific"
-                groupValue={draftFilters.dateRangeMode}
-                onClick={() => handleDateRangeModeChange('specific')}
-                aria-label="Specific date, month, or year"
-              >
-                <I18nText text={"Specific"} />
-              </ToggleButton></I18nProps>
-              <I18nProps><ToggleButton
-                value="custom"
-                groupValue={draftFilters.dateRangeMode}
-                onClick={() => handleDateRangeModeChange('custom')}
-                aria-label="Custom range"
-              >
-                <I18nText text={"Custom"} />
-              </ToggleButton></I18nProps>
-            </ToggleGroup></I18nProps>
+            <I18nProps>
+              <ToggleGroup aria-label="Date range mode">
+                <I18nProps>
+                  <ToggleButton
+                    value="preset"
+                    groupValue={draftFilters.dateRangeMode}
+                    onClick={() => handleDateRangeModeChange('preset')}
+                    aria-label="Quick select"
+                  >
+                    <I18nText text={'Quick'} />
+                  </ToggleButton>
+                </I18nProps>
+                <I18nProps>
+                  <ToggleButton
+                    value="specific"
+                    groupValue={draftFilters.dateRangeMode}
+                    onClick={() => handleDateRangeModeChange('specific')}
+                    aria-label="Specific date, month, or year"
+                  >
+                    <I18nText text={'Specific'} />
+                  </ToggleButton>
+                </I18nProps>
+                <I18nProps>
+                  <ToggleButton
+                    value="custom"
+                    groupValue={draftFilters.dateRangeMode}
+                    onClick={() => handleDateRangeModeChange('custom')}
+                    aria-label="Custom range"
+                  >
+                    <I18nText text={'Custom'} />
+                  </ToggleButton>
+                </I18nProps>
+              </ToggleGroup>
+            </I18nProps>
 
             {draftFilters.dateRangeMode === 'preset' ? (
               <Select
@@ -999,15 +1044,29 @@ export default function EventLogsPage() {
                 onValueChange={handleDatePresetChange}
               >
                 <SelectTrigger className="w-[180px] h-8">
-                  <I18nProps><SelectValue placeholder="Select period" /></I18nProps>
+                  <I18nProps>
+                    <SelectValue placeholder="Select period" />
+                  </I18nProps>
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="today"><I18nText text={"Today"} /></SelectItem>
-                  <SelectItem value="yesterday"><I18nText text={"Yesterday"} /></SelectItem>
-                  <SelectItem value="last7days"><I18nText text={"Last 7 days"} /></SelectItem>
-                  <SelectItem value="last30days"><I18nText text={"Last 30 days"} /></SelectItem>
-                  <SelectItem value="thisWeek"><I18nText text={"This week"} /></SelectItem>
-                  <SelectItem value="thisMonth"><I18nText text={"This month"} /></SelectItem>
+                  <SelectItem value="today">
+                    <I18nText text={'Today'} />
+                  </SelectItem>
+                  <SelectItem value="yesterday">
+                    <I18nText text={'Yesterday'} />
+                  </SelectItem>
+                  <SelectItem value="last7days">
+                    <I18nText text={'Last 7 days'} />
+                  </SelectItem>
+                  <SelectItem value="last30days">
+                    <I18nText text={'Last 30 days'} />
+                  </SelectItem>
+                  <SelectItem value="thisWeek">
+                    <I18nText text={'This week'} />
+                  </SelectItem>
+                  <SelectItem value="thisMonth">
+                    <I18nText text={'This month'} />
+                  </SelectItem>
                 </SelectContent>
               </Select>
             ) : draftFilters.dateRangeMode === 'specific' ? (
@@ -1020,9 +1079,15 @@ export default function EventLogsPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="date"><I18nText text={"Date"} /></SelectItem>
-                    <SelectItem value="month"><I18nText text={"Month"} /></SelectItem>
-                    <SelectItem value="year"><I18nText text={"Year"} /></SelectItem>
+                    <SelectItem value="date">
+                      <I18nText text={'Date'} />
+                    </SelectItem>
+                    <SelectItem value="month">
+                      <I18nText text={'Month'} />
+                    </SelectItem>
+                    <SelectItem value="year">
+                      <I18nText text={'Year'} />
+                    </SelectItem>
                   </SelectContent>
                 </Select>
                 <Input
@@ -1072,13 +1137,26 @@ export default function EventLogsPage() {
         <div className="card-obsidian flex flex-col flex-1 min-h-0 overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b flex-shrink-0">
             <div>
-              <h2 className="text-sm font-semibold"><I18nText text={"Event Feed"} /></h2>
+              <h2 className="text-sm font-semibold">
+                <I18nText text={'Event Feed'} />
+              </h2>
               <p className="text-xs text-muted-foreground">
-                <I18nText text={"Loaded"} /> {entries.length} <I18nText text={"event"} />{entries.length === 1 ? '' : 's'}
+                <I18nText
+                  text={
+                    entries.length === 1
+                      ? 'Loaded {count} event'
+                      : 'Loaded {count} events'
+                  }
+                  values={{ count: entries.length }}
+                />
               </p>
             </div>
             <div className="text-xs text-muted-foreground">
-              {hasMoreEntries ? <I18nText text={"More events available"} /> : <I18nText text={"End of feed"} />}
+              {hasMoreEntries ? (
+                <I18nText text={'More events available'} />
+              ) : (
+                <I18nText text={'End of feed'} />
+              )}
             </div>
           </div>
 
@@ -1086,13 +1164,27 @@ export default function EventLogsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead><I18nText text={"Occurred"} /></TableHead>
-                  <TableHead><I18nText text={"Outcome"} /></TableHead>
-                  <TableHead><I18nText text={"DAG"} /></TableHead>
-                  <TableHead><I18nText text={"Run ID"} /></TableHead>
-                  <TableHead><I18nText text={"Attempt"} /></TableHead>
-                  <TableHead><I18nText text={"Source"} /></TableHead>
-                  <TableHead className="text-right"><I18nText text={"Actions"} /></TableHead>
+                  <TableHead>
+                    <I18nText text={'Occurred'} />
+                  </TableHead>
+                  <TableHead>
+                    <I18nText text={'Outcome'} />
+                  </TableHead>
+                  <TableHead>
+                    <I18nText text={'DAG'} />
+                  </TableHead>
+                  <TableHead>
+                    <I18nText text={'Run ID'} />
+                  </TableHead>
+                  <TableHead>
+                    <I18nText text={'Attempt'} />
+                  </TableHead>
+                  <TableHead>
+                    <I18nText text={'Source'} />
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <I18nText text={'Actions'} />
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1102,7 +1194,7 @@ export default function EventLogsPage() {
                       colSpan={7}
                       className="py-8 text-center text-muted-foreground"
                     >
-                      <I18nText text={"Loading event feed..."} />
+                      <I18nText text={'Loading event feed...'} />
                     </TableCell>
                   </TableRow>
                 ) : entries.length === 0 ? (
@@ -1111,7 +1203,9 @@ export default function EventLogsPage() {
                       colSpan={7}
                       className="py-8 text-center text-muted-foreground"
                     >
-                      <I18nText text={"No events matched the current filters."} />
+                      <I18nText
+                        text={'No events matched the current filters.'}
+                      />
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -1124,7 +1218,9 @@ export default function EventLogsPage() {
                         </TableCell>
                         <TableCell>
                           <Badge variant={getOutcomeVariant(entry.type)}>
-                            {getOutcomeLabel(entry.type, entry.status)}
+                            <I18nText
+                              text={getOutcomeLabel(entry.type, entry.status)}
+                            />
                           </Badge>
                         </TableCell>
                         <TableCell>
@@ -1174,7 +1270,7 @@ export default function EventLogsPage() {
                               <Button variant="ghost" size="sm" asChild>
                                 <Link to={runPath}>
                                   <ExternalLink className="h-4 w-4" />
-                                  <I18nText text={"Open Run"} />
+                                  <I18nText text={'Open Run'} />
                                 </Link>
                               </Button>
                             ) : null}
@@ -1185,7 +1281,7 @@ export default function EventLogsPage() {
                               onClick={() => setSelectedEvent(entry)}
                             >
                               <FileJson className="h-4 w-4" />
-                              <I18nText text={"View Raw"} />
+                              <I18nText text={'View Raw'} />
                             </Button>
                           </div>
                         </TableCell>
@@ -1199,7 +1295,11 @@ export default function EventLogsPage() {
 
           <div className="flex items-center justify-between px-4 py-3 border-t flex-shrink-0">
             <p className="text-xs text-muted-foreground">
-              <I18nText text={"Results follow committed log order, newest committed entries first."} />
+              <I18nText
+                text={
+                  'Results follow committed log order, newest committed entries first.'
+                }
+              />
             </p>
             <div className="flex items-center gap-2">
               {loadMoreError ? (
@@ -1215,7 +1315,11 @@ export default function EventLogsPage() {
                   }}
                   disabled={isLoadingMore}
                 >
-                  {isLoadingMore ? <I18nText text={"Loading..."} /> : <I18nText text={"Load More"} />}
+                  {isLoadingMore ? (
+                    <I18nText text={'Loading...'} />
+                  ) : (
+                    <I18nText text={'Load More'} />
+                  )}
                 </Button>
               ) : null}
             </div>
@@ -1233,9 +1337,13 @@ export default function EventLogsPage() {
       >
         <DialogContent className="sm:max-w-3xl max-h-[80vh] flex flex-col">
           <DialogHeader>
-            <DialogTitle><I18nText text={"Raw Event"} /></DialogTitle>
+            <DialogTitle>
+              <I18nText text={'Raw Event'} />
+            </DialogTitle>
             <DialogDescription className="sr-only">
-              <I18nText text={"Full JSON payload for the selected event log entry."} />
+              <I18nText
+                text={'Full JSON payload for the selected event log entry.'}
+              />
             </DialogDescription>
           </DialogHeader>
           <div className="min-h-0 overflow-auto rounded-md bg-muted p-3">

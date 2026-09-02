@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils';
 import StatusChip from '@/components/ui/status-chip';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
+import { useI18n } from '@/i18n/I18nProvider';
 
 type QueueDAGRun = components['schemas']['DAGRunSummary'];
 
@@ -84,6 +85,7 @@ function QueueRunsTable({
   onToggleAll,
   showQueuedAt = false,
 }: QueueRunsTableProps) {
+  const { ts } = useI18n();
   const config = useConfig();
 
   const formatDateTime = React.useCallback(
@@ -109,28 +111,30 @@ function QueueRunsTable({
             {selectable && (
               <th className="w-10 py-1 px-2 align-middle">
                 <div className="flex h-8 w-8 items-center justify-center">
-                  <I18nProps><Checkbox
-                    aria-label="Select all loaded queue items"
-                    checked={headerCheckboxState}
-                    disabled={disableSelection || items.length === 0}
-                    onCheckedChange={(checked) =>
-                      onToggleAll?.(Boolean(checked))
-                    }
-                  /></I18nProps>
+                  <I18nProps>
+                    <Checkbox
+                      aria-label="Select all loaded queue items"
+                      checked={headerCheckboxState}
+                      disabled={disableSelection || items.length === 0}
+                      onCheckedChange={(checked) =>
+                        onToggleAll?.(Boolean(checked))
+                      }
+                    />
+                  </I18nProps>
                 </div>
               </th>
             )}
             <th className="text-left py-1 px-2 font-medium text-muted-foreground">
-              <I18nText text={"DAG"} />
+              <I18nText text={'DAG'} />
             </th>
             <th className="text-left py-1 px-2 font-medium text-muted-foreground">
-              <I18nText text={"Status"} />
+              <I18nText text={'Status'} />
             </th>
             <th className="text-left py-1 px-2 font-medium text-muted-foreground">
-              <I18nText text={"Timing"} />
+              <I18nText text={'Timing'} />
             </th>
             <th className="text-left py-1 px-2 font-medium text-muted-foreground">
-              <I18nText text={"Run ID"} />
+              <I18nText text={'Run ID'} />
             </th>
           </tr>
         </thead>
@@ -167,7 +171,10 @@ function QueueRunsTable({
                   >
                     <div className="flex h-8 w-8 items-center justify-center">
                       <Checkbox
-                        aria-label={`Select ${dagRun.name} ${dagRun.dagRunId}`}
+                        aria-label={ts('Select {name} {runId}', {
+                          name: dagRun.name,
+                          runId: dagRun.dagRunId,
+                        })}
                         checked={selected}
                         disabled={disableSelection}
                         onCheckedChange={() => onToggleSelection?.(dagRun)}
@@ -188,23 +195,25 @@ function QueueRunsTable({
                     {dagRun.scheduleTime && (
                       <span>
                         <span className="text-muted-foreground/80">
-                          <I18nText text={"Scheduled"} />{' '}
+                          <I18nText text={'Scheduled'} />{' '}
                         </span>
                         {formatDateTime(dagRun.scheduleTime)}
                       </span>
                     )}
                     <span>
                       <span className="text-muted-foreground/80">
-                        {showQueuedAt ? <I18nText text={"Queued "} /> : <I18nText text={"Started "} />}
+                        {showQueuedAt ? (
+                          <I18nText text={'Queued '} />
+                        ) : (
+                          <I18nText text={'Started '} />
+                        )}
                       </span>
                       {formatDateTime(
                         showQueuedAt ? dagRun.queuedAt : dagRun.startedAt
                       )}
                     </span>
                     {queuedConditionSummary && (
-                      <span
-                        className="max-w-[28rem] whitespace-normal break-words leading-snug"
-                      >
+                      <span className="max-w-[28rem] whitespace-normal break-words leading-snug">
                         <span className="font-medium text-foreground">
                           {runtimeConditionLabel(queuedConditionSummary)}
                         </span>
@@ -214,12 +223,12 @@ function QueueRunsTable({
                         </span>
                         {queuedConditionSummary.reason && (
                           <span className="ml-1 text-muted-foreground/80">
-                            <I18nText text={"Reason:"} />{' '}
+                            <I18nText text={'Reason:'} />{' '}
                             {humanizeIdentifier(queuedConditionSummary.reason)}
                           </span>
                         )}
                         <span className="ml-1 text-muted-foreground/70">
-                          <I18nText text={"Checked"} />{' '}
+                          <I18nText text={'Checked'} />{' '}
                           {formatDateTime(queuedConditionSummary.checkedAt)}
                         </span>
                       </span>

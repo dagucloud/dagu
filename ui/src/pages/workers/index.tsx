@@ -140,7 +140,7 @@ function Workers() {
         <div className="text-center space-y-2">
           <Server className="h-12 w-12 text-muted-foreground mx-auto" />
           <p className="text-sm text-muted-foreground">
-            {errorData?.message || <I18nText text={"Failed to load workers"} />}
+            {errorData?.message || <I18nText text={'Failed to load workers'} />}
           </p>
           {data?.errors?.map((err, idx) => (
             <p key={idx} className="text-xs text-error">
@@ -160,17 +160,21 @@ function Workers() {
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
               <Activity className="h-4 w-4 text-muted-foreground" />
-              <h1 className="text-sm font-semibold"><I18nText text={"Distributed Workers"} /></h1>
+              <h1 className="text-sm font-semibold">
+                <I18nText text={'Distributed Workers'} />
+              </h1>
             </div>
             <div className="relative">
               <Search className="absolute left-2 top-1.5 h-3 w-3 text-muted-foreground" />
-              <I18nProps><Input
-                type="text"
-                placeholder="Search by ID or labels..."
-                value={searchText}
-                onChange={(e) => setSearchText(e.target.value)}
-                className="h-7 w-[250px] pl-7 text-xs"
-              /></I18nProps>
+              <I18nProps>
+                <Input
+                  type="text"
+                  placeholder="Search by ID or labels..."
+                  value={searchText}
+                  onChange={(e) => setSearchText(e.target.value)}
+                  className="h-7 w-[250px] pl-7 text-xs"
+                />
+              </I18nProps>
             </div>
           </div>
           <RefreshButton onRefresh={handleRefresh} />
@@ -186,25 +190,39 @@ function Workers() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Cpu className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-semibold"><I18nText text={"Worker Status"} /></span>
+              <span className="text-sm font-semibold">
+                <I18nText text={'Worker Status'} />
+              </span>
               {filteredWorkers.length !== data?.workers?.length && (
                 <span className="text-xs text-muted-foreground">
-                  ({filteredWorkers.length} <I18nText text={"of"} /> {data?.workers?.length})
+                  <I18nText
+                    text="({visible} of {total})"
+                    values={{
+                      visible: filteredWorkers.length,
+                      total: data?.workers?.length ?? 0,
+                    }}
+                  />
                 </span>
               )}
             </div>
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <div className="flex items-center gap-1">
                 <div className="w-2 h-2 rounded-full bg-success animate-pulse" />
-                <span><I18nText text={"Healthy"} /></span>
+                <span>
+                  <I18nText text={'Healthy'} />
+                </span>
               </div>
               <div className="flex items-center gap-1">
                 <div className="w-2 h-2 rounded-full bg-warning" />
-                <span><I18nText text={"Warning"} /></span>
+                <span>
+                  <I18nText text={'Warning'} />
+                </span>
               </div>
               <div className="flex items-center gap-1">
                 <div className="w-2 h-2 rounded-full bg-error" />
-                <span><I18nText text={"Offline"} /></span>
+                <span>
+                  <I18nText text={'Offline'} />
+                </span>
               </div>
             </div>
           </div>

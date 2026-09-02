@@ -9,7 +9,9 @@ import { Link } from 'react-router-dom';
 import { parse as parseYAML } from 'yaml';
 import { DagStatusChip } from './DagStatusChip';
 import { useWikiLive } from './context';
+import { useI18n } from '@/i18n/I18nProvider';
 import { I18nText } from '@/i18n/I18nText';
+import { I18nTemplate } from '@/i18n/I18nTemplate';
 
 type DAGDetails = components['schemas']['DAGDetails'];
 
@@ -76,7 +78,7 @@ function InfoTable({ rows }: { rows: [string, React.ReactNode][] }) {
         {visible.map(([key, value]) => (
           <tr key={key} className="border-b border-border last:border-b-0">
             <td className="py-1 pr-3 align-top text-muted-foreground whitespace-nowrap">
-              {key}
+              <I18nText text={key} />
             </td>
             <td className="py-1 break-words">{value}</td>
           </tr>
@@ -105,6 +107,7 @@ function DagDetailsSections({
   sections: Section[];
   remoteNode: string;
 }) {
+  const { ts } = useI18n();
   const { data } = useQuery('/dags/{fileName}', {
     params: { path: { fileName }, query: { remoteNode } },
   });
@@ -120,7 +123,9 @@ function DagDetailsSections({
       )}
       {sections.includes('overview') && (
         <div>
-          <SectionTitle><I18nText text={"Overview"} /></SectionTitle>
+          <SectionTitle>
+            <I18nText text={'Overview'} />
+          </SectionTitle>
           <InfoTable
             rows={[
               ['Description', dag.description ?? ''],
@@ -133,14 +138,24 @@ function DagDetailsSections({
       )}
       {sections.includes('params') && (dag.paramDefs?.length ?? 0) > 0 && (
         <div>
-          <SectionTitle><I18nText text={"Parameters"} /></SectionTitle>
+          <SectionTitle>
+            <I18nText text={'Parameters'} />
+          </SectionTitle>
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-border text-left text-muted-foreground">
-                <th className="py-1 pr-3 font-normal"><I18nText text={"Name"} /></th>
-                <th className="py-1 pr-3 font-normal"><I18nText text={"Type"} /></th>
-                <th className="py-1 pr-3 font-normal"><I18nText text={"Default"} /></th>
-                <th className="py-1 font-normal"><I18nText text={"Description"} /></th>
+                <th className="py-1 pr-3 font-normal">
+                  <I18nText text={'Name'} />
+                </th>
+                <th className="py-1 pr-3 font-normal">
+                  <I18nText text={'Type'} />
+                </th>
+                <th className="py-1 pr-3 font-normal">
+                  <I18nText text={'Default'} />
+                </th>
+                <th className="py-1 font-normal">
+                  <I18nText text={'Description'} />
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -168,21 +183,29 @@ function DagDetailsSections({
         (dag.paramDefs?.length ?? 0) === 0 &&
         dag.defaultParams && (
           <div>
-            <SectionTitle><I18nText text={"Parameters"} /></SectionTitle>
+            <SectionTitle>
+              <I18nText text={'Parameters'} />
+            </SectionTitle>
             <code className="text-xs">{dag.defaultParams}</code>
           </div>
         )}
       {sections.includes('schedule') && (dag.schedule?.length ?? 0) > 0 && (
         <div>
-          <SectionTitle><I18nText text={"Schedule"} /></SectionTitle>
+          <SectionTitle>
+            <I18nText text={'Schedule'} />
+          </SectionTitle>
           <div className="text-xs font-mono">
-            {dag.schedule?.map((s, i) => <div key={i}>{s.expression}</div>)}
+            {dag.schedule?.map((s, i) => (
+              <div key={i}>{s.expression}</div>
+            ))}
           </div>
         </div>
       )}
       {sections.includes('steps') && (dag.steps?.length ?? 0) > 0 && (
         <div>
-          <SectionTitle><I18nText text={"Steps"} /></SectionTitle>
+          <SectionTitle>
+            <I18nText text={'Steps'} />
+          </SectionTitle>
           <table className="w-full text-xs">
             <tbody>
               {dag.steps?.map((step) => (
@@ -195,7 +218,9 @@ function DagDetailsSections({
                   </td>
                   <td className="py-1 pr-3 text-muted-foreground">
                     {(step.depends ?? []).length > 0
-                      ? `after ${(step.depends ?? []).join(', ')}`
+                      ? ts('after {steps}', {
+                          steps: (step.depends ?? []).join(', '),
+                        })
                       : ''}
                   </td>
                   <td className="py-1">{step.description ?? ''}</td>
@@ -208,7 +233,9 @@ function DagDetailsSections({
       {sections.includes('preconditions') &&
         (dag.preconditions?.length ?? 0) > 0 && (
           <div>
-            <SectionTitle><I18nText text={"Preconditions"} /></SectionTitle>
+            <SectionTitle>
+              <I18nText text={'Preconditions'} />
+            </SectionTitle>
             <div className="text-xs font-mono">
               {dag.preconditions?.map((c, i) => (
                 <div key={i}>{c.condition}</div>
@@ -217,8 +244,11 @@ function DagDetailsSections({
           </div>
         )}
       <div className="mt-1 text-[10px] text-muted-foreground">
-        <Link to={`/dags/${encodeURIComponent(fileName)}`} className="hover:underline">
-          <I18nText text={"Open"} /> {dagRef} →
+        <Link
+          to={`/dags/${encodeURIComponent(fileName)}`}
+          className="hover:underline"
+        >
+          <I18nTemplate text="Open {dag} →" values={{ dag: dagRef }} />
         </Link>
       </div>
     </>
@@ -261,7 +291,7 @@ export function DaguInfoBlock({ source }: Props) {
       </div>
       {result.state === 'not-found' && (
         <div className="mt-1 text-xs text-muted-foreground">
-          <I18nText text={"DAG not found in this workspace."} />
+          <I18nText text={'DAG not found in this workspace.'} />
         </div>
       )}
       {result.state === 'found' && (

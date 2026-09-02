@@ -19,6 +19,7 @@ import {
 import Title from '@/components/ui/title';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
+import { useI18n } from '@/i18n/I18nProvider';
 
 type SearchScope = 'dags' | 'wiki';
 type DagResult = components['schemas']['DAGSearchPageItem'];
@@ -143,10 +144,13 @@ function SearchFeedPanel({
   sentinelRef,
   children,
 }: SearchFeedPanelProps) {
+  const { ts } = useI18n();
   if (!query) {
     return (
       <div className="text-sm text-muted-foreground italic">
-        <I18nText text={"Enter a search term and press Enter or click Search"} />
+        <I18nText
+          text={'Enter a search term and press Enter or click Search'}
+        />
       </div>
     );
   }
@@ -154,7 +158,7 @@ function SearchFeedPanel({
   if (isLoading && !hasResults && !initialErrorMessage) {
     return (
       <div className="text-sm text-muted-foreground italic">
-        <I18nText text={"Searching"} /> {title.toLowerCase()}...
+        {ts('Searching {type}...', { type: ts(title) })}
       </div>
     );
   }
@@ -176,8 +180,12 @@ function SearchFeedPanel({
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-lg font-semibold">{title}</h2>
         <span className="text-xs text-muted-foreground">
-          {resultCount}
-          {hasMore ? '+' : ''} <I18nText text={"result"} />{resultCount === 1 ? '' : 's'}
+          {ts(
+            resultCount === 1 && !hasMore
+              ? '{count} result'
+              : '{count} results',
+            { count: `${resultCount}${hasMore ? '+' : ''}` }
+          )}
         </span>
       </div>
 
@@ -193,7 +201,11 @@ function SearchFeedPanel({
             }}
             disabled={isLoadingMore}
           >
-            {isLoadingMore ? <I18nText text={"Retrying..."} /> : <I18nText text={"Retry load more"} />}
+            {isLoadingMore ? (
+              <I18nText text={'Retrying...'} />
+            ) : (
+              <I18nText text={'Retry load more'} />
+            )}
           </Button>
         </div>
       )}
@@ -207,7 +219,11 @@ function SearchFeedPanel({
             }}
             disabled={isLoadingMore}
           >
-            {isLoadingMore ? <I18nText text={"Loading..."} /> : <I18nText text={"Load more"} />}
+            {isLoadingMore ? (
+              <I18nText text={'Loading...'} />
+            ) : (
+              <I18nText text={'Load more'} />
+            )}
           </Button>
           <div ref={sentinelRef} className="h-4 w-full" />
         </div>
@@ -215,7 +231,7 @@ function SearchFeedPanel({
 
       {!hasMore && (
         <div className="mb-6 text-center text-xs text-muted-foreground">
-          <I18nText text={"End of results"} />
+          <I18nText text={'End of results'} />
         </div>
       )}
     </div>
@@ -317,39 +333,47 @@ function CursorSearchFeed<T extends SearchPageResult>({
 
 function DAGSearchFeed({ query, remoteNode, workspaceQuery }: SearchFeedProps) {
   return (
-    <I18nProps><CursorSearchFeed<DagResult>
-      endpoint="/search/dags"
-      title="DAGs"
-      emptyMessage="No dags found"
-      query={query}
-      remoteNode={remoteNode}
-      workspaceQuery={workspaceQuery}
-      renderResults={(results) => (
-        <SearchResult
-          type="dag"
-          query={query}
-          results={results}
-          workspaceQuery={workspaceQuery}
-        />
-      )}
-    /></I18nProps>
+    <I18nProps>
+      <CursorSearchFeed<DagResult>
+        endpoint="/search/dags"
+        title="DAGs"
+        emptyMessage="No dags found"
+        query={query}
+        remoteNode={remoteNode}
+        workspaceQuery={workspaceQuery}
+        renderResults={(results) => (
+          <SearchResult
+            type="dag"
+            query={query}
+            results={results}
+            workspaceQuery={workspaceQuery}
+          />
+        )}
+      />
+    </I18nProps>
   );
 }
 
-function WikiSearchFeed({ query, remoteNode, workspaceQuery }: SearchFeedProps) {
+function WikiSearchFeed({
+  query,
+  remoteNode,
+  workspaceQuery,
+}: SearchFeedProps) {
   return (
-    <I18nProps><CursorSearchFeed<WikiPageResult>
-      endpoint="/search/wiki"
-      title="Wiki"
-      emptyMessage="No Wiki pages found"
-      unavailableMessage="Wiki page management is not available on this server."
-      query={query}
-      remoteNode={remoteNode}
-      workspaceQuery={workspaceQuery}
-      renderResults={(results) => (
-        <SearchResult type="wiki" query={query} results={results} />
-      )}
-    /></I18nProps>
+    <I18nProps>
+      <CursorSearchFeed<WikiPageResult>
+        endpoint="/search/wiki"
+        title="Wiki"
+        emptyMessage="No Wiki pages found"
+        unavailableMessage="Wiki page management is not available on this server."
+        query={query}
+        remoteNode={remoteNode}
+        workspaceQuery={workspaceQuery}
+        renderResults={(results) => (
+          <SearchResult type="wiki" query={query} results={results} />
+        )}
+      />
+    </I18nProps>
   );
 }
 
@@ -445,25 +469,29 @@ function Search() {
   return (
     <div className="max-w-5xl">
       <div className="w-full">
-        <Title><I18nText text={"Search"} /></Title>
+        <Title>
+          <I18nText text={'Search'} />
+        </Title>
 
         <div className="flex flex-col gap-3 pt-2">
           <div className="flex flex-wrap items-center gap-2">
-            <I18nProps><Input
-              placeholder="Search text..."
-              className="max-w-md"
-              ref={inputRef}
-              value={searchVal}
-              onChange={(e) => {
-                setSearchVal(e.target.value);
-              }}
-              type="search"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  onSubmit(searchVal);
-                }
-              }}
-            /></I18nProps>
+            <I18nProps>
+              <Input
+                placeholder="Search text..."
+                className="max-w-md"
+                ref={inputRef}
+                value={searchVal}
+                onChange={(e) => {
+                  setSearchVal(e.target.value);
+                }}
+                type="search"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    onSubmit(searchVal);
+                  }
+                }}
+              />
+            </I18nProps>
             <Button
               disabled={!searchVal.trim() && !submittedQuery}
               onClick={() => {
@@ -471,34 +499,36 @@ function Search() {
               }}
             >
               <SearchIcon className="h-4 w-4" />
-              <I18nText text={"Search"} />
+              <I18nText text={'Search'} />
             </Button>
-            <I18nProps><ToggleGroup aria-label="Search scope">
-              <ToggleButton
-                value="dags"
-                groupValue={currentFilters.scope}
-                onClick={() => {
-                  syncFilters({
-                    searchVal: currentFilters.searchVal,
-                    scope: 'dags',
-                  });
-                }}
-              >
-                <I18nText text={"DAGs"} />
-              </ToggleButton>
-              <ToggleButton
-                value="wiki"
-                groupValue={currentFilters.scope}
-                onClick={() => {
-                  syncFilters({
-                    searchVal: currentFilters.searchVal,
-                    scope: 'wiki',
-                  });
-                }}
-              >
-                <I18nText text={"Wiki"} />
-              </ToggleButton>
-            </ToggleGroup></I18nProps>
+            <I18nProps>
+              <ToggleGroup aria-label="Search scope">
+                <ToggleButton
+                  value="dags"
+                  groupValue={currentFilters.scope}
+                  onClick={() => {
+                    syncFilters({
+                      searchVal: currentFilters.searchVal,
+                      scope: 'dags',
+                    });
+                  }}
+                >
+                  <I18nText text={'DAGs'} />
+                </ToggleButton>
+                <ToggleButton
+                  value="wiki"
+                  groupValue={currentFilters.scope}
+                  onClick={() => {
+                    syncFilters({
+                      searchVal: currentFilters.searchVal,
+                      scope: 'wiki',
+                    });
+                  }}
+                >
+                  <I18nText text={'Wiki'} />
+                </ToggleButton>
+              </ToggleGroup>
+            </I18nProps>
           </div>
         </div>
 

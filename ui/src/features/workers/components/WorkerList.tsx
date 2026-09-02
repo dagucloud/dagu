@@ -41,7 +41,7 @@ function WorkerList({
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-32 text-sm text-muted-foreground">
-        <I18nText text={"Loading workers..."} />
+        <I18nText text={'Loading workers...'} />
       </div>
     );
   }
@@ -51,7 +51,9 @@ function WorkerList({
       <div className="p-4 space-y-2">
         <div className="flex items-center gap-2 text-sm text-warning">
           <AlertCircle className="h-4 w-4" />
-          <span><I18nText text={"Warnings:"} /></span>
+          <span>
+            <I18nText text={'Warnings:'} />
+          </span>
         </div>
         {errors.map((error, idx) => (
           <p key={idx} className="text-xs text-muted-foreground pl-6">
@@ -65,7 +67,7 @@ function WorkerList({
   if (workers.length === 0) {
     return (
       <div className="flex items-center justify-center h-32 text-sm text-muted-foreground">
-        <I18nText text={"No workers connected"} />
+        <I18nText text={'No workers connected'} />
       </div>
     );
   }
@@ -136,7 +138,9 @@ function WorkerList({
                 <span className="text-sm font-medium">
                   {worker.runningTasks?.length || 0}/{worker.totalPollers}
                 </span>
-                <div className="text-xs text-muted-foreground"><I18nText text={"tasks"} /></div>
+                <div className="text-xs text-muted-foreground">
+                  <I18nText text={'tasks'} />
+                </div>
               </div>
 
               {/* Last heartbeat */}
@@ -155,7 +159,10 @@ function WorkerList({
               <div className="bg-muted/20 border-t">
                 <div className="px-12 py-2 space-y-1">
                   <div className="text-xs font-medium text-muted-foreground mb-2">
-                    <I18nText text={"Running Tasks ("} />{worker.runningTasks.length})
+                    <I18nText
+                      text="Running Tasks ({count})"
+                      values={{ count: worker.runningTasks.length }}
+                    />
                   </div>
                   {worker.runningTasks.map((task: RunningTask) => (
                     <TaskRow
@@ -180,7 +187,9 @@ function UtilizationBar({ busy, total }: { busy: number; total: number }) {
   return (
     <div className="space-y-1">
       <div className="flex justify-between text-xs">
-        <span className="text-muted-foreground"><I18nText text={"Usage"} /></span>
+        <span className="text-muted-foreground">
+          <I18nText text={'Usage'} />
+        </span>
         <span className="font-medium">{Math.round(percentage)}%</span>
       </div>
       <div className="h-1.5 bg-muted rounded-full overflow-hidden">
@@ -258,13 +267,19 @@ function TaskRow({
         </div>
         {isNestedTask && (
           <div className="text-xs text-muted-foreground mt-0.5">
-            <span className="opacity-60"><I18nText text={"root:"} /></span> {task.rootDagRunName}
+            <span className="opacity-60">
+              <I18nText text={'root:'} />
+            </span>{' '}
+            {task.rootDagRunName}
             <span className="opacity-40 ml-1">({task.rootDagRunId})</span>
           </div>
         )}
         {task.parentDagRunName && task.parentDagRunName !== task.dagName && (
           <div className="text-xs text-muted-foreground">
-            <span className="opacity-60"><I18nText text={"parent:"} /></span> {task.parentDagRunName}
+            <span className="opacity-60">
+              <I18nText text={'parent:'} />
+            </span>{' '}
+            {task.parentDagRunName}
           </div>
         )}
       </div>

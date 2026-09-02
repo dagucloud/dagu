@@ -65,7 +65,9 @@ export const CommandDisplay: React.FC<CommandDisplayProps> = ({
     const { truncated, isTruncated } = truncateText(fullCmd, maxLength);
 
     const element = (
-      <div className={`flex items-center gap-1.5 text-xs font-medium ${className}`}>
+      <div
+        className={`flex items-center gap-1.5 text-xs font-medium ${className}`}
+      >
         <Icon className="h-4 w-4 text-primary flex-shrink-0" />
         <span className="bg-muted rounded-md px-1.5 py-0.5 text-foreground/90 font-mono">
           {truncated}
@@ -81,7 +83,9 @@ export const CommandDisplay: React.FC<CommandDisplayProps> = ({
           <div className="cursor-pointer">{element}</div>
         </TooltipTrigger>
         <TooltipContent className="max-w-[600px]">
-          <pre className="whitespace-pre-wrap break-all text-xs font-mono">{fullCmd}</pre>
+          <pre className="whitespace-pre-wrap break-all text-xs font-mono">
+            {fullCmd}
+          </pre>
         </TooltipContent>
       </Tooltip>
     );
@@ -93,7 +97,7 @@ export const CommandDisplay: React.FC<CommandDisplayProps> = ({
       <div className="flex items-center gap-1.5 text-xs">
         <Icon className="h-4 w-4 text-primary flex-shrink-0" />
         <span className="text-muted-foreground font-medium">
-          {commands.length} <I18nText text={"commands"} />
+          {commands.length} <I18nText text={'commands'} />
         </span>
       </div>
       <div className="pl-3 border-l-2 border-primary/20 space-y-0.5">
@@ -101,7 +105,10 @@ export const CommandDisplay: React.FC<CommandDisplayProps> = ({
           const fullCmd = formatCommand(entry);
           const { truncated } = truncateText(fullCmd, maxLength - 5);
           return (
-            <div key={idx} className="flex items-center gap-1 text-xs font-mono">
+            <div
+              key={idx}
+              className="flex items-center gap-1 text-xs font-mono"
+            >
               <ChevronRight className="h-3 w-3 text-muted-foreground flex-shrink-0" />
               <span className="text-foreground/80 truncate">{truncated}</span>
             </div>
@@ -121,13 +128,20 @@ export const CommandDisplay: React.FC<CommandDisplayProps> = ({
       <TooltipContent className="max-w-[600px]">
         <div className="space-y-2">
           <div className="text-xs font-semibold text-muted-foreground">
-            <I18nText text={"Commands ("} />{commands.length}):
+            <I18nText
+              text="Commands ({count}):"
+              values={{ count: commands.length }}
+            />
           </div>
           <div className="space-y-1">
             {commands.map((entry, i) => (
               <div key={i} className="flex gap-2 text-xs font-mono">
-                <span className="text-muted-foreground w-4 text-right flex-shrink-0">{i + 1}.</span>
-                <pre className="whitespace-pre-wrap break-all flex-1">{formatCommand(entry)}</pre>
+                <span className="text-muted-foreground w-4 text-right flex-shrink-0">
+                  {i + 1}.
+                </span>
+                <pre className="whitespace-pre-wrap break-all flex-1">
+                  {formatCommand(entry)}
+                </pre>
               </div>
             ))}
           </div>

@@ -56,6 +56,7 @@ import {
 } from '../lib/wiki-page-mutation';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
+import { useI18n } from '@/i18n/I18nProvider';
 
 type WikiPageTreeNodeResponse =
   components['schemas']['WikiPageTreeNodeResponse'];
@@ -244,6 +245,7 @@ function WikiTreeSidebar({
   sortOrder,
   onSortChange,
 }: Props) {
+  const { ts } = useI18n();
   const canWrite = useCanWrite();
   const canEdit = canWrite;
   const client = useClient();
@@ -683,38 +685,42 @@ function WikiTreeSidebar({
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-border">
         <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          <I18nText text={"Wiki"} />
+          <I18nText text={'Wiki'} />
         </span>
         <div className="flex items-center gap-0.5">
-          <I18nProps><button
-            type="button"
-            onClick={handleExpandAll}
-            className="p-1 rounded-sm hover:bg-accent text-muted-foreground hover:text-foreground"
-            title="Expand All"
-          >
-            <ChevronsUpDown className="h-3.5 w-3.5" />
-          </button></I18nProps>
-          <I18nProps><button
-            type="button"
-            onClick={handleCollapseAll}
-            className="p-1 rounded-sm hover:bg-accent text-muted-foreground hover:text-foreground"
-            title="Collapse All"
-          >
-            <ChevronsDownUp className="h-3.5 w-3.5" />
-          </button></I18nProps>
+          <I18nProps>
+            <button
+              type="button"
+              onClick={handleExpandAll}
+              className="p-1 rounded-sm hover:bg-accent text-muted-foreground hover:text-foreground"
+              title="Expand All"
+            >
+              <ChevronsUpDown className="h-3.5 w-3.5" />
+            </button>
+          </I18nProps>
+          <I18nProps>
+            <button
+              type="button"
+              onClick={handleCollapseAll}
+              className="p-1 rounded-sm hover:bg-accent text-muted-foreground hover:text-foreground"
+              title="Collapse All"
+            >
+              <ChevronsDownUp className="h-3.5 w-3.5" />
+            </button>
+          </I18nProps>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
                 className="p-1 rounded-sm hover:bg-accent text-muted-foreground hover:text-foreground"
-                title="Sort"
+                title={ts('Sort')}
               >
                 <ArrowUpDown className="h-3.5 w-3.5" />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">
               <DropdownMenuLabel className="text-xs py-1">
-                <I18nText text={"Sort by"} />
+                <I18nText text={'Sort by'} />
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuRadioGroup
@@ -725,22 +731,22 @@ function WikiTreeSidebar({
                 }}
               >
                 <DropdownMenuRadioItem value="name:asc" className="text-xs">
-                  <I18nText text={"Name A–Z"} />
+                  <I18nText text={'Name A–Z'} />
                 </DropdownMenuRadioItem>
                 <DropdownMenuRadioItem value="name:desc" className="text-xs">
-                  <I18nText text={"Name Z–A"} />
+                  <I18nText text={'Name Z–A'} />
                 </DropdownMenuRadioItem>
                 <DropdownMenuRadioItem value="type:asc" className="text-xs">
-                  <I18nText text={"Folders first"} />
+                  <I18nText text={'Folders first'} />
                 </DropdownMenuRadioItem>
                 <DropdownMenuRadioItem value="type:desc" className="text-xs">
-                  <I18nText text={"Files first"} />
+                  <I18nText text={'Files first'} />
                 </DropdownMenuRadioItem>
                 <DropdownMenuRadioItem value="mtime:desc" className="text-xs">
-                  <I18nText text={"Newest first"} />
+                  <I18nText text={'Newest first'} />
                 </DropdownMenuRadioItem>
                 <DropdownMenuRadioItem value="mtime:asc" className="text-xs">
-                  <I18nText text={"Oldest first"} />
+                  <I18nText text={'Oldest first'} />
                 </DropdownMenuRadioItem>
               </DropdownMenuRadioGroup>
             </DropdownMenuContent>
@@ -755,14 +761,14 @@ function WikiTreeSidebar({
                       ? 'text-primary'
                       : 'text-muted-foreground'
                   }`}
-                  title="Filter by tags"
+                  title={ts('Filter by tags')}
                 >
                   <Tag className="h-3.5 w-3.5" />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-44">
                 <DropdownMenuLabel className="text-xs py-1">
-                  <I18nText text={"Filter by tags"} />
+                  <I18nText text={'Filter by tags'} />
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 {tagVocabulary.map((tag) => {
@@ -791,7 +797,7 @@ function WikiTreeSidebar({
                       className="text-xs text-muted-foreground"
                       onSelect={() => setSelectedTags([])}
                     >
-                      <I18nText text={"Clear filter"} />
+                      <I18nText text={'Clear filter'} />
                     </DropdownMenuItem>
                   </>
                 )}
@@ -799,14 +805,16 @@ function WikiTreeSidebar({
             </DropdownMenu>
           )}
           {canEdit && canCreateNew && (
-            <I18nProps><button
-              type="button"
-              onClick={onCreateNew}
-              className="p-1 rounded-sm hover:bg-accent text-muted-foreground hover:text-foreground"
-              title="New Wiki page"
-            >
-              <FilePlus className="h-4 w-4" />
-            </button></I18nProps>
+            <I18nProps>
+              <button
+                type="button"
+                onClick={onCreateNew}
+                className="p-1 rounded-sm hover:bg-accent text-muted-foreground hover:text-foreground"
+                title="New Wiki page"
+              >
+                <FilePlus className="h-4 w-4" />
+              </button>
+            </I18nProps>
           )}
         </div>
       </div>
@@ -820,15 +828,17 @@ function WikiTreeSidebar({
         >
           <div className="relative">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-            <I18nProps><input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search Wiki pages..."
-              className="w-full text-xs bg-muted/50 border border-border rounded px-2 py-1 pl-6 pr-6 outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground/60"
-              tabIndex={selectionOverlayActive ? -1 : undefined}
-              disabled={selectionOverlayActive}
-            /></I18nProps>
+            <I18nProps>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search Wiki pages..."
+                className="w-full text-xs bg-muted/50 border border-border rounded px-2 py-1 pl-6 pr-6 outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground/60"
+                tabIndex={selectionOverlayActive ? -1 : undefined}
+                disabled={selectionOverlayActive}
+              />
+            </I18nProps>
             {searchQuery && (
               <button
                 type="button"
@@ -852,8 +862,14 @@ function WikiTreeSidebar({
             searchQuery.length >= 2 &&
             !searchError && (
               <div className="text-[10px] text-muted-foreground mt-0.5 px-1">
-                {searchResults.length} <I18nText text={"result"} />
-                {searchResults.length !== 1 ? 's' : ''}
+                <I18nText
+                  text={
+                    searchResults.length === 1
+                      ? '{count} result'
+                      : '{count} results'
+                  }
+                  values={{ count: searchResults.length }}
+                />
               </div>
             )}
         </div>
@@ -861,7 +877,7 @@ function WikiTreeSidebar({
         {selectionOverlayActive && (
           <div className="absolute inset-0 flex items-center justify-between px-3">
             <span className="text-xs text-muted-foreground">
-              {selectedIds.length} <I18nText text={"selected"} />
+              {selectedIds.length} <I18nText text={'selected'} />
             </span>
             <div className="flex items-center gap-1">
               <button
@@ -870,16 +886,19 @@ function WikiTreeSidebar({
                 disabled={selectedTargets.length === 0}
                 className="flex items-center gap-0.5 text-xs text-destructive hover:text-destructive/80 px-1 py-0.5 rounded-sm hover:bg-destructive/10"
               >
-                <Trash2 className="h-3 w-3" /> <I18nText text={"Delete"} /> {selectedTargets.length}
+                <Trash2 className="h-3 w-3" /> <I18nText text={'Delete'} />{' '}
+                {selectedTargets.length}
               </button>
-              <I18nProps><button
-                type="button"
-                onClick={() => treeRef.current?.deselectAll()}
-                className="p-0.5 rounded-sm hover:bg-accent text-muted-foreground"
-                title="Clear selection"
-              >
-                <X className="h-3 w-3" />
-              </button></I18nProps>
+              <I18nProps>
+                <button
+                  type="button"
+                  onClick={() => treeRef.current?.deselectAll()}
+                  className="p-0.5 rounded-sm hover:bg-accent text-muted-foreground"
+                  title="Clear selection"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </I18nProps>
             </div>
           </div>
         )}
@@ -896,7 +915,7 @@ function WikiTreeSidebar({
           <div className="flex flex-col items-center justify-center h-full gap-2 p-4 text-center">
             <AlertCircle className="h-6 w-6 text-destructive/60" />
             <p className="text-xs text-muted-foreground">
-              <I18nText text={"Failed to load Wiki pages"} />
+              <I18nText text={'Failed to load Wiki pages'} />
             </p>
             {onRetry && (
               <button
@@ -905,7 +924,7 @@ function WikiTreeSidebar({
                 className="flex items-center gap-1 text-xs text-primary hover:underline"
               >
                 <RefreshCw className="h-3 w-3" />
-                <I18nText text={"Retry"} />
+                <I18nText text={'Retry'} />
               </button>
             )}
           </div>
@@ -926,14 +945,16 @@ function WikiTreeSidebar({
           <>
             {error && onRetry && (
               <div className="flex items-center justify-between px-3 py-1 bg-destructive/10 border-b border-border">
-                <span className="text-xs text-destructive"><I18nText text={"Refresh failed"} /></span>
+                <span className="text-xs text-destructive">
+                  <I18nText text={'Refresh failed'} />
+                </span>
                 <button
                   type="button"
                   onClick={onRetry}
                   className="flex items-center gap-1 text-xs text-primary hover:underline"
                 >
                   <RefreshCw className="h-3 w-3" />
-                  <I18nText text={"Retry"} />
+                  <I18nText text={'Retry'} />
                 </button>
               </div>
             )}
@@ -944,7 +965,7 @@ function WikiTreeSidebar({
               >
                 {rankedResults.length === 0 && (
                   <div className="px-3 py-2 text-xs text-muted-foreground">
-                    <I18nText text={"No matching Wiki pages"} />
+                    <I18nText text={'No matching Wiki pages'} />
                   </div>
                 )}
                 {rankedResults.map((item) => (
@@ -1003,14 +1024,14 @@ function WikiTreeSidebar({
               <>
                 <Search className="h-8 w-8 text-muted-foreground/50" />
                 <p className="text-sm text-muted-foreground">
-                  <I18nText text={"No matching Wiki pages"} />
+                  <I18nText text={'No matching Wiki pages'} />
                 </p>
               </>
             ) : (
               <>
                 <FileText className="h-8 w-8 text-muted-foreground/50" />
                 <p className="text-sm text-muted-foreground">
-                  <I18nText text={"No Wiki pages yet."} />
+                  <I18nText text={'No Wiki pages yet.'} />
                 </p>
                 {canEdit && canCreateNew && (
                   <button
@@ -1018,7 +1039,7 @@ function WikiTreeSidebar({
                     onClick={onCreateNew}
                     className="text-sm text-primary hover:underline"
                   >
-                    <I18nText text={"Create your first Wiki page"} />
+                    <I18nText text={'Create your first Wiki page'} />
                   </button>
                 )}
               </>

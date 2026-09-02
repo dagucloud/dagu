@@ -14,7 +14,8 @@ import { useCallback, useState } from 'react';
 import { components } from '../../../../api/v1/schema';
 import { useConfig } from '../../../../contexts/ConfigContext';
 import { useClient } from '../../../../hooks/api';
-import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
+import { useI18n } from '@/i18n/I18nProvider';
 
 /**
  * Props for the LiveSwitch component
@@ -34,6 +35,7 @@ type Props = {
  * When disabled (unchecked), the DAG is suspended and won't be scheduled
  */
 function LiveSwitch({ dag, refresh, 'aria-label': ariaLabel }: Props) {
+  const { ts } = useI18n();
   const client = useClient();
   const config = useConfig();
   const { showError } = useErrorModal();
@@ -100,18 +102,25 @@ function LiveSwitch({ dag, refresh, 'aria-label': ariaLabel }: Props) {
         disabled={!config.permissions.runDags}
         aria-label={ariaLabel}
       />
-      <ConfirmModal
-        title={pendingState ? 'Enable Schedule' : 'Disable Schedule'}
-        buttonText={pendingState ? 'Enable' : 'Disable'}
-        visible={showConfirm}
-        dismissModal={handleCancel}
-        onSubmit={handleConfirm}
-      >
-        <p>
-          <I18nText text={"Are you sure you want to"} /> {pendingState ? <I18nText text={"enable"} /> : <I18nText text={"disable"} />} the
-          schedule for &quot;{dag.fileName}&quot;?
-        </p>
-      </ConfirmModal>
+      <I18nProps>
+        <ConfirmModal
+          title={pendingState ? 'Enable Schedule' : 'Disable Schedule'}
+          buttonText={pendingState ? 'Enable' : 'Disable'}
+          visible={showConfirm}
+          dismissModal={handleCancel}
+          onSubmit={handleConfirm}
+        >
+          <p>
+            {ts(
+              'Are you sure you want to {action} the schedule for "{name}"?',
+              {
+                action: ts(pendingState ? 'enable' : 'disable'),
+                name: dag.fileName,
+              }
+            )}
+          </p>
+        </ConfirmModal>
+      </I18nProps>
     </>
   );
 }

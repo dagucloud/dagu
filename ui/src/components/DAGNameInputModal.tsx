@@ -11,8 +11,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Pencil, Plus, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
-import { validateDAGName, DAG_NAME_PATTERN_STRING } from '../lib/dag-validation';
+import {
+  validateDAGName,
+  DAG_NAME_PATTERN_STRING,
+} from '../lib/dag-validation';
 import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 export interface DAGNameInputModalProps {
   /** Whether the modal is open */
@@ -62,33 +66,42 @@ export function DAGNameInputModal({
     }
   }, [isOpen, initialValue]);
 
-  const handleNameChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const newName = e.target.value;
-    setName(newName);
-    
-    // Clear errors when user types
-    if (validationError) {
-      setValidationError(null);
-    }
-  }, [validationError]);
+  const handleNameChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const newName = e.target.value;
+      setName(newName);
 
-  const handleSubmit = useCallback((e: React.FormEvent) => {
-    e.preventDefault();
-    
-    const validation = validateDAGName(name);
-    if (!validation.isValid) {
-      setValidationError(validation.error || 'Invalid DAG name');
-      return;
-    }
-    
-    onSubmit(name.trim());
-  }, [name, onSubmit]);
+      // Clear errors when user types
+      if (validationError) {
+        setValidationError(null);
+      }
+    },
+    [validationError]
+  );
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      onClose();
-    }
-  }, [onClose]);
+  const handleSubmit = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault();
+
+      const validation = validateDAGName(name);
+      if (!validation.isValid) {
+        setValidationError(validation.error || 'Invalid DAG name');
+        return;
+      }
+
+      onSubmit(name.trim());
+    },
+    [name, onSubmit]
+  );
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    },
+    [onClose]
+  );
 
   // Get modal content based on mode
   const getModalContent = () => {
@@ -96,15 +109,19 @@ export function DAGNameInputModal({
       case 'create':
         return {
           title: 'Create New DAG',
-          description: 'Enter a name for your new DAG. Only letters, numbers, underscores, dots, and hyphens are allowed.',
+          description:
+            'Enter a name for your new DAG. Only letters, numbers, underscores, dots, and hyphens are allowed.',
           submitText: 'Create',
+          loadingText: 'Creating...',
           placeholder: 'my_new_dag',
         };
       case 'rename':
         return {
           title: 'Rename DAG',
-          description: 'Enter a new name for your DAG. Only letters, numbers, underscores, dots, and hyphens are allowed.',
+          description:
+            'Enter a new name for your DAG. Only letters, numbers, underscores, dots, and hyphens are allowed.',
           submitText: 'Rename',
+          loadingText: 'Renaming...',
           placeholder: 'my_renamed_dag',
         };
       default:
@@ -120,29 +137,33 @@ export function DAGNameInputModal({
       <DialogContent className="sm:max-w-[425px]" onKeyDown={handleKeyDown}>
         <form onSubmit={handleSubmit}>
           <DialogHeader>
-            <DialogTitle>{modalContent.title}</DialogTitle>
+            <DialogTitle>
+              <I18nText text={modalContent.title} />
+            </DialogTitle>
             <DialogDescription>
-              {modalContent.description}
+              <I18nText text={modalContent.description} />
             </DialogDescription>
             <div className="mt-1 font-mono text-xs bg-muted p-1 rounded text-muted-foreground">
-              <I18nText text={"Pattern:"} /> {DAG_NAME_PATTERN_STRING}
+              <I18nText text={'Pattern:'} /> {DAG_NAME_PATTERN_STRING}
             </div>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="dag-name" className="text-right">
-                <I18nText text={"DAG Name"} />
+                <I18nText text={'DAG Name'} />
               </Label>
-              <Input
-                id="dag-name"
-                value={name}
-                onChange={handleNameChange}
-                className="col-span-3"
-                placeholder={modalContent.placeholder}
-                pattern={DAG_NAME_PATTERN_STRING}
-                autoFocus
-                disabled={isLoading}
-              />
+              <I18nProps>
+                <Input
+                  id="dag-name"
+                  value={name}
+                  onChange={handleNameChange}
+                  className="col-span-3"
+                  placeholder={modalContent.placeholder}
+                  pattern={DAG_NAME_PATTERN_STRING}
+                  autoFocus
+                  disabled={isLoading}
+                />
+              </I18nProps>
             </div>
             {currentError && (
               <div className="text-destructive text-sm px-4">
@@ -158,11 +179,19 @@ export function DAGNameInputModal({
               disabled={isLoading}
             >
               <X className="h-4 w-4" />
-              <I18nText text={"Cancel"} />
+              <I18nText text={'Cancel'} />
             </Button>
             <Button type="submit" disabled={isLoading}>
-              {mode === 'create' ? <Plus className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
-              {isLoading ? `${modalContent.submitText}ing...` : modalContent.submitText}
+              {mode === 'create' ? (
+                <Plus className="h-4 w-4" />
+              ) : (
+                <Pencil className="h-4 w-4" />
+              )}
+              <I18nText
+                text={
+                  isLoading ? modalContent.loadingText : modalContent.submitText
+                }
+              />
             </Button>
           </DialogFooter>
         </form>

@@ -3,7 +3,7 @@
 
 import ConfirmModal from '@/components/ui/confirm-dialog';
 import { I18nProps } from '@/i18n/I18nProps';
-import { I18nText } from '@/i18n/I18nText';
+import { I18nTemplate } from '@/i18n/I18nTemplate';
 
 interface ForgetDialogProps {
   open: boolean;
@@ -21,20 +21,27 @@ export function ForgetDialog({
   onCancel,
 }: ForgetDialogProps) {
   return (
-    <I18nProps><ConfirmModal
-      title="Forget Sync Item"
-      buttonText={isForgetting ? 'Forgetting...' : 'Forget'}
-      visible={open}
-      dismissModal={onCancel}
-      onSubmit={onConfirm}
-    >
-      <p className="text-sm text-muted-foreground">
-        <I18nText text={"Remove"} />{' '}
-        <span className="font-mono font-medium text-foreground break-all">
-          {itemId}
-        </span>{' '}
-        <I18nText text={"from sync tracking? This does not delete the file from the remote repository."} />
-      </p>
-    </ConfirmModal></I18nProps>
+    <I18nProps>
+      <ConfirmModal
+        title="Forget Sync Item"
+        buttonText={isForgetting ? 'Forgetting...' : 'Forget'}
+        visible={open}
+        dismissModal={onCancel}
+        onSubmit={onConfirm}
+      >
+        <p className="text-sm text-muted-foreground">
+          <I18nTemplate
+            text="Remove {item} from sync tracking? This does not delete the file from the remote repository."
+            values={{
+              item: (
+                <span className="font-mono font-medium text-foreground break-all">
+                  {itemId}
+                </span>
+              ),
+            }}
+          />
+        </p>
+      </ConfirmModal>
+    </I18nProps>
   );
 }

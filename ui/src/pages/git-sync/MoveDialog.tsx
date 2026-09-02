@@ -17,6 +17,7 @@ import { Label } from '@/components/ui/label';
 import { ArrowRightLeft, RefreshCw } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { I18nText } from '@/i18n/I18nText';
+import { I18nTemplate } from '@/i18n/I18nTemplate';
 
 interface MoveDialogProps {
   open: boolean;
@@ -72,15 +73,22 @@ export function MoveDialog({
     <Dialog open={open} onOpenChange={(o) => !o && onCancel()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-base"><I18nText text={"Move Item"} /></DialogTitle>
+          <DialogTitle className="text-base">
+            <I18nText text={'Move Item'} />
+          </DialogTitle>
           <DialogDescription className="text-xs">
-            <I18nText text={"Rename"} /> <span className="font-mono font-medium">{itemId}</span> <I18nText text={"to a new path."} />
+            <I18nTemplate
+              text="Rename {item} to a new path."
+              values={{
+                item: <span className="font-mono font-medium">{itemId}</span>,
+              }}
+            />
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1.5">
             <Label htmlFor="new-item-id" className="text-xs">
-              <I18nText text={"New Item ID"} />
+              <I18nText text={'New Item ID'} />
             </Label>
             <Input
               id="new-item-id"
@@ -104,7 +112,7 @@ export function MoveDialog({
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="move-commit-msg" className="text-xs">
-              <I18nText text={"Commit Message"} />
+              <I18nText text={'Commit Message'} />
             </Label>
             <Input
               id="move-commit-msg"
@@ -122,25 +130,25 @@ export function MoveDialog({
                 onCheckedChange={(checked) => setForce(checked === true)}
               />
               <Label htmlFor="move-force" className="text-xs">
-                <I18nText text={"Force move (override conflicts)"} />
+                <I18nText text={'Force move (override conflicts)'} />
               </Label>
             </div>
           )}
         </div>
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onCancel}>
-            <I18nText text={"Cancel"} />
+            <I18nText text={'Cancel'} />
           </Button>
           <Button size="sm" onClick={handleSubmit} disabled={isMoving}>
             {isMoving ? (
               <>
                 <RefreshCw className="h-3.5 w-3.5 mr-1 animate-spin" />
-                <I18nText text={"Moving..."} />
+                <I18nText text={'Moving...'} />
               </>
             ) : (
               <>
                 <ArrowRightLeft className="h-3.5 w-3.5 mr-1" />
-                <I18nText text={"Move"} />
+                <I18nText text={'Move'} />
               </>
             )}
           </Button>

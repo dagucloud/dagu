@@ -40,6 +40,7 @@ import Graph, { type FlowchartType } from '../visualization/Graph';
 import DAGEditorWithDocs from './DAGEditorWithDocs';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
+import { useI18n } from '@/i18n/I18nProvider';
 
 /**
  * Props for the DAGSpecReadOnly component
@@ -152,6 +153,7 @@ function DAGSpecReadOnly({
   sourceFileName,
   className,
 }: DAGSpecReadOnlyProps) {
+  const { ts } = useI18n();
   const remoteNode = useRemoteNode();
   const client = useClient();
   const navigate = useNavigate();
@@ -808,7 +810,10 @@ function DAGSpecReadOnly({
                               onCheckedChange={() => toggleReuseStep(step.name)}
                               onClick={(event) => event.stopPropagation()}
                               className="mt-0.5 border-border"
-                              aria-label={`Reuse previous output for ${step.name}`}
+                              aria-label={ts(
+                                'Reuse previous output for {step}',
+                                { step: step.name }
+                              )}
                             />
                             <div className="min-w-0 flex-1 space-y-1">
                               <div className="break-all font-mono text-xs">

@@ -13,6 +13,9 @@ const localizedProps = [
   'alt',
   'label',
   'description',
+  'buttonText',
+  'emptyMessage',
+  'unavailableMessage',
 ] as const;
 
 export function I18nProps({

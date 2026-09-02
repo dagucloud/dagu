@@ -35,6 +35,9 @@ import {
   workspaceSelectionQuery,
 } from '../lib/workspace';
 import { I18nText } from '@/i18n/I18nText';
+import { I18nTemplate } from '@/i18n/I18nTemplate';
+import { I18nProps } from '@/i18n/I18nProps';
+import { useI18n } from '@/i18n/I18nProvider';
 
 type Metrics = Record<Status, number>;
 
@@ -148,10 +151,14 @@ function GettingStartedPanel(): React.ReactElement {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-xl border border-border bg-surface p-8 text-center">
       <h2 className="text-xl font-semibold text-foreground">
-        <I18nText text={"Create your first workflow"} />
+        <I18nText text={'Create your first workflow'} />
       </h2>
       <p className="max-w-md text-base text-muted-foreground">
-        <I18nText text={"Dagu runs workflows defined in YAML. Create one from scratch or start from the documentation examples."} />
+        <I18nText
+          text={
+            'Dagu runs workflows defined in YAML. Create one from scratch or start from the documentation examples.'
+          }
+        />
       </p>
       <CreateDAGModal />
       <div className="flex flex-wrap items-center justify-center gap-4 text-sm">
@@ -161,7 +168,7 @@ function GettingStartedPanel(): React.ReactElement {
           rel="noreferrer"
           className="text-primary hover:underline"
         >
-          <I18nText text={"Documentation"} />
+          <I18nText text={'Documentation'} />
         </a>
         <a
           href="https://docs.dagu.sh/writing-workflows/examples"
@@ -169,7 +176,7 @@ function GettingStartedPanel(): React.ReactElement {
           rel="noreferrer"
           className="text-primary hover:underline"
         >
-          <I18nText text={"Example workflows"} />
+          <I18nText text={'Example workflows'} />
         </a>
       </div>
     </div>
@@ -187,22 +194,30 @@ function NoRunsNotice({
     <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
       <GanttChart className="h-12 w-12 text-muted-foreground/40" />
       <h2 className="text-xl font-semibold text-foreground">
-        <I18nText text={"No runs on"} /> {dateLabel}
+        <I18nText text="No runs on {date}" values={{ date: dateLabel }} />
       </h2>
       <p className="text-base text-muted-foreground">
-        {hasExampleDAGs
-          ? <I18nText text={"Run one of the example workflows from the "} />
-          : <I18nText text={"Start a workflow from the "} />}
-        <Link to="/dags" className="text-primary hover:underline">
-          <I18nText text={"Workflows page"} />
-        </Link>{' '}
-        <I18nText text={"to see activity here."} />
+        <I18nTemplate
+          text={
+            hasExampleDAGs
+              ? 'Run one of the example workflows from the {link} to see activity here.'
+              : 'Start a workflow from the {link} to see activity here.'
+          }
+          values={{
+            link: (
+              <Link to="/dags" className="text-primary hover:underline">
+                <I18nText text="Workflows page" />
+              </Link>
+            ),
+          }}
+        />
       </p>
     </div>
   );
 }
 
 function Dashboard(): React.ReactElement | null {
+  const { locale } = useI18n();
   const appBarContext = React.useContext(AppBarContext);
   const client = useClient();
   const config = useConfig();
@@ -503,7 +518,11 @@ function Dashboard(): React.ReactElement | null {
 
   if (error) {
     const errorMessage = error.message || 'Unknown error loading dashboard';
-    return <div className="p-4 text-error"><I18nText text={"Error:"} /> {errorMessage}</div>;
+    return (
+      <div className="p-4 text-error">
+        <I18nText text={'Error:'} /> {errorMessage}
+      </div>
+    );
   }
 
   const metrics = createEmptyMetrics();
@@ -548,12 +567,16 @@ function Dashboard(): React.ReactElement | null {
           >
             <SelectTrigger className="h-9 w-[140px]">
               <Filter className="h-4 w-4 mr-1.5 text-muted-foreground" />
-              <SelectValue
-                placeholder={isLoading ? 'Loading...' : 'All DAGs'}
-              />
+              <I18nProps>
+                <SelectValue
+                  placeholder={isLoading ? 'Loading...' : 'All DAGs'}
+                />
+              </I18nProps>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all"><I18nText text={"All DAGs"} /></SelectItem>
+              <SelectItem value="all">
+                <I18nText text={'All DAGs'} />
+              </SelectItem>
               {uniqueDAGRunNames.map((name) => (
                 <SelectItem key={name} value={name}>
                   {name}
@@ -588,7 +611,7 @@ function Dashboard(): React.ReactElement | null {
               handleDateChange(startOfDay.unix(), endOfDay.unix());
             }}
           >
-            <I18nText text={"Today"} />
+            <I18nText text={'Today'} />
           </Button>
 
           <div className="flex-1" />
@@ -608,13 +631,17 @@ function Dashboard(): React.ReactElement | null {
                   {stat(totalDAGRuns)}
                   {hasMore ? '+' : ''}
                 </span>
-                <span className="text-xs"><I18nText text={"recent runs"} /></span>
+                <span className="text-xs">
+                  <I18nText text={'recent runs'} />
+                </span>
               </div>
               <div className="flex items-baseline gap-1">
                 <span className="text-lg sm:text-xl font-light tabular-nums text-foreground">
                   {stat(metrics[Status.Success])}
                 </span>
-                <span className="text-xs"><I18nText text={"ok"} /></span>
+                <span className="text-xs">
+                  <I18nText text={'ok'} />
+                </span>
               </div>
               <div className="flex items-baseline gap-1">
                 <span
@@ -622,20 +649,26 @@ function Dashboard(): React.ReactElement | null {
                 >
                   {stat(metrics[Status.Failed])}
                 </span>
-                <span className="text-xs"><I18nText text={"failed"} /></span>
+                <span className="text-xs">
+                  <I18nText text={'failed'} />
+                </span>
               </div>
               <div className="flex items-baseline gap-1">
                 <span className="text-lg sm:text-xl font-light tabular-nums text-foreground">
                   {stat(metrics[Status.Aborted])}
                 </span>
-                <span className="text-xs"><I18nText text={"aborted"} /></span>
+                <span className="text-xs">
+                  <I18nText text={'aborted'} />
+                </span>
               </div>
               {hasRunning && (
                 <div className="flex items-baseline gap-1">
                   <span className="text-lg sm:text-xl font-light tabular-nums text-foreground">
                     {metrics[Status.Running]}
                   </span>
-                  <span className="text-xs"><I18nText text={"active"} /></span>
+                  <span className="text-xs">
+                    <I18nText text={'active'} />
+                  </span>
                 </div>
               )}
               {metrics[Status.Waiting] > 0 && (
@@ -643,7 +676,9 @@ function Dashboard(): React.ReactElement | null {
                   <span className="text-lg sm:text-xl font-light tabular-nums text-foreground">
                     {metrics[Status.Waiting]}
                   </span>
-                  <span className="text-xs"><I18nText text={"waiting"} /></span>
+                  <span className="text-xs">
+                    <I18nText text={'waiting'} />
+                  </span>
                 </div>
               )}
               {metrics[Status.Rejected] > 0 && (
@@ -651,7 +686,9 @@ function Dashboard(): React.ReactElement | null {
                   <span className="text-lg sm:text-xl font-light tabular-nums text-foreground">
                     {metrics[Status.Rejected]}
                   </span>
-                  <span className="text-xs"><I18nText text={"rejected"} /></span>
+                  <span className="text-xs">
+                    <I18nText text={'rejected'} />
+                  </span>
                 </div>
               )}
             </div>
@@ -660,21 +697,23 @@ function Dashboard(): React.ReactElement | null {
             <div className="flex-1 min-h-[250px] rounded-xl border border-border bg-surface overflow-hidden">
               {showNoRunsNotice ? (
                 <NoRunsNotice
-                  dateLabel={dayjs
-                    .unix(dateRange.startDate)
-                    .format('MMM D, YYYY')}
+                  dateLabel={new Intl.DateTimeFormat(locale, {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric',
+                  }).format(dayjs.unix(dateRange.startDate).toDate())}
                   hasExampleDAGs={hasExampleDAGs}
                 />
               ) : showInventoryError ? (
                 <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
                   <p className="text-base font-medium text-foreground">
-                    <I18nText text={"Failed to load the workflow list."} />
+                    <I18nText text={'Failed to load the workflow list.'} />
                   </p>
                   <Button
                     variant="outline"
                     onClick={() => setInventoryRetryNonce((n) => n + 1)}
                   >
-                    <I18nText text={"Retry"} />
+                    <I18nText text={'Retry'} />
                   </Button>
                 </div>
               ) : (
@@ -691,7 +730,11 @@ function Dashboard(): React.ReactElement | null {
                   onClick={() => void loadMore()}
                   disabled={isLoadingMore}
                 >
-                  {isLoadingMore ? <I18nText text={"Loading..."} /> : <I18nText text={"Load older runs"} />}
+                  {isLoadingMore ? (
+                    <I18nText text={'Loading...'} />
+                  ) : (
+                    <I18nText text={'Load older runs'} />
+                  )}
                 </Button>
                 <div
                   ref={autoLoadSentinelRef}

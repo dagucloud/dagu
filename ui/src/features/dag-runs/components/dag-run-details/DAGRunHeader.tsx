@@ -44,8 +44,7 @@ const DAGRunHeader: React.FC<DAGRunHeaderProps> = ({
   const { copied: linkCopied, copy: copyLink } = useCopyFeedback();
 
   const copyRunLink = () => {
-    const basePrefix =
-      config.basePath === '/' ? '' : (config.basePath ?? '');
+    const basePrefix = config.basePath === '/' ? '' : (config.basePath ?? '');
     const runPath = buildDAGRunPageURL({
       rootDAGRunName: dagRun.rootDAGRunName,
       rootDAGRunId: dagRun.rootDAGRunId,
@@ -151,7 +150,9 @@ const DAGRunHeader: React.FC<DAGRunHeaderProps> = ({
           <nav className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground mb-2">
             {dagRun.rootDAGRunId !== dagRun.dagRunId && (
               <>
-                <span className="font-medium"><I18nText text={"Root:"} /></span>
+                <span className="font-medium">
+                  <I18nText text={'Root:'} />
+                </span>
                 <a
                   href={buildDAGRunPageURL({
                     rootDAGRunName: dagRun.rootDAGRunName,
@@ -199,43 +200,61 @@ const DAGRunHeader: React.FC<DAGRunHeaderProps> = ({
               {dagRun.name}
             </h1>
             {dagRun.sourceFileName && (
-              <I18nProps><a
-                href={buildDAGPageURL({
-                  fileName: dagRun.sourceFileName,
-                  remoteNode,
-                })}
-                onClick={(e) => {
-                  e.preventDefault();
-                  navigate(
-                    buildDAGPageURL({
-                      fileName: dagRun.sourceFileName!,
-                      remoteNode,
-                    })
-                  );
-                }}
-                className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-all"
-                title="View DAG Definition"
-              >
-                <FileText className="h-3.5 w-3.5" />
-                <span><I18nText text={"Definition"} /></span>
-              </a></I18nProps>
+              <I18nProps>
+                <a
+                  href={buildDAGPageURL({
+                    fileName: dagRun.sourceFileName,
+                    remoteNode,
+                  })}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    navigate(
+                      buildDAGPageURL({
+                        fileName: dagRun.sourceFileName!,
+                        remoteNode,
+                      })
+                    );
+                  }}
+                  className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-all"
+                  title="View DAG Definition"
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  <span>
+                    <I18nText text={'Definition'} />
+                  </span>
+                </a>
+              </I18nProps>
             )}
-            <button
-              type="button"
-              onClick={copyRunLink}
-              className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-all"
-              title={linkCopied ? 'Link copied' : 'Copy link to this run'}
-              aria-label={linkCopied ? 'Link copied' : 'Copy link to this run'}
-            >
-              {linkCopied ? (
-                <Check className="h-3.5 w-3.5 text-green-500" />
-              ) : (
-                <Link2 className="h-3.5 w-3.5" />
-              )}
-              <span>{linkCopied ? <I18nText text={"Copied"} /> : <I18nText text={"Copy link"} />}</span>
-            </button>
+            <I18nProps>
+              <button
+                type="button"
+                onClick={copyRunLink}
+                className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-all"
+                title={linkCopied ? 'Link copied' : 'Copy link to this run'}
+                aria-label={
+                  linkCopied ? 'Link copied' : 'Copy link to this run'
+                }
+              >
+                {linkCopied ? (
+                  <Check className="h-3.5 w-3.5 text-green-500" />
+                ) : (
+                  <Link2 className="h-3.5 w-3.5" />
+                )}
+                <span>
+                  {linkCopied ? (
+                    <I18nText text={'Copied'} />
+                  ) : (
+                    <I18nText text={'Copy link'} />
+                  )}
+                </span>
+              </button>
+            </I18nProps>
             <span className="sr-only" aria-live="polite">
-              {linkCopied ? <I18nText text={"Run link copied to clipboard"} /> : ''}
+              {linkCopied ? (
+                <I18nText text={'Run link copied to clipboard'} />
+              ) : (
+                ''
+              )}
             </span>
           </div>
         </div>
@@ -256,20 +275,24 @@ const DAGRunHeader: React.FC<DAGRunHeaderProps> = ({
               count={dagRun.autoRetryCount}
               limit={dagRun.autoRetryLimit}
             />
-            <I18nProps><button
-              onClick={handleRefresh}
-              disabled={isRefreshing}
-              className="relative group inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-              title="Refresh (R)"
-            >
-              <RefreshCw
-                className={`h-3 w-3 ${isRefreshing ? 'animate-spin' : ''}`}
-              />
-              <span><I18nText text={"Refresh"} /></span>
-              <span className="absolute -bottom-1 -right-1 bg-muted text-muted-foreground text-xs font-medium px-1 rounded-sm border opacity-0 group-hover:opacity-100 transition-opacity">
-                <I18nText text={"R"} />
-              </span>
-            </button></I18nProps>
+            <I18nProps>
+              <button
+                onClick={handleRefresh}
+                disabled={isRefreshing}
+                className="relative group inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                title="Refresh (R)"
+              >
+                <RefreshCw
+                  className={`h-3 w-3 ${isRefreshing ? 'animate-spin' : ''}`}
+                />
+                <span>
+                  <I18nText text={'Refresh'} />
+                </span>
+                <span className="absolute -bottom-1 -right-1 bg-muted text-muted-foreground text-xs font-medium px-1 rounded-sm border opacity-0 group-hover:opacity-100 transition-opacity">
+                  <I18nText text={'R'} />
+                </span>
+              </button>
+            </I18nProps>
             <DAGRunActions
               dagRun={dagRun}
               name={dagRun.name}
@@ -317,7 +340,7 @@ const DAGRunHeader: React.FC<DAGRunHeaderProps> = ({
 
             <div className="flex items-center gap-2 text-muted-foreground ml-auto">
               <span className="font-medium text-xs text-muted-foreground uppercase tracking-wide">
-                <I18nText text={"Run ID"} />
+                <I18nText text={'Run ID'} />
               </span>
               <code className="bg-accent text-foreground px-3 py-1.5 rounded-md text-xs font-mono border">
                 {dagRun.dagRunId}
@@ -333,7 +356,7 @@ const DAGRunHeader: React.FC<DAGRunHeaderProps> = ({
           <div className="flex items-center gap-2 mb-2">
             <Terminal className="h-4 w-4 text-muted-foreground" />
             <span className="text-xs font-semibold text-foreground/90">
-              <I18nText text={"Parameters"} />
+              <I18nText text={'Parameters'} />
             </span>
           </div>
           <div className="bg-accent rounded-md px-3 py-1.5 font-mono text-xs text-foreground max-h-[120px] overflow-y-auto border">

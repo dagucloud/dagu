@@ -20,6 +20,7 @@ import {
 import { useContext, useEffect, useState } from 'react';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
+import { I18nTemplate } from '@/i18n/I18nTemplate';
 
 export default function LicensePage() {
   const config = useConfig();
@@ -130,9 +131,15 @@ export default function LicensePage() {
   return (
     <div className="flex flex-col gap-6 max-w-2xl">
       <div>
-        <h1 className="text-lg font-semibold"><I18nText text={"License"} /></h1>
+        <h1 className="text-lg font-semibold">
+          <I18nText text={'License'} />
+        </h1>
         <p className="text-sm text-muted-foreground">
-          <I18nText text={"View license status and activate a Dagu license or trial key."} />
+          <I18nText
+            text={
+              'View license status and activate a Dagu license or trial key.'
+            }
+          />
         </p>
       </div>
 
@@ -140,47 +147,61 @@ export default function LicensePage() {
       <div className="card-obsidian p-4 space-y-3">
         <div className="flex items-center gap-2 text-sm font-medium">
           <Shield className="h-4 w-4" />
-          <I18nText text={"Current License"} />
+          <I18nText text={'Current License'} />
         </div>
         <div className="grid grid-cols-[120px_1fr] gap-y-2 text-sm">
-          <span className="text-muted-foreground"><I18nText text={"Status"} /></span>
+          <span className="text-muted-foreground">
+            <I18nText text={'Status'} />
+          </span>
           <span className="flex items-center gap-1.5">
             {license.error ? (
               <>
                 <XCircle className="h-3.5 w-3.5 text-red-500" />
-                <I18nText text={"License Error"} />
+                <I18nText text={'License Error'} />
               </>
             ) : license.gracePeriod ? (
               <>
                 <XCircle className="h-3.5 w-3.5 text-amber-500" />
-                <I18nText text={"Grace Period"} />
+                <I18nText text={'Grace Period'} />
               </>
             ) : license.valid ? (
               <>
                 <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
-                <I18nText text={"Active"} />
+                <I18nText text={'Active'} />
               </>
             ) : license.community ? (
-              <I18nText text={"Community Edition"} />
+              <I18nText text={'Community Edition'} />
             ) : (
               <>
                 <XCircle className="h-3.5 w-3.5 text-red-500" />
-                <I18nText text={"Inactive"} />
+                <I18nText text={'Inactive'} />
               </>
             )}
           </span>
 
-          <span className="text-muted-foreground"><I18nText text={"Plan"} /></span>
-          <span className="capitalize">{license.plan || <I18nText text={"community"} />}</span>
+          <span className="text-muted-foreground">
+            <I18nText text={'Plan'} />
+          </span>
+          <span className="capitalize">
+            {license.plan || <I18nText text={'community'} />}
+          </span>
 
-          <span className="text-muted-foreground"><I18nText text={"Features"} /></span>
+          <span className="text-muted-foreground">
+            <I18nText text={'Features'} />
+          </span>
           <span>
-            {license.features.length > 0 ? license.features.join(', ') : <I18nText text={"None"} />}
+            {license.features.length > 0 ? (
+              license.features.join(', ')
+            ) : (
+              <I18nText text={'None'} />
+            )}
           </span>
 
           {license.expiry && (
             <>
-              <span className="text-muted-foreground"><I18nText text={"Expires"} /></span>
+              <span className="text-muted-foreground">
+                <I18nText text={'Expires'} />
+              </span>
               <span>{dayjs(license.expiry).format('YYYY-MM-DD')}</span>
             </>
           )}
@@ -195,20 +216,36 @@ export default function LicensePage() {
       {/* Deactivate license */}
       {!license.community && (
         <div className="card-obsidian p-4 space-y-3">
-          <div className="text-sm font-medium"><I18nText text={"Deactivate License"} /></div>
+          <div className="text-sm font-medium">
+            <I18nText text={'Deactivate License'} />
+          </div>
           {license.source === 'env' ? (
             <div className="flex items-start gap-2 text-sm text-muted-foreground">
               <Info className="h-4 w-4 mt-0.5 flex-shrink-0" />
               <span>
-                <I18nText text={"This license is configured via an environment variable ("} />
-                <code className="text-xs">DAGU_LICENSE</code> <I18nText text={"or"} />{' '}
-                <code className="text-xs">DAGU_LICENSE_KEY</code><I18nText text={"). To deactivate, remove the environment variable and restart Dagu."} />
+                <I18nText
+                  text={
+                    'This license is configured via an environment variable ('
+                  }
+                />
+                <code className="text-xs">DAGU_LICENSE</code>{' '}
+                <I18nText text={'or'} />{' '}
+                <code className="text-xs">DAGU_LICENSE_KEY</code>
+                <I18nText
+                  text={
+                    '). To deactivate, remove the environment variable and restart Dagu.'
+                  }
+                />
               </span>
             </div>
           ) : (
             <>
               <p className="text-sm text-muted-foreground">
-                <I18nText text={"Remove the license from this machine and return to community mode."} />
+                <I18nText
+                  text={
+                    'Remove the license from this machine and return to community mode.'
+                  }
+                />
               </p>
               <Button
                 variant="destructive"
@@ -218,7 +255,11 @@ export default function LicensePage() {
                 onClick={() => setShowDeactivateConfirm(true)}
               >
                 <AlertTriangle className="h-3.5 w-3.5" />
-                {deactivating ? <I18nText text={"Deactivating..."} /> : <I18nText text={"Deactivate License"} />}
+                {deactivating ? (
+                  <I18nText text={'Deactivating...'} />
+                ) : (
+                  <I18nText text={'Deactivate License'} />
+                )}
               </Button>
             </>
           )}
@@ -227,22 +268,30 @@ export default function LicensePage() {
 
       {/* Activation form */}
       <div className="card-obsidian p-4 space-y-3">
-        <div className="text-sm font-medium"><I18nText text={"Activate License Key"} /></div>
+        <div className="text-sm font-medium">
+          <I18nText text={'Activate License Key'} />
+        </div>
         <form onSubmit={handleActivate} className="flex gap-2">
-          <I18nProps><Input
-            value={key}
-            onChange={(e) => setKey(e.target.value)}
-            placeholder="DAGU-XXXX-XXXX-XXXX-XXXX"
-            className="font-mono text-sm h-8"
-            aria-label="License key"
-          /></I18nProps>
+          <I18nProps>
+            <Input
+              value={key}
+              onChange={(e) => setKey(e.target.value)}
+              placeholder="DAGU-XXXX-XXXX-XXXX-XXXX"
+              className="font-mono text-sm h-8"
+              aria-label="License key"
+            />
+          </I18nProps>
           <Button
             type="submit"
             size="sm"
             className="h-8 flex-shrink-0"
             disabled={activating || !key.trim()}
           >
-            {activating ? <I18nText text={"Activating..."} /> : <I18nText text={"Activate"} />}
+            {activating ? (
+              <I18nText text={'Activating...'} />
+            ) : (
+              <I18nText text={'Activate'} />
+            )}
           </Button>
         </form>
         {error && (
@@ -259,30 +308,41 @@ export default function LicensePage() {
           </div>
         )}
         <p className="text-xs text-muted-foreground">
-          <I18nText text={"Enter your license or trial key to activate Dagu features. You can obtain a key from"} />{' '}
-          <a
-            href={LICENSE_CONSOLE_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="underline hover:no-underline"
-          >
-            <I18nText text={"console.dagu.sh"} />
-          </a>
-          .
+          <I18nTemplate
+            text="Enter your license or trial key to activate Dagu features. You can obtain a key from {console}."
+            values={{
+              console: (
+                <a
+                  href={LICENSE_CONSOLE_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline hover:no-underline"
+                >
+                  console.dagu.sh
+                </a>
+              ),
+            }}
+          />
         </p>
       </div>
 
-      <I18nProps><ConfirmModal
-        title="Deactivate License"
-        buttonText="Deactivate"
-        visible={showDeactivateConfirm}
-        dismissModal={() => setShowDeactivateConfirm(false)}
-        onSubmit={handleDeactivate}
-      >
-        <p className="text-sm">
-          <I18nText text={"This will deactivate the license on this machine and return to community mode. Licensed features (audit, RBAC, SSO) will be disabled immediately."} />
-        </p>
-      </ConfirmModal></I18nProps>
+      <I18nProps>
+        <ConfirmModal
+          title="Deactivate License"
+          buttonText="Deactivate"
+          visible={showDeactivateConfirm}
+          dismissModal={() => setShowDeactivateConfirm(false)}
+          onSubmit={handleDeactivate}
+        >
+          <p className="text-sm">
+            <I18nText
+              text={
+                'This will deactivate the license on this machine and return to community mode. Licensed features (audit, RBAC, SSO) will be disabled immediately.'
+              }
+            />
+          </p>
+        </ConfirmModal>
+      </I18nProps>
     </div>
   );
 }

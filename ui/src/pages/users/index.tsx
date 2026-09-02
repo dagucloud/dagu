@@ -37,6 +37,8 @@ import { ResetPasswordModal } from './ResetPasswordModal';
 import { UserFormModal } from './UserFormModal';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
+import { useI18n } from '@/i18n/I18nProvider';
+import { I18nTemplate } from '@/i18n/I18nTemplate';
 
 type User = components['schemas']['User'];
 type UsersListResponse = components['schemas']['UsersListResponse'];
@@ -50,6 +52,7 @@ function AuthProviderBadge({
   managedRoleProviders: UserAuthProvider[];
   managedWorkspaceAccessProviders: UserAuthProvider[];
 }) {
+  const { ts } = useI18n();
   const provider = user.authProvider ?? UserAuthProvider.builtin;
   if (provider === UserAuthProvider.builtin) {
     return 'Local';
@@ -62,11 +65,16 @@ function AuthProviderBadge({
     return providerLabel;
   }
   if (roleManaged && workspaceAccessManaged) {
-    return <Badge variant="info"><I18nText text={"Managed by"} /> {providerLabel}</Badge>;
+    return (
+      <Badge variant="info">
+        {ts('Managed by {provider}', { provider: providerLabel })}
+      </Badge>
+    );
   }
+  const scope = ts(roleManaged ? 'Role' : 'Workspace access');
   return (
     <Badge variant="info">
-      {roleManaged ? <I18nText text={"Role"} /> : <I18nText text={"Workspace access"} />} <I18nText text={"managed by"} /> {providerLabel}
+      {ts('{scope} managed by {provider}', { scope, provider: providerLabel })}
     </Badge>
   );
 }
@@ -83,6 +91,7 @@ function canUsePassword(user: User): boolean {
  * @returns The Users page component as a JSX.Element
  */
 export default function UsersPage() {
+  const { ts } = useI18n();
   const config = useConfig();
   const { user: currentUser } = useAuth();
   const isAdmin = useIsAdmin();
@@ -232,9 +241,11 @@ export default function UsersPage() {
     <div className="flex flex-col gap-4 max-w-7xl">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold"><I18nText text={"Users"} /></h1>
+          <h1 className="text-lg font-semibold">
+            <I18nText text={'Users'} />
+          </h1>
           <p className="text-sm text-muted-foreground">
-            <I18nText text={"Manage user accounts and their roles"} />
+            <I18nText text={'Manage user accounts and their roles'} />
           </p>
         </div>
         {hasRbac && (
@@ -244,7 +255,7 @@ export default function UsersPage() {
             className="h-8"
           >
             <UserPlus className="h-4 w-4 mr-1.5" />
-            <I18nText text={"Add User"} />
+            <I18nText text={'Add User'} />
           </Button>
         )}
       </div>
@@ -259,14 +270,19 @@ export default function UsersPage() {
         <div className="flex items-center gap-2 p-3 text-sm text-muted-foreground bg-muted/50 rounded-md">
           <Info className="h-4 w-4 shrink-0" />
           <span>
-            <I18nText text={"User management features (create, edit, delete) require a"} />{' '}
-            <Link
-              to="/license"
-              className="text-primary underline underline-offset-2"
-            >
-              <I18nText text={"license or trial"} />
-            </Link>
-            <I18nText text={". Password reset is available for all admins."} />
+            <I18nTemplate
+              text="User management features (create, edit, delete) require a {licenseLink}. Password reset is available for all admins."
+              values={{
+                licenseLink: (
+                  <Link
+                    to="/license"
+                    className="text-primary underline underline-offset-2"
+                  >
+                    <I18nText text="license or trial" />
+                  </Link>
+                ),
+              }}
+            />
           </span>
         </div>
       )}
@@ -275,12 +291,24 @@ export default function UsersPage() {
         <Table className="text-xs">
           <TableHeader>
             <TableRow>
-              <TableHead className="w-[200px]"><I18nText text={"Username"} /></TableHead>
-              <TableHead className="w-[100px]"><I18nText text={"Role"} /></TableHead>
-              <TableHead className="w-[80px]"><I18nText text={"Auth"} /></TableHead>
-              <TableHead className="w-[80px]"><I18nText text={"Status"} /></TableHead>
-              <TableHead className="w-[150px]"><I18nText text={"Created"} /></TableHead>
-              <TableHead className="w-[150px]"><I18nText text={"Updated"} /></TableHead>
+              <TableHead className="w-[200px]">
+                <I18nText text={'Username'} />
+              </TableHead>
+              <TableHead className="w-[100px]">
+                <I18nText text={'Role'} />
+              </TableHead>
+              <TableHead className="w-[80px]">
+                <I18nText text={'Auth'} />
+              </TableHead>
+              <TableHead className="w-[80px]">
+                <I18nText text={'Status'} />
+              </TableHead>
+              <TableHead className="w-[150px]">
+                <I18nText text={'Created'} />
+              </TableHead>
+              <TableHead className="w-[150px]">
+                <I18nText text={'Updated'} />
+              </TableHead>
               <TableHead className="w-[80px]"></TableHead>
             </TableRow>
           </TableHeader>
@@ -291,7 +319,7 @@ export default function UsersPage() {
                   colSpan={7}
                   className="text-center text-muted-foreground py-8"
                 >
-                  <I18nText text={"Loading users..."} />
+                  <I18nText text={'Loading users...'} />
                 </TableCell>
               </TableRow>
             ) : users.length === 0 ? (
@@ -300,7 +328,7 @@ export default function UsersPage() {
                   colSpan={7}
                   className="text-center text-muted-foreground py-8"
                 >
-                  <I18nText text={"No users found"} />
+                  <I18nText text={'No users found'} />
                 </TableCell>
               </TableRow>
             ) : (
@@ -314,7 +342,7 @@ export default function UsersPage() {
                       {user.username}
                       {user.id === currentUser?.id && (
                         <span className="text-xs text-muted-foreground">
-                          <I18nText text={"(you)"} />
+                          <I18nText text={'(you)'} />
                         </span>
                       )}
                     </div>
@@ -336,10 +364,12 @@ export default function UsersPage() {
                   <TableCell className="text-sm">
                     {user.isDisabled ? (
                       <span className="text-red-600 dark:text-red-400">
-                        <I18nText text={"Disabled"} />
+                        <I18nText text={'Disabled'} />
                       </span>
                     ) : (
-                      <span className="text-muted-foreground"><I18nText text={"Active"} /></span>
+                      <span className="text-muted-foreground">
+                        <I18nText text={'Active'} />
+                      </span>
                     )}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
@@ -365,7 +395,7 @@ export default function UsersPage() {
                             onClick={() => setEditingUser(user)}
                           >
                             <Pencil className="h-4 w-4 mr-2" />
-                            <I18nText text={"Edit"} />
+                            <I18nText text={'Edit'} />
                           </DropdownMenuItem>
                         )}
                         {isAdmin && canUsePassword(user) && (
@@ -373,7 +403,7 @@ export default function UsersPage() {
                             onClick={() => setResetPasswordUser(user)}
                           >
                             <Key className="h-4 w-4 mr-2" />
-                            <I18nText text={"Reset Password"} />
+                            <I18nText text={'Reset Password'} />
                           </DropdownMenuItem>
                         )}
                         {hasRbac && isAdmin && user.id !== currentUser?.id && (
@@ -383,12 +413,12 @@ export default function UsersPage() {
                             {user.isDisabled ? (
                               <>
                                 <UserCheck className="h-4 w-4 mr-2" />
-                                <I18nText text={"Enable"} />
+                                <I18nText text={'Enable'} />
                               </>
                             ) : (
                               <>
                                 <Ban className="h-4 w-4 mr-2" />
-                                <I18nText text={"Disable"} />
+                                <I18nText text={'Disable'} />
                               </>
                             )}
                           </DropdownMenuItem>
@@ -400,7 +430,7 @@ export default function UsersPage() {
                             disabled={user.id === currentUser?.id}
                           >
                             <Trash2 className="h-4 w-4 mr-2" />
-                            <I18nText text={"Delete"} />
+                            <I18nText text={'Delete'} />
                           </DropdownMenuItem>
                         )}
                       </DropdownMenuContent>
@@ -444,18 +474,22 @@ export default function UsersPage() {
       />
 
       {/* Delete Confirmation */}
-      <I18nProps><ConfirmModal
-        title="Delete User"
-        buttonText="Delete"
-        visible={!!deletingUser}
-        dismissModal={() => setDeletingUser(null)}
-        onSubmit={handleDeleteUser}
-      >
-        <p>
-          Are you sure you want to delete user &quot;{deletingUser?.username}
-          &quot;? This action cannot be undone.
-        </p>
-      </ConfirmModal></I18nProps>
+      <I18nProps>
+        <ConfirmModal
+          title="Delete User"
+          buttonText="Delete"
+          visible={!!deletingUser}
+          dismissModal={() => setDeletingUser(null)}
+          onSubmit={handleDeleteUser}
+        >
+          <p>
+            {ts(
+              'Are you sure you want to delete user "{username}"? This action cannot be undone.',
+              { username: deletingUser?.username ?? '' }
+            )}
+          </p>
+        </ConfirmModal>
+      </I18nProps>
     </div>
   );
 }

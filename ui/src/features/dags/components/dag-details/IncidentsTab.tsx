@@ -28,6 +28,7 @@ import {
   policySetInput,
 } from '@/features/incidents/incidentDrafts';
 import { I18nText } from '@/i18n/I18nText';
+import { I18nTemplate } from '@/i18n/I18nTemplate';
 
 type IncidentsTabProps = {
   fileName: string;
@@ -40,17 +41,21 @@ function LicenseRequired(): ReactElement {
       <Shield size={40} className="text-muted-foreground" />
       <div>
         <h2 className="text-lg font-semibold text-foreground">
-          <I18nText text={"License Required"} />
+          <I18nText text={'License Required'} />
         </h2>
         <p className="mt-1 max-w-md text-sm text-muted-foreground">
-          <I18nText text={"Incident connections and routing require an active Dagu license or trial. Visit the"} />{' '}
+          <I18nText
+            text={
+              'Incident connections and routing require an active Dagu license or trial. Visit the'
+            }
+          />{' '}
           <Link
             to="/license"
             className="text-primary underline underline-offset-2"
           >
-            <I18nText text={"License"} />
+            <I18nText text={'License'} />
           </Link>{' '}
-          <I18nText text={"page to activate one."} />
+          <I18nText text={'page to activate one.'} />
         </p>
       </div>
     </div>
@@ -124,9 +129,6 @@ export default function IncidentsTab({
   const visibleDraft = isConfigured
     ? draft
     : { ...draft, inheritParent: true, policies: [] };
-  const effectiveSource = workspaceName
-    ? `workspace ${workspaceName}`
-    : 'Global';
   const combinedLoadError =
     apiErrorMessage(loadError, 'Failed to load DAG incident routing') ??
     apiErrorMessage(providersError, 'Failed to load incident connections');
@@ -219,16 +221,28 @@ export default function IncidentsTab({
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="space-y-1">
             <h1 className="text-2xl font-semibold tracking-normal text-foreground">
-              <I18nText text={"DAG Incidents"} />
+              <I18nText text={'DAG Incidents'} />
             </h1>
             <p className="text-sm text-muted-foreground">
-              <I18nText text={"This DAG uses"} /> {effectiveSource} <I18nText text={"routing unless you set a DAG override."} />
+              <I18nTemplate
+                text="This DAG uses {source} routing unless you set a DAG override."
+                values={{
+                  source: workspaceName ? (
+                    <I18nText
+                      text="workspace {name}"
+                      values={{ name: workspaceName }}
+                    />
+                  ) : (
+                    <I18nText text="Global" />
+                  ),
+                }}
+              />
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="outline" size="sm" onClick={refresh}>
               <RefreshCw className="h-4 w-4" />
-              <I18nText text={"Refresh"} />
+              <I18nText text={'Refresh'} />
             </Button>
             {isConfigured ? (
               <>
@@ -243,7 +257,7 @@ export default function IncidentsTab({
                   ) : (
                     <RotateCcw className="h-4 w-4" />
                   )}
-                  <I18nText text={"Reset to inherit"} />
+                  <I18nText text={'Reset to inherit'} />
                 </Button>
                 <Button size="sm" onClick={save} disabled={saving}>
                   {saving ? (
@@ -251,13 +265,13 @@ export default function IncidentsTab({
                   ) : (
                     <Save className="h-4 w-4" />
                   )}
-                  <I18nText text={"Save changes"} />
+                  <I18nText text={'Save changes'} />
                 </Button>
               </>
             ) : (
               <Button size="sm" onClick={configureOverride}>
                 <Settings className="h-4 w-4" />
-                <I18nText text={"Configure DAG override"} />
+                <I18nText text={'Configure DAG override'} />
               </Button>
             )}
           </div>
@@ -279,7 +293,7 @@ export default function IncidentsTab({
       {(isLoading || providersLoading) && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
-          <I18nText text={"Loading incident routing"} />
+          <I18nText text={'Loading incident routing'} />
         </div>
       )}
 

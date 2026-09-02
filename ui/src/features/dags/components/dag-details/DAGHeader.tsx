@@ -22,6 +22,7 @@ import { RootDAGRunContext } from '../../contexts/RootDAGRunContext';
 import { DAGActions } from '../common';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
+import { useI18n } from '@/i18n/I18nProvider';
 
 interface DAGHeaderProps {
   dag: components['schemas']['DAG'] | components['schemas']['DAGDetails'];
@@ -42,6 +43,7 @@ const DAGHeader: React.FC<DAGHeaderProps> = ({
   navigateToStatusTab,
   buildScopedUrl,
 }) => {
+  const { ts } = useI18n();
   const navigate = useNavigate();
   const params = useParams<{ tab?: string }>();
   const rootDAGRunContext = React.useContext(RootDAGRunContext);
@@ -239,8 +241,12 @@ const DAGHeader: React.FC<DAGHeaderProps> = ({
               <button
                 onClick={() => copyName(displayName)}
                 className="flex-shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 text-xs rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-all"
-                title={nameCopied ? 'Name copied' : `Copy name: ${displayName}`}
-                aria-label={nameCopied ? 'Name copied' : 'Copy name'}
+                title={
+                  nameCopied
+                    ? ts('Name copied')
+                    : ts('Copy name: {name}', { name: displayName })
+                }
+                aria-label={ts(nameCopied ? 'Name copied' : 'Copy name')}
               >
                 {nameCopied ? (
                   <Check className="h-3.5 w-3.5 text-green-500" />
@@ -250,15 +256,19 @@ const DAGHeader: React.FC<DAGHeaderProps> = ({
               </button>
             )}
             <span className="sr-only" aria-live="polite">
-              {nameCopied ? `Copied name ${displayName}` : ''}
+              {nameCopied
+                ? ts('Copied name {name}', { name: displayName })
+                : ''}
             </span>
             <button
               onClick={copyPageLink}
               className="flex-shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 text-xs rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-all"
-              title={linkCopied ? 'Link copied' : 'Copy link to this workflow'}
-              aria-label={
+              title={ts(
                 linkCopied ? 'Link copied' : 'Copy link to this workflow'
-              }
+              )}
+              aria-label={ts(
+                linkCopied ? 'Link copied' : 'Copy link to this workflow'
+              )}
             >
               {linkCopied ? (
                 <Check className="h-3.5 w-3.5 text-green-500" />
@@ -267,7 +277,11 @@ const DAGHeader: React.FC<DAGHeaderProps> = ({
               )}
             </button>
             <span className="sr-only" aria-live="polite">
-              {linkCopied ? <I18nText text={"Workflow link copied to clipboard"} /> : ''}
+              {linkCopied ? (
+                <I18nText text={'Workflow link copied to clipboard'} />
+              ) : (
+                ''
+              )}
             </span>
           </div>
         </div>
@@ -300,17 +314,21 @@ const DAGHeader: React.FC<DAGHeaderProps> = ({
               limit={dagRunToDisplay.autoRetryLimit}
             />
 
-            <I18nProps><button
-              onClick={handleRefresh}
-              disabled={isRefreshing}
-              className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-              title="Refresh (R)"
-            >
-              <RefreshCw
-                className={`h-3 w-3 ${isRefreshing ? 'animate-spin' : ''}`}
-              />
-              <span><I18nText text={"Refresh"} /></span>
-            </button></I18nProps>
+            <I18nProps>
+              <button
+                onClick={handleRefresh}
+                disabled={isRefreshing}
+                className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                title="Refresh (R)"
+              >
+                <RefreshCw
+                  className={`h-3 w-3 ${isRefreshing ? 'animate-spin' : ''}`}
+                />
+                <span>
+                  <I18nText text={'Refresh'} />
+                </span>
+              </button>
+            </I18nProps>
 
             <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
               <Calendar className="h-3 w-3" />

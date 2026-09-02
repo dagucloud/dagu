@@ -22,6 +22,7 @@ import {
   WIKI_PAGE_TEMPLATE_DAG_NAME,
 } from '@/pages/wiki/lib/wiki-page-templates';
 import { I18nText } from '@/i18n/I18nText';
+import { I18nTemplate } from '@/i18n/I18nTemplate';
 
 type WikiPageMetadataResponse =
   components['schemas']['WikiPageMetadataResponse'];
@@ -190,7 +191,9 @@ function DAGWikiTab({ dagName, workspaceName }: Props) {
     <div className="rounded-md border border-border bg-background">
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
         <BookOpen className="h-4 w-4 text-muted-foreground" />
-        <span className="text-sm font-medium"><I18nText text={"Wiki"} /></span>
+        <span className="text-sm font-medium">
+          <I18nText text={'Wiki'} />
+        </span>
         <div className="flex-1" />
         {canWrite && validSegment && (
           <button
@@ -199,17 +202,32 @@ function DAGWikiTab({ dagName, workspaceName }: Props) {
             className="flex items-center gap-1 px-2 py-0.5 text-xs rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted"
           >
             <FilePlus className="h-3.5 w-3.5" />
-            <I18nText text={"New runbook"} />
+            <I18nText text={'New runbook'} />
           </button>
         )}
       </div>
 
       {empty ? (
         <div className="px-3 py-6 text-center text-xs text-muted-foreground space-y-1">
-          <p><I18nText text={"No Wiki pages reference this DAG yet."} /></p>
           <p>
-            <I18nText text={"Wiki pages under"} />{' '}
-            <code>{validSegment ? `${dagName}/` : 'its folder'}</code> <I18nText text={"or containing a"} /> <code>{`[[dag:${dagName}]]`}</code> <I18nText text={"wikilink appear here."} />
+            <I18nText text={'No Wiki pages reference this DAG yet.'} />
+          </p>
+          <p>
+            <I18nTemplate
+              text="Wiki pages under {folder} or containing a {link} wikilink appear here."
+              values={{
+                folder: (
+                  <code>
+                    {validSegment ? (
+                      `${dagName}/`
+                    ) : (
+                      <I18nText text="its folder" />
+                    )}
+                  </code>
+                ),
+                link: <code>{`[[dag:${dagName}]]`}</code>,
+              }}
+            />
           </p>
         </div>
       ) : (
@@ -217,7 +235,7 @@ function DAGWikiTab({ dagName, workspaceName }: Props) {
           {folderWikiPages.length > 0 && (
             <div>
               <div className="px-3 pt-2 pb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                <I18nText text={"In"} /> {dagName}/
+                <I18nText text={'In'} /> {dagName}/
               </div>
               {folderWikiPages.map((item) => (
                 <WikiPageRow
@@ -232,7 +250,7 @@ function DAGWikiTab({ dagName, workspaceName }: Props) {
             <div>
               <div className="flex items-center gap-1 px-3 pt-2 pb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                 <Link2 className="h-3 w-3" />
-                <I18nText text={"Linking to this DAG"} />
+                <I18nText text={'Linking to this DAG'} />
               </div>
               {backlinkWikiPages.map((item) => (
                 <WikiPageRow

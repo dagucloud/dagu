@@ -25,6 +25,7 @@ import Mermaid from '@/components/ui/mermaid';
 import { exportGraphPng, exportGraphSvg } from './exportGraph';
 import { I18nProps } from '@/i18n/I18nProps';
 import { I18nText } from '@/i18n/I18nText';
+import { useI18n } from '@/i18n/I18nProvider';
 
 /**
  * Escapes special characters in labels for safe Mermaid syntax interpolation.
@@ -163,9 +164,8 @@ function Graph({
 
   const handleExport = (format: 'png' | 'svg') => {
     // Scope to the mermaid wrapper; the control bar renders its own icon SVGs.
-    const svg = containerRef.current?.querySelector<SVGSVGElement>(
-      '.mermaid svg'
-    );
+    const svg =
+      containerRef.current?.querySelector<SVGSVGElement>('.mermaid svg');
     if (!svg) {
       return;
     }
@@ -425,108 +425,128 @@ function Graph({
       ref={containerRef}
     >
       <div className="absolute inset-x-2 top-2 z-10 max-w-[calc(100%-1rem)] overflow-x-auto rounded-md border border-border/50 bg-card shadow-sm sm:left-auto sm:right-4">
-        <I18nProps><ToggleGroup
-          aria-label="Graph controls"
-          className="min-w-max border-0 bg-transparent"
-        >
-          {onChangeFlowchart && (
-            <>
-              <I18nProps><ToggleButton
-                value="LR"
-                groupValue={flowchart}
-                onClick={() => onChangeFlowchart('LR')}
-                aria-label="Horizontal layout"
-                position="first"
+        <I18nProps>
+          <ToggleGroup
+            aria-label="Graph controls"
+            className="min-w-max border-0 bg-transparent"
+          >
+            {onChangeFlowchart && (
+              <>
+                <I18nProps>
+                  <ToggleButton
+                    value="LR"
+                    groupValue={flowchart}
+                    onClick={() => onChangeFlowchart('LR')}
+                    aria-label="Horizontal layout"
+                    position="first"
+                    className={graphControlButtonClass}
+                  >
+                    <ArrowRightLeft className="h-4 w-4" />
+                  </ToggleButton>
+                </I18nProps>
+                <I18nProps>
+                  <ToggleButton
+                    value="TD"
+                    groupValue={flowchart}
+                    onClick={() => onChangeFlowchart('TD')}
+                    aria-label="Vertical layout"
+                    position="middle"
+                    className={graphControlButtonClass}
+                  >
+                    <ArrowDownUp className="h-4 w-4" />
+                  </ToggleButton>
+                </I18nProps>
+                <div className="h-6 w-px shrink-0 self-center bg-border" />
+              </>
+            )}
+
+            <I18nProps>
+              <ToggleButton
+                value="zoomin"
+                onClick={() => zoomIn()}
+                aria-label="Zoom in"
+                position={onChangeFlowchart ? 'middle' : 'first'}
                 className={graphControlButtonClass}
               >
-                <ArrowRightLeft className="h-4 w-4" />
-              </ToggleButton></I18nProps>
-              <I18nProps><ToggleButton
-                value="TD"
-                groupValue={flowchart}
-                onClick={() => onChangeFlowchart('TD')}
-                aria-label="Vertical layout"
+                <ZoomIn className="h-4 w-4" />
+              </ToggleButton>
+            </I18nProps>
+            <I18nProps>
+              <ToggleButton
+                value="zoomout"
+                onClick={() => zoomOut()}
+                aria-label="Zoom out"
                 position="middle"
                 className={graphControlButtonClass}
               >
-                <ArrowDownUp className="h-4 w-4" />
-              </ToggleButton></I18nProps>
-              <div className="h-6 w-px shrink-0 self-center bg-border" />
-            </>
-          )}
-
-          <I18nProps><ToggleButton
-            value="zoomin"
-            onClick={() => zoomIn()}
-            aria-label="Zoom in"
-            position={onChangeFlowchart ? 'middle' : 'first'}
-            className={graphControlButtonClass}
-          >
-            <ZoomIn className="h-4 w-4" />
-          </ToggleButton></I18nProps>
-          <I18nProps><ToggleButton
-            value="zoomout"
-            onClick={() => zoomOut()}
-            aria-label="Zoom out"
-            position="middle"
-            className={graphControlButtonClass}
-          >
-            <ZoomOut className="h-4 w-4" />
-          </ToggleButton></I18nProps>
-          <I18nProps><ToggleButton
-            value="fit"
-            onClick={() => fitToScreen()}
-            aria-label="Fit to screen"
-            position="middle"
-            className={graphControlButtonClass}
-          >
-            <Maximize2 className="h-4 w-4" />
-          </ToggleButton></I18nProps>
-          <I18nProps><ToggleButton
-            value="reset"
-            onClick={() => resetZoom()}
-            aria-label="Reset zoom"
-            position="middle"
-            className={graphControlButtonClass}
-          >
-            <RotateCcw className="h-4 w-4" />
-          </ToggleButton></I18nProps>
-
-          <div className="h-6 w-px shrink-0 self-center bg-border" />
-          <I18nProps><ToggleButton
-            value="export-png"
-            onClick={() => handleExport('png')}
-            aria-label="Export as PNG"
-            position="middle"
-            className={graphControlButtonClass}
-          >
-            <ImageDown className="h-4 w-4" />
-          </ToggleButton></I18nProps>
-          <I18nProps><ToggleButton
-            value="export-svg"
-            onClick={() => handleExport('svg')}
-            aria-label="Export as SVG"
-            position={isExpandedView ? 'last' : 'middle'}
-            className={graphControlButtonClass}
-          >
-            <FileDown className="h-4 w-4" />
-          </ToggleButton></I18nProps>
-
-          {!isExpandedView && (
-            <>
-              <div className="h-6 w-px shrink-0 self-center bg-border" />
-              <I18nProps><ToggleButton
-                value="expand"
-                onClick={() => setIsModalOpen(true)}
-                aria-label="Expand graph"
-                position="last"
+                <ZoomOut className="h-4 w-4" />
+              </ToggleButton>
+            </I18nProps>
+            <I18nProps>
+              <ToggleButton
+                value="fit"
+                onClick={() => fitToScreen()}
+                aria-label="Fit to screen"
+                position="middle"
                 className={graphControlButtonClass}
               >
-                <Expand className="h-4 w-4" />
-              </ToggleButton></I18nProps>
-            </>
-          )}
-        </ToggleGroup></I18nProps>
+                <Maximize2 className="h-4 w-4" />
+              </ToggleButton>
+            </I18nProps>
+            <I18nProps>
+              <ToggleButton
+                value="reset"
+                onClick={() => resetZoom()}
+                aria-label="Reset zoom"
+                position="middle"
+                className={graphControlButtonClass}
+              >
+                <RotateCcw className="h-4 w-4" />
+              </ToggleButton>
+            </I18nProps>
+
+            <div className="h-6 w-px shrink-0 self-center bg-border" />
+            <I18nProps>
+              <ToggleButton
+                value="export-png"
+                onClick={() => handleExport('png')}
+                aria-label="Export as PNG"
+                position="middle"
+                className={graphControlButtonClass}
+              >
+                <ImageDown className="h-4 w-4" />
+              </ToggleButton>
+            </I18nProps>
+            <I18nProps>
+              <ToggleButton
+                value="export-svg"
+                onClick={() => handleExport('svg')}
+                aria-label="Export as SVG"
+                position={isExpandedView ? 'last' : 'middle'}
+                className={graphControlButtonClass}
+              >
+                <FileDown className="h-4 w-4" />
+              </ToggleButton>
+            </I18nProps>
+
+            {!isExpandedView && (
+              <>
+                <div className="h-6 w-px shrink-0 self-center bg-border" />
+                <I18nProps>
+                  <ToggleButton
+                    value="expand"
+                    onClick={() => setIsModalOpen(true)}
+                    aria-label="Expand graph"
+                    position="last"
+                    className={graphControlButtonClass}
+                  >
+                    <Expand className="h-4 w-4" />
+                  </ToggleButton>
+                </I18nProps>
+              </>
+            )}
+          </ToggleGroup>
+        </I18nProps>
       </div>
 
       <div
@@ -564,7 +584,7 @@ function Graph({
             <DialogHeader className="flex-shrink-0 mb-2">
               <DialogTitle className="flex items-center gap-2 text-xl font-semibold">
                 <GitGraph className="h-5 w-5 text-primary" />
-                <I18nText text={"Visual Graph"} />
+                <I18nText text={'Visual Graph'} />
               </DialogTitle>
             </DialogHeader>
             <div className="flex-1 min-h-0 bg-surface rounded-xl p-1 shadow-inner border border-border/20">
@@ -634,6 +654,7 @@ function GraphFallback({
   onDoubleClickNode,
   onRightClickNode,
 }: GraphFallbackProps): React.JSX.Element | null {
+  const { ts } = useI18n();
   const clickTimeoutsRef = React.useRef<
     Map<string, ReturnType<typeof setTimeout>>
   >(new Map());
@@ -715,39 +736,41 @@ function GraphFallback({
     !!onRightClickNode;
 
   return (
-    <I18nProps><div
-      aria-label="Workflow graph"
-      className="min-w-full p-6 pr-24"
-      data-testid="graph-fallback"
-      role="list"
-    >
-      <div className="flex flex-wrap items-start gap-3">
-        {nodes.map((node) => (
-          <div key={node.id} role="listitem">
-            {hasInteraction ? (
-              <button
-                aria-label={`Inspect ${node.name}`}
-                className={fallbackNodeClassName(node.status, true)}
-                onClick={() => handleClick(node.id)}
-                onContextMenu={(event) => handleRightClick(event, node.id)}
-                onDoubleClick={() => handleDoubleClick(node.id)}
-                title={node.name}
-                type="button"
-              >
-                <FallbackNodeContent node={node} />
-              </button>
-            ) : (
-              <div
-                className={fallbackNodeClassName(node.status, false)}
-                title={node.name}
-              >
-                <FallbackNodeContent node={node} />
-              </div>
-            )}
-          </div>
-        ))}
+    <I18nProps>
+      <div
+        aria-label="Workflow graph"
+        className="min-w-full p-6 pr-24"
+        data-testid="graph-fallback"
+        role="list"
+      >
+        <div className="flex flex-wrap items-start gap-3">
+          {nodes.map((node) => (
+            <div key={node.id} role="listitem">
+              {hasInteraction ? (
+                <button
+                  aria-label={ts('Inspect {name}', { name: node.name })}
+                  className={fallbackNodeClassName(node.status, true)}
+                  onClick={() => handleClick(node.id)}
+                  onContextMenu={(event) => handleRightClick(event, node.id)}
+                  onDoubleClick={() => handleDoubleClick(node.id)}
+                  title={node.name}
+                  type="button"
+                >
+                  <FallbackNodeContent node={node} />
+                </button>
+              ) : (
+                <div
+                  className={fallbackNodeClassName(node.status, false)}
+                  title={node.name}
+                >
+                  <FallbackNodeContent node={node} />
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
-    </div></I18nProps>
+    </I18nProps>
   );
 }
 

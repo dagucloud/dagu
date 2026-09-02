@@ -54,6 +54,8 @@ import {
 import type { EffectiveNotificationRoute } from './useNotificationSettings';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
+import { useI18n } from '@/i18n/I18nProvider';
+import { I18nTemplate } from '@/i18n/I18nTemplate';
 
 type ProviderFieldsProps = {
   draft: DeliveryDraft;
@@ -61,6 +63,7 @@ type ProviderFieldsProps = {
 };
 
 function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
+  const { ts } = useI18n();
   const fieldId = useId();
   const update = (patch: Partial<DeliveryDraft>) =>
     onChange({ ...draft, ...patch });
@@ -171,7 +174,9 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
             value={draft.webhook.url}
             placeholder={
               draft.webhook.urlConfigured
-                ? `URL configured (${draft.webhook.urlPreview || 'saved'})`
+                ? ts('URL configured ({preview})', {
+                    preview: draft.webhook.urlPreview || ts('saved'),
+                  })
                 : 'https://example.com/webhook'
             }
             onChange={(event) =>
@@ -218,8 +223,8 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
           value={draft.webhook.hmacSecret}
           placeholder={
             draft.webhook.hmacSecretConfigured
-              ? 'HMAC secret configured'
-              : 'HMAC secret'
+              ? ts('HMAC secret configured')
+              : ts('HMAC secret')
           }
           onChange={(event) =>
             update({
@@ -246,10 +251,15 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
             }
           />
           <p className="text-xs text-muted-foreground">
-            <I18nText text={'Supports tokens such as'} />{' '}
-            <code>{'{{dag.name}}'}</code>, <code>{'{{run.status}}'}</code>,{' '}
-            <code>{'{{run.error}}'}</code>
-            <I18nText text={', and'} /> <code>{'{{run.link}}'}</code>.
+            <I18nTemplate
+              text="Supports tokens such as {dag}, {status}, {error}, and {link}."
+              values={{
+                dag: <code>{'{{dag.name}}'}</code>,
+                status: <code>{'{{run.status}}'}</code>,
+                error: <code>{'{{run.error}}'}</code>,
+                link: <code>{'{{run.link}}'}</code>,
+              }}
+            />
           </p>
         </div>
         <div className="space-y-2">
@@ -346,8 +356,10 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
           value={draft.slack.webhookUrl}
           placeholder={
             draft.slack.webhookUrlConfigured
-              ? `Webhook URL configured (${draft.slack.webhookUrlPreview || 'saved'})`
-              : 'Slack webhook URL'
+              ? ts('Webhook URL configured ({preview})', {
+                  preview: draft.slack.webhookUrlPreview || ts('saved'),
+                })
+              : ts('Slack webhook URL')
           }
           onChange={(event) =>
             update({
@@ -404,7 +416,9 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
             value={draft.teams.webhookUrl}
             placeholder={
               draft.teams.webhookUrlConfigured
-                ? `Webhook URL configured (${draft.teams.webhookUrlPreview || 'saved'})`
+                ? ts('Webhook URL configured ({preview})', {
+                    preview: draft.teams.webhookUrlPreview || ts('saved'),
+                  })
                 : 'https://...'
             }
             onChange={(event) =>
@@ -440,10 +454,15 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
             }
           />
           <p className="text-xs text-muted-foreground">
-            <I18nText text={'Supports tokens such as'} />{' '}
-            <code>{'{{dag.name}}'}</code>, <code>{'{{run.status}}'}</code>,{' '}
-            <code>{'{{run.error}}'}</code>
-            <I18nText text={', and'} /> <code>{'{{run.link}}'}</code>.
+            <I18nTemplate
+              text="Supports tokens such as {dag}, {status}, {error}, and {link}."
+              values={{
+                dag: <code>{'{{dag.name}}'}</code>,
+                status: <code>{'{{run.status}}'}</code>,
+                error: <code>{'{{run.error}}'}</code>,
+                link: <code>{'{{run.link}}'}</code>,
+              }}
+            />
           </p>
         </div>
       </div>
@@ -458,8 +477,10 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
           value={draft.telegram.botToken}
           placeholder={
             draft.telegram.botTokenConfigured
-              ? `Bot token configured (${draft.telegram.botTokenPreview || 'saved'})`
-              : 'Bot token'
+              ? ts('Bot token configured ({preview})', {
+                  preview: draft.telegram.botTokenPreview || ts('saved'),
+                })
+              : ts('Bot token')
           }
           onChange={(event) =>
             update({
@@ -536,7 +557,7 @@ function EventFilterEditor({ events, onChange }: EventFilterEditorProps) {
                 )
               }
             />
-            {event.label}
+            <I18nText text={event.label} />
           </label>
         );
       })}
@@ -549,14 +570,27 @@ function EventFilterEditor({ events, onChange }: EventFilterEditorProps) {
   );
 }
 
-function eventSummary(events: NotificationEventType[]): string {
-  if (events.length === 0) {
-    return 'Same as DAG events';
-  }
+function EventSummary({
+  events,
+  fallback,
+}: {
+  events: NotificationEventType[];
+  fallback: string;
+}) {
   const labels = EVENT_OPTIONS.filter((event) =>
     events.includes(event.value)
   ).map((event) => event.label);
-  return labels.length > 0 ? labels.join(', ') : 'Custom events';
+
+  if (labels.length === 0) {
+    return <I18nText text={fallback} />;
+  }
+
+  return labels.map((label, index) => (
+    <span key={label}>
+      {index > 0 ? ', ' : ''}
+      <I18nText text={label} />
+    </span>
+  ));
 }
 
 type NotificationOverviewCardProps = {
@@ -699,7 +733,10 @@ export function NotificationOverviewCard({
         ) : (
           <div className="rounded-md border border-border bg-muted/30 px-3 py-4">
             <div className="text-sm font-medium text-foreground">
-              <I18nText text={'This DAG inherits'} /> {inheritedSourceLabel}.
+              <I18nText
+                text="This DAG inherits {source}."
+                values={{ source: inheritedSourceLabel }}
+              />
             </div>
             <div className="mt-1 text-sm text-muted-foreground">
               <I18nText
@@ -747,13 +784,6 @@ export function NotificationOverviewCard({
       </CardContent>
     </Card>
   );
-}
-
-function inheritedRouteEventSummary(events: NotificationEventType[]): string {
-  const labels = EVENT_OPTIONS.filter((event) =>
-    events.includes(event.value)
-  ).map((event) => event.label);
-  return labels.length > 0 ? labels.join(', ') : 'No events';
 }
 
 type InheritedNotificationRoutesCardProps = {
@@ -819,7 +849,7 @@ export function InheritedNotificationRoutesCard({
                     </Badge>
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    {inheritedRouteEventSummary(route.events)}
+                    <EventSummary events={route.events} fallback="No events" />
                   </div>
                 </div>
               );
@@ -1204,7 +1234,14 @@ export function DAGSubscriptionsSection({
                     <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm">
                       <span className="text-muted-foreground">
                         <I18nText text={'Events:'} />{' '}
-                        {eventSummary(subscription.events)}
+                        <EventSummary
+                          events={subscription.events}
+                          fallback={
+                            subscription.events.length === 0
+                              ? 'Same as DAG events'
+                              : 'Custom events'
+                          }
+                        />
                       </span>
                       <div className="flex items-center gap-2">
                         {hasCustomEvents && (

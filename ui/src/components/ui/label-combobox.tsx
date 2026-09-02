@@ -228,17 +228,19 @@ function LabelCombobox({
         />
         <div className="flex items-center gap-1 ml-auto">
           {selectedLabels.length > 0 && (
-            <I18nProps><button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                clearAll();
-              }}
-              className="p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
-              title="Clear all labels"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button></I18nProps>
+            <I18nProps>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  clearAll();
+                }}
+                className="p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+                title="Clear all labels"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </I18nProps>
           )}
           <ChevronDown
             className={cn(
@@ -268,7 +270,10 @@ function LabelCombobox({
                 )}
                 onClick={() => addLabel(inputValue)}
               >
-                <I18nText text={"Add \""} />{inputValue.trim()}"
+                <I18nText
+                  text={'Add "{label}"'}
+                  values={{ label: inputValue.trim() }}
+                />
               </div>
             )}
           {filteredSuggestions.map((label, index) => (

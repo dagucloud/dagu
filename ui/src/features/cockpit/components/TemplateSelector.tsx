@@ -41,7 +41,6 @@ interface Props {
 
 export function TemplateSelector({
   selectedTemplate,
-  selectedWorkspace,
   onSelect,
   onOpenChange,
 }: Props): React.ReactElement {
@@ -261,33 +260,35 @@ export function TemplateSelector({
         {selectedTemplate && selectedDagName ? (
           <>
             <span className="truncate flex-1 text-left">{selectedDagName}</span>
-            <I18nProps><span
-              role="button"
-              tabIndex={0}
-              onClick={(e) => {
-                e.stopPropagation();
-                onSelect('');
-                setSelectedDag(null);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
+            <I18nProps>
+              <span
+                role="button"
+                tabIndex={0}
+                onClick={(e) => {
                   e.stopPropagation();
-                  e.preventDefault();
                   onSelect('');
                   setSelectedDag(null);
-                }
-              }}
-              aria-label="Clear selection"
-              className="p-0.5 rounded hover:bg-muted-foreground/20 hover:text-destructive cursor-pointer"
-            >
-              <X className="h-3 w-3" />
-            </span></I18nProps>
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    onSelect('');
+                    setSelectedDag(null);
+                  }
+                }}
+                aria-label="Clear selection"
+                className="p-0.5 rounded hover:bg-muted-foreground/20 hover:text-destructive cursor-pointer"
+              >
+                <X className="h-3 w-3" />
+              </span>
+            </I18nProps>
           </>
         ) : (
           <>
             <Search className="h-3 w-3 text-muted-foreground shrink-0" />
             <span className="text-muted-foreground truncate flex-1 text-left">
-              <I18nText text={"Select template..."} />
+              <I18nText text={'Select template...'} />
             </span>
           </>
         )}
@@ -305,18 +306,20 @@ export function TemplateSelector({
           {/* Search input */}
           <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border">
             <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-            <I18nProps><input
-              ref={inputRef}
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Search DAGs..."
-              className="flex-1 bg-transparent border-none outline-none text-xs placeholder:text-muted-foreground"
-            /></I18nProps>
+            <I18nProps>
+              <input
+                ref={inputRef}
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Search DAGs..."
+                className="flex-1 bg-transparent border-none outline-none text-xs placeholder:text-muted-foreground"
+              />
+            </I18nProps>
             {isLoading && debouncedTerm && (
               <span className="text-[10px] text-muted-foreground">
-                <I18nText text={"Searching..."} />
+                <I18nText text={'Searching...'} />
               </span>
             )}
             <button
@@ -328,7 +331,7 @@ export function TemplateSelector({
               )}
             >
               <LabelsIcon className="h-3 w-3" />
-              <I18nText text={"Labels"} />
+              <I18nText text={'Labels'} />
             </button>
           </div>
 
@@ -337,7 +340,11 @@ export function TemplateSelector({
             <div className="flex flex-wrap gap-1 px-3 pt-2 pb-2.5 border-b border-border max-h-[200px] overflow-y-auto shrink-0">
               {availableLabels.length === 0 ? (
                 <span className="text-[10px] text-muted-foreground">
-                  {labelsData ? <I18nText text={"No labels found"} /> : <I18nText text={"Loading labels..."} />}
+                  {labelsData ? (
+                    <I18nText text={'No labels found'} />
+                  ) : (
+                    <I18nText text={'Loading labels...'} />
+                  )}
                 </span>
               ) : (
                 availableLabels.map((label) => {
@@ -371,7 +378,7 @@ export function TemplateSelector({
           >
             {flatList.length === 0 ? (
               <div className="px-3 py-4 text-xs text-muted-foreground text-center">
-                <I18nText text={"No DAGs found"} />
+                <I18nText text={'No DAGs found'} />
               </div>
             ) : (
               groupedDags.map(([group, dagList]) => (
@@ -379,7 +386,7 @@ export function TemplateSelector({
                   {/* Group header */}
                   {hasGroups && (
                     <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-muted-foreground font-medium bg-popover border-b border-border sticky top-0 z-10">
-                      {group || <I18nText text={"(ungrouped)"} />}
+                      {group || <I18nText text={'(ungrouped)'} />}
                     </div>
                   )}
                   {/* DAG items */}

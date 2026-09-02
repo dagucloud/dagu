@@ -55,6 +55,7 @@ import {
 } from './webhookProfileSelection';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
+import { I18nTemplate } from '@/i18n/I18nTemplate';
 
 type WebhookDetails = components['schemas']['WebhookDetails'];
 type WebhookAuthMode = components['schemas']['WebhookAuthMode'];
@@ -509,7 +510,9 @@ function WebhookTab({ fileName }: WebhookTabProps) {
         <CardHeader className="pb-2 px-4 pt-3">
           <div className="flex items-center gap-2">
             <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-            <CardTitle className="text-sm"><I18nText text={"Loading webhook..."} /></CardTitle>
+            <CardTitle className="text-sm">
+              <I18nText text={'Loading webhook...'} />
+            </CardTitle>
           </div>
         </CardHeader>
       </Card>
@@ -523,7 +526,9 @@ function WebhookTab({ fileName }: WebhookTabProps) {
         <CardHeader className="pb-2 px-4 pt-3">
           <div className="flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 text-destructive" />
-            <CardTitle className="text-sm text-destructive"><I18nText text={"Error"} /></CardTitle>
+            <CardTitle className="text-sm text-destructive">
+              <I18nText text={'Error'} />
+            </CardTitle>
           </div>
           <CardDescription className="text-xs text-destructive">
             {error}
@@ -531,7 +536,7 @@ function WebhookTab({ fileName }: WebhookTabProps) {
         </CardHeader>
         <CardContent className="px-4 pb-3 pt-2">
           <Button variant="outline" size="sm" onClick={fetchWebhook}>
-            <I18nText text={"Retry"} />
+            <I18nText text={'Retry'} />
           </Button>
         </CardContent>
       </Card>
@@ -576,7 +581,7 @@ function WebhookTab({ fileName }: WebhookTabProps) {
             </Button>
           </div>
           <Button variant="default" size="sm" onClick={handleDismissSecret}>
-            <I18nText text={"Done"} />
+            <I18nText text={'Done'} />
           </Button>
         </CardContent>
       </Card>
@@ -590,10 +595,12 @@ function WebhookTab({ fileName }: WebhookTabProps) {
         <CardHeader className="pb-2 px-4 pt-3">
           <div className="flex items-center gap-2">
             <WebhookOff className="h-4 w-4 text-muted-foreground" />
-            <CardTitle className="text-sm"><I18nText text={"No Webhook Configured"} /></CardTitle>
+            <CardTitle className="text-sm">
+              <I18nText text={'No Webhook Configured'} />
+            </CardTitle>
           </div>
           <CardDescription className="text-xs">
-            <I18nText text={"Create a webhook to trigger this DAG via HTTP"} />
+            <I18nText text={'Create a webhook to trigger this DAG via HTTP'} />
           </CardDescription>
         </CardHeader>
         <CardContent className="px-4 pb-3 pt-3">
@@ -608,7 +615,7 @@ function WebhookTab({ fileName }: WebhookTabProps) {
             ) : (
               <Plus className="h-4 w-4 mr-1" />
             )}
-            <I18nText text={"Create Webhook"} />
+            <I18nText text={'Create Webhook'} />
           </Button>
         </CardContent>
       </Card>
@@ -640,11 +647,17 @@ function WebhookTab({ fileName }: WebhookTabProps) {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Webhook className="h-4 w-4 text-muted-foreground" />
-              <CardTitle className="text-sm"><I18nText text={"Webhook"} /></CardTitle>
+              <CardTitle className="text-sm">
+                <I18nText text={'Webhook'} />
+              </CardTitle>
             </div>
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground">
-                {webhook.enabled ? <I18nText text={"Enabled"} /> : <I18nText text={"Disabled"} />}
+                {webhook.enabled ? (
+                  <I18nText text={'Enabled'} />
+                ) : (
+                  <I18nText text={'Disabled'} />
+                )}
               </span>
               <Switch
                 checked={webhook.enabled}
@@ -657,14 +670,18 @@ function WebhookTab({ fileName }: WebhookTabProps) {
           {/* Endpoint */}
           <div>
             <div className="flex items-center justify-between mb-1">
-              <span className="text-xs text-muted-foreground"><I18nText text={"Endpoint"} /></span>
+              <span className="text-xs text-muted-foreground">
+                <I18nText text={'Endpoint'} />
+              </span>
               <CopyButton
                 copied={copiedUrl}
                 onCopy={() => handleCopy(webhookUrl, setCopiedUrl)}
               />
             </div>
             <div className="px-3 py-2 bg-accent rounded-md text-xs font-mono border overflow-x-auto">
-              <span className="text-muted-foreground"><I18nText text={"POST"} /></span>{' '}
+              <span className="text-muted-foreground">
+                <I18nText text={'POST'} />
+              </span>{' '}
               <span>{webhookUrl}</span>
             </div>
           </div>
@@ -672,7 +689,9 @@ function WebhookTab({ fileName }: WebhookTabProps) {
           {/* Token prefix */}
           <div>
             <div className="flex items-center justify-between mb-1">
-              <span className="text-xs text-muted-foreground"><I18nText text={"Token"} /></span>
+              <span className="text-xs text-muted-foreground">
+                <I18nText text={'Token'} />
+              </span>
             </div>
             <div className="px-3 py-2 bg-accent rounded-md text-xs font-mono border">
               <span>{webhook.tokenPrefix}</span>
@@ -682,17 +701,25 @@ function WebhookTab({ fileName }: WebhookTabProps) {
 
           {/* Metadata */}
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-            <div><I18nText text={"Auth:"} /> {formatWebhookAuthMode(webhook.authMode)}</div>
             <div>
-              <I18nText text={"Created:"} /> {dayjs(webhook.createdAt).format('MMM D, YYYY HH:mm')}
+              <I18nText text={'Auth:'} />{' '}
+              {formatWebhookAuthMode(webhook.authMode)}
+            </div>
+            <div>
+              <I18nText text={'Created:'} />{' '}
+              {dayjs(webhook.createdAt).format('MMM D, YYYY HH:mm')}
             </div>
             {webhook.lastUsedAt && (
               <div>
-                <I18nText text={"Last triggered:"} />{' '}
+                <I18nText text={'Last triggered:'} />{' '}
                 {dayjs(webhook.lastUsedAt).format('MMM D, YYYY HH:mm')}
               </div>
             )}
-            {webhook.createdBy && <div><I18nText text={"By:"} /> {webhook.createdBy}</div>}
+            {webhook.createdBy && (
+              <div>
+                <I18nText text={'By:'} /> {webhook.createdBy}
+              </div>
+            )}
           </div>
 
           {/* Actions */}
@@ -708,7 +735,7 @@ function WebhookTab({ fileName }: WebhookTabProps) {
               ) : (
                 <RefreshCw className="h-3.5 w-3.5 mr-1" />
               )}
-              <I18nText text={"Regenerate Token"} />
+              <I18nText text={'Regenerate Token'} />
             </Button>
             <Button
               variant="outline"
@@ -718,7 +745,7 @@ function WebhookTab({ fileName }: WebhookTabProps) {
               disabled={isActioning}
             >
               <Trash2 className="h-3.5 w-3.5 mr-1" />
-              <I18nText text={"Delete"} />
+              <I18nText text={'Delete'} />
             </Button>
           </div>
         </CardContent>
@@ -728,22 +755,31 @@ function WebhookTab({ fileName }: WebhookTabProps) {
       <Card className="gap-0 py-0">
         <CardHeader className="pb-3 px-4 pt-3">
           <div className="flex items-center gap-2">
-            <CardTitle className="text-sm"><I18nText text={"Authentication"} /></CardTitle>
+            <CardTitle className="text-sm">
+              <I18nText text={'Authentication'} />
+            </CardTitle>
           </div>
           <CardDescription className="text-xs">
-            <I18nText text={"Choose how requests authenticate to this webhook. If you enable HMAC, callers must send"} />{' '}
-            <code className="bg-accent px-1 rounded-md border">
-              X-Dagu-Signature: sha256=&lt;hex&gt;
-            </code>{' '}
-            <I18nText text={"computed from the exact signature input shown below. Requests with"} />{' '}
-            <code className="bg-accent px-1 rounded-md border">
-              X-Dagu-Profile
-            </code>{' '}
-            <I18nText text={"sign"} />{' '}
-            <code className="bg-accent px-1 rounded-md border">
-              x-dagu-profile:&lt;profile&gt;\n&lt;body&gt;
-            </code>
-            .
+            <I18nTemplate
+              text="Choose how requests authenticate to this webhook. If you enable HMAC, callers must send {signature} computed from the exact signature input shown below. Requests with {profile} sign {input}."
+              values={{
+                signature: (
+                  <code className="bg-accent px-1 rounded-md border">
+                    X-Dagu-Signature: sha256=&lt;hex&gt;
+                  </code>
+                ),
+                profile: (
+                  <code className="bg-accent px-1 rounded-md border">
+                    X-Dagu-Profile
+                  </code>
+                ),
+                input: (
+                  <code className="bg-accent px-1 rounded-md border">
+                    x-dagu-profile:&lt;profile&gt;\n&lt;body&gt;
+                  </code>
+                ),
+              }}
+            />
           </CardDescription>
         </CardHeader>
         <CardContent className="px-4 pb-3 pt-2 space-y-3">
@@ -752,7 +788,7 @@ function WebhookTab({ fileName }: WebhookTabProps) {
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="space-y-1">
                   <span className="text-xs text-muted-foreground">
-                    <I18nText text={"Auth mode"} />
+                    <I18nText text={'Auth mode'} />
                   </span>
                   <Select
                     value={draftAuthMode}
@@ -765,17 +801,17 @@ function WebhookTab({ fileName }: WebhookTabProps) {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value={WebhookAuthModeValue.token_and_hmac}>
-                        <I18nText text={"Token + HMAC"} />
+                        <I18nText text={'Token + HMAC'} />
                       </SelectItem>
                       <SelectItem value={WebhookAuthModeValue.hmac_only}>
-                        <I18nText text={"HMAC only"} />
+                        <I18nText text={'HMAC only'} />
                       </SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-1">
                   <span className="text-xs text-muted-foreground">
-                    <I18nText text={"HMAC enforcement"} />
+                    <I18nText text={'HMAC enforcement'} />
                   </span>
                   <Select
                     value={
@@ -797,12 +833,12 @@ function WebhookTab({ fileName }: WebhookTabProps) {
                       <SelectItem
                         value={WebhookHMACEnforcementModeValue.strict}
                       >
-                        <I18nText text={"Strict"} />
+                        <I18nText text={'Strict'} />
                       </SelectItem>
                       <SelectItem
                         value={WebhookHMACEnforcementModeValue.observe}
                       >
-                        <I18nText text={"Observe"} />
+                        <I18nText text={'Observe'} />
                       </SelectItem>
                     </SelectContent>
                   </Select>
@@ -810,18 +846,26 @@ function WebhookTab({ fileName }: WebhookTabProps) {
               </div>
 
               <div className="rounded-md border bg-accent/40 px-3 py-2 text-xs text-muted-foreground space-y-1">
-                <div><I18nText text={"Algorithm:"} /> {webhook.hmac.algorithm || 'HMAC-SHA256'}</div>
                 <div>
-                  <I18nText text={"Header:"} /> {webhook.hmac.headerName || 'X-Dagu-Signature'}{' '}
-                  {webhook.hmac.format
-                    ? `(${webhook.hmac.format})`
-                    : <I18nText text={"(sha256=<hex>)"} />}
+                  <I18nText text={'Algorithm:'} />{' '}
+                  {webhook.hmac.algorithm || 'HMAC-SHA256'}
                 </div>
                 <div>
-                  <I18nText text={"Last secret rotation:"} />{' '}
-                  {webhook.hmac.updatedAt
-                    ? dayjs(webhook.hmac.updatedAt).format('MMM D, YYYY HH:mm')
-                    : <I18nText text={"Not available"} />}
+                  <I18nText text={'Header:'} />{' '}
+                  {webhook.hmac.headerName || 'X-Dagu-Signature'}{' '}
+                  {webhook.hmac.format ? (
+                    `(${webhook.hmac.format})`
+                  ) : (
+                    <I18nText text={'(sha256=<hex>)'} />
+                  )}
+                </div>
+                <div>
+                  <I18nText text={'Last secret rotation:'} />{' '}
+                  {webhook.hmac.updatedAt ? (
+                    dayjs(webhook.hmac.updatedAt).format('MMM D, YYYY HH:mm')
+                  ) : (
+                    <I18nText text={'Not available'} />
+                  )}
                 </div>
               </div>
 
@@ -832,7 +876,7 @@ function WebhookTab({ fileName }: WebhookTabProps) {
                   onClick={handleSaveHMACSettings}
                   disabled={isActioning}
                 >
-                  <I18nText text={"Save HMAC Settings"} />
+                  <I18nText text={'Save HMAC Settings'} />
                 </Button>
                 <Button
                   variant="outline"
@@ -840,7 +884,7 @@ function WebhookTab({ fileName }: WebhookTabProps) {
                   onClick={handleRegenerateHMAC}
                   disabled={isActioning}
                 >
-                  <I18nText text={"Regenerate HMAC Secret"} />
+                  <I18nText text={'Regenerate HMAC Secret'} />
                 </Button>
                 <Button
                   variant="outline"
@@ -848,14 +892,18 @@ function WebhookTab({ fileName }: WebhookTabProps) {
                   onClick={handleDisableHMAC}
                   disabled={isActioning}
                 >
-                  <I18nText text={"Disable HMAC"} />
+                  <I18nText text={'Disable HMAC'} />
                 </Button>
               </div>
             </>
           ) : (
             <>
               <div className="rounded-md border bg-accent/40 px-3 py-2 text-xs text-muted-foreground">
-                <I18nText text={"This webhook currently accepts the existing token only. HMAC signing is off until you enable it."} />
+                <I18nText
+                  text={
+                    'This webhook currently accepts the existing token only. HMAC signing is off until you enable it.'
+                  }
+                />
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button
@@ -866,7 +914,7 @@ function WebhookTab({ fileName }: WebhookTabProps) {
                   }
                   disabled={isActioning}
                 >
-                  <I18nText text={"Keep Token and Add HMAC"} />
+                  <I18nText text={'Keep Token and Add HMAC'} />
                 </Button>
                 <Button
                   variant="outline"
@@ -876,7 +924,7 @@ function WebhookTab({ fileName }: WebhookTabProps) {
                   }
                   disabled={isActioning}
                 >
-                  <I18nText text={"Use HMAC Only"} />
+                  <I18nText text={'Use HMAC Only'} />
                 </Button>
               </div>
             </>
@@ -896,32 +944,45 @@ function WebhookTab({ fileName }: WebhookTabProps) {
       {isHMACEnabled && (
         <Card className="gap-0 py-0">
           <CardHeader className="pb-3 px-4 pt-3">
-            <CardTitle className="text-sm"><I18nText text={"Generate HMAC"} /></CardTitle>
+            <CardTitle className="text-sm">
+              <I18nText text={'Generate HMAC'} />
+            </CardTitle>
             <CardDescription className="text-xs">
-              <I18nText text={"Compute the HMAC from the exact signature input shown below. A selected profile is prefixed to the raw request body so the header cannot be changed without invalidating the signature."} />
+              <I18nText
+                text={
+                  'Compute the HMAC from the exact signature input shown below. A selected profile is prefixed to the raw request body so the header cannot be changed without invalidating the signature.'
+                }
+              />
             </CardDescription>
           </CardHeader>
           <CardContent className="px-4 pb-3 pt-2 space-y-3">
             <div className="rounded-md border bg-accent/40 px-3 py-2 text-xs text-muted-foreground">
-              <I18nText text={"Use your webhook HMAC secret as"} />{' '}
-              <code className="bg-accent px-1 rounded-md border">
-                DAGU_HMAC_SECRET
-              </code>
-              .
+              <I18nTemplate
+                text="Use your webhook HMAC secret as {variable}."
+                values={{
+                  variable: (
+                    <code className="bg-accent px-1 rounded-md border">
+                      DAGU_HMAC_SECRET
+                    </code>
+                  ),
+                }}
+              />
             </div>
 
             <div>
               <div className="mb-1 flex items-center justify-between">
                 <span className="text-xs font-medium text-muted-foreground">
-                  <I18nText text={"Shell (OpenSSL)"} />
+                  <I18nText text={'Shell (OpenSSL)'} />
                 </span>
-                <I18nProps><CopyButton
-                  copied={copiedHMACShell}
-                  onCopy={() =>
-                    handleCopy(hmacShellExample, setCopiedHMACShell)
-                  }
-                  label="Copy"
-                /></I18nProps>
+                <I18nProps>
+                  <CopyButton
+                    copied={copiedHMACShell}
+                    onCopy={() =>
+                      handleCopy(hmacShellExample, setCopiedHMACShell)
+                    }
+                    label="Copy"
+                  />
+                </I18nProps>
               </div>
               <pre className="px-3 py-2 bg-accent rounded-md text-xs font-mono border overflow-x-auto whitespace-pre-wrap">
                 {hmacShellExample}
@@ -931,13 +992,17 @@ function WebhookTab({ fileName }: WebhookTabProps) {
             <div>
               <div className="mb-1 flex items-center justify-between">
                 <span className="text-xs font-medium text-muted-foreground">
-                  <I18nText text={"Node.js"} />
+                  <I18nText text={'Node.js'} />
                 </span>
-                <I18nProps><CopyButton
-                  copied={copiedHMACNode}
-                  onCopy={() => handleCopy(hmacNodeExample, setCopiedHMACNode)}
-                  label="Copy"
-                /></I18nProps>
+                <I18nProps>
+                  <CopyButton
+                    copied={copiedHMACNode}
+                    onCopy={() =>
+                      handleCopy(hmacNodeExample, setCopiedHMACNode)
+                    }
+                    label="Copy"
+                  />
+                </I18nProps>
               </div>
               <pre className="px-3 py-2 bg-accent rounded-md text-xs font-mono border overflow-x-auto whitespace-pre-wrap">
                 {hmacNodeExample}
@@ -953,13 +1018,17 @@ function WebhookTab({ fileName }: WebhookTabProps) {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Terminal className="h-3.5 w-3.5 text-muted-foreground" />
-              <CardTitle className="text-sm"><I18nText text={"Example Request"} /></CardTitle>
+              <CardTitle className="text-sm">
+                <I18nText text={'Example Request'} />
+              </CardTitle>
             </div>
-            <I18nProps><CopyButton
-              copied={copiedCurl}
-              onCopy={() => handleCopy(curlExample, setCopiedCurl)}
-              label="Copy"
-            /></I18nProps>
+            <I18nProps>
+              <CopyButton
+                copied={copiedCurl}
+                onCopy={() => handleCopy(curlExample, setCopiedCurl)}
+                label="Copy"
+              />
+            </I18nProps>
           </div>
         </CardHeader>
         <CardContent className="px-4 pb-3 pt-2">
@@ -968,46 +1037,76 @@ function WebhookTab({ fileName }: WebhookTabProps) {
           </pre>
           <ul className="mt-2 text-xs text-muted-foreground space-y-1">
             <li>
-              <code className="bg-accent px-1 rounded-md border">payload</code>{' '}
-              <I18nText text={"is available as"} />{' '}
-              <code className="bg-accent px-1 rounded-md border">
-                WEBHOOK_PAYLOAD
-              </code>{' '}
-              <I18nText text={"env var."} />
+              <I18nTemplate
+                text="{payload} is available as the {variable} environment variable."
+                values={{
+                  payload: (
+                    <code className="bg-accent px-1 rounded-md border">
+                      payload
+                    </code>
+                  ),
+                  variable: (
+                    <code className="bg-accent px-1 rounded-md border">
+                      WEBHOOK_PAYLOAD
+                    </code>
+                  ),
+                }}
+              />
             </li>
             <li>
-              <I18nText text={"Configure"} />{' '}
-              <code className="bg-accent px-1 rounded-md border">
-                webhook.forward_headers
-              </code>{' '}
-              <I18nText text={"in the DAG YAML. It can also be inherited from"} />{' '}
-              <code className="bg-accent px-1 rounded-md border">
-                base.yaml
-              </code>{' '}
-              <I18nText text={"to expose selected request headers as"} />{' '}
-              <code className="bg-accent px-1 rounded-md border">
-                WEBHOOK_HEADERS
-              </code>
-              .
+              <I18nTemplate
+                text="Configure {setting} in the DAG YAML. It can also be inherited from {base} to expose selected request headers as {variable}."
+                values={{
+                  setting: (
+                    <code className="bg-accent px-1 rounded-md border">
+                      webhook.forward_headers
+                    </code>
+                  ),
+                  base: (
+                    <code className="bg-accent px-1 rounded-md border">
+                      base.yaml
+                    </code>
+                  ),
+                  variable: (
+                    <code className="bg-accent px-1 rounded-md border">
+                      WEBHOOK_HEADERS
+                    </code>
+                  ),
+                }}
+              />
             </li>
             <li>
               <code className="bg-accent px-1 rounded-md border">dagRunId</code>{' '}
-              <I18nText text={"(optional) can be used as an idempotency key."} />
+              <I18nText
+                text={'(optional) can be used as an idempotency key.'}
+              />
             </li>
             <li>
-              <code className="bg-accent px-1 rounded-md border">
-                X-Dagu-Profile
-              </code>{' '}
-              is accepted only for profiles approved in this webhook&apos;s
-              profile-selection policy.
+              <I18nTemplate
+                text={
+                  "{header} is accepted only for profiles approved in this webhook's profile-selection policy."
+                }
+                values={{
+                  header: (
+                    <code className="bg-accent px-1 rounded-md border">
+                      X-Dagu-Profile
+                    </code>
+                  ),
+                }}
+              />
             </li>
             {isHMACEnabled && (
               <li>
-                <I18nText text={"Sign the exact input shown in the HMAC examples with your secret and send the hex digest in"} />{' '}
-                <code className="bg-accent px-1 rounded-md border">
-                  X-Dagu-Signature
-                </code>
-                .
+                <I18nTemplate
+                  text="Sign the exact input shown in the HMAC examples with your secret and send the hex digest in {header}."
+                  values={{
+                    header: (
+                      <code className="bg-accent px-1 rounded-md border">
+                        X-Dagu-Signature
+                      </code>
+                    ),
+                  }}
+                />
               </li>
             )}
           </ul>
@@ -1015,31 +1114,44 @@ function WebhookTab({ fileName }: WebhookTabProps) {
       </Card>
 
       {/* Delete Confirmation Modal */}
-      <I18nProps><ConfirmModal
-        title="Delete Webhook"
-        buttonText="Delete"
-        visible={showDeleteConfirm}
-        dismissModal={() => setShowDeleteConfirm(false)}
-        onSubmit={handleDelete}
-      >
-        <p>
-          <I18nText text={"Are you sure you want to delete this webhook? Any applications using this webhook token will immediately lose access."} />
-        </p>
-      </ConfirmModal></I18nProps>
+      <I18nProps>
+        <ConfirmModal
+          title="Delete Webhook"
+          buttonText="Delete"
+          visible={showDeleteConfirm}
+          dismissModal={() => setShowDeleteConfirm(false)}
+          onSubmit={handleDelete}
+        >
+          <p>
+            <I18nText
+              text={
+                'Are you sure you want to delete this webhook? Any applications using this webhook token will immediately lose access.'
+              }
+            />
+          </p>
+        </ConfirmModal>
+      </I18nProps>
 
       {/* Toggle Confirmation Modal */}
-      <ConfirmModal
-        title={pendingToggleState ? 'Enable Webhook' : 'Disable Webhook'}
-        buttonText={pendingToggleState ? 'Enable' : 'Disable'}
-        visible={showToggleConfirm}
-        dismissModal={handleToggleCancel}
-        onSubmit={handleToggleConfirm}
-      >
-        <p>
-          <I18nText text={"Are you sure you want to"} /> {pendingToggleState ? <I18nText text={"enable"} /> : <I18nText text={"disable"} />}{' '}
-          <I18nText text={"this webhook?"} />
-        </p>
-      </ConfirmModal>
+      <I18nProps>
+        <ConfirmModal
+          title={pendingToggleState ? 'Enable Webhook' : 'Disable Webhook'}
+          buttonText={pendingToggleState ? 'Enable' : 'Disable'}
+          visible={showToggleConfirm}
+          dismissModal={handleToggleCancel}
+          onSubmit={handleToggleConfirm}
+        >
+          <p>
+            <I18nText
+              text={
+                pendingToggleState
+                  ? 'Are you sure you want to enable this webhook?'
+                  : 'Are you sure you want to disable this webhook?'
+              }
+            />
+          </p>
+        </ConfirmModal>
+      </I18nProps>
     </div>
   );
 }

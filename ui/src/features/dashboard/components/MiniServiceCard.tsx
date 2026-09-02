@@ -2,6 +2,7 @@ import { Clock } from 'lucide-react';
 import React from 'react';
 import { cn } from '../../../lib/utils';
 import { I18nText } from '@/i18n/I18nText';
+import { useI18n } from '@/i18n/I18nProvider';
 
 interface ServiceInstance {
   instanceId: string;
@@ -26,6 +27,7 @@ function MiniServiceCard({
   isLoading,
   error,
 }: MiniServiceCardProps) {
+  const { ts } = useI18n();
   const activeCount = instances.filter((i) => i.status === 'active').length;
   const hasActive = activeCount > 0;
 
@@ -83,19 +85,30 @@ function MiniServiceCard({
             />
           )}
         </div>
-        <span className={cn(
-          'text-xs font-medium',
-          error ? 'text-error' : hasActive ? 'text-success' : 'text-warning'
-        )}>
-          {error ? <I18nText text={"Error"} /> : activeCount > 0 ? `${activeCount} Active` : <I18nText text={"Inactive"} />}
+        <span
+          className={cn(
+            'text-xs font-medium',
+            error ? 'text-error' : hasActive ? 'text-success' : 'text-warning'
+          )}
+        >
+          {error ? (
+            <I18nText text="Error" />
+          ) : activeCount > 0 ? (
+            ts('{count} active', { count: activeCount })
+          ) : (
+            <I18nText text="Inactive" />
+          )}
         </span>
       </div>
-      {instances.length > 0 && instances[0] && instances[0].status === 'active' && !error && (
-        <div className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
-          <Clock className="h-3 w-3" />
-          <span>{getUptime(instances[0].startedAt)}</span>
-        </div>
-      )}
+      {instances.length > 0 &&
+        instances[0] &&
+        instances[0].status === 'active' &&
+        !error && (
+          <div className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
+            <Clock className="h-3 w-3" />
+            <span>{getUptime(instances[0].startedAt)}</span>
+          </div>
+        )}
     </div>
   );
 }

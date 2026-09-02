@@ -187,7 +187,11 @@ export function RemoteNodeFormModal({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>
-            {isEditing ? <I18nText text={"Edit Remote Node"} /> : <I18nText text={"Add Remote Node"} />}
+            {isEditing ? (
+              <I18nText text={'Edit Remote Node'} />
+            ) : (
+              <I18nText text={'Add Remote Node'} />
+            )}
           </DialogTitle>
         </DialogHeader>
 
@@ -201,63 +205,75 @@ export function RemoteNodeFormModal({
 
           <div className="space-y-1.5">
             <Label htmlFor="name" className="text-sm">
-              <I18nText text={"Name"} />
+              <I18nText text={'Name'} />
             </Label>
-            <I18nProps><Input
-              id="name"
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-              autoComplete="off"
-              className="h-9"
-              placeholder="e.g. production-server"
-            /></I18nProps>
+            <I18nProps>
+              <Input
+                id="name"
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+                autoComplete="off"
+                className="h-9"
+                placeholder="e.g. production-server"
+              />
+            </I18nProps>
           </div>
 
           <div className="space-y-1.5">
             <Label htmlFor="description" className="text-sm">
-              <I18nText text={"Description"} />
+              <I18nText text={'Description'} />
             </Label>
-            <I18nProps><Input
-              id="description"
-              type="text"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              autoComplete="off"
-              className="h-9"
-              placeholder="Optional description"
-            /></I18nProps>
+            <I18nProps>
+              <Input
+                id="description"
+                type="text"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                autoComplete="off"
+                className="h-9"
+                placeholder="Optional description"
+              />
+            </I18nProps>
           </div>
 
           <div className="space-y-1.5">
             <Label htmlFor="apiBaseUrl" className="text-sm">
-              <I18nText text={"API Base URL"} />
+              <I18nText text={'API Base URL'} />
             </Label>
-            <I18nProps><Input
-              id="apiBaseUrl"
-              type="text"
-              value={apiBaseUrl}
-              onChange={(e) => setApiBaseUrl(e.target.value)}
-              required
-              autoComplete="off"
-              className="h-9"
-              placeholder="https://dagu.example.com:8080/api/v1"
-            /></I18nProps>
+            <I18nProps>
+              <Input
+                id="apiBaseUrl"
+                type="text"
+                value={apiBaseUrl}
+                onChange={(e) => setApiBaseUrl(e.target.value)}
+                required
+                autoComplete="off"
+                className="h-9"
+                placeholder="https://dagu.example.com:8080/api/v1"
+              />
+            </I18nProps>
           </div>
 
           <div className="space-y-1.5">
             <Label htmlFor="authType" className="text-sm">
-              <I18nText text={"Authentication"} />
+              <I18nText text={'Authentication'} />
             </Label>
             <Select value={authType} onValueChange={setAuthType}>
               <SelectTrigger className="h-9">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none"><I18nText text={"None"} /></SelectItem>
-                <SelectItem value="basic"><I18nText text={"Basic Auth"} /></SelectItem>
-                <SelectItem value="token"><I18nText text={"Bearer Token"} /></SelectItem>
+                <SelectItem value="none">
+                  <I18nText text={'None'} />
+                </SelectItem>
+                <SelectItem value="basic">
+                  <I18nText text={'Basic Auth'} />
+                </SelectItem>
+                <SelectItem value="token">
+                  <I18nText text={'Bearer Token'} />
+                </SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -266,31 +282,35 @@ export function RemoteNodeFormModal({
             <>
               <div className="space-y-1.5">
                 <Label htmlFor="basicAuthUsername" className="text-sm">
-                  <I18nText text={"Username"} />
+                  <I18nText text={'Username'} />
                 </Label>
-                <Input
-                  id="basicAuthUsername"
-                  type="text"
-                  value={basicAuthUsername}
-                  onChange={(e) => setBasicAuthUsername(e.target.value)}
-                  autoComplete="off"
-                  className="h-9"
-                  placeholder={isEditing ? '(unchanged)' : ''}
-                />
+                <I18nProps>
+                  <Input
+                    id="basicAuthUsername"
+                    type="text"
+                    value={basicAuthUsername}
+                    onChange={(e) => setBasicAuthUsername(e.target.value)}
+                    autoComplete="off"
+                    className="h-9"
+                    placeholder={isEditing ? '(unchanged)' : ''}
+                  />
+                </I18nProps>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="basicAuthPassword" className="text-sm">
-                  <I18nText text={"Password"} />
+                  <I18nText text={'Password'} />
                 </Label>
-                <Input
-                  id="basicAuthPassword"
-                  type="password"
-                  value={basicAuthPassword}
-                  onChange={(e) => setBasicAuthPassword(e.target.value)}
-                  autoComplete="new-password"
-                  className="h-9"
-                  placeholder={isEditing ? '(unchanged)' : ''}
-                />
+                <I18nProps>
+                  <Input
+                    id="basicAuthPassword"
+                    type="password"
+                    value={basicAuthPassword}
+                    onChange={(e) => setBasicAuthPassword(e.target.value)}
+                    autoComplete="new-password"
+                    className="h-9"
+                    placeholder={isEditing ? '(unchanged)' : ''}
+                  />
+                </I18nProps>
               </div>
             </>
           )}
@@ -298,17 +318,19 @@ export function RemoteNodeFormModal({
           {authType === 'token' && (
             <div className="space-y-1.5">
               <Label htmlFor="authToken" className="text-sm">
-                <I18nText text={"Token"} />
+                <I18nText text={'Token'} />
               </Label>
-              <Input
-                id="authToken"
-                type="password"
-                value={authToken}
-                onChange={(e) => setAuthToken(e.target.value)}
-                autoComplete="off"
-                className="h-9"
-                placeholder={isEditing ? '(unchanged)' : ''}
-              />
+              <I18nProps>
+                <Input
+                  id="authToken"
+                  type="password"
+                  value={authToken}
+                  onChange={(e) => setAuthToken(e.target.value)}
+                  autoComplete="off"
+                  className="h-9"
+                  placeholder={isEditing ? '(unchanged)' : ''}
+                />
+              </I18nProps>
             </div>
           )}
 
@@ -319,14 +341,14 @@ export function RemoteNodeFormModal({
               onCheckedChange={setSkipTlsVerify}
             />
             <Label htmlFor="skipTlsVerify" className="text-sm cursor-pointer">
-              <I18nText text={"Skip TLS verification"} />
+              <I18nText text={'Skip TLS verification'} />
             </Label>
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="ghost" onClick={onClose}>
               <X className="h-4 w-4" />
-              <I18nText text={"Cancel"} />
+              <I18nText text={'Cancel'} />
             </Button>
             <Button type="submit" disabled={isLoading}>
               {isEditing ? (
@@ -334,7 +356,13 @@ export function RemoteNodeFormModal({
               ) : (
                 <Plus className="h-4 w-4" />
               )}
-              {isLoading ? <I18nText text={"Saving..."} /> : isEditing ? <I18nText text={"Update"} /> : <I18nText text={"Create"} />}
+              {isLoading ? (
+                <I18nText text={'Saving...'} />
+              ) : isEditing ? (
+                <I18nText text={'Update'} />
+              ) : (
+                <I18nText text={'Create'} />
+              )}
             </Button>
           </div>
         </form>

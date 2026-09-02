@@ -54,7 +54,7 @@ function DetailSection({
   return (
     <section>
       <h3 className="border-b border-border pb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        {title}
+        <I18nText text={title} />
       </h3>
       <dl className="mt-2 divide-y divide-border/60">
         {fields.map((field) => (
@@ -62,7 +62,9 @@ function DetailSection({
             key={field.label}
             className="grid gap-1 py-2 sm:grid-cols-[9rem_minmax(0,1fr)] sm:gap-4"
           >
-            <dt className="text-xs text-muted-foreground">{field.label}</dt>
+            <dt className="text-xs text-muted-foreground">
+              <I18nText text={field.label} />
+            </dt>
             <dd className="break-all font-mono text-xs text-foreground">
               {field.value || '—'}
             </dd>
@@ -124,7 +126,9 @@ export function AuditEntryDetailsDrawer({
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0 space-y-1">
               <div className="flex flex-wrap items-center gap-2">
-                <DialogTitle><I18nText text={"Audit entry"} /></DialogTitle>
+                <DialogTitle>
+                  <I18nText text={'Audit entry'} />
+                </DialogTitle>
                 {entry.result ? (
                   <Badge variant={resultVariant(entry.result)}>
                     {entry.result}
@@ -147,63 +151,69 @@ export function AuditEntryDetailsDrawer({
               ) : (
                 <Copy className="h-4 w-4" />
               )}
-              {copied ? <I18nText text={"Copied"} /> : <I18nText text={"Copy JSON"} />}
+              {copied ? (
+                <I18nText text={'Copied'} />
+              ) : (
+                <I18nText text={'Copy JSON'} />
+              )}
             </Button>
           </div>
         </DialogHeader>
 
-        <I18nProps><div
-          className="flex shrink-0 border-b border-border px-5"
-          role="tablist"
-          aria-label="Audit entry views"
-        >
-          {(['details', 'raw'] as const).map((tab) => {
-            const label = tab === 'details' ? 'Details' : 'Raw JSON';
-            const selected = activeTab === tab;
-            return (
-              <button
-                key={tab}
-                id={`audit-entry-${tab}-tab`}
-                type="button"
-                role="tab"
-                aria-selected={selected}
-                aria-controls={`audit-entry-${tab}-panel`}
-                tabIndex={selected ? 0 : -1}
-                onClick={() => setActiveTab(tab)}
-                onKeyDown={(event) => {
-                  if (
-                    event.key !== 'ArrowLeft' &&
-                    event.key !== 'ArrowRight' &&
-                    event.key !== 'Home' &&
-                    event.key !== 'End'
-                  ) {
-                    return;
-                  }
+        <I18nProps>
+          <div
+            className="flex shrink-0 border-b border-border px-5"
+            role="tablist"
+            aria-label="Audit entry views"
+          >
+            {(['details', 'raw'] as const).map((tab) => {
+              const label = tab === 'details' ? 'Details' : 'Raw JSON';
+              const selected = activeTab === tab;
+              return (
+                <button
+                  key={tab}
+                  id={`audit-entry-${tab}-tab`}
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  aria-controls={`audit-entry-${tab}-panel`}
+                  tabIndex={selected ? 0 : -1}
+                  onClick={() => setActiveTab(tab)}
+                  onKeyDown={(event) => {
+                    if (
+                      event.key !== 'ArrowLeft' &&
+                      event.key !== 'ArrowRight' &&
+                      event.key !== 'Home' &&
+                      event.key !== 'End'
+                    ) {
+                      return;
+                    }
 
-                  event.preventDefault();
-                  const nextTab =
-                    event.key === 'ArrowRight' || event.key === 'End'
-                      ? 'raw'
-                      : 'details';
-                  setActiveTab(nextTab);
-                  window.requestAnimationFrame(() => {
-                    document
-                      .getElementById(`audit-entry-${nextTab}-tab`)
-                      ?.focus();
-                  });
-                }}
-                className={cn(
-                  'h-11 border-b-2 px-3 text-xs font-medium transition-colors',
-                  selected
-                    ? 'border-primary text-foreground'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'
-                )}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div></I18nProps>
+                    event.preventDefault();
+                    const nextTab =
+                      event.key === 'ArrowRight' || event.key === 'End'
+                        ? 'raw'
+                        : 'details';
+                    setActiveTab(nextTab);
+                    window.requestAnimationFrame(() => {
+                      document
+                        .getElementById(`audit-entry-${nextTab}-tab`)
+                        ?.focus();
+                    });
+                  }}
+                  className={cn(
+                    'h-11 border-b-2 px-3 text-xs font-medium transition-colors',
+                    selected
+                      ? 'border-primary text-foreground'
+                      : 'border-transparent text-muted-foreground hover:text-foreground'
+                  )}
+                >
+                  <I18nText text={label} />
+                </button>
+              );
+            })}
+          </div>
+        </I18nProps>
 
         {activeTab === 'details' ? (
           <div
@@ -213,41 +223,47 @@ export function AuditEntryDetailsDrawer({
             tabIndex={0}
             className="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-4"
           >
-            <I18nProps><DetailSection
-              title="Event"
-              fields={[
-                { label: 'Audit ID', value: entry.id },
-                { label: 'Timestamp', value: timestamp },
-                { label: 'Category', value: entry.category },
-                { label: 'Action', value: entry.action },
-                { label: 'Result', value: entry.result },
-                { label: 'Source', value: entry.source },
-                { label: 'Surface', value: entry.surface },
-              ]}
-            /></I18nProps>
-            <I18nProps><DetailSection
-              title="Identity & Access"
-              fields={[
-                { label: 'Username', value: entry.username },
-                { label: 'User ID', value: entry.userId },
-                { label: 'Workspace', value: entry.workspace },
-                { label: 'IP address', value: entry.ipAddress },
-                { label: 'Credential type', value: entry.credentialType },
-                { label: 'Credential ID', value: entry.credentialId },
-              ]}
-            /></I18nProps>
-            <I18nProps><DetailSection
-              title="Resource & Trace"
-              fields={[
-                { label: 'Resource type', value: entry.resourceType },
-                { label: 'Resource ID', value: entry.resourceId },
-                { label: 'MCP tool', value: entry.mcpTool },
-                { label: 'Correlation ID', value: entry.correlationId },
-              ]}
-            /></I18nProps>
+            <I18nProps>
+              <DetailSection
+                title="Event"
+                fields={[
+                  { label: 'Audit ID', value: entry.id },
+                  { label: 'Timestamp', value: timestamp },
+                  { label: 'Category', value: entry.category },
+                  { label: 'Action', value: entry.action },
+                  { label: 'Result', value: entry.result },
+                  { label: 'Source', value: entry.source },
+                  { label: 'Surface', value: entry.surface },
+                ]}
+              />
+            </I18nProps>
+            <I18nProps>
+              <DetailSection
+                title="Identity & Access"
+                fields={[
+                  { label: 'Username', value: entry.username },
+                  { label: 'User ID', value: entry.userId },
+                  { label: 'Workspace', value: entry.workspace },
+                  { label: 'IP address', value: entry.ipAddress },
+                  { label: 'Credential type', value: entry.credentialType },
+                  { label: 'Credential ID', value: entry.credentialId },
+                ]}
+              />
+            </I18nProps>
+            <I18nProps>
+              <DetailSection
+                title="Resource & Trace"
+                fields={[
+                  { label: 'Resource type', value: entry.resourceType },
+                  { label: 'Resource ID', value: entry.resourceId },
+                  { label: 'MCP tool', value: entry.mcpTool },
+                  { label: 'Correlation ID', value: entry.correlationId },
+                ]}
+              />
+            </I18nProps>
             <section>
               <h3 className="border-b border-border pb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                <I18nText text={"Details"} />
+                <I18nText text={'Details'} />
               </h3>
               {details ? (
                 <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted/60 p-3 font-mono text-xs leading-5 text-foreground">
@@ -255,7 +271,7 @@ export function AuditEntryDetailsDrawer({
                 </pre>
               ) : (
                 <p className="mt-3 text-sm text-muted-foreground">
-                  <I18nText text={"No additional details."} />
+                  <I18nText text={'No additional details.'} />
                 </p>
               )}
             </section>

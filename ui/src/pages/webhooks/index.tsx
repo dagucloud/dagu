@@ -31,6 +31,9 @@ import {
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { TOKEN_KEY, useCanManageWebhooks } from '@/contexts/AuthContext';
 import { useConfig } from '@/contexts/ConfigContext';
+import { useI18n } from '@/i18n/I18nProvider';
+import { I18nProps } from '@/i18n/I18nProps';
+import { I18nText } from '@/i18n/I18nText';
 import dayjs from '@/lib/dayjs';
 import ConfirmModal from '@/components/ui/confirm-dialog';
 import {
@@ -44,8 +47,6 @@ import {
 } from 'lucide-react';
 import { useCallback, useContext, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { I18nText } from '@/i18n/I18nText';
-import { I18nProps } from '@/i18n/I18nProps';
 
 type WebhookDetails = components['schemas']['WebhookDetails'];
 type WebhookAuthMode = components['schemas']['WebhookAuthMode'];
@@ -78,6 +79,7 @@ function authModeVariant(
 }
 
 export default function WebhooksPage() {
+  const { ts } = useI18n();
   const config = useConfig();
   const canManageWebhooks = useCanManageWebhooks();
   const navigate = useNavigate();
@@ -253,7 +255,7 @@ export default function WebhooksPage() {
     return (
       <div className="flex items-center justify-center h-64">
         <p className="text-muted-foreground">
-          <I18nText text={"You do not have permission to access this page."} />
+          <I18nText text={'You do not have permission to access this page.'} />
         </p>
       </div>
     );
@@ -263,9 +265,11 @@ export default function WebhooksPage() {
     <div className="flex flex-col gap-4 max-w-7xl">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold"><I18nText text={"Webhooks"} /></h1>
+          <h1 className="text-lg font-semibold">
+            <I18nText text={'Webhooks'} />
+          </h1>
           <p className="text-sm text-muted-foreground">
-            <I18nText text={"Manage webhooks across all DAGs"} />
+            <I18nText text={'Manage webhooks across all DAGs'} />
           </p>
         </div>
       </div>
@@ -280,13 +284,27 @@ export default function WebhooksPage() {
         <Table className="text-xs">
           <TableHeader>
             <TableRow>
-              <TableHead className="w-[250px]"><I18nText text={"DAG"} /></TableHead>
-              <TableHead className="w-[150px]"><I18nText text={"Token"} /></TableHead>
-              <TableHead className="w-[160px]"><I18nText text={"Auth"} /></TableHead>
-              <TableHead className="w-[140px]"><I18nText text={"Profiles"} /></TableHead>
-              <TableHead className="w-[100px]"><I18nText text={"Status"} /></TableHead>
-              <TableHead className="w-[180px]"><I18nText text={"Created"} /></TableHead>
-              <TableHead className="w-[180px]"><I18nText text={"Last Triggered"} /></TableHead>
+              <TableHead className="w-[250px]">
+                <I18nText text={'DAG'} />
+              </TableHead>
+              <TableHead className="w-[150px]">
+                <I18nText text={'Token'} />
+              </TableHead>
+              <TableHead className="w-[160px]">
+                <I18nText text={'Auth'} />
+              </TableHead>
+              <TableHead className="w-[140px]">
+                <I18nText text={'Profiles'} />
+              </TableHead>
+              <TableHead className="w-[100px]">
+                <I18nText text={'Status'} />
+              </TableHead>
+              <TableHead className="w-[180px]">
+                <I18nText text={'Created'} />
+              </TableHead>
+              <TableHead className="w-[180px]">
+                <I18nText text={'Last Triggered'} />
+              </TableHead>
               <TableHead className="w-[80px]"></TableHead>
             </TableRow>
           </TableHeader>
@@ -297,7 +315,7 @@ export default function WebhooksPage() {
                   colSpan={8}
                   className="text-center text-muted-foreground py-8"
                 >
-                  <I18nText text={"Loading webhooks..."} />
+                  <I18nText text={'Loading webhooks...'} />
                 </TableCell>
               </TableRow>
             ) : webhooks.length === 0 ? (
@@ -306,7 +324,11 @@ export default function WebhooksPage() {
                   colSpan={8}
                   className="text-center text-muted-foreground py-8"
                 >
-                  <I18nText text={"No webhooks found. Create webhooks from individual DAG pages."} />
+                  <I18nText
+                    text={
+                      'No webhooks found. Create webhooks from individual DAG pages.'
+                    }
+                  />
                 </TableCell>
               </TableRow>
             ) : (
@@ -336,15 +358,19 @@ export default function WebhooksPage() {
                         webhook.hmac.enforcementMode ===
                           WebhookHMACEnforcementModeValue.observe && (
                           <span className="text-[11px] text-muted-foreground">
-                            <I18nText text={"Observe mode"} />
+                            <I18nText text={'Observe mode'} />
                           </span>
                         )}
                     </div>
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
-                    {webhook.profileSelection.allowedProfiles.length === 0
-                      ? <I18nText text={"Default only"} />
-                      : `${webhook.profileSelection.allowedProfiles.length} selectable`}
+                    {webhook.profileSelection.allowedProfiles.length === 0 ? (
+                      <I18nText text={'Default only'} />
+                    ) : (
+                      ts('{count} selectable', {
+                        count: webhook.profileSelection.allowedProfiles.length,
+                      })
+                    )}
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
@@ -355,7 +381,11 @@ export default function WebhooksPage() {
                         }
                       />
                       <span className="text-xs text-muted-foreground">
-                        {webhook.enabled ? <I18nText text={"Enabled"} /> : <I18nText text={"Disabled"} />}
+                        {webhook.enabled ? (
+                          <I18nText text={'Enabled'} />
+                        ) : (
+                          <I18nText text={'Disabled'} />
+                        )}
                       </span>
                     </div>
                   </TableCell>
@@ -363,9 +393,11 @@ export default function WebhooksPage() {
                     {dayjs(webhook.createdAt).format('MMM D, YYYY HH:mm')}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    {webhook.lastUsedAt
-                      ? dayjs(webhook.lastUsedAt).format('MMM D, YYYY HH:mm')
-                      : <I18nText text={"Never"} />}
+                    {webhook.lastUsedAt ? (
+                      dayjs(webhook.lastUsedAt).format('MMM D, YYYY HH:mm')
+                    ) : (
+                      <I18nText text={'Never'} />
+                    )}
                   </TableCell>
                   <TableCell>
                     <DropdownMenu>
@@ -379,21 +411,21 @@ export default function WebhooksPage() {
                           onClick={() => navigateToDAG(webhook.dagName)}
                         >
                           <ExternalLink className="h-4 w-4 mr-2" />
-                          <I18nText text={"View DAG"} />
+                          <I18nText text={'View DAG'} />
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
                           onClick={() => setRegeneratingWebhook(webhook)}
                         >
                           <RefreshCw className="h-4 w-4 mr-2" />
-                          <I18nText text={"Regenerate Token"} />
+                          <I18nText text={'Regenerate Token'} />
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() => setDeletingWebhook(webhook)}
                           className="text-destructive"
                         >
                           <Trash2 className="h-4 w-4 mr-2" />
-                          <I18nText text={"Delete"} />
+                          <I18nText text={'Delete'} />
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -407,31 +439,40 @@ export default function WebhooksPage() {
 
       {/* Regenerate Token Confirmation / Token Display */}
       {regeneratingWebhook && !newToken && (
-        <I18nProps><ConfirmModal
-          title="Regenerate Token"
-          buttonText="Regenerate"
-          visible={true}
-          dismissModal={() => setRegeneratingWebhook(null)}
-          onSubmit={handleRegenerate}
-        >
-          <p>
-            Are you sure you want to regenerate the token for &quot;
-            {regeneratingWebhook.dagName}&quot;? The old token will immediately
-            stop working.
-          </p>
-        </ConfirmModal></I18nProps>
+        <I18nProps>
+          <ConfirmModal
+            title="Regenerate Token"
+            buttonText="Regenerate"
+            visible={true}
+            dismissModal={() => setRegeneratingWebhook(null)}
+            onSubmit={handleRegenerate}
+          >
+            <p>
+              {ts(
+                'Regenerate the token for "{name}"? The old token will immediately stop working.',
+                { name: regeneratingWebhook.dagName }
+              )}
+            </p>
+          </ConfirmModal>
+        </I18nProps>
       )}
 
       {/* New Token Display Modal */}
       <Dialog open={!!newToken} onOpenChange={() => handleCloseTokenModal()}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle><I18nText text={"Token Regenerated"} /></DialogTitle>
+            <DialogTitle>
+              <I18nText text={'Token Regenerated'} />
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="p-3 bg-warning/10 border border-warning/20 rounded-md">
               <p className="text-sm text-foreground">
-                Copy this token now. You won&apos;t be able to see it again!
+                <I18nText
+                  text={
+                    "Copy this token now. You won't be able to see it again!"
+                  }
+                />
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -448,40 +489,50 @@ export default function WebhooksPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button onClick={handleCloseTokenModal}><I18nText text={"Done"} /></Button>
+            <Button onClick={handleCloseTokenModal}>
+              <I18nText text={'Done'} />
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* Delete Confirmation */}
-      <I18nProps><ConfirmModal
-        title="Delete Webhook"
-        buttonText="Delete"
-        visible={!!deletingWebhook}
-        dismissModal={() => setDeletingWebhook(null)}
-        onSubmit={handleDelete}
-      >
-        <p>
-          Are you sure you want to delete the webhook for &quot;
-          {deletingWebhook?.dagName}&quot;? Any applications using this token
-          will immediately lose access.
-        </p>
-      </ConfirmModal></I18nProps>
+      <I18nProps>
+        <ConfirmModal
+          title="Delete Webhook"
+          buttonText="Delete"
+          visible={!!deletingWebhook}
+          dismissModal={() => setDeletingWebhook(null)}
+          onSubmit={handleDelete}
+        >
+          <p>
+            {ts(
+              'Are you sure you want to delete the webhook for "{name}"? Any applications using this token will immediately lose access.',
+              { name: deletingWebhook?.dagName ?? '' }
+            )}
+          </p>
+        </ConfirmModal>
+      </I18nProps>
 
       {/* Toggle Confirmation */}
-      <ConfirmModal
-        title={togglingWebhook?.enabled ? 'Enable Webhook' : 'Disable Webhook'}
-        buttonText={togglingWebhook?.enabled ? 'Enable' : 'Disable'}
-        visible={!!togglingWebhook}
-        dismissModal={() => setTogglingWebhook(null)}
-        onSubmit={handleToggleConfirm}
-      >
-        <p>
-          <I18nText text={"Are you sure you want to"} />{' '}
-          {togglingWebhook?.enabled ? <I18nText text={"enable"} /> : <I18nText text={"disable"} />} the webhook for
-          &quot;{togglingWebhook?.webhook.dagName}&quot;?
-        </p>
-      </ConfirmModal>
+      <I18nProps>
+        <ConfirmModal
+          title={
+            togglingWebhook?.enabled ? 'Enable Webhook' : 'Disable Webhook'
+          }
+          buttonText={togglingWebhook?.enabled ? 'Enable' : 'Disable'}
+          visible={!!togglingWebhook}
+          dismissModal={() => setTogglingWebhook(null)}
+          onSubmit={handleToggleConfirm}
+        >
+          <p>
+            {ts('Are you sure you want to {action} the webhook for "{name}"?', {
+              action: ts(togglingWebhook?.enabled ? 'enable' : 'disable'),
+              name: togglingWebhook?.webhook.dagName ?? '',
+            })}
+          </p>
+        </ConfirmModal>
+      </I18nProps>
     </div>
   );
 }

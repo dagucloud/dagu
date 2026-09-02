@@ -17,6 +17,7 @@ import {
 import { StepDetailsTooltip } from './StepDetailsTooltip';
 import { DAGRunArtifactsButton } from './DAGRunArtifactsButton';
 import { I18nText } from '@/i18n/I18nText';
+import { useI18n } from '@/i18n/I18nProvider';
 
 interface DAGRunGroupedViewProps {
   dagRuns: components['schemas']['DAGRunSummary'][];
@@ -42,6 +43,7 @@ function DAGRunGroupedView({
   onViewArtifacts,
   onToggleBulkSelect,
 }: DAGRunGroupedViewProps) {
+  const { ts } = useI18n();
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   // Group DAG runs by name
@@ -165,10 +167,14 @@ function DAGRunGroupedView({
     <div className="flex flex-col items-center justify-center py-12 px-4 border rounded-md bg-card">
       <div className="text-6xl mb-4">🔍</div>
       <h3 className="text-lg font-normal text-foreground mb-2">
-        <I18nText text={"No DAG runs found"} />
+        <I18nText text={'No DAG runs found'} />
       </h3>
       <p className="text-sm text-muted-foreground text-center max-w-md mb-4">
-        <I18nText text={"No DAG runs in the selected time range. Adjust the date range or filters, or start a workflow from the Workflows page."} />
+        <I18nText
+          text={
+            'No DAG runs in the selected time range. Adjust the date range or filters, or start a workflow from the Workflows page.'
+          }
+        />
       </p>
     </div>
   );
@@ -177,7 +183,7 @@ function DAGRunGroupedView({
     if (isLoading) {
       return (
         <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
-          <I18nText text={"Loading DAG runs..."} />
+          <I18nText text={'Loading DAG runs...'} />
         </div>
       );
     }
@@ -235,28 +241,34 @@ function DAGRunGroupedView({
                       {dagName}
                     </div>
                     <div className="text-xs text-muted-foreground">
-                      {summary.totalCount} <I18nText text={"run"} />
-                      {summary.totalCount !== 1 ? 's' : ''}
+                      {ts(
+                        summary.totalCount === 1
+                          ? '{count} run'
+                          : '{count} runs',
+                        { count: summary.totalCount }
+                      )}
                       {!summary.allSameStatus && (
                         <>
                           {summary.runningCount > 0 && (
                             <span className="ml-2">
-                              {summary.runningCount} <I18nText text={"running"} />
+                              {summary.runningCount}{' '}
+                              <I18nText text={'running'} />
                             </span>
                           )}
                           {summary.failedCount > 0 && (
                             <span className="ml-2">
-                              {summary.failedCount} <I18nText text={"failed"} />
+                              {summary.failedCount} <I18nText text={'failed'} />
                             </span>
                           )}
                           {summary.abortedCount > 0 && (
                             <span className="ml-2">
-                              {summary.abortedCount} <I18nText text={"aborted"} />
+                              {summary.abortedCount}{' '}
+                              <I18nText text={'aborted'} />
                             </span>
                           )}
                           {summary.queuedCount > 0 && (
                             <span className="ml-2">
-                              {summary.queuedCount} <I18nText text={"queued"} />
+                              {summary.queuedCount} <I18nText text={'queued'} />
                             </span>
                           )}
                         </>
@@ -271,7 +283,7 @@ function DAGRunGroupedView({
                     </StatusChip>
                   ) : (
                     <StatusChip status={undefined} size="xs">
-                      <I18nText text={"Mixed"} />
+                      <I18nText text={'Mixed'} />
                     </StatusChip>
                   )}
                 </div>
@@ -328,14 +340,14 @@ function DAGRunGroupedView({
                                 {dagRun.scheduleTime && (
                                   <div className="whitespace-nowrap">
                                     <span className="text-muted-foreground">
-                                      <I18nText text={"Scheduled:"} />{' '}
+                                      <I18nText text={'Scheduled:'} />{' '}
                                     </span>
                                     {dagRun.scheduleTime}
                                   </div>
                                 )}
                                 <div className="whitespace-nowrap">
                                   <span className="text-muted-foreground">
-                                    <I18nText text={"Queued:"} />{' '}
+                                    <I18nText text={'Queued:'} />{' '}
                                   </span>
                                   <RelativeTime
                                     timestamp={dagRun.queuedAt}
@@ -344,7 +356,7 @@ function DAGRunGroupedView({
                                 </div>
                                 <div className="whitespace-nowrap">
                                   <span className="text-muted-foreground">
-                                    <I18nText text={"Started:"} />{' '}
+                                    <I18nText text={'Started:'} />{' '}
                                   </span>
                                   <RelativeTime
                                     timestamp={dagRun.startedAt}
@@ -353,7 +365,7 @@ function DAGRunGroupedView({
                                 </div>
                                 <div className="flex items-center gap-1 whitespace-nowrap">
                                   <span className="text-muted-foreground">
-                                    <I18nText text={"Duration:"} />{' '}
+                                    <I18nText text={'Duration:'} />{' '}
                                   </span>
                                   {calculateDuration(
                                     dagRun.startedAt,

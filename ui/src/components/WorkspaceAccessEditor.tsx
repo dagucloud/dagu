@@ -58,7 +58,7 @@ export function WorkspaceAccessSummary({
   if (access.all) {
     return (
       <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
-        <I18nText text={"All workspaces"} />
+        <I18nText text={'All workspaces'} />
       </div>
     );
   }
@@ -66,7 +66,7 @@ export function WorkspaceAccessSummary({
   if (access.grants.length === 0) {
     return (
       <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-        <I18nText text={"No named workspace grants"} />
+        <I18nText text={'No named workspace grants'} />
       </div>
     );
   }
@@ -89,7 +89,7 @@ export function WorkspaceAccessSummary({
               <div className="truncate">{grant.workspace}</div>
               {unavailable && (
                 <div className="text-xs text-muted-foreground">
-                  <I18nText text={"Workspace not currently available"} />
+                  <I18nText text={'Workspace not currently available'} />
                 </div>
               )}
             </div>
@@ -151,14 +151,20 @@ export function WorkspaceAccessEditor({
   return (
     <div className="space-y-3">
       <div className="space-y-1.5">
-        <Label className="text-sm"><I18nText text={"Workspace Access"} /></Label>
+        <Label className="text-sm">
+          <I18nText text={'Workspace Access'} />
+        </Label>
         <Select value={value.all ? 'all' : 'scoped'} onValueChange={setMode}>
           <SelectTrigger className="h-7">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all"><I18nText text={"All workspaces"} /></SelectItem>
-            <SelectItem value="scoped"><I18nText text={"Selected workspaces"} /></SelectItem>
+            <SelectItem value="all">
+              <I18nText text={'All workspaces'} />
+            </SelectItem>
+            <SelectItem value="scoped">
+              <I18nText text={'Selected workspaces'} />
+            </SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -167,7 +173,7 @@ export function WorkspaceAccessEditor({
         <div className="max-h-56 overflow-auto rounded-md border border-border">
           {workspaces.length === 0 ? (
             <div className="px-3 py-2 text-sm text-muted-foreground">
-              <I18nText text={"No workspaces available"} />
+              <I18nText text={'No workspaces available'} />
             </div>
           ) : (
             workspaces.map((workspace) => {
@@ -199,7 +205,7 @@ export function WorkspaceAccessEditor({
                     <SelectContent>
                       {GRANT_ROLES.map((role) => (
                         <SelectItem key={role.value} value={role.value}>
-                          {role.label}
+                          <I18nText text={role.label} />
                         </SelectItem>
                       ))}
                     </SelectContent>

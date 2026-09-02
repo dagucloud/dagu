@@ -38,7 +38,7 @@ function HarnessStepSummary({ step, className, compact = false }: Props) {
   const promptContent = summary.prompt ? (
     <div className="rounded-md border border-border/70 bg-background/70 px-2 py-1.5">
       <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-        <I18nText text={"Prompt"} />
+        <I18nText text={'Prompt'} />
       </div>
       <div className="line-clamp-3 whitespace-pre-wrap break-words text-xs leading-relaxed text-foreground/90">
         {summary.prompt}
@@ -59,7 +59,7 @@ function HarnessStepSummary({ step, className, compact = false }: Props) {
           className="h-6 gap-1.5 px-2.5 normal-case tracking-normal"
         >
           <Bot className="h-3.5 w-3.5" />
-          <I18nText text={"Harness"} />
+          <I18nText text={'Harness'} />
         </Badge>
       </div>
 
@@ -108,25 +108,35 @@ function CompactHarnessSummary({
       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
         <Badge variant="info" className="normal-case tracking-normal">
           <Bot className="h-3 w-3" />
-          <I18nText text={"Harness"} />
+          <I18nText text={'Harness'} />
         </Badge>
         {primary?.provider ? (
-          <I18nProps><Badge
-            variant="secondary"
-            className="font-mono normal-case tracking-normal"
-            title="Primary provider"
-          >
-            {primary.provider}
-          </Badge></I18nProps>
+          <I18nProps>
+            <Badge
+              variant="secondary"
+              className="font-mono normal-case tracking-normal"
+              title="Primary provider"
+            >
+              {primary.provider}
+            </Badge>
+          </I18nProps>
         ) : null}
         {optionCount > 0 ? (
           <Badge variant="outline" className="normal-case tracking-normal">
-            {optionCount} <I18nText text={"option"} />{optionCount === 1 ? '' : 's'}
+            <I18nText
+              text={optionCount === 1 ? '{count} option' : '{count} options'}
+              values={{ count: optionCount }}
+            />
           </Badge>
         ) : null}
         {fallbackCount > 0 ? (
           <Badge variant="outline" className="normal-case tracking-normal">
-            {fallbackCount} <I18nText text={"fallback"} />{fallbackCount === 1 ? '' : 's'}
+            <I18nText
+              text={
+                fallbackCount === 1 ? '{count} fallback' : '{count} fallbacks'
+              }
+              values={{ count: fallbackCount }}
+            />
           </Badge>
         ) : null}
       </div>
@@ -184,7 +194,10 @@ function HarnessAttemptRow({
               variant="outline"
               className="h-5 cursor-help px-2 normal-case tracking-normal"
             >
-              +{hiddenOptions.length} <I18nText text={"more"} />
+              <I18nText
+                text="+{count} more"
+                values={{ count: hiddenOptions.length }}
+              />
             </Badge>
           </TooltipTrigger>
           <TooltipContent className="max-w-[480px]">

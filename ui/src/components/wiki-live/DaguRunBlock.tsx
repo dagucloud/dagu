@@ -12,6 +12,7 @@ import { Link } from 'react-router-dom';
 import { parse as parseYAML } from 'yaml';
 import { DagStatusChip } from './DagStatusChip';
 import { useWikiLive } from './context';
+import { useI18n } from '@/i18n/I18nProvider';
 import { I18nText } from '@/i18n/I18nText';
 
 type RunMode = 'start' | 'enqueue';
@@ -142,6 +143,7 @@ export function DaguRunBlock({ source }: Props) {
   const client = useClient();
   const config = useConfig();
   const { showToast } = useSimpleToast();
+  const { ts } = useI18n();
   const parsed = useMemo(() => parseBlock(source), [source]);
   const dagRef = typeof parsed === 'string' ? null : parsed.dag;
   const canExecuteWorkspace = useCanExecuteForWorkspace(
@@ -159,6 +161,7 @@ export function DaguRunBlock({ source }: Props) {
   }
 
   const label = parsed.label || `Run ${parsed.dag}`;
+  const actionLabel = ts(parsed.mode === 'enqueue' ? 'Enqueue' : 'Run');
 
   // Outside a Wiki page (no provider) the block is an inert summary.
   if (!live) {
@@ -226,19 +229,15 @@ export function DaguRunBlock({ source }: Props) {
             onClick={() => setRunState({ phase: 'confirming' })}
             title={
               lookup.state === 'not-found'
-                ? `DAG not found: ${parsed.dag}`
+                ? ts('DAG not found: {name}', { name: parsed.dag })
                 : !canExecuteWorkspace
-                  ? 'Requires operator access in this workspace'
+                  ? ts('Requires operator access in this workspace')
                   : undefined
             }
             className="flex items-center gap-1 px-2 py-0.5 text-xs rounded-md border border-border bg-primary text-primary-foreground disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90"
           >
             <Play className="h-3 w-3" />
-            {posting
-              ? <I18nText text={"Starting…"} />
-              : parsed.mode === 'enqueue'
-                ? <I18nText text={"Enqueue"} />
-                : <I18nText text={"Run"} />}
+            {posting ? <I18nText text="Starting…" /> : actionLabel}
           </button>
         )}
       </div>
@@ -249,14 +248,14 @@ export function DaguRunBlock({ source }: Props) {
             to={`/dag-runs/${encodeURIComponent(runState.dagName)}/${encodeURIComponent(runState.dagRunId)}`}
             className="text-primary hover:underline"
           >
-            <I18nText text={"View run →"} />
+            <I18nText text={'View run →'} />
           </Link>
         </div>
       )}
 
       <ConfirmModal
         title={label}
-        buttonText={parsed.mode === 'enqueue' ? 'Enqueue' : 'Run'}
+        buttonText={actionLabel}
         visible={runState.phase === 'confirming'}
         dismissModal={() => setRunState({ phase: 'idle' })}
         onSubmit={() => void execute()}
@@ -264,7 +263,7 @@ export function DaguRunBlock({ source }: Props) {
         <div className="space-y-2 text-sm">
           {parsed.confirm && <p>{parsed.confirm}</p>}
           <div className="flex items-center gap-2 text-xs">
-            <I18nText text={"Target:"} /> <DagStatusChip dagRef={parsed.dag} />
+            <I18nText text={'Target:'} /> <DagStatusChip dagRef={parsed.dag} />
           </div>
           <ParamsTable params={parsed.params} />
         </div>

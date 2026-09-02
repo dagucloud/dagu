@@ -34,11 +34,13 @@ import { useCallback, useContext, useEffect, useState } from 'react';
 import { RemoteNodeFormModal } from './RemoteNodeFormModal';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
+import { useI18n } from '@/i18n/I18nProvider';
 
 type RemoteNodeResponse = components['schemas']['RemoteNodeResponse'];
 type TestResult = { success: boolean; message?: string; error?: string };
 
 export default function RemoteNodesPage() {
+  const { ts } = useI18n();
   const config = useConfig();
   const appBarContext = useContext(AppBarContext);
   const [remoteNodes, setRemoteNodes] = useState<RemoteNodeResponse[]>([]);
@@ -204,9 +206,11 @@ export default function RemoteNodesPage() {
     <div className="flex flex-col gap-4 max-w-7xl">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold"><I18nText text={"Remote Nodes"} /></h1>
+          <h1 className="text-lg font-semibold">
+            <I18nText text={'Remote Nodes'} />
+          </h1>
           <p className="text-sm text-muted-foreground">
-            <I18nText text={"Manage connections to remote Dagu instances"} />
+            <I18nText text={'Manage connections to remote Dagu instances'} />
           </p>
         </div>
         <Button
@@ -215,7 +219,7 @@ export default function RemoteNodesPage() {
           className="h-8"
         >
           <Plus className="h-4 w-4 mr-1.5" />
-          <I18nText text={"Add Node"} />
+          <I18nText text={'Add Node'} />
         </Button>
       </div>
 
@@ -229,12 +233,24 @@ export default function RemoteNodesPage() {
         <Table className="text-xs">
           <TableHeader>
             <TableRow>
-              <TableHead className="w-[180px]"><I18nText text={"Name"} /></TableHead>
-              <TableHead className="w-[280px]"><I18nText text={"API URL"} /></TableHead>
-              <TableHead className="w-[80px]"><I18nText text={"Auth"} /></TableHead>
-              <TableHead className="w-[80px]"><I18nText text={"Source"} /></TableHead>
-              <TableHead className="w-[150px]"><I18nText text={"Created"} /></TableHead>
-              <TableHead className="w-[120px]"><I18nText text={"Status"} /></TableHead>
+              <TableHead className="w-[180px]">
+                <I18nText text={'Name'} />
+              </TableHead>
+              <TableHead className="w-[280px]">
+                <I18nText text={'API URL'} />
+              </TableHead>
+              <TableHead className="w-[80px]">
+                <I18nText text={'Auth'} />
+              </TableHead>
+              <TableHead className="w-[80px]">
+                <I18nText text={'Source'} />
+              </TableHead>
+              <TableHead className="w-[150px]">
+                <I18nText text={'Created'} />
+              </TableHead>
+              <TableHead className="w-[120px]">
+                <I18nText text={'Status'} />
+              </TableHead>
               <TableHead className="w-[80px]"></TableHead>
             </TableRow>
           </TableHeader>
@@ -245,7 +261,7 @@ export default function RemoteNodesPage() {
                   colSpan={7}
                   className="text-center text-muted-foreground py-8"
                 >
-                  <I18nText text={"Loading remote nodes..."} />
+                  <I18nText text={'Loading remote nodes...'} />
                 </TableCell>
               </TableRow>
             ) : remoteNodes.length === 0 ? (
@@ -254,7 +270,7 @@ export default function RemoteNodesPage() {
                   colSpan={7}
                   className="text-center text-muted-foreground py-8"
                 >
-                  <I18nText text={"No remote nodes configured"} />
+                  <I18nText text={'No remote nodes configured'} />
                 </TableCell>
               </TableRow>
             ) : (
@@ -305,13 +321,13 @@ export default function RemoteNodesPage() {
                       {isTesting ? (
                         <span className="flex items-center gap-1 text-muted-foreground">
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          <I18nText text={"Testing..."} />
+                          <I18nText text={'Testing...'} />
                         </span>
                       ) : result ? (
                         result.success ? (
                           <span className="flex items-center gap-1 text-green-600 dark:text-green-400">
                             <CheckCircle2 className="h-3.5 w-3.5" />
-                            <I18nText text={"OK"} />
+                            <I18nText text={'OK'} />
                           </span>
                         ) : (
                           <span
@@ -319,7 +335,7 @@ export default function RemoteNodesPage() {
                             title={result.error || result.message}
                           >
                             <XCircle className="h-3.5 w-3.5" />
-                            <I18nText text={"Failed"} />
+                            <I18nText text={'Failed'} />
                           </span>
                         )
                       ) : (
@@ -332,7 +348,7 @@ export default function RemoteNodesPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            aria-label="Actions"
+                            aria-label={ts('Actions')}
                           >
                             <MoreHorizontal className="h-4 w-4" />
                           </Button>
@@ -343,14 +359,14 @@ export default function RemoteNodesPage() {
                             disabled={isTesting}
                           >
                             <Unplug className="h-4 w-4 mr-2" />
-                            <I18nText text={"Test Connection"} />
+                            <I18nText text={'Test Connection'} />
                           </DropdownMenuItem>
                           {isStoreNode(node) && (
                             <DropdownMenuItem
                               onClick={() => setEditingNode(node)}
                             >
                               <Pencil className="h-4 w-4 mr-2" />
-                              <I18nText text={"Edit"} />
+                              <I18nText text={'Edit'} />
                             </DropdownMenuItem>
                           )}
                           {isStoreNode(node) && (
@@ -359,7 +375,7 @@ export default function RemoteNodesPage() {
                               className="text-destructive"
                             >
                               <Trash2 className="h-4 w-4 mr-2" />
-                              <I18nText text={"Delete"} />
+                              <I18nText text={'Delete'} />
                             </DropdownMenuItem>
                           )}
                         </DropdownMenuContent>
@@ -397,18 +413,22 @@ export default function RemoteNodesPage() {
       />
 
       {/* Delete Confirmation */}
-      <I18nProps><ConfirmModal
-        title="Delete Remote Node"
-        buttonText="Delete"
-        visible={!!deletingNode}
-        dismissModal={() => setDeletingNode(null)}
-        onSubmit={handleDeleteNode}
-      >
-        <p>
-          Are you sure you want to delete remote node &quot;
-          {deletingNode?.name}&quot;? This action cannot be undone.
-        </p>
-      </ConfirmModal></I18nProps>
+      <I18nProps>
+        <ConfirmModal
+          title="Delete Remote Node"
+          buttonText="Delete"
+          visible={!!deletingNode}
+          dismissModal={() => setDeletingNode(null)}
+          onSubmit={handleDeleteNode}
+        >
+          <p>
+            {ts(
+              'Are you sure you want to delete remote node "{name}"? This action cannot be undone.',
+              { name: deletingNode?.name ?? '' }
+            )}
+          </p>
+        </ConfirmModal>
+      </I18nProps>
     </div>
   );
 }

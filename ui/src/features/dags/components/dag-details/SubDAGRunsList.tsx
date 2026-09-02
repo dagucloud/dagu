@@ -12,6 +12,7 @@ import { StatusDot } from '../common/StatusDot';
 import { STATUS_DISPLAY_LABELS } from '../common/statusLabels';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
+import { useI18n } from '@/i18n/I18nProvider';
 
 type SubDAGRun = components['schemas']['SubDAGRun'];
 type SubDAGRunDetail = components['schemas']['SubDAGRunDetail'];
@@ -50,6 +51,7 @@ export function SubDAGRunsList({
   onToggleExpand,
   onNavigate,
 }: Props) {
+  const { ts } = useI18n();
   const remoteNode = useRemoteNode();
   const dagRunIdsKey = allSubRuns.map((sr) => sr.dagRunId).join('|');
   const [statusFilter, setStatusFilter] = useState<StatusFilterValue>('all');
@@ -207,19 +209,21 @@ export function SubDAGRunsList({
     const displayName = allSubRuns[0]?.dagName || subDagName;
     return (
       <>
-        <I18nProps><div
-          className="text-xs text-primary font-medium cursor-pointer hover:underline"
-          onClick={(e) => {
-            e.stopPropagation();
-            onNavigate(0, e);
-          }}
-          title="Click to view sub DAG run (Cmd/Ctrl+Click to open in new tab)"
-        >
-          <I18nText text={"View Sub DAG Run:"} /> {displayName}
-        </div></I18nProps>
+        <I18nProps>
+          <div
+            className="text-xs text-primary font-medium cursor-pointer hover:underline"
+            onClick={(e) => {
+              e.stopPropagation();
+              onNavigate(0, e);
+            }}
+            title="Click to view sub DAG run (Cmd/Ctrl+Click to open in new tab)"
+          >
+            <I18nText text={'View Sub DAG Run:'} /> {displayName}
+          </div>
+        </I18nProps>
         {allSubRuns[0]?.params && (
           <div className="text-xs text-muted-foreground mt-1">
-            <I18nText text={"Parameters:"} />{' '}
+            <I18nText text={'Parameters:'} />{' '}
             <span className="font-mono">{allSubRuns[0].params}</span>
           </div>
         )}
@@ -243,10 +247,14 @@ export function SubDAGRunsList({
           ) : (
             <ChevronRight className="h-3 w-3" />
           )}
-          <I18nText text={"Multiple executions:"} />{' '}
           {filteredSubRuns.length === allSubRuns.length
-            ? `${allSubRuns.length} sub DAG runs`
-            : `${filteredSubRuns.length} of ${allSubRuns.length} sub DAG runs`}
+            ? ts('Multiple executions: {count} sub DAG runs', {
+                count: allSubRuns.length,
+              })
+            : ts('Multiple executions: {visible} of {total} sub DAG runs', {
+                visible: filteredSubRuns.length,
+                total: allSubRuns.length,
+              })}
         </button>
       </div>
 
@@ -288,7 +296,7 @@ export function SubDAGRunsList({
         <div className="mt-2 ml-4 space-y-1 border-l border-border pl-3">
           {filteredSubRuns.length === 0 ? (
             <div className="py-2 text-muted-foreground italic">
-              <I18nText text={"No sub DAG runs match the selected filter"} />
+              <I18nText text={'No sub DAG runs match the selected filter'} />
             </div>
           ) : (
             filteredSubRuns.map((subRun) => {
@@ -303,16 +311,18 @@ export function SubDAGRunsList({
               return (
                 <div key={subRun.dagRunId} className="py-1">
                   <div className="flex items-center gap-2">
-                    <I18nProps><div
-                      className="text-xs text-primary cursor-pointer hover:underline"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onNavigate(subRun.originalIndex, e);
-                      }}
-                      title="Click to view sub DAG run (Cmd/Ctrl+Click to open in new tab)"
-                    >
-                      #{String(displayNumber).padStart(2, '0')}: {displayName}
-                    </div></I18nProps>
+                    <I18nProps>
+                      <div
+                        className="text-xs text-primary cursor-pointer hover:underline"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onNavigate(subRun.originalIndex, e);
+                        }}
+                        title="Click to view sub DAG run (Cmd/Ctrl+Click to open in new tab)"
+                      >
+                        #{String(displayNumber).padStart(2, '0')}: {displayName}
+                      </div>
+                    </I18nProps>
                     {startedAt && (
                       <div className="text-xs text-muted-foreground">
                         {dayjs(startedAt).format('MMM D, HH:mm:ss')}

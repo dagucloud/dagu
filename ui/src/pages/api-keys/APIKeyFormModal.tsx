@@ -218,12 +218,16 @@ export function APIKeyFormModal({
       <Dialog open={open} onOpenChange={() => handleDone()}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle><I18nText text={"API Key Created"} /></DialogTitle>
+            <DialogTitle>
+              <I18nText text={'API Key Created'} />
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="p-3 bg-warning/10 border border-warning/20 rounded-md">
               <p className="text-sm text-foreground">
-                Copy this key now. You won&apos;t be able to see it again!
+                <I18nText
+                  text={"Copy this key now. You won't be able to see it again!"}
+                />
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -240,7 +244,9 @@ export function APIKeyFormModal({
             </div>
           </div>
           <DialogFooter>
-            <Button onClick={handleDone}><I18nText text={"Done"} /></Button>
+            <Button onClick={handleDone}>
+              <I18nText text={'Done'} />
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -252,7 +258,11 @@ export function APIKeyFormModal({
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
-            {isEditing ? <I18nText text={"Edit API Key"} /> : <I18nText text={"Create API Key"} />}
+            {isEditing ? (
+              <I18nText text={'Edit API Key'} />
+            ) : (
+              <I18nText text={'Create API Key'} />
+            )}
           </DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit}>
@@ -264,49 +274,65 @@ export function APIKeyFormModal({
             )}
 
             <div className="space-y-2">
-              <Label htmlFor="name"><I18nText text={"Name"} /></Label>
-              <I18nProps><Input
-                id="name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="My API Key"
-                required
-              /></I18nProps>
+              <Label htmlFor="name">
+                <I18nText text={'Name'} />
+              </Label>
+              <I18nProps>
+                <Input
+                  id="name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="My API Key"
+                  required
+                />
+              </I18nProps>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="description"><I18nText text={"Description (optional)"} /></Label>
-              <I18nProps><Input
-                id="description"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Used for CI/CD pipeline"
-              /></I18nProps>
+              <Label htmlFor="description">
+                <I18nText text={'Description (optional)'} />
+              </Label>
+              <I18nProps>
+                <Input
+                  id="description"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Used for CI/CD pipeline"
+                />
+              </I18nProps>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="role"><I18nText text={"Role"} /></Label>
+              <Label htmlFor="role">
+                <I18nText text={'Role'} />
+              </Label>
               <Select
                 value={workspaceAccess.all ? role : UserRole.viewer}
                 onValueChange={(v) => setRole(v as UserRole)}
                 disabled={!workspaceAccess.all}
               >
                 <SelectTrigger>
-                  <I18nProps><SelectValue placeholder="Select role" /></I18nProps>
+                  <I18nProps>
+                    <SelectValue placeholder="Select role" />
+                  </I18nProps>
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="admin"><I18nText text={"Admin - Full access"} /></SelectItem>
+                  <SelectItem value="admin">
+                    <I18nText text={'Admin - Full access'} />
+                  </SelectItem>
                   <SelectItem value="manager">
-                    <I18nText text={"Manager - DAG CRUD, execution, and audit logs"} />
+                    <I18nText
+                      text={'Manager - DAG CRUD, execution, and audit logs'}
+                    />
                   </SelectItem>
                   <SelectItem value="developer">
-                    <I18nText text={"Developer - DAG CRUD and execution"} />
+                    <I18nText text={'Developer - DAG CRUD and execution'} />
                   </SelectItem>
                   <SelectItem value="operator">
-                    <I18nText text={"Operator - DAG execution only"} />
+                    <I18nText text={'Operator - DAG execution only'} />
                   </SelectItem>
                   <SelectItem value="viewer">
-                    <I18nText text={"Viewer - Read-only access"} />
+                    <I18nText text={'Viewer - Read-only access'} />
                   </SelectItem>
                 </SelectContent>
               </Select>
@@ -324,7 +350,9 @@ export function APIKeyFormModal({
             />
 
             <div className="space-y-2">
-              <Label><I18nText text={"Accepted Surfaces"} /></Label>
+              <Label>
+                <I18nText text={'Accepted Surfaces'} />
+              </Label>
               <div className="grid gap-2 sm:grid-cols-2">
                 <label className="flex items-center gap-2 rounded-md border border-border p-2 text-sm">
                   <Checkbox
@@ -338,7 +366,9 @@ export function APIKeyFormModal({
                       )
                     }
                   />
-                  <span><I18nText text={"REST API"} /></span>
+                  <span>
+                    <I18nText text={'REST API'} />
+                  </span>
                 </label>
                 <label className="flex items-center gap-2 rounded-md border border-border p-2 text-sm">
                   <Checkbox
@@ -349,13 +379,17 @@ export function APIKeyFormModal({
                       toggleSurface(APIKeyAllowedSurfaces.mcp, checked === true)
                     }
                   />
-                  <span><I18nText text={"MCP"} /></span>
+                  <span>
+                    <I18nText text={'MCP'} />
+                  </span>
                 </label>
               </div>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="attribution"><I18nText text={"Attribution"} /></Label>
+              <Label htmlFor="attribution">
+                <I18nText text={'Attribution'} />
+              </Label>
               <Select
                 value={attributionClass}
                 onValueChange={(value) =>
@@ -363,14 +397,16 @@ export function APIKeyFormModal({
                 }
               >
                 <SelectTrigger id="attribution">
-                  <I18nProps><SelectValue placeholder="Select attribution" /></I18nProps>
+                  <I18nProps>
+                    <SelectValue placeholder="Select attribution" />
+                  </I18nProps>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={APIKeyAttributionClass.service_account}>
-                    <I18nText text={"Service account"} />
+                    <I18nText text={'Service account'} />
                   </SelectItem>
                   <SelectItem value={APIKeyAttributionClass.user_owned}>
-                    <I18nText text={"User owned"} />
+                    <I18nText text={'User owned'} />
                   </SelectItem>
                 </SelectContent>
               </Select>
@@ -378,7 +414,9 @@ export function APIKeyFormModal({
 
             {attributionClass === APIKeyAttributionClass.service_account ? (
               <div className="space-y-2">
-                <Label htmlFor="serviceAccountName"><I18nText text={"Service Account Name"} /></Label>
+                <Label htmlFor="serviceAccountName">
+                  <I18nText text={'Service Account Name'} />
+                </Label>
                 <Input
                   id="serviceAccountName"
                   value={serviceAccountName}
@@ -388,19 +426,23 @@ export function APIKeyFormModal({
               </div>
             ) : (
               <div className="space-y-2">
-                <Label htmlFor="ownerUserId"><I18nText text={"Owner User ID"} /></Label>
-                <I18nProps><Input
-                  id="ownerUserId"
-                  value={ownerUserId}
-                  onChange={(e) => setOwnerUserId(e.target.value)}
-                  placeholder="User ID"
-                  required={
-                    attributionClass === APIKeyAttributionClass.user_owned
-                  }
-                /></I18nProps>
+                <Label htmlFor="ownerUserId">
+                  <I18nText text={'Owner User ID'} />
+                </Label>
+                <I18nProps>
+                  <Input
+                    id="ownerUserId"
+                    value={ownerUserId}
+                    onChange={(e) => setOwnerUserId(e.target.value)}
+                    placeholder="User ID"
+                    required={
+                      attributionClass === APIKeyAttributionClass.user_owned
+                    }
+                  />
+                </I18nProps>
                 {apiKey?.ownerUsername && (
                   <p className="text-xs text-muted-foreground">
-                    <I18nText text={"Current owner:"} /> {apiKey.ownerUsername}
+                    <I18nText text={'Current owner:'} /> {apiKey.ownerUsername}
                   </p>
                 )}
               </div>
@@ -409,14 +451,16 @@ export function APIKeyFormModal({
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
-              <I18nText text={"Cancel"} />
+              <I18nText text={'Cancel'} />
             </Button>
             <Button type="submit" disabled={isLoading || !name}>
-              {isLoading
-                ? <I18nText text={"Saving..."} />
-                : isEditing
-                  ? <I18nText text={"Save Changes"} />
-                  : <I18nText text={"Create Key"} />}
+              {isLoading ? (
+                <I18nText text={'Saving...'} />
+              ) : isEditing ? (
+                <I18nText text={'Save Changes'} />
+              ) : (
+                <I18nText text={'Create Key'} />
+              )}
             </Button>
           </DialogFooter>
         </form>

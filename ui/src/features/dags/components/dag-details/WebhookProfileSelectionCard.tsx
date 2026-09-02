@@ -20,6 +20,7 @@ import {
   updateAllowedProfiles,
 } from './webhookProfileSelection';
 import { I18nText } from '@/i18n/I18nText';
+import { I18nTemplate } from '@/i18n/I18nTemplate';
 
 type RuntimeProfile = components['schemas']['RuntimeProfileResponse'];
 type WebhookDetails = components['schemas']['WebhookDetails'];
@@ -174,20 +175,30 @@ function WebhookProfileSelectionCard({
   return (
     <Card className="gap-0 py-0">
       <CardHeader className="pb-3 px-4 pt-3">
-        <CardTitle className="text-sm"><I18nText text={"Runtime profile selection"} /></CardTitle>
+        <CardTitle className="text-sm">
+          <I18nText text={'Runtime profile selection'} />
+        </CardTitle>
         <CardDescription className="text-xs">
-          <I18nText text={"Allow callers to select an approved profile with"} />{' '}
-          <code className="bg-accent px-1 rounded-md border">
-            X-Dagu-Profile
-          </code>
-          . Without the header, the DAG&apos;s default profile resolution is
-          used.
+          <I18nTemplate
+            text="Allow callers to select an approved profile with {header}. Without the header, the DAG's default profile resolution is used."
+            values={{
+              header: (
+                <code className="bg-accent px-1 rounded-md border">
+                  X-Dagu-Profile
+                </code>
+              ),
+            }}
+          />
         </CardDescription>
       </CardHeader>
       <CardContent className="px-4 pb-3 pt-2 space-y-3">
         {(isAdmin || configuredAllowedProfiles.length > 0) && (
           <div className="rounded-md border bg-warning/10 px-3 py-2 text-xs text-muted-foreground">
-            <I18nText text={"Anyone holding this webhook credential can run the DAG with every profile selected here."} />
+            <I18nText
+              text={
+                'Anyone holding this webhook credential can run the DAG with every profile selected here.'
+              }
+            />
           </div>
         )}
 
@@ -202,14 +213,18 @@ function WebhookProfileSelectionCard({
             {profilesLoading ? (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                <I18nText text={"Loading profiles..."} />
+                <I18nText text={'Loading profiles...'} />
               </div>
             ) : (
               <div className="space-y-2">
                 {profilesLoadFailed && (
                   <div className="flex items-center justify-between gap-2 rounded-md border p-3 text-xs text-muted-foreground">
                     <span>
-                      <I18nText text={"Runtime profiles could not be loaded. Editing is disabled."} />
+                      <I18nText
+                        text={
+                          'Runtime profiles could not be loaded. Editing is disabled.'
+                        }
+                      />
                     </span>
                     <Button
                       variant="outline"
@@ -217,7 +232,7 @@ function WebhookProfileSelectionCard({
                       onClick={() => setProfilesReloadKey((key) => key + 1)}
                     >
                       <RefreshCw className="mr-1 h-3.5 w-3.5" />
-                      <I18nText text={"Retry"} />
+                      <I18nText text={'Retry'} />
                     </Button>
                   </div>
                 )}
@@ -225,9 +240,13 @@ function WebhookProfileSelectionCard({
                   {runtimeProfiles.length === 0 &&
                   unavailableAllowedProfiles.length === 0 ? (
                     <div className="text-xs text-muted-foreground">
-                      {profilesLoadFailed
-                        ? <I18nText text={"No configured profiles to display."} />
-                        : <I18nText text={"No active runtime profiles are available."} />}
+                      {profilesLoadFailed ? (
+                        <I18nText text={'No configured profiles to display.'} />
+                      ) : (
+                        <I18nText
+                          text={'No active runtime profiles are available.'}
+                        />
+                      )}
                     </div>
                   ) : (
                     runtimeProfiles.map((profile) => {
@@ -256,7 +275,7 @@ function WebhookProfileSelectionCard({
                           <span>{profile.name}</span>
                           {profile.protected && (
                             <Badge variant="outline" className="text-[10px]">
-                              <I18nText text={"Protected"} />
+                              <I18nText text={'Protected'} />
                             </Badge>
                           )}
                         </label>
@@ -286,9 +305,11 @@ function WebhookProfileSelectionCard({
                         />
                         <span>{profileName}</span>
                         <Badge variant="secondary" className="text-[10px]">
-                          {profilesLoadFailed
-                            ? <I18nText text={"Status unknown"} />
-                            : <I18nText text={"Unavailable"} />}
+                          {profilesLoadFailed ? (
+                            <I18nText text={'Status unknown'} />
+                          ) : (
+                            <I18nText text={'Unavailable'} />
+                          )}
                         </Badge>
                       </label>
                     );
@@ -306,7 +327,7 @@ function WebhookProfileSelectionCard({
                   setDraftAllowedProfiles(configuredAllowedProfiles)
                 }
               >
-                <I18nText text={"Reset"} />
+                <I18nText text={'Reset'} />
               </Button>
               <Button
                 size="sm"
@@ -323,7 +344,7 @@ function WebhookProfileSelectionCard({
                 ) : (
                   <Save className="h-3.5 w-3.5 mr-1" />
                 )}
-                <I18nText text={"Save profile selection"} />
+                <I18nText text={'Save profile selection'} />
               </Button>
             </div>
           </>
@@ -337,7 +358,11 @@ function WebhookProfileSelectionCard({
           </div>
         ) : (
           <div className="text-xs text-muted-foreground">
-            <I18nText text={"Header-based profile selection is disabled. An administrator can configure it."} />
+            <I18nText
+              text={
+                'Header-based profile selection is disabled. An administrator can configure it.'
+              }
+            />
           </div>
         )}
       </CardContent>

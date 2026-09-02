@@ -12,9 +12,10 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useI18n } from '@/i18n/I18nProvider';
+import { I18nText } from '@/i18n/I18nText';
 import { RefreshCw, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { I18nText } from '@/i18n/I18nText';
 
 interface BatchDeleteDialogProps {
   open: boolean;
@@ -33,6 +34,7 @@ export function BatchDeleteDialog({
   onConfirm,
   onCancel,
 }: BatchDeleteDialogProps) {
+  const { ts } = useI18n();
   const count = itemIds.length;
   const defaultMessage = `Delete ${count} sync item${count !== 1 ? 's' : ''}`;
   const [commitMessage, setCommitMessage] = useState('');
@@ -51,20 +53,31 @@ export function BatchDeleteDialog({
     <Dialog open={open} onOpenChange={(o) => !o && onCancel()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-base"><I18nText text={"Delete Selected Items"} /></DialogTitle>
+          <DialogTitle className="text-base">
+            <I18nText text={'Delete Selected Items'} />
+          </DialogTitle>
           <DialogDescription className="text-xs">
-            <I18nText text={"This will remove"} /> {count} <I18nText text={"sync item"} />{count !== 1 ? 's' : ''} <I18nText text={"from the remote repository, local disk, and sync state. This action cannot be undone."} />
+            {ts(
+              count === 1
+                ? 'This will remove {count} sync item from the remote repository, local disk, and sync state. This action cannot be undone.'
+                : 'This will remove {count} sync items from the remote repository, local disk, and sync state. This action cannot be undone.',
+              { count }
+            )}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           {hasModifiedOrConflict && (
             <p className="text-xs text-amber-600 dark:text-amber-400">
-              <I18nText text={"Some items have local modifications or conflicts that will be lost."} />
+              <I18nText
+                text={
+                  'Some items have local modifications or conflicts that will be lost.'
+                }
+              />
             </p>
           )}
           <div className="space-y-1.5">
             <Label htmlFor="batch-delete-msg" className="text-xs">
-              <I18nText text={"Commit Message"} />
+              <I18nText text={'Commit Message'} />
             </Label>
             <Input
               id="batch-delete-msg"
@@ -83,7 +96,7 @@ export function BatchDeleteDialog({
         </div>
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onCancel}>
-            <I18nText text={"Cancel"} />
+            <I18nText text={'Cancel'} />
           </Button>
           <Button
             variant="destructive"
@@ -94,12 +107,17 @@ export function BatchDeleteDialog({
             {isDeletingBatch ? (
               <>
                 <RefreshCw className="h-3.5 w-3.5 mr-1 animate-spin" />
-                <I18nText text={"Deleting..."} />
+                <I18nText text={'Deleting...'} />
               </>
             ) : (
               <>
                 <Trash2 className="h-3.5 w-3.5 mr-1" />
-                <I18nText text={"Delete"} /> {count} <I18nText text={"item"} />{count !== 1 ? 's' : ''}
+                {ts(
+                  count === 1 ? 'Delete {count} item' : 'Delete {count} items',
+                  {
+                    count,
+                  }
+                )}
               </>
             )}
           </Button>

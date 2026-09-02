@@ -61,6 +61,7 @@ import { FlowchartType, Graph, TimelineChart } from './visualization';
 import { HumanTasksTab } from './human-task';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
+import { useI18n } from '@/i18n/I18nProvider';
 
 type Props = {
   dagRun: components['schemas']['DAGRunDetails'];
@@ -98,6 +99,7 @@ function DAGStatus({
   initialTab = 'status',
   fillHeight = false,
 }: Props) {
+  const { ts } = useI18n();
   const dagContext = React.useContext(DAGContext);
   const config = useConfig();
   const remoteNode = useRemoteNode();
@@ -596,123 +598,163 @@ function DAGStatus({
           <div className="flex w-full min-w-0 flex-wrap items-center gap-2">
             <div className="min-w-0 flex-1 overflow-x-auto">
               <Tabs className="min-w-max whitespace-nowrap">
-                <I18nProps><Tab
-                  aria-label="Status"
-                  isActive={activeTab === 'status'}
-                  onClick={() => setActiveTab('status')}
-                  className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
-                >
-                  <ActivitySquare className="h-4 w-4" />
-                  <span><I18nText text={"Status"} /></span>
-                </Tab></I18nProps>
-                {hasAgentSessions && (
-                  <I18nProps><Tab
-                    aria-label="Agent"
-                    isActive={activeTab === 'agent'}
-                    onClick={() => setActiveTab('agent')}
+                <I18nProps>
+                  <Tab
+                    aria-label="Status"
+                    isActive={activeTab === 'status'}
+                    onClick={() => setActiveTab('status')}
                     className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
                   >
-                    <Bot className="h-4 w-4" />
-                    <span><I18nText text={"Agent"} /></span>
-                    {waitingAgentCount > 0 && (
-                      <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-xs font-medium text-warning">
-                        {waitingAgentCount}
+                    <ActivitySquare className="h-4 w-4" />
+                    <span>
+                      <I18nText text={'Status'} />
+                    </span>
+                  </Tab>
+                </I18nProps>
+                {hasAgentSessions && (
+                  <I18nProps>
+                    <Tab
+                      aria-label="Agent"
+                      isActive={activeTab === 'agent'}
+                      onClick={() => setActiveTab('agent')}
+                      className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
+                    >
+                      <Bot className="h-4 w-4" />
+                      <span>
+                        <I18nText text={'Agent'} />
                       </span>
-                    )}
-                  </Tab></I18nProps>
+                      {waitingAgentCount > 0 && (
+                        <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-xs font-medium text-warning">
+                          {waitingAgentCount}
+                        </span>
+                      )}
+                    </Tab>
+                  </I18nProps>
                 )}
                 {hasHumanTaskWork && (
-                  <I18nProps><Tab
-                    aria-label="Human tasks"
-                    isActive={activeTab === 'human-tasks'}
-                    onClick={() => setActiveTab('human-tasks')}
-                    className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
-                  >
-                    <ClipboardCheck className="h-4 w-4" />
-                    <span><I18nText text={"Human tasks"} /></span>
-                    {waitingHumanTaskCount > 0 && (
-                      <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-xs font-medium text-warning">
-                        {waitingHumanTaskCount}
+                  <I18nProps>
+                    <Tab
+                      aria-label="Human tasks"
+                      isActive={activeTab === 'human-tasks'}
+                      onClick={() => setActiveTab('human-tasks')}
+                      className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
+                    >
+                      <ClipboardCheck className="h-4 w-4" />
+                      <span>
+                        <I18nText text={'Human tasks'} />
                       </span>
-                    )}
-                  </Tab></I18nProps>
+                      {waitingHumanTaskCount > 0 && (
+                        <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-xs font-medium text-warning">
+                          {waitingHumanTaskCount}
+                        </span>
+                      )}
+                    </Tab>
+                  </I18nProps>
                 )}
                 {hasWaitingApprovals && (
-                  <I18nProps><Tab
-                    aria-label="Approval"
-                    isActive={activeTab === 'approval'}
-                    onClick={() => setActiveTab('approval')}
-                    className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
-                  >
-                    <ShieldCheck className="h-4 w-4" />
-                    <span><I18nText text={"Approval"} /></span>
-                    <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-xs font-medium text-warning">
-                      {waitingApprovalCount}
-                    </span>
-                  </Tab></I18nProps>
+                  <I18nProps>
+                    <Tab
+                      aria-label="Approval"
+                      isActive={activeTab === 'approval'}
+                      onClick={() => setActiveTab('approval')}
+                      className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
+                    >
+                      <ShieldCheck className="h-4 w-4" />
+                      <span>
+                        <I18nText text={'Approval'} />
+                      </span>
+                      <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-xs font-medium text-warning">
+                        {waitingApprovalCount}
+                      </span>
+                    </Tab>
+                  </I18nProps>
                 )}
                 {showTimeline && (
-                  <I18nProps><Tab
-                    aria-label="Timeline"
-                    isActive={activeTab === 'timeline'}
-                    onClick={() => setActiveTab('timeline')}
-                    className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
-                  >
-                    <GanttChart className="h-4 w-4" />
-                    <span><I18nText text={"Timeline"} /></span>
-                  </Tab></I18nProps>
+                  <I18nProps>
+                    <Tab
+                      aria-label="Timeline"
+                      isActive={activeTab === 'timeline'}
+                      onClick={() => setActiveTab('timeline')}
+                      className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
+                    >
+                      <GanttChart className="h-4 w-4" />
+                      <span>
+                        <I18nText text={'Timeline'} />
+                      </span>
+                    </Tab>
+                  </I18nProps>
                 )}
-                <I18nProps><Tab
-                  aria-label="Outputs"
-                  isActive={activeTab === 'outputs'}
-                  onClick={() => setActiveTab('outputs')}
-                  className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
-                >
-                  <Package className="h-4 w-4" />
-                  <span><I18nText text={"Outputs"} /></span>
-                </Tab></I18nProps>
-                {hasArtifacts && (
-                  <I18nProps><Tab
-                    aria-label="Artifacts"
-                    isActive={activeTab === 'artifacts'}
-                    onClick={() => setActiveTab('artifacts')}
+                <I18nProps>
+                  <Tab
+                    aria-label="Outputs"
+                    isActive={activeTab === 'outputs'}
+                    onClick={() => setActiveTab('outputs')}
                     className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
                   >
-                    <Archive className="h-4 w-4" />
-                    <span><I18nText text={"Artifacts"} /></span>
-                  </Tab></I18nProps>
+                    <Package className="h-4 w-4" />
+                    <span>
+                      <I18nText text={'Outputs'} />
+                    </span>
+                  </Tab>
+                </I18nProps>
+                {hasArtifacts && (
+                  <I18nProps>
+                    <Tab
+                      aria-label="Artifacts"
+                      isActive={activeTab === 'artifacts'}
+                      onClick={() => setActiveTab('artifacts')}
+                      className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
+                    >
+                      <Archive className="h-4 w-4" />
+                      <span>
+                        <I18nText text={'Artifacts'} />
+                      </span>
+                    </Tab>
+                  </I18nProps>
                 )}
                 {hasAgentTasks && (
-                  <I18nProps><Tab
-                    aria-label="Tasks"
-                    isActive={activeTab === 'tasks'}
-                    onClick={() => setActiveTab('tasks')}
-                    className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
-                  >
-                    <ListChecks className="h-4 w-4" />
-                    <span><I18nText text={"Tasks"} /></span>
-                  </Tab></I18nProps>
+                  <I18nProps>
+                    <Tab
+                      aria-label="Tasks"
+                      isActive={activeTab === 'tasks'}
+                      onClick={() => setActiveTab('tasks')}
+                      className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
+                    >
+                      <ListChecks className="h-4 w-4" />
+                      <span>
+                        <I18nText text={'Tasks'} />
+                      </span>
+                    </Tab>
+                  </I18nProps>
                 )}
                 {hasChatSteps && (
-                  <I18nProps><Tab
-                    aria-label="Chat"
-                    isActive={activeTab === 'chat'}
-                    onClick={() => setActiveTab('chat')}
+                  <I18nProps>
+                    <Tab
+                      aria-label="Chat"
+                      isActive={activeTab === 'chat'}
+                      onClick={() => setActiveTab('chat')}
+                      className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
+                    >
+                      <MessageSquare className="h-4 w-4" />
+                      <span>
+                        <I18nText text={'Chat'} />
+                      </span>
+                    </Tab>
+                  </I18nProps>
+                )}
+                <I18nProps>
+                  <Tab
+                    aria-label="Spec"
+                    isActive={activeTab === 'spec'}
+                    onClick={() => setActiveTab('spec')}
                     className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
                   >
-                    <MessageSquare className="h-4 w-4" />
-                    <span><I18nText text={"Chat"} /></span>
-                  </Tab></I18nProps>
-                )}
-                <I18nProps><Tab
-                  aria-label="Spec"
-                  isActive={activeTab === 'spec'}
-                  onClick={() => setActiveTab('spec')}
-                  className="flex cursor-pointer items-center gap-2 px-3 sm:px-4"
-                >
-                  <FileCode className="h-4 w-4" />
-                  <span><I18nText text={"Spec"} /></span>
-                </Tab></I18nProps>
+                    <FileCode className="h-4 w-4" />
+                    <span>
+                      <I18nText text={'Spec'} />
+                    </span>
+                  </Tab>
+                </I18nProps>
               </Tabs>
             </div>
           </div>
@@ -741,15 +783,19 @@ function DAGStatus({
                   <div className="min-w-0 flex-1 space-y-2">
                     <div>
                       <div className="font-medium text-destructive">
-                        {failedNode.status === NodeStatus.Rejected
-                          ? <I18nText text={"Rejected"} />
-                          : <I18nText text={"Failed"} />}{' '}
-                        <I18nText text={"at"} /> {failedNode.step.name}
+                        {ts(
+                          failedNode.status === NodeStatus.Rejected
+                            ? 'Rejected at {step}'
+                            : 'Failed at {step}',
+                          { step: failedNode.step.name }
+                        )}
                       </div>
                       <div className="mt-1 max-h-28 overflow-auto whitespace-pre-wrap break-words text-sm text-foreground">
-                        {failedNode.error ||
-                          failedNode.rejectionReason ||
-                          <I18nText text={"The step failed without an error message."} />}
+                        {failedNode.error || failedNode.rejectionReason || (
+                          <I18nText
+                            text={'The step failed without an error message.'}
+                          />
+                        )}
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -765,7 +811,7 @@ function DAGStatus({
                         }
                       >
                         <ScrollText className="h-3.5 w-3.5" />
-                        <I18nText text={"View stderr"} />
+                        <I18nText text={'View stderr'} />
                       </button>
                       <button
                         type="button"
@@ -776,7 +822,7 @@ function DAGStatus({
                           )
                         }
                       >
-                        <I18nText text={"Inspect step"} />
+                        <I18nText text={'Inspect step'} />
                       </button>
                     </div>
                   </div>
@@ -803,17 +849,27 @@ function DAGStatus({
                         <TooltipTrigger asChild>
                           <div
                             className="flex h-7 w-7 items-center justify-center rounded bg-muted text-muted-foreground cursor-help"
-                            aria-label="Graph interactions"
+                            aria-label={ts('Graph interactions')}
                           >
                             <MousePointerClick className="h-3.5 w-3.5" />
                           </div>
                         </TooltipTrigger>
                         <TooltipContent>
                           <div className="space-y-1">
-                            <p><I18nText text={"Click: Inspect step details"} /></p>
-                            <p><I18nText text={"Double-click: Navigate to sub dagRun"} /></p>
+                            <p>
+                              <I18nText text={'Click: Inspect step details'} />
+                            </p>
+                            <p>
+                              <I18nText
+                                text={'Double-click: Navigate to sub dagRun'}
+                              />
+                            </p>
                             {config.permissions.runDags && (
-                              <p><I18nText text={"Right-click: Update node status"} /></p>
+                              <p>
+                                <I18nText
+                                  text={'Right-click: Update node status'}
+                                />
+                              </p>
                             )}
                           </div>
                         </TooltipContent>

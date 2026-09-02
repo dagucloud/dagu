@@ -157,7 +157,9 @@ export function WorkflowViewSelector({
   return (
     <>
       <div className="flex min-w-0 items-center gap-2">
-        <span className="text-xs font-medium text-muted-foreground"><I18nText text={"View"} /></span>
+        <span className="text-xs font-medium text-muted-foreground">
+          <I18nText text={'View'} />
+        </span>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -176,10 +178,14 @@ export function WorkflowViewSelector({
               </span>
               {activeViewId === defaultViewId && (
                 <Badge variant="primary" className="hidden sm:inline-flex">
-                  <I18nText text={"Default"} />
+                  <I18nText text={'Default'} />
                 </Badge>
               )}
-              {isActiveViewEdited && <Badge variant="secondary"><I18nText text={"Edited"} /></Badge>}
+              {isActiveViewEdited && (
+                <Badge variant="secondary">
+                  <I18nText text={'Edited'} />
+                </Badge>
+              )}
               <ChevronDown className="text-muted-foreground" />
             </Button>
           </DropdownMenuTrigger>
@@ -188,14 +194,14 @@ export function WorkflowViewSelector({
               <span className="mr-2 flex size-4 items-center justify-center">
                 {isAllView && <Check />}
               </span>
-              <I18nText text={"All workflows"} />
+              <I18nText text={'All workflows'} />
             </DropdownMenuItem>
 
             {views.length > 0 && (
               <>
                 <DropdownMenuSeparator />
                 <DropdownMenuLabel className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                  <I18nText text={"Shared views"} />
+                  <I18nText text={'Shared views'} />
                 </DropdownMenuLabel>
                 {views.map((view) => (
                   <DropdownMenuItem
@@ -212,7 +218,9 @@ export function WorkflowViewSelector({
                       <Star className="fill-current text-primary" />
                     )}
                     {view.id === defaultViewId && (
-                      <Badge variant="primary"><I18nText text={"Default"} /></Badge>
+                      <Badge variant="primary">
+                        <I18nText text={'Default'} />
+                      </Badge>
                     )}
                   </DropdownMenuItem>
                 ))}
@@ -230,12 +238,15 @@ export function WorkflowViewSelector({
                     disabled={isMutating}
                   >
                     <Save className="mr-2" />
-                    <I18nText text={"Update “"} />{activeView.name}”
+                    <I18nText
+                      text="Update “{name}”"
+                      values={{ name: activeView.name }}
+                    />
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuItem onSelect={onResetView}>
                   <RotateCcw className="mr-2" />
-                  <I18nText text={"Reset changes"} />
+                  <I18nText text={'Reset changes'} />
                 </DropdownMenuItem>
               </>
             )}
@@ -245,11 +256,11 @@ export function WorkflowViewSelector({
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={openSaveDialog}>
                   <Save className="mr-2" />
-                  <I18nText text={"Save current filters as view…"} />
+                  <I18nText text={'Save current filters as view…'} />
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setManageDialogOpen(true)}>
                   <Settings2 className="mr-2" />
-                  <I18nText text={"Manage views…"} />
+                  <I18nText text={'Manage views…'} />
                 </DropdownMenuItem>
               </>
             )}
@@ -261,25 +272,35 @@ export function WorkflowViewSelector({
         <DialogContent className="sm:max-w-[440px]">
           <form onSubmit={saveView}>
             <DialogHeader>
-              <DialogTitle><I18nText text={"Save workflow view"} /></DialogTitle>
+              <DialogTitle>
+                <I18nText text={'Save workflow view'} />
+              </DialogTitle>
               <DialogDescription>
-                <I18nText text={"Save the current name and label filters, plus the sort order, for this remote and workspace."} />
+                <I18nText
+                  text={
+                    'Save the current name and label filters, plus the sort order, for this remote and workspace.'
+                  }
+                />
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-5">
               <div className="space-y-2">
-                <Label htmlFor="workflow-view-name"><I18nText text={"Name"} /></Label>
-                <I18nProps><Input
-                  id="workflow-view-name"
-                  value={viewName}
-                  maxLength={80}
-                  autoFocus
-                  placeholder="Production operations"
-                  onChange={(event) => setViewName(event.target.value)}
-                /></I18nProps>
+                <Label htmlFor="workflow-view-name">
+                  <I18nText text={'Name'} />
+                </Label>
+                <I18nProps>
+                  <Input
+                    id="workflow-view-name"
+                    value={viewName}
+                    maxLength={80}
+                    autoFocus
+                    placeholder="Production operations"
+                    onChange={(event) => setViewName(event.target.value)}
+                  />
+                </I18nProps>
                 {duplicateName && (
                   <p className="text-xs text-destructive">
-                    <I18nText text={"A view with this name already exists."} />
+                    <I18nText text={'A view with this name already exists.'} />
                   </p>
                 )}
               </div>
@@ -292,7 +313,7 @@ export function WorkflowViewSelector({
                   }
                 />
                 <Label htmlFor="workflow-view-pinned" className="font-normal">
-                  <I18nText text={"Star and add to the sidebar for everyone"} />
+                  <I18nText text={'Star and add to the sidebar for everyone'} />
                 </Label>
               </div>
               <div className="flex items-center gap-2">
@@ -304,7 +325,7 @@ export function WorkflowViewSelector({
                   }
                 />
                 <Label htmlFor="workflow-view-default" className="font-normal">
-                  <I18nText text={"Make this the default view for everyone"} />
+                  <I18nText text={'Make this the default view for everyone'} />
                 </Label>
               </div>
               {error && (
@@ -319,10 +340,10 @@ export function WorkflowViewSelector({
                 variant="ghost"
                 onClick={() => setSaveDialogOpen(false)}
               >
-                <I18nText text={"Cancel"} />
+                <I18nText text={'Cancel'} />
               </Button>
               <Button type="submit" variant="primary" disabled={!canSave}>
-                <I18nText text={"Save view"} />
+                <I18nText text={'Save view'} />
               </Button>
             </DialogFooter>
           </form>
@@ -332,9 +353,15 @@ export function WorkflowViewSelector({
       <Dialog open={manageDialogOpen} onOpenChange={setManageDialogOpen}>
         <DialogContent className="sm:max-w-[520px]">
           <DialogHeader>
-            <DialogTitle><I18nText text={"Manage workflow views"} /></DialogTitle>
+            <DialogTitle>
+              <I18nText text={'Manage workflow views'} />
+            </DialogTitle>
             <DialogDescription>
-              <I18nText text={"Star shared sidebar shortcuts, choose the shared default, or remove views saved for this remote and workspace."} />
+              <I18nText
+                text={
+                  'Star shared sidebar shortcuts, choose the shared default, or remove views saved for this remote and workspace.'
+                }
+              />
             </DialogDescription>
           </DialogHeader>
           <div className="max-h-[360px] space-y-2 overflow-y-auto py-2">
@@ -389,7 +416,11 @@ export function WorkflowViewSelector({
                         ).catch(() => undefined)
                       }
                     >
-                      {isDefault ? <I18nText text={"Default"} /> : <I18nText text={"Make default"} />}
+                      {isDefault ? (
+                        <I18nText text={'Default'} />
+                      ) : (
+                        <I18nText text={'Make default'} />
+                      )}
                     </Button>
                     <Button
                       type="button"
@@ -406,7 +437,7 @@ export function WorkflowViewSelector({
               })
             ) : (
               <div className="rounded-md border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
-                <I18nText text={"No saved workflow views yet."} />
+                <I18nText text={'No saved workflow views yet.'} />
               </div>
             )}
           </div>
@@ -417,28 +448,33 @@ export function WorkflowViewSelector({
           )}
           <DialogFooter>
             <Button type="button" onClick={() => setManageDialogOpen(false)}>
-              <I18nText text={"Done"} />
+              <I18nText text={'Done'} />
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <I18nProps><ConfirmDialog
-        title="Delete workflow view?"
-        buttonText="Delete view"
-        visible={pendingDelete !== null}
-        dismissModal={dismissDelete}
-        onSubmit={confirmDelete}
-      >
-        <p className="text-sm text-muted-foreground">
-          “{pendingDelete?.name}<I18nText text={"” will be removed for everyone with access to this workspace scope. Workflows are not affected."} />
-        </p>
-        {error && (
-          <p role="alert" className="mt-2 text-xs text-destructive">
-            {error}
+      <I18nProps>
+        <ConfirmDialog
+          title="Delete workflow view?"
+          buttonText="Delete view"
+          visible={pendingDelete !== null}
+          dismissModal={dismissDelete}
+          onSubmit={confirmDelete}
+        >
+          <p className="text-sm text-muted-foreground">
+            <I18nText
+              text="“{name}” will be removed for everyone with access to this workspace scope. Workflows are not affected."
+              values={{ name: pendingDelete?.name ?? '' }}
+            />
           </p>
-        )}
-      </ConfirmDialog></I18nProps>
+          {error && (
+            <p role="alert" className="mt-2 text-xs text-destructive">
+              {error}
+            </p>
+          )}
+        </ConfirmDialog>
+      </I18nProps>
     </>
   );
 }

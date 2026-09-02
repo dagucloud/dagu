@@ -101,6 +101,36 @@ type Props = {
 };
 
 const REMOTE_NODE_STORAGE_KEY = 'dagu-selected-remote-node';
+const STATIC_PAGE_TITLES = new Set([
+  'API Docs',
+  'API Keys',
+  'Audit Logs',
+  'Base Config',
+  'Cockpit',
+  'Events',
+  'Executions',
+  'Git Sync',
+  'Incident Connections',
+  'Incident Routing',
+  'Incidents',
+  'License',
+  'Notification Channels',
+  'Notification Rules',
+  'Notifications',
+  'Profiles & Secrets',
+  'Queue',
+  'Queue Dashboard',
+  'Remote Nodes',
+  'Search',
+  'System Status',
+  'Terminal',
+  'Timeline',
+  'User Management',
+  'Webhooks',
+  'Wiki',
+  'Workers',
+  'Workflows',
+]);
 const WORKSPACE_SENSITIVE_TARGET_PATH_PREFIXES = [
   '/dags/{fileName}',
   '/dag-runs/{name}/{dagRunId}',
@@ -234,16 +264,22 @@ function LicenseRequiredMessage(): React.ReactElement {
   return (
     <div className="flex flex-col items-center justify-center h-full gap-4 text-center p-8">
       <Shield size={48} className="text-muted-foreground" />
-      <h2 className="text-xl font-semibold"><I18nText text={"License Required"} /></h2>
+      <h2 className="text-xl font-semibold">
+        <I18nText text={'License Required'} />
+      </h2>
       <p className="text-sm text-muted-foreground max-w-md">
-        <I18nText text={"This feature requires an active Dagu license or trial. Visit the"} />{' '}
+        <I18nText
+          text={
+            'This feature requires an active Dagu license or trial. Visit the'
+          }
+        />{' '}
         <Link
           to="/license"
           className="text-primary underline underline-offset-2"
         >
-          <I18nText text={"License"} />
+          <I18nText text={'License'} />
         </Link>{' '}
-        <I18nText text={"page to activate your license."} />
+        <I18nText text={'page to activate your license.'} />
       </p>
     </div>
   );
@@ -274,16 +310,22 @@ class LazyRouteErrorBoundary extends React.Component<
           role="alert"
           className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center"
         >
-          <h2 className="text-xl font-semibold"><I18nText text={"Unable to load this page"} /></h2>
+          <h2 className="text-xl font-semibold">
+            <I18nText text={'Unable to load this page'} />
+          </h2>
           <p className="max-w-md text-sm text-muted-foreground">
-            <I18nText text={"The page may have changed since this tab was opened. Reload to use the latest version."} />
+            <I18nText
+              text={
+                'The page may have changed since this tab was opened. Reload to use the latest version.'
+              }
+            />
           </p>
           <button
             type="button"
             className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
             onClick={() => window.location.reload()}
           >
-            <I18nText text={"Reload"} />
+            <I18nText text={'Reload'} />
           </button>
         </div>
       );
@@ -595,7 +637,9 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
 
   React.useEffect(() => {
     const base = config.title || 'Dagu';
-    const localizedTitle = translateStatic(locale, title);
+    const localizedTitle = STATIC_PAGE_TITLES.has(title)
+      ? translateStatic(locale, title)
+      : title;
     document.title = localizedTitle ? `${localizedTitle} - ${base}` : base;
   }, [title, config.title, locale]);
 

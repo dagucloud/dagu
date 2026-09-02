@@ -546,7 +546,7 @@ export default function AuditLogsPage() {
     return (
       <div className="flex items-center justify-center h-64">
         <p className="text-muted-foreground">
-          <I18nText text={"You do not have permission to access this page."} />
+          <I18nText text={'You do not have permission to access this page.'} />
         </p>
       </div>
     );
@@ -632,69 +632,97 @@ export default function AuditLogsPage() {
     <div className="flex flex-col gap-4 max-w-7xl h-full">
       <div className="flex items-center justify-between flex-shrink-0">
         <div>
-          <h1 className="text-lg font-semibold"><I18nText text={"Audit Logs"} /></h1>
+          <h1 className="text-lg font-semibold">
+            <I18nText text={'Audit Logs'} />
+          </h1>
           <p className="text-sm text-muted-foreground">
-            <I18nText text={"View system activity and security events"} />
+            <I18nText text={'View system activity and security events'} />
           </p>
         </div>
-        <Button
-          onClick={() => fetchAuditLogs()}
-          size="icon-sm"
-          variant="outline"
-          aria-label={
-            isLoading ? 'Refreshing audit logs' : 'Refresh audit logs'
-          }
-          aria-live="polite"
-          disabled={isLoading}
-        >
-          <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-        </Button>
+        <I18nProps>
+          <Button
+            onClick={() => fetchAuditLogs()}
+            size="icon-sm"
+            variant="outline"
+            aria-label={
+              isLoading ? 'Refreshing audit logs' : 'Refresh audit logs'
+            }
+            aria-live="polite"
+            disabled={isLoading}
+          >
+            <RefreshCw
+              className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`}
+            />
+          </Button>
+        </I18nProps>
       </div>
 
       {/* Date Filter Row */}
       <div className="flex flex-wrap items-center gap-2 flex-shrink-0">
-        <I18nProps><ToggleGroup aria-label="Date range mode">
-          <I18nProps><ToggleButton
-            value="preset"
-            groupValue={dateRangeMode}
-            onClick={() => handleDateRangeModeChange('preset')}
-            position="first"
-            aria-label="Quick select"
-          >
-            <I18nText text={"Quick"} />
-          </ToggleButton></I18nProps>
-          <I18nProps><ToggleButton
-            value="specific"
-            groupValue={dateRangeMode}
-            onClick={() => handleDateRangeModeChange('specific')}
-            position="middle"
-            aria-label="Specific date/month/year"
-          >
-            <I18nText text={"Specific"} />
-          </ToggleButton></I18nProps>
-          <I18nProps><ToggleButton
-            value="custom"
-            groupValue={dateRangeMode}
-            onClick={() => handleDateRangeModeChange('custom')}
-            position="last"
-            aria-label="Custom range"
-          >
-            <I18nText text={"Custom"} />
-          </ToggleButton></I18nProps>
-        </ToggleGroup></I18nProps>
+        <I18nProps>
+          <ToggleGroup aria-label="Date range mode">
+            <I18nProps>
+              <ToggleButton
+                value="preset"
+                groupValue={dateRangeMode}
+                onClick={() => handleDateRangeModeChange('preset')}
+                position="first"
+                aria-label="Quick select"
+              >
+                <I18nText text={'Quick'} />
+              </ToggleButton>
+            </I18nProps>
+            <I18nProps>
+              <ToggleButton
+                value="specific"
+                groupValue={dateRangeMode}
+                onClick={() => handleDateRangeModeChange('specific')}
+                position="middle"
+                aria-label="Specific date/month/year"
+              >
+                <I18nText text={'Specific'} />
+              </ToggleButton>
+            </I18nProps>
+            <I18nProps>
+              <ToggleButton
+                value="custom"
+                groupValue={dateRangeMode}
+                onClick={() => handleDateRangeModeChange('custom')}
+                position="last"
+                aria-label="Custom range"
+              >
+                <I18nText text={'Custom'} />
+              </ToggleButton>
+            </I18nProps>
+          </ToggleGroup>
+        </I18nProps>
 
         {dateRangeMode === 'preset' ? (
           <Select value={datePreset} onValueChange={handleDatePresetChange}>
             <SelectTrigger className="w-[180px] h-8">
-              <I18nProps><SelectValue placeholder="Select period" /></I18nProps>
+              <I18nProps>
+                <SelectValue placeholder="Select period" />
+              </I18nProps>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="today"><I18nText text={"Today"} /></SelectItem>
-              <SelectItem value="yesterday"><I18nText text={"Yesterday"} /></SelectItem>
-              <SelectItem value="last7days"><I18nText text={"Last 7 days"} /></SelectItem>
-              <SelectItem value="last30days"><I18nText text={"Last 30 days"} /></SelectItem>
-              <SelectItem value="thisWeek"><I18nText text={"This week"} /></SelectItem>
-              <SelectItem value="thisMonth"><I18nText text={"This month"} /></SelectItem>
+              <SelectItem value="today">
+                <I18nText text={'Today'} />
+              </SelectItem>
+              <SelectItem value="yesterday">
+                <I18nText text={'Yesterday'} />
+              </SelectItem>
+              <SelectItem value="last7days">
+                <I18nText text={'Last 7 days'} />
+              </SelectItem>
+              <SelectItem value="last30days">
+                <I18nText text={'Last 30 days'} />
+              </SelectItem>
+              <SelectItem value="thisWeek">
+                <I18nText text={'This week'} />
+              </SelectItem>
+              <SelectItem value="thisMonth">
+                <I18nText text={'This month'} />
+              </SelectItem>
             </SelectContent>
           </Select>
         ) : dateRangeMode === 'specific' ? (
@@ -729,9 +757,15 @@ export default function AuditLogsPage() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="date"><I18nText text={"Date"} /></SelectItem>
-                <SelectItem value="month"><I18nText text={"Month"} /></SelectItem>
-                <SelectItem value="year"><I18nText text={"Year"} /></SelectItem>
+                <SelectItem value="date">
+                  <I18nText text={'Date'} />
+                </SelectItem>
+                <SelectItem value="month">
+                  <I18nText text={'Month'} />
+                </SelectItem>
+                <SelectItem value="year">
+                  <I18nText text={'Year'} />
+                </SelectItem>
               </SelectContent>
             </Select>
             <Input
@@ -757,7 +791,7 @@ export default function AuditLogsPage() {
               className="w-full md:w-auto"
             />
             <Button onClick={handleCustomDateSearch} size="sm" className="h-8">
-              <I18nText text={"Apply"} />
+              <I18nText text={'Apply'} />
             </Button>
           </>
         )}
@@ -765,76 +799,90 @@ export default function AuditLogsPage() {
 
       <div className="flex-shrink-0 overflow-hidden rounded-md border border-border bg-card shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
-          <I18nProps><ToggleGroup aria-label="Audit quick filters">
-            <I18nProps><ToggleButton
-              value="all"
-              groupValue={quickFilterValue}
-              onClick={() => applyQuickFilter('all')}
-              position="first"
-              aria-label="All audit entries"
-            >
-              <I18nText text={"All"} />
-            </ToggleButton></I18nProps>
-            <I18nProps><ToggleButton
-              value="mcp"
-              groupValue={quickFilterValue}
-              onClick={() => applyQuickFilter('mcp')}
-              position="middle"
-              aria-label="MCP audit entries"
-            >
-              <I18nText text={"MCP"} />
-            </ToggleButton></I18nProps>
-            <I18nProps><ToggleButton
-              value="rest"
-              groupValue={quickFilterValue}
-              onClick={() => applyQuickFilter('rest')}
-              position="middle"
-              aria-label="REST audit entries"
-            >
-              <I18nText text={"REST"} />
-            </ToggleButton></I18nProps>
-            <I18nProps><ToggleButton
-              value="failed"
-              groupValue={quickFilterValue}
-              onClick={() => applyQuickFilter('failed')}
-              position="middle"
-              aria-label="Failed audit entries"
-            >
-              <I18nText text={"Failed"} />
-            </ToggleButton></I18nProps>
-            <I18nProps><ToggleButton
-              value="denied"
-              groupValue={quickFilterValue}
-              onClick={() => applyQuickFilter('denied')}
-              position="last"
-              aria-label="Denied audit entries"
-            >
-              <I18nText text={"Denied"} />
-            </ToggleButton></I18nProps>
-          </ToggleGroup></I18nProps>
+          <I18nProps>
+            <ToggleGroup aria-label="Audit quick filters">
+              <I18nProps>
+                <ToggleButton
+                  value="all"
+                  groupValue={quickFilterValue}
+                  onClick={() => applyQuickFilter('all')}
+                  position="first"
+                  aria-label="All audit entries"
+                >
+                  <I18nText text={'All'} />
+                </ToggleButton>
+              </I18nProps>
+              <I18nProps>
+                <ToggleButton
+                  value="mcp"
+                  groupValue={quickFilterValue}
+                  onClick={() => applyQuickFilter('mcp')}
+                  position="middle"
+                  aria-label="MCP audit entries"
+                >
+                  <I18nText text={'MCP'} />
+                </ToggleButton>
+              </I18nProps>
+              <I18nProps>
+                <ToggleButton
+                  value="rest"
+                  groupValue={quickFilterValue}
+                  onClick={() => applyQuickFilter('rest')}
+                  position="middle"
+                  aria-label="REST audit entries"
+                >
+                  <I18nText text={'REST'} />
+                </ToggleButton>
+              </I18nProps>
+              <I18nProps>
+                <ToggleButton
+                  value="failed"
+                  groupValue={quickFilterValue}
+                  onClick={() => applyQuickFilter('failed')}
+                  position="middle"
+                  aria-label="Failed audit entries"
+                >
+                  <I18nText text={'Failed'} />
+                </ToggleButton>
+              </I18nProps>
+              <I18nProps>
+                <ToggleButton
+                  value="denied"
+                  groupValue={quickFilterValue}
+                  onClick={() => applyQuickFilter('denied')}
+                  position="last"
+                  aria-label="Denied audit entries"
+                >
+                  <I18nText text={'Denied'} />
+                </ToggleButton>
+              </I18nProps>
+            </ToggleGroup>
+          </I18nProps>
 
-          <Button
-            id="audit-advanced-filters-trigger"
-            type="button"
-            size="sm"
-            variant={activeAdvancedFilterCount > 0 ? 'secondary' : 'outline'}
-            aria-expanded={advancedFiltersOpen}
-            aria-controls="audit-advanced-filters"
-            aria-label={
-              activeAdvancedFilterCount > 0
-                ? `Filters (${activeAdvancedFilterCount})`
-                : 'Filters'
-            }
-            onClick={() => setAdvancedFiltersOpen((open) => !open)}
-          >
-            <Filter className="h-4 w-4" />
-            <I18nText text={"Filters"} />
-            {activeAdvancedFilterCount > 0 ? (
-              <Badge variant="primary" className="ml-0.5">
-                {activeAdvancedFilterCount}
-              </Badge>
-            ) : null}
-          </Button>
+          <I18nProps>
+            <Button
+              id="audit-advanced-filters-trigger"
+              type="button"
+              size="sm"
+              variant={activeAdvancedFilterCount > 0 ? 'secondary' : 'outline'}
+              aria-expanded={advancedFiltersOpen}
+              aria-controls="audit-advanced-filters"
+              aria-label={
+                activeAdvancedFilterCount > 0
+                  ? `Filters (${activeAdvancedFilterCount})`
+                  : 'Filters'
+              }
+              onClick={() => setAdvancedFiltersOpen((open) => !open)}
+            >
+              <Filter className="h-4 w-4" />
+              <I18nText text={'Filters'} />
+              {activeAdvancedFilterCount > 0 ? (
+                <Badge variant="primary" className="ml-0.5">
+                  {activeAdvancedFilterCount}
+                </Badge>
+              ) : null}
+            </Button>
+          </I18nProps>
         </div>
 
         {advancedFiltersOpen ? (
@@ -845,106 +893,136 @@ export default function AuditLogsPage() {
           >
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <Select value={category} onValueChange={setCategory}>
-                <I18nProps><SelectTrigger className="h-8 w-full" aria-label="Category">
-                  <I18nProps><SelectValue placeholder="All Categories" /></I18nProps>
-                </SelectTrigger></I18nProps>
+                <I18nProps>
+                  <SelectTrigger className="h-8 w-full" aria-label="Category">
+                    <I18nProps>
+                      <SelectValue placeholder="All Categories" />
+                    </I18nProps>
+                  </SelectTrigger>
+                </I18nProps>
                 <SelectContent>
                   {CATEGORIES.map((item) => (
                     <SelectItem key={item.value} value={item.value}>
-                      {item.label}
+                      <I18nText text={item.label} />
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               <Select value={source} onValueChange={setSource}>
-                <I18nProps><SelectTrigger className="h-8 w-full" aria-label="Source">
-                  <I18nProps><SelectValue placeholder="Source" /></I18nProps>
-                </SelectTrigger></I18nProps>
+                <I18nProps>
+                  <SelectTrigger className="h-8 w-full" aria-label="Source">
+                    <I18nProps>
+                      <SelectValue placeholder="Source" />
+                    </I18nProps>
+                  </SelectTrigger>
+                </I18nProps>
                 <SelectContent>
                   {SOURCES.map((item) => (
                     <SelectItem key={item.value} value={item.value}>
-                      {item.label}
+                      <I18nText text={item.label} />
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               <Select value={surface} onValueChange={setSurface}>
-                <I18nProps><SelectTrigger className="h-8 w-full" aria-label="Surface">
-                  <I18nProps><SelectValue placeholder="Surface" /></I18nProps>
-                </SelectTrigger></I18nProps>
+                <I18nProps>
+                  <SelectTrigger className="h-8 w-full" aria-label="Surface">
+                    <I18nProps>
+                      <SelectValue placeholder="Surface" />
+                    </I18nProps>
+                  </SelectTrigger>
+                </I18nProps>
                 <SelectContent>
                   {SURFACES.map((item) => (
                     <SelectItem key={item.value} value={item.value}>
-                      {item.label}
+                      <I18nText text={item.label} />
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               <Select value={result} onValueChange={setResult}>
-                <I18nProps><SelectTrigger className="h-8 w-full" aria-label="Result">
-                  <I18nProps><SelectValue placeholder="Result" /></I18nProps>
-                </SelectTrigger></I18nProps>
+                <I18nProps>
+                  <SelectTrigger className="h-8 w-full" aria-label="Result">
+                    <I18nProps>
+                      <SelectValue placeholder="Result" />
+                    </I18nProps>
+                  </SelectTrigger>
+                </I18nProps>
                 <SelectContent>
                   {RESULTS.map((item) => (
                     <SelectItem key={item.value} value={item.value}>
-                      {item.label}
+                      <I18nText text={item.label} />
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              <I18nProps><Input
-                value={action}
-                onChange={(e) => setAction(e.target.value)}
-                placeholder="Action"
-                aria-label="Action"
-                className="h-8 w-full"
-              /></I18nProps>
-              <I18nProps><Input
-                value={workspace}
-                onChange={(e) => setWorkspace(e.target.value)}
-                placeholder="Workspace"
-                aria-label="Workspace"
-                className="h-8 w-full"
-              /></I18nProps>
-              <I18nProps><Input
-                value={credentialId}
-                onChange={(e) => setCredentialId(e.target.value)}
-                placeholder="Credential ID"
-                aria-label="Credential ID"
-                className="h-8 w-full"
-              /></I18nProps>
-              <I18nProps><Input
-                value={correlationId}
-                onChange={(e) => setCorrelationId(e.target.value)}
-                placeholder="Correlation ID"
-                aria-label="Correlation ID"
-                className="h-8 w-full"
-              /></I18nProps>
-              <I18nProps><Input
-                value={resourceId}
-                onChange={(e) => setResourceId(e.target.value)}
-                placeholder="Resource ID"
-                aria-label="Resource ID"
-                className="h-8 w-full"
-              /></I18nProps>
-              <I18nProps><Input
-                value={mcpTool}
-                onChange={(e) => setMcpTool(e.target.value)}
-                placeholder="MCP tool"
-                aria-label="MCP tool"
-                className="h-8 w-full"
-              /></I18nProps>
+              <I18nProps>
+                <Input
+                  value={action}
+                  onChange={(e) => setAction(e.target.value)}
+                  placeholder="Action"
+                  aria-label="Action"
+                  className="h-8 w-full"
+                />
+              </I18nProps>
+              <I18nProps>
+                <Input
+                  value={workspace}
+                  onChange={(e) => setWorkspace(e.target.value)}
+                  placeholder="Workspace"
+                  aria-label="Workspace"
+                  className="h-8 w-full"
+                />
+              </I18nProps>
+              <I18nProps>
+                <Input
+                  value={credentialId}
+                  onChange={(e) => setCredentialId(e.target.value)}
+                  placeholder="Credential ID"
+                  aria-label="Credential ID"
+                  className="h-8 w-full"
+                />
+              </I18nProps>
+              <I18nProps>
+                <Input
+                  value={correlationId}
+                  onChange={(e) => setCorrelationId(e.target.value)}
+                  placeholder="Correlation ID"
+                  aria-label="Correlation ID"
+                  className="h-8 w-full"
+                />
+              </I18nProps>
+              <I18nProps>
+                <Input
+                  value={resourceId}
+                  onChange={(e) => setResourceId(e.target.value)}
+                  placeholder="Resource ID"
+                  aria-label="Resource ID"
+                  className="h-8 w-full"
+                />
+              </I18nProps>
+              <I18nProps>
+                <Input
+                  value={mcpTool}
+                  onChange={(e) => setMcpTool(e.target.value)}
+                  placeholder="MCP tool"
+                  aria-label="MCP tool"
+                  className="h-8 w-full"
+                />
+              </I18nProps>
             </div>
             <div className="mt-3 flex justify-end">
-              <I18nProps><Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                aria-label="Clear all filters"
-                onClick={() => applyQuickFilter('all')}
-              >
-                <I18nText text={"Clear all"} />
-              </Button></I18nProps>
+              <I18nProps>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  aria-label="Clear all filters"
+                  onClick={() => applyQuickFilter('all')}
+                >
+                  <I18nText text={'Clear all'} />
+                </Button>
+              </I18nProps>
             </div>
           </div>
         ) : null}
@@ -961,25 +1039,27 @@ export default function AuditLogsPage() {
           <thead className="sticky top-0 z-10 border-b border-border bg-surface-variant/95 shadow-sm">
             <tr>
               <th className="w-[170px] px-4 py-3 text-left text-xs font-semibold text-muted-foreground">
-                <I18nText text={"Timestamp"} />
+                <I18nText text={'Timestamp'} />
               </th>
               <th className="w-[240px] px-4 py-3 text-left text-xs font-semibold text-muted-foreground">
-                <I18nText text={"Event"} />
+                <I18nText text={'Event'} />
               </th>
               <th className="w-[170px] px-4 py-3 text-left text-xs font-semibold text-muted-foreground">
-                <I18nText text={"Actor"} />
+                <I18nText text={'Actor'} />
               </th>
               <th className="w-[130px] px-4 py-3 text-left text-xs font-semibold text-muted-foreground">
-                <I18nText text={"Source"} />
+                <I18nText text={'Source'} />
               </th>
               <th className="w-[110px] px-4 py-3 text-left text-xs font-semibold text-muted-foreground">
-                <I18nText text={"Result"} />
+                <I18nText text={'Result'} />
               </th>
               <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">
-                <I18nText text={"Summary"} />
+                <I18nText text={'Summary'} />
               </th>
               <th className="w-14 px-3 py-3">
-                <span className="sr-only"><I18nText text={"Details"} /></span>
+                <span className="sr-only">
+                  <I18nText text={'Details'} />
+                </span>
               </th>
             </tr>
           </thead>
@@ -990,7 +1070,7 @@ export default function AuditLogsPage() {
                   colSpan={7}
                   className="py-8 text-center text-muted-foreground"
                 >
-                  <I18nText text={"Loading audit logs..."} />
+                  <I18nText text={'Loading audit logs...'} />
                 </td>
               </tr>
             ) : entries.length === 0 ? (
@@ -1000,7 +1080,7 @@ export default function AuditLogsPage() {
                   className="py-8 text-center text-muted-foreground"
                 >
                   <ScrollText className="mx-auto mb-2 h-8 w-8 opacity-50" />
-                  <I18nText text={"No audit log entries found"} />
+                  <I18nText text={'No audit log entries found'} />
                 </td>
               </tr>
             ) : (
@@ -1102,8 +1182,14 @@ export default function AuditLogsPage() {
       {total > PAGE_SIZE && (
         <div className="flex items-center justify-between flex-shrink-0">
           <p className="text-sm text-muted-foreground">
-            <I18nText text={"Showing"} /> {offset + 1} - {Math.min(offset + PAGE_SIZE, total)} <I18nText text={"of"} />{' '}
-            {total} <I18nText text={"entries"} />
+            <I18nText
+              text="Showing {start} - {end} of {total} entries"
+              values={{
+                start: offset + 1,
+                end: Math.min(offset + PAGE_SIZE, total),
+                total,
+              }}
+            />
           </p>
           <div className="flex items-center gap-2">
             <Button
@@ -1114,10 +1200,13 @@ export default function AuditLogsPage() {
               className="h-8"
             >
               <ChevronLeft className="h-4 w-4 mr-1" />
-              <I18nText text={"Previous"} />
+              <I18nText text={'Previous'} />
             </Button>
             <span className="text-sm text-muted-foreground">
-              <I18nText text={"Page"} /> {currentPage} <I18nText text={"of"} /> {totalPages}
+              <I18nText
+                text="Page {current} of {total}"
+                values={{ current: currentPage, total: totalPages }}
+              />
             </span>
             <Button
               variant="outline"
@@ -1126,7 +1215,7 @@ export default function AuditLogsPage() {
               disabled={offset + PAGE_SIZE >= total}
               className="h-8"
             >
-              <I18nText text={"Next"} />
+              <I18nText text={'Next'} />
               <ChevronRight className="h-4 w-4 ml-1" />
             </Button>
           </div>

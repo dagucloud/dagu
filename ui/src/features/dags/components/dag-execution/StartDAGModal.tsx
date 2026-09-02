@@ -28,7 +28,7 @@ import {
 import type { IChangeEvent } from '@rjsf/core';
 import type RJSFForm from '@rjsf/core';
 import Form from '@rjsf/shadcn';
-import type { RJSFSchema, UiSchema } from '@rjsf/utils';
+import type { FormContextType, RJSFSchema, UiSchema } from '@rjsf/utils';
 import validator from '@rjsf/validator-ajv8';
 import {
   AlertTriangle,
@@ -423,7 +423,7 @@ function StartDAGModal({
   const schemaFormRef = React.useRef<RJSFForm<
     SchemaFormData,
     RJSFSchema,
-    any
+    FormContextType
   > | null>(null);
   const submitErrorRef = React.useRef<HTMLDivElement>(null);
 
@@ -617,183 +617,222 @@ function StartDAGModal({
       >
         <DialogHeader className="min-h-12 shrink-0 border-b border-border px-6 py-3 pr-24">
           <DialogTitle>
-            {forceEnqueue ? <I18nText text={"Enqueue the DAG"} /> : <I18nText text={"Start the DAG"} />}
+            {forceEnqueue ? (
+              <I18nText text={'Enqueue the DAG'} />
+            ) : (
+              <I18nText text={'Start the DAG'} />
+            )}
           </DialogTitle>
           <DialogDescription className="sr-only">
-            <I18nText text={"Configure the DAG run before submitting it."} />
+            <I18nText text={'Configure the DAG run before submitting it.'} />
           </DialogDescription>
         </DialogHeader>
 
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="absolute right-12 top-3 hidden sm:inline-flex"
-          aria-label={isFullscreen ? 'Restore dialog' : 'Maximize dialog'}
-          aria-pressed={isFullscreen}
-          onClick={() => setIsFullscreen((current) => !current)}
-        >
-          {isFullscreen ? <Minimize2 /> : <Maximize2 />}
-        </Button>
-
-        <I18nProps><fieldset
-          aria-label="Run settings"
-          className="shrink-0 border-b border-border px-6 py-3"
-        >
-          <div
-            className={
-              !forceEnqueue && showProfileSelector
-                ? 'grid gap-4 sm:grid-cols-[minmax(120px,0.55fr)_minmax(240px,1.45fr)_minmax(180px,1fr)]'
-                : 'grid gap-4 sm:grid-cols-2'
-            }
+        <I18nProps>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="absolute right-12 top-3 hidden sm:inline-flex"
+            aria-label={isFullscreen ? 'Restore dialog' : 'Maximize dialog'}
+            aria-pressed={isFullscreen}
+            onClick={() => setIsFullscreen((current) => !current)}
           >
-            {!forceEnqueue && (
-              <div className="space-y-1.5">
-                <span className="text-sm font-medium"><I18nText text={"Enqueue"} /></span>
-                <div className="flex h-7 items-center gap-2">
-                  <Checkbox
-                    id="enqueue"
-                    checked={enqueue}
-                    onCheckedChange={(checked) =>
-                      setEnqueue(checked as boolean)
-                    }
-                    disabled={loading || submitting}
-                  />
-                  <Label htmlFor="enqueue" className="cursor-pointer">
-                    <I18nText text={"Enqueue"} />
-                  </Label>
+            {isFullscreen ? <Minimize2 /> : <Maximize2 />}
+          </Button>
+        </I18nProps>
+
+        <I18nProps>
+          <fieldset
+            aria-label="Run settings"
+            className="shrink-0 border-b border-border px-6 py-3"
+          >
+            <div
+              className={
+                !forceEnqueue && showProfileSelector
+                  ? 'grid gap-4 sm:grid-cols-[minmax(120px,0.55fr)_minmax(240px,1.45fr)_minmax(180px,1fr)]'
+                  : 'grid gap-4 sm:grid-cols-2'
+              }
+            >
+              {!forceEnqueue && (
+                <div className="space-y-1.5">
+                  <span className="text-sm font-medium">
+                    <I18nText text={'Enqueue'} />
+                  </span>
+                  <div className="flex h-7 items-center gap-2">
+                    <Checkbox
+                      id="enqueue"
+                      checked={enqueue}
+                      onCheckedChange={(checked) =>
+                        setEnqueue(checked as boolean)
+                      }
+                      disabled={loading || submitting}
+                    />
+                    <Label htmlFor="enqueue" className="cursor-pointer">
+                      <I18nText text={'Enqueue'} />
+                    </Label>
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            <div className="space-y-1.5">
-              <Label htmlFor="dagRun-id"><I18nText text={"DAG-Run ID (optional)"} /></Label>
-              <I18nProps><Input
-                id="dagRun-id"
-                placeholder="Enter custom DAG-Run ID"
-                value={dagRunId}
-                readOnly={runIdReadOnly}
-                disabled={runIdReadOnly || loading || submitting}
-                className={
-                  runIdReadOnly
-                    ? 'h-7 cursor-not-allowed bg-muted px-2'
-                    : 'h-7 px-2'
-                }
-                onChange={(event) => {
-                  if (!runIdReadOnly) {
-                    setDAGRunId(event.target.value);
-                  }
-                }}
-              /></I18nProps>
-            </div>
-
-            {showProfileSelector && (
               <div className="space-y-1.5">
-                <Label htmlFor="runtime-profile"><I18nText text={"Profile"} /></Label>
-                <Select
-                  value={profileSelection}
-                  disabled={
-                    loading ||
-                    submitting ||
-                    profilesLoading ||
-                    defaultProfileLoading
-                  }
-                  onValueChange={setProfileSelection}
-                >
-                  <SelectTrigger
-                    id="runtime-profile"
-                    className="h-7 w-full px-2 py-1"
+                <Label htmlFor="dagRun-id">
+                  <I18nText text={'DAG-Run ID (optional)'} />
+                </Label>
+                <I18nProps>
+                  <Input
+                    id="dagRun-id"
+                    placeholder="Enter custom DAG-Run ID"
+                    value={dagRunId}
+                    readOnly={runIdReadOnly}
+                    disabled={runIdReadOnly || loading || submitting}
+                    className={
+                      runIdReadOnly
+                        ? 'h-7 cursor-not-allowed bg-muted px-2'
+                        : 'h-7 px-2'
+                    }
+                    onChange={(event) => {
+                      if (!runIdReadOnly) {
+                        setDAGRunId(event.target.value);
+                      }
+                    }}
+                  />
+                </I18nProps>
+              </div>
+
+              {showProfileSelector && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="runtime-profile">
+                    <I18nText text={'Profile'} />
+                  </Label>
+                  <Select
+                    value={profileSelection}
+                    disabled={
+                      loading ||
+                      submitting ||
+                      profilesLoading ||
+                      defaultProfileLoading
+                    }
+                    onValueChange={setProfileSelection}
                   >
-                    <I18nProps><SelectValue placeholder="No profile" /></I18nProps>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {hasDefaultProfile && (
-                      <SelectItem value={DAG_DEFAULT_PROFILE_VALUE}>
-                        <span className="flex w-full items-center justify-between gap-3">
-                          <span><I18nText text={"DAG default"} /></span>
-                          <span className="truncate text-xs text-muted-foreground">
-                            {defaultProfile}
-                          </span>
-                        </span>
-                      </SelectItem>
-                    )}
-                    <SelectItem value={NO_PROFILE_VALUE}><I18nText text={"No profile"} /></SelectItem>
-                    {activeProfiles.map((profile) => {
-                      const protectedUnavailable =
-                        profile.protected && !canUseProtectedProfiles;
-                      return (
-                        <SelectItem
-                          key={profile.id}
-                          value={profile.name}
-                          disabled={protectedUnavailable}
-                        >
+                    <SelectTrigger
+                      id="runtime-profile"
+                      className="h-7 w-full px-2 py-1"
+                    >
+                      <I18nProps>
+                        <SelectValue placeholder="No profile" />
+                      </I18nProps>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {hasDefaultProfile && (
+                        <SelectItem value={DAG_DEFAULT_PROFILE_VALUE}>
                           <span className="flex w-full items-center justify-between gap-3">
-                            <span>{profile.name}</span>
-                            <span className="flex items-center gap-1.5">
-                              {profile.protected && (
-                                <Badge
-                                  variant="outline"
-                                  className="h-4 px-1.5 text-[10px]"
-                                >
-                                  <I18nText text={"Protected"} />
-                                </Badge>
-                              )}
-                              {protectedUnavailable && (
-                                <Badge
-                                  variant="secondary"
-                                  className="h-4 px-1.5 text-[10px]"
-                                >
-                                  <I18nText text={"Admin"} />
-                                </Badge>
-                              )}
+                            <span>
+                              <I18nText text={'DAG default'} />
+                            </span>
+                            <span className="truncate text-xs text-muted-foreground">
+                              {defaultProfile}
                             </span>
                           </span>
                         </SelectItem>
-                      );
-                    })}
-                  </SelectContent>
-                </Select>
+                      )}
+                      <SelectItem value={NO_PROFILE_VALUE}>
+                        <I18nText text={'No profile'} />
+                      </SelectItem>
+                      {activeProfiles.map((profile) => {
+                        const protectedUnavailable =
+                          profile.protected && !canUseProtectedProfiles;
+                        return (
+                          <SelectItem
+                            key={profile.id}
+                            value={profile.name}
+                            disabled={protectedUnavailable}
+                          >
+                            <span className="flex w-full items-center justify-between gap-3">
+                              <span>{profile.name}</span>
+                              <span className="flex items-center gap-1.5">
+                                {profile.protected && (
+                                  <Badge
+                                    variant="outline"
+                                    className="h-4 px-1.5 text-[10px]"
+                                  >
+                                    <I18nText text={'Protected'} />
+                                  </Badge>
+                                )}
+                                {protectedUnavailable && (
+                                  <Badge
+                                    variant="secondary"
+                                    className="h-4 px-1.5 text-[10px]"
+                                  >
+                                    <I18nText text={'Admin'} />
+                                  </Badge>
+                                )}
+                              </span>
+                            </span>
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </div>
+
+            {isBuild && (
+              <div className="mt-4 flex items-start space-x-2 border-t border-border pt-4">
+                <Checkbox
+                  id="no-reuse"
+                  checked={noReuse}
+                  onCheckedChange={(checked) => setNoReuse(checked as boolean)}
+                  disabled={loading || submitting}
+                />
+                <div className="space-y-0.5">
+                  <Label htmlFor="no-reuse" className="cursor-pointer">
+                    <I18nText text={'Disable reuse for this run'} />
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    <I18nText
+                      text={
+                        'Eligible steps execute and replace their materializations only after success.'
+                      }
+                    />
+                  </p>
+                </div>
               </div>
             )}
-          </div>
-
-          {isBuild && (
-            <div className="mt-4 flex items-start space-x-2 border-t border-border pt-4">
-              <Checkbox
-                id="no-reuse"
-                checked={noReuse}
-                onCheckedChange={(checked) => setNoReuse(checked as boolean)}
-                disabled={loading || submitting}
-              />
-              <div className="space-y-0.5">
-                <Label htmlFor="no-reuse" className="cursor-pointer">
-                  <I18nText text={"Disable reuse for this run"} />
-                </Label>
-                <p className="text-xs text-muted-foreground">
-                  <I18nText text={"Eligible steps execute and replace their materializations only after success."} />
-                </p>
-              </div>
-            </div>
-          )}
-        </fieldset></I18nProps>
+          </fieldset>
+        </I18nProps>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
           <div className="space-y-4">
             {(paramsReadOnly || runIdReadOnly) && (
               <div className="rounded-md border border-warning/30 bg-warning-muted p-3">
                 <p className="text-sm text-warning">
-                  <strong><I18nText text={"Note:"} /></strong> <I18nText text={"This DAG has restrictions:"} />
+                  <strong>
+                    <I18nText text={'Note:'} />
+                  </strong>{' '}
+                  <I18nText text={'This DAG has restrictions:'} />
                   {paramsReadOnly && runIdReadOnly && (
                     <span>
                       {' '}
-                      <I18nText text={"Parameter editing and custom run IDs are disabled."} />
+                      <I18nText
+                        text={
+                          'Parameter editing and custom run IDs are disabled.'
+                        }
+                      />
                     </span>
                   )}
                   {paramsReadOnly && !runIdReadOnly && (
-                    <span> <I18nText text={"Parameter editing is disabled."} /></span>
+                    <span>
+                      {' '}
+                      <I18nText text={'Parameter editing is disabled.'} />
+                    </span>
                   )}
                   {!paramsReadOnly && runIdReadOnly && (
-                    <span> <I18nText text={"Custom run IDs are disabled."} /></span>
+                    <span>
+                      {' '}
+                      <I18nText text={'Custom run IDs are disabled.'} />
+                    </span>
                   )}
                 </p>
               </div>
@@ -812,16 +851,21 @@ function StartDAGModal({
             >
               <div className="flex items-center gap-2">
                 <h3 id="dag-parameters-heading" className="font-semibold">
-                  <I18nText text={"Parameters"} />
+                  <I18nText text={'Parameters'} />
                 </h3>
                 <Badge variant="secondary" className="font-normal">
-                  {parameterCount} {parameterCount === 1 ? <I18nText text={"field"} /> : <I18nText text={"fields"} />}
+                  {parameterCount}{' '}
+                  {parameterCount === 1 ? (
+                    <I18nText text={'field'} />
+                  ) : (
+                    <I18nText text={'fields'} />
+                  )}
                 </Badge>
               </div>
 
               {loading && (
                 <div className="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
-                  <I18nText text={"Loading DAG details..."} />
+                  <I18nText text={'Loading DAG details...'} />
                 </div>
               )}
 
@@ -881,7 +925,7 @@ function StartDAGModal({
                                 })
                               }
                             >
-                              <I18nText text={"Unset"} />
+                              <I18nText text={'Unset'} />
                             </Button>
                           )}
                         </div>
@@ -964,7 +1008,7 @@ function StartDAGModal({
             disabled={submitting}
           >
             <X className="h-4 w-4" />
-            <I18nText text={"Cancel"} />
+            <I18nText text={'Cancel'} />
           </Button>
           <Button
             onClick={() => void handleSubmit()}
@@ -973,12 +1017,20 @@ function StartDAGModal({
             {enqueue ? (
               <>
                 <ListPlus className="h-4 w-4" />
-                {submitting ? <I18nText text={"Enqueuing..."} /> : <I18nText text={"Enqueue"} />}
+                {submitting ? (
+                  <I18nText text={'Enqueuing...'} />
+                ) : (
+                  <I18nText text={'Enqueue'} />
+                )}
               </>
             ) : (
               <>
                 <Play className="h-4 w-4" />
-                {submitting ? <I18nText text={"Starting..."} /> : <I18nText text={"Start"} />}
+                {submitting ? (
+                  <I18nText text={'Starting...'} />
+                ) : (
+                  <I18nText text={'Start'} />
+                )}
               </>
             )}
           </Button>
@@ -1018,7 +1070,9 @@ function renderTypedField({
         </SelectTrigger>
         <SelectContent>
           {!field.required && !field.hasDefault && (
-            <SelectItem value="__unset__"><I18nText text={"Not set"} /></SelectItem>
+            <SelectItem value="__unset__">
+              <I18nText text={'Not set'} />
+            </SelectItem>
           )}
           {field.enum.map((item, index) => {
             const value = scalarToString(item);
@@ -1037,23 +1091,25 @@ function renderTypedField({
     case ParamDefType.integer:
     case ParamDefType.number:
       return (
-        <Input
-          id={`param-${field.key}`}
-          type="number"
-          className={controlClass}
-          min={field.minimum}
-          max={field.maximum}
-          step={field.type === ParamDefType.integer ? 1 : 'any'}
-          value={field.hasValue ? field.value : ''}
-          placeholder={field.hasValue ? undefined : 'Not set'}
-          disabled={disabled}
-          onChange={(event) =>
-            onChange({
-              value: event.target.value,
-              hasValue: event.target.value !== '',
-            })
-          }
-        />
+        <I18nProps>
+          <Input
+            id={`param-${field.key}`}
+            type="number"
+            className={controlClass}
+            min={field.minimum}
+            max={field.maximum}
+            step={field.type === ParamDefType.integer ? 1 : 'any'}
+            value={field.hasValue ? field.value : ''}
+            placeholder={field.hasValue ? undefined : 'Not set'}
+            disabled={disabled}
+            onChange={(event) =>
+              onChange({
+                value: event.target.value,
+                hasValue: event.target.value !== '',
+              })
+            }
+          />
+        </I18nProps>
       );
 
     case ParamDefType.boolean:
@@ -1071,12 +1127,20 @@ function renderTypedField({
             }}
           >
             <SelectTrigger id={`param-${field.key}`} className={controlClass}>
-              <I18nProps><SelectValue placeholder="Not set" /></I18nProps>
+              <I18nProps>
+                <SelectValue placeholder="Not set" />
+              </I18nProps>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="__unset__"><I18nText text={"Not set"} /></SelectItem>
-              <SelectItem value="true"><I18nText text={"true"} /></SelectItem>
-              <SelectItem value="false"><I18nText text={"false"} /></SelectItem>
+              <SelectItem value="__unset__">
+                <I18nText text={'Not set'} />
+              </SelectItem>
+              <SelectItem value="true">
+                <I18nText text={'true'} />
+              </SelectItem>
+              <SelectItem value="false">
+                <I18nText text={'false'} />
+              </SelectItem>
             </SelectContent>
           </Select>
         );
@@ -1091,7 +1155,11 @@ function renderTypedField({
             }
           />
           <span className="text-sm text-muted-foreground">
-            {field.value === 'true' ? <I18nText text={"true"} /> : <I18nText text={"false"} />}
+            {field.value === 'true' ? (
+              <I18nText text={'true'} />
+            ) : (
+              <I18nText text={'false'} />
+            )}
           </span>
         </div>
       );
@@ -1099,26 +1167,28 @@ function renderTypedField({
     case ParamDefType.string:
     default:
       return (
-        <Textarea
-          id={`param-${field.key}`}
-          className={`${controlClass} h-7 min-h-7 py-1`}
-          rows={1}
-          ref={(element) => {
-            if (element) {
-              autoGrowTextarea(element);
+        <I18nProps>
+          <Textarea
+            id={`param-${field.key}`}
+            className={`${controlClass} h-7 min-h-7 py-1`}
+            rows={1}
+            ref={(element) => {
+              if (element) {
+                autoGrowTextarea(element);
+              }
+            }}
+            value={field.hasValue ? field.value : ''}
+            placeholder={field.hasValue ? undefined : 'Not set'}
+            disabled={disabled}
+            onInput={(event) => autoGrowTextarea(event.currentTarget)}
+            onChange={(event) =>
+              onChange({
+                value: event.target.value,
+                hasValue: true,
+              })
             }
-          }}
-          value={field.hasValue ? field.value : ''}
-          placeholder={field.hasValue ? undefined : 'Not set'}
-          disabled={disabled}
-          onInput={(event) => autoGrowTextarea(event.currentTarget)}
-          onChange={(event) =>
-            onChange({
-              value: event.target.value,
-              hasValue: true,
-            })
-          }
-        />
+          />
+        </I18nProps>
       );
   }
 }

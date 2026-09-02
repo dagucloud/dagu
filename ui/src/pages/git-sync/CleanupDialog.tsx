@@ -21,16 +21,25 @@ export function CleanupDialog({
   onCancel,
 }: CleanupDialogProps) {
   return (
-    <I18nProps><ConfirmModal
-      title="Cleanup Missing Items"
-      buttonText={isCleaningUp ? 'Cleaning up...' : 'Cleanup'}
-      visible={open}
-      dismissModal={onCancel}
-      onSubmit={onConfirm}
-    >
-      <p className="text-sm text-muted-foreground">
-        <I18nText text={"Remove"} /> {missingCount} <I18nText text={"missing item"} />{missingCount !== 1 ? 's' : ''} <I18nText text={"from sync tracking? Files remain in the remote repository."} />
-      </p>
-    </ConfirmModal></I18nProps>
+    <I18nProps>
+      <ConfirmModal
+        title="Cleanup Missing Items"
+        buttonText={isCleaningUp ? 'Cleaning up...' : 'Cleanup'}
+        visible={open}
+        dismissModal={onCancel}
+        onSubmit={onConfirm}
+      >
+        <p className="text-sm text-muted-foreground">
+          <I18nText
+            text={
+              missingCount === 1
+                ? 'Remove {count} missing item from sync tracking? Files remain in the remote repository.'
+                : 'Remove {count} missing items from sync tracking? Files remain in the remote repository.'
+            }
+            values={{ count: missingCount }}
+          />
+        </p>
+      </ConfirmModal>
+    </I18nProps>
   );
 }

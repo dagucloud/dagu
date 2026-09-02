@@ -4,6 +4,7 @@ import { useTabContext } from '@/contexts/TabContext';
 import { cn } from '@/lib/utils';
 import { I18nProps } from '@/i18n/I18nProps';
 import { I18nText } from '@/i18n/I18nText';
+import { useI18n } from '@/i18n/I18nProvider';
 
 type TabBarProps = {
   className?: string;
@@ -11,6 +12,7 @@ type TabBarProps = {
 };
 
 export function TabBar({ className, onAddTab }: TabBarProps) {
+  const { ts } = useI18n();
   const { tabs, activeTabId, closeTab, setActiveTab } = useTabContext();
 
   const handleTabClick = (tabId: string) => {
@@ -55,72 +57,78 @@ export function TabBar({ className, onAddTab }: TabBarProps) {
   };
 
   return (
-    <I18nProps><div
-      className={cn(
-        'flex items-end gap-0 bg-background border-b border-border overflow-x-auto overflow-y-hidden pt-3',
-        className
-      )}
-      role="tablist"
-      aria-label="DAG Tabs"
-    >
-      {tabs.map((tab) => {
-        const isActive = activeTabId === tab.id;
-
-        return (
-          <div
-            key={tab.id}
-            role="tab"
-            aria-selected={isActive}
-            tabIndex={isActive ? 0 : -1}
-            onClick={() => handleTabClick(tab.id)}
-            onKeyDown={(e) => handleKeyDown(e, tab.id)}
-            className={cn(
-              'group relative flex items-center gap-2 h-8 px-3 min-w-[120px] max-w-[200px]',
-              'border-b-2 transition-all duration-150 cursor-pointer shrink-0',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
-              isActive
-                ? 'border-primary bg-transparent text-foreground'
-                : 'border-transparent bg-transparent text-text-secondary hover:bg-muted hover:text-foreground'
-            )}
-          >
-            {/* Tab Label */}
-            <span className="flex-1 text-sm font-medium truncate select-none">
-              {tab.title || tab.fileName || <I18nText text={"Untitled"} />}
-            </span>
-
-            {/* Close Button - Visible on hover or when active */}
-            <button
-              type="button"
-              onClick={(e) => handleCloseTab(e, tab.id)}
-              className={cn(
-                'flex items-center justify-center shrink-0 w-4 h-4 rounded-sm',
-                'transition-all duration-150',
-                'hover:bg-muted-foreground/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-                'opacity-0 group-hover:opacity-100',
-                isActive && 'opacity-100'
-              )}
-              aria-label={`Close ${tab.title || tab.fileName}`}
-            >
-              <X className="w-3 h-3" />
-            </button>
-          </div>
-        );
-      })}
-
-      {/* Add Tab Button */}
-      <I18nProps><button
-        type="button"
-        onClick={handleAddTab}
+    <I18nProps>
+      <div
         className={cn(
-          'flex items-center justify-center shrink-0 w-8 h-8 ml-1',
-          'text-text-secondary hover:text-foreground hover:bg-muted',
-          'transition-all duration-150 rounded-sm',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+          'flex items-end gap-0 bg-background border-b border-border overflow-x-auto overflow-y-hidden pt-3',
+          className
         )}
-        aria-label="Add new tab"
+        role="tablist"
+        aria-label="DAG Tabs"
       >
-        <Plus className="w-4 h-4" />
-      </button></I18nProps>
-    </div></I18nProps>
+        {tabs.map((tab) => {
+          const isActive = activeTabId === tab.id;
+
+          return (
+            <div
+              key={tab.id}
+              role="tab"
+              aria-selected={isActive}
+              tabIndex={isActive ? 0 : -1}
+              onClick={() => handleTabClick(tab.id)}
+              onKeyDown={(e) => handleKeyDown(e, tab.id)}
+              className={cn(
+                'group relative flex items-center gap-2 h-8 px-3 min-w-[120px] max-w-[200px]',
+                'border-b-2 transition-all duration-150 cursor-pointer shrink-0',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
+                isActive
+                  ? 'border-primary bg-transparent text-foreground'
+                  : 'border-transparent bg-transparent text-text-secondary hover:bg-muted hover:text-foreground'
+              )}
+            >
+              {/* Tab Label */}
+              <span className="flex-1 text-sm font-medium truncate select-none">
+                {tab.title || tab.fileName || <I18nText text={'Untitled'} />}
+              </span>
+
+              {/* Close Button - Visible on hover or when active */}
+              <button
+                type="button"
+                onClick={(e) => handleCloseTab(e, tab.id)}
+                className={cn(
+                  'flex items-center justify-center shrink-0 w-4 h-4 rounded-sm',
+                  'transition-all duration-150',
+                  'hover:bg-muted-foreground/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                  'opacity-0 group-hover:opacity-100',
+                  isActive && 'opacity-100'
+                )}
+                aria-label={ts('Close {name}', {
+                  name: tab.title || tab.fileName,
+                })}
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          );
+        })}
+
+        {/* Add Tab Button */}
+        <I18nProps>
+          <button
+            type="button"
+            onClick={handleAddTab}
+            className={cn(
+              'flex items-center justify-center shrink-0 w-8 h-8 ml-1',
+              'text-text-secondary hover:text-foreground hover:bg-muted',
+              'transition-all duration-150 rounded-sm',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+            )}
+            aria-label="Add new tab"
+          >
+            <Plus className="w-4 h-4" />
+          </button>
+        </I18nProps>
+      </div>
+    </I18nProps>
   );
 }

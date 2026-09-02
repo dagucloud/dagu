@@ -12,6 +12,7 @@ import {
 import { Info } from 'lucide-react';
 import React from 'react';
 import { components } from '../../../../api/v1/schema';
+import { useI18n } from '@/i18n/I18nProvider';
 import { I18nText } from '@/i18n/I18nText';
 
 type ValueReferenceNotice = components['schemas']['ValueReferenceNotice'];
@@ -75,6 +76,7 @@ export function ValueReferenceNoticesButton({
   variant = 'ghost',
   className,
 }: ValueReferenceNoticesButtonProps) {
+  const { ts } = useI18n();
   const [open, setOpen] = React.useState(false);
 
   const defects = React.useMemo(() => notices.filter(isDefect), [notices]);
@@ -98,12 +100,12 @@ export function ValueReferenceNoticesButton({
       <Button
         variant={variant}
         size={size}
-        title={`View ${label.toLowerCase()}`}
+        title={ts('View {label}', { label: ts(label).toLowerCase() })}
         onClick={() => setOpen(true)}
         className={className}
       >
         <Info className="h-3.5 w-3.5" />
-        {label}
+        <I18nText text={label} />
         <span className="ml-0.5 rounded-sm bg-muted px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground">
           {defects.length > 0 ? defects.length : notices.length}
         </span>
@@ -142,7 +144,7 @@ function ValueReferenceNoticesDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-base">
             <Info className="h-4 w-4 text-muted-foreground" />
-            <I18nText text={"Value Reference Notices"} />
+            <I18nText text={'Value Reference Notices'} />
           </DialogTitle>
           <DialogDescription className="sr-only">
             {description}
@@ -152,7 +154,7 @@ function ValueReferenceNoticesDialog({
           {defects.length > 0 && (
             <section className="space-y-3">
               <h3 className="text-xs font-semibold uppercase tracking-wide text-foreground">
-                <I18nText text={"Needs a fix"} />
+                <I18nText text={'Needs a fix'} />
               </h3>
               {defects.map((notice, index) => (
                 <NoticeCard
@@ -169,7 +171,12 @@ function ValueReferenceNoticesDialog({
                 onClick={() => setShowRuntimeOnly((shown) => !shown)}
                 className="flex w-full items-center justify-between text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground"
               >
-                <span><I18nText text={"Resolved during a run ("} />{runtimeOnly.length})</span>
+                <span>
+                  <I18nText
+                    text="Resolved during a run ({count})"
+                    values={{ count: runtimeOnly.length }}
+                  />
+                </span>
                 <span aria-hidden="true">{showRuntimeOnly ? '−' : '+'}</span>
               </button>
               {showRuntimeOnly &&
@@ -196,21 +203,27 @@ function NoticeCard({ notice }: { notice: ValueReferenceNotice }) {
       <dl className="mt-2 grid gap-1 text-xs text-muted-foreground sm:grid-cols-[5rem_1fr]">
         {notice.fieldPath && (
           <>
-            <dt><I18nText text={"Field"} /></dt>
+            <dt>
+              <I18nText text={'Field'} />
+            </dt>
             <dd className="min-w-0 break-all font-mono">{notice.fieldPath}</dd>
           </>
         )}
         {notice.token && (
           <>
-            <dt><I18nText text={"Reference"} /></dt>
+            <dt>
+              <I18nText text={'Reference'} />
+            </dt>
             <dd className="min-w-0 break-all font-mono">{notice.token}</dd>
           </>
         )}
         {notice.reason && (
           <>
-            <dt><I18nText text={"Reason"} /></dt>
+            <dt>
+              <I18nText text={'Reason'} />
+            </dt>
             <dd className="min-w-0 break-words">
-              {reasonLabel(notice.reason)}
+              <I18nText text={reasonLabel(notice.reason)} />
             </dd>
           </>
         )}

@@ -5,6 +5,9 @@ import { Button } from '@/components/ui/button';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { TOKEN_KEY } from '@/contexts/AuthContext';
 import { useConfig } from '@/contexts/ConfigContext';
+import { useI18n } from '@/i18n/I18nProvider';
+import { I18nTemplate } from '@/i18n/I18nTemplate';
+import { I18nText } from '@/i18n/I18nText';
 import fetchJson from '@/lib/fetchJson';
 import {
   AlertCircle,
@@ -27,6 +30,7 @@ export default function APIDocsPage(): React.ReactElement {
   const appBarContext = React.useContext(AppBarContext);
   const { selectedRemoteNode, setTitle } = appBarContext;
   const config = useConfig();
+  const { ts } = useI18n();
   const [state, setState] = React.useState<LoadState>({ status: 'loading' });
   const requestSeqRef = React.useRef(0);
   const remoteNode = selectedRemoteNode || 'local';
@@ -59,10 +63,10 @@ export default function APIDocsPage(): React.ReactElement {
         message:
           error instanceof Error
             ? error.message
-            : 'Failed to load the API reference.',
+            : ts('Failed to load the API reference.'),
       });
     }
-  }, [openAPIPath]);
+  }, [openAPIPath, ts]);
 
   React.useEffect(() => {
     void loadSpec();
@@ -79,20 +83,19 @@ export default function APIDocsPage(): React.ReactElement {
         <div className="space-y-1">
           <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
             <ShieldCheck className="h-4 w-4 text-primary" />
-            Authenticated reference
+            <I18nText text="Authenticated reference" />
           </div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-            REST API Docs
+            <I18nText text="REST API Docs" />
           </h1>
           <p className="max-w-3xl text-sm text-muted-foreground">
-            The reference is loaded from the live authenticated OpenAPI document
-            served by this Dagu instance.
+            <I18nText text="The reference is loaded from the live authenticated OpenAPI document served by this Dagu instance." />
           </p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="ghost" onClick={() => void loadSpec()}>
             <RefreshCw className="h-4 w-4" />
-            Reload
+            <I18nText text="Reload" />
           </Button>
           <Button variant="outline" asChild>
             <a
@@ -101,7 +104,7 @@ export default function APIDocsPage(): React.ReactElement {
               rel="noreferrer"
             >
               <ExternalLink className="h-4 w-4" />
-              Raw JSON
+              <I18nText text="Raw JSON" />
             </a>
           </Button>
         </div>
@@ -113,11 +116,13 @@ export default function APIDocsPage(): React.ReactElement {
             <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground" />
             <div>
               <p className="font-medium text-foreground">
-                Loading API reference
+                <I18nText text="Loading API reference" />
               </p>
               <p className="text-sm text-muted-foreground">
-                Fetching <code>/openapi.json</code> with the current auth
-                context.
+                <I18nTemplate
+                  text="Fetching {path} with the current auth context."
+                  values={{ path: <code>/openapi.json</code> }}
+                />
               </p>
             </div>
           </div>
@@ -128,12 +133,12 @@ export default function APIDocsPage(): React.ReactElement {
             <AlertCircle className="h-6 w-6 text-destructive" />
             <div className="space-y-1">
               <p className="font-medium text-foreground">
-                Unable to load the API reference
+                <I18nText text="Unable to load the API reference" />
               </p>
               <p className="text-sm text-muted-foreground">{state.message}</p>
             </div>
             <Button variant="primary" onClick={() => void loadSpec()}>
-              Try Again
+              <I18nText text="Try Again" />
             </Button>
           </div>
         )}

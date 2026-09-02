@@ -99,7 +99,8 @@ const LogSideModal: React.FC<LogSideModalProps> = ({
   const zIndex = isInModal ? 60 : 50; // Higher z-index when in modal
 
   // Determine width and positioning based on mobile/expanded state
-  const width = isMobile || isExpanded ? 'w-full' : isInModal ? 'w-1/2' : 'w-2/5';
+  const width =
+    isMobile || isExpanded ? 'w-full' : isInModal ? 'w-1/2' : 'w-2/5';
   const positioning = isMobile ? 'inset-0' : 'top-0 bottom-0 right-0';
 
   // Handle clicks outside the modal
@@ -153,48 +154,60 @@ const LogSideModal: React.FC<LogSideModalProps> = ({
             : 'border-l border-border'
         } overflow-hidden flex flex-col transition-all duration-150 ease-out ${
           isMobile
-            ? (isVisible ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0')
-            : (isVisible ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0')
+            ? isVisible
+              ? 'translate-y-0 opacity-100'
+              : 'translate-y-full opacity-0'
+            : isVisible
+              ? 'translate-x-0 opacity-100'
+              : 'translate-x-full opacity-0'
         }`}
         style={{ zIndex: zIndex + 1 }} // Make sure modal is above backdrop
         onClick={(e) => e.stopPropagation()} // Prevent clicks inside the modal from closing it
       >
-        <div className={`flex justify-between items-center ${isMobile ? 'p-3' : 'p-4'} border-b`}>
-          <h2 className={`${isMobile ? 'text-base' : 'text-lg'} font-semibold`}>{title}</h2>
+        <div
+          className={`flex justify-between items-center ${isMobile ? 'p-3' : 'p-4'} border-b`}
+        >
+          <h2 className={`${isMobile ? 'text-base' : 'text-lg'} font-semibold`}>
+            {title}
+          </h2>
           <div className="flex items-center gap-2">
             <div className="flex gap-1">
               {/* Hide expand/minimize button on mobile since it's always full screen */}
               {!isMobile && (
+                <I18nProps>
+                  <Button
+                    size="icon"
+                    onClick={toggleExpand}
+                    title={isExpanded ? 'Minimize' : 'Expand'}
+                  >
+                    {isExpanded ? (
+                      <Minimize2 className="h-4 w-4" />
+                    ) : (
+                      <Maximize2 className="h-4 w-4" />
+                    )}
+                  </Button>
+                </I18nProps>
+              )}
+              <I18nProps>
                 <Button
                   size="icon"
-                  onClick={toggleExpand}
-                  title={isExpanded ? 'Minimize' : 'Expand'}
+                  onClick={openInNewTab}
+                  title="Open in new tab"
                 >
-                  {isExpanded ? (
-                    <Minimize2 className="h-4 w-4" />
-                  ) : (
-                    <Maximize2 className="h-4 w-4" />
-                  )}
+                  <ExternalLink className="h-4 w-4" />
                 </Button>
-              )}
-              <I18nProps><Button
-                size="icon"
-                onClick={openInNewTab}
-                title="Open in new tab"
-              >
-                <ExternalLink className="h-4 w-4" />
-              </Button></I18nProps>
-              <I18nProps><Button
-                size="icon"
-                onClick={onClose}
-                title="Close (Esc)"
-              >
-                <X className="h-4 w-4" />
-              </Button></I18nProps>
+              </I18nProps>
+              <I18nProps>
+                <Button size="icon" onClick={onClose} title="Close (Esc)">
+                  <X className="h-4 w-4" />
+                </Button>
+              </I18nProps>
             </div>
           </div>
         </div>
-        <div className={`flex-1 overflow-auto ${isMobile ? 'p-2' : 'p-4'}`}>{children}</div>
+        <div className={`flex-1 overflow-auto ${isMobile ? 'p-2' : 'p-4'}`}>
+          {children}
+        </div>
       </div>
     </>
   );

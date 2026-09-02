@@ -33,6 +33,7 @@ import { RejectDAGRunDialog } from './RejectDAGRunDialog';
 import { getDAGRunTerminateActionDetails } from './terminateAction';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
+import { useI18n } from '@/i18n/I18nProvider';
 
 /**
  * Props for the DAGRunActions component
@@ -64,6 +65,7 @@ function DAGRunActions({
   displayMode = 'compact',
   isRootLevel = true,
 }: Props) {
+  const { ts } = useI18n();
   const remoteNode = useRemoteNode();
   const config = useConfig();
   const { showError } = useErrorModal();
@@ -155,6 +157,15 @@ function DAGRunActions({
   const hasWaitingApprovals = Boolean(waitingApprovalStepName);
   const terminateDetails = getDAGRunTerminateActionDetails(dagRun, {
     isRootLevel,
+    copy: {
+      stopConfirmText: ts('Do you really want to stop the dag-run "{name}"?', {
+        name: dagRun?.name ?? name,
+      }),
+      cancelConfirmText: ts(
+        'Do you really want to cancel auto-retry for the dag-run "{name}"?',
+        { name: dagRun?.name ?? name }
+      ),
+    },
   });
   const terminateAction = terminateDetails.action;
   const hasManagedAgentSession = Boolean(
@@ -197,12 +208,14 @@ function DAGRunActions({
                   onClick={() => setIsRejectModal(true)}
                   className="cursor-pointer"
                 >
-                  <I18nText text={"Reject"} />
+                  <I18nText text={'Reject'} />
                 </ActionButton>
               </span>
             </TooltipTrigger>
             <TooltipContent>
-              <p><I18nText text={"Reject DAG run"} /></p>
+              <p>
+                <I18nText text={'Reject DAG run'} />
+              </p>
             </TooltipContent>
           </Tooltip>
         ) : (
@@ -243,15 +256,19 @@ function DAGRunActions({
                 onClick={() => setIsRetryModal(true)}
                 className="cursor-pointer"
               >
-                <I18nText text={"Retry"} />
+                <I18nText text={'Retry'} />
               </ActionButton>
             </span>
           </TooltipTrigger>
           <TooltipContent>
             <p>
-              {isRootLevel
-                ? <I18nText text={"Retry DAGRun execution"} />
-                : <I18nText text={"Retry action only available at root dagRun level"} />}
+              {isRootLevel ? (
+                <I18nText text={'Retry DAGRun execution'} />
+              ) : (
+                <I18nText
+                  text={'Retry action only available at root dagRun level'}
+                />
+              )}
             </p>
           </TooltipContent>
         </Tooltip>
@@ -267,257 +284,297 @@ function DAGRunActions({
                 onClick={() => setIsDequeueModal(true)}
                 className="cursor-pointer"
               >
-                <I18nText text={"Dequeue"} />
+                <I18nText text={'Dequeue'} />
               </ActionButton>
             </span>
           </TooltipTrigger>
           <TooltipContent>
             <p>
-              {isRootLevel
-                ? <I18nText text={"Remove DAGRun from queue"} />
-                : <I18nText text={"Dequeue action only available at root dagRun level"} />}
+              {isRootLevel ? (
+                <I18nText text={'Remove DAGRun from queue'} />
+              ) : (
+                <I18nText
+                  text={'Dequeue action only available at root dagRun level'}
+                />
+              )}
             </p>
           </TooltipContent>
         </Tooltip>
 
         {/* Stop Confirmation Modal */}
-        <I18nProps><ConfirmModal
-          title="Confirmation"
-          buttonText={terminateDetails.buttonText}
-          visible={isStopModal}
-          dismissModal={() => setIsStopModal(false)}
-          onSubmit={async () => {
-            setIsStopModal(false);
-            const { error } = await client.POST(
-              '/dag-runs/{name}/{dagRunId}/stop',
-              {
-                params: {
-                  query: {
-                    remoteNode,
+        <I18nProps>
+          <ConfirmModal
+            title="Confirmation"
+            buttonText={terminateDetails.buttonText}
+            visible={isStopModal}
+            dismissModal={() => setIsStopModal(false)}
+            onSubmit={async () => {
+              setIsStopModal(false);
+              const { error } = await client.POST(
+                '/dag-runs/{name}/{dagRunId}/stop',
+                {
+                  params: {
+                    query: {
+                      remoteNode,
+                    },
+                    path: {
+                      name: name,
+                      dagRunId: dagRun.dagRunId,
+                    },
                   },
-                  path: {
-                    name: name,
-                    dagRunId: dagRun.dagRunId,
-                  },
-                },
-              }
-            );
-            if (error) {
-              console.error('Stop API error:', error);
-              showError(
-                error.message || terminateDetails.errorTitle,
-                terminateDetails.errorDescription
+                }
               );
-              return;
-            }
-            showToast('Stop signal sent');
-            reloadData();
-          }}
-        >
-          <div>{terminateDetails.confirmText}</div>
-        </ConfirmModal></I18nProps>
+              if (error) {
+                console.error('Stop API error:', error);
+                showError(
+                  error.message || terminateDetails.errorTitle,
+                  terminateDetails.errorDescription
+                );
+                return;
+              }
+              showToast('Stop signal sent');
+              reloadData();
+            }}
+          >
+            <div>{terminateDetails.confirmText}</div>
+          </ConfirmModal>
+        </I18nProps>
 
         {/* Retry Confirmation Modal */}
-        <ConfirmModal
-          title={retryAsNew ? 'Reschedule DAG Run' : 'Confirmation'}
-          buttonText={retryAsNew ? 'Reschedule' : 'Retry'}
-          visible={isRetryModal}
-          dismissModal={() => {
-            setIsRetryModal(false);
-            resetRetryModalState();
-          }}
-          onSubmit={async () => {
-            setIsRetryModal(false);
-
-            if (retryAsNew) {
-              // Use reschedule endpoint for retry-as-new
-              const { error, data } = await client.POST(
-                '/dag-runs/{name}/{dagRunId}/reschedule',
-                {
-                  params: {
-                    path: {
-                      name: name,
-                      dagRunId: dagRun.dagRunId,
-                    },
-                    query: {
-                      remoteNode,
-                    },
-                  },
-                  body: {
-                    dagRunId: newRunId || undefined, // Auto-generate if empty
-                    ...(dagNameOverride ? { dagName: dagNameOverride } : {}), // Use original if empty
-                    useCurrentDagFile,
-                  },
-                }
-              );
-              if (error) {
-                showError(
-                  error.message || 'Failed to reschedule DAG run',
-                  'Check if the worker is running and the DAG definition is valid.'
-                );
-                resetRetryModalState();
-                return;
-              }
-              // Show success message with new run ID
-              if (data?.dagRunId) {
-                showToast(`New DAG run created: ${data.dagRunId}`);
-              }
+        <I18nProps>
+          <ConfirmModal
+            title={retryAsNew ? 'Reschedule DAG Run' : 'Confirmation'}
+            buttonText={retryAsNew ? 'Reschedule' : 'Retry'}
+            visible={isRetryModal}
+            dismissModal={() => {
+              setIsRetryModal(false);
               resetRetryModalState();
-            } else {
-              // Use retry endpoint for regular retry
-              const { error } = await client.POST(
-                '/dag-runs/{name}/{dagRunId}/retry',
-                {
-                  params: {
-                    path: {
-                      name: name,
+            }}
+            onSubmit={async () => {
+              setIsRetryModal(false);
+
+              if (retryAsNew) {
+                // Use reschedule endpoint for retry-as-new
+                const { error, data } = await client.POST(
+                  '/dag-runs/{name}/{dagRunId}/reschedule',
+                  {
+                    params: {
+                      path: {
+                        name: name,
+                        dagRunId: dagRun.dagRunId,
+                      },
+                      query: {
+                        remoteNode,
+                      },
+                    },
+                    body: {
+                      dagRunId: newRunId || undefined, // Auto-generate if empty
+                      ...(dagNameOverride ? { dagName: dagNameOverride } : {}), // Use original if empty
+                      useCurrentDagFile,
+                    },
+                  }
+                );
+                if (error) {
+                  showError(
+                    error.message || 'Failed to reschedule DAG run',
+                    'Check if the worker is running and the DAG definition is valid.'
+                  );
+                  resetRetryModalState();
+                  return;
+                }
+                // Show success message with new run ID
+                if (data?.dagRunId) {
+                  showToast(`New DAG run created: ${data.dagRunId}`);
+                }
+                resetRetryModalState();
+              } else {
+                // Use retry endpoint for regular retry
+                const { error } = await client.POST(
+                  '/dag-runs/{name}/{dagRunId}/retry',
+                  {
+                    params: {
+                      path: {
+                        name: name,
+                        dagRunId: dagRun.dagRunId,
+                      },
+                      query: {
+                        remoteNode,
+                      },
+                    },
+                    body: {
                       dagRunId: dagRun.dagRunId,
                     },
-                    query: {
-                      remoteNode,
-                    },
-                  },
-                  body: {
-                    dagRunId: dagRun.dagRunId,
-                  },
-                }
-              );
-              if (error) {
-                showError(
-                  error.message || 'Failed to retry DAG run',
-                  'Check if the worker is running and accessible.'
+                  }
                 );
-                return;
+                if (error) {
+                  showError(
+                    error.message || 'Failed to retry DAG run',
+                    'Check if the worker is running and accessible.'
+                  );
+                  return;
+                }
+                showToast('Retry started');
               }
-              showToast('Retry started');
-            }
-            reloadData();
-          }}
-        >
-          {/* Modal content structure */}
-          <div className="space-y-3">
-            <p className="mb-2">
-              <I18nText text={"Do you really want to retry the following execution?"} />
-            </p>
-            {!retryAsNew && hasManagedAgentSession && (
-              <p className="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
-                <I18nText text={"Retry continues the existing OpenCode conversation and sends the step prompt again. Use “Start clean session” in the Agent session tab to begin a new conversation."} />
+              reloadData();
+            }}
+          >
+            {/* Modal content structure */}
+            <div className="space-y-3">
+              <p className="mb-2">
+                <I18nText
+                  text={'Do you really want to retry the following execution?'}
+                />
               </p>
-            )}
-            <I18nProps><LabeledItem label="DAGRun-Name">
-              <span className="font-mono text-sm">{dagRun?.name || 'N/A'}</span>
-            </LabeledItem></I18nProps>
-            <I18nProps><LabeledItem label="DAGRun-ID">
-              <span className="font-mono text-sm">
-                {dagRun?.dagRunId || 'N/A'}
-              </span>
-            </LabeledItem></I18nProps>
-            {dagRun?.startedAt && (
-              <I18nProps><LabeledItem label="Started At">
-                <span className="text-sm">
-                  {dayjs(dagRun.startedAt).format('YYYY-MM-DD HH:mm:ss Z')}
-                </span>
-              </LabeledItem></I18nProps>
-            )}
-            {dagRun?.status !== undefined && (
-              <I18nProps><LabeledItem label="Status">
-                <StatusChip status={dagRun.status} size="sm">
-                  {dagRun.statusLabel || ''}
-                </StatusChip>
-              </LabeledItem></I18nProps>
-            )}
-
-            {/* Reschedule checkbox */}
-            <div className="flex items-center space-x-2 pt-2 border-t">
-              <Checkbox
-                id="reschedule"
-                checked={retryAsNew}
-                onCheckedChange={(checked) => setRetryAsNew(checked as boolean)}
-                className="border-border"
-              />
-              <Label htmlFor="reschedule" className="cursor-pointer text-sm">
-                <I18nText text={"Reschedule with new DAG-run"} />
-              </Label>
-            </div>
-
-            {/* Conditional inputs when reschedule is checked */}
-            {retryAsNew && (
-              <div className="space-y-3 pt-2">
-                <div className="space-y-1.5">
-                  <Label htmlFor="new-dagrun-id" className="text-sm">
-                    <I18nText text={"New DAG-Run ID (optional)"} />
-                  </Label>
-                  <I18nProps><Input
-                    id="new-dagrun-id"
-                    placeholder="Auto-generated if empty"
-                    value={newRunId}
-                    onChange={(e) => setNewRunId(e.target.value)}
-                    className="h-8 text-sm"
-                  /></I18nProps>
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="dag-name-override" className="text-sm">
-                    <I18nText text={"DAG Name Override (optional)"} />
-                  </Label>
-                  <Input
-                    id="dag-name-override"
-                    placeholder={`Leave empty to use: ${dagRun?.name || 'original'}`}
-                    value={dagNameOverride}
-                    onChange={(e) => setDagNameOverride(e.target.value)}
-                    className="h-8 text-sm"
+              {!retryAsNew && hasManagedAgentSession && (
+                <p className="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
+                  <I18nText
+                    text={
+                      'Retry continues the existing OpenCode conversation and sends the step prompt again. Use “Start clean session” in the Agent session tab to begin a new conversation.'
+                    }
                   />
-                </div>
-                <div
-                  role="button"
-                  tabIndex={rescheduleSourceLoading || !specFromFile ? -1 : 0}
-                  aria-disabled={rescheduleSourceLoading || !specFromFile}
-                  onClick={() => {
-                    if (rescheduleSourceLoading || !specFromFile) {
-                      return;
-                    }
-                    setUseCurrentDagFile((value) => !value);
-                  }}
-                  onKeyDown={(event) => {
-                    if (
-                      rescheduleSourceLoading ||
-                      !specFromFile ||
-                      (event.key !== 'Enter' && event.key !== ' ')
-                    ) {
-                      return;
-                    }
-                    event.preventDefault();
-                    setUseCurrentDagFile((value) => !value);
-                  }}
-                  className="flex w-full items-start gap-3 rounded-md border px-3 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring aria-disabled:cursor-not-allowed aria-disabled:opacity-70 aria-disabled:hover:bg-transparent"
-                >
-                  <I18nProps><Checkbox
-                    id="use-current-dag-file"
-                    aria-label="Use original DAG file"
-                    checked={useCurrentDagFile}
-                    disabled={rescheduleSourceLoading || !specFromFile}
-                    onCheckedChange={(checked) =>
-                      setUseCurrentDagFile(checked as boolean)
-                    }
-                    className="mt-0.5 h-5 w-5 border-border pointer-events-none"
-                  /></I18nProps>
-                  <div className="space-y-0.5">
-                    <Label
-                      htmlFor="use-current-dag-file"
-                      className="cursor-pointer text-sm font-medium"
-                    >
-                      <I18nText text={"Use original DAG file"} />
+                </p>
+              )}
+              <I18nProps>
+                <LabeledItem label="DAGRun-Name">
+                  <span className="font-mono text-sm">
+                    {dagRun?.name || 'N/A'}
+                  </span>
+                </LabeledItem>
+              </I18nProps>
+              <I18nProps>
+                <LabeledItem label="DAGRun-ID">
+                  <span className="font-mono text-sm">
+                    {dagRun?.dagRunId || 'N/A'}
+                  </span>
+                </LabeledItem>
+              </I18nProps>
+              {dagRun?.startedAt && (
+                <I18nProps>
+                  <LabeledItem label="Started At">
+                    <span className="text-sm">
+                      {dayjs(dagRun.startedAt).format('YYYY-MM-DD HH:mm:ss Z')}
+                    </span>
+                  </LabeledItem>
+                </I18nProps>
+              )}
+              {dagRun?.status !== undefined && (
+                <I18nProps>
+                  <LabeledItem label="Status">
+                    <StatusChip status={dagRun.status} size="sm">
+                      {dagRun.statusLabel || ''}
+                    </StatusChip>
+                  </LabeledItem>
+                </I18nProps>
+              )}
+
+              {/* Reschedule checkbox */}
+              <div className="flex items-center space-x-2 pt-2 border-t">
+                <Checkbox
+                  id="reschedule"
+                  checked={retryAsNew}
+                  onCheckedChange={(checked) =>
+                    setRetryAsNew(checked as boolean)
+                  }
+                  className="border-border"
+                />
+                <Label htmlFor="reschedule" className="cursor-pointer text-sm">
+                  <I18nText text={'Reschedule with new DAG-run'} />
+                </Label>
+              </div>
+
+              {/* Conditional inputs when reschedule is checked */}
+              {retryAsNew && (
+                <div className="space-y-3 pt-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="new-dagrun-id" className="text-sm">
+                      <I18nText text={'New DAG-Run ID (optional)'} />
                     </Label>
-                    <p className="text-xs text-muted-foreground">
-                      {specFromFile
-                        ? <I18nText text={"Use the current spec from the original DAG file instead of the stored YAML snapshot."} />
-                        : <I18nText text={"Stored YAML snapshot will be used because the original DAG file is not available."} />}
-                    </p>
+                    <I18nProps>
+                      <Input
+                        id="new-dagrun-id"
+                        placeholder="Auto-generated if empty"
+                        value={newRunId}
+                        onChange={(e) => setNewRunId(e.target.value)}
+                        className="h-8 text-sm"
+                      />
+                    </I18nProps>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="dag-name-override" className="text-sm">
+                      <I18nText text={'DAG Name Override (optional)'} />
+                    </Label>
+                    <Input
+                      id="dag-name-override"
+                      placeholder={`Leave empty to use: ${dagRun?.name || 'original'}`}
+                      value={dagNameOverride}
+                      onChange={(e) => setDagNameOverride(e.target.value)}
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                  <div
+                    role="button"
+                    tabIndex={rescheduleSourceLoading || !specFromFile ? -1 : 0}
+                    aria-disabled={rescheduleSourceLoading || !specFromFile}
+                    onClick={() => {
+                      if (rescheduleSourceLoading || !specFromFile) {
+                        return;
+                      }
+                      setUseCurrentDagFile((value) => !value);
+                    }}
+                    onKeyDown={(event) => {
+                      if (
+                        rescheduleSourceLoading ||
+                        !specFromFile ||
+                        (event.key !== 'Enter' && event.key !== ' ')
+                      ) {
+                        return;
+                      }
+                      event.preventDefault();
+                      setUseCurrentDagFile((value) => !value);
+                    }}
+                    className="flex w-full items-start gap-3 rounded-md border px-3 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring aria-disabled:cursor-not-allowed aria-disabled:opacity-70 aria-disabled:hover:bg-transparent"
+                  >
+                    <I18nProps>
+                      <Checkbox
+                        id="use-current-dag-file"
+                        aria-label="Use original DAG file"
+                        checked={useCurrentDagFile}
+                        disabled={rescheduleSourceLoading || !specFromFile}
+                        onCheckedChange={(checked) =>
+                          setUseCurrentDagFile(checked as boolean)
+                        }
+                        className="mt-0.5 h-5 w-5 border-border pointer-events-none"
+                      />
+                    </I18nProps>
+                    <div className="space-y-0.5">
+                      <Label
+                        htmlFor="use-current-dag-file"
+                        className="cursor-pointer text-sm font-medium"
+                      >
+                        <I18nText text={'Use original DAG file'} />
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        {specFromFile ? (
+                          <I18nText
+                            text={
+                              'Use the current spec from the original DAG file instead of the stored YAML snapshot.'
+                            }
+                          />
+                        ) : (
+                          <I18nText
+                            text={
+                              'Stored YAML snapshot will be used because the original DAG file is not available.'
+                            }
+                          />
+                        )}
+                      </p>
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
-          </div>
-        </ConfirmModal>
+              )}
+            </div>
+          </ConfirmModal>
+        </I18nProps>
 
         {waitingApprovalStepName && (
           <RejectDAGRunDialog
@@ -531,60 +588,72 @@ function DAGRunActions({
         )}
 
         {/* Dequeue Confirmation Modal */}
-        <I18nProps><ConfirmModal
-          title="Confirmation"
-          buttonText="Dequeue"
-          visible={isDequeueModal}
-          dismissModal={() => setIsDequeueModal(false)}
-          onSubmit={async () => {
-            setIsDequeueModal(false);
+        <I18nProps>
+          <ConfirmModal
+            title="Confirmation"
+            buttonText="Dequeue"
+            visible={isDequeueModal}
+            dismissModal={() => setIsDequeueModal(false)}
+            onSubmit={async () => {
+              setIsDequeueModal(false);
 
-            const { error } = await client.GET(
-              '/dag-runs/{name}/{dagRunId}/dequeue',
-              {
-                params: {
-                  path: {
-                    name: name,
-                    dagRunId: dagRun.dagRunId,
+              const { error } = await client.GET(
+                '/dag-runs/{name}/{dagRunId}/dequeue',
+                {
+                  params: {
+                    path: {
+                      name: name,
+                      dagRunId: dagRun.dagRunId,
+                    },
+                    query: {
+                      remoteNode,
+                    },
                   },
-                  query: {
-                    remoteNode,
-                  },
-                },
-              }
-            );
-            if (error) {
-              showError(
-                error.message || 'Failed to dequeue DAG run',
-                'The DAG run may have already started or been removed from the queue.'
+                }
               );
-              return;
-            }
-            showToast('DAG run dequeued');
-            reloadData();
-          }}
-        >
-          <div>
-            <p className="mb-2">
-              <I18nText text={"Do you really want to dequeue the following dagRun?"} />
-            </p>
-            <I18nProps><LabeledItem label="DAGRun-Name">
-              <span className="font-mono text-sm">{dagRun?.name || 'N/A'}</span>
-            </LabeledItem></I18nProps>
-            <I18nProps><LabeledItem label="DAGRun-ID">
-              <span className="font-mono text-sm">
-                {dagRun?.dagRunId || 'N/A'}
-              </span>
-            </LabeledItem></I18nProps>
-            {dagRun?.status !== undefined && (
-              <I18nProps><LabeledItem label="Status">
-                <StatusChip status={dagRun.status} size="sm">
-                  {dagRun.statusLabel || ''}
-                </StatusChip>
-              </LabeledItem></I18nProps>
-            )}
-          </div>
-        </ConfirmModal></I18nProps>
+              if (error) {
+                showError(
+                  error.message || 'Failed to dequeue DAG run',
+                  'The DAG run may have already started or been removed from the queue.'
+                );
+                return;
+              }
+              showToast('DAG run dequeued');
+              reloadData();
+            }}
+          >
+            <div>
+              <p className="mb-2">
+                <I18nText
+                  text={'Do you really want to dequeue the following dagRun?'}
+                />
+              </p>
+              <I18nProps>
+                <LabeledItem label="DAGRun-Name">
+                  <span className="font-mono text-sm">
+                    {dagRun?.name || 'N/A'}
+                  </span>
+                </LabeledItem>
+              </I18nProps>
+              <I18nProps>
+                <LabeledItem label="DAGRun-ID">
+                  <span className="font-mono text-sm">
+                    {dagRun?.dagRunId || 'N/A'}
+                  </span>
+                </LabeledItem>
+              </I18nProps>
+              {dagRun?.status !== undefined && (
+                <I18nProps>
+                  <LabeledItem label="Status">
+                    <StatusChip status={dagRun.status} size="sm">
+                      {dagRun.statusLabel || ''}
+                    </StatusChip>
+                  </LabeledItem>
+                </I18nProps>
+              )}
+            </div>
+          </ConfirmModal>
+        </I18nProps>
       </div>
     </TooltipProvider>
   );

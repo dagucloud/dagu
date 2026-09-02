@@ -5,17 +5,23 @@ import {
   type TranslationKey,
   type TranslationValues,
 } from './messages';
+import {
+  translateStatic,
+  type StaticTranslationValues,
+} from './staticMessages';
 
 type I18nContextValue = {
   locale: Locale;
   setLocale: (locale: Locale) => void;
   t: (key: TranslationKey, values?: TranslationValues) => string;
+  ts: (source: string, values?: StaticTranslationValues) => string;
 };
 
 const defaultI18nContext: I18nContextValue = {
   locale: 'en',
   setLocale: () => {},
   t: (key, values) => translate('en', key, values),
+  ts: (source, values) => translateStatic('en', source, values),
 };
 
 const I18nContext = createContext<I18nContextValue>(defaultI18nContext);
@@ -32,6 +38,8 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
       locale: preferences.locale,
       setLocale: (locale) => updatePreference('locale', locale),
       t: (key, values) => translate(preferences.locale, key, values),
+      ts: (source, values) =>
+        translateStatic(preferences.locale, source, values),
     }),
     [preferences.locale, updatePreference]
   );

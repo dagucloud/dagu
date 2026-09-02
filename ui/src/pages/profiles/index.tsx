@@ -660,46 +660,54 @@ export default function ProfilesPage(): React.ReactNode {
   return (
     <div className="flex h-full min-h-0 max-w-7xl flex-col gap-4 overflow-hidden">
       <div className="shrink-0">
-        <h1 className="text-lg font-semibold">Profiles &amp; Secrets</h1>
+        <h1 className="text-lg font-semibold">
+          <I18nText text={'Profiles & Secrets'} />
+        </h1>
         <p className="text-sm text-muted-foreground">
-          <I18nText text={"Manage environment profiles and individual secret references used by DAG runs."} />
+          <I18nText
+            text={
+              'Manage environment profiles and individual secret references used by DAG runs.'
+            }
+          />
         </p>
       </div>
 
-      <I18nProps><Tabs
-        role="tablist"
-        aria-label="Profiles and secrets"
-        className="shrink-0"
-      >
-        <Tab
-          id="profiles-tab"
-          role="tab"
-          aria-selected={activeTab === 'profiles'}
-          aria-controls="profiles-panel"
-          isActive={activeTab === 'profiles'}
-          tabIndex={activeTab === 'profiles' ? 0 : -1}
-          onClick={() => selectTab('profiles')}
-          onKeyDown={(event) => handleTabKeyDown(event, 'profiles')}
-          className="cursor-pointer gap-2"
+      <I18nProps>
+        <Tabs
+          role="tablist"
+          aria-label="Profiles and secrets"
+          className="shrink-0"
         >
-          <SlidersHorizontal className="h-4 w-4" />
-          <I18nText text={"Profiles"} />
-        </Tab>
-        <Tab
-          id="secret-refs-tab"
-          role="tab"
-          aria-selected={activeTab === 'secret-refs'}
-          aria-controls="secret-refs-panel"
-          isActive={activeTab === 'secret-refs'}
-          tabIndex={activeTab === 'secret-refs' ? 0 : -1}
-          onClick={() => selectTab('secret-refs')}
-          onKeyDown={(event) => handleTabKeyDown(event, 'secret-refs')}
-          className="cursor-pointer gap-2"
-        >
-          <KeyRound className="h-4 w-4" />
-          <I18nText text={"DAG Secret Refs"} />
-        </Tab>
-      </Tabs></I18nProps>
+          <Tab
+            id="profiles-tab"
+            role="tab"
+            aria-selected={activeTab === 'profiles'}
+            aria-controls="profiles-panel"
+            isActive={activeTab === 'profiles'}
+            tabIndex={activeTab === 'profiles' ? 0 : -1}
+            onClick={() => selectTab('profiles')}
+            onKeyDown={(event) => handleTabKeyDown(event, 'profiles')}
+            className="cursor-pointer gap-2"
+          >
+            <SlidersHorizontal className="h-4 w-4" />
+            <I18nText text={'Profiles'} />
+          </Tab>
+          <Tab
+            id="secret-refs-tab"
+            role="tab"
+            aria-selected={activeTab === 'secret-refs'}
+            aria-controls="secret-refs-panel"
+            isActive={activeTab === 'secret-refs'}
+            tabIndex={activeTab === 'secret-refs' ? 0 : -1}
+            onClick={() => selectTab('secret-refs')}
+            onKeyDown={(event) => handleTabKeyDown(event, 'secret-refs')}
+            className="cursor-pointer gap-2"
+          >
+            <KeyRound className="h-4 w-4" />
+            <I18nText text={'DAG Secret Refs'} />
+          </Tab>
+        </Tabs>
+      </I18nProps>
 
       <div
         id="profiles-panel"
@@ -712,9 +720,13 @@ export default function ProfilesPage(): React.ReactNode {
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <h2 className="text-base font-semibold"><I18nText text={"Profiles"} /></h2>
+                <h2 className="text-base font-semibold">
+                  <I18nText text={'Profiles'} />
+                </h2>
                 <p className="text-sm text-muted-foreground">
-                  <I18nText text={"Environment bundles selected when a run starts."} />
+                  <I18nText
+                    text={'Environment bundles selected when a run starts.'}
+                  />
                 </p>
               </div>
               <Button
@@ -727,7 +739,7 @@ export default function ProfilesPage(): React.ReactNode {
                 }}
               >
                 <Plus className="mr-1.5 h-4 w-4" />
-                <I18nText text={"Add Profile"} />
+                <I18nText text={'Add Profile'} />
               </Button>
             </div>
 
@@ -748,10 +760,18 @@ export default function ProfilesPage(): React.ReactNode {
                 <Table className="text-xs">
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-[260px]"><I18nText text={"Default Layer"} /></TableHead>
-                      <TableHead className="w-[120px]"><I18nText text={"Scope"} /></TableHead>
-                      <TableHead><I18nText text={"Entries"} /></TableHead>
-                      <TableHead className="w-[170px]"><I18nText text={"Updated"} /></TableHead>
+                      <TableHead className="w-[260px]">
+                        <I18nText text={'Default Layer'} />
+                      </TableHead>
+                      <TableHead className="w-[120px]">
+                        <I18nText text={'Scope'} />
+                      </TableHead>
+                      <TableHead>
+                        <I18nText text={'Entries'} />
+                      </TableHead>
+                      <TableHead className="w-[170px]">
+                        <I18nText text={'Updated'} />
+                      </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -776,7 +796,9 @@ export default function ProfilesPage(): React.ReactNode {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <Badge variant="outline"><I18nText text={"Global"} /></Badge>
+                          <Badge variant="outline">
+                            <I18nText text={'Global'} />
+                          </Badge>
                         </TableCell>
                         <TableCell>
                           <ProfileEntriesCell
@@ -789,11 +811,13 @@ export default function ProfilesPage(): React.ReactNode {
                           />
                         </TableCell>
                         <TableCell className="text-muted-foreground">
-                          {globalTarget.updatedAt
-                            ? dayjs(globalTarget.updatedAt).format(
-                                'MMM D, YYYY HH:mm'
-                              )
-                            : <I18nText text={"Never"} />}
+                          {globalTarget.updatedAt ? (
+                            dayjs(globalTarget.updatedAt).format(
+                              'MMM D, YYYY HH:mm'
+                            )
+                          ) : (
+                            <I18nText text={'Never'} />
+                          )}
                         </TableCell>
                       </TableRow>
                     )}
@@ -818,7 +842,9 @@ export default function ProfilesPage(): React.ReactNode {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <Badge variant="outline"><I18nText text={"Workspace"} /></Badge>
+                          <Badge variant="outline">
+                            <I18nText text={'Workspace'} />
+                          </Badge>
                         </TableCell>
                         <TableCell>
                           <ProfileEntriesCell
@@ -831,11 +857,13 @@ export default function ProfilesPage(): React.ReactNode {
                           />
                         </TableCell>
                         <TableCell className="text-muted-foreground">
-                          {workspaceTarget.updatedAt
-                            ? dayjs(workspaceTarget.updatedAt).format(
-                                'MMM D, YYYY HH:mm'
-                              )
-                            : <I18nText text={"Never"} />}
+                          {workspaceTarget.updatedAt ? (
+                            dayjs(workspaceTarget.updatedAt).format(
+                              'MMM D, YYYY HH:mm'
+                            )
+                          ) : (
+                            <I18nText text={'Never'} />
+                          )}
                         </TableCell>
                       </TableRow>
                     )}
@@ -846,16 +874,22 @@ export default function ProfilesPage(): React.ReactNode {
                             <div className="flex min-w-0 items-center gap-2">
                               <SlidersHorizontal className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
                               <span className="font-medium">
-                                <I18nText text={"Workspace default profile"} />
+                                <I18nText text={'Workspace default profile'} />
                               </span>
                             </div>
                             <span className="text-xs text-muted-foreground">
-                              <I18nText text={"Fallback when the run and DAG do not choose a profile."} />
+                              <I18nText
+                                text={
+                                  'Fallback when the run and DAG do not choose a profile.'
+                                }
+                              />
                             </span>
                           </div>
                         </TableCell>
                         <TableCell>
-                          <Badge variant="outline"><I18nText text={"Workspace"} /></Badge>
+                          <Badge variant="outline">
+                            <I18nText text={'Workspace'} />
+                          </Badge>
                         </TableCell>
                         <TableCell>
                           <WorkspaceDefaultProfileCell
@@ -870,11 +904,13 @@ export default function ProfilesPage(): React.ReactNode {
                           />
                         </TableCell>
                         <TableCell className="text-muted-foreground">
-                          {workspaceTarget.updatedAt
-                            ? dayjs(workspaceTarget.updatedAt).format(
-                                'MMM D, YYYY HH:mm'
-                              )
-                            : <I18nText text={"Never"} />}
+                          {workspaceTarget.updatedAt ? (
+                            dayjs(workspaceTarget.updatedAt).format(
+                              'MMM D, YYYY HH:mm'
+                            )
+                          ) : (
+                            <I18nText text={'Never'} />
+                          )}
                         </TableCell>
                       </TableRow>
                     )}
@@ -887,10 +923,18 @@ export default function ProfilesPage(): React.ReactNode {
               <Table className="text-xs">
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-[260px]"><I18nText text={"Profile"} /></TableHead>
-                    <TableHead className="w-[110px]"><I18nText text={"Status"} /></TableHead>
-                    <TableHead><I18nText text={"Entries"} /></TableHead>
-                    <TableHead className="w-[170px]"><I18nText text={"Updated"} /></TableHead>
+                    <TableHead className="w-[260px]">
+                      <I18nText text={'Profile'} />
+                    </TableHead>
+                    <TableHead className="w-[110px]">
+                      <I18nText text={'Status'} />
+                    </TableHead>
+                    <TableHead>
+                      <I18nText text={'Entries'} />
+                    </TableHead>
+                    <TableHead className="w-[170px]">
+                      <I18nText text={'Updated'} />
+                    </TableHead>
                     <TableHead className="w-[80px]"></TableHead>
                   </TableRow>
                 </TableHeader>
@@ -901,7 +945,11 @@ export default function ProfilesPage(): React.ReactNode {
                         colSpan={5}
                         className="py-8 text-center text-muted-foreground"
                       >
-                        <I18nText text={"You do not have permission to manage profiles."} />
+                        <I18nText
+                          text={
+                            'You do not have permission to manage profiles.'
+                          }
+                        />
                       </TableCell>
                     </TableRow>
                   ) : isLoading ? (
@@ -910,7 +958,7 @@ export default function ProfilesPage(): React.ReactNode {
                         colSpan={5}
                         className="py-8 text-center text-muted-foreground"
                       >
-                        <I18nText text={"Loading profiles..."} />
+                        <I18nText text={'Loading profiles...'} />
                       </TableCell>
                     </TableRow>
                   ) : profiles.length === 0 ? (
@@ -919,7 +967,7 @@ export default function ProfilesPage(): React.ReactNode {
                         colSpan={5}
                         className="py-8 text-center text-muted-foreground"
                       >
-                        <I18nText text={"No profiles found."} />
+                        <I18nText text={'No profiles found.'} />
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -945,7 +993,7 @@ export default function ProfilesPage(): React.ReactNode {
                                     variant="outline"
                                     className="h-5 px-1.5 text-[10px]"
                                   >
-                                    <I18nText text={"Protected"} />
+                                    <I18nText text={'Protected'} />
                                   </Badge>
                                 )}
                                 {profile.protected &&
@@ -954,7 +1002,7 @@ export default function ProfilesPage(): React.ReactNode {
                                       variant="secondary"
                                       className="h-5 px-1.5 text-[10px]"
                                     >
-                                      <I18nText text={"Admin"} />
+                                      <I18nText text={'Admin'} />
                                     </Badge>
                                   )}
                               </div>
@@ -1016,23 +1064,25 @@ export default function ProfilesPage(): React.ReactNode {
                                   }}
                                 >
                                   <Pencil className="mr-2 h-4 w-4" />
-                                  <I18nText text={"Edit"} />
+                                  <I18nText text={'Edit'} />
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   onClick={() => toggleStatus(profile)}
                                 >
                                   <Power className="mr-2 h-4 w-4" />
                                   {profile.status ===
-                                  RuntimeProfileStatus.active
-                                    ? <I18nText text={"Disable"} />
-                                    : <I18nText text={"Enable"} />}
+                                  RuntimeProfileStatus.active ? (
+                                    <I18nText text={'Disable'} />
+                                  ) : (
+                                    <I18nText text={'Enable'} />
+                                  )}
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   className="text-destructive"
                                   onClick={() => setDeletingProfile(profile)}
                                 >
                                   <Trash2 className="mr-2 h-4 w-4" />
-                                  <I18nText text={"Delete"} />
+                                  <I18nText text={'Delete'} />
                                 </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
@@ -1088,29 +1138,47 @@ export default function ProfilesPage(): React.ReactNode {
         }}
       />
 
-      <I18nProps><ConfirmModal
-        title="Delete Profile"
-        buttonText="Delete"
-        visible={!!deletingProfile}
-        dismissModal={() => setDeletingProfile(null)}
-        onSubmit={deleteProfile}
-      >
-        <span className="text-sm text-muted-foreground">
-          {deletingProfile ? `Delete ${deletingProfile.name}?` : ''}
-        </span>
-      </ConfirmModal></I18nProps>
+      <I18nProps>
+        <ConfirmModal
+          title="Delete Profile"
+          buttonText="Delete"
+          visible={!!deletingProfile}
+          dismissModal={() => setDeletingProfile(null)}
+          onSubmit={deleteProfile}
+        >
+          <span className="text-sm text-muted-foreground">
+            {deletingProfile ? (
+              <I18nText
+                text="Delete {name}?"
+                values={{ name: deletingProfile.name }}
+              />
+            ) : (
+              ''
+            )}
+          </span>
+        </ConfirmModal>
+      </I18nProps>
 
-      <I18nProps><ConfirmModal
-        title="Delete Entry"
-        buttonText="Delete"
-        visible={!!deletingEntry}
-        dismissModal={() => setDeletingEntry(null)}
-        onSubmit={deleteEntry}
-      >
-        <span className="text-sm text-muted-foreground">
-          {deletingEntry ? `Delete ${deletingEntry.entry.key}?` : ''}
-        </span>
-      </ConfirmModal></I18nProps>
+      <I18nProps>
+        <ConfirmModal
+          title="Delete Entry"
+          buttonText="Delete"
+          visible={!!deletingEntry}
+          dismissModal={() => setDeletingEntry(null)}
+          onSubmit={deleteEntry}
+        >
+          <span className="text-sm text-muted-foreground">
+            {deletingEntry ? (
+              <I18nText
+                text="Delete {name}?"
+                values={{ name: deletingEntry.entry.key }}
+              />
+            ) : (
+              ''
+            )}
+          </span>
+        </ConfirmModal>
+      </I18nProps>
     </div>
   );
 }
@@ -1139,22 +1207,26 @@ function WorkspaceDefaultProfileCell({
         disabled={disabled || busy || isLoading}
         onValueChange={onChange}
       >
-        <I18nProps><SelectTrigger
-          aria-label="Workspace default profile"
-          className="h-7 w-full min-w-[220px]"
-        >
-          <I18nProps><SelectValue placeholder="None" /></I18nProps>
-        </SelectTrigger></I18nProps>
+        <I18nProps>
+          <SelectTrigger
+            aria-label="Workspace default profile"
+            className="h-7 w-full min-w-[220px]"
+          >
+            <I18nProps>
+              <SelectValue placeholder="None" />
+            </I18nProps>
+          </SelectTrigger>
+        </I18nProps>
         <SelectContent>
           <SelectItem value={NO_WORKSPACE_DEFAULT_PROFILE_VALUE}>
-            <I18nText text={"None"} />
+            <I18nText text={'None'} />
           </SelectItem>
           {unavailable && (
             <SelectItem value={value} disabled>
               <span className="flex w-full items-center justify-between gap-3">
                 <span>{value}</span>
                 <Badge variant="secondary" className="h-4 px-1.5 text-[10px]">
-                  <I18nText text={"Unavailable"} />
+                  <I18nText text={'Unavailable'} />
                 </Badge>
               </span>
             </SelectItem>
@@ -1165,7 +1237,7 @@ function WorkspaceDefaultProfileCell({
                 <span>{profile.name}</span>
                 {profile.protected && (
                   <Badge variant="outline" className="h-4 px-1.5 text-[10px]">
-                    <I18nText text={"Protected"} />
+                    <I18nText text={'Protected'} />
                   </Badge>
                 )}
               </span>
@@ -1214,7 +1286,7 @@ function ProfileEntriesCell({
           onClick={() => onAdd(target, RuntimeProfileEntryKind.variable)}
         >
           <Plus className="h-3.5 w-3.5" />
-          <I18nText text={"Variable"} />
+          <I18nText text={'Variable'} />
         </Button>
         <Button
           type="button"
@@ -1225,15 +1297,19 @@ function ProfileEntriesCell({
           onClick={() => onAdd(target, RuntimeProfileEntryKind.secret)}
         >
           <KeyRound className="h-3.5 w-3.5" />
-          <I18nText text={"Secret"} />
+          <I18nText text={'Secret'} />
         </Button>
       </div>
       {isLoading ? (
-        <span className="text-xs text-muted-foreground"><I18nText text={"Loading..."} /></span>
+        <span className="text-xs text-muted-foreground">
+          <I18nText text={'Loading...'} />
+        </span>
       ) : target.loadError ? (
         <span className="text-xs text-destructive">{target.loadError}</span>
       ) : target.entries.length === 0 ? (
-        <span className="text-xs text-muted-foreground"><I18nText text={"No entries"} /></span>
+        <span className="text-xs text-muted-foreground">
+          <I18nText text={'No entries'} />
+        </span>
       ) : (
         <div className="flex flex-wrap gap-1.5">
           {target.entries.map((entry) => (
@@ -1365,10 +1441,16 @@ function ProfileFormDialog({
         <form onSubmit={(event) => void handleSubmit(event)}>
           <DialogHeader>
             <DialogTitle>
-              {isEditing ? <I18nText text={"Edit Profile"} /> : <I18nText text={"Add Profile"} />}
+              {isEditing ? (
+                <I18nText text={'Edit Profile'} />
+              ) : (
+                <I18nText text={'Add Profile'} />
+              )}
             </DialogTitle>
             <DialogDescription className="sr-only">
-              <I18nText text={"Configure runtime profile metadata and protection."} />
+              <I18nText
+                text={'Configure runtime profile metadata and protection.'}
+              />
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -1378,20 +1460,26 @@ function ProfileFormDialog({
               </div>
             )}
             <div className="space-y-2">
-              <Label htmlFor="profile-name"><I18nText text={"Name"} /></Label>
-              <I18nProps><Input
-                id="profile-name"
-                value={form.name}
-                readOnly={isEditing}
-                disabled={isEditing || isSaving}
-                placeholder="local"
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, name: event.target.value }))
-                }
-              /></I18nProps>
+              <Label htmlFor="profile-name">
+                <I18nText text={'Name'} />
+              </Label>
+              <I18nProps>
+                <Input
+                  id="profile-name"
+                  value={form.name}
+                  readOnly={isEditing}
+                  disabled={isEditing || isSaving}
+                  placeholder="local"
+                  onChange={(event) =>
+                    setForm((prev) => ({ ...prev, name: event.target.value }))
+                  }
+                />
+              </I18nProps>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="profile-description"><I18nText text={"Description"} /></Label>
+              <Label htmlFor="profile-description">
+                <I18nText text={'Description'} />
+              </Label>
               <Textarea
                 id="profile-description"
                 rows={3}
@@ -1414,7 +1502,9 @@ function ProfileFormDialog({
                   setForm((prev) => ({ ...prev, protected: checked === true }))
                 }
               />
-              <Label htmlFor="profile-protected"><I18nText text={"Protected"} /></Label>
+              <Label htmlFor="profile-protected">
+                <I18nText text={'Protected'} />
+              </Label>
             </div>
           </div>
           <DialogFooter>
@@ -1424,10 +1514,14 @@ function ProfileFormDialog({
               onClick={onClose}
               disabled={isSaving}
             >
-              <I18nText text={"Cancel"} />
+              <I18nText text={'Cancel'} />
             </Button>
             <Button type="submit" disabled={isSaving}>
-              {isSaving ? <I18nText text={"Saving..."} /> : <I18nText text={"Save"} />}
+              {isSaving ? (
+                <I18nText text={'Saving...'} />
+              ) : (
+                <I18nText text={'Save'} />
+              )}
             </Button>
           </DialogFooter>
         </form>
@@ -1516,7 +1610,7 @@ function ProfileEntryDialog({
           <DialogHeader>
             <DialogTitle>{entryDialogTitle(isSecret, isEditing)}</DialogTitle>
             <DialogDescription className="sr-only">
-              <I18nText text={"Configure a runtime profile entry."} />
+              <I18nText text={'Configure a runtime profile entry.'} />
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -1526,26 +1620,34 @@ function ProfileEntryDialog({
               </div>
             )}
             <div className="space-y-2">
-              <Label htmlFor="profile-entry-key"><I18nText text={"Key"} /></Label>
-              <I18nProps><Input
-                id="profile-entry-key"
-                value={key}
-                readOnly={isEditing}
-                disabled={isEditing || isSaving}
-                placeholder="LOG_LEVEL"
-                onChange={(event) => setKey(event.target.value)}
-              /></I18nProps>
+              <Label htmlFor="profile-entry-key">
+                <I18nText text={'Key'} />
+              </Label>
+              <I18nProps>
+                <Input
+                  id="profile-entry-key"
+                  value={key}
+                  readOnly={isEditing}
+                  disabled={isEditing || isSaving}
+                  placeholder="LOG_LEVEL"
+                  onChange={(event) => setKey(event.target.value)}
+                />
+              </I18nProps>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="profile-entry-value"><I18nText text={"Value"} /></Label>
-              <Textarea
-                id="profile-entry-value"
-                rows={3}
-                value={value}
-                disabled={isSaving}
-                placeholder={isSecret && isEditing ? 'New value' : undefined}
-                onChange={(event) => setValue(event.target.value)}
-              />
+              <Label htmlFor="profile-entry-value">
+                <I18nText text={'Value'} />
+              </Label>
+              <I18nProps>
+                <Textarea
+                  id="profile-entry-value"
+                  rows={3}
+                  value={value}
+                  disabled={isSaving}
+                  placeholder={isSecret && isEditing ? 'New value' : undefined}
+                  onChange={(event) => setValue(event.target.value)}
+                />
+              </I18nProps>
             </div>
           </div>
           <DialogFooter>
@@ -1555,10 +1657,14 @@ function ProfileEntryDialog({
               onClick={onClose}
               disabled={isSaving}
             >
-              <I18nText text={"Cancel"} />
+              <I18nText text={'Cancel'} />
             </Button>
             <Button type="submit" disabled={isSaving}>
-              {isSaving ? <I18nText text={"Saving..."} /> : <I18nText text={"Save"} />}
+              {isSaving ? (
+                <I18nText text={'Saving...'} />
+              ) : (
+                <I18nText text={'Save'} />
+              )}
             </Button>
           </DialogFooter>
         </form>

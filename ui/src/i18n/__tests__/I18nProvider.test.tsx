@@ -6,7 +6,16 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import { I18nProps } from '../I18nProps';
 import { I18nProvider } from '../I18nProvider';
+import { I18nTemplate } from '../I18nTemplate';
 import { I18nText } from '../I18nText';
+
+function ButtonLabel({ buttonText }: { buttonText: string }) {
+  return <span>{buttonText}</span>;
+}
+
+function EmptyMessage({ emptyMessage }: { emptyMessage: string }) {
+  return <span>{emptyMessage}</span>;
+}
 
 describe('I18nProvider', () => {
   beforeEach(() => {
@@ -66,5 +75,47 @@ describe('I18nProvider', () => {
       '項目を検索...'
     );
     expect(screen.getByText('アクション')).toBeVisible();
+  });
+
+  it('localizes modal button text and interpolated text', () => {
+    localStorage.setItem('user_preferences', JSON.stringify({ locale: 'ja' }));
+
+    render(
+      <UserPreferencesProvider>
+        <I18nProvider>
+          <I18nProps>
+            <ButtonLabel buttonText="Delete" />
+          </I18nProps>
+          <I18nText text="No runs on {date}" values={{ date: '2026-09-02' }} />
+        </I18nProvider>
+      </UserPreferencesProvider>
+    );
+
+    expect(screen.getByText('削除')).toBeVisible();
+    expect(screen.getByText('2026-09-02 の実行はありません')).toBeVisible();
+  });
+
+  it('localizes rich templates and custom message props', () => {
+    localStorage.setItem('user_preferences', JSON.stringify({ locale: 'ja' }));
+
+    render(
+      <UserPreferencesProvider>
+        <I18nProvider>
+          <I18nTemplate
+            text="Rename {item} to a new path."
+            values={{ item: <code>workflow.yaml</code> }}
+          />
+          <I18nProps>
+            <EmptyMessage emptyMessage="No Wiki pages found" />
+          </I18nProps>
+        </I18nProvider>
+      </UserPreferencesProvider>
+    );
+
+    expect(screen.getByText('workflow.yaml')).toBeVisible();
+    expect(screen.getByText('Wiki ページが見つかりません')).toBeVisible();
+    expect(document.body).toHaveTextContent(
+      'workflow.yamlのパスを変更します。'
+    );
   });
 });

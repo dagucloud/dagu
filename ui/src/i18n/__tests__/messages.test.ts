@@ -55,4 +55,28 @@ describe('translations', () => {
       'DAG実行が見つかりません'
     );
   });
+
+  it('interpolates complete static messages', () => {
+    expect(
+      translateStatic('zh-CN', 'No runs on {date}', { date: '2026-09-02' })
+    ).toBe('2026-09-02 没有运行记录');
+    expect(
+      translateStatic(
+        'ja',
+        'Remove {count} missing items from sync tracking? Files remain in the remote repository.',
+        { count: 2 }
+      )
+    ).toBe(
+      '同期管理から欠落アイテムを 2 件削除しますか？ファイルはリモートリポジトリに残ります。'
+    );
+  });
+
+  it('localizes plural messages without English suffixes', () => {
+    expect(translateStatic('zh-CN', '{count} options', { count: 2 })).toBe(
+      '2 个选项'
+    );
+    expect(translateStatic('ja', '{count} results', { count: 2 })).toBe(
+      '2 件の結果'
+    );
+  });
 });

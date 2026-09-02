@@ -12,6 +12,7 @@ import { ChevronRight, Loader2, X } from 'lucide-react';
 import React from 'react';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
+import { useI18n } from '@/i18n/I18nProvider';
 
 // Loaded lazily: the content renders DAGStatus, which is what opens this modal.
 // A static import would close that cycle at module load.
@@ -79,6 +80,7 @@ export function SubRunStackModal({
   stack,
   onChange,
 }: SubRunStackModalProps): React.ReactElement | null {
+  const { ts } = useI18n();
   const remoteNode = useRemoteNode();
   const top = stack[stack.length - 1];
   const previousRef = React.useRef<
@@ -171,7 +173,9 @@ export function SubRunStackModal({
           <button
             key={level}
             type="button"
-            title={`Back to ${stack[level - 1]?.name ?? rootLabel}`}
+            title={ts('Back to {name}', {
+              name: stack[level - 1]?.name ?? rootLabel,
+            })}
             onClick={() => popTo(level)}
             className={cn(
               'bg-card hover:bg-muted border-border fixed top-0 bottom-0 z-40 h-screen border-l transition-all ease-out',
@@ -181,9 +185,11 @@ export function SubRunStackModal({
               right: `calc(75% - ${(i + 1) * EDGE_WIDTH}px)`,
               transitionDuration: `${SLIDE_MS}ms`,
             }}
-            aria-label={`Back one level`}
+            aria-label={ts('Back one level')}
           >
-            <span className="sr-only"><I18nText text={"Back"} /></span>
+            <span className="sr-only">
+              <I18nText text={'Back'} />
+            </span>
             <span className="block" style={{ width: EDGE_WIDTH }} />
           </button>
         );
@@ -209,7 +215,7 @@ export function SubRunStackModal({
               <>
                 <ChevronRight className="text-muted-foreground/50 h-3 w-3" />
                 <span className="text-muted-foreground">
-                  +{hiddenLevels} <I18nText text={"more"} />
+                  {ts('+{count} more', { count: hiddenLevels })}
                 </span>
               </>
             ) : null}
@@ -243,15 +249,17 @@ export function SubRunStackModal({
           <span className="text-muted-foreground bg-muted rounded px-1.5 py-0.5 text-xs tabular-nums">
             {depth}
           </span>
-          <I18nProps><Button
-            variant="outline"
-            size="icon"
-            onClick={() => popTo(stack.length - 1)}
-            title="Back one level (Esc)"
-            className="h-7 w-7"
-          >
-            <X className="h-3.5 w-3.5" />
-          </Button></I18nProps>
+          <I18nProps>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => popTo(stack.length - 1)}
+              title="Back one level (Esc)"
+              className="h-7 w-7"
+            >
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          </I18nProps>
         </div>
 
         <div className="min-h-0 flex-1 overflow-auto p-4">

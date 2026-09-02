@@ -12,6 +12,7 @@ import {
   type DAGRunDetails,
 } from '../../hooks/dagRunDetailsRequest';
 import { I18nText } from '@/i18n/I18nText';
+import { useI18n } from '@/i18n/I18nProvider';
 
 type DAGRunSummary = components['schemas']['DAGRunSummary'];
 type Node = components['schemas']['Node'];
@@ -39,7 +40,12 @@ function getStepName(node: Node, index: number) {
   return node.step?.name || `Step ${index + 1}`;
 }
 
-function renderStepList(title: string, nodes: Node[], colorClass: string) {
+function renderStepList(
+  title: string,
+  nodes: Node[],
+  colorClass: string,
+  ts: ReturnType<typeof useI18n>['ts']
+) {
   if (nodes.length === 0) {
     return null;
   }
@@ -50,7 +56,9 @@ function renderStepList(title: string, nodes: Node[], colorClass: string) {
 
   return (
     <div className="space-y-1">
-      <div className={`text-xs font-semibold ${colorClass}`}>{title}</div>
+      <div className={`text-xs font-semibold ${colorClass}`}>
+        <I18nText text={title} />
+      </div>
       <ul className="text-xs space-y-0.5">
         {visibleSteps.map((node, idx) => (
           <li key={`${node.step?.name || idx}-${idx}`}>
@@ -60,7 +68,9 @@ function renderStepList(title: string, nodes: Node[], colorClass: string) {
       </ul>
       {remaining > 0 && (
         <div className="text-xs text-muted-foreground">
-          +{remaining} <I18nText text={"more step"} />{remaining > 1 ? 's' : ''}
+          {ts(remaining === 1 ? '+{count} more step' : '+{count} more steps', {
+            count: remaining,
+          })}
         </div>
       )}
     </div>
@@ -71,6 +81,7 @@ export function StepDetailsTooltip({
   dagRun,
   children,
 }: StepDetailsTooltipProps) {
+  const { ts } = useI18n();
   const appBarContext = React.useContext(AppBarContext);
   const remoteNode = appBarContext.selectedRemoteNode || 'local';
   const [isOpen, setIsOpen] = React.useState(false);
@@ -140,7 +151,7 @@ export function StepDetailsTooltip({
           if (controller.signal.aborted && isAbortLikeError(fetchError)) {
             return;
           }
-          setError(toError(fetchError));
+          setError(toError(fetchError, ts('Failed to load step details')));
         })
         .finally(() => {
           if (controllerRef.current === controller) {
@@ -189,34 +200,42 @@ export function StepDetailsTooltip({
       <TooltipContent className="max-w-sm space-y-2">
         {!canRequestDetails && (
           <div className="text-xs text-muted-foreground">
-            <I18nText text={"Step details are unavailable for this DAG run."} />
+            <I18nText text={'Step details are unavailable for this DAG run.'} />
           </div>
         )}
         {canRequestDetails && isLoading && (
           <div className="text-xs text-muted-foreground">
-            <I18nText text={"Loading step details..."} />
+            <I18nText text={'Loading step details...'} />
           </div>
         )}
         {canRequestDetails && error && (
           <div className="text-xs text-error">
-            {error.message || <I18nText text={"Failed to load step details"} />}
+            {error.message || <I18nText text={'Failed to load step details'} />}
           </div>
         )}
         {canRequestDetails && !isLoading && !error && (
           <>
             {hasStepData ? (
               <>
-                {renderStepList('Running steps', runningSteps, 'text-success')}
+                {renderStepList(
+                  'Running steps',
+                  runningSteps,
+                  'text-success',
+                  ts
+                )}
                 {renderStepList(
                   'Retrying steps',
                   retryingSteps,
-                  'text-warning'
+                  'text-warning',
+                  ts
                 )}
-                {renderStepList('Failed steps', failedSteps, 'text-error')}
+                {renderStepList('Failed steps', failedSteps, 'text-error', ts)}
               </>
             ) : (
               <div className="text-xs text-muted-foreground">
-                <I18nText text={"No running, retrying, or failed steps at the moment."} />
+                <I18nText
+                  text={'No running, retrying, or failed steps at the moment.'}
+                />
               </div>
             )}
           </>

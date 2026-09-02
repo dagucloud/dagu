@@ -124,8 +124,8 @@ const english = {
   'Artifact storage is not enabled for this DAG run.':
     'Artifact storage is not enabled for this DAG run.',
   Artifacts: 'Artifacts',
-  'Artifacts will appear here after a run writes files into':
-    'Artifacts will appear here after a run writes files into',
+  'Artifacts will appear here after a run writes files into {directory}.':
+    'Artifacts will appear here after a run writes files into {directory}.',
   Asc: 'Asc',
   at: 'at',
   'at sign-in.': 'at sign-in.',
@@ -296,7 +296,6 @@ const english = {
   'Create your first workflow': 'Create your first workflow',
   Created: 'Created',
   'Created:': 'Created:',
-  'Creating...': 'Creating...',
   'Credential ID': 'Credential ID',
   Ctrl: 'Ctrl',
   Current: 'Current',
@@ -1100,7 +1099,6 @@ const english = {
   Rename: 'Rename',
   'Rename Wiki page': 'Rename Wiki page',
   'Rename workflow': 'Rename workflow',
-  'Renaming...': 'Renaming...',
   Repository: 'Repository',
   'Request access': 'Request access',
   required: 'required',
@@ -1630,9 +1628,398 @@ const english = {
   'YYYY-MM-DD HH:mm:ss': 'YYYY-MM-DD HH:mm:ss',
   'Zoom in': 'Zoom in',
   'Zoom out': 'Zoom out',
+  Aborted: 'Aborted',
+  'All Results': 'All Results',
+  'All Sources': 'All Sources',
+  'All Surfaces': 'All Surfaces',
+  "Allow callers to select an approved profile with {header}. Without the header, the DAG's default profile resolution is used.":
+    "Allow callers to select an approved profile with {header}. Without the header, the DAG's default profile resolution is used.",
+  'Are you sure you want to {action} the schedule for "{name}"?':
+    'Are you sure you want to {action} the schedule for "{name}"?',
+  'Are you sure you want to {action} the webhook for "{name}"?':
+    'Are you sure you want to {action} the webhook for "{name}"?',
+  'Are you sure you want to delete remote node "{name}"? This action cannot be undone.':
+    'Are you sure you want to delete remote node "{name}"? This action cannot be undone.',
+  'Are you sure you want to delete user "{username}"? This action cannot be undone.':
+    'Are you sure you want to delete user "{username}"? This action cannot be undone.',
+  'Back one level': 'Back one level',
+  'Back to {name}': 'Back to {name}',
+  Critical: 'Critical',
+  'Create New DAG': 'Create New DAG',
+  'Creating...': 'Creating...',
+  Deactivate: 'Deactivate',
+  'Delete "{id}" from the remote repository and local disk? This will remove the file from both locations.':
+    'Delete "{id}" from the remote repository and local disk? This will remove the file from both locations.',
+  'Delete "{id}" from the remote repository? The file is already missing locally.':
+    'Delete "{id}" from the remote repository? The file is already missing locally.',
+  'Delete "{id}"? The file has local modifications that will be lost. This removes it from both remote and local.':
+    'Delete "{id}"? The file has local modifications that will be lost. This removes it from both remote and local.',
+  'Delete "{id}"? The file has unresolved conflicts. This removes it from both remote and local.':
+    'Delete "{id}"? The file has unresolved conflicts. This removes it from both remote and local.',
+  'Delete "{id}"? This cannot be undone.':
+    'Delete "{id}"? This cannot be undone.',
+  'Discard & Close All': 'Discard & Close All',
+  'Discard & Close Others': 'Discard & Close Others',
+  'Do you really want to cancel auto-retry for the dag-run "{name}"?':
+    'Do you really want to cancel auto-retry for the dag-run "{name}"?',
+  'Do you really want to retry the dag-run "{name}"?':
+    'Do you really want to retry the dag-run "{name}"?',
+  'Do you really want to stop the dag-run "{name}"?':
+    'Do you really want to stop the dag-run "{name}"?',
+  'Do you want to {action} {count} selected DAG run?':
+    'Do you want to {action} {count} selected DAG run?',
+  'Do you want to {action} {count} selected DAG runs?':
+    'Do you want to {action} {count} selected DAG runs?',
+  'Do you want to dequeue {count} selected DAG run?':
+    'Do you want to dequeue {count} selected DAG run?',
+  'Do you want to dequeue {count} selected DAG runs?':
+    'Do you want to dequeue {count} selected DAG runs?',
+  'Enter a name for your new DAG. Only letters, numbers, underscores, dots, and hyphens are allowed.':
+    'Enter a name for your new DAG. Only letters, numbers, underscores, dots, and hyphens are allowed.',
+  'Enter a new name for your DAG. Only letters, numbers, underscores, dots, and hyphens are allowed.':
+    'Enter a new name for your DAG. Only letters, numbers, underscores, dots, and hyphens are allowed.',
+  'Failed at {step}': 'Failed at {step}',
+  Info: 'Info',
+  'Loaded {count} event': 'Loaded {count} event',
+  'Loaded {count} events': 'Loaded {count} events',
+  'Managed by {provider}': 'Managed by {provider}',
+  'No activity': 'No activity',
+  'No runs on {date}': 'No runs on {date}',
+  'Page {page}': 'Page {page}',
+  'Page {page} of {total}': 'Page {page} of {total}',
+  'Partially succeeded': 'Partially succeeded',
+  'Processing {count} request using the existing DAG-run API.':
+    'Processing {count} request using the existing DAG-run API.',
+  'Processing {count} requests using the existing DAG-run API.':
+    'Processing {count} requests using the existing DAG-run API.',
+  Received: 'Received',
+  Regenerate: 'Regenerate',
+  'Regenerate the token for "{name}"? The old token will immediately stop working.':
+    'Regenerate the token for "{name}"? The old token will immediately stop working.',
+  'Rejected at {step}': 'Rejected at {step}',
+  'Remove {count} missing item from sync tracking? Files remain in the remote repository.':
+    'Remove {count} missing item from sync tracking? Files remain in the remote repository.',
+  'Remove {count} missing items from sync tracking? Files remain in the remote repository.':
+    'Remove {count} missing items from sync tracking? Files remain in the remote repository.',
+  'Rename DAG': 'Rename DAG',
+  'Renaming...': 'Renaming...',
+  Reschedule: 'Reschedule',
+  'Run Anyway': 'Run Anyway',
+  'Run one of the example workflows from the {link} to see activity here.':
+    'Run one of the example workflows from the {link} to see activity here.',
+  'Send incidents': 'Send incidents',
+  'Showing {visible} of {total} lines': 'Showing {visible} of {total} lines',
+  'Start a workflow from the {link} to see activity here.':
+    'Start a workflow from the {link} to see activity here.',
+  Stop: 'Stop',
+  'Submit {count} {action} request using the existing DAG-run API.':
+    'Submit {count} {action} request using the existing DAG-run API.',
+  'Submit {count} {action} requests using the existing DAG-run API.':
+    'Submit {count} {action} requests using the existing DAG-run API.',
+  'Submit {count} dequeue request using the existing DAG-run API.':
+    'Submit {count} dequeue request using the existing DAG-run API.',
+  'Submit {count} dequeue requests using the existing DAG-run API.':
+    'Submit {count} dequeue requests using the existing DAG-run API.',
+  'This will remove {count} missing item from the remote repository and sync state. This action cannot be undone.':
+    'This will remove {count} missing item from the remote repository and sync state. This action cannot be undone.',
+  'This will remove {count} missing items from the remote repository and sync state. This action cannot be undone.':
+    'This will remove {count} missing items from the remote repository and sync state. This action cannot be undone.',
+  Waiting: 'Waiting',
+  '{count} fallback': '{count} fallback',
+  '{count} fallbacks': '{count} fallbacks',
+  '{count} line': '{count} line',
+  '{count} lines': '{count} lines',
+  '{count} option': '{count} option',
+  '{count} options': '{count} options',
+  '{count} queued': '{count} queued',
+  '{count} result': '{count} result',
+  '{count} results': '{count} results',
+  '{count} running': '{count} running',
+  '{queued} queued, {running} running': '{queued} queued, {running} running',
+  '{scope} managed by {provider}': '{scope} managed by {provider}',
+  'expires in {count} day': 'expires in {count} day',
+  'expires in {count} days': 'expires in {count} days',
+  my_new_dag: 'my_new_dag',
+  my_renamed_dag: 'my_renamed_dag',
+  not_started: 'not_started',
+  partially_succeeded: 'partially_succeeded',
+  'Raw JSON': 'Raw JSON',
+  'Add "{label}"': 'Add "{label}"',
+  'Are you sure you want to delete {count} items? This cannot be undone.':
+    'Are you sure you want to delete {count} items? This cannot be undone.',
+  'Are you sure you want to delete {name}? This action cannot be undone.':
+    'Are you sure you want to delete {name}? This action cannot be undone.',
+  'Are you sure you want to delete the webhook for "{name}"? Any applications using this token will immediately lose access.':
+    'Are you sure you want to delete the webhook for "{name}"? Any applications using this token will immediately lose access.',
+  'Cleaning up...': 'Cleaning up...',
+  delete: 'delete',
+  retry: 'retry',
+  reschedule: 'reschedule',
+  'Reschedule DAG Run': 'Reschedule DAG Run',
+  'Disable Schedule': 'Disable Schedule',
+  'Disable Webhook': 'Disable Webhook',
+  'Enable Schedule': 'Enable Schedule',
+  'Enable Webhook': 'Enable Webhook',
+  '+{count} more': '+{count} more',
+  '+{count} more step': '+{count} more step',
+  '+{count} more steps': '+{count} more steps',
+  '{count} active': '{count} active',
+  '{count} files': '{count} files',
+  '{count} issue': '{count} issue',
+  '{count} issues': '{count} issues',
+  '{count} loaded': '{count} loaded',
+  '{count} run': '{count} run',
+  '{count} runs': '{count} runs',
+  '{count} route': '{count} route',
+  '{count} routes': '{count} routes',
+  '{count} selectable': '{count} selectable',
+  '{count} workflow': '{count} workflow',
+  '{count} workflows': '{count} workflows',
+  '{count} {type}': '{count} {type}',
+  '{selected} selected of {loaded} loaded':
+    '{selected} selected of {loaded} loaded',
+  '{settled} of {total} tasks settled': '{settled} of {total} tasks settled',
+  '{title} column': '{title} column',
+  '{workspace} overrides layered on top of global defaults':
+    '{workspace} overrides layered on top of global defaults',
+  '{workspace} workspace': '{workspace} workspace',
+  '{workspace} override': '{workspace} override',
+  'Actions for {name}': 'Actions for {name}',
+  'after {steps}': 'after {steps}',
+  Attachments: 'Attachments',
+  'Auto-refresh {state}': 'Auto-refresh {state}',
+  'Close {name}': 'Close {name}',
+  Conflict: 'Conflict',
+  conflict: 'conflict',
+  'Const is not declared': 'Const is not declared',
+  Developer: 'Developer',
+  developer: 'developer',
+  disabled: 'disabled',
+  enabled: 'enabled',
+  'DAG create/edit/delete and execution':
+    'DAG create/edit/delete and execution',
+  'DAG create/edit/delete, execution, and audit logs':
+    'DAG create/edit/delete, execution, and audit logs',
+  'DAG execution only': 'DAG execution only',
+  'Delete {channel}?': 'Delete {channel}?',
+  'Delete {count} Run': 'Delete {count} Run',
+  'Delete {count} Runs': 'Delete {count} Runs',
+  'Delete {count} item': 'Delete {count} item',
+  'Delete {count} items': 'Delete {count} items',
+  'Delete {name}?': 'Delete {name}?',
+  'Delete view': 'Delete view',
+  'Dequeue {count} Run': 'Dequeue {count} Run',
+  'Dequeue {count} Runs': 'Dequeue {count} Runs',
+  'Environment variable is supplied by a run':
+    'Environment variable is supplied by a run',
+  'Every {count} seconds': 'Every {count} seconds',
+  executable: 'executable',
+  'Full access including user management':
+    'Full access including user management',
+  'Individual secrets that DAGs reference with {reference}.':
+    'Individual secrets that DAGs reference with {reference}.',
+  'Inspect {name}': 'Inspect {name}',
+  'Interactive shell connection to local server as {username}':
+    'Interactive shell connection to local server as {username}',
+  'Last updated {time}': 'Last updated {time}',
+  Manager: 'Manager',
+  manager: 'manager',
+  modified: 'modified',
+  Modified: 'Modified',
+  'Mode: remote {remoteMode}, local {localMode}':
+    'Mode: remote {remoteMode}, local {localMode}',
+  'Multiple executions: {count} sub DAG runs':
+    'Multiple executions: {count} sub DAG runs',
+  'Multiple executions: {visible} of {total} sub DAG runs':
+    'Multiple executions: {visible} of {total} sub DAG runs',
+  'No {type}': 'No {type}',
+  'No dags found': 'No dags found',
+  'No Wiki pages found': 'No Wiki pages found',
+  'No {type} matching "{query}"': 'No {type} matching "{query}"',
+  'No {type} with {status} status': 'No {type} with {status} status',
+  'No {type} with {status} status matching "{query}"':
+    'No {type} with {status} status matching "{query}"',
+  Operator: 'Operator',
+  operator: 'operator',
+  'Output name is not declared': 'Output name is not declared',
+  'Overrides Global for {workspace}.': 'Overrides Global for {workspace}.',
+  'Producing step is not a dependency': 'Producing step is not a dependency',
+  'Read-only access': 'Read-only access',
+  regular: 'regular',
+  'Remove {item} from sync tracking? This does not delete the file from the remote repository.':
+    'Remove {item} from sync tracking? This does not delete the file from the remote repository.',
+  'Rename {item} to a new path.': 'Rename {item} to a new path.',
+  'Reschedule {count} Run': 'Reschedule {count} Run',
+  'Reschedule {count} Runs': 'Reschedule {count} Runs',
+  'Reset Password for {username}': 'Reset Password for {username}',
+  'Resolved during a run ({count})': 'Resolved during a run ({count})',
+  'Retry {count} Run': 'Retry {count} Run',
+  'Retry {count} Runs': 'Retry {count} Runs',
+  'Reuse previous output for {step}': 'Reuse previous output for {step}',
+  'Role managed by {provider}': 'Role managed by {provider}',
+  'Running Tasks ({count})': 'Running Tasks ({count})',
+  'Script: {name}': 'Script: {name}',
+  'Secret configured': 'Secret configured',
+  'Secret configured ({preview})': 'Secret configured ({preview})',
+  'Select all {type}': 'Select all {type}',
+  'Select {name} {runId}': 'Select {name} {runId}',
+  'Step references its own output': 'Step references its own output',
+  'Sibling Properties ({count})': 'Sibling Properties ({count})',
+  'Step id does not exist': 'Step id does not exist',
+  'Supporting files': 'Supporting files',
+  synced: 'synced',
+  viewer: 'viewer',
+  'This will remove {count} sync item from the remote repository, local disk, and sync state. This action cannot be undone.':
+    'This will remove {count} sync item from the remote repository, local disk, and sync state. This action cannot be undone.',
+  'This will remove {count} sync items from the remote repository, local disk, and sync state. This action cannot be undone.':
+    'This will remove {count} sync items from the remote repository, local disk, and sync state. This action cannot be undone.',
+  'Toggle auto-refresh (currently {state})':
+    'Toggle auto-refresh (currently {state})',
+  'Toggle {title}': 'Toggle {title}',
+  untracked: 'untracked',
+  Untracked: 'Untracked',
+  'Context field is not defined': 'Context field is not defined',
+  'Update “{name}”': 'Update “{name}”',
+  'Update available: v{current} → {latest} {releaseLink} · Run {command} to update':
+    'Update available: v{current} → {latest} {releaseLink} · Run {command} to update',
+  'Use {up} {down} to navigate DAGs': 'Use {up} {down} to navigate DAGs',
+  'User management features (create, edit, delete) require a {licenseLink}. Password reset is available for all admins.':
+    'User management features (create, edit, delete) require a {licenseLink}. Password reset is available for all admins.',
+  'Value is unavailable in this context':
+    'Value is unavailable in this context',
+  Viewer: 'Viewer',
+  'View artifacts for {name} {runId}': 'View artifacts for {name} {runId}',
+  'View {label}': 'View {label}',
+  'Wiki pages': 'Wiki pages',
+  'Workspace access managed by {provider}':
+    'Workspace access managed by {provider}',
+  'You have unsaved changes in {page}. Discard changes?':
+    'You have unsaved changes in {page}. Discard changes?',
+  '“{name}” will be removed for everyone with access to this workspace scope. Workflows are not affected.':
+    '“{name}” will be removed for everyone with access to this workspace scope. Workflows are not affected.',
+  attachment: 'attachment',
+  attachments: 'attachments',
+  'Audit ID': 'Audit ID',
+  'Credential type': 'Credential type',
+  dag: 'dag',
+  file: 'file',
+  High: 'High',
+  'IP address': 'IP address',
+  Low: 'Low',
+  Medium: 'Medium',
+  missing: 'missing',
+  'Resource type': 'Resource type',
+  Review: 'Review',
+  'supporting file': 'supporting file',
+  'supporting files': 'supporting files',
+  Unpublished: 'Unpublished',
+  wiki: 'wiki',
+  'Wiki page': 'Wiki page',
+  'Wiki page management is not available on this server.':
+    'Wiki page management is not available on this server.',
+  'Graph interactions': 'Graph interactions',
+  '<No log output>': '<No log output>',
+  LIVE: 'LIVE',
+  'More actions': 'More actions',
+  'Profiles & Secrets': 'Profiles & Secrets',
+  "Copy this key now. You won't be able to see it again!":
+    "Copy this key now. You won't be able to see it again!",
+  "Copy this token now. You won't be able to see it again!":
+    "Copy this token now. You won't be able to see it again!",
+  'Are you sure you want to revoke the API key "{name}"? Any applications using this key will immediately lose access.':
+    'Are you sure you want to revoke the API key "{name}"? Any applications using this key will immediately lose access.',
+  "{header} is accepted only for profiles approved in this webhook's profile-selection policy.":
+    "{header} is accepted only for profiles approved in this webhook's profile-selection policy.",
+  'DAG not found: {name}': 'DAG not found: {name}',
+  'Requires operator access in this workspace':
+    'Requires operator access in this workspace',
+  'Name copied': 'Name copied',
+  'Copy name: {name}': 'Copy name: {name}',
+  'Copied name {name}': 'Copied name {name}',
+  'URL configured ({preview})': 'URL configured ({preview})',
+  saved: 'saved',
+  'HMAC secret configured': 'HMAC secret configured',
+  'HMAC secret': 'HMAC secret',
+  'Webhook URL configured ({preview})': 'Webhook URL configured ({preview})',
+  'Slack webhook URL': 'Slack webhook URL',
+  'Bot token configured ({preview})': 'Bot token configured ({preview})',
+  'Bot token': 'Bot token',
+  'Delete workflow?': 'Delete workflow?',
+  'Delete {count} workflows?': 'Delete {count} workflows?',
+  'Auto-refresh is disabled after loading older events':
+    'Auto-refresh is disabled after loading older events',
+  'Write permission required': 'Write permission required',
+  'Push disabled in read-only mode': 'Push disabled in read-only mode',
+  'Publish {count} selected': 'Publish {count} selected',
+  'Your Dagu {license} has expired. Features will be disabled on {date}. Please {action}.':
+    'Your Dagu {license} has expired. Features will be disabled on {date}. Please {action}.',
+  'Your Dagu {license} {expiry}! Please {action} to keep licensed features.':
+    'Your Dagu {license} {expiry}! Please {action} to keep licensed features.',
+  'Your Dagu {license} {expiry}. Please {action}.':
+    'Your Dagu {license} {expiry}. Please {action}.',
+  trial: 'trial',
+  license: 'license',
+  upgrade: 'upgrade',
+  renew: 'renew',
+  'upgrade now': 'upgrade now',
+  'renew now': 'renew now',
+  'upgrade to avoid disruption': 'upgrade to avoid disruption',
+  'renew to avoid disruption': 'renew to avoid disruption',
+  soon: 'soon',
+  'This license is active on more machines than allowed. Deactivate extra machines or contact your administrator.':
+    'This license is active on more machines than allowed. Deactivate extra machines or contact your administrator.',
+  'There is an issue with your license. Contact your administrator.':
+    'There is an issue with your license. Contact your administrator.',
+  'Open {dag} →': 'Open {dag} →',
+  'Wiki pages under {folder} or containing a {link} wikilink appear here.':
+    'Wiki pages under {folder} or containing a {link} wikilink appear here.',
+  'its folder': 'its folder',
+  'This DAG uses {source} routing unless you set a DAG override.':
+    'This DAG uses {source} routing unless you set a DAG override.',
+  'workspace {name}': 'workspace {name}',
+  'This will re-execute {step}. Are you sure?':
+    'This will re-execute {step}. Are you sure?',
+  'Supports tokens such as {dag}, {status}, {error}, and {link}.':
+    'Supports tokens such as {dag}, {status}, {error}, and {link}.',
+  'This DAG inherits {source}.': 'This DAG inherits {source}.',
+  'Showing {start} - {end} of {total} entries':
+    'Showing {start} - {end} of {total} entries',
+  'Page {current} of {total}': 'Page {current} of {total}',
+  'Discard local changes to {item}? This cannot be undone.':
+    'Discard local changes to {item}? This cannot be undone.',
+  'Enter your license or trial key to activate Dagu features. You can obtain a key from {console}.':
+    'Enter your license or trial key to activate Dagu features. You can obtain a key from {console}.',
+  'from {scope}': 'from {scope}',
+  'send to {channel}': 'send to {channel}',
+  'Searching {type}...': 'Searching {type}...',
+  '({visible} of {total})': '({visible} of {total})',
+  'Commands ({count}):': 'Commands ({count}):',
+  'Available Tools ({count})': 'Available Tools ({count})',
+  'Choose how requests authenticate to this webhook. If you enable HMAC, callers must send {signature} computed from the exact signature input shown below. Requests with {profile} sign {input}.':
+    'Choose how requests authenticate to this webhook. If you enable HMAC, callers must send {signature} computed from the exact signature input shown below. Requests with {profile} sign {input}.',
+  'Use your webhook HMAC secret as {variable}.':
+    'Use your webhook HMAC secret as {variable}.',
+  '{payload} is available as the {variable} environment variable.':
+    '{payload} is available as the {variable} environment variable.',
+  'Configure {setting} in the DAG YAML. It can also be inherited from {base} to expose selected request headers as {variable}.':
+    'Configure {setting} in the DAG YAML. It can also be inherited from {base} to expose selected request headers as {variable}.',
+  'Sign the exact input shown in the HMAC examples with your secret and send the hex digest in {header}.':
+    'Sign the exact input shown in the HMAC examples with your secret and send the hex digest in {header}.',
+  'API Docs': 'API Docs',
+  'Authenticated reference': 'Authenticated reference',
+  'REST API Docs': 'REST API Docs',
+  'The reference is loaded from the live authenticated OpenAPI document served by this Dagu instance.':
+    'The reference is loaded from the live authenticated OpenAPI document served by this Dagu instance.',
+  'Loading API reference': 'Loading API reference',
+  'Fetching {path} with the current auth context.':
+    'Fetching {path} with the current auth context.',
+  'Unable to load the API reference': 'Unable to load the API reference',
+  'Try Again': 'Try Again',
+  'Failed to load the API reference.': 'Failed to load the API reference.',
 } as const;
 
 export type StaticMessage = keyof typeof english;
+export type StaticTranslationValues = Record<string, string | number>;
 
 const chinese = {
   ' (custom)': '（自定义）',
@@ -1752,8 +2139,8 @@ const chinese = {
   'Artifact storage is not enabled for this DAG run.':
     '此DAG运行未启用工件存储。',
   Artifacts: '产物',
-  'Artifacts will appear here after a run writes files into':
-    '运行将文件写入以下位置后，产物将显示在此处：',
+  'Artifacts will appear here after a run writes files into {directory}.':
+    '运行将文件写入 {directory} 后，产物将显示在此处。',
   Asc: '升序',
   at: '于',
   'at sign-in.': '登录时。',
@@ -3218,6 +3605,384 @@ const chinese = {
   'YYYY-MM-DD HH:mm:ss': 'YYYY-MM-DD HH:mm:ss',
   'Zoom in': '放大',
   'Zoom out': '缩小',
+  Aborted: '已中止',
+  'All Results': '全部结果',
+  'All Sources': '全部来源',
+  'All Surfaces': '全部界面',
+  "Allow callers to select an approved profile with {header}. Without the header, the DAG's default profile resolution is used.":
+    '允许调用方使用 {header} 选择已批准的配置。未提供该请求头时，将使用 DAG 的默认配置解析。',
+  'Are you sure you want to {action} the schedule for "{name}"?':
+    '确定要{action}“{name}”的计划吗？',
+  'Are you sure you want to {action} the webhook for "{name}"?':
+    '确定要{action}“{name}”的 Webhook 吗？',
+  'Are you sure you want to delete remote node "{name}"? This action cannot be undone.':
+    '确定要删除远程节点“{name}”吗？此操作无法撤销。',
+  'Are you sure you want to delete user "{username}"? This action cannot be undone.':
+    '确定要删除用户“{username}”吗？此操作无法撤销。',
+  'Back one level': '返回上一级',
+  'Back to {name}': '返回 {name}',
+  Critical: '严重',
+  'Create New DAG': '新建 DAG',
+  Deactivate: '停用',
+  'Delete "{id}" from the remote repository and local disk? This will remove the file from both locations.':
+    '要从远程仓库和本地磁盘删除“{id}”吗？该文件将从两个位置移除。',
+  'Delete "{id}" from the remote repository? The file is already missing locally.':
+    '要从远程仓库删除“{id}”吗？该文件在本地已不存在。',
+  'Delete "{id}"? The file has local modifications that will be lost. This removes it from both remote and local.':
+    '要删除“{id}”吗？本地修改将丢失，文件会从远程和本地同时移除。',
+  'Delete "{id}"? The file has unresolved conflicts. This removes it from both remote and local.':
+    '要删除“{id}”吗？该文件存在未解决的冲突，并会从远程和本地同时移除。',
+  'Delete "{id}"? This cannot be undone.': '要删除“{id}”吗？此操作无法撤销。',
+  'Discard & Close All': '放弃更改并全部关闭',
+  'Discard & Close Others': '放弃更改并关闭其他标签页',
+  'Do you really want to cancel auto-retry for the dag-run "{name}"?':
+    '确定要取消 DAG 运行“{name}”的自动重试吗？',
+  'Do you really want to retry the dag-run "{name}"?':
+    '确定要重试 DAG 运行“{name}”吗？',
+  'Do you really want to stop the dag-run "{name}"?':
+    '确定要停止 DAG 运行“{name}”吗？',
+  'Do you want to {action} {count} selected DAG run?':
+    '要{action}选中的 {count} 个 DAG 运行吗？',
+  'Do you want to {action} {count} selected DAG runs?':
+    '要{action}选中的 {count} 个 DAG 运行吗？',
+  'Do you want to dequeue {count} selected DAG run?':
+    '要将选中的 {count} 个 DAG 运行移出队列吗？',
+  'Do you want to dequeue {count} selected DAG runs?':
+    '要将选中的 {count} 个 DAG 运行移出队列吗？',
+  'Enter a name for your new DAG. Only letters, numbers, underscores, dots, and hyphens are allowed.':
+    '输入新 DAG 的名称。仅允许字母、数字、下划线、点和连字符。',
+  'Enter a new name for your DAG. Only letters, numbers, underscores, dots, and hyphens are allowed.':
+    '输入 DAG 的新名称。仅允许字母、数字、下划线、点和连字符。',
+  'Failed at {step}': '在步骤 {step} 失败',
+  Info: '信息',
+  'Loaded {count} event': '已加载 {count} 个事件',
+  'Loaded {count} events': '已加载 {count} 个事件',
+  'Managed by {provider}': '由 {provider} 管理',
+  'No activity': '无活动',
+  'No runs on {date}': '{date} 没有运行记录',
+  'Page {page}': '第 {page} 页',
+  'Page {page} of {total}': '第 {page} 页，共 {total} 页',
+  'Partially succeeded': '部分成功',
+  'Processing {count} request using the existing DAG-run API.':
+    '正在使用现有 DAG 运行 API 处理 {count} 个请求。',
+  'Processing {count} requests using the existing DAG-run API.':
+    '正在使用现有 DAG 运行 API 处理 {count} 个请求。',
+  Received: '已接收',
+  Regenerate: '重新生成',
+  'Regenerate the token for "{name}"? The old token will immediately stop working.':
+    '要重新生成“{name}”的令牌吗？旧令牌将立即失效。',
+  'Rejected at {step}': '在步骤 {step} 被拒绝',
+  'Remove {count} missing item from sync tracking? Files remain in the remote repository.':
+    '从同步跟踪中移除 {count} 个缺失项？文件将保留在远程仓库中。',
+  'Remove {count} missing items from sync tracking? Files remain in the remote repository.':
+    '从同步跟踪中移除 {count} 个缺失项？文件将保留在远程仓库中。',
+  'Rename DAG': '重命名 DAG',
+  Reschedule: '重新调度',
+  'Run Anyway': '仍然运行',
+  'Run one of the example workflows from the {link} to see activity here.':
+    '在{link}运行一个示例工作流，即可在此查看活动。',
+  'Send incidents': '发送事件',
+  'Showing {visible} of {total} lines': '显示 {total} 行中的 {visible} 行',
+  'Start a workflow from the {link} to see activity here.':
+    '在{link}启动工作流，即可在此查看活动。',
+  Stop: '停止',
+  'Submit {count} {action} request using the existing DAG-run API.':
+    '使用现有 DAG 运行 API 提交 {count} 个{action}请求。',
+  'Submit {count} {action} requests using the existing DAG-run API.':
+    '使用现有 DAG 运行 API 提交 {count} 个{action}请求。',
+  'Submit {count} dequeue request using the existing DAG-run API.':
+    '使用现有 DAG 运行 API 提交 {count} 个出队请求。',
+  'Submit {count} dequeue requests using the existing DAG-run API.':
+    '使用现有 DAG 运行 API 提交 {count} 个出队请求。',
+  'This will remove {count} missing item from the remote repository and sync state. This action cannot be undone.':
+    '这会从远程仓库和同步状态中移除 {count} 个缺失项。此操作无法撤销。',
+  'This will remove {count} missing items from the remote repository and sync state. This action cannot be undone.':
+    '这会从远程仓库和同步状态中移除 {count} 个缺失项。此操作无法撤销。',
+  Waiting: '等待中',
+  '{count} fallback': '{count} 个回退',
+  '{count} fallbacks': '{count} 个回退',
+  '{count} line': '{count} 行',
+  '{count} lines': '{count} 行',
+  '{count} option': '{count} 个选项',
+  '{count} options': '{count} 个选项',
+  '{count} queued': '{count} 个排队中',
+  '{count} result': '{count} 个结果',
+  '{count} results': '{count} 个结果',
+  '{count} running': '{count} 个运行中',
+  '{queued} queued, {running} running': '{queued} 个排队中，{running} 个运行中',
+  '{scope} managed by {provider}': '{scope}由 {provider} 管理',
+  'expires in {count} day': '将在 {count} 天后到期',
+  'expires in {count} days': '将在 {count} 天后到期',
+  my_new_dag: 'my_new_dag',
+  my_renamed_dag: 'my_renamed_dag',
+  not_started: '未开始',
+  partially_succeeded: '部分成功',
+  'Raw JSON': '原始 JSON',
+  'Add "{label}"': '添加“{label}”',
+  'Are you sure you want to delete {count} items? This cannot be undone.':
+    '确定要删除 {count} 项吗？此操作无法撤销。',
+  'Are you sure you want to delete {name}? This action cannot be undone.':
+    '确定要删除{name}吗？此操作无法撤销。',
+  'Are you sure you want to delete the webhook for "{name}"? Any applications using this token will immediately lose access.':
+    '确定要删除“{name}”的 Webhook 吗？使用此令牌的应用程序将立即失去访问权限。',
+  'Cleaning up...': '清理中...',
+  delete: '删除',
+  retry: '重试',
+  reschedule: '重新调度',
+  'Reschedule DAG Run': '重新调度 DAG 运行',
+  'Disable Schedule': '禁用计划',
+  'Disable Webhook': '禁用 Webhook',
+  'Enable Schedule': '启用计划',
+  'Enable Webhook': '启用 Webhook',
+  '+{count} more': '另有 {count} 个',
+  '+{count} more step': '另有 {count} 个步骤',
+  '+{count} more steps': '另有 {count} 个步骤',
+  '{count} active': '{count} 个活跃',
+  '{count} files': '{count} 个文件',
+  '{count} issue': '{count} 个问题',
+  '{count} issues': '{count} 个问题',
+  '{count} loaded': '已加载 {count} 个',
+  '{count} run': '{count} 个运行',
+  '{count} runs': '{count} 个运行',
+  '{count} route': '{count} 条路由',
+  '{count} routes': '{count} 条路由',
+  '{count} selectable': '{count} 个可选',
+  '{count} workflow': '{count} 个工作流',
+  '{count} workflows': '{count} 个工作流',
+  '{count} {type}': '{count} 个{type}',
+  '{selected} selected of {loaded} loaded':
+    '已选择 {loaded} 个已加载项中的 {selected} 个',
+  '{settled} of {total} tasks settled':
+    '已处理 {total} 个任务中的 {settled} 个',
+  '{title} column': '{title}列',
+  '{workspace} overrides layered on top of global defaults':
+    '{workspace} 的覆盖配置叠加在全局默认值之上',
+  '{workspace} workspace': '{workspace} 工作区',
+  '{workspace} override': '{workspace} 覆盖配置',
+  'Actions for {name}': '{name} 的操作',
+  'after {steps}': '在 {steps} 之后',
+  Attachments: '附件',
+  'Auto-refresh {state}': '自动刷新已{state}',
+  'Close {name}': '关闭 {name}',
+  Conflict: '冲突',
+  conflict: '冲突',
+  'Const is not declared': '常量未声明',
+  Developer: '开发者',
+  developer: '开发者',
+  disabled: '禁用',
+  enabled: '启用',
+  'DAG create/edit/delete and execution': '创建、编辑、删除和执行 DAG',
+  'DAG create/edit/delete, execution, and audit logs':
+    '创建、编辑、删除和执行 DAG，并查看审计日志',
+  'DAG execution only': '仅执行 DAG',
+  'Delete {channel}?': '删除{channel}？',
+  'Delete {count} Run': '删除 {count} 个 DAG 运行',
+  'Delete {count} Runs': '删除 {count} 个 DAG 运行',
+  'Delete {count} item': '删除 {count} 项',
+  'Delete {count} items': '删除 {count} 项',
+  'Delete {name}?': '删除{name}？',
+  'Delete view': '删除视图',
+  'Dequeue {count} Run': '将 {count} 个 DAG 运行出队',
+  'Dequeue {count} Runs': '将 {count} 个 DAG 运行出队',
+  'Environment variable is supplied by a run': '环境变量由运行提供',
+  'Every {count} seconds': '每 {count} 秒',
+  executable: '可执行',
+  'Full access including user management': '完全访问权限，包括用户管理',
+  'Individual secrets that DAGs reference with {reference}.':
+    'DAG 通过 {reference} 引用的各个密钥。',
+  'Inspect {name}': '检查 {name}',
+  'Interactive shell connection to local server as {username}':
+    '以 {username} 身份连接到本地服务器的交互式 Shell',
+  'Last updated {time}': '最后更新于 {time}',
+  Manager: '管理者',
+  manager: '管理者',
+  modified: '已修改',
+  Modified: '已修改',
+  'Mode: remote {remoteMode}, local {localMode}':
+    '模式：远程为{remoteMode}，本地为{localMode}',
+  'Multiple executions: {count} sub DAG runs':
+    '多次执行：{count} 个子 DAG 运行',
+  'Multiple executions: {visible} of {total} sub DAG runs':
+    '多次执行：显示 {total} 个子 DAG 运行中的 {visible} 个',
+  'No {type}': '没有{type}',
+  'No dags found': '未找到 DAG',
+  'No Wiki pages found': '未找到 Wiki 页面',
+  'No {type} matching "{query}"': '没有匹配“{query}”的{type}',
+  'No {type} with {status} status': '没有状态为{status}的{type}',
+  'No {type} with {status} status matching "{query}"':
+    '没有状态为{status}且匹配“{query}”的{type}',
+  Operator: '操作员',
+  operator: '操作员',
+  'Output name is not declared': '输出名称未声明',
+  'Overrides Global for {workspace}.': '覆盖 {workspace} 的全局规则。',
+  'Producing step is not a dependency': '生成该值的步骤不在依赖项中',
+  'Read-only access': '只读访问权限',
+  regular: '普通',
+  'Remove {item} from sync tracking? This does not delete the file from the remote repository.':
+    '从同步跟踪中移除{item}？这不会从远程仓库删除文件。',
+  'Rename {item} to a new path.': '将{item}重命名到新路径。',
+  'Reschedule {count} Run': '重新调度 {count} 个 DAG 运行',
+  'Reschedule {count} Runs': '重新调度 {count} 个 DAG 运行',
+  'Reset Password for {username}': '重置 {username} 的密码',
+  'Resolved during a run ({count})': '运行时解析（{count}）',
+  'Retry {count} Run': '重试 {count} 个 DAG 运行',
+  'Retry {count} Runs': '重试 {count} 个 DAG 运行',
+  'Reuse previous output for {step}': '复用 {step} 的上次输出',
+  'Role managed by {provider}': '角色由 {provider} 管理',
+  'Running Tasks ({count})': '运行中的任务（{count}）',
+  'Script: {name}': '脚本：{name}',
+  'Secret configured': '密钥已配置',
+  'Secret configured ({preview})': '密钥已配置（{preview}）',
+  'Select all {type}': '选择所有{type}',
+  'Select {name} {runId}': '选择 {name} {runId}',
+  'Step references its own output': '步骤引用了自己的输出',
+  'Sibling Properties ({count})': '同级属性（{count}）',
+  'Step id does not exist': '步骤 ID 不存在',
+  'Supporting files': '支持文件',
+  synced: '已同步',
+  viewer: '查看者',
+  'This will remove {count} sync item from the remote repository, local disk, and sync state. This action cannot be undone.':
+    '这将从远程仓库、本地磁盘和同步状态中移除 {count} 个同步项。此操作无法撤销。',
+  'This will remove {count} sync items from the remote repository, local disk, and sync state. This action cannot be undone.':
+    '这将从远程仓库、本地磁盘和同步状态中移除 {count} 个同步项。此操作无法撤销。',
+  'Toggle auto-refresh (currently {state})': '切换自动刷新（当前{state}）',
+  'Toggle {title}': '切换{title}',
+  untracked: '未跟踪',
+  Untracked: '未跟踪',
+  'Context field is not defined': '上下文字段未定义',
+  'Update “{name}”': '更新“{name}”',
+  'Update available: v{current} → {latest} {releaseLink} · Run {command} to update':
+    '有可用更新：v{current} → {latest} {releaseLink} · 运行 {command} 进行更新',
+  'Use {up} {down} to navigate DAGs': '使用 {up} {down} 浏览 DAG',
+  'User management features (create, edit, delete) require a {licenseLink}. Password reset is available for all admins.':
+    '用户管理功能（创建、编辑、删除）需要{licenseLink}。所有管理员均可重置密码。',
+  'Value is unavailable in this context': '该值在此上下文中不可用',
+  Viewer: '查看者',
+  'View artifacts for {name} {runId}': '查看 {name} {runId} 的制品',
+  'View {label}': '查看{label}',
+  'Wiki pages': 'Wiki 页面',
+  'Workspace access managed by {provider}': '工作区访问权限由 {provider} 管理',
+  'You have unsaved changes in {page}. Discard changes?':
+    '{page}中有未保存的更改。要放弃更改吗？',
+  '“{name}” will be removed for everyone with access to this workspace scope. Workflows are not affected.':
+    '将为有权访问此工作区范围的所有人移除“{name}”。工作流不受影响。',
+  attachment: '附件',
+  attachments: '附件',
+  'Audit ID': '审计 ID',
+  'Credential type': '凭据类型',
+  dag: 'DAG',
+  file: '文件',
+  High: '高',
+  'IP address': 'IP 地址',
+  Low: '低',
+  Medium: '中',
+  missing: '缺失',
+  'Resource type': '资源类型',
+  Review: '审核',
+  'supporting file': '支持文件',
+  'supporting files': '支持文件',
+  Unpublished: '未发布',
+  wiki: 'Wiki',
+  'Wiki page': 'Wiki 页面',
+  'Wiki page management is not available on this server.':
+    '此服务器不提供 Wiki 页面管理功能。',
+  'Graph interactions': '图表交互',
+  '<No log output>': '<无日志输出>',
+  LIVE: '实时',
+  'More actions': '更多操作',
+  'Profiles & Secrets': '配置文件和密钥',
+  "Copy this key now. You won't be able to see it again!":
+    '请立即复制此密钥，之后将无法再次查看！',
+  "Copy this token now. You won't be able to see it again!":
+    '请立即复制此令牌，之后将无法再次查看！',
+  'Are you sure you want to revoke the API key "{name}"? Any applications using this key will immediately lose access.':
+    '确定要撤销 API 密钥“{name}”吗？使用此密钥的所有应用程序将立即失去访问权限。',
+  "{header} is accepted only for profiles approved in this webhook's profile-selection policy.":
+    '{header} 仅接受此 Webhook 的配置文件选择策略中批准的配置文件。',
+  'DAG not found: {name}': '找不到 DAG：{name}',
+  'Requires operator access in this workspace': '此工作区需要操作员权限',
+  'Name copied': '名称已复制',
+  'Copy name: {name}': '复制名称：{name}',
+  'Copied name {name}': '已复制名称 {name}',
+  'URL configured ({preview})': 'URL 已配置（{preview}）',
+  saved: '已保存',
+  'HMAC secret configured': 'HMAC 密钥已配置',
+  'HMAC secret': 'HMAC 密钥',
+  'Webhook URL configured ({preview})': 'Webhook URL 已配置（{preview}）',
+  'Slack webhook URL': 'Slack Webhook URL',
+  'Bot token configured ({preview})': '机器人令牌已配置（{preview}）',
+  'Bot token': '机器人令牌',
+  'Delete workflow?': '删除工作流？',
+  'Delete {count} workflows?': '删除 {count} 个工作流？',
+  'Auto-refresh is disabled after loading older events':
+    '加载较早事件后，自动刷新已禁用',
+  'Write permission required': '需要写入权限',
+  'Push disabled in read-only mode': '只读模式下已禁用推送',
+  'Publish {count} selected': '发布选中的 {count} 项',
+  'Your Dagu {license} has expired. Features will be disabled on {date}. Please {action}.':
+    '您的 Dagu {license}已过期。功能将于 {date} 停用。请{action}。',
+  'Your Dagu {license} {expiry}! Please {action} to keep licensed features.':
+    '您的 Dagu {license}{expiry}！请{action}以继续使用许可功能。',
+  'Your Dagu {license} {expiry}. Please {action}.':
+    '您的 Dagu {license}{expiry}。请{action}。',
+  trial: '试用版',
+  license: '许可证',
+  upgrade: '升级',
+  renew: '续订',
+  'upgrade now': '立即升级',
+  'renew now': '立即续订',
+  'upgrade to avoid disruption': '升级以避免服务中断',
+  'renew to avoid disruption': '续订以避免服务中断',
+  soon: '不久后',
+  'This license is active on more machines than allowed. Deactivate extra machines or contact your administrator.':
+    '此许可证的激活设备数超过限制。请停用多余设备或联系管理员。',
+  'There is an issue with your license. Contact your administrator.':
+    '许可证存在问题。请联系管理员。',
+  'Open {dag} →': '打开 {dag} →',
+  'Wiki pages under {folder} or containing a {link} wikilink appear here.':
+    '{folder}下或包含 {link} Wiki 链接的页面会显示在此处。',
+  'its folder': '其文件夹',
+  'This DAG uses {source} routing unless you set a DAG override.':
+    '除非设置 DAG 覆盖配置，否则此 DAG 使用{source}路由。',
+  'workspace {name}': '工作区 {name}',
+  'This will re-execute {step}. Are you sure?': '这将重新执行{step}。确定吗？',
+  'Supports tokens such as {dag}, {status}, {error}, and {link}.':
+    '支持 {dag}、{status}、{error} 和 {link} 等令牌。',
+  'This DAG inherits {source}.': '此 DAG 继承{source}。',
+  'Showing {start} - {end} of {total} entries':
+    '显示第 {start} 至 {end} 条，共 {total} 条',
+  'Page {current} of {total}': '第 {current} 页，共 {total} 页',
+  'Discard local changes to {item}? This cannot be undone.':
+    '放弃对{item}的本地更改？此操作无法撤销。',
+  'Enter your license or trial key to activate Dagu features. You can obtain a key from {console}.':
+    '输入许可证或试用密钥以激活 Dagu 功能。可从 {console} 获取密钥。',
+  'from {scope}': '来自{scope}',
+  'send to {channel}': '发送到{channel}',
+  'Searching {type}...': '正在搜索{type}...',
+  '({visible} of {total})': '（{total} 个中的 {visible} 个）',
+  'Commands ({count}):': '命令（{count}）：',
+  'Available Tools ({count})': '可用工具（{count}）',
+  'Choose how requests authenticate to this webhook. If you enable HMAC, callers must send {signature} computed from the exact signature input shown below. Requests with {profile} sign {input}.':
+    '选择请求对此 Webhook 的身份验证方式。启用 HMAC 后，调用方必须发送根据下方确切签名输入计算的 {signature}。带有 {profile} 的请求对 {input} 签名。',
+  'Use your webhook HMAC secret as {variable}.':
+    '将 Webhook HMAC 密钥用作 {variable}。',
+  '{payload} is available as the {variable} environment variable.':
+    '{payload} 可通过环境变量 {variable} 获取。',
+  'Configure {setting} in the DAG YAML. It can also be inherited from {base} to expose selected request headers as {variable}.':
+    '在 DAG YAML 中配置 {setting}。也可从 {base} 继承，将所选请求标头公开为 {variable}。',
+  'Sign the exact input shown in the HMAC examples with your secret and send the hex digest in {header}.':
+    '使用密钥对 HMAC 示例中显示的确切输入进行签名，并在 {header} 中发送十六进制摘要。',
+  'API Docs': 'API 文档',
+  'Authenticated reference': '已认证的参考文档',
+  'REST API Docs': 'REST API 文档',
+  'The reference is loaded from the live authenticated OpenAPI document served by this Dagu instance.':
+    '此参考文档从当前 Dagu 实例提供的实时已认证 OpenAPI 文档加载。',
+  'Loading API reference': '正在加载 API 参考文档',
+  'Fetching {path} with the current auth context.':
+    '正在使用当前认证上下文获取 {path}。',
+  'Unable to load the API reference': '无法加载 API 参考文档',
+  'Try Again': '重试',
+  'Failed to load the API reference.': '加载 API 参考文档失败。',
 } as const satisfies Record<StaticMessage, string>;
 
 const japanese = {
@@ -3341,8 +4106,8 @@ const japanese = {
   'Artifact storage is not enabled for this DAG run.':
     'このDAG実行では成果物ストレージが有効になっていません。',
   Artifacts: '成果物',
-  'Artifacts will appear here after a run writes files into':
-    '実行がファイルを書き込むと、ここに成果物が表示されます。対象:',
+  'Artifacts will appear here after a run writes files into {directory}.':
+    '実行が {directory} にファイルを書き込むと、成果物がここに表示されます。',
   Asc: '昇順',
   at: '日時:',
   'at sign-in.': 'サインイン時。',
@@ -3516,7 +4281,6 @@ const japanese = {
   'Create your first workflow': '最初のワークフローを作成',
   Created: '作成済み',
   'Created:': '作成日:',
-  'Creating...': '作成中...',
   'Credential ID': '認証情報 ID',
   Ctrl: 'Ctrl',
   Current: '現在',
@@ -4866,6 +5630,396 @@ const japanese = {
   'YYYY-MM-DD HH:mm:ss': 'YYYY-MM-DD HH:mm:ss',
   'Zoom in': '拡大',
   'Zoom out': '縮小',
+  Aborted: '中止',
+  'All Results': 'すべての結果',
+  'All Sources': 'すべてのソース',
+  'All Surfaces': 'すべての画面',
+  "Allow callers to select an approved profile with {header}. Without the header, the DAG's default profile resolution is used.":
+    '呼び出し元は {header} を使って承認済みプロファイルを選択できます。このヘッダーがない場合は、DAG のデフォルトプロファイル解決が使用されます。',
+  'Are you sure you want to {action} the schedule for "{name}"?':
+    '「{name}」のスケジュールを{action}にしますか？',
+  'Are you sure you want to {action} the webhook for "{name}"?':
+    '「{name}」の Webhook を{action}にしますか？',
+  'Are you sure you want to delete remote node "{name}"? This action cannot be undone.':
+    'リモートノード「{name}」を削除しますか？この操作は元に戻せません。',
+  'Are you sure you want to delete user "{username}"? This action cannot be undone.':
+    'ユーザー「{username}」を削除しますか？この操作は元に戻せません。',
+  'Back one level': '1 つ前の階層に戻る',
+  'Back to {name}': '{name} に戻る',
+  Critical: '重大',
+  'Create New DAG': '新しい DAG を作成',
+  'Creating...': '作成中...',
+  Deactivate: '無効化',
+  'Delete "{id}" from the remote repository and local disk? This will remove the file from both locations.':
+    '「{id}」をリモートリポジトリとローカルディスクから削除しますか？両方からファイルが削除されます。',
+  'Delete "{id}" from the remote repository? The file is already missing locally.':
+    '「{id}」をリモートリポジトリから削除しますか？ローカルにはすでにファイルがありません。',
+  'Delete "{id}"? The file has local modifications that will be lost. This removes it from both remote and local.':
+    '「{id}」を削除しますか？ローカルの変更は失われ、リモートとローカルの両方から削除されます。',
+  'Delete "{id}"? The file has unresolved conflicts. This removes it from both remote and local.':
+    '「{id}」を削除しますか？未解決の競合があり、リモートとローカルの両方から削除されます。',
+  'Delete "{id}"? This cannot be undone.':
+    '「{id}」を削除しますか？この操作は元に戻せません。',
+  'Discard & Close All': '破棄してすべて閉じる',
+  'Discard & Close Others': '破棄して他を閉じる',
+  'Do you really want to cancel auto-retry for the dag-run "{name}"?':
+    'DAG 実行「{name}」の自動再試行をキャンセルしますか？',
+  'Do you really want to retry the dag-run "{name}"?':
+    'DAG 実行「{name}」を再試行しますか？',
+  'Do you really want to stop the dag-run "{name}"?':
+    'DAG 実行「{name}」を停止しますか？',
+  'Do you want to {action} {count} selected DAG run?':
+    '選択した {count} 件の DAG 実行を{action}しますか？',
+  'Do you want to {action} {count} selected DAG runs?':
+    '選択した {count} 件の DAG 実行を{action}しますか？',
+  'Do you want to dequeue {count} selected DAG run?':
+    '選択した {count} 件の DAG 実行をキューから削除しますか？',
+  'Do you want to dequeue {count} selected DAG runs?':
+    '選択した {count} 件の DAG 実行をキューから削除しますか？',
+  'Enter a name for your new DAG. Only letters, numbers, underscores, dots, and hyphens are allowed.':
+    '新しい DAG の名前を入力してください。使用できるのは英数字、アンダースコア、ピリオド、ハイフンです。',
+  'Enter a new name for your DAG. Only letters, numbers, underscores, dots, and hyphens are allowed.':
+    'DAG の新しい名前を入力してください。使用できるのは英数字、アンダースコア、ピリオド、ハイフンです。',
+  'Failed at {step}': 'ステップ {step} で失敗',
+  Info: '情報',
+  'Loaded {count} event': '{count} 件のイベントを読み込みました',
+  'Loaded {count} events': '{count} 件のイベントを読み込みました',
+  'Managed by {provider}': '{provider} による管理',
+  'No activity': 'アクティビティなし',
+  'No runs on {date}': '{date} の実行はありません',
+  'Page {page}': '{page} ページ',
+  'Page {page} of {total}': '{total} ページ中 {page} ページ',
+  'Partially succeeded': '一部成功',
+  'Processing {count} request using the existing DAG-run API.':
+    '既存の DAG 実行 API で {count} 件のリクエストを処理中です。',
+  'Processing {count} requests using the existing DAG-run API.':
+    '既存の DAG 実行 API で {count} 件のリクエストを処理中です。',
+  Received: '受信済み',
+  Regenerate: '再生成',
+  'Regenerate the token for "{name}"? The old token will immediately stop working.':
+    '「{name}」のトークンを再生成しますか？古いトークンは直ちに使用できなくなります。',
+  'Rejected at {step}': 'ステップ {step} で拒否',
+  'Remove {count} missing item from sync tracking? Files remain in the remote repository.':
+    '同期管理から欠落アイテムを {count} 件削除しますか？ファイルはリモートリポジトリに残ります。',
+  'Remove {count} missing items from sync tracking? Files remain in the remote repository.':
+    '同期管理から欠落アイテムを {count} 件削除しますか？ファイルはリモートリポジトリに残ります。',
+  'Rename DAG': 'DAG の名前を変更',
+  Reschedule: '再スケジュール',
+  'Run Anyway': 'そのまま実行',
+  'Run one of the example workflows from the {link} to see activity here.':
+    '{link}からサンプルワークフローを実行すると、ここにアクティビティが表示されます。',
+  'Send incidents': 'インシデントを送信',
+  'Showing {visible} of {total} lines': '{total} 行中 {visible} 行を表示',
+  'Start a workflow from the {link} to see activity here.':
+    '{link}からワークフローを開始すると、ここにアクティビティが表示されます。',
+  Stop: '停止',
+  'Submit {count} {action} request using the existing DAG-run API.':
+    '既存の DAG 実行 API で{action}リクエストを {count} 件送信します。',
+  'Submit {count} {action} requests using the existing DAG-run API.':
+    '既存の DAG 実行 API で{action}リクエストを {count} 件送信します。',
+  'Submit {count} dequeue request using the existing DAG-run API.':
+    '既存の DAG 実行 API でキュー削除リクエストを {count} 件送信します。',
+  'Submit {count} dequeue requests using the existing DAG-run API.':
+    '既存の DAG 実行 API でキュー削除リクエストを {count} 件送信します。',
+  'This will remove {count} missing item from the remote repository and sync state. This action cannot be undone.':
+    'リモートリポジトリと同期状態から欠落アイテムを {count} 件削除します。この操作は元に戻せません。',
+  'This will remove {count} missing items from the remote repository and sync state. This action cannot be undone.':
+    'リモートリポジトリと同期状態から欠落アイテムを {count} 件削除します。この操作は元に戻せません。',
+  Waiting: '待機中',
+  '{count} fallback': '{count} 件のフォールバック',
+  '{count} fallbacks': '{count} 件のフォールバック',
+  '{count} line': '{count} 行',
+  '{count} lines': '{count} 行',
+  '{count} option': '{count} 個のオプション',
+  '{count} options': '{count} 個のオプション',
+  '{count} queued': '{count} 件がキュー待ち',
+  '{count} result': '{count} 件の結果',
+  '{count} results': '{count} 件の結果',
+  '{count} running': '{count} 件が実行中',
+  '{queued} queued, {running} running':
+    '{queued} 件がキュー待ち、{running} 件が実行中',
+  '{scope} managed by {provider}': '{scope}は {provider} が管理',
+  'expires in {count} day': 'あと {count} 日で期限切れ',
+  'expires in {count} days': 'あと {count} 日で期限切れ',
+  my_new_dag: 'my_new_dag',
+  my_renamed_dag: 'my_renamed_dag',
+  not_started: '未開始',
+  partially_succeeded: '一部成功',
+  'Raw JSON': '生の JSON',
+  'Add "{label}"': '「{label}」を追加',
+  'Are you sure you want to delete {count} items? This cannot be undone.':
+    '{count} 件を削除しますか？この操作は元に戻せません。',
+  'Are you sure you want to delete {name}? This action cannot be undone.':
+    '{name} を削除しますか？この操作は元に戻せません。',
+  'Are you sure you want to delete the webhook for "{name}"? Any applications using this token will immediately lose access.':
+    '「{name}」の Webhook を削除しますか？このトークンを使用するアプリケーションは直ちにアクセスできなくなります。',
+  'Cleaning up...': 'クリーンアップ中...',
+  delete: '削除',
+  retry: '再試行',
+  reschedule: '再スケジュール',
+  'Reschedule DAG Run': 'DAG 実行を再スケジュール',
+  'Disable Schedule': 'スケジュールを無効化',
+  'Disable Webhook': 'Webhook を無効化',
+  'Enable Schedule': 'スケジュールを有効化',
+  'Enable Webhook': 'Webhook を有効化',
+  '+{count} more': '他 {count} 件',
+  '+{count} more step': '他 {count} ステップ',
+  '+{count} more steps': '他 {count} ステップ',
+  '{count} active': '{count} 件が稼働中',
+  '{count} files': '{count} 個のファイル',
+  '{count} issue': '{count} 件の問題',
+  '{count} issues': '{count} 件の問題',
+  '{count} loaded': '{count} 件を読み込み済み',
+  '{count} run': '{count} 件の実行',
+  '{count} runs': '{count} 件の実行',
+  '{count} route': '{count} 件のルート',
+  '{count} routes': '{count} 件のルート',
+  '{count} selectable': '{count} 件を選択可能',
+  '{count} workflow': '{count} 件のワークフロー',
+  '{count} workflows': '{count} 件のワークフロー',
+  '{count} {type}': '{type} {count} 件',
+  '{selected} selected of {loaded} loaded':
+    '読み込み済み {loaded} 件中 {selected} 件を選択',
+  '{settled} of {total} tasks settled':
+    '{total} 件中 {settled} 件のタスクを処理済み',
+  '{title} column': '{title}列',
+  '{workspace} overrides layered on top of global defaults':
+    '{workspace} の上書き設定をグローバル既定値に重ねて適用',
+  '{workspace} workspace': '{workspace} ワークスペース',
+  '{workspace} override': '{workspace} の上書き設定',
+  'Actions for {name}': '{name} のアクション',
+  'after {steps}': '{steps} の後',
+  Attachments: '添付ファイル',
+  'Auto-refresh {state}': '自動更新{state}',
+  'Close {name}': '{name} を閉じる',
+  Conflict: '競合',
+  conflict: '競合',
+  'Const is not declared': '定数が宣言されていません',
+  Developer: '開発者',
+  developer: '開発者',
+  disabled: '無効',
+  enabled: '有効',
+  'DAG create/edit/delete and execution': 'DAG の作成・編集・削除と実行',
+  'DAG create/edit/delete, execution, and audit logs':
+    'DAG の作成・編集・削除と実行、監査ログの閲覧',
+  'DAG execution only': 'DAG の実行のみ',
+  'Delete {channel}?': '{channel}を削除しますか？',
+  'Delete {count} Run': 'DAG 実行を {count} 件削除',
+  'Delete {count} Runs': 'DAG 実行を {count} 件削除',
+  'Delete {count} item': '{count} 件を削除',
+  'Delete {count} items': '{count} 件を削除',
+  'Delete {name}?': '{name}を削除しますか？',
+  'Delete view': 'ビューを削除',
+  'Dequeue {count} Run': 'DAG 実行を {count} 件キューから削除',
+  'Dequeue {count} Runs': 'DAG 実行を {count} 件キューから削除',
+  'Environment variable is supplied by a run': '環境変数は実行時に指定されます',
+  'Every {count} seconds': '{count} 秒ごと',
+  executable: '実行可能',
+  'Full access including user management':
+    'ユーザー管理を含むすべてのアクセス権',
+  'Individual secrets that DAGs reference with {reference}.':
+    'DAG が {reference} で参照する個別のシークレットです。',
+  'Inspect {name}': '{name} を確認',
+  'Interactive shell connection to local server as {username}':
+    '{username} としてローカルサーバーへ対話型シェル接続',
+  'Last updated {time}': '最終更新：{time}',
+  Manager: 'マネージャー',
+  manager: 'マネージャー',
+  modified: '変更済み',
+  Modified: '変更済み',
+  'Mode: remote {remoteMode}, local {localMode}':
+    'モード：リモートは{remoteMode}、ローカルは{localMode}',
+  'Multiple executions: {count} sub DAG runs':
+    '複数実行：サブ DAG 実行 {count} 件',
+  'Multiple executions: {visible} of {total} sub DAG runs':
+    '複数実行：サブ DAG 実行 {total} 件中 {visible} 件',
+  'No {type}': '{type}はありません',
+  'No dags found': 'DAG が見つかりません',
+  'No Wiki pages found': 'Wiki ページが見つかりません',
+  'No {type} matching "{query}"': '「{query}」に一致する{type}はありません',
+  'No {type} with {status} status': 'ステータスが{status}の{type}はありません',
+  'No {type} with {status} status matching "{query}"':
+    'ステータスが{status}で「{query}」に一致する{type}はありません',
+  Operator: 'オペレーター',
+  operator: 'オペレーター',
+  'Output name is not declared': '出力名が宣言されていません',
+  'Overrides Global for {workspace}.':
+    '{workspace} のグローバル設定を上書きします。',
+  'Producing step is not a dependency':
+    '値を生成するステップが依存関係にありません',
+  'Read-only access': '読み取り専用アクセス',
+  regular: '通常',
+  'Remove {item} from sync tracking? This does not delete the file from the remote repository.':
+    '{item}を同期管理から外しますか？リモートリポジトリのファイルは削除されません。',
+  'Rename {item} to a new path.': '{item}のパスを変更します。',
+  'Reschedule {count} Run': 'DAG 実行を {count} 件再スケジュール',
+  'Reschedule {count} Runs': 'DAG 実行を {count} 件再スケジュール',
+  'Reset Password for {username}': '{username} のパスワードをリセット',
+  'Resolved during a run ({count})': '実行時に解決（{count}）',
+  'Retry {count} Run': 'DAG 実行を {count} 件再試行',
+  'Retry {count} Runs': 'DAG 実行を {count} 件再試行',
+  'Reuse previous output for {step}': '{step} の前回の出力を再利用',
+  'Role managed by {provider}': 'ロールは {provider} が管理',
+  'Running Tasks ({count})': '実行中のタスク（{count}）',
+  'Script: {name}': 'スクリプト：{name}',
+  'Secret configured': 'シークレット設定済み',
+  'Secret configured ({preview})': 'シークレット設定済み（{preview}）',
+  'Select all {type}': 'すべての{type}を選択',
+  'Select {name} {runId}': '{name} {runId} を選択',
+  'Step references its own output': 'ステップが自身の出力を参照しています',
+  'Sibling Properties ({count})': '同階層のプロパティ（{count}）',
+  'Step id does not exist': 'ステップ ID が存在しません',
+  'Supporting files': '補助ファイル',
+  synced: '同期済み',
+  viewer: '閲覧者',
+  'This will remove {count} sync item from the remote repository, local disk, and sync state. This action cannot be undone.':
+    'リモートリポジトリ、ローカルディスク、同期状態から同期アイテムを {count} 件削除します。この操作は元に戻せません。',
+  'This will remove {count} sync items from the remote repository, local disk, and sync state. This action cannot be undone.':
+    'リモートリポジトリ、ローカルディスク、同期状態から同期アイテムを {count} 件削除します。この操作は元に戻せません。',
+  'Toggle auto-refresh (currently {state})':
+    '自動更新を切り替え（現在{state}）',
+  'Toggle {title}': '{title}を切り替え',
+  untracked: '未追跡',
+  Untracked: '未追跡',
+  'Context field is not defined': 'コンテキストフィールドが定義されていません',
+  'Update “{name}”': '「{name}」を更新',
+  'Update available: v{current} → {latest} {releaseLink} · Run {command} to update':
+    '更新があります：v{current} → {latest} {releaseLink} · {command} を実行して更新',
+  'Use {up} {down} to navigate DAGs': '{up} {down} で DAG 間を移動',
+  'User management features (create, edit, delete) require a {licenseLink}. Password reset is available for all admins.':
+    'ユーザー管理機能（作成・編集・削除）には{licenseLink}が必要です。すべての管理者がパスワードをリセットできます。',
+  'Value is unavailable in this context':
+    'このコンテキストでは値を利用できません',
+  Viewer: '閲覧者',
+  'View artifacts for {name} {runId}': '{name} {runId} の成果物を表示',
+  'View {label}': '{label}を表示',
+  'Wiki pages': 'Wiki ページ',
+  'Workspace access managed by {provider}':
+    'ワークスペースアクセスは {provider} が管理',
+  'You have unsaved changes in {page}. Discard changes?':
+    '{page}に未保存の変更があります。変更を破棄しますか？',
+  '“{name}” will be removed for everyone with access to this workspace scope. Workflows are not affected.':
+    'このワークスペーススコープにアクセスできる全員から「{name}」を削除します。ワークフローには影響しません。',
+  attachment: '添付ファイル',
+  attachments: '添付ファイル',
+  'Audit ID': '監査 ID',
+  'Credential type': '認証情報タイプ',
+  dag: 'DAG',
+  file: 'ファイル',
+  High: '高',
+  'IP address': 'IP アドレス',
+  Low: '低',
+  Medium: '中',
+  missing: '欠落',
+  'Resource type': 'リソースタイプ',
+  Review: 'レビュー',
+  'supporting file': '補助ファイル',
+  'supporting files': '補助ファイル',
+  Unpublished: '未公開',
+  wiki: 'Wiki',
+  'Wiki page': 'Wiki ページ',
+  'Wiki page management is not available on this server.':
+    'このサーバーでは Wiki ページ管理を利用できません。',
+  'Graph interactions': 'グラフ操作',
+  '<No log output>': '<ログ出力なし>',
+  LIVE: 'ライブ',
+  'More actions': 'その他の操作',
+  'Profiles & Secrets': 'プロファイルとシークレット',
+  "Copy this key now. You won't be able to see it again!":
+    'このキーは後から確認できません。今すぐコピーしてください。',
+  "Copy this token now. You won't be able to see it again!":
+    'このトークンは後から確認できません。今すぐコピーしてください。',
+  'Are you sure you want to revoke the API key "{name}"? Any applications using this key will immediately lose access.':
+    'API キー「{name}」を取り消しますか？このキーを使用するすべてのアプリケーションは直ちにアクセスできなくなります。',
+  "{header} is accepted only for profiles approved in this webhook's profile-selection policy.":
+    '{header} は、この Webhook のプロファイル選択ポリシーで許可されたプロファイルにのみ使用できます。',
+  'DAG not found: {name}': 'DAG「{name}」が見つかりません',
+  'Requires operator access in this workspace':
+    'このワークスペースではオペレーター権限が必要です',
+  'Name copied': '名前をコピーしました',
+  'Copy name: {name}': '名前をコピー：{name}',
+  'Copied name {name}': '{name} をコピーしました',
+  'URL configured ({preview})': 'URL 設定済み（{preview}）',
+  saved: '保存済み',
+  'HMAC secret configured': 'HMAC シークレット設定済み',
+  'HMAC secret': 'HMAC シークレット',
+  'Webhook URL configured ({preview})': 'Webhook URL 設定済み（{preview}）',
+  'Slack webhook URL': 'Slack Webhook URL',
+  'Bot token configured ({preview})': 'Bot トークン設定済み（{preview}）',
+  'Bot token': 'Bot トークン',
+  'Delete workflow?': 'ワークフローを削除しますか？',
+  'Delete {count} workflows?': '{count} 件のワークフローを削除しますか？',
+  'Auto-refresh is disabled after loading older events':
+    '古いイベントを読み込んだ後、自動更新は無効になります',
+  'Write permission required': '書き込み権限が必要です',
+  'Push disabled in read-only mode': '読み取り専用モードではプッシュできません',
+  'Publish {count} selected': '選択した {count} 件を公開',
+  'Your Dagu {license} has expired. Features will be disabled on {date}. Please {action}.':
+    'Dagu の{license}は期限切れです。{date}に機能が無効になります。{action}してください。',
+  'Your Dagu {license} {expiry}! Please {action} to keep licensed features.':
+    'Dagu の{license}は{expiry}。ライセンス機能を継続するには{action}してください。',
+  'Your Dagu {license} {expiry}. Please {action}.':
+    'Dagu の{license}は{expiry}。{action}してください。',
+  trial: 'トライアル',
+  license: 'ライセンス',
+  upgrade: 'アップグレード',
+  renew: '更新',
+  'upgrade now': '今すぐアップグレード',
+  'renew now': '今すぐ更新',
+  'upgrade to avoid disruption': '中断を避けるためにアップグレード',
+  'renew to avoid disruption': '中断を避けるために更新',
+  soon: 'まもなく',
+  'This license is active on more machines than allowed. Deactivate extra machines or contact your administrator.':
+    'このライセンスは上限を超えるマシンで有効です。余分なマシンを無効にするか、管理者に連絡してください。',
+  'There is an issue with your license. Contact your administrator.':
+    'ライセンスに問題があります。管理者に連絡してください。',
+  'Open {dag} →': '{dag} を開く →',
+  'Wiki pages under {folder} or containing a {link} wikilink appear here.':
+    '{folder}以下、または {link} ウィキリンクを含む Wiki ページがここに表示されます。',
+  'its folder': 'そのフォルダー',
+  'This DAG uses {source} routing unless you set a DAG override.':
+    'DAG の上書きを設定しない限り、この DAG は{source}ルーティングを使用します。',
+  'workspace {name}': 'ワークスペース {name}',
+  'This will re-execute {step}. Are you sure?':
+    '{step}を再実行します。よろしいですか？',
+  'Supports tokens such as {dag}, {status}, {error}, and {link}.':
+    '{dag}、{status}、{error}、{link} などのトークンを使用できます。',
+  'This DAG inherits {source}.': 'この DAG は{source}を継承します。',
+  'Showing {start} - {end} of {total} entries':
+    '全 {total} 件中 {start}～{end} 件を表示',
+  'Page {current} of {total}': '{total} ページ中 {current} ページ',
+  'Discard local changes to {item}? This cannot be undone.':
+    '{item}のローカル変更を破棄しますか？この操作は元に戻せません。',
+  'Enter your license or trial key to activate Dagu features. You can obtain a key from {console}.':
+    'ライセンスまたはトライアルキーを入力して Dagu の機能を有効にします。キーは {console} から取得できます。',
+  'from {scope}': '{scope}から',
+  'send to {channel}': '{channel}に送信',
+  'Searching {type}...': '{type}を検索中...',
+  '({visible} of {total})': '（{total} 件中 {visible} 件）',
+  'Commands ({count}):': 'コマンド（{count} 件）：',
+  'Available Tools ({count})': '利用可能なツール（{count} 件）',
+  'Choose how requests authenticate to this webhook. If you enable HMAC, callers must send {signature} computed from the exact signature input shown below. Requests with {profile} sign {input}.':
+    'この Webhook へのリクエスト認証方法を選択します。HMAC を有効にした場合、呼び出し元は下記の正確な署名入力から計算した {signature} を送信する必要があります。{profile} を含むリクエストでは {input} に署名します。',
+  'Use your webhook HMAC secret as {variable}.':
+    'Webhook の HMAC シークレットを {variable} として使用します。',
+  '{payload} is available as the {variable} environment variable.':
+    '{payload} は環境変数 {variable} として利用できます。',
+  'Configure {setting} in the DAG YAML. It can also be inherited from {base} to expose selected request headers as {variable}.':
+    'DAG YAML で {setting} を設定します。{base} から継承して、選択したリクエストヘッダーを {variable} として公開することもできます。',
+  'Sign the exact input shown in the HMAC examples with your secret and send the hex digest in {header}.':
+    'HMAC の例に示された正確な入力をシークレットで署名し、16 進ダイジェストを {header} で送信します。',
+  'API Docs': 'API ドキュメント',
+  'Authenticated reference': '認証済みリファレンス',
+  'REST API Docs': 'REST API ドキュメント',
+  'The reference is loaded from the live authenticated OpenAPI document served by this Dagu instance.':
+    'このリファレンスは、この Dagu インスタンスが提供する認証済みの最新 OpenAPI ドキュメントから読み込まれます。',
+  'Loading API reference': 'API リファレンスを読み込み中',
+  'Fetching {path} with the current auth context.':
+    '現在の認証コンテキストで {path} を取得しています。',
+  'Unable to load the API reference': 'API リファレンスを読み込めません',
+  'Try Again': '再試行',
+  'Failed to load the API reference.':
+    'API リファレンスを読み込めませんでした。',
 } as const satisfies Record<StaticMessage, string>;
 
 export const staticMessages = {
@@ -4874,10 +6028,21 @@ export const staticMessages = {
   ja: japanese,
 } satisfies Record<Locale, Record<StaticMessage, string>>;
 
-export function translateStatic(locale: Locale, source: string): string {
-  if (locale === 'en') {
-    return source;
+export function translateStatic(
+  locale: Locale,
+  source: string,
+  values?: StaticTranslationValues
+): string {
+  const message =
+    locale === 'en'
+      ? source
+      : (staticMessages[locale][source as StaticMessage] ?? source);
+  if (!values) {
+    return message;
   }
 
-  return staticMessages[locale][source as StaticMessage] ?? source;
+  return message.replace(/\{(\w+)\}/g, (placeholder, name: string) => {
+    const value = values[name];
+    return value === undefined ? placeholder : String(value);
+  });
 }

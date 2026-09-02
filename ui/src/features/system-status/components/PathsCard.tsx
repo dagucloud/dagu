@@ -104,68 +104,102 @@ function PathsCard() {
     <>
       <Button onClick={() => setOpen(true)}>
         <FolderOpen className="h-4 w-4" />
-        <I18nText text={"Paths"} />
+        <I18nText text={'Paths'} />
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-xl p-0 overflow-hidden">
-          <DialogHeader className="px-4 pt-4 pb-3 border-b border-border">
+          <DialogHeader className="border-b border-border px-3 py-2">
             <DialogTitle className="flex items-center gap-2 text-base">
               <FolderOpen className="h-4 w-4 text-primary" />
-              <I18nText text={"System Paths"} />
+              <I18nText text={'System Paths'} />
             </DialogTitle>
             <p className="text-xs text-muted-foreground mt-1">
-              <I18nText text={"Click any path to copy to clipboard"} />
+              <I18nText text={'Click any path to copy to clipboard'} />
             </p>
           </DialogHeader>
           {paths ? (
             <div className="px-3 py-4 space-y-4 max-h-[60vh] overflow-y-auto no-scrollbar">
-              <I18nProps><PathGroup
-                icon={<Settings className="h-3.5 w-3.5" />}
-                title="Configuration"
-              >
-                <I18nProps><PathRow label="Config" path={paths.configFileUsed} /></I18nProps>
-                <I18nProps><PathRow label="Base" path={paths.baseConfig} /></I18nProps>
-              </PathGroup></I18nProps>
+              <I18nProps>
+                <PathGroup
+                  icon={<Settings className="h-3.5 w-3.5" />}
+                  title="Configuration"
+                >
+                  <I18nProps>
+                    <PathRow label="Config" path={paths.configFileUsed} />
+                  </I18nProps>
+                  <I18nProps>
+                    <PathRow label="Base" path={paths.baseConfig} />
+                  </I18nProps>
+                </PathGroup>
+              </I18nProps>
 
-              <I18nProps><PathGroup
-                icon={<Database className="h-3.5 w-3.5" />}
-                title="Data"
-              >
-                <I18nProps><PathRow label="DAGs" path={paths.dagsDir} /></I18nProps>
-                <I18nProps><PathRow
-                  label="Wiki"
-                  path={paths.wikiDir ?? paths.docsDir ?? ''}
-                /></I18nProps>
-                <I18nProps><PathRow label="DAG Runs" path={paths.dagRunsDir} /></I18nProps>
-                <I18nProps><PathRow label="Queue" path={paths.queueDir} /></I18nProps>
-                <I18nProps><PathRow label="Process" path={paths.procDir} /></I18nProps>
-                <I18nProps><PathRow label="Services" path={paths.serviceRegistryDir} /></I18nProps>
-                <I18nProps><PathRow label="Suspend" path={paths.suspendFlagsDir} /></I18nProps>
-              </PathGroup></I18nProps>
+              <I18nProps>
+                <PathGroup
+                  icon={<Database className="h-3.5 w-3.5" />}
+                  title="Data"
+                >
+                  <I18nProps>
+                    <PathRow label="DAGs" path={paths.dagsDir} />
+                  </I18nProps>
+                  <I18nProps>
+                    <PathRow
+                      label="Wiki"
+                      path={paths.wikiDir ?? paths.docsDir ?? ''}
+                    />
+                  </I18nProps>
+                  <I18nProps>
+                    <PathRow label="DAG Runs" path={paths.dagRunsDir} />
+                  </I18nProps>
+                  <I18nProps>
+                    <PathRow label="Queue" path={paths.queueDir} />
+                  </I18nProps>
+                  <I18nProps>
+                    <PathRow label="Process" path={paths.procDir} />
+                  </I18nProps>
+                  <I18nProps>
+                    <PathRow label="Services" path={paths.serviceRegistryDir} />
+                  </I18nProps>
+                  <I18nProps>
+                    <PathRow label="Suspend" path={paths.suspendFlagsDir} />
+                  </I18nProps>
+                </PathGroup>
+              </I18nProps>
 
-              <I18nProps><PathGroup
-                icon={<ScrollText className="h-3.5 w-3.5" />}
-                title="Logs"
-              >
-                <I18nProps><PathRow label="Logs" path={paths.logDir} /></I18nProps>
-                <I18nProps><PathRow label="Admin" path={paths.adminLogsDir} /></I18nProps>
-                <I18nProps><PathRow label="Audit" path={paths.auditLogsDir} /></I18nProps>
-              </PathGroup></I18nProps>
+              <I18nProps>
+                <PathGroup
+                  icon={<ScrollText className="h-3.5 w-3.5" />}
+                  title="Logs"
+                >
+                  <I18nProps>
+                    <PathRow label="Logs" path={paths.logDir} />
+                  </I18nProps>
+                  <I18nProps>
+                    <PathRow label="Admin" path={paths.adminLogsDir} />
+                  </I18nProps>
+                  <I18nProps>
+                    <PathRow label="Audit" path={paths.auditLogsDir} />
+                  </I18nProps>
+                </PathGroup>
+              </I18nProps>
 
               {config.gitSyncEnabled && (
-                <I18nProps><PathGroup
-                  icon={<GitBranch className="h-3.5 w-3.5" />}
-                  title="Git Sync"
-                >
-                  <I18nProps><PathRow label="Sync Dir" path={paths.gitSyncDir} /></I18nProps>
-                </PathGroup></I18nProps>
+                <I18nProps>
+                  <PathGroup
+                    icon={<GitBranch className="h-3.5 w-3.5" />}
+                    title="Git Sync"
+                  >
+                    <I18nProps>
+                      <PathRow label="Sync Dir" path={paths.gitSyncDir} />
+                    </I18nProps>
+                  </PathGroup>
+                </I18nProps>
               )}
             </div>
           ) : (
             <div className="px-6 py-8 text-center">
               <FileText className="h-8 w-8 text-muted-foreground/50 mx-auto mb-2" />
               <p className="text-sm text-muted-foreground">
-                <I18nText text={"No path information available"} />
+                <I18nText text={'No path information available'} />
               </p>
             </div>
           )}

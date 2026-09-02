@@ -11,6 +11,7 @@ import {
 import { KanbanColumn } from './KanbanColumn';
 import type { KanbanColumns } from '../hooks/useDateKanbanData';
 import { I18nProps } from '@/i18n/I18nProps';
+import { I18nText } from '@/i18n/I18nText';
 
 type DAGRunSummary = components['schemas']['DAGRunSummary'];
 
@@ -94,37 +95,39 @@ export function MobileKanbanBoard({
 
   return (
     <div className="flex min-h-0 flex-col">
-      <I18nProps><Tabs
-        role="tablist"
-        aria-label="Run status columns"
-        className="mb-1 shrink-0 overflow-x-auto overflow-y-hidden border-b-0"
-      >
-        {columnOrder.map((key) => {
-          const count = columns[key].runs.length;
-          const countLabel = `${count}${columns[key].hasMore ? '+' : ''}`;
-          return (
-            <Tab
-              key={key}
-              id={tabId(key)}
-              role="tab"
-              isActive={activeTab === key}
-              aria-selected={activeTab === key}
-              aria-controls={tabPanelId}
-              tabIndex={activeTab === key ? 0 : -1}
-              onClick={() => handleTabChange(key)}
-              onKeyDown={(event) => handleTabKeyDown(event, key)}
-              className="h-8 px-2 text-xs"
-            >
-              {VIEW_COLUMN_LABELS[key]}
-              {(count > 0 || columns[key].hasMore) && (
-                <span className="ml-1 text-muted-foreground/60">
-                  {countLabel}
-                </span>
-              )}
-            </Tab>
-          );
-        })}
-      </Tabs></I18nProps>
+      <I18nProps>
+        <Tabs
+          role="tablist"
+          aria-label="Run status columns"
+          className="mb-1 shrink-0 overflow-x-auto overflow-y-hidden border-b-0"
+        >
+          {columnOrder.map((key) => {
+            const count = columns[key].runs.length;
+            const countLabel = `${count}${columns[key].hasMore ? '+' : ''}`;
+            return (
+              <Tab
+                key={key}
+                id={tabId(key)}
+                role="tab"
+                isActive={activeTab === key}
+                aria-selected={activeTab === key}
+                aria-controls={tabPanelId}
+                tabIndex={activeTab === key ? 0 : -1}
+                onClick={() => handleTabChange(key)}
+                onKeyDown={(event) => handleTabKeyDown(event, key)}
+                className="h-8 px-2 text-xs"
+              >
+                <I18nText text={VIEW_COLUMN_LABELS[key]} />
+                {(count > 0 || columns[key].hasMore) && (
+                  <span className="ml-1 text-muted-foreground/60">
+                    {countLabel}
+                  </span>
+                )}
+              </Tab>
+            );
+          })}
+        </Tabs>
+      </I18nProps>
       <div
         id={tabPanelId}
         role="tabpanel"

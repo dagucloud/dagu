@@ -13,6 +13,7 @@ import { useQuery } from '../../hooks/api';
 import { cn } from '../../lib/utils';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
+import { useI18n } from '@/i18n/I18nProvider';
 
 type SchedulerInstance = components['schemas']['SchedulerInstance'];
 type CoordinatorInstance = components['schemas']['CoordinatorInstance'];
@@ -28,6 +29,7 @@ type TunnelStatusResponse = components['schemas']['TunnelStatusResponse'];
  * @returns The rendered System Status UI containing service cards, resource charts, and refresh controls.
  */
 function SystemStatus() {
+  const { ts } = useI18n();
   const appBarContext = React.useContext(AppBarContext);
   const config = useConfig();
   const [isRefreshing, setIsRefreshing] = React.useState(false);
@@ -157,71 +159,86 @@ function SystemStatus() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold"><I18nText text={"System Status"} /></h1>
+          <h1 className="text-2xl font-bold">
+            <I18nText text={'System Status'} />
+          </h1>
           <p className="text-sm text-muted-foreground">
-            <I18nText text={"Monitor and manage Dagu services and system health"} />
+            <I18nText
+              text={'Monitor and manage Dagu services and system health'}
+            />
           </p>
         </div>
         <div className="flex items-center gap-2">
           <PathsCard />
           <Button
             onClick={() => setAutoRefresh(!autoRefresh)}
-            aria-label={`Auto-refresh ${autoRefresh ? 'enabled' : 'disabled'}`}
-            title={`Toggle auto-refresh (currently ${autoRefresh ? 'ON' : 'OFF'})`}
+            aria-label={ts('Auto-refresh {state}', {
+              state: ts(autoRefresh ? 'enabled' : 'disabled'),
+            })}
+            title={ts('Toggle auto-refresh (currently {state})', {
+              state: ts(autoRefresh ? 'ON' : 'OFF'),
+            })}
           >
             <Activity
               className={cn('h-4 w-4', autoRefresh && 'text-success')}
             />
-            <I18nText text={"Auto:"} /> {autoRefresh ? <I18nText text={"ON"} /> : <I18nText text={"OFF"} />}
+            <I18nText text={'Auto:'} />{' '}
+            {autoRefresh ? <I18nText text={'ON'} /> : <I18nText text={'OFF'} />}
           </Button>
-          <I18nProps><Button
-            size="icon"
-            onClick={handleRefresh}
-            disabled={isRefreshing}
-            aria-label="Refresh system status"
-            title="Refresh system status"
-          >
-            <RefreshCw
-              className={cn('h-4 w-4', isRefreshing && 'animate-spin')}
-            />
-          </Button></I18nProps>
+          <I18nProps>
+            <Button
+              size="icon"
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              aria-label="Refresh system status"
+              title="Refresh system status"
+            >
+              <RefreshCw
+                className={cn('h-4 w-4', isRefreshing && 'animate-spin')}
+              />
+            </Button>
+          </I18nProps>
         </div>
       </div>
 
       {/* Services */}
       <div className="flex flex-col gap-4">
         {/* Scheduler Service */}
-        <I18nProps><ServiceCard
-          title="Scheduler Service"
-          instances={
-            schedulerData?.schedulers?.map((s: SchedulerInstance) => ({
-              instanceId: s.instanceId,
-              host: s.host,
-              status: s.status,
-              startedAt: s.startedAt,
-            })) || []
-          }
-          icon={<Calendar className="h-4 w-4" />}
-          isLoading={!schedulerData && !schedulerError}
-          error={schedulerError ? String(schedulerError) : undefined}
-        /></I18nProps>
+        <I18nProps>
+          <ServiceCard
+            title="Scheduler Service"
+            instances={
+              schedulerData?.schedulers?.map((s: SchedulerInstance) => ({
+                instanceId: s.instanceId,
+                host: s.host,
+                status: s.status,
+                startedAt: s.startedAt,
+              })) || []
+            }
+            icon={<Calendar className="h-4 w-4" />}
+            isLoading={!schedulerData && !schedulerError}
+            error={schedulerError ? String(schedulerError) : undefined}
+          />
+        </I18nProps>
 
         {/* Coordinator Service */}
-        <I18nProps><ServiceCard
-          title="Coordinator Service"
-          instances={
-            coordinatorData?.coordinators?.map((c: CoordinatorInstance) => ({
-              instanceId: c.instanceId,
-              host: c.host,
-              port: c.port,
-              status: c.status,
-              startedAt: c.startedAt,
-            })) || []
-          }
-          icon={<Server className="h-4 w-4" />}
-          isLoading={!coordinatorData && !coordinatorError}
-          error={coordinatorError ? String(coordinatorError) : undefined}
-        /></I18nProps>
+        <I18nProps>
+          <ServiceCard
+            title="Coordinator Service"
+            instances={
+              coordinatorData?.coordinators?.map((c: CoordinatorInstance) => ({
+                instanceId: c.instanceId,
+                host: c.host,
+                port: c.port,
+                status: c.status,
+                startedAt: c.startedAt,
+              })) || []
+            }
+            icon={<Server className="h-4 w-4" />}
+            isLoading={!coordinatorData && !coordinatorError}
+            error={coordinatorError ? String(coordinatorError) : undefined}
+          />
+        </I18nProps>
 
         {/* Tunnel Service */}
         <TunnelStatusCard
@@ -232,7 +249,9 @@ function SystemStatus() {
       </div>
 
       {/* Workers Status */}
-      <h2 className="text-xl font-semibold mt-8 mb-4"><I18nText text={"Workers"} /></h2>
+      <h2 className="text-xl font-semibold mt-8 mb-4">
+        <I18nText text={'Workers'} />
+      </h2>
       <div className="card-obsidian" style={{ minHeight: '200px' }}>
         <WorkersSummary
           workers={workersData?.workers || []}
@@ -242,50 +261,64 @@ function SystemStatus() {
       </div>
 
       {/* Resource Usage */}
-      <h2 className="text-xl font-semibold mt-8 mb-4"><I18nText text={"Resource Usage"} /></h2>
+      <h2 className="text-xl font-semibold mt-8 mb-4">
+        <I18nText text={'Resource Usage'} />
+      </h2>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <I18nProps><ResourceChart
-          title="CPU Usage"
-          data={resourceData?.cpu}
-          color="#73BF69"
-          isLoading={!resourceData && !resourceError}
-          error={resourceError ? String(resourceError) : undefined}
-        /></I18nProps>
-        <I18nProps><ResourceChart
-          title="Memory Usage"
-          data={resourceData?.memory}
-          color="#73BF69"
-          isLoading={!resourceData && !resourceError}
-          error={resourceError ? String(resourceError) : undefined}
-          totalBytes={resourceData?.memoryTotalBytes}
-          usedBytes={resourceData?.memoryUsedBytes}
-        /></I18nProps>
-        <I18nProps><ResourceChart
-          title="Disk Usage"
-          data={resourceData?.disk}
-          color="#73BF69"
-          isLoading={!resourceData && !resourceError}
-          error={resourceError ? String(resourceError) : undefined}
-          totalBytes={resourceData?.diskTotalBytes}
-          usedBytes={resourceData?.diskUsedBytes}
-        /></I18nProps>
-        <I18nProps><ResourceChart
-          title="Load Average"
-          data={resourceData?.load}
-          color="#73BF69"
-          unit=""
-          isLoading={!resourceData && !resourceError}
-          error={resourceError ? String(resourceError) : undefined}
-        /></I18nProps>
+        <I18nProps>
+          <ResourceChart
+            title="CPU Usage"
+            data={resourceData?.cpu}
+            color="#73BF69"
+            isLoading={!resourceData && !resourceError}
+            error={resourceError ? String(resourceError) : undefined}
+          />
+        </I18nProps>
+        <I18nProps>
+          <ResourceChart
+            title="Memory Usage"
+            data={resourceData?.memory}
+            color="#73BF69"
+            isLoading={!resourceData && !resourceError}
+            error={resourceError ? String(resourceError) : undefined}
+            totalBytes={resourceData?.memoryTotalBytes}
+            usedBytes={resourceData?.memoryUsedBytes}
+          />
+        </I18nProps>
+        <I18nProps>
+          <ResourceChart
+            title="Disk Usage"
+            data={resourceData?.disk}
+            color="#73BF69"
+            isLoading={!resourceData && !resourceError}
+            error={resourceError ? String(resourceError) : undefined}
+            totalBytes={resourceData?.diskTotalBytes}
+            usedBytes={resourceData?.diskUsedBytes}
+          />
+        </I18nProps>
+        <I18nProps>
+          <ResourceChart
+            title="Load Average"
+            data={resourceData?.load}
+            color="#73BF69"
+            unit=""
+            isLoading={!resourceData && !resourceError}
+            error={resourceError ? String(resourceError) : undefined}
+          />
+        </I18nProps>
       </div>
 
       {/* Footer */}
       <div className="text-xs text-muted-foreground text-center space-y-1 mb-4">
         <div>
-          <I18nText text={"Last updated:"} /> {lastUpdateTime.toLocaleTimeString()}
-          {autoRefresh && <I18nText text={" • Refreshing every 5 seconds"} />}
+          <I18nText text={'Last updated:'} />{' '}
+          {lastUpdateTime.toLocaleTimeString()}
+          {autoRefresh && <I18nText text={' • Refreshing every 5 seconds'} />}
         </div>
-        <div><I18nText text={"Dagu v"} />{config.version}</div>
+        <div>
+          <I18nText text={'Dagu v'} />
+          {config.version}
+        </div>
       </div>
     </div>
   );

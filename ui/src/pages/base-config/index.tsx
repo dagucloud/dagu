@@ -230,37 +230,52 @@ function BaseConfigPage(): React.ReactNode {
   return (
     <div className="flex flex-col flex-1 min-h-0 space-y-4 p-4">
       <div>
-        <h1 className="text-lg font-semibold"><I18nText text={"Base Configuration"} /></h1>
+        <h1 className="text-lg font-semibold">
+          <I18nText text={'Base Configuration'} />
+        </h1>
         <p className="text-sm text-muted-foreground">
-          {activeScope === 'workspace'
-            ? `${selectedWorkspace} overrides layered on top of global defaults`
-            : <I18nText text={"Global defaults inherited by all DAG definitions"} />}
+          {activeScope === 'workspace' ? (
+            <I18nText
+              text="{workspace} overrides layered on top of global defaults"
+              values={{ workspace: selectedWorkspace ?? '' }}
+            />
+          ) : (
+            <I18nText
+              text={'Global defaults inherited by all DAG definitions'}
+            />
+          )}
         </p>
       </div>
 
       {hasWorkspaceConfig ? (
-        <I18nProps><Tabs role="tablist" aria-label="Base config scope" className="shrink-0">
-          <Tab
-            role="tab"
-            aria-selected={activeScope === 'global'}
-            isActive={activeScope === 'global'}
-            onClick={() => setActiveScope('global')}
-            className="gap-2 cursor-pointer"
+        <I18nProps>
+          <Tabs
+            role="tablist"
+            aria-label="Base config scope"
+            className="shrink-0"
           >
-            <Globe2 className="h-4 w-4" />
-            <I18nText text={"Global"} />
-          </Tab>
-          <Tab
-            role="tab"
-            aria-selected={activeScope === 'workspace'}
-            isActive={activeScope === 'workspace'}
-            onClick={() => setActiveScope('workspace')}
-            className="gap-2 cursor-pointer"
-          >
-            <SquareStack className="h-4 w-4" />
-            <I18nText text={"Workspace"} />
-          </Tab>
-        </Tabs></I18nProps>
+            <Tab
+              role="tab"
+              aria-selected={activeScope === 'global'}
+              isActive={activeScope === 'global'}
+              onClick={() => setActiveScope('global')}
+              className="gap-2 cursor-pointer"
+            >
+              <Globe2 className="h-4 w-4" />
+              <I18nText text={'Global'} />
+            </Tab>
+            <Tab
+              role="tab"
+              aria-selected={activeScope === 'workspace'}
+              isActive={activeScope === 'workspace'}
+              onClick={() => setActiveScope('workspace')}
+              className="gap-2 cursor-pointer"
+            >
+              <SquareStack className="h-4 w-4" />
+              <I18nText text={'Workspace'} />
+            </Tab>
+          </Tabs>
+        </I18nProps>
       ) : null}
 
       <DAGEditorWithDocs
@@ -274,23 +289,27 @@ function BaseConfigPage(): React.ReactNode {
         headerActions={
           editable ? (
             <>
-              <I18nProps><Button
-                variant="outline"
-                title="Revert to last saved version"
-                disabled={!hasUnsavedChanges}
-                onClick={handleRevert}
-              >
-                <RotateCcw className="h-4 w-4" />
-                <I18nText text={"Revert"} />
-              </Button></I18nProps>
-              <I18nProps><Button
-                title="Save changes (Ctrl+S / Cmd+S)"
-                disabled={!hasUnsavedChanges}
-                onClick={handleSave}
-              >
-                <Save className="h-4 w-4" />
-                <I18nText text={"Save"} />
-              </Button></I18nProps>
+              <I18nProps>
+                <Button
+                  variant="outline"
+                  title="Revert to last saved version"
+                  disabled={!hasUnsavedChanges}
+                  onClick={handleRevert}
+                >
+                  <RotateCcw className="h-4 w-4" />
+                  <I18nText text={'Revert'} />
+                </Button>
+              </I18nProps>
+              <I18nProps>
+                <Button
+                  title="Save changes (Ctrl+S / Cmd+S)"
+                  disabled={!hasUnsavedChanges}
+                  onClick={handleSave}
+                >
+                  <Save className="h-4 w-4" />
+                  <I18nText text={'Save'} />
+                </Button>
+              </I18nProps>
             </>
           ) : undefined
         }

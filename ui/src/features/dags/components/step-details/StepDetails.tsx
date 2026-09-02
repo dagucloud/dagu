@@ -78,7 +78,7 @@ export function StepDetails({ step }: { step: Step }) {
   if (fields.length === 0) {
     return (
       <div className="rounded-md border border-border bg-muted/20 p-3 text-sm text-muted-foreground">
-        <I18nText text={"No additional step fields are defined."} />
+        <I18nText text={'No additional step fields are defined.'} />
       </div>
     );
   }
@@ -116,7 +116,7 @@ function StepField({
   return (
     <section className="space-y-2">
       <div className="text-xs font-medium uppercase text-muted-foreground">
-        {label}
+        <I18nText text={label} />
       </div>
       {renderStepFieldValue(name, value)}
     </section>
@@ -125,7 +125,11 @@ function StepField({
 
 function renderStepFieldValue(name: string, value: unknown): React.ReactNode {
   if (typeof value === 'boolean') {
-    return <Badge variant="outline">{value ? <I18nText text={"Enabled"} /> : <I18nText text={"Disabled"} />}</Badge>;
+    return (
+      <Badge variant="outline">
+        {value ? <I18nText text={'Enabled'} /> : <I18nText text={'Disabled'} />}
+      </Badge>
+    );
   }
 
   if (typeof value === 'number') {
@@ -195,13 +199,13 @@ function ExecutorConfigField({ value }: { value: Record<string, unknown> }) {
     <div className="space-y-3 rounded-md border border-border bg-background p-3">
       <div className="min-w-0">
         <div className="mb-1 text-[11px] font-medium uppercase text-muted-foreground">
-          <I18nText text={"Type"} />
+          <I18nText text={'Type'} />
         </div>
-        <Badge variant="outline"><I18nText text={"log"} /></Badge>
+        <Badge variant="outline">{type}</Badge>
       </div>
       <div className="min-w-0">
         <div className="mb-1 text-[11px] font-medium uppercase text-muted-foreground">
-          <I18nText text={"Message"} />
+          <I18nText text={'Message'} />
         </div>
         <LogStepMessage message={logMessage} />
       </div>
@@ -250,7 +254,11 @@ function renderNestedFieldValue(name: string, value: unknown): React.ReactNode {
     return renderStepFieldValue(name, value);
   }
   if (typeof value === 'boolean') {
-    return <Badge variant="outline">{value ? <I18nText text={"Enabled"} /> : <I18nText text={"Disabled"} />}</Badge>;
+    return (
+      <Badge variant="outline">
+        {value ? <I18nText text={'Enabled'} /> : <I18nText text={'Disabled'} />}
+      </Badge>
+    );
   }
   return (
     <div className="whitespace-pre-wrap break-words text-sm text-foreground">

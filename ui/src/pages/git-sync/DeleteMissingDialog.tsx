@@ -45,17 +45,23 @@ export function DeleteMissingDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="text-base">
-            <I18nText text={"Delete All Missing Items"} />
+            <I18nText text={'Delete All Missing Items'} />
           </DialogTitle>
           <DialogDescription className="text-xs">
-            <I18nText text={"This will remove"} /> {missingCount} <I18nText text={"missing item"} />
-            {missingCount !== 1 ? 's' : ''} <I18nText text={"from the remote repository and sync state. This action cannot be undone."} />
+            <I18nText
+              text={
+                missingCount === 1
+                  ? 'This will remove {count} missing item from the remote repository and sync state. This action cannot be undone.'
+                  : 'This will remove {count} missing items from the remote repository and sync state. This action cannot be undone.'
+              }
+              values={{ count: missingCount }}
+            />
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1.5">
             <Label htmlFor="delete-missing-msg" className="text-xs">
-              <I18nText text={"Commit Message"} />
+              <I18nText text={'Commit Message'} />
             </Label>
             <Input
               id="delete-missing-msg"
@@ -74,7 +80,7 @@ export function DeleteMissingDialog({
         </div>
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onCancel}>
-            <I18nText text={"Cancel"} />
+            <I18nText text={'Cancel'} />
           </Button>
           <Button
             variant="destructive"
@@ -85,12 +91,12 @@ export function DeleteMissingDialog({
             {isDeletingMissing ? (
               <>
                 <RefreshCw className="h-3.5 w-3.5 mr-1 animate-spin" />
-                <I18nText text={"Deleting..."} />
+                <I18nText text={'Deleting...'} />
               </>
             ) : (
               <>
                 <Trash2 className="h-3.5 w-3.5 mr-1" />
-                <I18nText text={"Delete All Missing"} />
+                <I18nText text={'Delete All Missing'} />
               </>
             )}
           </Button>

@@ -41,9 +41,11 @@ function QueueCard({ queue }: QueueCardProps) {
       {queue.maxConcurrency && (
         <div className="space-y-1.5">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span><I18nText text={"Capacity"} /></span>
+            <span>
+              <I18nText text={'Capacity'} />
+            </span>
             <span className="tabular-nums">
-              {runningCount}/{queue.maxConcurrency} <I18nText text={"in use"} />
+              {runningCount}/{queue.maxConcurrency} <I18nText text={'in use'} />
             </span>
           </div>
           <div className="h-1.5 overflow-hidden rounded-full bg-muted">
@@ -59,12 +61,16 @@ function QueueCard({ queue }: QueueCardProps) {
       )}
 
       <div className="grid grid-cols-2 gap-3">
-        <I18nProps><SummaryStat label="Running" value={runningCount} /></I18nProps>
-        <I18nProps><SummaryStat
-          label="Queued"
-          value={formatQueuedCount(queuedCount, queuedCapped)}
-          emphasized={queuedCount > 0}
-        /></I18nProps>
+        <I18nProps>
+          <SummaryStat label="Running" value={runningCount} />
+        </I18nProps>
+        <I18nProps>
+          <SummaryStat
+            label="Queued"
+            value={formatQueuedCount(queuedCount, queuedCapped)}
+            emphasized={queuedCount > 0}
+          />
+        </I18nProps>
       </div>
     </Link>
   );
@@ -80,18 +86,23 @@ function formatActivityLine(
   runningCount: number,
   queuedCount: number,
   queuedCapped = false
-): string {
+): React.ReactNode {
   const queuedLabel = formatQueuedCount(queuedCount, queuedCapped);
   if (queuedCount > 0 && runningCount > 0) {
-    return `${queuedLabel} queued, ${runningCount} running`;
+    return (
+      <I18nText
+        text="{queued} queued, {running} running"
+        values={{ queued: queuedLabel, running: runningCount }}
+      />
+    );
   }
   if (queuedCount > 0) {
-    return `${queuedLabel} queued`;
+    return <I18nText text="{count} queued" values={{ count: queuedLabel }} />;
   }
   if (runningCount > 0) {
-    return `${runningCount} running`;
+    return <I18nText text="{count} running" values={{ count: runningCount }} />;
   }
-  return 'No activity';
+  return <I18nText text="No activity" />;
 }
 
 function SummaryStat({

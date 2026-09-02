@@ -43,7 +43,9 @@ function SystemOverview({
   return (
     <div className="border rounded-lg bg-card p-4">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-base font-semibold"><I18nText text={"System Overview"} /></h2>
+        <h2 className="text-base font-semibold">
+          <I18nText text={'System Overview'} />
+        </h2>
         <div className="flex items-center gap-2">
           <div className="relative">
             <div
@@ -62,11 +64,13 @@ function SystemOverview({
             )}
           </div>
           <span className={cn('text-xs font-medium', getHealthColor())}>
-            {error
-              ? <I18nText text={"Error"} />
-              : health?.status === 'healthy'
-                ? <I18nText text={"Healthy"} />
-                : <I18nText text={"Degraded"} />}
+            {error ? (
+              <I18nText text={'Error'} />
+            ) : health?.status === 'healthy' ? (
+              <I18nText text={'Healthy'} />
+            ) : (
+              <I18nText text={'Degraded'} />
+            )}
           </span>
         </div>
       </div>
@@ -76,13 +80,21 @@ function SystemOverview({
         <div className="space-y-1">
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Heart className="h-3 w-3" />
-            <span><I18nText text={"Server Status"} /></span>
+            <span>
+              <I18nText text={'Server Status'} />
+            </span>
           </div>
           <div className="text-sm font-medium">
-            {health?.status || <I18nText text={"Unknown"} />}
+            {health?.status === 'healthy' ? (
+              <I18nText text="Healthy" />
+            ) : health?.status ? (
+              <I18nText text="Degraded" />
+            ) : (
+              <I18nText text="Unknown" />
+            )}
           </div>
           <div className="text-xs text-muted-foreground">
-            v{health?.version || <I18nText text={"Unknown"} />}
+            v{health?.version || <I18nText text={'Unknown'} />}
           </div>
         </div>
 
@@ -90,29 +102,39 @@ function SystemOverview({
         <div className="space-y-1">
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Clock className="h-3 w-3" />
-            <span><I18nText text={"Uptime"} /></span>
+            <span>
+              <I18nText text={'Uptime'} />
+            </span>
           </div>
           <div className="text-sm font-medium">
             {health?.uptime ? formatUptime(health.uptime) : 'N/A'}
           </div>
-          <div className="text-xs text-muted-foreground"><I18nText text={"Since startup"} /></div>
+          <div className="text-xs text-muted-foreground">
+            <I18nText text={'Since startup'} />
+          </div>
         </div>
 
         {/* Total DAGs */}
         <div className="space-y-1">
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Package className="h-3 w-3" />
-            <span><I18nText text={"Total DAGs"} /></span>
+            <span>
+              <I18nText text={'Total DAGs'} />
+            </span>
           </div>
           <div className="text-sm font-medium">{totalDAGs}</div>
-          <div className="text-xs text-muted-foreground"><I18nText text={"Definitions"} /></div>
+          <div className="text-xs text-muted-foreground">
+            <I18nText text={'Definitions'} />
+          </div>
         </div>
 
         {/* Active Runs */}
         <div className="space-y-1">
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Activity className="h-3 w-3" />
-            <span><I18nText text={"Active Runs"} /></span>
+            <span>
+              <I18nText text={'Active Runs'} />
+            </span>
           </div>
           <div className="flex items-center gap-2">
             <div className="text-sm font-medium">{activeRuns}</div>
@@ -123,7 +145,9 @@ function SystemOverview({
               </div>
             )}
           </div>
-          <div className="text-xs text-muted-foreground"><I18nText text={"Running now"} /></div>
+          <div className="text-xs text-muted-foreground">
+            <I18nText text={'Running now'} />
+          </div>
         </div>
       </div>
 
