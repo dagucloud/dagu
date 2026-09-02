@@ -30,7 +30,12 @@ export type StackConfig = {
   workers: string[];
 };
 
-export type UserRole = 'admin' | 'manager' | 'developer' | 'operator' | 'viewer';
+export type UserRole =
+  | 'admin'
+  | 'manager'
+  | 'developer'
+  | 'operator'
+  | 'viewer';
 type WorkspaceAccessPayload = {
   all: boolean;
   grants: Array<{
@@ -122,7 +127,8 @@ const stackScriptPath = path.resolve(repoRoot, 'scripts/e2e/start-stack.sh');
 const stackFilePath =
   process.env.DAGU_E2E_STACK_FILE ??
   path.resolve(
-    process.env.DAGU_E2E_STATE_DIR ?? path.resolve(repoRoot, 'ui/test-results/e2e-stack'),
+    process.env.DAGU_E2E_STATE_DIR ??
+      path.resolve(repoRoot, 'ui/test-results/e2e-stack'),
     'stack.json'
   );
 
@@ -153,17 +159,31 @@ export function uniqueName(prefix: string): string {
   return `${prefix}-${timestamp}-${random}`;
 }
 
-export async function writeLocalDAG(name: string, spec: string): Promise<string> {
+export async function writeLocalDAG(
+  name: string,
+  spec: string
+): Promise<string> {
   const stack = await loadStack();
   const fileName = `${name}.yaml`;
-  await fs.writeFile(path.join(stack.local.dagsDir, fileName), `${spec.trim()}\n`, 'utf8');
+  await fs.writeFile(
+    path.join(stack.local.dagsDir, fileName),
+    `${spec.trim()}\n`,
+    'utf8'
+  );
   return fileName;
 }
 
-export async function writeRemoteDAG(name: string, spec: string): Promise<string> {
+export async function writeRemoteDAG(
+  name: string,
+  spec: string
+): Promise<string> {
   const stack = await loadStack();
   const fileName = `${name}.yaml`;
-  await fs.writeFile(path.join(stack.remote.dagsDir, fileName), `${spec.trim()}\n`, 'utf8');
+  await fs.writeFile(
+    path.join(stack.remote.dagsDir, fileName),
+    `${spec.trim()}\n`,
+    'utf8'
+  );
   return fileName;
 }
 
@@ -275,7 +295,10 @@ export async function waitForSchedulerDAGRegistered(
   timeout: number = 15_000
 ): Promise<void> {
   const stack = await loadStack();
-  const schedulerStatePath = path.join(stack.stateDir, 'local/runtime/data/scheduler/state.json');
+  const schedulerStatePath = path.join(
+    stack.stateDir,
+    'local/runtime/data/scheduler/state.json'
+  );
 
   await expect
     .poll(
@@ -360,7 +383,9 @@ export async function getDAGRun(
   );
 
   expect(response.ok()).toBeTruthy();
-  return normalizeDAGRunDetails(((await response.json()) as DAGRunDetailsResponse).dagRunDetails);
+  return normalizeDAGRunDetails(
+    ((await response.json()) as DAGRunDetailsResponse).dagRunDetails
+  );
 }
 
 export async function listDAGRuns(
@@ -368,7 +393,14 @@ export async function listDAGRuns(
   token: string,
   name: string,
   remoteNode: string = 'local'
-): Promise<Array<{ dagRunId: string; status: RunStatusLabel; statusCode: number; workerId?: string }>> {
+): Promise<
+  Array<{
+    dagRunId: string;
+    status: RunStatusLabel;
+    statusCode: number;
+    workerId?: string;
+  }>
+> {
   const response = await request.get(
     `/api/v1/dag-runs/${encodeURIComponent(name)}?remoteNode=${encodeURIComponent(
       remoteNode
@@ -380,7 +412,12 @@ export async function listDAGRuns(
 
   expect(response.ok()).toBeTruthy();
   const body = (await response.json()) as {
-    dagRuns?: Array<{ dagRunId: string; status: number; statusLabel?: string; workerId?: string }>;
+    dagRuns?: Array<{
+      dagRunId: string;
+      status: number;
+      statusLabel?: string;
+      workerId?: string;
+    }>;
   };
   return (body.dagRuns ?? []).map((run) => ({
     dagRunId: run.dagRunId,
@@ -457,9 +494,12 @@ export async function getQueue(
   token: string,
   queueName: string
 ): Promise<QueueDetails> {
-  const response = await request.get(`/api/v1/queues/${encodeURIComponent(queueName)}?remoteNode=local`, {
-    headers: authHeaders(token),
-  });
+  const response = await request.get(
+    `/api/v1/queues/${encodeURIComponent(queueName)}?remoteNode=local`,
+    {
+      headers: authHeaders(token),
+    }
+  );
   expect(response.ok()).toBeTruthy();
   return (await response.json()) as QueueDetails;
 }
@@ -502,15 +542,25 @@ export async function getStepStdout(
       headers: authHeaders(token),
     }
   );
+  // Log metadata can lag queue completion briefly.
+  if (response.status() === 404) {
+    return '';
+  }
+
   expect(response.ok()).toBeTruthy();
   return ((await response.json()) as LogResponse).content;
 }
 
-export async function enqueueRunFromUI(page: Page, fileName: string): Promise<string> {
+export async function enqueueRunFromUI(
+  page: Page,
+  fileName: string
+): Promise<string> {
   const responsePromise = page.waitForResponse(
     (response) =>
       response.request().method() === 'POST' &&
-      response.url().includes(`/api/v1/dags/${encodeURIComponent(fileName)}/enqueue`)
+      response
+        .url()
+        .includes(`/api/v1/dags/${encodeURIComponent(fileName)}/enqueue`)
   );
 
   await page.getByRole('button', { name: 'Start' }).first().click();
@@ -535,7 +585,10 @@ export async function enqueueRunFromUI(page: Page, fileName: string): Promise<st
   return body.dagRunId as string;
 }
 
-export async function selectRemoteNode(page: Page, nodeName: string): Promise<void> {
+export async function selectRemoteNode(
+  page: Page,
+  nodeName: string
+): Promise<void> {
   const trigger = page
     .locator('aside')
     .getByRole('combobox', { name: 'Remote node' });
@@ -595,7 +648,11 @@ export async function getLatestLocalRunStatusRecord(
   dagRunId: string
 ): Promise<LocalRunStatusRecord | null> {
   const stack = await loadStack();
-  const dagRunsDir = path.join(stack.stateDir, 'local/runtime/data/dag-runs', dagName);
+  const dagRunsDir = path.join(
+    stack.stateDir,
+    'local/runtime/data/dag-runs',
+    dagName
+  );
 
   let output = '';
   try {
@@ -648,7 +705,11 @@ function isNoSuchProcessError(error: unknown): boolean {
 
   const { status, stderr } = error as ExecFileSyncError;
   const stderrText =
-    typeof stderr === 'string' ? stderr : Buffer.isBuffer(stderr) ? stderr.toString('utf8') : '';
+    typeof stderr === 'string'
+      ? stderr
+      : Buffer.isBuffer(stderr)
+        ? stderr.toString('utf8')
+        : '';
 
   return status === 1 && /no such process/i.test(stderrText);
 }
@@ -666,7 +727,10 @@ function normalizeDAGRunDetails(run: RawDAGRunDetails): DAGRunDetails {
   };
 }
 
-function normalizeRunStatus(statusCode: number, statusLabel?: string): RunStatusLabel {
+function normalizeRunStatus(
+  statusCode: number,
+  statusLabel?: string
+): RunStatusLabel {
   if (statusLabel) {
     return statusLabel as RunStatusLabel;
   }
