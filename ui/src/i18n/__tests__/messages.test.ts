@@ -11,6 +11,11 @@ describe('translations', () => {
     expect(translate('zh-CN', 'auth.signIn')).toBe('登录');
   });
 
+  it('provides Japanese translations for the initial UI shell', () => {
+    expect(translate('ja', 'navigation.overview')).toBe('概要');
+    expect(translate('ja', 'auth.signIn')).toBe('ログイン');
+  });
+
   it('translates the remaining application shell', () => {
     expect(translate('zh-CN', 'navigation.integrations')).toBe('集成');
     expect(translate('zh-CN', 'navigation.profilesSecrets')).toBe('配置与密钥');
@@ -22,5 +27,15 @@ describe('translations', () => {
     expect(Object.keys(messages['zh-CN']).sort()).toEqual(
       Object.keys(messages.en).sort()
     );
+  });
+
+  it('keeps every Japanese catalog key aligned with English', () => {
+    expect(Object.keys(messages.ja).sort()).toEqual(
+      Object.keys(messages.en).sort()
+    );
+  });
+
+  it('interpolates dynamic values', () => {
+    expect(translate('ja', 'common.selected', { count: 3 })).toBe('3 件を選択');
   });
 });

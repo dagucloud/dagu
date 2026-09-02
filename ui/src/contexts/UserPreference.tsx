@@ -2,7 +2,7 @@ import React, { createContext, useCallback, useContext, useState } from 'react';
 import { writeLocalStorage } from '@/lib/local-storage-migration';
 
 export type DAGRunsViewMode = 'list' | 'grouped';
-export type Locale = 'en' | 'zh-CN';
+export type Locale = 'en' | 'zh-CN' | 'ja';
 
 export type WikiSortField = 'name' | 'type' | 'mtime';
 export type WikiSortOrder = 'asc' | 'desc';
@@ -46,7 +46,7 @@ function isWikiSortOrder(value: unknown): value is WikiSortOrder {
 }
 
 function isLocale(value: unknown): value is Locale {
-  return value === 'en' || value === 'zh-CN';
+  return value === 'en' || value === 'zh-CN' || value === 'ja';
 }
 
 function loadPreferences(): UserPreferences {

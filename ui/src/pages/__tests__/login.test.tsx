@@ -136,4 +136,20 @@ describe('LoginPage', () => {
     ).toEqual(expect.objectContaining({ locale: 'zh-CN' }));
     await waitFor(() => expect(document.documentElement.lang).toBe('zh-CN'));
   });
+
+  it('switches the login page to Japanese', async () => {
+    const user = userEvent.setup();
+    renderLogin(makeConfig());
+
+    await user.click(screen.getByRole('combobox', { name: 'Language' }));
+    await user.click(await screen.findByRole('option', { name: 'Japanese' }));
+
+    expect(
+      screen.getByRole('button', { name: 'ログイン' })
+    ).toBeInTheDocument();
+    expect(
+      JSON.parse(localStorage.getItem('user_preferences') ?? '{}')
+    ).toEqual(expect.objectContaining({ locale: 'ja' }));
+    await waitFor(() => expect(document.documentElement.lang).toBe('ja'));
+  });
 });

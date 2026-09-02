@@ -14,13 +14,20 @@ type LanguageSelectorProps = {
   variant?: 'login' | 'sidebar';
 };
 
+const languages = [
+  { locale: 'en', key: 'language.english' },
+  { locale: 'zh-CN', key: 'language.chinese' },
+  { locale: 'ja', key: 'language.japanese' },
+] as const;
+
 export function LanguageSelector({
   compact = false,
   variant = 'login',
 }: LanguageSelectorProps) {
   const { locale, setLocale, t } = useI18n();
-  const language =
-    locale === 'en' ? t('language.english') : t('language.chinese');
+  const language = t(
+    languages.find((item) => item.locale === locale)?.key ?? 'language.english'
+  );
 
   return (
     <Select
@@ -47,8 +54,11 @@ export function LanguageSelector({
         {!compact && <SelectValue />}
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value="en">{t('language.english')}</SelectItem>
-        <SelectItem value="zh-CN">{t('language.chinese')}</SelectItem>
+        {languages.map((item) => (
+          <SelectItem key={item.locale} value={item.locale}>
+            {t(item.key)}
+          </SelectItem>
+        ))}
       </SelectContent>
     </Select>
   );

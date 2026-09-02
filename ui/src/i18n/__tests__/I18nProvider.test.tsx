@@ -28,4 +28,18 @@ describe('I18nProvider', () => {
 
     await waitFor(() => expect(document.documentElement.lang).toBe('zh-CN'));
   });
+
+  it('sets Japanese as the document language', async () => {
+    localStorage.setItem('user_preferences', JSON.stringify({ locale: 'ja' }));
+
+    render(
+      <UserPreferencesProvider>
+        <I18nProvider>
+          <div />
+        </I18nProvider>
+      </UserPreferencesProvider>
+    );
+
+    await waitFor(() => expect(document.documentElement.lang).toBe('ja'));
+  });
 });

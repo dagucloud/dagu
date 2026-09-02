@@ -4,7 +4,9 @@ export const messages = {
   en: {
     'language.english': 'English',
     'language.chinese': 'Chinese (Simplified)',
+    'language.japanese': 'Japanese',
     'language.select': 'Language',
+    'common.selected': '{count} selected',
     'navigation.overview': 'Overview',
     'navigation.workflows': 'Workflows',
     'navigation.search': 'Search',
@@ -54,7 +56,9 @@ export const messages = {
   'zh-CN': {
     'language.english': 'English',
     'language.chinese': '简体中文',
+    'language.japanese': '日语',
     'language.select': '语言',
+    'common.selected': '已选择 {count} 项',
     'navigation.overview': '概览',
     'navigation.workflows': '工作流',
     'navigation.search': '搜索',
@@ -101,10 +105,75 @@ export const messages = {
     'auth.continueWithSso': '使用 SSO 继续',
     'auth.welcomeAccountCreated': '欢迎！你的账户已创建。',
   },
+  ja: {
+    'language.english': '英語',
+    'language.chinese': '中国語（簡体字）',
+    'language.japanese': '日本語',
+    'language.select': '言語',
+    'common.selected': '{count} 件を選択',
+    'navigation.overview': '概要',
+    'navigation.workflows': 'ワークフロー',
+    'navigation.search': '検索',
+    'navigation.baseConfig': 'ベース設定',
+    'navigation.wiki': 'Wiki',
+    'navigation.gitSync': 'Git 同期',
+    'navigation.executions': '実行履歴',
+    'navigation.queues': 'キュー',
+    'navigation.monitor': '監視',
+    'navigation.events': 'イベント',
+    'navigation.auditLogs': '監査ログ',
+    'navigation.notifications': '通知',
+    'navigation.rules': 'ルール',
+    'navigation.channels': 'チャンネル',
+    'navigation.incidents': 'インシデント',
+    'navigation.connections': '接続',
+    'navigation.routing': 'ルーティング',
+    'navigation.integrations': 'インテグレーション',
+    'navigation.webhooks': 'Webhook',
+    'navigation.apiReference': 'API リファレンス',
+    'navigation.profilesSecrets': 'プロファイルとシークレット',
+    'navigation.administration': '管理',
+    'navigation.access': 'アクセス',
+    'navigation.users': 'ユーザー',
+    'navigation.apiKeys': 'API キー',
+    'navigation.infrastructure': 'インフラストラクチャ',
+    'navigation.remoteNode': 'リモートノード',
+    'navigation.remoteNodes': 'リモートノード',
+    'navigation.terminal': 'ターミナル',
+    'navigation.license': 'ライセンス',
+    'navigation.collapseSidebar': 'サイドバーを折りたたむ',
+    'navigation.expandSidebar': 'サイドバーを展開',
+    'navigation.openMenu': 'メニューを開く',
+    'navigation.closeMenu': 'メニューを閉じる',
+    'theme.lightMode': 'ライトモード',
+    'theme.darkMode': 'ダークモード',
+    'auth.signInToAccount': 'アカウントにログイン',
+    'auth.username': 'ユーザー名',
+    'auth.password': 'パスワード',
+    'auth.signIn': 'ログイン',
+    'auth.signingIn': 'ログイン中...',
+    'auth.or': 'または',
+    'auth.loginWithSso': 'SSO でログイン',
+    'auth.continueWithSso': 'SSO で続行',
+    'auth.welcomeAccountCreated': 'ようこそ！アカウントが作成されました。',
+  },
 } as const;
 
 export type TranslationKey = keyof (typeof messages)['en'];
+export type TranslationValues = Record<string, string | number>;
 
-export function translate(locale: Locale, key: TranslationKey): string {
-  return messages[locale][key] ?? messages.en[key];
+export function translate(
+  locale: Locale,
+  key: TranslationKey,
+  values?: TranslationValues
+): string {
+  const message = messages[locale][key] ?? messages.en[key];
+  if (!values) {
+    return message;
+  }
+
+  return message.replace(/\{(\w+)\}/g, (placeholder, name: string) => {
+    const value = values[name];
+    return value === undefined ? placeholder : String(value);
+  });
 }

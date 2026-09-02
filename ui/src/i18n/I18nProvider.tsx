@@ -1,17 +1,21 @@
 import { createContext, useContext, useEffect, useMemo } from 'react';
 import { useUserPreferences, type Locale } from '@/contexts/UserPreference';
-import { translate, type TranslationKey } from './messages';
+import {
+  translate,
+  type TranslationKey,
+  type TranslationValues,
+} from './messages';
 
 type I18nContextValue = {
   locale: Locale;
   setLocale: (locale: Locale) => void;
-  t: (key: TranslationKey) => string;
+  t: (key: TranslationKey, values?: TranslationValues) => string;
 };
 
 const defaultI18nContext: I18nContextValue = {
   locale: 'en',
   setLocale: () => {},
-  t: (key) => translate('en', key),
+  t: (key, values) => translate('en', key, values),
 };
 
 const I18nContext = createContext<I18nContextValue>(defaultI18nContext);
@@ -27,7 +31,7 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
     () => ({
       locale: preferences.locale,
       setLocale: (locale) => updatePreference('locale', locale),
-      t: (key) => translate(preferences.locale, key),
+      t: (key, values) => translate(preferences.locale, key, values),
     }),
     [preferences.locale, updatePreference]
   );

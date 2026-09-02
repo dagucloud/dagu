@@ -62,6 +62,14 @@ describe('UserPreferencesProvider', () => {
     expect(result.current.preferences.wikiSortOrder).toBe('asc');
   });
 
+  it('loads a saved Japanese locale', () => {
+    localStorage.setItem('user_preferences', JSON.stringify({ locale: 'ja' }));
+
+    const { result } = renderHook(() => useUserPreferences(), { wrapper });
+
+    expect(result.current.preferences.locale).toBe('ja');
+  });
+
   it('keeps migrated preferences when storage is read-only', () => {
     localStorage.setItem(
       'user_preferences',
