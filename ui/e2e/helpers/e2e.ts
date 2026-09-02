@@ -136,6 +136,7 @@ export function hasRBACLicenseSourceConfigured(): boolean {
       process.env.DAGU_LICENSE_FILE
   );
 }
+
 export async function loadStack(): Promise<StackConfig> {
   if (cachedStack) {
     return cachedStack;
