@@ -867,12 +867,12 @@ export default function EventLogsPage() {
             <p className="text-xs text-muted-foreground mt-1">
               {lastUpdatedAt
                 ? `Last updated ${formatTimestamp(lastUpdatedAt.toISOString())}`
-                : 'Waiting for the first response'}
+                : <I18nText text={"Waiting for the first response"} />}
               {autoRefresh && isAutoRefreshAvailable
-                ? ' • Refreshing every 5 seconds'
+                ? <I18nText text={" • Refreshing every 5 seconds"} />
                 : ''}
               {!isAutoRefreshAvailable
-                ? ' • Auto-refresh is disabled after loading older events'
+                ? <I18nText text={" • Auto-refresh is disabled after loading older events"} />
                 : ''}
             </p>
           </div>
@@ -898,7 +898,7 @@ export default function EventLogsPage() {
                   autoRefresh && isAutoRefreshAvailable && 'text-success'
                 )}
               />
-              <I18nText text={"Auto:"} /> {autoRefresh && isAutoRefreshAvailable ? 'ON' : 'OFF'}
+              <I18nText text={"Auto:"} /> {autoRefresh && isAutoRefreshAvailable ? <I18nText text={"ON"} /> : <I18nText text={"OFF"} />}
             </Button>
             <RefreshButton onRefresh={handleRefresh} />
           </div>
@@ -1078,7 +1078,7 @@ export default function EventLogsPage() {
               </p>
             </div>
             <div className="text-xs text-muted-foreground">
-              {hasMoreEntries ? 'More events available' : 'End of feed'}
+              {hasMoreEntries ? <I18nText text={"More events available"} /> : <I18nText text={"End of feed"} />}
             </div>
           </div>
 
@@ -1215,7 +1215,7 @@ export default function EventLogsPage() {
                   }}
                   disabled={isLoadingMore}
                 >
-                  {isLoadingMore ? 'Loading...' : 'Load More'}
+                  {isLoadingMore ? <I18nText text={"Loading..."} /> : <I18nText text={"Load More"} />}
                 </Button>
               ) : null}
             </div>

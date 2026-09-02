@@ -986,7 +986,7 @@ export default function GitSyncPage() {
             <div className="flex justify-between">
               <span className="text-muted-foreground"><I18nText text={"Push"} /></span>
               <span className="text-xs">
-                {config?.pushEnabled ? 'Enabled' : 'Disabled'}
+                {config?.pushEnabled ? <I18nText text={"Enabled"} /> : <I18nText text={"Disabled"} />}
               </span>
             </div>
             <div className="flex justify-between">
@@ -994,7 +994,7 @@ export default function GitSyncPage() {
               <span className="text-xs">
                 {config?.autoSync?.enabled
                   ? `Every ${config.autoSync.interval || 300}s`
-                  : 'Off'}
+                  : <I18nText text={"Off"} />}
               </span>
             </div>
             <div className="flex justify-between">
@@ -1002,7 +1002,7 @@ export default function GitSyncPage() {
               <span className="text-xs">
                 {status?.lastSyncAt
                   ? dayjs(status.lastSyncAt).format('MMM D, HH:mm')
-                  : 'Never'}
+                  : <I18nText text={"Never"} />}
               </span>
             </div>
             {isAdmin && (

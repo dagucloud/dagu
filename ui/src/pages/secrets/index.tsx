@@ -421,7 +421,7 @@ export function SecretRefsSection(): React.ReactNode {
                   <TableCell className="text-muted-foreground">
                     {secret.lastRotatedAt
                       ? dayjs(secret.lastRotatedAt).format('MMM D, YYYY HH:mm')
-                      : 'Never'}
+                      : <I18nText text={"Never"} />}
                   </TableCell>
                   <TableCell>
                     <DropdownMenu>
@@ -461,8 +461,8 @@ export function SecretRefsSection(): React.ReactNode {
                         <DropdownMenuItem onClick={() => toggleStatus(secret)}>
                           <Power className="mr-2 h-4 w-4" />
                           {secret.status === SecretStatus.active
-                            ? 'Disable'
-                            : 'Enable'}
+                            ? <I18nText text={"Disable"} />
+                            : <I18nText text={"Enable"} />}
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           className="text-destructive"
@@ -626,7 +626,7 @@ function SecretFormDialog({
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>
-            {isEditing ? 'Edit Secret Ref' : 'Add Secret Ref'}
+            {isEditing ? <I18nText text={"Edit Secret Ref"} /> : <I18nText text={"Add Secret Ref"} />}
           </DialogTitle>
         </DialogHeader>
 

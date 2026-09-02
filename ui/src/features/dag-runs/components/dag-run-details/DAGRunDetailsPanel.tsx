@@ -159,7 +159,7 @@ function DAGRunDetailsPanel({
       return (
         <div className="flex h-full items-start justify-center p-4">
           <div className="w-full rounded-lg border border-error/30 bg-error-muted p-4 text-sm text-error">
-            {error.message || 'Failed to load DAG run details'}
+            {error.message || <I18nText text={"Failed to load DAG run details"} />}
           </div>
         </div>
       );

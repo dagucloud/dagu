@@ -310,7 +310,7 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
       return (
         <div className="w-full h-full flex items-center justify-center">
           <div className="text-error">
-            <I18nText text={"Error loading log data:"} /> {error.message || 'Unknown error'}
+            <I18nText text={"Error loading log data:"} /> {error.message || <I18nText text={"Unknown error"} />}
           </div>
         </div>
       );
@@ -470,7 +470,7 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
           {showNavigation
             ? `Showing ${lines.length} of ${effectiveTotalLines} lines`
             : `${effectiveTotalLines} ${effectiveTotalLines === 1 ? 'line' : 'lines'}`}{' '}
-          {isEstimate ? '(estimated)' : ''} {hasMore ? '(more available)' : ''}
+          {isEstimate ? <I18nText text={"(estimated)"} /> : ''} {hasMore ? <I18nText text={"(more available)"} /> : ''}
         </div>
 
         {/* Page navigation controls */}

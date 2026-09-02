@@ -172,7 +172,7 @@ export function ResetPasswordModal({ open, user, onClose }: ResetPasswordModalPr
               disabled={isLoading || success}
             >
               <KeyRound className="h-4 w-4" />
-              {isLoading ? 'Resetting...' : 'Reset Password'}
+              {isLoading ? <I18nText text={"Resetting..."} /> : <I18nText text={"Reset Password"} />}
             </Button>
           </div>
         </form>

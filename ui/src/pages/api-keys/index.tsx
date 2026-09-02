@@ -260,8 +260,8 @@ export default function APIKeysPage() {
                         }
                       >
                         {key.attributionClass === 'user_owned'
-                          ? 'User'
-                          : 'Service'}
+                          ? <I18nText text={"User"} />
+                          : <I18nText text={"Service"} />}
                       </Badge>
                       <span className="max-w-[140px] truncate text-xs text-muted-foreground">
                         {attributionLabel(key)}
@@ -279,7 +279,7 @@ export default function APIKeysPage() {
                   <TableCell className="text-sm text-muted-foreground">
                     {key.lastUsedAt
                       ? dayjs(key.lastUsedAt).format('MMM D, YYYY HH:mm')
-                      : 'Never'}
+                      : <I18nText text={"Never"} />}
                   </TableCell>
                   <TableCell>
                     <DropdownMenu>

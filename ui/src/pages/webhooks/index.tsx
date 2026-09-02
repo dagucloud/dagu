@@ -343,7 +343,7 @@ export default function WebhooksPage() {
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
                     {webhook.profileSelection.allowedProfiles.length === 0
-                      ? 'Default only'
+                      ? <I18nText text={"Default only"} />
                       : `${webhook.profileSelection.allowedProfiles.length} selectable`}
                   </TableCell>
                   <TableCell>
@@ -355,7 +355,7 @@ export default function WebhooksPage() {
                         }
                       />
                       <span className="text-xs text-muted-foreground">
-                        {webhook.enabled ? 'Enabled' : 'Disabled'}
+                        {webhook.enabled ? <I18nText text={"Enabled"} /> : <I18nText text={"Disabled"} />}
                       </span>
                     </div>
                   </TableCell>
@@ -365,7 +365,7 @@ export default function WebhooksPage() {
                   <TableCell className="text-sm text-muted-foreground">
                     {webhook.lastUsedAt
                       ? dayjs(webhook.lastUsedAt).format('MMM D, YYYY HH:mm')
-                      : 'Never'}
+                      : <I18nText text={"Never"} />}
                   </TableCell>
                   <TableCell>
                     <DropdownMenu>
@@ -478,7 +478,7 @@ export default function WebhooksPage() {
       >
         <p>
           <I18nText text={"Are you sure you want to"} />{' '}
-          {togglingWebhook?.enabled ? 'enable' : 'disable'} the webhook for
+          {togglingWebhook?.enabled ? <I18nText text={"enable"} /> : <I18nText text={"disable"} />} the webhook for
           &quot;{togglingWebhook?.webhook.dagName}&quot;?
         </p>
       </ConfirmModal>

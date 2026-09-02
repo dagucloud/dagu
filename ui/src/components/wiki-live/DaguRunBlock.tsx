@@ -235,10 +235,10 @@ export function DaguRunBlock({ source }: Props) {
           >
             <Play className="h-3 w-3" />
             {posting
-              ? 'Starting…'
+              ? <I18nText text={"Starting…"} />
               : parsed.mode === 'enqueue'
-                ? 'Enqueue'
-                : 'Run'}
+                ? <I18nText text={"Enqueue"} />
+                : <I18nText text={"Run"} />}
           </button>
         )}
       </div>

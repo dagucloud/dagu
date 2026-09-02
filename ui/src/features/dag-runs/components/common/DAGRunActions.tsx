@@ -250,8 +250,8 @@ function DAGRunActions({
           <TooltipContent>
             <p>
               {isRootLevel
-                ? 'Retry DAGRun execution'
-                : 'Retry action only available at root dagRun level'}
+                ? <I18nText text={"Retry DAGRun execution"} />
+                : <I18nText text={"Retry action only available at root dagRun level"} />}
             </p>
           </TooltipContent>
         </Tooltip>
@@ -274,8 +274,8 @@ function DAGRunActions({
           <TooltipContent>
             <p>
               {isRootLevel
-                ? 'Remove DAGRun from queue'
-                : 'Dequeue action only available at root dagRun level'}
+                ? <I18nText text={"Remove DAGRun from queue"} />
+                : <I18nText text={"Dequeue action only available at root dagRun level"} />}
             </p>
           </TooltipContent>
         </Tooltip>
@@ -509,8 +509,8 @@ function DAGRunActions({
                     </Label>
                     <p className="text-xs text-muted-foreground">
                       {specFromFile
-                        ? 'Use the current spec from the original DAG file instead of the stored YAML snapshot.'
-                        : 'Stored YAML snapshot will be used because the original DAG file is not available.'}
+                        ? <I18nText text={"Use the current spec from the original DAG file instead of the stored YAML snapshot."} />
+                        : <I18nText text={"Stored YAML snapshot will be used because the original DAG file is not available."} />}
                     </p>
                   </div>
                 </div>

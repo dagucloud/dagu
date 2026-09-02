@@ -571,7 +571,7 @@ function NotificationsTab({ fileName, workspaceName }: NotificationsTabProps) {
         <I18nText text={"Delete"} />{' '}
         {deleteTargetIndex !== null && draft.targets[deleteTargetIndex]
           ? deliveryLabel(draft.targets[deleteTargetIndex])
-          : 'target'}
+          : <I18nText text={"target"} />}
         ?
       </ConfirmDialog></I18nProps>
 

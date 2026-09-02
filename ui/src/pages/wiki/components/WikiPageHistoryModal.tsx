@@ -120,8 +120,8 @@ export function WikiPageHistoryModal({
         {revisions.length === 0 ? (
           <div className="text-sm text-muted-foreground py-6 text-center">
             {isLoading
-              ? 'Loading revisions…'
-              : 'No stored revisions yet. Revisions are captured on each save.'}
+              ? <I18nText text={"Loading revisions…"} />
+              : <I18nText text={"No stored revisions yet. Revisions are captured on each save."} />}
           </div>
         ) : (
           <div className="flex gap-3 min-h-0 flex-1">
@@ -179,7 +179,7 @@ export function WikiPageHistoryModal({
                 </>
               ) : (
                 <div className="text-sm text-muted-foreground py-6 text-center">
-                  {selectedRev ? 'Loading…' : 'Select a revision to compare.'}
+                  {selectedRev ? <I18nText text={"Loading…"} /> : <I18nText text={"Select a revision to compare."} />}
                 </div>
               )}
             </div>

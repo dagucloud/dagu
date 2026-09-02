@@ -237,17 +237,17 @@ function ProviderCard({
         <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-sm font-semibold text-foreground">
-              {draft.name || 'New connection'}
+              {draft.name || <I18nText text={"New connection"} />}
             </h2>
             <Badge variant={draft.enabled ? 'success' : 'default'}>
-              {draft.enabled ? 'Enabled' : 'Disabled'}
+              {draft.enabled ? <I18nText text={"Enabled"} /> : <I18nText text={"Disabled"} />}
             </Badge>
             <Badge variant="outline">{providerLabel(draft.type)}</Badge>
           </div>
           <p className="text-sm text-muted-foreground">
             {secretConfigured
               ? `Secret configured${secretPreview ? ` (${secretPreview})` : ''}`
-              : 'Secret not configured'}
+              : <I18nText text={"Secret not configured"} />}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -652,7 +652,7 @@ function ScopeSelector({
             <Badge variant={globalMode === 'custom' ? 'success' : 'default'}>
               {globalMode === 'custom'
                 ? `${globalDraft.policies.length} route${globalDraft.policies.length === 1 ? '' : 's'}`
-                : 'Off'}
+                : <I18nText text={"Off"} />}
             </Badge>
           </div>
           <p className="mt-2 text-xs leading-5 text-muted-foreground">
@@ -676,16 +676,16 @@ function ScopeSelector({
             </span>
             <Badge variant={workspaceMode === 'custom' ? 'success' : 'default'}>
               {workspaceMode === 'inherit'
-                ? 'Inherit'
+                ? <I18nText text={"Inherit"} />
                 : workspaceMode === 'custom'
                   ? `${workspaceDraft.policies.length} route${workspaceDraft.policies.length === 1 ? '' : 's'}`
-                  : 'Off'}
+                  : <I18nText text={"Off"} />}
             </Badge>
           </div>
           <p className="mt-2 text-xs leading-5 text-muted-foreground">
             {workspaceName
               ? `${workspaceName} override`
-              : 'Select one workspace in the sidebar.'}
+              : <I18nText text={"Select one workspace in the sidebar."} />}
           </p>
         </button>
       </div>

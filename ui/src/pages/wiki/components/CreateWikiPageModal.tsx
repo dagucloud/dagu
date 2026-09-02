@@ -166,7 +166,7 @@ export function CreateWikiPageModal({
                   {templates.map((template) => (
                     <SelectItem key={template.id} value={template.id}>
                       {template.name}
-                      {!template.builtIn && ' (custom)'}
+                      {!template.builtIn && <I18nText text={" (custom)"} />}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -198,7 +198,7 @@ export function CreateWikiPageModal({
             </Button>
             <Button type="submit" disabled={busy}>
               <Plus className="h-4 w-4" />
-              {busy ? 'Creating...' : 'Create'}
+              {busy ? <I18nText text={"Creating..."} /> : <I18nText text={"Create"} />}
             </Button>
           </DialogFooter>
         </form>

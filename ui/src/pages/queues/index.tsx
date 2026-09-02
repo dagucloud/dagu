@@ -131,7 +131,7 @@ function Queues() {
         <div className="space-y-2 text-center">
           <Layers className="mx-auto h-12 w-12 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">
-            {errorData?.message || 'Failed to load queue information'}
+            {errorData?.message || <I18nText text={"Failed to load queue information"} />}
           </p>
         </div>
       </div>

@@ -608,7 +608,7 @@ export default function ArtifactsTab({
             <p className="text-sm font-medium"><I18nText text={"Artifacts"} /></p>
             <p className="text-xs text-muted-foreground">
               {tree.length === 0
-                ? 'No files yet'
+                ? <I18nText text={"No files yet"} />
                 : `${allNodes.filter((node) => node.type === 'file').length} files`}
             </p>
           </div>
@@ -682,10 +682,10 @@ export default function ArtifactsTab({
         <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
           <div className="min-w-0">
             <p className="truncate text-sm font-medium">
-              {selectedNode?.name || 'Select an artifact'}
+              {selectedNode?.name || <I18nText text={"Select an artifact"} />}
             </p>
             <p className="truncate text-xs text-muted-foreground">
-              {selectedPath || 'Choose a file from the left panel'}
+              {selectedPath || <I18nText text={"Choose a file from the left panel"} />}
             </p>
           </div>
           <div className="flex items-center gap-2">

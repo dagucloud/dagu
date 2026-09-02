@@ -66,7 +66,7 @@ function AuthProviderBadge({
   }
   return (
     <Badge variant="info">
-      {roleManaged ? 'Role' : 'Workspace access'} <I18nText text={"managed by"} /> {providerLabel}
+      {roleManaged ? <I18nText text={"Role"} /> : <I18nText text={"Workspace access"} />} <I18nText text={"managed by"} /> {providerLabel}
     </Badge>
   );
 }

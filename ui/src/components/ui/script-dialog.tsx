@@ -55,7 +55,7 @@ export function ScriptDialog({
         <DialogHeader className="px-4 py-3 border-b border-border">
           <DialogTitle className="flex items-center gap-2 text-sm font-semibold">
             <FileText className="h-4 w-4 text-warning" />
-            {stepName ? `Script: ${stepName}` : 'Script Content'}
+            {stepName ? `Script: ${stepName}` : <I18nText text={"Script Content"} />}
           </DialogTitle>
         </DialogHeader>
         <div className="flex-1 overflow-auto min-h-0 rounded-b-lg">

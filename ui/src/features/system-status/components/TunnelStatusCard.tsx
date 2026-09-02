@@ -97,7 +97,7 @@ function TunnelStatusCard({ data, isLoading, error }: TunnelStatusCardProps) {
         </div>
         <h3 className="text-sm font-medium"><I18nText text={"Tunnel Service"} /></h3>
         <span className="text-xs text-muted-foreground ml-auto">
-          {data?.isPublic ? 'Public' : 'Private'}
+          {data?.isPublic ? <I18nText text={"Public"} /> : <I18nText text={"Private"} />}
         </span>
       </div>
 

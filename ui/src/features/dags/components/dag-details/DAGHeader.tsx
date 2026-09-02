@@ -267,7 +267,7 @@ const DAGHeader: React.FC<DAGHeaderProps> = ({
               )}
             </button>
             <span className="sr-only" aria-live="polite">
-              {linkCopied ? 'Workflow link copied to clipboard' : ''}
+              {linkCopied ? <I18nText text={"Workflow link copied to clipboard"} /> : ''}
             </span>
           </div>
         </div>

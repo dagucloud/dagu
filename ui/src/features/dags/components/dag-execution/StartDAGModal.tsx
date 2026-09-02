@@ -617,7 +617,7 @@ function StartDAGModal({
       >
         <DialogHeader className="min-h-12 shrink-0 border-b border-border px-6 py-3 pr-24">
           <DialogTitle>
-            {forceEnqueue ? 'Enqueue the DAG' : 'Start the DAG'}
+            {forceEnqueue ? <I18nText text={"Enqueue the DAG"} /> : <I18nText text={"Start the DAG"} />}
           </DialogTitle>
           <DialogDescription className="sr-only">
             <I18nText text={"Configure the DAG run before submitting it."} />
@@ -815,7 +815,7 @@ function StartDAGModal({
                   <I18nText text={"Parameters"} />
                 </h3>
                 <Badge variant="secondary" className="font-normal">
-                  {parameterCount} {parameterCount === 1 ? 'field' : 'fields'}
+                  {parameterCount} {parameterCount === 1 ? <I18nText text={"field"} /> : <I18nText text={"fields"} />}
                 </Badge>
               </div>
 
@@ -973,12 +973,12 @@ function StartDAGModal({
             {enqueue ? (
               <>
                 <ListPlus className="h-4 w-4" />
-                {submitting ? 'Enqueuing...' : 'Enqueue'}
+                {submitting ? <I18nText text={"Enqueuing..."} /> : <I18nText text={"Enqueue"} />}
               </>
             ) : (
               <>
                 <Play className="h-4 w-4" />
-                {submitting ? 'Starting...' : 'Start'}
+                {submitting ? <I18nText text={"Starting..."} /> : <I18nText text={"Start"} />}
               </>
             )}
           </Button>
@@ -1091,7 +1091,7 @@ function renderTypedField({
             }
           />
           <span className="text-sm text-muted-foreground">
-            {field.value === 'true' ? 'true' : 'false'}
+            {field.value === 'true' ? <I18nText text={"true"} /> : <I18nText text={"false"} />}
           </span>
         </div>
       );

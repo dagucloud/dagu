@@ -760,7 +760,7 @@ function NodeStatusTableRow({
             disabled={retryDisabled || !canRetryStep}
           >
             <Play className="h-4 w-4" />
-            {loading ? 'Retrying...' : 'Retry'}
+            {loading ? <I18nText text={"Retrying..."} /> : <I18nText text={"Retry"} />}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1164,7 +1164,7 @@ function NodeStatusTableRow({
                     </div>
                   ) : (
                     <div className="text-xs font-medium text-muted-foreground">
-                      {hasStdout ? 'stdout' : 'stderr'}
+                      {hasStdout ? <I18nText text={"stdout"} /> : <I18nText text={"stderr"} />}
                     </div>
                   )}
 
@@ -1298,12 +1298,12 @@ function NodeStatusTableRow({
       <div className="mb-3">
         <div className="text-xs font-medium text-foreground/90 mb-1">
           {logMessage !== null
-            ? 'Message:'
+            ? <I18nText text={"Message:"} />
             : isHarnessStep(node.step)
-              ? 'Execution:'
+              ? <I18nText text={"Execution:"} />
               : node.step.commands && node.step.commands.length > 1
-                ? 'Commands:'
-                : 'Command:'}
+                ? <I18nText text={"Commands:"} />
+                : <I18nText text={"Command:"} />}
         </div>
         <div className="space-y-1.5">
           {isHarnessStep(node.step) ? (

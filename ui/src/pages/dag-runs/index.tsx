@@ -1086,7 +1086,7 @@ function DAGRuns() {
                   size="sm"
                   onClick={() => void handleLoadMore()}
                 >
-                  {loadMoreError ? 'Retry loading more' : 'Load more'}
+                  {loadMoreError ? <I18nText text={"Retry loading more"} /> : <I18nText text={"Load more"} />}
                 </Button>
               )}
             </>

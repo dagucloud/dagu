@@ -199,7 +199,7 @@ export function StepDetailsTooltip({
         )}
         {canRequestDetails && error && (
           <div className="text-xs text-error">
-            {error.message || 'Failed to load step details'}
+            {error.message || <I18nText text={"Failed to load step details"} />}
           </div>
         )}
         {canRequestDetails && !isLoading && !error && (

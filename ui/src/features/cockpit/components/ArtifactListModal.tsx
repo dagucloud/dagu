@@ -241,7 +241,7 @@ export function ArtifactListModal({
           ) : error && !displayDetails ? (
             <div className="flex items-start gap-2 rounded-md bg-destructive/5 px-3 py-3 text-sm text-destructive">
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>{error.message || 'Failed to load DAG run details'}</span>
+              <span>{error.message || <I18nText text={"Failed to load DAG run details"} />}</span>
             </div>
           ) : displayDetails ? (
             <ArtifactsTab

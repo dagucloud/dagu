@@ -175,7 +175,7 @@ function DAGRunBatchActions({
         )}
         {typeof result.queued === 'boolean' && (
           <div className="text-muted-foreground">
-            {result.queued ? 'Queued for execution' : 'Started immediately'}
+            {result.queued ? <I18nText text={"Queued for execution"} /> : <I18nText text={"Started immediately"} />}
           </div>
         )}
       </div>
@@ -264,7 +264,7 @@ function DAGRunBatchActions({
         >
           <DialogHeader>
             <DialogTitle>
-              {activeBatch ? actionLabels[activeBatch.action] : 'Batch action'}
+              {activeBatch ? actionLabels[activeBatch.action] : <I18nText text={"Batch action"} />}
             </DialogTitle>
             <DialogDescription>
               {phase === 'confirm' && activeBatch
@@ -343,10 +343,10 @@ function DAGRunBatchActions({
                     </Label>
                     <p className="text-xs text-muted-foreground">
                       {rescheduleSourceLoading
-                        ? 'Checking whether the selected DAG runs still have their original DAG files.'
+                        ? <I18nText text={"Checking whether the selected DAG runs still have their original DAG files."} />
                         : specFromFile
-                          ? 'Use the current spec from the original DAG file for every selected DAG run.'
-                          : 'Stored YAML snapshots will be used because one or more selected DAG runs do not have the original DAG file available.'}
+                          ? <I18nText text={"Use the current spec from the original DAG file for every selected DAG run."} />
+                          : <I18nText text={"Stored YAML snapshots will be used because one or more selected DAG runs do not have the original DAG file available."} />}
                     </p>
                   </div>
                 </div>
@@ -366,10 +366,10 @@ function DAGRunBatchActions({
                   <div className="min-w-0 flex-1 space-y-2">
                     <div className="text-sm font-medium text-foreground">
                       {phase === 'running'
-                        ? 'Submitting requests...'
+                        ? <I18nText text={"Submitting requests..."} />
                         : progress.isRefreshing
-                          ? 'Refreshing DAG runs...'
-                          : 'Finished submitting requests'}
+                          ? <I18nText text={"Refreshing DAG runs..."} />
+                          : <I18nText text={"Finished submitting requests"} />}
                     </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                       <span className="font-mono tabular-nums">
@@ -398,8 +398,8 @@ function DAGRunBatchActions({
                 ) : (
                   <div className="text-sm text-muted-foreground">
                     {progress.isRefreshing
-                      ? 'Refreshing the DAG-run list'
-                      : 'All requests have been submitted'}
+                      ? <I18nText text={"Refreshing the DAG-run list"} />
+                      : <I18nText text={"All requests have been submitted"} />}
                   </div>
                 )}
               </div>
@@ -436,7 +436,7 @@ function DAGRunBatchActions({
                           <div
                             className={`text-xs font-medium ${result.ok ? 'text-success' : 'text-error'}`}
                           >
-                            {result.ok ? 'Succeeded' : 'Failed'}
+                            {result.ok ? <I18nText text={"Succeeded"} /> : <I18nText text={"Failed"} />}
                           </div>
                         </div>
                         {renderResultDetails(activeBatch.action, result)}
@@ -479,7 +479,7 @@ function DAGRunBatchActions({
             {(phase === 'running' || progress.isRefreshing) && (
               <Button disabled>
                 <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                {phase === 'running' ? 'Submitting...' : 'Refreshing...'}
+                {phase === 'running' ? <I18nText text={"Submitting..."} /> : <I18nText text={"Refreshing..."} />}
               </Button>
             )}
             {phase === 'complete' && !progress.isRefreshing && (

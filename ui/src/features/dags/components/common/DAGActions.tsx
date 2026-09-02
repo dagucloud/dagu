@@ -519,7 +519,7 @@ function DAGActions({
           <div>
             <p className="mb-2">
               {terminateAction === 'stop' && stopAllRunning
-                ? `Do you really want to stop all running instances of this DAG?`
+                ? <I18nText text={"Do you really want to stop all running instances of this DAG?"} />
                 : terminateDetails.confirmText}
             </p>
             {!stopAllRunning && status?.name && (
@@ -670,7 +670,7 @@ function DAGActions({
             <p className="mb-2">
               {status?.name && retryDagRunId
                 ? `Do you really want to retry the dag-run "${status.name}"?`
-                : 'Do you really want to rerun the following execution?'}
+                : <I18nText text={"Do you really want to rerun the following execution?"} />}
             </p>
             <I18nProps><LabeledItem label="DAG-Run-Name">
               <span className="font-mono text-sm">{status?.name || 'N/A'}</span>
@@ -757,8 +757,8 @@ function DAGActions({
                     </Label>
                     <p className="text-xs text-muted-foreground">
                       {specFromFile
-                        ? 'Use the current spec from the original DAG file instead of the stored YAML snapshot.'
-                        : 'Stored YAML snapshot will be used because the original DAG file is not available.'}
+                        ? <I18nText text={"Use the current spec from the original DAG file instead of the stored YAML snapshot."} />
+                        : <I18nText text={"Stored YAML snapshot will be used because the original DAG file is not available."} />}
                     </p>
                   </div>
                 </div>

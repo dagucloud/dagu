@@ -524,7 +524,7 @@ function WikiPageEditor({
             )}
           >
             <Save className="h-3 w-3" />
-            {isSaving ? 'Saving...' : 'Save'}
+            {isSaving ? <I18nText text={"Saving..."} /> : <I18nText text={"Save"} />}
           </button>
         )}
         {canEdit && onDeleteWikiPage && (

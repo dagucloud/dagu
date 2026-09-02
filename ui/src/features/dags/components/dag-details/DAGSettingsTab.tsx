@@ -210,7 +210,7 @@ function DAGSettingsTab({ fileName }: Props) {
               </Select>
             ) : (
               <div className="flex min-h-10 items-center rounded-md border border-border px-3 text-sm">
-                {currentProfile || 'No profile'}
+                {currentProfile || <I18nText text={"No profile"} />}
               </div>
             )}
           </div>

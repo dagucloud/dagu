@@ -577,7 +577,7 @@ function ScopeSelector({
               <span className="truncate">
                 {workspaceName
                   ? `${workspaceName} workspace`
-                  : 'This workspace'}
+                  : <I18nText text={"This workspace"} />}
               </span>
             </div>
             <Badge
@@ -591,7 +591,7 @@ function ScopeSelector({
             >
               {canConfigureWorkspaceRoutes
                 ? workspaceRoutes.inheritGlobal
-                  ? 'Inherit'
+                  ? <I18nText text={"Inherit"} />
                   : workspaceRoutes.routes.length
                 : '-'}
             </Badge>
@@ -599,9 +599,9 @@ function ScopeSelector({
           <p className="mt-2 text-xs leading-5 text-muted-foreground">
             {canConfigureWorkspaceRoutes
               ? workspaceRoutes.inheritGlobal
-                ? 'Uses Global until configured.'
+                ? <I18nText text={"Uses Global until configured."} />
                 : `Overrides Global for ${workspaceName}.`
-              : 'Select a workspace to configure this.'}
+              : <I18nText text={"Select a workspace to configure this."} />}
           </p>
         </button>
       </CardContent>
@@ -1626,8 +1626,8 @@ export function NotificationChannelsPage() {
               }
             >
               {smtpDraft.host || smtpDraft.mode === 'oauth'
-                ? 'Configured'
-                : 'Not Configured'}
+                ? <I18nText text={"Configured"} />
+                : <I18nText text={"Not Configured"} />}
             </Badge>
           </div>
           <Button size="sm" onClick={saveSettings} disabled={isSavingSettings}>
@@ -1940,7 +1940,7 @@ export function NotificationChannelsPage() {
         <I18nText text={"Delete"} />{' '}
         {deleteChannelIndex !== null && channels[deleteChannelIndex]
           ? deliveryLabel(channels[deleteChannelIndex])
-          : 'channel'}
+          : <I18nText text={"channel"} />}
         ?
       </ConfirmDialog></I18nProps>
     </div>

@@ -234,7 +234,7 @@ export function IncidentPolicyEditor({
                     <div className="min-w-0 space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-sm font-semibold text-foreground">
-                          {provider?.name || 'Missing connection'}
+                          {provider?.name || <I18nText text={"Missing connection"} />}
                         </span>
                         <Badge
                           className={cn(

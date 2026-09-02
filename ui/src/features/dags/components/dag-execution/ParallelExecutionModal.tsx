@@ -351,7 +351,7 @@ export function ParallelExecutionModal({
 
         <div className="px-4 py-2 bg-muted border-t border-border">
           <div className="flex items-center gap-3 text-xs text-muted-foreground font-mono">
-            <span>{isMac ? '⌘' : 'Ctrl'}<I18nText text={"+Click: new tab"} /></span>
+            <span>{isMac ? '⌘' : <I18nText text={"Ctrl"} />}<I18nText text={"+Click: new tab"} /></span>
             <span className="opacity-40">•</span>
             <span><I18nText text={"↑↓ Navigate"} /></span>
             <span className="opacity-40">•</span>

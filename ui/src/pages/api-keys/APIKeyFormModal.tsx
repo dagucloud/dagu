@@ -252,7 +252,7 @@ export function APIKeyFormModal({
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
-            {isEditing ? 'Edit API Key' : 'Create API Key'}
+            {isEditing ? <I18nText text={"Edit API Key"} /> : <I18nText text={"Create API Key"} />}
           </DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit}>
@@ -413,10 +413,10 @@ export function APIKeyFormModal({
             </Button>
             <Button type="submit" disabled={isLoading || !name}>
               {isLoading
-                ? 'Saving...'
+                ? <I18nText text={"Saving..."} />
                 : isEditing
-                  ? 'Save Changes'
-                  : 'Create Key'}
+                  ? <I18nText text={"Save Changes"} />
+                  : <I18nText text={"Create Key"} />}
             </Button>
           </DialogFooter>
         </form>

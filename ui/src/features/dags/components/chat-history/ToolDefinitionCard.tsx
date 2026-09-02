@@ -36,7 +36,7 @@ export function ToolDefinitionCard({ tool }: ToolDefinitionCardProps) {
           {propertyEntries.map(([name, schema]) => (
             <div key={name} className="font-mono text-muted-foreground">
               <span className="text-foreground">{name}</span>
-              <span className="ml-1">({schema.type || 'any'})</span>
+              <span className="ml-1">({schema.type || <I18nText text={"any"} />})</span>
               {required.includes(name) ? (
                 <span className="ml-1 text-amber-500"><I18nText text={"required"} /></span>
               ) : schema.default !== undefined ? (

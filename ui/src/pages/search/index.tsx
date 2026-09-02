@@ -193,7 +193,7 @@ function SearchFeedPanel({
             }}
             disabled={isLoadingMore}
           >
-            {isLoadingMore ? 'Retrying...' : 'Retry load more'}
+            {isLoadingMore ? <I18nText text={"Retrying..."} /> : <I18nText text={"Retry load more"} />}
           </Button>
         </div>
       )}
@@ -207,7 +207,7 @@ function SearchFeedPanel({
             }}
             disabled={isLoadingMore}
           >
-            {isLoadingMore ? 'Loading...' : 'Load more'}
+            {isLoadingMore ? <I18nText text={"Loading..."} /> : <I18nText text={"Load more"} />}
           </Button>
           <div ref={sentinelRef} className="h-4 w-full" />
         </div>

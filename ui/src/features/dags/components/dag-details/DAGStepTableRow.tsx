@@ -251,8 +251,8 @@ function DAGStepTableRow({ step, index }: Props) {
                 <div className="text-xs bg-muted rounded px-1.5 py-0.5 font-mono">
                   <span className="text-muted-foreground">
                     {step.repeatPolicy.repeat === 'while'
-                      ? '↻ while'
-                      : '↻ until'}
+                      ? <I18nText text={"↻ while"} />
+                      : <I18nText text={"↻ until"} />}
                     :
                   </span>{' '}
                   <span className="text-foreground/90">

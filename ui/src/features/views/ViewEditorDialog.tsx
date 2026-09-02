@@ -252,7 +252,7 @@ export function ViewEditorDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{isEdit ? 'Edit view' : 'New view'}</DialogTitle>
+          <DialogTitle>{isEdit ? <I18nText text={"Edit view"} /> : <I18nText text={"New view"} />}</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1">
@@ -387,7 +387,7 @@ export function ViewEditorDialog({
               <I18nText text={"Cancel"} />
             </Button>
             <Button onClick={handleSave} disabled={!canSave}>
-              {isEdit ? 'Save' : 'Create'}
+              {isEdit ? <I18nText text={"Save"} /> : <I18nText text={"Create"} />}
             </Button>
           </div>
         </DialogFooter>

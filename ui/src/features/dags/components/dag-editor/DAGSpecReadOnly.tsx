@@ -587,7 +587,7 @@ function DAGSpecReadOnly({
     return (
       <div className="text-sm text-destructive p-4">
         <I18nText text={'Failed to load DAG spec:'} />{' '}
-        {error.message ?? 'Unknown error'}
+        {error.message ?? <I18nText text={'Unknown error'} />}
       </div>
     );
   }
@@ -628,7 +628,11 @@ function DAGSpecReadOnly({
                   ) : (
                     <Save className="h-3.5 w-3.5" />
                   )}
-                  {sourceDiffLoading ? 'Loading diff...' : 'Save source DAG'}
+                  {sourceDiffLoading ? (
+                    <I18nText text={'Loading diff...'} />
+                  ) : (
+                    <I18nText text={'Save source DAG'} />
+                  )}
                 </Button>
               )}
               {canRetryEditedSpec && (
@@ -646,7 +650,11 @@ function DAGSpecReadOnly({
                   onClick={() => void previewEditedSpec()}
                 >
                   <RefreshCw className="h-3.5 w-3.5" />
-                  {previewLoading ? 'Previewing...' : 'Retry as a new run'}
+                  {previewLoading ? (
+                    <I18nText text={'Previewing...'} />
+                  ) : (
+                    <I18nText text={'Retry as a new run'} />
+                  )}
                 </Button>
               )}
             </div>
@@ -814,9 +822,11 @@ function DAGSpecReadOnly({
                                     : 'text-muted-foreground'
                                 )}
                               >
-                                {willReuse
-                                  ? 'Reuse previous output'
-                                  : 'Run again'}
+                                {willReuse ? (
+                                  <I18nText text={'Reuse previous output'} />
+                                ) : (
+                                  <I18nText text={'Run again'} />
+                                )}
                               </div>
                               {step.depends && step.depends.length > 0 && (
                                 <div className="text-xs text-muted-foreground">
@@ -962,7 +972,11 @@ function SourceDAGDiffDialog({
             ) : (
               <Save className="h-3.5 w-3.5" />
             )}
-            {saving ? 'Saving...' : 'Save source DAG'}
+            {saving ? (
+              <I18nText text={'Saving...'} />
+            ) : (
+              <I18nText text={'Save source DAG'} />
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>

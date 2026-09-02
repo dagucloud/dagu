@@ -439,7 +439,7 @@ export function StepDetailsDrawer({
         <header className="flex items-start justify-between gap-4 border-b border-border bg-card px-4 py-3">
           <div className="min-w-0">
             <div className="text-xs font-medium uppercase text-muted-foreground">
-              {dagName || 'DAG'}
+              {dagName || <I18nText text={"DAG"} />}
             </div>
             <h2
               id="step-details-title"
@@ -453,7 +453,7 @@ export function StepDetailsDrawer({
                   {renderedNode.statusLabel}
                 </NodeStatusChip>
               ) : (
-                'Step definition'
+                <I18nText text={"Step definition"} />
               )}
             </div>
           </div>

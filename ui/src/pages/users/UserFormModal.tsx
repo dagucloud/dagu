@@ -192,7 +192,7 @@ export function UserFormModal({
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <div className="flex items-center gap-2">
-            <DialogTitle>{isEditing ? 'Edit User' : 'Create User'}</DialogTitle>
+            <DialogTitle>{isEditing ? <I18nText text={"Edit User"} /> : <I18nText text={"Create User"} />}</DialogTitle>
             {authorizationManaged && (
               <Badge variant="info">{managedBadgeLabel}</Badge>
             )}
@@ -285,8 +285,8 @@ export function UserFormModal({
               />
               <p className="text-xs text-slate-500 dark:text-slate-500">
                 {roleManaged
-                  ? 'Role and workspace access are'
-                  : 'Workspace access is'}{' '}
+                  ? <I18nText text={"Role and workspace access are"} />
+                  : <I18nText text={"Workspace access is"} />}{' '}
                 <I18nText text={"updated by"} /> {managedProviderLabel} <I18nText text={"at sign-in."} />
               </p>
             </div>
@@ -314,7 +314,7 @@ export function UserFormModal({
               ) : (
                 <UserPlus className="h-4 w-4" />
               )}
-              {isLoading ? 'Saving...' : isEditing ? 'Update' : 'Create'}
+              {isLoading ? <I18nText text={"Saving..."} /> : isEditing ? <I18nText text={"Update"} /> : <I18nText text={"Create"} />}
             </Button>
           </div>
         </form>

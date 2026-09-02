@@ -128,7 +128,7 @@ export function DiffModal({
               remoteExecutable !== undefined)) && (
             <div className="border-b border-border/40 px-3 py-2 text-xs text-muted-foreground">
               {remoteDeleted
-                ? 'The remote file was deleted.'
+                ? <I18nText text={"The remote file was deleted."} />
                 : `Mode: remote ${remoteExecutable ? 'executable' : 'regular'}, local ${localExecutable ? 'executable' : 'regular'}`}
             </div>
           )}

@@ -793,7 +793,7 @@ export default function ProfilesPage(): React.ReactNode {
                             ? dayjs(globalTarget.updatedAt).format(
                                 'MMM D, YYYY HH:mm'
                               )
-                            : 'Never'}
+                            : <I18nText text={"Never"} />}
                         </TableCell>
                       </TableRow>
                     )}
@@ -835,7 +835,7 @@ export default function ProfilesPage(): React.ReactNode {
                             ? dayjs(workspaceTarget.updatedAt).format(
                                 'MMM D, YYYY HH:mm'
                               )
-                            : 'Never'}
+                            : <I18nText text={"Never"} />}
                         </TableCell>
                       </TableRow>
                     )}
@@ -874,7 +874,7 @@ export default function ProfilesPage(): React.ReactNode {
                             ? dayjs(workspaceTarget.updatedAt).format(
                                 'MMM D, YYYY HH:mm'
                               )
-                            : 'Never'}
+                            : <I18nText text={"Never"} />}
                         </TableCell>
                       </TableRow>
                     )}
@@ -1024,8 +1024,8 @@ export default function ProfilesPage(): React.ReactNode {
                                   <Power className="mr-2 h-4 w-4" />
                                   {profile.status ===
                                   RuntimeProfileStatus.active
-                                    ? 'Disable'
-                                    : 'Enable'}
+                                    ? <I18nText text={"Disable"} />
+                                    : <I18nText text={"Enable"} />}
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   className="text-destructive"
@@ -1365,7 +1365,7 @@ function ProfileFormDialog({
         <form onSubmit={(event) => void handleSubmit(event)}>
           <DialogHeader>
             <DialogTitle>
-              {isEditing ? 'Edit Profile' : 'Add Profile'}
+              {isEditing ? <I18nText text={"Edit Profile"} /> : <I18nText text={"Add Profile"} />}
             </DialogTitle>
             <DialogDescription className="sr-only">
               <I18nText text={"Configure runtime profile metadata and protection."} />
@@ -1427,7 +1427,7 @@ function ProfileFormDialog({
               <I18nText text={"Cancel"} />
             </Button>
             <Button type="submit" disabled={isSaving}>
-              {isSaving ? 'Saving...' : 'Save'}
+              {isSaving ? <I18nText text={"Saving..."} /> : <I18nText text={"Save"} />}
             </Button>
           </DialogFooter>
         </form>
@@ -1558,7 +1558,7 @@ function ProfileEntryDialog({
               <I18nText text={"Cancel"} />
             </Button>
             <Button type="submit" disabled={isSaving}>
-              {isSaving ? 'Saving...' : 'Save'}
+              {isSaving ? <I18nText text={"Saving..."} /> : <I18nText text={"Save"} />}
             </Button>
           </DialogFooter>
         </form>

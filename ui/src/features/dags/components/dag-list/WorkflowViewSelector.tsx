@@ -389,7 +389,7 @@ export function WorkflowViewSelector({
                         ).catch(() => undefined)
                       }
                     >
-                      {isDefault ? 'Default' : 'Make default'}
+                      {isDefault ? <I18nText text={"Default"} /> : <I18nText text={"Make default"} />}
                     </Button>
                     <Button
                       type="button"

@@ -226,8 +226,8 @@ function WebhookProfileSelectionCard({
                   unavailableAllowedProfiles.length === 0 ? (
                     <div className="text-xs text-muted-foreground">
                       {profilesLoadFailed
-                        ? 'No configured profiles to display.'
-                        : 'No active runtime profiles are available.'}
+                        ? <I18nText text={"No configured profiles to display."} />
+                        : <I18nText text={"No active runtime profiles are available."} />}
                     </div>
                   ) : (
                     runtimeProfiles.map((profile) => {
@@ -287,8 +287,8 @@ function WebhookProfileSelectionCard({
                         <span>{profileName}</span>
                         <Badge variant="secondary" className="text-[10px]">
                           {profilesLoadFailed
-                            ? 'Status unknown'
-                            : 'Unavailable'}
+                            ? <I18nText text={"Status unknown"} />
+                            : <I18nText text={"Unavailable"} />}
                         </Badge>
                       </label>
                     );

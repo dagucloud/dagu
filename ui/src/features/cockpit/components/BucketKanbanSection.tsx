@@ -72,7 +72,7 @@ export function BucketKanbanSection({
       ) : error ? (
         <div className="px-1 py-3 flex items-center gap-3 text-xs">
           <span className="text-destructive">
-            {error.message || 'Failed to load runs'}
+            {error.message || <I18nText text={"Failed to load runs"} />}
           </span>
           <button
             type="button"

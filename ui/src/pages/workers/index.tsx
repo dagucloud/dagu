@@ -140,7 +140,7 @@ function Workers() {
         <div className="text-center space-y-2">
           <Server className="h-12 w-12 text-muted-foreground mx-auto" />
           <p className="text-sm text-muted-foreground">
-            {errorData?.message || 'Failed to load workers'}
+            {errorData?.message || <I18nText text={"Failed to load workers"} />}
           </p>
           {data?.errors?.map((err, idx) => (
             <p key={idx} className="text-xs text-error">

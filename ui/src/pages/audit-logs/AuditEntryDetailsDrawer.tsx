@@ -147,7 +147,7 @@ export function AuditEntryDetailsDrawer({
               ) : (
                 <Copy className="h-4 w-4" />
               )}
-              {copied ? 'Copied' : 'Copy JSON'}
+              {copied ? <I18nText text={"Copied"} /> : <I18nText text={"Copy JSON"} />}
             </Button>
           </div>
         </DialogHeader>

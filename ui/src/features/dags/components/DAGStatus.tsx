@@ -742,14 +742,14 @@ function DAGStatus({
                     <div>
                       <div className="font-medium text-destructive">
                         {failedNode.status === NodeStatus.Rejected
-                          ? 'Rejected'
-                          : 'Failed'}{' '}
+                          ? <I18nText text={"Rejected"} />
+                          : <I18nText text={"Failed"} />}{' '}
                         <I18nText text={"at"} /> {failedNode.step.name}
                       </div>
                       <div className="mt-1 max-h-28 overflow-auto whitespace-pre-wrap break-words text-sm text-foreground">
                         {failedNode.error ||
                           failedNode.rejectionReason ||
-                          'The step failed without an error message.'}
+                          <I18nText text={"The step failed without an error message."} />}
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-2">

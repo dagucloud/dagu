@@ -118,7 +118,7 @@ export function KanbanColumn({
                   disabled={isLoadingMore}
                   className="rounded border border-border px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {isLoadingMore ? 'Loading...' : 'Load more'}
+                  {isLoadingMore ? <I18nText text={"Loading..."} /> : <I18nText text={"Load more"} />}
                 </button>
                 <div ref={sentinelRef} className="h-1 w-full shrink-0" />
               </div>

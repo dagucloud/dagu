@@ -315,7 +315,7 @@ function DAGCard({
         >
           <LiveSwitch dag={dag} refresh={refreshFn} />
           <span className="text-xs text-muted-foreground truncate">
-            {dag.suspended ? 'Suspended' : hasSchedule ? 'Live' : 'No schedule'}
+            {dag.suspended ? <I18nText text={"Suspended"} /> : hasSchedule ? <I18nText text={"Live"} /> : <I18nText text={"No schedule"} />}
           </span>
         </div>
         <div
@@ -756,7 +756,7 @@ const defaultColumns = [
       <div className="flex flex-col py-1">
         <span className="text-xs"><I18nText text={"Last Run"} /></span>
         <span className="text-xs font-normal text-muted-foreground">
-          {getConfig().tz || 'Local Timezone'}
+          {getConfig().tz || <I18nText text={"Local Timezone"} />}
         </span>
       </div>
     ),
@@ -1805,7 +1805,7 @@ function DAGTable({
                   <ArrowDown className="h-3.5 w-3.5" />
                 )}
                 <span className="ml-1">
-                  {sortOrder === 'asc' ? 'Asc' : 'Desc'}
+                  {sortOrder === 'asc' ? <I18nText text={"Asc"} /> : <I18nText text={"Desc"} />}
                 </span>
               </Button>
             </div>
@@ -2088,8 +2088,8 @@ function DAGTable({
         <div className="space-y-3 text-sm">
           <p>
             {deleteTargets?.length === 1
-              ? 'The workflow definition file will be removed.'
-              : 'The selected workflow definition files will be removed.'}{' '}
+              ? <I18nText text={"The workflow definition file will be removed."} />
+              : <I18nText text={"The selected workflow definition files will be removed."} />}{' '}
             <I18nText text={"Past run history will be kept. This action cannot be undone."} />
           </p>
           <ul className="max-h-48 space-y-1 overflow-y-auto rounded-md border bg-muted/30 p-2">

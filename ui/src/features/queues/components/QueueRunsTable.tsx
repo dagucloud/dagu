@@ -195,7 +195,7 @@ function QueueRunsTable({
                     )}
                     <span>
                       <span className="text-muted-foreground/80">
-                        {showQueuedAt ? 'Queued ' : 'Started '}
+                        {showQueuedAt ? <I18nText text={"Queued "} /> : <I18nText text={"Started "} />}
                       </span>
                       {formatDateTime(
                         showQueuedAt ? dagRun.queuedAt : dagRun.startedAt

@@ -633,11 +633,11 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
                   }
                 >
                   {isValidating
-                    ? 'Validating...'
+                    ? <I18nText text={"Validating..."} />
                     : liveValidation
                       ? liveValidation.errors.length > 0
                         ? `${liveValidation.errors.length} issue${liveValidation.errors.length === 1 ? '' : 's'}`
-                        : 'Valid'
+                        : <I18nText text={"Valid"} />
                       : ''}
                 </span>
               )}

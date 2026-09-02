@@ -337,7 +337,7 @@ export function TemplateSelector({
             <div className="flex flex-wrap gap-1 px-3 pt-2 pb-2.5 border-b border-border max-h-[200px] overflow-y-auto shrink-0">
               {availableLabels.length === 0 ? (
                 <span className="text-[10px] text-muted-foreground">
-                  {labelsData ? 'No labels found' : 'Loading labels...'}
+                  {labelsData ? <I18nText text={"No labels found"} /> : <I18nText text={"Loading labels..."} />}
                 </span>
               ) : (
                 availableLabels.map((label) => {
@@ -379,7 +379,7 @@ export function TemplateSelector({
                   {/* Group header */}
                   {hasGroups && (
                     <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-muted-foreground font-medium bg-popover border-b border-border sticky top-0 z-10">
-                      {group || '(ungrouped)'}
+                      {group || <I18nText text={"(ungrouped)"} />}
                     </div>
                   )}
                   {/* DAG items */}

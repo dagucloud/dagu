@@ -171,7 +171,7 @@ function HumanTaskCard({
               disabled={completionDisabled}
             >
               <Check className="h-4 w-4" />
-              {submitting ? 'Completing…' : 'Complete task'}
+              {submitting ? <I18nText text={"Completing…"} /> : <I18nText text={"Complete task"} />}
             </Button>
           </div>
         </Form>
@@ -184,7 +184,7 @@ function HumanTaskCard({
             onClick={() => void complete({})}
           >
             <Check className="h-4 w-4" />
-            {submitting ? 'Completing…' : 'Complete task'}
+            {submitting ? <I18nText text={"Completing…"} /> : <I18nText text={"Complete task"} />}
           </Button>
         </div>
       )}
@@ -260,7 +260,7 @@ export function HumanTasksTab({ dagRun, onChanged }: HumanTasksTabProps) {
               onClick={() => void resume()}
             >
               <RefreshCcw className="h-4 w-4" />
-              {resuming ? 'Queueing…' : 'Retry queue'}
+              {resuming ? <I18nText text={"Queueing…"} /> : <I18nText text={"Retry queue"} />}
             </Button>
           </AlertDescription>
         </Alert>

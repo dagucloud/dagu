@@ -3,6 +3,7 @@ import { X, Plus } from 'lucide-react';
 import { useTabContext } from '@/contexts/TabContext';
 import { cn } from '@/lib/utils';
 import { I18nProps } from '@/i18n/I18nProps';
+import { I18nText } from '@/i18n/I18nText';
 
 type TabBarProps = {
   className?: string;
@@ -84,7 +85,7 @@ export function TabBar({ className, onAddTab }: TabBarProps) {
           >
             {/* Tab Label */}
             <span className="flex-1 text-sm font-medium truncate select-none">
-              {tab.title || tab.fileName || 'Untitled'}
+              {tab.title || tab.fileName || <I18nText text={"Untitled"} />}
             </span>
 
             {/* Close Button - Visible on hover or when active */}

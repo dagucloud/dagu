@@ -125,7 +125,7 @@ function StepField({
 
 function renderStepFieldValue(name: string, value: unknown): React.ReactNode {
   if (typeof value === 'boolean') {
-    return <Badge variant="outline">{value ? 'Enabled' : 'Disabled'}</Badge>;
+    return <Badge variant="outline">{value ? <I18nText text={"Enabled"} /> : <I18nText text={"Disabled"} />}</Badge>;
   }
 
   if (typeof value === 'number') {
@@ -250,7 +250,7 @@ function renderNestedFieldValue(name: string, value: unknown): React.ReactNode {
     return renderStepFieldValue(name, value);
   }
   if (typeof value === 'boolean') {
-    return <Badge variant="outline">{value ? 'Enabled' : 'Disabled'}</Badge>;
+    return <Badge variant="outline">{value ? <I18nText text={"Enabled"} /> : <I18nText text={"Disabled"} />}</Badge>;
   }
   return (
     <div className="whitespace-pre-wrap break-words text-sm text-foreground">

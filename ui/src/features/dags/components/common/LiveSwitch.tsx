@@ -108,7 +108,7 @@ function LiveSwitch({ dag, refresh, 'aria-label': ariaLabel }: Props) {
         onSubmit={handleConfirm}
       >
         <p>
-          <I18nText text={"Are you sure you want to"} /> {pendingState ? 'enable' : 'disable'} the
+          <I18nText text={"Are you sure you want to"} /> {pendingState ? <I18nText text={"enable"} /> : <I18nText text={"disable"} />} the
           schedule for &quot;{dag.fileName}&quot;?
         </p>
       </ConfirmModal>

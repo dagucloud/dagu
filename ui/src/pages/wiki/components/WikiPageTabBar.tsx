@@ -132,7 +132,7 @@ function WikiPageTabBar({
 
             {/* Tab Label */}
             <span className="flex-1 text-sm font-medium truncate select-none">
-              {tab.title || tab.wikiPagePath || 'Untitled'}
+              {tab.title || tab.wikiPagePath || <I18nText text={"Untitled"} />}
             </span>
 
             {/* Tab Actions */}

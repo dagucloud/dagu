@@ -95,7 +95,7 @@ export function LicenseBanner() {
     return (
       <div role="alert" className="bg-orange-50 dark:bg-orange-950 border-b border-orange-200 dark:border-orange-800 px-4 py-1.5 flex items-center justify-between text-sm">
         <span className="text-orange-800 dark:text-orange-200">
-          <I18nText text={"Your Dagu"} /> {licenseLabel} {days === 0 ? 'expires today' : `expires in ${days} day${days !== 1 ? 's' : ''}`}<I18nText text={"! Please"} />{' '}
+          <I18nText text={"Your Dagu"} /> {licenseLabel} {days === 0 ? <I18nText text={"expires today"} /> : `expires in ${days} day${days !== 1 ? 's' : ''}`}<I18nText text={"! Please"} />{' '}
           <a
             href={LICENSE_CONSOLE_URL}
             target="_blank"
@@ -124,7 +124,7 @@ export function LicenseBanner() {
     return (
       <div role="status" className="bg-yellow-50 dark:bg-yellow-950 border-b border-yellow-200 dark:border-yellow-800 px-4 py-1.5 flex items-center justify-between text-sm">
         <span className="text-yellow-800 dark:text-yellow-200">
-          <I18nText text={"Your Dagu"} /> {licenseLabel} {days === 0 ? 'expires today' : `expires in ${days} day${days !== 1 ? 's' : ''}`}<I18nText text={". Please"} />{' '}
+          <I18nText text={"Your Dagu"} /> {licenseLabel} {days === 0 ? <I18nText text={"expires today"} /> : `expires in ${days} day${days !== 1 ? 's' : ''}`}<I18nText text={". Please"} />{' '}
           <a
             href={LICENSE_CONSOLE_URL}
             target="_blank"

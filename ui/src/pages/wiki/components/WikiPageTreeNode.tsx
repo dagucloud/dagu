@@ -275,7 +275,7 @@ function WikiPageTreeNode({
               <Trash2 className="h-3.5 w-3.5 mr-2" />
               {selectedIds.length > 1 && node.isSelected
                 ? `Delete ${selectedTargets.length} items`
-                : 'Delete'}
+                : <I18nText text={"Delete"} />}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

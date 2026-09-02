@@ -220,7 +220,7 @@ function QueueDetailsPage() {
 
     return (
       <div className="mt-2 text-sm text-muted-foreground">
-        {result.message ?? 'Dequeue request accepted.'}
+        {result.message ?? <I18nText text={"Dequeue request accepted."} />}
       </div>
     );
   };
@@ -248,7 +248,7 @@ function QueueDetailsPage() {
         <div className="space-y-3 text-center">
           <Layers className="mx-auto h-10 w-10 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">
-            {errorData?.message || 'Failed to load queue details'}
+            {errorData?.message || <I18nText text={"Failed to load queue details"} />}
           </p>
           <Button variant="outline" asChild>
             <Link to="/queues"><I18nText text={"Back to queues"} /></Link>
@@ -465,7 +465,7 @@ function QueueDetailsPage() {
                       {isLoadingMore && (
                         <RefreshCw className="h-3.5 w-3.5 animate-spin" />
                       )}
-                      {isLoadingMore ? 'Scanning...' : 'Continue scanning'}
+                      {isLoadingMore ? <I18nText text={"Scanning..."} /> : <I18nText text={"Continue scanning"} />}
                     </Button>
                   )}
                 </div>
@@ -545,10 +545,10 @@ function QueueDetailsPage() {
                   <div className="min-w-0 flex-1 space-y-2">
                     <div className="text-sm font-medium text-foreground">
                       {phase === 'running'
-                        ? 'Submitting requests...'
+                        ? <I18nText text={"Submitting requests..."} />
                         : progress.isRefreshing
-                          ? 'Refreshing queue data...'
-                          : 'Finished submitting requests'}
+                          ? <I18nText text={"Refreshing queue data..."} />
+                          : <I18nText text={"Finished submitting requests"} />}
                     </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                       <span className="font-mono tabular-nums">
@@ -578,8 +578,8 @@ function QueueDetailsPage() {
                 ) : (
                   <div className="text-sm text-muted-foreground">
                     {progress.isRefreshing
-                      ? 'Refreshing the queue detail page'
-                      : 'All requests have been submitted'}
+                      ? <I18nText text={"Refreshing the queue detail page"} />
+                      : <I18nText text={"All requests have been submitted"} />}
                   </div>
                 )}
               </div>
@@ -621,9 +621,9 @@ function QueueDetailsPage() {
                           >
                             {result.ok
                               ? result.skipped
-                                ? 'Skipped'
-                                : 'Succeeded'
-                              : 'Failed'}
+                                ? <I18nText text={"Skipped"} />
+                                : <I18nText text={"Succeeded"} />
+                              : <I18nText text={"Failed"} />}
                           </div>
                         </div>
                         {renderResultDetails(result)}
@@ -650,7 +650,7 @@ function QueueDetailsPage() {
             {(phase === 'running' || progress.isRefreshing) && (
               <Button disabled>
                 <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                {phase === 'running' ? 'Submitting...' : 'Refreshing...'}
+                {phase === 'running' ? <I18nText text={"Submitting..."} /> : <I18nText text={"Refreshing..."} />}
               </Button>
             )}
             {phase === 'complete' && !progress.isRefreshing && (

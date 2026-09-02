@@ -172,7 +172,7 @@ function SystemStatus() {
             <Activity
               className={cn('h-4 w-4', autoRefresh && 'text-success')}
             />
-            <I18nText text={"Auto:"} /> {autoRefresh ? 'ON' : 'OFF'}
+            <I18nText text={"Auto:"} /> {autoRefresh ? <I18nText text={"ON"} /> : <I18nText text={"OFF"} />}
           </Button>
           <I18nProps><Button
             size="icon"
@@ -283,7 +283,7 @@ function SystemStatus() {
       <div className="text-xs text-muted-foreground text-center space-y-1 mb-4">
         <div>
           <I18nText text={"Last updated:"} /> {lastUpdateTime.toLocaleTimeString()}
-          {autoRefresh && ' • Refreshing every 5 seconds'}
+          {autoRefresh && <I18nText text={" • Refreshing every 5 seconds"} />}
         </div>
         <div><I18nText text={"Dagu v"} />{config.version}</div>
       </div>

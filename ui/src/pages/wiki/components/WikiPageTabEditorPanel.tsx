@@ -185,7 +185,7 @@ function WikiPageTabEditorPanel({
         <p className="text-sm text-muted-foreground">
           <I18nText text={"You have unsaved changes in"} />{' '}
           <strong>
-            {confirmTab?.title || confirmTab?.wikiPagePath || 'this Wiki page'}
+            {confirmTab?.title || confirmTab?.wikiPagePath || <I18nText text={"this Wiki page"} />}
           </strong>
           <I18nText text={". Discard changes?"} />
         </p>

@@ -580,11 +580,11 @@ export function NotificationOverviewCard({
             <I18nText text={'Notification Source'} />
           </CardTitle>
           <Badge variant={isDAGConfigured ? 'success' : 'default'}>
-            {isDAGConfigured ? 'DAG override' : 'Inherited'}
+            {isDAGConfigured ? <I18nText text={"DAG override"} /> : <I18nText text={"Inherited"} />}
           </Badge>
           {isDAGConfigured && (
             <Badge variant={draft.enabled ? 'success' : 'default'}>
-              {draft.enabled ? 'Override on' : 'Override off'}
+              {draft.enabled ? <I18nText text={"Override on"} /> : <I18nText text={"Override off"} />}
             </Badge>
           )}
           {hasUnsavedChanges && (
@@ -713,7 +713,7 @@ export function NotificationOverviewCard({
                   )}
                 </div>
                 <Badge variant={result.delivered ? 'success' : 'error'}>
-                  {result.delivered ? 'Delivered' : 'Failed'}
+                  {result.delivered ? <I18nText text={"Delivered"} /> : <I18nText text={"Failed"} />}
                 </Badge>
               </div>
             ))}
@@ -786,7 +786,7 @@ export function InheritedNotificationRoutesCard({
                       {route.channelName}
                     </span>
                     <Badge variant={active ? 'success' : 'default'}>
-                      {active ? 'Active' : 'Inactive'}
+                      {active ? <I18nText text={"Active"} /> : <I18nText text={"Inactive"} />}
                     </Badge>
                   </div>
                   <div className="text-xs text-muted-foreground">
@@ -853,7 +853,7 @@ export function NotificationChannelsSection({
                       {deliveryLabel(channel)}
                     </CardTitle>
                     <Badge variant={channel.enabled ? 'success' : 'default'}>
-                      {channel.enabled ? 'Enabled' : 'Disabled'}
+                      {channel.enabled ? <I18nText text={"Enabled"} /> : <I18nText text={"Disabled"} />}
                     </Badge>
                     {!channel.id && (
                       <Badge variant="warning">
@@ -1084,8 +1084,8 @@ export function DAGSubscriptionsSection({
                         }
                       >
                         {subscription.enabled && channel?.enabled
-                          ? 'Enabled'
-                          : 'Disabled'}
+                          ? <I18nText text={"Enabled"} />
+                          : <I18nText text={"Disabled"} />}
                       </Badge>
                       {!subscription.id && (
                         <Badge variant="warning">
@@ -1190,7 +1190,7 @@ export function DAGSubscriptionsSection({
                           size="sm"
                           onClick={() => toggleEventRow(rowKey)}
                         >
-                          {eventsExpanded ? 'Hide events' : 'Customize events'}
+                          {eventsExpanded ? <I18nText text={"Hide events"} /> : <I18nText text={"Customize events"} />}
                         </Button>
                       </div>
                     </div>
@@ -1273,7 +1273,7 @@ export function DAGLocalTargetsSection({
                     {deliveryLabel(target)}
                   </CardTitle>
                   <Badge variant={target.enabled ? 'success' : 'default'}>
-                    {target.enabled ? 'Enabled' : 'Disabled'}
+                    {target.enabled ? <I18nText text={"Enabled"} /> : <I18nText text={"Disabled"} />}
                   </Badge>
                   {!target.id && (
                     <Badge variant="warning">

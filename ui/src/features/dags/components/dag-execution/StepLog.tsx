@@ -360,7 +360,7 @@ function StepLog({
     return (
       <div className="w-full h-full flex items-center justify-center">
         <div className="text-error">
-          <I18nText text={"Error loading log data:"} /> {error.message || 'Unknown error'}
+          <I18nText text={"Error loading log data:"} /> {error.message || <I18nText text={"Unknown error"} />}
         </div>
       </div>
     );
@@ -505,7 +505,7 @@ function StepLog({
         {/* Stats line - full width on mobile */}
         <div className="text-xs text-muted-foreground flex items-center">
           <I18nText text={"Showing"} /> {lines.length} <I18nText text={"of"} /> {effectiveTotalLines} <I18nText text={"lines"} />{' '}
-          {isEstimate ? '(estimated)' : ''} {hasMore ? '(more available)' : ''}
+          {isEstimate ? <I18nText text={"(estimated)"} /> : ''} {hasMore ? <I18nText text={"(more available)"} /> : ''}
         </div>
 
         {/* Page navigation controls */}
@@ -559,7 +559,7 @@ function StepLog({
             <>
               <span className="text-xs text-muted-foreground whitespace-nowrap">
                 {matchIndexes.length === 0
-                  ? 'No matches'
+                  ? <I18nText text={"No matches"} />
                   : `${Math.min(activeMatch + 1, matchIndexes.length)}/${matchIndexes.length}`}
               </span>
               <I18nProps><Button

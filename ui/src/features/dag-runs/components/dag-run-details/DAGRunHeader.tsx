@@ -232,10 +232,10 @@ const DAGRunHeader: React.FC<DAGRunHeaderProps> = ({
               ) : (
                 <Link2 className="h-3.5 w-3.5" />
               )}
-              <span>{linkCopied ? 'Copied' : 'Copy link'}</span>
+              <span>{linkCopied ? <I18nText text={"Copied"} /> : <I18nText text={"Copy link"} />}</span>
             </button>
             <span className="sr-only" aria-live="polite">
-              {linkCopied ? 'Run link copied to clipboard' : ''}
+              {linkCopied ? <I18nText text={"Run link copied to clipboard"} /> : ''}
             </span>
           </div>
         </div>

@@ -234,7 +234,7 @@ function BaseConfigPage(): React.ReactNode {
         <p className="text-sm text-muted-foreground">
           {activeScope === 'workspace'
             ? `${selectedWorkspace} overrides layered on top of global defaults`
-            : 'Global defaults inherited by all DAG definitions'}
+            : <I18nText text={"Global defaults inherited by all DAG definitions"} />}
         </p>
       </div>
 

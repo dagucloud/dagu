@@ -644,7 +644,7 @@ function WebhookTab({ fileName }: WebhookTabProps) {
             </div>
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground">
-                {webhook.enabled ? 'Enabled' : 'Disabled'}
+                {webhook.enabled ? <I18nText text={"Enabled"} /> : <I18nText text={"Disabled"} />}
               </span>
               <Switch
                 checked={webhook.enabled}
@@ -815,13 +815,13 @@ function WebhookTab({ fileName }: WebhookTabProps) {
                   <I18nText text={"Header:"} /> {webhook.hmac.headerName || 'X-Dagu-Signature'}{' '}
                   {webhook.hmac.format
                     ? `(${webhook.hmac.format})`
-                    : '(sha256=<hex>)'}
+                    : <I18nText text={"(sha256=<hex>)"} />}
                 </div>
                 <div>
                   <I18nText text={"Last secret rotation:"} />{' '}
                   {webhook.hmac.updatedAt
                     ? dayjs(webhook.hmac.updatedAt).format('MMM D, YYYY HH:mm')
-                    : 'Not available'}
+                    : <I18nText text={"Not available"} />}
                 </div>
               </div>
 
@@ -1036,7 +1036,7 @@ function WebhookTab({ fileName }: WebhookTabProps) {
         onSubmit={handleToggleConfirm}
       >
         <p>
-          <I18nText text={"Are you sure you want to"} /> {pendingToggleState ? 'enable' : 'disable'}{' '}
+          <I18nText text={"Are you sure you want to"} /> {pendingToggleState ? <I18nText text={"enable"} /> : <I18nText text={"disable"} />}{' '}
           <I18nText text={"this webhook?"} />
         </p>
       </ConfirmModal>

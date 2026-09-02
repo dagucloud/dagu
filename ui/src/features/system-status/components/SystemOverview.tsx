@@ -63,10 +63,10 @@ function SystemOverview({
           </div>
           <span className={cn('text-xs font-medium', getHealthColor())}>
             {error
-              ? 'Error'
+              ? <I18nText text={"Error"} />
               : health?.status === 'healthy'
-                ? 'Healthy'
-                : 'Degraded'}
+                ? <I18nText text={"Healthy"} />
+                : <I18nText text={"Degraded"} />}
           </span>
         </div>
       </div>
@@ -79,10 +79,10 @@ function SystemOverview({
             <span><I18nText text={"Server Status"} /></span>
           </div>
           <div className="text-sm font-medium">
-            {health?.status || 'Unknown'}
+            {health?.status || <I18nText text={"Unknown"} />}
           </div>
           <div className="text-xs text-muted-foreground">
-            v{health?.version || 'Unknown'}
+            v{health?.version || <I18nText text={"Unknown"} />}
           </div>
         </div>
 

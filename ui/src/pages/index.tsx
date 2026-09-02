@@ -191,8 +191,8 @@ function NoRunsNotice({
       </h2>
       <p className="text-base text-muted-foreground">
         {hasExampleDAGs
-          ? 'Run one of the example workflows from the '
-          : 'Start a workflow from the '}
+          ? <I18nText text={"Run one of the example workflows from the "} />
+          : <I18nText text={"Start a workflow from the "} />}
         <Link to="/dags" className="text-primary hover:underline">
           <I18nText text={"Workflows page"} />
         </Link>{' '}
@@ -691,7 +691,7 @@ function Dashboard(): React.ReactElement | null {
                   onClick={() => void loadMore()}
                   disabled={isLoadingMore}
                 >
-                  {isLoadingMore ? 'Loading...' : 'Load older runs'}
+                  {isLoadingMore ? <I18nText text={"Loading..."} /> : <I18nText text={"Load older runs"} />}
                 </Button>
                 <div
                   ref={autoLoadSentinelRef}

@@ -195,7 +195,7 @@ function SearchResultItem({
                 void loadMoreMatches();
               }}
             >
-              {isLoadingMore ? 'Loading...' : 'Show more matches'}
+              {isLoadingMore ? <I18nText text={"Loading..."} /> : <I18nText text={"Show more matches"} />}
             </Button>
           </div>
         )}

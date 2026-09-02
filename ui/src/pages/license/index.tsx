@@ -161,7 +161,7 @@ export default function LicensePage() {
                 <I18nText text={"Active"} />
               </>
             ) : license.community ? (
-              'Community Edition'
+              <I18nText text={"Community Edition"} />
             ) : (
               <>
                 <XCircle className="h-3.5 w-3.5 text-red-500" />
@@ -171,11 +171,11 @@ export default function LicensePage() {
           </span>
 
           <span className="text-muted-foreground"><I18nText text={"Plan"} /></span>
-          <span className="capitalize">{license.plan || 'community'}</span>
+          <span className="capitalize">{license.plan || <I18nText text={"community"} />}</span>
 
           <span className="text-muted-foreground"><I18nText text={"Features"} /></span>
           <span>
-            {license.features.length > 0 ? license.features.join(', ') : 'None'}
+            {license.features.length > 0 ? license.features.join(', ') : <I18nText text={"None"} />}
           </span>
 
           {license.expiry && (
@@ -218,7 +218,7 @@ export default function LicensePage() {
                 onClick={() => setShowDeactivateConfirm(true)}
               >
                 <AlertTriangle className="h-3.5 w-3.5" />
-                {deactivating ? 'Deactivating...' : 'Deactivate License'}
+                {deactivating ? <I18nText text={"Deactivating..."} /> : <I18nText text={"Deactivate License"} />}
               </Button>
             </>
           )}
@@ -242,7 +242,7 @@ export default function LicensePage() {
             className="h-8 flex-shrink-0"
             disabled={activating || !key.trim()}
           >
-            {activating ? 'Activating...' : 'Activate'}
+            {activating ? <I18nText text={"Activating..."} /> : <I18nText text={"Activate"} />}
           </Button>
         </form>
         {error && (

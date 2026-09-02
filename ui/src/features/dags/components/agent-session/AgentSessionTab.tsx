@@ -421,7 +421,7 @@ function AgentSessionCard({
           <div className="mt-1 text-xs text-muted-foreground">
             {[session.agent, session.model, session.variant]
               .filter(Boolean)
-              .join(' · ') || 'OpenCode managed session'}
+              .join(' · ') || <I18nText text={"OpenCode managed session"} />}
             {session.providerVersion &&
               ` · OpenCode ${session.providerVersion}`}
           </div>
