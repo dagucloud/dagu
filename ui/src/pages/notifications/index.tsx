@@ -1049,7 +1049,10 @@ function RoutePreviewPanel({
                       {eventLabel(item.event)}
                     </span>
                     <span className="text-muted-foreground">
-                      {ts('from {scope}', { scope: scopeLabel })}
+                      {ts('from {scope}', {
+                        scope:
+                          scopeLabel === 'Global' ? ts('Global') : scopeLabel,
+                      })}
                     </span>
                   </div>
                   <div className="flex min-w-0 items-center gap-2 text-muted-foreground">

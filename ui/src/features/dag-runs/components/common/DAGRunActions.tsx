@@ -235,12 +235,12 @@ function DAGRunActions({
                   onClick={() => setIsStopModal(true)}
                   className="cursor-pointer"
                 >
-                  {terminateDetails.buttonText}
+                  {ts(terminateDetails.buttonText)}
                 </ActionButton>
               </span>
             </TooltipTrigger>
             <TooltipContent>
-              <p>{terminateDetails.tooltipText}</p>
+              <p>{ts(terminateDetails.tooltipText)}</p>
             </TooltipContent>
           </Tooltip>
         )}
@@ -305,7 +305,7 @@ function DAGRunActions({
         <I18nProps>
           <ConfirmModal
             title="Confirmation"
-            buttonText={terminateDetails.buttonText}
+            buttonText={ts(terminateDetails.buttonText)}
             visible={isStopModal}
             dismissModal={() => setIsStopModal(false)}
             onSubmit={async () => {
@@ -327,12 +327,12 @@ function DAGRunActions({
               if (error) {
                 console.error('Stop API error:', error);
                 showError(
-                  error.message || terminateDetails.errorTitle,
-                  terminateDetails.errorDescription
+                  error.message || ts(terminateDetails.errorTitle),
+                  ts(terminateDetails.errorDescription)
                 );
                 return;
               }
-              showToast('Stop signal sent');
+              showToast(ts('Stop signal sent'));
               reloadData();
             }}
           >

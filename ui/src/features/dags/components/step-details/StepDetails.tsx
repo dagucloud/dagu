@@ -201,7 +201,9 @@ function ExecutorConfigField({ value }: { value: Record<string, unknown> }) {
         <div className="mb-1 text-[11px] font-medium uppercase text-muted-foreground">
           <I18nText text={'Type'} />
         </div>
-        <Badge variant="outline">{type}</Badge>
+        <Badge variant="outline">
+          <I18nText text={type} />
+        </Badge>
       </div>
       <div className="min-w-0">
         <div className="mb-1 text-[11px] font-medium uppercase text-muted-foreground">

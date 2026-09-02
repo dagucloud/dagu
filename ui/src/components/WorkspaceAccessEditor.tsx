@@ -94,7 +94,12 @@ export function WorkspaceAccessSummary({
               )}
             </div>
             <span className="rounded bg-muted px-1.5 py-0.5 text-xs capitalize text-muted-foreground">
-              {grant.role}
+              <I18nText
+                text={
+                  GRANT_ROLES.find((role) => role.value === grant.role)
+                    ?.label ?? grant.role
+                }
+              />
             </span>
           </div>
         );

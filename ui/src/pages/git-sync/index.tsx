@@ -358,14 +358,14 @@ export default function GitSyncPage() {
         ? await client.POST('/sync/items/{itemId}/publish', {
             params: { path: { itemId }, query: { remoteNode } },
             body: {
-              message: commitMessage || `Update ${itemId}`,
+              message: commitMessage || ts('Update {item}', { item: itemId }),
               force: force || false,
             },
           })
         : await client.POST('/sync/publish-all', {
             params: { query: { remoteNode } },
             body: {
-              message: commitMessage || 'Batch update',
+              message: commitMessage || ts('Batch update'),
               itemIds: publishableSelectedIds,
             },
           });
@@ -716,7 +716,9 @@ export default function GitSyncPage() {
                 size="sm"
                 className="h-8 px-2 text-xs text-destructive hover:text-destructive"
                 onClick={() => setBatchDeleteModal(true)}
-                title={`Delete ${deletableSelectedIds.length} selected`}
+                title={ts('Delete {count} selected', {
+                  count: deletableSelectedIds.length,
+                })}
               >
                 <Trash2 className="h-4 w-4 mr-1" />
                 <I18nText text={'Delete ('} />
@@ -1115,8 +1117,10 @@ export default function GitSyncPage() {
           <DialogHeader>
             <DialogTitle className="text-base">
               {publishModal.itemId
-                ? `Publish ${publishModal.itemId}`
-                : `Publish ${publishableSelectedCount} Selected`}
+                ? ts('Publish {item}', { item: publishModal.itemId })
+                : ts('Publish {count} selected', {
+                    count: publishableSelectedCount,
+                  })}
             </DialogTitle>
             <DialogDescription className="text-xs">
               <I18nText text={'Enter a commit message for this change.'} />
@@ -1133,8 +1137,8 @@ export default function GitSyncPage() {
                   className="h-8 text-sm"
                   placeholder={
                     publishModal.itemId
-                      ? `Update ${publishModal.itemId}`
-                      : 'Batch update'
+                      ? ts('Update {item}', { item: publishModal.itemId })
+                      : ts('Batch update')
                   }
                   value={commitMessage}
                   onChange={(e) => setCommitMessage(e.target.value)}

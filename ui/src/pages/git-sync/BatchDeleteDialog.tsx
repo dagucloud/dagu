@@ -36,7 +36,12 @@ export function BatchDeleteDialog({
 }: BatchDeleteDialogProps) {
   const { ts } = useI18n();
   const count = itemIds.length;
-  const defaultMessage = `Delete ${count} sync item${count !== 1 ? 's' : ''}`;
+  const defaultMessage = ts(
+    count === 1
+      ? 'Delete {count} sync item'
+      : 'Delete {count} sync items',
+    { count }
+  );
   const [commitMessage, setCommitMessage] = useState('');
 
   useEffect(() => {

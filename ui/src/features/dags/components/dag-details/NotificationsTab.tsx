@@ -47,6 +47,7 @@ import {
   testEventForTarget,
 } from './notifications/notificationDrafts';
 import { useNotificationSettings } from './notifications/useNotificationSettings';
+import { useI18n } from '@/i18n/I18nProvider';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 
@@ -183,6 +184,7 @@ function DAGNotificationHeader({
 }
 
 function NotificationsTab({ fileName, workspaceName }: NotificationsTabProps) {
+  const { ts } = useI18n();
   const config = useConfig();
   const remoteNode = useRemoteNode();
   const query = useMemo(
@@ -213,6 +215,12 @@ function NotificationsTab({ fileName, workspaceName }: NotificationsTabProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const localizedRouteSourceLabel =
+    effectiveRouteSourceLabel === 'Global rules'
+      ? ts('Global rules')
+      : ts('{workspace} workspace rules', {
+          workspace: workspaceName ?? '',
+        });
   const [testingTargetId, setTestingTargetId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [resetVisible, setResetVisible] = useState(false);
@@ -507,7 +515,7 @@ function NotificationsTab({ fileName, workspaceName }: NotificationsTabProps) {
         isDAGConfigured={hasDAGSettings}
         hasDAGDestinations={hasDAGDestinations}
         hasUnsavedChanges={hasUnsavedChanges}
-        inheritedSourceLabel={effectiveRouteSourceLabel}
+        inheritedSourceLabel={localizedRouteSourceLabel}
         error={error}
         notice={notice}
         testResults={testResults}
@@ -534,7 +542,7 @@ function NotificationsTab({ fileName, workspaceName }: NotificationsTabProps) {
         />
       ) : (
         <InheritedNotificationRoutesCard
-          sourceLabel={effectiveRouteSourceLabel}
+          sourceLabel={localizedRouteSourceLabel}
           routes={effectiveRoutes}
           manageRulesHref="/notification-rules"
         />

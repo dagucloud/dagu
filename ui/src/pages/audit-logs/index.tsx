@@ -33,6 +33,7 @@ import {
 } from './AuditEntryDetailsDrawer';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
+import { useI18n } from '@/i18n/I18nProvider';
 
 type AuditEntry = components['schemas']['AuditEntry'];
 
@@ -140,6 +141,7 @@ function useDebouncedText(value: string, delayMs: number) {
 }
 
 export default function AuditLogsPage() {
+  const { ts } = useI18n();
   const config = useConfig();
   const canViewAuditLogs = useCanViewAuditLogs();
   const appBarContext = useContext(AppBarContext);
@@ -644,9 +646,9 @@ export default function AuditLogsPage() {
             onClick={() => fetchAuditLogs()}
             size="icon-sm"
             variant="outline"
-            aria-label={
+            aria-label={ts(
               isLoading ? 'Refreshing audit logs' : 'Refresh audit logs'
-            }
+            )}
             aria-live="polite"
             disabled={isLoading}
           >
@@ -869,8 +871,10 @@ export default function AuditLogsPage() {
               aria-controls="audit-advanced-filters"
               aria-label={
                 activeAdvancedFilterCount > 0
-                  ? `Filters (${activeAdvancedFilterCount})`
-                  : 'Filters'
+                  ? ts('Filters ({count})', {
+                      count: activeAdvancedFilterCount,
+                    })
+                  : ts('Filters')
               }
               onClick={() => setAdvancedFiltersOpen((open) => !open)}
             >
