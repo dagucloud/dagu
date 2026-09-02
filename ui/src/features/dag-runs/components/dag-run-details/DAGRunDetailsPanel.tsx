@@ -14,6 +14,7 @@ import { useBoundedDAGRunDetails } from '../../hooks/useBoundedDAGRunDetails';
 import { buildDAGRunPageURL } from '../../lib/dagRunUrls';
 import DAGRunDetailsContent from './DAGRunDetailsContent';
 import { I18nProps } from '@/i18n/I18nProps';
+import { I18nText } from '@/i18n/I18nText';
 
 type Props = {
   name: string;
@@ -181,14 +182,14 @@ function DAGRunDetailsPanel({
       <div className="p-4 w-full flex flex-col h-full overflow-hidden">
         <div className="flex justify-between items-center mb-3 flex-shrink-0">
           <p className="text-xs text-muted-foreground">
-            Use{' '}
+            <I18nText text={"Use"} />{' '}
             <kbd className="px-1 py-0.5 bg-muted rounded text-xs font-mono">
               ↑
             </kbd>{' '}
             <kbd className="px-1 py-0.5 bg-muted rounded text-xs font-mono">
               ↓
             </kbd>{' '}
-            to navigate runs
+            <I18nText text={"to navigate runs"} />
           </p>
           <div className="flex gap-2 items-center">
             <I18nProps><Button

@@ -176,7 +176,7 @@ function WebhookProfileSelectionCard({
       <CardHeader className="pb-3 px-4 pt-3">
         <CardTitle className="text-sm"><I18nText text={"Runtime profile selection"} /></CardTitle>
         <CardDescription className="text-xs">
-          Allow callers to select an approved profile with{' '}
+          <I18nText text={"Allow callers to select an approved profile with"} />{' '}
           <code className="bg-accent px-1 rounded-md border">
             X-Dagu-Profile
           </code>
@@ -202,7 +202,7 @@ function WebhookProfileSelectionCard({
             {profilesLoading ? (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Loading profiles...
+                <I18nText text={"Loading profiles..."} />
               </div>
             ) : (
               <div className="space-y-2">
@@ -217,7 +217,7 @@ function WebhookProfileSelectionCard({
                       onClick={() => setProfilesReloadKey((key) => key + 1)}
                     >
                       <RefreshCw className="mr-1 h-3.5 w-3.5" />
-                      Retry
+                      <I18nText text={"Retry"} />
                     </Button>
                   </div>
                 )}
@@ -323,7 +323,7 @@ function WebhookProfileSelectionCard({
                 ) : (
                   <Save className="h-3.5 w-3.5 mr-1" />
                 )}
-                Save profile selection
+                <I18nText text={"Save profile selection"} />
               </Button>
             </div>
           </>

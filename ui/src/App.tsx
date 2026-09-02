@@ -236,14 +236,14 @@ function LicenseRequiredMessage(): React.ReactElement {
       <Shield size={48} className="text-muted-foreground" />
       <h2 className="text-xl font-semibold"><I18nText text={"License Required"} /></h2>
       <p className="text-sm text-muted-foreground max-w-md">
-        This feature requires an active Dagu license or trial. Visit the{' '}
+        <I18nText text={"This feature requires an active Dagu license or trial. Visit the"} />{' '}
         <Link
           to="/license"
           className="text-primary underline underline-offset-2"
         >
           <I18nText text={"License"} />
         </Link>{' '}
-        page to activate your license.
+        <I18nText text={"page to activate your license."} />
       </p>
     </div>
   );

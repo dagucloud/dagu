@@ -37,7 +37,7 @@ export function AgentSpecOverview({ dag }: Props) {
       <section className="rounded-md border border-border bg-card px-5 py-4 shadow-sm">
         <h2 className="flex items-center gap-2 text-base font-semibold text-foreground">
           <Target className="h-4 w-4 text-primary" />
-          Tasks
+          <I18nText text={"Tasks"} />
         </h2>
 
         {tasks.length > 0 ? (
@@ -143,7 +143,7 @@ function ActionDetails({ step }: { step?: Step }) {
           </h2>
           {step.id ? (
             <div className="mt-1 font-mono text-sm text-foreground">
-              ID: {step.id}
+              <I18nText text={"ID:"} /> {step.id}
             </div>
           ) : null}
           {step.description ? (

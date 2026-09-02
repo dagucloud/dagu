@@ -276,7 +276,7 @@ function DAGCard({
                 if (ms <= 0) {
                   return <span><I18nText text={"Due now"} /></span>;
                 }
-                return <span>Run in {formatMs(ms)}</span>;
+                return <span><I18nText text={"Run in"} /> {formatMs(ms)}</span>;
               }}
             </Ticker>
           ) : (
@@ -878,7 +878,7 @@ const defaultColumns = [
                   if (ms <= 0) {
                     return <span><I18nText text={"Due now"} /></span>;
                   }
-                  return <span>Run in {formatMs(ms)}</span>;
+                  return <span><I18nText text={"Run in"} /> {formatMs(ms)}</span>;
                 }}
               </Ticker>
             </div>
@@ -1684,7 +1684,7 @@ function DAGTable({
           <Button asChild variant="outline" className="px-4 font-medium">
             <Link to={buildGrepSearchUrl(searchText)}>
               <Search className="mr-1.5 h-4 w-4" />
-              Grep
+              <I18nText text={"Grep"} />
             </Link>
           </Button>
 
@@ -1719,7 +1719,7 @@ function DAGTable({
               }}
             >
               <Trash2 className="h-4 w-4" />
-              Delete ({selectedDAGsForDelete.length})
+              <I18nText text={"Delete ("} />{selectedDAGsForDelete.length})
             </Button>
           )}
 
@@ -1745,7 +1745,7 @@ function DAGTable({
 
         {resultCount !== undefined && (
           <div className="text-xs text-muted-foreground">
-            {resultCount.toLocaleString()} workflow
+            {resultCount.toLocaleString()} <I18nText text={"workflow"} />
             {resultCount === 1 ? '' : 's'}
           </div>
         )}
@@ -2090,7 +2090,7 @@ function DAGTable({
             {deleteTargets?.length === 1
               ? 'The workflow definition file will be removed.'
               : 'The selected workflow definition files will be removed.'}{' '}
-            Past run history will be kept. This action cannot be undone.
+            <I18nText text={"Past run history will be kept. This action cannot be undone."} />
           </p>
           <ul className="max-h-48 space-y-1 overflow-y-auto rounded-md border bg-muted/30 p-2">
             {(deleteTargets ?? []).map((dag) => (

@@ -155,7 +155,7 @@ function WorkerList({
               <div className="bg-muted/20 border-t">
                 <div className="px-12 py-2 space-y-1">
                   <div className="text-xs font-medium text-muted-foreground mb-2">
-                    Running Tasks ({worker.runningTasks.length})
+                    <I18nText text={"Running Tasks ("} />{worker.runningTasks.length})
                   </div>
                   {worker.runningTasks.map((task: RunningTask) => (
                     <TaskRow

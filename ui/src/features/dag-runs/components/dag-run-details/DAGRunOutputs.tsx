@@ -155,7 +155,7 @@ function DAGRunOutputs({ dagName, dagRunId }: Props) {
           <Package className="h-4 w-4 text-muted-foreground" />
           <span className="text-sm font-semibold"><I18nText text={"Outputs"} /></span>
           <span className="text-xs text-muted-foreground">
-            ({outputCount} items)
+            ({outputCount} <I18nText text={"items)"} />
           </span>
         </div>
 
@@ -204,7 +204,7 @@ function DAGRunOutputs({ dagName, dagRunId }: Props) {
                   className="flex items-center gap-1 cursor-pointer select-none focus:outline-none rounded"
                   aria-label="Sort by key"
                 >
-                  Key
+                  <I18nText text={"Key"} />
                   <ArrowUpDown className="h-3 w-3 text-muted-foreground" />
                 </button></I18nProps>
               </TableHead>
@@ -215,7 +215,7 @@ function DAGRunOutputs({ dagName, dagRunId }: Props) {
                   className="flex items-center gap-1 cursor-pointer select-none focus:outline-none rounded"
                   aria-label="Sort by value"
                 >
-                  Value
+                  <I18nText text={"Value"} />
                   <ArrowUpDown className="h-3 w-3 text-muted-foreground" />
                 </button></I18nProps>
               </TableHead>

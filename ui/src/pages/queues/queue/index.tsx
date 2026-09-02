@@ -268,7 +268,7 @@ function QueueDetailsPage() {
             <Button variant="ghost" size="sm" asChild>
               <Link to="/queues">
                 <ArrowLeft className="h-4 w-4" />
-                Back
+                <I18nText text={"Back"} />
               </Link>
             </Button>
             <div className="flex flex-wrap items-center gap-2">
@@ -326,7 +326,7 @@ function QueueDetailsPage() {
           <section className="card-obsidian">
             <div className="border-b px-3 py-2">
               <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Running ({queue?.runningCount || 0})
+                <I18nText text={"Running ("} />{queue?.runningCount || 0})
               </span>
             </div>
             <div className="px-3 py-2 bg-muted/10">
@@ -348,7 +348,7 @@ function QueueDetailsPage() {
               <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex flex-wrap items-center gap-3">
                   <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    Queued (
+                    <I18nText text={"Queued ("} />
                     {formatQueuedCount(
                       queue?.queuedCount || 0,
                       queue?.queuedCountCapped === true
@@ -430,7 +430,7 @@ function QueueDetailsPage() {
                   {isLoadingMore && (
                     <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
                       <RefreshCw className="h-4 w-4 animate-spin" />
-                      Loading more queued items...
+                      <I18nText text={"Loading more queued items..."} />
                     </div>
                   )}
 
@@ -515,8 +515,7 @@ function QueueDetailsPage() {
           {phase === 'confirm' && activeBatch && (
             <div className="space-y-3">
               <p className="text-sm text-foreground">
-                Do you want to dequeue {activeBatch.snapshot.length} selected
-                DAG run{activeBatch.snapshot.length === 1 ? '' : 's'}?
+                <I18nText text={"Do you want to dequeue"} /> {activeBatch.snapshot.length} <I18nText text={"selected DAG run"} />{activeBatch.snapshot.length === 1 ? '' : 's'}?
               </p>
               <div className="max-h-56 space-y-2 overflow-y-auto rounded-md border bg-muted/20 p-3">
                 {activeBatch.snapshot.map((dagRun) => (
@@ -553,11 +552,11 @@ function QueueDetailsPage() {
                     </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                       <span className="font-mono tabular-nums">
-                        {progress.processedCount}/{totalBatchCount} processed
+                        {progress.processedCount}/{totalBatchCount} <I18nText text={"processed"} />
                       </span>
-                      <span>{progress.successCount} succeeded</span>
-                      <span>{progress.skippedCount} skipped</span>
-                      <span>{progress.failureCount} failed</span>
+                      <span>{progress.successCount} <I18nText text={"succeeded"} /></span>
+                      <span>{progress.skippedCount} <I18nText text={"skipped"} /></span>
+                      <span>{progress.failureCount} <I18nText text={"failed"} /></span>
                     </div>
                   </div>
                 </div>
@@ -643,7 +642,7 @@ function QueueDetailsPage() {
                   <I18nText text={"Cancel"} />
                 </Button>
                 <Button onClick={submitBatchDequeue}>
-                  Dequeue {activeBatch.snapshot.length} Run
+                  <I18nText text={"Dequeue"} /> {activeBatch.snapshot.length} <I18nText text={"Run"} />
                   {activeBatch.snapshot.length === 1 ? '' : 's'}
                 </Button>
               </>

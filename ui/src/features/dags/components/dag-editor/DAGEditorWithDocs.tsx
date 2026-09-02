@@ -15,6 +15,7 @@ import { useYamlCursorPath } from '../../../../hooks/useYamlCursorPath';
 import type { CursorPosition } from './DAGEditor';
 import { SchemaDocSidebar } from './SchemaDocSidebar';
 import { I18nProps } from '@/i18n/I18nProps';
+import { I18nText } from '@/i18n/I18nText';
 
 const DAGEditor = React.lazy(() => import('./DAGEditor'));
 
@@ -134,7 +135,7 @@ function DAGEditorWithDocs({
               title="Toggle Schema Documentation (Ctrl+Shift+D)"
             >
               <BookOpen className="h-3.5 w-3.5" />
-              Docs
+              <I18nText text={"Docs"} />
             </Button></I18nProps>
           ) : (
             <div />

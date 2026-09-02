@@ -218,7 +218,7 @@ function DagDetailsSections({
         )}
       <div className="mt-1 text-[10px] text-muted-foreground">
         <Link to={`/dags/${encodeURIComponent(fileName)}`} className="hover:underline">
-          Open {dagRef} →
+          <I18nText text={"Open"} /> {dagRef} →
         </Link>
       </div>
     </>

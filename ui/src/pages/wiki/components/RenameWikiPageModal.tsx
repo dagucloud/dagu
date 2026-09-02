@@ -128,7 +128,7 @@ export function RenameWikiPageModal({
               disabled={isLoading}
             >
               <X className="h-4 w-4" />
-              Cancel
+              <I18nText text={"Cancel"} />
             </Button>
             <Button type="submit" disabled={isLoading}>
               <Pencil className="h-4 w-4" />

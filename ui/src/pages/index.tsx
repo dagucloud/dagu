@@ -187,7 +187,7 @@ function NoRunsNotice({
     <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
       <GanttChart className="h-12 w-12 text-muted-foreground/40" />
       <h2 className="text-xl font-semibold text-foreground">
-        No runs on {dateLabel}
+        <I18nText text={"No runs on"} /> {dateLabel}
       </h2>
       <p className="text-base text-muted-foreground">
         {hasExampleDAGs
@@ -196,7 +196,7 @@ function NoRunsNotice({
         <Link to="/dags" className="text-primary hover:underline">
           <I18nText text={"Workflows page"} />
         </Link>{' '}
-        to see activity here.
+        <I18nText text={"to see activity here."} />
       </p>
     </div>
   );
@@ -503,7 +503,7 @@ function Dashboard(): React.ReactElement | null {
 
   if (error) {
     const errorMessage = error.message || 'Unknown error loading dashboard';
-    return <div className="p-4 text-error">Error: {errorMessage}</div>;
+    return <div className="p-4 text-error"><I18nText text={"Error:"} /> {errorMessage}</div>;
   }
 
   const metrics = createEmptyMetrics();

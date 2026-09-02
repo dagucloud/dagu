@@ -24,6 +24,7 @@ import { components, NodeStatus } from '../../../../api/v1/schema';
 import Mermaid from '@/components/ui/mermaid';
 import { exportGraphPng, exportGraphSvg } from './exportGraph';
 import { I18nProps } from '@/i18n/I18nProps';
+import { I18nText } from '@/i18n/I18nText';
 
 /**
  * Escapes special characters in labels for safe Mermaid syntax interpolation.
@@ -563,7 +564,7 @@ function Graph({
             <DialogHeader className="flex-shrink-0 mb-2">
               <DialogTitle className="flex items-center gap-2 text-xl font-semibold">
                 <GitGraph className="h-5 w-5 text-primary" />
-                Visual Graph
+                <I18nText text={"Visual Graph"} />
               </DialogTitle>
             </DialogHeader>
             <div className="flex-1 min-h-0 bg-surface rounded-xl p-1 shadow-inner border border-border/20">

@@ -140,7 +140,7 @@ export default function LicensePage() {
       <div className="card-obsidian p-4 space-y-3">
         <div className="flex items-center gap-2 text-sm font-medium">
           <Shield className="h-4 w-4" />
-          Current License
+          <I18nText text={"Current License"} />
         </div>
         <div className="grid grid-cols-[120px_1fr] gap-y-2 text-sm">
           <span className="text-muted-foreground"><I18nText text={"Status"} /></span>
@@ -148,24 +148,24 @@ export default function LicensePage() {
             {license.error ? (
               <>
                 <XCircle className="h-3.5 w-3.5 text-red-500" />
-                License Error
+                <I18nText text={"License Error"} />
               </>
             ) : license.gracePeriod ? (
               <>
                 <XCircle className="h-3.5 w-3.5 text-amber-500" />
-                Grace Period
+                <I18nText text={"Grace Period"} />
               </>
             ) : license.valid ? (
               <>
                 <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
-                Active
+                <I18nText text={"Active"} />
               </>
             ) : license.community ? (
               'Community Edition'
             ) : (
               <>
                 <XCircle className="h-3.5 w-3.5 text-red-500" />
-                Inactive
+                <I18nText text={"Inactive"} />
               </>
             )}
           </span>
@@ -200,10 +200,9 @@ export default function LicensePage() {
             <div className="flex items-start gap-2 text-sm text-muted-foreground">
               <Info className="h-4 w-4 mt-0.5 flex-shrink-0" />
               <span>
-                This license is configured via an environment variable (
-                <code className="text-xs">DAGU_LICENSE</code> or{' '}
-                <code className="text-xs">DAGU_LICENSE_KEY</code>). To
-                deactivate, remove the environment variable and restart Dagu.
+                <I18nText text={"This license is configured via an environment variable ("} />
+                <code className="text-xs">DAGU_LICENSE</code> <I18nText text={"or"} />{' '}
+                <code className="text-xs">DAGU_LICENSE_KEY</code><I18nText text={"). To deactivate, remove the environment variable and restart Dagu."} />
               </span>
             </div>
           ) : (
@@ -260,8 +259,7 @@ export default function LicensePage() {
           </div>
         )}
         <p className="text-xs text-muted-foreground">
-          Enter your license or trial key to activate Dagu features. You can
-          obtain a key from{' '}
+          <I18nText text={"Enter your license or trial key to activate Dagu features. You can obtain a key from"} />{' '}
           <a
             href={LICENSE_CONSOLE_URL}
             target="_blank"

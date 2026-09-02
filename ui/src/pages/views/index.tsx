@@ -8,6 +8,7 @@ import { ViewEditorDialog } from '@/features/views/ViewEditorDialog';
 import { ViewPanel } from '@/features/views/ViewPanel';
 import { useViews } from '@/hooks/useViews';
 import { Pencil } from 'lucide-react';
+import { I18nText } from '@/i18n/I18nText';
 
 /**
  * Standalone page for a single saved view (reached from a sidebar pin or a
@@ -45,7 +46,7 @@ export default function ViewPage(): React.ReactElement | null {
             onClick={() => setEditorOpen(true)}
             className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
           >
-            <Pencil className="h-3 w-3" /> Edit
+            <Pencil className="h-3 w-3" /> <I18nText text={"Edit"} />
           </button>
         )}
       </div>

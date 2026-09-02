@@ -586,7 +586,8 @@ function DAGSpecReadOnly({
   if (error) {
     return (
       <div className="text-sm text-destructive p-4">
-        Failed to load DAG spec: {error.message ?? 'Unknown error'}
+        <I18nText text={'Failed to load DAG spec:'} />{' '}
+        {error.message ?? 'Unknown error'}
       </div>
     );
   }
@@ -594,7 +595,7 @@ function DAGSpecReadOnly({
   if (!data?.spec) {
     return (
       <div className="text-sm text-muted-foreground p-4">
-        <I18nText text={"No DAG spec available for this DAG."} />
+        <I18nText text={'No DAG spec available for this DAG.'} />
       </div>
     );
   }
@@ -672,169 +673,174 @@ function DAGSpecReadOnly({
         onSave={() => void saveSourceDAG()}
       />
 
-      <I18nProps><ConfirmModal
-        title="Retry Edited DAG Run"
-        buttonText={retrySubmitting ? 'Creating...' : 'Create new run'}
-        visible={previewVisible}
-        dismissModal={() => {
-          if (!retrySubmitting) {
-            setPreviewVisible(false);
+      <I18nProps>
+        <ConfirmModal
+          title="Retry Edited DAG Run"
+          buttonText={retrySubmitting ? 'Creating...' : 'Create new run'}
+          visible={previewVisible}
+          dismissModal={() => {
+            if (!retrySubmitting) {
+              setPreviewVisible(false);
+            }
+          }}
+          onSubmit={() => void submitEditedRetry()}
+          submitDisabled={
+            retrySubmitting || !retryPreview || retryPreview.errors.length > 0
           }
-        }}
-        onSubmit={() => void submitEditedRetry()}
-        submitDisabled={
-          retrySubmitting || !retryPreview || retryPreview.errors.length > 0
-        }
-        contentClassName="grid !h-[calc(100dvh-1rem)] !max-h-[calc(100dvh-1rem)] !w-[calc(100vw-1rem)] !max-w-[1920px] grid-rows-[auto_minmax(0,1fr)_auto] !gap-0 overflow-hidden !p-0 sm:!h-[90vh] sm:!max-h-[1080px] sm:!w-[94vw]"
-        headerClassName="border-b px-4 py-3 pr-12 text-left sm:px-6 sm:pr-12"
-        bodyClassName="min-h-0 overflow-hidden p-0"
-        footerClassName="gap-2 border-t px-4 py-3 sm:gap-0 sm:px-6 [&>button]:w-full sm:[&>button]:w-auto"
-      >
-        {retryPreview && (
-          <div className="grid h-full min-h-0 grid-cols-1 grid-rows-[minmax(280px,45fr)_minmax(240px,55fr)] gap-3 p-3 sm:p-4 xl:grid-cols-[minmax(0,1fr)_440px] xl:grid-rows-1">
-            <div className="flex min-h-0 flex-col rounded-md border bg-surface">
-              <div className="grid grid-cols-2 gap-3 border-b px-3 py-2 text-xs sm:grid-cols-4">
-                <div className="min-w-0">
-                  <div className="text-xs uppercase text-muted-foreground">
-                    <I18nText text={"Target DAG"} />
+          contentClassName="grid !h-[calc(100dvh-1rem)] !max-h-[calc(100dvh-1rem)] !w-[calc(100vw-1rem)] !max-w-[1920px] grid-rows-[auto_minmax(0,1fr)_auto] !gap-0 overflow-hidden !p-0 sm:!h-[90vh] sm:!max-h-[1080px] sm:!w-[94vw]"
+          headerClassName="border-b px-4 py-3 pr-12 text-left sm:px-6 sm:pr-12"
+          bodyClassName="min-h-0 overflow-hidden p-0"
+          footerClassName="gap-2 border-t px-4 py-3 sm:gap-0 sm:px-6 [&>button]:w-full sm:[&>button]:w-auto"
+        >
+          {retryPreview && (
+            <div className="grid h-full min-h-0 grid-cols-1 grid-rows-[minmax(280px,45fr)_minmax(240px,55fr)] gap-3 p-3 sm:p-4 xl:grid-cols-[minmax(0,1fr)_440px] xl:grid-rows-1">
+              <div className="flex min-h-0 flex-col rounded-md border bg-surface">
+                <div className="grid grid-cols-2 gap-3 border-b px-3 py-2 text-xs sm:grid-cols-4">
+                  <div className="min-w-0">
+                    <div className="text-xs uppercase text-muted-foreground">
+                      <I18nText text={'Target DAG'} />
+                    </div>
+                    <div className="truncate font-mono text-xs">
+                      {retryPreview.dagName}
+                    </div>
                   </div>
-                  <div className="truncate font-mono text-xs">
-                    {retryPreview.dagName}
+                  <div className="min-w-0">
+                    <div className="text-xs uppercase text-muted-foreground">
+                      <I18nText text={'Reuse previous output'} />
+                    </div>
+                    <div>{selectedSkipSteps.length}</div>
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs uppercase text-muted-foreground">
+                      <I18nText text={'Run again'} />
+                    </div>
+                    <div>{retryStepCount}</div>
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs uppercase text-muted-foreground">
+                      <I18nText text={'Source DAG-run ID'} />
+                    </div>
+                    <div className="truncate font-mono text-xs">{dagRunId}</div>
                   </div>
                 </div>
-                <div className="min-w-0">
-                  <div className="text-xs uppercase text-muted-foreground">
-                    <I18nText text={"Reuse previous output"} />
-                  </div>
-                  <div>{selectedSkipSteps.length}</div>
-                </div>
-                <div className="min-w-0">
-                  <div className="text-xs uppercase text-muted-foreground">
-                    <I18nText text={"Run again"} />
-                  </div>
-                  <div>{retryStepCount}</div>
-                </div>
-                <div className="min-w-0">
-                  <div className="text-xs uppercase text-muted-foreground">
-                    <I18nText text={"Source DAG-run ID"} />
-                  </div>
-                  <div className="truncate font-mono text-xs">{dagRunId}</div>
+                <div className="min-h-0 flex-1 overflow-hidden p-2">
+                  <Graph
+                    steps={previewNodes}
+                    name={dagName}
+                    type="status"
+                    flowchart={previewFlowchart}
+                    onChangeFlowchart={setPreviewFlowchart}
+                    onClickNode={setSelectedPreviewStep}
+                    onRightClickNode={setSelectedPreviewStep}
+                    isExpandedView={true}
+                    height="100%"
+                  />
                 </div>
               </div>
-              <div className="min-h-0 flex-1 overflow-hidden p-2">
-                <Graph
-                  steps={previewNodes}
-                  name={dagName}
-                  type="status"
-                  flowchart={previewFlowchart}
-                  onChangeFlowchart={setPreviewFlowchart}
-                  onClickNode={setSelectedPreviewStep}
-                  onRightClickNode={setSelectedPreviewStep}
-                  isExpandedView={true}
-                  height="100%"
-                />
-              </div>
-            </div>
 
-            <div className="flex min-h-0 flex-col rounded-md border bg-surface">
-              <div className="border-b px-3 py-2">
-                <div className="text-sm font-medium"><I18nText text={"Step review"} /></div>
-                {selectedPreviewNode && (
-                  <div className="mt-1 font-mono text-xs text-muted-foreground">
-                    {selectedPreviewNode.step.name}
+              <div className="flex min-h-0 flex-col rounded-md border bg-surface">
+                <div className="border-b px-3 py-2">
+                  <div className="text-sm font-medium">
+                    <I18nText text={'Step review'} />
                   </div>
-                )}
-              </div>
+                  {selectedPreviewNode && (
+                    <div className="mt-1 font-mono text-xs text-muted-foreground">
+                      {selectedPreviewNode.step.name}
+                    </div>
+                  )}
+                </div>
 
-              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
-                {retryPreview.errors.length > 0 && (
-                  <div className="space-y-1 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-sm text-destructive">
-                    {retryPreview.errors.map((error) => (
-                      <div key={error}>{error}</div>
-                    ))}
-                  </div>
-                )}
+                <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
+                  {retryPreview.errors.length > 0 && (
+                    <div className="space-y-1 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-sm text-destructive">
+                      {retryPreview.errors.map((error) => (
+                        <div key={error}>{error}</div>
+                      ))}
+                    </div>
+                  )}
 
-                {retryPreview.warnings.length > 0 && (
-                  <div className="space-y-1 rounded-md border p-2 text-sm text-muted-foreground">
-                    {retryPreview.warnings.map((warning) => (
-                      <div key={warning}>{warning}</div>
-                    ))}
-                  </div>
-                )}
+                  {retryPreview.warnings.length > 0 && (
+                    <div className="space-y-1 rounded-md border p-2 text-sm text-muted-foreground">
+                      {retryPreview.warnings.map((warning) => (
+                        <div key={warning}>{warning}</div>
+                      ))}
+                    </div>
+                  )}
 
-                <div className="space-y-2">
-                  {retryPreview.steps.map((step) => {
-                    const canReuse = eligibleReuseSteps.has(step.name);
-                    const willReuse = selectedSkipSteps.includes(step.name);
-                    const ineligibleReason = ineligibleReasonByStep.get(
-                      step.name
-                    );
-                    return (
-                      <div
-                        key={step.name}
-                        role="button"
-                        tabIndex={0}
-                        className={cn(
-                          'w-full rounded-md border p-3 text-left transition-colors hover:bg-muted/40',
-                          selectedPreviewStep === step.name &&
-                            'border-primary bg-primary/5'
-                        )}
-                        onClick={() => setSelectedPreviewStep(step.name)}
-                        onKeyDown={(event) => {
-                          if (event.key !== 'Enter' && event.key !== ' ') {
-                            return;
-                          }
-                          event.preventDefault();
-                          setSelectedPreviewStep(step.name);
-                        }}
-                      >
-                        <div className="flex items-start gap-3">
-                          <Checkbox
-                            checked={willReuse}
-                            disabled={!canReuse}
-                            onCheckedChange={() => toggleReuseStep(step.name)}
-                            onClick={(event) => event.stopPropagation()}
-                            className="mt-0.5 border-border"
-                            aria-label={`Reuse previous output for ${step.name}`}
-                          />
-                          <div className="min-w-0 flex-1 space-y-1">
-                            <div className="break-all font-mono text-xs">
-                              {step.name}
-                            </div>
-                            <div
-                              className={cn(
-                                'text-xs',
-                                willReuse
-                                  ? 'text-success'
-                                  : 'text-muted-foreground'
+                  <div className="space-y-2">
+                    {retryPreview.steps.map((step) => {
+                      const canReuse = eligibleReuseSteps.has(step.name);
+                      const willReuse = selectedSkipSteps.includes(step.name);
+                      const ineligibleReason = ineligibleReasonByStep.get(
+                        step.name
+                      );
+                      return (
+                        <div
+                          key={step.name}
+                          role="button"
+                          tabIndex={0}
+                          className={cn(
+                            'w-full rounded-md border p-3 text-left transition-colors hover:bg-muted/40',
+                            selectedPreviewStep === step.name &&
+                              'border-primary bg-primary/5'
+                          )}
+                          onClick={() => setSelectedPreviewStep(step.name)}
+                          onKeyDown={(event) => {
+                            if (event.key !== 'Enter' && event.key !== ' ') {
+                              return;
+                            }
+                            event.preventDefault();
+                            setSelectedPreviewStep(step.name);
+                          }}
+                        >
+                          <div className="flex items-start gap-3">
+                            <Checkbox
+                              checked={willReuse}
+                              disabled={!canReuse}
+                              onCheckedChange={() => toggleReuseStep(step.name)}
+                              onClick={(event) => event.stopPropagation()}
+                              className="mt-0.5 border-border"
+                              aria-label={`Reuse previous output for ${step.name}`}
+                            />
+                            <div className="min-w-0 flex-1 space-y-1">
+                              <div className="break-all font-mono text-xs">
+                                {step.name}
+                              </div>
+                              <div
+                                className={cn(
+                                  'text-xs',
+                                  willReuse
+                                    ? 'text-success'
+                                    : 'text-muted-foreground'
+                                )}
+                              >
+                                {willReuse
+                                  ? 'Reuse previous output'
+                                  : 'Run again'}
+                              </div>
+                              {step.depends && step.depends.length > 0 && (
+                                <div className="text-xs text-muted-foreground">
+                                  <I18nText text={'Depends on'} />{' '}
+                                  {step.depends.join(', ')}
+                                </div>
                               )}
-                            >
-                              {willReuse
-                                ? 'Reuse previous output'
-                                : 'Run again'}
+                              {!canReuse && ineligibleReason && (
+                                <div className="text-xs text-muted-foreground">
+                                  {ineligibleReason}
+                                </div>
+                              )}
                             </div>
-                            {step.depends && step.depends.length > 0 && (
-                              <div className="text-xs text-muted-foreground">
-                                Depends on {step.depends.join(', ')}
-                              </div>
-                            )}
-                            {!canReuse && ineligibleReason && (
-                              <div className="text-xs text-muted-foreground">
-                                {ineligibleReason}
-                              </div>
-                            )}
                           </div>
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        )}
-      </ConfirmModal></I18nProps>
+          )}
+        </ConfirmModal>
+      </I18nProps>
     </>
   );
 }
@@ -867,14 +873,20 @@ function SourceDAGDiffDialog({
       >
         <DialogHeader className="flex flex-row items-center justify-between space-y-0 border-b border-border/40 px-4 py-3">
           <DialogTitle className="min-w-0 truncate text-sm font-mono">
-            Save Source DAG: {sourceFileName}
+            <I18nText text={'Save Source DAG:'} /> {sourceFileName}
           </DialogTitle>
           <DialogDescription className="sr-only">
-            <I18nText text={"Review the current source DAG and edited DAG specification before saving changes."} />
+            <I18nText
+              text={
+                'Review the current source DAG and edited DAG specification before saving changes.'
+              }
+            />
           </DialogDescription>
           <DialogClose className="rounded-md p-1.5 opacity-70 transition-opacity hover:bg-muted hover:opacity-100">
             <X className="h-4 w-4" />
-            <span className="sr-only"><I18nText text={"Close"} /></span>
+            <span className="sr-only">
+              <I18nText text={'Close'} />
+            </span>
           </DialogClose>
         </DialogHeader>
 
@@ -942,7 +954,7 @@ function SourceDAGDiffDialog({
             onClick={() => onOpenChange(false)}
           >
             <X className="h-3.5 w-3.5" />
-            Cancel
+            <I18nText text={'Cancel'} />
           </Button>
           <Button type="button" size="sm" disabled={saving} onClick={onSave}>
             {saving ? (

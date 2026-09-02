@@ -4,6 +4,7 @@
 import { components } from '@/api/v1/schema';
 import { Ban, CircleCheck, CircleDashed, CircleSlash } from 'lucide-react';
 import { I18nProps } from '@/i18n/I18nProps';
+import { I18nText } from '@/i18n/I18nText';
 
 type AgentTask = components['schemas']['AgentTask'];
 
@@ -51,7 +52,7 @@ export function TaskChecklistTab({ tasks }: TaskChecklistTabProps) {
   return (
     <div className="flex flex-col gap-2 p-2">
       <div className="text-muted-foreground text-xs">
-        {settled} of {tasks.length} tasks settled
+        {settled} <I18nText text={"of"} /> {tasks.length} <I18nText text={"tasks settled"} />
       </div>
 
       <div className="divide-border bg-card divide-y rounded border">

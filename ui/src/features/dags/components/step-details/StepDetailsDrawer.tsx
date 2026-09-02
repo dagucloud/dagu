@@ -144,7 +144,7 @@ function StepRuntimeSection({
             onClick={() => onViewLog('stdout')}
           >
             <ScrollText className="h-3.5 w-3.5" />
-            View stdout
+            <I18nText text={"View stdout"} />
           </button>
           <button
             type="button"
@@ -152,7 +152,7 @@ function StepRuntimeSection({
             onClick={() => onViewLog('stderr')}
           >
             <ScrollText className="h-3.5 w-3.5" />
-            View stderr
+            <I18nText text={"View stderr"} />
           </button>
         </div>
       )}

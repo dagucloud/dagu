@@ -101,7 +101,7 @@ function DAGGraph({
             className="flex items-center gap-2 cursor-pointer"
           >
             <GitGraph className="h-4 w-4" />
-            Graph
+            <I18nText text={"Graph"} />
           </Tab>
           <Tab
             isActive={sub === '1'}
@@ -109,7 +109,7 @@ function DAGGraph({
             className="flex items-center gap-2 cursor-pointer"
           >
             <GanttChart className="h-4 w-4" />
-            Timeline
+            <I18nText text={"Timeline"} />
           </Tab>
         </Tabs>
 

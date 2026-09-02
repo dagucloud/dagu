@@ -287,7 +287,7 @@ export function UserFormModal({
                 {roleManaged
                   ? 'Role and workspace access are'
                   : 'Workspace access is'}{' '}
-                updated by {managedProviderLabel} at sign-in.
+                <I18nText text={"updated by"} /> {managedProviderLabel} <I18nText text={"at sign-in."} />
               </p>
             </div>
           ) : (
@@ -306,7 +306,7 @@ export function UserFormModal({
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="ghost" onClick={onClose}>
               <X className="h-4 w-4" />
-              Cancel
+              <I18nText text={"Cancel"} />
             </Button>
             <Button type="submit" disabled={isLoading}>
               {isEditing ? (

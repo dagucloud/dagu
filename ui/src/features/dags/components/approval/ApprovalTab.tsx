@@ -46,7 +46,7 @@ function ApprovalCard({
             <span className="text-sm font-semibold">{step.name}</span>
             {iteration > 0 && (
               <span className="text-xs font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                Iteration {iteration}
+                <I18nText text={"Iteration"} /> {iteration}
               </span>
             )}
           </div>
@@ -62,7 +62,7 @@ function ApprovalCard({
               onClick={() => onAction(node, 'retry')}
             >
               <RotateCcw className="h-4 w-4" />
-              Retry
+              <I18nText text={"Retry"} />
             </Button>
           )}
           <Button
@@ -71,7 +71,7 @@ function ApprovalCard({
             onClick={() => onAction(node, 'approve')}
           >
             <Check className="h-4 w-4" />
-            Approve
+            <I18nText text={"Approve"} />
           </Button>
         </div>
       </div>

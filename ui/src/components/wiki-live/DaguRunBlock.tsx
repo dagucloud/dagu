@@ -264,7 +264,7 @@ export function DaguRunBlock({ source }: Props) {
         <div className="space-y-2 text-sm">
           {parsed.confirm && <p>{parsed.confirm}</p>}
           <div className="flex items-center gap-2 text-xs">
-            Target: <DagStatusChip dagRef={parsed.dag} />
+            <I18nText text={"Target:"} /> <DagStatusChip dagRef={parsed.dag} />
           </div>
           <ParamsTable params={parsed.params} />
         </div>

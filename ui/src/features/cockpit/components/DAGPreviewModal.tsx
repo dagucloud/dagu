@@ -2,6 +2,7 @@ import React, { useContext } from 'react';
 import { useClient } from '@/hooks/api';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import DAGDetailsSidePanel from '@/features/dags/components/dag-details/DAGDetailsSidePanel';
+import { I18nText } from '@/i18n/I18nText';
 
 interface DAGPreviewModalProps {
   fileName: string;
@@ -61,7 +62,7 @@ export function DAGPreviewModal({
 
   const toolbarHint = selectedWorkspace ? (
     <>
-      Workspace:{' '}
+      <I18nText text={"Workspace:"} />{' '}
       <span className="font-medium text-foreground">{selectedWorkspace}</span>
     </>
   ) : (

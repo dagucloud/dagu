@@ -6,6 +6,7 @@ import { AppBarContext } from '@/contexts/AppBarContext';
 import { workspaceWikiQueryForWorkspace } from '@/lib/workspace';
 import { ChevronDown, ChevronRight, Link2 } from 'lucide-react';
 import React, { useContext, useMemo, useState } from 'react';
+import { I18nText } from '@/i18n/I18nText';
 
 type Props = {
   wikiPagePath: string | null;
@@ -54,7 +55,7 @@ function WikiPageBacklinksPanel({ wikiPagePath, workspace, onSelectWikiPage }: P
           <ChevronDown className="h-3 w-3" />
         )}
         <Link2 className="h-3 w-3" />
-        Backlinks
+        <I18nText text={"Backlinks"} />
         <span className="ml-auto text-[10px] font-normal normal-case">
           {items.length}
         </span>

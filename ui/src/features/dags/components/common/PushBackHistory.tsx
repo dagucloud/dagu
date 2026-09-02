@@ -58,11 +58,11 @@ export default function PushBackHistory({
             >
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
                 <span className="font-medium text-foreground/90">
-                  Iteration {entry.iteration}
+                  <I18nText text={"Iteration"} /> {entry.iteration}
                 </span>
                 {entry.by || entry.byId ? (
                   <span className="text-muted-foreground">
-                    by{' '}
+                    <I18nText text={"by"} />{' '}
                     <ManualActionSubject
                       name={entry.by}
                       id={entry.byId}
@@ -72,7 +72,7 @@ export default function PushBackHistory({
                 ) : null}
                 {entry.at && (
                   <span className="text-muted-foreground">
-                    at {formatTimestamp(entry.at)}
+                    <I18nText text={"at"} /> {formatTimestamp(entry.at)}
                   </span>
                 )}
               </div>

@@ -166,7 +166,7 @@ function DAGRunBatchActions({
       <div className="mt-2 space-y-1 text-sm">
         {result.newDagRunId ? (
           <div>
-            New DAG run: <span className="font-mono">{result.newDagRunId}</span>
+            <I18nText text={"New DAG run:"} /> <span className="font-mono">{result.newDagRunId}</span>
           </div>
         ) : (
           <div className="text-muted-foreground">
@@ -235,7 +235,7 @@ function DAGRunBatchActions({
             disabled={selectedCount === 0 || isRunning}
           >
             <Trash2 className="h-4 w-4" />
-            Delete selected
+            <I18nText text={"Delete selected"} />
           </Button>
         </div>
       </div>
@@ -278,8 +278,8 @@ function DAGRunBatchActions({
           {phase === 'confirm' && activeBatch && (
             <div className="space-y-3">
               <p className="text-sm text-foreground">
-                Do you want to {actionVerbs[activeBatch.action]}{' '}
-                {activeBatch.snapshot.length} selected DAG run
+                <I18nText text={"Do you want to"} /> {actionVerbs[activeBatch.action]}{' '}
+                {activeBatch.snapshot.length} <I18nText text={"selected DAG run"} />
                 {activeBatch.snapshot.length === 1 ? '' : 's'}?
               </p>
               {activeBatch.action === 'delete' && (
@@ -373,10 +373,10 @@ function DAGRunBatchActions({
                     </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                       <span className="font-mono tabular-nums">
-                        {progress.processedCount}/{totalCount} processed
+                        {progress.processedCount}/{totalCount} <I18nText text={"processed"} />
                       </span>
-                      <span>{progress.successCount} succeeded</span>
-                      <span>{progress.failureCount} failed</span>
+                      <span>{progress.successCount} <I18nText text={"succeeded"} /></span>
+                      <span>{progress.failureCount} <I18nText text={"failed"} /></span>
                     </div>
                   </div>
                 </div>

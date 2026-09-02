@@ -150,7 +150,7 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
               })
             }
           />
-          Attach logs
+          <I18nText text={"Attach logs"} />
         </label>
       </div>
     );
@@ -246,8 +246,8 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
             }
           />
           <p className="text-xs text-muted-foreground">
-            Supports tokens such as <code>{'{{dag.name}}'}</code>,{' '}
-            <code>{'{{run.status}}'}</code>, <code>{'{{run.error}}'}</code>, and{' '}
+            <I18nText text={"Supports tokens such as"} /> <code>{'{{dag.name}}'}</code>,{' '}
+            <code>{'{{run.status}}'}</code>, <code>{'{{run.error}}'}</code><I18nText text={", and"} />{' '}
             <code>{'{{run.link}}'}</code>.
           </p>
         </div>
@@ -270,10 +270,8 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
             }
           />
           <p className="text-xs text-muted-foreground">
-            Optional. Replaces the default webhook payload and must render as
-            valid JSON. Supports the message-template tokens plus{' '}
-            <code>{'{{message}}'}</code>. Leave blank to keep the default Dagu
-            payload.
+            <I18nText text={"Optional. Replaces the default webhook payload and must render as valid JSON. Supports the message-template tokens plus"} />{' '}
+            <code>{'{{message}}'}</code><I18nText text={". Leave blank to keep the default Dagu payload."} />
           </p>
           <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs">
             <div className="mb-1 text-muted-foreground">
@@ -292,7 +290,7 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
                 })
               }
             />
-            Clear headers
+            <I18nText text={"Clear headers"} />
           </label>
           <label className="flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm">
             <Checkbox
@@ -303,7 +301,7 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
                 })
               }
             />
-            Clear HMAC
+            <I18nText text={"Clear HMAC"} />
           </label>
           <label className="flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm">
             <Checkbox
@@ -314,7 +312,7 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
                 })
               }
             />
-            Allow HTTP
+            <I18nText text={"Allow HTTP"} />
           </label>
           <label className="flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm">
             <Checkbox
@@ -325,7 +323,7 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
                 })
               }
             />
-            Allow private network
+            <I18nText text={"Allow private network"} />
           </label>
         </div>
       </div>
@@ -373,9 +371,7 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
     return (
       <div className="space-y-3">
         <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-          Create an incoming-webhook Workflow in Teams, select its destination,
-          save it, and copy the generated URL. Dagu sends the compatible
-          MessageCard format automatically.{' '}
+          <I18nText text={"Create an incoming-webhook Workflow in Teams, select its destination, save it, and copy the generated URL. Dagu sends the compatible MessageCard format automatically."} />{' '}
           <a
             className="font-medium text-primary underline-offset-4 hover:underline"
             href="https://support.microsoft.com/en-US/Workflows/send-messages-in-teams-using-incoming-webhooks"
@@ -432,8 +428,8 @@ function ProviderFields({ draft, onChange }: ProviderFieldsProps) {
             }
           />
           <p className="text-xs text-muted-foreground">
-            Supports tokens such as <code>{'{{dag.name}}'}</code>,{' '}
-            <code>{'{{run.status}}'}</code>, <code>{'{{run.error}}'}</code>, and{' '}
+            <I18nText text={"Supports tokens such as"} /> <code>{'{{dag.name}}'}</code>,{' '}
+            <code>{'{{run.status}}'}</code>, <code>{'{{run.error}}'}</code><I18nText text={", and"} />{' '}
             <code>{'{{run.link}}'}</code>.
           </p>
         </div>
@@ -682,7 +678,7 @@ export function NotificationOverviewCard({
         ) : (
           <div className="rounded-md border border-border bg-muted/30 px-3 py-4">
             <div className="text-sm font-medium text-foreground">
-              This DAG inherits {inheritedSourceLabel}.
+              <I18nText text={"This DAG inherits"} /> {inheritedSourceLabel}.
             </div>
             <div className="mt-1 text-sm text-muted-foreground">
               <I18nText
@@ -765,7 +761,7 @@ export function InheritedNotificationRoutesCard({
         <Button asChild variant="outline" size="sm">
           <Link to={manageRulesHref}>
             <Settings className="h-4 w-4" />
-            Manage rules
+            <I18nText text={"Manage rules"} />
           </Link>
         </Button>
       </CardHeader>
@@ -834,7 +830,7 @@ export function NotificationChannelsSection({
         </h3>
         <Button variant="outline" size="sm" onClick={onAdd}>
           <Plus className="h-4 w-4" />
-          Add
+          <I18nText text={"Add"} />
         </Button>
       </div>
 
@@ -887,7 +883,7 @@ export function NotificationChannelsSection({
                       ) : (
                         <Save className="h-4 w-4" />
                       )}
-                      Save
+                      <I18nText text={"Save"} />
                     </Button>
                     <Button
                       variant="ghost"
@@ -1022,7 +1018,7 @@ export function DAGSubscriptionsSection({
             <Button asChild variant="ghost" size="sm">
               <Link to={manageChannelsHref}>
                 <Settings className="h-4 w-4" />
-                Manage channels
+                <I18nText text={"Manage channels"} />
               </Link>
             </Button>
           )}
@@ -1033,7 +1029,7 @@ export function DAGSubscriptionsSection({
             disabled={channels.filter((channel) => channel.id).length === 0}
           >
             <Plus className="h-4 w-4" />
-            Add channel
+            <I18nText text={"Add channel"} />
           </Button>
         </div>
       </div>
@@ -1127,7 +1123,7 @@ export function DAGSubscriptionsSection({
                         ) : (
                           <FlaskConical className="h-4 w-4" />
                         )}
-                        Send test
+                        <I18nText text={"Send test"} />
                       </Button>
                       <Button
                         variant="ghost"
@@ -1172,7 +1168,7 @@ export function DAGSubscriptionsSection({
 
                     <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-sm">
                       <span className="text-muted-foreground">
-                        Events: {eventSummary(subscription.events)}
+                        <I18nText text={"Events:"} /> {eventSummary(subscription.events)}
                       </span>
                       <div className="flex items-center gap-2">
                         {hasCustomEvents && (
@@ -1246,7 +1242,7 @@ export function DAGLocalTargetsSection({
       <div className="flex flex-wrap justify-end gap-2">
         <Button variant="ghost" size="sm" onClick={onAdd}>
           <Link2 className="h-4 w-4" />
-          Add custom destination
+          <I18nText text={"Add custom destination"} />
         </Button>
       </div>
     );
@@ -1261,7 +1257,7 @@ export function DAGLocalTargetsSection({
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={onAdd}>
             <Plus className="h-4 w-4" />
-            Add custom
+            <I18nText text={"Add custom"} />
           </Button>
         </div>
       </div>
@@ -1309,7 +1305,7 @@ export function DAGLocalTargetsSection({
                     ) : (
                       <FlaskConical className="h-4 w-4" />
                     )}
-                    Send test
+                    <I18nText text={"Send test"} />
                   </Button>
                   <Button
                     variant="ghost"

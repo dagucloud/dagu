@@ -506,7 +506,7 @@ function WikiPageEditor({
             title="Discard changes"
           >
             <Undo2 className="h-3 w-3" />
-            Discard
+            <I18nText text={"Discard"} />
           </button></I18nProps>
         )}
 

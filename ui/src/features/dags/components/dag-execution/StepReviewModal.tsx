@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react';
 import { components } from '../../../../api/v1/schema';
 import PushBackHistory from '../common/PushBackHistory';
 import { I18nProps } from '@/i18n/I18nProps';
+import { I18nText } from '@/i18n/I18nText';
 
 type Step = components['schemas']['Step'];
 type PushBackHistoryEntry = components['schemas']['PushBackHistoryEntry'];
@@ -162,7 +163,7 @@ export function StepReviewModal({
             disabled={loading}
           >
             <X className="h-4 w-4" />
-            Cancel
+            <I18nText text={"Cancel"} />
           </Button>
           <Button
             size="sm"

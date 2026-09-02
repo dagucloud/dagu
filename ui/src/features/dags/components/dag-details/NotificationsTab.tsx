@@ -98,7 +98,7 @@ function DAGNotificationHeader({
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm" onClick={onRefresh}>
             <RefreshCw className="h-4 w-4" />
-            Refresh
+            <I18nText text={"Refresh"} />
           </Button>
           {!loadFailed && (
             <>
@@ -117,7 +117,7 @@ function DAGNotificationHeader({
                 ) : (
                   <FlaskConical className="h-4 w-4" />
                 )}
-                Send test
+                <I18nText text={"Send test"} />
               </Button>
               {isDAGConfigured ? (
                 <>
@@ -132,7 +132,7 @@ function DAGNotificationHeader({
                     ) : (
                       <RotateCcw className="h-4 w-4" />
                     )}
-                    Reset to inherit
+                    <I18nText text={"Reset to inherit"} />
                   </Button>
                   <Button
                     size="sm"
@@ -144,13 +144,13 @@ function DAGNotificationHeader({
                     ) : (
                       <Save className="h-4 w-4" />
                     )}
-                    Save changes
+                    <I18nText text={"Save changes"} />
                   </Button>
                 </>
               ) : (
                 <Button size="sm" onClick={onConfigureDAG}>
                   <Settings className="h-4 w-4" />
-                  Configure DAG override
+                  <I18nText text={"Configure DAG override"} />
                 </Button>
               )}
             </>
@@ -161,21 +161,21 @@ function DAGNotificationHeader({
       <div className="flex items-center gap-1 border-b border-border">
         <span className="inline-flex h-10 items-center gap-2 border-b-2 border-primary px-3 text-sm font-medium text-foreground">
           <Bell className="h-4 w-4 text-primary" />
-          This DAG
+          <I18nText text={"This DAG"} />
         </span>
         <Link
           to="/notification-rules"
           className="inline-flex h-10 items-center gap-2 border-b-2 border-transparent px-3 text-sm font-medium text-muted-foreground hover:text-foreground"
         >
           <RouteIcon className="h-4 w-4" />
-          Rules
+          <I18nText text={"Rules"} />
         </Link>
         <Link
           to="/notification-channels"
           className="inline-flex h-10 items-center gap-2 border-b-2 border-transparent px-3 text-sm font-medium text-muted-foreground hover:text-foreground"
         >
           <Mail className="h-4 w-4" />
-          Channels
+          <I18nText text={"Channels"} />
         </Link>
       </div>
     </div>
@@ -497,7 +497,7 @@ function NotificationsTab({ fileName, workspaceName }: NotificationsTabProps) {
         <Card>
           <CardContent className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Refreshing notifications...
+            <I18nText text={"Refreshing notifications..."} />
           </CardContent>
         </Card>
       )}
@@ -568,7 +568,7 @@ function NotificationsTab({ fileName, workspaceName }: NotificationsTabProps) {
         dismissModal={() => setDeleteTargetIndex(null)}
         onSubmit={removeTarget}
       >
-        Delete{' '}
+        <I18nText text={"Delete"} />{' '}
         {deleteTargetIndex !== null && draft.targets[deleteTargetIndex]
           ? deliveryLabel(draft.targets[deleteTargetIndex])
           : 'target'}

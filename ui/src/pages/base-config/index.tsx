@@ -248,7 +248,7 @@ function BaseConfigPage(): React.ReactNode {
             className="gap-2 cursor-pointer"
           >
             <Globe2 className="h-4 w-4" />
-            Global
+            <I18nText text={"Global"} />
           </Tab>
           <Tab
             role="tab"
@@ -258,7 +258,7 @@ function BaseConfigPage(): React.ReactNode {
             className="gap-2 cursor-pointer"
           >
             <SquareStack className="h-4 w-4" />
-            Workspace
+            <I18nText text={"Workspace"} />
           </Tab>
         </Tabs></I18nProps>
       ) : null}
@@ -281,7 +281,7 @@ function BaseConfigPage(): React.ReactNode {
                 onClick={handleRevert}
               >
                 <RotateCcw className="h-4 w-4" />
-                Revert
+                <I18nText text={"Revert"} />
               </Button></I18nProps>
               <I18nProps><Button
                 title="Save changes (Ctrl+S / Cmd+S)"
@@ -289,7 +289,7 @@ function BaseConfigPage(): React.ReactNode {
                 onClick={handleSave}
               >
                 <Save className="h-4 w-4" />
-                Save
+                <I18nText text={"Save"} />
               </Button></I18nProps>
             </>
           ) : undefined

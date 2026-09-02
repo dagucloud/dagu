@@ -188,7 +188,7 @@ export function WorkflowViewSelector({
               <span className="mr-2 flex size-4 items-center justify-center">
                 {isAllView && <Check />}
               </span>
-              All workflows
+              <I18nText text={"All workflows"} />
             </DropdownMenuItem>
 
             {views.length > 0 && (
@@ -230,12 +230,12 @@ export function WorkflowViewSelector({
                     disabled={isMutating}
                   >
                     <Save className="mr-2" />
-                    Update “{activeView.name}”
+                    <I18nText text={"Update “"} />{activeView.name}”
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuItem onSelect={onResetView}>
                   <RotateCcw className="mr-2" />
-                  Reset changes
+                  <I18nText text={"Reset changes"} />
                 </DropdownMenuItem>
               </>
             )}
@@ -245,11 +245,11 @@ export function WorkflowViewSelector({
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={openSaveDialog}>
                   <Save className="mr-2" />
-                  Save current filters as view…
+                  <I18nText text={"Save current filters as view…"} />
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setManageDialogOpen(true)}>
                   <Settings2 className="mr-2" />
-                  Manage views…
+                  <I18nText text={"Manage views…"} />
                 </DropdownMenuItem>
               </>
             )}
@@ -431,8 +431,7 @@ export function WorkflowViewSelector({
         onSubmit={confirmDelete}
       >
         <p className="text-sm text-muted-foreground">
-          “{pendingDelete?.name}” will be removed for everyone with access to
-          this workspace scope. Workflows are not affected.
+          “{pendingDelete?.name}<I18nText text={"” will be removed for everyone with access to this workspace scope. Workflows are not affected."} />
         </p>
         {error && (
           <p role="alert" className="mt-2 text-xs text-destructive">

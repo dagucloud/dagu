@@ -14,6 +14,7 @@ import { useCallback, useState } from 'react';
 import { components } from '../../../../api/v1/schema';
 import { useConfig } from '../../../../contexts/ConfigContext';
 import { useClient } from '../../../../hooks/api';
+import { I18nText } from '@/i18n/I18nText';
 
 /**
  * Props for the LiveSwitch component
@@ -107,7 +108,7 @@ function LiveSwitch({ dag, refresh, 'aria-label': ariaLabel }: Props) {
         onSubmit={handleConfirm}
       >
         <p>
-          Are you sure you want to {pendingState ? 'enable' : 'disable'} the
+          <I18nText text={"Are you sure you want to"} /> {pendingState ? 'enable' : 'disable'} the
           schedule for &quot;{dag.fileName}&quot;?
         </p>
       </ConfirmModal>

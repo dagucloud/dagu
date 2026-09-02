@@ -224,11 +224,11 @@ function DAGSettingsTab({ fileName }: Props) {
                 onClick={() => setSelectedProfile(currentProfile)}
               >
                 <X className="mr-2 h-4 w-4" />
-                Reset
+                <I18nText text={"Reset"} />
               </Button>
               <Button type="button" disabled={!canSave} onClick={save}>
                 <Save className="mr-2 h-4 w-4" />
-                Save
+                <I18nText text={"Save"} />
               </Button>
             </div>
           )}

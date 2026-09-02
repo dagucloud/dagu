@@ -87,7 +87,7 @@ const generatePaginationItems = (
             }}
           >
             {i}
-            <span className="sr-only">Page {i}</span>
+            <span className="sr-only"><I18nText text={"Page"} /> {i}</span>
           </Button>
         </PaginationItem>
       );
@@ -138,7 +138,7 @@ const generatePaginationItems = (
             }}
           >
             {i}
-            <span className="sr-only">Page {i}</span>
+            <span className="sr-only"><I18nText text={"Page"} /> {i}</span>
           </Button>
         </PaginationItem>
       );
@@ -168,7 +168,7 @@ const generatePaginationItems = (
           }}
         >
           {totalPages}
-          <span className="sr-only">Page {totalPages}</span>
+          <span className="sr-only"><I18nText text={"Page"} /> {totalPages}</span>
         </Button>
       </PaginationItem>
     );

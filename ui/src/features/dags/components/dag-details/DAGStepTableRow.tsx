@@ -74,7 +74,7 @@ function DAGStepTableRow({ step, index }: Props) {
               className="truncate font-mono text-xs text-muted-foreground"
               title={step.id}
             >
-              ID: {step.id}
+              <I18nText text={"ID:"} /> {step.id}
             </div>
           )}
           {step.description && (
@@ -89,7 +89,7 @@ function DAGStepTableRow({ step, index }: Props) {
             <div className="mt-1 flex w-fit items-center gap-1.5 rounded-md bg-info-muted px-1.5 py-0.5 text-xs">
               <GitBranch className="h-3.5 w-3.5 text-info" />
               <span className="font-medium text-info">
-                Sub-DAG: {subDagName}
+                <I18nText text={"Sub-DAG:"} /> {subDagName}
               </span>
             </div>
           )}
@@ -182,7 +182,7 @@ function DAGStepTableRow({ step, index }: Props) {
             <div className="flex items-center gap-1.5 text-xs bg-success-muted rounded-md px-1.5 py-0.5 w-fit">
               <ArrowRight className="h-3.5 w-3.5 text-success" />
               <span className="font-medium text-success">
-                Output: {step.output}
+                <I18nText text={"Output:"} /> {step.output}
               </span>
             </div>
           )}
@@ -295,12 +295,12 @@ function DAGStepTableRow({ step, index }: Props) {
             <div className="text-xs text-muted-foreground bg-muted rounded-md p-1.5 leading-tight">
               {step.stdout && (
                 <div className="mb-1">
-                  stdout: <span className="font-mono">{step.stdout}</span>
+                  <I18nText text={"stdout:"} /> <span className="font-mono">{step.stdout}</span>
                 </div>
               )}
               {step.stderr && (
                 <div>
-                  stderr: <span className="font-mono">{step.stderr}</span>
+                  <I18nText text={"stderr:"} /> <span className="font-mono">{step.stderr}</span>
                 </div>
               )}
             </div>

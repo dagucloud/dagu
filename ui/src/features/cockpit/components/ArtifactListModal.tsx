@@ -16,6 +16,7 @@ import ArtifactsTab from '@/features/dags/components/artifacts/ArtifactsTab';
 import { cn } from '@/lib/utils';
 import LoadingIndicator from '@/components/ui/loading-indicator';
 import { I18nProps } from '@/i18n/I18nProps';
+import { I18nText } from '@/i18n/I18nText';
 
 type DAGRunSummary = components['schemas']['DAGRunSummary'];
 const CLOSE_ANIMATION_MS = 200;
@@ -211,7 +212,7 @@ export function ArtifactListModal({
               className="flex items-center gap-2 text-lg font-semibold leading-none tracking-tight"
             >
               <Archive className="h-5 w-5 text-primary" />
-              Artifacts
+              <I18nText text={"Artifacts"} />
               {isValidating && (
                 <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
               )}

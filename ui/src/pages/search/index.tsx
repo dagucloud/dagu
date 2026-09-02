@@ -154,7 +154,7 @@ function SearchFeedPanel({
   if (isLoading && !hasResults && !initialErrorMessage) {
     return (
       <div className="text-sm text-muted-foreground italic">
-        Searching {title.toLowerCase()}...
+        <I18nText text={"Searching"} /> {title.toLowerCase()}...
       </div>
     );
   }
@@ -177,7 +177,7 @@ function SearchFeedPanel({
         <h2 className="text-lg font-semibold">{title}</h2>
         <span className="text-xs text-muted-foreground">
           {resultCount}
-          {hasMore ? '+' : ''} result{resultCount === 1 ? '' : 's'}
+          {hasMore ? '+' : ''} <I18nText text={"result"} />{resultCount === 1 ? '' : 's'}
         </span>
       </div>
 
@@ -471,7 +471,7 @@ function Search() {
               }}
             >
               <SearchIcon className="h-4 w-4" />
-              Search
+              <I18nText text={"Search"} />
             </Button>
             <I18nProps><ToggleGroup aria-label="Search scope">
               <ToggleButton

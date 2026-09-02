@@ -215,11 +215,11 @@ export function SubDAGRunsList({
           }}
           title="Click to view sub DAG run (Cmd/Ctrl+Click to open in new tab)"
         >
-          View Sub DAG Run: {displayName}
+          <I18nText text={"View Sub DAG Run:"} /> {displayName}
         </div></I18nProps>
         {allSubRuns[0]?.params && (
           <div className="text-xs text-muted-foreground mt-1">
-            Parameters:{' '}
+            <I18nText text={"Parameters:"} />{' '}
             <span className="font-mono">{allSubRuns[0].params}</span>
           </div>
         )}
@@ -243,7 +243,7 @@ export function SubDAGRunsList({
           ) : (
             <ChevronRight className="h-3 w-3" />
           )}
-          Multiple executions:{' '}
+          <I18nText text={"Multiple executions:"} />{' '}
           {filteredSubRuns.length === allSubRuns.length
             ? `${allSubRuns.length} sub DAG runs`
             : `${filteredSubRuns.length} of ${allSubRuns.length} sub DAG runs`}

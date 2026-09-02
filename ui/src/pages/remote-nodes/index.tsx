@@ -215,7 +215,7 @@ export default function RemoteNodesPage() {
           className="h-8"
         >
           <Plus className="h-4 w-4 mr-1.5" />
-          Add Node
+          <I18nText text={"Add Node"} />
         </Button>
       </div>
 
@@ -305,13 +305,13 @@ export default function RemoteNodesPage() {
                       {isTesting ? (
                         <span className="flex items-center gap-1 text-muted-foreground">
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          Testing...
+                          <I18nText text={"Testing..."} />
                         </span>
                       ) : result ? (
                         result.success ? (
                           <span className="flex items-center gap-1 text-green-600 dark:text-green-400">
                             <CheckCircle2 className="h-3.5 w-3.5" />
-                            OK
+                            <I18nText text={"OK"} />
                           </span>
                         ) : (
                           <span
@@ -319,7 +319,7 @@ export default function RemoteNodesPage() {
                             title={result.error || result.message}
                           >
                             <XCircle className="h-3.5 w-3.5" />
-                            Failed
+                            <I18nText text={"Failed"} />
                           </span>
                         )
                       ) : (
@@ -343,14 +343,14 @@ export default function RemoteNodesPage() {
                             disabled={isTesting}
                           >
                             <Unplug className="h-4 w-4 mr-2" />
-                            Test Connection
+                            <I18nText text={"Test Connection"} />
                           </DropdownMenuItem>
                           {isStoreNode(node) && (
                             <DropdownMenuItem
                               onClick={() => setEditingNode(node)}
                             >
                               <Pencil className="h-4 w-4 mr-2" />
-                              Edit
+                              <I18nText text={"Edit"} />
                             </DropdownMenuItem>
                           )}
                           {isStoreNode(node) && (
@@ -359,7 +359,7 @@ export default function RemoteNodesPage() {
                               className="text-destructive"
                             >
                               <Trash2 className="h-4 w-4 mr-2" />
-                              Delete
+                              <I18nText text={"Delete"} />
                             </DropdownMenuItem>
                           )}
                         </DropdownMenuContent>

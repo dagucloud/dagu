@@ -231,14 +231,14 @@ function DAGRunDetailsModal({
           <div className="p-6 w-full flex flex-col h-full dagRun-modal-content">
             <div className="flex justify-between items-center mb-4">
               <p className="text-xs text-muted-foreground">
-                Use{' '}
+                <I18nText text={"Use"} />{' '}
                 <kbd className="px-1 py-0.5 bg-muted rounded text-xs font-mono">
                   ↑
                 </kbd>{' '}
                 <kbd className="px-1 py-0.5 bg-muted rounded text-xs font-mono">
                   ↓
                 </kbd>{' '}
-                to navigate histories
+                <I18nText text={"to navigate histories"} />
               </p>
               <div className="flex gap-2 items-center">
                 <I18nProps><Button

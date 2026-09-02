@@ -688,7 +688,7 @@ export default function GitSyncPage() {
                 title={`Delete ${deletableSelectedIds.length} selected`}
               >
                 <Trash2 className="h-4 w-4 mr-1" />
-                Delete ({deletableSelectedIds.length})
+                <I18nText text={"Delete ("} />{deletableSelectedIds.length})
               </Button>
             )}
           {missingCount > 0 && canWrite && (
@@ -700,7 +700,7 @@ export default function GitSyncPage() {
               title="Remove missing items from sync tracking"
             >
               <EyeOff className="h-4 w-4 mr-1" />
-              Cleanup
+              <I18nText text={"Cleanup"} />
             </Button></I18nProps>
           )}
           {missingCount > 0 && config?.pushEnabled && canWrite && (
@@ -712,7 +712,7 @@ export default function GitSyncPage() {
               title="Delete all missing items from remote repository"
             >
               <Trash2 className="h-4 w-4 mr-1" />
-              Delete Missing
+              <I18nText text={"Delete Missing"} />
             </Button></I18nProps>
           )}
           <I18nProps><Button
@@ -769,7 +769,7 @@ export default function GitSyncPage() {
         </div>
         {selectedCounts.total > 0 && (
           <span className="text-xs text-muted-foreground">
-            Selected: {selectedCountText}
+            <I18nText text={"Selected:"} /> {selectedCountText}
           </span>
         )}
       </div>
@@ -1097,12 +1097,12 @@ export default function GitSyncPage() {
               {isPublishing ? (
                 <>
                   <RefreshCw className="h-3.5 w-3.5 mr-1 animate-spin" />
-                  Publishing...
+                  <I18nText text={"Publishing..."} />
                 </>
               ) : (
                 <>
                   <Upload className="h-3.5 w-3.5 mr-1" />
-                  Publish
+                  <I18nText text={"Publish"} />
                 </>
               )}
             </Button>
@@ -1180,11 +1180,11 @@ export default function GitSyncPage() {
         }}
       >
         <p className="text-sm text-muted-foreground">
-          Discard local changes to{' '}
+          <I18nText text={"Discard local changes to"} />{' '}
           <span className="font-mono font-medium text-foreground">
             {revertModal.itemId}
           </span>
-          ? This cannot be undone.
+          <I18nText text={"? This cannot be undone."} />
         </p>
       </ConfirmModal></I18nProps>
 

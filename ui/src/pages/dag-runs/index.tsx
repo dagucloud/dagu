@@ -859,7 +859,7 @@ function DAGRuns() {
             className="h-8 px-3"
           >
             <List size={16} className="mr-1.5" />
-            List
+            <I18nText text={"List"} />
           </ToggleButton></I18nProps>
           <I18nProps><ToggleButton
             value="grouped"
@@ -870,7 +870,7 @@ function DAGRuns() {
             className="h-8 px-3"
           >
             <Layers size={16} className="mr-1.5" />
-            Grouped
+            <I18nText text={"Grouped"} />
           </ToggleButton></I18nProps>
         </ToggleGroup></I18nProps>
       </div>
@@ -925,7 +925,7 @@ function DAGRuns() {
             /></I18nProps>
             <Button onClick={() => handleSearch()} className="px-4 font-medium">
               <Search className="mr-1.5 h-4 w-4" />
-              Search
+              <I18nText text={"Search"} />
             </Button>
           </div>
           <div className="flex flex-wrap items-center gap-2">

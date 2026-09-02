@@ -270,7 +270,7 @@ export default function TerminalPage() {
         <div>
           <h1 className="text-lg font-semibold"><I18nText text={"Terminal"} /></h1>
           <p className="text-sm text-muted-foreground">
-            Interactive shell connection to local server as{' '}
+            <I18nText text={"Interactive shell connection to local server as"} />{' '}
             {user?.username || 'admin'}
           </p>
         </div>

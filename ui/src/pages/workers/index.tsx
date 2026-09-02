@@ -189,7 +189,7 @@ function Workers() {
               <span className="text-sm font-semibold"><I18nText text={"Worker Status"} /></span>
               {filteredWorkers.length !== data?.workers?.length && (
                 <span className="text-xs text-muted-foreground">
-                  ({filteredWorkers.length} of {data?.workers?.length})
+                  ({filteredWorkers.length} <I18nText text={"of"} /> {data?.workers?.length})
                 </span>
               )}
             </div>

@@ -257,14 +257,14 @@ function DAGDetailsPanel({
             <div className="px-2 pt-2 w-full flex flex-col h-full overflow-hidden">
               <div className="flex justify-between items-center mb-2 flex-shrink-0 pr-4">
                 <p className="text-xs text-muted-foreground">
-                  Use{' '}
+                  <I18nText text={"Use"} />{' '}
                   <kbd className="px-1 py-0.5 bg-muted rounded text-xs font-mono">
                     ↑
                   </kbd>{' '}
                   <kbd className="px-1 py-0.5 bg-muted rounded text-xs font-mono">
                     ↓
                   </kbd>{' '}
-                  to navigate DAGs
+                  <I18nText text={"to navigate DAGs"} />
                 </p>
                 <div className="flex gap-2">
                   <I18nProps><Button

@@ -164,7 +164,7 @@ function Queues() {
               {filteredQueues.length}
               {filteredQueues.length !== data.queues.length &&
                 ` of ${data.queues.length}`}{' '}
-              queues
+              <I18nText text={"queues"} />
             </span>
           )}
           <RefreshButton onRefresh={handleRefresh} />

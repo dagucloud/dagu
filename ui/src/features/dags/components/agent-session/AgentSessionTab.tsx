@@ -135,7 +135,7 @@ function InteractionCard({
         <div>
           <div className="flex items-center gap-2 font-medium">
             <ShieldAlert className="h-4 w-4 text-warning" />
-            Permission requested
+            <I18nText text={"Permission requested"} />
           </div>
           <div className="mt-1 text-sm">{interaction.permission}</div>
           {interaction.patterns && interaction.patterns.length > 0 && (
@@ -147,7 +147,7 @@ function InteractionCard({
           )}
           {!!interaction.allowForSessionPatterns?.length && (
             <div className="mt-2 text-xs text-muted-foreground">
-              Session scope:{' '}
+              <I18nText text={"Session scope:"} />{' '}
               <span className="font-mono">
                 {interaction.allowForSessionPatterns.join(', ')}
               </span>
@@ -162,7 +162,7 @@ function InteractionCard({
               onPermission(AgentInteractionResponseRequestDecision.once)
             }
           >
-            <Check className="h-4 w-4" /> Allow once
+            <Check className="h-4 w-4" /> <I18nText text={"Allow once"} />
           </Button>
           {!!interaction.allowForSessionPatterns?.length && (
             <Button
@@ -185,7 +185,7 @@ function InteractionCard({
               onPermission(AgentInteractionResponseRequestDecision.reject)
             }
           >
-            <X className="h-4 w-4" /> Reject
+            <X className="h-4 w-4" /> <I18nText text={"Reject"} />
           </Button>
         </div>
       </div>
@@ -222,7 +222,7 @@ function InteractionCard({
   return (
     <div className="space-y-4 rounded-lg border border-warning/40 bg-warning/5 p-4">
       <div className="flex items-center gap-2 font-medium">
-        <Bot className="h-4 w-4 text-warning" /> OpenCode needs an answer
+        <Bot className="h-4 w-4 text-warning" /> <I18nText text={"OpenCode needs an answer"} />
       </div>
       {questions.map((question, questionIndex) => (
         <div key={`${interaction.id}-${questionIndex}`} className="space-y-2">
@@ -291,7 +291,7 @@ function InteractionCard({
             onQuestion(questions.map((_, index) => questionAnswers(index)))
           }
         >
-          <Check className="h-4 w-4" /> Submit answer
+          <Check className="h-4 w-4" /> <I18nText text={"Submit answer"} />
         </Button>
         <Button
           size="sm"
@@ -299,7 +299,7 @@ function InteractionCard({
           disabled={busy}
           onClick={() => onQuestion()}
         >
-          <X className="h-4 w-4" /> Reject
+          <X className="h-4 w-4" /> <I18nText text={"Reject"} />
         </Button>
       </div>
     </div>
@@ -414,7 +414,7 @@ function AgentSessionCard({
             </span>
             {session.generation && session.generation > 1 && (
               <span className="text-xs text-muted-foreground">
-                Session {session.generation}
+                <I18nText text={"Session"} /> {session.generation}
               </span>
             )}
           </div>
@@ -433,7 +433,7 @@ function AgentSessionCard({
             disabled={busy}
             onClick={() => setConfirmRestart(true)}
           >
-            <RotateCcw className="h-4 w-4" /> Start clean session
+            <RotateCcw className="h-4 w-4" /> <I18nText text={"Start clean session"} />
           </Button>
         )}
       </div>
@@ -476,7 +476,7 @@ function AgentSessionCard({
           <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
             <CircleDollarSign className="h-4 w-4" />
             <span>
-              {(session.usage.totalTokens || 0).toLocaleString()} tokens
+              {(session.usage.totalTokens || 0).toLocaleString()} <I18nText text={"tokens"} />
             </span>
             {(session.usage.cost || 0) > 0 && (
               <span>${session.usage.cost!.toFixed(4)}</span>

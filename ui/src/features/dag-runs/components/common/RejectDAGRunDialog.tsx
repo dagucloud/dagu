@@ -106,10 +106,10 @@ export function RejectDAGRunDialog({
             size="sm"
             onClick={() => handleOpenChange(false)}
           >
-            <X className="h-4 w-4" /> Cancel
+            <X className="h-4 w-4" /> <I18nText text={"Cancel"} />
           </Button>
           <Button variant="default" size="sm" onClick={() => void reject()}>
-            <Ban className="h-4 w-4" /> Reject
+            <Ban className="h-4 w-4" /> <I18nText text={"Reject"} />
           </Button>
         </DialogFooter>
       </DialogContent>

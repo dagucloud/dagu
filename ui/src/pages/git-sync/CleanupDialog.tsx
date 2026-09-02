@@ -3,6 +3,7 @@
 
 import ConfirmModal from '@/components/ui/confirm-dialog';
 import { I18nProps } from '@/i18n/I18nProps';
+import { I18nText } from '@/i18n/I18nText';
 
 interface CleanupDialogProps {
   open: boolean;
@@ -28,8 +29,7 @@ export function CleanupDialog({
       onSubmit={onConfirm}
     >
       <p className="text-sm text-muted-foreground">
-        Remove {missingCount} missing item{missingCount !== 1 ? 's' : ''} from
-        sync tracking? Files remain in the remote repository.
+        <I18nText text={"Remove"} /> {missingCount} <I18nText text={"missing item"} />{missingCount !== 1 ? 's' : ''} <I18nText text={"from sync tracking? Files remain in the remote repository."} />
       </p>
     </ConfirmModal></I18nProps>
   );

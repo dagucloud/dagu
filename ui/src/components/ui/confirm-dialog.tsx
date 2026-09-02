@@ -125,7 +125,7 @@ function ConfirmDialog({
         <DialogFooter className={footerClassName}>
           <Button ref={cancelButtonRef} variant="ghost" onClick={dismissModal}>
             <X className="h-4 w-4" />
-            Cancel
+            <I18nText text={"Cancel"} />
           </Button>
           <Button
             ref={submitButtonRef}

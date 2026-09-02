@@ -683,7 +683,7 @@ export default function ProfilesPage(): React.ReactNode {
           className="cursor-pointer gap-2"
         >
           <SlidersHorizontal className="h-4 w-4" />
-          Profiles
+          <I18nText text={"Profiles"} />
         </Tab>
         <Tab
           id="secret-refs-tab"
@@ -697,7 +697,7 @@ export default function ProfilesPage(): React.ReactNode {
           className="cursor-pointer gap-2"
         >
           <KeyRound className="h-4 w-4" />
-          DAG Secret Refs
+          <I18nText text={"DAG Secret Refs"} />
         </Tab>
       </Tabs></I18nProps>
 
@@ -727,7 +727,7 @@ export default function ProfilesPage(): React.ReactNode {
                 }}
               >
                 <Plus className="mr-1.5 h-4 w-4" />
-                Add Profile
+                <I18nText text={"Add Profile"} />
               </Button>
             </div>
 
@@ -1016,7 +1016,7 @@ export default function ProfilesPage(): React.ReactNode {
                                   }}
                                 >
                                   <Pencil className="mr-2 h-4 w-4" />
-                                  Edit
+                                  <I18nText text={"Edit"} />
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   onClick={() => toggleStatus(profile)}
@@ -1032,7 +1032,7 @@ export default function ProfilesPage(): React.ReactNode {
                                   onClick={() => setDeletingProfile(profile)}
                                 >
                                   <Trash2 className="mr-2 h-4 w-4" />
-                                  Delete
+                                  <I18nText text={"Delete"} />
                                 </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
@@ -1214,7 +1214,7 @@ function ProfileEntriesCell({
           onClick={() => onAdd(target, RuntimeProfileEntryKind.variable)}
         >
           <Plus className="h-3.5 w-3.5" />
-          Variable
+          <I18nText text={"Variable"} />
         </Button>
         <Button
           type="button"
@@ -1225,7 +1225,7 @@ function ProfileEntriesCell({
           onClick={() => onAdd(target, RuntimeProfileEntryKind.secret)}
         >
           <KeyRound className="h-3.5 w-3.5" />
-          Secret
+          <I18nText text={"Secret"} />
         </Button>
       </div>
       {isLoading ? (

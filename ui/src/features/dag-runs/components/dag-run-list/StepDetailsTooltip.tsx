@@ -60,7 +60,7 @@ function renderStepList(title: string, nodes: Node[], colorClass: string) {
       </ul>
       {remaining > 0 && (
         <div className="text-xs text-muted-foreground">
-          +{remaining} more step{remaining > 1 ? 's' : ''}
+          +{remaining} <I18nText text={"more step"} />{remaining > 1 ? 's' : ''}
         </div>
       )}
     </div>

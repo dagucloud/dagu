@@ -74,8 +74,7 @@ export function MoveDialog({
         <DialogHeader>
           <DialogTitle className="text-base"><I18nText text={"Move Item"} /></DialogTitle>
           <DialogDescription className="text-xs">
-            Rename <span className="font-mono font-medium">{itemId}</span> to a
-            new path.
+            <I18nText text={"Rename"} /> <span className="font-mono font-medium">{itemId}</span> <I18nText text={"to a new path."} />
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
@@ -136,12 +135,12 @@ export function MoveDialog({
             {isMoving ? (
               <>
                 <RefreshCw className="h-3.5 w-3.5 mr-1 animate-spin" />
-                Moving...
+                <I18nText text={"Moving..."} />
               </>
             ) : (
               <>
                 <ArrowRightLeft className="h-3.5 w-3.5 mr-1" />
-                Move
+                <I18nText text={"Move"} />
               </>
             )}
           </Button>

@@ -9,6 +9,7 @@ import {
 import { AlertTriangle, X } from 'lucide-react';
 import { createContext, useContext, useState } from 'react';
 import type { FC, ReactNode } from 'react';
+import { I18nText } from '@/i18n/I18nText';
 
 interface ErrorModalProps {
   title?: string;
@@ -58,7 +59,7 @@ export const ErrorModal: FC<ErrorModalProps> = ({
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             <X className="h-4 w-4 mr-1" />
-            Close
+            <I18nText text={"Close"} />
           </Button>
         </DialogFooter>
       </DialogContent>

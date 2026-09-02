@@ -65,7 +65,7 @@ function DAGRunCard({ dagRun, timezoneInfo }: DAGRunCardProps) {
             {dagRun.name}
           </CardTitle>
           <CardDescription className="text-xs truncate" title={dagRun.dagRunId}>
-            ID: {dagRun.dagRunId}
+            <I18nText text={"ID:"} /> {dagRun.dagRunId}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-1.5 pt-0 px-4 pb-3">
@@ -103,7 +103,7 @@ function DAGRunCard({ dagRun, timezoneInfo }: DAGRunCardProps) {
             <div className="flex justify-between items-center text-xs">
               <span className="text-muted-foreground text-xs flex items-center">
                 <Server className="h-3 w-3 mr-1" />
-                Worker:
+                <I18nText text={"Worker:"} />
               </span>
               <span className="truncate ml-2 font-mono text-xs">
                 {dagRun.workerId}
@@ -114,7 +114,7 @@ function DAGRunCard({ dagRun, timezoneInfo }: DAGRunCardProps) {
             <div className="flex justify-between items-center text-xs">
               <span className="text-muted-foreground text-xs flex items-center">
                 <SlidersHorizontal className="h-3 w-3 mr-1" />
-                Profile:
+                <I18nText text={"Profile:"} />
               </span>
               <span
                 className="truncate ml-2 font-mono text-xs"

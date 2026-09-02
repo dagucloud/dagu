@@ -160,7 +160,7 @@ function BuildDecisionBadge({
             })}
             onClick={(event) => event.stopPropagation()}
           >
-            Produced by {producer.name}:{producer.id}
+            <I18nText text={"Produced by"} /> {producer.name}:{producer.id}
           </Link>
         )}
       </TooltipContent>
@@ -237,7 +237,7 @@ function ManualActionDetails({
             className="text-info"
           />
           {node.finishedAt && (
-            <span className="ml-1">at {formatTimestamp(node.finishedAt)}</span>
+            <span className="ml-1"><I18nText text={"at"} /> {formatTimestamp(node.finishedAt)}</span>
           )}
         </div>
       ) : null}
@@ -250,7 +250,7 @@ function ManualActionDetails({
             className="text-info"
           />
           {node.approvedAt && (
-            <span className="ml-1">at {formatTimestamp(node.approvedAt)}</span>
+            <span className="ml-1"><I18nText text={"at"} /> {formatTimestamp(node.approvedAt)}</span>
           )}
         </div>
       ) : null}
@@ -274,7 +274,7 @@ function ManualActionDetails({
             className="text-error"
           />
           {node.rejectedAt && (
-            <span className="ml-1">at {formatTimestamp(node.rejectedAt)}</span>
+            <span className="ml-1"><I18nText text={"at"} /> {formatTimestamp(node.rejectedAt)}</span>
           )}
         </div>
       ) : null}
@@ -705,7 +705,7 @@ function NodeStatusTableRow({
         </DialogHeader>
         <div className="py-2 text-sm space-y-3">
           <p>
-            This will re-execute <b>{node.step.name}</b>. Are you sure?
+            <I18nText text={"This will re-execute"} /> <b>{node.step.name}</b><I18nText text={". Are you sure?"} />
           </p>
           <fieldset className="space-y-1.5">
             <legend className="text-xs text-muted-foreground"><I18nText text={"Retry scope"} /></legend>
@@ -752,7 +752,7 @@ function NodeStatusTableRow({
             disabled={loading}
           >
             <X className="h-4 w-4" />
-            Cancel
+            <I18nText text={"Cancel"} />
           </Button>
           <Button
             size="sm"
@@ -797,14 +797,14 @@ function NodeStatusTableRow({
               title={retryTitle}
             >
               <Play className="mr-2 h-4 w-4 text-success" />
-              Retry step
+              <I18nText text={"Retry step"} />
             </DropdownMenuItem>
           )}
           {canRetryStep && canUpdateStepStatus && <DropdownMenuSeparator />}
           {canUpdateStepStatus && (
             <DropdownMenuItem onSelect={() => setShowStatusModal(true)}>
               <CircleDot className="mr-2 h-4 w-4" />
-              Change status
+              <I18nText text={"Change status"} />
             </DropdownMenuItem>
           )}
         </DropdownMenuContent>
@@ -869,7 +869,7 @@ function NodeStatusTableRow({
                       </span>
                     </TooltipTrigger>
                     <TooltipContent>
-                      <span className="text-xs">Sub DAG Run: {subDagName}</span>
+                      <span className="text-xs"><I18nText text={"Sub DAG Run:"} /> {subDagName}</span>
                     </TooltipContent>
                   </Tooltip>
                 )}
@@ -998,7 +998,7 @@ function NodeStatusTableRow({
               {node.startedAt && (
                 <div className="text-xs text-muted-foreground flex items-center gap-1.5 leading-tight">
                   <span className="font-medium flex items-center">
-                    Duration:
+                    <I18nText text={"Duration:"} />
                     {isActiveNode && (
                       <span
                         className={`inline-block w-2 h-2 rounded-full ml-1.5 animate-pulse ${activeDotClass}`}
@@ -1266,11 +1266,11 @@ function NodeStatusTableRow({
                 className="text-xs text-primary font-medium cursor-pointer hover:underline mb-1"
                 onClick={(e) => handleSubDAGRunNavigation(0, e)}
               >
-                View Sub DAG Run: {subDagName}
+                <I18nText text={"View Sub DAG Run:"} /> {subDagName}
               </div>
               {allSubRuns[0]?.params && (
                 <div className="text-xs text-muted-foreground mb-3">
-                  Parameters:{' '}
+                  <I18nText text={"Parameters:"} />{' '}
                   <span className="font-mono">{allSubRuns[0].params}</span>
                 </div>
               )}
@@ -1364,12 +1364,12 @@ function NodeStatusTableRow({
         </div>
         <div className="space-y-0.5">
           <div className="text-xs text-muted-foreground">
-            Started: {formatTimestamp(node.startedAt)}
+            <I18nText text={"Started:"} /> {formatTimestamp(node.startedAt)}
           </div>
           {node.startedAt && (
             <div className="text-xs text-muted-foreground flex items-center gap-1.5">
               <span className="font-medium flex items-center">
-                Duration:
+                <I18nText text={"Duration:"} />
                 {isActiveNode && (
                   <span
                     className={`inline-block w-2 h-2 rounded-full ml-1.5 animate-pulse ${activeDotClass}`}
@@ -1409,10 +1409,10 @@ function NodeStatusTableRow({
                     className="text-xs bg-warning-muted border border-warning/20 rounded-md p-1.5 mb-1 whitespace-pre-wrap break-words text-warning leading-tight"
                   >
                     <div className="font-medium">
-                      Condition: {cond.condition}
+                      <I18nText text={"Condition:"} /> {cond.condition}
                     </div>
-                    <div>Expected: {cond.expected}</div>
-                    <div>Error: {cond.error}</div>
+                    <div><I18nText text={"Expected:"} /> {cond.expected}</div>
+                    <div><I18nText text={"Error:"} /> {cond.error}</div>
                   </div>
                 ))}
             </div>

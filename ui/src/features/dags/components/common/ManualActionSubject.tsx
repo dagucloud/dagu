@@ -6,6 +6,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { I18nText } from '@/i18n/I18nText';
 
 type Props = {
   name?: string;
@@ -29,7 +30,7 @@ export function ManualActionSubject({ name, id, className }: Props) {
           {label}
         </span>
       </TooltipTrigger>
-      <TooltipContent>Subject ID: {id}</TooltipContent>
+      <TooltipContent><I18nText text={"Subject ID:"} /> {id}</TooltipContent>
     </Tooltip>
   );
 }

@@ -379,21 +379,21 @@ export default function WebhooksPage() {
                           onClick={() => navigateToDAG(webhook.dagName)}
                         >
                           <ExternalLink className="h-4 w-4 mr-2" />
-                          View DAG
+                          <I18nText text={"View DAG"} />
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
                           onClick={() => setRegeneratingWebhook(webhook)}
                         >
                           <RefreshCw className="h-4 w-4 mr-2" />
-                          Regenerate Token
+                          <I18nText text={"Regenerate Token"} />
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() => setDeletingWebhook(webhook)}
                           className="text-destructive"
                         >
                           <Trash2 className="h-4 w-4 mr-2" />
-                          Delete
+                          <I18nText text={"Delete"} />
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -477,7 +477,7 @@ export default function WebhooksPage() {
         onSubmit={handleToggleConfirm}
       >
         <p>
-          Are you sure you want to{' '}
+          <I18nText text={"Are you sure you want to"} />{' '}
           {togglingWebhook?.enabled ? 'enable' : 'disable'} the webhook for
           &quot;{togglingWebhook?.webhook.dagName}&quot;?
         </p>

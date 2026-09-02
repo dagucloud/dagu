@@ -88,7 +88,7 @@ function WorkersSummary({
             </span>
             <span><I18nText text={"workers"} /></span>
             <span className="text-muted-foreground/60">
-              ({metrics.healthyWorkers} up)
+              ({metrics.healthyWorkers} <I18nText text={"up)"} />
             </span>
           </div>
           <div className="flex items-baseline gap-1">

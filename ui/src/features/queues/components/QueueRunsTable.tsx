@@ -188,7 +188,7 @@ function QueueRunsTable({
                     {dagRun.scheduleTime && (
                       <span>
                         <span className="text-muted-foreground/80">
-                          Scheduled{' '}
+                          <I18nText text={"Scheduled"} />{' '}
                         </span>
                         {formatDateTime(dagRun.scheduleTime)}
                       </span>
@@ -214,12 +214,12 @@ function QueueRunsTable({
                         </span>
                         {queuedConditionSummary.reason && (
                           <span className="ml-1 text-muted-foreground/80">
-                            Reason:{' '}
+                            <I18nText text={"Reason:"} />{' '}
                             {humanizeIdentifier(queuedConditionSummary.reason)}
                           </span>
                         )}
                         <span className="ml-1 text-muted-foreground/70">
-                          Checked{' '}
+                          <I18nText text={"Checked"} />{' '}
                           {formatDateTime(queuedConditionSummary.checkedAt)}
                         </span>
                       </span>

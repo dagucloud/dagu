@@ -75,12 +75,12 @@ export function DeleteDialog({
             {isDeleting ? (
               <>
                 <RefreshCw className="h-3.5 w-3.5 mr-1 animate-spin" />
-                Deleting...
+                <I18nText text={"Deleting..."} />
               </>
             ) : (
               <>
                 <Trash2 className="h-3.5 w-3.5 mr-1" />
-                Delete
+                <I18nText text={"Delete"} />
               </>
             )}
           </Button>

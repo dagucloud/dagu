@@ -608,7 +608,7 @@ function WebhookTab({ fileName }: WebhookTabProps) {
             ) : (
               <Plus className="h-4 w-4 mr-1" />
             )}
-            Create Webhook
+            <I18nText text={"Create Webhook"} />
           </Button>
         </CardContent>
       </Card>
@@ -682,17 +682,17 @@ function WebhookTab({ fileName }: WebhookTabProps) {
 
           {/* Metadata */}
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-            <div>Auth: {formatWebhookAuthMode(webhook.authMode)}</div>
+            <div><I18nText text={"Auth:"} /> {formatWebhookAuthMode(webhook.authMode)}</div>
             <div>
-              Created: {dayjs(webhook.createdAt).format('MMM D, YYYY HH:mm')}
+              <I18nText text={"Created:"} /> {dayjs(webhook.createdAt).format('MMM D, YYYY HH:mm')}
             </div>
             {webhook.lastUsedAt && (
               <div>
-                Last triggered:{' '}
+                <I18nText text={"Last triggered:"} />{' '}
                 {dayjs(webhook.lastUsedAt).format('MMM D, YYYY HH:mm')}
               </div>
             )}
-            {webhook.createdBy && <div>By: {webhook.createdBy}</div>}
+            {webhook.createdBy && <div><I18nText text={"By:"} /> {webhook.createdBy}</div>}
           </div>
 
           {/* Actions */}
@@ -708,7 +708,7 @@ function WebhookTab({ fileName }: WebhookTabProps) {
               ) : (
                 <RefreshCw className="h-3.5 w-3.5 mr-1" />
               )}
-              Regenerate Token
+              <I18nText text={"Regenerate Token"} />
             </Button>
             <Button
               variant="outline"
@@ -718,7 +718,7 @@ function WebhookTab({ fileName }: WebhookTabProps) {
               disabled={isActioning}
             >
               <Trash2 className="h-3.5 w-3.5 mr-1" />
-              Delete
+              <I18nText text={"Delete"} />
             </Button>
           </div>
         </CardContent>
@@ -731,16 +731,15 @@ function WebhookTab({ fileName }: WebhookTabProps) {
             <CardTitle className="text-sm"><I18nText text={"Authentication"} /></CardTitle>
           </div>
           <CardDescription className="text-xs">
-            Choose how requests authenticate to this webhook. If you enable
-            HMAC, callers must send{' '}
+            <I18nText text={"Choose how requests authenticate to this webhook. If you enable HMAC, callers must send"} />{' '}
             <code className="bg-accent px-1 rounded-md border">
               X-Dagu-Signature: sha256=&lt;hex&gt;
             </code>{' '}
-            computed from the exact signature input shown below. Requests with{' '}
+            <I18nText text={"computed from the exact signature input shown below. Requests with"} />{' '}
             <code className="bg-accent px-1 rounded-md border">
               X-Dagu-Profile
             </code>{' '}
-            sign{' '}
+            <I18nText text={"sign"} />{' '}
             <code className="bg-accent px-1 rounded-md border">
               x-dagu-profile:&lt;profile&gt;\n&lt;body&gt;
             </code>
@@ -811,15 +810,15 @@ function WebhookTab({ fileName }: WebhookTabProps) {
               </div>
 
               <div className="rounded-md border bg-accent/40 px-3 py-2 text-xs text-muted-foreground space-y-1">
-                <div>Algorithm: {webhook.hmac.algorithm || 'HMAC-SHA256'}</div>
+                <div><I18nText text={"Algorithm:"} /> {webhook.hmac.algorithm || 'HMAC-SHA256'}</div>
                 <div>
-                  Header: {webhook.hmac.headerName || 'X-Dagu-Signature'}{' '}
+                  <I18nText text={"Header:"} /> {webhook.hmac.headerName || 'X-Dagu-Signature'}{' '}
                   {webhook.hmac.format
                     ? `(${webhook.hmac.format})`
                     : '(sha256=<hex>)'}
                 </div>
                 <div>
-                  Last secret rotation:{' '}
+                  <I18nText text={"Last secret rotation:"} />{' '}
                   {webhook.hmac.updatedAt
                     ? dayjs(webhook.hmac.updatedAt).format('MMM D, YYYY HH:mm')
                     : 'Not available'}
@@ -904,7 +903,7 @@ function WebhookTab({ fileName }: WebhookTabProps) {
           </CardHeader>
           <CardContent className="px-4 pb-3 pt-2 space-y-3">
             <div className="rounded-md border bg-accent/40 px-3 py-2 text-xs text-muted-foreground">
-              Use your webhook HMAC secret as{' '}
+              <I18nText text={"Use your webhook HMAC secret as"} />{' '}
               <code className="bg-accent px-1 rounded-md border">
                 DAGU_HMAC_SECRET
               </code>
@@ -970,22 +969,22 @@ function WebhookTab({ fileName }: WebhookTabProps) {
           <ul className="mt-2 text-xs text-muted-foreground space-y-1">
             <li>
               <code className="bg-accent px-1 rounded-md border">payload</code>{' '}
-              is available as{' '}
+              <I18nText text={"is available as"} />{' '}
               <code className="bg-accent px-1 rounded-md border">
                 WEBHOOK_PAYLOAD
               </code>{' '}
-              env var.
+              <I18nText text={"env var."} />
             </li>
             <li>
-              Configure{' '}
+              <I18nText text={"Configure"} />{' '}
               <code className="bg-accent px-1 rounded-md border">
                 webhook.forward_headers
               </code>{' '}
-              in the DAG YAML. It can also be inherited from{' '}
+              <I18nText text={"in the DAG YAML. It can also be inherited from"} />{' '}
               <code className="bg-accent px-1 rounded-md border">
                 base.yaml
               </code>{' '}
-              to expose selected request headers as{' '}
+              <I18nText text={"to expose selected request headers as"} />{' '}
               <code className="bg-accent px-1 rounded-md border">
                 WEBHOOK_HEADERS
               </code>
@@ -993,7 +992,7 @@ function WebhookTab({ fileName }: WebhookTabProps) {
             </li>
             <li>
               <code className="bg-accent px-1 rounded-md border">dagRunId</code>{' '}
-              (optional) can be used as an idempotency key.
+              <I18nText text={"(optional) can be used as an idempotency key."} />
             </li>
             <li>
               <code className="bg-accent px-1 rounded-md border">
@@ -1004,8 +1003,7 @@ function WebhookTab({ fileName }: WebhookTabProps) {
             </li>
             {isHMACEnabled && (
               <li>
-                Sign the exact input shown in the HMAC examples with your secret
-                and send the hex digest in{' '}
+                <I18nText text={"Sign the exact input shown in the HMAC examples with your secret and send the hex digest in"} />{' '}
                 <code className="bg-accent px-1 rounded-md border">
                   X-Dagu-Signature
                 </code>
@@ -1038,8 +1036,8 @@ function WebhookTab({ fileName }: WebhookTabProps) {
         onSubmit={handleToggleConfirm}
       >
         <p>
-          Are you sure you want to {pendingToggleState ? 'enable' : 'disable'}{' '}
-          this webhook?
+          <I18nText text={"Are you sure you want to"} /> {pendingToggleState ? 'enable' : 'disable'}{' '}
+          <I18nText text={"this webhook?"} />
         </p>
       </ConfirmModal>
     </div>

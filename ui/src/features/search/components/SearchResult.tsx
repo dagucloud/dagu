@@ -13,6 +13,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { components } from '../../../api/v1/schema';
 import { AppBarContext } from '../../../contexts/AppBarContext';
+import { I18nText } from '@/i18n/I18nText';
 
 type SearchMatch = components['schemas']['SearchMatchItem'];
 type DagResult = components['schemas']['DAGSearchPageItem'];
@@ -169,7 +170,7 @@ function SearchResultItem({
             </h3>
           </Link>
           <span className="shrink-0 text-xs text-muted-foreground">
-            {matches.length} shown
+            {matches.length} <I18nText text={"shown"} />
           </span>
         </div>
 

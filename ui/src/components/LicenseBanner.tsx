@@ -4,6 +4,7 @@ import dayjs from '@/lib/dayjs';
 import { X } from 'lucide-react';
 import * as React from 'react';
 import { I18nProps } from '@/i18n/I18nProps';
+import { I18nText } from '@/i18n/I18nText';
 
 const warningMessages: Record<string, string> = {
   MACHINE_LIMIT_EXCEEDED:
@@ -70,7 +71,7 @@ export function LicenseBanner() {
     return (
       <div role="alert" className="bg-amber-50 dark:bg-amber-950 border-b border-amber-200 dark:border-amber-800 px-4 py-1.5 flex items-center text-sm">
         <span className="text-amber-800 dark:text-amber-200">
-          Your Dagu {licenseLabel} has expired. Features will be disabled on {graceEnd}. Please{' '}
+          <I18nText text={"Your Dagu"} /> {licenseLabel} <I18nText text={"has expired. Features will be disabled on"} /> {graceEnd}<I18nText text={". Please"} />{' '}
           <a
             href={LICENSE_CONSOLE_URL}
             target="_blank"
@@ -94,15 +95,15 @@ export function LicenseBanner() {
     return (
       <div role="alert" className="bg-orange-50 dark:bg-orange-950 border-b border-orange-200 dark:border-orange-800 px-4 py-1.5 flex items-center justify-between text-sm">
         <span className="text-orange-800 dark:text-orange-200">
-          Your Dagu {licenseLabel} {days === 0 ? 'expires today' : `expires in ${days} day${days !== 1 ? 's' : ''}`}! Please{' '}
+          <I18nText text={"Your Dagu"} /> {licenseLabel} {days === 0 ? 'expires today' : `expires in ${days} day${days !== 1 ? 's' : ''}`}<I18nText text={"! Please"} />{' '}
           <a
             href={LICENSE_CONSOLE_URL}
             target="_blank"
             rel="noopener noreferrer"
             className="underline hover:no-underline"
           >
-            {renewalLabel} now
-          </a>{' '}to keep licensed features.
+            {renewalLabel} <I18nText text={"now"} />
+          </a>{' '}<I18nText text={"to keep licensed features."} />
         </span>
         <I18nProps><button
           onClick={() => {
@@ -123,14 +124,14 @@ export function LicenseBanner() {
     return (
       <div role="status" className="bg-yellow-50 dark:bg-yellow-950 border-b border-yellow-200 dark:border-yellow-800 px-4 py-1.5 flex items-center justify-between text-sm">
         <span className="text-yellow-800 dark:text-yellow-200">
-          Your Dagu {licenseLabel} {days === 0 ? 'expires today' : `expires in ${days} day${days !== 1 ? 's' : ''}`}. Please{' '}
+          <I18nText text={"Your Dagu"} /> {licenseLabel} {days === 0 ? 'expires today' : `expires in ${days} day${days !== 1 ? 's' : ''}`}<I18nText text={". Please"} />{' '}
           <a
             href={LICENSE_CONSOLE_URL}
             target="_blank"
             rel="noopener noreferrer"
             className="underline hover:no-underline"
           >
-            {renewalLabel} to avoid disruption
+            {renewalLabel} <I18nText text={"to avoid disruption"} />
           </a>.
         </span>
         <I18nProps><button

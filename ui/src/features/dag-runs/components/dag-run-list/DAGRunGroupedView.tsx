@@ -235,28 +235,28 @@ function DAGRunGroupedView({
                       {dagName}
                     </div>
                     <div className="text-xs text-muted-foreground">
-                      {summary.totalCount} run
+                      {summary.totalCount} <I18nText text={"run"} />
                       {summary.totalCount !== 1 ? 's' : ''}
                       {!summary.allSameStatus && (
                         <>
                           {summary.runningCount > 0 && (
                             <span className="ml-2">
-                              {summary.runningCount} running
+                              {summary.runningCount} <I18nText text={"running"} />
                             </span>
                           )}
                           {summary.failedCount > 0 && (
                             <span className="ml-2">
-                              {summary.failedCount} failed
+                              {summary.failedCount} <I18nText text={"failed"} />
                             </span>
                           )}
                           {summary.abortedCount > 0 && (
                             <span className="ml-2">
-                              {summary.abortedCount} aborted
+                              {summary.abortedCount} <I18nText text={"aborted"} />
                             </span>
                           )}
                           {summary.queuedCount > 0 && (
                             <span className="ml-2">
-                              {summary.queuedCount} queued
+                              {summary.queuedCount} <I18nText text={"queued"} />
                             </span>
                           )}
                         </>
@@ -328,14 +328,14 @@ function DAGRunGroupedView({
                                 {dagRun.scheduleTime && (
                                   <div className="whitespace-nowrap">
                                     <span className="text-muted-foreground">
-                                      Scheduled:{' '}
+                                      <I18nText text={"Scheduled:"} />{' '}
                                     </span>
                                     {dagRun.scheduleTime}
                                   </div>
                                 )}
                                 <div className="whitespace-nowrap">
                                   <span className="text-muted-foreground">
-                                    Queued:{' '}
+                                    <I18nText text={"Queued:"} />{' '}
                                   </span>
                                   <RelativeTime
                                     timestamp={dagRun.queuedAt}
@@ -344,7 +344,7 @@ function DAGRunGroupedView({
                                 </div>
                                 <div className="whitespace-nowrap">
                                   <span className="text-muted-foreground">
-                                    Started:{' '}
+                                    <I18nText text={"Started:"} />{' '}
                                   </span>
                                   <RelativeTime
                                     timestamp={dagRun.startedAt}
@@ -353,7 +353,7 @@ function DAGRunGroupedView({
                                 </div>
                                 <div className="flex items-center gap-1 whitespace-nowrap">
                                   <span className="text-muted-foreground">
-                                    Duration:{' '}
+                                    <I18nText text={"Duration:"} />{' '}
                                   </span>
                                   {calculateDuration(
                                     dagRun.startedAt,

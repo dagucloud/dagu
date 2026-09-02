@@ -136,7 +136,7 @@ function IncidentSectionTabs({
       {active === 'providers' ? (
         <span className="inline-flex h-10 items-center gap-2 border-b-2 border-primary px-3 text-sm font-medium text-foreground">
           <ServerCog className="h-4 w-4 text-primary" />
-          Connections
+          <I18nText text={"Connections"} />
         </span>
       ) : (
         <Link
@@ -144,14 +144,14 @@ function IncidentSectionTabs({
           className="inline-flex h-10 items-center gap-2 border-b-2 border-transparent px-3 text-sm font-medium text-muted-foreground hover:text-foreground"
         >
           <ServerCog className="h-4 w-4" />
-          Connections
+          <I18nText text={"Connections"} />
         </Link>
       )}
 
       {active === 'policies' ? (
         <span className="inline-flex h-10 items-center gap-2 border-b-2 border-primary px-3 text-sm font-medium text-foreground">
           <RouteIcon className="h-4 w-4 text-primary" />
-          Routing
+          <I18nText text={"Routing"} />
         </span>
       ) : (
         <Link
@@ -159,7 +159,7 @@ function IncidentSectionTabs({
           className="inline-flex h-10 items-center gap-2 border-b-2 border-transparent px-3 text-sm font-medium text-muted-foreground hover:text-foreground"
         >
           <RouteIcon className="h-4 w-4" />
-          Routing
+          <I18nText text={"Routing"} />
         </Link>
       )}
     </div>
@@ -180,7 +180,7 @@ function ProvidersHeader({ onAdd }: { onAdd: () => void }): ReactElement {
         </div>
         <Button size="sm" onClick={onAdd}>
           <Plus className="h-4 w-4" />
-          Add connection
+          <I18nText text={"Add connection"} />
         </Button>
       </div>
       <IncidentSectionTabs active="providers" />
@@ -263,7 +263,7 @@ function ProviderCard({
               ) : (
                 <FlaskConical className="h-4 w-4" />
               )}
-              Test
+              <I18nText text={"Test"} />
             </Button>
           )}
           <Button size="sm" onClick={onSave} disabled={saving}>
@@ -272,7 +272,7 @@ function ProviderCard({
             ) : (
               <Save className="h-4 w-4" />
             )}
-            Save
+            <I18nText text={"Save"} />
           </Button>
           {!isNew && onDelete && (
             <I18nProps><Button
@@ -327,7 +327,7 @@ function ProviderCard({
               onChange({ ...draft, enabled: checked })
             }
           />
-          Enabled
+          <I18nText text={"Enabled"} />
         </label>
       </div>
 
@@ -376,7 +376,7 @@ function ProviderCard({
                   onChange({ ...draft, allowInsecureHttp: checked })
                 }
               />
-              Allow HTTP
+              <I18nText text={"Allow HTTP"} />
             </label>
             <label className="flex items-center gap-2 text-sm text-foreground">
               <Switch
@@ -385,7 +385,7 @@ function ProviderCard({
                   onChange({ ...draft, allowPrivateNetwork: checked })
                 }
               />
-              Allow private network
+              <I18nText text={"Allow private network"} />
             </label>
           </div>
         </div>
@@ -537,7 +537,7 @@ export function IncidentProvidersPage(): ReactElement {
       {isLoading && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Loading incident connections
+          <I18nText text={"Loading incident connections"} />
         </div>
       )}
       {newDraft && (
@@ -610,7 +610,7 @@ function PoliciesHeader({
           ) : (
             <Save className="h-4 w-4" />
           )}
-          Save routing
+          <I18nText text={"Save routing"} />
         </Button>
       </div>
       <IncidentSectionTabs active="policies" />
@@ -875,7 +875,7 @@ export function IncidentPoliciesPage(): ReactElement {
       {isLoading && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Loading incident routing
+          <I18nText text={"Loading incident routing"} />
         </div>
       )}
 

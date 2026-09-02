@@ -2,6 +2,7 @@ import React from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from './tooltip';
 import { Code, Terminal, ChevronRight } from 'lucide-react';
 import { components } from '../../api/v1/schema';
+import { I18nText } from '@/i18n/I18nText';
 
 type CommandEntry = components['schemas']['CommandEntry'];
 
@@ -92,7 +93,7 @@ export const CommandDisplay: React.FC<CommandDisplayProps> = ({
       <div className="flex items-center gap-1.5 text-xs">
         <Icon className="h-4 w-4 text-primary flex-shrink-0" />
         <span className="text-muted-foreground font-medium">
-          {commands.length} commands
+          {commands.length} <I18nText text={"commands"} />
         </span>
       </div>
       <div className="pl-3 border-l-2 border-primary/20 space-y-0.5">
@@ -120,7 +121,7 @@ export const CommandDisplay: React.FC<CommandDisplayProps> = ({
       <TooltipContent className="max-w-[600px]">
         <div className="space-y-2">
           <div className="text-xs font-semibold text-muted-foreground">
-            Commands ({commands.length}):
+            <I18nText text={"Commands ("} />{commands.length}):
           </div>
           <div className="space-y-1">
             {commands.map((entry, i) => (

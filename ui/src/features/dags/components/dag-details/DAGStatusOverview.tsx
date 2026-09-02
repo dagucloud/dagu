@@ -159,7 +159,7 @@ function RuntimeConditionCard({
       </div>
       {condition.reason && (
         <div className="mt-0.5 text-muted-foreground/80 break-words">
-          Reason: {humanizeIdentifier(condition.reason)}
+          <I18nText text={"Reason:"} /> {humanizeIdentifier(condition.reason)}
         </div>
       )}
     </div>
@@ -224,10 +224,10 @@ function PreconditionErrors({
             className="p-1.5 bg-warning-muted border border-warning/20 rounded-md text-xs text-warning font-medium whitespace-normal break-words"
           >
             <div className="mb-0.5 break-words">
-              Condition: {cond.condition}
+              <I18nText text={"Condition:"} /> {cond.condition}
             </div>
-            <div className="mb-0.5 break-words">Expected: {cond.expected}</div>
-            <div className="break-words">Error: {cond.error}</div>
+            <div className="mb-0.5 break-words"><I18nText text={"Expected:"} /> {cond.expected}</div>
+            <div className="break-words"><I18nText text={"Error:"} /> {cond.error}</div>
           </div>
         ))}
       </div>

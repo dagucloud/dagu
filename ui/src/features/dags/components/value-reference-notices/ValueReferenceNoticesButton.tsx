@@ -142,7 +142,7 @@ function ValueReferenceNoticesDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-base">
             <Info className="h-4 w-4 text-muted-foreground" />
-            Value Reference Notices
+            <I18nText text={"Value Reference Notices"} />
           </DialogTitle>
           <DialogDescription className="sr-only">
             {description}
@@ -169,7 +169,7 @@ function ValueReferenceNoticesDialog({
                 onClick={() => setShowRuntimeOnly((shown) => !shown)}
                 className="flex w-full items-center justify-between text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground"
               >
-                <span>Resolved during a run ({runtimeOnly.length})</span>
+                <span><I18nText text={"Resolved during a run ("} />{runtimeOnly.length})</span>
                 <span aria-hidden="true">{showRuntimeOnly ? '−' : '+'}</span>
               </button>
               {showRuntimeOnly &&

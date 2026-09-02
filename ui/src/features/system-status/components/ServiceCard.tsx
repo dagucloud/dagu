@@ -55,7 +55,7 @@ function ServiceCard({
         <div className="text-muted-foreground">{icon}</div>
         <h3 className="text-sm font-medium">{title}</h3>
         <span className="text-xs text-muted-foreground ml-auto">
-          {activeCount}/{instances.length} active
+          {activeCount}/{instances.length} <I18nText text={"active"} />
         </span>
       </div>
 

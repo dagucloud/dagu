@@ -6,6 +6,7 @@ import { cn, parseLabelParts } from '@/lib/utils';
 import { ChevronDown, X } from 'lucide-react';
 import * as React from 'react';
 import { I18nProps } from '@/i18n/I18nProps';
+import { I18nText } from '@/i18n/I18nText';
 
 interface LabelComboboxProps {
   selectedLabels: string[];
@@ -267,7 +268,7 @@ function LabelCombobox({
                 )}
                 onClick={() => addLabel(inputValue)}
               >
-                Add "{inputValue.trim()}"
+                <I18nText text={"Add \""} />{inputValue.trim()}"
               </div>
             )}
           {filteredSuggestions.map((label, index) => (

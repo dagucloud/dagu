@@ -231,7 +231,7 @@ export function DiffModal({
                 ) : (
                   <EyeOff className="h-3.5 w-3.5 mr-1.5" />
                 )}
-                Forget
+                <I18nText text={"Forget"} />
               </Button>
             )}
             {onDelete && (
@@ -246,7 +246,7 @@ export function DiffModal({
                 ) : (
                   <Trash2 className="h-3.5 w-3.5 mr-1.5" />
                 )}
-                Delete from Remote
+                <I18nText text={"Delete from Remote"} />
               </Button>
             )}
           </DialogFooter>
@@ -260,13 +260,13 @@ export function DiffModal({
                 className="text-destructive hover:text-destructive"
               >
                 <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
-                Revert
+                <I18nText text={"Revert"} />
               </Button>
             )}
             {canPublish && onPublish && (
               <Button size="sm" onClick={onPublish}>
                 <Upload className="h-3.5 w-3.5 mr-1.5" />
-                Push
+                <I18nText text={"Push"} />
               </Button>
             )}
           </DialogFooter>

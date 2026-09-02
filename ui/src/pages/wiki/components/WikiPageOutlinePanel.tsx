@@ -6,6 +6,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { readMigratedLocalStorage } from '@/lib/local-storage-migration';
 import { slugifyHeading } from '@/lib/text-utils';
 import { cn } from '@/lib/utils';
+import { I18nText } from '@/i18n/I18nText';
 
 export interface OutlineHeading {
   level: number;
@@ -87,7 +88,7 @@ function WikiPageOutlinePanel({ markdown, onHeadingClick }: Props) {
           <ChevronDown className="h-3 w-3" />
         )}
         <List className="h-3 w-3" />
-        Outline
+        <I18nText text={"Outline"} />
       </button>
       {!collapsed && (
         <div className="overflow-y-auto max-h-48 pb-1">

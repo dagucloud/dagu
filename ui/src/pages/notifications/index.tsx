@@ -483,7 +483,7 @@ function NotificationRulesHeader({
             disabled={!canAddRoute}
           >
             <Plus className="h-4 w-4" />
-            Add route
+            <I18nText text={"Add route"} />
           </Button>
           <Button size="sm" onClick={onSave} disabled={saving}>
             {saving ? (
@@ -491,7 +491,7 @@ function NotificationRulesHeader({
             ) : (
               <Save className="h-4 w-4" />
             )}
-            Save changes
+            <I18nText text={"Save changes"} />
           </Button>
         </div>
       </div>
@@ -499,14 +499,14 @@ function NotificationRulesHeader({
       <div className="flex items-center gap-1 border-b border-border">
         <span className="inline-flex h-10 items-center gap-2 border-b-2 border-primary px-3 text-sm font-medium text-foreground">
           <RouteIcon className="h-4 w-4 text-primary" />
-          Rules
+          <I18nText text={"Rules"} />
         </span>
         <Link
           to="/notification-channels"
           className="inline-flex h-10 items-center gap-2 border-b-2 border-transparent px-3 text-sm font-medium text-muted-foreground hover:text-foreground"
         >
           <Mail className="h-4 w-4" />
-          Channels
+          <I18nText text={"Channels"} />
         </Link>
       </div>
     </div>
@@ -549,7 +549,7 @@ function ScopeSelector({
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 font-medium">
               <Globe2 className="h-4 w-4 text-muted-foreground" />
-              Global
+              <I18nText text={"Global"} />
             </div>
             <Badge variant={globalRoutes.enabled ? 'success' : 'default'}>
               {globalRoutes.routes.length}
@@ -774,7 +774,7 @@ function RouteBuilder({
             className="flex h-10 w-full items-center justify-center gap-2 rounded-md border border-dashed border-border text-sm text-primary transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:text-muted-foreground"
           >
             <Plus className="h-4 w-4" />
-            Add another route
+            <I18nText text={"Add another route"} />
           </button>
         )}
       </CardContent>
@@ -993,7 +993,7 @@ function RoutePreviewPanel({
                       {eventLabel(item.event)}
                     </span>
                     <span className="text-muted-foreground">
-                      from {scopeLabel}
+                      <I18nText text={"from"} /> {scopeLabel}
                     </span>
                   </div>
                   <div className="flex min-w-0 items-center gap-2 text-muted-foreground">
@@ -1040,7 +1040,7 @@ function ChannelHelpPanel() {
         <Button asChild variant="outline" size="sm">
           <Link to="/notification-channels">
             <Mail className="h-4 w-4" />
-            Manage channels
+            <I18nText text={"Manage channels"} />
           </Link>
         </Button>
       </CardContent>
@@ -1636,7 +1636,7 @@ export function NotificationChannelsPage() {
             ) : (
               <Save className="h-4 w-4" />
             )}
-            Save
+            <I18nText text={"Save"} />
           </Button>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -1804,7 +1804,7 @@ export function NotificationChannelsPage() {
                     }))
                   }
                 />
-                Clear password
+                <I18nText text={"Clear password"} />
               </label>
             </div>
           )}
@@ -1937,7 +1937,7 @@ export function NotificationChannelsPage() {
         dismissModal={() => setDeleteChannelIndex(null)}
         onSubmit={deleteChannel}
       >
-        Delete{' '}
+        <I18nText text={"Delete"} />{' '}
         {deleteChannelIndex !== null && channels[deleteChannelIndex]
           ? deliveryLabel(channels[deleteChannelIndex])
           : 'channel'}

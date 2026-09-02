@@ -22,7 +22,7 @@ export function UpdateBanner() {
   return (
     <div className="bg-violet-50 dark:bg-[#1c1840] border-b border-violet-200 dark:border-[#3a3170] px-4 py-1.5 flex items-center justify-between text-sm">
       <span className="text-violet-900 dark:text-violet-200">
-        Update available: v{config.version} &rarr; {config.latestVersion}
+        <I18nText text={"Update available: v"} />{config.version} &rarr; {config.latestVersion}
         <a
           href="https://github.com/dagucloud/dagu/releases"
           target="_blank"
@@ -32,7 +32,7 @@ export function UpdateBanner() {
           <I18nText text={"View release"} />
         </a>
         <span className="ml-2">
-          · Run <code className="font-mono bg-violet-100 dark:bg-[#2a2452] px-1 rounded text-xs">dagu upgrade</code> to update
+          <I18nText text={"· Run"} /> <code className="font-mono bg-violet-100 dark:bg-[#2a2452] px-1 rounded text-xs">dagu upgrade</code> <I18nText text={"to update"} />
         </span>
       </span>
       <I18nProps><button

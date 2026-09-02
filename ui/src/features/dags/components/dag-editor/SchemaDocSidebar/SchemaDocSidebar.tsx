@@ -116,7 +116,7 @@ export function SchemaDocSidebar({
               "
             >
               <RefreshCw className="w-3 h-3" />
-              Try again
+              <I18nText text={"Try again"} />
             </button>
           </div>
         )}
@@ -186,7 +186,7 @@ export function SchemaDocSidebar({
             {siblingProperties.length > 0 && path.length > 0 && (
               <div className="mt-4 pt-3 border-t border-border">
                 <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">
-                  Sibling Properties ({siblingProperties.length})
+                  <I18nText text={"Sibling Properties ("} />{siblingProperties.length})
                 </h4>
                 <div className="flex flex-wrap gap-1">
                   {siblingProperties
@@ -202,7 +202,7 @@ export function SchemaDocSidebar({
                     ))}
                   {siblingProperties.length > 21 && (
                     <span className="text-xs text-muted-foreground">
-                      +{siblingProperties.length - 20} more
+                      +{siblingProperties.length - 20} <I18nText text={"more"} />
                     </span>
                   )}
                 </div>
@@ -215,7 +215,7 @@ export function SchemaDocSidebar({
       {/* Footer */}
       <div className="px-3 py-1.5 border-t border-border bg-muted/20">
         <span className="text-xs text-muted-foreground">
-          Press{' '}
+          <I18nText text={"Press"} />{' '}
           <kbd className="px-1 py-0.5 bg-muted text-foreground rounded text-xs">
             <I18nText text={"Ctrl"} />
           </kbd>
@@ -227,7 +227,7 @@ export function SchemaDocSidebar({
           <kbd className="px-1 py-0.5 bg-muted text-foreground rounded text-xs">
             <I18nText text={"D"} />
           </kbd>{' '}
-          to toggle
+          <I18nText text={"to toggle"} />
         </span>
       </div>
     </div>

@@ -3,6 +3,7 @@
 
 import ConfirmModal from '@/components/ui/confirm-dialog';
 import { I18nProps } from '@/i18n/I18nProps';
+import { I18nText } from '@/i18n/I18nText';
 
 interface ForgetDialogProps {
   open: boolean;
@@ -28,12 +29,11 @@ export function ForgetDialog({
       onSubmit={onConfirm}
     >
       <p className="text-sm text-muted-foreground">
-        Remove{' '}
+        <I18nText text={"Remove"} />{' '}
         <span className="font-mono font-medium text-foreground break-all">
           {itemId}
         </span>{' '}
-        from sync tracking? This does not delete the file from the remote
-        repository.
+        <I18nText text={"from sync tracking? This does not delete the file from the remote repository."} />
       </p>
     </ConfirmModal></I18nProps>
   );

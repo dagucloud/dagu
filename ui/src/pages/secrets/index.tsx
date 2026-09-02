@@ -298,7 +298,7 @@ export function SecretRefsSection(): React.ReactNode {
             <I18nText text={"DAG Secret Refs"} />
           </h2>
           <p className="text-sm text-muted-foreground">
-            Individual secrets that DAGs reference with{' '}
+            <I18nText text={"Individual secrets that DAGs reference with"} />{' '}
             <code className="text-xs">secrets[].ref</code>.
           </p>
         </div>
@@ -326,7 +326,7 @@ export function SecretRefsSection(): React.ReactNode {
             }}
           >
             <Plus className="mr-1.5 h-4 w-4" />
-            Add Secret Ref
+            <I18nText text={"Add Secret Ref"} />
           </Button>
         </div>
       </div>
@@ -447,7 +447,7 @@ export function SecretRefsSection(): React.ReactNode {
                           }}
                         >
                           <Pencil className="mr-2 h-4 w-4" />
-                          Edit
+                          <I18nText text={"Edit"} />
                         </DropdownMenuItem>
                         {secret.providerType ===
                           SecretProviderType.dagu_managed && (
@@ -455,7 +455,7 @@ export function SecretRefsSection(): React.ReactNode {
                             onClick={() => setRotatingSecret(secret)}
                           >
                             <RefreshCw className="mr-2 h-4 w-4" />
-                            Rotate
+                            <I18nText text={"Rotate"} />
                           </DropdownMenuItem>
                         )}
                         <DropdownMenuItem onClick={() => toggleStatus(secret)}>
@@ -469,7 +469,7 @@ export function SecretRefsSection(): React.ReactNode {
                           onClick={() => setDeletingSecret(secret)}
                         >
                           <Trash2 className="mr-2 h-4 w-4" />
-                          Delete
+                          <I18nText text={"Delete"} />
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -669,14 +669,14 @@ function SecretFormDialog({
             </Select>
             {!isEditing && (
               <p className="text-xs text-muted-foreground">
-                External providers are available by request.{' '}
+                <I18nText text={"External providers are available by request."} />{' '}
                 <a
                   href={EXTERNAL_SECRET_REQUEST_URL}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center font-medium text-primary underline-offset-4 hover:underline"
                 >
-                  Request access
+                  <I18nText text={"Request access"} />
                   <ExternalLink className="ml-1 h-3 w-3" aria-hidden />
                 </a>
               </p>
@@ -773,7 +773,7 @@ function SecretFormDialog({
             </Button>
             <Button type="submit" disabled={isSaving}>
               {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Save
+              <I18nText text={"Save"} />
             </Button>
           </DialogFooter>
         </form>
@@ -861,7 +861,7 @@ function RotateSecretDialog({
             </Button>
             <Button type="submit" disabled={isSaving}>
               {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Rotate
+              <I18nText text={"Rotate"} />
             </Button>
           </DialogFooter>
         </form>

@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import React, { useCallback, useRef, useEffect } from 'react';
 import { NodeRendererProps } from 'react-arborist';
+import { I18nText } from '@/i18n/I18nText';
 
 type WikiPageTreeNodeResponse =
   components['schemas']['WikiPageTreeNodeResponse'];
@@ -226,7 +227,7 @@ function WikiPageTreeNode({
                 }}
               >
                 <Plus className="h-3.5 w-3.5 mr-2" />
-                New Wiki page
+                <I18nText text={"New Wiki page"} />
               </DropdownMenuItem>
             )}
             <DropdownMenuItem
@@ -243,7 +244,7 @@ function WikiPageTreeNode({
               }}
             >
               <Pencil className="h-3.5 w-3.5 mr-2" />
-              Rename
+              <I18nText text={"Rename"} />
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={(e) => {

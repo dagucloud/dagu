@@ -43,15 +43,14 @@ function LicenseRequired(): ReactElement {
           <I18nText text={"License Required"} />
         </h2>
         <p className="mt-1 max-w-md text-sm text-muted-foreground">
-          Incident connections and routing require an active Dagu license or
-          trial. Visit the{' '}
+          <I18nText text={"Incident connections and routing require an active Dagu license or trial. Visit the"} />{' '}
           <Link
             to="/license"
             className="text-primary underline underline-offset-2"
           >
             <I18nText text={"License"} />
           </Link>{' '}
-          page to activate one.
+          <I18nText text={"page to activate one."} />
         </p>
       </div>
     </div>
@@ -223,14 +222,13 @@ export default function IncidentsTab({
               <I18nText text={"DAG Incidents"} />
             </h1>
             <p className="text-sm text-muted-foreground">
-              This DAG uses {effectiveSource} routing unless you set a DAG
-              override.
+              <I18nText text={"This DAG uses"} /> {effectiveSource} <I18nText text={"routing unless you set a DAG override."} />
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="outline" size="sm" onClick={refresh}>
               <RefreshCw className="h-4 w-4" />
-              Refresh
+              <I18nText text={"Refresh"} />
             </Button>
             {isConfigured ? (
               <>
@@ -245,7 +243,7 @@ export default function IncidentsTab({
                   ) : (
                     <RotateCcw className="h-4 w-4" />
                   )}
-                  Reset to inherit
+                  <I18nText text={"Reset to inherit"} />
                 </Button>
                 <Button size="sm" onClick={save} disabled={saving}>
                   {saving ? (
@@ -253,13 +251,13 @@ export default function IncidentsTab({
                   ) : (
                     <Save className="h-4 w-4" />
                   )}
-                  Save changes
+                  <I18nText text={"Save changes"} />
                 </Button>
               </>
             ) : (
               <Button size="sm" onClick={configureOverride}>
                 <Settings className="h-4 w-4" />
-                Configure DAG override
+                <I18nText text={"Configure DAG override"} />
               </Button>
             )}
           </div>
@@ -281,7 +279,7 @@ export default function IncidentsTab({
       {(isLoading || providersLoading) && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Loading incident routing
+          <I18nText text={"Loading incident routing"} />
         </div>
       )}
 

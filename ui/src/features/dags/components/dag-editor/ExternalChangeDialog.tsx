@@ -59,7 +59,7 @@ function ExternalChangeDialog({ visible, onDiscard, onIgnore }: Props) {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-warning" />
-            External Changes Detected
+            <I18nText text={"External Changes Detected"} />
           </DialogTitle>
         </DialogHeader>
 
@@ -71,12 +71,10 @@ function ExternalChangeDialog({ visible, onDiscard, onIgnore }: Props) {
             <p className="font-medium"><I18nText text={"What would you like to do?"} /></p>
             <ul className="text-muted-foreground space-y-1 ml-4 list-disc">
               <li>
-                <strong><I18nText text={"Discard & Reload:"} /></strong> Lose your changes and load
-                the latest version
+                <strong><I18nText text={"Discard & Reload:"} /></strong> <I18nText text={"Lose your changes and load the latest version"} />
               </li>
               <li>
-                <strong><I18nText text={"Ignore:"} /></strong> Keep your changes (you may overwrite
-                external changes when saving)
+                <strong><I18nText text={"Ignore:"} /></strong> <I18nText text={"Keep your changes (you may overwrite external changes when saving)"} />
               </li>
             </ul>
           </div>
@@ -85,11 +83,11 @@ function ExternalChangeDialog({ visible, onDiscard, onIgnore }: Props) {
         <DialogFooter>
           <Button ref={ignoreButtonRef} variant="ghost" onClick={onIgnore}>
             <X className="h-4 w-4" />
-            Ignore
+            <I18nText text={"Ignore"} />
           </Button>
           <Button ref={discardButtonRef} variant="primary" onClick={onDiscard}>
             <RefreshCw className="h-4 w-4" />
-            Discard & Reload
+            <I18nText text={"Discard & Reload"} />
           </Button>
         </DialogFooter>
       </DialogContent>

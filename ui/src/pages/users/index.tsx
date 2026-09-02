@@ -62,11 +62,11 @@ function AuthProviderBadge({
     return providerLabel;
   }
   if (roleManaged && workspaceAccessManaged) {
-    return <Badge variant="info">Managed by {providerLabel}</Badge>;
+    return <Badge variant="info"><I18nText text={"Managed by"} /> {providerLabel}</Badge>;
   }
   return (
     <Badge variant="info">
-      {roleManaged ? 'Role' : 'Workspace access'} managed by {providerLabel}
+      {roleManaged ? 'Role' : 'Workspace access'} <I18nText text={"managed by"} /> {providerLabel}
     </Badge>
   );
 }
@@ -244,7 +244,7 @@ export default function UsersPage() {
             className="h-8"
           >
             <UserPlus className="h-4 w-4 mr-1.5" />
-            Add User
+            <I18nText text={"Add User"} />
           </Button>
         )}
       </div>
@@ -259,14 +259,14 @@ export default function UsersPage() {
         <div className="flex items-center gap-2 p-3 text-sm text-muted-foreground bg-muted/50 rounded-md">
           <Info className="h-4 w-4 shrink-0" />
           <span>
-            User management features (create, edit, delete) require a{' '}
+            <I18nText text={"User management features (create, edit, delete) require a"} />{' '}
             <Link
               to="/license"
               className="text-primary underline underline-offset-2"
             >
               <I18nText text={"license or trial"} />
             </Link>
-            . Password reset is available for all admins.
+            <I18nText text={". Password reset is available for all admins."} />
           </span>
         </div>
       )}
@@ -365,7 +365,7 @@ export default function UsersPage() {
                             onClick={() => setEditingUser(user)}
                           >
                             <Pencil className="h-4 w-4 mr-2" />
-                            Edit
+                            <I18nText text={"Edit"} />
                           </DropdownMenuItem>
                         )}
                         {isAdmin && canUsePassword(user) && (
@@ -373,7 +373,7 @@ export default function UsersPage() {
                             onClick={() => setResetPasswordUser(user)}
                           >
                             <Key className="h-4 w-4 mr-2" />
-                            Reset Password
+                            <I18nText text={"Reset Password"} />
                           </DropdownMenuItem>
                         )}
                         {hasRbac && isAdmin && user.id !== currentUser?.id && (
@@ -383,12 +383,12 @@ export default function UsersPage() {
                             {user.isDisabled ? (
                               <>
                                 <UserCheck className="h-4 w-4 mr-2" />
-                                Enable
+                                <I18nText text={"Enable"} />
                               </>
                             ) : (
                               <>
                                 <Ban className="h-4 w-4 mr-2" />
-                                Disable
+                                <I18nText text={"Disable"} />
                               </>
                             )}
                           </DropdownMenuItem>
@@ -400,7 +400,7 @@ export default function UsersPage() {
                             disabled={user.id === currentUser?.id}
                           >
                             <Trash2 className="h-4 w-4 mr-2" />
-                            Delete
+                            <I18nText text={"Delete"} />
                           </DropdownMenuItem>
                         )}
                       </DropdownMenuContent>

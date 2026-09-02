@@ -782,11 +782,11 @@ function StartDAGModal({
             {(paramsReadOnly || runIdReadOnly) && (
               <div className="rounded-md border border-warning/30 bg-warning-muted p-3">
                 <p className="text-sm text-warning">
-                  <strong><I18nText text={"Note:"} /></strong> This DAG has restrictions:
+                  <strong><I18nText text={"Note:"} /></strong> <I18nText text={"This DAG has restrictions:"} />
                   {paramsReadOnly && runIdReadOnly && (
                     <span>
                       {' '}
-                      Parameter editing and custom run IDs are disabled.
+                      <I18nText text={"Parameter editing and custom run IDs are disabled."} />
                     </span>
                   )}
                   {paramsReadOnly && !runIdReadOnly && (
@@ -964,7 +964,7 @@ function StartDAGModal({
             disabled={submitting}
           >
             <X className="h-4 w-4" />
-            Cancel
+            <I18nText text={"Cancel"} />
           </Button>
           <Button
             onClick={() => void handleSubmit()}

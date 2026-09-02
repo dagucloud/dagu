@@ -125,7 +125,7 @@ export function DAGNameInputModal({
               {modalContent.description}
             </DialogDescription>
             <div className="mt-1 font-mono text-xs bg-muted p-1 rounded text-muted-foreground">
-              Pattern: {DAG_NAME_PATTERN_STRING}
+              <I18nText text={"Pattern:"} /> {DAG_NAME_PATTERN_STRING}
             </div>
           </DialogHeader>
           <div className="grid gap-4 py-4">
@@ -158,7 +158,7 @@ export function DAGNameInputModal({
               disabled={isLoading}
             >
               <X className="h-4 w-4" />
-              Cancel
+              <I18nText text={"Cancel"} />
             </Button>
             <Button type="submit" disabled={isLoading}>
               {mode === 'create' ? <Plus className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}

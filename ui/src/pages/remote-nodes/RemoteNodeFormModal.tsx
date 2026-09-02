@@ -326,7 +326,7 @@ export function RemoteNodeFormModal({
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="ghost" onClick={onClose}>
               <X className="h-4 w-4" />
-              Cancel
+              <I18nText text={"Cancel"} />
             </Button>
             <Button type="submit" disabled={isLoading}>
               {isEditing ? (

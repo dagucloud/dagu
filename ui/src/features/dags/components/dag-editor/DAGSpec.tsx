@@ -658,7 +658,7 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
                 ) : (
                   <Copy className="h-4 w-4" />
                 )}
-                Copy
+                <I18nText text={"Copy"} />
               </Button></I18nProps>
               {editable && (
                 <>
@@ -669,7 +669,7 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
                       onClick={discardChanges}
                     >
                       <Undo2 className="h-4 w-4" />
-                      Discard
+                      <I18nText text={"Discard"} />
                     </Button></I18nProps>
                   )}
                   <I18nProps><Button
@@ -682,7 +682,7 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
                     }}
                   >
                     <Save className="h-4 w-4" />
-                    Save
+                    <I18nText text={"Save"} />
                   </Button></I18nProps>
                 </>
               )}
@@ -712,7 +712,7 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
                           onClick={() => handleActiveTabChange('parent')}
                           className="cursor-pointer whitespace-nowrap"
                         >
-                          {data?.dag?.name} (Parent)
+                          {data?.dag?.name} <I18nText text={"(Parent)"} />
                         </Tab>
                         {localDags?.map(
                           (localDag: components['schemas']['LocalDag']) => (

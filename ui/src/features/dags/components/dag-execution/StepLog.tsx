@@ -360,7 +360,7 @@ function StepLog({
     return (
       <div className="w-full h-full flex items-center justify-center">
         <div className="text-error">
-          Error loading log data: {error.message || 'Unknown error'}
+          <I18nText text={"Error loading log data:"} /> {error.message || 'Unknown error'}
         </div>
       </div>
     );
@@ -504,7 +504,7 @@ function StepLog({
 
         {/* Stats line - full width on mobile */}
         <div className="text-xs text-muted-foreground flex items-center">
-          Showing {lines.length} of {effectiveTotalLines} lines{' '}
+          <I18nText text={"Showing"} /> {lines.length} <I18nText text={"of"} /> {effectiveTotalLines} <I18nText text={"lines"} />{' '}
           {isEstimate ? '(estimated)' : ''} {hasMore ? '(more available)' : ''}
         </div>
 
@@ -519,7 +519,7 @@ function StepLog({
               <I18nText text={"Previous"} />
             </Button>
             <span className="text-xs">
-              Page {currentPage} of {totalPages}
+              <I18nText text={"Page"} /> {currentPage} <I18nText text={"of"} /> {totalPages}
             </span>
             <Button
               size="sm"

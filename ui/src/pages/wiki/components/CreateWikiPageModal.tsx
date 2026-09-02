@@ -194,7 +194,7 @@ export function CreateWikiPageModal({
               disabled={busy}
             >
               <X className="h-4 w-4" />
-              Cancel
+              <I18nText text={"Cancel"} />
             </Button>
             <Button type="submit" disabled={busy}>
               <Plus className="h-4 w-4" />

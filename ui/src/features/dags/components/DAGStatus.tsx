@@ -744,7 +744,7 @@ function DAGStatus({
                         {failedNode.status === NodeStatus.Rejected
                           ? 'Rejected'
                           : 'Failed'}{' '}
-                        at {failedNode.step.name}
+                        <I18nText text={"at"} /> {failedNode.step.name}
                       </div>
                       <div className="mt-1 max-h-28 overflow-auto whitespace-pre-wrap break-words text-sm text-foreground">
                         {failedNode.error ||
@@ -765,7 +765,7 @@ function DAGStatus({
                         }
                       >
                         <ScrollText className="h-3.5 w-3.5" />
-                        View stderr
+                        <I18nText text={"View stderr"} />
                       </button>
                       <button
                         type="button"

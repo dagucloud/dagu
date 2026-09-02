@@ -310,7 +310,7 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
       return (
         <div className="w-full h-full flex items-center justify-center">
           <div className="text-error">
-            Error loading log data: {error.message || 'Unknown error'}
+            <I18nText text={"Error loading log data:"} /> {error.message || 'Unknown error'}
           </div>
         </div>
       );
@@ -484,7 +484,7 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
               <I18nText text={"Previous"} />
             </Button>
             <span className="text-xs">
-              Page {currentPage} of {totalPages}
+              <I18nText text={"Page"} /> {currentPage} <I18nText text={"of"} /> {totalPages}
             </span>
             <Button
               size="sm"

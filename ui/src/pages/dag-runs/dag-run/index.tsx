@@ -9,6 +9,7 @@ import { DAGRunDetailsContent } from '../../../features/dag-runs/components/dag-
 import { DAGRunContext } from '../../../features/dag-runs/contexts/DAGRunContext';
 import { matchesRequestedDAGRunDetails } from '../../../features/dag-runs/hooks/dagRunDetailsRequest';
 import { useBoundedDAGRunDetails } from '../../../features/dag-runs/hooks/useBoundedDAGRunDetails';
+import { I18nText } from '@/i18n/I18nText';
 
 type ApiError = {
   response?: { status?: number };
@@ -42,7 +43,7 @@ function ErrorDisplay({ error, name, dagRunId }: ErrorDisplayProps) {
         <p className={messageClass}>{message}</p>
         {isNotFound && (
           <p className="text-sm text-muted-foreground mt-2">
-            DAG: {name} | Run ID: {dagRunId}
+            <I18nText text={"DAG:"} /> {name} <I18nText text={"| Run ID:"} /> {dagRunId}
           </p>
         )}
       </div>

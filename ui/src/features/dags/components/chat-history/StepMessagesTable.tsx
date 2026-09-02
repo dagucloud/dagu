@@ -53,7 +53,7 @@ function getMessagePreview(msg: {
   if (msg.toolCalls && msg.toolCalls.length > 0) {
     return (
       <span className="text-purple-500">
-        Calling: {msg.toolCalls.map((tc) => tc.name).join(', ')}
+        <I18nText text={"Calling:"} /> {msg.toolCalls.map((tc) => tc.name).join(', ')}
       </span>
     );
   }
@@ -160,7 +160,7 @@ export function StepMessagesTable({
     return (
       <div className="text-xs text-muted-foreground p-2 flex items-center gap-2">
         <Loader2 className="h-3 w-3 animate-spin" />
-        Loading messages...
+        <I18nText text={"Loading messages..."} />
       </div>
     );
   }
@@ -191,7 +191,7 @@ export function StepMessagesTable({
             />
             <Wrench className="h-3 w-3 text-purple-500" />
             <span className="text-xs font-medium">
-              Available Tools ({toolDefinitions.length})
+              <I18nText text={"Available Tools ("} />{toolDefinitions.length})
             </span>
           </button>
           {showTools && (
@@ -285,7 +285,7 @@ export function StepMessagesTable({
                           {msg.metadata.provider}/{msg.metadata.model}
                         </div>
                         <div>
-                          in:{msg.metadata.promptTokens} out:
+                          <I18nText text={"in:"} />{msg.metadata.promptTokens} <I18nText text={"out:"} />
                           {msg.metadata.completionTokens}
                         </div>
                       </div>

@@ -361,7 +361,7 @@ export function ViewEditorDialog({
               checked={pinned}
               onCheckedChange={(checked) => setPinned(checked === true)}
             />
-            Pin to sidebar
+            <I18nText text={"Pin to sidebar"} />
           </label>
           {error && <p className="text-xs text-destructive">{error}</p>}
         </div>

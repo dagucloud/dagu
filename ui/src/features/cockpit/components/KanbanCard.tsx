@@ -132,7 +132,7 @@ export function KanbanCard({
             <div
               className={`text-[11px] text-muted-foreground ${showArtifacts ? 'pr-10' : ''}`}
             >
-              Scheduled {scheduleTime}
+              <I18nText text={"Scheduled"} /> {scheduleTime}
             </div>
           )}
           {params && (

@@ -328,7 +328,7 @@ export function TemplateSelector({
               )}
             >
               <LabelsIcon className="h-3 w-3" />
-              Labels
+              <I18nText text={"Labels"} />
             </button>
           </div>
 

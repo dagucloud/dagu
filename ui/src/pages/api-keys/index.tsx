@@ -160,7 +160,7 @@ export default function APIKeysPage() {
           disabled={communityLimitReached}
         >
           <Plus className="h-4 w-4 mr-1.5" />
-          Create API Key
+          <I18nText text={"Create API Key"} />
         </Button>
       </div>
 
@@ -291,14 +291,14 @@ export default function APIKeysPage() {
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem onClick={() => setEditingKey(key)}>
                           <Pencil className="h-4 w-4 mr-2" />
-                          Edit
+                          <I18nText text={"Edit"} />
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() => setDeletingKey(key)}
                           className="text-destructive"
                         >
                           <Trash2 className="h-4 w-4 mr-2" />
-                          Revoke
+                          <I18nText text={"Revoke"} />
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>

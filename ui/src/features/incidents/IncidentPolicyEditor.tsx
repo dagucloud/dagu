@@ -181,7 +181,7 @@ export function IncidentPolicyEditor({
           <AlertDescription>
             {emptyProviderMessage || (
               <>
-                Add an incident connection before configuring routing.{' '}
+                <I18nText text={"Add an incident connection before configuring routing."} />{' '}
                 <Link
                   to="/incident-providers"
                   className="font-medium underline underline-offset-2"
@@ -212,7 +212,7 @@ export function IncidentPolicyEditor({
               disabled={!addableProvider}
             >
               <Plus className="h-4 w-4" />
-              Add connection
+              <I18nText text={"Add connection"} />
             </Button>
           </div>
 

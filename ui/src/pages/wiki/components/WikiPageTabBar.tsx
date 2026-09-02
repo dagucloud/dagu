@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils';
 import { MoreHorizontal, Trash2, X, XCircle } from 'lucide-react';
 import React, { useCallback, useRef } from 'react';
 import { I18nProps } from '@/i18n/I18nProps';
+import { I18nText } from '@/i18n/I18nText';
 
 type Props = {
   className?: string;
@@ -167,7 +168,7 @@ function WikiPageTabBar({
                     }}
                   >
                     <X className="h-3.5 w-3.5 mr-2" />
-                    Close
+                    <I18nText text={"Close"} />
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     disabled={tabs.length <= 1}
@@ -177,7 +178,7 @@ function WikiPageTabBar({
                     }}
                   >
                     <XCircle className="h-3.5 w-3.5 mr-2" />
-                    Close Others
+                    <I18nText text={"Close Others"} />
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={(e) => {
@@ -186,7 +187,7 @@ function WikiPageTabBar({
                     }}
                   >
                     <XCircle className="h-3.5 w-3.5 mr-2" />
-                    Close All
+                    <I18nText text={"Close All"} />
                   </DropdownMenuItem>
                   {onDeleteWikiPage && (
                     <>
@@ -203,7 +204,7 @@ function WikiPageTabBar({
                         }}
                       >
                         <Trash2 className="h-3.5 w-3.5 mr-2" />
-                        Delete Wiki page
+                        <I18nText text={"Delete Wiki page"} />
                       </DropdownMenuItem>
                     </>
                   )}

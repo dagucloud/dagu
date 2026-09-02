@@ -43,7 +43,7 @@ function QueueCard({ queue }: QueueCardProps) {
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span><I18nText text={"Capacity"} /></span>
             <span className="tabular-nums">
-              {runningCount}/{queue.maxConcurrency} in use
+              {runningCount}/{queue.maxConcurrency} <I18nText text={"in use"} />
             </span>
           </div>
           <div className="h-1.5 overflow-hidden rounded-full bg-muted">

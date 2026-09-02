@@ -580,7 +580,7 @@ export default function ArtifactsTab({
   if (!dagRun.artifactsAvailable) {
     return (
       <div className="rounded-lg border border-dashed border-border bg-muted/20 p-6 text-sm text-muted-foreground">
-        Artifacts will appear here after a run writes files into
+        <I18nText text={"Artifacts will appear here after a run writes files into"} />
         <code className="mx-1 rounded bg-muted px-1.5 py-0.5 text-xs">
           DAG_RUN_ARTIFACTS_DIR
         </code>
@@ -765,7 +765,7 @@ export default function ArtifactsTab({
               }}
             >
               <Download className="h-4 w-4" />
-              Download
+              <I18nText text={"Download"} />
             </Button>
           </div>
         </div>
@@ -807,7 +807,7 @@ export default function ArtifactsTab({
                 <div>
                   <dt className="inline font-medium text-foreground"><I18nText text={"Size:"} /></dt>{' '}
                   <dd className="inline">
-                    {Intl.NumberFormat().format(preview.size)} bytes
+                    {Intl.NumberFormat().format(preview.size)} <I18nText text={"bytes"} />
                   </dd>
                 </div>
               </dl>
@@ -888,7 +888,7 @@ export default function ArtifactsTab({
                 <div>
                   <dt className="inline font-medium text-foreground"><I18nText text={"Size:"} /></dt>{' '}
                   <dd className="inline">
-                    {Intl.NumberFormat().format(preview.size)} bytes
+                    {Intl.NumberFormat().format(preview.size)} <I18nText text={"bytes"} />
                   </dd>
                 </div>
               </dl>

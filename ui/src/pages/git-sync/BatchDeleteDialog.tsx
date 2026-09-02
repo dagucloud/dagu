@@ -53,9 +53,7 @@ export function BatchDeleteDialog({
         <DialogHeader>
           <DialogTitle className="text-base"><I18nText text={"Delete Selected Items"} /></DialogTitle>
           <DialogDescription className="text-xs">
-            This will remove {count} sync item{count !== 1 ? 's' : ''} from the
-            remote repository, local disk, and sync state. This action cannot be
-            undone.
+            <I18nText text={"This will remove"} /> {count} <I18nText text={"sync item"} />{count !== 1 ? 's' : ''} <I18nText text={"from the remote repository, local disk, and sync state. This action cannot be undone."} />
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
@@ -96,12 +94,12 @@ export function BatchDeleteDialog({
             {isDeletingBatch ? (
               <>
                 <RefreshCw className="h-3.5 w-3.5 mr-1 animate-spin" />
-                Deleting...
+                <I18nText text={"Deleting..."} />
               </>
             ) : (
               <>
                 <Trash2 className="h-3.5 w-3.5 mr-1" />
-                Delete {count} item{count !== 1 ? 's' : ''}
+                <I18nText text={"Delete"} /> {count} <I18nText text={"item"} />{count !== 1 ? 's' : ''}
               </>
             )}
           </Button>

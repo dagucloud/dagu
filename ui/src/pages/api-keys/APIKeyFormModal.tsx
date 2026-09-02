@@ -400,7 +400,7 @@ export function APIKeyFormModal({
                 /></I18nProps>
                 {apiKey?.ownerUsername && (
                   <p className="text-xs text-muted-foreground">
-                    Current owner: {apiKey.ownerUsername}
+                    <I18nText text={"Current owner:"} /> {apiKey.ownerUsername}
                   </p>
                 )}
               </div>

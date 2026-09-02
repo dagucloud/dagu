@@ -852,7 +852,7 @@ function WikiTreeSidebar({
             searchQuery.length >= 2 &&
             !searchError && (
               <div className="text-[10px] text-muted-foreground mt-0.5 px-1">
-                {searchResults.length} result
+                {searchResults.length} <I18nText text={"result"} />
                 {searchResults.length !== 1 ? 's' : ''}
               </div>
             )}
@@ -861,7 +861,7 @@ function WikiTreeSidebar({
         {selectionOverlayActive && (
           <div className="absolute inset-0 flex items-center justify-between px-3">
             <span className="text-xs text-muted-foreground">
-              {selectedIds.length} selected
+              {selectedIds.length} <I18nText text={"selected"} />
             </span>
             <div className="flex items-center gap-1">
               <button
@@ -870,7 +870,7 @@ function WikiTreeSidebar({
                 disabled={selectedTargets.length === 0}
                 className="flex items-center gap-0.5 text-xs text-destructive hover:text-destructive/80 px-1 py-0.5 rounded-sm hover:bg-destructive/10"
               >
-                <Trash2 className="h-3 w-3" /> Delete {selectedTargets.length}
+                <Trash2 className="h-3 w-3" /> <I18nText text={"Delete"} /> {selectedTargets.length}
               </button>
               <I18nProps><button
                 type="button"
@@ -905,7 +905,7 @@ function WikiTreeSidebar({
                 className="flex items-center gap-1 text-xs text-primary hover:underline"
               >
                 <RefreshCw className="h-3 w-3" />
-                Retry
+                <I18nText text={"Retry"} />
               </button>
             )}
           </div>
@@ -933,7 +933,7 @@ function WikiTreeSidebar({
                   className="flex items-center gap-1 text-xs text-primary hover:underline"
                 >
                   <RefreshCw className="h-3 w-3" />
-                  Retry
+                  <I18nText text={"Retry"} />
                 </button>
               </div>
             )}

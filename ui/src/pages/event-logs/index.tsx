@@ -898,7 +898,7 @@ export default function EventLogsPage() {
                   autoRefresh && isAutoRefreshAvailable && 'text-success'
                 )}
               />
-              Auto: {autoRefresh && isAutoRefreshAvailable ? 'ON' : 'OFF'}
+              <I18nText text={"Auto:"} /> {autoRefresh && isAutoRefreshAvailable ? 'ON' : 'OFF'}
             </Button>
             <RefreshButton onRefresh={handleRefresh} />
           </div>
@@ -961,7 +961,7 @@ export default function EventLogsPage() {
               onClick={handleClearFilters}
             >
               <FilterX className="h-4 w-4" />
-              Clear
+              <I18nText text={"Clear"} />
             </Button>
           </div>
 
@@ -1074,7 +1074,7 @@ export default function EventLogsPage() {
             <div>
               <h2 className="text-sm font-semibold"><I18nText text={"Event Feed"} /></h2>
               <p className="text-xs text-muted-foreground">
-                Loaded {entries.length} event{entries.length === 1 ? '' : 's'}
+                <I18nText text={"Loaded"} /> {entries.length} <I18nText text={"event"} />{entries.length === 1 ? '' : 's'}
               </p>
             </div>
             <div className="text-xs text-muted-foreground">
@@ -1174,7 +1174,7 @@ export default function EventLogsPage() {
                               <Button variant="ghost" size="sm" asChild>
                                 <Link to={runPath}>
                                   <ExternalLink className="h-4 w-4" />
-                                  Open Run
+                                  <I18nText text={"Open Run"} />
                                 </Link>
                               </Button>
                             ) : null}
@@ -1185,7 +1185,7 @@ export default function EventLogsPage() {
                               onClick={() => setSelectedEvent(entry)}
                             >
                               <FileJson className="h-4 w-4" />
-                              View Raw
+                              <I18nText text={"View Raw"} />
                             </Button>
                           </div>
                         </TableCell>

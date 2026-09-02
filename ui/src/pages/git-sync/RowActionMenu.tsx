@@ -10,6 +10,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { MoreHorizontal, EyeOff, Trash2, ArrowRightLeft } from 'lucide-react';
+import { I18nText } from '@/i18n/I18nText';
 
 interface RowActionMenuProps {
   itemId: string;
@@ -78,7 +79,7 @@ export function RowActionMenu({
         {showForget && (
           <DropdownMenuItem onClick={() => onForget(itemId)}>
             <EyeOff className="h-3.5 w-3.5 mr-2" />
-            Forget
+            <I18nText text={"Forget"} />
           </DropdownMenuItem>
         )}
         {showMove && (
@@ -88,7 +89,7 @@ export function RowActionMenu({
             title={!pushEnabled ? 'Push disabled in read-only mode' : undefined}
           >
             <ArrowRightLeft className="h-3.5 w-3.5 mr-2" />
-            Move
+            <I18nText text={"Move"} />
           </DropdownMenuItem>
         )}
         {showDelete && (
@@ -99,7 +100,7 @@ export function RowActionMenu({
             title={!pushEnabled ? 'Push disabled in read-only mode' : undefined}
           >
             <Trash2 className="h-3.5 w-3.5 mr-2" />
-            Delete
+            <I18nText text={"Delete"} />
           </DropdownMenuItem>
         )}
       </DropdownMenuContent>

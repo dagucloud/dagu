@@ -592,8 +592,8 @@ function WikiContent() {
         onSubmit={handleDelete}
       >
         <p className="text-sm text-muted-foreground">
-          Are you sure you want to delete <strong>{deleteWikiPageTitle}</strong>
-          ? This action cannot be undone.
+          <I18nText text={"Are you sure you want to delete"} /> <strong>{deleteWikiPageTitle}</strong>
+          <I18nText text={"? This action cannot be undone."} />
         </p>
       </ConfirmModal></I18nProps>
       <I18nProps><ConfirmModal
@@ -604,8 +604,7 @@ function WikiContent() {
         onSubmit={handleBatchDelete}
       >
         <p className="text-sm text-muted-foreground">
-          Are you sure you want to delete {batchDeleteTargets.length} items?
-          This cannot be undone.
+          <I18nText text={"Are you sure you want to delete"} /> {batchDeleteTargets.length} <I18nText text={"items? This cannot be undone."} />
         </p>
       </ConfirmModal></I18nProps>
     </>
@@ -625,7 +624,7 @@ function WikiContent() {
               onClick={() => setMobileView('tree')}
             >
               <ChevronLeft className="h-4 w-4" />
-              Wiki
+              <I18nText text={"Wiki"} />
             </button>
             <div className="flex-1 overflow-hidden min-h-0">
               {rightPanel || (

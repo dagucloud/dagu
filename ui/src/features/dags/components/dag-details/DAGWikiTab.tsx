@@ -199,7 +199,7 @@ function DAGWikiTab({ dagName, workspaceName }: Props) {
             className="flex items-center gap-1 px-2 py-0.5 text-xs rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted"
           >
             <FilePlus className="h-3.5 w-3.5" />
-            New runbook
+            <I18nText text={"New runbook"} />
           </button>
         )}
       </div>
@@ -208,10 +208,8 @@ function DAGWikiTab({ dagName, workspaceName }: Props) {
         <div className="px-3 py-6 text-center text-xs text-muted-foreground space-y-1">
           <p><I18nText text={"No Wiki pages reference this DAG yet."} /></p>
           <p>
-            Wiki pages under{' '}
-            <code>{validSegment ? `${dagName}/` : 'its folder'}</code> or
-            containing a <code>{`[[dag:${dagName}]]`}</code> wikilink appear
-            here.
+            <I18nText text={"Wiki pages under"} />{' '}
+            <code>{validSegment ? `${dagName}/` : 'its folder'}</code> <I18nText text={"or containing a"} /> <code>{`[[dag:${dagName}]]`}</code> <I18nText text={"wikilink appear here."} />
           </p>
         </div>
       ) : (
@@ -219,7 +217,7 @@ function DAGWikiTab({ dagName, workspaceName }: Props) {
           {folderWikiPages.length > 0 && (
             <div>
               <div className="px-3 pt-2 pb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                In {dagName}/
+                <I18nText text={"In"} /> {dagName}/
               </div>
               {folderWikiPages.map((item) => (
                 <WikiPageRow
@@ -234,7 +232,7 @@ function DAGWikiTab({ dagName, workspaceName }: Props) {
             <div>
               <div className="flex items-center gap-1 px-3 pt-2 pb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                 <Link2 className="h-3 w-3" />
-                Linking to this DAG
+                <I18nText text={"Linking to this DAG"} />
               </div>
               {backlinkWikiPages.map((item) => (
                 <WikiPageRow

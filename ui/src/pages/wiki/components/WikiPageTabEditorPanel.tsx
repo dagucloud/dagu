@@ -183,11 +183,11 @@ function WikiPageTabEditorPanel({
         onSubmit={handleConfirmClose}
       >
         <p className="text-sm text-muted-foreground">
-          You have unsaved changes in{' '}
+          <I18nText text={"You have unsaved changes in"} />{' '}
           <strong>
             {confirmTab?.title || confirmTab?.wikiPagePath || 'this Wiki page'}
           </strong>
-          . Discard changes?
+          <I18nText text={". Discard changes?"} />
         </p>
       </ConfirmModal></I18nProps>
 

@@ -111,7 +111,7 @@ export function WikiPageHistoryModal({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <History className="h-4 w-4" />
-            History: {wikiPagePath}
+            <I18nText text={"History:"} /> {wikiPagePath}
           </DialogTitle>
           <DialogDescription>
             <I18nText text={"Stored versions of this Wiki page, newest first. Loading a revision into the editor marks it unsaved; save to restore it."} />
@@ -137,7 +137,7 @@ export function WikiPageHistoryModal({
                 >
                   <div>{formatSavedAt(revision.savedAt)}</div>
                   <div className="text-muted-foreground">
-                    {revision.size} bytes
+                    {revision.size} <I18nText text={"bytes"} />
                   </div>
                 </button>
               ))}
@@ -173,7 +173,7 @@ export function WikiPageHistoryModal({
                       }}
                     >
                       <RotateCcw className="h-3.5 w-3.5" />
-                      Load into editor
+                      <I18nText text={"Load into editor"} />
                     </Button>
                   </div>
                 </>

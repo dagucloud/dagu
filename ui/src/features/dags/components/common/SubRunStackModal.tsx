@@ -209,7 +209,7 @@ export function SubRunStackModal({
               <>
                 <ChevronRight className="text-muted-foreground/50 h-3 w-3" />
                 <span className="text-muted-foreground">
-                  +{hiddenLevels} more
+                  +{hiddenLevels} <I18nText text={"more"} />
                 </span>
               </>
             ) : null}

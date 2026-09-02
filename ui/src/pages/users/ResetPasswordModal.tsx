@@ -109,7 +109,7 @@ export function ResetPasswordModal({ open, user, onClose }: ResetPasswordModalPr
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && handleClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Reset Password for {user?.username}</DialogTitle>
+          <DialogTitle><I18nText text={"Reset Password for"} /> {user?.username}</DialogTitle>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4 mt-2">
@@ -165,7 +165,7 @@ export function ResetPasswordModal({ open, user, onClose }: ResetPasswordModalPr
               onClick={handleClose}
             >
               <X className="h-4 w-4" />
-              Cancel
+              <I18nText text={"Cancel"} />
             </Button>
             <Button
               type="submit"

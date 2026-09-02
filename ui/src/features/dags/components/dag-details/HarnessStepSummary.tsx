@@ -59,7 +59,7 @@ function HarnessStepSummary({ step, className, compact = false }: Props) {
           className="h-6 gap-1.5 px-2.5 normal-case tracking-normal"
         >
           <Bot className="h-3.5 w-3.5" />
-          Harness
+          <I18nText text={"Harness"} />
         </Badge>
       </div>
 
@@ -108,7 +108,7 @@ function CompactHarnessSummary({
       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
         <Badge variant="info" className="normal-case tracking-normal">
           <Bot className="h-3 w-3" />
-          Harness
+          <I18nText text={"Harness"} />
         </Badge>
         {primary?.provider ? (
           <I18nProps><Badge
@@ -121,12 +121,12 @@ function CompactHarnessSummary({
         ) : null}
         {optionCount > 0 ? (
           <Badge variant="outline" className="normal-case tracking-normal">
-            {optionCount} option{optionCount === 1 ? '' : 's'}
+            {optionCount} <I18nText text={"option"} />{optionCount === 1 ? '' : 's'}
           </Badge>
         ) : null}
         {fallbackCount > 0 ? (
           <Badge variant="outline" className="normal-case tracking-normal">
-            {fallbackCount} fallback{fallbackCount === 1 ? '' : 's'}
+            {fallbackCount} <I18nText text={"fallback"} />{fallbackCount === 1 ? '' : 's'}
           </Badge>
         ) : null}
       </div>
@@ -184,7 +184,7 @@ function HarnessAttemptRow({
               variant="outline"
               className="h-5 cursor-help px-2 normal-case tracking-normal"
             >
-              +{hiddenOptions.length} more
+              +{hiddenOptions.length} <I18nText text={"more"} />
             </Badge>
           </TooltipTrigger>
           <TooltipContent className="max-w-[480px]">

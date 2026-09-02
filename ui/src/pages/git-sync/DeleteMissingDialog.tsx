@@ -48,9 +48,8 @@ export function DeleteMissingDialog({
             <I18nText text={"Delete All Missing Items"} />
           </DialogTitle>
           <DialogDescription className="text-xs">
-            This will remove {missingCount} missing item
-            {missingCount !== 1 ? 's' : ''} from the remote repository and sync
-            state. This action cannot be undone.
+            <I18nText text={"This will remove"} /> {missingCount} <I18nText text={"missing item"} />
+            {missingCount !== 1 ? 's' : ''} <I18nText text={"from the remote repository and sync state. This action cannot be undone."} />
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
@@ -86,12 +85,12 @@ export function DeleteMissingDialog({
             {isDeletingMissing ? (
               <>
                 <RefreshCw className="h-3.5 w-3.5 mr-1 animate-spin" />
-                Deleting...
+                <I18nText text={"Deleting..."} />
               </>
             ) : (
               <>
                 <Trash2 className="h-3.5 w-3.5 mr-1" />
-                Delete All Missing
+                <I18nText text={"Delete All Missing"} />
               </>
             )}
           </Button>

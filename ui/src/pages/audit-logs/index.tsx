@@ -828,7 +828,7 @@ export default function AuditLogsPage() {
             onClick={() => setAdvancedFiltersOpen((open) => !open)}
           >
             <Filter className="h-4 w-4" />
-            Filters
+            <I18nText text={"Filters"} />
             {activeAdvancedFilterCount > 0 ? (
               <Badge variant="primary" className="ml-0.5">
                 {activeAdvancedFilterCount}
@@ -1000,7 +1000,7 @@ export default function AuditLogsPage() {
                   className="py-8 text-center text-muted-foreground"
                 >
                   <ScrollText className="mx-auto mb-2 h-8 w-8 opacity-50" />
-                  No audit log entries found
+                  <I18nText text={"No audit log entries found"} />
                 </td>
               </tr>
             ) : (
@@ -1102,8 +1102,8 @@ export default function AuditLogsPage() {
       {total > PAGE_SIZE && (
         <div className="flex items-center justify-between flex-shrink-0">
           <p className="text-sm text-muted-foreground">
-            Showing {offset + 1} - {Math.min(offset + PAGE_SIZE, total)} of{' '}
-            {total} entries
+            <I18nText text={"Showing"} /> {offset + 1} - {Math.min(offset + PAGE_SIZE, total)} <I18nText text={"of"} />{' '}
+            {total} <I18nText text={"entries"} />
           </p>
           <div className="flex items-center gap-2">
             <Button
@@ -1114,10 +1114,10 @@ export default function AuditLogsPage() {
               className="h-8"
             >
               <ChevronLeft className="h-4 w-4 mr-1" />
-              Previous
+              <I18nText text={"Previous"} />
             </Button>
             <span className="text-sm text-muted-foreground">
-              Page {currentPage} of {totalPages}
+              <I18nText text={"Page"} /> {currentPage} <I18nText text={"of"} /> {totalPages}
             </span>
             <Button
               variant="outline"
@@ -1126,7 +1126,7 @@ export default function AuditLogsPage() {
               disabled={offset + PAGE_SIZE >= total}
               className="h-8"
             >
-              Next
+              <I18nText text={"Next"} />
               <ChevronRight className="h-4 w-4 ml-1" />
             </Button>
           </div>

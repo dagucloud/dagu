@@ -104,14 +104,14 @@ function PathsCard() {
     <>
       <Button onClick={() => setOpen(true)}>
         <FolderOpen className="h-4 w-4" />
-        Paths
+        <I18nText text={"Paths"} />
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-xl p-0 overflow-hidden">
           <DialogHeader className="px-4 pt-4 pb-3 border-b border-border">
             <DialogTitle className="flex items-center gap-2 text-base">
               <FolderOpen className="h-4 w-4 text-primary" />
-              System Paths
+              <I18nText text={"System Paths"} />
             </DialogTitle>
             <p className="text-xs text-muted-foreground mt-1">
               <I18nText text={"Click any path to copy to clipboard"} />

@@ -97,12 +97,12 @@ function DAGEditButtons({ fileName, workspace }: Props) {
     <div className="flex items-center gap-2">
       <Button onClick={() => setIsRenameModalOpen(true)}>
         <PencilLine className="h-4 w-4" />
-        Rename
+        <I18nText text={"Rename"} />
       </Button>
 
       <Button variant="destructive" onClick={() => setIsDeleteModalOpen(true)}>
         <Trash2 className="h-4 w-4" />
-        Delete
+        <I18nText text={"Delete"} />
       </Button>
 
       <I18nProps><ConfirmModal
