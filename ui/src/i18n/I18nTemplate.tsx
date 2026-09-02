@@ -14,8 +14,14 @@ export function I18nTemplate({
   const { ts } = useI18n();
 
   return ts(text)
-    .split(/\{(\w+)\}/g)
-    .map((part, index) => (
-      <Fragment key={index}>{part in values ? values[part] : part}</Fragment>
-    ));
+    .split(/(\{\w+\})/g)
+    .map((part, index) => {
+      const name = part.match(/^\{(\w+)\}$/)?.[1];
+      const value =
+        name && Object.prototype.hasOwnProperty.call(values, name)
+          ? values[name]
+          : part;
+
+      return <Fragment key={index}>{value}</Fragment>;
+    });
 }

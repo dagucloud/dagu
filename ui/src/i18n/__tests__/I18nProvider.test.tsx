@@ -77,7 +77,7 @@ describe('I18nProvider', () => {
     expect(screen.getByText('アクション')).toBeVisible();
   });
 
-  it('localizes modal button text and interpolated text', () => {
+  it('localizes custom button text and interpolated text', () => {
     localStorage.setItem('user_preferences', JSON.stringify({ locale: 'ja' }));
 
     render(
@@ -117,5 +117,19 @@ describe('I18nProvider', () => {
     expect(document.body).toHaveTextContent(
       'workflow.yamlのパスを変更します。'
     );
+  });
+
+  it('preserves rich template literals and unknown placeholders', () => {
+    render(
+      <>
+        <I18nTemplate
+          text="{item}item"
+          values={{ item: <code>workflow</code> }}
+        />{' '}
+        <I18nTemplate text="{missing}" values={{}} />
+      </>
+    );
+
+    expect(document.body).toHaveTextContent('workflowitem {missing}');
   });
 });
