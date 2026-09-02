@@ -1,0 +1,4 @@
+schedule: "@fortnightly"
+steps:
+  - id: noop
+    run: "true"

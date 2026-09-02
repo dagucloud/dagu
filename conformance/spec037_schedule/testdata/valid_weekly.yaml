@@ -1,0 +1,4 @@
+schedule: "@weekly"
+steps:
+  - id: noop
+    run: "true"

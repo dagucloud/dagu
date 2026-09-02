@@ -1,0 +1,4 @@
+schedule: "0 * * * *"
+steps:
+  - id: noop
+    run: "true"

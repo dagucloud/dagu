@@ -1,0 +1,4 @@
+schedule: "@monthly"
+steps:
+  - id: noop
+    run: "true"
