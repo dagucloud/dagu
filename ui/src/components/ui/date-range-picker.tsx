@@ -2,6 +2,7 @@ import { Calendar } from 'lucide-react';
 import React, { useRef, useState, useEffect } from 'react';
 import { cn } from '../../lib/utils';
 import { Input } from './input';
+import { I18nProps } from '@/i18n/I18nProps';
 
 interface DateRangePickerProps extends React.HTMLAttributes<HTMLDivElement> {
   fromDate: string | undefined;
@@ -162,7 +163,7 @@ function CustomDateTimeInput({
 
   return (
     <div className="relative flex items-center">
-      <Input
+      <I18nProps><Input
         ref={inputRef}
         id={id}
         type="text"
@@ -175,15 +176,15 @@ function CustomDateTimeInput({
           className,
           'w-44 font-mono text-foreground placeholder:text-muted-foreground/60 pt-1'
         )}
-      />
-      <button
+      /></I18nProps>
+      <I18nProps><button
         type="button"
         onClick={openDatePicker}
         className="px-1 hover:bg-accent rounded-sm transition-colors"
         aria-label="Open date picker"
       >
         <Calendar className="h-4 w-4 text-muted-foreground" />
-      </button>
+      </button></I18nProps>
       <input
         ref={hiddenDateInputRef}
         type="datetime-local"

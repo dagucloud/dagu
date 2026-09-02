@@ -35,6 +35,8 @@ import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ResetPasswordModal } from './ResetPasswordModal';
 import { UserFormModal } from './UserFormModal';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type User = components['schemas']['User'];
 type UsersListResponse = components['schemas']['UsersListResponse'];
@@ -230,9 +232,9 @@ export default function UsersPage() {
     <div className="flex flex-col gap-4 max-w-7xl">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold">Users</h1>
+          <h1 className="text-lg font-semibold"><I18nText text={"Users"} /></h1>
           <p className="text-sm text-muted-foreground">
-            Manage user accounts and their roles
+            <I18nText text={"Manage user accounts and their roles"} />
           </p>
         </div>
         {hasRbac && (
@@ -262,7 +264,7 @@ export default function UsersPage() {
               to="/license"
               className="text-primary underline underline-offset-2"
             >
-              license or trial
+              <I18nText text={"license or trial"} />
             </Link>
             . Password reset is available for all admins.
           </span>
@@ -273,12 +275,12 @@ export default function UsersPage() {
         <Table className="text-xs">
           <TableHeader>
             <TableRow>
-              <TableHead className="w-[200px]">Username</TableHead>
-              <TableHead className="w-[100px]">Role</TableHead>
-              <TableHead className="w-[80px]">Auth</TableHead>
-              <TableHead className="w-[80px]">Status</TableHead>
-              <TableHead className="w-[150px]">Created</TableHead>
-              <TableHead className="w-[150px]">Updated</TableHead>
+              <TableHead className="w-[200px]"><I18nText text={"Username"} /></TableHead>
+              <TableHead className="w-[100px]"><I18nText text={"Role"} /></TableHead>
+              <TableHead className="w-[80px]"><I18nText text={"Auth"} /></TableHead>
+              <TableHead className="w-[80px]"><I18nText text={"Status"} /></TableHead>
+              <TableHead className="w-[150px]"><I18nText text={"Created"} /></TableHead>
+              <TableHead className="w-[150px]"><I18nText text={"Updated"} /></TableHead>
               <TableHead className="w-[80px]"></TableHead>
             </TableRow>
           </TableHeader>
@@ -289,7 +291,7 @@ export default function UsersPage() {
                   colSpan={7}
                   className="text-center text-muted-foreground py-8"
                 >
-                  Loading users...
+                  <I18nText text={"Loading users..."} />
                 </TableCell>
               </TableRow>
             ) : users.length === 0 ? (
@@ -298,7 +300,7 @@ export default function UsersPage() {
                   colSpan={7}
                   className="text-center text-muted-foreground py-8"
                 >
-                  No users found
+                  <I18nText text={"No users found"} />
                 </TableCell>
               </TableRow>
             ) : (
@@ -312,7 +314,7 @@ export default function UsersPage() {
                       {user.username}
                       {user.id === currentUser?.id && (
                         <span className="text-xs text-muted-foreground">
-                          (you)
+                          <I18nText text={"(you)"} />
                         </span>
                       )}
                     </div>
@@ -334,10 +336,10 @@ export default function UsersPage() {
                   <TableCell className="text-sm">
                     {user.isDisabled ? (
                       <span className="text-red-600 dark:text-red-400">
-                        Disabled
+                        <I18nText text={"Disabled"} />
                       </span>
                     ) : (
-                      <span className="text-muted-foreground">Active</span>
+                      <span className="text-muted-foreground"><I18nText text={"Active"} /></span>
                     )}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
@@ -442,7 +444,7 @@ export default function UsersPage() {
       />
 
       {/* Delete Confirmation */}
-      <ConfirmModal
+      <I18nProps><ConfirmModal
         title="Delete User"
         buttonText="Delete"
         visible={!!deletingUser}
@@ -453,7 +455,7 @@ export default function UsersPage() {
           Are you sure you want to delete user &quot;{deletingUser?.username}
           &quot;? This action cannot be undone.
         </p>
-      </ConfirmModal>
+      </ConfirmModal></I18nProps>
     </div>
   );
 }

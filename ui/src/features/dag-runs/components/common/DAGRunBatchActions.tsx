@@ -22,6 +22,8 @@ import {
   BatchActionType,
   useDAGRunBatchSubmission,
 } from '../../hooks/useDAGRunBatchSubmission';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 interface DAGRunBatchActionsProps {
   loadedCount: number;
@@ -147,7 +149,7 @@ function DAGRunBatchActions({
     if (action === 'delete') {
       return (
         <div className="mt-2 text-sm text-muted-foreground">
-          Delete request accepted
+          <I18nText text={"Delete request accepted"} />
         </div>
       );
     }
@@ -155,7 +157,7 @@ function DAGRunBatchActions({
     if (action === 'retry') {
       return (
         <div className="mt-2 text-sm text-muted-foreground">
-          Retry request accepted
+          <I18nText text={"Retry request accepted"} />
         </div>
       );
     }
@@ -168,7 +170,7 @@ function DAGRunBatchActions({
           </div>
         ) : (
           <div className="text-muted-foreground">
-            Reschedule request accepted
+            <I18nText text={"Reschedule request accepted"} />
           </div>
         )}
         {typeof result.queued === 'boolean' && (
@@ -204,28 +206,28 @@ function DAGRunBatchActions({
             onClick={onSelectAllLoaded}
             disabled={loadedCount === 0 || isRunning}
           >
-            Select all loaded
+            <I18nText text={"Select all loaded"} />
           </Button>
           <Button
             variant="outline"
             onClick={onClearSelection}
             disabled={selectedCount === 0 || isRunning}
           >
-            Clear selection
+            <I18nText text={"Clear selection"} />
           </Button>
           <Button
             variant="outline"
             onClick={() => openBatchDialog('retry')}
             disabled={selectedCount === 0 || isRunning}
           >
-            Retry selected
+            <I18nText text={"Retry selected"} />
           </Button>
           <Button
             variant="outline"
             onClick={() => openBatchDialog('reschedule')}
             disabled={selectedCount === 0 || isRunning}
           >
-            Reschedule selected
+            <I18nText text={"Reschedule selected"} />
           </Button>
           <Button
             variant="destructive"
@@ -282,8 +284,7 @@ function DAGRunBatchActions({
               </p>
               {activeBatch.action === 'delete' && (
                 <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-                  This permanently removes run records, logs, artifacts, and
-                  related run data.
+                  <I18nText text={"This permanently removes run records, logs, artifacts, and related run data."} />
                 </div>
               )}
               <div className="max-h-56 space-y-2 overflow-y-auto rounded-md border bg-muted/20 p-3">
@@ -323,7 +324,7 @@ function DAGRunBatchActions({
                   }}
                   className="flex w-full items-start gap-3 rounded-md border px-3 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring aria-disabled:cursor-not-allowed aria-disabled:opacity-70 aria-disabled:hover:bg-transparent"
                 >
-                  <Checkbox
+                  <I18nProps><Checkbox
                     id="use-current-dag-file-batch"
                     aria-label="Use original DAG file"
                     checked={useCurrentDagFile}
@@ -332,13 +333,13 @@ function DAGRunBatchActions({
                       setUseCurrentDagFile(checked as boolean)
                     }
                     className="mt-0.5 h-5 w-5 border-border pointer-events-none"
-                  />
+                  /></I18nProps>
                   <div className="space-y-0.5">
                     <Label
                       htmlFor="use-current-dag-file-batch"
                       className="cursor-pointer text-sm font-medium"
                     >
-                      Use original DAG file
+                      <I18nText text={"Use original DAG file"} />
                     </Label>
                     <p className="text-xs text-muted-foreground">
                       {rescheduleSourceLoading
@@ -383,7 +384,7 @@ function DAGRunBatchActions({
 
               <div className="rounded-md border bg-muted/20 p-3">
                 <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Current item
+                  <I18nText text={"Current item"} />
                 </div>
                 {progress.currentItem ? (
                   <>
@@ -411,12 +412,12 @@ function DAGRunBatchActions({
 
               <div className="rounded-md border">
                 <div className="border-b px-3 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Results
+                  <I18nText text={"Results"} />
                 </div>
                 <div className="min-h-40 max-h-[45vh] space-y-3 overflow-y-auto p-3">
                   {progress.results.length === 0 ? (
                     <div className="flex min-h-32 items-center justify-center text-sm text-muted-foreground">
-                      Results will appear here as each request finishes.
+                      <I18nText text={"Results will appear here as each request finishes."} />
                     </div>
                   ) : (
                     progress.results.map((result, index) => (
@@ -451,7 +452,7 @@ function DAGRunBatchActions({
             {phase === 'confirm' && activeBatch && (
               <>
                 <Button variant="outline" onClick={closeDialog}>
-                  Cancel
+                  <I18nText text={"Cancel"} />
                 </Button>
                 <Button
                   onClick={() =>
@@ -483,7 +484,7 @@ function DAGRunBatchActions({
             )}
             {phase === 'complete' && !progress.isRefreshing && (
               <Button variant="outline" onClick={closeDialog}>
-                Close
+                <I18nText text={"Close"} />
               </Button>
             )}
           </DialogFooter>

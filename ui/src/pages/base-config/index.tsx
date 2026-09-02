@@ -11,6 +11,8 @@ import { whenEnabled } from '@/hooks/queryUtils';
 import { workspaceNameForSelection } from '@/lib/workspace';
 import { AppBarContext } from '../../contexts/AppBarContext';
 import { useConfig } from '../../contexts/ConfigContext';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type ConfigScope = 'global' | 'workspace';
 
@@ -228,7 +230,7 @@ function BaseConfigPage(): React.ReactNode {
   return (
     <div className="flex flex-col flex-1 min-h-0 space-y-4 p-4">
       <div>
-        <h1 className="text-lg font-semibold">Base Configuration</h1>
+        <h1 className="text-lg font-semibold"><I18nText text={"Base Configuration"} /></h1>
         <p className="text-sm text-muted-foreground">
           {activeScope === 'workspace'
             ? `${selectedWorkspace} overrides layered on top of global defaults`
@@ -237,7 +239,7 @@ function BaseConfigPage(): React.ReactNode {
       </div>
 
       {hasWorkspaceConfig ? (
-        <Tabs role="tablist" aria-label="Base config scope" className="shrink-0">
+        <I18nProps><Tabs role="tablist" aria-label="Base config scope" className="shrink-0">
           <Tab
             role="tab"
             aria-selected={activeScope === 'global'}
@@ -258,7 +260,7 @@ function BaseConfigPage(): React.ReactNode {
             <SquareStack className="h-4 w-4" />
             Workspace
           </Tab>
-        </Tabs>
+        </Tabs></I18nProps>
       ) : null}
 
       <DAGEditorWithDocs
@@ -272,7 +274,7 @@ function BaseConfigPage(): React.ReactNode {
         headerActions={
           editable ? (
             <>
-              <Button
+              <I18nProps><Button
                 variant="outline"
                 title="Revert to last saved version"
                 disabled={!hasUnsavedChanges}
@@ -280,15 +282,15 @@ function BaseConfigPage(): React.ReactNode {
               >
                 <RotateCcw className="h-4 w-4" />
                 Revert
-              </Button>
-              <Button
+              </Button></I18nProps>
+              <I18nProps><Button
                 title="Save changes (Ctrl+S / Cmd+S)"
                 disabled={!hasUnsavedChanges}
                 onClick={handleSave}
               >
                 <Save className="h-4 w-4" />
                 Save
-              </Button>
+              </Button></I18nProps>
             </>
           ) : undefined
         }

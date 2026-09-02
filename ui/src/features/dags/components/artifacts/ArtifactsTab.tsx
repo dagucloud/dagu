@@ -23,6 +23,8 @@ import {
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { components } from '../../../../api/v1/schema';
 import { HtmlArtifactPreview } from './HtmlArtifactPreview';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type ArtifactTreeNode = components['schemas']['ArtifactTreeNode'];
 type ArtifactPreviewResponse = components['schemas']['ArtifactPreviewResponse'];
@@ -570,7 +572,7 @@ export default function ArtifactsTab({
   if (!artifactEnabled && !dagRun.artifactsAvailable) {
     return (
       <div className="rounded-lg border border-dashed border-border bg-muted/20 p-6 text-sm text-muted-foreground">
-        Artifact storage is not enabled for this DAG run.
+        <I18nText text={"Artifact storage is not enabled for this DAG run."} />
       </div>
     );
   }
@@ -603,14 +605,14 @@ export default function ArtifactsTab({
       >
         <div className="flex items-center justify-between border-b border-border px-3 py-2">
           <div>
-            <p className="text-sm font-medium">Artifacts</p>
+            <p className="text-sm font-medium"><I18nText text={"Artifacts"} /></p>
             <p className="text-xs text-muted-foreground">
               {tree.length === 0
                 ? 'No files yet'
                 : `${allNodes.filter((node) => node.type === 'file').length} files`}
             </p>
           </div>
-          <Button
+          <I18nProps><Button
             variant="ghost"
             size="icon-sm"
             onClick={() => {
@@ -621,7 +623,7 @@ export default function ArtifactsTab({
             <RefreshCw
               className={cn('h-4 w-4', treeLoading && 'animate-spin')}
             />
-          </Button>
+          </Button></I18nProps>
         </div>
 
         <div
@@ -632,7 +634,7 @@ export default function ArtifactsTab({
         >
           {treeLoading ? (
             <div className="px-2 py-6 text-sm text-muted-foreground">
-              Loading artifacts...
+              <I18nText text={"Loading artifacts..."} />
             </div>
           ) : treeError ? (
             <div className="flex items-start gap-2 rounded-md bg-destructive/5 px-3 py-3 text-sm text-destructive">
@@ -641,7 +643,7 @@ export default function ArtifactsTab({
             </div>
           ) : tree.length === 0 ? (
             <div className="px-2 py-6 text-sm text-muted-foreground">
-              No artifacts have been written for this run yet.
+              <I18nText text={"No artifacts have been written for this run yet."} />
             </div>
           ) : (
             <div className="space-y-0.5">
@@ -688,7 +690,7 @@ export default function ArtifactsTab({
           </div>
           <div className="flex items-center gap-2">
             {isCopyablePreview ? (
-              <button
+              <I18nProps><button
                 type="button"
                 onClick={() => {
                   void handleCopyContent().catch((error: unknown) => {
@@ -707,8 +709,8 @@ export default function ArtifactsTab({
                 ) : (
                   <ClipboardCopy className="h-3 w-3" />
                 )}
-                <span>Copy</span>
-              </button>
+                <span><I18nText text={"Copy"} /></span>
+              </button></I18nProps>
             ) : null}
             {isMarkupPreview ? (
               <div className="flex overflow-hidden rounded-md border border-border">
@@ -728,7 +730,7 @@ export default function ArtifactsTab({
                     setMarkdownViewMode('preview');
                   }}
                 >
-                  Preview
+                  <I18nText text={"Preview"} />
                 </button>
                 <button
                   type="button"
@@ -746,7 +748,7 @@ export default function ArtifactsTab({
                     setMarkdownViewMode('raw');
                   }}
                 >
-                  Raw
+                  <I18nText text={"Raw"} />
                 </button>
               </div>
             ) : null}
@@ -776,11 +778,11 @@ export default function ArtifactsTab({
         >
           {!selectedPath ? (
             <div className="text-sm text-muted-foreground">
-              Select a file to preview it.
+              <I18nText text={"Select a file to preview it."} />
             </div>
           ) : previewLoading ? (
             <div className="text-sm text-muted-foreground">
-              Loading preview...
+              <I18nText text={"Loading preview..."} />
             </div>
           ) : previewError ? (
             <div className="flex items-start gap-2 rounded-md bg-destructive/5 px-3 py-3 text-sm text-destructive">
@@ -789,22 +791,21 @@ export default function ArtifactsTab({
             </div>
           ) : !preview ? (
             <div className="text-sm text-muted-foreground">
-              Preview unavailable.
+              <I18nText text={"Preview unavailable."} />
             </div>
           ) : preview.tooLarge ? (
             <div className="rounded-md border border-dashed border-border bg-muted/20 p-6">
-              <p className="text-sm font-medium">Preview unavailable</p>
+              <p className="text-sm font-medium"><I18nText text={"Preview unavailable"} /></p>
               <p className="mt-1 text-sm text-muted-foreground">
-                This artifact is too large to render inline. Download it to
-                inspect the contents.
+                <I18nText text={"This artifact is too large to render inline. Download it to inspect the contents."} />
               </p>
               <dl className="mt-4 space-y-1 text-xs text-muted-foreground">
                 <div>
-                  <dt className="inline font-medium text-foreground">MIME:</dt>{' '}
+                  <dt className="inline font-medium text-foreground"><I18nText text={"MIME:"} /></dt>{' '}
                   <dd className="inline">{preview.mimeType}</dd>
                 </div>
                 <div>
-                  <dt className="inline font-medium text-foreground">Size:</dt>{' '}
+                  <dt className="inline font-medium text-foreground"><I18nText text={"Size:"} /></dt>{' '}
                   <dd className="inline">
                     {Intl.NumberFormat().format(preview.size)} bytes
                   </dd>
@@ -815,8 +816,7 @@ export default function ArtifactsTab({
             <div className="space-y-3">
               {previewTruncatedNotice ? (
                 <div className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-                  Inline preview is truncated. Use Copy or Download for the full
-                  file.
+                  <I18nText text={"Inline preview is truncated. Use Copy or Download for the full file."} />
                 </div>
               ) : null}
               {markdownViewMode === 'raw' ? (
@@ -833,8 +833,7 @@ export default function ArtifactsTab({
             >
               {previewTruncatedNotice ? (
                 <div className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-                  Inline preview is truncated. Use Copy or Download for the full
-                  file.
+                  <I18nText text={"Inline preview is truncated. Use Copy or Download for the full file."} />
                 </div>
               ) : null}
               {htmlViewMode === 'raw' ? (
@@ -853,8 +852,7 @@ export default function ArtifactsTab({
             <div className="space-y-3">
               {previewTruncatedNotice ? (
                 <div className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-                  Inline preview is truncated. Use Copy or Download for the full
-                  file.
+                  <I18nText text={"Inline preview is truncated. Use Copy or Download for the full file."} />
                 </div>
               ) : null}
               <pre className="overflow-auto rounded-md border border-border bg-muted/20 p-4 text-sm leading-6 whitespace-pre-wrap">
@@ -873,23 +871,22 @@ export default function ArtifactsTab({
               />
             ) : (
               <div className="text-sm text-muted-foreground">
-                Loading image preview...
+                <I18nText text={"Loading image preview..."} />
               </div>
             )
           ) : (
             <div className="rounded-md border border-dashed border-border bg-muted/20 p-6">
-              <p className="text-sm font-medium">Binary artifact</p>
+              <p className="text-sm font-medium"><I18nText text={"Binary artifact"} /></p>
               <p className="mt-1 text-sm text-muted-foreground">
-                This file can’t be rendered inline. Download it to inspect the
-                contents.
+                <I18nText text={"This file can’t be rendered inline. Download it to inspect the contents."} />
               </p>
               <dl className="mt-4 space-y-1 text-xs text-muted-foreground">
                 <div>
-                  <dt className="inline font-medium text-foreground">MIME:</dt>{' '}
+                  <dt className="inline font-medium text-foreground"><I18nText text={"MIME:"} /></dt>{' '}
                   <dd className="inline">{preview.mimeType}</dd>
                 </div>
                 <div>
-                  <dt className="inline font-medium text-foreground">Size:</dt>{' '}
+                  <dt className="inline font-medium text-foreground"><I18nText text={"Size:"} /></dt>{' '}
                   <dd className="inline">
                     {Intl.NumberFormat().format(preview.size)} bytes
                   </dd>

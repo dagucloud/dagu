@@ -15,6 +15,8 @@ import { ExternalLink, Layers } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
 import { components, StatusLabel } from '../../../../api/v1/schema';
 import { STATUS_DISPLAY_LABELS, StatusDot } from '../common';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type SubDAGRun = components['schemas']['SubDAGRun'];
 type SubDAGRunDetail = components['schemas']['SubDAGRunDetail'];
@@ -280,7 +282,7 @@ export function ParallelExecutionModal({
           >
             {filteredSubRuns.length === 0 ? (
               <div className="text-center py-8 text-sm text-muted-foreground">
-                No sub DAG-runs match the selected filter
+                <I18nText text={"No sub DAG-runs match the selected filter"} />
               </div>
             ) : (
               filteredSubRuns.map(({ subRun, originalIndex }, displayIndex) => {
@@ -326,12 +328,12 @@ export function ParallelExecutionModal({
                           </code>
                         ) : (
                           <span className="text-sm text-muted-foreground italic">
-                            No parameters
+                            <I18nText text={"No parameters"} />
                           </span>
                         )}
                       </div>
                     </button>
-                    <button
+                    <I18nProps><button
                       className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 p-1.5 rounded hover:bg-muted focus:outline-none"
                       onClick={() => {
                         onSelectSubRun(originalIndex, true);
@@ -339,7 +341,7 @@ export function ParallelExecutionModal({
                       title="Open in new tab"
                     >
                       <ExternalLink className="h-3 w-3 text-muted-foreground" />
-                    </button>
+                    </button></I18nProps>
                   </div>
                 );
               })
@@ -351,11 +353,11 @@ export function ParallelExecutionModal({
           <div className="flex items-center gap-3 text-xs text-muted-foreground font-mono">
             <span>{isMac ? '⌘' : 'Ctrl'}+Click: new tab</span>
             <span className="opacity-40">•</span>
-            <span>↑↓ Navigate</span>
+            <span><I18nText text={"↑↓ Navigate"} /></span>
             <span className="opacity-40">•</span>
-            <span>Enter: select</span>
+            <span><I18nText text={"Enter: select"} /></span>
             <span className="opacity-40">•</span>
-            <span>ESC: close</span>
+            <span><I18nText text={"ESC: close"} /></span>
           </div>
         </div>
       </DialogContent>

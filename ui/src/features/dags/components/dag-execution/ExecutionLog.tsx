@@ -24,6 +24,8 @@ import { AnsiLine } from '@/lib/ansi';
 import { parseSchedulerLogLine } from '@/lib/scheduler-log';
 import LoadingIndicator from '@/components/ui/loading-indicator';
 import { ActivityLine } from './ActivityLine';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 // Extended Log type with pagination fields
 interface LogWithPagination {
@@ -357,7 +359,7 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
               onClick={() => setDisplayMode('activity')}
               aria-pressed={displayMode === 'activity'}
             >
-              Activity
+              <I18nText text={"Activity"} />
             </Button>
             <Button
               size="sm"
@@ -365,7 +367,7 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
               onClick={() => setDisplayMode('raw')}
               aria-pressed={displayMode === 'raw'}
             >
-              Raw
+              <I18nText text={"Raw"} />
             </Button>
           </div>
 
@@ -378,7 +380,7 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
                   onClick={() => handleViewModeChange('tail')}
                   disabled={isNavigating}
                 >
-                  Show End
+                  <I18nText text={"Show End"} />
                 </Button>
                 <Button
                   size="sm"
@@ -386,7 +388,7 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
                   onClick={() => handleViewModeChange('head')}
                   disabled={isNavigating}
                 >
-                  Show Beginning
+                  <I18nText text={"Show Beginning"} />
                 </Button>
                 <Button
                   size="sm"
@@ -394,7 +396,7 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
                   onClick={() => handleViewModeChange('page')}
                   disabled={isNavigating}
                 >
-                  Page View
+                  <I18nText text={"Page View"} />
                 </Button>
               </div>
 
@@ -404,11 +406,11 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
                 onChange={(e) => setPageSize(Number(e.target.value))}
                 disabled={isNavigating}
               >
-                <option value="100">100 lines</option>
-                <option value="500">500 lines</option>
-                <option value="1000">1000 lines</option>
-                <option value="5000">5000 lines</option>
-                <option value="10000">10000 lines</option>
+                <option value="100"><I18nText text={"100 lines"} /></option>
+                <option value="500"><I18nText text={"500 lines"} /></option>
+                <option value="1000"><I18nText text={"1000 lines"} /></option>
+                <option value="5000"><I18nText text={"5000 lines"} /></option>
+                <option value="10000"><I18nText text={"10000 lines"} /></option>
               </select>
             </>
           )}
@@ -416,7 +418,7 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
           <div className="ml-auto flex items-center gap-2">
             {displayMode === 'raw' && (
               <div className="flex items-center gap-1.5">
-                <span className="text-xs text-muted-foreground">Wrap</span>
+                <span className="text-xs text-muted-foreground"><I18nText text={"Wrap"} /></span>
                 <Switch
                   checked={preferences.logWrap}
                   onCheckedChange={(checked) =>
@@ -427,7 +429,7 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
             )}
 
             {/* Reload button */}
-            <ReloadButton
+            <I18nProps><ReloadButton
               onReload={async () => {
                 if (mutate) {
                   await mutate();
@@ -435,10 +437,10 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
               }}
               isLoading={isNavigating || isLoading}
               title="Reload logs"
-            />
+            /></I18nProps>
 
             {/* Download button */}
-            <Button
+            <I18nProps><Button
               size="sm"
               variant="outline"
               onClick={handleDownload}
@@ -446,7 +448,7 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
               title="Download full log"
             >
               <Download className="h-4 w-4" />
-            </Button>
+            </Button></I18nProps>
 
             {/* Live mode toggle - only visible when DAG is running */}
             {isRunning && (
@@ -479,7 +481,7 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
               onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
               disabled={currentPage <= 1 || isNavigating}
             >
-              Previous
+              <I18nText text={"Previous"} />
             </Button>
             <span className="text-xs">
               Page {currentPage} of {totalPages}
@@ -491,14 +493,14 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
               }
               disabled={currentPage >= totalPages || isNavigating}
             >
-              Next
+              <I18nText text={"Next"} />
             </Button>
           </div>
         )}
 
         {showNavigation && (
           <div className="flex items-center gap-2 mt-2">
-            <span className="text-xs text-muted-foreground">Jump to line:</span>
+            <span className="text-xs text-muted-foreground"><I18nText text={"Jump to line:"} /></span>
             <Input
               type="number"
               min={1}
@@ -534,7 +536,7 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
                 (jumpToLine as number) > effectiveTotalLines
               }
             >
-              Go
+              <I18nText text={"Go"} />
             </Button>
           </div>
         )}

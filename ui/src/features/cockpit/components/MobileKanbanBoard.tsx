@@ -10,6 +10,7 @@ import {
 } from '@/features/views/viewColumns';
 import { KanbanColumn } from './KanbanColumn';
 import type { KanbanColumns } from '../hooks/useDateKanbanData';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type DAGRunSummary = components['schemas']['DAGRunSummary'];
 
@@ -93,7 +94,7 @@ export function MobileKanbanBoard({
 
   return (
     <div className="flex min-h-0 flex-col">
-      <Tabs
+      <I18nProps><Tabs
         role="tablist"
         aria-label="Run status columns"
         className="mb-1 shrink-0 overflow-x-auto overflow-y-hidden border-b-0"
@@ -123,7 +124,7 @@ export function MobileKanbanBoard({
             </Tab>
           );
         })}
-      </Tabs>
+      </Tabs></I18nProps>
       <div
         id={tabPanelId}
         role="tabpanel"

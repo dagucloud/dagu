@@ -13,6 +13,7 @@ import {
 import { useConfig } from '@/contexts/ConfigContext';
 import { components, NodeStatus } from '../../../../api/v1/schema';
 import NodeStatusTableRow from './NodeStatusTableRow';
+import { I18nText } from '@/i18n/I18nText';
 
 /**
  * Props for the NodeStatusTable component
@@ -70,16 +71,16 @@ function NodeStatusTable({
           <Table className="w-full">
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[5%] text-center">No</TableHead>
-                <TableHead className="w-[20%]">Step Name</TableHead>
-                <TableHead className="w-[15%]">Execution</TableHead>
-                <TableHead className="w-[15%]">Last Run</TableHead>
-                <TableHead className="w-[10%] text-center">Status</TableHead>
+                <TableHead className="w-[5%] text-center"><I18nText text={"No"} /></TableHead>
+                <TableHead className="w-[20%]"><I18nText text={"Step Name"} /></TableHead>
+                <TableHead className="w-[15%]"><I18nText text={"Execution"} /></TableHead>
+                <TableHead className="w-[15%]"><I18nText text={"Last Run"} /></TableHead>
+                <TableHead className="w-[10%] text-center"><I18nText text={"Status"} /></TableHead>
                 <TableHead className="w-[35%] min-w-[150px]">
-                  Error / Logs
+                  <I18nText text={"Error / Logs"} />
                 </TableHead>
                 {showActionsColumn && (
-                  <TableHead className="w-[8%] text-center">Actions</TableHead>
+                  <TableHead className="w-[8%] text-center"><I18nText text={"Actions"} /></TableHead>
                 )}
               </TableRow>
             </TableHeader>

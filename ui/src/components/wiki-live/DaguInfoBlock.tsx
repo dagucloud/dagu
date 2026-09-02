@@ -9,6 +9,7 @@ import { Link } from 'react-router-dom';
 import { parse as parseYAML } from 'yaml';
 import { DagStatusChip } from './DagStatusChip';
 import { useWikiLive } from './context';
+import { I18nText } from '@/i18n/I18nText';
 
 type DAGDetails = components['schemas']['DAGDetails'];
 
@@ -119,7 +120,7 @@ function DagDetailsSections({
       )}
       {sections.includes('overview') && (
         <div>
-          <SectionTitle>Overview</SectionTitle>
+          <SectionTitle><I18nText text={"Overview"} /></SectionTitle>
           <InfoTable
             rows={[
               ['Description', dag.description ?? ''],
@@ -132,14 +133,14 @@ function DagDetailsSections({
       )}
       {sections.includes('params') && (dag.paramDefs?.length ?? 0) > 0 && (
         <div>
-          <SectionTitle>Parameters</SectionTitle>
+          <SectionTitle><I18nText text={"Parameters"} /></SectionTitle>
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-border text-left text-muted-foreground">
-                <th className="py-1 pr-3 font-normal">Name</th>
-                <th className="py-1 pr-3 font-normal">Type</th>
-                <th className="py-1 pr-3 font-normal">Default</th>
-                <th className="py-1 font-normal">Description</th>
+                <th className="py-1 pr-3 font-normal"><I18nText text={"Name"} /></th>
+                <th className="py-1 pr-3 font-normal"><I18nText text={"Type"} /></th>
+                <th className="py-1 pr-3 font-normal"><I18nText text={"Default"} /></th>
+                <th className="py-1 font-normal"><I18nText text={"Description"} /></th>
               </tr>
             </thead>
             <tbody>
@@ -167,13 +168,13 @@ function DagDetailsSections({
         (dag.paramDefs?.length ?? 0) === 0 &&
         dag.defaultParams && (
           <div>
-            <SectionTitle>Parameters</SectionTitle>
+            <SectionTitle><I18nText text={"Parameters"} /></SectionTitle>
             <code className="text-xs">{dag.defaultParams}</code>
           </div>
         )}
       {sections.includes('schedule') && (dag.schedule?.length ?? 0) > 0 && (
         <div>
-          <SectionTitle>Schedule</SectionTitle>
+          <SectionTitle><I18nText text={"Schedule"} /></SectionTitle>
           <div className="text-xs font-mono">
             {dag.schedule?.map((s, i) => <div key={i}>{s.expression}</div>)}
           </div>
@@ -181,7 +182,7 @@ function DagDetailsSections({
       )}
       {sections.includes('steps') && (dag.steps?.length ?? 0) > 0 && (
         <div>
-          <SectionTitle>Steps</SectionTitle>
+          <SectionTitle><I18nText text={"Steps"} /></SectionTitle>
           <table className="w-full text-xs">
             <tbody>
               {dag.steps?.map((step) => (
@@ -207,7 +208,7 @@ function DagDetailsSections({
       {sections.includes('preconditions') &&
         (dag.preconditions?.length ?? 0) > 0 && (
           <div>
-            <SectionTitle>Preconditions</SectionTitle>
+            <SectionTitle><I18nText text={"Preconditions"} /></SectionTitle>
             <div className="text-xs font-mono">
               {dag.preconditions?.map((c, i) => (
                 <div key={i}>{c.condition}</div>
@@ -260,7 +261,7 @@ export function DaguInfoBlock({ source }: Props) {
       </div>
       {result.state === 'not-found' && (
         <div className="mt-1 text-xs text-muted-foreground">
-          DAG not found in this workspace.
+          <I18nText text={"DAG not found in this workspace."} />
         </div>
       )}
       {result.state === 'found' && (

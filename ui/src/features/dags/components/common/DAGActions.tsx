@@ -37,6 +37,8 @@ import { getDAGRunTerminateActionDetails } from '../../../dag-runs/components/co
 import { RejectDAGRunDialog } from '../../../dag-runs/components/common/RejectDAGRunDialog';
 import { DAGContext } from '../../contexts/DAGContext';
 import { StartDAGModal } from '../dag-execution';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 /**
  * Props for the DAGActions component
@@ -303,11 +305,11 @@ function DAGActions({
               }}
               className="cursor-pointer"
             >
-              Start
+              <I18nText text={"Start"} />
             </ActionButton>
           </TooltipTrigger>
           <TooltipContent>
-            <p>Start DAG execution</p>
+            <p><I18nText text={"Start DAG execution"} /></p>
           </TooltipContent>
         </Tooltip>
 
@@ -321,11 +323,11 @@ function DAGActions({
                 onClick={() => setIsRejectModal(true)}
                 className="cursor-pointer"
               >
-                Reject
+                <I18nText text={"Reject"} />
               </ActionButton>
             </TooltipTrigger>
             <TooltipContent>
-              <p>Reject DAG run</p>
+              <p><I18nText text={"Reject DAG run"} /></p>
             </TooltipContent>
           </Tooltip>
         ) : (
@@ -426,11 +428,11 @@ function DAGActions({
                 }}
                 className="cursor-pointer"
               >
-                Retry
+                <I18nText text={"Retry"} />
               </ActionButton>
             </TooltipTrigger>
             <TooltipContent>
-              <p>Retry DAG execution</p>
+              <p><I18nText text={"Retry DAG execution"} /></p>
             </TooltipContent>
           </Tooltip>
         )}
@@ -445,7 +447,7 @@ function DAGActions({
           />
         )}
 
-        <ConfirmModal
+        <I18nProps><ConfirmModal
           title="Confirmation"
           buttonText={terminateDetails.buttonText}
           visible={isStopModal}
@@ -521,28 +523,28 @@ function DAGActions({
                 : terminateDetails.confirmText}
             </p>
             {!stopAllRunning && status?.name && (
-              <LabeledItem label="DAG-Run-Name">
+              <I18nProps><LabeledItem label="DAG-Run-Name">
                 <span className="font-mono text-sm">{status.name}</span>
-              </LabeledItem>
+              </LabeledItem></I18nProps>
             )}
             {!stopAllRunning && status?.dagRunId && (
-              <LabeledItem label="DAG-Run-ID">
+              <I18nProps><LabeledItem label="DAG-Run-ID">
                 <span className="font-mono text-sm">{status.dagRunId}</span>
-              </LabeledItem>
+              </LabeledItem></I18nProps>
             )}
             {!stopAllRunning && status?.startedAt && (
-              <LabeledItem label="Started At">
+              <I18nProps><LabeledItem label="Started At">
                 <span className="text-sm">
                   {dayjs(status.startedAt).format('YYYY-MM-DD HH:mm:ss Z')}
                 </span>
-              </LabeledItem>
+              </LabeledItem></I18nProps>
             )}
             {!stopAllRunning && status?.status !== undefined && (
-              <LabeledItem label="Status">
+              <I18nProps><LabeledItem label="Status">
                 <StatusChip status={status.status} size="sm">
                   {status.statusLabel || ''}
                 </StatusChip>
-              </LabeledItem>
+              </LabeledItem></I18nProps>
             )}
             {terminateAction === 'stop' && (
               <div className="mt-4 flex items-center space-x-2 p-2 bg-warning-muted rounded border border-warning/30">
@@ -558,12 +560,12 @@ function DAGActions({
                   htmlFor="stop-all"
                   className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 text-warning"
                 >
-                  Stop all running instances
+                  <I18nText text={"Stop all running instances"} />
                 </label>
               </div>
             )}
           </div>
-        </ConfirmModal>
+        </ConfirmModal></I18nProps>
         <ConfirmModal
           title={retryAsNew ? 'Reschedule DAG Run' : 'Confirmation'}
           buttonText={retryAsNew ? 'Reschedule' : 'Rerun'}
@@ -670,27 +672,27 @@ function DAGActions({
                 ? `Do you really want to retry the dag-run "${status.name}"?`
                 : 'Do you really want to rerun the following execution?'}
             </p>
-            <LabeledItem label="DAG-Run-Name">
+            <I18nProps><LabeledItem label="DAG-Run-Name">
               <span className="font-mono text-sm">{status?.name || 'N/A'}</span>
-            </LabeledItem>
-            <LabeledItem label="DAG-Run-ID">
+            </LabeledItem></I18nProps>
+            <I18nProps><LabeledItem label="DAG-Run-ID">
               <span className="font-mono text-sm">
                 {retryDagRunId || status?.dagRunId || 'N/A'}
               </span>
-            </LabeledItem>
+            </LabeledItem></I18nProps>
             {status?.startedAt && (
-              <LabeledItem label="Started At">
+              <I18nProps><LabeledItem label="Started At">
                 <span className="text-sm">
                   {dayjs(status.startedAt).format('YYYY-MM-DD HH:mm:ss Z')}
                 </span>
-              </LabeledItem>
+              </LabeledItem></I18nProps>
             )}
             {status?.status !== undefined && (
-              <LabeledItem label="Status">
+              <I18nProps><LabeledItem label="Status">
                 <StatusChip status={status.status} size="sm">
                   {status.statusLabel || ''}
                 </StatusChip>
-              </LabeledItem>
+              </LabeledItem></I18nProps>
             )}
 
             {/* Reschedule checkbox */}
@@ -705,7 +707,7 @@ function DAGActions({
                 htmlFor="reschedule-dag"
                 className="cursor-pointer text-sm"
               >
-                Reschedule with new DAG-run
+                <I18nText text={"Reschedule with new DAG-run"} />
               </Label>
             </div>
 
@@ -714,19 +716,19 @@ function DAGActions({
               <div className="space-y-3 pt-2">
                 <div className="space-y-1.5">
                   <Label htmlFor="new-dagrun-id-dag" className="text-sm">
-                    New DAG-Run ID (optional)
+                    <I18nText text={"New DAG-Run ID (optional)"} />
                   </Label>
-                  <Input
+                  <I18nProps><Input
                     id="new-dagrun-id-dag"
                     placeholder="Auto-generated if empty"
                     value={newRunId}
                     onChange={(e) => setNewRunId(e.target.value)}
                     className="h-8 text-sm"
-                  />
+                  /></I18nProps>
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="dag-name-override-dag" className="text-sm">
-                    DAG Name Override (optional)
+                    <I18nText text={"DAG Name Override (optional)"} />
                   </Label>
                   <Input
                     id="dag-name-override-dag"
@@ -751,7 +753,7 @@ function DAGActions({
                       htmlFor="use-current-dag-file-dag"
                       className="cursor-pointer text-sm"
                     >
-                      Use original DAG file
+                      <I18nText text={"Use original DAG file"} />
                     </Label>
                     <p className="text-xs text-muted-foreground">
                       {specFromFile
@@ -865,7 +867,7 @@ function DAGActions({
             setStartModalLoadError(null);
           }}
         />
-        <ConfirmModal
+        <I18nProps><ConfirmModal
           title="Unsaved Changes"
           buttonText="Run Anyway"
           visible={isUnsavedChangesModal}
@@ -881,15 +883,14 @@ function DAGActions({
             <AlertTriangle className="h-5 w-5 text-warning flex-shrink-0 mt-0.5" />
             <div className="space-y-2">
               <p className="font-medium">
-                You have unsaved changes in the DAG definition.
+                <I18nText text={"You have unsaved changes in the DAG definition."} />
               </p>
               <p className="text-sm text-muted-foreground">
-                The DAG will run with the last saved version, not your current
-                edits. Save your changes first if you want them to take effect.
+                <I18nText text={"The DAG will run with the last saved version, not your current edits. Save your changes first if you want them to take effect."} />
               </p>
             </div>
           </div>
-        </ConfirmModal>
+        </ConfirmModal></I18nProps>
       </div>
     </TooltipProvider>
   );

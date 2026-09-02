@@ -50,6 +50,8 @@ import {
   providerInput,
   providerLabel,
 } from '@/features/incidents/incidentDrafts';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type IncidentHomeLink = {
   to: string;
@@ -74,7 +76,7 @@ function IncidentHomeLinks({
   return (
     <section className="space-y-2">
       <h3 className="text-xs font-semibold uppercase text-muted-foreground">
-        Setup
+        <I18nText text={"Setup"} />
       </h3>
       <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
         {links.map((link) => (
@@ -105,7 +107,7 @@ export default function IncidentsPage(): ReactElement {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-5 overflow-auto">
-      <Title>Incidents</Title>
+      <Title><I18nText text={"Incidents"} /></Title>
       <IncidentHomeLinks
         links={[
           {
@@ -170,11 +172,10 @@ function ProvidersHeader({ onAdd }: { onAdd: () => void }): ReactElement {
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="space-y-1">
           <h1 className="text-2xl font-semibold tracking-normal text-foreground">
-            Incident Connections
+            <I18nText text={"Incident Connections"} />
           </h1>
           <p className="text-sm text-muted-foreground">
-            Connections are configured once, then selected by Global, workspace,
-            or DAG incident routing.
+            <I18nText text={"Connections are configured once, then selected by Global, workspace, or DAG incident routing."} />
           </p>
         </div>
         <Button size="sm" onClick={onAdd}>
@@ -274,7 +275,7 @@ function ProviderCard({
             Save
           </Button>
           {!isNew && onDelete && (
-            <Button
+            <I18nProps><Button
               variant="ghost"
               size="icon-sm"
               className="text-destructive hover:text-destructive"
@@ -282,7 +283,7 @@ function ProviderCard({
               aria-label="Delete incident connection"
             >
               <Trash2 className="h-4 w-4" />
-            </Button>
+            </Button></I18nProps>
           )}
         </div>
       </div>
@@ -290,7 +291,7 @@ function ProviderCard({
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <div className="space-y-2">
           <label className="text-xs font-medium text-muted-foreground">
-            Name
+            <I18nText text={"Name"} />
           </label>
           <Input
             value={draft.name}
@@ -301,7 +302,7 @@ function ProviderCard({
         </div>
         <div className="space-y-2">
           <label className="text-xs font-medium text-muted-foreground">
-            Type
+            <I18nText text={"Type"} />
           </label>
           <Select value={draft.type} onValueChange={handleTypeChange}>
             <SelectTrigger className="h-7">
@@ -333,7 +334,7 @@ function ProviderCard({
       {draft.type === IncidentProviderType.pagerduty ? (
         <div className="mt-4 space-y-2">
           <label className="text-xs font-medium text-muted-foreground">
-            Events API v2 routing key
+            <I18nText text={"Events API v2 routing key"} />
           </label>
           <Input
             type="password"
@@ -352,7 +353,7 @@ function ProviderCard({
         <div className="mt-4 space-y-4">
           <div className="space-y-2">
             <label className="text-xs font-medium text-muted-foreground">
-              Incoming webhook URL
+              <I18nText text={"Incoming webhook URL"} />
             </label>
             <Input
               type="password"
@@ -551,7 +552,7 @@ export function IncidentProvidersPage(): ReactElement {
       )}
       {!isLoading && drafts.length === 0 && !newDraft ? (
         <div className="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-          No incident connections configured.
+          <I18nText text={"No incident connections configured."} />
         </div>
       ) : null}
       <div className="space-y-3">
@@ -568,7 +569,7 @@ export function IncidentProvidersPage(): ReactElement {
           />
         ))}
       </div>
-      <ConfirmDialog
+      <I18nProps><ConfirmDialog
         title="Delete incident connection?"
         buttonText="Delete"
         visible={!!deleteDraft}
@@ -578,7 +579,7 @@ export function IncidentProvidersPage(): ReactElement {
         {deleteDraft
           ? `${deleteDraft.name} cannot be deleted while it is used by routing.`
           : ''}
-      </ConfirmDialog>
+      </ConfirmDialog></I18nProps>
     </div>
   );
 }
@@ -597,10 +598,10 @@ function PoliciesHeader({
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="space-y-1">
           <h1 className="text-2xl font-semibold tracking-normal text-foreground">
-            Incident Routing
+            <I18nText text={"Incident Routing"} />
           </h1>
           <p className="text-sm text-muted-foreground">
-            Effective order is DAG, workspace, then Global.
+            <I18nText text={"Effective order is DAG, workspace, then Global."} />
           </p>
         </div>
         <Button size="sm" onClick={onSave} disabled={saving}>
@@ -635,7 +636,7 @@ function ScopeSelector({
   const workspaceMode = incidentRoutingMode(workspaceDraft);
   return (
     <div className="rounded-md border border-border bg-card p-4">
-      <h2 className="text-sm font-semibold text-foreground">Scope</h2>
+      <h2 className="text-sm font-semibold text-foreground"><I18nText text={"Scope"} /></h2>
       <div className="mt-3 grid gap-2 md:grid-cols-2">
         <button
           type="button"
@@ -647,7 +648,7 @@ function ScopeSelector({
           }`}
         >
           <div className="flex items-center justify-between gap-3">
-            <span className="text-sm font-medium text-foreground">Global</span>
+            <span className="text-sm font-medium text-foreground"><I18nText text={"Global"} /></span>
             <Badge variant={globalMode === 'custom' ? 'success' : 'default'}>
               {globalMode === 'custom'
                 ? `${globalDraft.policies.length} route${globalDraft.policies.length === 1 ? '' : 's'}`
@@ -655,7 +656,7 @@ function ScopeSelector({
             </Badge>
           </div>
           <p className="mt-2 text-xs leading-5 text-muted-foreground">
-            Default route for DAGs without workspace or DAG overrides.
+            <I18nText text={"Default route for DAGs without workspace or DAG overrides."} />
           </p>
         </button>
 
@@ -671,7 +672,7 @@ function ScopeSelector({
         >
           <div className="flex items-center justify-between gap-3">
             <span className="text-sm font-medium text-foreground">
-              Workspace
+              <I18nText text={"Workspace"} />
             </span>
             <Badge variant={workspaceMode === 'custom' ? 'success' : 'default'}>
               {workspaceMode === 'inherit'
@@ -855,8 +856,7 @@ export function IncidentPoliciesPage(): ReactElement {
       <Alert variant="info">
         <CheckCircle2 className="h-4 w-4" />
         <AlertDescription>
-          Incidents open only after automatic retries are exhausted. Recovery
-          resolves the same incident.
+          <I18nText text={"Incidents open only after automatic retries are exhausted. Recovery resolves the same incident."} />
         </AlertDescription>
       </Alert>
 

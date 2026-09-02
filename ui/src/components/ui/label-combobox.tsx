@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { cn, parseLabelParts } from '@/lib/utils';
 import { ChevronDown, X } from 'lucide-react';
 import * as React from 'react';
+import { I18nProps } from '@/i18n/I18nProps';
 
 interface LabelComboboxProps {
   selectedLabels: string[];
@@ -226,7 +227,7 @@ function LabelCombobox({
         />
         <div className="flex items-center gap-1 ml-auto">
           {selectedLabels.length > 0 && (
-            <button
+            <I18nProps><button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
@@ -236,7 +237,7 @@ function LabelCombobox({
               title="Clear all labels"
             >
               <X className="h-3.5 w-3.5" />
-            </button>
+            </button></I18nProps>
           )}
           <ChevronDown
             className={cn(

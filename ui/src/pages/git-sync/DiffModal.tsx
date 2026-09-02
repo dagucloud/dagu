@@ -11,6 +11,7 @@ import { SyncStatus } from '@/api/v1/schema';
 import { useUserPreferences } from '@/contexts/UserPreference';
 import { Upload, RotateCcw, Trash2, EyeOff, RefreshCw, X } from 'lucide-react';
 import { DialogClose } from '@/components/ui/dialog';
+import { I18nText } from '@/i18n/I18nText';
 
 interface DiffModalProps {
   open: boolean;
@@ -118,7 +119,7 @@ export function DiffModal({
           <DialogTitle className="text-sm font-mono">{dagId}</DialogTitle>
           <DialogClose className="p-1.5 rounded-md opacity-70 transition-opacity hover:opacity-100 hover:bg-muted">
             <X className="h-4 w-4" />
-            <span className="sr-only">Close</span>
+            <span className="sr-only"><I18nText text={"Close"} /></span>
           </DialogClose>
         </DialogHeader>
         <div className="flex-1 overflow-auto">
@@ -134,7 +135,7 @@ export function DiffModal({
           {binary ? (
             <div className="p-3 text-sm bg-muted/30">
               <div className="text-muted-foreground mb-3">
-                Binary file. Content comparison is not available.
+                <I18nText text={"Binary file. Content comparison is not available."} />
               </div>
               <table className="text-xs">
                 <tbody>

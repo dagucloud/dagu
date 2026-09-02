@@ -80,6 +80,8 @@ import { LogStepMessage } from './LogStepMessage';
 import { SubDAGRunsList } from './SubDAGRunsList';
 import PushBackHistory from '../common/PushBackHistory';
 import { ManualActionSubject } from '../common/ManualActionSubject';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 /**
  * Props for the NodeStatusTableRow component
@@ -146,7 +148,7 @@ function BuildDecisionBadge({
         <div className="font-medium">
           {build.reason.replace(/_/g, ' ')}
         </div>
-        {build.decision === 'reuse' && <div>No executor ran.</div>}
+        {build.decision === 'reuse' && <div><I18nText text={"No executor ran."} /></div>}
         {build.detail && <div>{build.detail}</div>}
         {producer?.name && producer.id && (
           <Link
@@ -228,7 +230,7 @@ function ManualActionDetails({
     <>
       {node.humanTaskCompletedBy || node.humanTaskCompletedById ? (
         <div className={detailClassName}>
-          <span className="font-medium">Completed by:</span>{' '}
+          <span className="font-medium"><I18nText text={"Completed by:"} /></span>{' '}
           <ManualActionSubject
             name={node.humanTaskCompletedBy}
             id={node.humanTaskCompletedById}
@@ -241,7 +243,7 @@ function ManualActionDetails({
       ) : null}
       {node.approvedBy || node.approvedById ? (
         <div className={detailClassName}>
-          <span className="font-medium">Approved by:</span>{' '}
+          <span className="font-medium"><I18nText text={"Approved by:"} /></span>{' '}
           <ManualActionSubject
             name={node.approvedBy}
             id={node.approvedById}
@@ -254,7 +256,7 @@ function ManualActionDetails({
       ) : null}
       {node.approvalInputs && Object.keys(node.approvalInputs).length > 0 && (
         <div className={detailClassName}>
-          <span className="font-medium">Inputs:</span>{' '}
+          <span className="font-medium"><I18nText text={"Inputs:"} /></span>{' '}
           <span className="whitespace-normal break-words font-mono text-foreground/80">
             {JSON.stringify(node.approvalInputs)}
           </span>
@@ -265,7 +267,7 @@ function ManualActionDetails({
       )}
       {node.rejectedBy || node.rejectedById ? (
         <div className={detailClassName}>
-          <span className="font-medium">Rejected by:</span>{' '}
+          <span className="font-medium"><I18nText text={"Rejected by:"} /></span>{' '}
           <ManualActionSubject
             name={node.rejectedBy}
             id={node.rejectedById}
@@ -278,7 +280,7 @@ function ManualActionDetails({
       ) : null}
       {node.rejectionReason && (
         <div className={detailClassName}>
-          <span className="font-medium">Reason:</span>{' '}
+          <span className="font-medium"><I18nText text={"Reason:"} /></span>{' '}
           <span className="whitespace-normal break-words text-foreground/80">
             {node.rejectionReason}
           </span>
@@ -699,14 +701,14 @@ function NodeStatusTableRow({
     <Dialog open={showDialog} onOpenChange={handleRetryDialogOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Retry this step?</DialogTitle>
+          <DialogTitle><I18nText text={"Retry this step?"} /></DialogTitle>
         </DialogHeader>
         <div className="py-2 text-sm space-y-3">
           <p>
             This will re-execute <b>{node.step.name}</b>. Are you sure?
           </p>
           <fieldset className="space-y-1.5">
-            <legend className="text-xs text-muted-foreground">Retry scope</legend>
+            <legend className="text-xs text-muted-foreground"><I18nText text={"Retry scope"} /></legend>
             <label className="flex items-start gap-2 cursor-pointer">
               <input
                 type="radio"
@@ -716,9 +718,9 @@ function NodeStatusTableRow({
                 onChange={() => setIncludeDownstream(false)}
               />
               <span>
-                <span className="font-medium">This step only</span>
+                <span className="font-medium"><I18nText text={"This step only"} /></span>
                 <span className="block text-xs text-muted-foreground">
-                  Downstream steps keep their current status.
+                  <I18nText text={"Downstream steps keep their current status."} />
                 </span>
               </span>
             </label>
@@ -732,11 +734,10 @@ function NodeStatusTableRow({
               />
               <span>
                 <span className="font-medium">
-                  This step and all downstream steps
+                  <I18nText text={"This step and all downstream steps"} />
                 </span>
                 <span className="block text-xs text-muted-foreground">
-                  Reset this step and every reachable descendant. Unrelated
-                  branches are left unchanged.
+                  <I18nText text={"Reset this step and every reachable descendant. Unrelated branches are left unchanged."} />
                 </span>
               </span>
             </label>
@@ -783,7 +784,7 @@ function NodeStatusTableRow({
               </Button>
             </DropdownMenuTrigger>
           </TooltipTrigger>
-          <TooltipContent>Step actions</TooltipContent>
+          <TooltipContent><I18nText text={"Step actions"} /></TooltipContent>
         </Tooltip>
         <DropdownMenuContent
           align="end"
@@ -1057,11 +1058,11 @@ function NodeStatusTableRow({
                             title="View stdout log (Cmd/Ctrl+Click for new tab)"
                           >
                             <Code className="h-3.5 w-3.5 text-muted-foreground" />
-                            <span>stdout</span>
+                            <span><I18nText text={"stdout"} /></span>
                           </a>
                         </TooltipTrigger>
                         <TooltipContent>
-                          <span className="text-xs">Standard Output Log</span>
+                          <span className="text-xs"><I18nText text={"Standard Output Log"} /></span>
                         </TooltipContent>
                       </Tooltip>
                       {node.stderr && <div className="w-px h-5 bg-border" />}
@@ -1088,11 +1089,11 @@ function NodeStatusTableRow({
                           title="View stderr log (Cmd/Ctrl+Click for new tab)"
                         >
                           <AlertCircle className="h-3.5 w-3.5 text-warning" />
-                          <span className="text-warning">stderr</span>
+                          <span className="text-warning"><I18nText text={"stderr"} /></span>
                         </a>
                       </TooltipTrigger>
                       <TooltipContent>
-                        <span className="text-xs">Error Output Log</span>
+                        <span className="text-xs"><I18nText text={"Error Output Log"} /></span>
                       </TooltipContent>
                     </Tooltip>
                   )}
@@ -1107,7 +1108,7 @@ function NodeStatusTableRow({
               )}
               {node.step.preconditions?.some((cond) => cond.error) && (
                 <div className="text-xs text-warning leading-relaxed">
-                  Precondition unmet
+                  <I18nText text={"Precondition unmet"} />
                 </div>
               )}
             </div>
@@ -1144,7 +1145,7 @@ function NodeStatusTableRow({
                             : 'text-muted-foreground border-transparent hover:text-foreground'
                         )}
                       >
-                        stdout
+                        <I18nText text={"stdout"} />
                       </button>
                       <button
                         onClick={(e) => {
@@ -1158,7 +1159,7 @@ function NodeStatusTableRow({
                             : 'text-muted-foreground border-transparent hover:text-foreground'
                         )}
                       >
-                        stderr
+                        <I18nText text={"stderr"} />
                       </button>
                     </div>
                   ) : (
@@ -1168,7 +1169,7 @@ function NodeStatusTableRow({
                   )}
 
                   {/* Expand to modal button */}
-                  <button
+                  <I18nProps><button
                     onClick={(e) => {
                       e.stopPropagation();
                       if (onViewLog) {
@@ -1185,8 +1186,8 @@ function NodeStatusTableRow({
                     title="Open in full modal"
                   >
                     <Code className="h-3 w-3" />
-                    <span>Full view</span>
-                  </button>
+                    <span><I18nText text={"Full view"} /></span>
+                  </button></I18nProps>
                 </div>
 
                 {/* Simple inline log viewer - no controls */}
@@ -1359,7 +1360,7 @@ function NodeStatusTableRow({
       {/* Timing section */}
       <div className="mb-3">
         <div className="text-xs font-medium text-foreground/90 mb-1">
-          Timing:
+          <I18nText text={"Timing:"} />
         </div>
         <div className="space-y-0.5">
           <div className="text-xs text-muted-foreground">
@@ -1386,7 +1387,7 @@ function NodeStatusTableRow({
       {(node.error || node.step.preconditions?.some((cond) => cond.error)) && (
         <div className="mb-3">
           <div className="text-xs font-medium text-foreground/90 mb-1">
-            Errors:
+            <I18nText text={"Errors:"} />
           </div>
 
           {node.error && (
@@ -1398,7 +1399,7 @@ function NodeStatusTableRow({
           {node.step.preconditions?.some((cond) => cond.error) && (
             <div>
               <div className="text-xs font-medium text-warning mb-1">
-                Precondition Unmet:
+                <I18nText text={"Precondition Unmet:"} />
               </div>
               {node.step.preconditions
                 .filter((cond) => cond.error)
@@ -1426,22 +1427,22 @@ function NodeStatusTableRow({
             {/* stdout button */}
             {node.stdout && (
               <>
-                <a
+                <I18nProps><a
                   href={url}
                   onClick={handleViewLog}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors bg-card hover:bg-muted cursor-pointer"
                   title="View stdout log (Cmd/Ctrl+Click for new tab)"
                 >
                   <Code className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span>stdout</span>
-                </a>
+                  <span><I18nText text={"stdout"} /></span>
+                </a></I18nProps>
                 {node.stderr && <div className="w-px h-5 bg-border" />}
               </>
             )}
 
             {/* stderr button */}
             {node.stderr && (
-              <a
+              <I18nProps><a
                 href={`${url}&stream=stderr`}
                 onClick={(e) => {
                   if (!(e.metaKey || e.ctrlKey) && onViewLog) {
@@ -1453,8 +1454,8 @@ function NodeStatusTableRow({
                 title="View stderr log (Cmd/Ctrl+Click for new tab)"
               >
                 <AlertCircle className="h-3.5 w-3.5 text-warning" />
-                <span className="text-warning">stderr</span>
-              </a>
+                <span className="text-warning"><I18nText text={"stderr"} /></span>
+              </a></I18nProps>
             )}
           </div>
         </div>

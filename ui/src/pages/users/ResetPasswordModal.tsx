@@ -12,6 +12,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { AlertCircle, CheckCircle, KeyRound, X } from 'lucide-react';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type User = components['schemas']['User'];
 
@@ -121,15 +123,15 @@ export function ResetPasswordModal({ open, user, onClose }: ResetPasswordModalPr
           {success && (
             <div className="flex items-center gap-2 p-3 text-sm text-success bg-success/10 rounded-md">
               <CheckCircle className="h-4 w-4 flex-shrink-0" />
-              <span>Password reset successfully!</span>
+              <span><I18nText text={"Password reset successfully!"} /></span>
             </div>
           )}
 
           <div className="space-y-1.5">
             <Label htmlFor="new-password" className="text-sm">
-              New Password
+              <I18nText text={"New Password"} />
             </Label>
-            <Input
+            <I18nProps><Input
               id="new-password"
               type="password"
               value={newPassword}
@@ -138,12 +140,12 @@ export function ResetPasswordModal({ open, user, onClose }: ResetPasswordModalPr
               autoComplete="new-password"
               className="h-9"
               placeholder="Minimum 8 characters"
-            />
+            /></I18nProps>
           </div>
 
           <div className="space-y-1.5">
             <Label htmlFor="confirm-password" className="text-sm">
-              Confirm Password
+              <I18nText text={"Confirm Password"} />
             </Label>
             <Input
               id="confirm-password"

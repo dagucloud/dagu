@@ -20,6 +20,8 @@ import StatusChip from '@/components/ui/status-chip';
 import AutoRetryBadge from '../../../dag-runs/components/common/AutoRetryBadge';
 import { RootDAGRunContext } from '../../contexts/RootDAGRunContext';
 import { DAGActions } from '../common';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 interface DAGHeaderProps {
   dag: components['schemas']['DAG'] | components['schemas']['DAGDetails'];
@@ -298,7 +300,7 @@ const DAGHeader: React.FC<DAGHeaderProps> = ({
               limit={dagRunToDisplay.autoRetryLimit}
             />
 
-            <button
+            <I18nProps><button
               onClick={handleRefresh}
               disabled={isRefreshing}
               className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed transition-all"
@@ -307,8 +309,8 @@ const DAGHeader: React.FC<DAGHeaderProps> = ({
               <RefreshCw
                 className={`h-3 w-3 ${isRefreshing ? 'animate-spin' : ''}`}
               />
-              <span>Refresh</span>
-            </button>
+              <span><I18nText text={"Refresh"} /></span>
+            </button></I18nProps>
 
             <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
               <Calendar className="h-3 w-3" />

@@ -23,6 +23,7 @@ import React, { useState } from 'react';
 import { components, NodeStatus } from '../../../../api/v1/schema';
 import Mermaid from '@/components/ui/mermaid';
 import { exportGraphPng, exportGraphSvg } from './exportGraph';
+import { I18nProps } from '@/i18n/I18nProps';
 
 /**
  * Escapes special characters in labels for safe Mermaid syntax interpolation.
@@ -423,13 +424,13 @@ function Graph({
       ref={containerRef}
     >
       <div className="absolute inset-x-2 top-2 z-10 max-w-[calc(100%-1rem)] overflow-x-auto rounded-md border border-border/50 bg-card shadow-sm sm:left-auto sm:right-4">
-        <ToggleGroup
+        <I18nProps><ToggleGroup
           aria-label="Graph controls"
           className="min-w-max border-0 bg-transparent"
         >
           {onChangeFlowchart && (
             <>
-              <ToggleButton
+              <I18nProps><ToggleButton
                 value="LR"
                 groupValue={flowchart}
                 onClick={() => onChangeFlowchart('LR')}
@@ -438,8 +439,8 @@ function Graph({
                 className={graphControlButtonClass}
               >
                 <ArrowRightLeft className="h-4 w-4" />
-              </ToggleButton>
-              <ToggleButton
+              </ToggleButton></I18nProps>
+              <I18nProps><ToggleButton
                 value="TD"
                 groupValue={flowchart}
                 onClick={() => onChangeFlowchart('TD')}
@@ -448,12 +449,12 @@ function Graph({
                 className={graphControlButtonClass}
               >
                 <ArrowDownUp className="h-4 w-4" />
-              </ToggleButton>
+              </ToggleButton></I18nProps>
               <div className="h-6 w-px shrink-0 self-center bg-border" />
             </>
           )}
 
-          <ToggleButton
+          <I18nProps><ToggleButton
             value="zoomin"
             onClick={() => zoomIn()}
             aria-label="Zoom in"
@@ -461,8 +462,8 @@ function Graph({
             className={graphControlButtonClass}
           >
             <ZoomIn className="h-4 w-4" />
-          </ToggleButton>
-          <ToggleButton
+          </ToggleButton></I18nProps>
+          <I18nProps><ToggleButton
             value="zoomout"
             onClick={() => zoomOut()}
             aria-label="Zoom out"
@@ -470,8 +471,8 @@ function Graph({
             className={graphControlButtonClass}
           >
             <ZoomOut className="h-4 w-4" />
-          </ToggleButton>
-          <ToggleButton
+          </ToggleButton></I18nProps>
+          <I18nProps><ToggleButton
             value="fit"
             onClick={() => fitToScreen()}
             aria-label="Fit to screen"
@@ -479,8 +480,8 @@ function Graph({
             className={graphControlButtonClass}
           >
             <Maximize2 className="h-4 w-4" />
-          </ToggleButton>
-          <ToggleButton
+          </ToggleButton></I18nProps>
+          <I18nProps><ToggleButton
             value="reset"
             onClick={() => resetZoom()}
             aria-label="Reset zoom"
@@ -488,10 +489,10 @@ function Graph({
             className={graphControlButtonClass}
           >
             <RotateCcw className="h-4 w-4" />
-          </ToggleButton>
+          </ToggleButton></I18nProps>
 
           <div className="h-6 w-px shrink-0 self-center bg-border" />
-          <ToggleButton
+          <I18nProps><ToggleButton
             value="export-png"
             onClick={() => handleExport('png')}
             aria-label="Export as PNG"
@@ -499,8 +500,8 @@ function Graph({
             className={graphControlButtonClass}
           >
             <ImageDown className="h-4 w-4" />
-          </ToggleButton>
-          <ToggleButton
+          </ToggleButton></I18nProps>
+          <I18nProps><ToggleButton
             value="export-svg"
             onClick={() => handleExport('svg')}
             aria-label="Export as SVG"
@@ -508,12 +509,12 @@ function Graph({
             className={graphControlButtonClass}
           >
             <FileDown className="h-4 w-4" />
-          </ToggleButton>
+          </ToggleButton></I18nProps>
 
           {!isExpandedView && (
             <>
               <div className="h-6 w-px shrink-0 self-center bg-border" />
-              <ToggleButton
+              <I18nProps><ToggleButton
                 value="expand"
                 onClick={() => setIsModalOpen(true)}
                 aria-label="Expand graph"
@@ -521,10 +522,10 @@ function Graph({
                 className={graphControlButtonClass}
               >
                 <Expand className="h-4 w-4" />
-              </ToggleButton>
+              </ToggleButton></I18nProps>
             </>
           )}
-        </ToggleGroup>
+        </ToggleGroup></I18nProps>
       </div>
 
       <div
@@ -713,7 +714,7 @@ function GraphFallback({
     !!onRightClickNode;
 
   return (
-    <div
+    <I18nProps><div
       aria-label="Workflow graph"
       className="min-w-full p-6 pr-24"
       data-testid="graph-fallback"
@@ -745,7 +746,7 @@ function GraphFallback({
           </div>
         ))}
       </div>
-    </div>
+    </div></I18nProps>
   );
 }
 

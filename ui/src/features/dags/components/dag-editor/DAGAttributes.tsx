@@ -12,6 +12,8 @@ import {
   getScheduleLabel,
   parseNextRun,
 } from '../../../../lib/dagSchedule';
+import { useI18n } from '@/i18n/I18nProvider';
+import { I18nText } from '@/i18n/I18nText';
 
 /**
  * Props for the DAGAttributes component
@@ -26,6 +28,7 @@ type Props = {
  * including name, schedule, description, and other properties
  */
 function DAGAttributes({ dag }: Props) {
+  const { locale } = useI18n();
   const nextRun = parseNextRun(dag.nextRun);
 
   return (
@@ -41,12 +44,12 @@ function DAGAttributes({ dag }: Props) {
         <div className="space-y-1 md:col-span-2">
           <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mb-2">
             <Calendar className="h-4 w-4" />
-            <span>Schedule</span>
+            <span><I18nText text={"Schedule"} /></span>
           </div>
 
           {!dag.schedule?.length ? (
             <div className="text-sm text-muted-foreground italic">
-              No schedule defined
+              <I18nText text={"No schedule defined"} />
             </div>
           ) : (
             <div className="space-y-2">
@@ -68,10 +71,10 @@ function DAGAttributes({ dag }: Props) {
               </div>
 
               <div className="text-sm text-muted-foreground">
-                <span className="font-medium text-foreground">Next run:</span>{' '}
+                <span className="font-medium text-foreground"><I18nText text={"Next run:"} /></span>{' '}
                 {nextRun
-                  ? `${dayjs(nextRun).format('YYYY-MM-DD HH:mm:ss')} (${dayjs(nextRun).fromNow()})`
-                  : 'No upcoming run'}
+                  ? `${dayjs(nextRun).format('YYYY-MM-DD HH:mm:ss')} (${dayjs(nextRun).locale(locale === 'zh-CN' ? 'zh-cn' : locale).fromNow()})`
+                  : <I18nText text="No upcoming run" />}
               </div>
             </div>
           )}
@@ -82,7 +85,7 @@ function DAGAttributes({ dag }: Props) {
           <div className="space-y-1">
             <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mb-2">
               <Tag className="h-4 w-4" />
-              <span>Parameters</span>
+              <span><I18nText text={"Parameters"} /></span>
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -104,7 +107,7 @@ function DAGAttributes({ dag }: Props) {
           <div className="space-y-1">
             <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mb-2">
               <Settings className="h-4 w-4" />
-              <span>Max Active Runs</span>
+              <span><I18nText text={"Max Active Runs"} /></span>
             </div>
 
             <div className="font-medium text-foreground">
@@ -118,7 +121,7 @@ function DAGAttributes({ dag }: Props) {
           <div className="space-y-1">
             <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mb-2">
               <CheckSquare className="h-4 w-4" />
-              <span>Preconditions</span>
+              <span><I18nText text={"Preconditions"} /></span>
             </div>
 
             <div className="space-y-2">

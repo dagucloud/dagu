@@ -40,6 +40,7 @@ import {
   hasTimelineSubRuns,
   TimelineRow,
 } from './timelineItems';
+import { I18nText } from '@/i18n/I18nText';
 
 /**
  * Props for the TimelineChart component
@@ -439,7 +440,7 @@ function TimelineChart({ status, onOpenSubRun }: Props) {
   if (items.length === 0) {
     return (
       <div className="text-sm text-muted-foreground p-4">
-        No step execution data available.
+        <I18nText text={"No step execution data available."} />
       </div>
     );
   }

@@ -13,6 +13,7 @@ import { matchesRequestedDAGRunDetails } from '../../hooks/dagRunDetailsRequest'
 import { useBoundedDAGRunDetails } from '../../hooks/useBoundedDAGRunDetails';
 import { buildDAGRunPageURL } from '../../lib/dagRunUrls';
 import DAGRunDetailsContent from './DAGRunDetailsContent';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type Props = {
   name: string;
@@ -190,16 +191,16 @@ function DAGRunDetailsPanel({
             to navigate runs
           </p>
           <div className="flex gap-2 items-center">
-            <Button
+            <I18nProps><Button
               size="icon"
               onClick={handleFullscreenClick}
               title="Open in fullscreen (F) - Cmd/Ctrl+Click to open in new tab"
             >
               <Maximize2 className="h-4 w-4" />
-            </Button>
-            <Button size="icon" onClick={onClose} title="Close (Esc)">
+            </Button></I18nProps>
+            <I18nProps><Button size="icon" onClick={onClose} title="Close (Esc)">
               <X className="h-4 w-4" />
-            </Button>
+            </Button></I18nProps>
           </div>
         </div>
 

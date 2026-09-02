@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RefreshCw, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { I18nText } from '@/i18n/I18nText';
 
 interface DeleteMissingDialogProps {
   open: boolean;
@@ -44,7 +45,7 @@ export function DeleteMissingDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="text-base">
-            Delete All Missing Items
+            <I18nText text={"Delete All Missing Items"} />
           </DialogTitle>
           <DialogDescription className="text-xs">
             This will remove {missingCount} missing item
@@ -55,7 +56,7 @@ export function DeleteMissingDialog({
         <div className="space-y-3">
           <div className="space-y-1.5">
             <Label htmlFor="delete-missing-msg" className="text-xs">
-              Commit Message
+              <I18nText text={"Commit Message"} />
             </Label>
             <Input
               id="delete-missing-msg"
@@ -74,7 +75,7 @@ export function DeleteMissingDialog({
         </div>
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onCancel}>
-            Cancel
+            <I18nText text={"Cancel"} />
           </Button>
           <Button
             variant="destructive"

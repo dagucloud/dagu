@@ -11,6 +11,7 @@ import {
   ToastProvider,
   ToastTitle,
 } from '@/components/ui/toast';
+import { I18nText } from '@/i18n/I18nText';
 
 /**
  * Props for the DAGErrorSnackBar component
@@ -45,11 +46,11 @@ const DAGErrorSnackBar = ({ open, setOpen, errors }: DAGErrorSnackBarProps) => {
         <Toast variant="destructive" className="bg-card border-error">
           <div className="flex flex-col items-center w-full">
             <ToastTitle className="text-error text-xl font-bold">
-              Error Detected
+              <I18nText text={"Error Detected"} />
             </ToastTitle>
 
             <ToastDescription className="text-error text-lg mt-1">
-              Please check the following errors:
+              <I18nText text={"Please check the following errors:"} />
             </ToastDescription>
 
             <div className="w-full mt-2">

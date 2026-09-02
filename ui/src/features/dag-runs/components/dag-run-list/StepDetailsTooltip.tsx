@@ -11,6 +11,7 @@ import {
   fetchDAGRunDetails,
   type DAGRunDetails,
 } from '../../hooks/dagRunDetailsRequest';
+import { I18nText } from '@/i18n/I18nText';
 
 type DAGRunSummary = components['schemas']['DAGRunSummary'];
 type Node = components['schemas']['Node'];
@@ -188,12 +189,12 @@ export function StepDetailsTooltip({
       <TooltipContent className="max-w-sm space-y-2">
         {!canRequestDetails && (
           <div className="text-xs text-muted-foreground">
-            Step details are unavailable for this DAG run.
+            <I18nText text={"Step details are unavailable for this DAG run."} />
           </div>
         )}
         {canRequestDetails && isLoading && (
           <div className="text-xs text-muted-foreground">
-            Loading step details...
+            <I18nText text={"Loading step details..."} />
           </div>
         )}
         {canRequestDetails && error && (
@@ -215,7 +216,7 @@ export function StepDetailsTooltip({
               </>
             ) : (
               <div className="text-xs text-muted-foreground">
-                No running, retrying, or failed steps at the moment.
+                <I18nText text={"No running, retrying, or failed steps at the moment."} />
               </div>
             )}
           </>

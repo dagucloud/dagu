@@ -30,6 +30,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { AlertCircle, Check, UserPlus, X } from 'lucide-react';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type User = components['schemas']['User'];
 type WorkspaceAccess = components['schemas']['WorkspaceAccess'];
@@ -207,7 +209,7 @@ export function UserFormModal({
 
           <div className="space-y-1.5">
             <Label htmlFor="username" className="text-sm">
-              Username
+              <I18nText text={"Username"} />
             </Label>
             <Input
               id="username"
@@ -223,9 +225,9 @@ export function UserFormModal({
           {!isEditing && (
             <div className="space-y-1.5">
               <Label htmlFor="password" className="text-sm">
-                Password
+                <I18nText text={"Password"} />
               </Label>
-              <Input
+              <I18nProps><Input
                 id="password"
                 type="password"
                 value={password}
@@ -234,13 +236,13 @@ export function UserFormModal({
                 autoComplete="new-password"
                 className="h-9"
                 placeholder="Minimum 8 characters"
-              />
+              /></I18nProps>
             </div>
           )}
 
           <div className="space-y-1.5">
             <Label htmlFor="role" className="text-sm">
-              Role
+              <I18nText text={"Role"} />
             </Label>
             {roleManaged ? (
               <div
@@ -276,7 +278,7 @@ export function UserFormModal({
 
           {workspaceAccessManaged ? (
             <div className="space-y-1.5">
-              <Label className="text-sm">Workspace Access</Label>
+              <Label className="text-sm"><I18nText text={"Workspace Access"} /></Label>
               <WorkspaceAccessSummary
                 value={workspaceAccess}
                 workspaces={appBarContext.workspaces}

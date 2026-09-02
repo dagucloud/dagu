@@ -48,6 +48,8 @@ import {
   readMigratedLocalStorage,
   writeLocalStorage,
 } from '@/lib/local-storage-migration';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type Props = {
   tabId: string;
@@ -435,18 +437,18 @@ function WikiPageEditor({
         <div className="flex-1" />
 
         {/* History */}
-        <button
+        <I18nProps><button
           type="button"
           onClick={() => setHistoryOpen(true)}
           className="flex items-center gap-1 px-2 py-0.5 text-xs rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-all"
           title="Revision history"
         >
           <History className="h-3 w-3" />
-          <span>History</span>
-        </button>
+          <span><I18nText text={"History"} /></span>
+        </button></I18nProps>
 
         {/* Copy content */}
-        <button
+        <I18nProps><button
           type="button"
           onClick={() => copyContent(currentValue ?? '')}
           disabled={!currentValue}
@@ -458,8 +460,8 @@ function WikiPageEditor({
           ) : (
             <ClipboardCopy className="h-3 w-3" />
           )}
-          <span>Copy</span>
-        </button>
+          <span><I18nText text={"Copy"} /></span>
+        </button></I18nProps>
 
         {/* Mode toggle */}
         <div className="flex rounded-md border border-border overflow-hidden">
@@ -474,7 +476,7 @@ function WikiPageEditor({
             onClick={() => setMode('edit')}
             aria-pressed={mode === 'edit'}
           >
-            Edit
+            <I18nText text={"Edit"} />
           </button>
           <button
             type="button"
@@ -487,13 +489,13 @@ function WikiPageEditor({
             onClick={() => setMode('preview')}
             aria-pressed={mode === 'preview'}
           >
-            Preview
+            <I18nText text={"Preview"} />
           </button>
         </div>
 
         {/* Discard button */}
         {canEdit && hasUnsavedChanges && (
-          <button
+          <I18nProps><button
             type="button"
             onClick={() => {
               discardChanges();
@@ -505,7 +507,7 @@ function WikiPageEditor({
           >
             <Undo2 className="h-3 w-3" />
             Discard
-          </button>
+          </button></I18nProps>
         )}
 
         {/* Save button */}
@@ -526,7 +528,7 @@ function WikiPageEditor({
           </button>
         )}
         {canEdit && onDeleteWikiPage && (
-          <button
+          <I18nProps><button
             type="button"
             onClick={onDeleteWikiPage}
             className="flex items-center gap-1 px-2 py-1 text-xs rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
@@ -534,7 +536,7 @@ function WikiPageEditor({
             aria-label="Delete Wiki page"
           >
             <Trash2 className="h-3 w-3" />
-          </button>
+          </button></I18nProps>
         )}
       </div>
 

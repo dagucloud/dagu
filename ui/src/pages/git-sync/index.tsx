@@ -68,6 +68,9 @@ import {
   type SyncKind,
 } from './sync-kind';
 import { useSyncReconcile } from './useSyncReconcile';
+import { useI18n } from '@/i18n/I18nProvider';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type SyncStatusResponse = components['schemas']['SyncStatusResponse'];
 type SyncConfigResponse = components['schemas']['SyncConfigResponse'];
@@ -143,6 +146,7 @@ function StatusDot({ status }: { status: SyncStatus }) {
 }
 
 export default function GitSyncPage() {
+  const { locale } = useI18n();
   const appBarContext = useContext(AppBarContext);
   const { setTitle } = appBarContext;
   const client = useClient();
@@ -610,10 +614,9 @@ export default function GitSyncPage() {
     return (
       <div className="flex flex-col items-center justify-center h-[60vh] text-center">
         <GitBranch className="h-16 w-16 text-muted-foreground/30 mb-4" />
-        <h2 className="text-xl font-semibold mb-2">Git Sync Not Configured</h2>
+        <h2 className="text-xl font-semibold mb-2"><I18nText text={"Git Sync Not Configured"} /></h2>
         <p className="text-muted-foreground max-w-md">
-          Git sync allows you to synchronize workflow definitions and Wiki pages
-          with a remote Git repository. Configure it in your server settings.
+          <I18nText text={"Git sync allows you to synchronize workflow definitions and Wiki pages with a remote Git repository. Configure it in your server settings."} />
         </p>
       </div>
     );
@@ -624,7 +627,7 @@ export default function GitSyncPage() {
       {/* Compact Header */}
       <div className="flex items-center justify-between py-2">
         <div className="flex items-center gap-4">
-          <h1 className="text-lg font-semibold">Git Sync</h1>
+          <h1 className="text-lg font-semibold"><I18nText text={"Git Sync"} /></h1>
           <span className="text-xs text-muted-foreground font-mono">
             {status?.repository}:{status?.branch}
           </span>
@@ -689,7 +692,7 @@ export default function GitSyncPage() {
               </Button>
             )}
           {missingCount > 0 && canWrite && (
-            <Button
+            <I18nProps><Button
               variant="ghost"
               size="sm"
               className="h-8 px-2 text-xs"
@@ -698,10 +701,10 @@ export default function GitSyncPage() {
             >
               <EyeOff className="h-4 w-4 mr-1" />
               Cleanup
-            </Button>
+            </Button></I18nProps>
           )}
           {missingCount > 0 && config?.pushEnabled && canWrite && (
-            <Button
+            <I18nProps><Button
               variant="ghost"
               size="sm"
               className="h-8 px-2 text-xs text-destructive hover:text-destructive"
@@ -710,9 +713,9 @@ export default function GitSyncPage() {
             >
               <Trash2 className="h-4 w-4 mr-1" />
               Delete Missing
-            </Button>
+            </Button></I18nProps>
           )}
-          <Button
+          <I18nProps><Button
             variant="ghost"
             size="sm"
             className="h-8 w-8 p-0"
@@ -723,8 +726,8 @@ export default function GitSyncPage() {
             title="Refresh status"
           >
             <RefreshCw className="h-4 w-4" />
-          </Button>
-          <Button
+          </Button></I18nProps>
+          <I18nProps><Button
             variant="ghost"
             size="sm"
             className="h-8 w-8 p-0"
@@ -732,7 +735,7 @@ export default function GitSyncPage() {
             title="Configuration"
           >
             <Settings className="h-4 w-4" />
-          </Button>
+          </Button></I18nProps>
         </div>
       </div>
 
@@ -756,13 +759,13 @@ export default function GitSyncPage() {
           ))}
         </div>
         <div className="w-full max-w-sm">
-          <Input
+          <I18nProps><Input
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search items..."
             className="h-8 text-xs"
             aria-label="Search git sync items"
-          />
+          /></I18nProps>
         </div>
         {selectedCounts.total > 0 && (
           <span className="text-xs text-muted-foreground">
@@ -771,7 +774,7 @@ export default function GitSyncPage() {
         )}
       </div>
 
-      <div
+      <I18nProps><div
         className="flex items-center gap-1 text-xs border-b border-border/40"
         role="tablist"
         aria-label="Filter items by status"
@@ -808,7 +811,7 @@ export default function GitSyncPage() {
             {f.charAt(0).toUpperCase() + f.slice(1)} ({statusCounts[f]})
           </button>
         ))}
-      </div>
+      </div></I18nProps>
 
       {/* Items Table */}
       <div className="bg-card border border-border rounded-md overflow-hidden shadow-sm">
@@ -824,9 +827,9 @@ export default function GitSyncPage() {
                   />
                 )}
               </TableHead>
-              <TableHead>Item</TableHead>
-              <TableHead className="w-24">Status</TableHead>
-              <TableHead className="w-28">Synced</TableHead>
+              <TableHead><I18nText text={"Item"} /></TableHead>
+              <TableHead className="w-24"><I18nText text={"Status"} /></TableHead>
+              <TableHead className="w-28"><I18nText text={"Synced"} /></TableHead>
               <TableHead className="w-28"></TableHead>
             </TableRow>
           </TableHeader>
@@ -879,12 +882,14 @@ export default function GitSyncPage() {
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {item.lastSyncedAt
-                      ? dayjs(item.lastSyncedAt).fromNow()
+                      ? dayjs(item.lastSyncedAt)
+                          .locale(locale === 'zh-CN' ? 'zh-cn' : locale)
+                          .fromNow()
                       : '-'}
                   </TableCell>
                   <TableCell onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-0.5">
-                      <Button
+                      <I18nProps><Button
                         variant="ghost"
                         size="sm"
                         className="h-6 w-6 p-0"
@@ -892,13 +897,13 @@ export default function GitSyncPage() {
                         title="View diff"
                       >
                         <FileCode className="h-3 w-3" />
-                      </Button>
+                      </Button></I18nProps>
                       {(item.status === SyncStatus.modified ||
                         item.status === SyncStatus.untracked ||
                         item.status === SyncStatus.conflict) &&
                         config?.pushEnabled &&
                         canWrite && (
-                          <Button
+                          <I18nProps><Button
                             variant="ghost"
                             size="sm"
                             className="h-6 w-6 p-0"
@@ -908,12 +913,12 @@ export default function GitSyncPage() {
                             title="Publish"
                           >
                             <Upload className="h-3 w-3" />
-                          </Button>
+                          </Button></I18nProps>
                         )}
                       {item.status === SyncStatus.missing &&
                         config?.pushEnabled &&
                         canWrite && (
-                          <Button
+                          <I18nProps><Button
                             variant="ghost"
                             size="sm"
                             className="h-6 w-6 p-0 text-muted-foreground hover:text-rose-600"
@@ -923,12 +928,12 @@ export default function GitSyncPage() {
                             title="Delete from remote"
                           >
                             <Trash2 className="h-3 w-3" />
-                          </Button>
+                          </Button></I18nProps>
                         )}
                       {(item.status === SyncStatus.modified ||
                         item.status === SyncStatus.conflict) &&
                         canWrite && (
-                          <Button
+                          <I18nProps><Button
                             variant="ghost"
                             size="sm"
                             className="h-6 w-6 p-0 text-muted-foreground hover:text-rose-600"
@@ -938,7 +943,7 @@ export default function GitSyncPage() {
                             title="Discard"
                           >
                             <Trash2 className="h-3 w-3" />
-                          </Button>
+                          </Button></I18nProps>
                         )}
                       <RowActionMenu
                         itemId={itemId}
@@ -969,23 +974,23 @@ export default function GitSyncPage() {
         <DialogContent className="sm:max-w-sm">
           <div className="space-y-3 text-sm">
             <div>
-              <span className="text-muted-foreground text-xs">Repository</span>
+              <span className="text-muted-foreground text-xs"><I18nText text={"Repository"} /></span>
               <div className="font-mono text-xs mt-0.5 select-all overflow-x-auto whitespace-nowrap scrollbar-thin">
                 {config?.repository || '-'}
               </div>
             </div>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Branch</span>
+              <span className="text-muted-foreground"><I18nText text={"Branch"} /></span>
               <span className="font-mono text-xs">{config?.branch || '-'}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Push</span>
+              <span className="text-muted-foreground"><I18nText text={"Push"} /></span>
               <span className="text-xs">
                 {config?.pushEnabled ? 'Enabled' : 'Disabled'}
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Auto-sync</span>
+              <span className="text-muted-foreground"><I18nText text={"Auto-sync"} /></span>
               <span className="text-xs">
                 {config?.autoSync?.enabled
                   ? `Every ${config.autoSync.interval || 300}s`
@@ -993,7 +998,7 @@ export default function GitSyncPage() {
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Last Sync</span>
+              <span className="text-muted-foreground"><I18nText text={"Last Sync"} /></span>
               <span className="text-xs">
                 {status?.lastSyncAt
                   ? dayjs(status.lastSyncAt).format('MMM D, HH:mm')
@@ -1007,7 +1012,7 @@ export default function GitSyncPage() {
                 className="w-full mt-2"
                 onClick={handleTestConnection}
               >
-                Test Connection
+                <I18nText text={"Test Connection"} />
               </Button>
             )}
           </div>
@@ -1032,13 +1037,13 @@ export default function GitSyncPage() {
                 : `Publish ${publishableSelectedCount} Selected`}
             </DialogTitle>
             <DialogDescription className="text-xs">
-              Enter a commit message for this change.
+              <I18nText text={"Enter a commit message for this change."} />
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1.5">
               <Label htmlFor="commit-message" className="text-xs">
-                Commit Message
+                <I18nText text={"Commit Message"} />
               </Label>
               <Input
                 id="commit-message"
@@ -1068,7 +1073,7 @@ export default function GitSyncPage() {
                   }
                 />
                 <Label htmlFor="publish-force" className="text-xs">
-                  Force publish (override conflict)
+                  <I18nText text={"Force publish (override conflict)"} />
                 </Label>
               </div>
             )}
@@ -1082,7 +1087,7 @@ export default function GitSyncPage() {
                 setPublishForce(false);
               }}
             >
-              Cancel
+              <I18nText text={"Cancel"} />
             </Button>
             <Button
               size="sm"
@@ -1161,7 +1166,7 @@ export default function GitSyncPage() {
       />
 
       {/* Revert Confirmation Modal */}
-      <ConfirmModal
+      <I18nProps><ConfirmModal
         title="Discard Changes"
         buttonText="Discard"
         visible={revertModal.open}
@@ -1181,7 +1186,7 @@ export default function GitSyncPage() {
           </span>
           ? This cannot be undone.
         </p>
-      </ConfirmModal>
+      </ConfirmModal></I18nProps>
 
       {/* Forget Dialog */}
       <ForgetDialog

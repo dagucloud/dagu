@@ -12,6 +12,7 @@ import { components, Stream } from '../../../../api/v1/schema';
 import { InlineLogViewer } from '../common/InlineLogViewer';
 import PushBackHistory from '../common/PushBackHistory';
 import { StepReviewModal } from '../dag-execution/StepReviewModal';
+import { I18nText } from '@/i18n/I18nText';
 
 type DAGRunDetails = components['schemas']['DAGRunDetails'];
 type NodeData = components['schemas']['Node'];
@@ -82,7 +83,7 @@ function ApprovalCard({
       {/* Step Output */}
       <div>
         <div className="text-xs font-medium text-muted-foreground mb-1">
-          Step Output
+          <I18nText text={"Step Output"} />
         </div>
         <div className="max-h-[400px] overflow-y-auto rounded border border-border">
           <InlineLogViewer
@@ -155,7 +156,7 @@ export function ApprovalTab({ dagRun, dagName }: ApprovalTabProps) {
   if (waitingNodes.length === 0) {
     return (
       <div className="text-center text-muted-foreground py-8 text-sm">
-        No steps awaiting approval.
+        <I18nText text={"No steps awaiting approval."} />
       </div>
     );
   }

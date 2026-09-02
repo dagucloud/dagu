@@ -106,6 +106,8 @@ import {
   withoutWorkspaceLabels,
 } from '../../../../lib/workspace';
 import { WorkflowViewSelector } from './WorkflowViewSelector';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 // Threshold in pixels below which we switch to card view
 // Set higher than table's comfortable minimum width (~700px for all columns)
@@ -135,7 +137,7 @@ function RenameDAGButton({
   onRename: (dag: components['schemas']['DAGFile']) => void;
 }) {
   return (
-    <Button
+    <I18nProps><Button
       type="button"
       variant="secondary"
       size="icon-sm"
@@ -144,7 +146,7 @@ function RenameDAGButton({
       onClick={() => onRename(dag)}
     >
       <PencilLine className="h-4 w-4" />
-    </Button>
+    </Button></I18nProps>
   );
 }
 
@@ -156,7 +158,7 @@ function DeleteDAGButton({
   onDelete: (dag: components['schemas']['DAGFile']) => void;
 }) {
   return (
-    <Button
+    <I18nProps><Button
       type="button"
       variant="secondary"
       size="icon-sm"
@@ -166,7 +168,7 @@ function DeleteDAGButton({
       onClick={() => onDelete(dag)}
     >
       <Trash2 className="h-4 w-4" />
-    </Button>
+    </Button></I18nProps>
   );
 }
 
@@ -272,13 +274,13 @@ function DAGCard({
               {() => {
                 const ms = nextRun.getTime() - new Date().getTime();
                 if (ms <= 0) {
-                  return <span>Due now</span>;
+                  return <span><I18nText text={"Due now"} /></span>;
                 }
                 return <span>Run in {formatMs(ms)}</span>;
               }}
             </Ticker>
           ) : (
-            <span>No upcoming run</span>
+            <span><I18nText text={"No upcoming run"} /></span>
           )}
         </div>
       )}
@@ -474,13 +476,13 @@ const deleteSelectionColumn = columnHelper.display({
   maxSize: 40,
   header: ({ table }) => (
     <div className="flex h-8 items-center justify-center">
-      <Checkbox
+      <I18nProps><Checkbox
         aria-label="Select all loaded workflows"
         checked={table.options.meta?.getDeleteSelectionState?.() ?? false}
         onCheckedChange={(checked) =>
           table.options.meta?.onToggleAllDeleteSelection?.(checked === true)
         }
-      />
+      /></I18nProps>
     </div>
   ),
   cell: ({ row, table }) => {
@@ -524,12 +526,12 @@ const defaultColumns = [
       >
         {table.getIsAllRowsExpanded() ? (
           <>
-            <VisuallyHidden>Compress rows</VisuallyHidden>
+            <VisuallyHidden><I18nText text={"Compress rows"} /></VisuallyHidden>
             <ChevronUp className="h-4 w-4" />
           </>
         ) : (
           <>
-            <VisuallyHidden>Expand rows</VisuallyHidden>
+            <VisuallyHidden><I18nText text={"Expand rows"} /></VisuallyHidden>
             <ChevronDown className="h-4 w-4" />
           </>
         )}
@@ -572,9 +574,9 @@ const defaultColumns = [
     id: 'Name',
     header: () => (
       <div className="flex flex-col py-1">
-        <span className="text-xs">Name</span>
+        <span className="text-xs"><I18nText text={"Name"} /></span>
         <span className="text-xs font-normal text-muted-foreground">
-          Description
+          <I18nText text={"Description"} />
         </span>
       </div>
     ),
@@ -725,9 +727,9 @@ const defaultColumns = [
     minSize: 80,
     header: () => (
       <div className="flex flex-col py-1">
-        <span className="text-xs">Status</span>
+        <span className="text-xs"><I18nText text={"Status"} /></span>
         <span className="text-xs font-normal text-muted-foreground">
-          Latest status
+          <I18nText text={"Latest status"} />
         </span>
       </div>
     ),
@@ -752,7 +754,7 @@ const defaultColumns = [
     minSize: 90,
     header: () => (
       <div className="flex flex-col py-1">
-        <span className="text-xs">Last Run</span>
+        <span className="text-xs"><I18nText text={"Last Run"} /></span>
         <span className="text-xs font-normal text-muted-foreground">
           {getConfig().tz || 'Local Timezone'}
         </span>
@@ -790,7 +792,7 @@ const defaultColumns = [
         }
       } else if (status === Status.Running) {
         durationContent = (
-          <div className="text-xs text-muted-foreground">(Running)</div>
+          <div className="text-xs text-muted-foreground"><I18nText text={"(Running)"} /></div>
         );
       }
 
@@ -810,9 +812,9 @@ const defaultColumns = [
     minSize: 120,
     header: () => (
       <div className="flex flex-col py-1">
-        <span className="text-xs">Live / Schedule</span>
+        <span className="text-xs"><I18nText text={"Live / Schedule"} /></span>
         <span className="text-xs font-normal text-muted-foreground">
-          Toggle & next run
+          <I18nText text={"Toggle & next run"} />
         </span>
       </div>
     ),
@@ -843,7 +845,7 @@ const defaultColumns = [
         return (
           <div className="flex items-center gap-2">
             {liveSwitch}
-            <span className="text-xs text-muted-foreground">No schedule</span>
+            <span className="text-xs text-muted-foreground"><I18nText text={"No schedule"} /></span>
           </div>
         );
       }
@@ -874,7 +876,7 @@ const defaultColumns = [
                 {() => {
                   const ms = nextRun.getTime() - new Date().getTime();
                   if (ms <= 0) {
-                    return <span>Due now</span>;
+                    return <span><I18nText text={"Due now"} /></span>;
                   }
                   return <span>Run in {formatMs(ms)}</span>;
                 }}
@@ -884,14 +886,14 @@ const defaultColumns = [
         } else {
           nextRunContent = (
             <div className="text-xs text-muted-foreground font-normal leading-tight">
-              No upcoming run
+              <I18nText text={"No upcoming run"} />
             </div>
           );
         }
       } else if (data.dag.suspended) {
         nextRunContent = (
           <div className="text-xs text-muted-foreground font-normal leading-tight">
-            Suspended
+            <I18nText text={"Suspended"} />
           </div>
         );
       }
@@ -914,9 +916,9 @@ const defaultColumns = [
     maxSize: 160,
     header: () => (
       <div className="flex flex-col items-center py-1">
-        <span className="text-xs">Actions</span>
+        <span className="text-xs"><I18nText text={"Actions"} /></span>
         <span className="text-xs font-normal text-muted-foreground">
-          Operations
+          <I18nText text={"Operations"} />
         </span>
       </div>
     ),
@@ -1008,7 +1010,7 @@ function WorkflowsEmptyState({
       <div className="flex flex-wrap items-center justify-center gap-2">
         {showAllButton && (
           <Button type="button" variant="outline" onClick={onShowAllWorkflows}>
-            Show all workflows
+            <I18nText text={"Show all workflows"} />
           </Button>
         )}
         <CreateDAGModal />
@@ -1113,7 +1115,7 @@ const SortableHeader = ({
       <Tooltip>
         <TooltipTrigger asChild>{button}</TooltipTrigger>
         <TooltipContent className="bg-muted text-muted-foreground border">
-          <p className="text-xs">Sorts current page only</p>
+          <p className="text-xs"><I18nText text={"Sorts current page only"} /></p>
         </TooltipContent>
       </Tooltip>
     );
@@ -1672,13 +1674,13 @@ function DAGTable({
           />
 
           {/* Search input */}
-          <Input
+          <I18nProps><Input
             type="text"
             placeholder="Filter by workflow name..."
             value={searchText}
             onChange={(e) => handleSearchTextChange(e.target.value)}
             className="w-[200px]"
-          />
+          /></I18nProps>
           <Button asChild variant="outline" className="px-4 font-medium">
             <Link to={buildGrepSearchUrl(searchText)}>
               <Search className="mr-1.5 h-4 w-4" />
@@ -1687,22 +1689,22 @@ function DAGTable({
           </Button>
 
           {/* Label filter */}
-          <LabelCombobox
+          <I18nProps><LabelCombobox
             selectedLabels={searchLabels}
             onLabelsChange={handleSearchLabelsChange}
             availableLabels={availableLabels}
             placeholder="Filter by labels..."
             className="h-9 min-w-[170px] max-w-[220px]"
-          />
+          /></I18nProps>
 
           <label className="flex h-9 cursor-pointer items-center gap-2 rounded-md border border-input bg-card px-3 text-sm font-medium text-foreground shadow-sm transition-colors hover:border-border-strong hover:bg-muted">
-            <span>Active only</span>
-            <Switch
+            <span><I18nText text={"Active only"} /></span>
+            <I18nProps><Switch
               checked={activeOnly}
               onCheckedChange={handleActiveOnlyChange}
               aria-label="Active only"
               className="focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-            />
+            /></I18nProps>
           </label>
 
           {canDeleteDAGs && selectedDAGsForDelete.length > 0 && (
@@ -1752,7 +1754,7 @@ function DAGTable({
           <div className="flex flex-wrap items-center gap-2 pt-1 pl-1">
             <div className="flex flex-wrap items-center gap-2 min-w-0">
               <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">
-                Sort
+                <I18nText text={"Sort"} />
               </span>
               <Select
                 value={sortField}
@@ -1763,14 +1765,14 @@ function DAGTable({
                   )
                 }
               >
-                <SelectTrigger
+                <I18nProps><SelectTrigger
                   className="h-8 min-w-[132px] max-w-full text-xs"
                   aria-label="Sort DAG cards"
                 >
-                  <SelectValue placeholder="Sort by">
+                  <I18nProps><SelectValue placeholder="Sort by">
                     {getCardSortLabel(sortField)}
-                  </SelectValue>
-                </SelectTrigger>
+                  </SelectValue></I18nProps>
+                </SelectTrigger></I18nProps>
                 <SelectContent>
                   {cardSortOptions.map((option) => (
                     <SelectItem

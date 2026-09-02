@@ -8,6 +8,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { I18nText } from '@/i18n/I18nText';
 
 type DAGRunSummary = components['schemas']['DAGRunSummary'];
 
@@ -39,7 +40,7 @@ export function DAGRunArtifactsButton({
           <Archive className="h-4 w-4" />
         </button>
       </TooltipTrigger>
-      <TooltipContent>View artifacts</TooltipContent>
+      <TooltipContent><I18nText text={"View artifacts"} /></TooltipContent>
     </Tooltip>
   );
 }

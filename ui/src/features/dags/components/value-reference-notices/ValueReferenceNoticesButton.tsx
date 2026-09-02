@@ -12,6 +12,7 @@ import {
 import { Info } from 'lucide-react';
 import React from 'react';
 import { components } from '../../../../api/v1/schema';
+import { I18nText } from '@/i18n/I18nText';
 
 type ValueReferenceNotice = components['schemas']['ValueReferenceNotice'];
 
@@ -151,7 +152,7 @@ function ValueReferenceNoticesDialog({
           {defects.length > 0 && (
             <section className="space-y-3">
               <h3 className="text-xs font-semibold uppercase tracking-wide text-foreground">
-                Needs a fix
+                <I18nText text={"Needs a fix"} />
               </h3>
               {defects.map((notice, index) => (
                 <NoticeCard
@@ -195,19 +196,19 @@ function NoticeCard({ notice }: { notice: ValueReferenceNotice }) {
       <dl className="mt-2 grid gap-1 text-xs text-muted-foreground sm:grid-cols-[5rem_1fr]">
         {notice.fieldPath && (
           <>
-            <dt>Field</dt>
+            <dt><I18nText text={"Field"} /></dt>
             <dd className="min-w-0 break-all font-mono">{notice.fieldPath}</dd>
           </>
         )}
         {notice.token && (
           <>
-            <dt>Reference</dt>
+            <dt><I18nText text={"Reference"} /></dt>
             <dd className="min-w-0 break-all font-mono">{notice.token}</dd>
           </>
         )}
         {notice.reason && (
           <>
-            <dt>Reason</dt>
+            <dt><I18nText text={"Reason"} /></dt>
             <dd className="min-w-0 break-words">
               {reasonLabel(notice.reason)}
             </dd>

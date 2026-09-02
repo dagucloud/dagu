@@ -47,6 +47,8 @@ import {
   testEventForTarget,
 } from './notifications/notificationDrafts';
 import { useNotificationSettings } from './notifications/useNotificationSettings';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type NotificationsTabProps = {
   fileName: string;
@@ -87,11 +89,10 @@ function DAGNotificationHeader({
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="space-y-1">
           <h1 className="text-2xl font-semibold tracking-normal text-foreground">
-            DAG Notifications
+            <I18nText text={"DAG Notifications"} />
           </h1>
           <p className="text-sm text-muted-foreground">
-            This DAG inherits rules by default. Configure a DAG override only
-            when this DAG needs different events or destinations.
+            <I18nText text={"This DAG inherits rules by default. Configure a DAG override only when this DAG needs different events or destinations."} />
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -550,18 +551,17 @@ function NotificationsTab({ fileName, workspaceName }: NotificationsTabProps) {
         />
       )}
 
-      <ConfirmDialog
+      <I18nProps><ConfirmDialog
         title="Reset DAG Override"
         buttonText="Reset"
         visible={resetVisible}
         dismissModal={() => setResetVisible(false)}
         onSubmit={resetDAGSettings}
       >
-        Remove this DAG override and inherit workspace or Global notification
-        rules?
-      </ConfirmDialog>
+        <I18nText text={"Remove this DAG override and inherit workspace or Global notification rules?"} />
+      </ConfirmDialog></I18nProps>
 
-      <ConfirmDialog
+      <I18nProps><ConfirmDialog
         title="Delete Destination"
         buttonText="Delete"
         visible={deleteTargetIndex !== null}
@@ -573,17 +573,17 @@ function NotificationsTab({ fileName, workspaceName }: NotificationsTabProps) {
           ? deliveryLabel(draft.targets[deleteTargetIndex])
           : 'target'}
         ?
-      </ConfirmDialog>
+      </ConfirmDialog></I18nProps>
 
-      <ConfirmDialog
+      <I18nProps><ConfirmDialog
         title="Delete Subscription"
         buttonText="Delete"
         visible={deleteSubscriptionIndex !== null}
         dismissModal={() => setDeleteSubscriptionIndex(null)}
         onSubmit={removeSubscription}
       >
-        Delete this subscription?
-      </ConfirmDialog>
+        <I18nText text={"Delete this subscription?"} />
+      </ConfirmDialog></I18nProps>
     </div>
   );
 }

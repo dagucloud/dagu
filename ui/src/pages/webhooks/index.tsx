@@ -44,6 +44,8 @@ import {
 } from 'lucide-react';
 import { useCallback, useContext, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type WebhookDetails = components['schemas']['WebhookDetails'];
 type WebhookAuthMode = components['schemas']['WebhookAuthMode'];
@@ -251,7 +253,7 @@ export default function WebhooksPage() {
     return (
       <div className="flex items-center justify-center h-64">
         <p className="text-muted-foreground">
-          You do not have permission to access this page.
+          <I18nText text={"You do not have permission to access this page."} />
         </p>
       </div>
     );
@@ -261,9 +263,9 @@ export default function WebhooksPage() {
     <div className="flex flex-col gap-4 max-w-7xl">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold">Webhooks</h1>
+          <h1 className="text-lg font-semibold"><I18nText text={"Webhooks"} /></h1>
           <p className="text-sm text-muted-foreground">
-            Manage webhooks across all DAGs
+            <I18nText text={"Manage webhooks across all DAGs"} />
           </p>
         </div>
       </div>
@@ -278,13 +280,13 @@ export default function WebhooksPage() {
         <Table className="text-xs">
           <TableHeader>
             <TableRow>
-              <TableHead className="w-[250px]">DAG</TableHead>
-              <TableHead className="w-[150px]">Token</TableHead>
-              <TableHead className="w-[160px]">Auth</TableHead>
-              <TableHead className="w-[140px]">Profiles</TableHead>
-              <TableHead className="w-[100px]">Status</TableHead>
-              <TableHead className="w-[180px]">Created</TableHead>
-              <TableHead className="w-[180px]">Last Triggered</TableHead>
+              <TableHead className="w-[250px]"><I18nText text={"DAG"} /></TableHead>
+              <TableHead className="w-[150px]"><I18nText text={"Token"} /></TableHead>
+              <TableHead className="w-[160px]"><I18nText text={"Auth"} /></TableHead>
+              <TableHead className="w-[140px]"><I18nText text={"Profiles"} /></TableHead>
+              <TableHead className="w-[100px]"><I18nText text={"Status"} /></TableHead>
+              <TableHead className="w-[180px]"><I18nText text={"Created"} /></TableHead>
+              <TableHead className="w-[180px]"><I18nText text={"Last Triggered"} /></TableHead>
               <TableHead className="w-[80px]"></TableHead>
             </TableRow>
           </TableHeader>
@@ -295,7 +297,7 @@ export default function WebhooksPage() {
                   colSpan={8}
                   className="text-center text-muted-foreground py-8"
                 >
-                  Loading webhooks...
+                  <I18nText text={"Loading webhooks..."} />
                 </TableCell>
               </TableRow>
             ) : webhooks.length === 0 ? (
@@ -304,7 +306,7 @@ export default function WebhooksPage() {
                   colSpan={8}
                   className="text-center text-muted-foreground py-8"
                 >
-                  No webhooks found. Create webhooks from individual DAG pages.
+                  <I18nText text={"No webhooks found. Create webhooks from individual DAG pages."} />
                 </TableCell>
               </TableRow>
             ) : (
@@ -334,7 +336,7 @@ export default function WebhooksPage() {
                         webhook.hmac.enforcementMode ===
                           WebhookHMACEnforcementModeValue.observe && (
                           <span className="text-[11px] text-muted-foreground">
-                            Observe mode
+                            <I18nText text={"Observe mode"} />
                           </span>
                         )}
                     </div>
@@ -405,7 +407,7 @@ export default function WebhooksPage() {
 
       {/* Regenerate Token Confirmation / Token Display */}
       {regeneratingWebhook && !newToken && (
-        <ConfirmModal
+        <I18nProps><ConfirmModal
           title="Regenerate Token"
           buttonText="Regenerate"
           visible={true}
@@ -417,14 +419,14 @@ export default function WebhooksPage() {
             {regeneratingWebhook.dagName}&quot;? The old token will immediately
             stop working.
           </p>
-        </ConfirmModal>
+        </ConfirmModal></I18nProps>
       )}
 
       {/* New Token Display Modal */}
       <Dialog open={!!newToken} onOpenChange={() => handleCloseTokenModal()}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Token Regenerated</DialogTitle>
+            <DialogTitle><I18nText text={"Token Regenerated"} /></DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="p-3 bg-warning/10 border border-warning/20 rounded-md">
@@ -446,13 +448,13 @@ export default function WebhooksPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button onClick={handleCloseTokenModal}>Done</Button>
+            <Button onClick={handleCloseTokenModal}><I18nText text={"Done"} /></Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* Delete Confirmation */}
-      <ConfirmModal
+      <I18nProps><ConfirmModal
         title="Delete Webhook"
         buttonText="Delete"
         visible={!!deletingWebhook}
@@ -464,7 +466,7 @@ export default function WebhooksPage() {
           {deletingWebhook?.dagName}&quot;? Any applications using this token
           will immediately lose access.
         </p>
-      </ConfirmModal>
+      </ConfirmModal></I18nProps>
 
       {/* Toggle Confirmation */}
       <ConfirmModal

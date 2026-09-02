@@ -10,6 +10,7 @@ import { Check, RotateCcw, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { components } from '../../../../api/v1/schema';
 import PushBackHistory from '../common/PushBackHistory';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type Step = components['schemas']['Step'];
 type PushBackHistoryEntry = components['schemas']['PushBackHistoryEntry'];
@@ -107,10 +108,10 @@ export function StepReviewModal({
 
         <div className="py-2 space-y-3" onKeyDown={handleKeyDown}>
           {onPushBack && pushBackHistory && pushBackHistory.length > 0 && (
-            <PushBackHistory
+            <I18nProps><PushBackHistory
               history={pushBackHistory}
               title="Previous Push-backs"
-            />
+            /></I18nProps>
           )}
 
           {inputFields.length > 0 && !onApprove && (

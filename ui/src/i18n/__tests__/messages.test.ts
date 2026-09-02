@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { messages, translate } from '../messages';
+import { staticMessages, translateStatic } from '../staticMessages';
 
 describe('translations', () => {
   it('uses English as the default locale', () => {
@@ -37,5 +38,21 @@ describe('translations', () => {
 
   it('interpolates dynamic values', () => {
     expect(translate('ja', 'common.selected', { count: 3 })).toBe('3 件を選択');
+  });
+
+  it('keeps every static catalog aligned with English', () => {
+    const englishKeys = Object.keys(staticMessages.en).sort();
+
+    expect(Object.keys(staticMessages['zh-CN']).sort()).toEqual(englishKeys);
+    expect(Object.keys(staticMessages.ja).sort()).toEqual(englishKeys);
+  });
+
+  it('translates first-party UI copy', () => {
+    expect(translateStatic('zh-CN', 'No DAG runs found')).toBe(
+      '未找到 DAG 运行'
+    );
+    expect(translateStatic('ja', 'No DAG runs found')).toBe(
+      'DAG実行が見つかりません'
+    );
   });
 });

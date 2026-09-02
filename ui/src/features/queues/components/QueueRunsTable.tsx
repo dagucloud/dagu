@@ -13,6 +13,8 @@ import {
 import dayjs from '@/lib/dayjs';
 import { cn } from '@/lib/utils';
 import StatusChip from '@/components/ui/status-chip';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type QueueDAGRun = components['schemas']['DAGRunSummary'];
 
@@ -107,28 +109,28 @@ function QueueRunsTable({
             {selectable && (
               <th className="w-10 py-1 px-2 align-middle">
                 <div className="flex h-8 w-8 items-center justify-center">
-                  <Checkbox
+                  <I18nProps><Checkbox
                     aria-label="Select all loaded queue items"
                     checked={headerCheckboxState}
                     disabled={disableSelection || items.length === 0}
                     onCheckedChange={(checked) =>
                       onToggleAll?.(Boolean(checked))
                     }
-                  />
+                  /></I18nProps>
                 </div>
               </th>
             )}
             <th className="text-left py-1 px-2 font-medium text-muted-foreground">
-              DAG
+              <I18nText text={"DAG"} />
             </th>
             <th className="text-left py-1 px-2 font-medium text-muted-foreground">
-              Status
+              <I18nText text={"Status"} />
             </th>
             <th className="text-left py-1 px-2 font-medium text-muted-foreground">
-              Timing
+              <I18nText text={"Timing"} />
             </th>
             <th className="text-left py-1 px-2 font-medium text-muted-foreground">
-              Run ID
+              <I18nText text={"Run ID"} />
             </th>
           </tr>
         </thead>

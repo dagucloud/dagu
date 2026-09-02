@@ -34,6 +34,8 @@ import {
 } from 'lucide-react';
 import { useCallback, useContext, useEffect, useState } from 'react';
 import { APIKeyFormModal } from './APIKeyFormModal';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type APIKey = components['schemas']['APIKey'];
 const COMMUNITY_API_KEY_LIMIT = 2;
@@ -136,7 +138,7 @@ export default function APIKeysPage() {
     return (
       <div className="flex items-center justify-center h-64">
         <p className="text-muted-foreground">
-          You do not have permission to access this page.
+          <I18nText text={"You do not have permission to access this page."} />
         </p>
       </div>
     );
@@ -146,9 +148,9 @@ export default function APIKeysPage() {
     <div className="flex flex-col gap-4 max-w-7xl">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold">API Keys</h1>
+          <h1 className="text-lg font-semibold"><I18nText text={"API Keys"} /></h1>
           <p className="text-sm text-muted-foreground">
-            Manage API keys for programmatic access
+            <I18nText text={"Manage API keys for programmatic access"} />
           </p>
         </div>
         <Button
@@ -176,11 +178,10 @@ export default function APIKeysPage() {
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <div>
             <p className="font-medium">
-              Community installs can manage up to 2 API keys.
+              <I18nText text={"Community installs can manage up to 2 API keys."} />
             </p>
             <p className="mt-1">
-              Existing keys remain active, but new key creation is blocked until
-              extra keys are revoked or a license is configured.
+              <I18nText text={"Existing keys remain active, but new key creation is blocked until extra keys are revoked or a license is configured."} />
             </p>
           </div>
         </div>
@@ -190,13 +191,13 @@ export default function APIKeysPage() {
         <Table className="text-xs">
           <TableHeader>
             <TableRow>
-              <TableHead className="w-[200px]">Name</TableHead>
-              <TableHead className="w-[120px]">Role</TableHead>
-              <TableHead className="w-[140px]">Surfaces</TableHead>
-              <TableHead className="w-[160px]">Identity</TableHead>
-              <TableHead className="w-[100px]">Key Prefix</TableHead>
-              <TableHead className="w-[180px]">Created</TableHead>
-              <TableHead className="w-[180px]">Last Used</TableHead>
+              <TableHead className="w-[200px]"><I18nText text={"Name"} /></TableHead>
+              <TableHead className="w-[120px]"><I18nText text={"Role"} /></TableHead>
+              <TableHead className="w-[140px]"><I18nText text={"Surfaces"} /></TableHead>
+              <TableHead className="w-[160px]"><I18nText text={"Identity"} /></TableHead>
+              <TableHead className="w-[100px]"><I18nText text={"Key Prefix"} /></TableHead>
+              <TableHead className="w-[180px]"><I18nText text={"Created"} /></TableHead>
+              <TableHead className="w-[180px]"><I18nText text={"Last Used"} /></TableHead>
               <TableHead className="w-[80px]"></TableHead>
             </TableRow>
           </TableHeader>
@@ -207,7 +208,7 @@ export default function APIKeysPage() {
                   colSpan={8}
                   className="text-center text-muted-foreground py-8"
                 >
-                  Loading API keys...
+                  <I18nText text={"Loading API keys..."} />
                 </TableCell>
               </TableRow>
             ) : apiKeys.length === 0 ? (
@@ -216,7 +217,7 @@ export default function APIKeysPage() {
                   colSpan={8}
                   className="text-center text-muted-foreground py-8"
                 >
-                  No API keys found. Create one to get started.
+                  <I18nText text={"No API keys found. Create one to get started."} />
                 </TableCell>
               </TableRow>
             ) : (
@@ -331,7 +332,7 @@ export default function APIKeysPage() {
       />
 
       {/* Delete Confirmation */}
-      <ConfirmModal
+      <I18nProps><ConfirmModal
         title="Revoke API Key"
         buttonText="Revoke"
         visible={!!deletingKey}
@@ -342,7 +343,7 @@ export default function APIKeysPage() {
           Are you sure you want to revoke the API key &quot;{deletingKey?.name}
           &quot;? Any applications using this key will immediately lose access.
         </p>
-      </ConfirmModal>
+      </ConfirmModal></I18nProps>
     </div>
   );
 }

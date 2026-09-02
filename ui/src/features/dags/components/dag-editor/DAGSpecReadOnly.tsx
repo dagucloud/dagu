@@ -38,6 +38,8 @@ import { useClient, useQuery } from '../../../../hooks/api';
 import ConfirmModal from '@/components/ui/confirm-dialog';
 import Graph, { type FlowchartType } from '../visualization/Graph';
 import DAGEditorWithDocs from './DAGEditorWithDocs';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 /**
  * Props for the DAGSpecReadOnly component
@@ -592,7 +594,7 @@ function DAGSpecReadOnly({
   if (!data?.spec) {
     return (
       <div className="text-sm text-muted-foreground p-4">
-        No DAG spec available for this DAG.
+        <I18nText text={"No DAG spec available for this DAG."} />
       </div>
     );
   }
@@ -670,7 +672,7 @@ function DAGSpecReadOnly({
         onSave={() => void saveSourceDAG()}
       />
 
-      <ConfirmModal
+      <I18nProps><ConfirmModal
         title="Retry Edited DAG Run"
         buttonText={retrySubmitting ? 'Creating...' : 'Create new run'}
         visible={previewVisible}
@@ -694,7 +696,7 @@ function DAGSpecReadOnly({
               <div className="grid grid-cols-2 gap-3 border-b px-3 py-2 text-xs sm:grid-cols-4">
                 <div className="min-w-0">
                   <div className="text-xs uppercase text-muted-foreground">
-                    Target DAG
+                    <I18nText text={"Target DAG"} />
                   </div>
                   <div className="truncate font-mono text-xs">
                     {retryPreview.dagName}
@@ -702,19 +704,19 @@ function DAGSpecReadOnly({
                 </div>
                 <div className="min-w-0">
                   <div className="text-xs uppercase text-muted-foreground">
-                    Reuse previous output
+                    <I18nText text={"Reuse previous output"} />
                   </div>
                   <div>{selectedSkipSteps.length}</div>
                 </div>
                 <div className="min-w-0">
                   <div className="text-xs uppercase text-muted-foreground">
-                    Run again
+                    <I18nText text={"Run again"} />
                   </div>
                   <div>{retryStepCount}</div>
                 </div>
                 <div className="min-w-0">
                   <div className="text-xs uppercase text-muted-foreground">
-                    Source DAG-run ID
+                    <I18nText text={"Source DAG-run ID"} />
                   </div>
                   <div className="truncate font-mono text-xs">{dagRunId}</div>
                 </div>
@@ -736,7 +738,7 @@ function DAGSpecReadOnly({
 
             <div className="flex min-h-0 flex-col rounded-md border bg-surface">
               <div className="border-b px-3 py-2">
-                <div className="text-sm font-medium">Step review</div>
+                <div className="text-sm font-medium"><I18nText text={"Step review"} /></div>
                 {selectedPreviewNode && (
                   <div className="mt-1 font-mono text-xs text-muted-foreground">
                     {selectedPreviewNode.step.name}
@@ -832,7 +834,7 @@ function DAGSpecReadOnly({
             </div>
           </div>
         )}
-      </ConfirmModal>
+      </ConfirmModal></I18nProps>
     </>
   );
 }
@@ -868,12 +870,11 @@ function SourceDAGDiffDialog({
             Save Source DAG: {sourceFileName}
           </DialogTitle>
           <DialogDescription className="sr-only">
-            Review the current source DAG and edited DAG specification before
-            saving changes.
+            <I18nText text={"Review the current source DAG and edited DAG specification before saving changes."} />
           </DialogDescription>
           <DialogClose className="rounded-md p-1.5 opacity-70 transition-opacity hover:bg-muted hover:opacity-100">
             <X className="h-4 w-4" />
-            <span className="sr-only">Close</span>
+            <span className="sr-only"><I18nText text={"Close"} /></span>
           </DialogClose>
         </DialogHeader>
 

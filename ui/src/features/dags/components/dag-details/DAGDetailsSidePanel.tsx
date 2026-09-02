@@ -23,6 +23,8 @@ import LoadingIndicator from '@/components/ui/loading-indicator';
 import type { components } from '@/api/v1/schema';
 import { RootDAGRunContext } from '../../contexts/RootDAGRunContext';
 import DAGDetailsContent from './DAGDetailsContent';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type DAGDetailsResponse = {
   dag?: components['schemas']['DAGDetails'];
@@ -358,7 +360,7 @@ function DAGDetailsSidePanel({
                     {toolbarHint}
                   </div>
                   <div className="flex gap-2">
-                    <Button
+                    <I18nProps><Button
                       variant="outline"
                       size="icon"
                       onClick={handleFullscreenClick}
@@ -367,10 +369,10 @@ function DAGDetailsSidePanel({
                     >
                       <Maximize2 className="h-4 w-4" />
                       <span className="absolute -bottom-1 -right-1 bg-muted text-muted-foreground text-xs font-medium px-1 rounded-sm border opacity-0 group-hover:opacity-100 transition-opacity">
-                        F
+                        <I18nText text={"F"} />
                       </span>
-                    </Button>
-                    <Button
+                    </Button></I18nProps>
+                    <I18nProps><Button
                       variant="outline"
                       size="icon"
                       onClick={onClose}
@@ -379,9 +381,9 @@ function DAGDetailsSidePanel({
                     >
                       <X className="h-4 w-4" />
                       <span className="absolute -bottom-1 -right-1 bg-muted text-muted-foreground text-xs font-medium px-1 rounded-sm border opacity-0 group-hover:opacity-100 transition-opacity">
-                        Esc
+                        <I18nText text={"Esc"} />
                       </span>
-                    </Button>
+                    </Button></I18nProps>
                   </div>
                 </div>
 
@@ -389,7 +391,7 @@ function DAGDetailsSidePanel({
                   {loadState.state === 'loading' && (
                     <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
                       <LoadingIndicator />
-                      <p>Loading DAG details...</p>
+                      <p><I18nText text={"Loading DAG details..."} /></p>
                     </div>
                   )}
 
@@ -399,7 +401,7 @@ function DAGDetailsSidePanel({
                         {loadState.message}
                       </p>
                       <Button variant="outline" size="sm" onClick={onClose}>
-                        Close
+                        <I18nText text={"Close"} />
                       </Button>
                     </div>
                   )}
@@ -415,10 +417,10 @@ function DAGDetailsSidePanel({
                           size="sm"
                           onClick={() => void mutate()}
                         >
-                          Retry
+                          <I18nText text={"Retry"} />
                         </Button>
                         <Button variant="ghost" size="sm" onClick={onClose}>
-                          Close
+                          <I18nText text={"Close"} />
                         </Button>
                       </div>
                     </div>

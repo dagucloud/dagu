@@ -17,6 +17,8 @@ import {
 import { Input } from '@/components/ui/input';
 import StatusChip from '@/components/ui/status-chip';
 import dayjs from '@/lib/dayjs';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 // Convert StatusLabel string to Status enum
 function statusLabelToStatus(label: StatusLabel): Status {
@@ -120,7 +122,7 @@ function DAGRunOutputs({ dagName, dagRunId }: Props) {
   if (isLoading && !data) {
     return (
       <div className="text-sm text-muted-foreground p-4">
-        Loading outputs...
+        <I18nText text={"Loading outputs..."} />
       </div>
     );
   }
@@ -128,7 +130,7 @@ function DAGRunOutputs({ dagName, dagRunId }: Props) {
   if (error || !data) {
     return (
       <div className="text-sm text-muted-foreground p-4">
-        No outputs available
+        <I18nText text={"No outputs available"} />
       </div>
     );
   }
@@ -140,7 +142,7 @@ function DAGRunOutputs({ dagName, dagRunId }: Props) {
   if (outputCount === 0) {
     return (
       <div className="text-sm text-muted-foreground p-4">
-        No outputs collected
+        <I18nText text={"No outputs collected"} />
       </div>
     );
   }
@@ -151,7 +153,7 @@ function DAGRunOutputs({ dagName, dagRunId }: Props) {
       <div className="bg-surface border border-border rounded-lg p-4">
         <div className="flex items-center gap-2 mb-3">
           <Package className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm font-semibold">Outputs</span>
+          <span className="text-sm font-semibold"><I18nText text={"Outputs"} /></span>
           <span className="text-xs text-muted-foreground">
             ({outputCount} items)
           </span>
@@ -159,20 +161,20 @@ function DAGRunOutputs({ dagName, dagRunId }: Props) {
 
         <div className="flex flex-wrap gap-4 text-xs">
           <div className="flex items-center gap-1">
-            <span className="text-muted-foreground">Status:</span>
+            <span className="text-muted-foreground"><I18nText text={"Status:"} /></span>
             <StatusChip status={statusLabelToStatus(metadata.status)} size="xs">
               {metadata.status}
             </StatusChip>
           </div>
           <div>
-            <span className="text-muted-foreground">Completed: </span>
+            <span className="text-muted-foreground"><I18nText text={"Completed:"} /> </span>
             <span className="font-mono">
               {dayjs(metadata.completedAt).format('YYYY-MM-DD HH:mm:ss')}
             </span>
           </div>
           {metadata.attemptId && (
             <div>
-              <span className="text-muted-foreground">Attempt: </span>
+              <span className="text-muted-foreground"><I18nText text={"Attempt:"} /> </span>
               <span className="font-mono">{metadata.attemptId}</span>
             </div>
           )}
@@ -182,12 +184,12 @@ function DAGRunOutputs({ dagName, dagRunId }: Props) {
       {/* Filter Input */}
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
+        <I18nProps><Input
           placeholder="Filter outputs by key or value..."
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           className="pl-9 h-8 text-sm"
-        />
+        /></I18nProps>
       </div>
 
       {/* Outputs Table */}
@@ -196,7 +198,7 @@ function DAGRunOutputs({ dagName, dagRunId }: Props) {
           <TableHeader>
             <TableRow>
               <TableHead className="w-[200px]">
-                <button
+                <I18nProps><button
                   type="button"
                   onClick={() => handleSort('name')}
                   className="flex items-center gap-1 cursor-pointer select-none focus:outline-none rounded"
@@ -204,10 +206,10 @@ function DAGRunOutputs({ dagName, dagRunId }: Props) {
                 >
                   Key
                   <ArrowUpDown className="h-3 w-3 text-muted-foreground" />
-                </button>
+                </button></I18nProps>
               </TableHead>
               <TableHead>
-                <button
+                <I18nProps><button
                   type="button"
                   onClick={() => handleSort('value')}
                   className="flex items-center gap-1 cursor-pointer select-none focus:outline-none rounded"
@@ -215,7 +217,7 @@ function DAGRunOutputs({ dagName, dagRunId }: Props) {
                 >
                   Value
                   <ArrowUpDown className="h-3 w-3 text-muted-foreground" />
-                </button>
+                </button></I18nProps>
               </TableHead>
               <TableHead className="w-[50px]"></TableHead>
             </TableRow>
@@ -227,7 +229,7 @@ function DAGRunOutputs({ dagName, dagRunId }: Props) {
                   colSpan={3}
                   className="text-center text-muted-foreground py-8"
                 >
-                  No outputs match your filter
+                  <I18nText text={"No outputs match your filter"} />
                 </TableCell>
               </TableRow>
             ) : (
@@ -238,7 +240,7 @@ function DAGRunOutputs({ dagName, dagRunId }: Props) {
                     {value}
                   </TableCell>
                   <TableCell>
-                    <button
+                    <I18nProps><button
                       type="button"
                       onClick={() => handleCopy(key, value)}
                       className="p-1 hover:bg-accent rounded focus:outline-none"
@@ -250,7 +252,7 @@ function DAGRunOutputs({ dagName, dagRunId }: Props) {
                       ) : (
                         <Copy className="h-3.5 w-3.5 text-muted-foreground" />
                       )}
-                    </button>
+                    </button></I18nProps>
                   </TableCell>
                 </TableRow>
               ))

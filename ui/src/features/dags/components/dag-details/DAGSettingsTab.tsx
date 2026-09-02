@@ -20,6 +20,8 @@ import { whenEnabled } from '@/hooks/queryUtils';
 import { AlertTriangle, Save, X } from 'lucide-react';
 import React from 'react';
 import { RuntimeProfileStatus } from '../../../../api/v1/schema';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type Props = {
   fileName: string;
@@ -154,7 +156,7 @@ function DAGSettingsTab({ fileName }: Props) {
       <div className="rounded-md border border-border p-4">
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div className="w-full max-w-md space-y-2">
-            <Label htmlFor="dag-default-profile">Default profile</Label>
+            <Label htmlFor="dag-default-profile"><I18nText text={"Default profile"} /></Label>
             {canManageProfiles ? (
               <Select
                 value={selectedProfile || NO_PROFILE_VALUE}
@@ -164,10 +166,10 @@ function DAGSettingsTab({ fileName }: Props) {
                 }
               >
                 <SelectTrigger id="dag-default-profile" className="w-full">
-                  <SelectValue placeholder="No profile" />
+                  <I18nProps><SelectValue placeholder="No profile" /></I18nProps>
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={NO_PROFILE_VALUE}>No profile</SelectItem>
+                  <SelectItem value={NO_PROFILE_VALUE}><I18nText text={"No profile"} /></SelectItem>
                   {selectedProfileUnavailable && (
                     <SelectItem value={selectedProfile} disabled>
                       <span className="flex w-full items-center justify-between gap-3">
@@ -176,7 +178,7 @@ function DAGSettingsTab({ fileName }: Props) {
                           variant="secondary"
                           className="h-4 px-1.5 text-[10px]"
                         >
-                          Restricted
+                          <I18nText text={"Restricted"} />
                         </Badge>
                       </span>
                     </SelectItem>
@@ -197,7 +199,7 @@ function DAGSettingsTab({ fileName }: Props) {
                               variant="outline"
                               className="h-4 px-1.5 text-[10px]"
                             >
-                              Protected
+                              <I18nText text={"Protected"} />
                             </Badge>
                           )}
                         </span>

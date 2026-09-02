@@ -215,6 +215,15 @@ describe('App document title', () => {
     });
   });
 
+  it('localizes the page title', async () => {
+    localStorage.setItem('user_preferences', JSON.stringify({ locale: 'ja' }));
+    renderAt('/search');
+
+    await waitFor(() => {
+      expect(document.title).toBe('検索 - Dagu');
+    });
+  });
+
   it('falls back to the configured title when a page sets none', async () => {
     renderAt('/queues', makeConfig({ title: 'Operations' }));
 

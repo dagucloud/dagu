@@ -17,6 +17,7 @@ import { workspaceWikiQueryForWorkspace } from '@/lib/workspace';
 import { DiffEditor } from '@monaco-editor/react';
 import { History, RotateCcw } from 'lucide-react';
 import { useContext, useMemo, useRef, useState } from 'react';
+import { I18nText } from '@/i18n/I18nText';
 
 type WikiPageRevision = components['schemas']['WikiPageRevisionResponse'];
 
@@ -113,8 +114,7 @@ export function WikiPageHistoryModal({
             History: {wikiPagePath}
           </DialogTitle>
           <DialogDescription>
-            Stored versions of this Wiki page, newest first. Loading a revision
-            into the editor marks it unsaved; save to restore it.
+            <I18nText text={"Stored versions of this Wiki page, newest first. Loading a revision into the editor marks it unsaved; save to restore it."} />
           </DialogDescription>
         </DialogHeader>
         {revisions.length === 0 ? (

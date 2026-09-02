@@ -11,6 +11,8 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 import NodeStatusChip from '../common/NodeStatusChip';
 import { StepDetails } from './StepDetails';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type Step = components['schemas']['Step'];
 type Node = components['schemas']['Node'];
@@ -157,7 +159,7 @@ function StepRuntimeSection({
       {subRuns.length > 0 && (
         <div className="space-y-1">
           <div className="text-xs font-medium uppercase text-muted-foreground">
-            Sub-runs
+            <I18nText text={"Sub-runs"} />
           </div>
           {subRuns.map((subRun, index) => (
             <div
@@ -176,7 +178,7 @@ function StepRuntimeSection({
                   className="rounded-md border border-border bg-background px-2 py-0.5 text-xs font-medium hover:bg-muted"
                   onClick={() => onOpenSubRun(index)}
                 >
-                  Open
+                  <I18nText text={"Open"} />
                 </button>
               )}
             </div>
@@ -398,7 +400,7 @@ export function StepDetailsDrawer({
 
   return createPortal(
     <div className="fixed inset-0 z-[60] flex justify-end">
-      <button
+      <I18nProps><button
         type="button"
         tabIndex={-1}
         aria-label="Close step details"
@@ -407,7 +409,7 @@ export function StepDetailsDrawer({
           isVisible ? 'opacity-100' : 'opacity-0'
         )}
         onClick={onClose}
-      />
+      /></I18nProps>
       <aside
         ref={drawerRef}
         role="dialog"
@@ -419,7 +421,7 @@ export function StepDetailsDrawer({
         )}
         style={{ width: `min(100vw, ${drawerWidth}px)` }}
       >
-        <div
+        <I18nProps><div
           role="separator"
           aria-label="Resize step details"
           aria-orientation="vertical"
@@ -433,7 +435,7 @@ export function StepDetailsDrawer({
           onKeyDown={handleResizeKeyDown}
         >
           <div className="mx-auto h-full w-px bg-transparent transition-colors group-hover:bg-primary/60 group-focus:bg-primary" />
-        </div>
+        </div></I18nProps>
         <header className="flex items-start justify-between gap-4 border-b border-border bg-card px-4 py-3">
           <div className="min-w-0">
             <div className="text-xs font-medium uppercase text-muted-foreground">
@@ -455,7 +457,7 @@ export function StepDetailsDrawer({
               )}
             </div>
           </div>
-          <Button
+          <I18nProps><Button
             ref={closeButtonRef}
             type="button"
             variant="ghost"
@@ -464,7 +466,7 @@ export function StepDetailsDrawer({
             title="Close step details"
           >
             <X className="h-4 w-4" />
-          </Button>
+          </Button></I18nProps>
         </header>
         <div className="min-h-0 flex-1 overflow-auto bg-background p-5">
           {renderedNode && (

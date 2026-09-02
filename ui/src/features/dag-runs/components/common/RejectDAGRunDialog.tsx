@@ -15,6 +15,8 @@ import { useErrorModal } from '@/components/ui/error-modal';
 import { useSimpleToast } from '@/components/ui/simple-toast';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useClient } from '@/hooks/api';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type Props = {
   open: boolean;
@@ -83,20 +85,20 @@ export function RejectDAGRunDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-[450px]">
         <DialogHeader>
-          <DialogTitle>Reject DAG Run</DialogTitle>
+          <DialogTitle><I18nText text={"Reject DAG Run"} /></DialogTitle>
         </DialogHeader>
         <div className="py-2">
           <label htmlFor="rejection-reason" className="sr-only">
-            Rejection reason (optional)
+            <I18nText text={"Rejection reason (optional)"} />
           </label>
-          <textarea
+          <I18nProps><textarea
             id="rejection-reason"
             className="w-full px-3 py-1 text-sm border border-border rounded bg-background focus:outline-none focus:border-ring resize-none"
             placeholder="Reason (optional)..."
             rows={2}
             value={reason}
             onChange={(event) => setReason(event.target.value)}
-          />
+          /></I18nProps>
         </div>
         <DialogFooter>
           <Button

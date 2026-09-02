@@ -18,6 +18,8 @@ import {
   XCircle,
 } from 'lucide-react';
 import { useContext, useEffect, useState } from 'react';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 export default function LicensePage() {
   const config = useConfig();
@@ -128,9 +130,9 @@ export default function LicensePage() {
   return (
     <div className="flex flex-col gap-6 max-w-2xl">
       <div>
-        <h1 className="text-lg font-semibold">License</h1>
+        <h1 className="text-lg font-semibold"><I18nText text={"License"} /></h1>
         <p className="text-sm text-muted-foreground">
-          View license status and activate a Dagu license or trial key.
+          <I18nText text={"View license status and activate a Dagu license or trial key."} />
         </p>
       </div>
 
@@ -141,7 +143,7 @@ export default function LicensePage() {
           Current License
         </div>
         <div className="grid grid-cols-[120px_1fr] gap-y-2 text-sm">
-          <span className="text-muted-foreground">Status</span>
+          <span className="text-muted-foreground"><I18nText text={"Status"} /></span>
           <span className="flex items-center gap-1.5">
             {license.error ? (
               <>
@@ -168,17 +170,17 @@ export default function LicensePage() {
             )}
           </span>
 
-          <span className="text-muted-foreground">Plan</span>
+          <span className="text-muted-foreground"><I18nText text={"Plan"} /></span>
           <span className="capitalize">{license.plan || 'community'}</span>
 
-          <span className="text-muted-foreground">Features</span>
+          <span className="text-muted-foreground"><I18nText text={"Features"} /></span>
           <span>
             {license.features.length > 0 ? license.features.join(', ') : 'None'}
           </span>
 
           {license.expiry && (
             <>
-              <span className="text-muted-foreground">Expires</span>
+              <span className="text-muted-foreground"><I18nText text={"Expires"} /></span>
               <span>{dayjs(license.expiry).format('YYYY-MM-DD')}</span>
             </>
           )}
@@ -193,7 +195,7 @@ export default function LicensePage() {
       {/* Deactivate license */}
       {!license.community && (
         <div className="card-obsidian p-4 space-y-3">
-          <div className="text-sm font-medium">Deactivate License</div>
+          <div className="text-sm font-medium"><I18nText text={"Deactivate License"} /></div>
           {license.source === 'env' ? (
             <div className="flex items-start gap-2 text-sm text-muted-foreground">
               <Info className="h-4 w-4 mt-0.5 flex-shrink-0" />
@@ -207,8 +209,7 @@ export default function LicensePage() {
           ) : (
             <>
               <p className="text-sm text-muted-foreground">
-                Remove the license from this machine and return to community
-                mode.
+                <I18nText text={"Remove the license from this machine and return to community mode."} />
               </p>
               <Button
                 variant="destructive"
@@ -227,15 +228,15 @@ export default function LicensePage() {
 
       {/* Activation form */}
       <div className="card-obsidian p-4 space-y-3">
-        <div className="text-sm font-medium">Activate License Key</div>
+        <div className="text-sm font-medium"><I18nText text={"Activate License Key"} /></div>
         <form onSubmit={handleActivate} className="flex gap-2">
-          <Input
+          <I18nProps><Input
             value={key}
             onChange={(e) => setKey(e.target.value)}
             placeholder="DAGU-XXXX-XXXX-XXXX-XXXX"
             className="font-mono text-sm h-8"
             aria-label="License key"
-          />
+          /></I18nProps>
           <Button
             type="submit"
             size="sm"
@@ -267,13 +268,13 @@ export default function LicensePage() {
             rel="noopener noreferrer"
             className="underline hover:no-underline"
           >
-            console.dagu.sh
+            <I18nText text={"console.dagu.sh"} />
           </a>
           .
         </p>
       </div>
 
-      <ConfirmModal
+      <I18nProps><ConfirmModal
         title="Deactivate License"
         buttonText="Deactivate"
         visible={showDeactivateConfirm}
@@ -281,11 +282,9 @@ export default function LicensePage() {
         onSubmit={handleDeactivate}
       >
         <p className="text-sm">
-          This will deactivate the license on this machine and return to
-          community mode. Licensed features (audit, RBAC, SSO) will be disabled
-          immediately.
+          <I18nText text={"This will deactivate the license on this machine and return to community mode. Licensed features (audit, RBAC, SSO) will be disabled immediately."} />
         </p>
-      </ConfirmModal>
+      </ConfirmModal></I18nProps>
     </div>
   );
 }

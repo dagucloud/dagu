@@ -23,6 +23,8 @@ import { useStepLogSSE } from '../../../../hooks/useStepLogSSE';
 import { AnsiLine, stripAnsi } from '@/lib/ansi';
 import { isActiveNodeStatus } from '../../../../lib/status-utils';
 import LoadingIndicator from '@/components/ui/loading-indicator';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 // Extended Log type with pagination fields
 interface LogWithPagination {
@@ -416,7 +418,7 @@ function StepLog({
               onClick={() => handleViewModeChange('tail')}
               disabled={isNavigating}
             >
-              Show End
+              <I18nText text={"Show End"} />
             </Button>
             <Button
               size="sm"
@@ -424,7 +426,7 @@ function StepLog({
               onClick={() => handleViewModeChange('head')}
               disabled={isNavigating}
             >
-              Show Beginning
+              <I18nText text={"Show Beginning"} />
             </Button>
             <Button
               size="sm"
@@ -432,7 +434,7 @@ function StepLog({
               onClick={() => handleViewModeChange('page')}
               disabled={isNavigating}
             >
-              Page View
+              <I18nText text={"Page View"} />
             </Button>
           </div>
 
@@ -442,18 +444,18 @@ function StepLog({
             onChange={(e) => setPageSize(Number(e.target.value))}
             disabled={isNavigating}
           >
-            <option value="100">100 lines</option>
-            <option value="500">500 lines</option>
-            <option value="1000">1000 lines</option>
-            <option value="5000">5000 lines</option>
-            <option value="10000">10000 lines</option>
+            <option value="100"><I18nText text={"100 lines"} /></option>
+            <option value="500"><I18nText text={"500 lines"} /></option>
+            <option value="1000"><I18nText text={"1000 lines"} /></option>
+            <option value="5000"><I18nText text={"5000 lines"} /></option>
+            <option value="10000"><I18nText text={"10000 lines"} /></option>
           </select>
 
           {/* Wrap toggle, Live mode toggle and reload button */}
           <div className="flex items-center gap-2 ml-auto">
             {/* Wrap toggle */}
             <div className="flex items-center gap-1.5">
-              <span className="text-xs text-muted-foreground">Wrap</span>
+              <span className="text-xs text-muted-foreground"><I18nText text={"Wrap"} /></span>
               <Switch
                 checked={preferences.logWrap}
                 onCheckedChange={(checked) =>
@@ -463,7 +465,7 @@ function StepLog({
             </div>
 
             {/* Reload button */}
-            <ReloadButton
+            <I18nProps><ReloadButton
               onReload={async () => {
                 if (mutate) {
                   await mutate();
@@ -471,10 +473,10 @@ function StepLog({
               }}
               isLoading={isNavigating || isLoading}
               title="Reload logs"
-            />
+            /></I18nProps>
 
             {/* Download button */}
-            <Button
+            <I18nProps><Button
               size="sm"
               variant="outline"
               onClick={handleDownload}
@@ -482,7 +484,7 @@ function StepLog({
               title="Download full log"
             >
               <Download className="h-4 w-4" />
-            </Button>
+            </Button></I18nProps>
 
             {/* Live mode toggle - only show when the node is active */}
             {isActive && (
@@ -514,7 +516,7 @@ function StepLog({
               onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
               disabled={currentPage <= 1 || isNavigating}
             >
-              Previous
+              <I18nText text={"Previous"} />
             </Button>
             <span className="text-xs">
               Page {currentPage} of {totalPages}
@@ -526,7 +528,7 @@ function StepLog({
               }
               disabled={currentPage >= totalPages || isNavigating}
             >
-              Next
+              <I18nText text={"Next"} />
             </Button>
           </div>
         )}
@@ -534,7 +536,7 @@ function StepLog({
         {/* Search within loaded lines */}
         <div className="flex items-center gap-2 mt-2">
           <Search className="h-3.5 w-3.5 text-muted-foreground" />
-          <Input
+          <I18nProps><Input
             type="text"
             placeholder="Search in loaded lines..."
             value={searchTerm}
@@ -552,7 +554,7 @@ function StepLog({
               }
             }}
             className="w-48 h-7 text-xs"
-          />
+          /></I18nProps>
           {trimmedSearch && (
             <>
               <span className="text-xs text-muted-foreground whitespace-nowrap">
@@ -560,7 +562,7 @@ function StepLog({
                   ? 'No matches'
                   : `${Math.min(activeMatch + 1, matchIndexes.length)}/${matchIndexes.length}`}
               </span>
-              <Button
+              <I18nProps><Button
                 size="sm"
                 variant="outline"
                 onClick={() => goToMatch(-1)}
@@ -568,8 +570,8 @@ function StepLog({
                 title="Previous match (Shift+Enter)"
               >
                 <ChevronUp className="h-3.5 w-3.5" />
-              </Button>
-              <Button
+              </Button></I18nProps>
+              <I18nProps><Button
                 size="sm"
                 variant="outline"
                 onClick={() => goToMatch(1)}
@@ -577,8 +579,8 @@ function StepLog({
                 title="Next match (Enter)"
               >
                 <ChevronDown className="h-3.5 w-3.5" />
-              </Button>
-              <Button
+              </Button></I18nProps>
+              <I18nProps><Button
                 size="sm"
                 variant="ghost"
                 onClick={() => {
@@ -588,14 +590,14 @@ function StepLog({
                 title="Clear search (Esc)"
               >
                 <X className="h-3.5 w-3.5" />
-              </Button>
+              </Button></I18nProps>
             </>
           )}
         </div>
 
         {/* Jump to line controls */}
         <div className="flex items-center gap-2 mt-2">
-          <span className="text-xs text-muted-foreground">Jump to line:</span>
+          <span className="text-xs text-muted-foreground"><I18nText text={"Jump to line:"} /></span>
           <Input
             type="number"
             min={1}
@@ -629,7 +631,7 @@ function StepLog({
               (jumpToLine as number) > effectiveTotalLines
             }
           >
-            Go
+            <I18nText text={"Go"} />
           </Button>
         </div>
       </div>

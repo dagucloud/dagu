@@ -15,6 +15,7 @@ import {
 import ArtifactsTab from '@/features/dags/components/artifacts/ArtifactsTab';
 import { cn } from '@/lib/utils';
 import LoadingIndicator from '@/components/ui/loading-indicator';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type DAGRunSummary = components['schemas']['DAGRunSummary'];
 const CLOSE_ANIMATION_MS = 200;
@@ -183,7 +184,7 @@ export function ArtifactListModal({
 
   return createPortal(
     <div className="fixed inset-0 z-[60] flex justify-end">
-      <button
+      <I18nProps><button
         type="button"
         tabIndex={-1}
         aria-label="Close artifact preview"
@@ -192,7 +193,7 @@ export function ArtifactListModal({
           isVisible ? 'opacity-100' : 'opacity-0'
         )}
         onClick={onClose}
-      />
+      /></I18nProps>
       <aside
         ref={drawerRef}
         role="dialog"
@@ -219,7 +220,7 @@ export function ArtifactListModal({
               {visibleRun.name} / {visibleRun.dagRunId}
             </p>
           </div>
-          <Button
+          <I18nProps><Button
             ref={closeButtonRef}
             type="button"
             variant="ghost"
@@ -228,7 +229,7 @@ export function ArtifactListModal({
             title="Close artifact preview"
           >
             <X className="h-4 w-4" />
-          </Button>
+          </Button></I18nProps>
         </header>
 
         <div className="min-h-0 flex-1 overflow-hidden px-5 py-4">

@@ -10,6 +10,8 @@ import { shouldIgnoreKeyboardShortcuts } from '@/lib/keyboard-shortcuts';
 import { cn } from '@/lib/utils';
 import { ChevronRight, Loader2, X } from 'lucide-react';
 import React from 'react';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 // Loaded lazily: the content renders DAGStatus, which is what opens this modal.
 // A static import would close that cycle at module load.
@@ -181,7 +183,7 @@ export function SubRunStackModal({
             }}
             aria-label={`Back one level`}
           >
-            <span className="sr-only">Back</span>
+            <span className="sr-only"><I18nText text={"Back"} /></span>
             <span className="block" style={{ width: EDGE_WIDTH }} />
           </button>
         );
@@ -241,7 +243,7 @@ export function SubRunStackModal({
           <span className="text-muted-foreground bg-muted rounded px-1.5 py-0.5 text-xs tabular-nums">
             {depth}
           </span>
-          <Button
+          <I18nProps><Button
             variant="outline"
             size="icon"
             onClick={() => popTo(stack.length - 1)}
@@ -249,7 +251,7 @@ export function SubRunStackModal({
             className="h-7 w-7"
           >
             <X className="h-3.5 w-3.5" />
-          </Button>
+          </Button></I18nProps>
         </div>
 
         <div className="min-h-0 flex-1 overflow-auto p-4">

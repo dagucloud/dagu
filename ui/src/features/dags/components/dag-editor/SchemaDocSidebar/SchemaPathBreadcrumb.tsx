@@ -1,6 +1,7 @@
 import type { YamlPathSegment } from '@/hooks/useYamlCursorPath';
 import { cn } from '@/lib/utils';
 import { ChevronRight } from 'lucide-react';
+import { I18nText } from '@/i18n/I18nText';
 
 interface SchemaPathBreadcrumbProps {
   segments: YamlPathSegment[];
@@ -14,7 +15,7 @@ export function SchemaPathBreadcrumb({
   if (segments.length === 0) {
     return (
       <div className={cn('text-xs text-muted-foreground italic', className)}>
-        root
+        <I18nText text={"root"} />
       </div>
     );
   }

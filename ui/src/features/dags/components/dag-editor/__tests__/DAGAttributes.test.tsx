@@ -5,6 +5,8 @@ import { cleanup, render, screen } from '@testing-library/react';
 import React from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ScheduleKind } from '@/api/v1/schema';
+import { UserPreferencesProvider } from '@/contexts/UserPreference';
+import { I18nProvider } from '@/i18n/I18nProvider';
 import dayjs from '@/lib/dayjs';
 import DAGAttributes from '../DAGAttributes';
 
@@ -46,5 +48,30 @@ describe('DAGAttributes', () => {
 
     expect(screen.getByText('Next run:')).toBeInTheDocument();
     expect(screen.getByText('No upcoming run')).toBeInTheDocument();
+  });
+
+  it('localizes the relative next run time', () => {
+    const nextRun = '2026-04-03T12:00:00Z';
+    localStorage.setItem('user_preferences', JSON.stringify({ locale: 'ja' }));
+
+    render(
+      <UserPreferencesProvider>
+        <I18nProvider>
+          <DAGAttributes
+            dag={{
+              name: 'scheduled-dag',
+              schedule: [{ expression: '0 12 * * *', kind: ScheduleKind.cron }],
+              nextRun,
+            }}
+          />
+        </I18nProvider>
+      </UserPreferencesProvider>
+    );
+
+    expect(
+      screen.getByText(
+        `${dayjs(nextRun).format('YYYY-MM-DD HH:mm:ss')} (${dayjs(nextRun).locale('ja').fromNow()})`
+      )
+    ).toBeInTheDocument();
   });
 });

@@ -55,6 +55,8 @@ import {
   NotificationSMTPOAuthProvider,
 } from '@/api/v1/schema';
 import { Link } from 'react-router-dom';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type NotificationWorkspaceSettings =
   components['schemas']['NotificationWorkspaceSettings'];
@@ -382,7 +384,7 @@ export default function NotificationsPage(): ReactElement {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-5 overflow-auto">
-      <Title>Notifications</Title>
+      <Title><I18nText text={"Notifications"} /></Title>
 
       {sections.map((section) => (
         <NotificationHomeSectionLinks key={section.title} section={section} />
@@ -467,11 +469,10 @@ function NotificationRulesHeader({
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="space-y-1">
           <h1 className="text-2xl font-semibold tracking-normal text-foreground">
-            Notification Rules
+            <I18nText text={"Notification Rules"} />
           </h1>
           <p className="text-sm text-muted-foreground">
-            Global rules apply by default. Workspace and DAG settings override
-            them only when configured.
+            <I18nText text={"Global rules apply by default. Workspace and DAG settings override them only when configured."} />
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -532,7 +533,7 @@ function ScopeSelector({
   return (
     <Card className="self-start">
       <CardHeader>
-        <CardTitle className="text-sm">1. Scope</CardTitle>
+        <CardTitle className="text-sm"><I18nText text={"1. Scope"} /></CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         <button
@@ -555,7 +556,7 @@ function ScopeSelector({
             </Badge>
           </div>
           <p className="mt-2 text-xs leading-5 text-muted-foreground">
-            Default for every DAG unless a workspace or DAG is configured.
+            <I18nText text={"Default for every DAG unless a workspace or DAG is configured."} />
           </p>
         </button>
 
@@ -661,7 +662,7 @@ function RouteBuilder({
       <CardHeader className="grid-cols-[1fr_auto]">
         <div className="min-w-0 space-y-1">
           <CardTitle className="truncate text-sm">
-            2. Send notifications
+            <I18nText text={"2. Send notifications"} />
           </CardTitle>
           <p className="text-xs text-muted-foreground">
             {title}. {description}
@@ -669,7 +670,7 @@ function RouteBuilder({
         </div>
         {!isWorkspaceInheritMode && (
           <label className="flex items-center gap-2 text-sm">
-            <span className="text-muted-foreground">Enabled</span>
+            <span className="text-muted-foreground"><I18nText text={"Enabled"} /></span>
             <Switch
               checked={draft.enabled}
               disabled={disabled}
@@ -700,9 +701,9 @@ function RouteBuilder({
                   : 'border-border hover:bg-muted'
               )}
             >
-              <span className="block text-sm font-medium">Inherit Global</span>
+              <span className="block text-sm font-medium"><I18nText text={"Inherit Global"} /></span>
               <span className="mt-1 block text-xs text-muted-foreground">
-                Use the Global rules for this workspace.
+                <I18nText text={"Use the Global rules for this workspace."} />
               </span>
             </button>
             <button
@@ -722,10 +723,10 @@ function RouteBuilder({
               )}
             >
               <span className="block text-sm font-medium">
-                Configure Workspace
+                <I18nText text={"Configure Workspace"} />
               </span>
               <span className="mt-1 block text-xs text-muted-foreground">
-                Override Global with workspace-specific rules.
+                <I18nText text={"Override Global with workspace-specific rules."} />
               </span>
             </button>
           </div>
@@ -733,14 +734,13 @@ function RouteBuilder({
 
         {isWorkspaceInheritMode ? (
           <div className="rounded-md border border-border bg-muted/30 px-3 py-4 text-sm text-muted-foreground">
-            This workspace currently inherits Global rules. Workspace routes are
-            ignored until Configure Workspace is selected.
+            <I18nText text={"This workspace currently inherits Global rules. Workspace routes are ignored until Configure Workspace is selected."} />
           </div>
         ) : availableChannels.length === 0 ? (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border px-3 py-4 text-sm text-muted-foreground">
-            <span>Create a channel before adding notification routes.</span>
+            <span><I18nText text={"Create a channel before adding notification routes."} /></span>
             <Button asChild variant="ghost" size="sm">
-              <Link to={channelsHref}>Manage channels</Link>
+              <Link to={channelsHref}><I18nText text={"Manage channels"} /></Link>
             </Button>
           </div>
         ) : draft.routes.length === 0 ? (
@@ -818,7 +818,7 @@ function RouteRuleRow({
     <div className="grid gap-3 px-3 py-3 2xl:grid-cols-[minmax(280px,1fr)_minmax(220px,280px)_auto] 2xl:items-center">
       <div className="min-w-0 space-y-2">
         <div className="text-xs font-medium text-muted-foreground">
-          When any selected event happens
+          <I18nText text={"When any selected event happens"} />
         </div>
         <div className="flex flex-wrap gap-2">
           {EVENT_OPTIONS.map((event) => {
@@ -865,14 +865,14 @@ function RouteRuleRow({
                 }))
               }
             >
-              Use operational events
+              <I18nText text={"Use operational events"} />
             </Button>
           )}
         </div>
       </div>
 
       <div className="min-w-0 space-y-2">
-        <div className="text-xs font-medium text-muted-foreground">Send to</div>
+        <div className="text-xs font-medium text-muted-foreground"><I18nText text={"Send to"} /></div>
         <Select
           value={route.channelId}
           disabled={disabled}
@@ -884,7 +884,7 @@ function RouteRuleRow({
           }
         >
           <SelectTrigger>
-            <SelectValue placeholder="Select channel" />
+            <I18nProps><SelectValue placeholder="Select channel" /></I18nProps>
           </SelectTrigger>
           <SelectContent>
             {channels.map((item) => (
@@ -966,16 +966,16 @@ function RoutePreviewPanel({
   return (
     <Card className="self-start">
       <CardHeader>
-        <CardTitle className="text-sm">3. Effective rules</CardTitle>
+        <CardTitle className="text-sm"><I18nText text={"3. Effective rules"} /></CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         {!draft.enabled ? (
           <p className="text-sm text-muted-foreground">
-            Routes are disabled for this scope.
+            <I18nText text={"Routes are disabled for this scope."} />
           </p>
         ) : previews.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No enabled route currently sends notifications.
+            <I18nText text={"No enabled route currently sends notifications."} />
           </p>
         ) : (
           <div className="divide-y divide-border rounded-md border border-border">
@@ -998,7 +998,7 @@ function RoutePreviewPanel({
                   </div>
                   <div className="flex min-w-0 items-center gap-2 text-muted-foreground">
                     <RouteIcon className="h-3.5 w-3.5 shrink-0" />
-                    <span>send to</span>
+                    <span><I18nText text={"send to"} /></span>
                     <Icon className="h-3.5 w-3.5 shrink-0" />
                     <span className="truncate text-foreground">
                       {channelLabel(item.channel)}
@@ -1012,8 +1012,7 @@ function RoutePreviewPanel({
         <div className="flex items-start gap-2 border-t border-border pt-3 text-xs text-muted-foreground">
           <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>
-            Dagu uses the most specific configured scope: DAG, then workspace,
-            then Global.
+            <I18nText text={"Dagu uses the most specific configured scope: DAG, then workspace, then Global."} />
           </span>
         </div>
       </CardContent>
@@ -1031,10 +1030,10 @@ function ChannelHelpPanel() {
           </div>
           <div className="space-y-1">
             <div className="text-sm font-medium">
-              Need a new Slack, email, webhook, or Telegram destination?
+              <I18nText text={"Need a new Slack, email, webhook, or Telegram destination?"} />
             </div>
             <div className="text-sm text-muted-foreground">
-              Create and test notification channels before using them in routes.
+              <I18nText text={"Create and test notification channels before using them in routes."} />
             </div>
           </div>
         </div>
@@ -1362,7 +1361,7 @@ export function NotificationRulesPage() {
   return (
     <div className="space-y-4">
       <StatusCard error={error ?? loadError} notice={notice} />
-      {isLoading && <LoadingCard label="Refreshing notification rules..." />}
+      {isLoading && <I18nProps><LoadingCard label="Refreshing notification rules..." /></I18nProps>}
 
       <NotificationRulesHeader
         canAddRoute={canAddActiveRoute}
@@ -1612,13 +1611,13 @@ export function NotificationChannelsPage() {
   return (
     <div className="space-y-4">
       <StatusCard error={error ?? loadError} notice={notice} />
-      {isLoading && <LoadingCard label="Refreshing notification channels..." />}
+      {isLoading && <I18nProps><LoadingCard label="Refreshing notification channels..." /></I18nProps>}
 
       <Card>
         <CardHeader className="grid-cols-[1fr_auto]">
           <div className="flex items-center gap-2">
             <Mail className="h-4 w-4 text-muted-foreground" />
-            <CardTitle className="text-sm">Email Delivery</CardTitle>
+            <CardTitle className="text-sm"><I18nText text={"Email Delivery"} /></CardTitle>
             <Badge
               variant={
                 smtpDraft.host || smtpDraft.mode === 'oauth'
@@ -1657,12 +1656,12 @@ export function NotificationChannelsPage() {
                 )
               }
             >
-              <SelectTrigger aria-label="SMTP authentication">
-                <SelectValue placeholder="Authentication" />
-              </SelectTrigger>
+              <I18nProps><SelectTrigger aria-label="SMTP authentication">
+                <I18nProps><SelectValue placeholder="Authentication" /></I18nProps>
+              </SelectTrigger></I18nProps>
               <SelectContent>
-                <SelectItem value="password">Password</SelectItem>
-                <SelectItem value="oauth">OAuth 2.0</SelectItem>
+                <SelectItem value="password"><I18nText text={"Password"} /></SelectItem>
+                <SelectItem value="oauth"><I18nText text={"OAuth 2.0"} /></SelectItem>
               </SelectContent>
             </Select>
             {smtpDraft.mode === 'oauth' && (
@@ -1679,29 +1678,29 @@ export function NotificationChannelsPage() {
                   )
                 }
               >
-                <SelectTrigger aria-label="OAuth provider">
-                  <SelectValue placeholder="OAuth provider" />
-                </SelectTrigger>
+                <I18nProps><SelectTrigger aria-label="OAuth provider">
+                  <I18nProps><SelectValue placeholder="OAuth provider" /></I18nProps>
+                </SelectTrigger></I18nProps>
                 <SelectContent>
                   <SelectItem value={NotificationSMTPOAuthProvider.microsoft}>
-                    Microsoft 365
+                    <I18nText text={"Microsoft 365"} />
                   </SelectItem>
                   <SelectItem
                     value={NotificationSMTPOAuthProvider.google_service_account}
                   >
-                    Google Workspace service account
+                    <I18nText text={"Google Workspace service account"} />
                   </SelectItem>
                   <SelectItem
                     value={NotificationSMTPOAuthProvider.google_refresh}
                   >
-                    Google refresh token
+                    <I18nText text={"Google refresh token"} />
                   </SelectItem>
                 </SelectContent>
               </Select>
             )}
           </div>
           <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_120px]">
-            <Input
+            <I18nProps><Input
               value={
                 smtpDraft.mode === 'oauth'
                   ? oauthDestination.host
@@ -1715,8 +1714,8 @@ export function NotificationChannelsPage() {
                   host: event.target.value,
                 }))
               }
-            />
-            <Input
+            /></I18nProps>
+            <I18nProps><Input
               value={
                 smtpDraft.mode === 'oauth'
                   ? oauthDestination.port
@@ -1731,7 +1730,7 @@ export function NotificationChannelsPage() {
                   port: event.target.value,
                 }))
               }
-            />
+            /></I18nProps>
           </div>
           <div className="grid gap-3 md:grid-cols-2">
             <Input
@@ -1769,7 +1768,7 @@ export function NotificationChannelsPage() {
               />
             )}
             {smtpDraft.mode === 'oauth' && (
-              <Input
+              <I18nProps><Input
                 value={smtpDraft.from}
                 placeholder="Default sender"
                 onChange={(event) =>
@@ -1778,12 +1777,12 @@ export function NotificationChannelsPage() {
                     from: event.target.value,
                   }))
                 }
-              />
+              /></I18nProps>
             )}
           </div>
           {smtpDraft.mode === 'password' && (
             <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
-              <Input
+              <I18nProps><Input
                 value={smtpDraft.from}
                 placeholder="Default sender"
                 onChange={(event) =>
@@ -1792,7 +1791,7 @@ export function NotificationChannelsPage() {
                     from: event.target.value,
                   }))
                 }
-              />
+              /></I18nProps>
               <label className="flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm">
                 <Checkbox
                   checked={smtpDraft.clearPassword}
@@ -1814,7 +1813,7 @@ export function NotificationChannelsPage() {
               NotificationSMTPOAuthProvider.microsoft && (
               <>
                 <div className="grid gap-3 md:grid-cols-2">
-                  <Input
+                  <I18nProps><Input
                     value={smtpDraft.tenantId}
                     placeholder="Microsoft tenant ID"
                     onChange={(event) => {
@@ -1823,8 +1822,8 @@ export function NotificationChannelsPage() {
                         resetOAuthSecretState({ ...current, tenantId })
                       );
                     }}
-                  />
-                  <Input
+                  /></I18nProps>
+                  <I18nProps><Input
                     value={smtpDraft.clientId}
                     placeholder="Client ID"
                     onChange={(event) => {
@@ -1833,7 +1832,7 @@ export function NotificationChannelsPage() {
                         resetOAuthSecretState({ ...current, clientId })
                       );
                     }}
-                  />
+                  /></I18nProps>
                 </div>
                 <Input
                   type="password"
@@ -1874,7 +1873,7 @@ export function NotificationChannelsPage() {
             smtpDraft.oauthProvider ===
               NotificationSMTPOAuthProvider.google_refresh && (
               <>
-                <Input
+                <I18nProps><Input
                   value={smtpDraft.clientId}
                   placeholder="Google OAuth client ID"
                   onChange={(event) => {
@@ -1883,7 +1882,7 @@ export function NotificationChannelsPage() {
                       resetOAuthSecretState({ ...current, clientId })
                     );
                   }}
-                />
+                /></I18nProps>
                 <Input
                   type="password"
                   value={smtpDraft.clientSecret}
@@ -1915,8 +1914,7 @@ export function NotificationChannelsPage() {
                   }
                 />
                 <p className="text-xs text-muted-foreground">
-                  The refresh token must have been granted with offline access
-                  and the https://mail.google.com/ scope.
+                  <I18nText text={"The refresh token must have been granted with offline access and the https://mail.google.com/ scope."} />
                 </p>
               </>
             )}
@@ -1932,7 +1930,7 @@ export function NotificationChannelsPage() {
         onDelete={setDeleteChannelIndex}
       />
 
-      <ConfirmDialog
+      <I18nProps><ConfirmDialog
         title="Delete Channel"
         buttonText="Delete"
         visible={deleteChannelIndex !== null}
@@ -1944,7 +1942,7 @@ export function NotificationChannelsPage() {
           ? deliveryLabel(channels[deleteChannelIndex])
           : 'channel'}
         ?
-      </ConfirmDialog>
+      </ConfirmDialog></I18nProps>
     </div>
   );
 }

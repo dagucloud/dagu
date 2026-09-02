@@ -26,6 +26,7 @@ import {
 } from '../../hooks/useBulkDAGRunSelection';
 import { StepDetailsTooltip } from './StepDetailsTooltip';
 import { DAGRunArtifactsButton } from './DAGRunArtifactsButton';
+import { I18nText } from '@/i18n/I18nText';
 
 interface DAGRunTableProps {
   dagRuns: components['schemas']['DAGRunSummary'][];
@@ -280,11 +281,10 @@ function DAGRunTable({
     <div className="flex flex-col items-center justify-center py-12 px-4 border rounded-md bg-card">
       <div className="text-6xl mb-4">🔍</div>
       <h3 className="text-lg font-normal text-foreground mb-2">
-        No DAG runs found
+        <I18nText text={"No DAG runs found"} />
       </h3>
       <p className="text-sm text-muted-foreground text-center max-w-md mb-4">
-        No DAG runs in the selected time range. Adjust the date range or
-        filters, or start a workflow from the Workflows page.
+        <I18nText text={"No DAG runs in the selected time range. Adjust the date range or filters, or start a workflow from the Workflows page."} />
       </p>
     </div>
   );
@@ -294,7 +294,7 @@ function DAGRunTable({
     if (isLoading) {
       return (
         <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
-          Loading DAG runs...
+          <I18nText text={"Loading DAG runs..."} />
         </div>
       );
     }
@@ -400,7 +400,7 @@ function DAGRunTable({
               {dagRun.scheduleTime && (
                 <div className="flex justify-between items-center">
                   <div className="whitespace-normal break-words">
-                    <span className="text-muted-foreground">Scheduled: </span>
+                    <span className="text-muted-foreground"><I18nText text={"Scheduled:"} /> </span>
                     <span title={dagRun.scheduleTime}>
                       {formatScheduleTime(dagRun.scheduleTime)}
                     </span>
@@ -409,14 +409,14 @@ function DAGRunTable({
               )}
               <div className="flex justify-between items-center">
                 <div>
-                  <span className="text-muted-foreground">Queued: </span>
+                  <span className="text-muted-foreground"><I18nText text={"Queued:"} /> </span>
                   <RelativeTime
                     timestamp={dagRun.queuedAt}
                     absolute={dagRun.queuedAt}
                   />
                 </div>
                 <div>
-                  <span className="text-muted-foreground">Started: </span>
+                  <span className="text-muted-foreground"><I18nText text={"Started:"} /> </span>
                   <RelativeTime
                     timestamp={dagRun.startedAt}
                     absolute={dagRun.startedAt}
@@ -424,7 +424,7 @@ function DAGRunTable({
                 </div>
               </div>
               <div className="text-left flex items-center gap-1.5">
-                <span className="text-muted-foreground">Duration: </span>
+                <span className="text-muted-foreground"><I18nText text={"Duration:"} /> </span>
                 <span className="flex items-center gap-1">
                   {calculateDuration(
                     dagRun.startedAt,
@@ -438,13 +438,13 @@ function DAGRunTable({
               </div>
               {dagRun.workerId && (
                 <div className="text-left">
-                  <span className="text-muted-foreground">Worker: </span>
+                  <span className="text-muted-foreground"><I18nText text={"Worker:"} /> </span>
                   {dagRun.workerId}
                 </div>
               )}
               {dagRun.profileName && (
                 <div className="text-left flex min-w-0 items-center gap-1.5">
-                  <span className="text-muted-foreground">Profile: </span>
+                  <span className="text-muted-foreground"><I18nText text={"Profile:"} /> </span>
                   <span
                     className="inline-flex min-w-0 items-center gap-1 font-mono"
                     title={dagRun.profileName}
@@ -473,35 +473,35 @@ function DAGRunTable({
         <TableHeader>
           <TableRow>
             {onToggleBulkSelect && (
-              <TableHead className="w-10">Select</TableHead>
+              <TableHead className="w-10"><I18nText text={"Select"} /></TableHead>
             )}
-            <TableHead>DAG Name</TableHead>
-            <TableHead>Run ID</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Trigger</TableHead>
-            {showProfileColumn && <TableHead>Profile</TableHead>}
+            <TableHead><I18nText text={"DAG Name"} /></TableHead>
+            <TableHead><I18nText text={"Run ID"} /></TableHead>
+            <TableHead><I18nText text={"Status"} /></TableHead>
+            <TableHead><I18nText text={"Trigger"} /></TableHead>
+            {showProfileColumn && <TableHead><I18nText text={"Profile"} /></TableHead>}
             {showScheduleColumn && (
               <TableHead>
-                <div>Scheduled At</div>
+                <div><I18nText text={"Scheduled At"} /></div>
                 <div className="text-xs text-muted-foreground font-normal">
                   {timezoneInfo}
                 </div>
               </TableHead>
             )}
             <TableHead>
-              <div>Queued At</div>
+              <div><I18nText text={"Queued At"} /></div>
               <div className="text-xs text-muted-foreground font-normal">
                 {timezoneInfo}
               </div>
             </TableHead>
             <TableHead>
-              <div>Started At</div>
+              <div><I18nText text={"Started At"} /></div>
               <div className="text-xs text-muted-foreground font-normal">
                 {timezoneInfo}
               </div>
             </TableHead>
-            <TableHead>Duration</TableHead>
-            <TableHead>Worker</TableHead>
+            <TableHead><I18nText text={"Duration"} /></TableHead>
+            <TableHead><I18nText text={"Worker"} /></TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>

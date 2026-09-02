@@ -27,6 +27,8 @@ import {
   workspaceSelectionQuery,
 } from '@/lib/workspace';
 import type { components } from '@/api/v1/schema';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type DAGFile = components['schemas']['DAGFile'];
 
@@ -259,7 +261,7 @@ export function TemplateSelector({
         {selectedTemplate && selectedDagName ? (
           <>
             <span className="truncate flex-1 text-left">{selectedDagName}</span>
-            <span
+            <I18nProps><span
               role="button"
               tabIndex={0}
               onClick={(e) => {
@@ -279,13 +281,13 @@ export function TemplateSelector({
               className="p-0.5 rounded hover:bg-muted-foreground/20 hover:text-destructive cursor-pointer"
             >
               <X className="h-3 w-3" />
-            </span>
+            </span></I18nProps>
           </>
         ) : (
           <>
             <Search className="h-3 w-3 text-muted-foreground shrink-0" />
             <span className="text-muted-foreground truncate flex-1 text-left">
-              Select template...
+              <I18nText text={"Select template..."} />
             </span>
           </>
         )}
@@ -303,7 +305,7 @@ export function TemplateSelector({
           {/* Search input */}
           <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border">
             <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-            <input
+            <I18nProps><input
               ref={inputRef}
               type="text"
               value={searchTerm}
@@ -311,10 +313,10 @@ export function TemplateSelector({
               onKeyDown={handleKeyDown}
               placeholder="Search DAGs..."
               className="flex-1 bg-transparent border-none outline-none text-xs placeholder:text-muted-foreground"
-            />
+            /></I18nProps>
             {isLoading && debouncedTerm && (
               <span className="text-[10px] text-muted-foreground">
-                Searching...
+                <I18nText text={"Searching..."} />
               </span>
             )}
             <button
@@ -369,7 +371,7 @@ export function TemplateSelector({
           >
             {flatList.length === 0 ? (
               <div className="px-3 py-4 text-xs text-muted-foreground text-center">
-                No DAGs found
+                <I18nText text={"No DAGs found"} />
               </div>
             ) : (
               groupedDags.map(([group, dagList]) => (

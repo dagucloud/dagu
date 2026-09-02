@@ -12,6 +12,7 @@ import { Link } from 'react-router-dom';
 import { parse as parseYAML } from 'yaml';
 import { DagStatusChip } from './DagStatusChip';
 import { useWikiLive } from './context';
+import { I18nText } from '@/i18n/I18nText';
 
 type RunMode = 'start' | 'enqueue';
 
@@ -248,7 +249,7 @@ export function DaguRunBlock({ source }: Props) {
             to={`/dag-runs/${encodeURIComponent(runState.dagName)}/${encodeURIComponent(runState.dagRunId)}`}
             className="text-primary hover:underline"
           >
-            View run →
+            <I18nText text={"View run →"} />
           </Link>
         </div>
       )}

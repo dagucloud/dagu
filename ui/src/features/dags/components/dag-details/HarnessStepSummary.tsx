@@ -12,6 +12,8 @@ import {
 } from '@/lib/harness-step';
 import { cn } from '@/lib/utils';
 import { components } from '../../../../api/v1/schema';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type Props = {
   step: components['schemas']['Step'];
@@ -36,7 +38,7 @@ function HarnessStepSummary({ step, className, compact = false }: Props) {
   const promptContent = summary.prompt ? (
     <div className="rounded-md border border-border/70 bg-background/70 px-2 py-1.5">
       <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-        Prompt
+        <I18nText text={"Prompt"} />
       </div>
       <div className="line-clamp-3 whitespace-pre-wrap break-words text-xs leading-relaxed text-foreground/90">
         {summary.prompt}
@@ -109,13 +111,13 @@ function CompactHarnessSummary({
           Harness
         </Badge>
         {primary?.provider ? (
-          <Badge
+          <I18nProps><Badge
             variant="secondary"
             className="font-mono normal-case tracking-normal"
             title="Primary provider"
           >
             {primary.provider}
-          </Badge>
+          </Badge></I18nProps>
         ) : null}
         {optionCount > 0 ? (
           <Badge variant="outline" className="normal-case tracking-normal">

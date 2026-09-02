@@ -31,6 +31,8 @@ import StatusChip from '@/components/ui/status-chip';
 import { getManualActionState } from '../../lib/manualActionState';
 import { RejectDAGRunDialog } from './RejectDAGRunDialog';
 import { getDAGRunTerminateActionDetails } from './terminateAction';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 /**
  * Props for the DAGRunActions component
@@ -195,12 +197,12 @@ function DAGRunActions({
                   onClick={() => setIsRejectModal(true)}
                   className="cursor-pointer"
                 >
-                  Reject
+                  <I18nText text={"Reject"} />
                 </ActionButton>
               </span>
             </TooltipTrigger>
             <TooltipContent>
-              <p>Reject DAG run</p>
+              <p><I18nText text={"Reject DAG run"} /></p>
             </TooltipContent>
           </Tooltip>
         ) : (
@@ -241,7 +243,7 @@ function DAGRunActions({
                 onClick={() => setIsRetryModal(true)}
                 className="cursor-pointer"
               >
-                Retry
+                <I18nText text={"Retry"} />
               </ActionButton>
             </span>
           </TooltipTrigger>
@@ -265,7 +267,7 @@ function DAGRunActions({
                 onClick={() => setIsDequeueModal(true)}
                 className="cursor-pointer"
               >
-                Dequeue
+                <I18nText text={"Dequeue"} />
               </ActionButton>
             </span>
           </TooltipTrigger>
@@ -279,7 +281,7 @@ function DAGRunActions({
         </Tooltip>
 
         {/* Stop Confirmation Modal */}
-        <ConfirmModal
+        <I18nProps><ConfirmModal
           title="Confirmation"
           buttonText={terminateDetails.buttonText}
           visible={isStopModal}
@@ -313,7 +315,7 @@ function DAGRunActions({
           }}
         >
           <div>{terminateDetails.confirmText}</div>
-        </ConfirmModal>
+        </ConfirmModal></I18nProps>
 
         {/* Retry Confirmation Modal */}
         <ConfirmModal
@@ -395,36 +397,34 @@ function DAGRunActions({
           {/* Modal content structure */}
           <div className="space-y-3">
             <p className="mb-2">
-              Do you really want to retry the following execution?
+              <I18nText text={"Do you really want to retry the following execution?"} />
             </p>
             {!retryAsNew && hasManagedAgentSession && (
               <p className="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
-                Retry continues the existing OpenCode conversation and sends the
-                step prompt again. Use “Start clean session” in the Agent
-                session tab to begin a new conversation.
+                <I18nText text={"Retry continues the existing OpenCode conversation and sends the step prompt again. Use “Start clean session” in the Agent session tab to begin a new conversation."} />
               </p>
             )}
-            <LabeledItem label="DAGRun-Name">
+            <I18nProps><LabeledItem label="DAGRun-Name">
               <span className="font-mono text-sm">{dagRun?.name || 'N/A'}</span>
-            </LabeledItem>
-            <LabeledItem label="DAGRun-ID">
+            </LabeledItem></I18nProps>
+            <I18nProps><LabeledItem label="DAGRun-ID">
               <span className="font-mono text-sm">
                 {dagRun?.dagRunId || 'N/A'}
               </span>
-            </LabeledItem>
+            </LabeledItem></I18nProps>
             {dagRun?.startedAt && (
-              <LabeledItem label="Started At">
+              <I18nProps><LabeledItem label="Started At">
                 <span className="text-sm">
                   {dayjs(dagRun.startedAt).format('YYYY-MM-DD HH:mm:ss Z')}
                 </span>
-              </LabeledItem>
+              </LabeledItem></I18nProps>
             )}
             {dagRun?.status !== undefined && (
-              <LabeledItem label="Status">
+              <I18nProps><LabeledItem label="Status">
                 <StatusChip status={dagRun.status} size="sm">
                   {dagRun.statusLabel || ''}
                 </StatusChip>
-              </LabeledItem>
+              </LabeledItem></I18nProps>
             )}
 
             {/* Reschedule checkbox */}
@@ -436,7 +436,7 @@ function DAGRunActions({
                 className="border-border"
               />
               <Label htmlFor="reschedule" className="cursor-pointer text-sm">
-                Reschedule with new DAG-run
+                <I18nText text={"Reschedule with new DAG-run"} />
               </Label>
             </div>
 
@@ -445,19 +445,19 @@ function DAGRunActions({
               <div className="space-y-3 pt-2">
                 <div className="space-y-1.5">
                   <Label htmlFor="new-dagrun-id" className="text-sm">
-                    New DAG-Run ID (optional)
+                    <I18nText text={"New DAG-Run ID (optional)"} />
                   </Label>
-                  <Input
+                  <I18nProps><Input
                     id="new-dagrun-id"
                     placeholder="Auto-generated if empty"
                     value={newRunId}
                     onChange={(e) => setNewRunId(e.target.value)}
                     className="h-8 text-sm"
-                  />
+                  /></I18nProps>
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="dag-name-override" className="text-sm">
-                    DAG Name Override (optional)
+                    <I18nText text={"DAG Name Override (optional)"} />
                   </Label>
                   <Input
                     id="dag-name-override"
@@ -490,7 +490,7 @@ function DAGRunActions({
                   }}
                   className="flex w-full items-start gap-3 rounded-md border px-3 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring aria-disabled:cursor-not-allowed aria-disabled:opacity-70 aria-disabled:hover:bg-transparent"
                 >
-                  <Checkbox
+                  <I18nProps><Checkbox
                     id="use-current-dag-file"
                     aria-label="Use original DAG file"
                     checked={useCurrentDagFile}
@@ -499,13 +499,13 @@ function DAGRunActions({
                       setUseCurrentDagFile(checked as boolean)
                     }
                     className="mt-0.5 h-5 w-5 border-border pointer-events-none"
-                  />
+                  /></I18nProps>
                   <div className="space-y-0.5">
                     <Label
                       htmlFor="use-current-dag-file"
                       className="cursor-pointer text-sm font-medium"
                     >
-                      Use original DAG file
+                      <I18nText text={"Use original DAG file"} />
                     </Label>
                     <p className="text-xs text-muted-foreground">
                       {specFromFile
@@ -531,7 +531,7 @@ function DAGRunActions({
         )}
 
         {/* Dequeue Confirmation Modal */}
-        <ConfirmModal
+        <I18nProps><ConfirmModal
           title="Confirmation"
           buttonText="Dequeue"
           visible={isDequeueModal}
@@ -566,25 +566,25 @@ function DAGRunActions({
         >
           <div>
             <p className="mb-2">
-              Do you really want to dequeue the following dagRun?
+              <I18nText text={"Do you really want to dequeue the following dagRun?"} />
             </p>
-            <LabeledItem label="DAGRun-Name">
+            <I18nProps><LabeledItem label="DAGRun-Name">
               <span className="font-mono text-sm">{dagRun?.name || 'N/A'}</span>
-            </LabeledItem>
-            <LabeledItem label="DAGRun-ID">
+            </LabeledItem></I18nProps>
+            <I18nProps><LabeledItem label="DAGRun-ID">
               <span className="font-mono text-sm">
                 {dagRun?.dagRunId || 'N/A'}
               </span>
-            </LabeledItem>
+            </LabeledItem></I18nProps>
             {dagRun?.status !== undefined && (
-              <LabeledItem label="Status">
+              <I18nProps><LabeledItem label="Status">
                 <StatusChip status={dagRun.status} size="sm">
                   {dagRun.statusLabel || ''}
                 </StatusChip>
-              </LabeledItem>
+              </LabeledItem></I18nProps>
             )}
           </div>
-        </ConfirmModal>
+        </ConfirmModal></I18nProps>
       </div>
     </TooltipProvider>
   );

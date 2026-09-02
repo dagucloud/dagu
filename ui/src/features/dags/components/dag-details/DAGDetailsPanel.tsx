@@ -26,6 +26,8 @@ import LoadingIndicator from '@/components/ui/loading-indicator';
 import { DAGContext } from '../../contexts/DAGContext';
 import { RootDAGRunContext } from '../../contexts/RootDAGRunContext';
 import DAGDetailsContent from './DAGDetailsContent';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 function formatDuration(startDate: string, endDate: string): string {
   if (!startDate || !endDate) {
@@ -213,9 +215,9 @@ function DAGDetailsPanel({
   if (notFound) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-4 text-muted-foreground">
-        <p className="text-sm">DAG not found or has been deleted.</p>
+        <p className="text-sm"><I18nText text={"DAG not found or has been deleted."} /></p>
         <Button variant="outline" size="sm" onClick={onClose}>
-          Close Tab
+          <I18nText text={"Close Tab"} />
         </Button>
       </div>
     );
@@ -265,16 +267,16 @@ function DAGDetailsPanel({
                   to navigate DAGs
                 </p>
                 <div className="flex gap-2">
-                  <Button
+                  <I18nProps><Button
                     size="icon"
                     onClick={handleFullscreenClick}
                     title="Open in fullscreen (F) - Cmd/Ctrl+Click to open in new tab"
                   >
                     <Maximize2 className="h-4 w-4" />
-                  </Button>
-                  <Button size="icon" onClick={onClose} title="Close (Esc)">
+                  </Button></I18nProps>
+                  <I18nProps><Button size="icon" onClick={onClose} title="Close (Esc)">
                     <X className="h-4 w-4" />
-                  </Button>
+                  </Button></I18nProps>
                 </div>
               </div>
 

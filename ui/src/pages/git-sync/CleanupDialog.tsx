@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import ConfirmModal from '@/components/ui/confirm-dialog';
+import { I18nProps } from '@/i18n/I18nProps';
 
 interface CleanupDialogProps {
   open: boolean;
@@ -19,7 +20,7 @@ export function CleanupDialog({
   onCancel,
 }: CleanupDialogProps) {
   return (
-    <ConfirmModal
+    <I18nProps><ConfirmModal
       title="Cleanup Missing Items"
       buttonText={isCleaningUp ? 'Cleaning up...' : 'Cleanup'}
       visible={open}
@@ -30,6 +31,6 @@ export function CleanupDialog({
         Remove {missingCount} missing item{missingCount !== 1 ? 's' : ''} from
         sync tracking? Files remain in the remote repository.
       </p>
-    </ConfirmModal>
+    </ConfirmModal></I18nProps>
   );
 }

@@ -5,6 +5,7 @@ import { X } from 'lucide-react';
 import * as React from 'react';
 
 import { cn } from '@/lib/utils';
+import { I18nText } from '@/i18n/I18nText';
 
 const Dialog = DialogPrimitive.Root;
 
@@ -56,7 +57,7 @@ const DialogContent = React.forwardRef<
         {!hideCloseButton && (
           <DialogPrimitive.Close className="absolute right-3 top-3 p-1.5 rounded-md opacity-70 transition-opacity hover:opacity-100 hover:bg-muted focus:outline-none disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">
             <X className="h-6 w-6" />
-            <span className="sr-only">Close</span>
+            <span className="sr-only"><I18nText text={"Close"} /></span>
           </DialogPrimitive.Close>
         )}
       </DialogPrimitive.Content>

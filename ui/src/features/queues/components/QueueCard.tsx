@@ -6,6 +6,8 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { components } from '@/api/v1/schema';
 import { cn } from '@/lib/utils';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 interface QueueCardProps {
   queue: components['schemas']['Queue'];
@@ -39,7 +41,7 @@ function QueueCard({ queue }: QueueCardProps) {
       {queue.maxConcurrency && (
         <div className="space-y-1.5">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>Capacity</span>
+            <span><I18nText text={"Capacity"} /></span>
             <span className="tabular-nums">
               {runningCount}/{queue.maxConcurrency} in use
             </span>
@@ -57,12 +59,12 @@ function QueueCard({ queue }: QueueCardProps) {
       )}
 
       <div className="grid grid-cols-2 gap-3">
-        <SummaryStat label="Running" value={runningCount} />
-        <SummaryStat
+        <I18nProps><SummaryStat label="Running" value={runningCount} /></I18nProps>
+        <I18nProps><SummaryStat
           label="Queued"
           value={formatQueuedCount(queuedCount, queuedCapped)}
           emphasized={queuedCount > 0}
-        />
+        /></I18nProps>
       </div>
     </Link>
   );

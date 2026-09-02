@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/dialog';
 import { FileText } from 'lucide-react';
 import { useState } from 'react';
+import { I18nText } from '@/i18n/I18nText';
 
 interface ScriptDialogProps {
   /** The script content to display */
@@ -94,7 +95,7 @@ export function ScriptBadge({ script, stepName }: ScriptBadgeProps) {
     <ScriptDialog script={script} stepName={stepName}>
       <div className="flex items-center gap-1.5 text-xs bg-warning-muted rounded-md px-1.5 py-0.5 w-fit hover:bg-warning-muted transition-colors">
         <FileText className="h-3.5 w-3.5 text-warning" />
-        <span className="font-medium text-warning">Script defined</span>
+        <span className="font-medium text-warning"><I18nText text={"Script defined"} /></span>
       </div>
     </ScriptDialog>
   );

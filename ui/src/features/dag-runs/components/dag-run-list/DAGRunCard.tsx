@@ -15,6 +15,7 @@ import RelativeTime from '@/components/ui/relative-time';
 import StatusChip from '@/components/ui/status-chip';
 import AutoRetryBadge from '../common/AutoRetryBadge';
 import { DAGRunDetailsModal } from '../../components/dag-run-details';
+import { I18nText } from '@/i18n/I18nText';
 
 interface DAGRunCardProps {
   dagRun: components['schemas']['DAGRunSummary'];
@@ -69,7 +70,7 @@ function DAGRunCard({ dagRun, timezoneInfo }: DAGRunCardProps) {
         </CardHeader>
         <CardContent className="space-y-1.5 pt-0 px-4 pb-3">
           <div className="flex justify-between items-center text-xs">
-            <span className="text-muted-foreground text-xs">Status:</span>
+            <span className="text-muted-foreground text-xs"><I18nText text={"Status:"} /></span>
             <div className="flex flex-col items-end gap-1">
               <StatusChip status={dagRun.status} size="xs">
                 {dagRun.statusLabel}
@@ -83,7 +84,7 @@ function DAGRunCard({ dagRun, timezoneInfo }: DAGRunCardProps) {
             </div>
           </div>
           <div className="flex justify-between items-center text-xs">
-            <span className="text-muted-foreground text-xs">Started:</span>
+            <span className="text-muted-foreground text-xs"><I18nText text={"Started:"} /></span>
             <RelativeTime
               className="truncate ml-2"
               timestamp={dagRun.startedAt}
@@ -91,7 +92,7 @@ function DAGRunCard({ dagRun, timezoneInfo }: DAGRunCardProps) {
             />
           </div>
           <div className="flex justify-between items-center text-xs">
-            <span className="text-muted-foreground text-xs">Finished:</span>
+            <span className="text-muted-foreground text-xs"><I18nText text={"Finished:"} /></span>
             <RelativeTime
               className="truncate ml-2"
               timestamp={dagRun.finishedAt}

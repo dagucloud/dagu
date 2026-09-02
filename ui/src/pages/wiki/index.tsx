@@ -51,6 +51,8 @@ import { normalizeWikiPagePathFromURL } from './lib/wiki-page-url';
 import type { WikiPageMutationTarget } from './lib/wiki-page-mutation';
 import { useWikiPageMutations } from './hooks/useWikiPageMutations';
 import type { ContextAction } from './components/WikiPageTreeNode';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 function titleFromPath(wikiPagePath: string): string {
   const segments = wikiPagePath.split('/');
@@ -582,7 +584,7 @@ function WikiContent() {
         isLoading={renameLoading}
         externalError={renameError}
       />
-      <ConfirmModal
+      <I18nProps><ConfirmModal
         title="Delete Wiki page"
         buttonText="Delete"
         visible={deleteConfirmOpen}
@@ -593,8 +595,8 @@ function WikiContent() {
           Are you sure you want to delete <strong>{deleteWikiPageTitle}</strong>
           ? This action cannot be undone.
         </p>
-      </ConfirmModal>
-      <ConfirmModal
+      </ConfirmModal></I18nProps>
+      <I18nProps><ConfirmModal
         title="Delete Wiki"
         buttonText={`Delete ${batchDeleteTargets.length} items`}
         visible={batchDeleteConfirmOpen}
@@ -605,7 +607,7 @@ function WikiContent() {
           Are you sure you want to delete {batchDeleteTargets.length} items?
           This cannot be undone.
         </p>
-      </ConfirmModal>
+      </ConfirmModal></I18nProps>
     </>
   );
 
@@ -629,7 +631,7 @@ function WikiContent() {
               {rightPanel || (
                 <div className="flex items-center justify-center h-full">
                   <p className="text-sm text-muted-foreground">
-                    Select a Wiki page to start editing.
+                    <I18nText text={"Select a Wiki page to start editing."} />
                   </p>
                 </div>
               )}

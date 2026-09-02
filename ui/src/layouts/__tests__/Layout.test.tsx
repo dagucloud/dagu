@@ -146,7 +146,7 @@ describe('Layout', () => {
     );
     renderLayout('/dag-runs/example/run-1');
 
-    const breadcrumbs = screen.getByRole('navigation', { name: 'breadcrumb' });
+    const breadcrumbs = screen.getByRole('navigation', { name: '面包屑' });
     expect(
       within(breadcrumbs).getByRole('link', { name: '首页' })
     ).toBeVisible();

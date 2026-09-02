@@ -26,6 +26,7 @@ import { Badge } from '@/components/ui/badge';
 import { TableCell, TableRow } from '@/components/ui/table';
 import HarnessStepSummary from './HarnessStepSummary';
 import { LogStepMessage } from './LogStepMessage';
+import { I18nText } from '@/i18n/I18nText';
 
 /**
  * Props for the DAGStepTableRow component
@@ -97,7 +98,7 @@ function DAGStepTableRow({ step, index }: Props) {
             <div className="mt-1 space-y-1">
               <div className="flex items-center gap-1.5 text-xs">
                 <GitFork className="h-3.5 w-3.5 text-info" />
-                <span className="font-medium">Router:</span>
+                <span className="font-medium"><I18nText text={"Router:"} /></span>
                 <code className="bg-muted px-1 rounded">
                   {step.router.value}
                 </code>
@@ -204,7 +205,7 @@ function DAGStepTableRow({ step, index }: Props) {
           </div>
         ) : (
           <span className="text-xs text-muted-foreground leading-tight">
-            None
+            <I18nText text={"None"} />
           </span>
         )}
       </TableCell>
@@ -272,7 +273,7 @@ function DAGStepTableRow({ step, index }: Props) {
               {step.repeatPolicy.exitCode &&
                 step.repeatPolicy.exitCode.length > 0 && (
                   <div className="text-xs bg-muted rounded px-1.5 py-0.5">
-                    <span className="text-muted-foreground">exit codes:</span>{' '}
+                    <span className="text-muted-foreground"><I18nText text={"exit codes:"} /></span>{' '}
                     <span className="font-mono text-warning">
                       [{step.repeatPolicy.exitCode.join(', ')}]
                     </span>
@@ -285,7 +286,7 @@ function DAGStepTableRow({ step, index }: Props) {
           {step.mailOnError && (
             <div className="flex items-center gap-1.5 text-xs bg-error-muted rounded-md px-1.5 py-0.5 w-fit">
               <Mail className="h-3.5 w-3.5 text-error" />
-              <span className="font-medium text-error">Mail on Error</span>
+              <span className="font-medium text-error"><I18nText text={"Mail on Error"} /></span>
             </div>
           )}
 
@@ -313,7 +314,7 @@ function DAGStepTableRow({ step, index }: Props) {
                   type="button"
                   className="block w-full min-w-0 cursor-pointer rounded-md bg-muted p-1.5 text-left text-xs leading-tight text-muted-foreground"
                 >
-                  <span className="mb-0.5 block font-medium">Params</span>
+                  <span className="mb-0.5 block font-medium"><I18nText text={"Params"} /></span>
                   <span className="block truncate font-mono">
                     {step.params}
                   </span>
@@ -335,7 +336,7 @@ function DAGStepTableRow({ step, index }: Props) {
           <div className="space-y-1">{preconditions}</div>
         ) : (
           <span className="text-xs text-muted-foreground leading-tight">
-            None
+            <I18nText text={"None"} />
           </span>
         )}
       </TableCell>

@@ -4,6 +4,7 @@
 import React, { useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { buildHTMLArtifactPreviewDocument } from './htmlPreview';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type Props = {
   content?: string;
@@ -22,7 +23,7 @@ export function HtmlArtifactPreview({
   );
 
   return (
-    <iframe
+    <I18nProps><iframe
       title="HTML artifact preview"
       sandbox=""
       referrerPolicy="no-referrer"
@@ -32,6 +33,6 @@ export function HtmlArtifactPreview({
         fillHeight ? 'h-full min-h-[24rem]' : 'h-[32rem]',
         className
       )}
-    />
+    /></I18nProps>
   );
 }

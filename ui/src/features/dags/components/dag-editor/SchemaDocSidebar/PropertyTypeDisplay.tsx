@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils';
+import { I18nText } from '@/i18n/I18nText';
 
 interface PropertyTypeDisplayProps {
   type: string | string[];
@@ -41,7 +42,7 @@ export function PropertyTypeDisplay({
       ))}
       {required && (
         <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium status-failed">
-          required
+          <I18nText text={"required"} />
         </span>
       )}
     </div>

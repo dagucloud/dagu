@@ -6,6 +6,7 @@ import {
   useDateKanbanData,
 } from '../hooks/useDateKanbanData';
 import { KanbanBoard } from './KanbanBoard';
+import { I18nText } from '@/i18n/I18nText';
 
 type DAGRunSummary = components['schemas']['DAGRunSummary'];
 
@@ -54,7 +55,7 @@ export function DateKanbanSection({
       </div>
       {isLoading ? (
         <div className="px-1 py-3 text-xs text-muted-foreground">
-          Loading runs...
+          <I18nText text={"Loading runs..."} />
         </div>
       ) : error ? (
         <div className="px-1 py-3 flex items-center gap-3 text-xs">
@@ -66,11 +67,11 @@ export function DateKanbanSection({
             onClick={() => void retry()}
             className="rounded border border-border px-2 py-1 text-muted-foreground hover:text-foreground"
           >
-            Retry
+            <I18nText text={"Retry"} />
           </button>
         </div>
       ) : isEmpty ? (
-        <div className="px-1 py-3 text-xs text-muted-foreground">No runs</div>
+        <div className="px-1 py-3 text-xs text-muted-foreground"><I18nText text={"No runs"} /></div>
       ) : (
         <KanbanBoard
           columns={columns}

@@ -16,6 +16,8 @@ import dayjs from '@/lib/dayjs';
 import { cn } from '@/lib/utils';
 import { Check, Copy } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type AuditEntry = components['schemas']['AuditEntry'];
 
@@ -122,7 +124,7 @@ export function AuditEntryDetailsDrawer({
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0 space-y-1">
               <div className="flex flex-wrap items-center gap-2">
-                <DialogTitle>Audit entry</DialogTitle>
+                <DialogTitle><I18nText text={"Audit entry"} /></DialogTitle>
                 {entry.result ? (
                   <Badge variant={resultVariant(entry.result)}>
                     {entry.result}
@@ -150,7 +152,7 @@ export function AuditEntryDetailsDrawer({
           </div>
         </DialogHeader>
 
-        <div
+        <I18nProps><div
           className="flex shrink-0 border-b border-border px-5"
           role="tablist"
           aria-label="Audit entry views"
@@ -201,7 +203,7 @@ export function AuditEntryDetailsDrawer({
               </button>
             );
           })}
-        </div>
+        </div></I18nProps>
 
         {activeTab === 'details' ? (
           <div
@@ -211,7 +213,7 @@ export function AuditEntryDetailsDrawer({
             tabIndex={0}
             className="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-4"
           >
-            <DetailSection
+            <I18nProps><DetailSection
               title="Event"
               fields={[
                 { label: 'Audit ID', value: entry.id },
@@ -222,8 +224,8 @@ export function AuditEntryDetailsDrawer({
                 { label: 'Source', value: entry.source },
                 { label: 'Surface', value: entry.surface },
               ]}
-            />
-            <DetailSection
+            /></I18nProps>
+            <I18nProps><DetailSection
               title="Identity & Access"
               fields={[
                 { label: 'Username', value: entry.username },
@@ -233,8 +235,8 @@ export function AuditEntryDetailsDrawer({
                 { label: 'Credential type', value: entry.credentialType },
                 { label: 'Credential ID', value: entry.credentialId },
               ]}
-            />
-            <DetailSection
+            /></I18nProps>
+            <I18nProps><DetailSection
               title="Resource & Trace"
               fields={[
                 { label: 'Resource type', value: entry.resourceType },
@@ -242,10 +244,10 @@ export function AuditEntryDetailsDrawer({
                 { label: 'MCP tool', value: entry.mcpTool },
                 { label: 'Correlation ID', value: entry.correlationId },
               ]}
-            />
+            /></I18nProps>
             <section>
               <h3 className="border-b border-border pb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Details
+                <I18nText text={"Details"} />
               </h3>
               {details ? (
                 <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted/60 p-3 font-mono text-xs leading-5 text-foreground">
@@ -253,7 +255,7 @@ export function AuditEntryDetailsDrawer({
                 </pre>
               ) : (
                 <p className="mt-3 text-sm text-muted-foreground">
-                  No additional details.
+                  <I18nText text={"No additional details."} />
                 </p>
               )}
             </section>

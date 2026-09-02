@@ -3,6 +3,7 @@
 
 import { components } from '@/api/v1/schema';
 import { Ban, CircleCheck, CircleDashed, CircleSlash } from 'lucide-react';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type AgentTask = components['schemas']['AgentTask'];
 
@@ -16,26 +17,26 @@ function TaskStatusIcon({ status }: { status: AgentTask['status'] }) {
   switch (status) {
     case 'completed':
       return (
-        <CircleCheck
+        <I18nProps><CircleCheck
           className={`${base} text-success`}
           aria-label="completed"
-        />
+        /></I18nProps>
       );
     case 'skipped':
       return (
-        <CircleSlash
+        <I18nProps><CircleSlash
           className={`${base} text-muted-foreground`}
           aria-label="skipped"
-        />
+        /></I18nProps>
       );
     case 'failed':
-      return <Ban className={`${base} text-error`} aria-label="failed" />;
+      return <I18nProps><Ban className={`${base} text-error`} aria-label="failed" /></I18nProps>;
     default:
       return (
-        <CircleDashed
+        <I18nProps><CircleDashed
           className={`${base} text-muted-foreground/60`}
           aria-label="open"
-        />
+        /></I18nProps>
       );
   }
 }

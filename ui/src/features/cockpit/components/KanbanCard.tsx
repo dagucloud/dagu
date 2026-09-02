@@ -11,6 +11,7 @@ import AutoRetryBadge from '@/features/dag-runs/components/common/AutoRetryBadge
 import dayjs from '@/lib/dayjs';
 import StatusChip from '@/components/ui/status-chip';
 import Ticker from '@/components/ui/ticker';
+import { I18nText } from '@/i18n/I18nText';
 
 type DAGRunSummary = components['schemas']['DAGRunSummary'];
 
@@ -154,7 +155,7 @@ export function KanbanCard({
                 <Archive className="h-4 w-4" />
               </button>
             </TooltipTrigger>
-            <TooltipContent>View artifacts</TooltipContent>
+            <TooltipContent><I18nText text={"View artifacts"} /></TooltipContent>
           </Tooltip>
         )}
       </div>

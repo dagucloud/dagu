@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
+import { I18nText } from '@/i18n/I18nText';
 
 type ConfirmDialogProps = {
   title: string;
@@ -115,7 +116,7 @@ function ConfirmDialog({
         <DialogHeader className={headerClassName}>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription className="sr-only">
-            Confirm the requested action.
+            <I18nText text={"Confirm the requested action."} />
           </DialogDescription>
         </DialogHeader>
 

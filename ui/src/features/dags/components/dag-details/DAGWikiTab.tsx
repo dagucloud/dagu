@@ -21,6 +21,7 @@ import {
   BUILT_IN_WIKI_PAGE_TEMPLATES,
   WIKI_PAGE_TEMPLATE_DAG_NAME,
 } from '@/pages/wiki/lib/wiki-page-templates';
+import { I18nText } from '@/i18n/I18nText';
 
 type WikiPageMetadataResponse =
   components['schemas']['WikiPageMetadataResponse'];
@@ -189,7 +190,7 @@ function DAGWikiTab({ dagName, workspaceName }: Props) {
     <div className="rounded-md border border-border bg-background">
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
         <BookOpen className="h-4 w-4 text-muted-foreground" />
-        <span className="text-sm font-medium">Wiki</span>
+        <span className="text-sm font-medium"><I18nText text={"Wiki"} /></span>
         <div className="flex-1" />
         {canWrite && validSegment && (
           <button
@@ -205,7 +206,7 @@ function DAGWikiTab({ dagName, workspaceName }: Props) {
 
       {empty ? (
         <div className="px-3 py-6 text-center text-xs text-muted-foreground space-y-1">
-          <p>No Wiki pages reference this DAG yet.</p>
+          <p><I18nText text={"No Wiki pages reference this DAG yet."} /></p>
           <p>
             Wiki pages under{' '}
             <code>{validSegment ? `${dagName}/` : 'its folder'}</code> or

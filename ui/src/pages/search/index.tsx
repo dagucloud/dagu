@@ -17,6 +17,8 @@ import {
   workspaceSelectionQuery,
 } from '../../lib/workspace';
 import Title from '@/components/ui/title';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type SearchScope = 'dags' | 'wiki';
 type DagResult = components['schemas']['DAGSearchPageItem'];
@@ -144,7 +146,7 @@ function SearchFeedPanel({
   if (!query) {
     return (
       <div className="text-sm text-muted-foreground italic">
-        Enter a search term and press Enter or click Search
+        <I18nText text={"Enter a search term and press Enter or click Search"} />
       </div>
     );
   }
@@ -213,7 +215,7 @@ function SearchFeedPanel({
 
       {!hasMore && (
         <div className="mb-6 text-center text-xs text-muted-foreground">
-          End of results
+          <I18nText text={"End of results"} />
         </div>
       )}
     </div>
@@ -315,7 +317,7 @@ function CursorSearchFeed<T extends SearchPageResult>({
 
 function DAGSearchFeed({ query, remoteNode, workspaceQuery }: SearchFeedProps) {
   return (
-    <CursorSearchFeed<DagResult>
+    <I18nProps><CursorSearchFeed<DagResult>
       endpoint="/search/dags"
       title="DAGs"
       emptyMessage="No dags found"
@@ -330,13 +332,13 @@ function DAGSearchFeed({ query, remoteNode, workspaceQuery }: SearchFeedProps) {
           workspaceQuery={workspaceQuery}
         />
       )}
-    />
+    /></I18nProps>
   );
 }
 
 function WikiSearchFeed({ query, remoteNode, workspaceQuery }: SearchFeedProps) {
   return (
-    <CursorSearchFeed<WikiPageResult>
+    <I18nProps><CursorSearchFeed<WikiPageResult>
       endpoint="/search/wiki"
       title="Wiki"
       emptyMessage="No Wiki pages found"
@@ -347,7 +349,7 @@ function WikiSearchFeed({ query, remoteNode, workspaceQuery }: SearchFeedProps) 
       renderResults={(results) => (
         <SearchResult type="wiki" query={query} results={results} />
       )}
-    />
+    /></I18nProps>
   );
 }
 
@@ -443,11 +445,11 @@ function Search() {
   return (
     <div className="max-w-5xl">
       <div className="w-full">
-        <Title>Search</Title>
+        <Title><I18nText text={"Search"} /></Title>
 
         <div className="flex flex-col gap-3 pt-2">
           <div className="flex flex-wrap items-center gap-2">
-            <Input
+            <I18nProps><Input
               placeholder="Search text..."
               className="max-w-md"
               ref={inputRef}
@@ -461,7 +463,7 @@ function Search() {
                   onSubmit(searchVal);
                 }
               }}
-            />
+            /></I18nProps>
             <Button
               disabled={!searchVal.trim() && !submittedQuery}
               onClick={() => {
@@ -471,7 +473,7 @@ function Search() {
               <SearchIcon className="h-4 w-4" />
               Search
             </Button>
-            <ToggleGroup aria-label="Search scope">
+            <I18nProps><ToggleGroup aria-label="Search scope">
               <ToggleButton
                 value="dags"
                 groupValue={currentFilters.scope}
@@ -482,7 +484,7 @@ function Search() {
                   });
                 }}
               >
-                DAGs
+                <I18nText text={"DAGs"} />
               </ToggleButton>
               <ToggleButton
                 value="wiki"
@@ -494,9 +496,9 @@ function Search() {
                   });
                 }}
               >
-                Wiki
+                <I18nText text={"Wiki"} />
               </ToggleButton>
-            </ToggleGroup>
+            </ToggleGroup></I18nProps>
           </div>
         </div>
 

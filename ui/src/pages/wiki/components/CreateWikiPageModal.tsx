@@ -26,6 +26,8 @@ import {
   useResolveTemplateContent,
 } from '../hooks/useWikiPageTemplates';
 import { validateWikiPagePath } from '../lib/wiki-page-validation';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 const BLANK_TEMPLATE_ID = 'blank';
 
@@ -123,17 +125,17 @@ export function CreateWikiPageModal({
       <DialogContent className="sm:max-w-[425px]">
         <form onSubmit={handleSubmit}>
           <DialogHeader>
-            <DialogTitle>Create New Wiki page</DialogTitle>
+            <DialogTitle><I18nText text={"Create New Wiki page"} /></DialogTitle>
             <DialogDescription>
-              Enter a path for the new Wiki page. Use / for directories.
+              <I18nText text={"Enter a path for the new Wiki page. Use / for directories."} />
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-3 py-3">
             <div className="grid grid-cols-4 items-center gap-3">
               <Label htmlFor="wiki-page-path" className="text-right">
-                Path
+                <I18nText text={"Path"} />
               </Label>
-              <Input
+              <I18nProps><Input
                 id="wiki-page-path"
                 value={path}
                 onChange={handlePathChange}
@@ -141,11 +143,11 @@ export function CreateWikiPageModal({
                 placeholder="runbooks/deployment"
                 autoFocus
                 disabled={busy}
-              />
+              /></I18nProps>
             </div>
             <div className="grid grid-cols-4 items-center gap-3">
               <Label htmlFor="page-template" className="text-right">
-                Template
+                <I18nText text={"Template"} />
               </Label>
               <Select
                 value={templateId}
@@ -157,10 +159,10 @@ export function CreateWikiPageModal({
                   size="sm"
                   className="col-span-3 h-7"
                 >
-                  <SelectValue placeholder="Blank" />
+                  <I18nProps><SelectValue placeholder="Blank" /></I18nProps>
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={BLANK_TEMPLATE_ID}>Blank</SelectItem>
+                  <SelectItem value={BLANK_TEMPLATE_ID}><I18nText text={"Blank"} /></SelectItem>
                   {templates.map((template) => (
                     <SelectItem key={template.id} value={template.id}>
                       {template.name}
@@ -176,7 +178,7 @@ export function CreateWikiPageModal({
               </div>
             )}
             <div className="text-xs text-muted-foreground px-4">
-              Relative path without .md extension. Use / for directories.
+              <I18nText text={"Relative path without .md extension. Use / for directories."} />
             </div>
             {currentError && (
               <div className="text-destructive text-sm px-4">

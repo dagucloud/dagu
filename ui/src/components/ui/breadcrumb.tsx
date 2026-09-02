@@ -1,12 +1,13 @@
 import { cn } from '@/lib/utils';
 import { ChevronRight } from 'lucide-react';
 import * as React from 'react';
+import { I18nProps } from '@/i18n/I18nProps';
 
 const Breadcrumb = React.forwardRef<
   HTMLElement,
   React.HTMLAttributes<HTMLElement>
 >(({ className, ...props }, ref) => (
-  <nav
+  <I18nProps><nav
     ref={ref}
     aria-label="breadcrumb"
     className={cn(
@@ -14,7 +15,7 @@ const Breadcrumb = React.forwardRef<
       className
     )}
     {...props}
-  />
+  /></I18nProps>
 ));
 Breadcrumb.displayName = 'Breadcrumb';
 

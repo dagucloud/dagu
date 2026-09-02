@@ -59,6 +59,8 @@ import {
 import { schemaFormTemplates } from './schemaFormTemplates';
 import { schemaFormWidgets } from './schemaFormWidgets';
 import { autoGrowTextarea } from './textareaAutoGrow';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type ScalarValue = components['schemas']['ParamScalar'];
 type ParamDef = components['schemas']['ParamDef'];
@@ -618,7 +620,7 @@ function StartDAGModal({
             {forceEnqueue ? 'Enqueue the DAG' : 'Start the DAG'}
           </DialogTitle>
           <DialogDescription className="sr-only">
-            Configure the DAG run before submitting it.
+            <I18nText text={"Configure the DAG run before submitting it."} />
           </DialogDescription>
         </DialogHeader>
 
@@ -634,7 +636,7 @@ function StartDAGModal({
           {isFullscreen ? <Minimize2 /> : <Maximize2 />}
         </Button>
 
-        <fieldset
+        <I18nProps><fieldset
           aria-label="Run settings"
           className="shrink-0 border-b border-border px-6 py-3"
         >
@@ -647,7 +649,7 @@ function StartDAGModal({
           >
             {!forceEnqueue && (
               <div className="space-y-1.5">
-                <span className="text-sm font-medium">Enqueue</span>
+                <span className="text-sm font-medium"><I18nText text={"Enqueue"} /></span>
                 <div className="flex h-7 items-center gap-2">
                   <Checkbox
                     id="enqueue"
@@ -658,15 +660,15 @@ function StartDAGModal({
                     disabled={loading || submitting}
                   />
                   <Label htmlFor="enqueue" className="cursor-pointer">
-                    Enqueue
+                    <I18nText text={"Enqueue"} />
                   </Label>
                 </div>
               </div>
             )}
 
             <div className="space-y-1.5">
-              <Label htmlFor="dagRun-id">DAG-Run ID (optional)</Label>
-              <Input
+              <Label htmlFor="dagRun-id"><I18nText text={"DAG-Run ID (optional)"} /></Label>
+              <I18nProps><Input
                 id="dagRun-id"
                 placeholder="Enter custom DAG-Run ID"
                 value={dagRunId}
@@ -682,12 +684,12 @@ function StartDAGModal({
                     setDAGRunId(event.target.value);
                   }
                 }}
-              />
+              /></I18nProps>
             </div>
 
             {showProfileSelector && (
               <div className="space-y-1.5">
-                <Label htmlFor="runtime-profile">Profile</Label>
+                <Label htmlFor="runtime-profile"><I18nText text={"Profile"} /></Label>
                 <Select
                   value={profileSelection}
                   disabled={
@@ -702,20 +704,20 @@ function StartDAGModal({
                     id="runtime-profile"
                     className="h-7 w-full px-2 py-1"
                   >
-                    <SelectValue placeholder="No profile" />
+                    <I18nProps><SelectValue placeholder="No profile" /></I18nProps>
                   </SelectTrigger>
                   <SelectContent>
                     {hasDefaultProfile && (
                       <SelectItem value={DAG_DEFAULT_PROFILE_VALUE}>
                         <span className="flex w-full items-center justify-between gap-3">
-                          <span>DAG default</span>
+                          <span><I18nText text={"DAG default"} /></span>
                           <span className="truncate text-xs text-muted-foreground">
                             {defaultProfile}
                           </span>
                         </span>
                       </SelectItem>
                     )}
-                    <SelectItem value={NO_PROFILE_VALUE}>No profile</SelectItem>
+                    <SelectItem value={NO_PROFILE_VALUE}><I18nText text={"No profile"} /></SelectItem>
                     {activeProfiles.map((profile) => {
                       const protectedUnavailable =
                         profile.protected && !canUseProtectedProfiles;
@@ -733,7 +735,7 @@ function StartDAGModal({
                                   variant="outline"
                                   className="h-4 px-1.5 text-[10px]"
                                 >
-                                  Protected
+                                  <I18nText text={"Protected"} />
                                 </Badge>
                               )}
                               {protectedUnavailable && (
@@ -741,7 +743,7 @@ function StartDAGModal({
                                   variant="secondary"
                                   className="h-4 px-1.5 text-[10px]"
                                 >
-                                  Admin
+                                  <I18nText text={"Admin"} />
                                 </Badge>
                               )}
                             </span>
@@ -765,23 +767,22 @@ function StartDAGModal({
               />
               <div className="space-y-0.5">
                 <Label htmlFor="no-reuse" className="cursor-pointer">
-                  Disable reuse for this run
+                  <I18nText text={"Disable reuse for this run"} />
                 </Label>
                 <p className="text-xs text-muted-foreground">
-                  Eligible steps execute and replace their materializations only
-                  after success.
+                  <I18nText text={"Eligible steps execute and replace their materializations only after success."} />
                 </p>
               </div>
             </div>
           )}
-        </fieldset>
+        </fieldset></I18nProps>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
           <div className="space-y-4">
             {(paramsReadOnly || runIdReadOnly) && (
               <div className="rounded-md border border-warning/30 bg-warning-muted p-3">
                 <p className="text-sm text-warning">
-                  <strong>Note:</strong> This DAG has restrictions:
+                  <strong><I18nText text={"Note:"} /></strong> This DAG has restrictions:
                   {paramsReadOnly && runIdReadOnly && (
                     <span>
                       {' '}
@@ -789,10 +790,10 @@ function StartDAGModal({
                     </span>
                   )}
                   {paramsReadOnly && !runIdReadOnly && (
-                    <span> Parameter editing is disabled.</span>
+                    <span> <I18nText text={"Parameter editing is disabled."} /></span>
                   )}
                   {!paramsReadOnly && runIdReadOnly && (
-                    <span> Custom run IDs are disabled.</span>
+                    <span> <I18nText text={"Custom run IDs are disabled."} /></span>
                   )}
                 </p>
               </div>
@@ -811,7 +812,7 @@ function StartDAGModal({
             >
               <div className="flex items-center gap-2">
                 <h3 id="dag-parameters-heading" className="font-semibold">
-                  Parameters
+                  <I18nText text={"Parameters"} />
                 </h3>
                 <Badge variant="secondary" className="font-normal">
                   {parameterCount} {parameterCount === 1 ? 'field' : 'fields'}
@@ -820,7 +821,7 @@ function StartDAGModal({
 
               {loading && (
                 <div className="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
-                  Loading DAG details...
+                  <I18nText text={"Loading DAG details..."} />
                 </div>
               )}
 
@@ -880,7 +881,7 @@ function StartDAGModal({
                                 })
                               }
                             >
-                              Unset
+                              <I18nText text={"Unset"} />
                             </Button>
                           )}
                         </div>
@@ -1017,7 +1018,7 @@ function renderTypedField({
         </SelectTrigger>
         <SelectContent>
           {!field.required && !field.hasDefault && (
-            <SelectItem value="__unset__">Not set</SelectItem>
+            <SelectItem value="__unset__"><I18nText text={"Not set"} /></SelectItem>
           )}
           {field.enum.map((item, index) => {
             const value = scalarToString(item);
@@ -1070,12 +1071,12 @@ function renderTypedField({
             }}
           >
             <SelectTrigger id={`param-${field.key}`} className={controlClass}>
-              <SelectValue placeholder="Not set" />
+              <I18nProps><SelectValue placeholder="Not set" /></I18nProps>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="__unset__">Not set</SelectItem>
-              <SelectItem value="true">true</SelectItem>
-              <SelectItem value="false">false</SelectItem>
+              <SelectItem value="__unset__"><I18nText text={"Not set"} /></SelectItem>
+              <SelectItem value="true"><I18nText text={"true"} /></SelectItem>
+              <SelectItem value="false"><I18nText text={"false"} /></SelectItem>
             </SelectContent>
           </Select>
         );

@@ -2,6 +2,7 @@ import React from 'react';
 import { X, Plus } from 'lucide-react';
 import { useTabContext } from '@/contexts/TabContext';
 import { cn } from '@/lib/utils';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type TabBarProps = {
   className?: string;
@@ -53,7 +54,7 @@ export function TabBar({ className, onAddTab }: TabBarProps) {
   };
 
   return (
-    <div
+    <I18nProps><div
       className={cn(
         'flex items-end gap-0 bg-background border-b border-border overflow-x-auto overflow-y-hidden pt-3',
         className
@@ -106,7 +107,7 @@ export function TabBar({ className, onAddTab }: TabBarProps) {
       })}
 
       {/* Add Tab Button */}
-      <button
+      <I18nProps><button
         type="button"
         onClick={handleAddTab}
         className={cn(
@@ -118,7 +119,7 @@ export function TabBar({ className, onAddTab }: TabBarProps) {
         aria-label="Add new tab"
       >
         <Plus className="w-4 h-4" />
-      </button>
-    </div>
+      </button></I18nProps>
+    </div></I18nProps>
   );
 }

@@ -3,6 +3,7 @@ import { AnimatePresence, LayoutGroup } from 'framer-motion';
 import { components } from '@/api/v1/schema';
 import { KanbanCard } from './KanbanCard';
 import type { KanbanColumnData } from '../hooks/useDateKanbanData';
+import { I18nText } from '@/i18n/I18nText';
 
 type DAGRunSummary = components['schemas']['DAGRunSummary'];
 
@@ -82,7 +83,7 @@ export function KanbanColumn({
       >
         {runs.length === 0 && isInitialLoading ? (
           <div className="px-1 py-2 text-xs text-muted-foreground">
-            Loading...
+            <I18nText text={"Loading..."} />
           </div>
         ) : runs.length === 0 && error ? (
           <div className="px-1 py-2 text-xs">
@@ -92,7 +93,7 @@ export function KanbanColumn({
               onClick={() => void retry()}
               className="mt-2 rounded border border-border px-2 py-1 text-muted-foreground hover:text-foreground"
             >
-              Retry
+              <I18nText text={"Retry"} />
             </button>
           </div>
         ) : (

@@ -15,6 +15,8 @@ import { Label } from '@/components/ui/label';
 import { Pencil, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { validateWikiPagePath } from '../lib/wiki-page-validation';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 interface RenameWikiPageModalProps {
   isOpen: boolean;
@@ -84,15 +86,15 @@ export function RenameWikiPageModal({
       <DialogContent className="sm:max-w-[425px]">
         <form onSubmit={handleSubmit}>
           <DialogHeader>
-            <DialogTitle>Rename Wiki page</DialogTitle>
+            <DialogTitle><I18nText text={"Rename Wiki page"} /></DialogTitle>
             <DialogDescription>
-              Enter a new path for the Wiki page.
+              <I18nText text={"Enter a new path for the Wiki page."} />
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-4 items-center gap-4">
               <Label className="text-right text-muted-foreground">
-                Current
+                <I18nText text={"Current"} />
               </Label>
               <div className="col-span-3 font-mono text-sm bg-muted px-3 py-1.5 rounded-md truncate">
                 {currentPath}
@@ -100,9 +102,9 @@ export function RenameWikiPageModal({
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="new-wiki-page-path" className="text-right">
-                New Path
+                <I18nText text={"New Path"} />
               </Label>
-              <Input
+              <I18nProps><Input
                 id="new-wiki-page-path"
                 value={newPath}
                 onChange={handlePathChange}
@@ -110,7 +112,7 @@ export function RenameWikiPageModal({
                 placeholder="runbooks/deployment"
                 autoFocus
                 disabled={isLoading}
-              />
+              /></I18nProps>
             </div>
             {currentError && (
               <div className="text-destructive text-sm px-4">

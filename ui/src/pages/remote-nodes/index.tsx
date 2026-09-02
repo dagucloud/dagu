@@ -32,6 +32,8 @@ import {
 } from 'lucide-react';
 import { useCallback, useContext, useEffect, useState } from 'react';
 import { RemoteNodeFormModal } from './RemoteNodeFormModal';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type RemoteNodeResponse = components['schemas']['RemoteNodeResponse'];
 type TestResult = { success: boolean; message?: string; error?: string };
@@ -202,9 +204,9 @@ export default function RemoteNodesPage() {
     <div className="flex flex-col gap-4 max-w-7xl">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold">Remote Nodes</h1>
+          <h1 className="text-lg font-semibold"><I18nText text={"Remote Nodes"} /></h1>
           <p className="text-sm text-muted-foreground">
-            Manage connections to remote Dagu instances
+            <I18nText text={"Manage connections to remote Dagu instances"} />
           </p>
         </div>
         <Button
@@ -227,12 +229,12 @@ export default function RemoteNodesPage() {
         <Table className="text-xs">
           <TableHeader>
             <TableRow>
-              <TableHead className="w-[180px]">Name</TableHead>
-              <TableHead className="w-[280px]">API URL</TableHead>
-              <TableHead className="w-[80px]">Auth</TableHead>
-              <TableHead className="w-[80px]">Source</TableHead>
-              <TableHead className="w-[150px]">Created</TableHead>
-              <TableHead className="w-[120px]">Status</TableHead>
+              <TableHead className="w-[180px]"><I18nText text={"Name"} /></TableHead>
+              <TableHead className="w-[280px]"><I18nText text={"API URL"} /></TableHead>
+              <TableHead className="w-[80px]"><I18nText text={"Auth"} /></TableHead>
+              <TableHead className="w-[80px]"><I18nText text={"Source"} /></TableHead>
+              <TableHead className="w-[150px]"><I18nText text={"Created"} /></TableHead>
+              <TableHead className="w-[120px]"><I18nText text={"Status"} /></TableHead>
               <TableHead className="w-[80px]"></TableHead>
             </TableRow>
           </TableHeader>
@@ -243,7 +245,7 @@ export default function RemoteNodesPage() {
                   colSpan={7}
                   className="text-center text-muted-foreground py-8"
                 >
-                  Loading remote nodes...
+                  <I18nText text={"Loading remote nodes..."} />
                 </TableCell>
               </TableRow>
             ) : remoteNodes.length === 0 ? (
@@ -252,7 +254,7 @@ export default function RemoteNodesPage() {
                   colSpan={7}
                   className="text-center text-muted-foreground py-8"
                 >
-                  No remote nodes configured
+                  <I18nText text={"No remote nodes configured"} />
                 </TableCell>
               </TableRow>
             ) : (
@@ -395,7 +397,7 @@ export default function RemoteNodesPage() {
       />
 
       {/* Delete Confirmation */}
-      <ConfirmModal
+      <I18nProps><ConfirmModal
         title="Delete Remote Node"
         buttonText="Delete"
         visible={!!deletingNode}
@@ -406,7 +408,7 @@ export default function RemoteNodesPage() {
           Are you sure you want to delete remote node &quot;
           {deletingNode?.name}&quot;? This action cannot be undone.
         </p>
-      </ConfirmModal>
+      </ConfirmModal></I18nProps>
     </div>
   );
 }

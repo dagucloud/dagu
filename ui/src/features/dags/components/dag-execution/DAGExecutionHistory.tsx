@@ -32,6 +32,7 @@ import { DAGStatusOverview, NodeStatusTable } from '../dag-details';
 import { StepDetailsDrawer } from '../step-details';
 import { DAGGraph } from '../visualization';
 import { HistoryTable, LogViewer, StatusUpdateModal } from './';
+import { I18nText } from '@/i18n/I18nText';
 
 /**
  * Props for the DAGExecutionHistory component
@@ -79,7 +80,7 @@ function DAGExecutionHistory({
 
   // Show message if no execution history is found
   if (!data.dagRuns?.length) {
-    return <div>Execution history was not found.</div>;
+    return <div><I18nText text={"Execution history was not found."} /></div>;
   }
 
   return (

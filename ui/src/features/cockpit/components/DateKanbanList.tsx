@@ -4,6 +4,7 @@ import DAGRunDetailsModal from '@/features/dag-runs/components/dag-run-details/D
 import { useInfiniteKanban } from '../hooks/useInfiniteKanban';
 import { ArtifactListModal } from './ArtifactListModal';
 import { DateKanbanSection } from './DateKanbanSection';
+import { I18nText } from '@/i18n/I18nText';
 
 type DAGRunSummary = components['schemas']['DAGRunSummary'];
 
@@ -109,7 +110,7 @@ export function DateKanbanList({
               disabled={suspendLoadMore}
               className="rounded border border-border px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Load older day
+              <I18nText text={"Load older day"} />
             </button>
             <div ref={sentinelRef} className="h-1 w-full shrink-0" />
           </div>

@@ -22,6 +22,7 @@ import { useConfig } from '../../../../contexts/ConfigContext';
 import BorderedBox from '@/components/ui/bordered-box';
 import type { SubRunStackEntry } from '../common';
 import { FlowchartType, Graph, TimelineChart } from './';
+import { I18nText } from '@/i18n/I18nText';
 
 /**
  * Props for the DAGGraph component
@@ -129,10 +130,10 @@ function DAGGraph({
               </TooltipTrigger>
               <TooltipContent>
                 <div className="space-y-1">
-                  {hasStepInspector && <p>Click: Inspect step details</p>}
-                  <p>Double-click: Navigate to sub dagRun</p>
+                  {hasStepInspector && <p><I18nText text={"Click: Inspect step details"} /></p>}
+                  <p><I18nText text={"Double-click: Navigate to sub dagRun"} /></p>
                   {config.permissions.runDags && (
-                    <p>Right-click: Update node status</p>
+                    <p><I18nText text={"Right-click: Update node status"} /></p>
                   )}
                 </div>
               </TooltipContent>

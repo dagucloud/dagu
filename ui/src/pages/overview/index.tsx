@@ -10,6 +10,7 @@ import { Clock3, Gauge, LayoutGrid, Pencil, Plus } from 'lucide-react';
 import React from 'react';
 import Dashboard from '..';
 import CockpitPage from '../cockpit';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type BuiltinTab = 'timeline' | 'cockpit';
 export type OverviewTab = BuiltinTab | `view:${string}`;
@@ -137,7 +138,7 @@ export default function OverviewPage({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <Tabs
+      <I18nProps><Tabs
         role="tablist"
         aria-label="Overview views"
         className="mb-3 shrink-0 overflow-x-auto"
@@ -185,7 +186,7 @@ export default function OverviewPage({
           );
         })}
         {canWrite && (
-          <button
+          <I18nProps><button
             type="button"
             onClick={openCreate}
             aria-label="Create view"
@@ -193,9 +194,9 @@ export default function OverviewPage({
           >
             <Plus className="h-4 w-4" />
             New
-          </button>
+          </button></I18nProps>
         )}
-      </Tabs>
+      </Tabs></I18nProps>
 
       <div
         id="overview-panel"

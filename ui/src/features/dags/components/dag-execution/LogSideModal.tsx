@@ -1,6 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { ExternalLink, Maximize2, Minimize2, X } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type LogSideModalProps = {
   isOpen: boolean;
@@ -176,20 +177,20 @@ const LogSideModal: React.FC<LogSideModalProps> = ({
                   )}
                 </Button>
               )}
-              <Button
+              <I18nProps><Button
                 size="icon"
                 onClick={openInNewTab}
                 title="Open in new tab"
               >
                 <ExternalLink className="h-4 w-4" />
-              </Button>
-              <Button
+              </Button></I18nProps>
+              <I18nProps><Button
                 size="icon"
                 onClick={onClose}
                 title="Close (Esc)"
               >
                 <X className="h-4 w-4" />
-              </Button>
+              </Button></I18nProps>
             </div>
           </div>
         </div>

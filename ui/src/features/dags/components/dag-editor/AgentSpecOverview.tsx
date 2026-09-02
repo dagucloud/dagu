@@ -7,6 +7,8 @@ import { cn } from '@/lib/utils';
 import { parseParams } from '@/lib/parseParams';
 import { FileCode2, GitBranch, Target } from 'lucide-react';
 import React from 'react';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type DAG = components['schemas']['DAGDetails'];
 type Step = components['schemas']['Step'];
@@ -57,13 +59,13 @@ export function AgentSpecOverview({ dag }: Props) {
           </div>
         ) : (
           <div className="mt-3 text-sm text-foreground">
-            No tasks are defined.
+            <I18nText text={"No tasks are defined."} />
           </div>
         )}
       </section>
 
       <section className="overflow-hidden rounded-md border border-border bg-card shadow-sm lg:grid lg:h-[clamp(32rem,calc(100vh-22rem),48rem)] lg:grid-cols-[minmax(280px,0.75fr)_minmax(0,1.25fr)]">
-        <div
+        <I18nProps><div
           role="group"
           className="min-w-0 border-b border-border lg:overflow-y-auto lg:border-b-0 lg:border-r"
           aria-label="Available actions"
@@ -108,10 +110,10 @@ export function AgentSpecOverview({ dag }: Props) {
             </div>
           ) : (
             <div className="px-5 py-6 text-sm text-foreground">
-              No actions are defined.
+              <I18nText text={"No actions are defined."} />
             </div>
           )}
-        </div>
+        </div></I18nProps>
 
         <ActionDetails step={selectedAction} />
       </section>
@@ -123,7 +125,7 @@ function ActionDetails({ step }: { step?: Step }) {
   if (!step) {
     return (
       <div className="flex min-h-64 items-center justify-center px-6 py-10 text-sm text-foreground">
-        Select an action to inspect its configuration.
+        <I18nText text={"Select an action to inspect its configuration."} />
       </div>
     );
   }
@@ -152,7 +154,7 @@ function ActionDetails({ step }: { step?: Step }) {
         </div>
       </div>
 
-      <DetailSection title="Execution" className="mt-5">
+      <I18nProps><DetailSection title="Execution" className="mt-5">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <Badge variant={step.call ? 'primary' : 'outline'}>
             {step.call ? <GitBranch className="h-3 w-3" /> : null}
@@ -183,9 +185,9 @@ function ActionDetails({ step }: { step?: Step }) {
             }))}
           />
         ) : null}
-      </DetailSection>
+      </DetailSection></I18nProps>
 
-      <DetailSection title="Parameters">
+      <I18nProps><DetailSection title="Parameters">
         {parameters.length > 0 ? (
           <KeyValueGrid
             items={parameters.map((parameter, index) => ({
@@ -194,14 +196,14 @@ function ActionDetails({ step }: { step?: Step }) {
             }))}
           />
         ) : (
-          <EmptyValue>No parameters</EmptyValue>
+          <EmptyValue><I18nText text={"No parameters"} /></EmptyValue>
         )}
-      </DetailSection>
+      </DetailSection></I18nProps>
 
       <AdditionalSettings step={step} />
 
       <div className="pt-5">
-        <InfoCard title="Conditions">
+        <I18nProps><InfoCard title="Conditions">
           {step.preconditions?.length ? (
             <div className="space-y-2">
               {step.preconditions.map((condition, index) => (
@@ -216,9 +218,9 @@ function ActionDetails({ step }: { step?: Step }) {
               ))}
             </div>
           ) : (
-            <EmptyValue>None</EmptyValue>
+            <EmptyValue><I18nText text={"None"} /></EmptyValue>
           )}
-        </InfoCard>
+        </InfoCard></I18nProps>
       </div>
     </div>
   );
@@ -301,9 +303,9 @@ function AdditionalSettings({ step }: { step: Step }) {
   }
 
   return (
-    <DetailSection title="Configuration">
+    <I18nProps><DetailSection title="Configuration">
       <KeyValueGrid items={settings} />
-    </DetailSection>
+    </DetailSection></I18nProps>
   );
 }
 

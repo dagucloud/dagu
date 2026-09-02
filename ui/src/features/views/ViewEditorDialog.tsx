@@ -35,6 +35,8 @@ import {
   type ViewColumnSetting,
   VIEW_COLUMN_LABELS,
 } from './viewColumns';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 const ALL_WORKSPACES = '__all__';
 const DEFAULT_INTERVAL = 1;
@@ -255,25 +257,25 @@ export function ViewEditorDialog({
         <div className="space-y-3">
           <div className="space-y-1">
             <label className="text-xs font-medium text-muted-foreground">
-              Name
+              <I18nText text={"Name"} />
             </label>
-            <Input
+            <I18nProps><Input
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="My view"
               autoFocus
-            />
+            /></I18nProps>
           </div>
           <div className="space-y-1">
             <label className="text-xs font-medium text-muted-foreground">
-              Workspace
+              <I18nText text={"Workspace"} />
             </label>
             <Select value={workspace} onValueChange={setWorkspace}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL_WORKSPACES}>All workspaces</SelectItem>
+                <SelectItem value={ALL_WORKSPACES}><I18nText text={"All workspaces"} /></SelectItem>
                 {workspaces.map((ws) => (
                   <SelectItem key={ws.id} value={ws.name}>
                     {ws.name}
@@ -284,7 +286,7 @@ export function ViewEditorDialog({
           </div>
           <div className="space-y-1">
             <label className="text-xs font-medium text-muted-foreground">
-              Labels
+              <I18nText text={"Labels"} />
             </label>
             <LabelCombobox
               selectedLabels={labels}
@@ -294,17 +296,17 @@ export function ViewEditorDialog({
           </div>
           <div className="space-y-1">
             <label className="text-xs font-medium text-muted-foreground">
-              DAG name filter
+              <I18nText text={"DAG name filter"} />
             </label>
-            <Input
+            <I18nProps><Input
               value={dagName}
               onChange={(e) => setDagName(e.target.value)}
               placeholder="Any"
-            />
+            /></I18nProps>
           </div>
           <div className="space-y-1">
             <label className="text-xs font-medium text-muted-foreground">
-              Interval (days per row)
+              <I18nText text={"Interval (days per row)"} />
             </label>
             <Input
               type="number"
@@ -314,19 +316,19 @@ export function ViewEditorDialog({
               onChange={(e) => setIntervalDays(Number(e.target.value))}
             />
             <p className="text-[11px] text-muted-foreground">
-              Each row groups this many days, scrolling back in time.
+              <I18nText text={"Each row groups this many days, scrolling back in time."} />
             </p>
           </div>
           <fieldset className="space-y-2">
             <legend className="text-xs font-medium text-muted-foreground">
-              Columns
+              <I18nText text={"Columns"} />
             </legend>
             <p className="text-[11px] text-muted-foreground">
-              Choose visible columns and arrange their display order.
+              <I18nText text={"Choose visible columns and arrange their display order."} />
             </p>
             <div className="space-y-1">
               <p className="text-[11px] font-medium text-muted-foreground">
-                Visible
+                <I18nText text={"Visible"} />
               </p>
               {visibleColumnSettings.map((setting, index) => (
                 <ColumnSettingRow
@@ -340,7 +342,7 @@ export function ViewEditorDialog({
               ))}
               {hiddenColumnSettings.length > 0 && (
                 <p className="pt-1 text-[11px] font-medium text-muted-foreground">
-                  Hidden
+                  <I18nText text={"Hidden"} />
                 </p>
               )}
               {hiddenColumnSettings.map((setting) => (
@@ -371,7 +373,7 @@ export function ViewEditorDialog({
               onClick={handleDelete}
               disabled={saving}
             >
-              Delete
+              <I18nText text={"Delete"} />
             </Button>
           ) : (
             <span />
@@ -382,7 +384,7 @@ export function ViewEditorDialog({
               onClick={() => onOpenChange(false)}
               disabled={saving}
             >
-              Cancel
+              <I18nText text={"Cancel"} />
             </Button>
             <Button onClick={handleSave} disabled={!canSave}>
               {isEdit ? 'Save' : 'Create'}

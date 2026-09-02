@@ -23,6 +23,8 @@ import StatusChip from '@/components/ui/status-chip';
 import AutoRetryBadge from '../common/AutoRetryBadge';
 import { DAGRunActions } from '../common';
 import { buildDAGPageURL, buildDAGRunPageURL } from '../../lib/dagRunUrls';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 interface DAGRunHeaderProps {
   dagRun: components['schemas']['DAGRunDetails'];
@@ -149,7 +151,7 @@ const DAGRunHeader: React.FC<DAGRunHeaderProps> = ({
           <nav className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground mb-2">
             {dagRun.rootDAGRunId !== dagRun.dagRunId && (
               <>
-                <span className="font-medium">Root:</span>
+                <span className="font-medium"><I18nText text={"Root:"} /></span>
                 <a
                   href={buildDAGRunPageURL({
                     rootDAGRunName: dagRun.rootDAGRunName,
@@ -197,7 +199,7 @@ const DAGRunHeader: React.FC<DAGRunHeaderProps> = ({
               {dagRun.name}
             </h1>
             {dagRun.sourceFileName && (
-              <a
+              <I18nProps><a
                 href={buildDAGPageURL({
                   fileName: dagRun.sourceFileName,
                   remoteNode,
@@ -215,8 +217,8 @@ const DAGRunHeader: React.FC<DAGRunHeaderProps> = ({
                 title="View DAG Definition"
               >
                 <FileText className="h-3.5 w-3.5" />
-                <span>Definition</span>
-              </a>
+                <span><I18nText text={"Definition"} /></span>
+              </a></I18nProps>
             )}
             <button
               type="button"
@@ -254,7 +256,7 @@ const DAGRunHeader: React.FC<DAGRunHeaderProps> = ({
               count={dagRun.autoRetryCount}
               limit={dagRun.autoRetryLimit}
             />
-            <button
+            <I18nProps><button
               onClick={handleRefresh}
               disabled={isRefreshing}
               className="relative group inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed transition-all"
@@ -263,11 +265,11 @@ const DAGRunHeader: React.FC<DAGRunHeaderProps> = ({
               <RefreshCw
                 className={`h-3 w-3 ${isRefreshing ? 'animate-spin' : ''}`}
               />
-              <span>Refresh</span>
+              <span><I18nText text={"Refresh"} /></span>
               <span className="absolute -bottom-1 -right-1 bg-muted text-muted-foreground text-xs font-medium px-1 rounded-sm border opacity-0 group-hover:opacity-100 transition-opacity">
-                R
+                <I18nText text={"R"} />
               </span>
-            </button>
+            </button></I18nProps>
             <DAGRunActions
               dagRun={dagRun}
               name={dagRun.name}
@@ -315,7 +317,7 @@ const DAGRunHeader: React.FC<DAGRunHeaderProps> = ({
 
             <div className="flex items-center gap-2 text-muted-foreground ml-auto">
               <span className="font-medium text-xs text-muted-foreground uppercase tracking-wide">
-                Run ID
+                <I18nText text={"Run ID"} />
               </span>
               <code className="bg-accent text-foreground px-3 py-1.5 rounded-md text-xs font-mono border">
                 {dagRun.dagRunId}
@@ -331,7 +333,7 @@ const DAGRunHeader: React.FC<DAGRunHeaderProps> = ({
           <div className="flex items-center gap-2 mb-2">
             <Terminal className="h-4 w-4 text-muted-foreground" />
             <span className="text-xs font-semibold text-foreground/90">
-              Parameters
+              <I18nText text={"Parameters"} />
             </span>
           </div>
           <div className="bg-accent rounded-md px-3 py-1.5 font-mono text-xs text-foreground max-h-[120px] overflow-y-auto border">

@@ -14,6 +14,7 @@ import { statusColorMapping } from '../../../consts';
 import { useConfig } from '../../../contexts/ConfigContext';
 import dayjs from '../../../lib/dayjs';
 import DAGRunDetailsModal from '../../dag-runs/components/dag-run-details/DAGRunDetailsModal';
+import { I18nText } from '@/i18n/I18nText';
 
 type Props = {
   data: components['schemas']['DAGRunSummary'][];
@@ -495,7 +496,7 @@ function DashboardTimeChart({ data: input, selectedDate }: Props) {
       {/* Toolbar */}
       <div className="flex justify-between items-center gap-2 px-3 py-1.5 bg-muted/30 flex-shrink-0">
         <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-          Timeline
+          <I18nText text={"Timeline"} />
         </span>
         <div className="flex items-center gap-0.5 rounded-md border border-border bg-card p-0.5">
           <Tooltip>
@@ -510,7 +511,7 @@ function DashboardTimeChart({ data: input, selectedDate }: Props) {
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">
-              <p>Current time</p>
+              <p><I18nText text={"Current time"} /></p>
             </TooltipContent>
           </Tooltip>
 
@@ -526,7 +527,7 @@ function DashboardTimeChart({ data: input, selectedDate }: Props) {
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">
-              <p>Fit all</p>
+              <p><I18nText text={"Fit all"} /></p>
             </TooltipContent>
           </Tooltip>
 
@@ -544,7 +545,7 @@ function DashboardTimeChart({ data: input, selectedDate }: Props) {
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">
-              <p>Zoom in</p>
+              <p><I18nText text={"Zoom in"} /></p>
             </TooltipContent>
           </Tooltip>
 
@@ -560,7 +561,7 @@ function DashboardTimeChart({ data: input, selectedDate }: Props) {
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">
-              <p>Zoom out</p>
+              <p><I18nText text={"Zoom out"} /></p>
             </TooltipContent>
           </Tooltip>
 
@@ -578,7 +579,7 @@ function DashboardTimeChart({ data: input, selectedDate }: Props) {
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">
-              <p>Reset view</p>
+              <p><I18nText text={"Reset view"} /></p>
             </TooltipContent>
           </Tooltip>
         </div>

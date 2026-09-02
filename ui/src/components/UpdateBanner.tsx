@@ -1,6 +1,8 @@
 import { useConfig } from '@/contexts/ConfigContext';
 import { X } from 'lucide-react';
 import * as React from 'react';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 export function UpdateBanner() {
   const config = useConfig();
@@ -27,19 +29,19 @@ export function UpdateBanner() {
           rel="noopener noreferrer"
           className="ml-2 underline hover:no-underline"
         >
-          View release
+          <I18nText text={"View release"} />
         </a>
         <span className="ml-2">
           · Run <code className="font-mono bg-violet-100 dark:bg-[#2a2452] px-1 rounded text-xs">dagu upgrade</code> to update
         </span>
       </span>
-      <button
+      <I18nProps><button
         onClick={handleDismiss}
         className="p-0.5 hover:bg-violet-100 dark:hover:bg-[#2a2452] rounded"
         aria-label="Dismiss update notification"
       >
         <X className="h-4 w-4" />
-      </button>
+      </button></I18nProps>
     </div>
   );
 }

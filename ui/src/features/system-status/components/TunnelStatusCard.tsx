@@ -3,6 +3,8 @@ import React from 'react';
 import type { components } from '../../../api/v1/schema';
 import { Button } from '@/components/ui/button';
 import { cn } from '../../../lib/utils';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type TunnelStatusResponse = components['schemas']['TunnelStatusResponse'];
 
@@ -93,7 +95,7 @@ function TunnelStatusCard({ data, isLoading, error }: TunnelStatusCardProps) {
             <Lock className="h-4 w-4" />
           )}
         </div>
-        <h3 className="text-sm font-medium">Tunnel Service</h3>
+        <h3 className="text-sm font-medium"><I18nText text={"Tunnel Service"} /></h3>
         <span className="text-xs text-muted-foreground ml-auto">
           {data?.isPublic ? 'Public' : 'Private'}
         </span>
@@ -102,7 +104,7 @@ function TunnelStatusCard({ data, isLoading, error }: TunnelStatusCardProps) {
       {/* Content */}
       <div className="px-3 py-2">
         {isLoading && !data && (
-          <div className="text-xs text-muted-foreground">Loading...</div>
+          <div className="text-xs text-muted-foreground"><I18nText text={"Loading..."} /></div>
         )}
 
         {error && <div className="text-xs text-error">{error}</div>}
@@ -155,7 +157,7 @@ function TunnelStatusCard({ data, isLoading, error }: TunnelStatusCardProps) {
                 <code className="text-xs font-mono text-foreground bg-muted px-1.5 py-0.5 rounded flex-1 truncate">
                   {data.publicUrl}
                 </code>
-                <Button
+                <I18nProps><Button
                   size="icon"
                   variant="ghost"
                   className="h-6 w-6"
@@ -163,8 +165,8 @@ function TunnelStatusCard({ data, isLoading, error }: TunnelStatusCardProps) {
                   title="Copy URL"
                 >
                   <Copy className="h-3 w-3" />
-                </Button>
-                <Button
+                </Button></I18nProps>
+                <I18nProps><Button
                   size="icon"
                   variant="ghost"
                   className="h-6 w-6"
@@ -172,9 +174,9 @@ function TunnelStatusCard({ data, isLoading, error }: TunnelStatusCardProps) {
                   title="Open in new tab"
                 >
                   <ExternalLink className="h-3 w-3" />
-                </Button>
+                </Button></I18nProps>
                 {copied && (
-                  <span className="text-xs text-success">Copied!</span>
+                  <span className="text-xs text-success"><I18nText text={"Copied!"} /></span>
                 )}
               </div>
             )}
@@ -189,8 +191,7 @@ function TunnelStatusCard({ data, isLoading, error }: TunnelStatusCardProps) {
             {/* Disabled State */}
             {data.status === 'disabled' && !data.enabled && (
               <div className="text-xs text-muted-foreground">
-                Tunnel is not enabled. Start the server with --tunnel flag to
-                enable.
+                <I18nText text={"Tunnel is not enabled. Start the server with --tunnel flag to enable."} />
               </div>
             )}
           </div>
@@ -198,7 +199,7 @@ function TunnelStatusCard({ data, isLoading, error }: TunnelStatusCardProps) {
 
         {!error && !data && !isLoading && (
           <div className="text-xs text-muted-foreground">
-            Tunnel status unavailable
+            <I18nText text={"Tunnel status unavailable"} />
           </div>
         )}
       </div>

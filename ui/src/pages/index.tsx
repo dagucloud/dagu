@@ -34,6 +34,7 @@ import {
   workspaceSelectionKey,
   workspaceSelectionQuery,
 } from '../lib/workspace';
+import { I18nText } from '@/i18n/I18nText';
 
 type Metrics = Record<Status, number>;
 
@@ -147,11 +148,10 @@ function GettingStartedPanel(): React.ReactElement {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-xl border border-border bg-surface p-8 text-center">
       <h2 className="text-xl font-semibold text-foreground">
-        Create your first workflow
+        <I18nText text={"Create your first workflow"} />
       </h2>
       <p className="max-w-md text-base text-muted-foreground">
-        Dagu runs workflows defined in YAML. Create one from scratch or start
-        from the documentation examples.
+        <I18nText text={"Dagu runs workflows defined in YAML. Create one from scratch or start from the documentation examples."} />
       </p>
       <CreateDAGModal />
       <div className="flex flex-wrap items-center justify-center gap-4 text-sm">
@@ -161,7 +161,7 @@ function GettingStartedPanel(): React.ReactElement {
           rel="noreferrer"
           className="text-primary hover:underline"
         >
-          Documentation
+          <I18nText text={"Documentation"} />
         </a>
         <a
           href="https://docs.dagu.sh/writing-workflows/examples"
@@ -169,7 +169,7 @@ function GettingStartedPanel(): React.ReactElement {
           rel="noreferrer"
           className="text-primary hover:underline"
         >
-          Example workflows
+          <I18nText text={"Example workflows"} />
         </a>
       </div>
     </div>
@@ -194,7 +194,7 @@ function NoRunsNotice({
           ? 'Run one of the example workflows from the '
           : 'Start a workflow from the '}
         <Link to="/dags" className="text-primary hover:underline">
-          Workflows page
+          <I18nText text={"Workflows page"} />
         </Link>{' '}
         to see activity here.
       </p>
@@ -553,7 +553,7 @@ function Dashboard(): React.ReactElement | null {
               />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All DAGs</SelectItem>
+              <SelectItem value="all"><I18nText text={"All DAGs"} /></SelectItem>
               {uniqueDAGRunNames.map((name) => (
                 <SelectItem key={name} value={name}>
                   {name}
@@ -588,7 +588,7 @@ function Dashboard(): React.ReactElement | null {
               handleDateChange(startOfDay.unix(), endOfDay.unix());
             }}
           >
-            Today
+            <I18nText text={"Today"} />
           </Button>
 
           <div className="flex-1" />
@@ -608,13 +608,13 @@ function Dashboard(): React.ReactElement | null {
                   {stat(totalDAGRuns)}
                   {hasMore ? '+' : ''}
                 </span>
-                <span className="text-xs">recent runs</span>
+                <span className="text-xs"><I18nText text={"recent runs"} /></span>
               </div>
               <div className="flex items-baseline gap-1">
                 <span className="text-lg sm:text-xl font-light tabular-nums text-foreground">
                   {stat(metrics[Status.Success])}
                 </span>
-                <span className="text-xs">ok</span>
+                <span className="text-xs"><I18nText text={"ok"} /></span>
               </div>
               <div className="flex items-baseline gap-1">
                 <span
@@ -622,20 +622,20 @@ function Dashboard(): React.ReactElement | null {
                 >
                   {stat(metrics[Status.Failed])}
                 </span>
-                <span className="text-xs">failed</span>
+                <span className="text-xs"><I18nText text={"failed"} /></span>
               </div>
               <div className="flex items-baseline gap-1">
                 <span className="text-lg sm:text-xl font-light tabular-nums text-foreground">
                   {stat(metrics[Status.Aborted])}
                 </span>
-                <span className="text-xs">aborted</span>
+                <span className="text-xs"><I18nText text={"aborted"} /></span>
               </div>
               {hasRunning && (
                 <div className="flex items-baseline gap-1">
                   <span className="text-lg sm:text-xl font-light tabular-nums text-foreground">
                     {metrics[Status.Running]}
                   </span>
-                  <span className="text-xs">active</span>
+                  <span className="text-xs"><I18nText text={"active"} /></span>
                 </div>
               )}
               {metrics[Status.Waiting] > 0 && (
@@ -643,7 +643,7 @@ function Dashboard(): React.ReactElement | null {
                   <span className="text-lg sm:text-xl font-light tabular-nums text-foreground">
                     {metrics[Status.Waiting]}
                   </span>
-                  <span className="text-xs">waiting</span>
+                  <span className="text-xs"><I18nText text={"waiting"} /></span>
                 </div>
               )}
               {metrics[Status.Rejected] > 0 && (
@@ -651,7 +651,7 @@ function Dashboard(): React.ReactElement | null {
                   <span className="text-lg sm:text-xl font-light tabular-nums text-foreground">
                     {metrics[Status.Rejected]}
                   </span>
-                  <span className="text-xs">rejected</span>
+                  <span className="text-xs"><I18nText text={"rejected"} /></span>
                 </div>
               )}
             </div>
@@ -668,13 +668,13 @@ function Dashboard(): React.ReactElement | null {
               ) : showInventoryError ? (
                 <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
                   <p className="text-base font-medium text-foreground">
-                    Failed to load the workflow list.
+                    <I18nText text={"Failed to load the workflow list."} />
                   </p>
                   <Button
                     variant="outline"
                     onClick={() => setInventoryRetryNonce((n) => n + 1)}
                   >
-                    Retry
+                    <I18nText text={"Retry"} />
                   </Button>
                 </div>
               ) : (

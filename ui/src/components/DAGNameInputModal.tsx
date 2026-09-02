@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Pencil, Plus, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { validateDAGName, DAG_NAME_PATTERN_STRING } from '../lib/dag-validation';
+import { I18nText } from '@/i18n/I18nText';
 
 export interface DAGNameInputModalProps {
   /** Whether the modal is open */
@@ -130,7 +131,7 @@ export function DAGNameInputModal({
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="dag-name" className="text-right">
-                DAG Name
+                <I18nText text={"DAG Name"} />
               </Label>
               <Input
                 id="dag-name"

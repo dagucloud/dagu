@@ -8,6 +8,7 @@ import {
 } from '@/components/ui/dialog';
 import { AlertTriangle, RefreshCw, X } from 'lucide-react';
 import React from 'react';
+import { I18nText } from '@/i18n/I18nText';
 
 type Props = {
   visible: boolean;
@@ -64,18 +65,17 @@ function ExternalChangeDialog({ visible, onDiscard, onIgnore }: Props) {
 
         <div className="py-4 space-y-3">
           <p className="text-sm text-muted-foreground">
-            The DAG specification has been modified externally while you were
-            editing.
+            <I18nText text={"The DAG specification has been modified externally while you were editing."} />
           </p>
           <div className="text-sm space-y-1">
-            <p className="font-medium">What would you like to do?</p>
+            <p className="font-medium"><I18nText text={"What would you like to do?"} /></p>
             <ul className="text-muted-foreground space-y-1 ml-4 list-disc">
               <li>
-                <strong>Discard & Reload:</strong> Lose your changes and load
+                <strong><I18nText text={"Discard & Reload:"} /></strong> Lose your changes and load
                 the latest version
               </li>
               <li>
-                <strong>Ignore:</strong> Keep your changes (you may overwrite
+                <strong><I18nText text={"Ignore:"} /></strong> Keep your changes (you may overwrite
                 external changes when saving)
               </li>
             </ul>

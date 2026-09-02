@@ -7,6 +7,9 @@
 /**
  * Props for the DAGSpecErrors component
  */
+
+import { I18nText } from '@/i18n/I18nText';
+
 type Props = {
   /** List of error messages */
   errors: string[];
@@ -21,7 +24,7 @@ function DAGSpecErrors({ errors }: Props) {
   }
   return (
     <div className="notification is-danger mt-0 mb-0">
-      <div>Please check the below errors!</div>
+      <div><I18nText text={"Please check the below errors!"} /></div>
       <div className="content">
         <ul>
           {errors.map((e, i) => (

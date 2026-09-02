@@ -12,6 +12,7 @@ import {
   binaryStringToBase64,
   stringToBase64,
 } from './encoding';
+import { I18nText } from '@/i18n/I18nText';
 
 type MessageType = 'input' | 'output' | 'resize' | 'close' | 'error';
 type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
@@ -247,7 +248,7 @@ export default function TerminalPage() {
     return (
       <div className="flex items-center justify-center h-64">
         <p className="text-muted-foreground">
-          You do not have permission to access this page.
+          <I18nText text={"You do not have permission to access this page."} />
         </p>
       </div>
     );
@@ -257,7 +258,7 @@ export default function TerminalPage() {
     return (
       <div className="flex items-center justify-center h-64">
         <p className="text-muted-foreground">
-          Terminal is not enabled. Set DAGU_TERMINAL_ENABLED=true to enable.
+          <I18nText text={"Terminal is not enabled. Set DAGU_TERMINAL_ENABLED=true to enable."} />
         </p>
       </div>
     );
@@ -267,7 +268,7 @@ export default function TerminalPage() {
     <div className="flex flex-col h-full max-w-7xl">
       <div className="flex items-center justify-between mb-2">
         <div>
-          <h1 className="text-lg font-semibold">Terminal</h1>
+          <h1 className="text-lg font-semibold"><I18nText text={"Terminal"} /></h1>
           <p className="text-sm text-muted-foreground">
             Interactive shell connection to local server as{' '}
             {user?.username || 'admin'}

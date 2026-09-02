@@ -33,6 +33,7 @@ import { useQueuedItemsFeed } from '@/features/queues/hooks/useQueuedItemsFeed';
 import { useQueueSelection } from '@/features/queues/hooks/useQueueSelection';
 import { useQuery } from '@/hooks/api';
 import Title from '@/components/ui/title';
+import { I18nText } from '@/i18n/I18nText';
 
 function useAutoLoadMore(
   sentinelRef: React.RefObject<HTMLDivElement | null>,
@@ -230,10 +231,10 @@ function QueueDetailsPage() {
         <div className="space-y-3 text-center">
           <Layers className="mx-auto h-10 w-10 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">
-            Queue name is missing.
+            <I18nText text={"Queue name is missing."} />
           </p>
           <Button variant="outline" asChild>
-            <Link to="/queues">Back to queues</Link>
+            <Link to="/queues"><I18nText text={"Back to queues"} /></Link>
           </Button>
         </div>
       </div>
@@ -250,7 +251,7 @@ function QueueDetailsPage() {
             {errorData?.message || 'Failed to load queue details'}
           </p>
           <Button variant="outline" asChild>
-            <Link to="/queues">Back to queues</Link>
+            <Link to="/queues"><I18nText text={"Back to queues"} /></Link>
           </Button>
         </div>
       </div>
@@ -260,7 +261,7 @@ function QueueDetailsPage() {
   return (
     <>
       <div className="flex h-full max-w-7xl flex-col gap-4 overflow-hidden">
-        <Title>Queue</Title>
+        <Title><I18nText text={"Queue"} /></Title>
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-center gap-2">
@@ -287,7 +288,7 @@ function QueueDetailsPage() {
             <span className="text-lg font-light tabular-nums text-foreground">
               {isLoading && !queue ? '-' : queue?.runningCount || 0}
             </span>
-            <span className="text-xs">running</span>
+            <span className="text-xs"><I18nText text={"running"} /></span>
           </div>
           <div className="flex items-baseline gap-1">
             <span className="text-lg font-light tabular-nums text-foreground">
@@ -298,14 +299,14 @@ function QueueDetailsPage() {
                     queue?.queuedCountCapped === true
                   )}
             </span>
-            <span className="text-xs">queued</span>
+            <span className="text-xs"><I18nText text={"queued"} /></span>
           </div>
           {queue?.maxConcurrency && (
             <div className="flex items-baseline gap-1">
               <span className="text-lg font-light tabular-nums text-foreground">
                 {queue.runningCount || 0}/{queue.maxConcurrency}
               </span>
-              <span className="text-xs">capacity</span>
+              <span className="text-xs"><I18nText text={"capacity"} /></span>
             </div>
           )}
           {utilization !== null && (
@@ -313,11 +314,11 @@ function QueueDetailsPage() {
               <span className="text-lg font-light tabular-nums text-foreground">
                 {utilization}%
               </span>
-              <span className="text-xs">util</span>
+              <span className="text-xs"><I18nText text={"util"} /></span>
             </div>
           )}
           {isValidating && queue && (
-            <span className="text-xs text-muted-foreground">Refreshing...</span>
+            <span className="text-xs text-muted-foreground"><I18nText text={"Refreshing..."} /></span>
           )}
         </div>
 
@@ -336,7 +337,7 @@ function QueueDetailsPage() {
                 />
               ) : (
                 <div className="rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground">
-                  No DAG runs are currently executing in this queue.
+                  <I18nText text={"No DAG runs are currently executing in this queue."} />
                 </div>
               )}
             </div>
@@ -365,7 +366,7 @@ function QueueDetailsPage() {
                     onClick={selectAllLoaded}
                     disabled={queuedItems.length === 0 || isRunning}
                   >
-                    Select all loaded
+                    <I18nText text={"Select all loaded"} />
                   </Button>
                   <Button
                     size="sm"
@@ -373,7 +374,7 @@ function QueueDetailsPage() {
                     onClick={clearSelection}
                     disabled={selectedCount === 0 || isRunning}
                   >
-                    Clear selection
+                    <I18nText text={"Clear selection"} />
                   </Button>
                   <Button
                     size="sm"
@@ -381,7 +382,7 @@ function QueueDetailsPage() {
                     disabled={selectedCount === 0 || isRunning}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
-                    <span className="ml-1">Dequeue selected</span>
+                    <span className="ml-1"><I18nText text={"Dequeue selected"} /></span>
                   </Button>
                 </div>
               </div>
@@ -390,7 +391,7 @@ function QueueDetailsPage() {
             <div className="px-3 py-2 bg-muted/10">
               {isQueuedItemsLoading && queuedItems.length === 0 ? (
                 <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
-                  Loading queued items...
+                  <I18nText text={"Loading queued items..."} />
                 </div>
               ) : queuedItems.length > 0 ? (
                 <>
@@ -421,7 +422,7 @@ function QueueDetailsPage() {
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-error/30 bg-error-muted px-3 py-2 text-sm text-error">
                       <span>{queuedItemsError}</span>
                       <Button size="sm" variant="outline" onClick={reload}>
-                        Retry
+                        <I18nText text={"Retry"} />
                       </Button>
                     </div>
                   )}
@@ -437,20 +438,20 @@ function QueueDetailsPage() {
 
                   {!hasMore && (
                     <div className="mt-3 text-xs text-muted-foreground">
-                      End of queued items
+                      <I18nText text={"End of queued items"} />
                     </div>
                   )}
                 </>
               ) : mayHaveQueuedItems ? (
                 <div className="space-y-3 rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground">
                   <div>
-                    No visible queued items were returned for this queue.
+                    <I18nText text={"No visible queued items were returned for this queue."} />
                   </div>
                   {queuedItemsError && (
                     <div className="flex flex-wrap items-center gap-2">
                       <span>{queuedItemsError}</span>
                       <Button size="sm" variant="outline" onClick={reload}>
-                        Retry
+                        <I18nText text={"Retry"} />
                       </Button>
                     </div>
                   )}
@@ -470,7 +471,7 @@ function QueueDetailsPage() {
                 </div>
               ) : (
                 <div className="rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground">
-                  No queued items in this queue.
+                  <I18nText text={"No queued items in this queue."} />
                 </div>
               )}
             </div>
@@ -501,7 +502,7 @@ function QueueDetailsPage() {
           }}
         >
           <DialogHeader>
-            <DialogTitle>Dequeue selected</DialogTitle>
+            <DialogTitle><I18nText text={"Dequeue selected"} /></DialogTitle>
             <DialogDescription>
               {phase === 'confirm'
                 ? `Submit ${totalBatchCount} dequeue request${totalBatchCount === 1 ? '' : 's'} using the existing DAG-run API.`
@@ -564,7 +565,7 @@ function QueueDetailsPage() {
 
               <div className="rounded-md border bg-muted/20 p-3">
                 <div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Current item
+                  <I18nText text={"Current item"} />
                 </div>
                 {progress.currentItem ? (
                   <>
@@ -592,12 +593,12 @@ function QueueDetailsPage() {
 
               <div className="rounded-md border">
                 <div className="border-b px-3 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Results
+                  <I18nText text={"Results"} />
                 </div>
                 <div className="min-h-40 max-h-[45vh] space-y-3 overflow-y-auto p-3">
                   {progress.results.length === 0 ? (
                     <div className="flex min-h-32 items-center justify-center text-sm text-muted-foreground">
-                      Results will appear here as each request finishes.
+                      <I18nText text={"Results will appear here as each request finishes."} />
                     </div>
                   ) : (
                     progress.results.map((result, index) => (
@@ -639,7 +640,7 @@ function QueueDetailsPage() {
             {phase === 'confirm' && activeBatch && (
               <>
                 <Button variant="outline" onClick={closeDialog}>
-                  Cancel
+                  <I18nText text={"Cancel"} />
                 </Button>
                 <Button onClick={submitBatchDequeue}>
                   Dequeue {activeBatch.snapshot.length} Run
@@ -655,7 +656,7 @@ function QueueDetailsPage() {
             )}
             {phase === 'complete' && !progress.isRefreshing && (
               <Button variant="outline" onClick={closeDialog}>
-                Close
+                <I18nText text={"Close"} />
               </Button>
             )}
           </DialogFooter>

@@ -6,6 +6,7 @@ import {
   Tooltip,
 } from 'recharts';
 import { components } from '../../../api/v1/schema';
+import { I18nText } from '@/i18n/I18nText';
 
 type MetricPoint = components['schemas']['MetricPoint'];
 
@@ -47,7 +48,7 @@ function MiniResourceChart({
           <span className="text-sm font-semibold text-muted-foreground">--</span>
         </div>
         <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground">
-          Error
+          <I18nText text={"Error"} />
         </div>
       </div>
     );

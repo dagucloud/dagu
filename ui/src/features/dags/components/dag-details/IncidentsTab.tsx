@@ -27,6 +27,7 @@ import {
   policySetDraftFromAPI,
   policySetInput,
 } from '@/features/incidents/incidentDrafts';
+import { I18nText } from '@/i18n/I18nText';
 
 type IncidentsTabProps = {
   fileName: string;
@@ -39,7 +40,7 @@ function LicenseRequired(): ReactElement {
       <Shield size={40} className="text-muted-foreground" />
       <div>
         <h2 className="text-lg font-semibold text-foreground">
-          License Required
+          <I18nText text={"License Required"} />
         </h2>
         <p className="mt-1 max-w-md text-sm text-muted-foreground">
           Incident connections and routing require an active Dagu license or
@@ -48,7 +49,7 @@ function LicenseRequired(): ReactElement {
             to="/license"
             className="text-primary underline underline-offset-2"
           >
-            License
+            <I18nText text={"License"} />
           </Link>{' '}
           page to activate one.
         </p>
@@ -219,7 +220,7 @@ export default function IncidentsTab({
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="space-y-1">
             <h1 className="text-2xl font-semibold tracking-normal text-foreground">
-              DAG Incidents
+              <I18nText text={"DAG Incidents"} />
             </h1>
             <p className="text-sm text-muted-foreground">
               This DAG uses {effectiveSource} routing unless you set a DAG

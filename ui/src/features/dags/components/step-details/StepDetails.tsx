@@ -8,6 +8,7 @@ import { getLogMessageFromConfig } from '@/lib/executor-utils';
 import { getHarnessStepSummary } from '@/lib/harness-step';
 import React from 'react';
 import { LogStepMessage } from '../dag-details/LogStepMessage';
+import { I18nText } from '@/i18n/I18nText';
 
 type Step = components['schemas']['Step'];
 
@@ -77,7 +78,7 @@ export function StepDetails({ step }: { step: Step }) {
   if (fields.length === 0) {
     return (
       <div className="rounded-md border border-border bg-muted/20 p-3 text-sm text-muted-foreground">
-        No additional step fields are defined.
+        <I18nText text={"No additional step fields are defined."} />
       </div>
     );
   }
@@ -194,13 +195,13 @@ function ExecutorConfigField({ value }: { value: Record<string, unknown> }) {
     <div className="space-y-3 rounded-md border border-border bg-background p-3">
       <div className="min-w-0">
         <div className="mb-1 text-[11px] font-medium uppercase text-muted-foreground">
-          Type
+          <I18nText text={"Type"} />
         </div>
-        <Badge variant="outline">log</Badge>
+        <Badge variant="outline"><I18nText text={"log"} /></Badge>
       </div>
       <div className="min-w-0">
         <div className="mb-1 text-[11px] font-medium uppercase text-muted-foreground">
-          Message
+          <I18nText text={"Message"} />
         </div>
         <LogStepMessage message={logMessage} />
       </div>

@@ -1,6 +1,7 @@
 import { Clock } from 'lucide-react';
 import React from 'react';
 import { cn } from '../../../lib/utils';
+import { I18nText } from '@/i18n/I18nText';
 
 interface ServiceInstance {
   instanceId: string;
@@ -61,7 +62,7 @@ function ServiceCard({
       {/* Instances List */}
       <div className="divide-y">
         {isLoading && instances.length === 0 && (
-          <div className="px-3 py-2 text-xs text-muted-foreground">Loading...</div>
+          <div className="px-3 py-2 text-xs text-muted-foreground"><I18nText text={"Loading..."} /></div>
         )}
 
         {error && (
@@ -69,7 +70,7 @@ function ServiceCard({
         )}
 
         {!error && instances.length === 0 && !isLoading && (
-          <div className="px-3 py-2 text-xs text-muted-foreground">No instances</div>
+          <div className="px-3 py-2 text-xs text-muted-foreground"><I18nText text={"No instances"} /></div>
         )}
 
         {instances.map((instance) => (

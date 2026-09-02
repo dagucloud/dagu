@@ -6,6 +6,7 @@ import { isActiveNodeStatus } from '@/lib/status-utils';
 import { Loader2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { StepMessagesTable } from './StepMessagesTable';
+import { I18nText } from '@/i18n/I18nText';
 
 type DAGRunDetails = components['schemas']['DAGRunDetails'];
 
@@ -91,7 +92,7 @@ export function ChatHistoryTab({ dagRun }: ChatHistoryTabProps) {
   if (historySteps.length === 0) {
     return (
       <div className="text-xs text-muted-foreground p-2">
-        No chat steps in this DAG run
+        <I18nText text={"No chat steps in this DAG run"} />
       </div>
     );
   }
@@ -101,7 +102,7 @@ export function ChatHistoryTab({ dagRun }: ChatHistoryTabProps) {
       {/* Step selector dropdown */}
       <div className="flex items-center gap-2 text-xs">
         <label htmlFor="chat-step-select" className="text-muted-foreground">
-          Step:
+          <I18nText text={"Step:"} />
         </label>
         <select
           id="chat-step-select"

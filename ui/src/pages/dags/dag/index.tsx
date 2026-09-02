@@ -37,6 +37,7 @@ import {
   WorkspaceKind,
   workspaceNameFromLabels,
 } from '../../../lib/workspace';
+import { I18nText } from '@/i18n/I18nText';
 
 type Params = {
   fileName: string;
@@ -366,7 +367,7 @@ function DAGDetails() {
               )}
               {dagData?.dag && !dagMatchesWorkspace && (
                 <div className="p-6 text-sm text-muted-foreground">
-                  This DAG is not in the selected workspace.
+                  <I18nText text={"This DAG is not in the selected workspace."} />
                 </div>
               )}
             </div>

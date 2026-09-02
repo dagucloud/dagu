@@ -11,6 +11,8 @@ import ServiceCard from '../../features/system-status/components/ServiceCard';
 import TunnelStatusCard from '../../features/system-status/components/TunnelStatusCard';
 import { useQuery } from '../../hooks/api';
 import { cn } from '../../lib/utils';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type SchedulerInstance = components['schemas']['SchedulerInstance'];
 type CoordinatorInstance = components['schemas']['CoordinatorInstance'];
@@ -155,9 +157,9 @@ function SystemStatus() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">System Status</h1>
+          <h1 className="text-2xl font-bold"><I18nText text={"System Status"} /></h1>
           <p className="text-sm text-muted-foreground">
-            Monitor and manage Dagu services and system health
+            <I18nText text={"Monitor and manage Dagu services and system health"} />
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -172,7 +174,7 @@ function SystemStatus() {
             />
             Auto: {autoRefresh ? 'ON' : 'OFF'}
           </Button>
-          <Button
+          <I18nProps><Button
             size="icon"
             onClick={handleRefresh}
             disabled={isRefreshing}
@@ -182,14 +184,14 @@ function SystemStatus() {
             <RefreshCw
               className={cn('h-4 w-4', isRefreshing && 'animate-spin')}
             />
-          </Button>
+          </Button></I18nProps>
         </div>
       </div>
 
       {/* Services */}
       <div className="flex flex-col gap-4">
         {/* Scheduler Service */}
-        <ServiceCard
+        <I18nProps><ServiceCard
           title="Scheduler Service"
           instances={
             schedulerData?.schedulers?.map((s: SchedulerInstance) => ({
@@ -202,10 +204,10 @@ function SystemStatus() {
           icon={<Calendar className="h-4 w-4" />}
           isLoading={!schedulerData && !schedulerError}
           error={schedulerError ? String(schedulerError) : undefined}
-        />
+        /></I18nProps>
 
         {/* Coordinator Service */}
-        <ServiceCard
+        <I18nProps><ServiceCard
           title="Coordinator Service"
           instances={
             coordinatorData?.coordinators?.map((c: CoordinatorInstance) => ({
@@ -219,7 +221,7 @@ function SystemStatus() {
           icon={<Server className="h-4 w-4" />}
           isLoading={!coordinatorData && !coordinatorError}
           error={coordinatorError ? String(coordinatorError) : undefined}
-        />
+        /></I18nProps>
 
         {/* Tunnel Service */}
         <TunnelStatusCard
@@ -230,7 +232,7 @@ function SystemStatus() {
       </div>
 
       {/* Workers Status */}
-      <h2 className="text-xl font-semibold mt-8 mb-4">Workers</h2>
+      <h2 className="text-xl font-semibold mt-8 mb-4"><I18nText text={"Workers"} /></h2>
       <div className="card-obsidian" style={{ minHeight: '200px' }}>
         <WorkersSummary
           workers={workersData?.workers || []}
@@ -240,16 +242,16 @@ function SystemStatus() {
       </div>
 
       {/* Resource Usage */}
-      <h2 className="text-xl font-semibold mt-8 mb-4">Resource Usage</h2>
+      <h2 className="text-xl font-semibold mt-8 mb-4"><I18nText text={"Resource Usage"} /></h2>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <ResourceChart
+        <I18nProps><ResourceChart
           title="CPU Usage"
           data={resourceData?.cpu}
           color="#73BF69"
           isLoading={!resourceData && !resourceError}
           error={resourceError ? String(resourceError) : undefined}
-        />
-        <ResourceChart
+        /></I18nProps>
+        <I18nProps><ResourceChart
           title="Memory Usage"
           data={resourceData?.memory}
           color="#73BF69"
@@ -257,8 +259,8 @@ function SystemStatus() {
           error={resourceError ? String(resourceError) : undefined}
           totalBytes={resourceData?.memoryTotalBytes}
           usedBytes={resourceData?.memoryUsedBytes}
-        />
-        <ResourceChart
+        /></I18nProps>
+        <I18nProps><ResourceChart
           title="Disk Usage"
           data={resourceData?.disk}
           color="#73BF69"
@@ -266,15 +268,15 @@ function SystemStatus() {
           error={resourceError ? String(resourceError) : undefined}
           totalBytes={resourceData?.diskTotalBytes}
           usedBytes={resourceData?.diskUsedBytes}
-        />
-        <ResourceChart
+        /></I18nProps>
+        <I18nProps><ResourceChart
           title="Load Average"
           data={resourceData?.load}
           color="#73BF69"
           unit=""
           isLoading={!resourceData && !resourceError}
           error={resourceError ? String(resourceError) : undefined}
-        />
+        /></I18nProps>
       </div>
 
       {/* Footer */}

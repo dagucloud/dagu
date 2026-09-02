@@ -6,6 +6,7 @@
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AlertCircle } from 'lucide-react';
 import { components } from '../../../../api/v1/schema';
+import { I18nText } from '@/i18n/I18nText';
 
 /**
  * Props for the DAGErrors component
@@ -34,7 +35,7 @@ function DAGErrors({ dags, errors, hasError }: Props) {
       className="py-2 mb-2 bg-error-muted border-error/30 text-error"
     >
       <AlertCircle className="h-4 w-4 text-error" />
-      <AlertTitle className="text-sm font-medium text-error">Error</AlertTitle>
+      <AlertTitle className="text-sm font-medium text-error"><I18nText text={"Error"} /></AlertTitle>
       <AlertDescription className="text-xs mt-1 text-error">
         <ul className="list-disc pl-4 space-y-0.5">
           {dags

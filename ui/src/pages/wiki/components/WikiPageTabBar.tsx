@@ -12,6 +12,7 @@ import { useWikiPageTabContext } from '@/contexts/WikiPageTabContext';
 import { cn } from '@/lib/utils';
 import { MoreHorizontal, Trash2, X, XCircle } from 'lucide-react';
 import React, { useCallback, useRef } from 'react';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type Props = {
   className?: string;
@@ -85,7 +86,7 @@ function WikiPageTabBar({
   };
 
   return (
-    <div
+    <I18nProps><div
       className={cn(
         'flex items-end gap-0 bg-background border-b border-border overflow-x-auto overflow-y-hidden pt-3',
         className
@@ -223,7 +224,7 @@ function WikiPageTabBar({
           </div>
         );
       })}
-    </div>
+    </div></I18nProps>
   );
 }
 

@@ -74,6 +74,8 @@ import React, {
   useState,
 } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type RuntimeProfileResponse = components['schemas']['RuntimeProfileResponse'];
 type InheritedRuntimeProfileResponse =
@@ -660,12 +662,11 @@ export default function ProfilesPage(): React.ReactNode {
       <div className="shrink-0">
         <h1 className="text-lg font-semibold">Profiles &amp; Secrets</h1>
         <p className="text-sm text-muted-foreground">
-          Manage environment profiles and individual secret references used by
-          DAG runs.
+          <I18nText text={"Manage environment profiles and individual secret references used by DAG runs."} />
         </p>
       </div>
 
-      <Tabs
+      <I18nProps><Tabs
         role="tablist"
         aria-label="Profiles and secrets"
         className="shrink-0"
@@ -698,7 +699,7 @@ export default function ProfilesPage(): React.ReactNode {
           <KeyRound className="h-4 w-4" />
           DAG Secret Refs
         </Tab>
-      </Tabs>
+      </Tabs></I18nProps>
 
       <div
         id="profiles-panel"
@@ -711,9 +712,9 @@ export default function ProfilesPage(): React.ReactNode {
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <h2 className="text-base font-semibold">Profiles</h2>
+                <h2 className="text-base font-semibold"><I18nText text={"Profiles"} /></h2>
                 <p className="text-sm text-muted-foreground">
-                  Environment bundles selected when a run starts.
+                  <I18nText text={"Environment bundles selected when a run starts."} />
                 </p>
               </div>
               <Button
@@ -747,10 +748,10 @@ export default function ProfilesPage(): React.ReactNode {
                 <Table className="text-xs">
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-[260px]">Default Layer</TableHead>
-                      <TableHead className="w-[120px]">Scope</TableHead>
-                      <TableHead>Entries</TableHead>
-                      <TableHead className="w-[170px]">Updated</TableHead>
+                      <TableHead className="w-[260px]"><I18nText text={"Default Layer"} /></TableHead>
+                      <TableHead className="w-[120px]"><I18nText text={"Scope"} /></TableHead>
+                      <TableHead><I18nText text={"Entries"} /></TableHead>
+                      <TableHead className="w-[170px]"><I18nText text={"Updated"} /></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -775,7 +776,7 @@ export default function ProfilesPage(): React.ReactNode {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <Badge variant="outline">Global</Badge>
+                          <Badge variant="outline"><I18nText text={"Global"} /></Badge>
                         </TableCell>
                         <TableCell>
                           <ProfileEntriesCell
@@ -817,7 +818,7 @@ export default function ProfilesPage(): React.ReactNode {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <Badge variant="outline">Workspace</Badge>
+                          <Badge variant="outline"><I18nText text={"Workspace"} /></Badge>
                         </TableCell>
                         <TableCell>
                           <ProfileEntriesCell
@@ -845,17 +846,16 @@ export default function ProfilesPage(): React.ReactNode {
                             <div className="flex min-w-0 items-center gap-2">
                               <SlidersHorizontal className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
                               <span className="font-medium">
-                                Workspace default profile
+                                <I18nText text={"Workspace default profile"} />
                               </span>
                             </div>
                             <span className="text-xs text-muted-foreground">
-                              Fallback when the run and DAG do not choose a
-                              profile.
+                              <I18nText text={"Fallback when the run and DAG do not choose a profile."} />
                             </span>
                           </div>
                         </TableCell>
                         <TableCell>
-                          <Badge variant="outline">Workspace</Badge>
+                          <Badge variant="outline"><I18nText text={"Workspace"} /></Badge>
                         </TableCell>
                         <TableCell>
                           <WorkspaceDefaultProfileCell
@@ -887,10 +887,10 @@ export default function ProfilesPage(): React.ReactNode {
               <Table className="text-xs">
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-[260px]">Profile</TableHead>
-                    <TableHead className="w-[110px]">Status</TableHead>
-                    <TableHead>Entries</TableHead>
-                    <TableHead className="w-[170px]">Updated</TableHead>
+                    <TableHead className="w-[260px]"><I18nText text={"Profile"} /></TableHead>
+                    <TableHead className="w-[110px]"><I18nText text={"Status"} /></TableHead>
+                    <TableHead><I18nText text={"Entries"} /></TableHead>
+                    <TableHead className="w-[170px]"><I18nText text={"Updated"} /></TableHead>
                     <TableHead className="w-[80px]"></TableHead>
                   </TableRow>
                 </TableHeader>
@@ -901,7 +901,7 @@ export default function ProfilesPage(): React.ReactNode {
                         colSpan={5}
                         className="py-8 text-center text-muted-foreground"
                       >
-                        You do not have permission to manage profiles.
+                        <I18nText text={"You do not have permission to manage profiles."} />
                       </TableCell>
                     </TableRow>
                   ) : isLoading ? (
@@ -910,7 +910,7 @@ export default function ProfilesPage(): React.ReactNode {
                         colSpan={5}
                         className="py-8 text-center text-muted-foreground"
                       >
-                        Loading profiles...
+                        <I18nText text={"Loading profiles..."} />
                       </TableCell>
                     </TableRow>
                   ) : profiles.length === 0 ? (
@@ -919,7 +919,7 @@ export default function ProfilesPage(): React.ReactNode {
                         colSpan={5}
                         className="py-8 text-center text-muted-foreground"
                       >
-                        No profiles found.
+                        <I18nText text={"No profiles found."} />
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -945,7 +945,7 @@ export default function ProfilesPage(): React.ReactNode {
                                     variant="outline"
                                     className="h-5 px-1.5 text-[10px]"
                                   >
-                                    Protected
+                                    <I18nText text={"Protected"} />
                                   </Badge>
                                 )}
                                 {profile.protected &&
@@ -954,7 +954,7 @@ export default function ProfilesPage(): React.ReactNode {
                                       variant="secondary"
                                       className="h-5 px-1.5 text-[10px]"
                                     >
-                                      Admin
+                                      <I18nText text={"Admin"} />
                                     </Badge>
                                   )}
                               </div>
@@ -1088,7 +1088,7 @@ export default function ProfilesPage(): React.ReactNode {
         }}
       />
 
-      <ConfirmModal
+      <I18nProps><ConfirmModal
         title="Delete Profile"
         buttonText="Delete"
         visible={!!deletingProfile}
@@ -1098,9 +1098,9 @@ export default function ProfilesPage(): React.ReactNode {
         <span className="text-sm text-muted-foreground">
           {deletingProfile ? `Delete ${deletingProfile.name}?` : ''}
         </span>
-      </ConfirmModal>
+      </ConfirmModal></I18nProps>
 
-      <ConfirmModal
+      <I18nProps><ConfirmModal
         title="Delete Entry"
         buttonText="Delete"
         visible={!!deletingEntry}
@@ -1110,7 +1110,7 @@ export default function ProfilesPage(): React.ReactNode {
         <span className="text-sm text-muted-foreground">
           {deletingEntry ? `Delete ${deletingEntry.entry.key}?` : ''}
         </span>
-      </ConfirmModal>
+      </ConfirmModal></I18nProps>
     </div>
   );
 }
@@ -1139,22 +1139,22 @@ function WorkspaceDefaultProfileCell({
         disabled={disabled || busy || isLoading}
         onValueChange={onChange}
       >
-        <SelectTrigger
+        <I18nProps><SelectTrigger
           aria-label="Workspace default profile"
           className="h-7 w-full min-w-[220px]"
         >
-          <SelectValue placeholder="None" />
-        </SelectTrigger>
+          <I18nProps><SelectValue placeholder="None" /></I18nProps>
+        </SelectTrigger></I18nProps>
         <SelectContent>
           <SelectItem value={NO_WORKSPACE_DEFAULT_PROFILE_VALUE}>
-            None
+            <I18nText text={"None"} />
           </SelectItem>
           {unavailable && (
             <SelectItem value={value} disabled>
               <span className="flex w-full items-center justify-between gap-3">
                 <span>{value}</span>
                 <Badge variant="secondary" className="h-4 px-1.5 text-[10px]">
-                  Unavailable
+                  <I18nText text={"Unavailable"} />
                 </Badge>
               </span>
             </SelectItem>
@@ -1165,7 +1165,7 @@ function WorkspaceDefaultProfileCell({
                 <span>{profile.name}</span>
                 {profile.protected && (
                   <Badge variant="outline" className="h-4 px-1.5 text-[10px]">
-                    Protected
+                    <I18nText text={"Protected"} />
                   </Badge>
                 )}
               </span>
@@ -1229,11 +1229,11 @@ function ProfileEntriesCell({
         </Button>
       </div>
       {isLoading ? (
-        <span className="text-xs text-muted-foreground">Loading...</span>
+        <span className="text-xs text-muted-foreground"><I18nText text={"Loading..."} /></span>
       ) : target.loadError ? (
         <span className="text-xs text-destructive">{target.loadError}</span>
       ) : target.entries.length === 0 ? (
-        <span className="text-xs text-muted-foreground">No entries</span>
+        <span className="text-xs text-muted-foreground"><I18nText text={"No entries"} /></span>
       ) : (
         <div className="flex flex-wrap gap-1.5">
           {target.entries.map((entry) => (
@@ -1368,7 +1368,7 @@ function ProfileFormDialog({
               {isEditing ? 'Edit Profile' : 'Add Profile'}
             </DialogTitle>
             <DialogDescription className="sr-only">
-              Configure runtime profile metadata and protection.
+              <I18nText text={"Configure runtime profile metadata and protection."} />
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -1378,8 +1378,8 @@ function ProfileFormDialog({
               </div>
             )}
             <div className="space-y-2">
-              <Label htmlFor="profile-name">Name</Label>
-              <Input
+              <Label htmlFor="profile-name"><I18nText text={"Name"} /></Label>
+              <I18nProps><Input
                 id="profile-name"
                 value={form.name}
                 readOnly={isEditing}
@@ -1388,10 +1388,10 @@ function ProfileFormDialog({
                 onChange={(event) =>
                   setForm((prev) => ({ ...prev, name: event.target.value }))
                 }
-              />
+              /></I18nProps>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="profile-description">Description</Label>
+              <Label htmlFor="profile-description"><I18nText text={"Description"} /></Label>
               <Textarea
                 id="profile-description"
                 rows={3}
@@ -1414,7 +1414,7 @@ function ProfileFormDialog({
                   setForm((prev) => ({ ...prev, protected: checked === true }))
                 }
               />
-              <Label htmlFor="profile-protected">Protected</Label>
+              <Label htmlFor="profile-protected"><I18nText text={"Protected"} /></Label>
             </div>
           </div>
           <DialogFooter>
@@ -1424,7 +1424,7 @@ function ProfileFormDialog({
               onClick={onClose}
               disabled={isSaving}
             >
-              Cancel
+              <I18nText text={"Cancel"} />
             </Button>
             <Button type="submit" disabled={isSaving}>
               {isSaving ? 'Saving...' : 'Save'}
@@ -1516,7 +1516,7 @@ function ProfileEntryDialog({
           <DialogHeader>
             <DialogTitle>{entryDialogTitle(isSecret, isEditing)}</DialogTitle>
             <DialogDescription className="sr-only">
-              Configure a runtime profile entry.
+              <I18nText text={"Configure a runtime profile entry."} />
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -1526,18 +1526,18 @@ function ProfileEntryDialog({
               </div>
             )}
             <div className="space-y-2">
-              <Label htmlFor="profile-entry-key">Key</Label>
-              <Input
+              <Label htmlFor="profile-entry-key"><I18nText text={"Key"} /></Label>
+              <I18nProps><Input
                 id="profile-entry-key"
                 value={key}
                 readOnly={isEditing}
                 disabled={isEditing || isSaving}
                 placeholder="LOG_LEVEL"
                 onChange={(event) => setKey(event.target.value)}
-              />
+              /></I18nProps>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="profile-entry-value">Value</Label>
+              <Label htmlFor="profile-entry-value"><I18nText text={"Value"} /></Label>
               <Textarea
                 id="profile-entry-value"
                 rows={3}
@@ -1555,7 +1555,7 @@ function ProfileEntryDialog({
               onClick={onClose}
               disabled={isSaving}
             >
-              Cancel
+              <I18nText text={"Cancel"} />
             </Button>
             <Button type="submit" disabled={isSaving}>
               {isSaving ? 'Saving...' : 'Save'}

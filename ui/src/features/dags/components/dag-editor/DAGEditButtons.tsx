@@ -15,6 +15,8 @@ import React from 'react';
 import { DAGNameInputModal } from '../../../../components/DAGNameInputModal';
 import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import { useClient } from '../../../../hooks/api';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 /**
  * Props for the DAGEditButtons component
@@ -103,7 +105,7 @@ function DAGEditButtons({ fileName, workspace }: Props) {
         Delete
       </Button>
 
-      <ConfirmModal
+      <I18nProps><ConfirmModal
         title="Delete DAG"
         buttonText="Delete"
         visible={isDeleteModalOpen}
@@ -152,14 +154,13 @@ function DAGEditButtons({ fileName, workspace }: Props) {
         }}
       >
         <div className="space-y-2 text-sm">
-          <p>Do you really want to delete this DAG?</p>
+          <p><I18nText text={"Do you really want to delete this DAG?"} /></p>
           <p className="font-mono text-xs">{fileName}</p>
           <p className="text-muted-foreground">
-            The definition file is removed; past run history is kept. This
-            action cannot be undone.
+            <I18nText text={"The definition file is removed; past run history is kept. This action cannot be undone."} />
           </p>
         </div>
-      </ConfirmModal>
+      </ConfirmModal></I18nProps>
 
       <DAGNameInputModal
         isOpen={isRenameModalOpen}

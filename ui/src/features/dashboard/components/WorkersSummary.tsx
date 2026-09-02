@@ -4,6 +4,7 @@ import type { components } from '../../../api/v1/schema';
 import RelativeTime from '@/components/ui/relative-time';
 import { cn } from '../../../lib/utils';
 import WorkerHealth from '../../workers/components/WorkerHealth';
+import { I18nText } from '@/i18n/I18nText';
 
 type Worker = components['schemas']['Worker'];
 type RunningTask = components['schemas']['RunningTask'];
@@ -78,14 +79,14 @@ function WorkersSummary({
       <div className="flex items-center justify-between px-3 py-2 border-b flex-shrink-0">
         <div className="flex items-center gap-2">
           <Activity className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm font-medium">Workers</span>
+          <span className="text-sm font-medium"><I18nText text={"Workers"} /></span>
         </div>
         <div className="flex items-center gap-5 text-xs text-muted-foreground">
           <div className="flex items-baseline gap-1">
             <span className="text-sm font-light tabular-nums text-foreground">
               {metrics.totalWorkers}
             </span>
-            <span>workers</span>
+            <span><I18nText text={"workers"} /></span>
             <span className="text-muted-foreground/60">
               ({metrics.healthyWorkers} up)
             </span>
@@ -94,19 +95,19 @@ function WorkersSummary({
             <span className="text-sm font-light tabular-nums text-foreground">
               {metrics.busyPollers}/{metrics.totalPollers}
             </span>
-            <span>pollers</span>
+            <span><I18nText text={"pollers"} /></span>
           </div>
           <div className="flex items-baseline gap-1">
             <span className="text-sm font-light tabular-nums text-foreground">
               {metrics.totalTasks}
             </span>
-            <span>tasks</span>
+            <span><I18nText text={"tasks"} /></span>
           </div>
           <div className="flex items-baseline gap-1">
             <span className="text-sm font-light tabular-nums text-foreground">
               {metrics.utilization}%
             </span>
-            <span>util</span>
+            <span><I18nText text={"util"} /></span>
           </div>
         </div>
       </div>
@@ -115,7 +116,7 @@ function WorkersSummary({
       <div className="flex-1 min-h-0 overflow-auto">
         {isLoading && workers.length === 0 ? (
           <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
-            Loading workers...
+            <I18nText text={"Loading workers..."} />
           </div>
         ) : errors && errors.length > 0 ? (
           <div className="p-2 text-sm text-warning">
@@ -125,7 +126,7 @@ function WorkersSummary({
           </div>
         ) : workers.length === 0 ? (
           <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
-            No workers connected
+            <I18nText text={"No workers connected"} />
           </div>
         ) : (
           <div className="divide-y">

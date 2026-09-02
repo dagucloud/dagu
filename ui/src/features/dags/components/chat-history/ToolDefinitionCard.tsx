@@ -1,4 +1,5 @@
 import { components } from '@/api/v1/schema';
+import { I18nText } from '@/i18n/I18nText';
 
 type ToolDefinition = components['schemas']['ToolDefinition'];
 
@@ -37,7 +38,7 @@ export function ToolDefinitionCard({ tool }: ToolDefinitionCardProps) {
               <span className="text-foreground">{name}</span>
               <span className="ml-1">({schema.type || 'any'})</span>
               {required.includes(name) ? (
-                <span className="ml-1 text-amber-500">required</span>
+                <span className="ml-1 text-amber-500"><I18nText text={"required"} /></span>
               ) : schema.default !== undefined ? (
                 <span className="ml-1">= {JSON.stringify(schema.default)}</span>
               ) : null}
@@ -45,7 +46,7 @@ export function ToolDefinitionCard({ tool }: ToolDefinitionCardProps) {
           ))}
         </div>
       ) : (
-        <div className="text-muted-foreground italic">no parameters</div>
+        <div className="text-muted-foreground italic"><I18nText text={"no parameters"} /></div>
       )}
     </div>
   );

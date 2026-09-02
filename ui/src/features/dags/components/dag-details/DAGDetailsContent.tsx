@@ -34,6 +34,7 @@ import DAGWikiTab from './DAGWikiTab';
 import IncidentsTab from './IncidentsTab';
 import NotificationsTab from './NotificationsTab';
 import WebhookTab from './WebhookTab';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type DAGDetailsContentProps = {
   fileName: string;
@@ -169,150 +170,150 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
           <div className="hidden min-w-0 flex-1 overflow-x-auto 2xl:block">
             <Tabs className="whitespace-nowrap">
               {isModal ? (
-                <ModalLinkTab
+                <I18nProps><ModalLinkTab
                   label="Latest Run"
                   value="status"
                   isActive={activeTab === 'status'}
                   icon={PlayCircle}
                   onClick={() => handleTabClick('status')}
-                />
+                /></I18nProps>
               ) : (
-                <LinkTab
+                <I18nProps><LinkTab
                   label="Latest Run"
                   value={scopedUrl(baseUrl)}
                   isActive={activeTab === 'status'}
                   icon={PlayCircle}
-                />
+                /></I18nProps>
               )}
 
               {isModal ? (
-                <ModalLinkTab
+                <I18nProps><ModalLinkTab
                   label="Spec"
                   value="spec"
                   isActive={activeTab === 'spec'}
                   icon={FileCode}
                   onClick={() => handleTabClick('spec')}
-                />
+                /></I18nProps>
               ) : (
-                <LinkTab
+                <I18nProps><LinkTab
                   label="Spec"
                   value={scopedUrl(`${baseUrl}/spec`)}
                   isActive={activeTab === 'spec'}
                   icon={FileCode}
-                />
+                /></I18nProps>
               )}
 
               {isModal ? (
-                <ModalLinkTab
+                <I18nProps><ModalLinkTab
                   label="Webhook"
                   value="webhook"
                   isActive={activeTab === 'webhook'}
                   icon={Webhook}
                   onClick={() => handleTabClick('webhook')}
-                />
+                /></I18nProps>
               ) : (
-                <LinkTab
+                <I18nProps><LinkTab
                   label="Webhook"
                   value={scopedUrl(`${baseUrl}/webhook`)}
                   isActive={activeTab === 'webhook'}
                   icon={Webhook}
-                />
+                /></I18nProps>
               )}
 
               {isModal ? (
-                <ModalLinkTab
+                <I18nProps><ModalLinkTab
                   label="Settings"
                   value="settings"
                   isActive={activeTab === 'settings'}
                   icon={SettingsIcon}
                   onClick={() => handleTabClick('settings')}
-                />
+                /></I18nProps>
               ) : (
-                <LinkTab
+                <I18nProps><LinkTab
                   label="Settings"
                   value={scopedUrl(`${baseUrl}/settings`)}
                   isActive={activeTab === 'settings'}
                   icon={SettingsIcon}
-                />
+                /></I18nProps>
               )}
 
               {isModal ? (
-                <ModalLinkTab
+                <I18nProps><ModalLinkTab
                   label="Notifications"
                   value="notifications"
                   isActive={activeTab === 'notifications'}
                   icon={Bell}
                   onClick={() => handleTabClick('notifications')}
-                />
+                /></I18nProps>
               ) : (
-                <LinkTab
+                <I18nProps><LinkTab
                   label="Notifications"
                   value={scopedUrl(`${baseUrl}/notifications`)}
                   isActive={activeTab === 'notifications'}
                   icon={Bell}
-                />
+                /></I18nProps>
               )}
 
               {isModal ? (
-                <ModalLinkTab
+                <I18nProps><ModalLinkTab
                   label="Incidents"
                   value="incidents"
                   isActive={activeTab === 'incidents'}
                   icon={AlertTriangle}
                   onClick={() => handleTabClick('incidents')}
-                />
+                /></I18nProps>
               ) : (
-                <LinkTab
+                <I18nProps><LinkTab
                   label="Incidents"
                   value={scopedUrl(`${baseUrl}/incidents`)}
                   isActive={activeTab === 'incidents'}
                   icon={AlertTriangle}
-                />
+                /></I18nProps>
               )}
 
               {isModal ? (
-                <ModalLinkTab
+                <I18nProps><ModalLinkTab
                   label="History"
                   value="history"
                   isActive={activeTab === 'history'}
                   icon={History}
                   onClick={() => handleTabClick('history')}
-                />
+                /></I18nProps>
               ) : (
-                <LinkTab
+                <I18nProps><LinkTab
                   label="History"
                   value={scopedUrl(`${baseUrl}/history`)}
                   isActive={activeTab === 'history'}
                   icon={History}
-                />
+                /></I18nProps>
               )}
 
               {isModal && (
-                <ModalLinkTab
+                <I18nProps><ModalLinkTab
                   label="Wiki"
                   value="wiki"
                   isActive={activeTab === 'wiki' || activeTab === 'docs'}
                   icon={BookOpen}
                   onClick={() => handleTabClick('wiki')}
-                />
+                /></I18nProps>
               )}
 
               {(activeTab === 'log' || activeTab === 'dagRun-log') &&
                 (isModal ? (
-                  <ModalLinkTab
+                  <I18nProps><ModalLinkTab
                     label="Log"
                     value={activeTab}
                     isActive={true}
                     icon={ScrollText}
                     onClick={() => {}}
-                  />
+                  /></I18nProps>
                 ) : (
-                  <LinkTab
+                  <I18nProps><LinkTab
                     label="Log"
                     value={scopedUrl(baseUrl)}
                     isActive={true}
                     icon={ScrollText}
-                  />
+                  /></I18nProps>
                 ))}
             </Tabs>
           </div>
@@ -321,7 +322,7 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
           <div className="w-full min-w-0 overflow-x-auto lg:flex-1 2xl:hidden">
             <div className="flex min-w-max space-x-1">
               {isModal ? (
-                <ModalLinkTab
+                <I18nProps><ModalLinkTab
                   label="Latest Run"
                   value="status"
                   isActive={activeTab === 'status'}
@@ -329,20 +330,20 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
                   onClick={() => handleTabClick('status')}
                   className="flex-1 justify-center"
                   aria-label="Latest Run"
-                />
+                /></I18nProps>
               ) : (
-                <LinkTab
+                <I18nProps><LinkTab
                   label="Latest Run"
                   value={scopedUrl(baseUrl)}
                   isActive={activeTab === 'status'}
                   icon={PlayCircle}
                   className="flex-1 justify-center"
                   aria-label="Latest Run"
-                />
+                /></I18nProps>
               )}
 
               {isModal ? (
-                <ModalLinkTab
+                <I18nProps><ModalLinkTab
                   label="Incidents"
                   value="incidents"
                   isActive={activeTab === 'incidents'}
@@ -350,20 +351,20 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
                   onClick={() => handleTabClick('incidents')}
                   className="flex-1 justify-center"
                   aria-label="Incidents"
-                />
+                /></I18nProps>
               ) : (
-                <LinkTab
+                <I18nProps><LinkTab
                   label="Incidents"
                   value={scopedUrl(`${baseUrl}/incidents`)}
                   isActive={activeTab === 'incidents'}
                   icon={AlertTriangle}
                   className="flex-1 justify-center"
                   aria-label="Incidents"
-                />
+                /></I18nProps>
               )}
 
               {isModal ? (
-                <ModalLinkTab
+                <I18nProps><ModalLinkTab
                   label="Spec"
                   value="spec"
                   isActive={activeTab === 'spec'}
@@ -371,20 +372,20 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
                   onClick={() => handleTabClick('spec')}
                   className="flex-1 justify-center"
                   aria-label="Spec"
-                />
+                /></I18nProps>
               ) : (
-                <LinkTab
+                <I18nProps><LinkTab
                   label="Spec"
                   value={scopedUrl(`${baseUrl}/spec`)}
                   isActive={activeTab === 'spec'}
                   icon={FileCode}
                   className="flex-1 justify-center"
                   aria-label="Spec"
-                />
+                /></I18nProps>
               )}
 
               {isModal ? (
-                <ModalLinkTab
+                <I18nProps><ModalLinkTab
                   label="Webhook"
                   value="webhook"
                   isActive={activeTab === 'webhook'}
@@ -392,20 +393,20 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
                   onClick={() => handleTabClick('webhook')}
                   className="flex-1 justify-center"
                   aria-label="Webhook"
-                />
+                /></I18nProps>
               ) : (
-                <LinkTab
+                <I18nProps><LinkTab
                   label="Webhook"
                   value={scopedUrl(`${baseUrl}/webhook`)}
                   isActive={activeTab === 'webhook'}
                   icon={Webhook}
                   className="flex-1 justify-center"
                   aria-label="Webhook"
-                />
+                /></I18nProps>
               )}
 
               {isModal ? (
-                <ModalLinkTab
+                <I18nProps><ModalLinkTab
                   label="Settings"
                   value="settings"
                   isActive={activeTab === 'settings'}
@@ -413,20 +414,20 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
                   onClick={() => handleTabClick('settings')}
                   className="flex-1 justify-center"
                   aria-label="Settings"
-                />
+                /></I18nProps>
               ) : (
-                <LinkTab
+                <I18nProps><LinkTab
                   label="Settings"
                   value={scopedUrl(`${baseUrl}/settings`)}
                   isActive={activeTab === 'settings'}
                   icon={SettingsIcon}
                   className="flex-1 justify-center"
                   aria-label="Settings"
-                />
+                /></I18nProps>
               )}
 
               {isModal ? (
-                <ModalLinkTab
+                <I18nProps><ModalLinkTab
                   label="Notifications"
                   value="notifications"
                   isActive={activeTab === 'notifications'}
@@ -434,20 +435,20 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
                   onClick={() => handleTabClick('notifications')}
                   className="flex-1 justify-center"
                   aria-label="Notifications"
-                />
+                /></I18nProps>
               ) : (
-                <LinkTab
+                <I18nProps><LinkTab
                   label="Notifications"
                   value={scopedUrl(`${baseUrl}/notifications`)}
                   isActive={activeTab === 'notifications'}
                   icon={Bell}
                   className="flex-1 justify-center"
                   aria-label="Notifications"
-                />
+                /></I18nProps>
               )}
 
               {isModal ? (
-                <ModalLinkTab
+                <I18nProps><ModalLinkTab
                   label="History"
                   value="history"
                   isActive={activeTab === 'history'}
@@ -455,20 +456,20 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
                   onClick={() => handleTabClick('history')}
                   className="flex-1 justify-center"
                   aria-label="History"
-                />
+                /></I18nProps>
               ) : (
-                <LinkTab
+                <I18nProps><LinkTab
                   label="History"
                   value={scopedUrl(`${baseUrl}/history`)}
                   isActive={activeTab === 'history'}
                   icon={History}
                   className="flex-1 justify-center"
                   aria-label="History"
-                />
+                /></I18nProps>
               )}
 
               {isModal && (
-                <ModalLinkTab
+                <I18nProps><ModalLinkTab
                   label="Wiki"
                   value="wiki"
                   isActive={activeTab === 'wiki' || activeTab === 'docs'}
@@ -476,12 +477,12 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
                   onClick={() => handleTabClick('wiki')}
                   className="flex-1 justify-center"
                   aria-label="Wiki"
-                />
+                /></I18nProps>
               )}
 
               {(activeTab === 'log' || activeTab === 'dagRun-log') &&
                 (isModal ? (
-                  <ModalLinkTab
+                  <I18nProps><ModalLinkTab
                     label="Log"
                     value={activeTab}
                     isActive={true}
@@ -489,16 +490,16 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
                     onClick={() => {}}
                     className="flex-1 justify-center"
                     aria-label="Log"
-                  />
+                  /></I18nProps>
                 ) : (
-                  <LinkTab
+                  <I18nProps><LinkTab
                     label="Log"
                     value={scopedUrl(baseUrl)}
                     isActive={true}
                     icon={ScrollText}
                     className="flex-1 justify-center"
                     aria-label="Log"
-                  />
+                  /></I18nProps>
                 ))}
             </div>
           </div>

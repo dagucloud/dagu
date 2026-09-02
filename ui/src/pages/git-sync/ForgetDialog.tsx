@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import ConfirmModal from '@/components/ui/confirm-dialog';
+import { I18nProps } from '@/i18n/I18nProps';
 
 interface ForgetDialogProps {
   open: boolean;
@@ -19,7 +20,7 @@ export function ForgetDialog({
   onCancel,
 }: ForgetDialogProps) {
   return (
-    <ConfirmModal
+    <I18nProps><ConfirmModal
       title="Forget Sync Item"
       buttonText={isForgetting ? 'Forgetting...' : 'Forget'}
       visible={open}
@@ -34,6 +35,6 @@ export function ForgetDialog({
         from sync tracking? This does not delete the file from the remote
         repository.
       </p>
-    </ConfirmModal>
+    </ConfirmModal></I18nProps>
   );
 }

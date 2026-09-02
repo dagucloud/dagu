@@ -16,6 +16,8 @@ import {
   useSSECacheSync,
 } from '../../hooks/useSSECacheSync';
 import Title from '@/components/ui/title';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 function Queues() {
   const appBarContext = React.useContext(AppBarContext);
@@ -139,22 +141,22 @@ function Queues() {
   return (
     <div className="flex h-full max-w-7xl flex-col gap-4 overflow-hidden">
       <div className="flex flex-col gap-1">
-        <Title>Queues</Title>
+        <Title><I18nText text={"Queues"} /></Title>
         <p className="text-sm text-muted-foreground">
-          One card per queue, with running activity and backlog status.
+          <I18nText text={"One card per queue, with running activity and backlog status."} />
         </p>
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative w-full max-w-sm">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
+          <I18nProps><Input
             type="text"
             placeholder="Search queues..."
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             className="h-9 pl-9 text-sm"
-          />
+          /></I18nProps>
         </div>
         <div className="flex items-center gap-2">
           {data?.queues && (

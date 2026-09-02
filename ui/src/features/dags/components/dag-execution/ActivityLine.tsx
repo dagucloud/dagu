@@ -4,6 +4,7 @@
 import React from 'react';
 import { AnsiLine } from '@/lib/ansi';
 import type { SchedulerLogLine } from '@/lib/scheduler-log';
+import { I18nText } from '@/i18n/I18nText';
 
 function shortTimestamp(timestamp?: string): string {
   return timestamp?.match(/T(\d{2}:\d{2}:\d{2}(?:\.\d{3})?)/)?.[1] || '';
@@ -67,7 +68,7 @@ export function ActivityLine({
         {line.details && (
           <details className="mt-1 text-xs text-muted-foreground">
             <summary className="w-fit cursor-pointer select-none">
-              Details
+              <I18nText text={"Details"} />
             </summary>
             <code className="mt-1 block whitespace-pre-wrap break-words font-mono">
               {line.details}

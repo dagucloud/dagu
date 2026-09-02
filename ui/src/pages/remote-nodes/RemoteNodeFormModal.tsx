@@ -24,6 +24,8 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { AlertCircle, Check, Plus, X } from 'lucide-react';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type RemoteNodeResponse = components['schemas']['RemoteNodeResponse'];
 
@@ -199,9 +201,9 @@ export function RemoteNodeFormModal({
 
           <div className="space-y-1.5">
             <Label htmlFor="name" className="text-sm">
-              Name
+              <I18nText text={"Name"} />
             </Label>
-            <Input
+            <I18nProps><Input
               id="name"
               type="text"
               value={name}
@@ -210,14 +212,14 @@ export function RemoteNodeFormModal({
               autoComplete="off"
               className="h-9"
               placeholder="e.g. production-server"
-            />
+            /></I18nProps>
           </div>
 
           <div className="space-y-1.5">
             <Label htmlFor="description" className="text-sm">
-              Description
+              <I18nText text={"Description"} />
             </Label>
-            <Input
+            <I18nProps><Input
               id="description"
               type="text"
               value={description}
@@ -225,14 +227,14 @@ export function RemoteNodeFormModal({
               autoComplete="off"
               className="h-9"
               placeholder="Optional description"
-            />
+            /></I18nProps>
           </div>
 
           <div className="space-y-1.5">
             <Label htmlFor="apiBaseUrl" className="text-sm">
-              API Base URL
+              <I18nText text={"API Base URL"} />
             </Label>
-            <Input
+            <I18nProps><Input
               id="apiBaseUrl"
               type="text"
               value={apiBaseUrl}
@@ -241,21 +243,21 @@ export function RemoteNodeFormModal({
               autoComplete="off"
               className="h-9"
               placeholder="https://dagu.example.com:8080/api/v1"
-            />
+            /></I18nProps>
           </div>
 
           <div className="space-y-1.5">
             <Label htmlFor="authType" className="text-sm">
-              Authentication
+              <I18nText text={"Authentication"} />
             </Label>
             <Select value={authType} onValueChange={setAuthType}>
               <SelectTrigger className="h-9">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">None</SelectItem>
-                <SelectItem value="basic">Basic Auth</SelectItem>
-                <SelectItem value="token">Bearer Token</SelectItem>
+                <SelectItem value="none"><I18nText text={"None"} /></SelectItem>
+                <SelectItem value="basic"><I18nText text={"Basic Auth"} /></SelectItem>
+                <SelectItem value="token"><I18nText text={"Bearer Token"} /></SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -264,7 +266,7 @@ export function RemoteNodeFormModal({
             <>
               <div className="space-y-1.5">
                 <Label htmlFor="basicAuthUsername" className="text-sm">
-                  Username
+                  <I18nText text={"Username"} />
                 </Label>
                 <Input
                   id="basicAuthUsername"
@@ -278,7 +280,7 @@ export function RemoteNodeFormModal({
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="basicAuthPassword" className="text-sm">
-                  Password
+                  <I18nText text={"Password"} />
                 </Label>
                 <Input
                   id="basicAuthPassword"
@@ -296,7 +298,7 @@ export function RemoteNodeFormModal({
           {authType === 'token' && (
             <div className="space-y-1.5">
               <Label htmlFor="authToken" className="text-sm">
-                Token
+                <I18nText text={"Token"} />
               </Label>
               <Input
                 id="authToken"
@@ -317,7 +319,7 @@ export function RemoteNodeFormModal({
               onCheckedChange={setSkipTlsVerify}
             />
             <Label htmlFor="skipTlsVerify" className="text-sm cursor-pointer">
-              Skip TLS verification
+              <I18nText text={"Skip TLS verification"} />
             </Label>
           </div>
 

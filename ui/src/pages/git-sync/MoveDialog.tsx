@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ArrowRightLeft, RefreshCw } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { I18nText } from '@/i18n/I18nText';
 
 interface MoveDialogProps {
   open: boolean;
@@ -71,7 +72,7 @@ export function MoveDialog({
     <Dialog open={open} onOpenChange={(o) => !o && onCancel()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-base">Move Item</DialogTitle>
+          <DialogTitle className="text-base"><I18nText text={"Move Item"} /></DialogTitle>
           <DialogDescription className="text-xs">
             Rename <span className="font-mono font-medium">{itemId}</span> to a
             new path.
@@ -80,7 +81,7 @@ export function MoveDialog({
         <div className="space-y-3">
           <div className="space-y-1.5">
             <Label htmlFor="new-item-id" className="text-xs">
-              New Item ID
+              <I18nText text={"New Item ID"} />
             </Label>
             <Input
               id="new-item-id"
@@ -104,7 +105,7 @@ export function MoveDialog({
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="move-commit-msg" className="text-xs">
-              Commit Message
+              <I18nText text={"Commit Message"} />
             </Label>
             <Input
               id="move-commit-msg"
@@ -122,14 +123,14 @@ export function MoveDialog({
                 onCheckedChange={(checked) => setForce(checked === true)}
               />
               <Label htmlFor="move-force" className="text-xs">
-                Force move (override conflicts)
+                <I18nText text={"Force move (override conflicts)"} />
               </Label>
             </div>
           )}
         </div>
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onCancel}>
-            Cancel
+            <I18nText text={"Cancel"} />
           </Button>
           <Button size="sm" onClick={handleSubmit} disabled={isMoving}>
             {isMoving ? (

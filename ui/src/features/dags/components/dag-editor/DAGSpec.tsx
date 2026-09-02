@@ -64,6 +64,8 @@ import DAGEditorWithDocs from './DAGEditorWithDocs';
 import { parseValidationMarkers } from './validationMarkers';
 import { AgentSpecOverview } from './AgentSpecOverview';
 import ExternalChangeDialog from './ExternalChangeDialog';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 /**
  * Props for the DAGSpec component
@@ -552,10 +554,10 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
               <div className="py-8 px-4 text-center">
                 <AlertTriangle className="h-12 w-12 text-warning mx-auto mb-4" />
                 <p className="text-muted-foreground mb-2">
-                  No steps to render
+                  <I18nText text={"No steps to render"} />
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  Define at least one step to view the graph
+                  <I18nText text={"Define at least one step to view the graph"} />
                 </p>
               </div>
             ) : (
@@ -582,7 +584,7 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
                       </div>
                     </TooltipTrigger>
                     <TooltipContent>
-                      <p>Click: Inspect step details</p>
+                      <p><I18nText text={"Click: Inspect step details"} /></p>
                     </TooltipContent>
                   </Tooltip>
                 </div>
@@ -640,12 +642,12 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
                 </span>
               )}
               {valueReferenceNotices.length > 0 && (
-                <ValueReferenceNoticesButton
+                <I18nProps><ValueReferenceNoticesButton
                   notices={valueReferenceNotices}
                   description="Value-reference notices produced while loading this spec."
-                />
+                /></I18nProps>
               )}
-              <Button
+              <I18nProps><Button
                 variant="ghost"
                 title="Copy YAML"
                 aria-label={specCopied ? 'YAML copied' : 'Copy YAML'}
@@ -657,20 +659,20 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
                   <Copy className="h-4 w-4" />
                 )}
                 Copy
-              </Button>
+              </Button></I18nProps>
               {editable && (
                 <>
                   {localHasUnsavedChanges && (
-                    <Button
+                    <I18nProps><Button
                       variant="ghost"
                       title="Discard changes"
                       onClick={discardChanges}
                     >
                       <Undo2 className="h-4 w-4" />
                       Discard
-                    </Button>
+                    </Button></I18nProps>
                   )}
-                  <Button
+                  <I18nProps><Button
                     id="save-config"
                     title="Save changes (Ctrl+S / Cmd+S)"
                     disabled={!localHasUnsavedChanges}
@@ -681,7 +683,7 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
                   >
                     <Save className="h-4 w-4" />
                     Save
-                  </Button>
+                  </Button></I18nProps>
                 </>
               )}
             </div>
@@ -765,7 +767,7 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
 
                 <section className="flex-shrink-0 space-y-3">
                   <h2 className="text-lg font-semibold text-foreground">
-                    YAML
+                    <I18nText text={"YAML"} />
                   </h2>
                   <DAGEditorWithDocs
                     value={

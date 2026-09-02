@@ -10,6 +10,8 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { StatusDot } from '../common/StatusDot';
 import { STATUS_DISPLAY_LABELS } from '../common/statusLabels';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type SubDAGRun = components['schemas']['SubDAGRun'];
 type SubDAGRunDetail = components['schemas']['SubDAGRunDetail'];
@@ -205,7 +207,7 @@ export function SubDAGRunsList({
     const displayName = allSubRuns[0]?.dagName || subDagName;
     return (
       <>
-        <div
+        <I18nProps><div
           className="text-xs text-primary font-medium cursor-pointer hover:underline"
           onClick={(e) => {
             e.stopPropagation();
@@ -214,7 +216,7 @@ export function SubDAGRunsList({
           title="Click to view sub DAG run (Cmd/Ctrl+Click to open in new tab)"
         >
           View Sub DAG Run: {displayName}
-        </div>
+        </div></I18nProps>
         {allSubRuns[0]?.params && (
           <div className="text-xs text-muted-foreground mt-1">
             Parameters:{' '}
@@ -286,7 +288,7 @@ export function SubDAGRunsList({
         <div className="mt-2 ml-4 space-y-1 border-l border-border pl-3">
           {filteredSubRuns.length === 0 ? (
             <div className="py-2 text-muted-foreground italic">
-              No sub DAG runs match the selected filter
+              <I18nText text={"No sub DAG runs match the selected filter"} />
             </div>
           ) : (
             filteredSubRuns.map((subRun) => {
@@ -301,7 +303,7 @@ export function SubDAGRunsList({
               return (
                 <div key={subRun.dagRunId} className="py-1">
                   <div className="flex items-center gap-2">
-                    <div
+                    <I18nProps><div
                       className="text-xs text-primary cursor-pointer hover:underline"
                       onClick={(e) => {
                         e.stopPropagation();
@@ -310,7 +312,7 @@ export function SubDAGRunsList({
                       title="Click to view sub DAG run (Cmd/Ctrl+Click to open in new tab)"
                     >
                       #{String(displayNumber).padStart(2, '0')}: {displayName}
-                    </div>
+                    </div></I18nProps>
                     {startedAt && (
                       <div className="text-xs text-muted-foreground">
                         {dayjs(startedAt).format('MMM D, HH:mm:ss')}

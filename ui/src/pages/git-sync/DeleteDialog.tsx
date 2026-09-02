@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { RefreshCw, Trash2 } from 'lucide-react';
+import { I18nText } from '@/i18n/I18nText';
 
 interface DeleteDialogProps {
   open: boolean;
@@ -53,9 +54,9 @@ export function DeleteDialog({
     <Dialog open={open} onOpenChange={(o) => !o && onCancel()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-base">Delete Sync Item</DialogTitle>
+          <DialogTitle className="text-base"><I18nText text={"Delete Sync Item"} /></DialogTitle>
           <DialogDescription className="text-xs">
-            This action cannot be undone.
+            <I18nText text={"This action cannot be undone."} />
           </DialogDescription>
         </DialogHeader>
         <p className="text-sm text-muted-foreground">
@@ -63,7 +64,7 @@ export function DeleteDialog({
         </p>
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onCancel}>
-            Cancel
+            <I18nText text={"Cancel"} />
           </Button>
           <Button
             variant="destructive"

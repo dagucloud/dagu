@@ -11,6 +11,7 @@ import {
 import { components } from '../../../api/v1/schema';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatBytes } from '../../../lib/formatBytes';
+import { I18nText } from '@/i18n/I18nText';
 
 type MetricPoint = components['schemas']['MetricPoint'];
 
@@ -43,7 +44,7 @@ function ResourceChart({
         </CardHeader>
         <CardContent>
           <div className="flex h-[200px] items-center justify-center text-sm text-muted-foreground">
-            Failed to load data
+            <I18nText text={"Failed to load data"} />
           </div>
         </CardContent>
       </Card>

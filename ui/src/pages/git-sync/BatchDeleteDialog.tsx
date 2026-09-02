@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RefreshCw, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { I18nText } from '@/i18n/I18nText';
 
 interface BatchDeleteDialogProps {
   open: boolean;
@@ -50,7 +51,7 @@ export function BatchDeleteDialog({
     <Dialog open={open} onOpenChange={(o) => !o && onCancel()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-base">Delete Selected Items</DialogTitle>
+          <DialogTitle className="text-base"><I18nText text={"Delete Selected Items"} /></DialogTitle>
           <DialogDescription className="text-xs">
             This will remove {count} sync item{count !== 1 ? 's' : ''} from the
             remote repository, local disk, and sync state. This action cannot be
@@ -60,13 +61,12 @@ export function BatchDeleteDialog({
         <div className="space-y-3">
           {hasModifiedOrConflict && (
             <p className="text-xs text-amber-600 dark:text-amber-400">
-              Some items have local modifications or conflicts that will be
-              lost.
+              <I18nText text={"Some items have local modifications or conflicts that will be lost."} />
             </p>
           )}
           <div className="space-y-1.5">
             <Label htmlFor="batch-delete-msg" className="text-xs">
-              Commit Message
+              <I18nText text={"Commit Message"} />
             </Label>
             <Input
               id="batch-delete-msg"
@@ -85,7 +85,7 @@ export function BatchDeleteDialog({
         </div>
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onCancel}>
-            Cancel
+            <I18nText text={"Cancel"} />
           </Button>
           <Button
             variant="destructive"

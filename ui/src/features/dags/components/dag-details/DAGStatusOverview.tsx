@@ -30,6 +30,8 @@ import {
   Status,
 } from '../../../../api/v1/schema';
 import { triggerTypeLabels } from '../common/TriggerTypeIndicator';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type Props = {
   status?: components['schemas']['DAGRunDetails'];
@@ -183,7 +185,7 @@ function RuntimeConditions({
       <div className="flex items-center mb-1">
         <Info className="h-3.5 w-3.5 mr-1 text-muted-foreground" />
         <span className="text-xs font-semibold text-muted-foreground">
-          Runtime Conditions
+          <I18nText text={"Runtime Conditions"} />
         </span>
       </div>
       <div className="space-y-2">
@@ -212,7 +214,7 @@ function PreconditionErrors({
       <div className="flex items-center mb-1">
         <Info className="h-3.5 w-3.5 mr-1 text-warning" />
         <span className="text-xs font-semibold text-warning">
-          DAGRun Precondition Unmet
+          <I18nText text={"DAGRun Precondition Unmet"} />
         </span>
       </div>
       <div className="space-y-2">
@@ -347,7 +349,7 @@ function DAGStatusOverview({
       <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-xs">
         {status.scheduleTime && (
           <span>
-            <span className="text-muted-foreground">Scheduled </span>
+            <span className="text-muted-foreground"><I18nText text={"Scheduled"} /> </span>
             <span className="font-mono text-foreground">
               {formatTimestamp(status.scheduleTime)}
             </span>
@@ -355,26 +357,26 @@ function DAGStatusOverview({
         )}
         {status.queuedAt && (
           <span>
-            <span className="text-muted-foreground">Queued </span>
+            <span className="text-muted-foreground"><I18nText text={"Queued"} /> </span>
             <span className="font-mono text-foreground">
               {formatTimestamp(status.queuedAt)}
             </span>
           </span>
         )}
         <span>
-          <span className="text-muted-foreground">Started </span>
+          <span className="text-muted-foreground"><I18nText text={"Started"} /> </span>
           <span className="font-mono text-foreground">
             {formatTimestamp(status.startedAt)}
           </span>
         </span>
         <span>
-          <span className="text-muted-foreground">Finished </span>
+          <span className="text-muted-foreground"><I18nText text={"Finished"} /> </span>
           <span className="font-mono text-foreground">
             {formatTimestamp(status.finishedAt)}
           </span>
         </span>
         <span className="flex items-center gap-1">
-          <span className="text-muted-foreground">Duration </span>
+          <span className="text-muted-foreground"><I18nText text={"Duration"} /> </span>
           <span className="font-mono font-medium text-foreground">
             {currentDuration}
           </span>
@@ -388,7 +390,7 @@ function DAGStatusOverview({
       <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs">
         {status.triggerType && (
           <span>
-            <span className="text-muted-foreground">Trigger </span>
+            <span className="text-muted-foreground"><I18nText text={"Trigger"} /> </span>
             <span className="font-medium text-foreground">
               {triggerTypeLabels[status.triggerType] ?? status.triggerType}
             </span>
@@ -396,7 +398,7 @@ function DAGStatusOverview({
         )}
         {status.triggerActor && (
           <span>
-            <span className="text-muted-foreground">Actor </span>
+            <span className="text-muted-foreground"><I18nText text={"Actor"} /> </span>
             <span className="font-medium text-foreground">
               {status.triggerActor}
             </span>
@@ -412,7 +414,7 @@ function DAGStatusOverview({
         )}
         {status.workerId && (
           <span className="truncate max-w-[180px]" title={status.workerId}>
-            <span className="text-muted-foreground">Worker </span>
+            <span className="text-muted-foreground"><I18nText text={"Worker"} /> </span>
             <span className="font-medium text-foreground">
               {status.workerId}
             </span>
@@ -433,14 +435,14 @@ function DAGStatusOverview({
           </button>
         )}
         {status.dagRunId && onViewLog && (
-          <button
+          <I18nProps><button
             onClick={() => onViewLog(status.dagRunId)}
             className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded border border-border bg-card hover:bg-muted transition-colors cursor-pointer"
             title="View Scheduler Log"
           >
             <Terminal className="h-3 w-3" />
-            <span>Log</span>
-          </button>
+            <span><I18nText text={"Log"} /></span>
+          </button></I18nProps>
         )}
       </div>
 

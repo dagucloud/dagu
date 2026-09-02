@@ -37,6 +37,8 @@ import {
 import StatusChip from '@/components/ui/status-chip';
 import Title from '@/components/ui/title';
 import type { StatusTab } from '@/features/dags/components/DAGStatus';
+import { I18nText } from '@/i18n/I18nText';
+import { I18nProps } from '@/i18n/I18nProps';
 
 type DAGRunsFilters = {
   searchText: string;
@@ -846,9 +848,9 @@ function DAGRuns() {
   return (
     <div className="max-w-7xl">
       <div className="flex items-center justify-between mb-2">
-        <Title>Executions</Title>
-        <ToggleGroup aria-label="View mode" className="h-9 p-0.5">
-          <ToggleButton
+        <Title><I18nText text={"Executions"} /></Title>
+        <I18nProps><ToggleGroup aria-label="View mode" className="h-9 p-0.5">
+          <I18nProps><ToggleButton
             value="list"
             groupValue={viewMode}
             onClick={() => handleViewModeChange('list')}
@@ -858,8 +860,8 @@ function DAGRuns() {
           >
             <List size={16} className="mr-1.5" />
             List
-          </ToggleButton>
-          <ToggleButton
+          </ToggleButton></I18nProps>
+          <I18nProps><ToggleButton
             value="grouped"
             groupValue={viewMode}
             onClick={() => handleViewModeChange('grouped')}
@@ -869,36 +871,36 @@ function DAGRuns() {
           >
             <Layers size={16} className="mr-1.5" />
             Grouped
-          </ToggleButton>
-        </ToggleGroup>
+          </ToggleButton></I18nProps>
+        </ToggleGroup></I18nProps>
       </div>
       <div>
         <div className="mb-3 space-y-3 rounded-lg border border-border bg-card/50 p-3">
           <div className="flex flex-wrap items-center gap-2">
-            <Input
+            <I18nProps><Input
               placeholder="Filter by DAG name..."
               value={searchText}
               onChange={handleNameInputChange}
               onKeyDown={handleInputKeyPress}
               className="w-[200px]"
-            />
-            <Input
+            /></I18nProps>
+            <I18nProps><Input
               placeholder="Filter by Run ID..."
               value={dagRunId}
               onChange={handleDagRunIdInputChange}
               onKeyDown={handleInputKeyPress}
               className="w-[180px]"
-            />
+            /></I18nProps>
             <Select value={status} onValueChange={handleStatusChange}>
-              <SelectTrigger aria-label="Status" className="w-[150px]">
-                <SelectValue placeholder="Status">
+              <I18nProps><SelectTrigger aria-label="Status" className="w-[150px]">
+                <I18nProps><SelectValue placeholder="Status">
                   <StatusSelectDisplay status={status} />
-                </SelectValue>
-              </SelectTrigger>
+                </SelectValue></I18nProps>
+              </SelectTrigger></I18nProps>
               <SelectContent>
                 <SelectItem value="all">
                   <div className="inline-flex items-center rounded-full border bg-muted border-border text-foreground py-0.5 px-2 text-xs font-medium">
-                    All Statuses
+                    <I18nText text={"All Statuses"} />
                   </div>
                 </SelectItem>
                 {Object.entries(STATUS_CONFIG).map(([statusValue, label]) => (
@@ -914,21 +916,21 @@ function DAGRuns() {
               </SelectContent>
             </Select>
             {/* Labels filter */}
-            <LabelCombobox
+            <I18nProps><LabelCombobox
               selectedLabels={selectedLabels}
               onLabelsChange={updateLabels}
               availableLabels={availableLabels}
               placeholder="Filter by labels..."
               className="h-9 min-w-[170px] max-w-[220px]"
-            />
+            /></I18nProps>
             <Button onClick={() => handleSearch()} className="px-4 font-medium">
               <Search className="mr-1.5 h-4 w-4" />
               Search
             </Button>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <ToggleGroup aria-label="Date range mode" className="h-9 p-0.5">
-              <ToggleButton
+            <I18nProps><ToggleGroup aria-label="Date range mode" className="h-9 p-0.5">
+              <I18nProps><ToggleButton
                 value="preset"
                 groupValue={dateRangeMode}
                 onClick={() => handleDateRangeModeChange('preset')}
@@ -936,9 +938,9 @@ function DAGRuns() {
                 aria-label="Quick select"
                 className="h-8 px-3"
               >
-                Quick
-              </ToggleButton>
-              <ToggleButton
+                <I18nText text={"Quick"} />
+              </ToggleButton></I18nProps>
+              <I18nProps><ToggleButton
                 value="specific"
                 groupValue={dateRangeMode}
                 onClick={() => handleDateRangeModeChange('specific')}
@@ -946,9 +948,9 @@ function DAGRuns() {
                 aria-label="Specific date/month/year"
                 className="h-8 px-3"
               >
-                Specific
-              </ToggleButton>
-              <ToggleButton
+                <I18nText text={"Specific"} />
+              </ToggleButton></I18nProps>
+              <I18nProps><ToggleButton
                 value="custom"
                 groupValue={dateRangeMode}
                 onClick={() => handleDateRangeModeChange('custom')}
@@ -956,21 +958,21 @@ function DAGRuns() {
                 aria-label="Custom range"
                 className="h-8 px-3"
               >
-                Custom
-              </ToggleButton>
-            </ToggleGroup>
+                <I18nText text={"Custom"} />
+              </ToggleButton></I18nProps>
+            </ToggleGroup></I18nProps>
             {dateRangeMode === 'preset' ? (
               <Select value={datePreset} onValueChange={handleDatePresetChange}>
-                <SelectTrigger aria-label="Date preset" className="w-[180px]">
-                  <SelectValue placeholder="Select period" />
-                </SelectTrigger>
+                <I18nProps><SelectTrigger aria-label="Date preset" className="w-[180px]">
+                  <I18nProps><SelectValue placeholder="Select period" /></I18nProps>
+                </SelectTrigger></I18nProps>
                 <SelectContent>
-                  <SelectItem value="today">Today</SelectItem>
-                  <SelectItem value="yesterday">Yesterday</SelectItem>
-                  <SelectItem value="last7days">Last 7 days</SelectItem>
-                  <SelectItem value="last30days">Last 30 days</SelectItem>
-                  <SelectItem value="thisWeek">This week</SelectItem>
-                  <SelectItem value="thisMonth">This month</SelectItem>
+                  <SelectItem value="today"><I18nText text={"Today"} /></SelectItem>
+                  <SelectItem value="yesterday"><I18nText text={"Yesterday"} /></SelectItem>
+                  <SelectItem value="last7days"><I18nText text={"Last 7 days"} /></SelectItem>
+                  <SelectItem value="last30days"><I18nText text={"Last 30 days"} /></SelectItem>
+                  <SelectItem value="thisWeek"><I18nText text={"This week"} /></SelectItem>
+                  <SelectItem value="thisMonth"><I18nText text={"This month"} /></SelectItem>
                 </SelectContent>
               </Select>
             ) : dateRangeMode === 'specific' ? (
@@ -1001,16 +1003,16 @@ function DAGRuns() {
                     handleSpecificPeriodChange(newValue, newPeriod);
                   }}
                 >
-                  <SelectTrigger
+                  <I18nProps><SelectTrigger
                     aria-label="Specific period"
                     className="w-[120px]"
                   >
                     <SelectValue />
-                  </SelectTrigger>
+                  </SelectTrigger></I18nProps>
                   <SelectContent>
-                    <SelectItem value="date">Date</SelectItem>
-                    <SelectItem value="month">Month</SelectItem>
-                    <SelectItem value="year">Year</SelectItem>
+                    <SelectItem value="date"><I18nText text={"Date"} /></SelectItem>
+                    <SelectItem value="month"><I18nText text={"Month"} /></SelectItem>
+                    <SelectItem value="year"><I18nText text={"Year"} /></SelectItem>
                   </SelectContent>
                 </Select>
                 <Input
@@ -1075,7 +1077,7 @@ function DAGRuns() {
               <div ref={loadMoreSentinelRef} className="h-4 w-full" />
               {isLoadingMore ? (
                 <div className="text-sm text-muted-foreground">
-                  Loading more DAG runs...
+                  <I18nText text={"Loading more DAG runs..."} />
                 </div>
               ) : (
                 <Button
@@ -1090,7 +1092,7 @@ function DAGRuns() {
             </>
           ) : dagRuns.length > 0 ? (
             <div className="text-sm text-muted-foreground">
-              All loaded DAG runs are displayed.
+              <I18nText text={"All loaded DAG runs are displayed."} />
             </div>
           ) : null}
         </div>

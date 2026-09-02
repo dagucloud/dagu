@@ -3,6 +3,7 @@ import { LICENSE_CONSOLE_URL } from '@/lib/constants';
 import dayjs from '@/lib/dayjs';
 import { X } from 'lucide-react';
 import * as React from 'react';
+import { I18nProps } from '@/i18n/I18nProps';
 
 const warningMessages: Record<string, string> = {
   MACHINE_LIMIT_EXCEEDED:
@@ -103,7 +104,7 @@ export function LicenseBanner() {
             {renewalLabel} now
           </a>{' '}to keep licensed features.
         </span>
-        <button
+        <I18nProps><button
           onClick={() => {
             localStorage.setItem(`license-banner-dismissed-7d-${expiryKey}`, 'true');
             setDismissed7d(true);
@@ -112,7 +113,7 @@ export function LicenseBanner() {
           aria-label="Dismiss license expiry notification"
         >
           <X className="h-4 w-4" />
-        </button>
+        </button></I18nProps>
       </div>
     );
   }
@@ -132,7 +133,7 @@ export function LicenseBanner() {
             {renewalLabel} to avoid disruption
           </a>.
         </span>
-        <button
+        <I18nProps><button
           onClick={() => {
             localStorage.setItem(`license-banner-dismissed-30d-${expiryKey}`, 'true');
             setDismissed30d(true);
@@ -141,7 +142,7 @@ export function LicenseBanner() {
           aria-label="Dismiss license expiry notification"
         >
           <X className="h-4 w-4" />
-        </button>
+        </button></I18nProps>
       </div>
     );
   }
