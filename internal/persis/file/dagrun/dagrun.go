@@ -319,16 +319,7 @@ func (dr DAGRun) removeLogFiles(ctx context.Context) error {
 	}
 
 	// Remove all log files.
-	seenFiles := make(map[string]struct{}, len(deleteFiles))
-	for _, file := range deleteFiles {
-		if file == "" {
-			continue
-		}
-		if _, ok := seenFiles[file]; ok {
-			continue
-		}
-		seenFiles[file] = struct{}{}
-
+	for file := range uniquePaths(deleteFiles) {
 		if err := fileutil.Remove(file); err != nil && !errors.Is(err, os.ErrNotExist) {
 			logger.Error(ctx, "Failed to remove log file",
 				tag.Error(err),
@@ -369,6 +360,16 @@ func (dr DAGRun) removeLogFiles(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func uniquePaths(paths []string) map[string]struct{} {
+	unique := make(map[string]struct{}, len(paths))
+	for _, path := range paths {
+		if path != "" {
+			unique[path] = struct{}{}
+		}
+	}
+	return unique
 }
 
 // listAttemptDirs lists all attempt directories including hidden ones.

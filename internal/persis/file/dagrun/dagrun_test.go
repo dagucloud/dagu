@@ -274,6 +274,12 @@ func TestListLogFiles(t *testing.T) {
 	})
 }
 
+func TestUniquePaths(t *testing.T) {
+	paths := uniquePaths([]string{"", "first", "second", "first", "second"})
+
+	assert.Equal(t, map[string]struct{}{"first": {}, "second": {}}, paths)
+}
+
 func TestRemoveLogFiles(t *testing.T) {
 	t.Run("RemoveMainDAGRunLogFiles", func(t *testing.T) {
 		tmpDir := t.TempDir()
