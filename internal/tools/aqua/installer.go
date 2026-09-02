@@ -241,7 +241,10 @@ func (i *Installer) installResolved(ctx context.Context, cfg *ir.ToolConfig, opt
 	if err != nil {
 		return nil, &registryResolutionError{err: err}
 	}
-	whichController := aquacontroller.InitializeWhichCommandController(ctx, i.logger, param, i.httpClient, rt)
+	whichController, err := aquacontroller.InitializeWhichCommandController(ctx, i.logger, param, i.httpClient, rt)
+	if err != nil {
+		return nil, fmt.Errorf("initialize aqua which controller: %w", err)
+	}
 	manifest := &tools.Manifest{
 		Provider:     providerAqua,
 		Platform:     platform,
@@ -380,9 +383,10 @@ func (i *Installer) packageCommands(ctx context.Context, cfg *ir.ToolConfig, par
 	}
 	defer updateChecksum()
 
-	httpDownloader := aquadownload.NewHTTPDownloader(i.logger, i.httpClient)
-	registryDownloader := aquadownload.NewGitHubContentFileDownloader(aquagithub.New(ctx, i.logger), httpDownloader)
-	registryInstaller := aquaregistry.New(param, registryDownloader, fs, rt, nil, nil)
+	registryInstaller, err := i.newRegistryInstaller(ctx, param, fs, rt)
+	if err != nil {
+		return nil, err
+	}
 	registryContents := make(map[string]*aquaregistryconfig.Config, len(aquaCfg.Registries))
 
 	for idx, pkg := range cfg.Packages {
@@ -448,9 +452,10 @@ func (i *Installer) packageChecksumIDs(ctx context.Context, cfg *ir.ToolConfig, 
 	}
 	defer updateChecksum()
 
-	httpDownloader := aquadownload.NewHTTPDownloader(i.logger, i.httpClient)
-	registryDownloader := aquadownload.NewGitHubContentFileDownloader(aquagithub.New(ctx, i.logger), httpDownloader)
-	registryInstaller := aquaregistry.New(param, registryDownloader, fs, rt, nil, nil)
+	registryInstaller, err := i.newRegistryInstaller(ctx, param, fs, rt)
+	if err != nil {
+		return nil, err
+	}
 	registryContents := make(map[string]*aquaregistryconfig.Config, len(aquaCfg.Registries))
 
 	ids := make(map[int]string, len(cfg.Packages))
@@ -568,6 +573,16 @@ func isCommandName(command string) bool {
 	return true
 }
 
+func (i *Installer) newRegistryInstaller(ctx context.Context, param *aquaparam.Param, fs afero.Fs, rt *aquaruntime.Runtime) (*aquaregistry.Installer, error) {
+	githubClient, err := aquagithub.New(ctx, i.logger)
+	if err != nil {
+		return nil, fmt.Errorf("initialize aqua GitHub client: %w", err)
+	}
+	httpDownloader := aquadownload.NewHTTPDownloader(i.logger, i.httpClient)
+	registryDownloader := aquadownload.NewGitHubContentFileDownloader(githubClient, httpDownloader)
+	return aquaregistry.New(param, registryDownloader, fs, rt, nil, nil), nil
+}
+
 func (i *Installer) ensureRegistriesInstalled(ctx context.Context, param *aquaparam.Param, paths tools.CacheLayout, rt *aquaruntime.Runtime, aquaCfg *aquaconfig.Config) error {
 	fs := afero.NewOsFs()
 	checksums, updateChecksum, err := aquachecksum.Open(i.logger, fs, paths.ConfigFile, param.ChecksumEnabled(aquaCfg))
@@ -576,9 +591,10 @@ func (i *Installer) ensureRegistriesInstalled(ctx context.Context, param *aquapa
 	}
 	defer updateChecksum()
 
-	httpDownloader := aquadownload.NewHTTPDownloader(i.logger, i.httpClient)
-	registryDownloader := aquadownload.NewGitHubContentFileDownloader(aquagithub.New(ctx, i.logger), httpDownloader)
-	registryInstaller := aquaregistry.New(param, registryDownloader, fs, rt, nil, nil)
+	registryInstaller, err := i.newRegistryInstaller(ctx, param, fs, rt)
+	if err != nil {
+		return err
+	}
 
 	for _, registry := range aquaCfg.Registries {
 		if registry == nil || registry.Type == aquaconfig.RegistryTypeLocal {
