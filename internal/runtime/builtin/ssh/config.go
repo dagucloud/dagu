@@ -51,10 +51,10 @@ type sshMapConfig struct {
 	Port          string
 	Key           string
 	Password      string
-	StrictHostKey bool
-	KnownHostFile string
+	StrictHostKey bool   `mapstructure:"strict_host_key"`
+	KnownHostFile string `mapstructure:"known_host_file"`
 	Shell         string
-	ShellArgs     []string
+	ShellArgs     []string `mapstructure:"shell_args"`
 	Timeout       string
 	Bastion       *struct {
 		Host     string
@@ -66,7 +66,7 @@ type sshMapConfig struct {
 }
 
 func FromMapConfig(_ context.Context, mapCfg map[string]any) (*Client, error) {
-	var def sshMapConfig
+	def := sshMapConfig{StrictHostKey: true}
 	md, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
 		Result:           &def,
 		WeaklyTypedInput: true,

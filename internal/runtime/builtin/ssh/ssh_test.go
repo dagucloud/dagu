@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -31,10 +32,11 @@ func TestNewSSHExecutor(t *testing.T) {
 		ExecutorConfig: ir.ExecutorConfig{
 			Type: "ssh",
 			Config: map[string]any{
-				"User":     "testuser",
-				"IP":       "testip",
-				"Port":     25,
-				"Password": "testpassword",
+				"User":            "testuser",
+				"IP":              "testip",
+				"Port":            25,
+				"Password":        "testpassword",
+				"strict_host_key": false,
 			},
 		},
 	}
@@ -55,22 +57,24 @@ func TestNewSSHExecutor_WithShellConfig(t *testing.T) {
 		{
 			name: "ShellFromConfig",
 			config: map[string]any{
-				"user":     "testuser",
-				"ip":       "testip",
-				"port":     22,
-				"password": "testpassword",
-				"shell":    "/bin/bash",
+				"user":            "testuser",
+				"ip":              "testip",
+				"port":            22,
+				"password":        "testpassword",
+				"strict_host_key": false,
+				"shell":           "/bin/bash",
 			},
 			expectedShell: "/bin/bash",
 		},
 		{
 			name: "ShellFromConfigWithArgs",
 			config: map[string]any{
-				"user":     "testuser",
-				"ip":       "testip",
-				"port":     22,
-				"password": "testpassword",
-				"shell":    "/bin/bash -e",
+				"user":            "testuser",
+				"ip":              "testip",
+				"port":            22,
+				"password":        "testpassword",
+				"strict_host_key": false,
+				"shell":           "/bin/bash -e",
 			},
 			expectedShell: "/bin/bash",
 			expectedArgs:  []string{"-e"},
@@ -78,10 +82,11 @@ func TestNewSSHExecutor_WithShellConfig(t *testing.T) {
 		{
 			name: "NoShellInConfig",
 			config: map[string]any{
-				"user":     "testuser",
-				"ip":       "testip",
-				"port":     22,
-				"password": "testpassword",
+				"user":            "testuser",
+				"ip":              "testip",
+				"port":            22,
+				"password":        "testpassword",
+				"strict_host_key": false,
 			},
 			expectedShell: "/bin/sh", // Fallback to POSIX shell when no shell configured
 		},
@@ -144,11 +149,12 @@ func TestSSHExecutor_ShellPriority(t *testing.T) {
 				ExecutorConfig: ir.ExecutorConfig{
 					Type: "ssh",
 					Config: map[string]any{
-						"user":     "testuser",
-						"ip":       "testip",
-						"port":     22,
-						"password": "testpassword",
-						"shell":    "/bin/zsh -o pipefail",
+						"user":            "testuser",
+						"ip":              "testip",
+						"port":            22,
+						"password":        "testpassword",
+						"strict_host_key": false,
+						"shell":           "/bin/zsh -o pipefail",
 					},
 				},
 			},
@@ -197,10 +203,11 @@ func TestSSHExecutor_ShellPriority(t *testing.T) {
 				ExecutorConfig: ir.ExecutorConfig{
 					Type: "ssh",
 					Config: map[string]any{
-						"user":     "stepuser",
-						"ip":       "step-host",
-						"port":     22,
-						"password": "steppassword",
+						"user":            "stepuser",
+						"ip":              "step-host",
+						"port":            22,
+						"password":        "steppassword",
+						"strict_host_key": false,
 					},
 				},
 			},
@@ -510,39 +517,43 @@ func TestSSHExecutor_TimeoutConfig(t *testing.T) {
 		{
 			name: "DefaultTimeout",
 			config: map[string]any{
-				"user":     "testuser",
-				"ip":       "testip",
-				"password": "testpassword",
+				"user":            "testuser",
+				"ip":              "testip",
+				"password":        "testpassword",
+				"strict_host_key": false,
 			},
 			expectedTimeout: 30 * time.Second, // Default timeout
 		},
 		{
 			name: "CustomTimeout",
 			config: map[string]any{
-				"user":     "testuser",
-				"ip":       "testip",
-				"password": "testpassword",
-				"timeout":  "1m",
+				"user":            "testuser",
+				"ip":              "testip",
+				"password":        "testpassword",
+				"strict_host_key": false,
+				"timeout":         "1m",
 			},
 			expectedTimeout: 1 * time.Minute,
 		},
 		{
 			name: "ShortTimeout",
 			config: map[string]any{
-				"user":     "testuser",
-				"ip":       "testip",
-				"password": "testpassword",
-				"timeout":  "5s",
+				"user":            "testuser",
+				"ip":              "testip",
+				"password":        "testpassword",
+				"strict_host_key": false,
+				"timeout":         "5s",
 			},
 			expectedTimeout: 5 * time.Second,
 		},
 		{
 			name: "InvalidTimeout",
 			config: map[string]any{
-				"user":     "testuser",
-				"ip":       "testip",
-				"password": "testpassword",
-				"timeout":  "invalid",
+				"user":            "testuser",
+				"ip":              "testip",
+				"password":        "testpassword",
+				"strict_host_key": false,
+				"timeout":         "invalid",
 			},
 			expectError: true,
 		},
@@ -564,6 +575,46 @@ func TestSSHExecutor_TimeoutConfig(t *testing.T) {
 			assert.Equal(t, tt.expectedTimeout, client.cfg.Timeout)
 		})
 	}
+}
+
+func TestFromMapConfigKeys(t *testing.T) {
+	t.Parallel()
+
+	t.Run("HostKey", func(t *testing.T) {
+		knownHostFile := filepath.Join(t.TempDir(), "known_hosts")
+		_, err := FromMapConfig(context.Background(), map[string]any{
+			"user":            "testuser",
+			"host":            "testhost",
+			"password":        "testpass",
+			"strict_host_key": true,
+			"known_host_file": knownHostFile,
+		})
+		require.ErrorContains(t, err, knownHostFile)
+	})
+
+	t.Run("DefaultHostKey", func(t *testing.T) {
+		knownHostFile := filepath.Join(t.TempDir(), "known_hosts")
+		_, err := FromMapConfig(context.Background(), map[string]any{
+			"user":            "testuser",
+			"host":            "testhost",
+			"password":        "testpass",
+			"known_host_file": knownHostFile,
+		})
+		require.ErrorContains(t, err, knownHostFile)
+	})
+
+	t.Run("ShellArgs", func(t *testing.T) {
+		client, err := FromMapConfig(context.Background(), map[string]any{
+			"user":            "testuser",
+			"host":            "testhost",
+			"password":        "testpass",
+			"strict_host_key": false,
+			"shell":           "/bin/bash",
+			"shell_args":      []any{"-x"},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"-x"}, client.ShellArgs)
+	})
 }
 
 func TestSSHExecutor_Run_NoCommands(t *testing.T) {
@@ -662,10 +713,11 @@ func TestFromMapConfig_WithBastion(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			config := map[string]any{
-				"user":     "testuser",
-				"host":     "target.example.com",
-				"password": "targetpass",
-				"bastion":  tt.bastion,
+				"user":            "testuser",
+				"host":            "target.example.com",
+				"password":        "targetpass",
+				"strict_host_key": false,
+				"bastion":         tt.bastion,
 			}
 
 			client, err := FromMapConfig(context.Background(), config)
@@ -711,12 +763,13 @@ func TestNewSFTPExecutor(t *testing.T) {
 		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sftp",
 			Config: map[string]any{
-				"user":        "testuser",
-				"host":        "testhost",
-				"password":    "testpass",
-				"direction":   "upload",
-				"source":      "/local/path",
-				"destination": "/remote/path",
+				"user":            "testuser",
+				"host":            "testhost",
+				"password":        "testpass",
+				"strict_host_key": false,
+				"direction":       "upload",
+				"source":          "/local/path",
+				"destination":     "/remote/path",
 			},
 		},
 	}
@@ -744,34 +797,37 @@ func TestNewSFTPExecutor_ValidationErrors(t *testing.T) {
 		{
 			name: "MissingSource",
 			config: map[string]any{
-				"user":        "testuser",
-				"host":        "testhost",
-				"password":    "testpass",
-				"direction":   "upload",
-				"destination": "/remote/path",
+				"user":            "testuser",
+				"host":            "testhost",
+				"password":        "testpass",
+				"strict_host_key": false,
+				"direction":       "upload",
+				"destination":     "/remote/path",
 			},
 			expectedErr: "source path is required",
 		},
 		{
 			name: "MissingDestination",
 			config: map[string]any{
-				"user":      "testuser",
-				"host":      "testhost",
-				"password":  "testpass",
-				"direction": "download",
-				"source":    "/remote/path",
+				"user":            "testuser",
+				"host":            "testhost",
+				"password":        "testpass",
+				"strict_host_key": false,
+				"direction":       "download",
+				"source":          "/remote/path",
 			},
 			expectedErr: "destination path is required",
 		},
 		{
 			name: "InvalidDirection",
 			config: map[string]any{
-				"user":        "testuser",
-				"host":        "testhost",
-				"password":    "testpass",
-				"direction":   "invalid",
-				"source":      "/local/path",
-				"destination": "/remote/path",
+				"user":            "testuser",
+				"host":            "testhost",
+				"password":        "testpass",
+				"strict_host_key": false,
+				"direction":       "invalid",
+				"source":          "/local/path",
+				"destination":     "/remote/path",
 			},
 			expectedErr: "invalid direction",
 		},
@@ -798,11 +854,12 @@ func TestNewSFTPExecutor_DefaultDirection(t *testing.T) {
 		ExecutorConfig: ir.ExecutorConfig{
 			Type: "sftp",
 			Config: map[string]any{
-				"user":        "testuser",
-				"host":        "testhost",
-				"password":    "testpass",
-				"source":      "/local/path",
-				"destination": "/remote/path",
+				"user":            "testuser",
+				"host":            "testhost",
+				"password":        "testpass",
+				"strict_host_key": false,
+				"source":          "/local/path",
+				"destination":     "/remote/path",
 				// direction not specified - should default to upload
 			},
 		},
