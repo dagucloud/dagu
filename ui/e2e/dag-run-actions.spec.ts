@@ -112,9 +112,20 @@ steps:
 
     await waitForRunStatus(request, token, dagName, dagRunId, ['succeeded'], 'local', 30_000);
     await expect
-      .poll(() => getStepStdout(request, token, dagName, dagRunId, 'retry-step'), {
-        timeout: 15_000,
-      })
+      .poll(
+        () =>
+          getStepStdout(
+            request,
+            token,
+            dagName,
+            dagRunId,
+            'retry-step',
+            { retryNotFound: true }
+          ),
+        {
+          timeout: 15_000,
+        }
+      )
       .toContain('retry succeeded');
   });
 

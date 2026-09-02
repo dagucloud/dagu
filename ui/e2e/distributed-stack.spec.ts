@@ -175,7 +175,15 @@ test('exercises the web UI against the real distributed worker stack', async ({
 
     await expect
       .poll(
-        () => getStepStdout(request, token, DAG_NAME, firstRunId, STEP_NAME),
+        () =>
+          getStepStdout(
+            request,
+            token,
+            DAG_NAME,
+            firstRunId,
+            STEP_NAME,
+            { retryNotFound: true }
+          ),
         {
           timeout: 30_000,
         }
@@ -183,7 +191,15 @@ test('exercises the web UI against the real distributed worker stack', async ({
       .toContain(EXPECTED_STEP_OUTPUT);
     await expect
       .poll(
-        () => getStepStdout(request, token, DAG_NAME, secondRunId, STEP_NAME),
+        () =>
+          getStepStdout(
+            request,
+            token,
+            DAG_NAME,
+            secondRunId,
+            STEP_NAME,
+            { retryNotFound: true }
+          ),
         {
           timeout: 30_000,
         }
