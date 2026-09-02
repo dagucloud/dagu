@@ -18,6 +18,7 @@
 
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
 
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
@@ -36,6 +37,8 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-surface: var(--surface);
+  --color-surface-variant: var(--surface-variant);
+  --color-text-secondary: var(--text-secondary);
 
   /* Sidebar */
   --color-sidebar: var(--sidebar);
@@ -57,8 +60,13 @@
 
   /* Status Colors */
   --color-success: var(--success);
+  --color-success-muted: var(--success-muted);
   --color-warning: var(--warning);
+  --color-warning-muted: var(--warning-muted);
+  --color-error: var(--status-error);
+  --color-error-muted: var(--error-muted);
   --color-info: var(--info);
+  --color-info-muted: var(--info-muted);
 
   /* Font Family */
   --font-sans:
@@ -112,13 +120,17 @@
     --destructive-foreground: #ffffff;
     --success: #178a44;
     --success-foreground: #ffffff;
+    --success-muted: color-mix(in srgb, var(--success) 10%, transparent);
     --warning: #b47110;
     --warning-foreground: #111827;
+    --warning-muted: color-mix(in srgb, var(--warning) 10%, transparent);
     --info: #5d4fe0;
     --info-foreground: #ffffff;
+    --info-muted: color-mix(in srgb, var(--info) 10%, transparent);
 
     --status-success: #178a44;
     --status-error: #c8382f;
+    --error-muted: color-mix(in srgb, var(--status-error) 10%, transparent);
     --status-running: #5d4fe0;
     --status-neutral: #83868f;
     --status-warning: #b47110;
@@ -186,13 +198,17 @@
     --destructive-foreground: #1f0909;
     --success: #22c55e;
     --success-foreground: #052e16;
+    --success-muted: color-mix(in srgb, var(--success) 15%, transparent);
     --warning: #d9a03c;
     --warning-foreground: #261a00;
+    --warning-muted: color-mix(in srgb, var(--warning) 15%, transparent);
     --info: #a89ff8;
     --info-foreground: #17123f;
+    --info-muted: color-mix(in srgb, var(--info) 15%, transparent);
 
     --status-success: #22c55e;
     --status-error: #ef5350;
+    --error-muted: color-mix(in srgb, var(--status-error) 15%, transparent);
     --status-running: #a89ff8;
     --status-neutral: #8a8d99;
     --status-warning: #d9a03c;
