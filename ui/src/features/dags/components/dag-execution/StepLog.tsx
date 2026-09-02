@@ -640,7 +640,7 @@ function StepLog({
         className={`flex-1 rounded-lg bg-muted pt-4 pr-4 pb-4 relative ${preferences.logWrap ? 'overflow-auto' : 'overflow-x-auto overflow-y-auto'}`}
       >
         {isNavigating && (
-          <div className="absolute inset-0 bg-black bg-opacity-20 flex items-center justify-center z-10 pointer-events-none">
+          <div className="absolute inset-0 bg-black/20 flex items-center justify-center z-10 pointer-events-none">
             <div className="bg-card rounded-lg p-2">
               <div className="h-5 w-5 animate-spin rounded-full border-3 border-primary border-t-transparent"></div>
             </div>

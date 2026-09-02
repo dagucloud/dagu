@@ -428,7 +428,7 @@ export default function WebhooksPage() {
           </DialogHeader>
           <div className="space-y-4">
             <div className="p-3 bg-warning/10 border border-warning/20 rounded-md">
-              <p className="text-sm text-warning-foreground">
+              <p className="text-sm text-foreground">
                 Copy this token now. You won&apos;t be able to see it again!
               </p>
             </div>

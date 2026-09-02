@@ -555,7 +555,7 @@ function WebhookTab({ fileName }: WebhookTabProps) {
         </CardHeader>
         <CardContent className="px-4 pb-3 pt-3 space-y-3">
           <div className="p-3 bg-warning/10 border border-warning/20 rounded-md">
-            <p className="text-sm text-warning-foreground">{secretWarning}</p>
+            <p className="text-sm text-foreground">{secretWarning}</p>
           </div>
           <div className="flex items-center gap-2">
             <code className="flex-1 p-2 text-xs bg-muted rounded-md break-all font-mono">

@@ -171,7 +171,7 @@ export default function APIKeysPage() {
       {communityLimitReached && (
         <div
           role="alert"
-          className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-warning-foreground"
+          className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-foreground"
         >
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <div>

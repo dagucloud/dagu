@@ -615,7 +615,7 @@ export function NotificationOverviewCard({
               runs. Send test verifies delivery now.
             </div>
             {!hasDAGDestinations && (
-              <div className="rounded-md border border-warning/20 bg-warning/10 px-3 py-2 text-sm text-warning-foreground">
+              <div className="rounded-md border border-warning/20 bg-warning/10 px-3 py-2 text-sm text-foreground">
                 This DAG override has no destinations. Inherited rules are not
                 used while the override exists.
               </div>

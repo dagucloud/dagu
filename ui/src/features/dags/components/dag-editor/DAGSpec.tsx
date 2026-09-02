@@ -535,7 +535,7 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
             {errors.map((e, i) => (
               <div
                 key={i}
-                className="p-3 bg-danger-highlight rounded-md text-danger font-mono text-sm break-words flex items-start gap-2"
+                className="p-3 bg-destructive/10 rounded-md text-destructive font-mono text-sm break-words flex items-start gap-2"
               >
                 <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 {e}

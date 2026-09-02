@@ -583,7 +583,7 @@ function DAGSpecReadOnly({
 
   if (error) {
     return (
-      <div className="text-sm text-danger p-4">
+      <div className="text-sm text-destructive p-4">
         Failed to load DAG spec: {error.message ?? 'Unknown error'}
       </div>
     );
