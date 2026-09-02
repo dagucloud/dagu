@@ -5,7 +5,7 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-@theme {
+@theme inline {
   /* Core Obsidian Semantic Colors */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -513,24 +513,6 @@
 .custom-sidebar-color,
 .custom-sidebar-color * {
   --sidebar-foreground: currentColor;
-}
-/* Tailwind v4 resolves the @theme bridge (--color-sidebar-*: var(--sidebar-*))
-   once at :root, so the per-element --sidebar-* overrides set inline by the
-   Layout never reach the utility classes. Re-declare the bridge here so it
-   re-resolves against the customized sidebar element. */
-.custom-sidebar-color {
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-hover: var(--sidebar-hover);
-  --color-sidebar-active: var(--sidebar-active);
-  /* Fills use the translucent active overlay so forced-inherit text stays
-     readable; the 3px indicator bar reads --sidebar-primary directly and
-     keeps the solid contrast color. */
-  --color-sidebar-primary: var(--sidebar-active);
-  --color-sidebar-primary-foreground: var(--sidebar-foreground);
-  --color-sidebar-accent: var(--sidebar-hover);
-  --color-sidebar-accent-foreground: var(--sidebar-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
 }
 .custom-sidebar-color .text-sidebar-foreground,
 .custom-sidebar-color .text-muted-foreground,
