@@ -4,6 +4,7 @@
 import { AlertCircle } from 'lucide-react';
 import React from 'react';
 import { SWRConfig } from 'swr';
+import { useI18n } from '@/i18n/I18nProvider';
 
 // Suppress repeats of the same error message within this window.
 const ERROR_COOLDOWN_MS = 30_000;
@@ -26,11 +27,9 @@ function getErrorCode(error: unknown): string | undefined {
   return typeof code === 'string' ? code : undefined;
 }
 
-function getErrorMessage(error: unknown): string {
+function getErrorMessage(error: unknown, fallback: string): string {
   const message = (error as { message?: string })?.message;
-  return typeof message === 'string' && message.length > 0
-    ? message
-    : 'Request failed';
+  return typeof message === 'string' && message.length > 0 ? message : fallback;
 }
 
 function isAbortLike(error: unknown): boolean {
@@ -66,6 +65,7 @@ export function isIgnorableQueryError(error: unknown): boolean {
  * reports fetch errors as unobtrusive corner notices.
  */
 export function QueryFeedback({ children }: { children: React.ReactNode }) {
+  const { t } = useI18n();
   const [notices, setNotices] = React.useState<Notice[]>([]);
   const lastShownRef = React.useRef<Map<string, number>>(new Map());
   const idRef = React.useRef(0);
@@ -81,40 +81,43 @@ export function QueryFeedback({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const handleError = React.useCallback((error: unknown) => {
-    console.error(error);
+  const handleError = React.useCallback(
+    (error: unknown) => {
+      console.error(error);
 
-    if (isIgnorableQueryError(error)) return;
+      if (isIgnorableQueryError(error)) return;
 
-    const message = getErrorMessage(error);
-    const now = Date.now();
-    const lastShownByMessage = lastShownRef.current;
-    for (const [cachedMessage, shownAt] of lastShownByMessage) {
-      if (now - shownAt >= ERROR_COOLDOWN_MS) {
-        lastShownByMessage.delete(cachedMessage);
+      const message = getErrorMessage(error, t('common.requestFailed'));
+      const now = Date.now();
+      const lastShownByMessage = lastShownRef.current;
+      for (const [cachedMessage, shownAt] of lastShownByMessage) {
+        if (now - shownAt >= ERROR_COOLDOWN_MS) {
+          lastShownByMessage.delete(cachedMessage);
+        }
       }
-    }
 
-    const lastShown = lastShownByMessage.get(message);
-    if (lastShown && now - lastShown < ERROR_COOLDOWN_MS) return;
-    lastShownByMessage.set(message, now);
-    while (lastShownByMessage.size > MAX_COOLDOWN_ENTRIES) {
-      const oldestMessage = lastShownByMessage.keys().next().value;
-      if (oldestMessage === undefined) break;
-      lastShownByMessage.delete(oldestMessage);
-    }
+      const lastShown = lastShownByMessage.get(message);
+      if (lastShown && now - lastShown < ERROR_COOLDOWN_MS) return;
+      lastShownByMessage.set(message, now);
+      while (lastShownByMessage.size > MAX_COOLDOWN_ENTRIES) {
+        const oldestMessage = lastShownByMessage.keys().next().value;
+        if (oldestMessage === undefined) break;
+        lastShownByMessage.delete(oldestMessage);
+      }
 
-    const id = ++idRef.current;
-    setNotices((current) => [
-      ...current.slice(-(MAX_NOTICES - 1)),
-      { id, message },
-    ]);
-    const timeout = setTimeout(() => {
-      timeoutsRef.current.delete(timeout);
-      setNotices((current) => current.filter((notice) => notice.id !== id));
-    }, NOTICE_TTL_MS);
-    timeoutsRef.current.add(timeout);
-  }, []);
+      const id = ++idRef.current;
+      setNotices((current) => [
+        ...current.slice(-(MAX_NOTICES - 1)),
+        { id, message },
+      ]);
+      const timeout = setTimeout(() => {
+        timeoutsRef.current.delete(timeout);
+        setNotices((current) => current.filter((notice) => notice.id !== id));
+      }, NOTICE_TTL_MS);
+      timeoutsRef.current.add(timeout);
+    },
+    [t]
+  );
 
   return (
     <SWRConfig value={{ onError: handleError }}>
@@ -133,7 +136,7 @@ export function QueryFeedback({ children }: { children: React.ReactNode }) {
                   {notice.message}
                 </div>
                 <div className="text-muted-foreground">
-                  Background request failed
+                  {t('common.backgroundRequestFailed')}
                 </div>
               </div>
             </div>

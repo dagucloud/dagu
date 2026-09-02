@@ -3,6 +3,7 @@
 
 import React from 'react';
 import dayjs from '@/lib/dayjs';
+import { useI18n } from '@/i18n/I18nProvider';
 
 type Props = {
   /** Timestamp string parsable by dayjs; '-' and empty are treated as absent. */
@@ -16,9 +17,9 @@ type Props = {
   className?: string;
 };
 
-function formatCompact(diffSeconds: number): string {
+function formatCompact(diffSeconds: number, now: string): string {
   const seconds = Math.abs(diffSeconds);
-  if (seconds < 5) return 'Now';
+  if (seconds < 5) return now;
   if (seconds < 60) return `${Math.floor(seconds)}s`;
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
@@ -36,6 +37,7 @@ export function RelativeTime({
   absolute,
   className,
 }: Props) {
+  const { locale, t } = useI18n();
   const parsed = timestamp && timestamp !== '-' ? dayjs(timestamp) : null;
   const isValid = !!parsed && parsed.isValid();
   const [, setTick] = React.useState(0);
@@ -54,8 +56,8 @@ export function RelativeTime({
   }
 
   const label = compact
-    ? formatCompact(dayjs().diff(parsed, 'second'))
-    : parsed.fromNow();
+    ? formatCompact(dayjs().diff(parsed, 'second'), t('time.now'))
+    : parsed.locale(locale === 'zh-CN' ? 'zh-cn' : locale).fromNow();
 
   return (
     <span

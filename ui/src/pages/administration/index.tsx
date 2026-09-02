@@ -4,6 +4,7 @@
 import Title from '@/components/ui/title';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { useConfig } from '@/contexts/ConfigContext';
+import { useI18n } from '@/i18n/I18nProvider';
 import React from 'react';
 import { Link } from 'react-router-dom';
 
@@ -50,62 +51,63 @@ function SectionLinks({
 
 export default function AdministrationPage(): React.ReactElement {
   const { setTitle } = React.useContext(AppBarContext);
+  const { t } = useI18n();
   const config = useConfig();
 
   React.useEffect(() => {
-    setTitle('Administration');
-  }, [setTitle]);
+    setTitle(t('navigation.administration'));
+  }, [setTitle, t]);
 
   const sections: AdminSection[] = [
     {
-      title: 'Access',
+      title: t('navigation.access'),
       links:
         config.authMode === 'builtin'
           ? [
               {
                 to: '/users',
-                label: 'Users',
-                description: 'Manage accounts and roles.',
+                label: t('navigation.users'),
+                description: t('administration.usersDescription'),
               },
               {
                 to: '/api-keys',
-                label: 'API Keys',
-                description: 'Issue access tokens for automation.',
+                label: t('navigation.apiKeys'),
+                description: t('administration.apiKeysDescription'),
               },
             ]
           : [],
     },
     {
-      title: 'Security',
+      title: t('administration.security'),
       links: [
         {
           to: '/profiles',
-          label: 'Profiles & Secrets',
-          description: 'Manage environment profiles and DAG secret refs.',
+          label: t('navigation.profilesSecrets'),
+          description: t('administration.profilesDescription'),
         },
       ],
     },
     {
-      title: 'Infrastructure',
+      title: t('navigation.infrastructure'),
       links: [
         {
           to: '/remote-nodes',
-          label: 'Remote Nodes',
-          description: 'Configure distributed execution targets.',
+          label: t('navigation.remoteNodes'),
+          description: t('home.remoteNodesDescription'),
         },
         ...(config.terminalEnabled
           ? [
               {
                 to: '/terminal',
-                label: 'Terminal',
-                description: 'Open a server-side shell.',
+                label: t('navigation.terminal'),
+                description: t('home.terminalDescription'),
               },
             ]
           : []),
         {
           to: '/license',
-          label: 'License',
-          description: 'Review plan and entitlement status.',
+          label: t('navigation.license'),
+          description: t('home.licenseDescription'),
         },
       ],
     },
@@ -113,7 +115,7 @@ export default function AdministrationPage(): React.ReactElement {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-5 overflow-auto">
-      <Title>Administration</Title>
+      <Title>{t('navigation.administration')}</Title>
 
       {sections.map((section) => (
         <SectionLinks key={section.title} section={section} />

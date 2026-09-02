@@ -15,14 +15,12 @@ import {
 import type { components } from '@/api/v1/schema';
 import { cn } from '@/lib/utils';
 import {
-  ALL_WORKSPACES_DISPLAY_NAME,
-  DEFAULT_WORKSPACE_DISPLAY_NAME,
   sanitizeWorkspaceName,
   sanitizeWorkspaceSelection,
   WorkspaceKind,
-  workspaceSelectionLabel,
   type WorkspaceSelection,
 } from '@/lib/workspace';
+import { useI18n } from '@/i18n/I18nProvider';
 
 type WorkspaceResponse = components['schemas']['WorkspaceResponse'];
 
@@ -52,6 +50,7 @@ export function WorkspaceSelector({
   variant = 'toolbar',
   collapsed = false,
 }: Props): React.ReactElement {
+  const { t } = useI18n();
   const [isCreating, setIsCreating] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -93,6 +92,12 @@ export function WorkspaceSelector({
     selection.kind === WorkspaceKind.workspace
       ? workspaces.find((ws) => ws.name === selection.workspace)
       : undefined;
+  const selectionLabel =
+    selection.kind === WorkspaceKind.workspace
+      ? selection.workspace
+      : selection.kind === WorkspaceKind.default
+        ? t('common.defaultWorkspace')
+        : t('common.allWorkspaces');
   const handleSelect = (nextSelection: WorkspaceSelection) => {
     onSelectWorkspace(sanitizeWorkspaceSelection(nextSelection));
   };
@@ -112,7 +117,7 @@ export function WorkspaceSelector({
             'px-2 text-xs',
             variant === 'sidebar' ? 'w-full h-9' : 'w-40'
           )}
-          placeholder="Workspace name..."
+          placeholder={t('common.workspaceName')}
           onKeyDown={handleKeyDown}
           onBlur={handleCreate}
         />
@@ -149,7 +154,7 @@ export function WorkspaceSelector({
           }}
         >
           <SelectTrigger
-            aria-label="Workspace"
+            aria-label={t('common.workspace')}
             className={cn(
               'text-xs',
               variant === 'sidebar'
@@ -169,7 +174,7 @@ export function WorkspaceSelector({
                   }
                 : undefined
             }
-            title={collapsed ? workspaceSelectionLabel(selection) : undefined}
+            title={collapsed ? selectionLabel : undefined}
           >
             {variant === 'sidebar' ? (
               <div className="flex items-center gap-2 min-w-0">
@@ -186,19 +191,19 @@ export function WorkspaceSelector({
                     maxWidth: collapsed ? '0px' : '150px',
                   }}
                 >
-                  <SelectValue placeholder="Select workspace" />
+                  <SelectValue placeholder={t('common.selectWorkspace')} />
                 </span>
               </div>
             ) : (
-              <SelectValue placeholder="Select workspace" />
+              <SelectValue placeholder={t('common.selectWorkspace')} />
             )}
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={ALL_VALUE}>
-              {ALL_WORKSPACES_DISPLAY_NAME}
+              {t('common.allWorkspaces')}
             </SelectItem>
             <SelectItem value={DEFAULT_VALUE}>
-              {DEFAULT_WORKSPACE_DISPLAY_NAME}
+              {t('common.defaultWorkspace')}
             </SelectItem>
             {workspaces.map((ws) => (
               <SelectItem
@@ -211,7 +216,7 @@ export function WorkspaceSelector({
             {canWrite && !collapsed && (
               <SelectItem value={NEW_VALUE}>
                 <span className="flex items-center gap-1 text-primary">
-                  <Plus size={12} /> New workspace
+                  <Plus size={12} /> {t('common.newWorkspace')}
                 </span>
               </SelectItem>
             )}
@@ -221,15 +226,15 @@ export function WorkspaceSelector({
           <button
             onClick={() => setDeleteTarget(selectedWs.id)}
             className="p-1 text-muted-foreground hover:text-destructive rounded"
-            title="Delete workspace"
+            title={t('common.deleteWorkspace')}
           >
             <Trash2 size={14} />
           </button>
         )}
       </div>
       <ConfirmModal
-        title="Delete Workspace"
-        buttonText="Delete"
+        title={t('common.deleteWorkspace')}
+        buttonText={t('common.delete')}
         visible={!!deleteTarget}
         dismissModal={() => setDeleteTarget(null)}
         onSubmit={() => {
@@ -237,10 +242,7 @@ export function WorkspaceSelector({
           setDeleteTarget(null);
         }}
       >
-        <p className="text-sm">
-          Are you sure you want to delete this workspace? This action cannot be
-          undone.
-        </p>
+        <p className="text-sm">{t('common.deleteWorkspaceConfirm')}</p>
       </ConfirmModal>
     </>
   );

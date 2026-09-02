@@ -3,6 +3,7 @@
 
 import Title from '@/components/ui/title';
 import { AppBarContext } from '@/contexts/AppBarContext';
+import { useI18n } from '@/i18n/I18nProvider';
 import React from 'react';
 import { Link } from 'react-router-dom';
 
@@ -12,29 +13,30 @@ type IntegrationLink = {
   description: string;
 };
 
-const integrationLinks: IntegrationLink[] = [
-  {
-    to: '/webhooks',
-    label: 'Webhooks',
-    description: 'Trigger workflows from external systems.',
-  },
-  {
-    to: '/api-docs',
-    label: 'API Reference',
-    description: 'Explore authenticated REST API endpoints.',
-  },
-];
-
 export default function IntegrationsPage(): React.ReactElement {
   const { setTitle } = React.useContext(AppBarContext);
+  const { t } = useI18n();
 
   React.useEffect(() => {
-    setTitle('Integrations');
-  }, [setTitle]);
+    setTitle(t('navigation.integrations'));
+  }, [setTitle, t]);
+
+  const integrationLinks: IntegrationLink[] = [
+    {
+      to: '/webhooks',
+      label: t('navigation.webhooks'),
+      description: t('integrations.webhooksDescription'),
+    },
+    {
+      to: '/api-docs',
+      label: t('navigation.apiReference'),
+      description: t('integrations.apiReferenceDescription'),
+    },
+  ];
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-auto">
-      <Title>Integrations</Title>
+      <Title>{t('navigation.integrations')}</Title>
 
       <div className="grid gap-3 md:grid-cols-2">
         {integrationLinks.map((link) => (

@@ -138,4 +138,23 @@ describe('Layout', () => {
       })
     ).toBeInTheDocument();
   });
+
+  it('localizes Chinese breadcrumbs', () => {
+    localStorage.setItem(
+      'user_preferences',
+      JSON.stringify({ locale: 'zh-CN' })
+    );
+    renderLayout('/dag-runs/example/run-1');
+
+    const breadcrumbs = screen.getByRole('navigation', { name: 'breadcrumb' });
+    expect(
+      within(breadcrumbs).getByRole('link', { name: '首页' })
+    ).toBeVisible();
+    expect(
+      within(breadcrumbs).getByRole('link', { name: '执行记录' })
+    ).toBeVisible();
+    expect(
+      within(breadcrumbs).getByRole('link', { name: 'DAG 运行' })
+    ).toBeVisible();
+  });
 });

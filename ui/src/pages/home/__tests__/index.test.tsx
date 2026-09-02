@@ -9,6 +9,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { UserRole } from '@/api/v1/schema';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { ConfigContext, type Config } from '@/contexts/ConfigContext';
+import { UserPreferencesProvider } from '@/contexts/UserPreference';
+import { I18nProvider } from '@/i18n/I18nProvider';
 import { defaultWorkspaceSelection } from '@/lib/workspace';
 
 import HomePage from '..';
@@ -48,33 +50,38 @@ const config = {
 
 function renderHome(configOverride: Partial<Config> = {}): void {
   render(
-    <MemoryRouter>
-      <ConfigContext.Provider value={{ ...config, ...configOverride }}>
-        <AppBarContext.Provider
-          value={{
-            title: '',
-            setTitle: vi.fn(),
-            remoteNodes: ['local'],
-            setRemoteNodes: vi.fn(),
-            selectedRemoteNode: 'local',
-            selectRemoteNode: vi.fn(),
-            workspaces: [],
-            workspaceError: null,
-            workspaceSelection: defaultWorkspaceSelection(),
-            selectWorkspace: vi.fn(),
-            createWorkspace: vi.fn(),
-            deleteWorkspace: vi.fn(),
-          }}
-        >
-          <HomePage />
-        </AppBarContext.Provider>
-      </ConfigContext.Provider>
-    </MemoryRouter>
+    <UserPreferencesProvider>
+      <I18nProvider>
+        <MemoryRouter>
+          <ConfigContext.Provider value={{ ...config, ...configOverride }}>
+            <AppBarContext.Provider
+              value={{
+                title: '',
+                setTitle: vi.fn(),
+                remoteNodes: ['local'],
+                setRemoteNodes: vi.fn(),
+                selectedRemoteNode: 'local',
+                selectRemoteNode: vi.fn(),
+                workspaces: [],
+                workspaceError: null,
+                workspaceSelection: defaultWorkspaceSelection(),
+                selectWorkspace: vi.fn(),
+                createWorkspace: vi.fn(),
+                deleteWorkspace: vi.fn(),
+              }}
+            >
+              <HomePage />
+            </AppBarContext.Provider>
+          </ConfigContext.Provider>
+        </MemoryRouter>
+      </I18nProvider>
+    </UserPreferencesProvider>
   );
 }
 
 describe('HomePage', () => {
   beforeEach(() => {
+    localStorage.clear();
     useAuthMock.mockReturnValue({
       user: { id: '1', username: 'admin', role: UserRole.admin },
     });
@@ -101,5 +108,21 @@ describe('HomePage', () => {
     expect(
       screen.getByRole('link', { name: /Administration/i })
     ).toHaveAttribute('href', '/administration');
+  });
+
+  it('renders Japanese navigation cards', () => {
+    localStorage.setItem('user_preferences', JSON.stringify({ locale: 'ja' }));
+
+    renderHome();
+
+    expect(screen.getByRole('heading', { name: 'ホーム' })).toBeVisible();
+    expect(screen.getByRole('link', { name: /概要/ })).toHaveAttribute(
+      'href',
+      '/'
+    );
+    expect(screen.getByRole('link', { name: /実行履歴/ })).toHaveAttribute(
+      'href',
+      '/dag-runs'
+    );
   });
 });

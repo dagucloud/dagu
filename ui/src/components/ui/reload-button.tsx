@@ -2,6 +2,7 @@ import { RefreshCw } from 'lucide-react';
 import React, { useState } from 'react';
 import { Button } from './button';
 import { cn } from '@/lib/utils';
+import { useI18n } from '@/i18n/I18nProvider';
 
 interface ReloadButtonProps {
   onReload: () => void | Promise<void>;
@@ -16,8 +17,9 @@ export const ReloadButton: React.FC<ReloadButtonProps> = ({
   isLoading = false,
   disabled = false,
   className = '',
-  title = 'Reload',
+  title,
 }) => {
+  const { t } = useI18n();
   const [isReloading, setIsReloading] = useState(false);
 
   const handleClick = async () => {
@@ -38,9 +40,11 @@ export const ReloadButton: React.FC<ReloadButtonProps> = ({
       onClick={handleClick}
       disabled={isDisabled}
       className={className}
-      title={title}
+      title={title ?? t('common.reload')}
     >
-      <RefreshCw className={cn('h-4 w-4', (isReloading || isLoading) && 'animate-spin')} />
+      <RefreshCw
+        className={cn('h-4 w-4', (isReloading || isLoading) && 'animate-spin')}
+      />
     </Button>
   );
 };

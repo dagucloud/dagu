@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { AlertCircle, CheckCircle, KeyRound, X } from 'lucide-react';
+import { useI18n } from '@/i18n/I18nProvider';
 
 type ChangePasswordModalProps = {
   open: boolean;
@@ -26,7 +27,11 @@ type ChangePasswordModalProps = {
  * @param onClose - Callback invoked when the modal is closed.
  * @returns The Change Password modal React element.
  */
-export function ChangePasswordModal({ open, onClose }: ChangePasswordModalProps) {
+export function ChangePasswordModal({
+  open,
+  onClose,
+}: ChangePasswordModalProps) {
+  const { t } = useI18n();
   const config = useConfig();
   const { token } = useAuth();
   const [currentPassword, setCurrentPassword] = useState('');
@@ -54,12 +59,12 @@ export function ChangePasswordModal({ open, onClose }: ChangePasswordModalProps)
     setError(null);
 
     if (newPassword !== confirmPassword) {
-      setError('New passwords do not match');
+      setError(t('auth.passwordsDoNotMatch'));
       return;
     }
 
     if (newPassword.length < 8) {
-      setError('Password must be at least 8 characters');
+      setError(t('auth.passwordMinLength'));
       return;
     }
 
@@ -81,7 +86,8 @@ export function ChangePasswordModal({ open, onClose }: ChangePasswordModalProps)
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
         // Check for nested error message in API response format
-        const message = data.message || data.error?.message || 'Failed to change password';
+        const message =
+          data.message || data.error?.message || t('auth.changePasswordFailed');
         throw new Error(message);
       }
 
@@ -90,7 +96,9 @@ export function ChangePasswordModal({ open, onClose }: ChangePasswordModalProps)
         handleClose();
       }, 1500);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to change password');
+      setError(
+        err instanceof Error ? err.message : t('auth.changePasswordFailed')
+      );
     } finally {
       setIsLoading(false);
     }
@@ -100,7 +108,7 @@ export function ChangePasswordModal({ open, onClose }: ChangePasswordModalProps)
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && handleClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Change Password</DialogTitle>
+          <DialogTitle>{t('auth.changePassword')}</DialogTitle>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4 mt-2">
@@ -114,13 +122,13 @@ export function ChangePasswordModal({ open, onClose }: ChangePasswordModalProps)
           {success && (
             <div className="flex items-center gap-2 p-3 text-sm text-success bg-success/10 rounded-md">
               <CheckCircle className="h-4 w-4 flex-shrink-0" />
-              <span>Password changed successfully!</span>
+              <span>{t('auth.passwordChanged')}</span>
             </div>
           )}
 
           <div className="space-y-1.5">
             <Label htmlFor="current-password" className="text-sm">
-              Current Password
+              {t('auth.currentPassword')}
             </Label>
             <Input
               id="current-password"
@@ -135,7 +143,7 @@ export function ChangePasswordModal({ open, onClose }: ChangePasswordModalProps)
 
           <div className="space-y-1.5">
             <Label htmlFor="new-password" className="text-sm">
-              New Password
+              {t('auth.newPassword')}
             </Label>
             <Input
               id="new-password"
@@ -150,7 +158,7 @@ export function ChangePasswordModal({ open, onClose }: ChangePasswordModalProps)
 
           <div className="space-y-1.5">
             <Label htmlFor="confirm-password" className="text-sm">
-              Confirm New Password
+              {t('auth.confirmNewPassword')}
             </Label>
             <Input
               id="confirm-password"
@@ -164,20 +172,15 @@ export function ChangePasswordModal({ open, onClose }: ChangePasswordModalProps)
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={handleClose}
-            >
+            <Button type="button" variant="ghost" onClick={handleClose}>
               <X className="h-4 w-4" />
-              Cancel
+              {t('common.cancel')}
             </Button>
-            <Button
-              type="submit"
-              disabled={isLoading || success}
-            >
+            <Button type="submit" disabled={isLoading || success}>
               <KeyRound className="h-4 w-4" />
-              {isLoading ? 'Changing...' : 'Change Password'}
+              {isLoading
+                ? t('auth.changingPassword')
+                : t('auth.changePassword')}
             </Button>
           </div>
         </form>

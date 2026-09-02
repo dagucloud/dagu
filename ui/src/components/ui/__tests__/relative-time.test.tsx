@@ -4,6 +4,8 @@
 import { act, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import RelativeTime from '../relative-time';
+import { UserPreferencesProvider } from '@/contexts/UserPreference';
+import { I18nProvider } from '@/i18n/I18nProvider';
 
 const NOW = new Date('2026-07-12T12:00:00Z');
 
@@ -48,5 +50,19 @@ describe('RelativeTime', () => {
 
     act(() => vi.advanceTimersByTime(1_000));
     expect(screen.getByText('5s')).toBeInTheDocument();
+  });
+
+  it('formats relative time in Japanese', () => {
+    localStorage.setItem('user_preferences', JSON.stringify({ locale: 'ja' }));
+
+    render(
+      <UserPreferencesProvider>
+        <I18nProvider>
+          <RelativeTime timestamp={secondsAgo(180)} />
+        </I18nProvider>
+      </UserPreferencesProvider>
+    );
+
+    expect(screen.getByText('3分前')).toBeInTheDocument();
   });
 });

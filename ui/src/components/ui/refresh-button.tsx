@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { Button } from './button';
 import { cn } from '../../lib/utils';
+import { useI18n } from '@/i18n/I18nProvider';
 
 interface RefreshButtonProps {
   onRefresh: () => void | Promise<void>;
@@ -14,6 +15,7 @@ export const RefreshButton: React.FC<RefreshButtonProps> = ({
   className,
   disabled = false,
 }) => {
+  const { t } = useI18n();
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const handleRefresh = async () => {
@@ -32,14 +34,9 @@ export const RefreshButton: React.FC<RefreshButtonProps> = ({
       onClick={handleRefresh}
       disabled={disabled || isRefreshing}
       className={className}
-      title="Refresh"
+      title={t('common.refresh')}
     >
-      <RefreshCw
-        className={cn(
-          "h-4 w-4",
-          isRefreshing && "animate-spin"
-        )}
-      />
+      <RefreshCw className={cn('h-4 w-4', isRefreshing && 'animate-spin')} />
     </Button>
   );
 };

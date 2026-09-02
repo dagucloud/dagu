@@ -5,6 +5,8 @@ import { useConfig } from '@/contexts/ConfigContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { LanguageSelector } from '@/components/LanguageSelector';
+import { useI18n } from '@/i18n/I18nProvider';
 import { AlertCircle, UserPlus, Loader2 } from 'lucide-react';
 
 function getErrorStatus(err: unknown): number | undefined {
@@ -17,6 +19,7 @@ function getErrorStatus(err: unknown): number | undefined {
 }
 
 export default function SetupPage() {
+  const { t } = useI18n();
   const config = useConfig();
   const { setupRequired, setup, completeSetup } = useAuth();
   const navigate = useNavigate();
@@ -43,17 +46,17 @@ export default function SetupPage() {
 
     const trimmedUsername = username.trim();
     if (trimmedUsername.length < 3) {
-      setError('Username must be at least 3 characters');
+      setError(t('setup.usernameMinLength'));
       return;
     }
 
     if (password.length < 8) {
-      setError('Password must be at least 8 characters');
+      setError(t('auth.passwordMinLength'));
       return;
     }
 
     if (password !== confirmPassword) {
-      setError('Passwords do not match');
+      setError(t('setup.passwordsDoNotMatch'));
       return;
     }
 
@@ -69,7 +72,7 @@ export default function SetupPage() {
         navigate('/login', { replace: true });
         return;
       }
-      setError(err instanceof Error ? err.message : 'Setup failed');
+      setError(err instanceof Error ? err.message : t('setup.failed'));
     } finally {
       setLoading(false);
     }
@@ -81,7 +84,7 @@ export default function SetupPage() {
         <div className="text-center space-y-2">
           <h1 className="text-2xl font-bold">{config.title || 'Dagu'}</h1>
           <p className="text-sm text-muted-foreground">
-            Create your admin account to get started
+            {t('setup.createAdmin')}
           </p>
         </div>
 
@@ -96,7 +99,7 @@ export default function SetupPage() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="username" className="text-sm">
-                Username
+                {t('auth.username')}
               </Label>
               <Input
                 id="username"
@@ -112,7 +115,7 @@ export default function SetupPage() {
 
             <div className="space-y-1.5">
               <Label htmlFor="password" className="text-sm">
-                Password
+                {t('auth.password')}
               </Label>
               <Input
                 id="password"
@@ -124,13 +127,13 @@ export default function SetupPage() {
                 className="h-9"
               />
               <p className="text-xs text-muted-foreground">
-                Minimum 8 characters
+                {t('setup.minimumCharacters')}
               </p>
             </div>
 
             <div className="space-y-1.5">
               <Label htmlFor="confirmPassword" className="text-sm">
-                Confirm Password
+                {t('setup.confirmPassword')}
               </Label>
               <Input
                 id="confirmPassword"
@@ -147,16 +150,19 @@ export default function SetupPage() {
               {loading ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Creating account...
+                  {t('setup.creatingAccount')}
                 </>
               ) : (
                 <>
                   <UserPlus className="h-4 w-4" />
-                  Create account
+                  {t('setup.createAccount')}
                 </>
               )}
             </Button>
           </form>
+        </div>
+        <div className="flex justify-center">
+          <LanguageSelector />
         </div>
       </div>
     </div>

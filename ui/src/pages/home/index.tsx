@@ -13,6 +13,7 @@ import {
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { useConfig } from '@/contexts/ConfigContext';
 import { useHasFeature } from '@/hooks/useLicense';
+import { useI18n } from '@/i18n/I18nProvider';
 import { roleAtLeast } from '@/lib/workspaceAccess';
 import { UserRole } from '@/api/v1/schema';
 import React from 'react';
@@ -61,6 +62,7 @@ function SectionLinks({
 
 export default function HomePage(): React.ReactElement {
   const { setTitle } = React.useContext(AppBarContext);
+  const { t } = useI18n();
   const config = useConfig();
   const { user } = useAuth();
   const isAdmin = useIsAdmin();
@@ -75,54 +77,54 @@ export default function HomePage(): React.ReactElement {
   const canViewAuditLogs = useCanViewAuditLogs();
 
   React.useEffect(() => {
-    setTitle('Home');
-  }, [setTitle]);
+    setTitle(t('navigation.home'));
+  }, [setTitle, t]);
 
   const sections: HomeSection[] = [
     {
-      title: 'Overview',
+      title: t('navigation.overview'),
       links: [
         {
           to: '/',
-          label: 'Overview',
-          description: 'Review workflow status and recent activity.',
+          label: t('navigation.overview'),
+          description: t('home.overviewDescription'),
         },
         {
           to: '/dashboard',
-          label: 'Timeline',
-          description: 'Inspect scheduled and historical execution trends.',
+          label: t('navigation.timeline'),
+          description: t('home.timelineDescription'),
         },
         {
           to: '/cockpit',
-          label: 'Cockpit',
-          description: 'Work through active and waiting runs.',
+          label: t('navigation.cockpit'),
+          description: t('home.cockpitDescription'),
         },
       ],
     },
     {
-      title: 'Workflows',
+      title: t('navigation.workflows'),
       links: [
         {
           to: '/dags',
-          label: 'DAGs',
-          description: 'Browse and open workflow definitions.',
+          label: t('navigation.dags'),
+          description: t('home.dagsDescription'),
         },
         {
           to: '/search',
-          label: 'Search',
-          description: 'Find workflows and Wiki pages.',
+          label: t('navigation.search'),
+          description: t('home.searchDescription'),
         },
         {
           to: '/wiki',
-          label: 'Wiki',
-          description: 'Read and edit Wiki pages.',
+          label: t('navigation.wiki'),
+          description: t('home.wikiDescription'),
         },
         ...(canWrite
           ? [
               {
                 to: '/base-config',
-                label: 'Base Config',
-                description: 'Edit shared workflow defaults.',
+                label: t('navigation.baseConfig'),
+                description: t('home.baseConfigDescription'),
               },
             ]
           : []),
@@ -130,37 +132,37 @@ export default function HomePage(): React.ReactElement {
           ? [
               {
                 to: '/git-sync',
-                label: 'Git Sync',
-                description: 'Sync workflow files with Git.',
+                label: t('navigation.gitSync'),
+                description: t('home.gitSyncDescription'),
               },
             ]
           : []),
       ],
     },
     {
-      title: 'Executions',
+      title: t('navigation.executions'),
       links: [
         {
           to: '/dag-runs',
-          label: 'DAG Runs',
-          description: 'Review run history and execution state.',
+          label: t('navigation.dagRuns'),
+          description: t('home.dagRunsDescription'),
         },
         {
           to: '/queues',
-          label: 'Queues',
-          description: 'Inspect queued workflow work.',
+          label: t('navigation.queues'),
+          description: t('home.queuesDescription'),
         },
       ],
     },
     {
-      title: 'Monitor',
+      title: t('navigation.monitor'),
       links: [
         ...(canAccessSystemStatus
           ? [
               {
                 to: '/system-status',
-                label: 'System Status',
-                description: 'Check services, paths, and runtime health.',
+                label: t('navigation.systemStatus'),
+                description: t('home.systemStatusDescription'),
               },
             ]
           : []),
@@ -168,8 +170,8 @@ export default function HomePage(): React.ReactElement {
           ? [
               {
                 to: '/event-logs',
-                label: 'Events',
-                description: 'Inspect workflow and system events.',
+                label: t('navigation.events'),
+                description: t('home.eventsDescription'),
               },
             ]
           : []),
@@ -177,64 +179,66 @@ export default function HomePage(): React.ReactElement {
           ? [
               {
                 to: '/audit-logs',
-                label: hasAudit ? 'Audit Logs' : 'Audit Logs (Pro)',
-                description: 'Review administrative activity.',
+                label: hasAudit
+                  ? t('navigation.auditLogs')
+                  : t('home.auditLogsPro'),
+                description: t('home.auditLogsDescription'),
               },
             ]
           : []),
       ],
     },
     {
-      title: 'Integrations',
+      title: t('navigation.integrations'),
       links: [
         {
           to: '/integrations',
-          label: 'Integrations',
-          description: 'Open integration entry points.',
+          label: t('navigation.integrations'),
+          description: t('home.integrationsDescription'),
         },
         ...(canManageWebhooks
           ? [
               {
                 to: '/webhooks',
-                label: 'Webhooks',
-                description: 'Manage webhook endpoints.',
+                label: t('navigation.webhooks'),
+                description: t('home.webhooksDescription'),
               },
             ]
           : []),
         {
           to: '/api-docs',
-          label: 'API Reference',
-          description: 'Browse HTTP API documentation.',
+          label: t('navigation.apiReference'),
+          description: t('home.apiReferenceDescription'),
         },
       ],
     },
     {
-      title: 'Administration',
+      title: t('navigation.administration'),
       links: isAdmin
         ? [
             {
               to: '/administration',
-              label: 'Administration',
-              description: 'Open access and infrastructure settings.',
+              label: t('navigation.administration'),
+              description: t('home.administrationDescription'),
             },
             {
               to: '/remote-nodes',
-              label: 'Remote Nodes',
-              description: 'Configure distributed execution targets.',
+              label: t('navigation.remoteNodes'),
+              description: t('home.remoteNodesDescription'),
             },
             ...(config.terminalEnabled
               ? [
                   {
                     to: '/terminal',
-                    label: 'Terminal',
-                    description: 'Open a server-side shell.',
+                    label: t('navigation.terminal'),
+                    description: t('home.terminalDescription'),
                   },
                 ]
               : []),
             {
               to: '/license',
-              label: 'License',
-              description: 'Review plan and entitlement status.',
+              label: t('navigation.license'),
+              description: t('home.licenseDescription'),
             },
           ]
         : [],
@@ -243,7 +247,7 @@ export default function HomePage(): React.ReactElement {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-5 overflow-auto">
-      <Title>Home</Title>
+      <Title>{t('navigation.home')}</Title>
 
       {sections.map((section) => (
         <SectionLinks key={section.title} section={section} />

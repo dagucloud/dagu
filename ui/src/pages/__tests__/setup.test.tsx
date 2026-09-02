@@ -13,6 +13,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Config } from '@/contexts/ConfigContext';
 import { ConfigContext } from '@/contexts/ConfigContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { UserPreferencesProvider } from '@/contexts/UserPreference';
+import { I18nProvider } from '@/i18n/I18nProvider';
 import SetupPage from '../setup';
 
 const navigateMock = vi.fn();
@@ -82,13 +84,18 @@ const config: Config = {
 
 function renderPage() {
   return render(
-    <ConfigContext.Provider value={config}>
-      <SetupPage />
-    </ConfigContext.Provider>
+    <UserPreferencesProvider>
+      <I18nProvider>
+        <ConfigContext.Provider value={config}>
+          <SetupPage />
+        </ConfigContext.Provider>
+      </I18nProvider>
+    </UserPreferencesProvider>
   );
 }
 
 beforeEach(() => {
+  localStorage.clear();
   navigateMock.mockReset();
   setupMock.mockReset();
   completeSetupMock.mockReset();
@@ -141,5 +148,18 @@ describe('SetupPage', () => {
       user: { id: '1', username: 'admin-user', role: 'admin' },
     });
     expect(navigateMock).toHaveBeenCalledWith('/', { replace: true });
+  });
+
+  it('uses the saved Japanese locale', () => {
+    localStorage.setItem('user_preferences', JSON.stringify({ locale: 'ja' }));
+
+    renderPage();
+
+    expect(
+      screen.getByText('管理者アカウントを作成してください')
+    ).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'アカウントを作成' })
+    ).toBeVisible();
   });
 });
