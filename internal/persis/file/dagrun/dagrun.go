@@ -319,11 +319,17 @@ func (dr DAGRun) removeLogFiles(ctx context.Context) error {
 	}
 
 	// Remove all log files.
+	seenFiles := make(map[string]struct{}, len(deleteFiles))
 	for _, file := range deleteFiles {
 		if file == "" {
 			continue
 		}
-		if err := fileutil.Remove(file); err != nil {
+		if _, ok := seenFiles[file]; ok {
+			continue
+		}
+		seenFiles[file] = struct{}{}
+
+		if err := fileutil.Remove(file); err != nil && !errors.Is(err, os.ErrNotExist) {
 			logger.Error(ctx, "Failed to remove log file",
 				tag.Error(err),
 				tag.RunID(dr.dagRunID),
