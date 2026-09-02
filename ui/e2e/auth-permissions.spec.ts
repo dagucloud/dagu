@@ -30,6 +30,31 @@ test('redirects unauthenticated users to login and allows admin sign-in', async 
   await expect(page.getByRole('heading', { name: 'System Status' })).toBeVisible();
 });
 
+test('persists Japanese through admin sign-in', async ({ page }) => {
+  const stack = await loadStack();
+
+  await page.goto('/system-status');
+  await expect(page).toHaveURL(/\/login$/);
+
+  await page.getByRole('combobox', { name: 'Language' }).click();
+  await page.getByRole('option', { name: 'Japanese' }).click();
+
+  await page.getByLabel('ユーザー名').fill(stack.auth.adminUsername);
+  await page.getByLabel('パスワード').fill(stack.auth.adminPassword);
+  await page.getByRole('button', { name: 'ログイン' }).click();
+
+  await expect(page).toHaveURL(/\/system-status$/);
+  await expect(
+    page.getByRole('heading', { name: 'システムステータス' })
+  ).toBeVisible();
+  await expect(page.locator('html')).toHaveAttribute('lang', 'ja');
+
+  await page.reload();
+  await expect(
+    page.getByRole('heading', { name: 'システムステータス' })
+  ).toBeVisible();
+});
+
 test('enforces viewer route and execute restrictions', async ({ page, request }) => {
   test.skip(
     !hasRBACLicenseSourceConfigured(),
