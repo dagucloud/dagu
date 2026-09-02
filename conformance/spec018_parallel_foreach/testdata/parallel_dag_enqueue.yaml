@@ -1,0 +1,30 @@
+working_dir: .
+steps:
+  - name: fanout
+    action: dag.enqueue
+    with:
+      dag: child-enqueue-item
+      queue: parallel-enqueue-queue
+      params:
+        - value: ${ITEM}
+    parallel:
+      items:
+        - alpha
+        - beta
+    output: ENQUEUE_RESULTS
+  - name: consume
+    depends: fanout
+    run: |
+      printf '%s\n' "$ENQUEUE_RESULTS" > parallel-enqueue-results.txt
+
+---
+
+name: child-enqueue-item
+params:
+  - name: value
+    description: Resolved item value.
+working_dir: .
+steps:
+  - name: write
+    run: |
+      printf '%s\n' '${params.value}'

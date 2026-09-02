@@ -1,0 +1,35 @@
+working_dir: .
+steps:
+  - name: fanout
+    action: dag.run
+    with:
+      dag: ${ITEM.dag}
+    parallel:
+      items:
+        - dag: child-clean
+        - dag: child-partial
+    output: PARTIAL_RESULTS
+  - name: consume
+    depends: fanout
+    run: |
+      printf '%s\n' "$PARTIAL_RESULTS" > parallel-partial-results.txt
+
+---
+
+name: child-clean
+working_dir: .
+steps:
+  - name: ok
+    run: "true"
+
+---
+
+name: child-partial
+working_dir: .
+steps:
+  - id: fails
+    continue_on: failed
+    run: "false"
+  - id: succeeds
+    depends: fails
+    run: "true"

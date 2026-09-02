@@ -1,0 +1,30 @@
+working_dir: .
+steps:
+  - name: fanout
+    action: dag.run
+    with:
+      dag: child-slow-item
+      params:
+        - value: ${ITEM}
+    parallel:
+      max_concurrent: 1
+      items:
+        - one
+        - two
+        - three
+    output: TIMEOUT_RESULTS
+
+---
+
+name: child-slow-item
+params:
+  - name: value
+    description: Resolved item value.
+working_dir: .
+steps:
+  - name: mark_started
+    run: |
+      printf 'started\n' > "started-${params.value}.txt"
+  - name: sleep
+    depends: mark_started
+    run: sleep 10
