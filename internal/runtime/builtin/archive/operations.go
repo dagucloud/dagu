@@ -518,7 +518,7 @@ func (e *executorImpl) walkArchive(ctx context.Context, file *os.File, path stri
 		needsClose bool
 	)
 
-	if reader == nil {
+	if file == nil {
 		var err error
 		file, err = os.Open(path)
 		if err != nil {
