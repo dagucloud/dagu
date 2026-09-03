@@ -1,0 +1,6 @@
+env:
+  - GREETING: hello
+steps:
+  - action: log.write
+    with:
+      message: "${GREETING}, world"

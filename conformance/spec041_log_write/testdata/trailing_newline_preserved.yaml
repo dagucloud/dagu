@@ -1,0 +1,6 @@
+steps:
+  - action: log.write
+    with:
+      message: |
+        line one
+        line two

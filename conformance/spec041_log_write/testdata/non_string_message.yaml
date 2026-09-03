@@ -1,0 +1,4 @@
+steps:
+  - action: log.write
+    with:
+      message: 123
