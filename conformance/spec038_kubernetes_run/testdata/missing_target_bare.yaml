@@ -1,0 +1,4 @@
+steps:
+  - action: kubernetes.run
+    with:
+      command: echo nope

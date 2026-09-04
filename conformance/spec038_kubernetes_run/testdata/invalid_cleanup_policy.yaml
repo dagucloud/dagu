@@ -1,0 +1,6 @@
+steps:
+  - action: kubernetes.run
+    with:
+      image: alpine:3
+      cleanup_policy: bogus
+      command: echo nope

@@ -1,0 +1,13 @@
+working_dir: .
+steps:
+  - name: run-job
+    action: kubernetes.run
+    with:
+      image: alpine:3
+      labels:
+        dagu-conformance: kubernetes-run-basic
+      command: echo hello
+    output: OUT
+  - name: dump
+    depends: run-job
+    run: echo "${OUT}" > out.txt

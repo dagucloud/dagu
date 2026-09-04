@@ -1,0 +1,17 @@
+working_dir: .
+steps:
+  - name: run-job
+    action: kubernetes.run
+    with:
+      image: alpine:3
+      working_dir: /tmp
+      labels:
+        dagu-conformance: kubernetes-run-working-dir-env
+      env:
+        - name: MY_VAR
+          value: hello-env
+      command: sh -c 'pwd && echo $MY_VAR'
+    output: OUT
+  - name: dump
+    depends: run-job
+    run: echo "${OUT}" > out.txt

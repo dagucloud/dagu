@@ -1,0 +1,7 @@
+steps:
+  - action: kubernetes.run
+    with:
+      image: alpine:3
+      labels:
+        dagu-conformance: kubernetes-run-command-fails
+      command: sh -c 'echo hello && exit 7'

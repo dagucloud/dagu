@@ -1,0 +1,6 @@
+steps:
+  - action: kubernetes.run
+    with:
+      image: alpine:3
+      active_deadline: -1
+      command: echo nope

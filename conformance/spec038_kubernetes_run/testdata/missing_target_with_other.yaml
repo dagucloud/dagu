@@ -1,0 +1,5 @@
+steps:
+  - action: kubernetes.run
+    with:
+      namespace: default
+      command: echo nope
