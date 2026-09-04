@@ -1,0 +1,7 @@
+steps:
+  - name: pick
+    action: router.route
+    with:
+      value: "a"
+      routes:
+        a: [does_not_exist]

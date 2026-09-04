@@ -1,0 +1,4 @@
+steps:
+  - action: router.route
+    with:
+      value: "a"

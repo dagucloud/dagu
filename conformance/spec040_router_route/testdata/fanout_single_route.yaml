@@ -1,0 +1,12 @@
+working_dir: .
+steps:
+  - name: pick
+    action: router.route
+    with:
+      value: "go"
+      routes:
+        go: [t1, t2]
+  - name: t1
+    run: echo t1 > t1.out
+  - name: t2
+    run: echo t2 > t2.out

@@ -1,0 +1,13 @@
+working_dir: .
+steps:
+  - name: pick
+    action: router.route
+    with:
+      value: "500"
+      routes:
+        "re:^5\\d\\d$": [server_error]
+        "re:.*": [catch_all]
+  - name: server_error
+    run: echo 5xx > server_error.out
+  - name: catch_all
+    run: echo other > catch_all.out

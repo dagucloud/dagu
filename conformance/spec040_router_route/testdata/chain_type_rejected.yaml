@@ -1,0 +1,10 @@
+type: chain
+steps:
+  - name: pick
+    action: router.route
+    with:
+      value: "a"
+      routes:
+        a: [t]
+  - name: t
+    run: echo hi

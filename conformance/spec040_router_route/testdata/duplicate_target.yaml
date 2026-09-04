@@ -1,0 +1,10 @@
+steps:
+  - name: pick
+    action: router.route
+    with:
+      value: "a"
+      routes:
+        a: [shared]
+        b: [shared]
+  - name: shared
+    run: echo shared

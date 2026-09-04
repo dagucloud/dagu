@@ -1,0 +1,7 @@
+steps:
+  - action: router.route
+    with:
+      routes:
+        a: [t]
+  - name: t
+    run: echo hi
