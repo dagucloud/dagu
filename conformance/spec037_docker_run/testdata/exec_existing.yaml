@@ -1,0 +1,13 @@
+working_dir: .
+env:
+  - CONTAINER_NAME: ${CONTAINER_NAME}
+steps:
+  - name: run-container
+    action: docker.run
+    with:
+      container_name: $CONTAINER_NAME
+      command: echo hello-existing
+    output: OUT
+  - name: dump
+    depends: run-container
+    run: echo "${OUT}" > out.txt

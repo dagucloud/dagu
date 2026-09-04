@@ -1,0 +1,17 @@
+working_dir: .
+env:
+  - CONTAINER_NAME: ${CONTAINER_NAME}
+steps:
+  - name: run-container
+    action: docker.run
+    with:
+      image: alpine:3
+      container_name: $CONTAINER_NAME
+      auto_remove: true
+      exec:
+        working_dir: /tmp
+      command: pwd
+    output: OUT
+  - name: dump
+    depends: run-container
+    run: echo "${OUT}" > out.txt

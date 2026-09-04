@@ -1,0 +1,4 @@
+steps:
+  - action: docker.run
+    with:
+      command: echo nope

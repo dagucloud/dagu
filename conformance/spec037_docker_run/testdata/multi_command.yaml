@@ -1,0 +1,12 @@
+working_dir: .
+steps:
+  - action: docker.run
+    with:
+      image: alpine:3
+      auto_remove: true
+      volumes:
+        - ./work:/work
+      command:
+        - sh -c 'echo marker > /marker && echo first > /work/first.txt'
+        - sh -c 'cat /marker >/dev/null && echo second > /work/second.txt; exit 3'
+        - sh -c 'echo third > /work/third.txt'

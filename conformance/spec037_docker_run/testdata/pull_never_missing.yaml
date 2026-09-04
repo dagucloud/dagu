@@ -1,0 +1,7 @@
+steps:
+  - action: docker.run
+    with:
+      image: dagu-conformance-nonexistent-image:does-not-exist
+      pull: never
+      auto_remove: true
+      command: echo nope

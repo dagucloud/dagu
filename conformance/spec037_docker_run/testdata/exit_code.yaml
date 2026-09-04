@@ -1,0 +1,6 @@
+steps:
+  - action: docker.run
+    with:
+      image: alpine:3
+      auto_remove: true
+      command: sh -c 'exit 7'

@@ -1,0 +1,15 @@
+working_dir: .
+steps:
+  - name: run-container
+    action: docker.run
+    with:
+      image: alpine:3
+      auto_remove: true
+      working_dir: /data
+      volumes:
+        - ./voldata:/data
+      command: sh -c 'pwd && cat file.txt'
+    output: OUT
+  - name: dump
+    depends: run-container
+    run: echo "${OUT}" > out.txt

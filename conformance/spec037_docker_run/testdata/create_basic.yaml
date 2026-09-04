@@ -1,0 +1,14 @@
+working_dir: .
+env:
+  - FOO: BAR
+steps:
+  - name: run-container
+    action: docker.run
+    with:
+      image: alpine:3
+      auto_remove: true
+      command: echo hello $FOO
+    output: OUT
+  - name: dump
+    depends: run-container
+    run: echo "${OUT}" > out.txt

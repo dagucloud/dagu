@@ -1,0 +1,7 @@
+steps:
+  - action: docker.run
+    with:
+      image: alpine:3
+      exec:
+        working_dir: /
+      command: echo nope
