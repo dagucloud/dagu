@@ -1,0 +1,23 @@
+env:
+  - SSH_PORT: ${SSH_PORT}
+steps:
+  - name: upload
+    action: sftp.upload
+    with:
+      host: 127.0.0.1
+      port: $SSH_PORT
+      user: sshtest
+      password: sshtestpass
+      strict_host_key: false
+      source: upload_tree
+      destination: /home/sshtest/uploaded_tree
+  - name: readback
+    depends: upload
+    action: ssh.run
+    with:
+      host: 127.0.0.1
+      port: $SSH_PORT
+      user: sshtest
+      password: sshtestpass
+      strict_host_key: false
+      command: "cat /home/sshtest/uploaded_tree/root.txt; echo ---; cat /home/sshtest/uploaded_tree/sub/nested.txt"

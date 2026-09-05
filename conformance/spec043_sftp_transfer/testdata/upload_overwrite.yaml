@@ -1,0 +1,23 @@
+env:
+  - SSH_PORT: ${SSH_PORT}
+steps:
+  - name: upload
+    action: sftp.upload
+    with:
+      host: 127.0.0.1
+      port: $SSH_PORT
+      user: sshtest
+      password: sshtestpass
+      strict_host_key: false
+      source: overwrite_source.txt
+      destination: /home/sshtest/overwrite_target.txt
+  - name: readback
+    depends: upload
+    action: ssh.run
+    with:
+      host: 127.0.0.1
+      port: $SSH_PORT
+      user: sshtest
+      password: sshtestpass
+      strict_host_key: false
+      command: "cat /home/sshtest/overwrite_target.txt; echo ---; ls /home/sshtest | grep -c dagu-tmp || true"

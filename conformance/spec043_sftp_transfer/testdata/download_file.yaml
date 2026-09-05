@@ -1,0 +1,12 @@
+env:
+  - SSH_PORT: ${SSH_PORT}
+steps:
+  - action: sftp.download
+    with:
+      host: 127.0.0.1
+      port: $SSH_PORT
+      user: sshtest
+      password: sshtestpass
+      strict_host_key: false
+      source: /home/sshtest/download_source.txt
+      destination: downloaded_single.txt

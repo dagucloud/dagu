@@ -1,0 +1,10 @@
+steps:
+  - action: sftp.upload
+    with:
+      host: 127.0.0.1
+      port: 1
+      user: x
+      password: y
+      strict_host_key: false
+      source: /tmp/unused
+      destination: /tmp/unused-dest
