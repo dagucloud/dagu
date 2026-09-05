@@ -1,0 +1,20 @@
+env:
+  - REDIS_URL: ${REDIS_URL}
+  - REDIS_PREFIX: ${REDIS_PREFIX}
+steps:
+  - id: hset
+    action: redis.hset
+    with:
+      url: $REDIS_URL
+      key: "${REDIS_PREFIX}myhash"
+      field: name
+      value: Alice
+  - id: hmget
+    depends: hset
+    action: redis.hmget
+    with:
+      url: $REDIS_URL
+      key: "${REDIS_PREFIX}myhash"
+      keys: [name, missing_field]
+      output_format: raw
+      null_value: "N/A"

@@ -1,0 +1,11 @@
+env:
+  - REDIS_URL: ${REDIS_URL}
+  - REDIS_PREFIX: ${REDIS_PREFIX}
+redis:
+  url: "redis://127.0.0.1:1"
+steps:
+  - action: redis.set
+    with:
+      url: $REDIS_URL
+      key: "${REDIS_PREFIX}override-test"
+      value: overridden

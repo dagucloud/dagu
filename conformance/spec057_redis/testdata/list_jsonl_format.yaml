@@ -1,0 +1,19 @@
+env:
+  - REDIS_URL: ${REDIS_URL}
+  - REDIS_PREFIX: ${REDIS_PREFIX}
+steps:
+  - id: push
+    action: redis.rpush
+    with:
+      url: $REDIS_URL
+      key: "${REDIS_PREFIX}mylist"
+      values: [a, b, c]
+  - id: jsonl
+    depends: push
+    action: redis.lrange
+    with:
+      url: $REDIS_URL
+      key: "${REDIS_PREFIX}mylist"
+      start: 0
+      stop: -1
+      output_format: jsonl

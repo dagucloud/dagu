@@ -1,0 +1,16 @@
+env:
+  - REDIS_URL: ${REDIS_URL}
+  - REDIS_PREFIX: ${REDIS_PREFIX}
+steps:
+  - id: set
+    action: redis.set
+    with:
+      url: $REDIS_URL
+      key: "${REDIS_PREFIX}greeting"
+      value: hello redis
+  - id: get
+    depends: set
+    action: redis.get
+    with:
+      url: $REDIS_URL
+      key: "${REDIS_PREFIX}greeting"

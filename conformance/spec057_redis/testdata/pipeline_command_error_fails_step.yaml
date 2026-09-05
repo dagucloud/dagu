@@ -1,0 +1,21 @@
+env:
+  - REDIS_URL: ${REDIS_URL}
+  - REDIS_PREFIX: ${REDIS_PREFIX}
+steps:
+  - id: seed
+    action: redis.set
+    with:
+      url: $REDIS_URL
+      key: "${REDIS_PREFIX}notanumber"
+      value: abc
+  - id: pipeline
+    depends: seed
+    action: redis.get
+    with:
+      url: $REDIS_URL
+      key: unused
+      pipeline:
+        - command: GET
+          key: "${REDIS_PREFIX}notanumber"
+        - command: INCR
+          key: "${REDIS_PREFIX}notanumber"

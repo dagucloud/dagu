@@ -1,0 +1,8 @@
+env:
+  - REDIS_URL: ${REDIS_URL}
+  - REDIS_PREFIX: ${REDIS_PREFIX}
+steps:
+  - action: redis.get
+    with:
+      url: $REDIS_URL
+      key: "${REDIS_PREFIX}does-not-exist"

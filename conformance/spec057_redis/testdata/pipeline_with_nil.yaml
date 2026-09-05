@@ -1,0 +1,17 @@
+env:
+  - REDIS_URL: ${REDIS_URL}
+  - REDIS_PREFIX: ${REDIS_PREFIX}
+steps:
+  - action: redis.set
+    with:
+      url: $REDIS_URL
+      key: unused
+      value: unused
+      pipeline:
+        - command: SET
+          key: "${REDIS_PREFIX}present1"
+          value: hello
+        - command: GET
+          key: "${REDIS_PREFIX}missingkey1"
+        - command: GET
+          key: "${REDIS_PREFIX}present1"

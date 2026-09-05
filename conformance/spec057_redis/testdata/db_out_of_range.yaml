@@ -1,0 +1,7 @@
+steps:
+  - action: redis.get
+    with:
+      host: 127.0.0.1
+      port: 6379
+      key: x
+      db: 16

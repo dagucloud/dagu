@@ -1,0 +1,11 @@
+env:
+  - REDIS_URL: ${REDIS_URL}
+  - REDIS_PREFIX: ${REDIS_PREFIX}
+steps:
+  - action: redis.get
+    with:
+      url: $REDIS_URL
+      key: unused
+      lock: "${REDIS_PREFIX}mylock"
+      lock_retry: 2
+      lock_wait: 50

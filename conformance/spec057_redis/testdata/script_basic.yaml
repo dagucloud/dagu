@@ -1,0 +1,18 @@
+env:
+  - REDIS_URL: ${REDIS_URL}
+  - REDIS_PREFIX: ${REDIS_PREFIX}
+steps:
+  - id: run_script
+    action: redis.get
+    with:
+      url: $REDIS_URL
+      key: unused
+      script: "return redis.call('SET', KEYS[1], ARGV[1])"
+      script_keys: ["${REDIS_PREFIX}scripted-key"]
+      script_args: [scripted-value]
+  - id: verify
+    depends: run_script
+    action: redis.get
+    with:
+      url: $REDIS_URL
+      key: "${REDIS_PREFIX}scripted-key"

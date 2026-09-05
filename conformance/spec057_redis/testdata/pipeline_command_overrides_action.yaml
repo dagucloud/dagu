@@ -1,0 +1,12 @@
+env:
+  - REDIS_URL: ${REDIS_URL}
+  - REDIS_PREFIX: ${REDIS_PREFIX}
+steps:
+  - action: redis.get
+    with:
+      url: $REDIS_URL
+      key: unused
+      pipeline:
+        - command: SET
+          key: "${REDIS_PREFIX}pcmd"
+          value: pipeline-won

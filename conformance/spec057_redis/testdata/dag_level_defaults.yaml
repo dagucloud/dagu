@@ -1,0 +1,10 @@
+env:
+  - REDIS_URL: ${REDIS_URL}
+  - REDIS_PREFIX: ${REDIS_PREFIX}
+redis:
+  url: $REDIS_URL
+steps:
+  - action: redis.set
+    with:
+      key: "${REDIS_PREFIX}dag-level-test"
+      value: works
