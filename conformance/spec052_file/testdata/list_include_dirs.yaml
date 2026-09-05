@@ -1,0 +1,15 @@
+working_dir: .
+steps:
+  - id: w1
+    action: file.write
+    with:
+      path: listroot/a/one.txt
+      content: "1"
+      create_dirs: true
+  - id: l
+    depends: w1
+    action: file.list
+    with:
+      path: listroot
+      recursive: true
+      include_dirs: true

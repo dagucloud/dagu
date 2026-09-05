@@ -1,0 +1,15 @@
+working_dir: .
+steps:
+  - id: w
+    action: file.write
+    with:
+      path: src/a.txt
+      content: "a"
+      create_dirs: true
+  - id: c
+    depends: w
+    action: file.copy
+    with:
+      source: src
+      destination: src/nested
+      recursive: true

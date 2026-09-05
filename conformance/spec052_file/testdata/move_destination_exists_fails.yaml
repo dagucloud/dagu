@@ -1,0 +1,19 @@
+working_dir: .
+steps:
+  - id: w1
+    action: file.write
+    with:
+      path: src.txt
+      content: "a"
+  - id: w2
+    depends: w1
+    action: file.write
+    with:
+      path: dst.txt
+      content: "b"
+  - id: m
+    depends: w2
+    action: file.move
+    with:
+      source: src.txt
+      destination: dst.txt

@@ -1,0 +1,4 @@
+steps:
+  - action: file.stat
+    with:
+      path: does-not-exist.txt

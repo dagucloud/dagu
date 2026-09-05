@@ -1,0 +1,7 @@
+env:
+  - ABS_PATH: ${ABS_PATH}
+steps:
+  - action: file.write
+    with:
+      path: $ABS_PATH
+      content: "absolute content"

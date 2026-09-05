@@ -1,0 +1,20 @@
+working_dir: .
+steps:
+  - id: w
+    action: file.write
+    with:
+      path: sub/a.txt
+      content: "a"
+      create_dirs: true
+  - id: d
+    depends: w
+    action: file.delete
+    with:
+      path: sub
+      recursive: true
+  - id: s
+    depends: d
+    action: file.stat
+    with:
+      path: sub
+      missing_ok: true

@@ -1,0 +1,19 @@
+working_dir: .
+steps:
+  - id: first
+    action: file.write
+    with:
+      path: dup.txt
+      content: first
+  - id: second
+    depends: first
+    action: file.write
+    with:
+      path: dup.txt
+      content: second-longer
+      overwrite: true
+  - id: read
+    depends: second
+    action: file.read
+    with:
+      path: dup.txt

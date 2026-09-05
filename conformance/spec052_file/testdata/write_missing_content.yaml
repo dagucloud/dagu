@@ -1,0 +1,4 @@
+steps:
+  - action: file.write
+    with:
+      path: hello.txt

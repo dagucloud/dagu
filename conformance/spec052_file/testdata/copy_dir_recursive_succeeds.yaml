@@ -1,0 +1,20 @@
+working_dir: .
+steps:
+  - id: w
+    action: file.write
+    with:
+      path: src/a.txt
+      content: "a"
+      create_dirs: true
+  - id: c
+    depends: w
+    action: file.copy
+    with:
+      source: src
+      destination: dst
+      recursive: true
+  - id: r
+    depends: c
+    action: file.read
+    with:
+      path: dst/a.txt

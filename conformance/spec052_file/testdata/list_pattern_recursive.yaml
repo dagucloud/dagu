@@ -1,0 +1,29 @@
+working_dir: .
+steps:
+  - id: w1
+    action: file.write
+    with:
+      path: listroot/a/one.txt
+      content: "1"
+      create_dirs: true
+  - id: w2
+    depends: w1
+    action: file.write
+    with:
+      path: listroot/a/two.log
+      content: "2"
+      create_dirs: true
+  - id: w3
+    depends: w2
+    action: file.write
+    with:
+      path: listroot/b/three.txt
+      content: "3"
+      create_dirs: true
+  - id: l
+    depends: w3
+    action: file.list
+    with:
+      path: listroot
+      pattern: "**/*.txt"
+      recursive: true

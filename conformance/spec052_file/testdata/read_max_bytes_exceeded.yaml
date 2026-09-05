@@ -1,0 +1,13 @@
+working_dir: .
+steps:
+  - id: w
+    action: file.write
+    with:
+      path: big.txt
+      content: "0123456789"
+  - id: r
+    depends: w
+    action: file.read
+    with:
+      path: big.txt
+      max_bytes: 5

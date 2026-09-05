@@ -1,0 +1,5 @@
+steps:
+  - action: file.delete
+    with:
+      path: does-not-exist.txt
+      missing_ok: true

@@ -1,0 +1,13 @@
+working_dir: .
+steps:
+  - id: w
+    action: file.write
+    with:
+      path: subdir/file.txt
+      content: hi
+      create_dirs: true
+  - id: r
+    depends: w
+    action: file.read
+    with:
+      path: subdir

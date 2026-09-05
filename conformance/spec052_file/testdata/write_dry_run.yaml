@@ -1,0 +1,7 @@
+working_dir: .
+steps:
+  - action: file.write
+    with:
+      path: dry.txt
+      content: "would-be-content"
+      dry_run: true

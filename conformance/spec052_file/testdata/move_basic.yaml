@@ -1,0 +1,24 @@
+working_dir: .
+steps:
+  - id: w
+    action: file.write
+    with:
+      path: src.txt
+      content: "moved-content"
+  - id: m
+    depends: w
+    action: file.move
+    with:
+      source: src.txt
+      destination: dst.txt
+  - id: r
+    depends: m
+    action: file.read
+    with:
+      path: dst.txt
+  - id: s
+    depends: r
+    action: file.stat
+    with:
+      path: src.txt
+      missing_ok: true

@@ -1,0 +1,12 @@
+working_dir: .
+steps:
+  - id: w
+    action: file.write
+    with:
+      path: data.txt
+      content: "hello"
+  - id: r
+    depends: w
+    action: file.read
+    with:
+      path: data.txt

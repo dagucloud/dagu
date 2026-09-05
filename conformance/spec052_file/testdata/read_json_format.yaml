@@ -1,0 +1,14 @@
+working_dir: .
+steps:
+  - id: w
+    action: file.write
+    with:
+      path: data.txt
+      content: "hello"
+      mode: "0640"
+  - id: r
+    depends: w
+    action: file.read
+    with:
+      path: data.txt
+      format: json

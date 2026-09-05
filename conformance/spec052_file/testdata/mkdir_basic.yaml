@@ -1,0 +1,6 @@
+working_dir: .
+steps:
+  - action: file.mkdir
+    with:
+      path: newdir/nested
+      mode: "0750"
