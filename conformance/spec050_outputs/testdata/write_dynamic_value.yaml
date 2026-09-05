@@ -1,0 +1,11 @@
+env:
+  - MY_ENV_VAR: from-env
+steps:
+  - id: write
+    action: outputs.write
+    with:
+      values:
+        echoed: $MY_ENV_VAR
+  - id: read
+    depends: write
+    run: printf '%s' "${write.outputs.echoed}"

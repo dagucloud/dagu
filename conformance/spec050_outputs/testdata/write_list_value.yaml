@@ -1,0 +1,11 @@
+steps:
+  - id: write
+    action: outputs.write
+    with:
+      values:
+        items:
+          - a
+          - b
+  - id: read
+    depends: write
+    run: printf '%s' "${write.outputs.items}"
