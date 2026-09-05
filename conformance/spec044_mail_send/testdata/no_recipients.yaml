@@ -1,0 +1,7 @@
+steps:
+  - action: mail.send
+    with:
+      from: sender@example.com
+      to: ""
+      subject: hi
+      message: hello

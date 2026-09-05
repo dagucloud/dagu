@@ -1,0 +1,15 @@
+env:
+  - SMTP_HOST: ${SMTP_HOST}
+  - SMTP_PORT: ${SMTP_PORT}
+smtp:
+  host: $SMTP_HOST
+  port: $SMTP_PORT
+steps:
+  - action: mail.send
+    with:
+      from: sender@example.com
+      to:
+        - first@example.com
+        - second@example.com
+      subject: Multi Recipient
+      message: hello everyone

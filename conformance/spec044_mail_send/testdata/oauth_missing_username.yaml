@@ -1,0 +1,12 @@
+smtp:
+  host: 127.0.0.1
+  port: 25
+  oauth:
+    provider: microsoft
+steps:
+  - action: mail.send
+    with:
+      from: sender@example.com
+      to: recipient@example.com
+      subject: hi
+      message: hello

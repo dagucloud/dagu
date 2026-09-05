@@ -1,0 +1,13 @@
+env:
+  - SMTP_HOST: ${SMTP_HOST}
+  - SMTP_PORT: ${SMTP_PORT}
+smtp:
+  host: $SMTP_HOST
+  port: $SMTP_PORT
+steps:
+  - action: mail.send
+    with:
+      from: sender@example.com
+      to: recipient@example.com
+      subject: HTML Body
+      message: "<!DOCTYPE html><html><body>Line one\nLine two</body></html>"
