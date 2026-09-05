@@ -1,0 +1,18 @@
+env:
+  - PROJECT_DIR: $HOST_PROJECT_DIR
+  - PROFILES_DIR: $HOST_PROFILES_DIR
+steps:
+  - id: dbt_build
+    action: dbt@v1
+    with:
+      projectDir: $PROJECT_DIR
+      profilesDir: $PROFILES_DIR
+      requirements:
+        - dbt-duckdb==1.10.1
+      command: build
+  - id: print_bare
+    depends: dbt_build
+    run: echo "bare exit code is ${dbt_build.outputs.exitCode}"
+  - id: print_strict
+    depends: dbt_build
+    run: echo "strict=${steps.dbt_build.outputs.exitCode}"

@@ -1,0 +1,40 @@
+env:
+  - PROJECT_DIR: $HOST_PROJECT_DIR
+  - PROFILES_DIR: $HOST_PROFILES_DIR
+steps:
+  - id: missing_project_dir
+    action: dbt@v1
+    with:
+      command: build
+
+  - id: bad_project_dir
+    action: dbt@v1
+    with:
+      projectDir: /nonexistent/dbt/project/dir/xyz
+      command: build
+
+  - id: no_adapter
+    action: dbt@v1
+    with:
+      projectDir: $PROJECT_DIR
+      profilesDir: $PROFILES_DIR
+      command: build
+
+  - id: bad_requirement
+    action: dbt@v1
+    with:
+      projectDir: $PROJECT_DIR
+      profilesDir: $PROFILES_DIR
+      requirements:
+        - this-package-definitely-does-not-exist-xyz123==1.0.0
+      command: build
+
+  - id: times_out
+    action: dbt@v1
+    with:
+      projectDir: $PROJECT_DIR
+      profilesDir: $PROFILES_DIR
+      requirements:
+        - dbt-duckdb==1.10.1
+      command: build
+      timeoutSeconds: 5

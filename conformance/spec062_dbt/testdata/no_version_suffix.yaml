@@ -1,0 +1,5 @@
+steps:
+  - action: dbt
+    with:
+      projectDir: /tmp
+      command: build

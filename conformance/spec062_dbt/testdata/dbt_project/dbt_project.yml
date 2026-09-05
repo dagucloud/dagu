@@ -1,0 +1,6 @@
+name: conformance_project
+version: "1.0.0"
+config-version: 2
+profile: conformance_project
+model-paths: ["models"]
+seed-paths: ["seeds"]

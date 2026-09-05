@@ -1,0 +1,60 @@
+env:
+  - PROJECT_DIR: $HOST_PROJECT_DIR
+  - PROFILES_DIR: $HOST_PROFILES_DIR
+  - TARGET_PATH: $HOST_TARGET_PATH
+  - LOG_PATH: $HOST_LOG_PATH
+steps:
+  - id: seed
+    action: dbt@v1
+    with:
+      projectDir: $PROJECT_DIR
+      profilesDir: $PROFILES_DIR
+      requirements:
+        - dbt-duckdb==1.10.1
+      command: seed
+      targetPath: $TARGET_PATH
+      logPath: $LOG_PATH
+
+  - id: build
+    depends: seed
+    action: dbt@v1
+    with:
+      projectDir: $PROJECT_DIR
+      profilesDir: $PROFILES_DIR
+      requirements:
+        - dbt-duckdb==1.10.1
+      command: build
+      targetPath: $TARGET_PATH
+      logPath: $LOG_PATH
+      select:
+        - my_model
+      vars:
+        demo: 1
+      threads: 2
+      fullRefresh: true
+      args:
+        - --no-partial-parse
+
+  - id: docs_gen
+    depends: build
+    action: dbt@v1
+    with:
+      projectDir: $PROJECT_DIR
+      profilesDir: $PROFILES_DIR
+      requirements:
+        - dbt-duckdb==1.10.1
+      command: docs generate
+      targetPath: $TARGET_PATH
+      logPath: $LOG_PATH
+
+  - id: freshness
+    depends: docs_gen
+    action: dbt@v1
+    with:
+      projectDir: $PROJECT_DIR
+      profilesDir: $PROFILES_DIR
+      requirements:
+        - dbt-duckdb==1.10.1
+      command: source freshness
+      targetPath: $TARGET_PATH
+      logPath: $LOG_PATH

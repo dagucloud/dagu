@@ -1,0 +1,11 @@
+version: 2
+sources:
+  - name: raw
+    schema: main
+    tables:
+      - name: raw_events
+        identifier: raw_events
+        loaded_at_field: loaded_at
+        freshness:
+          warn_after: {count: 999999, period: hour}
+          error_after: {count: 9999999, period: hour}
