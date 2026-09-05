@@ -1,0 +1,7 @@
+steps:
+  - action: chat.completion
+    with:
+      prompt: "hi"
+      provider: local
+      model: test-model
+      max_tokens: 0

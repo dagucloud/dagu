@@ -1,0 +1,12 @@
+env:
+  - LLM_BASE_URL: ${LLM_BASE_URL}
+steps:
+  - action: chat.completion
+    with:
+      prompt: "hello"
+      provider: local
+      model: test-model
+      base_url: $LLM_BASE_URL
+      temperature: 0.25
+      max_tokens: 128
+      top_p: 0.5

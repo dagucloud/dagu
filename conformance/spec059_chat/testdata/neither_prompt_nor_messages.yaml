@@ -1,0 +1,5 @@
+steps:
+  - action: chat.completion
+    with:
+      provider: local
+      model: test-model

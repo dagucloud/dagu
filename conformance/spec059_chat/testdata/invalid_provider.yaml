@@ -1,0 +1,6 @@
+steps:
+  - action: chat.completion
+    with:
+      prompt: "hi"
+      provider: not-a-real-provider
+      model: test-model

@@ -1,0 +1,4 @@
+steps:
+  - action: chat.completion
+    with:
+      prompt: "hi"

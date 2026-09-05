@@ -1,0 +1,17 @@
+env:
+  - LLM_BASE_URL: ${LLM_BASE_URL}
+steps:
+  - action: chat.completion
+    with:
+      prompt: "please use the echo tool"
+      provider: local
+      model: test-model
+      base_url: $LLM_BASE_URL
+      tools: [echo-tool]
+---
+name: echo-tool
+description: Echoes a message back
+params: MESSAGE=default
+steps:
+  - command: echo "got $MESSAGE"
+    output: RESULT
