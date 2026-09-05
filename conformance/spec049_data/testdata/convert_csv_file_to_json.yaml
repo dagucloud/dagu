@@ -1,0 +1,7 @@
+working_dir: .
+steps:
+  - action: data.convert
+    with:
+      from: csv
+      to: json
+      input: people.csv

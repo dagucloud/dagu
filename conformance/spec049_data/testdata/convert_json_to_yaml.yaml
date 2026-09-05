@@ -1,0 +1,8 @@
+steps:
+  - action: data.convert
+    with:
+      from: json
+      to: yaml
+      data:
+        name: alice
+        age: 30

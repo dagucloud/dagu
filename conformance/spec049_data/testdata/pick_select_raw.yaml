@@ -1,0 +1,10 @@
+steps:
+  - action: data.pick
+    with:
+      from: json
+      data:
+        user:
+          name: alice
+          age: 30
+      select: ".user.name"
+      raw: true

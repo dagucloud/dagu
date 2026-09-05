@@ -1,0 +1,6 @@
+steps:
+  - action: data.convert
+    with:
+      from: xml
+      to: json
+      data: "<a/>"

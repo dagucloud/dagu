@@ -1,0 +1,10 @@
+steps:
+  - action: data.convert
+    with:
+      from: csv
+      to: json
+      data: "alice,30\nbob,25"
+      has_header: false
+      columns:
+        - name
+        - age

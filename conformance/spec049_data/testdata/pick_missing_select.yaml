@@ -1,0 +1,5 @@
+steps:
+  - action: data.pick
+    with:
+      from: json
+      data: { a: 1 }

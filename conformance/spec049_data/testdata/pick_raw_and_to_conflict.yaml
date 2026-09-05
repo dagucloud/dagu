@@ -1,0 +1,8 @@
+steps:
+  - action: data.pick
+    with:
+      from: json
+      data: { a: 1 }
+      select: ".a"
+      raw: true
+      to: json

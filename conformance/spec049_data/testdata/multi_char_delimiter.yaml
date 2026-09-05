@@ -1,0 +1,7 @@
+steps:
+  - action: data.convert
+    with:
+      from: csv
+      to: json
+      data: "a,b"
+      delimiter: "::"

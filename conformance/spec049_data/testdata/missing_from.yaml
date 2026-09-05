@@ -1,0 +1,5 @@
+steps:
+  - action: data.convert
+    with:
+      data: { a: 1 }
+      to: json

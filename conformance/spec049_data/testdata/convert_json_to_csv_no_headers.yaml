@@ -1,0 +1,14 @@
+steps:
+  - action: data.convert
+    with:
+      from: json
+      to: csv
+      headers: false
+      columns:
+        - name
+        - age
+      data:
+        - name: alice
+          age: 30
+        - name: bob
+          age: 25

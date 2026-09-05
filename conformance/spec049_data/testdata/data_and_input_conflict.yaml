@@ -1,0 +1,7 @@
+steps:
+  - action: data.convert
+    with:
+      from: json
+      to: yaml
+      data: { a: 1 }
+      input: foo.json

@@ -1,0 +1,5 @@
+steps:
+  - action: data.convert
+    with:
+      from: json
+      to: yaml
