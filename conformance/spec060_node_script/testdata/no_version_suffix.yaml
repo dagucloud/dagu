@@ -1,0 +1,4 @@
+steps:
+  - action: node-script
+    with:
+      script: "return 1;"

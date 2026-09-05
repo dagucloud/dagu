@@ -1,0 +1,21 @@
+steps:
+  - id: throws
+    action: node-script@v1
+    with:
+      script: "throw new Error('boom');"
+  - id: syntax_err
+    action: node-script@v1
+    with:
+      script: "this is not valid javascript {{{"
+  - id: missing_script
+    action: node-script@v1
+    with:
+      input:
+        x: 1
+  - id: times_out
+    action: node-script@v1
+    with:
+      timeoutSeconds: 1
+      script: |
+        await new Promise(r => setTimeout(r, 5000));
+        return "done";

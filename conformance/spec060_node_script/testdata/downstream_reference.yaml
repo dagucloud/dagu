@@ -1,0 +1,15 @@
+steps:
+  - id: compute
+    action: node-script@v1
+    with:
+      input:
+        version: "1.2.3"
+        services: ["api", "worker"]
+      script: |
+        return {
+          tag: `v${input.version}`,
+          serviceCount: input.services.length
+        };
+  - id: print
+    depends: compute
+    run: echo "release tag is ${compute.outputs.result.tag}"

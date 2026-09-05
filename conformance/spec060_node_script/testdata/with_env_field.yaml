@@ -1,0 +1,7 @@
+steps:
+  - action: node-script@v1
+    with:
+      env:
+        EXTRA_VAR: injected
+      script: |
+        return { extra: env.EXTRA_VAR };

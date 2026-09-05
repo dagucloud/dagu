@@ -1,0 +1,52 @@
+env:
+  - MY_VAR: from-env
+steps:
+  - id: basic
+    action: node-script@v1
+    with:
+      script: "return 1 + 1;"
+
+  - id: input_console
+    depends: basic
+    action: node-script@v1
+    with:
+      input:
+        name: World
+        count: 3
+      script: |
+        console.log("logging a line");
+        console.error("erroring a line");
+        return { greeting: "Hello, " + input.name, doubled: input.count * 2 };
+
+  - id: env_access
+    depends: input_console
+    action: node-script@v1
+    with:
+      script: |
+        return { fromEnv: env.MY_VAR };
+
+  - id: params_mirror
+    depends: env_access
+    action: node-script@v1
+    with:
+      input:
+        x: 1
+      script: |
+        return { params: params };
+
+  - id: dollar_substitution
+    depends: params_mirror
+    action: node-script@v1
+    with:
+      script: |
+        const templateLiteral = `computed ${1 + 1}`;
+        return { templateLiteral: templateLiteral, dollarVar: "$MY_VAR" };
+
+  - id: dynamic_import_and_undefined
+    depends: dollar_substitution
+    action: node-script@v1
+    with:
+      script: |
+        const os = await import("node:os");
+        console.log("platform: " + os.platform());
+        return undefined;
