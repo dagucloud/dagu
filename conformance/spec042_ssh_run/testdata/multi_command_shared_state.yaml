@@ -1,0 +1,13 @@
+env:
+  - SSH_PORT: ${SSH_PORT}
+steps:
+  - action: ssh.run
+    with:
+      host: 127.0.0.1
+      port: $SSH_PORT
+      user: sshtest
+      password: sshtestpass
+      strict_host_key: false
+      command:
+        - export MARKER=set-by-first-command
+        - echo "read: $MARKER"

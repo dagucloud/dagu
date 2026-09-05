@@ -1,0 +1,9 @@
+steps:
+  - action: ssh.run
+    with:
+      host: 127.0.0.1
+      port: 1
+      user: sshtest
+      password: sshtestpass
+      strict_host_key: false
+      command: echo hi

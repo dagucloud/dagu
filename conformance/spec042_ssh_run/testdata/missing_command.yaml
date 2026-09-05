@@ -1,0 +1,7 @@
+steps:
+  - action: ssh.run
+    with:
+      host: 127.0.0.1
+      port: 12222
+      user: sshtest
+      password: sshtestpass

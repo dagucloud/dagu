@@ -1,0 +1,6 @@
+steps:
+  - action: ssh.run
+    with:
+      user: sshtest
+      password: sshtestpass
+      command: echo hi
