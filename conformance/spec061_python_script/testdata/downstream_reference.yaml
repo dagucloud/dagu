@@ -1,0 +1,14 @@
+steps:
+  - id: compute
+    action: python-script@v1
+    with:
+      input:
+        version: "1.2.3"
+      script: |
+        return {"tag": "v" + input["version"]}
+  - id: print_bare
+    depends: compute
+    run: echo "bare tag is ${compute.outputs.result.tag}"
+  - id: print_strict
+    depends: compute
+    run: echo "strict=${steps.compute.outputs.result}"

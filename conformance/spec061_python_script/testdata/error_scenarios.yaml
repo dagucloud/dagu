@@ -1,0 +1,28 @@
+steps:
+  - id: raises
+    action: python-script@v1
+    with:
+      script: "raise ValueError('boom')"
+  - id: syntax_err
+    action: python-script@v1
+    with:
+      script: "this is not valid python {{{"
+  - id: missing_script
+    action: python-script@v1
+    with:
+      input:
+        x: 1
+  - id: times_out
+    action: python-script@v1
+    with:
+      timeoutSeconds: 1
+      script: |
+        import time
+        time.sleep(5)
+        return "done"
+  - id: bad_requirement
+    action: python-script@v1
+    with:
+      requirements:
+        - this-package-definitely-does-not-exist-xyz123==1.0.0
+      script: "return 1"

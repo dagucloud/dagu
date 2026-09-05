@@ -1,0 +1,59 @@
+env:
+  - MY_VAR: from-env
+steps:
+  - id: basic
+    action: python-script@v1
+    with:
+      script: "return 1 + 1"
+
+  - id: input_print
+    depends: basic
+    action: python-script@v1
+    with:
+      input:
+        name: World
+        count: 3
+      script: |
+        import sys
+        print("logging a line")
+        print("erroring a line", file=sys.stderr)
+        return {"greeting": "Hello, " + input["name"], "doubled": input["count"] * 2}
+
+  - id: env_access
+    depends: input_print
+    action: python-script@v1
+    with:
+      script: |
+        return {"fromEnv": env.get("MY_VAR")}
+
+  - id: params_mirror
+    depends: env_access
+    action: python-script@v1
+    with:
+      input:
+        x: 1
+      script: |
+        return {"hasScript": "script" in params, "input": params.get("input")}
+
+  - id: dollar_substitution
+    depends: params_mirror
+    action: python-script@v1
+    with:
+      script: |
+        return {"dollarVar": "$MY_VAR"}
+
+  - id: requirements_and_await
+    depends: dollar_substitution
+    action: python-script@v1
+    with:
+      input:
+        version: "2.3.4"
+        services: ["api", "worker", "scheduler"]
+      requirements:
+        - packaging==25.0
+      script: |
+        import asyncio
+        from packaging.version import Version
+        await asyncio.sleep(0)
+        version = Version(input["version"])
+        return {"major": version.major, "serviceCount": len(input["services"])}

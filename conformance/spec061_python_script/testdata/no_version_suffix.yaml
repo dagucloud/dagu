@@ -1,0 +1,4 @@
+steps:
+  - action: python-script
+    with:
+      script: "return 1"
