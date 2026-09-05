@@ -1,0 +1,8 @@
+env:
+  - HTTPS_URL: ${HTTPS_URL}
+steps:
+  - action: http.request
+    with:
+      method: GET
+      url: $HTTPS_URL/get
+      skip_tls_verify: true

@@ -1,0 +1,5 @@
+steps:
+  - action: http.request
+    with:
+      method: ""
+      url: http://127.0.0.1:1/unused

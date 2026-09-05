@@ -1,0 +1,8 @@
+steps:
+  - action: http.request
+    with:
+      method: POST
+      url: http://127.0.0.1:1/unused
+      body: some body
+      form:
+        field1: value1

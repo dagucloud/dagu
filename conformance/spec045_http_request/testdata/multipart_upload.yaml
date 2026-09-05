@@ -1,0 +1,12 @@
+working_dir: .
+env:
+  - HTTP_URL: ${HTTP_URL}
+steps:
+  - action: http.request
+    with:
+      method: POST
+      url: $HTTP_URL/multipart
+      form:
+        field1: form-value
+      files:
+        upload: upload.txt

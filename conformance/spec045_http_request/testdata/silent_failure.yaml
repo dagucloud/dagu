@@ -1,0 +1,8 @@
+env:
+  - HTTP_URL: ${HTTP_URL}
+steps:
+  - action: http.request
+    with:
+      method: GET
+      url: $HTTP_URL/fail
+      silent: true

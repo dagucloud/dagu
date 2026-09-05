@@ -1,0 +1,8 @@
+env:
+  - HTTP_URL: ${HTTP_URL}
+steps:
+  - action: http.request
+    with:
+      method: POST
+      url: $HTTP_URL/post
+      body: request body content
