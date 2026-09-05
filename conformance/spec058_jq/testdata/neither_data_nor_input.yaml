@@ -1,0 +1,4 @@
+steps:
+  - action: jq.filter
+    with:
+      filter: "."

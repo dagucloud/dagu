@@ -1,0 +1,5 @@
+steps:
+  - action: jq.filter
+    with:
+      data:
+        a: 1

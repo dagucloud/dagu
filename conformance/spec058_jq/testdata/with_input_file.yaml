@@ -1,0 +1,6 @@
+working_dir: .
+steps:
+  - action: jq.filter
+    with:
+      filter: ".city"
+      input: data.json

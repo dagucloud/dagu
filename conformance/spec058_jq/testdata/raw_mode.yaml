@@ -1,0 +1,7 @@
+steps:
+  - action: jq.filter
+    with:
+      filter: ".name"
+      raw: true
+      data:
+        name: World

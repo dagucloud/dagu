@@ -1,0 +1,6 @@
+steps:
+  - action: jq.filter
+    with:
+      filter: ".foo["
+      data:
+        foo: [1, 2, 3]

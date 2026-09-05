@@ -1,0 +1,5 @@
+steps:
+  - action: jq.filter
+    with:
+      filter: ".[] | .foo"
+      data: [{"foo": "ok1"}, "not-an-object", {"foo": "ok2"}]

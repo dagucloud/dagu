@@ -1,0 +1,7 @@
+steps:
+  - action: jq.filter
+    with:
+      filter: ".name"
+      data:
+        name: World
+        age: 30

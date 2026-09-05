@@ -1,0 +1,7 @@
+steps:
+  - action: jq.filter
+    with:
+      filter: ".missing"
+      raw: true
+      data:
+        a: 1

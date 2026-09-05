@@ -1,0 +1,8 @@
+env:
+  - FIELD: name
+steps:
+  - action: jq.filter
+    with:
+      filter: ".$FIELD"
+      data:
+        name: Resolved

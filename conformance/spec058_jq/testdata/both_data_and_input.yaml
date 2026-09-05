@@ -1,0 +1,7 @@
+steps:
+  - action: jq.filter
+    with:
+      filter: "."
+      data:
+        a: 1
+      input: somefile.json
