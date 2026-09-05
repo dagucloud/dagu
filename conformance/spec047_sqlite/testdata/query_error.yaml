@@ -1,0 +1,5 @@
+steps:
+  - action: sqlite.query
+    with:
+      dsn: ":memory:"
+      query: "SELECT * FROM this_table_does_not_exist"

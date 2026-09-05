@@ -1,0 +1,5 @@
+steps:
+  - action: sqlite.query
+    with:
+      dsn: "file:persist.db"
+      query: "CREATE TABLE t(id int); INSERT INTO t VALUES (7)"

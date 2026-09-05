@@ -1,0 +1,5 @@
+steps:
+  - action: sqlite.query
+    with:
+      dsn: "file:import_conflict.db"
+      query: "SELECT id, name FROM import_conflict_test ORDER BY id"

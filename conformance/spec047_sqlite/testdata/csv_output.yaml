@@ -1,0 +1,15 @@
+steps:
+  - name: setup
+    action: sqlite.query
+    with:
+      dsn: "file:csv_output.db"
+      query: "CREATE TABLE t(id int, name text); INSERT INTO t VALUES (1, 'alice'), (2, NULL)"
+  - name: read
+    depends: setup
+    action: sqlite.query
+    with:
+      dsn: "file:csv_output.db"
+      query: "SELECT id, name FROM t ORDER BY id"
+      output_format: csv
+      headers: true
+      null_string: "N/A"

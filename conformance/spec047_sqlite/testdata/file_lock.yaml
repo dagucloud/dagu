@@ -1,0 +1,6 @@
+steps:
+  - action: sqlite.query
+    with:
+      dsn: "file:locked.db"
+      file_lock: true
+      query: "SELECT 1"

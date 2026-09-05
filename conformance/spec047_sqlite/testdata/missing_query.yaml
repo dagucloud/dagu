@@ -1,0 +1,4 @@
+steps:
+  - action: sqlite.query
+    with:
+      dsn: ":memory:"

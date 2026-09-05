@@ -1,0 +1,4 @@
+steps:
+  - action: sqlite.query
+    with:
+      query: "SELECT 1"

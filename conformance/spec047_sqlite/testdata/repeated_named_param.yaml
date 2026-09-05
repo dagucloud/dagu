@@ -1,0 +1,7 @@
+steps:
+  - action: sqlite.query
+    with:
+      dsn: ":memory:"
+      query: "SELECT :x AS a, :x AS b"
+      params:
+        x: 5

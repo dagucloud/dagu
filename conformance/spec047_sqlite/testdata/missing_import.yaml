@@ -1,0 +1,4 @@
+steps:
+  - action: sqlite.import
+    with:
+      dsn: ":memory:"

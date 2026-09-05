@@ -1,0 +1,8 @@
+steps:
+  - action: sqlite.query
+    with:
+      dsn: ":memory:"
+      query: "SELECT :a || :b AS combined"
+      params:
+        a: foo
+        b: bar

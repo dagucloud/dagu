@@ -1,0 +1,13 @@
+steps:
+  - name: setup
+    action: sqlite.query
+    with:
+      dsn: "file:max_rows.db"
+      query: "CREATE TABLE t(id int); INSERT INTO t VALUES (1), (2), (3), (4), (5)"
+  - name: read
+    depends: setup
+    action: sqlite.query
+    with:
+      dsn: "file:max_rows.db"
+      query: "SELECT id FROM t ORDER BY id"
+      max_rows: 2

@@ -1,0 +1,14 @@
+steps:
+  - name: setup
+    action: sqlite.query
+    with:
+      dsn: "file:import_basic.db"
+      query: "CREATE TABLE import_basic_test(id int primary key, name text)"
+  - name: import
+    depends: setup
+    action: sqlite.import
+    with:
+      dsn: "file:import_basic.db"
+      import:
+        input_file: import_basic.csv
+        table: import_basic_test

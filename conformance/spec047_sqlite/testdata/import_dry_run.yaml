@@ -1,0 +1,15 @@
+steps:
+  - name: setup
+    action: sqlite.query
+    with:
+      dsn: "file:import_dry_run.db"
+      query: "CREATE TABLE import_dry_run_test(id int primary key, name text)"
+  - name: import
+    depends: setup
+    action: sqlite.import
+    with:
+      dsn: "file:import_dry_run.db"
+      import:
+        input_file: import_dry_run.csv
+        table: import_dry_run_test
+        dry_run: true

@@ -1,0 +1,12 @@
+steps:
+  - name: write
+    action: sqlite.query
+    with:
+      dsn: ":memory:"
+      query: "CREATE TABLE t(id int); INSERT INTO t VALUES (1)"
+  - name: read
+    depends: write
+    action: sqlite.query
+    with:
+      dsn: ":memory:"
+      query: "SELECT * FROM t"

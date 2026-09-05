@@ -1,0 +1,15 @@
+steps:
+  - name: setup
+    action: sqlite.query
+    with:
+      dsn: "file:import_conflict.db"
+      query: "CREATE TABLE import_conflict_test(id int primary key, name text); INSERT INTO import_conflict_test(id, name) VALUES (1, 'original')"
+  - name: import
+    depends: setup
+    action: sqlite.import
+    with:
+      dsn: "file:import_conflict.db"
+      import:
+        input_file: import_conflict.csv
+        table: import_conflict_test
+        on_conflict: ignore

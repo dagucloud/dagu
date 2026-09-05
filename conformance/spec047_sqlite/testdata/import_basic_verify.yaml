@@ -1,0 +1,5 @@
+steps:
+  - action: sqlite.query
+    with:
+      dsn: "file:import_basic.db"
+      query: "SELECT count(*) AS n FROM import_basic_test"

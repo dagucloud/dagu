@@ -1,0 +1,6 @@
+steps:
+  - action: sqlite.query
+    with:
+      dsn: ":memory:"
+      query: "SELECT 1 AS ok"
+      advisory_lock: some-lock-name
