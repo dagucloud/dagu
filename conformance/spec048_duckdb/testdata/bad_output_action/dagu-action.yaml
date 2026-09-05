@@ -1,0 +1,10 @@
+apiVersion: v1alpha1
+name: bad-output-action
+dag: workflow.yaml
+outputs:
+  type: object
+  additionalProperties: false
+  required: [result]
+  properties:
+    result:
+      type: string

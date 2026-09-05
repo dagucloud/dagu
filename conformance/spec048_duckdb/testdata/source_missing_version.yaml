@@ -1,0 +1,2 @@
+steps:
+  - action: "source:./foo"

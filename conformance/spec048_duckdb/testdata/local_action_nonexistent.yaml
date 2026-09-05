@@ -1,0 +1,3 @@
+working_dir: .
+steps:
+  - action: "source:./does_not_exist@v1"

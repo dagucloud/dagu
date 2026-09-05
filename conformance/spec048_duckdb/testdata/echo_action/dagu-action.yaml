@@ -1,0 +1,18 @@
+apiVersion: v1alpha1
+name: echo-action
+dag: workflow.yaml
+inputs:
+  type: object
+  additionalProperties: false
+  required: [message]
+  properties:
+    message:
+      type: string
+      minLength: 1
+outputs:
+  type: object
+  additionalProperties: false
+  required: [echoed]
+  properties:
+    echoed:
+      type: string

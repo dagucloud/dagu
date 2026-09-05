@@ -1,0 +1,8 @@
+type: graph
+
+steps:
+  - id: noop
+    run: printf 'unexpected'
+    stdout:
+      outputs:
+        field: wrong_field

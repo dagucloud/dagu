@@ -1,0 +1,6 @@
+working_dir: .
+steps:
+  - action: "source:./echo_action@v1"
+    with:
+      message: hi
+      unexpected_field: true
