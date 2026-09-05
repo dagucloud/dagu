@@ -1,0 +1,10 @@
+env:
+  - PG_DSN: ${PG_DSN}
+steps:
+  - action: postgres.import
+    with:
+      dsn: $PG_DSN
+      import:
+        input_file: import_dry_run.csv
+        table: import_dry_run_test
+        dry_run: true

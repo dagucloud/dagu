@@ -1,0 +1,10 @@
+env:
+  - PG_DSN: ${PG_DSN}
+steps:
+  - action: postgres.query
+    with:
+      dsn: $PG_DSN
+      query: "SELECT $1::int + $2::int AS sum"
+      params:
+        - 2
+        - 3

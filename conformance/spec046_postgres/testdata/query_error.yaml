@@ -1,0 +1,7 @@
+env:
+  - PG_DSN: ${PG_DSN}
+steps:
+  - action: postgres.query
+    with:
+      dsn: $PG_DSN
+      query: "SELECT * FROM this_table_does_not_exist"

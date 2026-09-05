@@ -1,0 +1,10 @@
+env:
+  - PG_DSN: ${PG_DSN}
+steps:
+  - action: postgres.query
+    with:
+      dsn: $PG_DSN
+      query: "SELECT id, name FROM csv_output_test ORDER BY id"
+      output_format: csv
+      headers: true
+      null_string: "N/A"

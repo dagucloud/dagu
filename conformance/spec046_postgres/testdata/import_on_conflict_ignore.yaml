@@ -1,0 +1,11 @@
+env:
+  - PG_DSN: ${PG_DSN}
+steps:
+  - action: postgres.import
+    with:
+      dsn: $PG_DSN
+      import:
+        input_file: import_conflict.csv
+        table: import_conflict_test
+        on_conflict: ignore
+        conflict_target: id

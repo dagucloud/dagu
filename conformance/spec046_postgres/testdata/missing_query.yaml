@@ -1,0 +1,4 @@
+steps:
+  - action: postgres.query
+    with:
+      dsn: "postgres://unused/unused"

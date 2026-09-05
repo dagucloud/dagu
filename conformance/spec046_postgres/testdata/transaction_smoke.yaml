@@ -1,0 +1,9 @@
+env:
+  - PG_DSN: ${PG_DSN}
+steps:
+  - action: postgres.query
+    with:
+      dsn: $PG_DSN
+      query: "INSERT INTO transaction_smoke_test(id) VALUES (1)"
+      transaction: true
+      isolation_level: read_committed

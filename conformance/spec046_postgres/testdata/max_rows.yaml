@@ -1,0 +1,8 @@
+env:
+  - PG_DSN: ${PG_DSN}
+steps:
+  - action: postgres.query
+    with:
+      dsn: $PG_DSN
+      query: "SELECT id FROM max_rows_test ORDER BY id"
+      max_rows: 2

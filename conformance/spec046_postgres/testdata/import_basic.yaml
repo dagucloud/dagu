@@ -1,0 +1,9 @@
+env:
+  - PG_DSN: ${PG_DSN}
+steps:
+  - action: postgres.import
+    with:
+      dsn: $PG_DSN
+      import:
+        input_file: import_basic.csv
+        table: import_basic_test

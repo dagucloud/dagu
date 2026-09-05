@@ -1,0 +1,7 @@
+env:
+  - PG_DSN: ${PG_DSN}
+steps:
+  - action: postgres.query
+    with:
+      dsn: $PG_DSN
+      query: "INSERT INTO insert_returning_test(id, name) VALUES (1, 'widget') RETURNING id, name"

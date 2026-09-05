@@ -1,0 +1,4 @@
+steps:
+  - action: postgres.query
+    with:
+      query: "SELECT 1"

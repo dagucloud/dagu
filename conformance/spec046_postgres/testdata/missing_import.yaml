@@ -1,0 +1,4 @@
+steps:
+  - action: postgres.import
+    with:
+      dsn: "postgres://unused/unused"
