@@ -1,0 +1,26 @@
+working_dir: .
+steps:
+  - id: c
+    action: archive.create
+    with:
+      source: srcdir
+      destination: out.zip
+  - id: e
+    depends: c
+    action: archive.extract
+    with:
+      source: out.zip
+      destination: extracted
+      include:
+        - "**/*.txt"
+  - id: check_keep
+    depends: e
+    action: file.stat
+    with:
+      path: extracted/srcdir/keep.txt
+  - id: check_skip
+    depends: check_keep
+    action: file.stat
+    with:
+      path: extracted/srcdir/skip.log
+      missing_ok: true

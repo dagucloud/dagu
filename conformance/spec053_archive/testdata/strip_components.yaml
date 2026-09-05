@@ -1,0 +1,19 @@
+working_dir: .
+steps:
+  - id: c
+    action: archive.create
+    with:
+      source: srcdir
+      destination: out.zip
+  - id: e
+    depends: c
+    action: archive.extract
+    with:
+      source: out.zip
+      destination: extracted
+      strip_components: 2
+  - id: r
+    depends: e
+    action: file.read
+    with:
+      path: extracted/deep.txt

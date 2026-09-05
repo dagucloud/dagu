@@ -1,0 +1,14 @@
+working_dir: .
+steps:
+  - id: c
+    action: archive.create
+    with:
+      source: a.txt
+      destination: out.zip
+  - id: e
+    depends: c
+    action: archive.extract
+    with:
+      source: out.zip
+      destination: extracted
+      dry_run: true

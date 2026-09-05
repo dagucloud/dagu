@@ -1,0 +1,6 @@
+working_dir: .
+steps:
+  - action: archive.extract
+    with:
+      source: garbage.zip
+      destination: extracted

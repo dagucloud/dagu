@@ -1,0 +1,4 @@
+steps:
+  - action: archive.create
+    with:
+      destination: out.zip

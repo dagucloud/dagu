@@ -1,0 +1,7 @@
+working_dir: .
+steps:
+  - action: archive.create
+    with:
+      source: a.txt
+      destination: out.dat
+      format: zip

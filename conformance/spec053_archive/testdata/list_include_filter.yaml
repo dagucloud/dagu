@@ -1,0 +1,14 @@
+working_dir: .
+steps:
+  - id: c
+    action: archive.create
+    with:
+      source: srcdir
+      destination: out.zip
+  - id: l
+    depends: c
+    action: archive.list
+    with:
+      source: out.zip
+      include:
+        - "**/*.txt"

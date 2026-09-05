@@ -1,0 +1,18 @@
+working_dir: .
+steps:
+  - id: c
+    action: archive.create
+    with:
+      source: srcdir
+      destination: out.tar.gz
+  - id: e
+    depends: c
+    action: archive.extract
+    with:
+      source: out.tar.gz
+      destination: extracted
+  - id: r
+    depends: e
+    action: file.read
+    with:
+      path: extracted/srcdir/nested/deep.txt
