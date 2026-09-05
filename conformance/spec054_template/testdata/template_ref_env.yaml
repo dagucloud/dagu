@@ -1,0 +1,8 @@
+env:
+  - TPL: "Hi {{ .who }}"
+steps:
+  - action: template.render
+    with:
+      template_ref: "${env.TPL}"
+      data:
+        who: Ref

@@ -1,0 +1,7 @@
+steps:
+  - action: template.render
+    with:
+      template: "{{ .name | upper }} | {{ join \",\" .items }} | {{ quote .name }}"
+      data:
+        name: bob
+        items: ["a", "b", "c"]

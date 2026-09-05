@@ -1,0 +1,4 @@
+steps:
+  - action: template.render
+    with:
+      template: "{{ now }}"

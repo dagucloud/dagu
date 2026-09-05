@@ -1,0 +1,8 @@
+env:
+  - FOO: bar
+steps:
+  - action: template.render
+    with:
+      template: "dagu-literal: ${FOO}, go-template: {{ .name }}"
+      data:
+        name: $FOO

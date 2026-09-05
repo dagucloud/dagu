@@ -1,0 +1,4 @@
+steps:
+  - action: template.render
+    with:
+      template_ref: "prefix ${env.FOO} suffix"

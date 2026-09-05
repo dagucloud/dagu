@@ -1,0 +1,5 @@
+steps:
+  - action: template.render
+    with:
+      template: "hi"
+      template_ref: "${env.FOO}"

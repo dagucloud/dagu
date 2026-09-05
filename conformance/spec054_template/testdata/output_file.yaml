@@ -1,0 +1,8 @@
+working_dir: .
+steps:
+  - action: template.render
+    with:
+      template: "Hello, {{ .name }}!"
+      data:
+        name: File
+      output: nested/dir/rendered.txt

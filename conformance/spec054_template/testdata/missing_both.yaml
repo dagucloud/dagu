@@ -1,0 +1,5 @@
+steps:
+  - action: template.render
+    with:
+      data:
+        name: World
