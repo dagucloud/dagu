@@ -1,0 +1,6 @@
+steps:
+  - action: git.checkout
+    with:
+      repository: /tmp/does-not-matter
+      path: work
+      depth: -1

@@ -61,6 +61,7 @@ Workflow authors control the worktree lifecycle explicitly with
 - Step outputs: [Spec 012: Step Outputs](012-step-outputs.md)
 - Step run: [Spec 013: Step Run](013-step-run.md)
 - Built-in run context: [Spec 017: Built-in Run Context](017-built-in-run-context.md)
+- Cloning and checkout: [Spec 055: Git Checkout Action](055-git-checkout.md)
 
 ## Terms
 

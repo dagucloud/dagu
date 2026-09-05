@@ -1,0 +1,7 @@
+steps:
+  - action: git.checkout
+    with:
+      repository: /tmp/does-not-matter
+      path: work
+      ssh_key_path: /tmp/key
+      token: abc

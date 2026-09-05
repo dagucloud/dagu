@@ -1,0 +1,9 @@
+env:
+  - GIT_ORIGIN: ${GIT_ORIGIN}
+working_dir: .
+steps:
+  - action: git.checkout
+    with:
+      repository: $GIT_ORIGIN
+      path: work
+      ref: does-not-exist-branch

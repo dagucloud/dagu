@@ -1,0 +1,22 @@
+env:
+  - GIT_ORIGIN: ${GIT_ORIGIN}
+working_dir: .
+steps:
+  - id: checkout
+    action: git.checkout
+    with:
+      repository: $GIT_ORIGIN
+      path: work
+  - id: mutate_origin
+    depends: checkout
+    run: |
+      cd "$GIT_ORIGIN"
+      echo "v3" > file.txt
+      git add file.txt
+      git commit -q -m commit3
+  - id: recheckout
+    depends: mutate_origin
+    action: git.checkout
+    with:
+      repository: $GIT_ORIGIN
+      path: work

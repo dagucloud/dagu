@@ -1,0 +1,19 @@
+env:
+  - GIT_ORIGIN: ${GIT_ORIGIN}
+working_dir: .
+steps:
+  - id: checkout
+    action: git.checkout
+    with:
+      repository: $GIT_ORIGIN
+      path: work
+  - id: dirty
+    depends: checkout
+    run: echo "dirty" > work/file.txt
+  - id: recheckout
+    depends: dirty
+    action: git.checkout
+    with:
+      repository: $GIT_ORIGIN
+      path: work
+      ref: first

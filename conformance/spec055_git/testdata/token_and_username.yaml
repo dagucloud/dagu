@@ -1,0 +1,7 @@
+steps:
+  - action: git.checkout
+    with:
+      repository: /tmp/does-not-matter
+      path: work
+      token: abc
+      username: bob

@@ -1,0 +1,6 @@
+working_dir: .
+steps:
+  - action: git.checkout
+    with:
+      repository: /nonexistent/does-not-exist-repo
+      path: work

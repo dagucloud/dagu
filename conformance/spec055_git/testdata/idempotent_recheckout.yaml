@@ -1,0 +1,17 @@
+env:
+  - GIT_ORIGIN: ${GIT_ORIGIN}
+working_dir: .
+steps:
+  - id: first_checkout
+    action: git.checkout
+    with:
+      repository: $GIT_ORIGIN
+      path: work
+      ref: first
+  - id: second_checkout
+    depends: first_checkout
+    action: git.checkout
+    with:
+      repository: $GIT_ORIGIN
+      path: work
+      ref: first

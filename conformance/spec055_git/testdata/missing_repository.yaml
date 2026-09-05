@@ -1,0 +1,4 @@
+steps:
+  - action: git.checkout
+    with:
+      path: work

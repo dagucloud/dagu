@@ -40,6 +40,7 @@ It must not be treated as product behavior until implementation catches up.
 | [035: File Dependencies](035-file-dependencies.md) | Implemented |
 | [036: MCP Execute Tool](036-mcp-execute-tool.md) | Implemented |
 | [039: Wait Actions](039-wait.md) | Implemented |
+| [055: Git Checkout Action](055-git-checkout.md) | Implemented |
 
 **Writing guidelines:**
 
