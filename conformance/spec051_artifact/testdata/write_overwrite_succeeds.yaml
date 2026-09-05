@@ -1,0 +1,18 @@
+steps:
+  - id: first
+    action: artifact.write
+    with:
+      path: dup.txt
+      content: first
+  - id: second
+    depends: first
+    action: artifact.write
+    with:
+      path: dup.txt
+      content: second-longer
+      overwrite: true
+  - id: read
+    depends: second
+    action: artifact.read
+    with:
+      path: dup.txt

@@ -1,0 +1,11 @@
+steps:
+  - id: w
+    action: artifact.write
+    with:
+      path: subdir/file.txt
+      content: hi
+  - id: r
+    depends: w
+    action: artifact.read
+    with:
+      path: subdir

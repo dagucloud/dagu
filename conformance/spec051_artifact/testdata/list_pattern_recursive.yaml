@@ -1,0 +1,24 @@
+steps:
+  - id: w1
+    action: artifact.write
+    with:
+      path: a/one.txt
+      content: "1"
+  - id: w2
+    depends: w1
+    action: artifact.write
+    with:
+      path: a/two.log
+      content: "2"
+  - id: w3
+    depends: w2
+    action: artifact.write
+    with:
+      path: b/three.txt
+      content: "3"
+  - id: l
+    depends: w3
+    action: artifact.list
+    with:
+      pattern: "**/*.txt"
+      recursive: true

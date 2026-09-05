@@ -1,0 +1,7 @@
+steps:
+  - action: artifact.write
+    with:
+      path: hello.txt
+      content: hi
+      overwrite: true
+      atomic: false

@@ -1,0 +1,12 @@
+steps:
+  - id: w1
+    action: artifact.write
+    with:
+      path: a/one.txt
+      content: "1"
+  - id: l
+    depends: w1
+    action: artifact.list
+    with:
+      recursive: true
+      include_dirs: true

@@ -1,0 +1,12 @@
+steps:
+  - id: w
+    action: artifact.write
+    with:
+      path: big.txt
+      content: "0123456789"
+  - id: r
+    depends: w
+    action: artifact.read
+    with:
+      path: big.txt
+      max_bytes: 5

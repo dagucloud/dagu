@@ -1,0 +1,4 @@
+steps:
+  - action: artifact.write
+    with:
+      path: hello.txt

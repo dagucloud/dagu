@@ -1,0 +1,15 @@
+steps:
+  - id: w1
+    action: artifact.write
+    with:
+      path: top.txt
+      content: "1"
+  - id: w2
+    depends: w1
+    action: artifact.write
+    with:
+      path: nested/deep.txt
+      content: "2"
+  - id: l
+    depends: w2
+    action: artifact.list
