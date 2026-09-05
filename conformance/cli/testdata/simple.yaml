@@ -1,0 +1,4 @@
+working_dir: .
+steps:
+  - id: hello
+    run: printf 'hi\n' > hello.out

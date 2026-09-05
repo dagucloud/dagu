@@ -1,0 +1,4 @@
+working_dir: .
+steps:
+  - id: read_var
+    run: printf '%s\n' "${env.MY_VAR}" > profile_var.out

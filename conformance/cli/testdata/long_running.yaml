@@ -1,0 +1,7 @@
+working_dir: .
+steps:
+  - id: mark_started
+    run: printf 'started\n' > started.out
+  - id: sleep
+    depends: mark_started
+    run: sleep 30

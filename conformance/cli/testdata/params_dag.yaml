@@ -1,0 +1,8 @@
+params:
+  - name: greeting
+    type: string
+    required: true
+working_dir: .
+steps:
+  - id: use_param
+    run: printf '%s\n' "${params.greeting}" > params_dag.out

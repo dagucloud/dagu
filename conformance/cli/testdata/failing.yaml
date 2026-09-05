@@ -1,0 +1,6 @@
+working_dir: .
+steps:
+  - id: boom
+    run: |
+      printf 'attempt\n' >> attempts.out
+      exit 1
