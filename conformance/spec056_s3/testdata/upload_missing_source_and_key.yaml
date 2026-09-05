@@ -1,0 +1,4 @@
+steps:
+  - action: s3.upload
+    with:
+      bucket: placeholder-bucket

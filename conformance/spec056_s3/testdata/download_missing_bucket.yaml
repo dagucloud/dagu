@@ -1,0 +1,14 @@
+env:
+  - S3_ENDPOINT: ${S3_ENDPOINT}
+working_dir: .
+s3:
+  endpoint: $S3_ENDPOINT
+  force_path_style: true
+  access_key_id: minioadmin
+  secret_access_key: minioadminpass
+  bucket: no-such-bucket-conformance
+steps:
+  - action: s3.download
+    with:
+      key: whatever.txt
+      destination: out.txt

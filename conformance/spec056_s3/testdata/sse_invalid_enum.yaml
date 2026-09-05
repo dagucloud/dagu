@@ -1,0 +1,7 @@
+steps:
+  - action: s3.upload
+    with:
+      bucket: placeholder-bucket
+      key: hello.txt
+      source: source.txt
+      sse: not-a-real-value

@@ -1,0 +1,5 @@
+steps:
+  - action: s3.list
+    with:
+      bucket: placeholder-bucket
+      output_format: xml

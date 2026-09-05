@@ -1,0 +1,3 @@
+steps:
+  - action: s3.list
+    with: {}

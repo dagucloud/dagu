@@ -1,0 +1,4 @@
+steps:
+  - action: s3.delete
+    with:
+      bucket: placeholder-bucket
