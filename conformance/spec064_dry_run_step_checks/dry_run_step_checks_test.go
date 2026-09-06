@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package spec038_dry_run_step_checks_test
+package spec064_dry_run_step_checks_test
 
 import (
 	"runtime"
@@ -10,7 +10,7 @@ import (
 	"github.com/dagucloud/dagu/v2/conformance/harness"
 )
 
-func TestDryRunAcceptsResolvableShellAndCommand(t *testing.T) {
+func TestDryAcceptsCommandAndShell(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -29,34 +29,33 @@ func TestDryRunAcceptsResolvableShellAndCommand(t *testing.T) {
 			dagu := harness.NewRunner(t)
 			result := dagu.Run("dry", tc.file)
 			result.ExpectExitCode(0)
-			// Dry-run must still perform no real actions: the step's own output
-			// file must not be created even though the check now succeeds.
+			// Dry validation must not create step output files.
 			dagu.ExpectNoFile(tc.output)
 		})
 	}
 }
 
-func TestDryRunRejectsUnresolvableCommand(t *testing.T) {
+func TestDryRejectsMissingCommand(t *testing.T) {
 	t.Parallel()
 
 	dagu := harness.NewRunner(t)
 	result := dagu.Run("dry", "missing_command.yaml")
 	result.ExpectNonZeroExitCode()
-	result.ExpectStderrContains("run")
+	result.ExpectStderrContains("dagu-conformance-missing-command-9f3c2b1a")
 	dagu.ExpectNoFile("missing-command.out")
 }
 
-func TestDryRunRejectsUnresolvableShell(t *testing.T) {
+func TestDryRejectsMissingShell(t *testing.T) {
 	t.Parallel()
 
 	dagu := harness.NewRunner(t)
 	result := dagu.Run("dry", "missing_shell.yaml")
 	result.ExpectNonZeroExitCode()
-	result.ExpectStderrContains("shell")
+	result.ExpectStderrContains("dagu-conformance-missing-shell-9f3c2b1a")
 	dagu.ExpectNoFile("missing-shell.out")
 }
 
-func TestDryRunChecksScriptExecutePermission(t *testing.T) {
+func TestDryChecksExecutePermission(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("execute permission bits are not meaningful on Windows")
 	}
@@ -83,7 +82,7 @@ func TestDryRunChecksScriptExecutePermission(t *testing.T) {
 
 		result := dagu.Run("dry", "script_permission.yaml")
 		result.ExpectNonZeroExitCode()
-		result.ExpectStderrContains("run")
+		result.ExpectStderrContains("step.sh")
 		dagu.ExpectNoFile("script-ran.out")
 	})
 }
