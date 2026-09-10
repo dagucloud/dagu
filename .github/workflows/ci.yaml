@@ -120,7 +120,7 @@ jobs:
             esac
 
             case "${file}" in
-              scripts/installer.cmd|scripts/installer.ps1|.github/workflows/ci.yaml)
+              scripts/installer.cmd|scripts/installer.ps1|scripts/installer.iss|.github/workflows/ci.yaml)
                 windows_installer_changed=true
                 ;;
             esac
@@ -449,6 +449,25 @@ jobs:
           & ([scriptblock]::Create($source)) `
             -NoPrompt -DryRun -Uninstall `
             -InstallDir "$env:RUNNER_TEMP\dagu-uninstall"
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Build Inno Setup installer
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          go build -trimpath -o dist\dagu-windows-amd64.exe .\cmd
+          choco install innosetup --no-progress --yes
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
+            /DAppVersion=0.0.0 `
+            /DBinaryPath=dist\dagu-windows-amd64.exe `
+            scripts\installer.iss
+          if ($LASTEXITCODE -ne 0) {
+            throw "Inno Setup compilation failed with exit code $LASTEXITCODE."
+          }
 
       - name: Test CMD installer
         shell: cmd
