@@ -15,6 +15,7 @@
 #define AppExeName "dagu.exe"
 
 [Setup]
+SourceDir=..
 AppId={{A7E7B5F3-93B2-4D5E-9D7A-5A4A96D2B8A3}
 AppName={#AppName}
 AppVersion={#AppVersion}
@@ -27,6 +28,7 @@ DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
 ArchitecturesInstallIn64BitMode=x64compatible
+ArchitecturesAllowed=x64compatible
 OutputBaseFilename=dagu-{#AppVersion}-setup
 Uninstallable=yes
 WizardStyle=modern
@@ -117,11 +119,23 @@ end;
 
 procedure AddInstallPath;
 var
-  Path, InstallPath: string;
+  Path, InstallPath, PreviousPath: string;
 begin
   InstallPath := ExpandConstant('{app}');
   if not RegQueryStringValue(HKLM, EnvironmentKey, 'Path', Path) then begin
     Path := '';
+  end;
+  if RegQueryStringValue(HKLM, InstallerKey, PathMarker, PreviousPath) and
+     (CompareText(PreviousPath, InstallPath) <> 0) then begin
+    Path := RemovePathEntry(Path, PreviousPath);
+    RegWriteExpandStringValue(HKLM, EnvironmentKey, 'Path', Path);
+    RegDeleteValue(HKLM, InstallerKey, PathMarker);
+    BroadcastEnvironmentChange;
+  end;
+  if PathHasEntry(Path, InstallPath) then begin
+    RegDeleteValue(HKLM, InstallerKey, PathMarker);
+    RegDeleteKeyIfEmpty(HKLM, InstallerKey);
+    exit;
   end;
   if not PathHasEntry(Path, InstallPath) then begin
     if Path <> '' then begin
