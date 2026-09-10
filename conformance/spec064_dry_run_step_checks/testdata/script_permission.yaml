@@ -1,0 +1,5 @@
+working_dir: .
+steps:
+  - id: run_script
+    run: ./scripts/step.sh
+    stdout: script-ran.out
