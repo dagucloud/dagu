@@ -318,6 +318,9 @@ function Validate-UninstallArgs {
     if ($Script:InstallerBoundParameterNames -contains "Service") {
         throw "-Service is only supported during install. Use -ServiceScope to narrow service uninstall discovery."
     }
+    if ($ServiceOnly -and ($PurgeData -or $RemoveSkill)) {
+        throw "-ServiceOnly cannot be combined with -PurgeData or -RemoveSkill."
+    }
     if ($ServiceScope -and $ServiceScope -ne "system") {
         Write-WarnMessage "Windows uninstall ignores -ServiceScope user. The Dagu service is machine-scoped when installed."
     }
@@ -523,6 +526,14 @@ function Discover-UninstallArtifacts {
             $script:ServiceConfigXml = Join-Path $InstallDir "dagu-service.xml"
             $script:DaguExe = $explicitExe
         }
+    }
+
+    if ($ServiceOnly) {
+        $script:UninstallInstallPaths = @()
+        $script:UninstallPathScopes = @()
+        $script:UninstallDaguHomes = @()
+        $script:UninstallSkillDirs = @()
+        $script:UninstallCopilotFiles = @()
     }
 }
 
