@@ -309,6 +309,7 @@ describe('DAGDetailsSidePanel', () => {
       'manual-run',
       undefined,
       undefined,
+      undefined,
       undefined
     );
     expect(mutate).toHaveBeenCalled();
