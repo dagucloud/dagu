@@ -243,7 +243,13 @@ describe('APIKeyFormModal', () => {
    * Drives the modal through a successful create so the tests can act on the
    * one screen where the plaintext key exists.
    */
-  async function createKey({ mcpSurface }: { mcpSurface: boolean }) {
+  async function createKey({
+    mcpSurface,
+    remoteNode = 'local',
+  }: {
+    mcpSurface: boolean;
+    remoteNode?: string;
+  }) {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
@@ -254,7 +260,9 @@ describe('APIKeyFormModal', () => {
 
     render(
       <ConfigContext.Provider value={makeConfig()}>
-        <AppBarContext.Provider value={appBarValue}>
+        <AppBarContext.Provider
+          value={{ ...appBarValue, selectedRemoteNode: remoteNode }}
+        >
           <APIKeyFormModal
             open
             onClose={() => undefined}
@@ -289,8 +297,14 @@ describe('APIKeyFormModal', () => {
     expect(prompt).toContain('Authorization: Bearer dagu_test_secret');
   });
 
-  it('omits the setup prompt for a key that does not accept the MCP surface', async () => {
-    await createKey({ mcpSurface: false });
+  it.each([
+    ['the key does not accept the MCP surface', { mcpSurface: false }],
+    [
+      'the key was created on a remote node',
+      { mcpSurface: true, remoteNode: 'worker-1' },
+    ],
+  ])('omits the setup prompt when %s', async (_label, options) => {
+    await createKey(options);
 
     expect(
       screen.queryByRole('button', { name: 'Copy MCP setup prompt' })

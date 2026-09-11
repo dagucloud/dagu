@@ -59,6 +59,7 @@ export function APIKeyFormModal({
 }: APIKeyFormModalProps) {
   const config = useConfig();
   const appBarContext = useContext(AppBarContext);
+  const remoteNode = appBarContext.selectedRemoteNode || 'local';
   const isEditing = !!apiKey;
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -141,7 +142,6 @@ export function APIKeyFormModal({
 
     try {
       const token = localStorage.getItem(TOKEN_KEY);
-      const remoteNode = appBarContext.selectedRemoteNode || 'local';
       const url = isEditing
         ? `${config.apiURL}/api-keys/${apiKey.id}?remoteNode=${remoteNode}`
         : `${config.apiURL}/api-keys?remoteNode=${remoteNode}`;
@@ -206,6 +206,10 @@ export function APIKeyFormModal({
     });
   };
 
+  const canSetUpMCP =
+    remoteNode === 'local' &&
+    allowedSurfaces.includes(APIKeyAllowedSurfaces.mcp);
+
   // Show the key after creation
   if (createdKey) {
     return (
@@ -240,10 +244,11 @@ export function APIKeyFormModal({
                 )}
               </Button>
             </div>
-            {allowedSurfaces.includes(APIKeyAllowedSurfaces.mcp) && (
+            {canSetUpMCP && (
               <Button
                 variant="outline"
                 className="w-full"
+                aria-live="polite"
                 onClick={() =>
                   void promptCopy.copy(
                     buildMCPSetupPrompt(
@@ -258,7 +263,11 @@ export function APIKeyFormModal({
                 ) : (
                   <Copy className="h-4 w-4" />
                 )}
-                <I18nText text={'Copy MCP setup prompt'} />
+                {promptCopy.copied ? (
+                  <I18nText text={'Copied'} />
+                ) : (
+                  <I18nText text={'Copy MCP setup prompt'} />
+                )}
               </Button>
             )}
           </div>

@@ -25,7 +25,8 @@ export function buildMCPServerURL(basePath: string | undefined): string {
 export function buildMCPSetupPrompt(mcpURL: string, apiKey: string): string {
   return `Set up the Dagu MCP server for this project.
 
-- Transport: Streamable HTTP
+- Name: dagu
+- Transport: Streamable HTTP (Dagu exposes no SSE endpoint)
 - URL: ${mcpURL}
 - Auth header: Authorization: Bearer ${apiKey}
 
