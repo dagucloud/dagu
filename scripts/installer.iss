@@ -41,6 +41,7 @@ WizardStyle=modern
 [Tasks]
 Name: "path"; Description: "Add Dagu to the system PATH"; GroupDescription: "Additional options:"
 Name: "service"; Description: "Install Dagu as a Windows service (runs start-all in the background)"; GroupDescription: "Background service:"
+Name: "startall"; Description: "Add a Dagu start-all shortcut (not needed when the service is installed)"; GroupDescription: "Dagu commands:"; Flags: unchecked
 Name: "server"; Description: "Add a Dagu server shortcut"; GroupDescription: "Dagu commands:"
 Name: "scheduler"; Description: "Add a Dagu scheduler shortcut"; GroupDescription: "Dagu commands:"
 Name: "coordinator"; Description: "Add a Dagu coordinator shortcut"; GroupDescription: "Dagu commands:"
@@ -51,7 +52,7 @@ Source: "{#BinaryPath}"; DestDir: "{app}"; DestName: "{#AppExeName}"; Flags: ign
 Source: "scripts\installer.ps1"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\Dagu start-all"; Filename: "{app}\{#AppExeName}"; Parameters: "start-all"; WorkingDir: "{app}"; Tasks: service
+Name: "{group}\Dagu start-all"; Filename: "{app}\{#AppExeName}"; Parameters: "start-all"; WorkingDir: "{app}"; Tasks: startall
 Name: "{group}\Dagu server"; Filename: "{app}\{#AppExeName}"; Parameters: "server"; WorkingDir: "{app}"; Tasks: server
 Name: "{group}\Dagu scheduler"; Filename: "{app}\{#AppExeName}"; Parameters: "scheduler"; WorkingDir: "{app}"; Tasks: scheduler
 Name: "{group}\Dagu coordinator"; Filename: "{app}\{#AppExeName}"; Parameters: "coordinator"; WorkingDir: "{app}"; Tasks: coordinator
