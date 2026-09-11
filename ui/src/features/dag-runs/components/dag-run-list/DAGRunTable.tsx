@@ -384,6 +384,15 @@ function DAGRunTable({
               </div>
             </div>
 
+            {dagRun.params && (
+              <div
+                className="mb-2 truncate font-mono text-[11px] text-muted-foreground"
+                title={dagRun.params}
+              >
+                {dagRun.params}
+              </div>
+            )}
+
             {/* DAG-run ID and Trigger */}
             <div className="flex items-center justify-between text-xs mb-2 min-w-0">
               <span className="font-mono text-muted-foreground truncate">
@@ -564,14 +573,24 @@ function DAGRunTable({
                 </TableCell>
               )}
               <TableCell className="py-1 px-2 font-normal">
-                <div className="flex items-center gap-2">
-                  <Link
-                    to={`/dag-runs/${dagRun.name}/${dagRun.dagRunId}`}
-                    className="min-w-0 truncate hover:underline"
-                    onClick={(event) => event.stopPropagation()}
-                  >
-                    {dagRun.name}
-                  </Link>
+                <div className="flex min-w-0 items-start gap-2">
+                  <div className="min-w-0">
+                    <Link
+                      to={`/dag-runs/${dagRun.name}/${dagRun.dagRunId}`}
+                      className="block truncate hover:underline"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      {dagRun.name}
+                    </Link>
+                    {dagRun.params && (
+                      <div
+                        className="max-w-[320px] truncate font-mono text-[11px] text-muted-foreground"
+                        title={dagRun.params}
+                      >
+                        {dagRun.params}
+                      </div>
+                    )}
+                  </div>
                   {onViewArtifacts && (
                     <DAGRunArtifactsButton
                       dagRun={dagRun}

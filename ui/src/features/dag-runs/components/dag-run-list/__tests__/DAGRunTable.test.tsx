@@ -93,6 +93,84 @@ describe('DAGRunTable', () => {
     expect(screen.getByText('No DAG runs found')).toBeInTheDocument();
   });
 
+  it('shows run parameters below the DAG name', () => {
+    render(
+      <MemoryRouter>
+        <ConfigContext.Provider value={config}>
+          <DAGRunTable
+            dagRuns={[
+              {
+                dagRunId: 'run-1',
+                name: 'parameterized-dag',
+                params: 'PR_URL=https://github.com/example/project/pull/123',
+                status: Status.Success,
+                statusLabel: StatusLabel.succeeded,
+                artifactsAvailable: false,
+                autoRetryCount: 0,
+                triggerType: TriggerType.manual,
+                queuedAt: '2026-03-13T10:00:30Z',
+                startedAt: '2026-03-13T10:01:00Z',
+                finishedAt: '2026-03-13T10:02:00Z',
+              },
+            ]}
+          />
+        </ConfigContext.Provider>
+      </MemoryRouter>
+    );
+
+    expect(
+      screen.getByText('PR_URL=https://github.com/example/project/pull/123')
+    ).toHaveAttribute(
+      'title',
+      'PR_URL=https://github.com/example/project/pull/123'
+    );
+  });
+
+  it('shows run parameters on small screens', () => {
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      value: 500,
+    });
+
+    try {
+      render(
+        <MemoryRouter>
+          <ConfigContext.Provider value={config}>
+            <DAGRunTable
+              dagRuns={[
+                {
+                  dagRunId: 'run-1',
+                  name: 'mobile-dag',
+                  params: 'TICKET=INB-4303',
+                  status: Status.Success,
+                  statusLabel: StatusLabel.succeeded,
+                  artifactsAvailable: false,
+                  autoRetryCount: 0,
+                  triggerType: TriggerType.manual,
+                  queuedAt: '2026-03-13T10:00:30Z',
+                  startedAt: '2026-03-13T10:01:00Z',
+                  finishedAt: '2026-03-13T10:02:00Z',
+                },
+              ]}
+            />
+          </ConfigContext.Provider>
+        </MemoryRouter>
+      );
+
+      expect(screen.getByText('TICKET=INB-4303')).toHaveAttribute(
+        'title',
+        'TICKET=INB-4303'
+      );
+      expect(screen.queryByText('DAG Name')).not.toBeInTheDocument();
+    } finally {
+      Object.defineProperty(window, 'innerWidth', {
+        configurable: true,
+        value: originalWidth,
+      });
+    }
+  });
+
   it('shows the scheduled at column and value when schedule time exists', () => {
     render(
       <MemoryRouter>

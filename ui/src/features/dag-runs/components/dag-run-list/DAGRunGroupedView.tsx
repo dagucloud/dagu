@@ -336,6 +336,14 @@ function DAGRunGroupedView({
                               <div className="font-mono text-muted-foreground truncate">
                                 {dagRun.dagRunId}
                               </div>
+                              {dagRun.params && (
+                                <div
+                                  className="truncate font-mono text-[11px] text-muted-foreground"
+                                  title={dagRun.params}
+                                >
+                                  {dagRun.params}
+                                </div>
+                              )}
                               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                                 {dagRun.scheduleTime && (
                                   <div className="whitespace-nowrap">

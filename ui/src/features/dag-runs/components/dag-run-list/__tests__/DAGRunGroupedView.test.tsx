@@ -69,6 +69,37 @@ describe('DAGRunGroupedView', () => {
     expect(runIds).toEqual(['run-scheduled-later', 'run-queued-later']);
   });
 
+  it('shows parameters for expanded runs', () => {
+    render(
+      <DAGRunGroupedView
+        dagRuns={[
+          {
+            dagRunId: 'run-1',
+            name: 'parameterized-dag',
+            params: 'PR_URL=https://github.com/example/project/pull/123',
+            status: Status.Success,
+            statusLabel: StatusLabel.succeeded,
+            artifactsAvailable: false,
+            autoRetryCount: 0,
+            triggerType: TriggerType.manual,
+            queuedAt: '2026-03-13T10:00:00Z',
+            startedAt: '2026-03-13T10:01:00Z',
+            finishedAt: '2026-03-13T10:02:00Z',
+          },
+        ]}
+      />
+    );
+
+    fireEvent.click(screen.getByText('parameterized-dag'));
+
+    expect(
+      screen.getByText('PR_URL=https://github.com/example/project/pull/123')
+    ).toHaveAttribute(
+      'title',
+      'PR_URL=https://github.com/example/project/pull/123'
+    );
+  });
+
   it('toggles grouped bulk selection without opening the details panel', () => {
     const onSelectDAGRun = vi.fn();
     const onToggleBulkSelect = vi.fn();
