@@ -13,6 +13,8 @@
 #define AppPublisher "Dagu"
 #define AppURL "https://github.com/dagucloud/dagu"
 #define AppExeName "dagu.exe"
+#define ServiceWrapper "dagu-service.exe"
+#define ServiceConfig "dagu-service.xml"
 
 [Setup]
 SourceDir=..
@@ -38,7 +40,7 @@ WizardStyle=modern
 
 [Tasks]
 Name: "path"; Description: "Add Dagu to the system PATH"; GroupDescription: "Additional options:"
-Name: "startall"; Description: "Install Dagu as a Windows service (start-all)"; GroupDescription: "Background service:"
+Name: "service"; Description: "Install Dagu as a Windows service (runs start-all in the background)"; GroupDescription: "Background service:"
 Name: "server"; Description: "Add a Dagu server shortcut"; GroupDescription: "Dagu commands:"
 Name: "scheduler"; Description: "Add a Dagu scheduler shortcut"; GroupDescription: "Dagu commands:"
 Name: "coordinator"; Description: "Add a Dagu coordinator shortcut"; GroupDescription: "Dagu commands:"
@@ -49,23 +51,22 @@ Source: "{#BinaryPath}"; DestDir: "{app}"; DestName: "{#AppExeName}"; Flags: ign
 Source: "scripts\installer.ps1"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\Dagu start-all"; Filename: "{app}\{#AppExeName}"; Parameters: "start-all"; WorkingDir: "{app}"; Tasks: startall
+Name: "{group}\Dagu start-all"; Filename: "{app}\{#AppExeName}"; Parameters: "start-all"; WorkingDir: "{app}"; Tasks: service
 Name: "{group}\Dagu server"; Filename: "{app}\{#AppExeName}"; Parameters: "server"; WorkingDir: "{app}"; Tasks: server
 Name: "{group}\Dagu scheduler"; Filename: "{app}\{#AppExeName}"; Parameters: "scheduler"; WorkingDir: "{app}"; Tasks: scheduler
 Name: "{group}\Dagu coordinator"; Filename: "{app}\{#AppExeName}"; Parameters: "coordinator"; WorkingDir: "{app}"; Tasks: coordinator
 Name: "{group}\Dagu worker"; Filename: "{app}\{#AppExeName}"; Parameters: "worker"; WorkingDir: "{app}"; Tasks: worker
 
-[Run]
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\installer.ps1"" -NoPrompt -Service yes -ServiceScope system -Version ""{#AppVersion}"" -InstallDir ""{app}"" -OpenBrowser no"; WorkingDir: "{app}"; StatusMsg: "Installing the Dagu Windows service..."; Tasks: startall; Flags: runhidden waituntilterminated
-
-[UninstallRun]
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\installer.ps1"" -NoPrompt -Uninstall -InstallDir ""{app}"""; WorkingDir: "{app}"; Flags: runhidden waituntilterminated
+[UninstallDelete]
+Type: files; Name: "{app}\{#ServiceConfig}.*.bak"
 
 [Code]
 const
   EnvironmentKey = 'SYSTEM\CurrentControlSet\Control\Session Manager\Environment';
   InstallerKey = 'Software\Dagu\InnoSetup';
   PathMarker = 'SystemPathAdded';
+  ServiceWrapper = '{#ServiceWrapper}';
+  InstallerScript = 'installer.ps1';
 
 function PathHasEntry(const Value, Entry: string): Boolean;
 var
@@ -160,16 +161,113 @@ begin
   RegDeleteKeyIfEmpty(HKLM, InstallerKey);
 end;
 
+function PowerShellPath: string;
+begin
+  { Setup runs as a 32-bit process, so resolving by name alone can reach the
+    WOW64 PowerShell, which reports the x86 Program Files directory. }
+  Result := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
+  if not FileExists(Result) then begin
+    Result := 'powershell.exe';
+  end;
+end;
+
+function InstallerScriptArgs(const Extra: string): string;
+begin
+  Result := '-NoProfile -ExecutionPolicy Bypass -File "' +
+    ExpandConstant('{app}\') + InstallerScript + '" -NoPrompt -ServiceOnly ' +
+    Extra + ' -InstallDir "' + ExpandConstant('{app}') + '"';
+end;
+
+function RetryCommand: string;
+begin
+  Result := 'powershell -ExecutionPolicy Bypass -File "' +
+    ExpandConstant('{app}\') + InstallerScript +
+    '" -ServiceOnly -Service yes -InstallDir "' + ExpandConstant('{app}') + '"';
+end;
+
+procedure InstallService;
+var
+  ResultCode: Integer;
+begin
+  if not Exec(PowerShellPath,
+              InstallerScriptArgs('-Service yes -ServiceScope system -OpenBrowser no'),
+              ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then begin
+    Log('Dagu service setup could not be started: ' + SysErrorMessage(ResultCode));
+    SuppressibleMsgBox(
+      'Dagu was installed, but the Windows service could not be configured.' + #13#10#13#10 +
+      SysErrorMessage(ResultCode) + #13#10#13#10 +
+      'Retry from an elevated PowerShell prompt:' + #13#10 + RetryCommand,
+      mbError, MB_OK, IDOK);
+    exit;
+  end;
+  if ResultCode <> 0 then begin
+    Log('Dagu service setup failed with exit code ' + IntToStr(ResultCode) + '.');
+    SuppressibleMsgBox(
+      'Dagu was installed, but the Windows service setup failed (exit code ' +
+      IntToStr(ResultCode) + ').' + #13#10#13#10 +
+      'Retry from an elevated PowerShell prompt to see the error:' + #13#10 + RetryCommand,
+      mbError, MB_OK, IDOK);
+  end;
+end;
+
+procedure RemoveService;
+var
+  ResultCode: Integer;
+  Wrapper: string;
+begin
+  Wrapper := ExpandConstant('{app}\') + ServiceWrapper;
+  if not FileExists(Wrapper) then begin
+    exit;
+  end;
+  if not FileExists(ExpandConstant('{app}\') + InstallerScript) then begin
+    Exec(Wrapper, 'stop', ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Exec(Wrapper, 'uninstall', ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    exit;
+  end;
+  if (not Exec(PowerShellPath, InstallerScriptArgs('-Uninstall'),
+               ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode))
+     or (ResultCode <> 0) then begin
+    Log('Dagu service removal failed with code ' + IntToStr(ResultCode) + '.');
+    SuppressibleMsgBox(
+      'The Dagu Windows service could not be removed automatically.' + #13#10#13#10 +
+      'Remove it manually from an elevated prompt:' + #13#10 +
+      '"' + Wrapper + '" stop' + #13#10 +
+      '"' + Wrapper + '" uninstall',
+      mbError, MB_OK, IDOK);
+  end;
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ResultCode: Integer;
+  Wrapper: string;
+begin
+  Result := '';
+  { A running service holds dagu.exe open, which would block the file copy.
+    The wrapper returns only once the service has actually stopped. }
+  Wrapper := ExpandConstant('{app}\') + ServiceWrapper;
+  if FileExists(Wrapper) then begin
+    Exec(Wrapper, 'stop', ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  end;
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
-  if (CurStep = ssPostInstall) and WizardIsTaskSelected('path') then begin
+  if CurStep <> ssPostInstall then begin
+    exit;
+  end;
+  if WizardIsTaskSelected('path') then begin
     AddInstallPath;
+  end;
+  if WizardIsTaskSelected('service') then begin
+    InstallService;
   end;
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if CurUninstallStep = usUninstall then begin
+    RemoveService;
     RemoveInstallPath;
   end;
 end;
