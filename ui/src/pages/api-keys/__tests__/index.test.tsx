@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -13,6 +13,8 @@ import {
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { ConfigContext, type Config } from '@/contexts/ConfigContext';
 import APIKeysPage from '..';
+import { APIKeyFormModal } from '../APIKeyFormModal';
+import { buildMCPServerURL } from '../mcpSetupPrompt';
 
 vi.mock('@/contexts/AuthContext', () => ({
   TOKEN_KEY: 'daguToken',
@@ -20,6 +22,21 @@ vi.mock('@/contexts/AuthContext', () => ({
 }));
 
 type APIKey = components['schemas']['APIKey'];
+
+const originalClipboard = Object.getOwnPropertyDescriptor(
+  navigator,
+  'clipboard'
+);
+
+const appBarValue = {
+  title: '',
+  setTitle: () => undefined,
+  remoteNodes: ['local'],
+  setRemoteNodes: () => undefined,
+  selectedRemoteNode: 'local',
+  selectRemoteNode: () => undefined,
+  workspaces: [],
+};
 
 function makeConfig(licenseOverrides: Partial<Config['license']> = {}): Config {
   return {
@@ -112,17 +129,7 @@ function renderPage({
 
   render(
     <ConfigContext.Provider value={makeConfig(license)}>
-      <AppBarContext.Provider
-        value={{
-          title: '',
-          setTitle: () => undefined,
-          remoteNodes: ['local'],
-          setRemoteNodes: () => undefined,
-          selectedRemoteNode: 'local',
-          selectRemoteNode: () => undefined,
-          workspaces: [],
-        }}
-      >
+      <AppBarContext.Provider value={appBarValue}>
         <APIKeysPage />
       </AppBarContext.Provider>
     </ConfigContext.Provider>
@@ -194,5 +201,99 @@ describe('APIKeysPage', () => {
     expect(
       await screen.findByText(/Community installs can manage up to 2 API keys/i)
     ).toBeVisible();
+  });
+});
+
+describe('buildMCPServerURL', () => {
+  const origin = window.location.origin;
+
+  it.each([
+    ['/', `${origin}/mcp`],
+    ['', `${origin}/mcp`],
+    [undefined, `${origin}/mcp`],
+    ['/dagu', `${origin}/dagu/mcp`],
+    ['/dagu/', `${origin}/dagu/mcp`],
+  ])('resolves base path %o to %s', (basePath, expected) => {
+    expect(buildMCPServerURL(basePath)).toBe(expected);
+  });
+});
+
+describe('APIKeyFormModal', () => {
+  beforeEach(() => {
+    localStorage.setItem('daguToken', 'test-token');
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: vi.fn().mockResolvedValue(undefined),
+      },
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    localStorage.clear();
+    if (originalClipboard) {
+      Object.defineProperty(navigator, 'clipboard', originalClipboard);
+    } else {
+      Reflect.deleteProperty(navigator, 'clipboard');
+    }
+  });
+
+  /**
+   * Drives the modal through a successful create so the tests can act on the
+   * one screen where the plaintext key exists.
+   */
+  async function createKey({ mcpSurface }: { mcpSurface: boolean }) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ key: 'dagu_test_secret' }),
+      })
+    );
+
+    render(
+      <ConfigContext.Provider value={makeConfig()}>
+        <AppBarContext.Provider value={appBarValue}>
+          <APIKeyFormModal
+            open
+            onClose={() => undefined}
+            onSuccess={() => undefined}
+          />
+        </AppBarContext.Provider>
+      </ConfigContext.Provider>
+    );
+
+    fireEvent.change(screen.getByLabelText('Name'), {
+      target: { value: 'mcp-bot' },
+    });
+    if (!mcpSurface) {
+      fireEvent.click(screen.getByRole('checkbox', { name: 'MCP' }));
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Create Key' }));
+    await screen.findByText('API Key Created');
+  }
+
+  it('copies a setup prompt carrying the MCP URL and the new key', async () => {
+    await createKey({ mcpSurface: true });
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Copy MCP setup prompt' })
+    );
+
+    await waitFor(() =>
+      expect(navigator.clipboard.writeText).toHaveBeenCalledOnce()
+    );
+    const prompt = vi.mocked(navigator.clipboard.writeText).mock.calls[0]?.[0];
+    expect(prompt).toContain(`${window.location.origin}/mcp`);
+    expect(prompt).toContain('Authorization: Bearer dagu_test_secret');
+  });
+
+  it('omits the setup prompt for a key that does not accept the MCP surface', async () => {
+    await createKey({ mcpSurface: false });
+
+    expect(
+      screen.queryByRole('button', { name: 'Copy MCP setup prompt' })
+    ).not.toBeInTheDocument();
   });
 });
