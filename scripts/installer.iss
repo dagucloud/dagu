@@ -27,10 +27,12 @@ DefaultDirName={autopf}\Dagu
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
+ChangesEnvironment=yes
 ArchitecturesInstallIn64BitMode=x64compatible
 ArchitecturesAllowed=x64compatible
 OutputBaseFilename=dagu-{#AppVersion}-setup
 Uninstallable=yes
+UninstallDisplayIcon={app}\{#AppExeName}
 WizardStyle=modern
 
 [Tasks]
@@ -112,11 +114,6 @@ begin
   end;
 end;
 
-procedure BroadcastEnvironmentChange;
-begin
-  SendMessage(HWND_BROADCAST, WM_SETTINGCHANGE, 0, 'Environment');
-end;
-
 procedure AddInstallPath;
 var
   Path, InstallPath, PreviousPath: string;
@@ -130,7 +127,6 @@ begin
     Path := RemovePathEntry(Path, PreviousPath);
     RegWriteExpandStringValue(HKLM, EnvironmentKey, 'Path', Path);
     RegDeleteValue(HKLM, InstallerKey, PathMarker);
-    BroadcastEnvironmentChange;
   end;
   if PathHasEntry(Path, InstallPath) then begin
     RegDeleteValue(HKLM, InstallerKey, PathMarker);
@@ -143,7 +139,6 @@ begin
     end;
     RegWriteExpandStringValue(HKLM, EnvironmentKey, 'Path', Path + InstallPath);
     RegWriteStringValue(HKLM, InstallerKey, PathMarker, InstallPath);
-    BroadcastEnvironmentChange;
   end;
 end;
 
@@ -156,7 +151,6 @@ begin
   end;
   if RegQueryStringValue(HKLM, EnvironmentKey, 'Path', Path) then begin
     RegWriteExpandStringValue(HKLM, EnvironmentKey, 'Path', RemovePathEntry(Path, InstallPath));
-    BroadcastEnvironmentChange;
   end;
   RegDeleteValue(HKLM, InstallerKey, PathMarker);
   RegDeleteKeyIfEmpty(HKLM, InstallerKey);
