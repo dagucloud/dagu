@@ -308,7 +308,7 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 	s.reconcile(state)
 
 	// Refresh hashes to detect local modifications before checking for conflicts
-	s.refreshLocalHashes(state)
+	s.refreshLocalHashes(state, time.Now())
 
 	repoFileSet := make(map[string]struct{}, len(items))
 	for _, item := range items {
@@ -862,7 +862,7 @@ func (s *serviceImpl) scanWikiPageAssetFiles(state *State) {
 }
 
 // refreshLocalHashes recalculates hashes for tracked items and updates modified status.
-func (s *serviceImpl) refreshLocalHashes(state *State) bool {
+func (s *serviceImpl) refreshLocalHashes(state *State, now time.Time) bool {
 	changed := false
 	for dagID, dagState := range state.Items {
 		// Skip untracked (no remote to compare), conflict (already detected), and missing (file absent)
@@ -885,7 +885,7 @@ func (s *serviceImpl) refreshLocalHashes(state *State) bool {
 		}
 
 		localExecutable := dagState.Kind == SyncItemKindFile && executableMode(info.Mode(), dagState.LastSyncedExecutable)
-		if statMatchesCache(dagState, info) && dagState.LocalExecutable == localExecutable {
+		if statMatchesCache(dagState, info, now) && dagState.LocalExecutable == localExecutable {
 			continue
 		}
 
@@ -934,11 +934,11 @@ func updateStatCache(dagState *SyncItemState, info os.FileInfo) {
 const statCacheRacyWindow = time.Second
 
 // statMatchesCache returns true if the file info matches the cached stat values.
-func statMatchesCache(dagState *SyncItemState, info os.FileInfo) bool {
+func statMatchesCache(dagState *SyncItemState, info os.FileInfo, now time.Time) bool {
 	if dagState.LastStatModTime == nil || dagState.LastStatSize == nil {
 		return false
 	}
-	if time.Since(info.ModTime()) < statCacheRacyWindow {
+	if now.Sub(info.ModTime()) < statCacheRacyWindow {
 		return false
 	}
 	return info.ModTime().Equal(*dagState.LastStatModTime) && info.Size() == *dagState.LastStatSize
@@ -1915,7 +1915,7 @@ func (s *serviceImpl) GetStatus(_ context.Context) (*OverallStatus, error) {
 	reconciled := s.reconcile(state)
 
 	// Refresh hashes for tracked items to detect local modifications.
-	hashesChanged := s.refreshLocalHashes(state)
+	hashesChanged := s.refreshLocalHashes(state, time.Now())
 
 	// Save state if anything changed (best effort - read-only operation)
 	if extensionsChanged || newItems || hashesChanged || reconciled {

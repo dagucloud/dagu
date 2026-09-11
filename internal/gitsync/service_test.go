@@ -827,7 +827,7 @@ func TestStatBeforeHash_SkipsUnchangedFile(t *testing.T) {
 	}}
 
 	// File hasn't changed — refreshLocalHashes should skip it
-	changed := s.refreshLocalHashes(state)
+	changed := s.refreshLocalHashes(state, time.Now())
 	require.False(t, changed)
 	assert.Equal(t, StatusSynced, state.Items["my-dag"].Status)
 }
@@ -864,7 +864,7 @@ func TestStatBeforeHash_DetectsChangedFile(t *testing.T) {
 		},
 	}}
 
-	changed := s.refreshLocalHashes(state)
+	changed := s.refreshLocalHashes(state, time.Now())
 	require.True(t, changed)
 	assert.Equal(t, StatusModified, state.Items["my-dag"].Status)
 	assert.Equal(t, ComputeContentHash(newContent), state.Items["my-dag"].LocalHash)
@@ -885,7 +885,7 @@ func TestStatBeforeHash_DetectsRecentSameStatContentChange(t *testing.T) {
 	require.NoError(t, os.WriteFile(filePath, originalContent, 0600))
 
 	oldHash := ComputeContentHash(originalContent)
-	recent := time.Now()
+	recent := time.Unix(1_700_000_000, 0)
 	require.NoError(t, os.WriteFile(filePath, newContent, 0600))
 	require.NoError(t, os.Chtimes(filePath, recent, recent))
 	fi, err := os.Stat(filePath)
@@ -904,7 +904,7 @@ func TestStatBeforeHash_DetectsRecentSameStatContentChange(t *testing.T) {
 		},
 	}}
 
-	changed := s.refreshLocalHashes(state)
+	changed := s.refreshLocalHashes(state, recent.Add(statCacheRacyWindow/2))
 	require.True(t, changed)
 	assert.Equal(t, StatusModified, state.Items["my-dag"].Status)
 	assert.Equal(t, ComputeContentHash(newContent), state.Items["my-dag"].LocalHash)
@@ -933,7 +933,7 @@ func TestStatBeforeHash_BackwardCompatibility(t *testing.T) {
 	}}
 
 	// Nil cache fields → should read file and populate cache
-	changed := s.refreshLocalHashes(state)
+	changed := s.refreshLocalHashes(state, time.Now())
 	// No status change since content matches
 	require.False(t, changed)
 	// But stat cache should now be populated
