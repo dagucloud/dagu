@@ -211,8 +211,9 @@ begin
     SuppressibleMsgBox(
       'Dagu was installed, but the Windows service setup failed (exit code ' +
       IntToStr(ResultCode) + ').' + #13#10#13#10 +
-      'The usual cause is that port {#DefaultPort} or {#DefaultCoordinatorPort} is ' +
-      'already in use. Retry from an elevated PowerShell prompt to see the error, ' +
+      'Common causes are no network access to download the service wrapper, ' +
+      'or port {#DefaultPort} or {#DefaultCoordinatorPort} already being in use. ' +
+      'Retry from an elevated PowerShell prompt to see the actual error, ' +
       'changing -Port or -CoordinatorPort if needed:' + #13#10 + RetryCommand,
       mbError, MB_OK, IDOK);
   end;
