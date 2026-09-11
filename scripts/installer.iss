@@ -15,6 +15,9 @@
 #define AppExeName "dagu.exe"
 #define ServiceWrapper "dagu-service.exe"
 #define ServiceConfig "dagu-service.xml"
+; Mirrors the installer.ps1 defaults so the retry command shows the ports it used.
+#define DefaultPort "8080"
+#define DefaultCoordinatorPort "50055"
 
 [Setup]
 SourceDir=..
@@ -183,7 +186,9 @@ function RetryCommand: string;
 begin
   Result := 'powershell -ExecutionPolicy Bypass -File "' +
     ExpandConstant('{app}\') + InstallerScript +
-    '" -ServiceOnly -Service yes -InstallDir "' + ExpandConstant('{app}') + '"';
+    '" -ServiceOnly -Service yes -Port {#DefaultPort}' +
+    ' -CoordinatorPort {#DefaultCoordinatorPort}' +
+    ' -InstallDir "' + ExpandConstant('{app}') + '"';
 end;
 
 procedure InstallService;
@@ -206,7 +211,9 @@ begin
     SuppressibleMsgBox(
       'Dagu was installed, but the Windows service setup failed (exit code ' +
       IntToStr(ResultCode) + ').' + #13#10#13#10 +
-      'Retry from an elevated PowerShell prompt to see the error:' + #13#10 + RetryCommand,
+      'The usual cause is that port {#DefaultPort} or {#DefaultCoordinatorPort} is ' +
+      'already in use. Retry from an elevated PowerShell prompt to see the error, ' +
+      'changing -Port or -CoordinatorPort if needed:' + #13#10 + RetryCommand,
       mbError, MB_OK, IDOK);
   end;
 end;

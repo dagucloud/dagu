@@ -15,6 +15,7 @@ param(
     [string]$ServiceScope = "",
     [string]$HostAddress = "",
     [string]$Port = "",
+    [string]$CoordinatorPort = "",
     [string[]]$SkillsDir = @(),
     [string]$AdminUsername = "",
     [string]$AdminPassword = "",
@@ -72,6 +73,8 @@ $Script:ReleaseApi = "https://api.github.com/repos/dagucloud/dagu/releases/lates
 $Script:WinSWVersion = "v2.12.0"
 $Script:WinSWBase = "https://github.com/winsw/winsw/releases/download/$($Script:WinSWVersion)"
 $Script:ServiceName = "Dagu"
+# start-all leaves the coordinator on its own default host, so only the port is configurable here.
+$Script:CoordinatorHost = "127.0.0.1"
 $Script:ServiceWrapperExe = $null
 $Script:ServiceConfigXml = $null
 $Script:DaguExe = $null
@@ -306,8 +309,10 @@ function Validate-UninstallArgs {
     if ($Script:InstallerBoundParameterNames -contains "Version") {
         throw "-Version is only supported during install."
     }
-    if (($Script:InstallerBoundParameterNames -contains "HostAddress") -or ($Script:InstallerBoundParameterNames -contains "Port")) {
-        throw "-HostAddress and -Port are only supported during install."
+    if (($Script:InstallerBoundParameterNames -contains "HostAddress") -or
+        ($Script:InstallerBoundParameterNames -contains "Port") -or
+        ($Script:InstallerBoundParameterNames -contains "CoordinatorPort")) {
+        throw "-HostAddress, -Port, and -CoordinatorPort are only supported during install."
     }
     if (($Script:InstallerBoundParameterNames -contains "AdminUsername") -or ($Script:InstallerBoundParameterNames -contains "AdminPassword")) {
         throw "Admin bootstrap flags are only supported during install."
@@ -353,6 +358,9 @@ function Resolve-Defaults {
     }
     if (-not $Port) {
         $script:Port = "8080"
+    }
+    if (-not $CoordinatorPort) {
+        $script:CoordinatorPort = "50055"
     }
     if (-not $OpenBrowser) {
         $script:OpenBrowser = "yes"
@@ -808,6 +816,7 @@ function Show-Plan {
         Write-Host ("Service scope".PadRight(20) + $ServiceScope)
         Write-Host ("Dagu home".PadRight(20) + $DaguHome)
         Write-Host ("Web URL".PadRight(20) + $ServiceUrl)
+        Write-Host ("Coordinator port".PadRight(20) + $CoordinatorPort)
         Write-Host ("Admin bootstrap".PadRight(20) + $(if ($AdminUsername) { $AdminUsername } else { "disabled" }))
     }
     if (-not $ServiceOnly) {
@@ -868,6 +877,7 @@ function Get-ForwardArgs {
     if ($ServiceScope) { $argsList += @("-ServiceScope", $ServiceScope) }
     if ($HostAddress) { $argsList += @("-HostAddress", $HostAddress) }
     if ($Port) { $argsList += @("-Port", $Port) }
+    if ($CoordinatorPort) { $argsList += @("-CoordinatorPort", $CoordinatorPort) }
     foreach ($dir in $SkillsDir) { $argsList += @("-SkillsDir", $dir) }
     if ($AdminUsername) { $argsList += @("-AdminUsername", $AdminUsername) }
     if ($AdminPassword) { $argsList += @("-AdminPassword", $AdminPassword) }
@@ -1075,6 +1085,7 @@ function Write-ServiceXml {
   <env name="DAGU_HOME" value="$(Escape-XmlValue $Script:DaguHome)" />
   <env name="DAGU_HOST" value="$(Escape-XmlValue $Script:HostAddress)" />
   <env name="DAGU_PORT" value="$(Escape-XmlValue $Script:Port)" />
+  <env name="DAGU_COORDINATOR_PORT" value="$(Escape-XmlValue $Script:CoordinatorPort)" />
 "@
     if ($IncludeBootstrap -and (Has-AdminBootstrap)) {
         $xml += @"
@@ -1104,6 +1115,47 @@ function Invoke-WinSW {
         return
     }
     & $ServiceWrapperExe $Command | Out-Null
+}
+
+function Test-PortFree {
+    param(
+        [string]$Address,
+        [string]$PortNumber
+    )
+    try {
+        $listener = New-Object System.Net.Sockets.TcpListener -ArgumentList `
+            ([Net.IPAddress]::Parse($Address)), ([int]$PortNumber)
+    }
+    catch {
+        # A non-literal host or port cannot be probed, so leave the report to the service start.
+        return $true
+    }
+    try {
+        $listener.Start()
+        $listener.Stop()
+        return $true
+    }
+    catch {
+        return $false
+    }
+}
+
+# start-all binds the web server and the coordinator, and a failure on either one
+# stops the whole service. Report the conflict before a service is registered.
+function Validate-ServicePorts {
+    if ($Service -ne "yes") {
+        return
+    }
+    # An upgrade replaces a service that still holds its own ports.
+    if (Get-Service -Name $Script:ServiceName -ErrorAction SilentlyContinue) {
+        return
+    }
+    if (-not (Test-PortFree -Address $HostAddress -PortNumber $Port)) {
+        throw "Port $Port on $HostAddress is already in use. Rerun with -Port to pick another port for the Dagu web server."
+    }
+    if (-not (Test-PortFree -Address $Script:CoordinatorHost -PortNumber $CoordinatorPort)) {
+        throw "Port $CoordinatorPort on $($Script:CoordinatorHost) is already in use. Rerun with -CoordinatorPort to pick another port for the Dagu coordinator."
+    }
 }
 
 function Install-WindowsService {
@@ -1160,7 +1212,9 @@ function Verify-Bootstrap {
     }
     if (-not (Has-AdminBootstrap)) {
         if ($ServiceOnly -and -not (Wait-ForHealth -Attempts 30)) {
-            throw "The Dagu service started, but $ServiceUrl did not become healthy."
+            # Leave the service registered but stopped so it stops restarting a failing process.
+            try { Invoke-WinSW stop } catch {}
+            throw "The Dagu service did not become healthy at $ServiceUrl and has been stopped. Check the logs in $(Join-Path $DaguHome 'logs')."
         }
         Write-WarnMessage "No initial admin credentials were provided. Open $ServiceUrl/setup to finish the first-time setup."
         return
@@ -1304,6 +1358,7 @@ if ($DryRun) {
 
 Install-DaguBinary
 Ensure-PathEntry
+Validate-ServicePorts
 Install-WindowsService
 Verify-Bootstrap
 Install-AISkill
