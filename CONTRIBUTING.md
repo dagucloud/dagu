@@ -2,17 +2,22 @@
 
 Thank you for considering to help improve Dagu! We welcome contributions from anyone on the internet.
 
-## Quick Start
+You do not need to understand the whole repository before making a useful first change.
 
-- Browse [`good first issue`](https://github.com/dagucloud/dagu/labels/good%20first%20issue) or [`help wanted`](https://github.com/dagucloud/dagu/labels/help%20wanted) labels and comment to claim.
-- Join the [Discord server](https://discord.gg/gpahPUjGRk) for questions or to share progress.
+## First 15 Minutes
 
-## Getting Started
+1. Fork the repository and clone it locally.
+2. Pick a small issue, then comment on it to claim the work. Use the [Discord server](https://discord.gg/gpahPUjGRk) if you have questions or get stuck for 20 minutes; that is expected.
+3. Choose the track closest to your change:
 
-- Fork the repository and clone it locally
-- Look for any issue that interests you
-- Make your changes and test them
-- Ask questions if anything is unclear
+| Track | Start with | First check |
+| --- | --- | --- |
+| Docs / examples | A Markdown file or `examples/` | No build is required; validate a changed DAG with `dagu validate` if you have the binary available |
+| UI | `ui/` | Start the backend with `make run-server`, then run `cd ui && pnpm install && pnpm dev` |
+| One executor | `internal/runtime/builtin/<name>` | `make test TEST_TARGET=./internal/runtime/builtin/<name>` |
+| API / CLI | `internal/service/frontend/api/v1` or `internal/cmd` | `make test TEST_TARGET=./internal/service/frontend/api/v1` or the matching package |
+
+For a first PR, change only the files needed for the issue. You do not need to learn every package or run the full test suite before opening a focused PR.
 
 ## How to Contribute
 
@@ -28,11 +33,11 @@ We welcome contributions of all kinds, including:
 
 ## Development
 
-Prerequisites:
+Prerequisites depend on your track:
 
-- [Go (latest stable)](https://go.dev/doc/install)
-- [Node.js](https://nodejs.org/en/download/)
-- [pnpm](https://pnpm.io/installation)
+- Go 1.27 or newer for Go and backend changes ([install Go](https://go.dev/doc/install)).
+- Node.js 18.18 or newer and [pnpm](https://pnpm.io/installation) for UI changes.
+- Docs-only changes do not require the Go toolchain.
 
 Building frontend assets:
 
@@ -48,9 +53,22 @@ make bin
 
 ## Running Tests
 
-To ensure the integrity of the go code, you can run all Go unit and integration tests.
+Run the smallest relevant check first. For a Go package, pass its path through `TEST_TARGET`:
 
-Run all tests from the project root directory:
+```bash
+make test TEST_TARGET=./path/to/changed/package
+```
+
+For UI changes:
+
+```bash
+cd ui
+pnpm test
+```
+
+Docs-only and example-only changes do not need Go tests. If an example changes a DAG, validate it with the `dagu` binary when available. CI and maintainers run the full suite; you do not need to run it before opening a focused first PR.
+
+For the full local Go check:
 
 ```bash
 make lint
@@ -70,7 +88,7 @@ make test-coverage
 Starting the backend server on port 8080:
 
 ```bash
-DAGU_PORT=8080 make
+make run-server
 ```
 
 Starting the development server:
@@ -93,9 +111,9 @@ Navigate to [http://localhost:8081](http://localhost:8081) to view hot-reloading
 
 Before submitting:
 
-- [ ] Tests pass (`make test`)
-- [ ] Linter passes (`make lint`)
-- [ ] New code includes tests
+- [ ] The smallest relevant test or validation command passes
+- [ ] `make lint` passes for Go changes when practical
+- [ ] New code includes tests when behavior changes
 - [ ] Documentation updated if applicable
 - [ ] Commit messages following the [Go Commit Message Guidelines](https://go.dev/wiki/CommitMessage)
 
