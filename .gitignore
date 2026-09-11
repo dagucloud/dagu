@@ -51,6 +51,3 @@ prd.json
 
 # Compiled integration test binary
 intg.test
-branch_structure.json
-temp_auto_push.bat
-temp_interactive_push.bat
