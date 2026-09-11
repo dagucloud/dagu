@@ -545,6 +545,59 @@ jobs:
             throw "Service-only uninstall removed the Dagu binary."
           }
 
+          # A busy port must be reported before any service is registered, so a
+          # failed setup cannot leave one behind restarting a process that dies.
+          $blocker = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 18081)
+          $blocker.Start()
+          try {
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installerPath `
+              -NoPrompt -ServiceOnly -Service yes -ServiceScope system `
+              -Port 18081 -OpenBrowser no -InstallDir $installDir
+            if ($LASTEXITCODE -eq 0) {
+              throw "Service-only install ignored a busy web server port."
+            }
+            if (Get-Service -Name Dagu -ErrorAction SilentlyContinue) {
+              throw "A rejected port left the Dagu service registered."
+            }
+          }
+          finally {
+            $blocker.Stop()
+          }
+
+      # Exercises the [Code] section of installer.iss, which compilation alone
+      # never runs: the machine PATH must be added on install and restored on
+      # uninstall. The service task is left off; it is covered by the step above.
+      - name: Test Inno Setup installer
+        shell: powershell
+        run: |
+          $installDir = "$env:ProgramFiles\Dagu"
+          $before = [Environment]::GetEnvironmentVariable("Path", "Machine")
+
+          Start-Process -Wait -FilePath "dist\dagu-0.0.0-setup.exe" -ArgumentList @(
+            "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/TASKS=path"
+          )
+          if (-not (Test-Path "$installDir\dagu.exe")) {
+            throw "The installer did not place dagu.exe in $installDir."
+          }
+          if (([Environment]::GetEnvironmentVariable("Path", "Machine") -split ';') -notcontains $installDir) {
+            throw "The installer did not add $installDir to the machine PATH."
+          }
+
+          Start-Process -Wait -FilePath "$installDir\unins000.exe" -ArgumentList @(
+            "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"
+          )
+          # The uninstaller restarts itself from a temporary copy, so the wait above returns early.
+          $deadline = (Get-Date).AddSeconds(60)
+          while ((Test-Path $installDir) -and ((Get-Date) -lt $deadline)) {
+            Start-Sleep -Seconds 1
+          }
+          if (Test-Path $installDir) {
+            throw "The uninstaller did not remove $installDir."
+          }
+          if ([Environment]::GetEnvironmentVariable("Path", "Machine") -ne $before) {
+            throw "The uninstaller did not restore the machine PATH."
+          }
+
       - name: Test CMD installer
         shell: cmd
         env:
