@@ -563,6 +563,9 @@ jobs:
           finally {
             $blocker.Stop()
           }
+          # A rejected install is the expected outcome above. The step would
+          # otherwise exit with the code that rejection left behind.
+          $global:LASTEXITCODE = 0
 
       # Exercises the [Code] section of installer.iss, which compilation alone
       # never runs: the machine PATH must be added on install and restored on
