@@ -51,3 +51,6 @@ prd.json
 
 # Compiled integration test binary
 intg.test
+
+# Build output
+dist/

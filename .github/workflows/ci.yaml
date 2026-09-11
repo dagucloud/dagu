@@ -19,6 +19,7 @@ on:
       - "proto/**"
       - "scripts/e2e/**"
       - "scripts/installer.cmd"
+      - "scripts/installer.iss"
       - "scripts/installer.ps1"
       - "ui/**"
       - ".github/workflows/ci.yaml"
@@ -41,6 +42,7 @@ on:
       - "proto/**"
       - "scripts/e2e/**"
       - "scripts/installer.cmd"
+      - "scripts/installer.iss"
       - "scripts/installer.ps1"
       - "ui/**"
       - ".github/workflows/ci.yaml"
@@ -120,7 +122,7 @@ jobs:
             esac
 
             case "${file}" in
-              scripts/installer.cmd|scripts/installer.ps1|.github/workflows/ci.yaml)
+              scripts/installer.cmd|scripts/installer.iss|scripts/installer.ps1|.github/workflows/ci.yaml)
                 windows_installer_changed=true
                 ;;
             esac
@@ -371,7 +373,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.windows_installer == 'true'
     runs-on: windows-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - name: Check out code
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -449,6 +451,155 @@ jobs:
           & ([scriptblock]::Create($source)) `
             -NoPrompt -DryRun -Uninstall `
             -InstallDir "$env:RUNNER_TEMP\dagu-uninstall"
+
+          $serviceOnlyDir = "$env:RUNNER_TEMP\dagu-service-only"
+          New-Item -ItemType Directory -Force -Path $serviceOnlyDir | Out-Null
+          Set-Content -Path "$serviceOnlyDir\dagu.exe" -Value "stub"
+
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installerPath `
+            -NoPrompt -DryRun -ServiceOnly -Service no -InstallDir $serviceOnlyDir
+          if ($LASTEXITCODE -eq 0) {
+            throw "-ServiceOnly was accepted without -Service yes."
+          }
+
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installerPath `
+            -NoPrompt -DryRun -ServiceOnly -Service yes -Version latest -InstallDir $serviceOnlyDir
+          if ($LASTEXITCODE -eq 0) {
+            throw "-ServiceOnly was accepted together with -Version."
+          }
+
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installerPath `
+            -NoPrompt -DryRun -ServiceOnly -Service yes `
+            -InstallDir "$env:RUNNER_TEMP\dagu-service-only-missing"
+          if ($LASTEXITCODE -eq 0) {
+            throw "-ServiceOnly was accepted without an installed Dagu binary."
+          }
+
+          & ([scriptblock]::Create($source)) `
+            -NoPrompt -DryRun -ServiceOnly -Service yes -OpenBrowser no `
+            -InstallDir $serviceOnlyDir
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Build Inno Setup installer
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          go build -trimpath -o dist\dagu-windows-amd64.exe .\cmd
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            Write-Host "Inno Setup 6 is not preinstalled on this image; installing it."
+            choco install innosetup --no-progress --yes
+          }
+          & $iscc `
+            /DAppVersion=0.0.0 `
+            /DBinaryPath=dist\dagu-windows-amd64.exe `
+            scripts\installer.iss
+          if ($LASTEXITCODE -ne 0) {
+            throw "Inno Setup compilation failed with exit code $LASTEXITCODE."
+          }
+
+      # Mirrors how the Inno Setup installer drives the script: the binary is
+      # already in place and only the Windows service should be configured.
+      - name: Test installer service-only mode
+        shell: powershell
+        run: |
+          $installerPath = (Resolve-Path "scripts/installer.ps1").Path
+          $installDir = "$env:RUNNER_TEMP\dagu-service-live"
+          New-Item -ItemType Directory -Force -Path $installDir | Out-Null
+          Copy-Item dist\dagu-windows-amd64.exe "$installDir\dagu.exe"
+          $binaryHash = (Get-FileHash "$installDir\dagu.exe").Hash
+          $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installerPath `
+            -NoPrompt -ServiceOnly -Service yes -ServiceScope system `
+            -Port 18080 -OpenBrowser no -InstallDir $installDir
+          if ($LASTEXITCODE -ne 0) {
+            throw "Service-only install failed with exit code $LASTEXITCODE."
+          }
+
+          if ((Get-FileHash "$installDir\dagu.exe").Hash -ne $binaryHash) {
+            throw "Service-only install replaced the existing Dagu binary."
+          }
+          if ([Environment]::GetEnvironmentVariable("Path", "Machine") -ne $machinePath) {
+            throw "Service-only install modified the machine PATH."
+          }
+          $service = Get-Service -Name Dagu -ErrorAction SilentlyContinue
+          if (-not $service -or $service.Status -ne "Running") {
+            throw "The Dagu service is not running after a service-only install."
+          }
+          Invoke-WebRequest -Uri "http://127.0.0.1:18080/api/v1/health" -UseBasicParsing | Out-Null
+
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installerPath `
+            -NoPrompt -Uninstall -ServiceOnly -InstallDir $installDir
+          if ($LASTEXITCODE -ne 0) {
+            throw "Service-only uninstall failed with exit code $LASTEXITCODE."
+          }
+          if (Get-Service -Name Dagu -ErrorAction SilentlyContinue) {
+            throw "The Dagu service survived a service-only uninstall."
+          }
+          if (-not (Test-Path "$installDir\dagu.exe")) {
+            throw "Service-only uninstall removed the Dagu binary."
+          }
+
+          # A busy port must be reported before any service is registered, so a
+          # failed setup cannot leave one behind restarting a process that dies.
+          $blocker = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 18081)
+          $blocker.Start()
+          try {
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installerPath `
+              -NoPrompt -ServiceOnly -Service yes -ServiceScope system `
+              -Port 18081 -OpenBrowser no -InstallDir $installDir
+            if ($LASTEXITCODE -eq 0) {
+              throw "Service-only install ignored a busy web server port."
+            }
+            if (Get-Service -Name Dagu -ErrorAction SilentlyContinue) {
+              throw "A rejected port left the Dagu service registered."
+            }
+          }
+          finally {
+            $blocker.Stop()
+          }
+          # A rejected install is the expected outcome above. The step would
+          # otherwise exit with the code that rejection left behind.
+          $global:LASTEXITCODE = 0
+
+      # Exercises the [Code] section of installer.iss, which compilation alone
+      # never runs: the machine PATH must be added on install and restored on
+      # uninstall. The service task is left off; it is covered by the step above.
+      - name: Test Inno Setup installer
+        shell: powershell
+        run: |
+          $installDir = "$env:ProgramFiles\Dagu"
+          $before = [Environment]::GetEnvironmentVariable("Path", "Machine")
+
+          Start-Process -Wait -FilePath "dist\dagu-0.0.0-setup.exe" -ArgumentList @(
+            "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/TASKS=path"
+          )
+          if (-not (Test-Path "$installDir\dagu.exe")) {
+            throw "The installer did not place dagu.exe in $installDir."
+          }
+          if (([Environment]::GetEnvironmentVariable("Path", "Machine") -split ';') -notcontains $installDir) {
+            throw "The installer did not add $installDir to the machine PATH."
+          }
+
+          Start-Process -Wait -FilePath "$installDir\unins000.exe" -ArgumentList @(
+            "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"
+          )
+          # The uninstaller restarts itself from a temporary copy, so the wait above returns early.
+          $deadline = (Get-Date).AddSeconds(60)
+          while ((Test-Path $installDir) -and ((Get-Date) -lt $deadline)) {
+            Start-Sleep -Seconds 1
+          }
+          if (Test-Path $installDir) {
+            throw "The uninstaller did not remove $installDir."
+          }
+          if ([Environment]::GetEnvironmentVariable("Path", "Machine") -ne $before) {
+            throw "The uninstaller did not restore the machine PATH."
+          }
 
       - name: Test CMD installer
         shell: cmd
