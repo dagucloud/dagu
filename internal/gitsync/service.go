@@ -930,9 +930,15 @@ func updateStatCache(dagState *SyncItemState, info os.FileInfo) {
 	dagState.LastStatSize = &size
 }
 
+// Recent mtimes can be shared by rapid same-size writes on coarse filesystems.
+const statCacheRacyWindow = time.Second
+
 // statMatchesCache returns true if the file info matches the cached stat values.
 func statMatchesCache(dagState *SyncItemState, info os.FileInfo) bool {
 	if dagState.LastStatModTime == nil || dagState.LastStatSize == nil {
+		return false
+	}
+	if time.Since(info.ModTime()) < statCacheRacyWindow {
 		return false
 	}
 	return info.ModTime().Equal(*dagState.LastStatModTime) && info.Size() == *dagState.LastStatSize

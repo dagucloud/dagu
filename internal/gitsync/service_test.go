@@ -873,6 +873,43 @@ func TestStatBeforeHash_DetectsChangedFile(t *testing.T) {
 	assert.NotNil(t, state.Items["my-dag"].LastStatSize)
 }
 
+func TestStatBeforeHash_DetectsRecentSameStatContentChange(t *testing.T) {
+	t.Parallel()
+	tempDir := t.TempDir()
+	dagsDir := filepath.Join(tempDir, "dags")
+	require.NoError(t, os.MkdirAll(dagsDir, 0755))
+
+	originalContent := []byte("echo remote\n")
+	newContent := []byte("echo edited\n")
+	filePath := filepath.Join(dagsDir, "my-dag.yaml")
+	require.NoError(t, os.WriteFile(filePath, originalContent, 0600))
+
+	oldHash := ComputeContentHash(originalContent)
+	recent := time.Now()
+	require.NoError(t, os.WriteFile(filePath, newContent, 0600))
+	require.NoError(t, os.Chtimes(filePath, recent, recent))
+	fi, err := os.Stat(filePath)
+	require.NoError(t, err)
+	modTime := fi.ModTime()
+	size := fi.Size()
+
+	s := &serviceImpl{dagsDir: dagsDir, cfg: &Config{}}
+	state := &State{Items: map[string]*SyncItemState{
+		"my-dag": {
+			Status:          StatusSynced,
+			LastSyncedHash:  oldHash,
+			LocalHash:       oldHash,
+			LastStatModTime: &modTime,
+			LastStatSize:    &size,
+		},
+	}}
+
+	changed := s.refreshLocalHashes(state)
+	require.True(t, changed)
+	assert.Equal(t, StatusModified, state.Items["my-dag"].Status)
+	assert.Equal(t, ComputeContentHash(newContent), state.Items["my-dag"].LocalHash)
+}
+
 func TestStatBeforeHash_BackwardCompatibility(t *testing.T) {
 	t.Parallel()
 	tempDir := t.TempDir()
