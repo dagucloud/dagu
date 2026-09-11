@@ -844,7 +844,14 @@ function DAGActions({
           profilesLoading={profilesLoading}
           defaultProfile={dagSettingsData?.profile}
           defaultProfileLoading={dagSettingsLoading}
-          onSubmit={async (params, dagRunId, immediate, profile, noReuse) => {
+          onSubmit={async (
+            params,
+            dagRunId,
+            immediate,
+            profile,
+            noReuse,
+            followOutput
+          ) => {
             if (dagContext.onEnqueue) {
               const result =
                 noReuse !== undefined
@@ -853,20 +860,30 @@ function DAGActions({
                       dagRunId,
                       immediate,
                       profile,
-                      noReuse
+                      noReuse,
+                      followOutput
                     )
                   : profile !== undefined
                     ? await dagContext.onEnqueue(
                         params,
                         dagRunId,
                         immediate,
-                        profile
+                        profile,
+                        undefined,
+                        followOutput
                       )
-                    : await dagContext.onEnqueue(params, dagRunId, immediate);
+                    : await dagContext.onEnqueue(
+                        params,
+                        dagRunId,
+                        immediate,
+                        undefined,
+                        undefined,
+                        followOutput
+                      );
               const startedRunId =
                 typeof result === 'string' && result ? result : dagRunId;
               if (startedRunId) {
-                await dagContext.onRunStarted?.(startedRunId);
+                await dagContext.onRunStarted?.(startedRunId, followOutput);
               }
               showToast(immediate ? 'DAG run started' : 'DAG run enqueued');
               return;
@@ -919,13 +936,13 @@ function DAGActions({
             }
 
             if (data?.dagRunId) {
-              await dagContext.onRunStarted?.(data.dagRunId);
+              await dagContext.onRunStarted?.(data.dagRunId, followOutput);
             }
             showToast(immediate ? 'DAG run started' : 'DAG run enqueued');
             // Just refresh the current page data
             reloadData();
-            // Navigate to status tab after execution (if available)
-            if (navigateToStatusTab) {
+            // Navigate to status tab after execution unless the user chose to follow output.
+            if (!followOutput && navigateToStatusTab) {
               navigateToStatusTab();
             }
           }}

@@ -134,9 +134,9 @@ function DAGDetailsPanel({
   }
 
   const handleRunStarted = useCallback(
-    (dagRunId: string) => {
+    (dagRunId: string, followOutput = false) => {
       setTrackedDagRunId(dagRunId);
-      setActiveTab('status');
+      setActiveTab(followOutput ? 'dagRun-log' : 'status');
       void mutate();
     },
     [mutate]

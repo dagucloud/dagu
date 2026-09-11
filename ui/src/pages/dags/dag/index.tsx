@@ -270,7 +270,7 @@ function DAGDetails() {
   ]);
 
   const handleRunStarted = useCallback(
-    (nextDAGRunId: string) => {
+    (nextDAGRunId: string, followOutput = false) => {
       setTrackedDagRunId(nextDAGRunId);
       const nextSearchParams = new URLSearchParams();
       nextSearchParams.set('dagRunId', nextDAGRunId);
@@ -281,7 +281,9 @@ function DAGDetails() {
       if (queryWorkspace) {
         nextSearchParams.set('workspace', queryWorkspace);
       }
-      navigate(`/dags/${fileName}?${nextSearchParams.toString()}`);
+      navigate(
+        `/dags/${fileName}${followOutput ? '/dagRun-log' : ''}?${nextSearchParams.toString()}`
+      );
       void mutateDag();
     },
     [

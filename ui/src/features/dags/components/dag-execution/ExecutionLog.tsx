@@ -70,12 +70,16 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
 
   const isRunning = dagRun?.status === Status.Running;
   const [isLiveMode, setIsLiveMode] = useState(isRunning);
+  const wasRunning = useRef(isRunning);
 
-  // Sync isLiveMode when run finishes
+  // Start following when a queued run becomes active, and stop after it finishes.
   useEffect(() => {
     if (!isRunning) {
       setIsLiveMode(false);
+    } else if (!wasRunning.current) {
+      setIsLiveMode(true);
     }
+    wasRunning.current = isRunning;
   }, [isRunning]);
 
   // Keep track of previous data to prevent flashing

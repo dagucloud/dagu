@@ -16,9 +16,17 @@ import StartDAGModal from '../StartDAGModal';
 
 const renderedFormProps = vi.fn();
 const useIsAdminMock = vi.hoisted(() => vi.fn(() => true));
+const updatePreferenceMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/contexts/AuthContext', () => ({
   useIsAdmin: () => useIsAdminMock(),
+}));
+
+vi.mock('@/contexts/UserPreference', () => ({
+  useUserPreferences: () => ({
+    preferences: { followOutput: false },
+    updatePreference: updatePreferenceMock,
+  }),
 }));
 
 vi.mock('@rjsf/shadcn', async () => {
@@ -31,7 +39,7 @@ vi.mock('@rjsf/shadcn', async () => {
         uiSchema?: Record<string, Record<string, unknown>>;
         onChange?: (event: { formData: Record<string, unknown> }) => void;
       },
-      ref: any
+      ref: React.ForwardedRef<{ validateForm: () => boolean }>
     ) {
       renderedFormProps(props);
       React.useImperativeHandle(ref, () => ({
@@ -77,6 +85,33 @@ beforeEach(() => {
 });
 
 describe('StartDAGModal', () => {
+  it('persists and submits the follow-output preference', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <StartDAGModal
+        visible={true}
+        dismissModal={vi.fn()}
+        onSubmit={onSubmit}
+        dag={{ name: 'example-dag' } as never}
+      />
+    );
+
+    await user.click(screen.getByRole('checkbox', { name: 'Follow output' }));
+    await user.click(screen.getByRole('button', { name: 'Start' }));
+
+    expect(updatePreferenceMock).toHaveBeenCalledWith('followOutput', true);
+    expect(onSubmit).toHaveBeenCalledWith(
+      '',
+      undefined,
+      true,
+      undefined,
+      undefined,
+      true
+    );
+  });
+
   it('groups run settings separately from DAG parameters', () => {
     render(
       <StartDAGModal
