@@ -495,22 +495,6 @@ function NodeStatusTableRow({
     subDAGRunId: isSubDAGRun ? dagRun.dagRunId : undefined,
   });
 
-  // Determine row highlight based on status
-  const getRowHighlight = () => {
-    switch (node.status) {
-      case NodeStatus.Running:
-        return 'bg-success-muted';
-      case NodeStatus.Retrying:
-        return 'bg-warning-muted';
-      case NodeStatus.Failed:
-        return 'bg-error-muted';
-      case NodeStatus.Waiting:
-        return 'bg-warning/5';
-      default:
-        return '';
-    }
-  };
-
   // Handle sub dagRun navigation
   const handleSubDAGRunNavigation = (
     subRunIndex: number = 0,
@@ -858,10 +842,7 @@ function NodeStatusTableRow({
     return (
       <>
         <StyledTableRow
-          className={cn(
-            'hover:bg-muted/50 transition-colors duration-200 h-auto cursor-pointer',
-            getRowHighlight()
-          )}
+          className="hover:bg-muted/50 transition-colors duration-200 h-auto cursor-pointer"
           onClick={() => {
             if (hasLogs) {
               setIsLogExpanded(!isLogExpanded);
@@ -1279,12 +1260,7 @@ function NodeStatusTableRow({
 
   // Render mobile view (card)
   return (
-    <div
-      className={cn(
-        'p-4 rounded-2xl border border-border bg-card hover:',
-        getRowHighlight()
-      )}
-    >
+    <div className="p-4 rounded-2xl border border-border bg-card">
       {/* Header with number and status */}
       <div className="flex justify-between items-center mb-3">
         <div className="flex items-center gap-2">
