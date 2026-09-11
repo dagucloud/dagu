@@ -118,29 +118,32 @@ end;
 procedure AddInstallPath;
 var
   Path, InstallPath, PreviousPath: string;
+  Owned: Boolean;
 begin
   InstallPath := ExpandConstant('{app}');
   if not RegQueryStringValue(HKLM, EnvironmentKey, 'Path', Path) then begin
     Path := '';
   end;
-  if RegQueryStringValue(HKLM, InstallerKey, PathMarker, PreviousPath) and
-     (CompareText(PreviousPath, InstallPath) <> 0) then begin
+  Owned := RegQueryStringValue(HKLM, InstallerKey, PathMarker, PreviousPath);
+  if Owned and (CompareText(PreviousPath, InstallPath) <> 0) then begin
     Path := RemovePathEntry(Path, PreviousPath);
     RegWriteExpandStringValue(HKLM, EnvironmentKey, 'Path', Path);
     RegDeleteValue(HKLM, InstallerKey, PathMarker);
+    Owned := False;
   end;
   if PathHasEntry(Path, InstallPath) then begin
-    RegDeleteValue(HKLM, InstallerKey, PathMarker);
-    RegDeleteKeyIfEmpty(HKLM, InstallerKey);
+    if not Owned then begin
+      { The entry predates this installer, so it must not be removed on uninstall. }
+      RegDeleteValue(HKLM, InstallerKey, PathMarker);
+      RegDeleteKeyIfEmpty(HKLM, InstallerKey);
+    end;
     exit;
   end;
-  if not PathHasEntry(Path, InstallPath) then begin
-    if Path <> '' then begin
-      Path := Path + ';';
-    end;
-    RegWriteExpandStringValue(HKLM, EnvironmentKey, 'Path', Path + InstallPath);
-    RegWriteStringValue(HKLM, InstallerKey, PathMarker, InstallPath);
+  if Path <> '' then begin
+    Path := Path + ';';
   end;
+  RegWriteExpandStringValue(HKLM, EnvironmentKey, 'Path', Path + InstallPath);
+  RegWriteStringValue(HKLM, InstallerKey, PathMarker, InstallPath);
 end;
 
 procedure RemoveInstallPath;
