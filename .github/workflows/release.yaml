@@ -53,3 +53,75 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{secrets.DAGU_GITHUB_TOKEN}}
+
+  # The Inno Setup compiler is Windows-only, so the installer cannot be produced
+  # in the GoReleaser job. It wraps the amd64 binary that job already published,
+  # so the installer and the archive ship identical bytes.
+  windows-installer:
+    name: Publish Windows installer
+    needs: goreleaser
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out code
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Download the published Windows binary
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Context values are passed via env so they're treated as data, not code.
+          # Writing ${{ expr }} directly inside `run:` would let a crafted value
+          # execute arbitrary shell commands before the runner sees the script.
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          asset="dagu_${version}_windows_amd64.tar.gz"
+          mkdir -p dist
+          for i in {1..30}; do
+            if gh release download "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --pattern "$asset" \
+              --dir dist; then
+              break
+            fi
+            echo "Attempt ${i}/30: release asset not available yet, waiting 10 seconds..."
+            sleep 10
+          done
+          if [ ! -f "dist/${asset}" ]; then
+            echo "::error::Release asset ${asset} was not available for ${RELEASE_TAG}"
+            exit 1
+          fi
+          tar -xzf "dist/${asset}" -C dist dagu.exe
+          mv dist/dagu.exe dist/dagu-windows-amd64.exe
+
+      - name: Build the installer
+        shell: powershell
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $version = $env:RELEASE_TAG -replace '^v', ''
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            Write-Host "Inno Setup 6 is not preinstalled on this image; installing it."
+            choco install innosetup --no-progress --yes
+          }
+          & $iscc /DAppVersion=$version /DBinaryPath=dist\dagu-windows-amd64.exe scripts\installer.iss
+          if ($LASTEXITCODE -ne 0) {
+            throw "Inno Setup compilation failed with exit code $LASTEXITCODE."
+          }
+
+      - name: Attach the installer to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          installer="dist/dagu-${version}-setup.exe"
+          if [ ! -f "$installer" ]; then
+            echo "::error::${installer} was not produced by the Inno Setup compiler"
+            exit 1
+          fi
+          gh release upload "$RELEASE_TAG" "$installer" \
+            --repo "$GITHUB_REPOSITORY" --clobber
