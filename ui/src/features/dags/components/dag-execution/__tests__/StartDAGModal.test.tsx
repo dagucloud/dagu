@@ -22,12 +22,25 @@ vi.mock('@/contexts/AuthContext', () => ({
   useIsAdmin: () => useIsAdminMock(),
 }));
 
-vi.mock('@/contexts/UserPreference', () => ({
-  useUserPreferences: () => ({
-    preferences: { followOutput: false },
-    updatePreference: updatePreferenceMock,
-  }),
-}));
+vi.mock('@/contexts/UserPreference', async () => {
+  const React = await import('react');
+
+  return {
+    useUserPreferences: () => {
+      const [followOutput, setFollowOutput] = React.useState(false);
+
+      return {
+        preferences: { followOutput },
+        updatePreference: (key: string, value: boolean) => {
+          updatePreferenceMock(key, value);
+          if (key === 'followOutput') {
+            setFollowOutput(value);
+          }
+        },
+      };
+    },
+  };
+});
 
 vi.mock('@rjsf/shadcn', async () => {
   const React = await import('react');
@@ -109,6 +122,38 @@ describe('StartDAGModal', () => {
       undefined,
       undefined,
       true
+    );
+  });
+
+  it('preserves entered run-form data when follow output changes', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <StartDAGModal
+        visible={true}
+        dismissModal={vi.fn()}
+        onSubmit={vi.fn()}
+        dag={
+          {
+            name: 'typed-dag',
+            paramDefs: [{ name: 'region', type: 'string', required: false }],
+          } as never
+        }
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText(/region/i), {
+      target: { value: 'us-west-2' },
+    });
+    fireEvent.change(screen.getByLabelText('DAG-Run ID (optional)'), {
+      target: { value: 'custom-run' },
+    });
+
+    await user.click(screen.getByRole('checkbox', { name: 'Follow output' }));
+
+    expect(screen.getByLabelText(/region/i)).toHaveValue('us-west-2');
+    expect(screen.getByLabelText('DAG-Run ID (optional)')).toHaveValue(
+      'custom-run'
     );
   });
 

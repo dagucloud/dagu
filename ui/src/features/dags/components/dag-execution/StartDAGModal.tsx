@@ -454,7 +454,6 @@ function StartDAGModal({
       defaultProfile ? DAG_DEFAULT_PROFILE_VALUE : NO_PROFILE_VALUE
     );
     setEnqueue(forceEnqueue);
-    setFollowOutput(preferences.followOutput);
     setNoReuse(false);
   }, [
     defaultProfile,
@@ -463,8 +462,11 @@ function StartDAGModal({
     initialTypedFields,
     initialRawParams,
     forceEnqueue,
-    preferences.followOutput,
   ]);
+
+  React.useEffect(() => {
+    setFollowOutput(preferences.followOutput);
+  }, [preferences.followOutput]);
 
   const cancelButtonRef = React.useRef<HTMLButtonElement>(null);
 
@@ -835,7 +837,7 @@ function StartDAGModal({
                 <Label htmlFor="follow-output" className="cursor-pointer">
                   <I18nText text={'Follow output'} />
                 </Label>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-slate-500 dark:text-slate-500">
                   <I18nText
                     text={'Open the live output when the DAG starts.'}
                   />

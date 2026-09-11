@@ -324,6 +324,7 @@ function DAGDetails() {
             refresh: refreshData,
             fileName,
             name: dagRunName,
+            onRunStarted: handleRunStarted,
           }}
         >
           <RootDAGRunContext.Provider

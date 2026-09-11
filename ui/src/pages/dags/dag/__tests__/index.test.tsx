@@ -1,17 +1,25 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppBarContext } from '@/contexts/AppBarContext';
+import { DAGContext } from '@/features/dags/contexts/DAGContext';
 import { useQuery } from '@/hooks/api';
 import { WorkspaceKind } from '@/lib/workspace';
 import DAGDetails from '..';
 
 vi.mock('@/features/dags/components/dag-details', () => ({
-  DAGHeader: () => null,
+  DAGHeader: () => {
+    const { onRunStarted } = React.useContext(DAGContext);
+    return (
+      <button onClick={() => onRunStarted?.('started-run', true)}>
+        Start run
+      </button>
+    );
+  },
   DAGDetailsContent: vi.fn(({ activeTab, fillHeight }) => (
     <div
       data-active-tab={activeTab}
@@ -110,6 +118,16 @@ describe('DAGDetails page', () => {
     expect(content).toHaveAttribute('data-fill-height', 'true');
     expect(content.parentElement).toHaveClass('min-h-0');
     expect(content.parentElement).toHaveClass('flex-1');
+  });
+
+  it('passes the follow-output callback through the full-page provider', () => {
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start run' }));
+
+    expect(screen.getByTestId('location')).toHaveTextContent(
+      '/dags/release-notes/dagRun-log?dagRunId=started-run&dagRunName=release-notes'
+    );
   });
 
   it('redirects the legacy docs tab to the Wiki tab', async () => {
