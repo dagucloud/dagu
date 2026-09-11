@@ -2,19 +2,18 @@
 
 ## Prerequisites
 
-- Node.js (latest stable version)
+- Go 1.27.0 or newer
+- Node.js 18.18 or newer
 - pnpm
 
 ## Development Instructions
 
 ### 1. Starting the Backend Server
 
-The Dagu UI relies on a backend server that provides the necessary data for the UI to function properly. To start the backend server, navigate to the project root directory and execute the following command:
+The Dagu UI relies on a backend server that provides the necessary data for the UI to function properly. From the repository root, run:
 
 ```bash
-git clone git@github.com:dagucloud/dagu.git
-cd dagu
-make server
+make run-server
 ```
 
 This command will start the backend server at 127.0.0.1:8080 by default. If you need to use a different address or port, you can modify the appropriate settings in the backend configuration file.
@@ -25,7 +24,7 @@ Once the backend server is up and running, you can start the Webpack dev server 
 
 ```bash
 cd ui/
-pnpm install
+pnpm install --frozen-lockfile
 pnpm dev
 ```
 

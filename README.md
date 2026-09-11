@@ -1018,7 +1018,7 @@ The embedded API is experimental and may change. See the [embedded API documenta
 
 ## Development
 
-**Prerequisites:** [Go 1.27+](https://go.dev/doc/install), [Node.js](https://nodejs.org/en/download/), [pnpm](https://pnpm.io/installation)
+**Prerequisites:** [Go 1.27.0+](https://go.dev/doc/install), [Node.js 18.18+](https://nodejs.org/en/download/), [pnpm](https://pnpm.io/installation)
 
 ```sh
 git clone https://github.com/dagucloud/dagu.git && cd dagu
@@ -1027,7 +1027,11 @@ make test     # Run tests with race detection
 make lint     # Run golangci-lint
 ```
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for development workflow and code standards.
+For the local UI development loop, run `make run-server` from the repository
+root, then follow [`ui/README.md`](./ui/README.md). See
+[`ARCHITECTURE.md`](./ARCHITECTURE.md) for a human-oriented repository map and
+[`CONTRIBUTING.md`](./CONTRIBUTING.md) for the focused first-PR workflow and
+code standards.
 
 ## Acknowledgements
 

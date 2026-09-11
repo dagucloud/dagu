@@ -13,8 +13,8 @@ You do not need to understand the whole repository before making a useful first 
 | Track | Start with | First check |
 | --- | --- | --- |
 | Docs / examples | A Markdown file or `examples/` | No build is required; validate a changed DAG with `dagu validate` if you have the binary available |
-| UI | `ui/` | Start the backend with `make run-server`, then run `cd ui && pnpm install && pnpm dev` |
-| One executor | `internal/runtime/builtin/<name>` | `make test TEST_TARGET=./internal/runtime/builtin/<name>` |
+| UI | `ui/` | Start the backend with `make run-server`, then run `cd ui && pnpm install --frozen-lockfile && pnpm dev` |
+| One executor | `internal/runtime/builtin/EXECUTOR_PACKAGE` | `make test TEST_TARGET=./internal/runtime/builtin/EXECUTOR_PACKAGE` (replace `EXECUTOR_PACKAGE` with the package name) |
 | API / CLI | `internal/service/frontend/api/v1` or `internal/cmd` | `make test TEST_TARGET=./internal/service/frontend/api/v1` or the matching package |
 
 For a first PR, change only the files needed for the issue. You do not need to learn every package or run the full test suite before opening a focused PR.
@@ -35,8 +35,9 @@ We welcome contributions of all kinds, including:
 
 Prerequisites depend on your track:
 
-- Go 1.27 or newer for Go and backend changes ([install Go](https://go.dev/doc/install)).
+- Go 1.27.0 or newer for Go and backend changes ([install Go](https://go.dev/doc/install)).
 - Node.js 18.18 or newer and [pnpm](https://pnpm.io/installation) for UI changes.
+- Go 1.27.0 or newer is also required for the UI development loop because `make run-server` builds the backend.
 - Docs-only changes do not require the Go toolchain.
 
 Building frontend assets:
@@ -53,7 +54,8 @@ make bin
 
 ## Running Tests
 
-Run the smallest relevant check first. For a Go package, pass its path through `TEST_TARGET`:
+Run the smallest relevant check first. For a first code change, pass the Go
+package you touched through `TEST_TARGET`:
 
 ```bash
 make test TEST_TARGET=./path/to/changed/package
@@ -63,12 +65,14 @@ For UI changes:
 
 ```bash
 cd ui
+pnpm install --frozen-lockfile
 pnpm test
 ```
 
 Docs-only and example-only changes do not need Go tests. If an example changes a DAG, validate it with the `dagu` binary when available. CI and maintainers run the full suite; you do not need to run it before opening a focused first PR.
 
-For the full local Go check:
+The full repository check is primarily for CI and maintainers. Run it locally
+when practical:
 
 ```bash
 make lint
@@ -80,6 +84,10 @@ To run tests with code coverage analysis:
 ```bash
 make test-coverage
 ```
+
+After changing Go files, format the files you touched before opening the PR.
+`make fmt` runs the repository-wide Go fix, formatting, and lint-fix pass; use
+it when that broader pass is appropriate for the change.
 
 
 
@@ -95,7 +103,7 @@ Starting the development server:
 
 ```bash
 cd ui
-pnpm install
+pnpm install --frozen-lockfile
 pnpm dev
 ```
 
