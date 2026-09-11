@@ -30,6 +30,7 @@ PrivilegesRequired=admin
 ChangesEnvironment=yes
 ArchitecturesInstallIn64BitMode=x64compatible
 ArchitecturesAllowed=x64compatible
+OutputDir=dist
 OutputBaseFilename=dagu-{#AppVersion}-setup
 Uninstallable=yes
 UninstallDisplayIcon={app}\{#AppExeName}

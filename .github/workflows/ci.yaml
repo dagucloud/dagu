@@ -19,6 +19,7 @@ on:
       - "proto/**"
       - "scripts/e2e/**"
       - "scripts/installer.cmd"
+      - "scripts/installer.iss"
       - "scripts/installer.ps1"
       - "ui/**"
       - ".github/workflows/ci.yaml"
@@ -41,6 +42,7 @@ on:
       - "proto/**"
       - "scripts/e2e/**"
       - "scripts/installer.cmd"
+      - "scripts/installer.iss"
       - "scripts/installer.ps1"
       - "ui/**"
       - ".github/workflows/ci.yaml"
@@ -120,7 +122,7 @@ jobs:
             esac
 
             case "${file}" in
-              scripts/installer.cmd|scripts/installer.ps1|scripts/installer.iss|.github/workflows/ci.yaml)
+              scripts/installer.cmd|scripts/installer.iss|scripts/installer.ps1|.github/workflows/ci.yaml)
                 windows_installer_changed=true
                 ;;
             esac
@@ -371,7 +373,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.windows_installer == 'true'
     runs-on: windows-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - name: Check out code
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -460,8 +462,12 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           go build -trimpath -o dist\dagu-windows-amd64.exe .\cmd
-          choco install innosetup --no-progress --yes
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            Write-Host "Inno Setup 6 is not preinstalled on this image; installing it."
+            choco install innosetup --no-progress --yes
+          }
+          & $iscc `
             /DAppVersion=0.0.0 `
             /DBinaryPath=dist\dagu-windows-amd64.exe `
             scripts\installer.iss
