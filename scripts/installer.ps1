@@ -20,6 +20,7 @@ param(
     [string]$AdminPassword = "",
     [ValidateSet("yes", "no")]
     [string]$OpenBrowser = "",
+    [switch]$ServiceOnly,
     [switch]$Uninstall,
     [switch]$PurgeData,
     [switch]$RemoveSkill,
@@ -170,7 +171,7 @@ function Join-Values {
 }
 
 function Choose-OperationMode {
-    if ($Uninstall) {
+    if ($Uninstall -or $ServiceOnly) {
         return
     }
     if (-not (Test-Interactive)) {
@@ -234,6 +235,9 @@ function Read-PasswordConfirm {
 }
 
 function Get-LatestVersion {
+    if ($ServiceOnly) {
+        return
+    }
     if ($Version) {
         if ($Version -ieq "latest") {
             $script:Version = ""
@@ -319,6 +323,24 @@ function Validate-UninstallArgs {
     }
 }
 
+function Validate-ServiceOnlyArgs {
+    if (-not $ServiceOnly) {
+        return
+    }
+    if ($Service -ne "yes") {
+        throw "-ServiceOnly requires -Service yes."
+    }
+    if ($Script:InstallerBoundParameterNames -contains "Version") {
+        throw "-Version is not supported with -ServiceOnly. The Dagu binary must already be installed."
+    }
+    if ($SkillsDir.Count -gt 0) {
+        throw "-SkillsDir is not supported with -ServiceOnly."
+    }
+    if (-not (Test-Path $DaguExe)) {
+        throw "-ServiceOnly requires an existing Dagu binary at $DaguExe."
+    }
+}
+
 function Resolve-Defaults {
     if (-not $Service) {
         $script:Service = if (Test-Interactive) { "yes" } else { "no" }
@@ -368,6 +390,9 @@ function Resolve-Defaults {
 }
 
 function Detect-SkillTargets {
+    if ($ServiceOnly) {
+        return
+    }
     $userHome = [Environment]::GetFolderPath("UserProfile")
     $count = 0
     $agentsHome = if ($env:AGENTS_HOME) { $env:AGENTS_HOME } else { Join-Path $userHome ".agents" }
@@ -762,8 +787,10 @@ function Show-UninstallSummary {
 }
 
 function Show-Plan {
-    Write-Section "Install plan"
-    Write-Host ("Version".PadRight(20) + $Version)
+    Write-Section $(if ($ServiceOnly) { "Service setup plan" } else { "Install plan" })
+    if (-not $ServiceOnly) {
+        Write-Host ("Version".PadRight(20) + $Version)
+    }
     Write-Host ("Install directory".PadRight(20) + $InstallDir)
     Write-Host ("Background service".PadRight(20) + $Service)
     if ($Service -eq "yes") {
@@ -772,14 +799,16 @@ function Show-Plan {
         Write-Host ("Web URL".PadRight(20) + $ServiceUrl)
         Write-Host ("Admin bootstrap".PadRight(20) + $(if ($AdminUsername) { $AdminUsername } else { "disabled" }))
     }
-    Write-Host ("Skill install".PadRight(20) + $(if ($SkillMode -eq "explicit") { "custom" } elseif ($SkillMode -eq "auto") { "detected tools" } else { "skip" }))
+    if (-not $ServiceOnly) {
+        Write-Host ("Skill install".PadRight(20) + $(if ($SkillMode -eq "explicit") { "custom" } elseif ($SkillMode -eq "auto") { "detected tools" } else { "skip" }))
+    }
     if ($DryRun) {
         Write-Host ("Dry run".PadRight(20) + "yes")
     }
 }
 
 function Invoke-InstallerWizard {
-    if (-not (Test-Interactive)) {
+    if ($ServiceOnly -or -not (Test-Interactive)) {
         return
     }
 
@@ -832,6 +861,7 @@ function Get-ForwardArgs {
     if ($AdminUsername) { $argsList += @("-AdminUsername", $AdminUsername) }
     if ($AdminPassword) { $argsList += @("-AdminPassword", $AdminPassword) }
     if ($OpenBrowser) { $argsList += @("-OpenBrowser", $OpenBrowser) }
+    if ($ServiceOnly) { $argsList += "-ServiceOnly" }
     if ($Uninstall) { $argsList += "-Uninstall" }
     if ($PurgeData) { $argsList += "-PurgeData" }
     if ($RemoveSkill) { $argsList += "-RemoveSkill" }
@@ -852,6 +882,9 @@ function Ensure-ElevatedForService {
         throw "Service installation on Windows requires running PowerShell as Administrator."
     }
     if (-not (Confirm-Choice "Windows service installation needs Administrator rights. Elevate now?" $true)) {
+        if ($ServiceOnly) {
+            throw "-ServiceOnly requires Administrator rights to configure the Windows service."
+        }
         $script:Service = "no"
         Resolve-Defaults
         return
@@ -940,6 +973,10 @@ function New-TempDir {
 }
 
 function Install-DaguBinary {
+    if ($ServiceOnly) {
+        Write-Info "Using the existing Dagu binary at $DaguExe"
+        return
+    }
     $arch = Get-WindowsArch
     $tmpDir = New-TempDir
     try {
@@ -969,6 +1006,9 @@ function Install-DaguBinary {
 }
 
 function Ensure-PathEntry {
+    if ($ServiceOnly) {
+        return
+    }
     if ($DryRun) {
         Write-Info "Would update PATH to include $InstallDir"
         return
@@ -1108,6 +1148,9 @@ function Verify-Bootstrap {
         return
     }
     if (-not (Has-AdminBootstrap)) {
+        if ($ServiceOnly -and -not (Wait-ForHealth -Attempts 30)) {
+            throw "The Dagu service started, but $ServiceUrl did not become healthy."
+        }
         Write-WarnMessage "No initial admin credentials were provided. Open $ServiceUrl/setup to finish the first-time setup."
         return
     }
@@ -1201,7 +1244,7 @@ function Open-BrowserIfRequested {
 
 function Show-Summary {
     Write-Section "Success"
-    Write-Host ("Installed".PadRight(20) + $DaguExe)
+    Write-Host ($(if ($ServiceOnly) { "Dagu binary" } else { "Installed" }).PadRight(20) + $DaguExe)
     if ($Service -eq "yes") {
         Write-Host ("Service URL".PadRight(20) + $ServiceUrl)
         Write-Host ("Service".PadRight(20) + $Script:ServiceName)
@@ -1238,6 +1281,7 @@ Detect-SkillTargets
 Resolve-Defaults
 Invoke-InstallerWizard
 Resolve-Defaults
+Validate-ServiceOnlyArgs
 Validate-AdminBootstrap
 Ensure-ElevatedForService
 Show-Plan
