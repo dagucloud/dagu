@@ -35,6 +35,8 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Copy, Check } from 'lucide-react';
+import { useCopyFeedback } from '@/hooks/useCopyFeedback';
+import { buildMCPServerURL, buildMCPSetupPrompt } from './mcpSetupPrompt';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 
@@ -57,6 +59,7 @@ export function APIKeyFormModal({
 }: APIKeyFormModalProps) {
   const config = useConfig();
   const appBarContext = useContext(AppBarContext);
+  const remoteNode = appBarContext.selectedRemoteNode || 'local';
   const isEditing = !!apiKey;
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -75,7 +78,8 @@ export function APIKeyFormModal({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [createdKey, setCreatedKey] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const keyCopy = useCopyFeedback();
+  const promptCopy = useCopyFeedback();
 
   useEffect(() => {
     if (open) {
@@ -109,7 +113,6 @@ export function APIKeyFormModal({
       }
       setError(null);
       setCreatedKey(null);
-      setCopied(false);
     }
   }, [open, apiKey]);
 
@@ -139,7 +142,6 @@ export function APIKeyFormModal({
 
     try {
       const token = localStorage.getItem(TOKEN_KEY);
-      const remoteNode = appBarContext.selectedRemoteNode || 'local';
       const url = isEditing
         ? `${config.apiURL}/api-keys/${apiKey.id}?remoteNode=${remoteNode}`
         : `${config.apiURL}/api-keys?remoteNode=${remoteNode}`;
@@ -189,14 +191,6 @@ export function APIKeyFormModal({
     }
   };
 
-  const handleCopy = async () => {
-    if (createdKey) {
-      await navigator.clipboard.writeText(createdKey);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  };
-
   const handleDone = () => {
     setCreatedKey(null);
     onSuccess();
@@ -211,6 +205,10 @@ export function APIKeyFormModal({
       return current.filter((item) => item !== surface);
     });
   };
+
+  const canSetUpMCP =
+    remoteNode === 'local' &&
+    allowedSurfaces.includes(APIKeyAllowedSurfaces.mcp);
 
   // Show the key after creation
   if (createdKey) {
@@ -234,14 +232,44 @@ export function APIKeyFormModal({
               <code className="flex-1 p-2 text-sm bg-muted rounded-md break-all font-mono">
                 {createdKey}
               </code>
-              <Button variant="outline" size="icon" onClick={handleCopy}>
-                {copied ? (
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => void keyCopy.copy(createdKey)}
+              >
+                {keyCopy.copied ? (
                   <Check className="h-4 w-4" />
                 ) : (
                   <Copy className="h-4 w-4" />
                 )}
               </Button>
             </div>
+            {canSetUpMCP && (
+              <Button
+                variant="outline"
+                className="w-full"
+                aria-live="polite"
+                onClick={() =>
+                  void promptCopy.copy(
+                    buildMCPSetupPrompt(
+                      buildMCPServerURL(config.basePath),
+                      createdKey
+                    )
+                  )
+                }
+              >
+                {promptCopy.copied ? (
+                  <Check className="h-4 w-4" />
+                ) : (
+                  <Copy className="h-4 w-4" />
+                )}
+                {promptCopy.copied ? (
+                  <I18nText text={'Copied'} />
+                ) : (
+                  <I18nText text={'Copy MCP setup prompt'} />
+                )}
+              </Button>
+            )}
           </div>
           <DialogFooter>
             <Button onClick={handleDone}>

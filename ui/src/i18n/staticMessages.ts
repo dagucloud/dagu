@@ -2082,6 +2082,7 @@ const english = {
   'Click to update status': 'Click to update status',
   '(unchanged)': '(unchanged)',
   'Next run': 'Next run',
+  'Copy MCP setup prompt': 'Copy MCP setup prompt',
 } as const;
 
 export type StaticMessage = keyof typeof english;
@@ -4111,6 +4112,7 @@ const chinese = {
   'Click to update status': '单击以更新状态',
   '(unchanged)': '（不变）',
   'Next run': '下次运行',
+  'Copy MCP setup prompt': '复制 MCP 配置提示词',
 } as const satisfies Record<StaticMessage, string>;
 
 const japanese = {
@@ -6214,6 +6216,7 @@ const japanese = {
   'Click to update status': 'クリックしてステータスを更新',
   '(unchanged)': '（変更なし）',
   'Next run': '次の実行',
+  'Copy MCP setup prompt': 'MCP セットアップ用プロンプトをコピー',
 } as const satisfies Record<StaticMessage, string>;
 
 export const staticMessages = {
