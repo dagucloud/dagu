@@ -16,7 +16,7 @@ Use dagu_read for current state, Wiki pages, and trusted reference resources.
 Use dagu_change with mode=preview before mode=apply when editing DAG YAML, DAG default profiles, or Wiki pages.
 Use dagu_execute for start, enqueue, retry, and stop. retry and stop are actions inside dagu_execute.
 MCP Apps hosts can render run-related dagu_read and dagu_execute results in Dagu's interactive run inspector.
-To follow a run to completion, pass wait=true to dagu_execute, or read the returned dagu://runs/... resource, or subscribe to it to receive a resource update notification when the run reaches a terminal state or stops at a human-task checkpoint.`
+To follow a run to completion, pass wait=true to dagu_execute, or read the returned dagu://runs/... resource, or subscribe to it to receive a resource update notification when the run reaches a terminal state or stops at a waiting checkpoint.`
 
 type referenceResource struct {
 	topic       string
@@ -256,7 +256,7 @@ Fields:
 - labels: labels for start and enqueue.
 - stepName: optional step name for retry.
 - includeDownstream: when true, retry the selected step and every reachable descendant. Requires stepName.
-- wait: when true, wait for the identified run to reach a terminal state or a human-task checkpoint before returning. Requires a name that identifies the run.
+- wait: when true, wait for the identified run to reach a terminal state or a waiting checkpoint before returning. Requires a name that identifies the run.
 - waitTimeoutSeconds: maximum seconds to wait, from 1 to 300. Defaults to 60.
 
 Action behavior:
@@ -266,7 +266,7 @@ Action behavior:
 - retry retries an existing DAG-run and may target a step with stepName, optionally including downstream steps.
 - stop stops an existing DAG-run.
 - Fields unsupported by an action are invalid. params, singleton, noReuse, and labels apply only to start and enqueue; queue only to enqueue; stepName and includeDownstream only to retry.
-- With wait=true, the call returns once the run reaches a terminal state, stops at a human-task checkpoint, or the timeout elapses. A run stopped at a checkpoint has completed=false and reports the waiting step prompt under run.steps; complete the task to resume it. On timeout the run keeps executing and the output has completed=false.
+- With wait=true, the call returns once the run reaches a terminal state, stops at a waiting checkpoint, or the timeout elapses. A run stopped at a checkpoint has completed=false and reports each waiting step under run.steps as humanTask or approval with its prompt; resolve them to resume the run. On timeout the run keeps executing and the output has completed=false.
 
 Output:
 
@@ -293,7 +293,7 @@ Errors:
 
 dagu_execute returns resource links for the DAG-run and logs when a run can be identified.
 
-Clients that support MCP resource subscriptions can subscribe to the dagu://runs/{name}/{dagRunId} resource. Dagu sends a resource update notification when the run reaches a terminal state: success, failed, aborted, partial success, or rejected. Dagu also notifies when the run stops at a human-task checkpoint, and keeps watching so the later terminal state is notified too.
+Clients that support MCP resource subscriptions can subscribe to the dagu://runs/{name}/{dagRunId} resource. Dagu sends a resource update notification when the run reaches a terminal state: success, failed, aborted, partial success, or rejected. Dagu also notifies when the run stops at a waiting checkpoint, and keeps watching so the later terminal state is notified too.
 
 Clients without resource subscription support have two options: pass wait=true to dagu_execute to wait for the result inside the tool call, or poll dagu_read target=run with the same name and dagRunId.`,
 		},

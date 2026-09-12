@@ -72,26 +72,29 @@ func TestExecuteStartWithWaitReturnsRunResult(t *testing.T) {
 	require.Equal(t, "main", step["name"])
 }
 
-func TestExecuteStartWithWaitReturnsAtHumanTaskCheckpoint(t *testing.T) {
+func TestExecuteStartWithWaitReturnsAtWaitingCheckpoint(t *testing.T) {
 	server := mcptest.NewServer(t)
-	server.CreateHumanTaskDAG(t, "mcp_execute_human_task")
+	server.CreateWaitingDAG(t, "mcp_execute_waiting")
 	session := server.Connect(t, "")
 
 	result := callExecute(t, session, map[string]any{
 		"action":             "start",
-		"name":               "mcp_execute_human_task",
+		"name":               "mcp_execute_waiting",
 		"wait":               true,
-		"waitTimeoutSeconds": 15,
+		"waitTimeoutSeconds": 30,
 	})
 	require.False(t, result.IsError)
 
 	output := mcptest.StructuredMap(t, result)
-	// A checkpoint is not completion; the run resumes only once an operator answers.
+	// A checkpoint is not completion; the run resumes only once an operator acts.
 	require.Equal(t, false, output["completed"])
 	require.Equal(t, "waiting", output["statusLabel"])
 
+	// A run stopped at a checkpoint carries the detail an operator needs; a run
+	// that merely timed out reports no detail at all.
 	run, ok := output["run"].(map[string]any)
-	require.True(t, ok)
+	require.Truef(t, ok, "wait returned no run details (completed=%v, statusLabel=%v)",
+		output["completed"], output["statusLabel"])
 	steps, ok := run["steps"].([]any)
 	require.True(t, ok)
 	require.NotEmpty(t, steps)

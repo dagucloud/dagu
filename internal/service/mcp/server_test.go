@@ -1049,7 +1049,7 @@ func TestNormalizeRunDetailsIncludesRunHierarchy(t *testing.T) {
 	}, subRuns)
 }
 
-func TestNormalizeRunDetailsIncludesWaitingHumanTask(t *testing.T) {
+func TestNormalizeRunDetailsDescribesWaitingSteps(t *testing.T) {
 	t.Parallel()
 
 	form := map[string]any{
@@ -1060,6 +1060,9 @@ func TestNormalizeRunDetailsIncludesWaitingHumanTask(t *testing.T) {
 		},
 	}
 	stepID := "release_review"
+	approvalPrompt := "Approve the deployment"
+	approvalInput := []string{"ticket"}
+	rewindTo := "build"
 	raw := daguapi.GetDAGRunDetails200JSONResponse{
 		DagRunDetails: daguapi.DAGRunDetails{
 			Name:        "release",
@@ -1085,6 +1088,21 @@ func TestNormalizeRunDetailsIncludesWaitingHumanTask(t *testing.T) {
 					Status:      daguapi.NodeStatusWaiting,
 					StatusLabel: "waiting",
 				},
+				{
+					// An approval gate parks a step the same way a human task does.
+					// rewindTo describes push-back, which is not the approver's input.
+					Step: daguapi.Step{
+						Name: "deploy_gate",
+						Approval: &daguapi.ApprovalConfig{
+							Prompt:   &approvalPrompt,
+							Input:    &approvalInput,
+							Required: &approvalInput,
+							RewindTo: &rewindTo,
+						},
+					},
+					Status:      daguapi.NodeStatusWaiting,
+					StatusLabel: "waiting",
+				},
 			},
 		},
 	}
@@ -1099,6 +1117,11 @@ func TestNormalizeRunDetailsIncludesWaitingHumanTask(t *testing.T) {
 		"form":   form,
 	}, steps[0]["humanTask"])
 	require.Equal(t, map[string]any{"prompt": "Confirm maintenance has started"}, steps[1]["humanTask"])
+	require.Equal(t, map[string]any{
+		"prompt":   approvalPrompt,
+		"input":    approvalInput,
+		"required": approvalInput,
+	}, steps[2]["approval"])
 }
 
 // A run whose human-task input was accepted still reports itself as waiting

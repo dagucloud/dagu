@@ -130,7 +130,7 @@ func executeToolInputSchema() json.RawMessage {
 			},
 			"wait": {
 				"type": "boolean",
-				"description": "When true, wait for the identified run to reach a terminal state or a human-task checkpoint and include its result summary in the output."
+				"description": "When true, wait for the identified run to reach a terminal state or a waiting checkpoint and include its result summary in the output."
 			},
 			"waitTimeoutSeconds": {
 				"type": "integer",
@@ -240,7 +240,7 @@ func (svc *Service) executeToolImpl(ctx context.Context, input executeInput) (*m
 		if input.Wait {
 			message = svc.waitForRun(ctx, input, dagRunID, output)
 		} else {
-			output["subscribe"] = "Subscribe to " + run + " to receive an MCP resource update notification when the run reaches a terminal state or stops at a human-task checkpoint."
+			output["subscribe"] = "Subscribe to " + run + " to receive an MCP resource update notification when the run reaches a terminal state or stops at a waiting checkpoint."
 		}
 	}
 
@@ -248,7 +248,7 @@ func (svc *Service) executeToolImpl(ctx context.Context, input executeInput) (*m
 }
 
 // waitForRun polls the identified run until it reaches a terminal state, stops
-// at a human-task checkpoint, or the requested timeout elapses, records the
+// at a waiting checkpoint, or the requested timeout elapses, records the
 // outcome in output, and returns the result message. Poll errors end the wait
 // but never fail the already successful execute action.
 func (svc *Service) waitForRun(ctx context.Context, input executeInput, dagRunID string, output map[string]any) string {
@@ -279,7 +279,7 @@ func (svc *Service) waitForRun(ctx context.Context, input executeInput, dagRunID
 			output["statusLabel"] = run.StatusLabel
 
 			// A run at a waiting checkpoint makes no further progress until an
-			// operator answers its open human tasks.
+			// operator resolves its waiting steps.
 			terminal := isTerminalStatus(int(run.Status))
 			waiting := ir.Status(run.Status).IsWaiting()
 			if terminal || waiting {
@@ -291,7 +291,7 @@ func (svc *Service) waitForRun(ctx context.Context, input executeInput, dagRunID
 				output["completed"] = terminal
 				output["run"] = details
 				if waiting {
-					return "Dagu execute action completed. The run stopped at a human-task checkpoint; complete the waiting task to resume the run."
+					return "Dagu execute action completed. The run is waiting for manual action; its waiting steps and their prompts are in the run details."
 				}
 				return "Dagu execute action completed. The run finished with status " + string(run.StatusLabel) + "."
 			}

@@ -209,7 +209,7 @@ func registerResources(server *mcpsdk.Server, svc *Service) {
 		URITemplate: "dagu://runs/{name}/{dagRunId}",
 		Name:        "dag_run",
 		Title:       "DAG-run details",
-		Description: "Current DAG-run details. Clients may subscribe to receive a resource update notification when the run reaches a terminal state or stops at a human-task checkpoint.",
+		Description: "Current DAG-run details. Clients may subscribe to receive a resource update notification when the run reaches a terminal state or stops at a waiting checkpoint.",
 		MIMEType:    resourceMIMEJSON,
 	}, svc.readResource)
 
@@ -945,7 +945,8 @@ func isSubStepLogResourceSegments(segments []string) bool {
 }
 
 // isTerminalStatus reports whether a DAG-run status is final. A waiting
-// checkpoint is not final: the run resumes once its human tasks are answered.
+// checkpoint is not final: the run resumes once an operator resolves its
+// waiting steps.
 func isTerminalStatus(status int) bool {
 	switch ir.Status(status) {
 	case ir.Failed, ir.Aborted, ir.Succeeded, ir.PartiallySucceeded, ir.Rejected:

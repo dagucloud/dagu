@@ -245,8 +245,8 @@ func requireRunListItem(t *testing.T, item map[string]any, dagName, dagRunID str
 	require.NotEmpty(t, requireString(t, item, "finishedAt"))
 }
 
-func TestReadRunReportsOpenHumanTask(t *testing.T) {
-	const dagName = "mcp_read_human_task"
+func TestReadRunReportsWaitingSteps(t *testing.T) {
+	const dagName = "mcp_read_waiting_steps"
 
 	server := mcptest.NewServer(t)
 	dagRunID := server.CreateWaitingRun(t, dagName)
@@ -274,8 +274,16 @@ func TestReadRunReportsOpenHumanTask(t *testing.T) {
 	require.True(t, ok)
 	require.Contains(t, properties, "environment")
 
-	// A downstream step has no open task, so it carries no outstanding prompt.
-	require.NotContains(t, requireItem(t, steps, "name", "record_release"), "humanTask")
+	approval, ok := requireItem(t, steps, "name", "deploy_gate")["approval"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "Approve the deployment", approval["prompt"])
+	require.Equal(t, []any{"ticket"}, approval["input"])
+	require.Equal(t, []any{"ticket"}, approval["required"])
+
+	// A downstream step is not waiting, so it holds the run for nobody.
+	downstream := requireItem(t, steps, "name", "record_release")
+	require.NotContains(t, downstream, "humanTask")
+	require.NotContains(t, downstream, "approval")
 }
 
 func requireRunData(t *testing.T, data map[string]any, dagName, dagRunID string) {
