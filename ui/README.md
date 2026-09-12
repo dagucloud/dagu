@@ -2,19 +2,18 @@
 
 ## Prerequisites
 
-- Node.js (latest stable version)
+- Go (latest stable)
+- Node.js (latest stable)
 - pnpm
 
 ## Development Instructions
 
 ### 1. Starting the Backend Server
 
-The Dagu UI relies on a backend server that provides the necessary data for the UI to function properly. To start the backend server, navigate to the project root directory and execute the following command:
+The Dagu UI relies on a backend server that provides the necessary data for the UI to function properly. From the repository root, run:
 
 ```bash
-git clone git@github.com:dagucloud/dagu.git
-cd dagu
-make server
+make run-server
 ```
 
 This command will start the backend server at 127.0.0.1:8080 by default. If you need to use a different address or port, you can modify the appropriate settings in the backend configuration file.
@@ -40,4 +39,4 @@ cd ../
 make ui
 ```
 
-This command will build the `bundle.js` file and copy it to dagu/frontend/assets/js/bundle.js. This is necessary for the Go backend to include the JavaScript within the binary.
+This command will build the `bundle.js` file and copy it to `internal/service/frontend/assets/`. This is necessary for the Go backend to include the JavaScript within the binary.

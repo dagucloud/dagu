@@ -138,7 +138,7 @@ run: ${FE_BUNDLE_JS}
 
 # server build the binary and start the server.
 .PHONY: run-server
-run-server: golangci-lint bin
+run-server: bin
 	@printf '%b\n' "${COLOR_GREEN}Starting the server...${COLOR_RESET}"
 	${LOCAL_BIN_DIR}/${APP_BIN_NAME} server
 
