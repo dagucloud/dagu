@@ -2,8 +2,8 @@
 
 ## Prerequisites
 
-- Go 1.27.0 or newer
-- Node.js 18.18 or newer
+- Go (latest stable)
+- Node.js (latest stable)
 - pnpm
 
 ## Development Instructions

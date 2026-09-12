@@ -1018,7 +1018,7 @@ The embedded API is experimental and may change. See the [embedded API documenta
 
 ## Development
 
-**Prerequisites:** [Go 1.27.0+](https://go.dev/doc/install), [Node.js 18.18+](https://nodejs.org/en/download/), [pnpm](https://pnpm.io/installation)
+**Prerequisites:** [Go (latest stable)](https://go.dev/doc/install), [Node.js (latest stable)](https://nodejs.org/en/download/), [pnpm](https://pnpm.io/installation)
 
 ```sh
 git clone https://github.com/dagucloud/dagu.git && cd dagu

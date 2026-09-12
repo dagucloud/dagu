@@ -35,9 +35,9 @@ We welcome contributions of all kinds, including:
 
 Prerequisites depend on your track:
 
-- Go 1.27.0 or newer for Go and backend changes ([install Go](https://go.dev/doc/install)).
-- Node.js 18.18 or newer and [pnpm](https://pnpm.io/installation) for UI changes.
-- Go 1.27.0 or newer is also required for the UI development loop because `make run-server` builds the backend.
+- [Go (latest stable)](https://go.dev/doc/install) for Go and backend changes.
+- [Node.js (latest stable)](https://nodejs.org/en/download/) and [pnpm](https://pnpm.io/installation) for UI changes.
+- Go is also needed for the UI development loop, since starting the backend builds it.
 - Docs-only changes do not require the Go toolchain.
 
 Building frontend assets:
