@@ -98,14 +98,27 @@ func TestExecuteStartWithWaitReturnsAtWaitingCheckpoint(t *testing.T) {
 	steps, ok := run["steps"].([]any)
 	require.True(t, ok)
 	require.NotEmpty(t, steps)
-	step, ok := steps[0].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, "release_review", step["name"])
 
-	humanTask, ok := step["humanTask"].(map[string]any)
+	humanTask, ok := stepNamed(t, steps, "release_review")["humanTask"].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, "Choose the release target", humanTask["prompt"])
 	require.NotEmpty(t, humanTask["form"])
+}
+
+// stepNamed finds a step by name, since the two waiting steps in the fixture
+// are independent and the checkpoint does not order them.
+func stepNamed(t *testing.T, steps []any, name string) map[string]any {
+	t.Helper()
+
+	for _, raw := range steps {
+		step, ok := raw.(map[string]any)
+		require.True(t, ok)
+		if step["name"] == name {
+			return step
+		}
+	}
+	t.Fatalf("run details have no step named %q", name)
+	return nil
 }
 
 func TestExecuteStartAcceptsParamsObject(t *testing.T) {
