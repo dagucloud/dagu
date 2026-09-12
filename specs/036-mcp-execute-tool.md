@@ -86,8 +86,10 @@ Rules:
 
 - Wait applies after the requested action succeeds and only when a run is
   identified by `name` and a DAG-run ID.
-- The call returns when the run reaches a terminal state or the timeout
-  elapses, whichever comes first.
+- The call returns when the run reaches a terminal state, stops at a human-task
+  waiting checkpoint, or the timeout elapses, whichever comes first.
+- A run stopped at a waiting checkpoint makes no further progress without an
+  operator; the output reports `completed=false`.
 - On timeout the run keeps executing; the output reports `completed=false`.
 - A wait failure after a successful action is reported inside the successful
   output, not as a tool error.
@@ -109,6 +111,8 @@ Structured output rules:
   and `statusLabel` when at least one poll succeeded.
 - With `wait`, a completed run's output has `run` holding the Spec 021 run
   detail model, including per-step statuses and errors.
+- With `wait`, a run stopped at a waiting checkpoint has `run` holding the same
+  model, including the waiting step's human-task prompt and form.
 - With `wait`, a wait interruption or persistent poll failure is reported as
   `waitError` text alongside `completed=false`.
 

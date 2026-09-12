@@ -17,6 +17,7 @@ import (
 	daguapi "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
@@ -1232,6 +1233,78 @@ func TestRunLogsURIWithQueryPreservesQuery(t *testing.T) {
 		"dagu://runs/demo%20dag/run%2F1/logs?node=step%201&tail=true",
 		runLogsURIWithQuery("demo dag", "run/1", "node=step%201&tail=true"),
 	)
+}
+
+func TestWatchStateObserve(t *testing.T) {
+	t.Parallel()
+
+	type poll struct {
+		status int
+		notify bool
+		stop   bool
+	}
+	tests := []struct {
+		name  string
+		polls []poll
+	}{
+		{
+			name: "a checkpoint is announced once, not once per poll",
+			polls: []poll{
+				{status: int(ir.Running)},
+				{status: int(ir.Waiting), notify: true},
+				{status: int(ir.Waiting)},
+				{status: int(ir.Waiting)},
+			},
+		},
+		{
+			name: "a second checkpoint is announced after the run resumes",
+			polls: []poll{
+				{status: int(ir.Waiting), notify: true},
+				{status: int(ir.Running)},
+				{status: int(ir.Waiting), notify: true},
+			},
+		},
+		{
+			name: "a resumed run still reports its terminal state",
+			polls: []poll{
+				{status: int(ir.Waiting), notify: true},
+				{status: int(ir.Running)},
+				{status: int(ir.Succeeded), notify: true, stop: true},
+			},
+		},
+		{
+			name: "pre-terminal states stay silent",
+			polls: []poll{
+				{status: int(ir.NotStarted)},
+				{status: int(ir.Queued)},
+				{status: int(ir.Running)},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var state watchState
+			for i, p := range tt.polls {
+				notify, stop := state.observe(p.status)
+				require.Equalf(t, p.notify, notify, "poll %d notify", i)
+				require.Equalf(t, p.stop, stop, "poll %d stop", i)
+			}
+		})
+	}
+}
+
+func TestWatchStateObserveStopsOnEveryTerminalStatus(t *testing.T) {
+	t.Parallel()
+
+	for _, status := range []ir.Status{ir.Failed, ir.Aborted, ir.Succeeded, ir.PartiallySucceeded, ir.Rejected} {
+		var state watchState
+		notify, stop := state.observe(int(status))
+		require.Truef(t, notify, "%s must be announced", status)
+		require.Truef(t, stop, "%s must end the watch", status)
+	}
 }
 
 func TestRunWatcherStopsAfterPersistentErrors(t *testing.T) {

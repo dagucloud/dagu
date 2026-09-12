@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	frontendapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -129,7 +130,7 @@ func executeToolInputSchema() json.RawMessage {
 			},
 			"wait": {
 				"type": "boolean",
-				"description": "When true, wait for the identified run to reach a terminal state and include its result summary in the output."
+				"description": "When true, wait for the identified run to reach a terminal state or a human-task checkpoint and include its result summary in the output."
 			},
 			"waitTimeoutSeconds": {
 				"type": "integer",
@@ -239,17 +240,17 @@ func (svc *Service) executeToolImpl(ctx context.Context, input executeInput) (*m
 		if input.Wait {
 			message = svc.waitForRun(ctx, input, dagRunID, output)
 		} else {
-			output["subscribe"] = "Subscribe to " + run + " to receive an MCP resource update notification when the run reaches a terminal state."
+			output["subscribe"] = "Subscribe to " + run + " to receive an MCP resource update notification when the run reaches a terminal state or stops at a human-task checkpoint."
 		}
 	}
 
 	return resultWithLinks(message, links...), output, nil
 }
 
-// waitForRun polls the identified run until it reaches a terminal state or the
-// requested timeout elapses, records the outcome in output, and returns the
-// result message. Poll errors end the wait but never fail the already
-// successful execute action.
+// waitForRun polls the identified run until it reaches a terminal state, stops
+// at a human-task checkpoint, or the requested timeout elapses, records the
+// outcome in output, and returns the result message. Poll errors end the wait
+// but never fail the already successful execute action.
 func (svc *Service) waitForRun(ctx context.Context, input executeInput, dagRunID string, output map[string]any) string {
 	timeoutSeconds := input.WaitTimeoutSeconds
 	if timeoutSeconds <= 0 {
@@ -276,14 +277,22 @@ func (svc *Service) waitForRun(ctx context.Context, input executeInput, dagRunID
 			}
 			output["status"] = run.Status
 			output["statusLabel"] = run.StatusLabel
-			if isTerminalStatus(int(run.Status)) {
+
+			// A run at a waiting checkpoint makes no further progress until an
+			// operator answers its open human tasks.
+			terminal := isTerminalStatus(int(run.Status))
+			waiting := ir.Status(run.Status).IsWaiting()
+			if terminal || waiting {
 				details, normalizeErr := normalizeRunDetails(raw, runAddress{name: input.Name, dagRunID: dagRunID})
 				if normalizeErr != nil {
 					output["waitError"] = normalizeErr.Error()
 					return "Dagu execute action completed, but waiting for the run failed. Poll the runUri resource for completion."
 				}
-				output["completed"] = true
+				output["completed"] = terminal
 				output["run"] = details
+				if waiting {
+					return "Dagu execute action completed. The run stopped at a human-task checkpoint; complete the waiting task to resume the run."
+				}
 				return "Dagu execute action completed. The run finished with status " + string(run.StatusLabel) + "."
 			}
 		} else if !isTransientWaitError(input.Action, err) {

@@ -72,6 +72,39 @@ func TestExecuteStartWithWaitReturnsRunResult(t *testing.T) {
 	require.Equal(t, "main", step["name"])
 }
 
+func TestExecuteStartWithWaitReturnsAtHumanTaskCheckpoint(t *testing.T) {
+	server := mcptest.NewServer(t)
+	server.CreateHumanTaskDAG(t, "mcp_execute_human_task")
+	session := server.Connect(t, "")
+
+	result := callExecute(t, session, map[string]any{
+		"action":             "start",
+		"name":               "mcp_execute_human_task",
+		"wait":               true,
+		"waitTimeoutSeconds": 15,
+	})
+	require.False(t, result.IsError)
+
+	output := mcptest.StructuredMap(t, result)
+	// A checkpoint is not completion; the run resumes only once an operator answers.
+	require.Equal(t, false, output["completed"])
+	require.Equal(t, "waiting", output["statusLabel"])
+
+	run, ok := output["run"].(map[string]any)
+	require.True(t, ok)
+	steps, ok := run["steps"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, steps)
+	step, ok := steps[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "release_review", step["name"])
+
+	humanTask, ok := step["humanTask"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "Choose the release target", humanTask["prompt"])
+	require.NotEmpty(t, humanTask["form"])
+}
+
 func TestExecuteStartAcceptsParamsObject(t *testing.T) {
 	server := mcptest.NewServer(t)
 	server.CreateDAG(t, "mcp_execute_params", `params:
