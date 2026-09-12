@@ -35,12 +35,11 @@ validators are registered through `internal/executor/registry/`.
 ## Ignore until needed
 
 For a first contribution, leave the distributed and optional subsystems alone:
-`internal/service/coordinator/`, `internal/service/worker/`, `llm/`, `tunnel/`,
-`license/`, `cloud/`, `proto/`, and most of `internal/cmn/`.
+`internal/service/coordinator/`, `internal/service/worker/`, `internal/llm/`,
+`internal/tunnel/`, `internal/license/`, `proto/`, and most of `internal/cmn/`.
 
 ## Import rules
 
-`internal/persis/` must not import `internal/service/*`; service handlers stay
-above persistence and domain layers. Keep `internal/cmn/*` domain-independent:
-`internal/cmn/config` may import `internal/auth` and `internal/workspace`, but
-other domain imports do not belong in `internal/cmn/`.
+`internal/persis/` must not import `internal/service/*`, and `internal/cmn/*`
+stays domain-independent. `CLAUDE.md` has the full set under "Architecture
+rules".
