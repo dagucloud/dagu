@@ -111,17 +111,26 @@ function StepLogContent({
   const [searchTerm, setSearchTerm] = useState('');
   const [activeMatch, setActiveMatch] = useState(0);
   const [navigationOpen, setNavigationOpen] = useState(false);
-  const showNavigation = followTail === undefined || navigationOpen;
+  const controlledFollowTail = followTail !== undefined;
+  const showNavigation = !controlledFollowTail || navigationOpen;
   const isActive = isActiveNodeStatus(node?.status);
 
+  const [localLiveMode, setLocalLiveMode] = useState(isActive);
   const [localFollowing, setLocalFollowing] = useState(true);
   const following = followTail ?? localFollowing;
+  const liveMode = controlledFollowTail || localLiveMode;
   const [pausedData, setPausedData] = useState<LogWithPagination | null>(null);
   const wasActive = useRef(isActive);
   const wasFollowing = useRef(following);
 
   const [cachedData, setCachedData] = useState<LogWithPagination | null>(null);
   const [isNavigating, setIsNavigating] = useState(false);
+
+  useEffect(() => {
+    if (!isActive) {
+      setLocalLiveMode(false);
+    }
+  }, [isActive]);
 
   const isInitialLoad = useRef(true);
   const navigationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -136,6 +145,7 @@ function StepLogContent({
   // SSE supplies a fixed tail with stdout counts; other views use REST.
   const shouldUseSSE =
     viewMode === 'tail' &&
+    liveMode &&
     isActive &&
     !isSubDAGRun &&
     stream === Stream.stdout &&
@@ -162,12 +172,12 @@ function StepLogContent({
   // SWR options - poll only when SSE is not available
   const swrOptions = React.useMemo(
     () => ({
-      refreshInterval: usePolling && isActive ? 2000 : 0,
+      refreshInterval: usePolling && liveMode && isActive ? 2000 : 0,
       keepPreviousData: false,
       revalidateOnFocus: false,
       dedupingInterval: 1000,
     }),
-    [isActive, usePolling]
+    [isActive, liveMode, usePolling]
   );
 
   const subDAGQuery = useQuery(
@@ -273,6 +283,7 @@ function StepLogContent({
     setViewMode('tail');
     setCurrentPage(1);
     setLocalFollowing(true);
+    setLocalLiveMode(true);
     onFollowTailChange?.(true);
   }
 
@@ -592,7 +603,7 @@ function StepLogContent({
             </select>
           )}
 
-          {followTail !== undefined && (
+          {controlledFollowTail && (
             <Button
               size="sm"
               variant="ghost"
@@ -649,16 +660,30 @@ function StepLogContent({
               </Button>
             </I18nProps>
 
-            <span role="status" className="text-xs text-muted-foreground">
-              {hasNewOutput
-                ? ts('New output available')
-                : !following
-                  ? ts('Reading output')
-                  : isActive
-                    ? ts('Live')
-                    : ts('Finished')}
-            </span>
-            {followTail === undefined && !following && (
+            {controlledFollowTail ? (
+              <span role="status" className="text-xs text-muted-foreground">
+                {hasNewOutput
+                  ? ts('New output available')
+                  : !following
+                    ? ts('Reading output')
+                    : isActive
+                      ? ts('Live')
+                      : ts('Finished')}
+              </span>
+            ) : null}
+            {!controlledFollowTail && isActive ? (
+              <Button
+                size="sm"
+                variant={localLiveMode ? 'primary' : 'default'}
+                onClick={() => setLocalLiveMode(!localLiveMode)}
+              >
+                <span
+                  className={`inline-block w-2 h-2 rounded-full ${localLiveMode ? 'bg-white animate-pulse' : 'bg-muted-foreground'}`}
+                />
+                <I18nText text={'LIVE'} />
+              </Button>
+            ) : null}
+            {!controlledFollowTail && !following && (
               <Button size="sm" onClick={resumeFollowing}>
                 <I18nText text="Back to live" />
               </Button>

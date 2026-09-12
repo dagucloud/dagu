@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Status } from '@/api/v1/schema';
 import { isAbortLikeError } from '@/lib/requestTimeout';
 import { useDAGRunSSE } from '@/hooks/useDAGRunSSE';
 import { useSubDAGRunSSE } from '@/hooks/useSubDAGRunSSE';
@@ -32,6 +33,18 @@ type UseBoundedDAGRunDetailsResult = {
   isValidating: boolean;
   refresh: () => Promise<void>;
 };
+
+function shouldKeepPolling(run: DAGRunDetails | null): boolean {
+  if (run?.status == null) {
+    return true;
+  }
+  return [
+    Status.NotStarted,
+    Status.Queued,
+    Status.Running,
+    Status.Waiting,
+  ].includes(run.status);
+}
 
 function shouldUsePollingFallback(sseState: {
   isConnected: boolean;
@@ -113,7 +126,8 @@ export function useBoundedDAGRunDetails({
       if (
         !enabledRef.current ||
         pollIntervalRef.current <= 0 ||
-        !usePollingFallbackRef.current
+        !usePollingFallbackRef.current ||
+        !shouldKeepPolling(dataRef.current)
       ) {
         return;
       }
@@ -180,7 +194,8 @@ export function useBoundedDAGRunDetails({
           !shouldRunPending &&
           enabledRef.current &&
           targetRef.current != null &&
-          pollIntervalRef.current > 0;
+          pollIntervalRef.current > 0 &&
+          shouldKeepPolling(dataRef.current);
 
         if (shouldContinue) {
           setIsLoading(false);
@@ -260,7 +275,8 @@ export function useBoundedDAGRunDetails({
       !enabled ||
       target == null ||
       pollIntervalMs <= 0 ||
-      !usePollingFallbackRef.current
+      !usePollingFallbackRef.current ||
+      !shouldKeepPolling(dataRef.current)
     ) {
       clearPollTimer();
       return;

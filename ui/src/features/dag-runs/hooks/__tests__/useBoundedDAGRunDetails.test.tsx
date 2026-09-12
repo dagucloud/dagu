@@ -4,6 +4,7 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useDAGRunSSE } from '@/hooks/useDAGRunSSE';
+import { Status } from '@/api/v1/schema';
 import { useSubDAGRunSSE } from '@/hooks/useSubDAGRunSSE';
 import { useBoundedDAGRunDetails } from '../useBoundedDAGRunDetails';
 
@@ -169,6 +170,37 @@ describe('useBoundedDAGRunDetails', () => {
     });
 
     expect(fetchDAGRunDetailsMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops polling after a terminal fallback result', async () => {
+    dagRunSSEState.current = {
+      data: null,
+      error: null,
+      isConnected: false,
+      isConnecting: true,
+      shouldUseFallback: false,
+    };
+    fetchDAGRunDetailsMock.mockResolvedValue({
+      dagRunId: 'run-1',
+      status: Status.Success,
+    });
+
+    renderHook(() =>
+      useBoundedDAGRunDetails({
+        target: createTarget(),
+        pollIntervalMs: 2000,
+      })
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6000);
+    });
+
+    expect(fetchDAGRunDetailsMock).toHaveBeenCalledTimes(1);
   });
 
   it('hydrates from SSE payloads and aborts the in-flight fallback request', async () => {

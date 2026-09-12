@@ -12,7 +12,6 @@ import {
 } from '@/contexts/RemoteNodeContext';
 import { UnsavedChangesProvider } from '@/contexts/UnsavedChangesContext';
 import { useQuery } from '@/hooks/api';
-import { useDAGRunSSE } from '@/hooks/useDAGRunSSE';
 import { useDAGSSE } from '@/hooks/useDAGSSE';
 import { whenEnabled } from '@/hooks/queryUtils';
 import { sseFallbackOptions, useSSECacheSync } from '@/hooks/useSSECacheSync';
@@ -131,7 +130,6 @@ function DAGDetailsSidePanel({
   const [activeTab, setActiveTab] = React.useState(
     initialTab === 'docs' ? 'wiki' : initialTab
   );
-  const [trackedDagRunId, setTrackedDagRunId] = React.useState<string>();
   const [currentDAGRun, setCurrentDAGRun] = React.useState<
     components['schemas']['DAGRunDetails'] | undefined
   >();
@@ -167,7 +165,6 @@ function DAGDetailsSidePanel({
     setIsVisible(false);
     const timer = setTimeout(() => {
       setShouldRender(false);
-      setTrackedDagRunId(undefined);
       setCurrentDAGRun(undefined);
     }, CLOSE_ANIMATION_MS);
     return () => clearTimeout(timer);
@@ -179,7 +176,6 @@ function DAGDetailsSidePanel({
     }
 
     setActiveTab(initialTab === 'docs' ? 'wiki' : initialTab);
-    setTrackedDagRunId(undefined);
     setCurrentDAGRun(undefined);
   }, [fileName, initialTab, isOpen, remoteNode]);
 
@@ -201,49 +197,17 @@ function DAGDetailsSidePanel({
   );
   useSSECacheSync(dagDetailsSSE, mutate);
 
-  const dagName = data?.dag?.name || '';
-  const trackedRunEnabled = isOpen && !!dagName && !!trackedDagRunId;
-  const trackedRunSSE = useDAGRunSSE(
-    dagName,
-    trackedDagRunId || '',
-    trackedRunEnabled,
-    remoteNode
-  );
-  const { data: trackedRunData, mutate: mutateTrackedRun } = useQuery(
-    '/dag-runs/{name}/{dagRunId}',
-    whenEnabled(trackedRunEnabled, {
-      params: {
-        path: { name: dagName, dagRunId: trackedDagRunId || '' },
-        query: { remoteNode },
-      },
-    }),
-    sseFallbackOptions(trackedRunSSE)
-  );
-  useSSECacheSync(trackedRunSSE, mutateTrackedRun);
-
   React.useEffect(() => {
-    if (trackedRunData?.dagRunDetails) {
-      setCurrentDAGRun(trackedRunData.dagRunDetails);
-    } else if (data && !trackedDagRunId) {
+    if (data) {
       setCurrentDAGRun(data.latestDAGRun);
     }
-  }, [data, trackedRunData, trackedDagRunId]);
+  }, [data]);
 
   const refreshFn = React.useCallback(() => {
     setTimeout(() => mutate(), 500);
   }, [mutate]);
 
-  const handleRunStarted = React.useCallback((dagRunId: string) => {
-    setTrackedDagRunId(dagRunId);
-    setCurrentDAGRun(undefined);
-    setActiveTab('status');
-    void mutate();
-  }, [mutate]);
-
-  // Keep the newly submitted run selected while its details are loading.
-  const displayDAGRun = trackedDagRunId
-    ? currentDAGRun?.dagRunId === trackedDagRunId ? currentDAGRun : undefined
-    : currentDAGRun;
+  const displayDAGRun = currentDAGRun || data?.latestDAGRun;
 
   const handleFullscreenClick = React.useCallback(
     (event?: React.MouseEvent) => {
@@ -254,12 +218,6 @@ function DAGDetailsSidePanel({
       const baseUrl = buildFullscreenUrl(stableFileName, activeTab);
       const searchParams = new URLSearchParams();
       searchParams.set('remoteNode', remoteNode);
-      if (trackedDagRunId) {
-        searchParams.set('dagRunId', trackedDagRunId);
-        if (data?.dag?.name) {
-          searchParams.set('dagRunName', data.dag.name);
-        }
-      }
       const query = searchParams.toString();
       const url = query ? `${baseUrl}?${query}` : baseUrl;
       if (event?.metaKey || event?.ctrlKey) {
@@ -270,11 +228,9 @@ function DAGDetailsSidePanel({
     },
     [
       activeTab,
-      data?.dag?.name,
       navigate,
       remoteNode,
       stableFileName,
-      trackedDagRunId,
     ]
   );
 
@@ -416,7 +372,7 @@ function DAGDetailsSidePanel({
                       fileName={stableFileName}
                       dag={data.dag}
                       currentDAGRun={displayDAGRun}
-                      dagRunId={trackedDagRunId ?? 'latest'}
+                      dagRunId="latest"
                       stepName={null}
                       refreshFn={refreshFn}
                       formatDuration={formatDuration}
@@ -426,7 +382,6 @@ function DAGDetailsSidePanel({
                       localDags={data.localDags}
                       editorHints={data.editorHints}
                       onEnqueue={onEnqueue}
-                      onRunStarted={handleRunStarted}
                       forceEnqueue={forceEnqueue}
                       autoOpenStartModal={false}
                       fillHeight

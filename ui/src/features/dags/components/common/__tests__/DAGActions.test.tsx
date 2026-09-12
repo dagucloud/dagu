@@ -121,7 +121,6 @@ describe('DAGActions', () => {
   );
 
   it('shows progress for DAGs started by a containing panel', async () => {
-    const onRunStarted = vi.fn();
     render(
       <MemoryRouter initialEntries={['/dags']}>
         <LocationProbe />
@@ -130,7 +129,6 @@ describe('DAGActions', () => {
             name: 'example',
             fileName: 'example-file',
             refresh: vi.fn(),
-            onRunStarted,
           }}
         >
           <DAGActions
@@ -150,7 +148,6 @@ describe('DAGActions', () => {
         remoteNode: 'local',
       })
     );
-    expect(onRunStarted).not.toHaveBeenCalled();
     expect(screen.getByLabelText('Location')).toHaveTextContent('/dags');
   });
   it('shows cancel for failed runs with pending auto retries', () => {

@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Maximize2, X } from 'lucide-react';
 
@@ -13,9 +13,7 @@ import {
 } from '../../../../contexts/RemoteNodeContext';
 import { UnsavedChangesProvider } from '../../../../contexts/UnsavedChangesContext';
 import { useQuery } from '../../../../hooks/api';
-import { useDAGRunSSE } from '../../../../hooks/useDAGRunSSE';
 import { useDAGSSE } from '../../../../hooks/useDAGSSE';
-import { whenEnabled } from '../../../../hooks/queryUtils';
 import {
   sseFallbackOptions,
   useSSECacheSync,
@@ -67,7 +65,6 @@ function DAGDetailsPanel({
   const [currentDAGRun, setCurrentDAGRun] = useState<
     DAGRunDetails | undefined
   >();
-  const [trackedDagRunId, setTrackedDagRunId] = useState<string>();
   const [activeTab, setActiveTab] = useState('status');
   const [notFound, setNotFound] = useState(false);
 
@@ -86,26 +83,6 @@ function DAGDetailsPanel({
   );
   useSSECacheSync(dagSSE, mutate);
 
-  const dagName = data?.dag?.name || '';
-  const trackedRunEnabled = !!dagName && !!trackedDagRunId;
-  const trackedRunSSE = useDAGRunSSE(
-    dagName,
-    trackedDagRunId || '',
-    trackedRunEnabled,
-    remoteNode
-  );
-  const { data: trackedRunData, mutate: mutateTrackedRun } = useQuery(
-    '/dag-runs/{name}/{dagRunId}',
-    whenEnabled(trackedRunEnabled, {
-      params: {
-        path: { name: dagName, dagRunId: trackedDagRunId || '' },
-        query: { remoteNode },
-      },
-    }),
-    sseFallbackOptions(trackedRunSSE)
-  );
-  useSSECacheSync(trackedRunSSE, mutateTrackedRun);
-
   // Track data loading state and handle 404 errors
   useEffect(() => {
     if (error) {
@@ -122,36 +99,16 @@ function DAGDetailsPanel({
   useEffect(() => {
     setNotFound(false);
     setActiveTab('status');
-    setTrackedDagRunId(undefined);
     setCurrentDAGRun(undefined);
   }, [fileName, remoteNode]);
 
   function refreshFn(): void {
     setTimeout(() => mutate(), 500);
-    if (trackedDagRunId) {
-      setTimeout(() => mutateTrackedRun(), 500);
-    }
   }
-
-  const handleRunStarted = useCallback(
-    (dagRunId: string) => {
-      setTrackedDagRunId(dagRunId);
-      setActiveTab('status');
-      setCurrentDAGRun(undefined);
-      void mutate();
-    },
-    [mutate]
-  );
 
   function handleFullscreenClick(e?: React.MouseEvent): void {
     const tabPath = activeTab === 'status' ? '' : `/${activeTab}`;
     const searchParams = new URLSearchParams();
-    if (trackedDagRunId) {
-      searchParams.set('dagRunId', trackedDagRunId);
-      if (data?.dag?.name) {
-        searchParams.set('dagRunName', data.dag.name);
-      }
-    }
     searchParams.set('remoteNode', remoteNode);
     const query = searchParams.toString();
     const url = `/dags/${fileName}${tabPath}${query ? `?${query}` : ''}`;
@@ -164,16 +121,12 @@ function DAGDetailsPanel({
   }
 
   useEffect(() => {
-    if (trackedRunData?.dagRunDetails) {
-      setCurrentDAGRun(trackedRunData.dagRunDetails);
-    } else if (data && !trackedDagRunId) {
+    if (data) {
       setCurrentDAGRun(data.latestDAGRun);
     }
-  }, [data, trackedRunData, trackedDagRunId]);
+  }, [data]);
 
-  const displayDAGRun = trackedDagRunId
-    ? currentDAGRun?.dagRunId === trackedDagRunId ? currentDAGRun : undefined
-    : currentDAGRun || data?.latestDAGRun;
+  const displayDAGRun = currentDAGRun || data?.latestDAGRun;
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -209,8 +162,6 @@ function DAGDetailsPanel({
     activeTab,
     fileName,
     navigate,
-    trackedDagRunId,
-    data?.dag?.name,
     remoteNode,
   ]);
 
@@ -292,12 +243,11 @@ function DAGDetailsPanel({
                   formatDuration={formatDuration}
                   activeTab={activeTab}
                   onTabChange={setActiveTab}
-                  dagRunId={trackedDagRunId ?? 'latest'}
+                  dagRunId="latest"
                   stepName={null}
                   isModal={true}
                   localDags={data.localDags}
                   editorHints={data.editorHints}
-                  onRunStarted={handleRunStarted}
                   fillHeight
                 />
               </div>

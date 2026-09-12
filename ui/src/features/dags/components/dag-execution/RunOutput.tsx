@@ -64,6 +64,11 @@ function RunOutputPanel({ dagRun, onInspect }: Props) {
   const [following, setFollowing] = useState(true);
   const [settledStep, setSettledStep] = useState<string>();
   const selected = nodes.find((node) => node.step.name === selectedName);
+  const selectedIndex = nodes.findIndex(
+    (node) => node.step.name === selectedName
+  );
+  const selectedTabId =
+    selectedIndex >= 0 ? `${id}-step-${selectedIndex}` : undefined;
   const running = nodes.filter((node) => isActiveNodeStatus(node.status));
   const failures = nodes.filter(isFailed);
 
@@ -151,22 +156,20 @@ function RunOutputPanel({ dagRun, onInspect }: Props) {
             aria-hidden="true"
           />
           <span className="font-medium">{ts('Run output')}</span>
-          <span
-            role="status"
-            className="flex items-center gap-2 text-xs text-muted-foreground"
-          >
-            {running.length > 0 &&
-              ts('{count} running', { count: running.length })}
-            {failures.length > 0 && (
-              <button
-                type="button"
-                className="rounded text-destructive underline underline-offset-2 focus-visible:outline-ring"
-                onClick={() => selectStep(failures[0]!.step.name)}
-              >
-                {ts('{count} failed', { count: failures.length })}
-              </button>
-            )}
-          </span>
+          {running.length > 0 && (
+            <span role="status" className="text-xs text-muted-foreground">
+              {ts('{count} running', { count: running.length })}
+            </span>
+          )}
+          {failures.length > 0 && (
+            <button
+              type="button"
+              className="rounded text-xs text-destructive underline underline-offset-2 focus-visible:outline-ring"
+              onClick={() => selectStep(failures[0]!.step.name)}
+            >
+              {ts('{count} failed', { count: failures.length })}
+            </button>
+          )}
         </div>
         <Button
           size="sm"
@@ -202,7 +205,9 @@ function RunOutputPanel({ dagRun, onInspect }: Props) {
                 id={`${id}-step-${index}`}
                 role="tab"
                 aria-selected={node.step.name === selectedName}
-                aria-controls={`${id}-log`}
+                aria-controls={
+                  node.step.name === selectedName ? `${id}-log` : undefined
+                }
                 tabIndex={
                   node.step.name === selectedName || (!selected && index === 0)
                     ? 0
@@ -317,7 +322,12 @@ function RunOutputPanel({ dagRun, onInspect }: Props) {
           <div
             id={`${id}-log`}
             role="tabpanel"
-            aria-label={ts('Output for {step}', { step: selectedName || '' })}
+            aria-labelledby={selectedTabId}
+            aria-label={
+              selectedTabId
+                ? undefined
+                : ts('Output for {step}', { step: selectedName || '' })
+            }
             className="h-[clamp(24rem,55vh,42rem)] min-w-0"
           >
             {selected && selected.status !== NodeStatus.NotStarted ? (

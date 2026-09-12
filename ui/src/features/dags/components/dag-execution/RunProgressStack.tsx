@@ -3,6 +3,7 @@
 
 import React from 'react';
 import { X } from 'lucide-react';
+import { Status } from '@/api/v1/schema';
 import LoadingIndicator from '@/components/ui/loading-indicator';
 import StatusChip from '@/components/ui/status-chip';
 import { Button } from '@/components/ui/button';
@@ -21,6 +22,12 @@ type RunProgressItem = {
 export type AddRunProgressInput = Omit<RunProgressItem, 'id'>;
 
 const RUN_PROGRESS_EVENT = 'dagu:run-progress';
+const MAX_STACKED_RUNS = 5;
+const SUCCESS_DISMISS_MS = 5000;
+
+function shouldAutoDismiss(status: Status | undefined): boolean {
+  return status === Status.Success || status === Status.PartialSuccess;
+}
 
 function runKey(run: AddRunProgressInput): string {
   return `${run.remoteNode}:${run.dagName}:${run.dagRunId}`;
@@ -37,13 +44,16 @@ function RunProgressStack() {
   const [runs, setRuns] = React.useState<RunProgressItem[]>([]);
   const [expandedRunId, setExpandedRunId] = React.useState<string | null>(null);
   const expandedRun = runs.find((run) => run.id === expandedRunId) ?? null;
+  const visibleRuns = runs.filter((run) => run.id !== expandedRunId);
 
   const addRun = React.useCallback((run: AddRunProgressInput) => {
     const item = { ...run, id: runKey(run) };
-    setRuns((current) => [
-      item,
-      ...current.filter((existing) => existing.id !== item.id),
-    ]);
+    setRuns((current) =>
+      [item, ...current.filter((existing) => existing.id !== item.id)].slice(
+        0,
+        MAX_STACKED_RUNS
+      )
+    );
   }, []);
 
   React.useEffect(() => {
@@ -67,13 +77,12 @@ function RunProgressStack() {
 
   return (
     <>
-      {runs.length > 0 && (
+      {visibleRuns.length > 0 && (
         <div
           aria-label={ts('Run progress stack')}
-          aria-live="polite"
           className="pointer-events-none fixed bottom-4 right-4 z-40 flex max-h-[calc(100dvh-2rem)] w-[min(24rem,calc(100vw-2rem))] flex-col-reverse gap-2 overflow-y-auto"
         >
-          {runs.map((run) => (
+          {visibleRuns.map((run) => (
             <RunProgressCard
               key={run.id}
               run={run}
@@ -118,6 +127,14 @@ function RunProgressCard({
     pollIntervalMs: 2000,
   });
 
+  React.useEffect(() => {
+    if (!shouldAutoDismiss(dagRun?.status)) {
+      return;
+    }
+    const timer = window.setTimeout(onDismiss, SUCCESS_DISMISS_MS);
+    return () => window.clearTimeout(timer);
+  }, [dagRun?.status, onDismiss]);
+
   return (
     <div className="pointer-events-auto relative overflow-hidden rounded-lg border border-border bg-card text-card-foreground shadow-lg">
       <button
@@ -132,7 +149,7 @@ function RunProgressCard({
           <span className="min-w-0 flex-1 truncate text-sm font-medium">
             {dagRun?.name || run.dagName}
           </span>
-          {dagRun?.status ? (
+          {dagRun?.status != null ? (
             <StatusChip status={dagRun.status} size="xs">
               {ts(dagRun.statusLabel)}
             </StatusChip>

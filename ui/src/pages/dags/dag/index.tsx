@@ -1,14 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { components } from '../../../api/v1/schema';
 import { AppBarContext } from '../../../contexts/AppBarContext';
@@ -57,8 +50,6 @@ function DAGDetails() {
   const stepName = searchParams.get('step');
   const subDAGRunId = searchParams.get('subDAGRunId');
   const queriedDAGRunName = searchParams.get('dagRunName');
-  const [trackedDagRunId, setTrackedDagRunId] = useState<string>();
-  const previousURLDagRunId = useRef<string | null>(dagRunId);
   const queryRemoteNode = searchParams.get('remoteNode')?.trim();
   const appBarRemoteNode = appBarContext.selectedRemoteNode?.trim();
   const remoteNode = queryRemoteNode || appBarRemoteNode || 'local';
@@ -167,7 +158,7 @@ function DAGDetails() {
 
   // Use dagRunName from URL if available, otherwise use the name from dagData
   const dagRunName = queriedDAGRunName || dagData?.dag?.name || '';
-  const effectiveDAGRunId = trackedDagRunId || dagRunId;
+  const effectiveDAGRunId = dagRunId;
   const dagRunQueryEnabled = Boolean(
     dagRunName && effectiveDAGRunId && !subDAGRunId && dagMatchesWorkspace
   );
@@ -239,11 +230,6 @@ function DAGDetails() {
     DAGRunDetails | undefined
   >(undefined);
 
-  // Update root DAG-run data when current DAG-run or latest DAG-run changes
-  useEffect(() => {
-    setRootDAGRunData(currentDAGRun);
-  }, [currentDAGRun]);
-
   // Refresh all relevant data based on current view
   const refreshData = useCallback(() => {
     mutateDag();
@@ -260,52 +246,13 @@ function DAGDetails() {
     subDAGRunId,
   ]);
 
-  const handleRunStarted = useCallback(
-    (nextDAGRunId: string) => {
-      setTrackedDagRunId(nextDAGRunId);
-      setRootDAGRunData(undefined);
-      const nextSearchParams = new URLSearchParams();
-      nextSearchParams.set('dagRunId', nextDAGRunId);
-      nextSearchParams.set('dagRunName', dagData?.dag?.name || dagRunName);
-      if (preserveRemoteNode) {
-        nextSearchParams.set('remoteNode', remoteNode);
-      }
-      if (queryWorkspace) {
-        nextSearchParams.set('workspace', queryWorkspace);
-      }
-      navigate(
-        `/dags/${encodeURIComponent(fileName)}?${nextSearchParams.toString()}`
-      );
-      void mutateDag();
-    },
-    [
-      dagData?.dag?.name,
-      dagRunName,
-      fileName,
-      mutateDag,
-      navigate,
-      preserveRemoteNode,
-      queryWorkspace,
-      remoteNode,
-    ]
-  );
+  const displayDAGRun = currentDAGRun || dagData?.latestDAGRun;
+  const displayDAGRunId =
+    currentDAGRun?.dagRunId || displayDAGRun?.dagRunId || 'latest';
 
   useEffect(() => {
-    const previous = previousURLDagRunId.current;
-    previousURLDagRunId.current = dagRunId;
-    if (!dagRunId || dagRunId === trackedDagRunId) {
-      return;
-    }
-    if (previous !== dagRunId) {
-      setTrackedDagRunId(undefined);
-    }
-  }, [dagRunId, trackedDagRunId]);
-
-  useEffect(() => {
-    setTrackedDagRunId(undefined);
-  }, [fileName, remoteNode]);
-
-  const displayDAGRun = currentDAGRun;
+    setRootDAGRunData(displayDAGRun);
+  }, [displayDAGRun]);
 
   return (
     <UnsavedChangesProvider>
@@ -315,7 +262,6 @@ function DAGDetails() {
             refresh: refreshData,
             fileName,
             name: dagRunName,
-            onRunStarted: handleRunStarted,
           }}
         >
           <RootDAGRunContext.Provider
@@ -344,13 +290,12 @@ function DAGDetails() {
                       formatDuration={formatDuration}
                       activeTab={tab}
                       onTabChange={handleTabChange}
-                      dagRunId={subDAGRunId || effectiveDAGRunId || 'latest'}
+                      dagRunId={displayDAGRunId}
                       stepName={stepName}
                       isModal={false}
                       skipHeader={true}
                       localDags={dagData?.localDags}
                       editorHints={dagData?.editorHints}
-                      onRunStarted={handleRunStarted}
                       buildScopedUrl={buildUrl}
                       fillHeight
                     />
@@ -359,7 +304,9 @@ function DAGDetails() {
               )}
               {dagData?.dag && !dagMatchesWorkspace && (
                 <div className="p-6 text-sm text-muted-foreground">
-                  <I18nText text={"This DAG is not in the selected workspace."} />
+                  <I18nText
+                    text={'This DAG is not in the selected workspace.'}
+                  />
                 </div>
               )}
             </div>

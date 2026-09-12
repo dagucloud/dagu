@@ -78,7 +78,8 @@ describe('RunOutput', () => {
         onInspect={inspect}
       />
     );
-    expect(screen.getByRole('status')).toHaveTextContent(/^2 failed$/);
+    expect(screen.getByRole('button', { name: '2 failed' })).toBeVisible();
+    expect(screen.queryByRole('status')).toBeNull();
   });
 
   it('advances after the selected step delivers its final output', () => {

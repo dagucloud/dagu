@@ -181,7 +181,7 @@ describe('StepLog', () => {
     logs.data = { ...logs.data, content: 'stderr output' };
     view.rerender(<StepLog {...props} stream={Stream.stderr} />);
     expect(screen.getByText('stderr output')).toBeVisible();
-    expect(screen.getByText('Live', { exact: true })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'LIVE' })).toBeVisible();
   });
   it('keeps the displayed output while reading older lines', async () => {
     const props = {
@@ -211,11 +211,15 @@ describe('StepLog', () => {
 
   it('loads the requested tail size while reading older output', () => {
     const props = { dagName: 'example', dagRunId: 'run', stepName: 'build' };
-    const view = render(<StepLog {...props} />, { wrapper: UserPreferencesProvider });
+    const view = render(<StepLog {...props} />, {
+      wrapper: UserPreferencesProvider,
+    });
     fireEvent.focus(screen.getByPlaceholderText('Search in loaded lines...'));
     logs.data = { ...logs.data, content: 'requested tail' };
     view.rerender(<StepLog {...props} />);
-    fireEvent.change(screen.getByLabelText('Lines per page'), { target: { value: '100' } });
+    fireEvent.change(screen.getByLabelText('Lines per page'), {
+      target: { value: '100' },
+    });
     expect(screen.getByText('requested tail')).toBeVisible();
   });
 
