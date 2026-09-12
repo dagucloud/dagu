@@ -71,7 +71,7 @@ function RunProgressStack() {
         <div
           aria-label={ts('Run progress stack')}
           aria-live="polite"
-          className="pointer-events-none fixed right-4 top-20 z-40 flex max-h-[calc(100dvh-6rem)] w-[min(24rem,calc(100vw-2rem))] flex-col gap-2 overflow-y-auto max-sm:bottom-4 max-sm:top-auto"
+          className="pointer-events-none fixed bottom-4 right-4 z-40 flex max-h-[calc(100dvh-2rem)] w-[min(24rem,calc(100vw-2rem))] flex-col-reverse gap-2 overflow-y-auto"
         >
           {runs.map((run) => (
             <RunProgressCard
@@ -119,7 +119,7 @@ function RunProgressCard({
   });
 
   return (
-    <div className="pointer-events-auto relative overflow-hidden rounded-lg border border-border bg-background/95 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/80">
+    <div className="pointer-events-auto relative overflow-hidden rounded-lg border border-border bg-card text-card-foreground shadow-lg">
       <button
         type="button"
         aria-label={ts('Open run progress for {dagRunId}', {
