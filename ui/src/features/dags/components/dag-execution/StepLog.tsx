@@ -6,7 +6,13 @@
  *
  * @module features/dags/components/dag-execution
  */
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import { ChevronDown, ChevronUp, Download, Search, X } from 'lucide-react';
 import { components, Stream } from '../../../../api/v1/schema';
 import { Button } from '@/components/ui/button';
@@ -25,6 +31,10 @@ import { isActiveNodeStatus } from '../../../../lib/status-utils';
 import LoadingIndicator from '@/components/ui/loading-indicator';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
+import { useI18n } from '@/i18n/I18nProvider';
+
+const TAIL_THRESHOLD_PX = 4;
+const SSE_TAIL_LINES = 1000;
 
 // Extended Log type with pagination fields
 interface LogWithPagination {
@@ -55,38 +65,60 @@ type Props = {
   stream?: Stream;
   /** Node information (optional) - contains repeated log files */
   node?: components['schemas']['Node'];
+  followTail?: boolean;
+  onFollowTailChange?: (following: boolean) => void;
+  onSettled?: (stepName: string) => void;
 };
 
 /**
  * StepLog displays the log output for a specific step in a DAG run
  * Fetches log data from the API and refreshes every 30 seconds
  */
-function StepLog({
+function StepLog(props: Props) {
+  const remoteNode = useRemoteNode();
+  // A log identity owns its search, cache and scroll position.
+  const identity = JSON.stringify([
+    remoteNode,
+    props.dagName,
+    props.dagRunId,
+    props.stepName,
+    props.stream,
+    props.dagRun?.rootDAGRunName,
+    props.dagRun?.rootDAGRunId,
+  ]);
+  return <StepLogContent key={identity} {...props} />;
+}
+
+function StepLogContent({
   dagName,
   dagRunId,
   stepName,
   dagRun,
   stream = Stream.stdout,
   node,
+  followTail,
+  onFollowTailChange,
+  onSettled,
 }: Props) {
+  const { ts } = useI18n();
   const remoteNode = useRemoteNode();
   const config = useConfig();
   const { preferences, updatePreference } = useUserPreferences();
   const [viewMode, setViewMode] = useState<'tail' | 'head' | 'page'>('tail');
-  const [pageSize, setPageSize] = useState(1000);
+  const [pageSize, setPageSize] = useState(SSE_TAIL_LINES);
   const [currentPage, setCurrentPage] = useState(1);
   const [jumpToLine, setJumpToLine] = useState<number | ''>('');
   const [searchTerm, setSearchTerm] = useState('');
   const [activeMatch, setActiveMatch] = useState(0);
+  const [navigationOpen, setNavigationOpen] = useState(false);
+  const showNavigation = followTail === undefined || navigationOpen;
   const isActive = isActiveNodeStatus(node?.status);
 
-  const [isLiveMode, setIsLiveMode] = useState(isActive);
-
-  useEffect(() => {
-    if (!isActive) {
-      setIsLiveMode(false);
-    }
-  }, [isActive]);
+  const [localFollowing, setLocalFollowing] = useState(true);
+  const following = followTail ?? localFollowing;
+  const [pausedData, setPausedData] = useState<LogWithPagination | null>(null);
+  const wasActive = useRef(isActive);
+  const wasFollowing = useRef(following);
 
   const [cachedData, setCachedData] = useState<LogWithPagination | null>(null);
   const [isNavigating, setIsNavigating] = useState(false);
@@ -101,9 +133,13 @@ function StepLog({
     dagRun.rootDAGRunName &&
     dagRun.rootDAGRunId !== dagRun.dagRunId;
 
-  // SSE is used for real-time updates when viewing tail of an active step (not sub-DAG runs)
+  // SSE supplies a fixed tail with stdout counts; other views use REST.
   const shouldUseSSE =
-    viewMode === 'tail' && isLiveMode && isActive && !isSubDAGRun;
+    viewMode === 'tail' &&
+    isActive &&
+    !isSubDAGRun &&
+    stream === Stream.stdout &&
+    pageSize === SSE_TAIL_LINES;
   const sseResult = useStepLogSSE(
     dagName,
     dagRunId,
@@ -126,12 +162,12 @@ function StepLog({
   // SWR options - poll only when SSE is not available
   const swrOptions = React.useMemo(
     () => ({
-      refreshInterval: usePolling && isLiveMode && isActive ? 2000 : 0,
-      keepPreviousData: true,
+      refreshInterval: usePolling && isActive ? 2000 : 0,
+      keepPreviousData: false,
       revalidateOnFocus: false,
       dedupingInterval: 1000,
     }),
-    [isActive, isLiveMode, usePolling]
+    [isActive, usePolling]
   );
 
   const subDAGQuery = useQuery(
@@ -183,19 +219,84 @@ function StepLog({
     ? subDAGQuery
     : dagRunQuery;
 
-  // Transform SSE data to LogWithPagination format when available
-  const sseLogData: LogWithPagination | null =
-    sseIsActive && sseResult.data
-      ? {
-          content:
-            stream === Stream.stdout
-              ? sseResult.data.stdoutContent
-              : sseResult.data.stderrContent,
-          lineCount: sseResult.data.lineCount,
-          totalLines: sseResult.data.totalLines,
-          hasMore: sseResult.data.hasMore,
+  useEffect(() => {
+    const finished = !isActive && (wasActive.current || !!onSettled);
+    wasActive.current = isActive;
+    if (!finished) {
+      return;
+    }
+    // Status can arrive before the final log event. Fetch once before advancing.
+    let cancelled = false;
+    void mutate()
+      .then(() => {
+        if (!cancelled) {
+          onSettled?.(stepName);
         }
-      : null;
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [isActive, mutate, onSettled, stepName]);
+
+  const sseLogData = React.useMemo<LogWithPagination | null>(() => {
+    if (!sseIsActive || !sseResult.data) {
+      return null;
+    }
+    return {
+      content:
+        stream === Stream.stdout
+          ? sseResult.data.stdoutContent
+          : sseResult.data.stderrContent,
+      lineCount: sseResult.data.lineCount,
+      totalLines: sseResult.data.totalLines,
+      hasMore: sseResult.data.hasMore,
+    };
+  }, [sseIsActive, sseResult.data, stream]);
+  const previousRestData = useRef(data);
+  // Retain streamed output until a fresh REST response replaces it.
+  const latestData =
+    sseLogData ||
+    (data !== previousRestData.current ? data : cachedData || data);
+  const logData = pausedData || latestData;
+  const hasNewOutput =
+    !!pausedData && latestData?.content !== pausedData.content;
+
+  function pauseFollowing(freeze = true): void {
+    if (freeze && !pausedData && logData) {
+      setPausedData(logData);
+    }
+    setLocalFollowing(false);
+    onFollowTailChange?.(false);
+  }
+
+  function resumeFollowing(): void {
+    setPausedData(null);
+    setSearchTerm('');
+    setViewMode('tail');
+    setCurrentPage(1);
+    setLocalFollowing(true);
+    onFollowTailChange?.(true);
+  }
+
+  useLayoutEffect(() => {
+    if (
+      viewMode === 'tail' &&
+      !following &&
+      wasFollowing.current &&
+      !pausedData &&
+      latestData
+    ) {
+      setPausedData(latestData);
+    }
+    if (following && !wasFollowing.current) {
+      setPausedData(null);
+      setSearchTerm('');
+      setViewMode('tail');
+      setCurrentPage(1);
+    }
+    wasFollowing.current = following;
+  }, [following, pausedData, latestData, viewMode]);
 
   const scrollToBottom = useCallback(() => {
     if (logContainerRef.current) {
@@ -205,7 +306,8 @@ function StepLog({
 
   // Handle data updates from either SSE or REST API
   useEffect(() => {
-    const activeData = sseLogData || data;
+    const activeData = latestData;
+    previousRestData.current = data;
 
     if (activeData) {
       setCachedData(activeData as LogWithPagination);
@@ -217,9 +319,6 @@ function StepLog({
         navigationTimeoutRef.current = null;
       }
 
-      if (viewMode === 'tail') {
-        setTimeout(scrollToBottom, 100);
-      }
       return;
     }
 
@@ -227,7 +326,13 @@ function StepLog({
     if (!isLoading && cachedData && !isInitialLoad.current) {
       setIsNavigating(false);
     }
-  }, [data, sseLogData, isLoading, cachedData, viewMode, scrollToBottom]);
+  }, [data, latestData, isLoading, cachedData]);
+
+  useLayoutEffect(() => {
+    if (following && viewMode === 'tail') {
+      scrollToBottom();
+    }
+  }, [logData?.content, following, viewMode, scrollToBottom]);
 
   // Set navigating state when view parameters change (after initial load)
   useEffect(() => {
@@ -254,12 +359,19 @@ function StepLog({
   }, [viewMode, currentPage, pageSize]);
 
   function handleViewModeChange(mode: 'tail' | 'head' | 'page'): void {
-    if (mode === viewMode) return;
+    if (mode === 'tail') {
+      resumeFollowing();
+    } else {
+      pauseFollowing(false);
+      setPausedData(null);
+    }
     setViewMode(mode);
     setCurrentPage(1);
   }
 
   function handlePageChange(newPage: number): void {
+    pauseFollowing(false);
+    setPausedData(null);
     setCurrentPage(newPage);
   }
 
@@ -272,6 +384,8 @@ function StepLog({
       return;
     }
 
+    pauseFollowing(false);
+    setPausedData(null);
     const lineNum = jumpToLine as number;
     const targetPage = Math.ceil(lineNum / pageSize);
 
@@ -280,7 +394,8 @@ function StepLog({
 
     // Scroll to the specific line after DOM update
     setTimeout(() => {
-      const lineElements = document.querySelectorAll('[data-line-number]');
+      const lineElements =
+        logContainerRef.current?.querySelectorAll('[data-line-number]') || [];
       for (const element of lineElements) {
         const htmlElement = element as HTMLElement;
         const lineNumber = parseInt(
@@ -288,7 +403,13 @@ function StepLog({
           10
         );
         if (lineNumber === lineNum) {
-          htmlElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          htmlElement.scrollIntoView({
+            behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)')
+              .matches
+              ? 'instant'
+              : 'smooth',
+            block: 'center',
+          });
           htmlElement.classList.add('bg-primary/20');
           setTimeout(() => {
             htmlElement.classList.remove('bg-primary/20');
@@ -327,14 +448,10 @@ function StepLog({
     remoteNode,
   ]);
 
-  // Prioritize SSE data, then REST data, then cached data
-  const logData = (sseLogData ||
-    data ||
-    cachedData) as LogWithPagination | null;
   const content = logData?.content || '';
 
   const lines = React.useMemo(() => {
-    const rawLines = content ? content.split('\n') : ['<No log output>'];
+    const rawLines = content ? content.split('\n') : [];
     return rawLines[rawLines.length - 1] === ''
       ? rawLines.slice(0, -1)
       : rawLines;
@@ -382,7 +499,12 @@ function StepLog({
       `[data-log-index="${lineIndex}"]`
     ) as HTMLElement | null;
     if (!element) return;
-    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    element.scrollIntoView({
+      behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+        ? 'instant'
+        : 'smooth',
+      block: 'center',
+    });
     element.classList.add('bg-primary/20');
     setTimeout(() => element.classList.remove('bg-primary/20'), 1200);
   }
@@ -407,69 +529,96 @@ function StepLog({
   }
 
   return (
-    <div className="w-full h-full flex flex-col">
+    <div className="flex h-full min-h-0 w-full flex-col">
       {/* Controls for log navigation */}
-      <div className="flex flex-col gap-2 mb-2 p-4 bg-muted rounded">
+      <div className="mb-2 flex shrink-0 flex-col gap-2 rounded bg-muted p-2">
         <div className="flex flex-wrap items-center gap-2">
           {/* Responsive button container */}
-          <div className="flex flex-wrap gap-1">
-            <Button
-              size="sm"
-              variant={viewMode === 'tail' ? 'primary' : 'default'}
-              onClick={() => handleViewModeChange('tail')}
-              disabled={isNavigating}
-            >
-              <I18nText text={'Show End'} />
-            </Button>
-            <Button
-              size="sm"
-              variant={viewMode === 'head' ? 'primary' : 'default'}
-              onClick={() => handleViewModeChange('head')}
-              disabled={isNavigating}
-            >
-              <I18nText text={'Show Beginning'} />
-            </Button>
-            <Button
-              size="sm"
-              variant={viewMode === 'page' ? 'primary' : 'default'}
-              onClick={() => handleViewModeChange('page')}
-              disabled={isNavigating}
-            >
-              <I18nText text={'Page View'} />
-            </Button>
-          </div>
+          {showNavigation && (
+            <div className="flex flex-wrap gap-1">
+              <Button
+                size="sm"
+                variant={viewMode === 'tail' ? 'primary' : 'default'}
+                onClick={() => handleViewModeChange('tail')}
+                disabled={isNavigating}
+              >
+                <I18nText text={'Show End'} />
+              </Button>
+              <Button
+                size="sm"
+                variant={viewMode === 'head' ? 'primary' : 'default'}
+                onClick={() => handleViewModeChange('head')}
+                disabled={isNavigating}
+              >
+                <I18nText text={'Show Beginning'} />
+              </Button>
+              <Button
+                size="sm"
+                variant={viewMode === 'page' ? 'primary' : 'default'}
+                onClick={() => handleViewModeChange('page')}
+                disabled={isNavigating}
+              >
+                <I18nText text={'Page View'} />
+              </Button>
+            </div>
+          )}
 
-          <select
-            className="h-7 px-2 text-xs border border-border rounded-md bg-surface text-foreground flex-shrink-0 focus:outline-none focus:border-ring"
-            value={pageSize}
-            onChange={(e) => setPageSize(Number(e.target.value))}
-            disabled={isNavigating}
-          >
-            <option value="100">
-              <I18nText text={'100 lines'} />
-            </option>
-            <option value="500">
-              <I18nText text={'500 lines'} />
-            </option>
-            <option value="1000">
-              <I18nText text={'1000 lines'} />
-            </option>
-            <option value="5000">
-              <I18nText text={'5000 lines'} />
-            </option>
-            <option value="10000">
-              <I18nText text={'10000 lines'} />
-            </option>
-          </select>
+          {showNavigation && (
+            <select
+              aria-label={ts('Lines per page')}
+              className="h-7 px-2 text-xs border border-border rounded-md bg-surface text-foreground flex-shrink-0 focus:outline-none focus:border-ring"
+              value={pageSize}
+              onChange={(e) => {
+                setPausedData(null);
+                if (viewMode === 'tail') {
+                  resumeFollowing();
+                }
+                setPageSize(Number(e.target.value));
+              }}
+              disabled={isNavigating}
+            >
+              <option value="100">
+                <I18nText text={'100 lines'} />
+              </option>
+              <option value="500">
+                <I18nText text={'500 lines'} />
+              </option>
+              <option value="1000">
+                <I18nText text={'1000 lines'} />
+              </option>
+              <option value="5000">
+                <I18nText text={'5000 lines'} />
+              </option>
+              <option value="10000">
+                <I18nText text={'10000 lines'} />
+              </option>
+            </select>
+          )}
 
-          {/* Wrap toggle, Live mode toggle and reload button */}
-          <div className="flex items-center gap-2 ml-auto">
+          {followTail !== undefined && (
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-expanded={navigationOpen}
+              onClick={() => setNavigationOpen(!navigationOpen)}
+            >
+              {ts('Log options')}
+              <ChevronDown
+                className={navigationOpen ? 'h-3 w-3 rotate-180' : 'h-3 w-3'}
+                aria-hidden="true"
+              />
+            </Button>
+          )}
+
+          {/* Display and download controls */}
+          <div className="ml-auto flex flex-wrap items-center gap-2">
             {/* Wrap toggle */}
             <div className="flex items-center gap-1.5">
               <span className="text-xs text-muted-foreground">
                 <I18nText text={'Wrap'} />
               </span>
               <Switch
+                aria-label={ts('Wrap')}
                 checked={preferences.logWrap}
                 onCheckedChange={(checked) =>
                   updatePreference('logWrap', checked)
@@ -503,34 +652,37 @@ function StepLog({
               </Button>
             </I18nProps>
 
-            {/* Live mode toggle - only show when the node is active */}
-            {isActive && (
-              <Button
-                size="sm"
-                variant={isLiveMode ? 'primary' : 'default'}
-                onClick={() => setIsLiveMode(!isLiveMode)}
-              >
-                <span
-                  className={`inline-block w-2 h-2 rounded-full ${isLiveMode ? 'bg-white animate-pulse' : 'bg-muted-foreground'}`}
-                />
-                <I18nText text={'LIVE'} />
+            <span role="status" className="text-xs text-muted-foreground">
+              {hasNewOutput
+                ? ts('New output available')
+                : !following
+                  ? ts('Reading output')
+                  : isActive
+                    ? ts('Live')
+                    : ts('Finished')}
+            </span>
+            {followTail === undefined && !following && (
+              <Button size="sm" onClick={resumeFollowing}>
+                <I18nText text="Back to live" />
               </Button>
             )}
           </div>
         </div>
 
         {/* Stats line - full width on mobile */}
-        <div className="text-xs text-muted-foreground flex items-center">
-          <I18nText
-            text="Showing {visible} of {total} lines"
-            values={{ visible: lines.length, total: effectiveTotalLines }}
-          />{' '}
-          {isEstimate ? <I18nText text={'(estimated)'} /> : ''}{' '}
-          {hasMore ? <I18nText text={'(more available)'} /> : ''}
-        </div>
+        {showNavigation && (
+          <div className="text-xs text-muted-foreground flex items-center">
+            <I18nText
+              text="Showing {visible} of {total} lines"
+              values={{ visible: lines.length, total: effectiveTotalLines }}
+            />{' '}
+            {isEstimate ? <I18nText text={'(estimated)'} /> : ''}{' '}
+            {hasMore ? <I18nText text={'(more available)'} /> : ''}
+          </div>
+        )}
 
         {/* Page navigation controls */}
-        {viewMode === 'page' && effectiveTotalLines > 0 && (
+        {showNavigation && viewMode === 'page' && effectiveTotalLines > 0 && (
           <div className="flex items-center gap-2 mt-2">
             <Button
               size="sm"
@@ -558,14 +710,16 @@ function StepLog({
         )}
 
         {/* Search within loaded lines */}
-        <div className="flex items-center gap-2 mt-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Search className="h-3.5 w-3.5 text-muted-foreground" />
           <I18nProps>
             <Input
               type="text"
               placeholder="Search in loaded lines..."
               value={searchTerm}
+              onFocus={() => pauseFollowing()}
               onChange={(e) => {
+                pauseFollowing();
                 setSearchTerm(e.target.value);
                 setActiveMatch(0);
               }}
@@ -578,7 +732,7 @@ function StepLog({
                   setActiveMatch(0);
                 }
               }}
-              className="w-48 h-7 text-xs"
+              className="h-7 min-w-0 max-w-64 flex-1 text-xs"
             />
           </I18nProps>
           {trimmedSearch && (
@@ -630,52 +784,87 @@ function StepLog({
         </div>
 
         {/* Jump to line controls */}
-        <div className="flex items-center gap-2 mt-2">
-          <span className="text-xs text-muted-foreground">
-            <I18nText text={'Jump to line:'} />
-          </span>
-          <Input
-            type="number"
-            min={1}
-            max={effectiveTotalLines}
-            value={jumpToLine}
-            onChange={(e) =>
-              setJumpToLine(e.target.value === '' ? '' : Number(e.target.value))
-            }
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                if (
-                  !isNavigating &&
-                  jumpToLine !== '' &&
-                  (jumpToLine as number) >= 1 &&
-                  (jumpToLine as number) <= effectiveTotalLines
-                ) {
-                  handleJumpToLine();
-                }
+        {showNavigation && (
+          <div className="flex items-center gap-2 mt-2">
+            <span className="text-xs text-muted-foreground">
+              <I18nText text={'Jump to line:'} />
+            </span>
+            <Input
+              aria-label={ts('Jump to line:')}
+              type="number"
+              min={1}
+              max={effectiveTotalLines}
+              value={jumpToLine}
+              onChange={(e) =>
+                setJumpToLine(
+                  e.target.value === '' ? '' : Number(e.target.value)
+                )
               }
-            }}
-            className="w-20 h-7 text-xs"
-            disabled={isNavigating}
-          />
-          <Button
-            size="sm"
-            onClick={handleJumpToLine}
-            disabled={
-              isNavigating ||
-              jumpToLine === '' ||
-              (jumpToLine as number) < 1 ||
-              (jumpToLine as number) > effectiveTotalLines
-            }
-          >
-            <I18nText text={'Go'} />
-          </Button>
-        </div>
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  if (
+                    !isNavigating &&
+                    jumpToLine !== '' &&
+                    (jumpToLine as number) >= 1 &&
+                    (jumpToLine as number) <= effectiveTotalLines
+                  ) {
+                    handleJumpToLine();
+                  }
+                }
+              }}
+              className="w-20 h-7 text-xs"
+              disabled={isNavigating}
+            />
+            <Button
+              size="sm"
+              onClick={handleJumpToLine}
+              disabled={
+                isNavigating ||
+                jumpToLine === '' ||
+                (jumpToLine as number) < 1 ||
+                (jumpToLine as number) > effectiveTotalLines
+              }
+            >
+              <I18nText text={'Go'} />
+            </Button>
+          </div>
+        )}
       </div>
 
+      {(sseResult.error || error) && logData && (
+        <p role="status" className="mb-2 text-xs text-warning">
+          <I18nText text="Connection interrupted. Retrying..." />
+        </p>
+      )}
       {/* Log content with overlay loading indicator when navigating */}
       <div
         ref={logContainerRef}
-        className={`flex-1 rounded-lg bg-muted pt-4 pr-4 pb-4 relative ${preferences.logWrap ? 'overflow-auto' : 'overflow-x-auto overflow-y-auto'}`}
+        role="region"
+        aria-label={ts('Step output')}
+        tabIndex={0}
+        onWheel={(event) => {
+          if (event.deltaY < 0) {
+            pauseFollowing();
+          }
+        }}
+        onPointerDown={() => pauseFollowing()}
+        onTouchStart={() => pauseFollowing()}
+        onKeyDown={(event) => {
+          if (['ArrowUp', 'PageUp', 'Home'].includes(event.key)) {
+            pauseFollowing();
+          }
+        }}
+        onScroll={(event) => {
+          const element = event.currentTarget;
+          if (
+            following &&
+            element.scrollHeight - element.clientHeight - element.scrollTop >
+              TAIL_THRESHOLD_PX
+          ) {
+            pauseFollowing();
+          }
+        }}
+        className={`min-h-0 flex-1 overscroll-contain rounded-lg bg-muted pt-4 pr-4 pb-4 relative ${preferences.logWrap ? 'overflow-auto' : 'overflow-x-auto overflow-y-auto'}`}
       >
         {isNavigating && (
           <div className="absolute inset-0 bg-black/20 flex items-center justify-center z-10 pointer-events-none">
@@ -684,8 +873,13 @@ function StepLog({
             </div>
           </div>
         )}
+        {!content && (
+          <p role="status" className="px-4 py-8 text-sm text-muted-foreground">
+            {isActive ? ts('Waiting for output...') : ts('No output recorded.')}
+          </p>
+        )}
         <pre
-          className={`h-full font-mono text-sm text-foreground log-content ${preferences.logWrap ? '' : 'min-w-max'}`}
+          className={`font-mono text-sm text-foreground log-content ${preferences.logWrap ? '' : 'min-w-max'}`}
         >
           {lines.map((line, index) => (
             <div

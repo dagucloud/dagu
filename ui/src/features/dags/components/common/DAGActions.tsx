@@ -924,7 +924,6 @@ function DAGActions({
             showToast(immediate ? 'DAG run started' : 'DAG run enqueued');
             // Just refresh the current page data
             reloadData();
-
           }}
           dismissModal={() => {
             setIsEnqueueModal(false);

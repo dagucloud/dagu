@@ -83,6 +83,8 @@ vi.mock('../visualization', () => ({
   TimelineChart: () => <div>Timeline</div>,
 }));
 
+vi.mock('../dag-execution/RunOutput', () => ({ default: () => <div>Run output</div> }));
+
 vi.mock('../dag-execution', () => ({
   LogViewer: (props: unknown) => {
     logViewerMock(props);
@@ -334,7 +336,7 @@ describe('DAGStatus', () => {
     ).toBeInTheDocument();
   });
 
-  it('passes its workflow filename to the step table', () => {
+  it('passes its workflow filename to the step table', async () => {
     vi.mocked(useClient).mockReturnValue({
       PATCH: patchMock,
     } as unknown as ReturnType<typeof useClient>);
@@ -347,11 +349,12 @@ describe('DAGStatus', () => {
       </MemoryRouter>
     );
 
-    expect(nodeStatusTableMock).toHaveBeenCalledWith(
+    fireEvent.click(screen.getByText('Step details', { selector: 'summary' }));
+    await waitFor(() => expect(nodeStatusTableMock).toHaveBeenCalledWith(
       expect.objectContaining({
         fileName: 'example.yaml',
       })
-    );
+    ));
   });
 
   it('opens step details from a status graph click', async () => {
@@ -375,7 +378,8 @@ describe('DAGStatus', () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open step details' }));
+    fireEvent.click(screen.getByText('Graph', { selector: 'summary' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Open step details' }));
 
     expect(await screen.findByRole('dialog', { name: 'step' })).toBeVisible();
     expect(
@@ -400,7 +404,8 @@ describe('DAGStatus', () => {
 
     render(dagStatusView(failedRun));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open step details' }));
+    fireEvent.click(screen.getByText('Graph', { selector: 'summary' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Open step details' }));
 
     const drawer = await screen.findByRole('dialog', { name: 'step' });
     expect(drawer).toHaveTextContent('connection refused');
@@ -442,7 +447,8 @@ describe('DAGStatus', () => {
 
     const { rerender } = render(dagStatusView(failedRun));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open step details' }));
+    fireEvent.click(screen.getByText('Graph', { selector: 'summary' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Open step details' }));
     const drawer = await screen.findByRole('dialog', { name: 'step' });
     expect(drawer).toHaveTextContent('running');
 
@@ -489,7 +495,8 @@ describe('DAGStatus', () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open status modal' }));
+    fireEvent.click(screen.getByText('Graph', { selector: 'summary' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Open status modal' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Mark failed' }));
 
     await waitFor(() => {
@@ -532,7 +539,8 @@ describe('DAGStatus', () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open status modal' }));
+    fireEvent.click(screen.getByText('Graph', { selector: 'summary' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Open status modal' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Mark failed' }));
 
     await waitFor(() => {
@@ -618,7 +626,8 @@ describe('DAGStatus', () => {
     ).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Status' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Open status modal' }));
+    fireEvent.click(screen.getByText('Graph', { selector: 'summary' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Open status modal' }));
     expect(
       screen.queryByRole('button', { name: 'Mark failed' })
     ).not.toBeInTheDocument();
@@ -670,7 +679,7 @@ describe('DAGStatus', () => {
     );
   });
 
-  it('disables graph status mutation while waiting for approval', () => {
+  it('disables graph status mutation while waiting for approval', async () => {
     vi.mocked(useClient).mockReturnValue({
       PATCH: patchMock,
     } as unknown as ReturnType<typeof useClient>);
@@ -693,7 +702,8 @@ describe('DAGStatus', () => {
     render(dagStatusView(waitingApprovalRun));
 
     fireEvent.click(screen.getByRole('button', { name: 'Status' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Open status modal' }));
+    fireEvent.click(screen.getByText('Graph', { selector: 'summary' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Open status modal' }));
     expect(
       screen.queryByRole('button', { name: 'Mark failed' })
     ).not.toBeInTheDocument();
