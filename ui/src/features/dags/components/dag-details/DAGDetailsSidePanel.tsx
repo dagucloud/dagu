@@ -39,8 +39,7 @@ type EnqueueHandler = (
   dagRunId?: string,
   immediate?: boolean,
   profile?: string,
-  noReuse?: boolean,
-  followOutput?: boolean
+  noReuse?: boolean
 ) => string | void | Promise<string | void>;
 
 type Props = {
@@ -184,10 +183,6 @@ function DAGDetailsSidePanel({
     setCurrentDAGRun(undefined);
   }, [fileName, initialTab, isOpen, remoteNode]);
 
-  const navigateToStatusTab = React.useCallback(() => {
-    setActiveTab('status');
-  }, []);
-
   const dagDetailsEnabled = isOpen && !!stableFileName;
   const dagDetailsSSE = useDAGSSE(
     stableFileName,
@@ -229,38 +224,26 @@ function DAGDetailsSidePanel({
   React.useEffect(() => {
     if (trackedRunData?.dagRunDetails) {
       setCurrentDAGRun(trackedRunData.dagRunDetails);
-    } else if (data) {
+    } else if (data && !trackedDagRunId) {
       setCurrentDAGRun(data.latestDAGRun);
     }
-  }, [data, trackedRunData]);
+  }, [data, trackedRunData, trackedDagRunId]);
 
   const refreshFn = React.useCallback(() => {
     setTimeout(() => mutate(), 500);
   }, [mutate]);
 
-  const handleEnqueue = React.useCallback<EnqueueHandler>(
-    async (params, dagRunId, immediate, profile, noReuse, followOutput) => {
-      if (!onEnqueue) {
-        return;
-      }
+  const handleRunStarted = React.useCallback((dagRunId: string) => {
+    setTrackedDagRunId(dagRunId);
+    setCurrentDAGRun(undefined);
+    setActiveTab('status');
+    void mutate();
+  }, [mutate]);
 
-      const result = await onEnqueue(
-        params,
-        dagRunId,
-        immediate,
-        profile,
-        noReuse,
-        followOutput
-      );
-      setActiveTab(followOutput ? 'dagRun-log' : 'status');
-      if (typeof result === 'string' && result) {
-        setTrackedDagRunId(result);
-      }
-      await mutate();
-      return result;
-    },
-    [mutate, onEnqueue]
-  );
+  // Keep the newly submitted run selected while its details are loading.
+  const displayDAGRun = trackedDagRunId
+    ? currentDAGRun?.dagRunId === trackedDagRunId ? currentDAGRun : undefined
+    : currentDAGRun;
 
   const handleFullscreenClick = React.useCallback(
     (event?: React.MouseEvent) => {
@@ -350,7 +333,7 @@ function DAGDetailsSidePanel({
           <RemoteNodeProvider remoteNode={remoteNode}>
             <RootDAGRunContext.Provider
               value={{
-                data: currentDAGRun,
+                data: displayDAGRun,
                 setData: (dagRun: components['schemas']['DAGRunDetails']) => {
                   setCurrentDAGRun(dagRun);
                 },
@@ -432,7 +415,7 @@ function DAGDetailsSidePanel({
                     <DAGDetailsContent
                       fileName={stableFileName}
                       dag={data.dag}
-                      currentDAGRun={currentDAGRun}
+                      currentDAGRun={displayDAGRun}
                       dagRunId={trackedDagRunId ?? 'latest'}
                       stepName={null}
                       refreshFn={refreshFn}
@@ -440,10 +423,10 @@ function DAGDetailsSidePanel({
                       activeTab={activeTab}
                       onTabChange={setActiveTab}
                       isModal={true}
-                      navigateToStatusTab={navigateToStatusTab}
                       localDags={data.localDags}
                       editorHints={data.editorHints}
-                      onEnqueue={onEnqueue ? handleEnqueue : undefined}
+                      onEnqueue={onEnqueue}
+                      onRunStarted={handleRunStarted}
                       forceEnqueue={forceEnqueue}
                       autoOpenStartModal={false}
                       fillHeight

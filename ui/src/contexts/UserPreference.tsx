@@ -11,7 +11,6 @@ export type UserPreferences = {
   pageLimit: number;
   dagRunsViewMode: DAGRunsViewMode;
   logWrap: boolean;
-  followOutput: boolean;
   theme: 'light' | 'dark';
   locale: Locale;
   safeMode: boolean;
@@ -31,7 +30,6 @@ const defaultPreferences: UserPreferences = {
   pageLimit: 50,
   dagRunsViewMode: 'list',
   logWrap: true,
-  followOutput: false,
   theme: 'light', // Default to light theme (from main branch)
   locale: 'en',
   safeMode: false,

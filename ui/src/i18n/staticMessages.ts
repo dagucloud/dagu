@@ -4,6 +4,21 @@
 import type { Locale } from '@/contexts/UserPreference';
 
 const english = {
+  'Log options': 'Log options',
+  'Lines per page': 'Lines per page',
+  "Loading run...": "Loading run...",
+  "Run output": "Run output",
+  "Step output": "Step output",
+  "Output for {step}": "Output for {step}",
+  "{count} failed": "{count} failed",
+  "Back to live": "Back to live",
+  "Reading output": "Reading output",
+  "New output available": "New output available",
+  "Waiting for execution...": "Waiting for execution...",
+  "Waiting for output...": "Waiting for output...",
+  "No output recorded.": "No output recorded.",
+  "Connection interrupted. Retrying...": "Connection interrupted. Retrying...",
+  "Step details": "Step details",
   ' (custom)': ' (custom)',
   ' • Auto-refresh is disabled after loading older events':
     ' • Auto-refresh is disabled after loading older events',
@@ -2088,6 +2103,21 @@ export type StaticMessage = keyof typeof english;
 export type StaticTranslationValues = Record<string, string | number>;
 
 const chinese = {
+  'Log options': '日志选项',
+  'Lines per page': '每页行数',
+  "Loading run...": "正在加载运行...",
+  "Run output": "运行输出",
+  "Step output": "步骤输出",
+  "Output for {step}": "{step} 的输出",
+  "{count} failed": "{count} 个失败",
+  "Back to live": "返回实时输出",
+  "Reading output": "正在查看输出",
+  "New output available": "有新输出",
+  "Waiting for execution...": "等待执行...",
+  "Waiting for output...": "等待输出...",
+  "No output recorded.": "暂无输出记录。",
+  "Connection interrupted. Retrying...": "连接已中断，正在重试...",
+  "Step details": "步骤详情",
   ' (custom)': '（自定义）',
   ' • Auto-refresh is disabled after loading older events':
     ' • 加载较早事件后，自动刷新将禁用',
@@ -4114,6 +4144,21 @@ const chinese = {
 } as const satisfies Record<StaticMessage, string>;
 
 const japanese = {
+  'Log options': 'ログ表示設定',
+  'Lines per page': 'ページあたりの行数',
+  "Loading run...": "実行を読み込み中...",
+  "Run output": "実行出力",
+  "Step output": "ステップ出力",
+  "Output for {step}": "{step} の出力",
+  "{count} failed": "{count} 件失敗",
+  "Back to live": "ライブに戻る",
+  "Reading output": "出力を閲覧中",
+  "New output available": "新しい出力があります",
+  "Waiting for execution...": "実行待ち...",
+  "Waiting for output...": "出力待ち...",
+  "No output recorded.": "出力は記録されていません。",
+  "Connection interrupted. Retrying...": "接続が切れました。再接続中...",
+  "Step details": "ステップ詳細",
   ' (custom)': '（カスタム）',
   ' • Auto-refresh is disabled after loading older events':
     ' • 古いイベントを読み込んだ後、自動更新は無効になります',

@@ -15,17 +15,19 @@ vi.mock('@/features/dags/components/dag-details', () => ({
   DAGHeader: () => {
     const { onRunStarted } = React.useContext(DAGContext);
     return (
-      <button onClick={() => onRunStarted?.('started-run', true)}>
+      <button onClick={() => onRunStarted?.('started-run')}>
         Start run
       </button>
     );
   },
-  DAGDetailsContent: vi.fn(({ activeTab, fillHeight }) => (
+  DAGDetailsContent: vi.fn(({ activeTab, fillHeight, currentDAGRun, dagRunId }) => (
     <div
       data-active-tab={activeTab}
       data-fill-height={String(fillHeight)}
       data-testid="dag-details-content"
-    />
+    >
+      {currentDAGRun ? `Output for ${currentDAGRun.dagRunId}` : `Loading ${dagRunId}`}
+    </div>
   )),
 }));
 
@@ -120,14 +122,16 @@ describe('DAGDetails page', () => {
     expect(content.parentElement).toHaveClass('flex-1');
   });
 
-  it('passes the follow-output callback through the full-page provider', () => {
+  it('opens the submitted run in the full-page provider', () => {
     renderPage();
+    expect(screen.getByText('Output for run-1')).toBeVisible();
 
     fireEvent.click(screen.getByRole('button', { name: 'Start run' }));
 
     expect(screen.getByTestId('location')).toHaveTextContent(
-      '/dags/release-notes/dagRun-log?dagRunId=started-run&dagRunName=release-notes'
+      '/dags/release-notes?dagRunId=started-run&dagRunName=release-notes'
     );
+    expect(screen.getByText('Loading started-run')).toBeVisible();
   });
 
   it('redirects the legacy docs tab to the Wiki tab', async () => {

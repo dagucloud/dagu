@@ -140,13 +140,6 @@ function DAGDetails() {
     }
   }, [buildUrl, fileName, navigate, params.tab]);
 
-  // Navigate to status tab - convenience wrapper for handleTabChange
-  const navigateToStatusTab = useCallback(() => {
-    if (tab !== 'status') {
-      handleTabChange('status');
-    }
-  }, [tab, handleTabChange]);
-
   // Fetch DAG details — SWR is the single source of truth, refreshed by live invalidations
   const { data: dagData, mutate: mutateDag } = useQuery(
     '/dags/{fileName}',
@@ -234,7 +227,8 @@ function DAGDetails() {
       return subDAGRunResponse?.dagRunDetails;
     }
     if (effectiveDAGRunId) {
-      return dagRunResponse?.dagRunDetails;
+      const details = dagRunResponse?.dagRunDetails;
+      return details?.dagRunId === effectiveDAGRunId ? details : undefined;
     }
     return dagData?.latestDAGRun;
   }
@@ -247,11 +241,8 @@ function DAGDetails() {
 
   // Update root DAG-run data when current DAG-run or latest DAG-run changes
   useEffect(() => {
-    const newData = currentDAGRun || dagData?.latestDAGRun;
-    if (newData) {
-      setRootDAGRunData(newData);
-    }
-  }, [currentDAGRun, dagData?.latestDAGRun]);
+    setRootDAGRunData(currentDAGRun);
+  }, [currentDAGRun]);
 
   // Refresh all relevant data based on current view
   const refreshData = useCallback(() => {
@@ -270,8 +261,9 @@ function DAGDetails() {
   ]);
 
   const handleRunStarted = useCallback(
-    (nextDAGRunId: string, followOutput = false) => {
+    (nextDAGRunId: string) => {
       setTrackedDagRunId(nextDAGRunId);
+      setRootDAGRunData(undefined);
       const nextSearchParams = new URLSearchParams();
       nextSearchParams.set('dagRunId', nextDAGRunId);
       nextSearchParams.set('dagRunName', dagData?.dag?.name || dagRunName);
@@ -282,7 +274,7 @@ function DAGDetails() {
         nextSearchParams.set('workspace', queryWorkspace);
       }
       navigate(
-        `/dags/${fileName}${followOutput ? '/dagRun-log' : ''}?${nextSearchParams.toString()}`
+        `/dags/${encodeURIComponent(fileName)}?${nextSearchParams.toString()}`
       );
       void mutateDag();
     },
@@ -313,8 +305,7 @@ function DAGDetails() {
     setTrackedDagRunId(undefined);
   }, [fileName, remoteNode]);
 
-  // Determine which DAG-run to display - fallback to latest when specific run is loading
-  const displayDAGRun = currentDAGRun || dagData?.latestDAGRun;
+  const displayDAGRun = currentDAGRun;
 
   return (
     <UnsavedChangesProvider>
@@ -342,7 +333,6 @@ function DAGDetails() {
                     fileName={fileName}
                     refreshFn={refreshData}
                     formatDuration={formatDuration}
-                    navigateToStatusTab={navigateToStatusTab}
                     buildScopedUrl={buildUrl}
                   />
                   <div className="min-h-0 flex-1">
@@ -354,10 +344,9 @@ function DAGDetails() {
                       formatDuration={formatDuration}
                       activeTab={tab}
                       onTabChange={handleTabChange}
-                      dagRunId={currentDAGRun?.dagRunId}
+                      dagRunId={subDAGRunId || effectiveDAGRunId || 'latest'}
                       stepName={stepName}
                       isModal={false}
-                      navigateToStatusTab={navigateToStatusTab}
                       skipHeader={true}
                       localDags={dagData?.localDags}
                       editorHints={dagData?.editorHints}

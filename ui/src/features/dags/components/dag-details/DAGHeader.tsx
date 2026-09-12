@@ -30,7 +30,6 @@ interface DAGHeaderProps {
   fileName: string;
   refreshFn: () => void;
   formatDuration: (startDate: string, endDate: string) => string;
-  navigateToStatusTab?: () => void;
   buildScopedUrl?: (path: string) => string;
 }
 
@@ -40,7 +39,6 @@ const DAGHeader: React.FC<DAGHeaderProps> = ({
   fileName,
   refreshFn,
   formatDuration,
-  navigateToStatusTab,
   buildScopedUrl,
 }) => {
   const { ts } = useI18n();
@@ -294,7 +292,6 @@ const DAGHeader: React.FC<DAGHeaderProps> = ({
               fileName={fileName}
               refresh={refreshFn}
               displayMode="full"
-              navigateToStatusTab={navigateToStatusTab}
             />
           </div>
         )}

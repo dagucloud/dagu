@@ -23,6 +23,8 @@ import ActionButton from '@/components/ui/action-button';
 import StatusChip from '@/components/ui/status-chip';
 import { AlertTriangle, Ban, Play, RefreshCw, Square, X } from 'lucide-react';
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
+import { buildDAGRunPageURL } from '@/features/dag-runs/lib/dagRunUrls';
 import { components, Status } from '../../../../api/v1/schema';
 import { useCanManageProfiles } from '../../../../contexts/AuthContext';
 import { useConfig } from '../../../../contexts/ConfigContext';
@@ -59,8 +61,6 @@ type Props = {
   refresh?: () => void;
   /** Display mode: 'compact' for icon-only, 'full' for text+icon buttons */
   displayMode?: 'compact' | 'full';
-  /** Function to navigate to status tab after execution */
-  navigateToStatusTab?: () => void;
 };
 
 /**
@@ -72,7 +72,6 @@ function DAGActions({
   dag,
   refresh,
   displayMode = 'compact',
-  navigateToStatusTab,
 }: Props) {
   const { ts } = useI18n();
   const dagContext = React.useContext(DAGContext);
@@ -106,6 +105,7 @@ function DAGActions({
     React.useState(false);
 
   const client = useClient();
+  const navigate = useNavigate();
   const remoteNode = useRemoteNode();
   const profilesQuery = React.useMemo(
     () =>
@@ -274,6 +274,19 @@ function DAGActions({
       status.rootDAGRunId &&
       status.rootDAGRunId !== status.dagRunId
   );
+
+  async function showStartedRun(dagRunId: string): Promise<void> {
+    if (dagContext.onRunStarted) {
+      await dagContext.onRunStarted(dagRunId);
+      return;
+    }
+
+    navigate(buildDAGRunPageURL({
+      rootDAGRunName: startModalDag?.name || dag?.name || fileName,
+      rootDAGRunId: dagRunId,
+      remoteNode,
+    }));
+  }
 
   // Determine which buttons should be enabled based on current status
   const buttonState = {
@@ -844,48 +857,18 @@ function DAGActions({
           profilesLoading={profilesLoading}
           defaultProfile={dagSettingsData?.profile}
           defaultProfileLoading={dagSettingsLoading}
-          onSubmit={async (
-            params,
-            dagRunId,
-            immediate,
-            profile,
-            noReuse,
-            followOutput
-          ) => {
+          onSubmit={async (params, dagRunId, immediate, profile, noReuse) => {
             if (dagContext.onEnqueue) {
-              const result =
-                noReuse !== undefined
-                  ? await dagContext.onEnqueue(
-                      params,
-                      dagRunId,
-                      immediate,
-                      profile,
-                      noReuse,
-                      followOutput
-                    )
-                  : profile !== undefined
-                    ? await dagContext.onEnqueue(
-                        params,
-                        dagRunId,
-                        immediate,
-                        profile,
-                        undefined,
-                        followOutput
-                      )
-                    : await dagContext.onEnqueue(
-                        params,
-                        dagRunId,
-                        immediate,
-                        undefined,
-                        undefined,
-                        followOutput
-                      );
+              const result = await dagContext.onEnqueue(
+                params, dagRunId, immediate, profile, noReuse
+              );
               const startedRunId =
                 typeof result === 'string' && result ? result : dagRunId;
               if (startedRunId) {
-                await dagContext.onRunStarted?.(startedRunId, followOutput);
+                await showStartedRun(startedRunId);
               }
               showToast(immediate ? 'DAG run started' : 'DAG run enqueued');
+              reloadData();
               return;
             }
 
@@ -936,15 +919,12 @@ function DAGActions({
             }
 
             if (data?.dagRunId) {
-              await dagContext.onRunStarted?.(data.dagRunId, followOutput);
+              await showStartedRun(data.dagRunId);
             }
             showToast(immediate ? 'DAG run started' : 'DAG run enqueued');
             // Just refresh the current page data
             reloadData();
-            // Navigate to status tab after execution unless the user chose to follow output.
-            if (!followOutput && navigateToStatusTab) {
-              navigateToStatusTab();
-            }
+
           }}
           dismissModal={() => {
             setIsEnqueueModal(false);

@@ -1,13 +1,27 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { render, screen, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, within } from '@testing-library/react';
+import React from 'react';
+import { MemoryRouter, useLocation } from 'react-router-dom';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Status, StatusLabel } from '@/api/v1/schema';
 import DAGActions from '../DAGActions';
+import { AppBarContext } from '@/contexts/AppBarContext';
+import { DAGContext } from '@/features/dags/contexts/DAGContext';
+
+const client = vi.hoisted(() => ({ POST: vi.fn(), GET: vi.fn() }));
 
 vi.mock('../../dag-execution', () => ({
-  StartDAGModal: () => null,
+  StartDAGModal: ({ visible, onSubmit }: {
+    visible: boolean;
+    onSubmit: (params: string, id?: string, immediate?: boolean) => Promise<void>;
+  }) => visible ? (
+    <>
+      <button onClick={() => void onSubmit('', undefined, true)}>Submit start</button>
+      <button onClick={() => void onSubmit('', undefined, false)}>Submit enqueue</button>
+    </>
+  ) : null,
 }));
 
 vi.mock('../../../../../contexts/ConfigContext', () => ({
@@ -19,10 +33,7 @@ vi.mock('../../../../../contexts/ConfigContext', () => ({
 }));
 
 vi.mock('../../../../../hooks/api', () => ({
-  useClient: () => ({
-    POST: vi.fn(),
-    GET: vi.fn(),
-  }),
+  useClient: () => client,
   useQuery: () => ({
     data: undefined,
     isLoading: false,
@@ -45,7 +56,49 @@ vi.mock('@/components/ui/simple-toast', () => ({
   }),
 }));
 
+function LocationProbe() {
+  const location = useLocation();
+  return <output aria-label="Location">{location.pathname + location.search}</output>;
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  client.GET.mockResolvedValue({ data: { dag: { name: 'example' } } });
+  client.POST.mockResolvedValue({ data: { dagRunId: 'created-run' } });
+});
+
 describe('DAGActions', () => {
+  it.each(['start', 'enqueue'])('opens the returned run after %s', async (action) => {
+    render(
+      <MemoryRouter initialEntries={['/dags']}>
+        <AppBarContext.Provider value={{ selectedRemoteNode: 'edge' } as never}>
+          <LocationProbe />
+          <DAGActions fileName="example-file" dag={{ name: 'example' }} displayMode="full" />
+        </AppBarContext.Provider>
+      </MemoryRouter>
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+    fireEvent.click(screen.getByRole('button', { name: `Submit ${action}` }));
+    await vi.waitFor(() => expect(screen.getByLabelText('Location')).toHaveTextContent(
+      '/dag-runs/example/created-run?remoteNode=edge'
+    ));
+  });
+
+  it('lets the containing panel display the returned run', async () => {
+    const onRunStarted = vi.fn();
+    render(
+      <MemoryRouter initialEntries={['/dags']}>
+        <LocationProbe />
+        <DAGContext.Provider value={{ name: 'example', fileName: 'example-file', refresh: vi.fn(), onRunStarted }}>
+          <DAGActions fileName="example-file" dag={{ name: 'example' }} displayMode="full" />
+        </DAGContext.Provider>
+      </MemoryRouter>
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Submit start' }));
+    await vi.waitFor(() => expect(onRunStarted).toHaveBeenCalledWith('created-run'));
+    expect(screen.getByLabelText('Location')).toHaveTextContent('/dags');
+  });
   it('shows cancel for failed runs with pending auto retries', () => {
     render(
       <DAGActions
@@ -63,7 +116,8 @@ describe('DAGActions', () => {
         fileName="retry-dag.yaml"
         dag={{ name: 'retry-dag' }}
         displayMode="full"
-      />
+      />,
+      { wrapper: MemoryRouter }
     );
 
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled();
@@ -85,7 +139,8 @@ describe('DAGActions', () => {
         fileName="running-dag.yaml"
         dag={{ name: 'running-dag' }}
         displayMode="full"
-      />
+      />,
+      { wrapper: MemoryRouter }
     );
 
     const queries = within(view.container);
@@ -110,7 +165,8 @@ describe('DAGActions', () => {
         fileName="waiting-dag.yaml"
         dag={{ name: 'waiting-dag' }}
         displayMode="full"
-      />
+      />,
+      { wrapper: MemoryRouter }
     );
 
     expect(
@@ -125,7 +181,8 @@ describe('DAGActions', () => {
         fileName="finished-dag.yaml"
         dag={{ name: 'finished-dag' }}
         displayMode="full"
-      />
+      />,
+      { wrapper: MemoryRouter }
     );
 
     expect(
@@ -151,7 +208,8 @@ describe('DAGActions', () => {
         fileName="child-dag.yaml"
         dag={{ name: 'child-dag' }}
         displayMode="full"
-      />
+      />,
+      { wrapper: MemoryRouter }
     );
 
     expect(

@@ -134,9 +134,10 @@ function DAGDetailsPanel({
   }
 
   const handleRunStarted = useCallback(
-    (dagRunId: string, followOutput = false) => {
+    (dagRunId: string) => {
       setTrackedDagRunId(dagRunId);
-      setActiveTab(followOutput ? 'dagRun-log' : 'status');
+      setActiveTab('status');
+      setCurrentDAGRun(undefined);
       void mutate();
     },
     [mutate]
@@ -165,12 +166,14 @@ function DAGDetailsPanel({
   useEffect(() => {
     if (trackedRunData?.dagRunDetails) {
       setCurrentDAGRun(trackedRunData.dagRunDetails);
-    } else if (data) {
+    } else if (data && !trackedDagRunId) {
       setCurrentDAGRun(data.latestDAGRun);
     }
-  }, [data, trackedRunData]);
+  }, [data, trackedRunData, trackedDagRunId]);
 
-  const displayDAGRun = currentDAGRun || data?.latestDAGRun;
+  const displayDAGRun = trackedDagRunId
+    ? currentDAGRun?.dagRunId === trackedDagRunId ? currentDAGRun : undefined
+    : currentDAGRun || data?.latestDAGRun;
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -292,7 +295,6 @@ function DAGDetailsPanel({
                   dagRunId={trackedDagRunId ?? 'latest'}
                   stepName={null}
                   isModal={true}
-                  navigateToStatusTab={() => setActiveTab('status')}
                   localDags={data.localDags}
                   editorHints={data.editorHints}
                   onRunStarted={handleRunStarted}

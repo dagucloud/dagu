@@ -36,19 +36,22 @@ vi.mock('../DAGDetailsContent', () => ({
     editorHints,
     forceEnqueue,
     onEnqueue,
+    onRunStarted,
   }: {
     dag: { name: string };
     activeTab: string;
     dagRunId?: string;
     editorHints?: { inheritedLegacyDefinitions?: unknown[] };
     forceEnqueue?: boolean;
+    onRunStarted?: (id: string) => void;
     onEnqueue?: (
       params: string,
       dagRunId?: string,
       immediate?: boolean
-    ) => void | Promise<void>;
+    ) => string | void | Promise<string | void>;
   }) => (
     <div>
+      <button onClick={() => onRunStarted?.("started-run")}>Start run</button>
       <div>
         Previewing {dag.name} [{activeTab}]{' '}
         {forceEnqueue ? 'forced' : 'default'} {dagRunId || 'latest'}
@@ -59,7 +62,10 @@ vi.mock('../DAGDetailsContent', () => ({
       {onEnqueue ? (
         <button
           type="button"
-          onClick={() => void onEnqueue('["x"]', 'manual-run')}
+          onClick={async () => {
+            const id = await onEnqueue('["x"]', 'manual-run');
+            if (id) { onRunStarted?.(id); }
+          }}
         >
           Enqueue Now
         </button>
@@ -304,14 +310,22 @@ describe('DAGDetailsSidePanel', () => {
         'Previewing example-dag [status] forced queued-run'
       )
     ).toBeInTheDocument();
-    expect(onEnqueue).toHaveBeenCalledWith(
-      '["x"]',
-      'manual-run',
-      undefined,
-      undefined,
-      undefined,
-      undefined
-    );
+    expect(onEnqueue).toHaveBeenCalledWith('["x"]', 'manual-run');
     expect(mutate).toHaveBeenCalled();
   });
+});
+
+it('opens the new run inside the standard panel', async () => {
+  vi.mocked(useDAGSSE).mockReturnValue(liveState);
+  vi.mocked(useDAGRunSSE).mockReturnValue(liveState);
+  const data = { dag: { name: 'example-dag' }, localDags: [] };
+  useQueryMock.mockImplementation((path) => ({
+    data: path === '/dags/{fileName}' ? data : undefined,
+    mutate: vi.fn(),
+  }));
+  renderPanel({ initialTab: 'history' });
+  fireEvent.click(screen.getByRole('button', { name: 'Start run' }));
+  expect(await screen.findByText(
+    'Previewing example-dag [status] default started-run'
+  )).toBeInTheDocument();
 });

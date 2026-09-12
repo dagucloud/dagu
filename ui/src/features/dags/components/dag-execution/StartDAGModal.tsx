@@ -61,7 +61,6 @@ import { schemaFormWidgets } from './schemaFormWidgets';
 import { autoGrowTextarea } from './textareaAutoGrow';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
-import { useUserPreferences } from '@/contexts/UserPreference';
 
 type ScalarValue = components['schemas']['ParamScalar'];
 type ParamDef = components['schemas']['ParamDef'];
@@ -98,8 +97,7 @@ type Props = {
     dagRunId?: string,
     immediate?: boolean,
     profile?: string,
-    noReuse?: boolean,
-    followOutput?: boolean
+    noReuse?: boolean
   ) => Promise<void> | void;
   action?: 'start' | 'enqueue';
   profiles?: components['schemas']['RuntimeProfileResponse'][];
@@ -293,7 +291,6 @@ function StartDAGModal({
   defaultProfileLoading = false,
 }: Props) {
   const canUseProtectedProfiles = useIsAdmin();
-  const { preferences, updatePreference } = useUserPreferences();
   const dagDetails = dag as components['schemas']['DAGDetails'] | undefined;
   const paramSchema = React.useMemo(() => {
     const schema = dagDetails?.paramSchema as JSONSchema | undefined;
@@ -351,9 +348,6 @@ function StartDAGModal({
   const [isFullscreen, setIsFullscreen] = React.useState(false);
   const forceEnqueue = action === 'enqueue';
   const [enqueue, setEnqueue] = React.useState(forceEnqueue);
-  const [followOutput, setFollowOutput] = React.useState(
-    preferences.followOutput
-  );
   const [noReuse, setNoReuse] = React.useState(false);
   const isBuild = dagDetails?.type === 'build';
   const activeProfiles = React.useMemo(
@@ -464,10 +458,6 @@ function StartDAGModal({
     forceEnqueue,
   ]);
 
-  React.useEffect(() => {
-    setFollowOutput(preferences.followOutput);
-  }, [preferences.followOutput]);
-
   const cancelButtonRef = React.useRef<HTMLButtonElement>(null);
 
   const handleTypedFieldChange = React.useCallback(
@@ -532,55 +522,22 @@ function StartDAGModal({
         hasDefaultProfile
       );
       if (isBuild) {
-        if (followOutput) {
-          await onSubmit(
-            paramsPayload,
-            dagRunId || undefined,
-            !enqueue,
-            profileOverride,
-            noReuse,
-            true
-          );
-        } else {
-          await onSubmit(
-            paramsPayload,
-            dagRunId || undefined,
-            !enqueue,
-            profileOverride,
-            noReuse
-          );
-        }
+        await onSubmit(
+          paramsPayload,
+          dagRunId || undefined,
+          !enqueue,
+          profileOverride,
+          noReuse
+        );
       } else if (profileOverride === undefined) {
-        if (followOutput) {
-          await onSubmit(
-            paramsPayload,
-            dagRunId || undefined,
-            !enqueue,
-            undefined,
-            undefined,
-            true
-          );
-        } else {
-          await onSubmit(paramsPayload, dagRunId || undefined, !enqueue);
-        }
+        await onSubmit(paramsPayload, dagRunId || undefined, !enqueue);
       } else {
-        if (followOutput) {
-          await onSubmit(
-            paramsPayload,
-            dagRunId || undefined,
-            !enqueue,
-            profileOverride,
-            undefined,
-            true
-          );
-        } else {
-          await onSubmit(
-            paramsPayload,
-            dagRunId || undefined,
-            !enqueue,
-            profileOverride
-          );
-        }
+        await onSubmit(
+          paramsPayload,
+          dagRunId || undefined,
+          !enqueue,
+          profileOverride
+        );
       }
       dismissModal();
     } catch (error) {
@@ -606,7 +563,6 @@ function StartDAGModal({
     useSchemaFields,
     submitting,
     profileSelection,
-    followOutput,
     typedFields,
     useTypedFields,
   ]);
@@ -820,29 +776,6 @@ function StartDAGModal({
                   </Select>
                 </div>
               )}
-            </div>
-
-            <div className="mt-4 flex items-start space-x-2 border-t border-border pt-4">
-              <Checkbox
-                id="follow-output"
-                checked={followOutput}
-                onCheckedChange={(checked) => {
-                  const next = checked as boolean;
-                  setFollowOutput(next);
-                  updatePreference('followOutput', next);
-                }}
-                disabled={loading || submitting}
-              />
-              <div className="space-y-0.5">
-                <Label htmlFor="follow-output" className="cursor-pointer">
-                  <I18nText text={'Follow output'} />
-                </Label>
-                <p className="text-xs text-slate-500 dark:text-slate-500">
-                  <I18nText
-                    text={'Open the live output when the DAG starts.'}
-                  />
-                </p>
-              </div>
             </div>
 
             {isBuild && (
