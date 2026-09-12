@@ -208,6 +208,46 @@ func (s *Server) CreateCompletedRun(t *testing.T, name string) string {
 	return dagRunID
 }
 
+// CreateHumanTaskDAG stores a DAG whose first step parks on a human task
+// declaring a typed form.
+func (s *Server) CreateHumanTaskDAG(t *testing.T, name string) {
+	t.Helper()
+
+	s.CreateDAG(t, name, `steps:
+  - name: release_review
+    id: release_review
+    action: human.task
+    with:
+      prompt: Choose the release target
+      form:
+        type: object
+        title: Release review
+        properties:
+          environment:
+            type: string
+            enum: [staging, production]
+        required: [environment]
+
+  - name: record_release
+    id: record_release
+    depends: release_review
+    run: "echo ${steps.release_review.outputs.environment}"
+`)
+}
+
+// CreateWaitingRun starts a human-task DAG and returns its DAG-run ID once the
+// root run has reached its waiting checkpoint. Reaching a checkpoint needs no
+// scheduler; only resuming from one does.
+func (s *Server) CreateWaitingRun(t *testing.T, name string) string {
+	t.Helper()
+
+	s.CreateHumanTaskDAG(t, name)
+	dagRunID := s.StartDAG(t, name)
+	s.WaitForDAGRunStatus(t, name, dagRunID, api.StatusWaiting)
+
+	return dagRunID
+}
+
 func (s *Server) adminToken(t *testing.T) string {
 	t.Helper()
 

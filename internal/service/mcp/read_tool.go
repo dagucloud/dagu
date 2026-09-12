@@ -1463,6 +1463,9 @@ func normalizeRunDetails(raw any, addr runAddress) (map[string]any, error) {
 	if run.Labels != nil && len(*run.Labels) > 0 {
 		out["labels"] = *run.Labels
 	}
+	if run.HumanTaskResumePending != nil && *run.HumanTaskResumePending {
+		out["humanTaskResumePending"] = true
+	}
 	if run.RootDAGRunId != "" && run.RootDAGRunId != dagRunID {
 		rootRun := map[string]any{
 			"name":     run.RootDAGRunName,
@@ -1533,6 +1536,13 @@ func runStepEntry(addr runAddress, node daguapi.Node) map[string]any {
 	}
 	if node.RetryCount > 0 {
 		entry["retryCount"] = node.RetryCount
+	}
+	if node.Status == daguapi.NodeStatusWaiting && node.Step.HumanTask != nil {
+		humanTask := map[string]any{"prompt": node.Step.HumanTask.Prompt}
+		if node.Step.HumanTask.Form != nil && len(*node.Step.HumanTask.Form) > 0 {
+			humanTask["form"] = *node.Step.HumanTask.Form
+		}
+		entry["humanTask"] = humanTask
 	}
 	var subRuns []map[string]any
 	for _, runs := range []*[]daguapi.SubDAGRun{node.SubRuns, node.SubRunsRepeated} {

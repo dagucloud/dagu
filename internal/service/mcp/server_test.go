@@ -1048,6 +1048,93 @@ func TestNormalizeRunDetailsIncludesRunHierarchy(t *testing.T) {
 	}, subRuns)
 }
 
+func TestNormalizeRunDetailsIncludesWaitingHumanTask(t *testing.T) {
+	t.Parallel()
+
+	form := map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"properties": map[string]any{
+			"environment": map[string]any{"type": "string"},
+		},
+	}
+	stepID := "release_review"
+	raw := daguapi.GetDAGRunDetails200JSONResponse{
+		DagRunDetails: daguapi.DAGRunDetails{
+			Name:        "release",
+			DagRunId:    "run-1",
+			Status:      daguapi.StatusWaiting,
+			StatusLabel: "waiting",
+			Nodes: []daguapi.Node{
+				{
+					Step: daguapi.Step{
+						Name:      "release_review",
+						Id:        &stepID,
+						HumanTask: &daguapi.HumanTaskConfig{Prompt: "Choose the release target", Form: &form},
+					},
+					Status:      daguapi.NodeStatusWaiting,
+					StatusLabel: "waiting",
+				},
+				{
+					// An acknowledgement-only task declares no form.
+					Step: daguapi.Step{
+						Name:      "acknowledge",
+						HumanTask: &daguapi.HumanTaskConfig{Prompt: "Confirm maintenance has started"},
+					},
+					Status:      daguapi.NodeStatusWaiting,
+					StatusLabel: "waiting",
+				},
+			},
+		},
+	}
+
+	data, err := normalizeRunDetails(raw, runAddress{})
+	require.NoError(t, err)
+
+	steps, ok := data["steps"].([]map[string]any)
+	require.True(t, ok)
+	require.Equal(t, map[string]any{
+		"prompt": "Choose the release target",
+		"form":   form,
+	}, steps[0]["humanTask"])
+	require.Equal(t, map[string]any{"prompt": "Confirm maintenance has started"}, steps[1]["humanTask"])
+}
+
+// A run whose human-task input was accepted still reports itself as waiting
+// until its retry is queued, with no step waiting on an operator.
+func TestNormalizeRunDetailsFlagsPendingHumanTaskResume(t *testing.T) {
+	t.Parallel()
+
+	resumePending := true
+	raw := daguapi.GetDAGRunDetails200JSONResponse{
+		DagRunDetails: daguapi.DAGRunDetails{
+			Name:                   "release",
+			DagRunId:               "run-2",
+			Status:                 daguapi.StatusWaiting,
+			StatusLabel:            "waiting",
+			HumanTaskResumePending: &resumePending,
+			Nodes: []daguapi.Node{
+				{
+					Step: daguapi.Step{
+						Name:      "release_review",
+						HumanTask: &daguapi.HumanTaskConfig{Prompt: "Choose the release target"},
+					},
+					Status:      daguapi.NodeStatusSuccess,
+					StatusLabel: "finished",
+				},
+			},
+		},
+	}
+
+	data, err := normalizeRunDetails(raw, runAddress{})
+	require.NoError(t, err)
+	require.Equal(t, true, data["humanTaskResumePending"])
+
+	steps, ok := data["steps"].([]map[string]any)
+	require.True(t, ok)
+	require.NotContains(t, steps[0], "humanTask")
+}
+
 func TestNormalizeRunListIncludesTimestampsAndCursor(t *testing.T) {
 	t.Parallel()
 

@@ -245,6 +245,39 @@ func requireRunListItem(t *testing.T, item map[string]any, dagName, dagRunID str
 	require.NotEmpty(t, requireString(t, item, "finishedAt"))
 }
 
+func TestReadRunReportsOpenHumanTask(t *testing.T) {
+	const dagName = "mcp_read_human_task"
+
+	server := mcptest.NewServer(t)
+	dagRunID := server.CreateWaitingRun(t, dagName)
+	session := server.Connect(t, "")
+
+	result := callRead(t, session, map[string]any{
+		"target":   "run",
+		"name":     dagName,
+		"dagRunId": dagRunID,
+	})
+	output := requireReadSuccess(t, result, "run", runURI(dagName, dagRunID), "dag_run", "application/json")
+	data := requireData(t, output)
+
+	steps, ok := data["steps"].([]any)
+	require.True(t, ok)
+
+	humanTask, ok := requireItem(t, steps, "name", "release_review")["humanTask"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "Choose the release target", humanTask["prompt"])
+
+	form, ok := humanTask["form"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "object", form["type"])
+	properties, ok := form["properties"].(map[string]any)
+	require.True(t, ok)
+	require.Contains(t, properties, "environment")
+
+	// A downstream step has no open task, so it carries no outstanding prompt.
+	require.NotContains(t, requireItem(t, steps, "name", "record_release"), "humanTask")
+}
+
 func requireRunData(t *testing.T, data map[string]any, dagName, dagRunID string) {
 	t.Helper()
 
