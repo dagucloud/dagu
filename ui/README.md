@@ -24,7 +24,7 @@ Once the backend server is up and running, you can start the Webpack dev server 
 
 ```bash
 cd ui/
-pnpm install --frozen-lockfile
+pnpm install
 pnpm dev
 ```
 
@@ -39,4 +39,4 @@ cd ../
 make ui
 ```
 
-This command will build the `bundle.js` file and copy it to dagu/frontend/assets/js/bundle.js. This is necessary for the Go backend to include the JavaScript within the binary.
+This command will build the `bundle.js` file and copy it to `internal/service/frontend/assets/`. This is necessary for the Go backend to include the JavaScript within the binary.

@@ -13,7 +13,7 @@ You do not need to understand the whole repository before making a useful first 
 | Track | Start with | First check |
 | --- | --- | --- |
 | Docs / examples | A Markdown file or `examples/` | No build is required; validate a changed DAG with `dagu validate` if you have the binary available |
-| UI | `ui/` | Start the backend with `make run-server`, then run `cd ui && pnpm install --frozen-lockfile && pnpm dev` |
+| UI | `ui/` | Start the backend with `make run-server`, then run `cd ui && pnpm install && pnpm dev` |
 | One executor | `internal/runtime/builtin/EXECUTOR_PACKAGE` | `make test TEST_TARGET=./internal/runtime/builtin/EXECUTOR_PACKAGE` (replace `EXECUTOR_PACKAGE` with the package name) |
 | API / CLI | `internal/service/frontend/api/v1` or `internal/cmd` | `make test TEST_TARGET=./internal/service/frontend/api/v1` or the matching package |
 
@@ -65,11 +65,11 @@ For UI changes:
 
 ```bash
 cd ui
-pnpm install --frozen-lockfile
+pnpm install
 pnpm test
 ```
 
-Docs-only and example-only changes do not need Go tests. If an example changes a DAG, validate it with the `dagu` binary when available. CI and maintainers run the full suite; you do not need to run it before opening a focused first PR.
+Docs-only and example-only changes do not need Go tests. If an example changes a DAG, validate it with the `dagu` binary when available.
 
 The full repository check is primarily for CI and maintainers. Run it locally
 when practical:
@@ -85,9 +85,7 @@ To run tests with code coverage analysis:
 make test-coverage
 ```
 
-After changing Go files, format the files you touched before opening the PR.
-`make fmt` runs the repository-wide Go fix, formatting, and lint-fix pass; use
-it when that broader pass is appropriate for the change.
+After changing Go files, run `make fmt` and check the diff before opening the PR.
 
 
 
@@ -103,7 +101,7 @@ Starting the development server:
 
 ```bash
 cd ui
-pnpm install --frozen-lockfile
+pnpm install
 pnpm dev
 ```
 
