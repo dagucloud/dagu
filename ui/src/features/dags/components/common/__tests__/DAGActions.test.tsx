@@ -1,7 +1,13 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -11,22 +17,10 @@ import { AppBarContext } from '@/contexts/AppBarContext';
 import { DAGContext } from '@/features/dags/contexts/DAGContext';
 
 const client = vi.hoisted(() => ({ POST: vi.fn(), GET: vi.fn() }));
+const runProgress = vi.hoisted(() => ({ pushRunProgress: vi.fn() }));
 
 vi.mock('../../dag-execution', () => ({
-  RunProgressModal: ({
-    visible,
-    dagName,
-    dagRunId,
-  }: {
-    visible: boolean;
-    dagName: string;
-    dagRunId: string;
-  }) =>
-    visible ? (
-      <div role="dialog" aria-label="Run progress">
-        {dagName} {dagRunId}
-      </div>
-    ) : null,
+  pushRunProgress: runProgress.pushRunProgress,
   StartDAGModal: ({
     visible,
     onSubmit,
@@ -115,9 +109,13 @@ describe('DAGActions', () => {
       );
       fireEvent.click(screen.getByRole('button', { name: 'Start' }));
       fireEvent.click(screen.getByRole('button', { name: `Submit ${action}` }));
-      expect(
-        await screen.findByRole('dialog', { name: 'Run progress' })
-      ).toHaveTextContent('example created-run');
+      await waitFor(() =>
+        expect(runProgress.pushRunProgress).toHaveBeenCalledWith({
+          dagName: 'example',
+          dagRunId: 'created-run',
+          remoteNode: 'edge',
+        })
+      );
       expect(screen.getByLabelText('Location')).toHaveTextContent('/dags');
     }
   );
@@ -145,9 +143,13 @@ describe('DAGActions', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'Start' }));
     fireEvent.click(screen.getByRole('button', { name: 'Submit start' }));
-    expect(
-      await screen.findByRole('dialog', { name: 'Run progress' })
-    ).toHaveTextContent('example created-run');
+    await waitFor(() =>
+      expect(runProgress.pushRunProgress).toHaveBeenCalledWith({
+        dagName: 'example',
+        dagRunId: 'created-run',
+        remoteNode: 'local',
+      })
+    );
     expect(onRunStarted).not.toHaveBeenCalled();
     expect(screen.getByLabelText('Location')).toHaveTextContent('/dags');
   });

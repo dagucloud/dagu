@@ -18,6 +18,7 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { QueryFeedback } from './components/QueryFeedback';
 import { ErrorModalProvider } from '@/components/ui/error-modal';
 import { ToastProvider } from '@/components/ui/simple-toast';
+import RunProgressStack from '@/features/dags/components/dag-execution/RunProgressStack';
 import { AppBarContext } from './contexts/AppBarContext';
 import { AuthProvider, useCanAccessGitSync } from './contexts/AuthContext';
 import {
@@ -929,6 +930,7 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                               }
                             />
                           </Routes>
+                          <RunProgressStack />
                         </BrowserRouter>
                       </QueryFeedback>
                     </ToastProvider>

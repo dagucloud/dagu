@@ -36,7 +36,7 @@ import { getManualActionState } from '@/features/dag-runs/lib/manualActionState'
 import { getDAGRunTerminateActionDetails } from '../../../dag-runs/components/common/terminateAction';
 import { RejectDAGRunDialog } from '../../../dag-runs/components/common/RejectDAGRunDialog';
 import { DAGContext } from '../../contexts/DAGContext';
-import { RunProgressModal, StartDAGModal } from '../dag-execution';
+import { pushRunProgress, StartDAGModal } from '../dag-execution';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -92,11 +92,6 @@ function DAGActions({
   const [retryDagRunId, setRetryDagRunId] = React.useState<string>('');
   const [stopAllRunning, setStopAllRunning] = React.useState(false);
   const [isRejectModal, setIsRejectModal] = React.useState(false);
-  const [progressRun, setProgressRun] = React.useState<{
-    dagName: string;
-    dagRunId: string;
-  } | null>(null);
-
   // Retry-as-new modal state
   const [retryAsNew, setRetryAsNew] = React.useState(false);
   const [newRunId, setNewRunId] = React.useState('');
@@ -281,7 +276,7 @@ function DAGActions({
     if (!dagName || !dagRunId) {
       return;
     }
-    setProgressRun({ dagName, dagRunId });
+    pushRunProgress({ dagName, dagRunId, remoteNode });
   }
 
   // Determine which buttons should be enabled based on current status
@@ -930,12 +925,6 @@ function DAGActions({
             setStartModalDag(undefined);
             setStartModalLoadError(null);
           }}
-        />
-        <RunProgressModal
-          dagName={progressRun?.dagName || ''}
-          dagRunId={progressRun?.dagRunId || ''}
-          visible={progressRun !== null}
-          dismissModal={() => setProgressRun(null)}
         />
         <I18nProps>
           <ConfirmModal

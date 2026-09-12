@@ -67,8 +67,16 @@ steps:
       .poll(() => new URL(page.url()).pathname)
       .toBe(`/dags/${encodeURIComponent(fileName)}`);
 
+    await expect(page.getByRole('dialog', { name: 'Run progress' })).toHaveCount(0);
+    const progressCard = page.getByRole('button', { name: `Open run progress for ${runId}` });
+    await expect(progressCard).toBeVisible();
+    await progressCard.click();
+
     const progressDialog = page.getByRole('dialog', { name: 'Run progress' });
     await expect(progressDialog).toBeVisible();
+    await progressDialog.getByRole('button', { name: 'Visualization' }).click();
+    await expect(progressDialog.getByText('Graph')).toBeVisible();
+    await progressDialog.getByRole('button', { name: 'Run output' }).click();
     const output = progressDialog.getByRole('region', { name: 'Run output', exact: true });
     const log = output.getByRole('region', { name: 'Step output', exact: true });
     try {

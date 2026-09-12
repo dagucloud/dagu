@@ -37,6 +37,23 @@ vi.mock('../RunOutput', () => ({
   ),
 }));
 
+vi.mock('@/features/dags/components/visualization', () => ({
+  DAGGraph: ({
+    dagRun,
+    onClickStep,
+  }: {
+    dagRun: components['schemas']['DAGRunDetails'];
+    onClickStep: (id: string) => void;
+  }) => (
+    <div>
+      Visualization for {dagRun.dagRunId}
+      <button type="button" onClick={() => onClickStep('node_62_75_69_6c_64')}>
+        Open graph step
+      </button>
+    </div>
+  ),
+}));
+
 const dagRun = {
   name: 'example',
   dagRunId: 'run-1',
@@ -118,6 +135,42 @@ describe('RunProgressModal', () => {
     });
     expect(screen.getByRole('dialog', { name: 'Run progress' })).toBeVisible();
     expect(screen.getByText('Run output for run-1')).toBeVisible();
+  });
+
+  it('switches between output and visualization in the modal', () => {
+    vi.mocked(useBoundedDAGRunDetails).mockReturnValue({
+      data: dagRun,
+      error: null,
+      isLoading: false,
+      isValidating: false,
+      refresh: vi.fn(),
+    });
+
+    renderModal();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Visualization' }));
+    expect(screen.getByText('Visualization for run-1')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Run output' }));
+    expect(screen.getByText('Run output for run-1')).toBeVisible();
+  });
+
+  it('opens existing run details for a graph step', () => {
+    vi.mocked(useBoundedDAGRunDetails).mockReturnValue({
+      data: dagRun,
+      error: null,
+      isLoading: false,
+      isValidating: false,
+      refresh: vi.fn(),
+    });
+
+    renderModal();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Visualization' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open graph step' }));
+
+    expect(screen.getByLabelText('Location')).toHaveTextContent(
+      '/dag-runs/example/run-1?remoteNode=edge&step=build'
+    );
   });
 
   it('opens existing run details from the details button', () => {

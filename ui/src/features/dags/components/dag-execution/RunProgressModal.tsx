@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import React from 'react';
-import { ExternalLink, Terminal } from 'lucide-react';
+import { ExternalLink, GitGraph, Terminal } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import LoadingIndicator from '@/components/ui/loading-indicator';
 import StatusChip from '@/components/ui/status-chip';
+import { Tab, Tabs } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -19,29 +20,41 @@ import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useBoundedDAGRunDetails } from '@/features/dag-runs/hooks/useBoundedDAGRunDetails';
 import { buildDAGRunPageURL } from '@/features/dag-runs/lib/dagRunUrls';
 import { useI18n } from '@/i18n/I18nProvider';
+import { DAGGraph } from '@/features/dags/components/visualization';
+import { toMermaidNodeId } from '@/lib/utils';
+import type { SubRunStackEntry } from '../common';
 import RunOutput from './RunOutput';
 
 type Props = {
   dagName: string;
   dagRunId: string;
+  remoteNode?: string;
   visible: boolean;
   dismissModal: () => void;
 };
 
-function RunProgressModal({ dagName, dagRunId, visible, dismissModal }: Props) {
+function RunProgressModal({
+  dagName,
+  dagRunId,
+  remoteNode,
+  visible,
+  dismissModal,
+}: Props) {
   const { ts } = useI18n();
   const navigate = useNavigate();
-  const remoteNode = useRemoteNode();
+  const selectedRemoteNode = useRemoteNode();
+  const activeRemoteNode = remoteNode || selectedRemoteNode;
+  const [view, setView] = React.useState<'output' | 'visualization'>('output');
   const target = React.useMemo(
     () =>
       dagName && dagRunId
         ? {
-            remoteNode,
+            remoteNode: activeRemoteNode,
             name: dagName,
             dagRunId,
           }
         : null,
-    [dagName, dagRunId, remoteNode]
+    [activeRemoteNode, dagName, dagRunId]
   );
   const {
     data: dagRun,
@@ -55,6 +68,12 @@ function RunProgressModal({ dagName, dagRunId, visible, dismissModal }: Props) {
   });
   const canOpenDetails = Boolean(dagName && dagRunId);
 
+  React.useEffect(() => {
+    if (visible) {
+      setView('output');
+    }
+  }, [dagName, dagRunId, visible]);
+
   function openDetails(step?: string): void {
     if (!canOpenDetails) {
       return;
@@ -64,8 +83,56 @@ function RunProgressModal({ dagName, dagRunId, visible, dismissModal }: Props) {
       buildDAGRunPageURL({
         rootDAGRunName: dagName,
         rootDAGRunId: dagRunId,
-        remoteNode,
+        remoteNode: activeRemoteNode,
         step,
+      })
+    );
+  }
+
+  function findNode(stepId: string) {
+    return dagRun?.nodes?.find(
+      (node) => toMermaidNodeId(node.step.name) === stepId
+    );
+  }
+
+  function openGraphStep(stepId: string): void {
+    const node = findNode(stepId);
+    if (node) {
+      openDetails(node.step.name);
+    }
+  }
+
+  function openGraphSubRun(stepId: string): void {
+    const node = findNode(stepId);
+    const subRuns = node
+      ? [...(node.subRuns ?? []), ...(node.subRunsRepeated ?? [])]
+      : [];
+    const subRun = subRuns.length === 1 ? subRuns[0] : null;
+    if (!node || !subRun?.dagRunId) {
+      openGraphStep(stepId);
+      return;
+    }
+
+    dismissModal();
+    navigate(
+      buildDAGRunPageURL({
+        rootDAGRunName: dagRun?.rootDAGRunName || dagRun?.name || dagName,
+        rootDAGRunId: dagRun?.rootDAGRunId || dagRun?.dagRunId || dagRunId,
+        remoteNode: activeRemoteNode,
+        subDAGRunId: subRun.dagRunId,
+        step: node.step.name,
+      })
+    );
+  }
+
+  function openTimelineSubRun(entry: SubRunStackEntry): void {
+    dismissModal();
+    navigate(
+      buildDAGRunPageURL({
+        rootDAGRunName: dagRun?.rootDAGRunName || dagRun?.name || dagName,
+        rootDAGRunId: dagRun?.rootDAGRunId || dagRun?.dagRunId || dagRunId,
+        remoteNode: activeRemoteNode,
+        subDAGRunId: entry.dagRunId,
       })
     );
   }
@@ -117,10 +184,39 @@ function RunProgressModal({ dagName, dagRunId, visible, dismissModal }: Props) {
               </div>
             </div>
           ) : dagRun ? (
-            <RunOutput
-              dagRun={dagRun}
-              onInspect={(node) => openDetails(node.step.name)}
-            />
+            <div className="space-y-4">
+              <Tabs className="h-9">
+                <Tab
+                  isActive={view === 'output'}
+                  onClick={() => setView('output')}
+                  className="h-9 gap-2 px-3"
+                >
+                  <Terminal className="h-4 w-4" />
+                  {ts('Run output')}
+                </Tab>
+                <Tab
+                  isActive={view === 'visualization'}
+                  onClick={() => setView('visualization')}
+                  className="h-9 gap-2 px-3"
+                >
+                  <GitGraph className="h-4 w-4" />
+                  {ts('Visualization')}
+                </Tab>
+              </Tabs>
+              {view === 'output' ? (
+                <RunOutput
+                  dagRun={dagRun}
+                  onInspect={(node) => openDetails(node.step.name)}
+                />
+              ) : (
+                <DAGGraph
+                  dagRun={dagRun}
+                  onClickStep={openGraphStep}
+                  onSelectStep={openGraphSubRun}
+                  onOpenSubRun={openTimelineSubRun}
+                />
+              )}
+            </div>
           ) : (
             <div
               role="status"
