@@ -54,6 +54,7 @@ describe('RunOutput', () => {
         onInspect={inspect}
       />
     );
+    expect(screen.getByRole('status')).toHaveTextContent(/^2 running$/);
     view.rerender(
       <RunOutput
         dagRun={run([NodeStatus.Running, NodeStatus.Failed])}
@@ -66,6 +67,18 @@ describe('RunOutput', () => {
       'step-1running',
       'step-2failed',
     ]);
+
+    view.rerender(
+      <RunOutput
+        dagRun={run(
+          [NodeStatus.Failed, NodeStatus.Failed],
+          'run-1',
+          Status.Failed
+        )}
+        onInspect={inspect}
+      />
+    );
+    expect(screen.getByRole('status')).toHaveTextContent(/^2 failed$/);
   });
 
   it('advances after the selected step delivers its final output', () => {

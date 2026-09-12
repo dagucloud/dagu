@@ -244,15 +244,12 @@ function StepLogContent({
       return null;
     }
     return {
-      content:
-        stream === Stream.stdout
-          ? sseResult.data.stdoutContent
-          : sseResult.data.stderrContent,
+      content: sseResult.data.stdoutContent,
       lineCount: sseResult.data.lineCount,
       totalLines: sseResult.data.totalLines,
       hasMore: sseResult.data.hasMore,
     };
-  }, [sseIsActive, sseResult.data, stream]);
+  }, [sseIsActive, sseResult.data]);
   const previousRestData = useRef(data);
   // Retain streamed output until a fresh REST response replaces it.
   const latestData =

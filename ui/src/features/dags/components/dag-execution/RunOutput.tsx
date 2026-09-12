@@ -151,12 +151,16 @@ function RunOutputPanel({ dagRun, onInspect }: Props) {
             aria-hidden="true"
           />
           <span className="font-medium">{ts('Run output')}</span>
-          <span role="status" className="text-xs text-muted-foreground">
-            {ts('{count} running', { count: running.length })}
+          <span
+            role="status"
+            className="flex items-center gap-2 text-xs text-muted-foreground"
+          >
+            {running.length > 0 &&
+              ts('{count} running', { count: running.length })}
             {failures.length > 0 && (
               <button
                 type="button"
-                className="ml-2 rounded text-destructive underline underline-offset-2 focus-visible:outline-ring"
+                className="rounded text-destructive underline underline-offset-2 focus-visible:outline-ring"
                 onClick={() => selectStep(failures[0]!.step.name)}
               >
                 {ts('{count} failed', { count: failures.length })}
