@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	daguapi "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	frontendapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
@@ -281,7 +282,7 @@ func (svc *Service) waitForRun(ctx context.Context, input executeInput, dagRunID
 			// A run at a waiting checkpoint makes no further progress until an
 			// operator resolves its waiting steps.
 			terminal := isTerminalStatus(int(run.Status))
-			waiting := ir.Status(run.Status).IsWaiting()
+			waiting := ir.Status(run.Status).IsWaiting() && hasWaitingStep(run)
 			if terminal || waiting {
 				details, normalizeErr := normalizeRunDetails(raw, runAddress{name: input.Name, dagRunID: dagRunID})
 				if normalizeErr != nil {
@@ -310,6 +311,19 @@ func (svc *Service) waitForRun(ctx context.Context, input executeInput, dagRunID
 		case <-ticker.C:
 		}
 	}
+}
+
+// hasWaitingStep reports whether a run is parked on a step that needs manual
+// action. A run keeps the waiting status for a moment after its last human task
+// is answered, until the retry that resumes it is queued, and over that window
+// no step is waiting and the run resumes without an operator.
+func hasWaitingStep(run daguapi.DAGRunDetails) bool {
+	for _, node := range run.Nodes {
+		if node.Status == daguapi.NodeStatusWaiting {
+			return true
+		}
+	}
+	return false
 }
 
 // isTransientWaitError reports whether a run-details poll error can resolve on

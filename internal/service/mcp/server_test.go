@@ -1159,6 +1159,45 @@ func TestNormalizeRunDetailsFlagsPendingHumanTaskResume(t *testing.T) {
 	require.NotContains(t, steps[0], "humanTask")
 }
 
+func TestHasWaitingStep(t *testing.T) {
+	t.Parallel()
+
+	waitingHumanTask := daguapi.Node{
+		Step:   daguapi.Step{Name: "release_review", HumanTask: &daguapi.HumanTaskConfig{Prompt: "Choose the release target"}},
+		Status: daguapi.NodeStatusWaiting,
+	}
+	waitingApproval := daguapi.Node{
+		Step:   daguapi.Step{Name: "deploy_gate", Approval: &daguapi.ApprovalConfig{}},
+		Status: daguapi.NodeStatusWaiting,
+	}
+	answered := daguapi.Node{
+		Step:   daguapi.Step{Name: "release_review", HumanTask: &daguapi.HumanTaskConfig{Prompt: "Choose the release target"}},
+		Status: daguapi.NodeStatusSuccess,
+	}
+
+	tests := []struct {
+		name  string
+		nodes []daguapi.Node
+		want  bool
+	}{
+		{name: "open human task", nodes: []daguapi.Node{answered, waitingHumanTask}, want: true},
+		{name: "open approval gate", nodes: []daguapi.Node{answered, waitingApproval}, want: true},
+		// The run still reports itself as waiting here, but it resumes on its
+		// own once the retry is queued, so there is nobody to prompt.
+		{name: "answered with resume not yet queued", nodes: []daguapi.Node{answered}, want: false},
+		{name: "no steps", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			run := daguapi.DAGRunDetails{Status: daguapi.StatusWaiting, Nodes: tt.nodes}
+			require.Equal(t, tt.want, hasWaitingStep(run))
+		})
+	}
+}
+
 func TestNormalizeRunListIncludesTimestampsAndCursor(t *testing.T) {
 	t.Parallel()
 
