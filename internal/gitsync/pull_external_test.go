@@ -344,6 +344,32 @@ func TestPullPreservesModifiedSupportingFileDeletedRemotely(t *testing.T) {
 	assert.NotContains(t, status.Items, "scripts/run.sh")
 }
 
+func TestPullAfterRacyEdit(t *testing.T) {
+	t.Parallel()
+
+	env := newPullExternalPushTest(t, []pullExternalTestFile{
+		{path: "scripts/run.sh", content: "echo remote\n"},
+	})
+	localPath := filepath.Join(env.dagsDir, "scripts", "run.sh")
+	info, err := os.Stat(localPath)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(localPath, []byte("echo edited\n"), 0600))
+	require.NoError(t, os.Chtimes(localPath, info.ModTime(), info.ModTime()))
+
+	// The first check occurs after the racy-stat window has elapsed.
+	time.Sleep(time.Until(info.ModTime().Add(2 * time.Second)))
+	commitPullExternalTestFile(t, env.seedRepo, env.seedPath, "scripts/run.sh", "echo upstream change\n", "change script")
+	require.NoError(t, env.seedRepo.Push(&git.PushOptions{
+		RemoteName: "upstream",
+		RefSpecs:   []gitconfig.RefSpec{"refs/heads/main:refs/heads/main"},
+	}))
+
+	result, err := env.svc.Pull(env.ctx)
+	require.NoError(t, err)
+	assert.Contains(t, result.Conflicts, "scripts/run.sh")
+	assert.Equal(t, "echo edited\n", readPullExternalTestFile(t, localPath))
+}
+
 func TestPullPreservesPercentInSupportingFileNames(t *testing.T) {
 	t.Parallel()
 

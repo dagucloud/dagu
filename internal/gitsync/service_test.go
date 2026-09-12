@@ -798,7 +798,7 @@ func TestSummaryPriority_MissingBetweenConflictAndPending(t *testing.T) {
 
 // --- Phase 2: Stat-before-hash tests ---
 
-func TestStatBeforeHash_SkipsUnchangedFile(t *testing.T) {
+func TestStatCacheUnchanged(t *testing.T) {
 	t.Parallel()
 	tempDir := t.TempDir()
 	dagsDir := filepath.Join(tempDir, "dags")
@@ -807,6 +807,8 @@ func TestStatBeforeHash_SkipsUnchangedFile(t *testing.T) {
 	content := []byte("steps: []")
 	filePath := filepath.Join(dagsDir, "my-dag.yaml")
 	require.NoError(t, os.WriteFile(filePath, content, 0600))
+	mtime := time.Now().Add(-2 * statCacheRacyWindow)
+	require.NoError(t, os.Chtimes(filePath, mtime, mtime))
 
 	fi, err := os.Stat(filePath)
 	require.NoError(t, err)
@@ -826,13 +828,14 @@ func TestStatBeforeHash_SkipsUnchangedFile(t *testing.T) {
 		},
 	}}
 
-	// File hasn't changed — refreshLocalHashes should skip it
+	// Stable metadata permits the unchanged file to use the cache.
+	assert.True(t, statMatchesCache(state.Items["my-dag"], fi))
 	changed := s.refreshLocalHashes(state, time.Now())
 	require.False(t, changed)
 	assert.Equal(t, StatusSynced, state.Items["my-dag"].Status)
 }
 
-func TestStatBeforeHash_DetectsChangedFile(t *testing.T) {
+func TestStatCacheChanged(t *testing.T) {
 	t.Parallel()
 	tempDir := t.TempDir()
 	dagsDir := filepath.Join(tempDir, "dags")
@@ -852,6 +855,8 @@ func TestStatBeforeHash_DetectsChangedFile(t *testing.T) {
 	// Write different content
 	newContent := []byte("steps: [a, b, c]")
 	require.NoError(t, os.WriteFile(filePath, newContent, 0600))
+	mtime := time.Now().Add(-2 * statCacheRacyWindow)
+	require.NoError(t, os.Chtimes(filePath, mtime, mtime))
 
 	s := &serviceImpl{dagsDir: dagsDir, cfg: &Config{}}
 	state := &State{Items: map[string]*SyncItemState{
@@ -873,44 +878,95 @@ func TestStatBeforeHash_DetectsChangedFile(t *testing.T) {
 	assert.NotNil(t, state.Items["my-dag"].LastStatSize)
 }
 
-func TestStatBeforeHash_DetectsRecentSameStatContentChange(t *testing.T) {
+func TestStatCacheRacyEdit(t *testing.T) {
 	t.Parallel()
-	tempDir := t.TempDir()
-	dagsDir := filepath.Join(tempDir, "dags")
-	require.NoError(t, os.MkdirAll(dagsDir, 0755))
 
-	originalContent := []byte("echo remote\n")
-	newContent := []byte("echo edited\n")
+	for _, tc := range []struct {
+		name  string
+		delay time.Duration
+	}{
+		{name: "future", delay: -statCacheRacyWindow / 2},
+		{name: "recent", delay: 3 * statCacheRacyWindow / 4},
+		{name: "boundary", delay: statCacheRacyWindow},
+		{name: "delayed", delay: 2 * statCacheRacyWindow},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, dagsDir := newTestService(t, testCfgReadOnly)
+			original := []byte("echo remote\n")
+			edited := []byte("echo edited\n")
+			filePath := filepath.Join(dagsDir, "my-dag.yaml")
+			require.NoError(t, os.WriteFile(filePath, original, 0600))
+
+			mtime := time.Unix(1_700_000_000, 0)
+			oldTime := mtime.Add(-2 * statCacheRacyWindow)
+			require.NoError(t, os.Chtimes(filePath, oldTime, oldTime))
+			hash := ComputeContentHash(original)
+			state := &State{Items: map[string]*SyncItemState{
+				"my-dag": {
+					Status:         StatusSynced,
+					LastSyncedHash: hash,
+					LocalHash:      hash,
+				},
+			}}
+			require.False(t, s.refreshLocalHashes(state, mtime))
+
+			// Refreshes inside the timestamp tick must leave the next edit detectable.
+			require.NoError(t, os.Chtimes(filePath, mtime, mtime))
+			require.False(t, s.refreshLocalHashes(state, mtime.Add(statCacheRacyWindow/4)))
+			require.False(t, s.refreshLocalHashes(state, mtime.Add(statCacheRacyWindow/2)))
+			require.NoError(t, os.WriteFile(filePath, edited, 0600))
+			require.NoError(t, os.Chtimes(filePath, mtime, mtime))
+
+			require.True(t, s.refreshLocalHashes(state, mtime.Add(tc.delay)))
+			assert.Equal(t, StatusModified, state.Items["my-dag"].Status)
+			assert.Equal(t, ComputeContentHash(edited), state.Items["my-dag"].LocalHash)
+
+			// A later stable read restores the cache without changing sync status.
+			require.False(t, s.refreshLocalHashes(state, mtime.Add(3*statCacheRacyWindow)))
+			info, err := os.Stat(filePath)
+			require.NoError(t, err)
+			assert.True(t, statMatchesCache(state.Items["my-dag"], info))
+		})
+	}
+}
+
+func TestStatCacheRestart(t *testing.T) {
+	t.Parallel()
+
+	s, dagsDir := newTestService(t, testCfgReadOnly)
+	original := []byte("echo remote\n")
+	edited := []byte("echo edited\n")
 	filePath := filepath.Join(dagsDir, "my-dag.yaml")
-	require.NoError(t, os.WriteFile(filePath, originalContent, 0600))
-
-	oldHash := ComputeContentHash(originalContent)
-	recent := time.Unix(1_700_000_000, 0)
-	require.NoError(t, os.WriteFile(filePath, newContent, 0600))
-	require.NoError(t, os.Chtimes(filePath, recent, recent))
+	require.NoError(t, os.WriteFile(filePath, original, 0600))
+	mtime := time.Unix(1_700_000_000, 0)
+	require.NoError(t, os.Chtimes(filePath, mtime, mtime))
 	fi, err := os.Stat(filePath)
 	require.NoError(t, err)
 	modTime := fi.ModTime()
 	size := fi.Size()
+	hash := ComputeContentHash(original)
 
-	s := &serviceImpl{dagsDir: dagsDir, cfg: &Config{}}
-	state := &State{Items: map[string]*SyncItemState{
+	// Older versions can persist an unverified stat alongside the synced hash.
+	require.NoError(t, s.stateManager.Save(&State{Version: 1, Items: map[string]*SyncItemState{
 		"my-dag": {
 			Status:          StatusSynced,
-			LastSyncedHash:  oldHash,
-			LocalHash:       oldHash,
+			LastSyncedHash:  hash,
+			LocalHash:       hash,
 			LastStatModTime: &modTime,
 			LastStatSize:    &size,
 		},
-	}}
+	}}))
+	require.NoError(t, os.WriteFile(filePath, edited, 0600))
+	require.NoError(t, os.Chtimes(filePath, modTime, modTime))
 
-	changed := s.refreshLocalHashes(state, recent.Add(statCacheRacyWindow/2))
-	require.True(t, changed)
-	assert.Equal(t, StatusModified, state.Items["my-dag"].Status)
-	assert.Equal(t, ComputeContentHash(newContent), state.Items["my-dag"].LocalHash)
+	restarted := NewService(s.cfg, dagsDir, s.wikiDir, s.dataDir)
+	status, err := restarted.GetStatus(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, StatusModified, status.Items["my-dag"].Status)
+	assert.Equal(t, ComputeContentHash(edited), status.Items["my-dag"].LocalHash)
 }
 
-func TestStatBeforeHash_BackwardCompatibility(t *testing.T) {
+func TestStatCacheRebuild(t *testing.T) {
 	t.Parallel()
 	tempDir := t.TempDir()
 	dagsDir := filepath.Join(tempDir, "dags")
@@ -919,6 +975,8 @@ func TestStatBeforeHash_BackwardCompatibility(t *testing.T) {
 	content := []byte("steps: []")
 	filePath := filepath.Join(dagsDir, "my-dag.yaml")
 	require.NoError(t, os.WriteFile(filePath, content, 0600))
+	mtime := time.Now().Add(-2 * statCacheRacyWindow)
+	require.NoError(t, os.Chtimes(filePath, mtime, mtime))
 
 	hash := ComputeContentHash(content)
 
@@ -941,13 +999,16 @@ func TestStatBeforeHash_BackwardCompatibility(t *testing.T) {
 	assert.NotNil(t, state.Items["my-dag"].LastStatSize)
 }
 
-func TestStatBeforeHash_PopulatedDuringScan(t *testing.T) {
+func TestStatCacheScan(t *testing.T) {
 	t.Parallel()
 	tempDir := t.TempDir()
 	dagsDir := tempDir
 
-	// Create a DAG file
-	require.NoError(t, os.WriteFile(filepath.Join(dagsDir, "new-dag.yaml"), []byte("steps: []"), 0600))
+	// Stable files can populate the cache during discovery.
+	filePath := filepath.Join(dagsDir, "new-dag.yaml")
+	require.NoError(t, os.WriteFile(filePath, []byte("steps: []"), 0600))
+	mtime := time.Now().Add(-2 * statCacheRacyWindow)
+	require.NoError(t, os.Chtimes(filePath, mtime, mtime))
 
 	s := &serviceImpl{dagsDir: dagsDir, cfg: &Config{}}
 	state := &State{Items: make(map[string]*SyncItemState)}
