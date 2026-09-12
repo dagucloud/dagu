@@ -414,6 +414,13 @@ var (
 		shorthand: "r",
 		usage:     "Filter by run ID (partial match supported)",
 	}
+
+	psFormatFlag = commandLineFlag{
+		name:         "format",
+		shorthand:    "f",
+		defaultValue: "table",
+		usage:        "Output format: table or json (default: table)",
+	}
 )
 
 // Tunnel flags
