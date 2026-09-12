@@ -13,15 +13,41 @@ import { DAGContext } from '@/features/dags/contexts/DAGContext';
 const client = vi.hoisted(() => ({ POST: vi.fn(), GET: vi.fn() }));
 
 vi.mock('../../dag-execution', () => ({
-  StartDAGModal: ({ visible, onSubmit }: {
+  RunProgressModal: ({
+    visible,
+    dagName,
+    dagRunId,
+  }: {
     visible: boolean;
-    onSubmit: (params: string, id?: string, immediate?: boolean) => Promise<void>;
-  }) => visible ? (
-    <>
-      <button onClick={() => void onSubmit('', undefined, true)}>Submit start</button>
-      <button onClick={() => void onSubmit('', undefined, false)}>Submit enqueue</button>
-    </>
-  ) : null,
+    dagName: string;
+    dagRunId: string;
+  }) =>
+    visible ? (
+      <div role="dialog" aria-label="Run progress">
+        {dagName} {dagRunId}
+      </div>
+    ) : null,
+  StartDAGModal: ({
+    visible,
+    onSubmit,
+  }: {
+    visible: boolean;
+    onSubmit: (
+      params: string,
+      id?: string,
+      immediate?: boolean
+    ) => Promise<void>;
+  }) =>
+    visible ? (
+      <>
+        <button onClick={() => void onSubmit('', undefined, true)}>
+          Submit start
+        </button>
+        <button onClick={() => void onSubmit('', undefined, false)}>
+          Submit enqueue
+        </button>
+      </>
+    ) : null,
 }));
 
 vi.mock('../../../../../contexts/ConfigContext', () => ({
@@ -58,7 +84,9 @@ vi.mock('@/components/ui/simple-toast', () => ({
 
 function LocationProbe() {
   const location = useLocation();
-  return <output aria-label="Location">{location.pathname + location.search}</output>;
+  return (
+    <output aria-label="Location">{location.pathname + location.search}</output>
+  );
 }
 
 beforeEach(() => {
@@ -68,35 +96,59 @@ beforeEach(() => {
 });
 
 describe('DAGActions', () => {
-  it.each(['start', 'enqueue'])('opens the returned run after %s', async (action) => {
-    render(
-      <MemoryRouter initialEntries={['/dags']}>
-        <AppBarContext.Provider value={{ selectedRemoteNode: 'edge' } as never}>
-          <LocationProbe />
-          <DAGActions fileName="example-file" dag={{ name: 'example' }} displayMode="full" />
-        </AppBarContext.Provider>
-      </MemoryRouter>
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Start' }));
-    fireEvent.click(screen.getByRole('button', { name: `Submit ${action}` }));
-    await vi.waitFor(() => expect(screen.getByLabelText('Location')).toHaveTextContent(
-      '/dag-runs/example/created-run?remoteNode=edge'
-    ));
-  });
+  it.each(['start', 'enqueue'])(
+    'shows progress without leaving the page after %s',
+    async (action) => {
+      render(
+        <MemoryRouter initialEntries={['/dags']}>
+          <AppBarContext.Provider
+            value={{ selectedRemoteNode: 'edge' } as never}
+          >
+            <LocationProbe />
+            <DAGActions
+              fileName="example-file"
+              dag={{ name: 'example' }}
+              displayMode="full"
+            />
+          </AppBarContext.Provider>
+        </MemoryRouter>
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+      fireEvent.click(screen.getByRole('button', { name: `Submit ${action}` }));
+      expect(
+        await screen.findByRole('dialog', { name: 'Run progress' })
+      ).toHaveTextContent('example created-run');
+      expect(screen.getByLabelText('Location')).toHaveTextContent('/dags');
+    }
+  );
 
-  it('lets the containing panel display the returned run', async () => {
+  it('shows progress for DAGs started by a containing panel', async () => {
     const onRunStarted = vi.fn();
     render(
       <MemoryRouter initialEntries={['/dags']}>
         <LocationProbe />
-        <DAGContext.Provider value={{ name: 'example', fileName: 'example-file', refresh: vi.fn(), onRunStarted }}>
-          <DAGActions fileName="example-file" dag={{ name: 'example' }} displayMode="full" />
+        <DAGContext.Provider
+          value={{
+            name: 'example',
+            fileName: 'example-file',
+            refresh: vi.fn(),
+            onRunStarted,
+          }}
+        >
+          <DAGActions
+            fileName="example-file"
+            dag={{ name: 'example' }}
+            displayMode="full"
+          />
         </DAGContext.Provider>
       </MemoryRouter>
     );
     fireEvent.click(screen.getByRole('button', { name: 'Start' }));
     fireEvent.click(screen.getByRole('button', { name: 'Submit start' }));
-    await vi.waitFor(() => expect(onRunStarted).toHaveBeenCalledWith('created-run'));
+    expect(
+      await screen.findByRole('dialog', { name: 'Run progress' })
+    ).toHaveTextContent('example created-run');
+    expect(onRunStarted).not.toHaveBeenCalled();
     expect(screen.getByLabelText('Location')).toHaveTextContent('/dags');
   });
   it('shows cancel for failed runs with pending auto retries', () => {

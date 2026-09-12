@@ -63,9 +63,13 @@ steps:
     const dialog = page.getByRole('dialog');
     await dialog.getByLabel('DAG-Run ID (optional)').fill(runId);
     await dialog.getByRole('button', { name: 'Start', exact: true }).click();
-    await expect(page).toHaveURL(new RegExp(`dagRunId=${runId}`));
+    await expect
+      .poll(() => new URL(page.url()).pathname)
+      .toBe(`/dags/${encodeURIComponent(fileName)}`);
 
-    const output = page.getByRole('region', { name: 'Run output', exact: true });
+    const progressDialog = page.getByRole('dialog', { name: 'Run progress' });
+    await expect(progressDialog).toBeVisible();
+    const output = progressDialog.getByRole('region', { name: 'Run output', exact: true });
     const log = output.getByRole('region', { name: 'Step output', exact: true });
     try {
       await expect(output.getByText('2 running', { exact: true })).toBeVisible();
@@ -106,6 +110,10 @@ steps:
       await expect(log.getByText('first final', { exact: true })).toBeInViewport();
       expect(await output.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
       await page.screenshot({ path: testInfo.outputPath('parallel-mobile.png'), fullPage: true });
+      await progressDialog.getByRole('button', { name: 'View details' }).click();
+      await expect(page).toHaveURL(
+        new RegExp(`/dag-runs/${dagName}/${runId}\\?remoteNode=local`)
+      );
     } finally {
       await Promise.all([writeFile(releaseFirst, ''), writeFile(releaseSecond, '')]);
     }

@@ -23,8 +23,6 @@ import ActionButton from '@/components/ui/action-button';
 import StatusChip from '@/components/ui/status-chip';
 import { AlertTriangle, Ban, Play, RefreshCw, Square, X } from 'lucide-react';
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
-import { buildDAGRunPageURL } from '@/features/dag-runs/lib/dagRunUrls';
 import { components, Status } from '../../../../api/v1/schema';
 import { useCanManageProfiles } from '../../../../contexts/AuthContext';
 import { useConfig } from '../../../../contexts/ConfigContext';
@@ -38,7 +36,7 @@ import { getManualActionState } from '@/features/dag-runs/lib/manualActionState'
 import { getDAGRunTerminateActionDetails } from '../../../dag-runs/components/common/terminateAction';
 import { RejectDAGRunDialog } from '../../../dag-runs/components/common/RejectDAGRunDialog';
 import { DAGContext } from '../../contexts/DAGContext';
-import { StartDAGModal } from '../dag-execution';
+import { RunProgressModal, StartDAGModal } from '../dag-execution';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -94,6 +92,10 @@ function DAGActions({
   const [retryDagRunId, setRetryDagRunId] = React.useState<string>('');
   const [stopAllRunning, setStopAllRunning] = React.useState(false);
   const [isRejectModal, setIsRejectModal] = React.useState(false);
+  const [progressRun, setProgressRun] = React.useState<{
+    dagName: string;
+    dagRunId: string;
+  } | null>(null);
 
   // Retry-as-new modal state
   const [retryAsNew, setRetryAsNew] = React.useState(false);
@@ -105,7 +107,6 @@ function DAGActions({
     React.useState(false);
 
   const client = useClient();
-  const navigate = useNavigate();
   const remoteNode = useRemoteNode();
   const profilesQuery = React.useMemo(
     () =>
@@ -275,17 +276,12 @@ function DAGActions({
       status.rootDAGRunId !== status.dagRunId
   );
 
-  async function showStartedRun(dagRunId: string): Promise<void> {
-    if (dagContext.onRunStarted) {
-      await dagContext.onRunStarted(dagRunId);
+  function showRunProgress(dagRunId: string): void {
+    const dagName = startModalDag?.name || dag?.name || fileName;
+    if (!dagName || !dagRunId) {
       return;
     }
-
-    navigate(buildDAGRunPageURL({
-      rootDAGRunName: startModalDag?.name || dag?.name || fileName,
-      rootDAGRunId: dagRunId,
-      remoteNode,
-    }));
+    setProgressRun({ dagName, dagRunId });
   }
 
   // Determine which buttons should be enabled based on current status
@@ -860,12 +856,16 @@ function DAGActions({
           onSubmit={async (params, dagRunId, immediate, profile, noReuse) => {
             if (dagContext.onEnqueue) {
               const result = await dagContext.onEnqueue(
-                params, dagRunId, immediate, profile, noReuse
+                params,
+                dagRunId,
+                immediate,
+                profile,
+                noReuse
               );
               const startedRunId =
                 typeof result === 'string' && result ? result : dagRunId;
               if (startedRunId) {
-                await showStartedRun(startedRunId);
+                showRunProgress(startedRunId);
               }
               showToast(immediate ? 'DAG run started' : 'DAG run enqueued');
               reloadData();
@@ -919,7 +919,7 @@ function DAGActions({
             }
 
             if (data?.dagRunId) {
-              await showStartedRun(data.dagRunId);
+              showRunProgress(data.dagRunId);
             }
             showToast(immediate ? 'DAG run started' : 'DAG run enqueued');
             // Just refresh the current page data
@@ -930,6 +930,12 @@ function DAGActions({
             setStartModalDag(undefined);
             setStartModalLoadError(null);
           }}
+        />
+        <RunProgressModal
+          dagName={progressRun?.dagName || ''}
+          dagRunId={progressRun?.dagRunId || ''}
+          visible={progressRun !== null}
+          dismissModal={() => setProgressRun(null)}
         />
         <I18nProps>
           <ConfirmModal

@@ -6,7 +6,9 @@ import type { Locale } from '@/contexts/UserPreference';
 const english = {
   'Log options': 'Log options',
   'Lines per page': 'Lines per page',
+  "Live output for the submitted DAG run.": "Live output for the submitted DAG run.",
   "Loading run...": "Loading run...",
+  "Run progress": "Run progress",
   "Run output": "Run output",
   "Step output": "Step output",
   "Output for {step}": "Output for {step}",
@@ -19,6 +21,7 @@ const english = {
   "No output recorded.": "No output recorded.",
   "Connection interrupted. Retrying...": "Connection interrupted. Retrying...",
   "Step details": "Step details",
+  "View details": "View details",
   ' (custom)': ' (custom)',
   ' • Auto-refresh is disabled after loading older events':
     ' • Auto-refresh is disabled after loading older events',
@@ -2105,7 +2108,9 @@ export type StaticTranslationValues = Record<string, string | number>;
 const chinese = {
   'Log options': '日志选项',
   'Lines per page': '每页行数',
+  "Live output for the submitted DAG run.": "已提交 DAG 运行的实时输出。",
   "Loading run...": "正在加载运行...",
+  "Run progress": "运行进度",
   "Run output": "运行输出",
   "Step output": "步骤输出",
   "Output for {step}": "{step} 的输出",
@@ -2118,6 +2123,7 @@ const chinese = {
   "No output recorded.": "暂无输出记录。",
   "Connection interrupted. Retrying...": "连接已中断，正在重试...",
   "Step details": "步骤详情",
+  "View details": "查看详情",
   ' (custom)': '（自定义）',
   ' • Auto-refresh is disabled after loading older events':
     ' • 加载较早事件后，自动刷新将禁用',
@@ -4146,7 +4152,9 @@ const chinese = {
 const japanese = {
   'Log options': 'ログ表示設定',
   'Lines per page': 'ページあたりの行数',
+  "Live output for the submitted DAG run.": "送信したDAG実行のライブ出力です。",
   "Loading run...": "実行を読み込み中...",
+  "Run progress": "実行の進捗",
   "Run output": "実行出力",
   "Step output": "ステップ出力",
   "Output for {step}": "{step} の出力",
@@ -4159,6 +4167,7 @@ const japanese = {
   "No output recorded.": "出力は記録されていません。",
   "Connection interrupted. Retrying...": "接続が切れました。再接続中...",
   "Step details": "ステップ詳細",
+  "View details": "詳細を見る",
   ' (custom)': '（カスタム）',
   ' • Auto-refresh is disabled after loading older events':
     ' • 古いイベントを読み込んだ後、自動更新は無効になります',

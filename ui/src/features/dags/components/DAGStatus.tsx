@@ -58,7 +58,6 @@ import {
   StatusUpdateModal,
 } from './dag-execution';
 import { FlowchartType, Graph, TimelineChart } from './visualization';
-import RunOutput from './dag-execution/RunOutput';
 import { HumanTasksTab } from './human-task';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
@@ -122,8 +121,6 @@ function DAGStatus({
   );
 
   const [graphHeight, setGraphHeight] = useState(380);
-  const [graphOpen, setGraphOpen] = useState(false);
-  const [detailsOpen, setDetailsOpen] = useState(false);
 
   const [selectedStep, setSelectedStep] = useState<
     components['schemas']['Step'] | undefined
@@ -518,8 +515,6 @@ function DAGStatus({
   useEffect(() => {
     setActiveTab(initialTab);
     setSelectedAgentStep('');
-    setGraphOpen(false);
-    setDetailsOpen(false);
   }, [displayDAGRunIdentity, initialTab]);
 
   // Reset to status tab if selected tab is not available
@@ -778,29 +773,6 @@ function DAGStatus({
 
         {activeTab === 'status' && (
           <div className={cn('space-y-6', scrollPaneClassName)}>
-            {/* Status Overview */}
-            <div className="bg-surface border border-border rounded-lg p-4">
-              <DAGStatusOverview
-                status={displayDAGRun}
-                onViewLog={(dagRunId) => {
-                  setLogViewer({
-                    isOpen: true,
-                    logType: 'execution',
-                    stepName: '',
-                    dagRunId,
-                    stream: Stream.stdout,
-                  });
-                }}
-              />
-            </div>
-
-            <RunOutput
-              dagRun={displayDAGRun}
-              onInspect={(node) =>
-                onInspectStepOnGraph(toMermaidNodeId(node.step.name))
-              }
-            />
-
             {failedNode && (
               <div
                 role="alert"
@@ -870,113 +842,105 @@ function DAGStatus({
             {!isAgentRun &&
               displayDAGRun.nodes &&
               displayDAGRun.nodes.length > 0 && (
-                <details
-                  className="rounded-lg border border-border"
-                  open={graphOpen}
-                  onToggle={(event) => setGraphOpen(event.currentTarget.open)}
-                >
-                  <summary className="cursor-pointer px-4 py-3 text-sm font-medium focus-visible:outline-ring">
-                    <I18nText text="Graph" />
-                  </summary>
-                  {graphOpen && (
-                    <BorderedBox className="pt-4 px-4 pb-0 flex flex-col items-stretch overflow-hidden">
-                      <div className="flex justify-end mb-2">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <div
-                              className="flex h-7 w-7 items-center justify-center rounded bg-muted text-muted-foreground cursor-help"
-                              aria-label={ts('Graph interactions')}
-                            >
-                              <MousePointerClick className="h-3.5 w-3.5" />
-                            </div>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <div className="space-y-1">
+                <div className="flex flex-col">
+                  <BorderedBox className="pt-4 px-4 pb-0 flex flex-col items-stretch overflow-hidden">
+                    <div className="flex justify-end mb-2">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div
+                            className="flex h-7 w-7 items-center justify-center rounded bg-muted text-muted-foreground cursor-help"
+                            aria-label={ts('Graph interactions')}
+                          >
+                            <MousePointerClick className="h-3.5 w-3.5" />
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <div className="space-y-1">
+                            <p>
+                              <I18nText text={'Click: Inspect step details'} />
+                            </p>
+                            <p>
+                              <I18nText
+                                text={'Double-click: Navigate to sub dagRun'}
+                              />
+                            </p>
+                            {config.permissions.runDags && (
                               <p>
                                 <I18nText
-                                  text={'Click: Inspect step details'}
+                                  text={'Right-click: Update node status'}
                                 />
                               </p>
-                              <p>
-                                <I18nText
-                                  text={'Double-click: Navigate to sub dagRun'}
-                                />
-                              </p>
-                              {config.permissions.runDags && (
-                                <p>
-                                  <I18nText
-                                    text={'Right-click: Update node status'}
-                                  />
-                                </p>
-                              )}
-                            </div>
-                          </TooltipContent>
-                        </Tooltip>
-                      </div>
-                      <div className="w-full min-w-0 max-w-full overflow-x-auto">
-                        <Graph
-                          steps={displayDAGRun.nodes}
-                          name={displayDAGRun.name}
-                          type="status"
-                          flowchart={flowchart}
-                          onChangeFlowchart={onChangeFlowchart}
-                          onClickNode={onInspectStepOnGraph}
-                          selectOnClick
-                          onDoubleClickNode={onSelectStepOnGraph}
-                          onRightClickNode={
-                            config.permissions.runDags
-                              ? onRightClickStepOnGraph
-                              : undefined
-                          }
-                          height={graphHeight}
-                        />
-                      </div>
-                      <div
-                        className="flex justify-center items-center py-2 cursor-row-resize hover:bg-muted/50 transition-colors w-full select-none"
-                        onMouseDown={handleResizeMouseDown}
-                      >
-                        <GripHorizontal className="h-4 w-4 text-muted-foreground/50" />
-                      </div>
-                    </BorderedBox>
-                  )}
-                </details>
-              )}
-
-            <details
-              className="rounded-lg border border-border"
-              open={detailsOpen}
-              onToggle={(event) => setDetailsOpen(event.currentTarget.open)}
-            >
-              <summary className="cursor-pointer px-4 py-3 text-sm font-medium focus-visible:outline-ring">
-                <I18nText text="Step details" />
-              </summary>
-              {detailsOpen && (
-                <div className="space-y-4 p-3">
-                  <div className="grid min-w-0 grid-cols-1 gap-6">
-                    {/* Steps Table */}
-                    <NodeStatusTable
-                      nodes={displayDAGRun.nodes}
-                      status={displayDAGRun}
-                      fileName={fileName}
-                      onViewLog={handleViewLog}
-                      onNodeStatusUpdated={applyDisplayNodeStatus}
-                    />
-                  </div>
-
-                  {/* Lifecycle Hooks */}
-                  {handlers?.length ? (
-                    <NodeStatusTable
-                      nodes={handlers}
-                      status={displayDAGRun}
-                      fileName={fileName}
-                      onViewLog={handleViewLog}
-                      onNodeStatusUpdated={applyDisplayNodeStatus}
-                      hideActions
-                    />
-                  ) : null}
+                            )}
+                          </div>
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                    <div className="w-full min-w-0 max-w-full overflow-x-auto">
+                      <Graph
+                        steps={displayDAGRun.nodes}
+                        name={displayDAGRun.name}
+                        type="status"
+                        flowchart={flowchart}
+                        onChangeFlowchart={onChangeFlowchart}
+                        onClickNode={onInspectStepOnGraph}
+                        selectOnClick
+                        onDoubleClickNode={onSelectStepOnGraph}
+                        onRightClickNode={
+                          config.permissions.runDags
+                            ? onRightClickStepOnGraph
+                            : undefined
+                        }
+                        height={graphHeight}
+                      />
+                    </div>
+                    <div
+                      className="flex justify-center items-center py-2 cursor-row-resize hover:bg-muted/50 transition-colors w-full select-none"
+                      onMouseDown={handleResizeMouseDown}
+                    >
+                      <GripHorizontal className="h-4 w-4 text-muted-foreground/50" />
+                    </div>
+                  </BorderedBox>
                 </div>
               )}
-            </details>
+
+            <div className="grid min-w-0 grid-cols-1 gap-6">
+              {/* Status Overview */}
+              <div className="bg-surface border border-border rounded-lg p-4">
+                <DAGStatusOverview
+                  status={displayDAGRun}
+                  onViewLog={(dagRunId) => {
+                    setLogViewer({
+                      isOpen: true,
+                      logType: 'execution',
+                      stepName: '',
+                      dagRunId,
+                      stream: Stream.stdout,
+                    });
+                  }}
+                />
+              </div>
+
+              {/* Steps Table */}
+              <NodeStatusTable
+                nodes={displayDAGRun.nodes}
+                status={displayDAGRun}
+                fileName={fileName}
+                onViewLog={handleViewLog}
+                onNodeStatusUpdated={applyDisplayNodeStatus}
+              />
+            </div>
+
+            {/* Lifecycle Hooks */}
+            {handlers?.length ? (
+              <NodeStatusTable
+                nodes={handlers}
+                status={displayDAGRun}
+                fileName={fileName}
+                onViewLog={handleViewLog}
+                onNodeStatusUpdated={applyDisplayNodeStatus}
+                hideActions
+              />
+            ) : null}
           </div>
         )}
 
