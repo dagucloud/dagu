@@ -140,7 +140,7 @@ function DAGGraph({
                   <p>
                     <I18nText text={'Double-click: Navigate to sub dagRun'} />
                   </p>
-                  {config.permissions.runDags && (
+                  {config.permissions.runDags && onRightClickStep && (
                     <p>
                       <I18nText text={'Right-click: Update node status'} />
                     </p>

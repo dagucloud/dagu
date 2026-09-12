@@ -12,7 +12,6 @@ import {
 } from '@/contexts/RemoteNodeContext';
 import { UnsavedChangesProvider } from '@/contexts/UnsavedChangesContext';
 import { useQuery } from '@/hooks/api';
-import { useDAGRunSSE } from '@/hooks/useDAGRunSSE';
 import { useDAGSSE } from '@/hooks/useDAGSSE';
 import { whenEnabled } from '@/hooks/queryUtils';
 import { sseFallbackOptions, useSSECacheSync } from '@/hooks/useSSECacheSync';
@@ -131,7 +130,6 @@ function DAGDetailsSidePanel({
   const [activeTab, setActiveTab] = React.useState(
     initialTab === 'docs' ? 'wiki' : initialTab
   );
-  const [trackedDagRunId, setTrackedDagRunId] = React.useState<string>();
   const [currentDAGRun, setCurrentDAGRun] = React.useState<
     components['schemas']['DAGRunDetails'] | undefined
   >();
@@ -167,7 +165,6 @@ function DAGDetailsSidePanel({
     setIsVisible(false);
     const timer = setTimeout(() => {
       setShouldRender(false);
-      setTrackedDagRunId(undefined);
       setCurrentDAGRun(undefined);
     }, CLOSE_ANIMATION_MS);
     return () => clearTimeout(timer);
@@ -179,13 +176,8 @@ function DAGDetailsSidePanel({
     }
 
     setActiveTab(initialTab === 'docs' ? 'wiki' : initialTab);
-    setTrackedDagRunId(undefined);
     setCurrentDAGRun(undefined);
   }, [fileName, initialTab, isOpen, remoteNode]);
-
-  const navigateToStatusTab = React.useCallback(() => {
-    setActiveTab('status');
-  }, []);
 
   const dagDetailsEnabled = isOpen && !!stableFileName;
   const dagDetailsSSE = useDAGSSE(
@@ -205,60 +197,17 @@ function DAGDetailsSidePanel({
   );
   useSSECacheSync(dagDetailsSSE, mutate);
 
-  const dagName = data?.dag?.name || '';
-  const trackedRunEnabled = isOpen && !!dagName && !!trackedDagRunId;
-  const trackedRunSSE = useDAGRunSSE(
-    dagName,
-    trackedDagRunId || '',
-    trackedRunEnabled,
-    remoteNode
-  );
-  const { data: trackedRunData, mutate: mutateTrackedRun } = useQuery(
-    '/dag-runs/{name}/{dagRunId}',
-    whenEnabled(trackedRunEnabled, {
-      params: {
-        path: { name: dagName, dagRunId: trackedDagRunId || '' },
-        query: { remoteNode },
-      },
-    }),
-    sseFallbackOptions(trackedRunSSE)
-  );
-  useSSECacheSync(trackedRunSSE, mutateTrackedRun);
-
   React.useEffect(() => {
-    if (trackedRunData?.dagRunDetails) {
-      setCurrentDAGRun(trackedRunData.dagRunDetails);
-    } else if (data) {
+    if (data) {
       setCurrentDAGRun(data.latestDAGRun);
     }
-  }, [data, trackedRunData]);
+  }, [data]);
 
   const refreshFn = React.useCallback(() => {
     setTimeout(() => mutate(), 500);
   }, [mutate]);
 
-  const handleEnqueue = React.useCallback<EnqueueHandler>(
-    async (params, dagRunId, immediate, profile, noReuse) => {
-      if (!onEnqueue) {
-        return;
-      }
-
-      const result = await onEnqueue(
-        params,
-        dagRunId,
-        immediate,
-        profile,
-        noReuse
-      );
-      setActiveTab('status');
-      if (typeof result === 'string' && result) {
-        setTrackedDagRunId(result);
-      }
-      await mutate();
-      return result;
-    },
-    [mutate, onEnqueue]
-  );
+  const displayDAGRun = currentDAGRun || data?.latestDAGRun;
 
   const handleFullscreenClick = React.useCallback(
     (event?: React.MouseEvent) => {
@@ -269,12 +218,6 @@ function DAGDetailsSidePanel({
       const baseUrl = buildFullscreenUrl(stableFileName, activeTab);
       const searchParams = new URLSearchParams();
       searchParams.set('remoteNode', remoteNode);
-      if (trackedDagRunId) {
-        searchParams.set('dagRunId', trackedDagRunId);
-        if (data?.dag?.name) {
-          searchParams.set('dagRunName', data.dag.name);
-        }
-      }
       const query = searchParams.toString();
       const url = query ? `${baseUrl}?${query}` : baseUrl;
       if (event?.metaKey || event?.ctrlKey) {
@@ -285,11 +228,9 @@ function DAGDetailsSidePanel({
     },
     [
       activeTab,
-      data?.dag?.name,
       navigate,
       remoteNode,
       stableFileName,
-      trackedDagRunId,
     ]
   );
 
@@ -348,7 +289,7 @@ function DAGDetailsSidePanel({
           <RemoteNodeProvider remoteNode={remoteNode}>
             <RootDAGRunContext.Provider
               value={{
-                data: currentDAGRun,
+                data: displayDAGRun,
                 setData: (dagRun: components['schemas']['DAGRunDetails']) => {
                   setCurrentDAGRun(dagRun);
                 },
@@ -430,18 +371,17 @@ function DAGDetailsSidePanel({
                     <DAGDetailsContent
                       fileName={stableFileName}
                       dag={data.dag}
-                      currentDAGRun={currentDAGRun}
-                      dagRunId={trackedDagRunId ?? 'latest'}
+                      currentDAGRun={displayDAGRun}
+                      dagRunId="latest"
                       stepName={null}
                       refreshFn={refreshFn}
                       formatDuration={formatDuration}
                       activeTab={activeTab}
                       onTabChange={setActiveTab}
                       isModal={true}
-                      navigateToStatusTab={navigateToStatusTab}
                       localDags={data.localDags}
                       editorHints={data.editorHints}
-                      onEnqueue={onEnqueue ? handleEnqueue : undefined}
+                      onEnqueue={onEnqueue}
                       forceEnqueue={forceEnqueue}
                       autoOpenStartModal={false}
                       fillHeight

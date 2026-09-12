@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import LoadingIndicator from '@/components/ui/loading-indicator';
 import { Tabs } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 import {
@@ -34,6 +35,7 @@ import DAGWikiTab from './DAGWikiTab';
 import IncidentsTab from './IncidentsTab';
 import NotificationsTab from './NotificationsTab';
 import WebhookTab from './WebhookTab';
+import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 
 type DAGDetailsContentProps = {
@@ -47,7 +49,6 @@ type DAGDetailsContentProps = {
   dagRunId?: string;
   stepName?: string | null;
   isModal?: boolean;
-  navigateToStatusTab?: () => void;
   skipHeader?: boolean;
   localDags?: components['schemas']['LocalDag'][];
   editorHints?: components['schemas']['DAGEditorHints'];
@@ -59,7 +60,6 @@ type DAGDetailsContentProps = {
     profile?: string,
     noReuse?: boolean
   ) => string | void | Promise<string | void>;
-  onRunStarted?: (dagRunId: string) => void | Promise<void>;
   /** When true, forces enqueue mode in DAGContext (used by cockpit) */
   forceEnqueue?: boolean;
   /** When true, automatically opens the start/enqueue modal on mount */
@@ -85,12 +85,10 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
   dagRunId = 'latest',
   stepName = null,
   isModal = false,
-  navigateToStatusTab,
   skipHeader = false,
   localDags,
   editorHints,
   onEnqueue,
-  onRunStarted,
   forceEnqueue = false,
   autoOpenStartModal = false,
   buildScopedUrl,
@@ -144,7 +142,6 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
         forceEnqueue,
         autoOpenStartModal,
         onEnqueue,
-        onRunStarted,
       }}
     >
       <div
@@ -161,7 +158,6 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
             fileName={fileName || ''}
             refreshFn={refreshFn}
             formatDuration={formatDuration}
-            navigateToStatusTab={navigateToStatusTab}
             buildScopedUrl={buildScopedUrl}
           />
         )}
@@ -512,6 +508,12 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
           </div>
         </div>
         <div className="flex min-h-0 flex-1 flex-col">
+          {activeTab === 'status' && !currentDAGRun && dagRunId !== 'latest' && (
+            <div role="status" className="flex min-h-64 items-center justify-center gap-2">
+              <LoadingIndicator />
+              <I18nText text="Loading run..." />
+            </div>
+          )}
           {activeTab === 'status' && currentDAGRun ? (
             <>
               <DAGStatus

@@ -1,14 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { components } from '../../../api/v1/schema';
 import { AppBarContext } from '../../../contexts/AppBarContext';
@@ -57,8 +50,6 @@ function DAGDetails() {
   const stepName = searchParams.get('step');
   const subDAGRunId = searchParams.get('subDAGRunId');
   const queriedDAGRunName = searchParams.get('dagRunName');
-  const [trackedDagRunId, setTrackedDagRunId] = useState<string>();
-  const previousURLDagRunId = useRef<string | null>(dagRunId);
   const queryRemoteNode = searchParams.get('remoteNode')?.trim();
   const appBarRemoteNode = appBarContext.selectedRemoteNode?.trim();
   const remoteNode = queryRemoteNode || appBarRemoteNode || 'local';
@@ -140,13 +131,6 @@ function DAGDetails() {
     }
   }, [buildUrl, fileName, navigate, params.tab]);
 
-  // Navigate to status tab - convenience wrapper for handleTabChange
-  const navigateToStatusTab = useCallback(() => {
-    if (tab !== 'status') {
-      handleTabChange('status');
-    }
-  }, [tab, handleTabChange]);
-
   // Fetch DAG details — SWR is the single source of truth, refreshed by live invalidations
   const { data: dagData, mutate: mutateDag } = useQuery(
     '/dags/{fileName}',
@@ -174,7 +158,7 @@ function DAGDetails() {
 
   // Use dagRunName from URL if available, otherwise use the name from dagData
   const dagRunName = queriedDAGRunName || dagData?.dag?.name || '';
-  const effectiveDAGRunId = trackedDagRunId || dagRunId;
+  const effectiveDAGRunId = dagRunId;
   const dagRunQueryEnabled = Boolean(
     dagRunName && effectiveDAGRunId && !subDAGRunId && dagMatchesWorkspace
   );
@@ -234,7 +218,8 @@ function DAGDetails() {
       return subDAGRunResponse?.dagRunDetails;
     }
     if (effectiveDAGRunId) {
-      return dagRunResponse?.dagRunDetails;
+      const details = dagRunResponse?.dagRunDetails;
+      return details?.dagRunId === effectiveDAGRunId ? details : undefined;
     }
     return dagData?.latestDAGRun;
   }
@@ -244,14 +229,6 @@ function DAGDetails() {
   const [rootDAGRunData, setRootDAGRunData] = useState<
     DAGRunDetails | undefined
   >(undefined);
-
-  // Update root DAG-run data when current DAG-run or latest DAG-run changes
-  useEffect(() => {
-    const newData = currentDAGRun || dagData?.latestDAGRun;
-    if (newData) {
-      setRootDAGRunData(newData);
-    }
-  }, [currentDAGRun, dagData?.latestDAGRun]);
 
   // Refresh all relevant data based on current view
   const refreshData = useCallback(() => {
@@ -269,50 +246,13 @@ function DAGDetails() {
     subDAGRunId,
   ]);
 
-  const handleRunStarted = useCallback(
-    (nextDAGRunId: string) => {
-      setTrackedDagRunId(nextDAGRunId);
-      const nextSearchParams = new URLSearchParams();
-      nextSearchParams.set('dagRunId', nextDAGRunId);
-      nextSearchParams.set('dagRunName', dagData?.dag?.name || dagRunName);
-      if (preserveRemoteNode) {
-        nextSearchParams.set('remoteNode', remoteNode);
-      }
-      if (queryWorkspace) {
-        nextSearchParams.set('workspace', queryWorkspace);
-      }
-      navigate(`/dags/${fileName}?${nextSearchParams.toString()}`);
-      void mutateDag();
-    },
-    [
-      dagData?.dag?.name,
-      dagRunName,
-      fileName,
-      mutateDag,
-      navigate,
-      preserveRemoteNode,
-      queryWorkspace,
-      remoteNode,
-    ]
-  );
-
-  useEffect(() => {
-    const previous = previousURLDagRunId.current;
-    previousURLDagRunId.current = dagRunId;
-    if (!dagRunId || dagRunId === trackedDagRunId) {
-      return;
-    }
-    if (previous !== dagRunId) {
-      setTrackedDagRunId(undefined);
-    }
-  }, [dagRunId, trackedDagRunId]);
-
-  useEffect(() => {
-    setTrackedDagRunId(undefined);
-  }, [fileName, remoteNode]);
-
-  // Determine which DAG-run to display - fallback to latest when specific run is loading
   const displayDAGRun = currentDAGRun || dagData?.latestDAGRun;
+  const displayDAGRunId =
+    currentDAGRun?.dagRunId || displayDAGRun?.dagRunId || 'latest';
+
+  useEffect(() => {
+    setRootDAGRunData(displayDAGRun);
+  }, [displayDAGRun]);
 
   return (
     <UnsavedChangesProvider>
@@ -339,7 +279,6 @@ function DAGDetails() {
                     fileName={fileName}
                     refreshFn={refreshData}
                     formatDuration={formatDuration}
-                    navigateToStatusTab={navigateToStatusTab}
                     buildScopedUrl={buildUrl}
                   />
                   <div className="min-h-0 flex-1">
@@ -351,14 +290,12 @@ function DAGDetails() {
                       formatDuration={formatDuration}
                       activeTab={tab}
                       onTabChange={handleTabChange}
-                      dagRunId={currentDAGRun?.dagRunId}
+                      dagRunId={displayDAGRunId}
                       stepName={stepName}
                       isModal={false}
-                      navigateToStatusTab={navigateToStatusTab}
                       skipHeader={true}
                       localDags={dagData?.localDags}
                       editorHints={dagData?.editorHints}
-                      onRunStarted={handleRunStarted}
                       buildScopedUrl={buildUrl}
                       fillHeight
                     />
@@ -367,7 +304,9 @@ function DAGDetails() {
               )}
               {dagData?.dag && !dagMatchesWorkspace && (
                 <div className="p-6 text-sm text-muted-foreground">
-                  <I18nText text={"This DAG is not in the selected workspace."} />
+                  <I18nText
+                    text={'This DAG is not in the selected workspace.'}
+                  />
                 </div>
               )}
             </div>

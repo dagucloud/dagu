@@ -31,7 +31,7 @@ vi.mock('@rjsf/shadcn', async () => {
         uiSchema?: Record<string, Record<string, unknown>>;
         onChange?: (event: { formData: Record<string, unknown> }) => void;
       },
-      ref: any
+      ref: React.ForwardedRef<{ validateForm: () => boolean }>
     ) {
       renderedFormProps(props);
       React.useImperativeHandle(ref, () => ({

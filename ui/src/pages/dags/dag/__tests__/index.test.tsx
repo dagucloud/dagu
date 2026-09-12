@@ -11,14 +11,20 @@ import { WorkspaceKind } from '@/lib/workspace';
 import DAGDetails from '..';
 
 vi.mock('@/features/dags/components/dag-details', () => ({
-  DAGHeader: () => null,
-  DAGDetailsContent: vi.fn(({ activeTab, fillHeight }) => (
-    <div
-      data-active-tab={activeTab}
-      data-fill-height={String(fillHeight)}
-      data-testid="dag-details-content"
-    />
-  )),
+  DAGHeader: () => <div>Header</div>,
+  DAGDetailsContent: vi.fn(
+    ({ activeTab, fillHeight, currentDAGRun, dagRunId }) => (
+      <div
+        data-active-tab={activeTab}
+        data-fill-height={String(fillHeight)}
+        data-testid="dag-details-content"
+      >
+        {currentDAGRun
+          ? `Output for ${currentDAGRun.dagRunId}`
+          : `Loading ${dagRunId}`}
+      </div>
+    )
+  ),
 }));
 
 vi.mock('@/hooks/api', () => ({
@@ -110,6 +116,12 @@ describe('DAGDetails page', () => {
     expect(content).toHaveAttribute('data-fill-height', 'true');
     expect(content.parentElement).toHaveClass('min-h-0');
     expect(content.parentElement).toHaveClass('flex-1');
+  });
+
+  it('falls back to the latest run when a pinned run is missing', () => {
+    renderPage('/dags/release-notes?dagRunId=missing&dagRunName=release-notes');
+
+    expect(screen.getByText('Output for run-1')).toBeVisible();
   });
 
   it('redirects the legacy docs tab to the Wiki tab', async () => {

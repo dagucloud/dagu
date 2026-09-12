@@ -36,7 +36,7 @@ import { getManualActionState } from '@/features/dag-runs/lib/manualActionState'
 import { getDAGRunTerminateActionDetails } from '../../../dag-runs/components/common/terminateAction';
 import { RejectDAGRunDialog } from '../../../dag-runs/components/common/RejectDAGRunDialog';
 import { DAGContext } from '../../contexts/DAGContext';
-import { StartDAGModal } from '../dag-execution';
+import { pushRunProgress, StartDAGModal } from '../dag-execution';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -59,8 +59,6 @@ type Props = {
   refresh?: () => void;
   /** Display mode: 'compact' for icon-only, 'full' for text+icon buttons */
   displayMode?: 'compact' | 'full';
-  /** Function to navigate to status tab after execution */
-  navigateToStatusTab?: () => void;
 };
 
 /**
@@ -72,7 +70,6 @@ function DAGActions({
   dag,
   refresh,
   displayMode = 'compact',
-  navigateToStatusTab,
 }: Props) {
   const { ts } = useI18n();
   const dagContext = React.useContext(DAGContext);
@@ -95,7 +92,6 @@ function DAGActions({
   const [retryDagRunId, setRetryDagRunId] = React.useState<string>('');
   const [stopAllRunning, setStopAllRunning] = React.useState(false);
   const [isRejectModal, setIsRejectModal] = React.useState(false);
-
   // Retry-as-new modal state
   const [retryAsNew, setRetryAsNew] = React.useState(false);
   const [newRunId, setNewRunId] = React.useState('');
@@ -274,6 +270,14 @@ function DAGActions({
       status.rootDAGRunId &&
       status.rootDAGRunId !== status.dagRunId
   );
+
+  function showRunProgress(dagRunId: string): void {
+    const dagName = startModalDag?.name || dag?.name || fileName;
+    if (!dagName || !dagRunId) {
+      return;
+    }
+    pushRunProgress({ dagName, dagRunId, remoteNode });
+  }
 
   // Determine which buttons should be enabled based on current status
   const buttonState = {
@@ -846,29 +850,20 @@ function DAGActions({
           defaultProfileLoading={dagSettingsLoading}
           onSubmit={async (params, dagRunId, immediate, profile, noReuse) => {
             if (dagContext.onEnqueue) {
-              const result =
-                noReuse !== undefined
-                  ? await dagContext.onEnqueue(
-                      params,
-                      dagRunId,
-                      immediate,
-                      profile,
-                      noReuse
-                    )
-                  : profile !== undefined
-                    ? await dagContext.onEnqueue(
-                        params,
-                        dagRunId,
-                        immediate,
-                        profile
-                      )
-                    : await dagContext.onEnqueue(params, dagRunId, immediate);
+              const result = await dagContext.onEnqueue(
+                params,
+                dagRunId,
+                immediate,
+                profile,
+                noReuse
+              );
               const startedRunId =
                 typeof result === 'string' && result ? result : dagRunId;
               if (startedRunId) {
-                await dagContext.onRunStarted?.(startedRunId);
+                showRunProgress(startedRunId);
               }
               showToast(immediate ? 'DAG run started' : 'DAG run enqueued');
+              reloadData();
               return;
             }
 
@@ -919,15 +914,11 @@ function DAGActions({
             }
 
             if (data?.dagRunId) {
-              await dagContext.onRunStarted?.(data.dagRunId);
+              showRunProgress(data.dagRunId);
             }
             showToast(immediate ? 'DAG run started' : 'DAG run enqueued');
             // Just refresh the current page data
             reloadData();
-            // Navigate to status tab after execution (if available)
-            if (navigateToStatusTab) {
-              navigateToStatusTab();
-            }
           }}
           dismissModal={() => {
             setIsEnqueueModal(false);

@@ -7,7 +7,6 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { useQuery } from '@/hooks/api';
-import { useDAGRunSSE } from '@/hooks/useDAGRunSSE';
 import { useDAGSSE } from '@/hooks/useDAGSSE';
 import DAGDetailsSidePanel from '../DAGDetailsSidePanel';
 
@@ -17,10 +16,6 @@ vi.mock('@/hooks/api', () => ({
 
 vi.mock('@/hooks/useDAGSSE', () => ({
   useDAGSSE: vi.fn(),
-}));
-
-vi.mock('@/hooks/useDAGRunSSE', () => ({
-  useDAGRunSSE: vi.fn(),
 }));
 
 vi.mock('@/hooks/useSSECacheSync', () => ({
@@ -46,7 +41,7 @@ vi.mock('../DAGDetailsContent', () => ({
       params: string,
       dagRunId?: string,
       immediate?: boolean
-    ) => void | Promise<void>;
+    ) => string | void | Promise<string | void>;
   }) => (
     <div>
       <div>
@@ -59,7 +54,9 @@ vi.mock('../DAGDetailsContent', () => ({
       {onEnqueue ? (
         <button
           type="button"
-          onClick={() => void onEnqueue('["x"]', 'manual-run')}
+          onClick={async () => {
+            await onEnqueue('["x"]', 'manual-run');
+          }}
         >
           Enqueue Now
         </button>
@@ -113,7 +110,6 @@ afterEach(() => {
 describe('DAGDetailsSidePanel', () => {
   it('shows a loading state while DAG details are pending', () => {
     vi.mocked(useDAGSSE).mockReturnValue(liveState);
-    vi.mocked(useDAGRunSSE).mockReturnValue(liveState);
     useQueryMock.mockImplementation((path) => {
       if (path === '/dags/{fileName}') {
         return {
@@ -136,7 +132,6 @@ describe('DAGDetailsSidePanel', () => {
   it('uses a null query key while closed so the detail request is truly disabled', () => {
     const queryCalls: Array<{ path: string; init?: unknown }> = [];
     vi.mocked(useDAGSSE).mockReturnValue(liveState);
-    vi.mocked(useDAGRunSSE).mockReturnValue(liveState);
     useQueryMock.mockImplementation((path, init) => {
       queryCalls.push({ path, init });
       return {
@@ -156,7 +151,6 @@ describe('DAGDetailsSidePanel', () => {
   it('shows a not-found state with a close action for 404s', () => {
     const onClose = vi.fn();
     vi.mocked(useDAGSSE).mockReturnValue(liveState);
-    vi.mocked(useDAGRunSSE).mockReturnValue(liveState);
     useQueryMock.mockImplementation((path) => {
       if (path === '/dags/{fileName}') {
         return {
@@ -184,7 +178,6 @@ describe('DAGDetailsSidePanel', () => {
   it('shows an error state with retry when the load fails', () => {
     const mutate = vi.fn();
     vi.mocked(useDAGSSE).mockReturnValue(liveState);
-    vi.mocked(useDAGRunSSE).mockReturnValue(liveState);
     useQueryMock.mockImplementation((path) => {
       if (path === '/dags/{fileName}') {
         return {
@@ -208,7 +201,6 @@ describe('DAGDetailsSidePanel', () => {
 
   it('renders DAG details content when data is available', () => {
     vi.mocked(useDAGSSE).mockReturnValue(liveState);
-    vi.mocked(useDAGRunSSE).mockReturnValue(liveState);
     useQueryMock.mockImplementation((path) => {
       if (path === '/dags/{fileName}') {
         return {
@@ -236,7 +228,6 @@ describe('DAGDetailsSidePanel', () => {
 
   it('passes editor hints through to the modal DAG spec flow', () => {
     vi.mocked(useDAGSSE).mockReturnValue(liveState);
-    vi.mocked(useDAGRunSSE).mockReturnValue(liveState);
     useQueryMock.mockImplementation((path) => {
       if (path === '/dags/{fileName}') {
         return {
@@ -261,56 +252,5 @@ describe('DAGDetailsSidePanel', () => {
     renderPanel();
 
     expect(screen.getByText('Inherited hints: 1')).toBeInTheDocument();
-  });
-
-  it('tracks the returned dag run, switches to status, and revalidates after enqueue', async () => {
-    const mutate = vi.fn().mockResolvedValue(undefined);
-    const onEnqueue = vi.fn().mockResolvedValue('queued-run');
-
-    vi.mocked(useDAGSSE).mockReturnValue(liveState);
-    vi.mocked(useDAGRunSSE).mockReturnValue(liveState);
-    useQueryMock.mockImplementation((path) => {
-      if (path === '/dags/{fileName}') {
-        return {
-          data: {
-            dag: { name: 'example-dag' },
-            latestDAGRun: undefined,
-            localDags: [],
-          },
-          error: undefined,
-          mutate,
-        } as never;
-      }
-
-      if (path === '/dag-runs/{name}/{dagRunId}') {
-        return {
-          data: undefined,
-          error: undefined,
-          mutate: vi.fn(),
-        } as never;
-      }
-
-      return {
-        data: undefined,
-      } as never;
-    });
-
-    renderPanel({ initialTab: 'history', forceEnqueue: true, onEnqueue });
-
-    fireEvent.click(screen.getByRole('button', { name: 'Enqueue Now' }));
-
-    expect(
-      await screen.findByText(
-        'Previewing example-dag [status] forced queued-run'
-      )
-    ).toBeInTheDocument();
-    expect(onEnqueue).toHaveBeenCalledWith(
-      '["x"]',
-      'manual-run',
-      undefined,
-      undefined,
-      undefined
-    );
-    expect(mutate).toHaveBeenCalled();
   });
 });
