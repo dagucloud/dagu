@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import React from 'react';
-import { Terminal, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import LoadingIndicator from '@/components/ui/loading-indicator';
 import StatusChip from '@/components/ui/status-chip';
 import { Button } from '@/components/ui/button';
@@ -129,9 +129,8 @@ function RunProgressCard({
         className="block w-full px-4 py-3 pr-11 text-left transition-colors hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
       >
         <div className="flex items-center gap-2">
-          <Terminal className="h-4 w-4 shrink-0 text-muted-foreground" />
           <span className="min-w-0 flex-1 truncate text-sm font-medium">
-            {ts('Run progress')}
+            {dagRun?.name || run.dagName}
           </span>
           {dagRun?.status ? (
             <StatusChip status={dagRun.status} size="xs">
@@ -141,10 +140,7 @@ function RunProgressCard({
             <LoadingIndicator />
           ) : null}
         </div>
-        <div className="mt-2 truncate text-sm">
-          {dagRun?.name || run.dagName}
-        </div>
-        <div className="truncate font-mono text-xs text-muted-foreground">
+        <div className="mt-1 truncate font-mono text-xs text-muted-foreground">
           {dagRun?.dagRunId || run.dagRunId}
         </div>
       </button>
