@@ -1463,6 +1463,9 @@ func normalizeRunDetails(raw any, addr runAddress) (map[string]any, error) {
 	if run.Labels != nil && len(*run.Labels) > 0 {
 		out["labels"] = *run.Labels
 	}
+	if run.HumanTaskResumePending != nil && *run.HumanTaskResumePending {
+		out["humanTaskResumePending"] = true
+	}
 	if run.RootDAGRunId != "" && run.RootDAGRunId != dagRunID {
 		rootRun := map[string]any{
 			"name":     run.RootDAGRunName,
@@ -1534,6 +1537,15 @@ func runStepEntry(addr runAddress, node daguapi.Node) map[string]any {
 	if node.RetryCount > 0 {
 		entry["retryCount"] = node.RetryCount
 	}
+	// Only a waiting step is still holding the run for an operator.
+	if node.Status == daguapi.NodeStatusWaiting {
+		if node.Step.HumanTask != nil {
+			entry["humanTask"] = humanTaskEntry(*node.Step.HumanTask)
+		}
+		if node.Step.Approval != nil {
+			entry["approval"] = approvalEntry(*node.Step.Approval)
+		}
+	}
 	var subRuns []map[string]any
 	for _, runs := range []*[]daguapi.SubDAGRun{node.SubRuns, node.SubRunsRepeated} {
 		if runs == nil {
@@ -1552,6 +1564,32 @@ func runStepEntry(addr runAddress, node daguapi.Node) map[string]any {
 	}
 	if len(subRuns) > 0 {
 		entry["subRuns"] = subRuns
+	}
+	return entry
+}
+
+// humanTaskEntry describes an open human task, including its normalized input
+// form when the task declares one.
+func humanTaskEntry(task daguapi.HumanTaskConfig) map[string]any {
+	entry := map[string]any{"prompt": task.Prompt}
+	if task.Form != nil && len(*task.Form) > 0 {
+		entry["form"] = *task.Form
+	}
+	return entry
+}
+
+// approvalEntry describes an approval gate holding a step, omitting the fields
+// the gate did not declare.
+func approvalEntry(approval daguapi.ApprovalConfig) map[string]any {
+	entry := map[string]any{}
+	if approval.Prompt != nil && *approval.Prompt != "" {
+		entry["prompt"] = *approval.Prompt
+	}
+	if approval.Input != nil && len(*approval.Input) > 0 {
+		entry["input"] = *approval.Input
+	}
+	if approval.Required != nil && len(*approval.Required) > 0 {
+		entry["required"] = *approval.Required
 	}
 	return entry
 }

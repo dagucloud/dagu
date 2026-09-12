@@ -72,6 +72,55 @@ func TestExecuteStartWithWaitReturnsRunResult(t *testing.T) {
 	require.Equal(t, "main", step["name"])
 }
 
+func TestExecuteStartWithWaitReturnsAtWaitingCheckpoint(t *testing.T) {
+	server := mcptest.NewServer(t)
+	server.CreateWaitingDAG(t, "mcp_execute_waiting")
+	session := server.Connect(t, "")
+
+	result := callExecute(t, session, map[string]any{
+		"action":             "start",
+		"name":               "mcp_execute_waiting",
+		"wait":               true,
+		"waitTimeoutSeconds": 30,
+	})
+	require.False(t, result.IsError)
+
+	output := mcptest.StructuredMap(t, result)
+	// A checkpoint is not completion; the run resumes only once an operator acts.
+	require.Equal(t, false, output["completed"])
+	require.Equal(t, "waiting", output["statusLabel"])
+
+	// A run stopped at a checkpoint carries the detail an operator needs; a run
+	// that merely timed out reports no detail at all.
+	run, ok := output["run"].(map[string]any)
+	require.Truef(t, ok, "wait returned no run details (completed=%v, statusLabel=%v)",
+		output["completed"], output["statusLabel"])
+	steps, ok := run["steps"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, steps)
+
+	humanTask, ok := stepNamed(t, steps, "release_review")["humanTask"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "Choose the release target", humanTask["prompt"])
+	require.NotEmpty(t, humanTask["form"])
+}
+
+// stepNamed finds a step by name, since the two waiting steps in the fixture
+// are independent and the checkpoint does not order them.
+func stepNamed(t *testing.T, steps []any, name string) map[string]any {
+	t.Helper()
+
+	for _, raw := range steps {
+		step, ok := raw.(map[string]any)
+		require.True(t, ok)
+		if step["name"] == name {
+			return step
+		}
+	}
+	t.Fatalf("run details have no step named %q", name)
+	return nil
+}
+
 func TestExecuteStartAcceptsParamsObject(t *testing.T) {
 	server := mcptest.NewServer(t)
 	server.CreateDAG(t, "mcp_execute_params", `params:

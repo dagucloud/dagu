@@ -17,6 +17,7 @@ import (
 	daguapi "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
@@ -1048,6 +1049,155 @@ func TestNormalizeRunDetailsIncludesRunHierarchy(t *testing.T) {
 	}, subRuns)
 }
 
+func TestNormalizeRunDetailsDescribesWaitingSteps(t *testing.T) {
+	t.Parallel()
+
+	form := map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"properties": map[string]any{
+			"environment": map[string]any{"type": "string"},
+		},
+	}
+	stepID := "release_review"
+	approvalPrompt := "Approve the deployment"
+	approvalInput := []string{"ticket"}
+	rewindTo := "build"
+	raw := daguapi.GetDAGRunDetails200JSONResponse{
+		DagRunDetails: daguapi.DAGRunDetails{
+			Name:        "release",
+			DagRunId:    "run-1",
+			Status:      daguapi.StatusWaiting,
+			StatusLabel: "waiting",
+			Nodes: []daguapi.Node{
+				{
+					Step: daguapi.Step{
+						Name:      "release_review",
+						Id:        &stepID,
+						HumanTask: &daguapi.HumanTaskConfig{Prompt: "Choose the release target", Form: &form},
+					},
+					Status:      daguapi.NodeStatusWaiting,
+					StatusLabel: "waiting",
+				},
+				{
+					// An acknowledgement-only task declares no form.
+					Step: daguapi.Step{
+						Name:      "acknowledge",
+						HumanTask: &daguapi.HumanTaskConfig{Prompt: "Confirm maintenance has started"},
+					},
+					Status:      daguapi.NodeStatusWaiting,
+					StatusLabel: "waiting",
+				},
+				{
+					// An approval gate parks a step the same way a human task does.
+					// rewindTo describes push-back, which is not the approver's input.
+					Step: daguapi.Step{
+						Name: "deploy_gate",
+						Approval: &daguapi.ApprovalConfig{
+							Prompt:   &approvalPrompt,
+							Input:    &approvalInput,
+							Required: &approvalInput,
+							RewindTo: &rewindTo,
+						},
+					},
+					Status:      daguapi.NodeStatusWaiting,
+					StatusLabel: "waiting",
+				},
+			},
+		},
+	}
+
+	data, err := normalizeRunDetails(raw, runAddress{})
+	require.NoError(t, err)
+
+	steps, ok := data["steps"].([]map[string]any)
+	require.True(t, ok)
+	require.Equal(t, map[string]any{
+		"prompt": "Choose the release target",
+		"form":   form,
+	}, steps[0]["humanTask"])
+	require.Equal(t, map[string]any{"prompt": "Confirm maintenance has started"}, steps[1]["humanTask"])
+	require.Equal(t, map[string]any{
+		"prompt":   approvalPrompt,
+		"input":    approvalInput,
+		"required": approvalInput,
+	}, steps[2]["approval"])
+}
+
+// A run whose human-task input was accepted still reports itself as waiting
+// until its retry is queued, with no step waiting on an operator.
+func TestNormalizeRunDetailsFlagsPendingHumanTaskResume(t *testing.T) {
+	t.Parallel()
+
+	resumePending := true
+	raw := daguapi.GetDAGRunDetails200JSONResponse{
+		DagRunDetails: daguapi.DAGRunDetails{
+			Name:                   "release",
+			DagRunId:               "run-2",
+			Status:                 daguapi.StatusWaiting,
+			StatusLabel:            "waiting",
+			HumanTaskResumePending: &resumePending,
+			Nodes: []daguapi.Node{
+				{
+					Step: daguapi.Step{
+						Name:      "release_review",
+						HumanTask: &daguapi.HumanTaskConfig{Prompt: "Choose the release target"},
+					},
+					Status:      daguapi.NodeStatusSuccess,
+					StatusLabel: "finished",
+				},
+			},
+		},
+	}
+
+	data, err := normalizeRunDetails(raw, runAddress{})
+	require.NoError(t, err)
+	require.Equal(t, true, data["humanTaskResumePending"])
+
+	steps, ok := data["steps"].([]map[string]any)
+	require.True(t, ok)
+	require.NotContains(t, steps[0], "humanTask")
+}
+
+func TestHasWaitingStep(t *testing.T) {
+	t.Parallel()
+
+	waitingHumanTask := daguapi.Node{
+		Step:   daguapi.Step{Name: "release_review", HumanTask: &daguapi.HumanTaskConfig{Prompt: "Choose the release target"}},
+		Status: daguapi.NodeStatusWaiting,
+	}
+	waitingApproval := daguapi.Node{
+		Step:   daguapi.Step{Name: "deploy_gate", Approval: &daguapi.ApprovalConfig{}},
+		Status: daguapi.NodeStatusWaiting,
+	}
+	answered := daguapi.Node{
+		Step:   daguapi.Step{Name: "release_review", HumanTask: &daguapi.HumanTaskConfig{Prompt: "Choose the release target"}},
+		Status: daguapi.NodeStatusSuccess,
+	}
+
+	tests := []struct {
+		name  string
+		nodes []daguapi.Node
+		want  bool
+	}{
+		{name: "open human task", nodes: []daguapi.Node{answered, waitingHumanTask}, want: true},
+		{name: "open approval gate", nodes: []daguapi.Node{answered, waitingApproval}, want: true},
+		// The run still reports itself as waiting here, but it resumes on its
+		// own once the retry is queued, so there is nobody to prompt.
+		{name: "answered with resume not yet queued", nodes: []daguapi.Node{answered}, want: false},
+		{name: "no steps", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			run := daguapi.DAGRunDetails{Status: daguapi.StatusWaiting, Nodes: tt.nodes}
+			require.Equal(t, tt.want, hasWaitingStep(run))
+		})
+	}
+}
+
 func TestNormalizeRunListIncludesTimestampsAndCursor(t *testing.T) {
 	t.Parallel()
 
@@ -1145,6 +1295,78 @@ func TestRunLogsURIWithQueryPreservesQuery(t *testing.T) {
 		"dagu://runs/demo%20dag/run%2F1/logs?node=step%201&tail=true",
 		runLogsURIWithQuery("demo dag", "run/1", "node=step%201&tail=true"),
 	)
+}
+
+func TestWatchStateObserve(t *testing.T) {
+	t.Parallel()
+
+	type poll struct {
+		status int
+		notify bool
+		stop   bool
+	}
+	tests := []struct {
+		name  string
+		polls []poll
+	}{
+		{
+			name: "a checkpoint is announced once, not once per poll",
+			polls: []poll{
+				{status: int(ir.Running)},
+				{status: int(ir.Waiting), notify: true},
+				{status: int(ir.Waiting)},
+				{status: int(ir.Waiting)},
+			},
+		},
+		{
+			name: "a second checkpoint is announced after the run resumes",
+			polls: []poll{
+				{status: int(ir.Waiting), notify: true},
+				{status: int(ir.Running)},
+				{status: int(ir.Waiting), notify: true},
+			},
+		},
+		{
+			name: "a resumed run still reports its terminal state",
+			polls: []poll{
+				{status: int(ir.Waiting), notify: true},
+				{status: int(ir.Running)},
+				{status: int(ir.Succeeded), notify: true, stop: true},
+			},
+		},
+		{
+			name: "pre-terminal states stay silent",
+			polls: []poll{
+				{status: int(ir.NotStarted)},
+				{status: int(ir.Queued)},
+				{status: int(ir.Running)},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var state watchState
+			for i, p := range tt.polls {
+				notify, stop := state.observe(p.status)
+				require.Equalf(t, p.notify, notify, "poll %d notify", i)
+				require.Equalf(t, p.stop, stop, "poll %d stop", i)
+			}
+		})
+	}
+}
+
+func TestWatchStateObserveStopsOnEveryTerminalStatus(t *testing.T) {
+	t.Parallel()
+
+	for _, status := range []ir.Status{ir.Failed, ir.Aborted, ir.Succeeded, ir.PartiallySucceeded, ir.Rejected} {
+		var state watchState
+		notify, stop := state.observe(int(status))
+		require.Truef(t, notify, "%s must be announced", status)
+		require.Truef(t, stop, "%s must end the watch", status)
+	}
 }
 
 func TestRunWatcherStopsAfterPersistentErrors(t *testing.T) {

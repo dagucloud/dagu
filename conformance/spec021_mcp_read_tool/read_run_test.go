@@ -245,6 +245,47 @@ func requireRunListItem(t *testing.T, item map[string]any, dagName, dagRunID str
 	require.NotEmpty(t, requireString(t, item, "finishedAt"))
 }
 
+func TestReadRunReportsWaitingSteps(t *testing.T) {
+	const dagName = "mcp_read_waiting_steps"
+
+	server := mcptest.NewServer(t)
+	dagRunID := server.CreateWaitingRun(t, dagName)
+	session := server.Connect(t, "")
+
+	result := callRead(t, session, map[string]any{
+		"target":   "run",
+		"name":     dagName,
+		"dagRunId": dagRunID,
+	})
+	output := requireReadSuccess(t, result, "run", runURI(dagName, dagRunID), "dag_run", "application/json")
+	data := requireData(t, output)
+
+	steps, ok := data["steps"].([]any)
+	require.True(t, ok)
+
+	humanTask, ok := requireItem(t, steps, "name", "release_review")["humanTask"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "Choose the release target", humanTask["prompt"])
+
+	form, ok := humanTask["form"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "object", form["type"])
+	properties, ok := form["properties"].(map[string]any)
+	require.True(t, ok)
+	require.Contains(t, properties, "environment")
+
+	approval, ok := requireItem(t, steps, "name", "deploy_gate")["approval"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "Approve the deployment", approval["prompt"])
+	require.Equal(t, []any{"ticket"}, approval["input"])
+	require.Equal(t, []any{"ticket"}, approval["required"])
+
+	// A downstream step is not waiting, so it holds the run for nobody.
+	downstream := requireItem(t, steps, "name", "record_release")
+	require.NotContains(t, downstream, "humanTask")
+	require.NotContains(t, downstream, "approval")
+}
+
 func requireRunData(t *testing.T, data map[string]any, dagName, dagRunID string) {
 	t.Helper()
 

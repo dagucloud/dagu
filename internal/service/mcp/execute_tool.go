@@ -13,7 +13,9 @@ import (
 	"strings"
 	"time"
 
+	daguapi "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	frontendapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -129,7 +131,7 @@ func executeToolInputSchema() json.RawMessage {
 			},
 			"wait": {
 				"type": "boolean",
-				"description": "When true, wait for the identified run to reach a terminal state and include its result summary in the output."
+				"description": "When true, wait for the identified run to reach a terminal state or a waiting checkpoint and include its result summary in the output."
 			},
 			"waitTimeoutSeconds": {
 				"type": "integer",
@@ -239,17 +241,17 @@ func (svc *Service) executeToolImpl(ctx context.Context, input executeInput) (*m
 		if input.Wait {
 			message = svc.waitForRun(ctx, input, dagRunID, output)
 		} else {
-			output["subscribe"] = "Subscribe to " + run + " to receive an MCP resource update notification when the run reaches a terminal state."
+			output["subscribe"] = "Subscribe to " + run + " to receive an MCP resource update notification when the run reaches a terminal state or stops at a waiting checkpoint."
 		}
 	}
 
 	return resultWithLinks(message, links...), output, nil
 }
 
-// waitForRun polls the identified run until it reaches a terminal state or the
-// requested timeout elapses, records the outcome in output, and returns the
-// result message. Poll errors end the wait but never fail the already
-// successful execute action.
+// waitForRun polls the identified run until it reaches a terminal state, stops
+// at a waiting checkpoint, or the requested timeout elapses, records the
+// outcome in output, and returns the result message. Poll errors end the wait
+// but never fail the already successful execute action.
 func (svc *Service) waitForRun(ctx context.Context, input executeInput, dagRunID string, output map[string]any) string {
 	timeoutSeconds := input.WaitTimeoutSeconds
 	if timeoutSeconds <= 0 {
@@ -276,14 +278,22 @@ func (svc *Service) waitForRun(ctx context.Context, input executeInput, dagRunID
 			}
 			output["status"] = run.Status
 			output["statusLabel"] = run.StatusLabel
-			if isTerminalStatus(int(run.Status)) {
+
+			// A run at a waiting checkpoint makes no further progress until an
+			// operator resolves its waiting steps.
+			terminal := isTerminalStatus(int(run.Status))
+			waiting := ir.Status(run.Status).IsWaiting() && hasWaitingStep(run)
+			if terminal || waiting {
 				details, normalizeErr := normalizeRunDetails(raw, runAddress{name: input.Name, dagRunID: dagRunID})
 				if normalizeErr != nil {
 					output["waitError"] = normalizeErr.Error()
 					return "Dagu execute action completed, but waiting for the run failed. Poll the runUri resource for completion."
 				}
-				output["completed"] = true
+				output["completed"] = terminal
 				output["run"] = details
+				if waiting {
+					return "Dagu execute action completed. The run is waiting for manual action; its waiting steps and their prompts are in the run details."
+				}
 				return "Dagu execute action completed. The run finished with status " + string(run.StatusLabel) + "."
 			}
 		} else if !isTransientWaitError(input.Action, err) {
@@ -301,6 +311,19 @@ func (svc *Service) waitForRun(ctx context.Context, input executeInput, dagRunID
 		case <-ticker.C:
 		}
 	}
+}
+
+// hasWaitingStep reports whether a run is parked on a step that needs manual
+// action. A run keeps the waiting status for a moment after its last human task
+// is answered, until the retry that resumes it is queued, and over that window
+// no step is waiting and the run resumes without an operator.
+func hasWaitingStep(run daguapi.DAGRunDetails) bool {
+	for _, node := range run.Nodes {
+		if node.Status == daguapi.NodeStatusWaiting {
+			return true
+		}
+	}
+	return false
 }
 
 // isTransientWaitError reports whether a run-details poll error can resolve on

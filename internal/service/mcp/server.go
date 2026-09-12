@@ -209,7 +209,7 @@ func registerResources(server *mcpsdk.Server, svc *Service) {
 		URITemplate: "dagu://runs/{name}/{dagRunId}",
 		Name:        "dag_run",
 		Title:       "DAG-run details",
-		Description: "Current DAG-run details. Clients may subscribe to receive a resource update notification when the run reaches a terminal state.",
+		Description: "Current DAG-run details. Clients may subscribe to receive a resource update notification when the run reaches a terminal state or stops at a waiting checkpoint.",
 		MIMEType:    resourceMIMEJSON,
 	}, svc.readResource)
 
@@ -817,6 +817,28 @@ func (svc *Service) unsubscribe(ctx context.Context, req *mcpsdk.UnsubscribeRequ
 	return nil
 }
 
+// watchState tracks whether the current waiting checkpoint has already been
+// announced, so a checkpoint notifies once rather than once per poll.
+type watchState struct {
+	notifiedWaiting bool
+}
+
+// observe reports whether the watcher should send a resource update for status
+// and whether it should stop watching afterwards.
+func (w *watchState) observe(status int) (notify, stop bool) {
+	switch {
+	case isTerminalStatus(status):
+		return true, true
+	case ir.Status(status).IsWaiting():
+		notify = !w.notifiedWaiting
+		w.notifiedWaiting = true
+		return notify, false
+	default:
+		w.notifiedWaiting = false
+		return false, false
+	}
+}
+
 func (svc *Service) watchRunResource(ctx context.Context, uri string, id uint64) {
 	defer svc.removeWatcher(uri, id)
 
@@ -832,6 +854,7 @@ func (svc *Service) watchRunResource(ctx context.Context, uri string, id uint64)
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 	consecutiveErrors := 0
+	var state watchState
 
 	for {
 		select {
@@ -847,11 +870,13 @@ func (svc *Service) watchRunResource(ctx context.Context, uri string, id uint64)
 				continue
 			}
 			consecutiveErrors = 0
-			if !isTerminalStatus(status) {
-				continue
+			notify, stop := state.observe(status)
+			if notify {
+				_ = svc.server.ResourceUpdated(ctx, &mcpsdk.ResourceUpdatedNotificationParams{URI: uri})
 			}
-			_ = svc.server.ResourceUpdated(ctx, &mcpsdk.ResourceUpdatedNotificationParams{URI: uri})
-			return
+			if stop {
+				return
+			}
 		}
 	}
 }
@@ -919,10 +944,15 @@ func isSubStepLogResourceSegments(segments []string) bool {
 	return len(segments) == 7 && segments[2] == "sub" && segments[4] == "steps" && segments[6] == "logs"
 }
 
+// isTerminalStatus reports whether a DAG-run status is final. A waiting
+// checkpoint is not final: the run resumes once an operator resolves its
+// waiting steps.
 func isTerminalStatus(status int) bool {
-	switch status {
-	case 2, 3, 4, 6, 8:
+	switch ir.Status(status) {
+	case ir.Failed, ir.Aborted, ir.Succeeded, ir.PartiallySucceeded, ir.Rejected:
 		return true
+	case ir.NotStarted, ir.Running, ir.Queued, ir.Waiting:
+		return false
 	default:
 		return false
 	}

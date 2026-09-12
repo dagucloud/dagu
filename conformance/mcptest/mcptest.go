@@ -208,6 +208,54 @@ func (s *Server) CreateCompletedRun(t *testing.T, name string) string {
 	return dagRunID
 }
 
+// CreateWaitingDAG stores a DAG that parks on both kinds of manual action: an
+// open human task declaring a typed form, and an approval gate.
+func (s *Server) CreateWaitingDAG(t *testing.T, name string) {
+	t.Helper()
+
+	s.CreateDAG(t, name, `steps:
+  - name: release_review
+    id: release_review
+    action: human.task
+    with:
+      prompt: Choose the release target
+      form:
+        type: object
+        title: Release review
+        properties:
+          environment:
+            type: string
+            enum: [staging, production]
+        required: [environment]
+
+  - name: deploy_gate
+    id: deploy_gate
+    run: "true"
+    approval:
+      prompt: Approve the deployment
+      input: [ticket]
+      required: [ticket]
+
+  - name: record_release
+    id: record_release
+    depends: [release_review, deploy_gate]
+    run: "echo ${steps.release_review.outputs.environment}"
+`)
+}
+
+// CreateWaitingRun starts a DAG that parks on manual action and returns its
+// DAG-run ID once the root run has reached its waiting checkpoint. Reaching a
+// checkpoint needs no scheduler; only resuming from one does.
+func (s *Server) CreateWaitingRun(t *testing.T, name string) string {
+	t.Helper()
+
+	s.CreateWaitingDAG(t, name)
+	dagRunID := s.StartDAG(t, name)
+	s.WaitForDAGRunStatus(t, name, dagRunID, api.StatusWaiting)
+
+	return dagRunID
+}
+
 func (s *Server) adminToken(t *testing.T) string {
 	t.Helper()
 
