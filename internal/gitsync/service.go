@@ -275,6 +275,7 @@ type localSyncResult struct {
 }
 
 func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult, commitHash string) (localSyncResult, error) {
+	checkedAt := time.Now()
 	var synced []string
 	var deleted []string
 	var conflicts []string
@@ -308,7 +309,7 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 	s.reconcile(state)
 
 	// Refresh hashes to detect local modifications before checking for conflicts
-	s.refreshLocalHashes(state)
+	s.refreshLocalHashes(state, time.Now())
 
 	repoFileSet := make(map[string]struct{}, len(items))
 	for _, item := range items {
@@ -407,7 +408,7 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 			now := time.Now()
 			newState := newItemState(item, pullResult.CurrentCommit, repoHash, now)
 			if fi, err := os.Stat(localPath); err == nil {
-				updateStatCache(newState, fi)
+				updateStatCache(newState, fi, checkedAt)
 			}
 			state.Items[item.id] = newState
 			synced = append(synced, item.id)
@@ -432,7 +433,7 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 				now := time.Now()
 				newState := newItemState(item, pullResult.CurrentCommit, repoHash, now)
 				if fi, err := os.Stat(localPath); err == nil {
-					updateStatCache(newState, fi)
+					updateStatCache(newState, fi, checkedAt)
 				}
 				state.Items[item.id] = newState
 				synced = append(synced, item.id)
@@ -481,7 +482,7 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 					ConflictDetectedAt:   &now,
 				}
 				if fi, err := os.Stat(localPath); err == nil {
-					updateStatCache(state.Items[item.id], fi)
+					updateStatCache(state.Items[item.id], fi, checkedAt)
 				}
 				conflicts = append(conflicts, item.id)
 			}
@@ -494,7 +495,7 @@ func (s *serviceImpl) syncFilesToLocal(_ context.Context, pullResult *PullResult
 		now := time.Now()
 		newState := newItemState(item, pullResult.CurrentCommit, repoHash, now)
 		if fi, err := os.Stat(localPath); err == nil {
-			updateStatCache(newState, fi)
+			updateStatCache(newState, fi, checkedAt)
 		}
 		state.Items[item.id] = newState
 		synced = append(synced, item.id)
@@ -637,6 +638,7 @@ func (s *serviceImpl) localItemMatchesBase(itemID string, itemState *SyncItemSta
 		return false, err
 	}
 
+	checkedAt := time.Now()
 	localHash, info, err := s.hashItemFileInfo(itemID, itemState.Kind, filePath)
 	if os.IsNotExist(err) {
 		return true, nil
@@ -648,7 +650,7 @@ func (s *serviceImpl) localItemMatchesBase(itemID string, itemState *SyncItemSta
 	localExecutable := itemState.Kind == SyncItemKindFile && executableMode(info.Mode(), itemState.LastSyncedExecutable)
 	itemState.LocalHash = localHash
 	itemState.LocalExecutable = localExecutable
-	updateStatCache(itemState, info)
+	updateStatCache(itemState, info, checkedAt)
 
 	matchesBase := localHash == itemState.LastSyncedHash &&
 		(itemState.Kind != SyncItemKindFile || localExecutable == itemState.LastSyncedExecutable)
@@ -737,6 +739,7 @@ func (s *serviceImpl) scanLocalItems(state *State) error {
 		if err != nil {
 			continue
 		}
+		checkedAt := time.Now()
 		content, err := safeReadFileWithinBase(s.dagsDir, filePath)
 		if err != nil {
 			continue
@@ -751,7 +754,7 @@ func (s *serviceImpl) scanLocalItems(state *State) error {
 			ModifiedAt:    &now,
 		}
 		if fi, err := os.Stat(filePath); err == nil {
-			updateStatCache(ds, fi)
+			updateStatCache(ds, fi, checkedAt)
 		}
 		state.Items[dagID] = ds
 	}
@@ -784,6 +787,7 @@ func (s *serviceImpl) scanWikiPageFiles(state *State) {
 		if _, exists := state.Items[itemID]; exists {
 			return nil
 		}
+		checkedAt := time.Now()
 		content, err := safeReadFileWithinBase(wikiRoot, filePath)
 		if err != nil {
 			return nil
@@ -797,7 +801,7 @@ func (s *serviceImpl) scanWikiPageFiles(state *State) {
 			ModifiedAt:    &now,
 		}
 		if info, err := os.Stat(filePath); err == nil {
-			updateStatCache(itemState, info)
+			updateStatCache(itemState, info, checkedAt)
 		}
 		state.Items[itemID] = itemState
 		return nil
@@ -842,6 +846,7 @@ func (s *serviceImpl) scanWikiPageAssetFiles(state *State) {
 		if _, exists := state.Items[itemID]; exists {
 			return nil
 		}
+		checkedAt := time.Now()
 		content, err := safeReadFileWithinBase(s.localWikiDir(), filePath)
 		if err != nil {
 			return nil
@@ -854,7 +859,7 @@ func (s *serviceImpl) scanWikiPageAssetFiles(state *State) {
 			ModifiedAt: &now,
 		}
 		if info, err := os.Stat(filePath); err == nil {
-			updateStatCache(itemState, info)
+			updateStatCache(itemState, info, checkedAt)
 		}
 		state.Items[itemID] = itemState
 		return nil
@@ -862,7 +867,7 @@ func (s *serviceImpl) scanWikiPageAssetFiles(state *State) {
 }
 
 // refreshLocalHashes recalculates hashes for tracked items and updates modified status.
-func (s *serviceImpl) refreshLocalHashes(state *State) bool {
+func (s *serviceImpl) refreshLocalHashes(state *State, now time.Time) bool {
 	changed := false
 	for dagID, dagState := range state.Items {
 		// Skip untracked (no remote to compare), conflict (already detected), and missing (file absent)
@@ -894,7 +899,7 @@ func (s *serviceImpl) refreshLocalHashes(state *State) bool {
 			continue
 		}
 
-		updateStatCache(dagState, info)
+		updateStatCache(dagState, info, now)
 
 		// Update LocalHash if changed
 		if dagState.LocalHash != currentHash {
@@ -922,13 +927,24 @@ func (s *serviceImpl) refreshLocalHashes(state *State) bool {
 	return changed
 }
 
-// updateStatCache updates the stat cache fields on a SyncItemState from file info.
-func updateStatCache(dagState *SyncItemState, info os.FileInfo) {
+// updateStatCache caches metadata that was stable at checkedAt.
+// checkedAt must precede the content read or write associated with LocalHash.
+func updateStatCache(dagState *SyncItemState, info os.FileInfo, checkedAt time.Time) {
+	// Leave recent stats uncached so same-tick edits remain detectable on later checks.
+	if checkedAt.Sub(info.ModTime()) < statCacheRacyWindow {
+		dagState.LastStatModTime = nil
+		dagState.LastStatSize = nil
+		return
+	}
+
 	modTime := info.ModTime()
 	size := info.Size()
 	dagState.LastStatModTime = &modTime
 	dagState.LastStatSize = &size
 }
+
+// Recent mtimes can be shared by rapid same-size writes on coarse filesystems.
+const statCacheRacyWindow = time.Second
 
 // statMatchesCache returns true if the file info matches the cached stat values.
 func statMatchesCache(dagState *SyncItemState, info os.FileInfo) bool {
@@ -958,6 +974,7 @@ func (s *serviceImpl) reconcile(state *State) bool {
 		case StatusMissing:
 			if fileExists {
 				// File reappeared — hash it and decide new status
+				checkedAt := time.Now()
 				currentHash, err := s.hashItemFile(dagID, dagState.Kind, filePath)
 				if err != nil {
 					continue
@@ -973,7 +990,7 @@ func (s *serviceImpl) reconcile(state *State) bool {
 				}
 				dagState.LocalHash = currentHash
 				dagState.LocalExecutable = localExecutable
-				updateStatCache(dagState, info)
+				updateStatCache(dagState, info, checkedAt)
 				dagState.PreviousStatus = ""
 				dagState.MissingAt = nil
 				changed = true
@@ -1057,6 +1074,7 @@ func (s *serviceImpl) Publish(ctx context.Context, dagID, message string, force 
 		}
 	}
 
+	checkedAt := time.Now()
 	content, err := s.readItemFile(dagID, dagState.Kind, dagFilePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read sync item file: %w", err)
@@ -1090,7 +1108,7 @@ func (s *serviceImpl) Publish(ctx context.Context, dagID, message string, force 
 	contentHash := ComputeContentHash(content)
 	newState := s.newSyncedItemState(dagState.Kind, fileExtension, commitHash, contentHash, executable)
 	if fi, err := os.Stat(dagFilePath); err == nil {
-		updateStatCache(newState, fi)
+		updateStatCache(newState, fi, checkedAt)
 	}
 	state.Items[dagID] = newState
 	s.updateSuccessStateWithCommit(state, commitHash)
@@ -1187,6 +1205,7 @@ func (s *serviceImpl) PublishAll(ctx context.Context, message string, dagIDs []s
 		if err != nil {
 			return nil, err
 		}
+		checkedAt := time.Now()
 		content, _ := s.readItemFile(dagID, dagState.Kind, dagFilePath)
 		contentHash := ComputeContentHash(content)
 		executable := dagState.Kind == SyncItemKindFile && dagState.LastSyncedExecutable
@@ -1195,7 +1214,7 @@ func (s *serviceImpl) PublishAll(ctx context.Context, message string, dagIDs []s
 		}
 		newState := s.newSyncedItemState(dagState.Kind, fileExtension, commitHash, contentHash, executable)
 		if fi, err := os.Stat(dagFilePath); err == nil {
-			updateStatCache(newState, fi)
+			updateStatCache(newState, fi, checkedAt)
 		}
 		state.Items[dagID] = newState
 		result.Synced = append(result.Synced, dagID)
@@ -1266,6 +1285,7 @@ func (s *serviceImpl) Discard(_ context.Context, dagID string) error {
 		executable = dagState.RemoteExecutable
 		commitHash = dagState.RemoteCommit
 	}
+	checkedAt := time.Now()
 	if err := s.writeItemFile(dagID, dagState.Kind, dagFilePath, repoContent, executable); err != nil {
 		return fmt.Errorf("failed to write sync item file: %w", err)
 	}
@@ -1274,7 +1294,7 @@ func (s *serviceImpl) Discard(_ context.Context, dagID string) error {
 	contentHash := ComputeContentHash(repoContent)
 	newState := s.newSyncedItemState(dagState.Kind, fileExtension, commitHash, contentHash, executable)
 	if fi, err := os.Stat(dagFilePath); err == nil {
-		updateStatCache(newState, fi)
+		updateStatCache(newState, fi, checkedAt)
 	}
 	state.Items[dagID] = newState
 	_ = s.stateManager.Save(state) // Best effort - discard was successful, state will sync on next operation
@@ -1795,6 +1815,7 @@ func (s *serviceImpl) Move(ctx context.Context, oldID, newID, message string, fo
 	}
 
 	// Read through the no-follow path before changing local or Git state.
+	checkedAt := time.Now()
 	content, fileInfo, readErr := s.readItemFileInfo(oldID, oldState.Kind, oldLocalPath)
 	oldFileExists := readErr == nil
 	if readErr != nil && !os.IsNotExist(readErr) {
@@ -1856,7 +1877,7 @@ func (s *serviceImpl) Move(ctx context.Context, oldID, newID, message string, fo
 	contentHash := ComputeContentHash(content)
 	newItemState := s.newSyncedItemState(oldState.Kind, fileExtension, commitHash, contentHash, executable)
 	if fi, _, err := s.inspectItemFile(newID, oldState.Kind, newLocalPath, false); err == nil {
-		updateStatCache(newItemState, fi)
+		updateStatCache(newItemState, fi, checkedAt)
 	}
 
 	// If destination was untracked, remove the old untracked entry
@@ -1909,7 +1930,7 @@ func (s *serviceImpl) GetStatus(_ context.Context) (*OverallStatus, error) {
 	reconciled := s.reconcile(state)
 
 	// Refresh hashes for tracked items to detect local modifications.
-	hashesChanged := s.refreshLocalHashes(state)
+	hashesChanged := s.refreshLocalHashes(state, time.Now())
 
 	// Save state if anything changed (best effort - read-only operation)
 	if extensionsChanged || newItems || hashesChanged || reconciled {

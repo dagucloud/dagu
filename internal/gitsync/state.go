@@ -253,6 +253,12 @@ func (m *StateManager) Load() (*State, error) {
 	}
 	normalizeTrackedItems(&state)
 
+	// Recheck content after loading; persisted stats may predate a same-tick edit.
+	for _, itemState := range state.Items {
+		itemState.LastStatModTime = nil
+		itemState.LastStatSize = nil
+	}
+
 	m.state = &state
 	return m.state, nil
 }
