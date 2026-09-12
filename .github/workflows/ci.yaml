@@ -220,7 +220,7 @@ jobs:
             "alpine:3"
             "busybox:latest"
             "redis:7-alpine"
-            "minio/minio:RELEASE.2024-10-02T17-50-41Z"
+            "quay.io/minio/minio:RELEASE.2024-10-02T17-50-41Z"
           )
 
           for image in "${images[@]}"; do
