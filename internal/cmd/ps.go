@@ -4,6 +4,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -25,13 +26,18 @@ func Ps() *cobra.Command {
 Flags:
   -d, --dag string      Filter by DAG name
   -r, --run-id string   Filter by run ID (partial match supported)
+  -f, --format string   Output format: table or json (default: table)
 
 Columns: DAG, RUN_ID, ATTEMPT, STARTED, GROUP, FRESH
+
+JSON output is a list, empty when nothing is running, so a script can read
+the result without parsing the table.
 
 Examples:
   dagu ps
   dagu ps -d my-workflow
   dagu ps -d my-workflow -r abc123
+  dagu ps --format json
 `,
 			Args: cobra.NoArgs,
 		},
@@ -43,6 +49,7 @@ Examples:
 var psFlags = []commandLineFlag{
 	psDAGFlag,
 	psRunIDFlag,
+	psFormatFlag,
 }
 
 func runPs(ctx *Context, args []string) error {
@@ -55,6 +62,13 @@ func runPs(ctx *Context, args []string) error {
 	runIDFilter, err := ctx.StringParam("run-id")
 	if err != nil {
 		return fmt.Errorf("failed to get run-id filter: %w", err)
+	}
+	format, err := ctx.StringParam("format")
+	if err != nil {
+		return fmt.Errorf("failed to get format: %w", err)
+	}
+	if err := validatePsFormat(format); err != nil {
+		return err
 	}
 
 	if ctx.Persistence.ProcRepository == nil {
@@ -80,6 +94,10 @@ func runPs(ctx *Context, args []string) error {
 		matched = append(matched, entry)
 	}
 
+	if format == "json" {
+		return renderPsJSON(ctx.Command.OutOrStdout(), matched)
+	}
+
 	if len(matched) == 0 {
 		if !ctx.Quiet {
 			if _, err := fmt.Fprintln(ctx.Command.OutOrStdout(), "No running processes"); err != nil {
@@ -90,6 +108,46 @@ func runPs(ctx *Context, args []string) error {
 	}
 
 	return renderPsTable(ctx.Command.OutOrStdout(), matched)
+}
+
+// validatePsFormat checks if the output format is valid.
+func validatePsFormat(format string) error {
+	switch format {
+	case "", "table", "json":
+		return nil
+	default:
+		return fmt.Errorf("invalid format '%s'. Valid formats: table, json", format)
+	}
+}
+
+// renderPsJSON writes live DAG processes as a list, which stays empty rather
+// than becoming a message when nothing is running.
+func renderPsJSON(out io.Writer, entries []proc.ProcEntry) error {
+	type psEntry struct {
+		Name      string `json:"name"`
+		DAGRunID  string `json:"dagRunId"`
+		AttemptID string `json:"attemptId,omitempty"`
+		StartedAt string `json:"startedAt,omitempty"`
+		Group     string `json:"group"`
+	}
+
+	listed := make([]psEntry, 0, len(entries))
+	for _, entry := range entries {
+		item := psEntry{
+			Name:      entry.Meta.Name,
+			DAGRunID:  entry.Meta.DAGRunID,
+			AttemptID: entry.Meta.AttemptID,
+			Group:     entry.GroupName,
+		}
+		if entry.Meta.StartedAt > 0 {
+			item.StartedAt = time.Unix(entry.Meta.StartedAt, 0).UTC().Format(time.RFC3339)
+		}
+		listed = append(listed, item)
+	}
+
+	encoder := json.NewEncoder(out)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(listed)
 }
 
 func renderPsTable(out io.Writer, entries []proc.ProcEntry) error {

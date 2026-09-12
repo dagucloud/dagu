@@ -5,6 +5,7 @@ package cmd_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -23,6 +24,33 @@ func TestPsCommand(t *testing.T) {
 		th := test.SetupCommand(t)
 		out := runPsWithStdout(t, th, cmd.Ps(), []string{"ps"})
 		assert.Contains(t, out, "No running processes")
+	})
+
+	t.Run("ReportsNothingRunningAsAnEmptyJSONList", func(t *testing.T) {
+		t.Parallel()
+
+		th := test.SetupCommand(t)
+		out := runPsWithStdout(t, th, cmd.Ps(), []string{"ps", "--format", "json"})
+
+		var entries []map[string]any
+		require.NoError(t, json.Unmarshal([]byte(out), &entries))
+		assert.Empty(t, entries)
+	})
+
+	t.Run("RejectsAnUnknownFormat", func(t *testing.T) {
+		t.Parallel()
+
+		th := test.SetupCommand(t)
+		root := &cobra.Command{Use: "root"}
+		root.AddCommand(cmd.Ps())
+		root.SetOut(&bytes.Buffer{})
+		root.SetErr(&bytes.Buffer{})
+		root.SetArgs(test.WithConfigFlag([]string{"ps", "--format", "yaml"}, th.Config))
+
+		err := root.ExecuteContext(th.Context)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "table")
 	})
 
 	t.Run("ListsAndFiltersAliveProcess", func(t *testing.T) {
@@ -61,6 +89,22 @@ steps:
 
 		out = runPsWithStdout(t, th, cmd.Ps(), []string{"ps", "-d", "other-dag"})
 		assert.Contains(t, out, "No running processes")
+
+		out = runPsWithStdout(t, th, cmd.Ps(), []string{"ps", "--format", "json"})
+		var entries []struct {
+			Name      string `json:"name"`
+			DAGRunID  string `json:"dagRunId"`
+			AttemptID string `json:"attemptId"`
+			StartedAt string `json:"startedAt"`
+			Group     string `json:"group"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(out), &entries))
+		require.Len(t, entries, 1)
+		assert.Equal(t, dag.Name, entries[0].Name)
+		assert.Equal(t, runID, entries[0].DAGRunID)
+		assert.Equal(t, "attempt-1", entries[0].AttemptID)
+		assert.Equal(t, startedAt.Format(time.RFC3339), entries[0].StartedAt)
+		assert.Equal(t, dag.ProcGroup(), entries[0].Group)
 	})
 }
 
