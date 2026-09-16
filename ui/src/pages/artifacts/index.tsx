@@ -2,10 +2,23 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import dayjs from '@/lib/dayjs';
-import { AlertCircle, RefreshCw } from 'lucide-react';
+import {
+  AlertCircle,
+  File,
+  FileCode,
+  FileImage,
+  FileText,
+  Folder,
+  FolderOpen,
+  RefreshCw,
+} from 'lucide-react';
 import React from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
-import type { StatusTab } from '@/features/dags/components/DAGStatus';
+import type {
+  ArtifactListItem,
+  ArtifactListQuery,
+} from '@/features/artifacts/hooks/artifactListPagination';
+import { usePaginatedArtifacts } from '@/features/artifacts/hooks/artifactListPagination';
+import { ArtifactFilePreview } from '@/features/dags/components/artifacts/ArtifactFilePreview';
 import { Button } from '@/components/ui/button';
 import { DateRangePicker } from '@/components/ui/date-range-picker';
 import { Input } from '@/components/ui/input';
@@ -16,32 +29,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { ToggleButton, ToggleGroup } from '@/components/ui/toggle-group';
 import Title from '@/components/ui/title';
 import { I18nProps } from '@/i18n/I18nProps';
 import { I18nText } from '@/i18n/I18nText';
+import { useI18n } from '@/i18n/I18nProvider';
 import { AppBarContext } from '../../contexts/AppBarContext';
 import { useConfig } from '../../contexts/ConfigContext';
-import { DAGRunDetailsModal } from '../../features/dag-runs/components/dag-run-details';
-import {
-  type ArtifactListItem,
-  type ArtifactListQuery,
-  usePaginatedArtifacts,
-} from '../../features/artifacts/hooks/artifactListPagination';
-import { useIsMobile } from '../../hooks/useIsMobile';
 import { workspaceSelectionQuery } from '../../lib/workspace';
+import { cn } from '@/lib/utils';
 
 const DEFAULT_PRESET = 'today';
 const ARTIFACT_LIST_LIMIT = 100;
-const MAX_VISIBLE_FILES = 3;
 
 function computePresetDates(
   preset: string,
@@ -82,40 +81,80 @@ function computePresetDates(
   }
 }
 
-function useAutoLoadMore(
-  sentinelRef: React.RefObject<HTMLDivElement | null>,
-  enabled: boolean,
-  onLoadMore: () => void
-) {
-  React.useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el || !enabled || typeof IntersectionObserver === 'undefined') {
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry?.isIntersecting) {
-          onLoadMore();
-        }
-      },
-      { threshold: 0.1 }
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [enabled, onLoadMore, sentinelRef]);
+function runKey(item: Pick<ArtifactListItem, 'name' | 'dagRunId'>): string {
+  return `${item.name}\u0000${item.dagRunId}`;
 }
 
-function supportsIntersectionObserver(): boolean {
-  return typeof IntersectionObserver !== 'undefined';
+// Synthetic paths keep tree node identities unique across runs while the
+// real relative path stays available for preview and download requests.
+function runTreeRoot(item: Pick<ArtifactListItem, 'name' | 'dagRunId'>): string {
+  return `@run:${runKey(item)}`;
+}
+
+type FileTreeNode = {
+  name: string;
+  path: string;
+  type: 'directory' | 'file';
+  size?: number;
+  children?: FileTreeNode[];
+};
+
+function filesToTreeNodes(
+  files: ArtifactListItem['files'],
+  prefix: string
+): FileTreeNode[] {
+  const root: FileTreeNode[] = [];
+  for (const file of files) {
+    const parts = file.path.split('/');
+    let level: FileTreeNode[] = root;
+    let acc = prefix;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const part = parts[i]!;
+      acc = `${acc}/${part}`;
+      const existing = level.find(
+        (node) => node.type === 'directory' && node.path === acc
+      );
+      if (existing) {
+        level = existing.children ?? [];
+        continue;
+      }
+      const dir: FileTreeNode = {
+        name: part,
+        path: acc,
+        type: 'directory',
+        children: [],
+      };
+      level.push(dir);
+      level = dir.children ?? [];
+    }
+    const leafName = parts[parts.length - 1] ?? file.path;
+    level.push({
+      name: leafName,
+      path: `${acc}/${leafName}`,
+      type: 'file',
+      size: file.size,
+    });
+  }
+  return root;
+}
+
+function collectDirectoryPaths(nodes: FileTreeNode[]): string[] {
+  const paths: string[] = [];
+  for (const node of nodes) {
+    if (node.type === 'directory') {
+      paths.push(node.path);
+      if (node.children) {
+        paths.push(...collectDirectoryPaths(node.children));
+      }
+    }
+  }
+  return paths;
 }
 
 function Artifacts() {
-  const location = useLocation();
-  const navigate = useNavigate();
+  const { ts } = useI18n();
   const appBarContext = React.useContext(AppBarContext);
   const config = useConfig();
-  const isMobile = useIsMobile();
   const workspaceQuery = React.useMemo(
     () => workspaceSelectionQuery(appBarContext.workspaceSelection),
     [appBarContext.workspaceSelection]
@@ -145,12 +184,14 @@ function Artifacts() {
   const [apiToDate, setApiToDate] = React.useState<string | undefined>(
     initialPresetDates.to
   );
-  const [selectedDAGRun, setSelectedDAGRun] = React.useState<{
+  const [selected, setSelected] = React.useState<{
     name: string;
     dagRunId: string;
+    path: string;
   } | null>(null);
-  const [selectedDAGRunInitialTab, setSelectedDAGRunInitialTab] =
-    React.useState<StatusTab>('artifacts');
+  const [expandedPaths, setExpandedPaths] = React.useState<Set<string>>(
+    new Set()
+  );
   const loadMoreSentinelRef = React.useRef<HTMLDivElement>(null);
   const autoLoadPendingRef = React.useRef(false);
 
@@ -235,7 +276,58 @@ function Artifacts() {
     query: artifactQuery,
   });
 
-  const canAutoLoadMore = supportsIntersectionObserver();
+  // Keep the selection and the visible tree in sync with the loaded list:
+  // auto-select the first file of the newest run with files, and expand the
+  // run (and its subdirectories) the selection lives in.
+  React.useEffect(() => {
+    const selectedIsLoaded =
+      selected !== null &&
+      items.some(
+        (item) =>
+          item.name === selected.name &&
+          item.dagRunId === selected.dagRunId &&
+          item.files.some((file) => file.path === selected.path)
+      );
+
+    if (!selectedIsLoaded) {
+      const firstRun = items.find((item) => item.files.length > 0);
+      setSelected(
+        firstRun && firstRun.files.length > 0
+          ? {
+              name: firstRun.name,
+              dagRunId: firstRun.dagRunId,
+              path: firstRun.files[0]!.path,
+            }
+          : null
+      );
+      return;
+    }
+
+    const run = items.find(
+      (item) =>
+        item.name === selected!.name && item.dagRunId === selected!.dagRunId
+    );
+    if (!run) {
+      return;
+    }
+    const dirs = [
+      runTreeRoot(run),
+      ...collectDirectoryPaths(filesToTreeNodes(run.files, runTreeRoot(run))),
+    ];
+    setExpandedPaths((previous) => {
+      const next = new Set(previous);
+      let changed = false;
+      for (const dir of dirs) {
+        if (!next.has(dir)) {
+          next.add(dir);
+          changed = true;
+        }
+      }
+      return changed ? next : previous;
+    });
+  }, [items, selected]);
+
+  const canAutoLoadMore = typeof IntersectionObserver !== 'undefined';
   useAutoLoadMore(
     loadMoreSentinelRef,
     canAutoLoadMore && hasMore && !isLoadingMore && !loadMoreError,
@@ -253,74 +345,11 @@ function Artifacts() {
     }
   }, [isLoadingMore]);
 
-  const updateSelectedDAGRun = React.useCallback(
-    (
-      dagRun: { name: string; dagRunId: string } | null,
-      initialTab: StatusTab = 'artifacts',
-      replace = false
-    ) => {
-      setSelectedDAGRun(dagRun);
-      setSelectedDAGRunInitialTab(initialTab);
-      const params = new URLSearchParams(location.search);
-      if (dagRun) {
-        params.set('selectedRunName', dagRun.name);
-        params.set('selectedRunId', dagRun.dagRunId);
-        if (initialTab === 'status') {
-          params.delete('selectedRunTab');
-        } else {
-          params.set('selectedRunTab', initialTab);
-        }
-      } else {
-        params.delete('selectedRunName');
-        params.delete('selectedRunId');
-        params.delete('selectedRunTab');
-      }
-      const search = params.toString();
-      navigate(
-        {
-          pathname: location.pathname,
-          search: search ? `?${search}` : '',
-        },
-        { replace }
-      );
-    },
-    [location.pathname, location.search, navigate]
+  const fileCount = items.reduce(
+    (total, item) => total + item.files.length,
+    0
   );
 
-  React.useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    const name = params.get('selectedRunName');
-    const dagRunId = params.get('selectedRunId');
-    setSelectedDAGRun(name && dagRunId ? { name, dagRunId } : null);
-    setSelectedDAGRunInitialTab(
-      params.get('selectedRunTab') === 'artifacts' ? 'artifacts' : 'status'
-    );
-  }, [location.search]);
-
-  const openDAGRun = React.useCallback(
-    (item: ArtifactListItem) => {
-      if (isMobile) {
-        navigate(`/dag-runs/${item.name}/${item.dagRunId}`);
-        return;
-      }
-      updateSelectedDAGRun({ name: item.name, dagRunId: item.dagRunId });
-    },
-    [isMobile, navigate, updateSelectedDAGRun]
-  );
-
-  const formatTimestamp = (timestamp: string | undefined): string => {
-    if (!timestamp) {
-      return '-';
-    }
-    const value = dayjs(timestamp);
-    const configuredTime =
-      config.tzOffsetInSec === undefined
-        ? value
-        : value.utcOffset(config.tzOffsetInSec / 60);
-    return configuredTime.format('YYYY-MM-DD HH:mm:ss');
-  };
-
-  // Format timezone offset for display
   const formatTimezoneOffset = (): string => {
     if (config.tzOffsetInSec === undefined) return '';
 
@@ -338,9 +367,13 @@ function Artifacts() {
   };
 
   const tzLabel = formatTimezoneOffset();
+  const selectedNodeSyntheticPath =
+    selected !== null
+      ? `${runTreeRoot(selected)}/${selected.path}`
+      : null;
 
   return (
-    <div className="max-w-7xl">
+    <div className="max-w-7xl h-full min-h-0">
       <div className="mb-2 flex min-w-0 items-center gap-3">
         <Title>
           <I18nText text={'Artifacts'} />
@@ -356,231 +389,246 @@ function Artifacts() {
           </Button>
         </I18nProps>
       </div>
-      <div>
-        <div className="mb-3 space-y-3 rounded-lg border border-border bg-card/50 p-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <I18nProps>
-              <Input
-                placeholder="Filter by DAG name..."
-                value={searchText}
-                onChange={(e) => setSearchText(e.target.value)}
-                onKeyDown={handleInputKeyPress}
-                className="w-[200px]"
-              />
-            </I18nProps>
-            <I18nProps>
-              <Input
-                placeholder="Filter by file name..."
-                value={fileNameText}
-                onChange={(e) => setFileNameText(e.target.value)}
-                onKeyDown={handleInputKeyPress}
-                className="w-[200px]"
-              />
-            </I18nProps>
-            <I18nProps>
-              <ToggleGroup aria-label="Date range mode" className="h-9 p-0.5">
-                <I18nProps>
-                  <ToggleButton
-                    value="preset"
-                    groupValue={dateRangeMode}
-                    onClick={() => {
-                      setDateRangeMode('preset');
-                      handleDatePresetChange(datePreset);
-                    }}
-                    position="first"
-                    className="h-8 px-3"
-                  >
-                    <I18nText text={'Quick'} />
-                  </ToggleButton>
-                </I18nProps>
-                <I18nProps>
-                  <ToggleButton
-                    value="custom"
-                    groupValue={dateRangeMode}
-                    onClick={() => {
-                      setDateRangeMode('custom');
-                      setFromDate(apiFromDate);
-                      setToDate(apiToDate);
-                    }}
-                    position="last"
-                    className="h-8 px-3"
-                  >
-                    <I18nText text={'Custom'} />
-                  </ToggleButton>
-                </I18nProps>
-              </ToggleGroup>
-            </I18nProps>
-            {dateRangeMode === 'preset' ? (
-              <Select
-                value={datePreset}
-                onValueChange={handleDatePresetChange}
-              >
-                <I18nProps>
-                  <SelectTrigger
-                    aria-label="Date preset"
-                    className="w-[180px]"
-                  >
-                    <I18nProps>
-                      <SelectValue placeholder="Select period" />
-                    </I18nProps>
-                  </SelectTrigger>
-                </I18nProps>
-                <SelectContent>
-                  <SelectItem value="today">
-                    <I18nText text={'Today'} />
-                  </SelectItem>
-                  <SelectItem value="yesterday">
-                    <I18nText text={'Yesterday'} />
-                  </SelectItem>
-                  <SelectItem value="last7days">
-                    <I18nText text={'Last 7 days'} />
-                  </SelectItem>
-                  <SelectItem value="last30days">
-                    <I18nText text={'Last 30 days'} />
-                  </SelectItem>
-                  <SelectItem value="thisWeek">
-                    <I18nText text={'This week'} />
-                  </SelectItem>
-                  <SelectItem value="thisMonth">
-                    <I18nText text={'This month'} />
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            ) : (
-              <DateRangePicker
-                fromDate={fromDate}
-                toDate={toDate}
-                onFromDateChange={setFromDate}
-                onToDateChange={setToDate}
-                onEnterPress={() => handleSearch()}
-                fromLabel={`From ${tzLabel}`}
-                toLabel={`To ${tzLabel}`}
-                className="w-full md:w-auto"
-              />
-            )}
-          </div>
-        </div>
-        {items.length === 0 ? (
-          isInitialLoading ? (
-            <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
-              <I18nText text={'Loading artifacts...'} />
-            </div>
-          ) : error ? (
-            <div className="flex items-start gap-2 rounded-md bg-destructive/5 px-3 py-3 text-sm text-destructive">
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>
-                {error instanceof Error
-                  ? error.message
-                  : 'Failed to load artifacts'}
-              </span>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center rounded-md border border-dashed border-border bg-muted/20 px-4 py-10 text-sm text-muted-foreground">
-              <p className="font-medium text-foreground">
-                <I18nText text={'No artifacts found'} />
-              </p>
-              <p className="mt-1 max-w-md text-center">
-                <I18nText
-                  text={
-                    'No DAG-runs in the selected time range produced artifact files. Adjust the date range or filters.'
-                  }
-                />
-              </p>
-            </div>
-          )
-        ) : (
-          <Table className="w-full text-xs">
-            <TableHeader>
-              <TableRow>
-                <TableHead className="py-1 px-2">
-                  <I18nText text={'DAG Name'} />
-                </TableHead>
-                <TableHead className="py-1 px-2">
-                  <I18nText text={'Run ID'} />
-                </TableHead>
-                <TableHead className="py-1 px-2">
-                  <div>
-                    <I18nText text={'Created At'} />
-                  </div>
-                  <div className="text-xs font-normal text-muted-foreground">
-                    {tzLabel}
-                  </div>
-                </TableHead>
-                <TableHead className="py-1 px-2">
-                  <div>
-                    <I18nText text={'Started At'} />
-                  </div>
-                  <div className="text-xs font-normal text-muted-foreground">
-                    {tzLabel}
-                  </div>
-                </TableHead>
-                <TableHead className="py-1 px-2">
-                  <I18nText text={'Files'} />
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {items.map((item) => (
-                <TableRow
-                  key={item.dagRunId}
-                  className="cursor-pointer border-l-4 border-l-transparent transition-colors hover:bg-muted/50 focus-visible:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                  style={{ fontSize: '0.8125rem' }}
-                  onClick={(e) => {
-                    if (e.ctrlKey || e.metaKey) {
-                      const basePath = config.basePath || '';
-                      window.open(
-                        `${basePath}/dag-runs/${item.name}/${item.dagRunId}`,
-                        '_blank'
-                      );
-                      return;
-                    }
-                    openDAGRun(item);
+      <div className="mb-3 space-y-3 rounded-lg border border-border bg-card/50 p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <I18nProps>
+            <Input
+              placeholder="Filter by DAG name..."
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              onKeyDown={handleInputKeyPress}
+              className="w-[200px]"
+            />
+          </I18nProps>
+          <I18nProps>
+            <Input
+              placeholder="Filter by file name..."
+              value={fileNameText}
+              onChange={(e) => setFileNameText(e.target.value)}
+              onKeyDown={handleInputKeyPress}
+              className="w-[200px]"
+            />
+          </I18nProps>
+          <I18nProps>
+            <ToggleGroup aria-label="Date range mode" className="h-9 p-0.5">
+              <I18nProps>
+                <ToggleButton
+                  value="preset"
+                  groupValue={dateRangeMode}
+                  onClick={() => {
+                    setDateRangeMode('preset');
+                    handleDatePresetChange(datePreset);
                   }}
+                  position="first"
+                  className="h-8 px-3"
                 >
-                  <TableCell className="py-1 px-2 font-normal">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <Link
-                        to={`/dag-runs/${item.name}/${item.dagRunId}`}
-                        className="min-w-0 truncate hover:underline"
-                        onClick={(event) => event.stopPropagation()}
-                      >
-                        {item.name}
-                      </Link>
-                    </div>
-                  </TableCell>
-                  <TableCell className="py-1 px-2 font-mono text-muted-foreground">
-                    {item.dagRunId}
-                  </TableCell>
-                  <TableCell className="py-1 px-2 text-muted-foreground">
-                    {formatTimestamp(item.createdAt)}
-                  </TableCell>
-                  <TableCell className="py-1 px-2 text-muted-foreground">
-                    {formatTimestamp(item.startedAt)}
-                  </TableCell>
-                  <TableCell className="py-1 px-2">
-                    <ArtifactFilesCell item={item} />
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-        <div className="mt-3 flex flex-col items-center gap-2">
-          {loadMoreError && (
-            <div className="text-sm text-error">{loadMoreError}</div>
+                  <I18nText text={'Quick'} />
+                </ToggleButton>
+              </I18nProps>
+              <I18nProps>
+                <ToggleButton
+                  value="custom"
+                  groupValue={dateRangeMode}
+                  onClick={() => {
+                    setDateRangeMode('custom');
+                    setFromDate(apiFromDate);
+                    setToDate(apiToDate);
+                  }}
+                  position="last"
+                  className="h-8 px-3"
+                >
+                  <I18nText text={'Custom'} />
+                </ToggleButton>
+              </I18nProps>
+            </ToggleGroup>
+          </I18nProps>
+          {dateRangeMode === 'preset' ? (
+            <Select value={datePreset} onValueChange={handleDatePresetChange}>
+              <I18nProps>
+                <SelectTrigger aria-label="Date preset" className="w-[180px]">
+                  <I18nProps>
+                    <SelectValue placeholder="Select period" />
+                  </I18nProps>
+                </SelectTrigger>
+              </I18nProps>
+              <SelectContent>
+                <SelectItem value="today">
+                  <I18nText text={'Today'} />
+                </SelectItem>
+                <SelectItem value="yesterday">
+                  <I18nText text={'Yesterday'} />
+                </SelectItem>
+                <SelectItem value="last7days">
+                  <I18nText text={'Last 7 days'} />
+                </SelectItem>
+                <SelectItem value="last30days">
+                  <I18nText text={'Last 30 days'} />
+                </SelectItem>
+                <SelectItem value="thisWeek">
+                  <I18nText text={'This week'} />
+                </SelectItem>
+                <SelectItem value="thisMonth">
+                  <I18nText text={'This month'} />
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          ) : (
+            <DateRangePicker
+              fromDate={fromDate}
+              toDate={toDate}
+              onFromDateChange={setFromDate}
+              onToDateChange={setToDate}
+              onEnterPress={() => handleSearch()}
+              fromLabel={`From ${tzLabel}`}
+              toLabel={`To ${tzLabel}`}
+              className="w-full md:w-auto"
+            />
           )}
-          {hasMore ? (
-            <>
-              <div ref={loadMoreSentinelRef} className="h-4 w-full" />
+        </div>
+      </div>
+
+      {items.length === 0 ? (
+        isInitialLoading ? (
+          <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
+            <I18nText text={'Loading artifacts...'} />
+          </div>
+        ) : error ? (
+          <div className="flex items-start gap-2 rounded-md bg-destructive/5 px-3 py-3 text-sm text-destructive">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              {error instanceof Error
+                ? error.message
+                : 'Failed to load artifacts'}
+            </span>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center rounded-md border border-dashed border-border bg-muted/20 px-4 py-10 text-sm text-muted-foreground">
+            <p className="font-medium text-foreground">
+              <I18nText text={'No artifacts found'} />
+            </p>
+            <p className="mt-1 max-w-md text-center">
+              <I18nText
+                text={
+                  'No DAG-runs in the selected time range produced artifact files. Adjust the date range or filters.'
+                }
+              />
+            </p>
+          </div>
+        )
+      ) : (
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[320px_minmax(0,1fr)] h-full min-h-0">
+          <div className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-surface">
+            <div className="flex items-center justify-between border-b border-border px-3 py-2">
+              <div>
+                <p className="text-sm font-medium">
+                  <I18nText text={'Artifacts'} />
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {ts('{count} files', { count: fileCount })}
+                  {items.some((item) => item.filesTruncated) ? (
+                    <span className="ml-1">
+                      <I18nText text={'· selective list, use the run to view all files'} />
+                    </span>
+                  ) : null}
+                </p>
+              </div>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto p-2">
+              <div className="space-y-0.5">
+                {items.map((item) => {
+                  const root = runTreeRoot(item);
+                  const nodes = filesToTreeNodes(item.files, root);
+                  const isOpen = expandedPaths.has(root);
+                  const Icon = isOpen ? FolderOpen : Folder;
+                  return (
+                    <div key={runKey(item)}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setExpandedPaths((previous) => {
+                            const next = new Set(previous);
+                            if (next.has(root)) {
+                              next.delete(root);
+                              return next;
+                            }
+                            next.add(root);
+                            for (const dir of collectDirectoryPaths(nodes)) {
+                              next.add(dir);
+                            }
+                            return next;
+                          });
+                        }}
+                        className={cn(
+                          'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
+                          'text-foreground hover:bg-muted'
+                        )}
+                      >
+                        <Icon className="h-4 w-4 shrink-0" />
+                        <span className="min-w-0 flex-1 truncate font-medium">
+                          {item.name}
+                        </span>
+                        <span className="shrink-0 text-[11px] text-muted-foreground">
+                          {item.files.length > 0
+                            ? ts('{count} files', { count: item.files.length })
+                            : '—'}
+                        </span>
+                      </button>
+                      <span className="block truncate pl-8 text-[11px] text-muted-foreground">
+                        {item.dagRunId} · {item.createdAt}
+                      </span>
+                      {isOpen && nodes.length > 0 && (
+                        <div className="space-y-0.5">
+                          {nodes.map((node) => (
+                            <TreeNode
+                              key={node.path}
+                              node={node}
+                              depth={1}
+                              expandedPaths={expandedPaths}
+                              selectedPath={selectedNodeSyntheticPath}
+                              onToggleDir={(path) => {
+                                setExpandedPaths((previous) => {
+                                  const next = new Set(previous);
+                                  if (next.has(path)) {
+                                    next.delete(path);
+                                  } else {
+                                    next.add(path);
+                                  }
+                                  return next;
+                                });
+                              }}
+                              onSelectFile={(path) => {
+                                const realPath = path.slice(
+                                  root.length + 1
+                                );
+                                setSelected({
+                                  name: item.name,
+                                  dagRunId: item.dagRunId,
+                                  path: realPath,
+                                });
+                              }}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="p-2">
+              {loadMoreError && (
+                <div className="text-sm text-error">{loadMoreError}</div>
+              )}
               {isLoadingMore ? (
                 <div className="text-sm text-muted-foreground">
                   <I18nText text={'Loading more artifacts...'} />
                 </div>
-              ) : (
+              ) : hasMore ? (
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
+                  className="w-full"
                   onClick={() => void handleLoadMore()}
                 >
                   {loadMoreError ? (
@@ -589,66 +637,127 @@ function Artifacts() {
                     <I18nText text={'Load more'} />
                   )}
                 </Button>
+              ) : (
+                <div className="text-sm text-muted-foreground">
+                  <I18nText text={'All artifact files are displayed.'} />
+                </div>
               )}
-            </>
-          ) : items.length > 0 ? (
-            <div className="text-sm text-muted-foreground">
-              <I18nText text={'All artifact files are displayed.'} />
             </div>
-          ) : null}
-        </div>
-      </div>
+            <div ref={loadMoreSentinelRef} className="h-4 w-full" />
+          </div>
 
-      {selectedDAGRun && (
-        <DAGRunDetailsModal
-          name={selectedDAGRun.name}
-          dagRunId={selectedDAGRun.dagRunId}
-          isOpen={!!selectedDAGRun}
-          onClose={() => updateSelectedDAGRun(null, 'artifacts', true)}
-          initialTab={selectedDAGRunInitialTab}
-        />
+          <ArtifactFilePreview
+            dagRunName={selected?.name ?? ''}
+            dagRunId={selected?.dagRunId ?? ''}
+            path={selected?.path ?? null}
+            remoteNode={appBarContext.selectedRemoteNode || 'local'}
+            fillHeight
+          />
+        </div>
       )}
     </div>
   );
 }
 
-function ArtifactFilesCell({
-  item,
+function TreeNode({
+  node,
+  depth,
+  expandedPaths,
+  selectedPath,
+  onToggleDir,
+  onSelectFile,
 }: {
-  item: ArtifactListItem;
-}): React.ReactNode {
-  const visibleFiles = item.files.slice(0, MAX_VISIBLE_FILES);
-  const hiddenCount = item.files.length - visibleFiles.length;
+  node: FileTreeNode;
+  depth: number;
+  expandedPaths: Set<string>;
+  selectedPath: string | null;
+  onToggleDir: (path: string) => void;
+  onSelectFile: (path: string) => void;
+}) {
+  const isDir = node.type === 'directory';
+  const isOpen = isDir && expandedPaths.has(node.path);
+  const isSelected = !isDir && selectedPath === node.path;
+
+  const Icon = isDir
+    ? isOpen
+      ? FolderOpen
+      : Folder
+    : node.path.match(/\.(md|markdown|mdown|mkd)$/i)
+      ? FileText
+      : node.path.match(/\.(html?|xhtml)$/i)
+        ? FileCode
+        : node.path.match(/\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i)
+          ? FileImage
+          : File;
 
   return (
-    <div className="flex flex-wrap items-center gap-1">
-      {item.files.length === 0 ? (
-        <span className="text-muted-foreground">
-          <I18nText text={'No files'} />
-        </span>
-      ) : (
-        <>
-          {visibleFiles.map((file) => (
-            <span
-              key={file.path}
-              className="inline-flex min-w-0 max-w-[10rem] items-center truncate rounded border bg-muted/30 px-1 text-[10px] text-muted-foreground"
-              title={file.path}
-            >
-              {file.path}
-            </span>
+    <div>
+      <button
+        type="button"
+        onClick={() => {
+          if (isDir) {
+            onToggleDir(node.path);
+            return;
+          }
+          onSelectFile(node.path);
+        }}
+        className={cn(
+          'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
+          isSelected
+            ? 'bg-primary/10 text-primary'
+            : 'text-foreground hover:bg-muted'
+        )}
+        style={{ paddingLeft: `${depth * 14 + 8}px` }}
+      >
+        <Icon className="h-4 w-4 shrink-0" />
+        <span className="min-w-0 flex-1 truncate">{node.name}</span>
+        {!isDir && node.size != null && (
+          <span className="shrink-0 text-[11px] text-muted-foreground">
+            {Intl.NumberFormat().format(node.size)}
+          </span>
+        )}
+      </button>
+      {isDir && isOpen && node.children && node.children.length > 0 && (
+        <div className="space-y-0.5">
+          {node.children.map((child) => (
+            <TreeNode
+              key={child.path}
+              node={child}
+              depth={depth + 1}
+              expandedPaths={expandedPaths}
+              selectedPath={selectedPath}
+              onToggleDir={onToggleDir}
+              onSelectFile={onSelectFile}
+            />
           ))}
-          {hiddenCount > 0 && (
-            <span className="text-muted-foreground">+{hiddenCount}</span>
-          )}
-          {item.filesTruncated && (
-            <span className="inline-flex items-center rounded bg-muted/50 px-1 text-[10px] text-muted-foreground">
-              <I18nText text={'truncated'} />
-            </span>
-          )}
-        </>
+        </div>
       )}
     </div>
   );
+}
+
+function useAutoLoadMore(
+  sentinelRef: React.RefObject<HTMLDivElement | null>,
+  enabled: boolean,
+  onLoadMore: () => void
+) {
+  React.useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || !enabled || typeof IntersectionObserver === 'undefined') {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) {
+          onLoadMore();
+        }
+      },
+      { threshold: 0.1 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [enabled, onLoadMore, sentinelRef]);
 }
 
 export default Artifacts;

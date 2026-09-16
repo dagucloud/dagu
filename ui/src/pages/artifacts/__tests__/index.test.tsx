@@ -5,7 +5,6 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import dayjs from 'dayjs';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
-import { MemoryRouter, useLocation } from 'react-router-dom';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import type { ArtifactListItem } from '@/features/artifacts/hooks/artifactListPagination';
 import { AppBarContext } from '@/contexts/AppBarContext';
@@ -32,23 +31,16 @@ vi.mock('@/features/artifacts/hooks/artifactListPagination', () => ({
   usePaginatedArtifacts: usePaginatedArtifactsMock,
 }));
 
-vi.mock('@/features/dag-runs/components/dag-run-details', () => ({
-  DAGRunDetailsModal: ({
-    name,
-    dagRunId,
-    initialTab,
-    onClose,
-  }: {
-    name: string;
+vi.mock('@/features/dags/components/artifacts/ArtifactFilePreview', () => ({
+  ArtifactFilePreview: (props: {
+    dagRunName: string;
     dagRunId: string;
-    initialTab: string;
-    onClose: () => void;
+    path: string | null;
   }) => (
-    <div role="dialog">
-      Run modal for {name}/{dagRunId} on {initialTab}
-      <button type="button" onClick={onClose}>
-        Close run
-      </button>
+    <div data-testid="preview-pane">
+      {props.path
+        ? `preview of ${props.path} in ${props.dagRunName}/${props.dagRunId}`
+        : 'no selection'}
     </div>
   ),
 }));
@@ -63,7 +55,10 @@ function makeItem(overrides: Partial<ArtifactListItem> = {}): ArtifactListItem {
     dagRunId: 'run-1',
     createdAt: '2026-09-15T14:32:07Z',
     startedAt: '2026-09-15T14:40:00Z',
-    files: [{ path: 'out/report.md', size: 42 }],
+    files: [
+      { path: 'out/report.md', size: 42 },
+      { path: 'out/plot.png', size: 1024 },
+    ],
     filesTruncated: false,
     ...overrides,
   };
@@ -90,52 +85,37 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function LocationProbe(): React.JSX.Element {
-  const location = useLocation();
-  return <output data-testid="location-search">{location.search}</output>;
-}
-
 function renderPage(
   setTitle = vi.fn(),
-  initialEntry = '/artifacts',
   configOverrides: Partial<Config> = {}
 ): void {
   render(
-    <MemoryRouter initialEntries={[initialEntry]}>
-      <LocationProbe />
-      <ConfigContext.Provider
+    <ConfigContext.Provider
+      value={
+        {
+          ...config,
+          ...configOverrides,
+        } as Config
+      }
+    >
+      <AppBarContext.Provider
         value={
           {
-            ...config,
-            ...configOverrides,
-          } as Config
+            setTitle,
+            selectedRemoteNode: 'local',
+            workspaceSelection: { kind: WorkspaceKind.all },
+          } as never
         }
       >
-        <AppBarContext.Provider
-          value={
-            {
-              setTitle,
-              selectedRemoteNode: 'local',
-              workspaceSelection: { kind: WorkspaceKind.all },
-            } as never
-          }
-        >
-          <Artifacts />
-        </AppBarContext.Provider>
-      </ConfigContext.Provider>
-    </MemoryRouter>
+        <Artifacts />
+      </AppBarContext.Provider>
+    </ConfigContext.Provider>
   );
 }
 
 function lastQuery(): Record<string, unknown> {
   const calls = usePaginatedArtifactsMock.mock.calls;
   return calls[calls.length - 1]?.[0]?.query ?? {};
-}
-
-function expectRunModal(name: string, dagRunId: string): void {
-  expect(
-    screen.getByText(`Run modal for ${name}/${dagRunId} on artifacts`)
-  ).toBeInTheDocument();
 }
 
 describe('Artifacts page', () => {
@@ -163,51 +143,6 @@ describe('Artifacts page', () => {
     );
   });
 
-  it('interprets custom dates in the configured timezone', async () => {
-    const user = userEvent.setup();
-    renderPage(vi.fn(), '/artifacts', { tzOffsetInSec: -5 * 60 * 60 });
-
-    fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
-    const inputs = await screen.findAllByPlaceholderText(
-      'YYYY-MM-DD HH:mm:ss'
-    );
-    const fromInput = inputs[0]!;
-    const toInput = inputs[1]!;
-    await user.clear(fromInput);
-    await user.type(fromInput, '2026-09-15 00:00:00');
-    await user.clear(toInput);
-    await user.type(toInput, '2026-09-16 00:00:00');
-    fireEvent.keyDown(fromInput, { key: 'Enter' });
-
-    const query = lastQuery();
-    expect(query.fromDate).toBe(Date.UTC(2026, 8, 15, 5, 0, 0) / 1000);
-    expect(query.toDate).toBe(Date.UTC(2026, 8, 16, 5, 0, 0) / 1000);
-  });
-
-  it('shows an API error instead of an empty state', () => {
-    usePaginatedArtifactsResult.current.error = new Error(
-      'Invalid file name pattern'
-    );
-    renderPage();
-
-    expect(screen.getByText('Invalid file name pattern')).toBeInTheDocument();
-    expect(screen.queryByText('No artifacts found')).not.toBeInTheDocument();
-  });
-
-  it('opens the run in a new tab under the base path', () => {
-    const openMock = vi.spyOn(window, 'open').mockImplementation(() => null);
-    usePaginatedArtifactsResult.current.items = [makeItem()];
-    renderPage(vi.fn(), '/artifacts', { basePath: '/dagu' });
-
-    const nameLink = screen.getByRole('link', { name: 'reporter' });
-    fireEvent.click(nameLink.closest('tr') ?? nameLink, { metaKey: true });
-
-    expect(openMock).toHaveBeenCalledWith(
-      '/dagu/dag-runs/reporter/run-1',
-      '_blank'
-    );
-  });
-
   it('applies the DAG name filter when Enter is pressed', async () => {
     const user = userEvent.setup();
     renderPage();
@@ -230,9 +165,9 @@ describe('Artifacts page', () => {
     expect(lastQuery().fileName).toBe('report.md');
   });
 
-  it('applies the custom date range when Enter is pressed', async () => {
+  it('interprets custom dates in the configured timezone', async () => {
     const user = userEvent.setup();
-    renderPage();
+    renderPage(vi.fn(), { tzOffsetInSec: -5 * 60 * 60 });
 
     fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
     const inputs = await screen.findAllByPlaceholderText(
@@ -241,34 +176,68 @@ describe('Artifacts page', () => {
     const fromInput = inputs[0]!;
     const toInput = inputs[1]!;
     await user.clear(fromInput);
-    await user.type(fromInput, '2026-09-01 00:00:00');
+    await user.type(fromInput, '2026-09-15 00:00:00');
     await user.clear(toInput);
-    await user.type(toInput, '2026-09-15 00:00:00');
+    await user.type(toInput, '2026-09-16 00:00:00');
     fireEvent.keyDown(fromInput, { key: 'Enter' });
 
     const query = lastQuery();
-    expect(query.fromDate).toBe(dayjs('2026-09-01T00:00:00').unix());
-    expect(query.toDate).toBe(dayjs('2026-09-15T00:00:00').unix());
+    expect(query.fromDate).toBe(Date.UTC(2026, 8, 15, 5, 0, 0) / 1000);
+    expect(query.toDate).toBe(Date.UTC(2026, 8, 16, 5, 0, 0) / 1000);
   });
 
-  it('renders a run row with its artifact files', () => {
+  it('lists runs with their artifact files and previews the first file', () => {
     usePaginatedArtifactsResult.current.items = [
-      makeItem({
-        files: [
-          { path: 'out/report.md', size: 42 },
-          { path: 'out/plot.png', size: 1024 },
-        ],
-      }),
+      makeItem(),
       makeItem({ name: 'ingest', dagRunId: 'run-2', files: [] }),
     ];
     renderPage();
 
-    expect(screen.getByRole('link', { name: 'reporter' })).toHaveAttribute(
-      'href',
-      '/dag-runs/reporter/run-1'
-    );
-    expect(screen.getByText('out/report.md')).toBeInTheDocument();
-    expect(screen.getAllByText('No files').length).toBe(1);
+    expect(screen.getByRole('button', { name: /reporter/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /ingest/ })).toBeInTheDocument();
+    // The newest run with files opens automatically; its first file is
+    // selected so the preview pane shows something immediately.
+    expect(screen.getByRole('button', { name: /report\.md/ })).toBeInTheDocument();
+    expect(
+      screen.getByText('preview of out/report.md in reporter/run-1')
+    ).toBeInTheDocument();
+  });
+
+  it('previews a file after it is selected', () => {
+    usePaginatedArtifactsResult.current.items = [makeItem()];
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: /plot\.png/ }));
+
+    expect(
+      screen.getByText('preview of out/plot.png in reporter/run-1')
+    ).toBeInTheDocument();
+  });
+
+  it('expands a collapsed run to reveal its files', () => {
+    usePaginatedArtifactsResult.current.items = [
+      makeItem(),
+      makeItem({
+        name: 'oldest',
+        dagRunId: 'run-9',
+        files: [{ path: 'top/raw.json', size: 7 }],
+      }),
+    ];
+    renderPage();
+
+    expect(
+      screen.queryByRole('button', { name: /raw\.json/ })
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /oldest/ }));
+
+    expect(
+      screen.getByRole('button', { name: /raw\.json/ })
+    ).toBeInTheDocument();
+    // The selection is untouched by expanding another run.
+    expect(
+      screen.getByText('preview of out/report.md in reporter/run-1')
+    ).toBeInTheDocument();
   });
 
   it('marks runs whose file lists were truncated', () => {
@@ -277,32 +246,25 @@ describe('Artifacts page', () => {
     ];
     renderPage();
 
-    expect(screen.getByText('truncated')).toBeInTheDocument();
+    expect(
+      screen.getByText('· selective list, use the run to view all files')
+    ).toBeInTheDocument();
+  });
+
+  it('shows an API error instead of an empty state', () => {
+    usePaginatedArtifactsResult.current.error = new Error(
+      'Invalid file name pattern'
+    );
+    renderPage();
+
+    expect(screen.getByText('Invalid file name pattern')).toBeInTheDocument();
+    expect(screen.queryByText('No artifacts found')).not.toBeInTheDocument();
   });
 
   it('shows an empty state when no runs produced artifacts', () => {
     renderPage();
 
     expect(screen.getByText('No artifacts found')).toBeInTheDocument();
-  });
-
-  it('opens the run details modal on the artifacts tab', () => {
-    usePaginatedArtifactsResult.current.items = [makeItem()];
-    renderPage();
-
-    const nameLink = screen.getByRole('link', { name: 'reporter' });
-    fireEvent.click(nameLink.closest('tr') ?? nameLink);
-
-    expectRunModal('reporter', 'run-1');
-  });
-
-  it('restores the selected run from the URL', () => {
-    renderPage(
-      vi.fn(),
-      '/artifacts?selectedRunName=reporter&selectedRunId=run-1&selectedRunTab=artifacts'
-    );
-
-    expectRunModal('reporter', 'run-1');
   });
 
   it('shows a load more button when a next cursor exists', () => {
