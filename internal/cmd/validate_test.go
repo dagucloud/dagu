@@ -26,6 +26,26 @@ steps:
 		})
 	})
 
+	t.Run("HarnessWorkingDirWarning", func(t *testing.T) {
+		th.LoggingOutput.Reset()
+		dagFile := th.CreateDAGFile(t, "harness_warning.yaml", `steps:
+  - id: review
+    action: harness.run
+    with:
+      provider: claude
+      prompt: Review this repository.
+`)
+		th.RunCommand(t, cmd.Validate(), test.CmdTest{
+			Args:        []string{"validate", dagFile},
+			ExpectedOut: []string{"working_dir", "review"},
+		})
+		th.LoggingOutput.Reset()
+		th.RunCommand(t, cmd.Validate(), test.CmdTest{
+			Args: []string{"validate", "--default-working-dir", t.TempDir(), dagFile},
+		})
+		require.NotContains(t, th.LoggingOutput.String(), "has no explicit working_dir")
+	})
+
 	t.Run("StateExpectedVersionExpression", func(t *testing.T) {
 		dagFile := th.CreateDAGFile(t, "state_expected_version.yaml", `
 steps:

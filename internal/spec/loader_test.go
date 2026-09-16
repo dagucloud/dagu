@@ -21,6 +21,130 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestHarnessWorkingDirWarnings(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name        string
+		root        string
+		step        string
+		opts        []spec.LoadOption
+		wantWarning bool
+	}{
+		{name: "Missing", wantWarning: true},
+		{name: "Step", step: "    working_dir: ./repo\n"},
+		{name: "Root", root: "working_dir: ./repo\n"},
+		{name: "Expression", step: "    working_dir: ${params.repo}\n", root: "params:\n  repo: ./repo\n"},
+		{name: "Base", opts: []spec.LoadOption{spec.WithBaseConfigContent([]byte("working_dir: ./repo\n"))}},
+		{name: "Default", opts: []spec.LoadOption{spec.WithDefaultWorkingDir("./repo")}},
+		{name: "StepContainer", step: "    container: {image: alpine, working_dir: /repo}\n"},
+		{name: "RootContainer", root: "container: {image: alpine, working_dir: /repo}\n"},
+		{name: "ContainerMissing", step: "    container: {image: alpine}\n", wantWarning: true},
+		{name: "ContainerHostDir", root: "working_dir: ./repo\n", step: "    container: {image: alpine}\n", wantWarning: true},
+		{name: "ContainerDefault", step: "    container: {image: alpine}\n", opts: []spec.LoadOption{spec.WithDefaultWorkingDir("./repo")}, wantWarning: true},
+		{name: "ContainerOverride", root: "container: {image: alpine, working_dir: /repo}\n", step: "    container: {image: alpine}\n", wantWarning: true},
+		{name: "ContainerExec", step: "    container: {exec: agent, working_dir: /repo}\n"},
+		{name: "BaseContainer", opts: []spec.LoadOption{spec.WithBaseConfigContent([]byte("container: {image: alpine, working_dir: /repo}\n"))}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			data := []byte("name: workspace-check\n" + tc.root + `steps:
+  - id: review
+    action: harness.run
+    with:
+      provider: claude
+      prompt: Review this repository.
+` + tc.step)
+			for _, fromFile := range []bool{false, true} {
+				var dag *ir.DAG
+				var err error
+				if fromFile {
+					dag, err = spec.Load(context.Background(), createTempYAMLFile(t, string(data)), tc.opts...)
+				} else {
+					dag, err = spec.LoadYAML(context.Background(), data, tc.opts...)
+				}
+				require.NoError(t, err)
+				if tc.wantWarning {
+					require.Len(t, dag.BuildWarnings, 1)
+					assert.Contains(t, dag.BuildWarnings[0], "workspace-check")
+					assert.Contains(t, dag.BuildWarnings[0], "review")
+					assert.Contains(t, dag.BuildWarnings[0], "working_dir")
+				} else {
+					assert.Empty(t, dag.BuildWarnings)
+				}
+			}
+		})
+	}
+}
+
+func TestHarnessWarningsInLocalDAG(t *testing.T) {
+	t.Parallel()
+	dag, err := spec.LoadYAML(context.Background(), []byte(`name: parent
+working_dir: /parent
+steps:
+  - run: echo parent
+---
+name: child
+steps:
+  - id: review
+    action: harness.run
+    with:
+      provider: claude
+      prompt: Review this repository.
+handler_on:
+  success:
+    action: harness.run
+    with:
+      provider: claude
+      prompt: Summarize changes.
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.BuildWarnings, 2)
+	for _, warning := range dag.BuildWarnings {
+		assert.Contains(t, warning, "child")
+	}
+	assert.Contains(t, dag.BuildWarnings[0], "review")
+	assert.Contains(t, dag.BuildWarnings[1], "success")
+}
+
+func TestHarnessWarningsInForeach(t *testing.T) {
+	t.Parallel()
+	data := []byte(`name: nested
+steps:
+  - id: loop
+    foreach:
+      items: [one]
+      steps:
+        - id: review
+          action: harness.run
+          with:
+            provider: claude
+            prompt: Review this repository.
+`)
+	dag, err := spec.LoadYAML(context.Background(), data)
+	require.NoError(t, err)
+	require.Len(t, dag.BuildWarnings, 1)
+	assert.Contains(t, dag.BuildWarnings[0], "steps.loop.foreach.steps.review")
+
+	dag, err = spec.LoadYAML(context.Background(), data, spec.WithDefaultWorkingDir(t.TempDir()))
+	require.NoError(t, err)
+	assert.Empty(t, dag.BuildWarnings)
+}
+
+func TestHarnessWarningsAfterBaseMerge(t *testing.T) {
+	t.Parallel()
+	base := []byte(`handler_on:
+  success:
+    action: harness.run
+    with:
+      provider: claude
+      prompt: Summarize changes.
+`)
+	dag, err := spec.LoadYAML(context.Background(), []byte("working_dir: ./repo\nsteps:\n  - run: echo done\n"), spec.WithBaseConfigContent(base))
+	require.NoError(t, err)
+	assert.Empty(t, dag.BuildWarnings)
+}
+
 func TestLoad(t *testing.T) {
 	t.Parallel()
 

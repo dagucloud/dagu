@@ -104,6 +104,43 @@ when the definition's `flag_style` is `single_dash`) unless
 entirely); a string, integer, or float value produces `flag value`; an
 array value repeats `flag value` once per element.
 
+### Working-directory warnings
+
+A harness step without an explicitly configured working directory produces a
+non-fatal validation warning identifying its DAG and step. This includes steps
+inside `foreach` bodies, lifecycle handlers, and local DAG documents.
+
+- For host execution, a step `working_dir`, a root `working_dir` (including an
+  inherited base configuration), or a supplied `--default-working-dir` satisfies
+  the check. Automatically selected manifest or run directories do not.
+- For container execution, the effective container configuration must declare
+  `working_dir` to suppress the warning. A step container takes precedence over
+  the root container. A host working directory does not set the agent's directory
+  inside the container; the check also applies to `container.exec`.
+- Relative paths and runtime expressions count as configuration. Validation does
+  not check directory existence or change directory resolution or creation.
+
+`dagu validate` prints the warning and exits successfully when there are no
+errors. It accepts `--default-working-dir` to validate with the same default used
+for execution. The spec API returns warnings separately from errors, and the DAG
+editor displays them without blocking saves or execution. Warnings are transient
+and do not change retry behavior.
+
+For example, configure the workspace once for host harness steps:
+
+```yaml
+working_dir: ./repo
+steps:
+  - id: review
+    action: harness.run
+    with:
+      provider: claude
+      prompt: Review this repository.
+```
+
+For a containerized step, set `container.working_dir: /repo` and mount the intended
+repository there using the existing container volume configuration.
+
 ### Containerized execution
 
 A step-level `container:` block runs the resolved provider's binary inside

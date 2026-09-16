@@ -819,6 +819,57 @@ func (s *dagBuildState) collectWarnings() {
 	for _, sched := range s.result.RestartSchedule {
 		s.result.BuildWarnings = append(s.result.BuildWarnings, sched.Warnings...)
 	}
+	if !s.ctx.opts.Has(buildFlagOnlyMetadata) {
+		s.result.BuildWarnings = append(s.result.BuildWarnings, harnessWorkingDirWarnings(s.result)...)
+	}
+}
+
+func harnessWorkingDirWarnings(dag *ir.DAG) []string {
+	var warnings []string
+	var visit func(ir.Step, string)
+	visit = func(step ir.Step, path string) {
+		if step.ExecutorConfig.Type == "harness" {
+			container := step.Container
+			if container == nil {
+				container = dag.Container
+			}
+			var message string
+			if container != nil {
+				if strings.TrimSpace(container.WorkingDir) == "" {
+					message = "has no explicit container.working_dir; set working_dir in the effective container configuration to choose the agent workspace"
+				}
+			} else if step.Dir == "" && dag.WorkingDir == "" {
+				message = "has no explicit working_dir; set working_dir on the step or DAG, or supply --default-working-dir, to choose the agent workspace"
+			}
+			if message != "" {
+				warnings = append(warnings, fmt.Sprintf("DAG %q: harness step %q %s", dag.Name, path, message))
+			}
+		}
+		if step.Foreach != nil {
+			for _, child := range step.Foreach.Steps {
+				visit(child, path+".foreach.steps."+child.Name)
+			}
+		}
+	}
+	for _, step := range dag.Steps {
+		visit(step, "steps."+step.Name)
+	}
+	for _, handler := range []struct {
+		name string
+		step *ir.Step
+	}{
+		{"init", dag.HandlerOn.Init},
+		{"failure", dag.HandlerOn.Failure},
+		{"success", dag.HandlerOn.Success},
+		{"abort", dag.HandlerOn.Abort},
+		{"exit", dag.HandlerOn.Exit},
+		{"wait", dag.HandlerOn.Wait},
+	} {
+		if handler.step != nil {
+			visit(*handler.step, "handler_on."+handler.name)
+		}
+	}
+	return warnings
 }
 
 func (s *dagBuildState) buildActionGraph() {
@@ -912,8 +963,8 @@ func (d *dag) build(ctx buildContext) (*ir.DAG, error) {
 	state.composeInheritedContext()
 	state.resolveWorkerSelector()
 	state.markEnvEvaluated()
-	state.collectWarnings()
 	state.buildActionGraph()
+	state.collectWarnings()
 	state.validateResult()
 	state.capturePresolvedBuildEnv()
 	return state.finish()

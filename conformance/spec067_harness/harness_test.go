@@ -5,6 +5,7 @@
 package spec067_harness_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
@@ -13,6 +14,26 @@ import (
 
 func TestHarnessLive(t *testing.T) {
 	t.Parallel()
+
+	t.Run("implicit working directory remains runnable", func(t *testing.T) {
+		t.Parallel()
+		dagu := harness.NewRunner(t)
+		writeFakeHarnessScripts(dagu)
+		dagu.WriteFile("implicit.yaml", fmt.Sprintf(`harnesses:
+  fake:
+    binary: sh
+    prefix_args: [%q]
+steps:
+  - id: review
+    action: harness.run
+    with:
+      provider: fake
+      prompt: Review this repository.
+`, dagu.ProjectPath("scripts/fake_ok.sh")))
+		result := dagu.Run("start", "implicit.yaml")
+		result.ExpectExitCode(0)
+		require.Contains(t, stepStdout(t, result.Stdout(), 0), "ARG:Review this repository.")
+	})
 
 	t.Run("invocation and fallback", func(t *testing.T) {
 		t.Parallel()
@@ -126,6 +147,41 @@ func TestHarnessLive(t *testing.T) {
 // runtime-only concern (see TestHarnessLive's missing_binary case).
 func TestHarnessValidation(t *testing.T) {
 	t.Parallel()
+
+	t.Run("implicit working directory warns without failing", func(t *testing.T) {
+		t.Parallel()
+		dagu := harness.NewRunner(t)
+		dagu.WriteFile("implicit.yaml", `steps:
+  - id: review
+    action: harness.run
+    with:
+      provider: claude
+      prompt: Review this repository.
+`)
+		result := dagu.Run("validate", "implicit.yaml")
+		result.ExpectExitCode(0)
+		result.ExpectStderrContains("has no explicit working_dir")
+		result = dagu.Run("validate", "--default-working-dir", dagu.ProjectPath(""), "implicit.yaml")
+		result.ExpectExitCode(0)
+		require.NotContains(t, result.Stderr(), "has no explicit working_dir")
+	})
+
+	t.Run("host directory does not suppress container warning", func(t *testing.T) {
+		t.Parallel()
+		dagu := harness.NewRunner(t)
+		dagu.WriteFile("container.yaml", `working_dir: .
+steps:
+  - id: review
+    action: harness.run
+    container: {image: alpine}
+    with:
+      provider: claude
+      prompt: Review this repository.
+`)
+		result := dagu.Run("validate", "container.yaml")
+		result.ExpectExitCode(0)
+		result.ExpectStderrContains("has no explicit container.working_dir")
+	})
 
 	t.Run("a well-formed harness step and its custom harnesses: definitions pass validate", func(t *testing.T) {
 		t.Parallel()
