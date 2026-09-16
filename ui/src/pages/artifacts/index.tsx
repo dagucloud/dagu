@@ -39,7 +39,7 @@ import { useConfig } from '../../contexts/ConfigContext';
 import { workspaceSelectionQuery } from '../../lib/workspace';
 import { cn } from '@/lib/utils';
 
-const DEFAULT_PRESET = 'today';
+const DEFAULT_PRESET = 'all';
 const ARTIFACT_LIST_LIMIT = 100;
 
 function computePresetDates(
@@ -159,12 +159,7 @@ function Artifacts() {
     () => workspaceSelectionQuery(appBarContext.workspaceSelection),
     [appBarContext.workspaceSelection]
   );
-  const initialPresetDates = computePresetDates(
-    DEFAULT_PRESET,
-    config.tzOffsetInSec
-  );
-
-  const [searchText, setSearchText] = React.useState('');
+    const [searchText, setSearchText] = React.useState('');
   const [apiSearchText, setApiSearchText] = React.useState('');
   const [fileNameText, setFileNameText] = React.useState('');
   const [apiFileNameText, setApiFileNameText] = React.useState('');
@@ -172,18 +167,10 @@ function Artifacts() {
     'preset' | 'custom'
   >('preset');
   const [datePreset, setDatePreset] = React.useState(DEFAULT_PRESET);
-  const [fromDate, setFromDate] = React.useState<string | undefined>(
-    initialPresetDates.from
-  );
-  const [toDate, setToDate] = React.useState<string | undefined>(
-    initialPresetDates.to
-  );
-  const [apiFromDate, setApiFromDate] = React.useState<string | undefined>(
-    initialPresetDates.from
-  );
-  const [apiToDate, setApiToDate] = React.useState<string | undefined>(
-    initialPresetDates.to
-  );
+  const [fromDate, setFromDate] = React.useState<string | undefined>();
+  const [toDate, setToDate] = React.useState<string | undefined>();
+  const [apiFromDate, setApiFromDate] = React.useState<string | undefined>();
+  const [apiToDate, setApiToDate] = React.useState<string | undefined>();
   const [selected, setSelected] = React.useState<{
     name: string;
     dagRunId: string;
@@ -229,6 +216,13 @@ function Artifacts() {
 
   const handleDatePresetChange = (preset: string) => {
     setDatePreset(preset);
+    if (preset === 'all') {
+      setFromDate(undefined);
+      setToDate(undefined);
+      setApiFromDate(undefined);
+      setApiToDate(undefined);
+      return;
+    }
     const dates = computePresetDates(preset, config.tzOffsetInSec);
     setFromDate(dates.from);
     setToDate(dates.to);
@@ -452,6 +446,9 @@ function Artifacts() {
                 </SelectTrigger>
               </I18nProps>
               <SelectContent>
+                <SelectItem value="all">
+                  <I18nText text={'All time'} />
+                </SelectItem>
                 <SelectItem value="today">
                   <I18nText text={'Today'} />
                 </SelectItem>
@@ -614,6 +611,7 @@ function Artifacts() {
                   );
                 })}
               </div>
+              <div ref={loadMoreSentinelRef} className="h-4 w-full" />
             </div>
             <div className="p-2">
               {loadMoreError && (
@@ -643,7 +641,6 @@ function Artifacts() {
                 </div>
               )}
             </div>
-            <div ref={loadMoreSentinelRef} className="h-4 w-full" />
           </div>
 
           <ArtifactFilePreview

@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { fireEvent, render, screen } from '@testing-library/react';
-import dayjs from 'dayjs';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
@@ -135,12 +134,12 @@ describe('Artifacts page', () => {
     expect(query.limit).toBe(100);
   });
 
-  it('bounds the initial query to the default Today preset', () => {
+  it('lists recent runs without a date filter by default', () => {
     renderPage();
 
-    expect(lastQuery().fromDate).toBe(
-      dayjs(`${dayjs().format('YYYY-MM-DD')}T00:00:00`).unix()
-    );
+    const query = lastQuery();
+    expect(query.fromDate).toBeUndefined();
+    expect(query.toDate).toBeUndefined();
   });
 
   it('applies the DAG name filter when Enter is pressed', async () => {
