@@ -6714,7 +6714,7 @@ export interface components {
          */
         RunDateMode: RunDateMode;
         /**
-         * @description Relative date preset applied by an Executions page view.
+         * @description Relative date preset applied by an Executions or Artifacts page view. 'all' applies no date bound and is accepted only for artifact views.
          * @enum {string}
          */
         RunDatePreset: RunDatePreset;
@@ -6738,6 +6738,8 @@ export interface components {
             labels?: string[];
             /** @description DAG name substring filter. Empty matches any. */
             dagName?: string;
+            /** @description Artifact file name filter: a glob when it contains wildcards, otherwise a substring. Empty matches any. */
+            fileName?: string;
             /** @description DAG run ID filter. Empty matches any. */
             dagRunId?: string;
             /** @description Run status filter: 'all' or a status number. Empty matches any. */
@@ -6775,6 +6777,8 @@ export interface components {
             workspace?: string;
             labels?: string[];
             dagName?: string;
+            /** @description Artifact file name filter. Empty matches any. */
+            fileName?: string;
             intervalDays: number;
             /** @description Visible status columns in left-to-right display order. */
             columns?: components["schemas"]["ViewColumn"][];
@@ -19467,7 +19471,8 @@ export enum RunDatePreset {
     last7days = "last7days",
     last30days = "last30days",
     thisWeek = "thisWeek",
-    thisMonth = "thisMonth"
+    thisMonth = "thisMonth",
+    all = "all"
 }
 export enum RunSpecificPeriod {
     date = "date",
@@ -19477,7 +19482,8 @@ export enum RunSpecificPeriod {
 export enum ViewSpecType {
     kanban = "kanban",
     workflow = "workflow",
-    run = "run"
+    run = "run",
+    artifact = "artifact"
 }
 export enum ComponentsParametersEventLogPaginationMode {
     offset = "offset",

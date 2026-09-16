@@ -16271,7 +16271,8 @@ components:
         - last30days
         - thisWeek
         - thisMonth
-      description: "Relative date preset applied by an Executions page view."
+        - all
+      description: "Relative date preset applied by an Executions or Artifacts page view. 'all' applies no date bound and is accepted only for artifact views."
 
     RunSpecificPeriod:
       type: string
@@ -16298,6 +16299,7 @@ components:
             - kanban
             - workflow
             - run
+            - artifact
           default: kanban
           description: "Saved view type."
         workspace:
@@ -16322,6 +16324,10 @@ components:
           type: string
           maxLength: 255
           description: "DAG name substring filter. Empty matches any."
+        fileName:
+          type: string
+          maxLength: 255
+          description: "Artifact file name filter: a glob when it contains wildcards, otherwise a substring. Empty matches any."
         dagRunId:
           type: string
           maxLength: 64
@@ -16401,6 +16407,9 @@ components:
             type: string
         dagName:
           type: string
+        fileName:
+          type: string
+          description: "Artifact file name filter. Empty matches any."
         intervalDays:
           type: integer
         columns:

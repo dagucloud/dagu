@@ -130,6 +130,91 @@ func TestView_ValidateRunRejectsInvalidFields(t *testing.T) {
 	}
 }
 
+func TestView_ValidateArtifact(t *testing.T) {
+	v := &view.View{
+		Name:           "Nightly reports",
+		Type:           view.TypeArtifact,
+		WorkspaceScope: view.WorkspaceScopeWorkspace,
+		Workspace:      "production",
+		DAGName:        "nightly-etl",
+		FileName:       "*.csv",
+		DateMode:       view.DateModeCustom,
+		DatePreset:     view.DatePresetAll,
+		FromDate:       "2026-09-01T00:00",
+		ToDate:         "2026-09-30T23:59",
+		Pinned:         true,
+	}
+	v.Normalize()
+
+	require.NoError(t, v.Validate())
+	assert.Equal(t, view.MinIntervalDays, v.IntervalDays)
+	assert.Nil(t, v.Columns)
+	assert.True(t, v.Pinned)
+}
+
+func TestView_ValidateArtifactRejectsInvalidFields(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*view.View)
+		want   error
+	}{
+		{"all scope with workspace", func(v *view.View) { v.Workspace = "production" }, view.ErrInvalidWorkspaceScope},
+		{"workspace scope without workspace", func(v *view.View) { v.WorkspaceScope = view.WorkspaceScopeWorkspace }, view.ErrInvalidWorkspaceScope},
+		{"fileName too long", func(v *view.View) { v.FileName = strings.Repeat("f", view.MaxFileNameLength+1) }, view.ErrFileNameTooLong},
+		{"specific date mode", func(v *view.View) { v.DateMode = view.DateModeSpecific }, view.ErrInvalidDateMode},
+		{"unknown date mode", func(v *view.View) { v.DateMode = "week" }, view.ErrInvalidDateMode},
+		{"unknown date preset", func(v *view.View) { v.DatePreset = "tomorrow" }, view.ErrInvalidDatePreset},
+		{"custom start not a datetime", func(v *view.View) { v.DateMode = view.DateModeCustom; v.FromDate = "2026/09/15" }, view.ErrInvalidDate},
+		{"custom end not a datetime", func(v *view.View) { v.DateMode = view.DateModeCustom; v.ToDate = "tomorrow" }, view.ErrInvalidDate},
+		{"date too long", func(v *view.View) { v.FromDate = strings.Repeat("d", view.MaxDateLength+1) }, view.ErrDateTooLong},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := &view.View{Name: "artifacts", Type: view.TypeArtifact}
+			v.Normalize()
+			tt.mutate(v)
+			assert.ErrorIs(t, v.Validate(), tt.want)
+		})
+	}
+}
+
+func TestView_NormalizeArtifactDefaults(t *testing.T) {
+	v := &view.View{
+		Name:           "artifacts",
+		Type:           view.TypeArtifact,
+		Labels:         []string{"team=platform"},
+		DAGRunID:       "019df6cf-0127-7340-bd96-d51bc1453045",
+		RunStatus:      "5",
+		SpecificPeriod: view.SpecificPeriodMonth,
+		SpecificValue:  "2026-09",
+		ActiveOnly:     true,
+		SortField:      view.WorkflowSortNextRun,
+		SortOrder:      view.SortOrderDescending,
+	}
+	v.Normalize()
+
+	assert.Equal(t, view.WorkspaceScopeAll, v.WorkspaceScope)
+	assert.Equal(t, view.DateModePreset, v.DateMode)
+	assert.Equal(t, view.DatePresetAll, v.DatePreset)
+	assert.Empty(t, v.Labels)
+	assert.Empty(t, v.DAGRunID)
+	assert.Empty(t, v.RunStatus)
+	assert.Empty(t, v.SpecificPeriod)
+	assert.Empty(t, v.SpecificValue)
+	assert.False(t, v.ActiveOnly)
+	assert.Empty(t, v.SortField)
+	assert.Empty(t, v.SortOrder)
+	require.NoError(t, v.Validate())
+}
+
+// DatePresetAll widens the shared date preset enum but stays out of the run
+// presets, so an Executions page view can never store it.
+func TestView_RunPresetsRejectAll(t *testing.T) {
+	assert.False(t, view.ValidRunDatePreset(view.DatePresetAll))
+	assert.True(t, view.ValidArtifactDatePreset(view.DatePresetAll))
+}
+
 func TestView_NormalizeRunDefaults(t *testing.T) {
 	v := &view.View{Name: "runs", Type: view.TypeRun}
 	v.Normalize()
@@ -290,6 +375,29 @@ func TestView_RunStorageRoundTrip(t *testing.T) {
 		DatePreset:     view.DatePresetToday,
 		SpecificPeriod: view.SpecificPeriodMonth,
 		SpecificValue:  "2026-09",
+		FromDate:       "2026-09-01T00:00",
+		ToDate:         "2026-09-30T23:59",
+		Default:        true,
+		Pinned:         true,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+
+	assert.Equal(t, original, original.ToStorage().ToView())
+}
+
+func TestView_ArtifactStorageRoundTrip(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	original := &view.View{
+		ID:             "artifact-id",
+		Name:           "Nightly reports",
+		Type:           view.TypeArtifact,
+		WorkspaceScope: view.WorkspaceScopeWorkspace,
+		Workspace:      "production",
+		DAGName:        "nightly-etl",
+		FileName:       "*.csv",
+		DateMode:       view.DateModeCustom,
+		DatePreset:     view.DatePresetAll,
 		FromDate:       "2026-09-01T00:00",
 		ToDate:         "2026-09-30T23:59",
 		Default:        true,

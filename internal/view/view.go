@@ -21,6 +21,8 @@ const (
 	TypeWorkflow = "workflow"
 	// TypeRun filters and scopes the Executions page.
 	TypeRun = "run"
+	// TypeArtifact filters and scopes the Artifacts page.
+	TypeArtifact = "artifact"
 )
 
 // Workflow workspace scopes.
@@ -60,9 +62,11 @@ const (
 	DatePresetLast30Days = "last30days"
 	DatePresetThisWeek   = "thisWeek"
 	DatePresetThisMonth  = "thisMonth"
-	SpecificPeriodDate   = "date"
-	SpecificPeriodMonth  = "month"
-	SpecificPeriodYear   = "year"
+	// DatePresetAll applies no date bound. Only artifact views accept it.
+	DatePresetAll       = "all"
+	SpecificPeriodDate  = "date"
+	SpecificPeriodMonth = "month"
+	SpecificPeriodYear  = "year"
 )
 
 var defaultColumns = []string{
@@ -77,6 +81,7 @@ var defaultColumns = []string{
 const (
 	MaxNameLength          = 100
 	MaxDAGNameLength       = 255
+	MaxFileNameLength      = 255
 	MaxLabels              = 50
 	MaxLabelLength         = 128
 	MinIntervalDays        = 1
@@ -102,6 +107,7 @@ var (
 	ErrInvalidName           = errors.New("view: name is required")
 	ErrNameTooLong           = errors.New("view: name too long")
 	ErrDAGNameTooLong        = errors.New("view: dagName too long")
+	ErrFileNameTooLong       = errors.New("view: fileName too long")
 	ErrInvalidInterval       = errors.New("view: intervalDays out of range")
 	ErrTooManyLabels         = errors.New("view: too many labels")
 	ErrInvalidType           = errors.New("view: unknown type")
@@ -131,6 +137,7 @@ type View struct {
 	Workspace      string
 	Labels         []string
 	DAGName        string
+	FileName       string
 	IntervalDays   int
 	Columns        []string
 	Pinned         bool
@@ -138,7 +145,8 @@ type View struct {
 	SortField      string
 	SortOrder      string
 	ActiveOnly     bool
-	// Run filters. Only TypeRun views use these.
+	// Run and artifact filters. DAGRunID and RunStatus are TypeRun only;
+	// SpecificPeriod and SpecificValue back the TypeRun "specific" date mode.
 	DAGRunID       string
 	RunStatus      string
 	DateMode       string
@@ -159,6 +167,7 @@ func (v *View) Normalize() {
 	v.Name = strings.TrimSpace(v.Name)
 	v.Workspace = strings.TrimSpace(v.Workspace)
 	v.DAGName = strings.TrimSpace(v.DAGName)
+	v.FileName = strings.TrimSpace(v.FileName)
 	v.Type = strings.TrimSpace(v.Type)
 	if v.Type == "" {
 		v.Type = TypeKanban
@@ -223,6 +232,36 @@ func (v *View) Normalize() {
 		v.ToDate = strings.TrimSpace(v.ToDate)
 		v.IntervalDays = MinIntervalDays
 		v.Columns = nil
+	case TypeArtifact:
+		v.WorkspaceScope = strings.TrimSpace(v.WorkspaceScope)
+		if v.WorkspaceScope == "" {
+			if v.Workspace == "" {
+				v.WorkspaceScope = WorkspaceScopeAll
+			} else {
+				v.WorkspaceScope = WorkspaceScopeWorkspace
+			}
+		}
+		v.DateMode = strings.TrimSpace(v.DateMode)
+		if v.DateMode == "" {
+			v.DateMode = DateModePreset
+		}
+		v.DatePreset = strings.TrimSpace(v.DatePreset)
+		if v.DatePreset == "" {
+			v.DatePreset = DatePresetAll
+		}
+		v.FromDate = strings.TrimSpace(v.FromDate)
+		v.ToDate = strings.TrimSpace(v.ToDate)
+		// The Artifacts page has no run, status, label, or sort filters.
+		v.DAGRunID = ""
+		v.RunStatus = ""
+		v.SpecificPeriod = ""
+		v.SpecificValue = ""
+		v.Labels = nil
+		v.ActiveOnly = false
+		v.SortField = ""
+		v.SortOrder = ""
+		v.IntervalDays = MinIntervalDays
+		v.Columns = nil
 	}
 	labels := make([]string, 0, len(v.Labels))
 	for _, l := range v.Labels {
@@ -244,6 +283,8 @@ func (v *View) Validate() error {
 		return ErrNameTooLong
 	case len([]rune(v.DAGName)) > MaxDAGNameLength:
 		return ErrDAGNameTooLong
+	case len([]rune(v.FileName)) > MaxFileNameLength:
+		return ErrFileNameTooLong
 	case len(v.Labels) > MaxLabels:
 		return ErrTooManyLabels
 	case !ValidType(v.Type):
@@ -278,6 +319,21 @@ func (v *View) Validate() error {
 			return ErrSpecificValueTooLong
 		case v.DateMode == DateModeSpecific && !ValidRunSpecificValue(v.SpecificPeriod, v.SpecificValue):
 			return ErrInvalidSpecificValue
+		case v.DateMode == DateModeCustom && (!ValidRunDateString(v.FromDate) || !ValidRunDateString(v.ToDate)):
+			return ErrInvalidDate
+		case len([]rune(v.FromDate)) > MaxDateLength || len([]rune(v.ToDate)) > MaxDateLength:
+			return ErrDateTooLong
+		}
+		return nil
+	}
+	if v.Type == TypeArtifact {
+		switch {
+		case !ValidWorkspaceScope(v.WorkspaceScope, v.Workspace):
+			return ErrInvalidWorkspaceScope
+		case !ValidArtifactDateMode(v.DateMode):
+			return ErrInvalidDateMode
+		case !ValidArtifactDatePreset(v.DatePreset):
+			return ErrInvalidDatePreset
 		case v.DateMode == DateModeCustom && (!ValidRunDateString(v.FromDate) || !ValidRunDateString(v.ToDate)):
 			return ErrInvalidDate
 		case len([]rune(v.FromDate)) > MaxDateLength || len([]rune(v.ToDate)) > MaxDateLength:
@@ -323,7 +379,7 @@ func ValidColumns(columns []string) bool {
 // ValidType reports whether t is a known render type.
 func ValidType(t string) bool {
 	switch t {
-	case TypeKanban, TypeWorkflow, TypeRun:
+	case TypeKanban, TypeWorkflow, TypeRun, TypeArtifact:
 		return true
 	default:
 		return false
@@ -412,6 +468,25 @@ func ValidRunSpecificPeriod(period string) bool {
 	}
 }
 
+// ValidArtifactDateMode reports whether mode is a supported Artifacts page date
+// range mode. Artifact views have no period granularity, so DateModeSpecific is
+// not accepted.
+func ValidArtifactDateMode(mode string) bool {
+	switch mode {
+	case DateModePreset, DateModeCustom:
+		return true
+	default:
+		return false
+	}
+}
+
+// ValidArtifactDatePreset reports whether preset is a supported Artifacts page
+// date preset. It extends the run presets with DatePresetAll, which applies no
+// date bound.
+func ValidArtifactDatePreset(preset string) bool {
+	return preset == DatePresetAll || ValidRunDatePreset(preset)
+}
+
 // ValidWorkspaceScope reports whether scope and workspace identify a workflow scope.
 func ValidWorkspaceScope(scope string, workspace string) bool {
 	switch scope {
@@ -442,6 +517,7 @@ type ViewForStorage struct {
 	Workspace      string    `json:"workspace,omitempty"`
 	Labels         []string  `json:"labels,omitempty"`
 	DAGName        string    `json:"dag_name,omitempty"`
+	FileName       string    `json:"file_name,omitempty"`
 	IntervalDays   int       `json:"interval_days"`
 	Columns        []string  `json:"columns,omitempty"`
 	Pinned         bool      `json:"pinned,omitempty"`
@@ -472,6 +548,7 @@ func (v *View) ToStorage() *ViewForStorage {
 		Workspace:      v.Workspace,
 		Labels:         slices.Clone(v.Labels),
 		DAGName:        v.DAGName,
+		FileName:       v.FileName,
 		IntervalDays:   v.IntervalDays,
 		Columns:        slices.Clone(v.Columns),
 		Pinned:         v.Pinned,
@@ -507,6 +584,7 @@ func (s *ViewForStorage) ToView() *View {
 		Workspace:      s.Workspace,
 		Labels:         slices.Clone(s.Labels),
 		DAGName:        s.DAGName,
+		FileName:       s.FileName,
 		IntervalDays:   s.IntervalDays,
 		Columns:        columns,
 		Pinned:         s.Pinned,
