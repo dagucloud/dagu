@@ -632,6 +632,23 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
     );
   };
 
+  const renderValidationStatus = () => {
+    if (isValidating) {
+      return <I18nText text={'Validating...'} />;
+    }
+    if (!liveValidation) {
+      return null;
+    }
+    const count = liveValidation.errors.length;
+    if (count > 0) {
+      return ts(count === 1 ? '{count} issue' : '{count} issues', { count });
+    }
+    if (liveValidation.warnings.length > 0) {
+      return <I18nText text={'Valid with warnings'} />;
+    }
+    return <I18nText text={'Valid'} />;
+  };
+
   return (
     <DAGContext.Consumer>
       {(props) => {
@@ -647,24 +664,7 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
                     : 'text-xs text-muted-foreground'
                 }
               >
-                {isValidating ? (
-                  <I18nText text={'Validating...'} />
-                ) : liveValidation ? (
-                  liveValidation.errors.length > 0 ? (
-                    ts(
-                      liveValidation.errors.length === 1
-                        ? '{count} issue'
-                        : '{count} issues',
-                      { count: liveValidation.errors.length }
-                    )
-                  ) : liveValidation.warnings.length > 0 ? (
-                    <I18nText text={'Valid with warnings'} />
-                  ) : (
-                    <I18nText text={'Valid'} />
-                  )
-                ) : (
-                  ''
-                )}
+                {renderValidationStatus()}
               </span>
             )}
             {valueReferenceNotices.length > 0 && (
