@@ -158,8 +158,17 @@ func (a *API) UpdateView(ctx context.Context, request api.UpdateViewRequestObjec
 	if request.Body.WorkspaceScope == nil {
 		updated.WorkspaceScope = existing.WorkspaceScope
 	}
+	if request.Body.DagName == nil {
+		updated.DAGName = existing.DAGName
+	}
 	if request.Body.FileName == nil {
 		updated.FileName = existing.FileName
+	}
+	if request.Body.Labels == nil {
+		updated.Labels = slices.Clone(existing.Labels)
+	}
+	if request.Body.Pinned == nil {
+		updated.Pinned = existing.Pinned
 	}
 	if request.Body.SortField == nil {
 		updated.SortField = existing.SortField

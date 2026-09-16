@@ -328,6 +328,47 @@ func valueOfString(v *string) string {
 	return *v
 }
 
+// A PUT patches: fields the request omits keep their stored value, so a
+// rename must not drop the filters the view was saved with.
+func TestViewsAPI_UpdatePreservesOmittedArtifactFilters(t *testing.T) {
+	ctx := context.Background()
+	api := newViewsTestAPI(t)
+	viewType := apigen.ViewSpecTypeArtifact
+	workspaceScope := apigen.ViewWorkspaceScopeAll
+	dagName := "reporter"
+	fileName := "**/*.csv"
+	pinned := true
+	created := mustCreateView(t, api, ctx, apigen.ViewSpec{
+		Name:           "Nightly reports",
+		Type:           &viewType,
+		IntervalDays:   1,
+		WorkspaceScope: &workspaceScope,
+		DagName:        &dagName,
+		FileName:       &fileName,
+		Pinned:         &pinned,
+	})
+
+	resp, err := api.UpdateView(ctx, apigen.UpdateViewRequestObject{
+		ViewId: created.Id,
+		Body: &apigen.ViewSpec{
+			Name:           "Renamed",
+			Type:           &viewType,
+			IntervalDays:   1,
+			WorkspaceScope: &workspaceScope,
+		},
+	})
+	require.NoError(t, err)
+	updated, ok := resp.(apigen.UpdateView200JSONResponse)
+	require.True(t, ok, "expected 200, got %T", resp)
+	assert.Equal(t, "Renamed", updated.Name)
+	require.NotNil(t, updated.DagName)
+	assert.Equal(t, dagName, *updated.DagName)
+	require.NotNil(t, updated.FileName)
+	assert.Equal(t, fileName, *updated.FileName)
+	require.NotNil(t, updated.Pinned)
+	assert.True(t, *updated.Pinned)
+}
+
 func TestViewsAPI_WorkflowDefaultIsSharedPerScope(t *testing.T) {
 	ctx := context.Background()
 	api := newViewsTestAPI(t)

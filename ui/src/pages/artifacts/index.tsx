@@ -436,14 +436,17 @@ function Artifacts() {
         params.get('preset') || DEFAULT_ARTIFACT_FILTERS.datePreset;
       hasUrlFilters = true;
     }
-    // A concrete range without a mode comes from a hand-written link; treat it
-    // as custom so the dates are not overwritten by a preset.
+    // An explicit custom mode defines its range entirely through the URL, so an
+    // absent bound means no bound rather than the one a selected view carries.
+    // A concrete range with no mode at all comes from a hand-written link;
+    // treat it as custom so the dates are not overwritten by a preset.
     if (
-      dateModeParam !== 'preset' &&
-      (params.has('fromDate') || params.has('toDate'))
+      dateModeParam === 'custom' ||
+      (dateModeParam === null &&
+        (params.has('fromDate') || params.has('toDate')))
     ) {
-      urlFilters.fromDate = params.get('fromDate') ?? undefined;
-      urlFilters.toDate = params.get('toDate') ?? undefined;
+      urlFilters.fromDate = params.get('fromDate') || undefined;
+      urlFilters.toDate = params.get('toDate') || undefined;
       if (dateModeParam === null) {
         urlFilters.dateRangeMode = 'custom';
       }

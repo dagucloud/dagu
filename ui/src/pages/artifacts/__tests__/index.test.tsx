@@ -808,6 +808,56 @@ describe('Artifacts page', () => {
     expect(lastQuery()['fileName']).toBe('**/*.csv');
   });
 
+  // An explicit custom mode owns its range: dropping both bounds means no
+  // bounds, not the ones the selected view happens to carry.
+  it('does not restore a view date range for an explicit empty custom range', async () => {
+    sharedArtifactViewState.views.push(
+      makeArtifactView({
+        id: 'custom-view',
+        name: 'Custom range',
+        dagName: 'reporter',
+        dateMode: RunDateMode.custom,
+        fromDate: '2026-09-01T00:00',
+        toDate: '2026-09-30T23:59',
+      })
+    );
+
+    renderPage(
+      vi.fn(),
+      {},
+      '/artifacts?view=custom-view&name=reporter&dateMode=custom'
+    );
+
+    await waitFor(() => {
+      expect(lastQuery()['name']).toBe('reporter');
+    });
+    expect(lastQuery()['fromDate']).toBeUndefined();
+    expect(lastQuery()['toDate']).toBeUndefined();
+  });
+
+  it('keeps an explicit custom range from the URL', async () => {
+    sharedArtifactViewState.views.push(
+      makeArtifactView({
+        id: 'custom-view',
+        name: 'Custom range',
+        dateMode: RunDateMode.custom,
+        fromDate: '2026-09-01T00:00',
+        toDate: '2026-09-30T23:59',
+      })
+    );
+
+    renderPage(
+      vi.fn(),
+      {},
+      '/artifacts?view=custom-view&dateMode=custom&fromDate=2026-08-01T00:00'
+    );
+
+    await waitFor(() => {
+      expect(lastQuery()['fromDate']).toBe(dayjs('2026-08-01T00:00').unix());
+    });
+    expect(lastQuery()['toDate']).toBeUndefined();
+  });
+
   it('marks an artifact view as edited when its filters change', async () => {
     sharedArtifactViewState.views.push(
       makeArtifactView({ id: 'view-a', dagName: 'nightly-etl' })
