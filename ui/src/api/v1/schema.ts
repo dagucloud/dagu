@@ -6658,6 +6658,21 @@ export interface components {
          * @enum {string}
          */
         ViewSortOrder: ViewSortOrder;
+        /**
+         * @description Date range mode applied by an Executions page view.
+         * @enum {string}
+         */
+        RunDateMode: RunDateMode;
+        /**
+         * @description Relative date preset applied by an Executions page view.
+         * @enum {string}
+         */
+        RunDatePreset: RunDatePreset;
+        /**
+         * @description Period granularity applied by an Executions page view.
+         * @enum {string}
+         */
+        RunSpecificPeriod: RunSpecificPeriod;
         ViewSpec: {
             /** @description Display name for the view. */
             name: string;
@@ -6673,6 +6688,19 @@ export interface components {
             labels?: string[];
             /** @description DAG name substring filter. Empty matches any. */
             dagName?: string;
+            /** @description DAG run ID filter. Empty matches any. */
+            dagRunId?: string;
+            /** @description Run status filter: 'all' or a status number. Empty matches any. */
+            runStatus?: string;
+            dateMode?: components["schemas"]["RunDateMode"];
+            datePreset?: components["schemas"]["RunDatePreset"];
+            specificPeriod?: components["schemas"]["RunSpecificPeriod"];
+            /** @description Date, month, or year value applied in specific mode. */
+            specificValue?: string;
+            /** @description Custom range start (YYYY-MM-DDTHH:mm). */
+            fromDate?: string;
+            /** @description Custom range end (YYYY-MM-DDTHH:mm). */
+            toDate?: string;
             /** @description Required number of days each row (bucket) groups. Rows scroll back in time by this unit. */
             intervalDays: number;
             /** @description Status columns to display, in left-to-right order. Omitted values use the default order with all columns visible. */
@@ -6706,6 +6734,19 @@ export interface components {
             sortOrder?: components["schemas"]["ViewSortOrder"];
             /** @description Whether the view only includes scheduled, unsuspended workflows. */
             activeOnly?: boolean;
+            /** @description DAG run ID filter. Empty matches any. */
+            dagRunId?: string;
+            /** @description Run status filter: 'all' or a status number. */
+            runStatus?: string;
+            dateMode?: components["schemas"]["RunDateMode"];
+            datePreset?: components["schemas"]["RunDatePreset"];
+            specificPeriod?: components["schemas"]["RunSpecificPeriod"];
+            /** @description Date, month, or year value applied in specific mode. */
+            specificValue?: string;
+            /** @description Custom range start (YYYY-MM-DDTHH:mm). */
+            fromDate?: string;
+            /** @description Custom range end (YYYY-MM-DDTHH:mm). */
+            toDate?: string;
             isDefault?: boolean;
             /** @description Username of the creator, for display only. */
             createdBy?: string;
@@ -19296,9 +19337,28 @@ export enum ViewSortOrder {
     asc = "asc",
     desc = "desc"
 }
+export enum RunDateMode {
+    preset = "preset",
+    specific = "specific",
+    custom = "custom"
+}
+export enum RunDatePreset {
+    today = "today",
+    yesterday = "yesterday",
+    last7days = "last7days",
+    last30days = "last30days",
+    thisWeek = "thisWeek",
+    thisMonth = "thisMonth"
+}
+export enum RunSpecificPeriod {
+    date = "date",
+    month = "month",
+    year = "year"
+}
 export enum ViewSpecType {
     kanban = "kanban",
-    workflow = "workflow"
+    workflow = "workflow",
+    run = "run"
 }
 export enum ComponentsParametersEventLogPaginationMode {
     offset = "offset",

@@ -16093,6 +16093,33 @@ components:
         - desc
       description: "Direction used to sort workflows."
 
+    RunDateMode:
+      type: string
+      enum:
+        - preset
+        - specific
+        - custom
+      description: "Date range mode applied by an Executions page view."
+
+    RunDatePreset:
+      type: string
+      enum:
+        - today
+        - yesterday
+        - last7days
+        - last30days
+        - thisWeek
+        - thisMonth
+      description: "Relative date preset applied by an Executions page view."
+
+    RunSpecificPeriod:
+      type: string
+      enum:
+        - date
+        - month
+        - year
+      description: "Period granularity applied by an Executions page view."
+
     ViewSpec:
       type: object
       required:
@@ -16109,6 +16136,7 @@ components:
           enum:
             - kanban
             - workflow
+            - run
           default: kanban
           description: "Saved view type."
         workspace:
@@ -16133,6 +16161,32 @@ components:
           type: string
           maxLength: 255
           description: "DAG name substring filter. Empty matches any."
+        dagRunId:
+          type: string
+          maxLength: 64
+          description: "DAG run ID filter. Empty matches any."
+        runStatus:
+          type: string
+          maxLength: 16
+          description: "Run status filter: 'all' or a status number. Empty matches any."
+        dateMode:
+          $ref: "#/components/schemas/RunDateMode"
+        datePreset:
+          $ref: "#/components/schemas/RunDatePreset"
+        specificPeriod:
+          $ref: "#/components/schemas/RunSpecificPeriod"
+        specificValue:
+          type: string
+          maxLength: 16
+          description: "Date, month, or year value applied in specific mode."
+        fromDate:
+          type: string
+          maxLength: 32
+          description: "Custom range start (YYYY-MM-DDTHH:mm)."
+        toDate:
+          type: string
+          maxLength: 32
+          description: "Custom range end (YYYY-MM-DDTHH:mm)."
         intervalDays:
           type: integer
           minimum: 1
@@ -16204,6 +16258,27 @@ components:
         activeOnly:
           type: boolean
           description: "Whether the view only includes scheduled, unsuspended workflows."
+        dagRunId:
+          type: string
+          description: "DAG run ID filter. Empty matches any."
+        runStatus:
+          type: string
+          description: "Run status filter: 'all' or a status number."
+        dateMode:
+          $ref: "#/components/schemas/RunDateMode"
+        datePreset:
+          $ref: "#/components/schemas/RunDatePreset"
+        specificPeriod:
+          $ref: "#/components/schemas/RunSpecificPeriod"
+        specificValue:
+          type: string
+          description: "Date, month, or year value applied in specific mode."
+        fromDate:
+          type: string
+          description: "Custom range start (YYYY-MM-DDTHH:mm)."
+        toDate:
+          type: string
+          description: "Custom range end (YYYY-MM-DDTHH:mm)."
         isDefault:
           type: boolean
         createdBy:

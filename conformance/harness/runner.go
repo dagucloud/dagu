@@ -159,10 +159,23 @@ func (p *Process) Done() <-chan struct{} {
 	return p.done
 }
 
-// Stop terminates the command and waits for it to exit.
+// Stop terminates the command and waits for it to exit. A graceful shutdown
+// is requested first so the managed process can reap children and settle
+// persisted state before its temp directory is removed; teardown falls back
+// to a force kill of the process group if the process does not exit within
+// the grace window.
 func (p *Process) Stop() {
 	p.t.Helper()
 	p.stopOnce.Do(func() {
+		_, _ = p.proc.Stop(cmdutil.StopRequest{
+			Intent: cmdutil.GracefulTermination(nil),
+			Reason: cmdutil.StopReasonShutdown,
+		})
+		select {
+		case <-p.done:
+			return
+		case <-time.After(stopGracePeriod):
+		}
 		_, _ = p.proc.Stop(cmdutil.StopRequest{
 			Intent: cmdutil.ForceTermination(),
 			Reason: cmdutil.StopReasonShutdown,
@@ -170,6 +183,10 @@ func (p *Process) Stop() {
 	})
 	<-p.done
 }
+
+// stopGracePeriod bounds how long a managed process gets to shut down
+// gracefully before its process group is force-killed.
+const stopGracePeriod = 5 * time.Second
 
 // FailureOutput returns captured output after the command exits.
 func (p *Process) FailureOutput() string {

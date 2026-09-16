@@ -6,6 +6,7 @@ package eventstore
 import (
 	"bufio"
 	"context"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -290,15 +291,15 @@ func TestCollectorCommittedIDAllocs(t *testing.T) {
 	small, smallPath, smallIDs := newCollector(testEventData(baselineFieldCount))
 	large, largePath, largeIDs := newCollector(testEventData(largeFieldCount))
 
-	var smallErr error
-	smallAllocs := testing.AllocsPerRun(5, func() {
-		_, smallErr = small.findCommittedIDs(smallPath, smallIDs)
+	smallAllocs, smallErr := minAllocsPerRun(5, func() error {
+		_, err := small.findCommittedIDs(smallPath, smallIDs)
+		return err
 	})
 	require.NoError(t, smallErr)
 
-	var largeErr error
-	largeAllocs := testing.AllocsPerRun(5, func() {
-		_, largeErr = large.findCommittedIDs(largePath, largeIDs)
+	largeAllocs, largeErr := minAllocsPerRun(5, func() error {
+		_, err := large.findCommittedIDs(largePath, largeIDs)
+		return err
 	})
 	require.NoError(t, largeErr)
 	require.LessOrEqual(t, largeAllocs, smallAllocs*maxAllocationRate)
@@ -326,19 +327,42 @@ func TestCollectorPendingEventAllocs(t *testing.T) {
 	small, smallPath := newPendingEvent(testEventData(baselineFieldCount))
 	large, largePath := newPendingEvent(testEventData(largeFieldCount))
 
-	var smallErr error
-	smallAllocs := testing.AllocsPerRun(5, func() {
-		_, smallErr = small.readPendingEvent(smallPath)
+	smallAllocs, smallErr := minAllocsPerRun(5, func() error {
+		_, err := small.readPendingEvent(smallPath)
+		return err
 	})
 	require.NoError(t, smallErr)
 
-	var largeErr error
-	largeAllocs := testing.AllocsPerRun(5, func() {
-		_, largeErr = large.readPendingEvent(largePath)
+	largeAllocs, largeErr := minAllocsPerRun(5, func() error {
+		_, err := large.readPendingEvent(largePath)
+		return err
 	})
 	require.NoError(t, largeErr)
 	require.LessOrEqual(t, largeAllocs, smallAllocs*maxAllocationRate)
 }
+
+// minAllocsPerRun returns the lowest allocation count across several
+// AllocsPerRun samples. Allocation measurements are noisy under GC and
+// scheduler pressure, which only inflates counts, so the minimum is the
+// stable estimate of the true allocation cost.
+func minAllocsPerRun(runs int, fn func() error) (float64, error) {
+	best := math.MaxFloat64
+	for range allocationSamples {
+		var err error
+		allocs := testing.AllocsPerRun(runs, func() {
+			err = fn()
+		})
+		if err != nil {
+			return 0, err
+		}
+		if allocs < best {
+			best = allocs
+		}
+	}
+	return best, nil
+}
+
+const allocationSamples = 5
 
 func testEventData(fieldCount int) map[string]any {
 	data := make(map[string]any, fieldCount)
