@@ -43,7 +43,7 @@ export type SavedViewItem = {
   pinned: boolean;
 };
 
-type ViewKind = 'workflow' | 'run';
+type ViewKind = 'workflow' | 'run' | 'artifact';
 
 const VIEW_COPY: Record<
   ViewKind,
@@ -86,6 +86,20 @@ const VIEW_COPY: Record<
     deleteBody:
       '“{name}” will be removed for everyone with access to this workspace scope. Runs are not affected.',
     noViews: 'No saved run views yet.',
+  },
+  artifact: {
+    triggerAria: (label: string) => `Artifact view: ${label}`,
+    allItems: 'All artifacts',
+    saveTitle: 'Save artifact view',
+    saveDescription:
+      'Save the current DAG name, file name, and date filters for this remote and workspace.',
+    manageTitle: 'Manage artifact views',
+    manageDescription:
+      'Star shared sidebar shortcuts, choose the shared default, or remove views saved for this remote and workspace.',
+    deleteTitle: 'Delete artifact view?',
+    deleteBody:
+      '“{name}” will be removed for everyone with access to this workspace scope. Artifacts are not affected.',
+    noViews: 'No saved artifact views yet.',
   },
 };
 

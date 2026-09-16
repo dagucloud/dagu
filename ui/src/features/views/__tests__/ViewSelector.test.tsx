@@ -73,6 +73,21 @@ describe('ViewSelector', () => {
     ).toBeVisible();
   });
 
+  it('labels the trigger with the artifact kind when used for artifacts', async () => {
+    const user = userEvent.setup();
+    renderSelector({ kind: 'artifact' });
+
+    const trigger = screen.getByRole('button', {
+      name: 'Artifact view: All artifacts',
+    });
+    expect(trigger).toBeVisible();
+
+    await user.click(trigger);
+    expect(
+      screen.getByRole('menuitem', { name: 'All artifacts' })
+    ).toBeVisible();
+  });
+
   it('saves the current filters as a named default run view', async () => {
     const user = userEvent.setup();
     const props = renderSelector({ views: [], defaultViewId: undefined });

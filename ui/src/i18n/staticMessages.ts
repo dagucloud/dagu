@@ -219,6 +219,7 @@ const english = {
   'All loaded DAG runs are displayed.': 'All loaded DAG runs are displayed.',
   'All outcomes': 'All outcomes',
   'All requests have been submitted': 'All requests have been submitted',
+  'All artifacts': 'All artifacts',
   'All runs': 'All runs',
   'All Statuses': 'All Statuses',
   'All workflows': 'All workflows',
@@ -515,6 +516,7 @@ const english = {
   'Delete Wiki': 'Delete Wiki',
   'Delete Wiki page': 'Delete Wiki page',
   'Delete workflow': 'Delete workflow',
+  'Delete artifact view?': 'Delete artifact view?',
   'Delete run view?': 'Delete run view?',
   'Delete workflow view?': 'Delete workflow view?',
   'Deleting...': 'Deleting...',
@@ -896,6 +898,7 @@ const english = {
     'Manage user accounts and their roles',
   'Manage views…': 'Manage views…',
   'Manage webhooks across all DAGs': 'Manage webhooks across all DAGs',
+  'Manage artifact views': 'Manage artifact views',
   'Manage run views': 'Manage run views',
   'Manage workflow views': 'Manage workflow views',
   'managed by': 'managed by',
@@ -1012,6 +1015,7 @@ const english = {
     'No running, retrying, or failed steps at the moment.',
   'No runs': 'No runs',
   'No runs on': 'No runs on',
+  'No saved artifact views yet.': 'No saved artifact views yet.',
   'No saved run views yet.': 'No saved run views yet.',
   'No saved workflow views yet.': 'No saved workflow views yet.',
   'No schedule': 'No schedule',
@@ -1341,9 +1345,12 @@ const english = {
   'Save Source DAG:': 'Save Source DAG:',
   'Save the current name and label filters, plus the sort order, for this remote and workspace.':
     'Save the current name and label filters, plus the sort order, for this remote and workspace.',
+  'Save the current DAG name, file name, and date filters for this remote and workspace.':
+    'Save the current DAG name, file name, and date filters for this remote and workspace.',
   'Save the current name, run ID, status, label, and date filters for this remote and workspace.':
     'Save the current name, run ID, status, label, and date filters for this remote and workspace.',
   'Save view': 'Save view',
+  'Save artifact view': 'Save artifact view',
   'Save run view': 'Save run view',
   'Save workflow view': 'Save workflow view',
   'Saving...': 'Saving...',
@@ -2035,6 +2042,8 @@ const english = {
     'You have unsaved changes in {page}. Discard changes?',
   '“{name}” will be removed for everyone with access to this workspace scope. Workflows are not affected.':
     '“{name}” will be removed for everyone with access to this workspace scope. Workflows are not affected.',
+  '“{name}” will be removed for everyone with access to this workspace scope. Artifacts are not affected.':
+    '“{name}” will be removed for everyone with access to this workspace scope. Artifacts are not affected.',
   '“{name}” will be removed for everyone with access to this workspace scope. Runs are not affected.':
     '“{name}” will be removed for everyone with access to this workspace scope. Runs are not affected.',
   attachment: 'attachment',
@@ -2438,6 +2447,7 @@ const chinese = {
   'All loaded DAG runs are displayed.': '已显示全部已加载的 DAG 运行',
   'All outcomes': '全部结果',
   'All requests have been submitted': '所有请求已提交',
+  'All artifacts': '所有产物',
   'All runs': '所有运行',
   'All Statuses': '全部状态',
   'All workflows': '所有工作流',
@@ -2732,6 +2742,7 @@ const chinese = {
   'Delete Wiki': '删除 Wiki',
   'Delete Wiki page': '删除 Wiki 页面',
   'Delete workflow': '删除工作流',
+  'Delete artifact view?': '删除产物视图？',
   'Delete run view?': '删除运行视图？',
   'Delete workflow view?': '删除工作流视图？',
   'Deleting...': '删除中...',
@@ -3101,6 +3112,7 @@ const chinese = {
   'Manage user accounts and their roles': '管理用户账户及其角色',
   'Manage views…': '管理视图…',
   'Manage webhooks across all DAGs': '跨所有 DAG 管理 Webhook',
+  'Manage artifact views': '管理产物视图',
   'Manage run views': '管理运行视图',
   'Manage workflow views': '管理工作流视图',
   'managed by': '由...管理',
@@ -3211,6 +3223,7 @@ const chinese = {
     '当前没有正在运行、重试或失败的步骤。',
   'No runs': '暂无运行',
   'No runs on': '没有',
+  'No saved artifact views yet.': '尚未保存产物视图。',
   'No saved run views yet.': '尚未保存运行视图。',
   'No saved workflow views yet.': '尚未保存工作流视图。',
   'No schedule': '无调度',
@@ -3537,9 +3550,12 @@ const chinese = {
   'Save Source DAG:': '保存源 DAG：',
   'Save the current name and label filters, plus the sort order, for this remote and workspace.':
     '保存此远程和工作区的当前名称和标签筛选条件以及排序顺序。',
+  'Save the current DAG name, file name, and date filters for this remote and workspace.':
+    '保存此远程和工作区的当前 DAG 名称、文件名和日期筛选条件。',
   'Save the current name, run ID, status, label, and date filters for this remote and workspace.':
     '保存此远程和工作区的当前名称、运行 ID、状态、标签和日期筛选条件。',
   'Save view': '保存视图',
+  'Save artifact view': '保存产物视图',
   'Save run view': '保存运行视图',
   'Save workflow view': '保存工作流视图',
   'Saving...': '保存中...',
@@ -4207,6 +4223,8 @@ const chinese = {
     '{page}中有未保存的更改。要放弃更改吗？',
   '“{name}” will be removed for everyone with access to this workspace scope. Workflows are not affected.':
     '将为有权访问此工作区范围的所有人移除“{name}”。工作流不受影响。',
+  '“{name}” will be removed for everyone with access to this workspace scope. Artifacts are not affected.':
+    '将为有权访问此工作区范围的所有人移除“{name}”。产物不受影响。',
   '“{name}” will be removed for everyone with access to this workspace scope. Runs are not affected.':
     '将为有权访问此工作区范围的所有人移除“{name}”。运行不受影响。',
   attachment: '附件',
@@ -4610,6 +4628,7 @@ const japanese = {
     '読み込まれたすべてのDAG実行が表示されています。',
   'All outcomes': 'すべての結果',
   'All requests have been submitted': 'すべてのリクエストが送信されました',
+  'All artifacts': 'すべての成果物',
   'All runs': 'すべてのラン',
   'All Statuses': 'すべてのステータス',
   'All workflows': 'すべてのワークフロー',
@@ -4911,6 +4930,7 @@ const japanese = {
   'Delete Wiki': 'Wiki を削除',
   'Delete Wiki page': 'Wiki ページを削除',
   'Delete workflow': 'ワークフローを削除',
+  'Delete artifact view?': '成果物ビューを削除しますか？',
   'Delete run view?': 'ランビューを削除しますか？',
   'Delete workflow view?': 'ワークフロービューを削除しますか？',
   'Deleting...': '削除中...',
@@ -5292,6 +5312,7 @@ const japanese = {
     'ユーザーアカウントとそのロールを管理',
   'Manage views…': 'ビューの管理…',
   'Manage webhooks across all DAGs': 'すべてのDAGのWebhookを管理',
+  'Manage artifact views': '成果物ビューを管理',
   'Manage run views': 'ランビューを管理',
   'Manage workflow views': 'ワークフロービューを管理',
   'managed by': '管理者:',
@@ -5415,6 +5436,7 @@ const japanese = {
     '現在、実行中、再試行中、または失敗したステップはありません。',
   'No runs': '実行なし',
   'No runs on': 'に実行はありません',
+  'No saved artifact views yet.': '保存された成果物ビューはまだありません。',
   'No saved run views yet.': '保存されたランビューはまだありません。',
   'No saved workflow views yet.':
     '保存されたワークフロービューはまだありません。',
@@ -5748,9 +5770,12 @@ const japanese = {
   'Save Source DAG:': 'ソース DAG を保存：',
   'Save the current name and label filters, plus the sort order, for this remote and workspace.':
     'このリモートとワークスペースの現在の名前とラベルのフィルター、および並べ替え順序を保存します。',
+  'Save the current DAG name, file name, and date filters for this remote and workspace.':
+    'このリモートとワークスペースの現在の DAG 名、ファイル名、日付のフィルターを保存します。',
   'Save the current name, run ID, status, label, and date filters for this remote and workspace.':
     'このリモートとワークスペースの現在の名前、ランID、ステータス、ラベル、日付のフィルターを保存します。',
   'Save view': 'ビューを保存',
+  'Save artifact view': '成果物ビューを保存',
   'Save run view': 'ランビューを保存',
   'Save workflow view': 'ワークフロービューを保存',
   'Saving...': '保存中...',
@@ -6447,6 +6472,8 @@ const japanese = {
     '{page}に未保存の変更があります。変更を破棄しますか？',
   '“{name}” will be removed for everyone with access to this workspace scope. Workflows are not affected.':
     'このワークスペーススコープにアクセスできる全員から「{name}」を削除します。ワークフローには影響しません。',
+  '“{name}” will be removed for everyone with access to this workspace scope. Artifacts are not affected.':
+    'このワークスペーススコープにアクセスできる全員から「{name}」を削除します。成果物には影響しません。',
   '“{name}” will be removed for everyone with access to this workspace scope. Runs are not affected.':
     'このワークスペーススコープにアクセスできる全員から「{name}」を削除します。ランには影響しません。',
   attachment: '添付ファイル',
