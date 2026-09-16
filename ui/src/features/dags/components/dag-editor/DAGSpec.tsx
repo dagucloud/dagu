@@ -221,6 +221,7 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
     }
 
     const seq = ++validateSeqRef.current;
+    setLiveValidation(null);
     setIsValidating(true);
     const timer = window.setTimeout(() => {
       void client
@@ -512,7 +513,9 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
     return <LoadingIndicator />;
   }
 
-  const warnings = liveValidation?.warnings ?? data?.warnings ?? [];
+  const warnings = localHasUnsavedChanges
+    ? (liveValidation?.warnings ?? [])
+    : (data?.warnings ?? []);
 
   // Check if we have local DAGs
   const hasLocalDags = localDags && localDags.length > 0;
@@ -748,7 +751,10 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
                     </div>
                     <ul className="list-disc space-y-1 pl-5">
                       {warnings.map((warning) => (
-                        <li key={warning} className="break-words">
+                        <li
+                          key={warning}
+                          className="whitespace-normal break-words"
+                        >
                           {warning}
                         </li>
                       ))}

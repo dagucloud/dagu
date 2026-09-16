@@ -169,7 +169,9 @@ afterEach(() => {
 describe('DAGSpec live validation', () => {
   it('shows saved warnings separately from errors', () => {
     mocks.useQuery.mockReturnValue(
-      specData({ warnings: ['Harness step review has no explicit working_dir'] })
+      specData({
+        warnings: ['Harness step review has no explicit working_dir'],
+      })
     );
     renderSpec();
 
@@ -205,7 +207,9 @@ describe('DAGSpec live validation', () => {
     expect(mocks.showError).not.toHaveBeenCalled();
     expect(mocks.showToast).toHaveBeenCalledWith('Changes saved successfully');
 
-    mocks.post.mockResolvedValue({ data: { valid: true, errors: [], warnings: [] } });
+    mocks.post.mockResolvedValue({
+      data: { valid: true, errors: [], warnings: [] },
+    });
     fireEvent.change(editor, {
       target: { value: 'working_dir: ./repo\n' + savedSpec },
     });
@@ -214,6 +218,38 @@ describe('DAGSpec live validation', () => {
     });
     expect(screen.queryByText('Valid with warnings')).not.toBeInTheDocument();
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('hides stale warnings while the edited buffer awaits validation', async () => {
+    vi.useFakeTimers();
+    const warning = 'Harness step review has no explicit working_dir';
+    mocks.useQuery.mockReturnValue(specData({ warnings: [warning] }));
+    mocks.post.mockResolvedValueOnce({
+      data: { valid: true, errors: [], warnings: [warning] },
+    });
+    renderSpec();
+    const editor = screen.getByLabelText('DAG spec');
+    expect(screen.getByRole('status')).toHaveTextContent(warning);
+
+    fireEvent.change(editor, { target: { value: savedSpec + '# edited' } });
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(600);
+    });
+    expect(screen.getByRole('status')).toHaveTextContent(warning);
+
+    mocks.post.mockResolvedValueOnce({ error: { message: 'unavailable' } });
+    fireEvent.change(editor, {
+      target: { value: 'working_dir: ./repo\n' + savedSpec },
+    });
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(600);
+    });
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+
+    fireEvent.change(editor, { target: { value: savedSpec } });
+    expect(screen.getByRole('status')).toHaveTextContent(warning);
   });
 
   it('validates the edited buffer once per idle window', async () => {

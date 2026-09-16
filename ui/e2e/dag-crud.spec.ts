@@ -85,6 +85,7 @@ steps:
     await editor.focus();
     await page.keyboard.press('ControlOrMeta+Home');
     await page.keyboard.insertText('working_dir: ./repo\n');
+    await expect(page.getByText('Valid', { exact: true })).toBeVisible();
     await expect(warning).toHaveCount(0);
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
