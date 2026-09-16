@@ -285,4 +285,68 @@ describe('Artifacts page', () => {
       screen.getByRole('button', { name: 'Load more' })
     ).toBeInTheDocument();
   });
+
+  it('moves the selected file with the down and up arrows', () => {
+    usePaginatedArtifactsResult.current.items = [makeItem()];
+    renderPage();
+
+    expect(
+      screen.getByText('preview of out/report.md in reporter/run-1')
+    ).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    expect(
+      screen.getByText('preview of out/plot.png in reporter/run-1')
+    ).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: 'ArrowUp' });
+    expect(
+      screen.getByText('preview of out/report.md in reporter/run-1')
+    ).toBeInTheDocument();
+  });
+
+  it('moves the selected file with j and k', () => {
+    usePaginatedArtifactsResult.current.items = [makeItem()];
+    renderPage();
+
+    fireEvent.keyDown(window, { key: 'j' });
+    expect(
+      screen.getByText('preview of out/plot.png in reporter/run-1')
+    ).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: 'k' });
+    expect(
+      screen.getByText('preview of out/report.md in reporter/run-1')
+    ).toBeInTheDocument();
+  });
+
+  it('clamps navigation at the first and last file', () => {
+    usePaginatedArtifactsResult.current.items = [makeItem()];
+    renderPage();
+
+    fireEvent.keyDown(window, { key: 'ArrowUp' });
+    expect(
+      screen.getByText('preview of out/report.md in reporter/run-1')
+    ).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    expect(
+      screen.getByText('preview of out/plot.png in reporter/run-1')
+    ).toBeInTheDocument();
+  });
+
+  it('ignores navigation keys typed into filter inputs', async () => {
+    const user = userEvent.setup();
+    usePaginatedArtifactsResult.current.items = [makeItem()];
+    renderPage();
+
+    const input = screen.getByPlaceholderText('Filter by DAG name...');
+    await user.type(input, 'j');
+    fireEvent.keyDown(input, { key: 'j' });
+
+    expect(
+      screen.getByText('preview of out/report.md in reporter/run-1')
+    ).toBeInTheDocument();
+  });
 });

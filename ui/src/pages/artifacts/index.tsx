@@ -380,6 +380,108 @@ function Artifacts() {
       ? `${runTreeRoot(selected)}/${selected.path}`
       : null;
 
+  // Flat, depth-first ordered list of every visible file, matching the
+  // tree rendering order, for keyboard navigation across runs.
+  const fileRefs = React.useMemo(
+    () =>
+      items.flatMap((item) =>
+        item.files.map((file) => ({
+          name: item.name,
+          dagRunId: item.dagRunId,
+          path: file.path,
+        }))
+      ),
+    [items]
+  );
+
+  const listContainerRef = React.useRef<HTMLDivElement>(null);
+
+  const moveSelection = React.useCallback(
+    (delta: number) => {
+      if (fileRefs.length === 0) {
+        return;
+      }
+      const currentIndex = selected
+        ? fileRefs.findIndex(
+            (file) =>
+              file.name === selected.name &&
+              file.dagRunId === selected.dagRunId &&
+              file.path === selected.path
+          )
+        : -1;
+      const nextIndex = Math.min(
+        Math.max(currentIndex + delta, 0),
+        fileRefs.length - 1
+      );
+      const next = fileRefs[nextIndex];
+      if (
+        next &&
+        (next.name !== selected?.name ||
+          next.dagRunId !== selected?.dagRunId ||
+          next.path !== selected?.path)
+      ) {
+        setSelected(next);
+      }
+    },
+    [fileRefs, selected]
+  );
+
+  // Cursor up/down and j/k move the selected file.
+  React.useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      let delta: number | null = null;
+      switch (event.key) {
+        case 'ArrowDown':
+        case 'j':
+          delta = 1;
+          break;
+        case 'ArrowUp':
+        case 'k':
+          delta = -1;
+          break;
+        default:
+          return;
+      }
+      if (fileRefs.length === 0) {
+        return;
+      }
+      event.preventDefault();
+      moveSelection(delta);
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [fileRefs.length, moveSelection]);
+
+  // Keep the moved-to file visible inside the list's scroll container.
+  React.useEffect(() => {
+    if (!selectedNodeSyntheticPath || !listContainerRef.current) {
+      return;
+    }
+    for (const el of listContainerRef.current.querySelectorAll(
+      '[data-artifact-path]'
+    )) {
+      if (
+        el instanceof HTMLElement &&
+        el.dataset.artifactPath === selectedNodeSyntheticPath
+      ) {
+        el.scrollIntoView({ block: 'nearest' });
+        break;
+      }
+    }
+  }, [selected, selectedNodeSyntheticPath]);
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="mb-2 flex min-w-0 items-center gap-3">
@@ -544,7 +646,10 @@ function Artifacts() {
                 </p>
               </div>
             </div>
-            <div className="min-h-0 flex-1 overflow-auto p-2">
+            <div
+              ref={listContainerRef}
+              className="min-h-0 flex-1 overflow-auto p-2"
+            >
               <div className="space-y-0.5">
                 {items.map((item) => {
                   const root = runTreeRoot(item);
@@ -729,6 +834,7 @@ function TreeNode({
             : 'text-foreground hover:bg-muted'
         )}
         style={{ paddingLeft: `${depth * 14 + 8}px` }}
+        {...(!isDir ? { 'data-artifact-path': node.path } : {})}
       >
         <Icon className="h-4 w-4 shrink-0" />
         <span className="min-w-0 flex-1 truncate">{node.name}</span>
