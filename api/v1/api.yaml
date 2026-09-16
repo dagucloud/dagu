@@ -927,7 +927,8 @@ paths:
       description: |
         Validates a DAG YAML specification without persisting any changes.
 
-        Returns a list of validation errors. When the spec can be partially parsed,
+        Returns separate lists of validation errors and non-fatal warnings.
+        When the spec can be partially parsed,
         the response may also include parsed DAG details built with error-tolerant loading.
       operationId: "validateDAGSpec"
       tags:
@@ -965,6 +966,12 @@ paths:
                   errors:
                     type: array
                     description: "List of validation errors"
+                    items:
+                      type: string
+                  warnings:
+                    type: array
+                    description: "Non-fatal spec warnings; these do not affect valid"
+                    x-go-type-skip-optional-pointer: true
                     items:
                       type: string
                 required:
@@ -1010,6 +1017,12 @@ paths:
                   errors:
                     type: array
                     description: "List of errors encountered during the request"
+                    items:
+                      type: string
+                  warnings:
+                    type: array
+                    description: "Non-fatal spec warnings"
+                    x-go-type-skip-optional-pointer: true
                     items:
                       type: string
                   spec:
@@ -1409,6 +1422,12 @@ paths:
                   errors:
                     type: array
                     description: "List of errors in the spec"
+                    items:
+                      type: string
+                  warnings:
+                    type: array
+                    description: "Non-fatal spec warnings"
+                    x-go-type-skip-optional-pointer: true
                     items:
                       type: string
                   valueReferenceNotices:

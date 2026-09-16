@@ -167,6 +167,55 @@ afterEach(() => {
 });
 
 describe('DAGSpec live validation', () => {
+  it('shows saved warnings separately from errors', () => {
+    mocks.useQuery.mockReturnValue(
+      specData({ warnings: ['Harness step review has no explicit working_dir'] })
+    );
+    renderSpec();
+
+    expect(screen.getByRole('status')).toHaveTextContent('Warnings');
+    expect(screen.getByRole('status')).toHaveTextContent('working_dir');
+    expect(screen.getByTestId('preview-graph')).toHaveTextContent('extract');
+  });
+
+  it('allows saving a warning-only spec and clears corrected warnings', async () => {
+    vi.useFakeTimers();
+    mocks.post.mockResolvedValueOnce({
+      data: {
+        valid: true,
+        errors: [],
+        warnings: ['Harness step review has no explicit working_dir'],
+      },
+    });
+    mocks.put.mockResolvedValue({ data: { errors: [] } });
+    renderSpec();
+    const editor = screen.getByLabelText('DAG spec');
+    fireEvent.change(editor, { target: { value: savedSpec + '# edited' } });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(600);
+    });
+
+    expect(screen.getByText('Valid with warnings')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('working_dir');
+    expect(mocks.editorProps.current.markers).toEqual([]);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /save/i }));
+    });
+    expect(mocks.put).toHaveBeenCalledOnce();
+    expect(mocks.showError).not.toHaveBeenCalled();
+    expect(mocks.showToast).toHaveBeenCalledWith('Changes saved successfully');
+
+    mocks.post.mockResolvedValue({ data: { valid: true, errors: [], warnings: [] } });
+    fireEvent.change(editor, {
+      target: { value: 'working_dir: ./repo\n' + savedSpec },
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(600);
+    });
+    expect(screen.queryByText('Valid with warnings')).not.toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
   it('validates the edited buffer once per idle window', async () => {
     vi.useFakeTimers();
     renderSpec();

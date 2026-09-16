@@ -49,6 +49,50 @@ test.describe('DAG CRUD operations', () => {
     ).toBeVisible();
   });
 
+  test('saves harness warnings and clears them after configuring a directory', async ({ page, request }) => {
+    const stack = await loadStack();
+    const token = await loginViaAPI(
+      request,
+      stack.auth.adminUsername,
+      stack.auth.adminPassword
+    );
+    const dagName = uniqueName('e2e-harness-warning');
+    const definition = `name: ${dagName}
+steps:
+  - id: review
+    action: harness.run
+    with:
+      provider: claude
+      prompt: Review this repository.
+`;
+    const fileName = await writeLocalDAG(dagName, definition);
+    await waitForDAGAvailable(request, token, fileName);
+    await page.goto(`/dags/${encodeURIComponent(fileName)}/spec`);
+
+    const warning = page
+      .getByRole('status')
+      .filter({ hasText: 'has no explicit working_dir' });
+    await expect(warning).toBeVisible();
+    const editor = page.locator('.monaco-editor textarea').first();
+    await editor.focus();
+    await page.keyboard.press('ControlOrMeta+End');
+    await page.keyboard.insertText('\n# edited\n');
+    await expect(page.getByText('Valid with warnings', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
+    await expect(warning).toBeVisible();
+
+    await editor.focus();
+    await page.keyboard.press('ControlOrMeta+Home');
+    await page.keyboard.insertText('working_dir: ./repo\n');
+    await expect(warning).toHaveCount(0);
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
+    await page.reload();
+    await expect(page.locator('.monaco-editor')).toBeVisible();
+    await expect(warning).toHaveCount(0);
+  });
+
   test('renames a DAG from the UI', async ({ page, request }) => {
     const stack = await loadStack();
     const token = await loginViaAPI(

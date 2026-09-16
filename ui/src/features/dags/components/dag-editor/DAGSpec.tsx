@@ -166,6 +166,7 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
       : {
           dag: next.dag,
           errors: next.errors ?? [],
+          warnings: next.warnings ?? [],
           valueReferenceNotices: data?.valueReferenceNotices ?? [],
           spec: next.spec,
         }
@@ -205,6 +206,7 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
   // buffer stops being dirty (save or discard), which also clears the markers.
   const [liveValidation, setLiveValidation] = React.useState<{
     errors: string[];
+    warnings: string[];
     dag?: components['schemas']['DAGDetails'];
   } | null>(null);
   const [isValidating, setIsValidating] = React.useState(false);
@@ -232,7 +234,11 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
           }
           setIsValidating(false);
           if (!requestError && result) {
-            setLiveValidation({ errors: result.errors ?? [], dag: result.dag });
+            setLiveValidation({
+              errors: result.errors ?? [],
+              warnings: result.warnings ?? [],
+              dag: result.dag,
+            });
           } else {
             // A failed request leaves the buffer's validity unknown; stale
             // results from an older buffer would misreport it.
@@ -417,6 +423,7 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
       // Feed the rejected save into the same markers/panel as live validation.
       setLiveValidation((prev) => ({
         errors: responseData.errors,
+        warnings: prev?.warnings ?? [],
         dag: prev?.dag,
       }));
       showError(
@@ -504,6 +511,8 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
   if (isLoading) {
     return <LoadingIndicator />;
   }
+
+  const warnings = liveValidation?.warnings ?? data?.warnings ?? [];
 
   // Check if we have local DAGs
   const hasLocalDags = localDags && localDags.length > 0;
@@ -648,6 +657,8 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
                         : '{count} issues',
                       { count: liveValidation.errors.length }
                     )
+                  ) : liveValidation.warnings.length > 0 ? (
+                    <I18nText text={'Valid with warnings'} />
                   ) : (
                     <I18nText text={'Valid'} />
                   )
@@ -726,6 +737,24 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
                 className="flex min-h-0 flex-1 flex-col space-y-6 pb-8"
                 ref={containerRef}
               >
+                {warnings.length > 0 && (
+                  <div
+                    role="status"
+                    className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-800 dark:text-amber-200"
+                  >
+                    <div className="mb-2 flex items-center gap-2 font-medium">
+                      <AlertTriangle className="h-4 w-4" aria-hidden="true" />
+                      <I18nText text={'Warnings'} />
+                    </div>
+                    <ul className="list-disc space-y-1 pl-5">
+                      {warnings.map((warning) => (
+                        <li key={warning} className="break-words">
+                          {warning}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 {hasLocalDags && (
                   <div className="flex-shrink-0">
                     <div className="overflow-x-auto -mx-2 px-2 scrollbar-thin scrollbar-thumb-gray-300">

@@ -184,6 +184,64 @@ func TestDAGWritesAllowedWhenGitSyncDisabled(t *testing.T) {
 	server.Client().Delete("/api/v1/dags/test_dag_gitsync_disabled").ExpectStatus(http.StatusNoContent).Send(t)
 }
 
+func TestDAGSpecWarnings(t *testing.T) {
+	server := test.SetupServer(t)
+	for _, tc := range []struct {
+		name     string
+		root     string
+		step     string
+		warnings int
+	}{
+		{name: "implicit", warnings: 1},
+		{name: "explicit", root: "working_dir: ./repo\n"},
+		{name: "container", root: "working_dir: ./repo\n", step: "    container: {image: alpine}\n", warnings: 1},
+		{name: "container_explicit", step: "    container: {image: alpine, working_dir: /repo}\n"},
+		{name: "existing_warning", root: "working_dir: ./repo\nmax_active_runs: 3\n", warnings: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			name := "warning_" + tc.name
+			definition := tc.root + `steps:
+  - id: review
+    action: harness.run
+    with:
+      provider: claude
+      prompt: Review this repository.
+` + tc.step
+			response := server.Client().Post("/api/v1/dags/validate", api.ValidateDAGSpecJSONRequestBody{
+				Name: &name, Spec: definition,
+			}).ExpectStatus(http.StatusOK).Send(t)
+			var validation api.ValidateDAGSpec200JSONResponse
+			response.Unmarshal(t, &validation)
+			require.True(t, validation.Valid)
+			require.Empty(t, validation.Errors)
+			require.Len(t, validation.Warnings, tc.warnings)
+
+			server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
+				Name: name, Spec: &definition,
+			}).ExpectStatus(http.StatusCreated).Send(t)
+			response = server.Client().Get("/api/v1/dags/" + name + "/spec").ExpectStatus(http.StatusOK).Send(t)
+			var saved api.GetDAGSpec200JSONResponse
+			response.Unmarshal(t, &saved)
+			require.Empty(t, saved.Errors)
+			require.Equal(t, validation.Warnings, saved.Warnings)
+
+			// The details response also supplies the editor's live SSE updates.
+			response = server.Client().Get("/api/v1/dags/" + name).ExpectStatus(http.StatusOK).Send(t)
+			var details api.GetDAGDetails200JSONResponse
+			response.Unmarshal(t, &details)
+			require.Empty(t, details.Errors)
+			require.Equal(t, validation.Warnings, details.Warnings)
+
+			response = server.Client().Put("/api/v1/dags/"+name+"/spec", api.UpdateDAGSpecJSONRequestBody{
+				Spec: definition + "\n# saved\n",
+			}).ExpectStatus(http.StatusOK).Send(t)
+			var updated api.UpdateDAGSpec200JSONResponse
+			response.Unmarshal(t, &updated)
+			require.Empty(t, updated.Errors)
+		})
+	}
+}
+
 func TestDAGSpecInheritsBaseGraphType(t *testing.T) {
 	server := test.SetupServer(t)
 

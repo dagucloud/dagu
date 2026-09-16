@@ -305,7 +305,8 @@ export interface paths {
          * Validate a DAG specification
          * @description Validates a DAG YAML specification without persisting any changes.
          *
-         *     Returns a list of validation errors. When the spec can be partially parsed,
+         *     Returns separate lists of validation errors and non-fatal warnings.
+         *     When the spec can be partially parsed,
          *     the response may also include parsed DAG details built with error-tolerant loading.
          *
          */
@@ -8085,6 +8086,8 @@ export interface operations {
                         dag?: components["schemas"]["DAGDetails"];
                         /** @description List of validation errors */
                         errors: string[];
+                        /** @description Non-fatal spec warnings; these do not affect valid */
+                        warnings?: string[];
                     };
                 };
             };
@@ -8129,6 +8132,8 @@ export interface operations {
                         suspended: boolean;
                         /** @description List of errors encountered during the request */
                         errors: string[];
+                        /** @description Non-fatal spec warnings */
+                        warnings?: string[];
                         /** @description The DAG specification in YAML format */
                         spec?: string;
                         editorHints?: components["schemas"]["DAGEditorHints"];
@@ -8559,6 +8564,8 @@ export interface operations {
                         spec: string;
                         /** @description List of errors in the spec */
                         errors: string[];
+                        /** @description Non-fatal spec warnings */
+                        warnings?: string[];
                         /** @description Passive value-reference notices produced while loading this spec. These notices are not persisted. */
                         valueReferenceNotices: components["schemas"]["ValueReferenceNotice"][];
                     };

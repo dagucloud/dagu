@@ -14,6 +14,7 @@ interface DAGSSEResponse {
   suspended: boolean;
   localDags: LocalDag[];
   errors: string[];
+  warnings?: string[];
   spec?: string;
 }
 

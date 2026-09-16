@@ -123,11 +123,15 @@ func (a *API) ValidateDAGSpecData(ctx context.Context, name, spec string) (*api.
 
 	details := toDAGDetails(dag)
 
-	return &api.ValidateDAGSpec200JSONResponse{
+	response := &api.ValidateDAGSpec200JSONResponse{
 		Valid:  len(errs) == 0,
 		Dag:    details,
 		Errors: errs,
-	}, dag, nil
+	}
+	if dag != nil {
+		response.Warnings = dag.BuildWarnings
+	}
+	return response, dag, nil
 }
 
 func (a *API) CreateNewDAG(ctx context.Context, request api.CreateNewDAGRequestObject) (api.CreateNewDAGResponseObject, error) {
@@ -271,7 +275,6 @@ func (a *API) GetDAGSpec(ctx context.Context, request api.GetDAGSpecRequestObjec
 		}
 	} else {
 		errs = append(errs, extractBuildErrors(dag.BuildErrors)...)
-		errs = append(errs, dag.BuildWarnings...)
 	}
 	if err := a.requireWorkspaceVisible(ctx, dagWorkspaceName(dag)); err != nil {
 		return nil, err
@@ -293,6 +296,7 @@ func (a *API) GetDAGSpec(ctx context.Context, request api.GetDAGSpecRequestObjec
 		Dag:                   details,
 		Spec:                  yamlSpec,
 		Errors:                errs,
+		Warnings:              dag.BuildWarnings,
 		ValueReferenceNotices: valueReferenceNotices,
 	}, nil
 }
@@ -533,6 +537,7 @@ func (a *API) getDAGDetailsData(ctx context.Context, fileName string) (api.GetDA
 		Suspended:    suspended,
 		LocalDags:    localDAGs,
 		Errors:       extractBuildErrors(dag.BuildErrors),
+		Warnings:     dag.BuildWarnings,
 		Spec:         &yamlSpec,
 		EditorHints:  a.buildDAGEditorHints(ctx, dag, fileName),
 	}, nil
