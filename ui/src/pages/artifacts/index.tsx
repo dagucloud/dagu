@@ -4,13 +4,13 @@
 import dayjs from '@/lib/dayjs';
 import {
   AlertCircle,
-  ExternalLink,
   File,
   FileCode,
   FileImage,
   FileText,
   Folder,
   FolderOpen,
+  Link as LinkIcon,
   RefreshCw,
 } from 'lucide-react';
 import React from 'react';
@@ -591,15 +591,12 @@ function Artifacts() {
                           aria-label={`Open DAG run ${item.name}`}
                           onClick={(event) => event.stopPropagation()}
                         >
-                          <ExternalLink className="h-4 w-4" />
+                          <LinkIcon className="h-4 w-4" />
                         </Link>
                       </div>
-                      <Link
-                        to={`/dag-runs/${item.name}/${item.dagRunId}`}
-                        className="block truncate pl-8 text-[11px] text-muted-foreground transition-colors hover:text-foreground hover:underline"
-                      >
+                      <span className="block truncate pl-8 text-[11px] text-muted-foreground">
                         {formatTimestamp(item.createdAt)} · {item.dagRunId}
-                      </Link>
+                      </span>
                       {isOpen && nodes.length > 0 && (
                         <div className="space-y-0.5">
                           {nodes.map((node) => (
