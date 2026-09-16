@@ -67,11 +67,12 @@ type ArtifactRun struct {
 	// is later than CreatedAt.
 	StartedAt time.Time
 
-	// Files are in walk order, and only those matching the query's FileName
+	// Files are sorted by path, and only those matching the query's FileName
 	// when one is set.
 	Files []ArtifactFile
 
 	// FilesTruncated reports that the run holds more files than were returned.
+	// Which of its files were returned is then not defined.
 	FilesTruncated bool
 }
 

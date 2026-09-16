@@ -5185,9 +5185,9 @@ export interface components {
             createdAt: string;
             /** @description RFC 3339 timestamp of when the DAG-run started */
             startedAt?: string;
-            /** @description Files in the run's artifact directory, in walk order. With fileName set, only the matching files. At most 100 are returned; see filesTruncated. */
+            /** @description Files in the run's artifact directory, sorted by path. With fileName set, only the matching files. At most 100 are returned; see filesTruncated. */
             files: components["schemas"]["ArtifactListFile"][];
-            /** @description True when the run holds more files than were returned. The per-run artifact endpoint serves the full tree. */
+            /** @description True when the run holds more files than were returned. Which files were returned is then not defined; the per-run artifact endpoint serves the full tree. */
             filesTruncated: boolean;
         };
         /** @description Page of root DAG-runs that produced artifacts, newest first */

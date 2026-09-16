@@ -5,8 +5,11 @@ package artifact
 
 import (
 	"context"
+	"errors"
+	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -155,8 +158,9 @@ func (s *Store) collectDay(
 	return false, nil
 }
 
-// listRunFiles collects a run's files that match pattern, in walk order, up
-// to maxFilesPerRun. The second result reports that the run held more.
+// listRunFiles collects a run's files that match pattern, sorted by path, up
+// to maxFilesPerRun. The second result reports that the run held more, in
+// which case the files returned are whichever the walk reached first.
 //
 // A file's size is a syscall and its match is a string comparison, so the
 // comparison goes first: without a pattern every file is a candidate and the
@@ -181,6 +185,7 @@ func listRunFiles(dir, pattern string) ([]persis.ArtifactFile, bool, error) {
 		files = append(files, persis.ArtifactFile{Path: relPath, Size: info.Size()})
 		return true
 	})
+	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
 	return files, truncated, err
 }
 
@@ -362,37 +367,61 @@ func listNumericDirsDesc(dir string, width int) ([]string, error) {
 	return names, nil
 }
 
-// walkFiles visits a run's regular files in walk order, stopping when visit
-// returns false.
+// readDirBatch bounds how many entries one directory read returns, so that
+// stopping early in a large directory costs one batch rather than the whole
+// directory. One batch covers maxFilesPerRun.
+const readDirBatch = 128
+
+// walkFiles visits a run's regular files, stopping when visit returns false.
 //
-// Walk order is lexical within each directory, so the sequence is the same on
-// every call without materialising the whole tree first. That is what makes
-// stopping early safe.
+// Directories are read in batches and entries are visited in the order the
+// directory returns them, which is not lexical, so a stopped walk has read
+// only what it visited. Symbolic links are not followed. A directory that is
+// gone by the time it is opened is skipped, the root included.
 //
 // The entry is handed over unresolved. Its kind is known from the directory
 // read, but its size is a further syscall, and a visit may decide it does not
 // want the file at all.
 func walkFiles(dir string, visit func(relPath string, entry fs.DirEntry) bool) error {
-	err := filepath.WalkDir(dir, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if entry.IsDir() || !entry.Type().IsRegular() {
-			return nil
-		}
-		rel, err := filepath.Rel(dir, path)
-		if err != nil {
-			return err
-		}
-		if !visit(filepath.ToSlash(rel), entry) {
-			return fs.SkipAll
-		}
-		return nil
-	})
-	if err != nil && os.IsNotExist(err) {
-		return nil
-	}
+	_, err := walkDirBatched(dir, "", visit)
 	return err
+}
+
+// walkDirBatched walks the directory at rel under root and reports whether
+// visit asked to stop.
+func walkDirBatched(root, rel string, visit func(relPath string, entry fs.DirEntry) bool) (bool, error) {
+	// #nosec G304 -- the directory comes from a run's recorded artifact path.
+	f, err := os.Open(filepath.Join(root, filepath.FromSlash(rel)))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	defer func() { _ = f.Close() }()
+
+	for {
+		entries, err := f.ReadDir(readDirBatch)
+		for _, entry := range entries {
+			relPath := path.Join(rel, entry.Name())
+			switch {
+			case entry.IsDir():
+				if stop, err := walkDirBatched(root, relPath, visit); err != nil || stop {
+					return stop, err
+				}
+			case entry.Type().IsRegular():
+				if !visit(relPath, entry) {
+					return true, nil
+				}
+			}
+		}
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return false, nil
+			}
+			return false, err
+		}
+	}
 }
 
 func matchesName(dagName, filter string) bool {

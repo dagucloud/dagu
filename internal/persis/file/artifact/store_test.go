@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 	"time"
 
@@ -280,8 +281,7 @@ func TestQueryArtifactsFileCap(t *testing.T) {
 		require.Len(t, page.Items, 1)
 		assert.Len(t, page.Items[0].Files, 100)
 		assert.True(t, page.Items[0].FilesTruncated)
-		assert.Equal(t, "f0000.txt", page.Items[0].Files[0].Path)
-		assert.Equal(t, "f0099.txt", page.Items[0].Files[99].Path)
+		assert.True(t, sort.StringsAreSorted(filesOf(page.Items[0])))
 	})
 
 	// The cap counts matches, not files scanned.

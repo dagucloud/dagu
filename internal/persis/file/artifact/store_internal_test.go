@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -94,6 +95,29 @@ func TestWalkFilesStopsEarly(t *testing.T) {
 	}))
 
 	assert.Equal(t, 3, visited)
+}
+
+// The walk is hand-rolled, so descent, empty directories and the run-relative
+// slash-separated path are pinned here.
+func TestWalkFilesVisitsNestedFilesOnce(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	for _, name := range []string{"top.txt", "a/one.txt", "a/b/two.txt", "a/b/c/three.txt"} {
+		p := filepath.Join(dir, filepath.FromSlash(name))
+		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o750))
+		require.NoError(t, os.WriteFile(p, []byte("x"), 0o600))
+	}
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "empty"), 0o750))
+
+	var visited []string
+	require.NoError(t, walkFiles(dir, func(relPath string, _ fs.DirEntry) bool {
+		visited = append(visited, relPath)
+		return true
+	}))
+
+	sort.Strings(visited)
+	assert.Equal(t, []string{"a/b/c/three.txt", "a/b/two.txt", "a/one.txt", "top.txt"}, visited)
 }
 
 func TestWalkFilesMissingDirectory(t *testing.T) {
