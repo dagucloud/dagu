@@ -52,14 +52,14 @@ type RunDirName struct {
 	Suffix    string
 }
 
-// RunDir returns the artifact directory for a run without creating it.
+// NewRunDir returns the artifact directory for a run, creating it if needed.
 // overrideDir, when set, replaces baseDir as the root; both are expanded for
 // environment references before use.
 //
-// The result is a pure function of its arguments, so any component that has to
-// re-derive a run's directory arrives at the same path rather than minting a
-// second one.
-func RunDir(ctx context.Context, baseDir, overrideDir, dagName, dagRunID string, at time.Time) (string, error) {
+// The path is a pure function of its arguments, so any component that has to
+// re-derive a run's directory arrives at the same one rather than minting a
+// second.
+func NewRunDir(ctx context.Context, baseDir, overrideDir, dagName, dagRunID string, at time.Time) (string, error) {
 	root, err := resolveRoot(ctx, baseDir, overrideDir)
 	if err != nil {
 		return "", err
@@ -70,29 +70,15 @@ func RunDir(ctx context.Context, baseDir, overrideDir, dagName, dagRunID string,
 	if strings.TrimSpace(dagRunID) == "" {
 		return "", fmt.Errorf("DAG-run ID must not be empty")
 	}
-	return filepath.Join(DayDir(root, at), runDirName(at, dagName, dagRunID)), nil
-}
-
-// NewRunDir returns the artifact directory for a run and creates it.
-func NewRunDir(ctx context.Context, baseDir, overrideDir, dagName, dagRunID string, at time.Time) (string, error) {
-	dir, err := RunDir(ctx, baseDir, overrideDir, dagName, dagRunID, at)
-	if err != nil {
-		return "", err
-	}
+	dir := filepath.Join(dayDir(root, at), runDirName(at, dagName, dagRunID))
 	if err := os.MkdirAll(dir, 0750); err != nil {
 		return "", fmt.Errorf("failed to initialize directory %s: %w", dir, err)
 	}
 	return dir, nil
 }
 
-// ResolveRoot expands baseDir, or overrideDir when it is set, and returns the
-// artifact root without creating it.
-func ResolveRoot(ctx context.Context, baseDir, overrideDir string) (string, error) {
-	return resolveRoot(ctx, baseDir, overrideDir)
-}
-
-// DayDir returns the directory holding every run started on the given day.
-func DayDir(root string, at time.Time) string {
+// dayDir returns the directory holding every run started on the given day.
+func dayDir(root string, at time.Time) string {
 	return filepath.Join(root, filepath.FromSlash(at.UTC().Format(dayLayout)))
 }
 
@@ -104,16 +90,16 @@ func DayDir(root string, at time.Time) string {
 // directory is created once and the clock has moved on by the time its status
 // is recorded. It reports false for a directory that predates this layout.
 func MetaPath(root, runDir string) (string, bool) {
-	day, name, ok := SplitRunDir(runDir)
+	day, name, ok := splitRunDir(runDir)
 	if !ok {
 		return "", false
 	}
 	return filepath.Join(root, filepath.FromSlash(day), name+MetaSuffix), true
 }
 
-// SplitRunDir separates a per-run artifact directory into its "YYYY/MM/DD" day
+// splitRunDir separates a per-run artifact directory into its "YYYY/MM/DD" day
 // and its directory name.
-func SplitRunDir(runDir string) (day, name string, ok bool) {
+func splitRunDir(runDir string) (day, name string, ok bool) {
 	cleaned := filepath.Clean(runDir)
 	name = filepath.Base(cleaned)
 	if _, ok := ParseRunDirName(name); !ok {

@@ -231,7 +231,8 @@ func runDirTime(day, timeOfDay string) time.Time {
 	return at
 }
 
-// listRunDirsDesc returns a day's index records newest first.
+// listRunDirsDesc returns the run directories a day's sidecars address, newest
+// first.
 func (s *Store) listRunDirsDesc(day string) ([]runDirEntry, error) {
 	dayPath := filepath.Join(s.rootDir, filepath.FromSlash(day))
 	entries, err := os.ReadDir(dayPath)
@@ -314,26 +315,22 @@ func outsideBounds(key, from, to string) bool {
 	return false
 }
 
-// timeBounds renders the query range as "YYYY/MM/DDHHMMSS", the same shape a
-// run's day and directory name concatenate to. outsideBounds truncates a bound
-// to its caller's width, so one string serves the year, month, day and second
-// comparisons alike.
+// queryBounds is the query range rendered as "YYYY/MM/DDHHMMSS", the same
+// shape a run's day and directory name concatenate to. outsideBounds truncates
+// a bound to its caller's width, so one string serves the year, month, day and
+// second comparisons alike.
 type queryBounds struct{ from, to string }
 
 func newQueryBounds(query persis.ArtifactQuery) queryBounds {
-	from, to := timeBounds(query)
-	return queryBounds{from: from, to: to}
-}
-
-func timeBounds(query persis.ArtifactQuery) (from, to string) {
 	const layout = dayLayoutForBounds + timeOfDayLayoutForBounds
+	var b queryBounds
 	if !query.From.IsZero() {
-		from = query.From.UTC().Format(layout)
+		b.from = query.From.UTC().Format(layout)
 	}
 	if !query.To.IsZero() {
-		to = query.To.UTC().Format(layout)
+		b.to = query.To.UTC().Format(layout)
 	}
-	return from, to
+	return b
 }
 
 const (

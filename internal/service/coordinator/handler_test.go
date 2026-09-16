@@ -563,7 +563,7 @@ func TestTransformArtifactPathsCreatesDirectory(t *testing.T) {
 
 	err := handler.transformArtifactPaths(context.Background(), attempt, nil, incoming)
 	require.NoError(t, err)
-	expected, err := artifactpath.RunDir(context.Background(), baseDir, "", "test-dag", "run-123", artifactTestStart)
+	expected, err := artifactpath.NewRunDir(context.Background(), baseDir, "", "test-dag", "run-123", artifactTestStart)
 	require.NoError(t, err)
 	assert.Equal(t, expected, incoming.ArchiveDir)
 
@@ -594,7 +594,7 @@ func TestTransformArtifactPathsSanitizesDAGName(t *testing.T) {
 	err := handler.transformArtifactPaths(context.Background(), attempt, nil, incoming)
 	require.NoError(t, err)
 
-	expected, expectedErr := artifactpath.RunDir(
+	expected, expectedErr := artifactpath.NewRunDir(
 		context.Background(), baseDir, "", attempt.dag.Name, "run-123", artifactTestStart)
 	require.NoError(t, expectedErr)
 	assert.Equal(t, expected, incoming.ArchiveDir)
@@ -667,7 +667,7 @@ func TestTransformArtifactPathsUsesDAGSpecificDirWithoutGlobalArtifactDir(t *tes
 
 	err := handler.transformArtifactPaths(context.Background(), attempt, nil, incoming)
 	require.NoError(t, err)
-	expected, err := artifactpath.RunDir(context.Background(), baseDir, "", "test-dag", "run-123", artifactTestStart)
+	expected, err := artifactpath.NewRunDir(context.Background(), baseDir, "", "test-dag", "run-123", artifactTestStart)
 	require.NoError(t, err)
 	assert.Equal(t, expected, incoming.ArchiveDir)
 }

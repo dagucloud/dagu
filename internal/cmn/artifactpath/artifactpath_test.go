@@ -55,7 +55,6 @@ func TestNewRunDir(t *testing.T) {
 
 		dir, err := artifactpath.NewRunDir(context.Background(), base, "", "tz", "run-1", at)
 		require.NoError(t, err)
-		assert.Equal(t, artifactpath.DayDir(base, at), filepath.Dir(dir))
 		assert.Equal(t, filepath.Join(base, "2026", "09", "16"), filepath.Dir(dir))
 	})
 
@@ -120,17 +119,6 @@ func TestNewRunDir(t *testing.T) {
 		require.Error(t, err)
 	})
 
-	// RunDir is the pure form used where a path must be derived without
-	// creating anything.
-	t.Run("RunDirDoesNotCreate", func(t *testing.T) {
-		t.Parallel()
-		base := t.TempDir()
-
-		dir, err := artifactpath.RunDir(context.Background(), base, "", "dry", "run-1", testTime)
-		require.NoError(t, err)
-		assert.NoDirExists(t, dir)
-	})
-
 	t.Run("RejectsMissingRoot", func(t *testing.T) {
 		t.Parallel()
 
@@ -183,7 +171,7 @@ func TestMetaPath(t *testing.T) {
 
 		meta, ok := artifactpath.MetaPath(base, dir)
 		require.True(t, ok)
-		assert.Equal(t, artifactpath.DayDir(base, testTime), filepath.Dir(meta))
+		assert.Equal(t, filepath.Join(base, "2026", "09", "15"), filepath.Dir(meta))
 		assert.Equal(t, filepath.Base(dir)+artifactpath.MetaSuffix, filepath.Base(meta))
 	})
 
@@ -203,16 +191,6 @@ func TestMetaPath(t *testing.T) {
 		_, ok := artifactpath.MetaPath("/artifacts", filepath.Join("/", "143207_dag_"+hexSuffix('a')))
 		assert.False(t, ok)
 	})
-}
-
-func TestSplitRunDir(t *testing.T) {
-	t.Parallel()
-
-	day, name, ok := artifactpath.SplitRunDir(
-		filepath.Join("/artifacts", "2026", "09", "15", "143207_report_"+hexSuffix('a')))
-	require.True(t, ok)
-	assert.Equal(t, "2026/09/15", day)
-	assert.Equal(t, "143207_report_"+hexSuffix('a'), name)
 }
 
 func TestParseRunDirName(t *testing.T) {
