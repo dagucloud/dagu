@@ -153,13 +153,18 @@ function collectDirectoryPaths(nodes: FileTreeNode[]): string[] {
   return paths;
 }
 
-function collectFileLeaves(nodes: FileTreeNode[]): FileTreeNode[] {
+// Only files whose run and directory ancestors are expanded are visible;
+// traversal must not land on hidden rows.
+function collectVisibleFileLeaves(
+  nodes: FileTreeNode[],
+  expandedPaths: Set<string>
+): FileTreeNode[] {
   const leaves: FileTreeNode[] = [];
   for (const node of nodes) {
     if (node.type === 'file') {
       leaves.push(node);
-    } else if (node.children) {
-      leaves.push(...collectFileLeaves(node.children));
+    } else if (expandedPaths.has(node.path) && node.children) {
+      leaves.push(...collectVisibleFileLeaves(node.children, expandedPaths));
     }
   }
   return leaves;
@@ -392,22 +397,26 @@ function Artifacts() {
       ? `${runTreeRoot(selected)}/${selected.path}`
       : null;
 
-  // Flat, depth-first ordered list of every visible file, matching the
-  // tree rendering order (files nested under directories), for keyboard
+  // Flat, depth-first ordered list of every visible file (expanded runs and
+  // directories only), matching the tree rendering order, for keyboard
   // navigation across runs.
   const fileRefs = React.useMemo(
     () =>
       items.flatMap((item) => {
         const root = runTreeRoot(item);
-        return collectFileLeaves(filesToTreeNodes(item.files, root)).map(
-          (node) => ({
-            name: item.name,
-            dagRunId: item.dagRunId,
-            path: node.path.slice(root.length + 1),
-          })
-        );
+        if (!expandedPaths.has(root)) {
+          return [];
+        }
+        return collectVisibleFileLeaves(
+          filesToTreeNodes(item.files, root),
+          expandedPaths
+        ).map((node) => ({
+          name: item.name,
+          dagRunId: item.dagRunId,
+          path: node.path.slice(root.length + 1),
+        }));
       }),
-    [items]
+    [expandedPaths, items]
   );
 
   const listContainerRef = React.useRef<HTMLDivElement>(null);

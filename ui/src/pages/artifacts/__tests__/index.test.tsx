@@ -379,6 +379,34 @@ describe('Artifacts page', () => {
     ).toBeInTheDocument();
   });
 
+  it('does not navigate into collapsed runs until they are expanded', () => {
+    usePaginatedArtifactsResult.current.items = [
+      makeItem(),
+      makeItem({
+        name: 'oldest',
+        dagRunId: 'run-9',
+        files: [{ path: 'top/raw.json', size: 7 }],
+      }),
+    ];
+    renderPage();
+
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    expect(
+      screen.getByText('preview of out/plot.png in reporter/run-1')
+    ).toBeInTheDocument();
+    // The last visible file: the collapsed run's file is not reachable.
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    expect(
+      screen.getByText('preview of out/plot.png in reporter/run-1')
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /oldest/ }));
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    expect(
+      screen.getByText('preview of top/raw.json in oldest/run-9')
+    ).toBeInTheDocument();
+  });
+
   it('shows the real artifact path in file tooltips', () => {
     usePaginatedArtifactsResult.current.items = [makeItem()];
     renderPage();
