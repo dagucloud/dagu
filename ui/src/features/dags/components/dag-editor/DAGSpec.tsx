@@ -193,6 +193,8 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
     hasUnsavedChanges: localHasUnsavedChanges,
     conflict,
     resolveConflict,
+    beginSave,
+    cancelSave,
     markAsSaved,
     discardChanges,
   } = useContentEditor({
@@ -394,10 +396,10 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
 
     // Save current scroll position before any operations that might cause re-render
     saveScrollPosition();
+    beginSave(currentValue);
 
-    const { data: responseData, error } = await client.PUT(
-      '/dags/{fileName}/spec',
-      {
+    const { data: responseData, error } = await client
+      .PUT('/dags/{fileName}/spec', {
         params: {
           path: {
             fileName: fileName,
@@ -409,10 +411,14 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
         body: {
           spec: currentValue,
         },
-      }
-    );
+      })
+      .catch((error: unknown) => {
+        cancelSave();
+        throw error;
+      });
 
     if (error) {
+      cancelSave();
       showError(
         error.message || 'Failed to save spec',
         'Please check the YAML syntax and try again.'
@@ -421,6 +427,7 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
     }
 
     if (responseData?.errors?.length) {
+      cancelSave();
       // Feed the rejected save into the same markers/panel as live validation.
       setLiveValidation((prev) => ({
         errors: responseData.errors,
@@ -452,6 +459,8 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
     saveScrollPosition,
     showError,
     showToast,
+    beginSave,
+    cancelSave,
     markAsSaved,
     mutateSpec,
   ]);

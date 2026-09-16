@@ -75,7 +75,10 @@ vi.mock('../DAGAttributes', () => ({ default: () => null }));
 vi.mock('../AgentSpecOverview', () => ({
   AgentSpecOverview: () => <div>Agent overview</div>,
 }));
-vi.mock('../ExternalChangeDialog', () => ({ default: () => null }));
+vi.mock('../ExternalChangeDialog', () => ({
+  default: ({ visible }: { visible: boolean }) =>
+    visible ? <div role="dialog">External Changes Detected</div> : null,
+}));
 vi.mock('../../dag-details', () => ({ DAGStepTable: () => null }));
 vi.mock('../../value-reference-notices', () => ({
   ValueReferenceNoticesButton: () => null,
@@ -250,6 +253,55 @@ describe('DAGSpec live validation', () => {
 
     fireEvent.change(editor, { target: { value: savedSpec } });
     expect(screen.getByRole('status')).toHaveTextContent(warning);
+  });
+
+  it('accepts a save echo before its response without losing newer edits', async () => {
+    vi.useFakeTimers();
+    let finishSave!: (value: { data: { errors: string[] } }) => void;
+    mocks.put.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finishSave = resolve;
+      })
+    );
+    renderSpec();
+    const editor = screen.getByLabelText('DAG spec');
+    const submitted = savedSpec + '# saved';
+    const newerEdit = submitted + '\n# still editing';
+    fireEvent.change(editor, { target: { value: submitted } });
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+
+    mocks.useQuery.mockReturnValue(specData({ spec: submitted }));
+    fireEvent.change(editor, { target: { value: newerEdit } });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    await act(async () => {
+      finishSave({ data: { errors: [] } });
+    });
+    expect(editor).toHaveValue(newerEdit);
+    expect(screen.getByRole('button', { name: /save/i })).toBeEnabled();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['request failure', { error: { message: 'unavailable' } }],
+    ['validation rejection', { data: { errors: ['invalid spec'] } }],
+  ])('detects external changes after a save %s', async (_name, response) => {
+    vi.useFakeTimers();
+    mocks.put.mockResolvedValueOnce(response);
+    renderSpec();
+    const editor = screen.getByLabelText('DAG spec');
+    const submitted = savedSpec + '# submitted';
+    fireEvent.change(editor, { target: { value: submitted } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /save/i }));
+    });
+    expect(mocks.showError).toHaveBeenCalled();
+
+    mocks.useQuery.mockReturnValue(specData({ spec: submitted }));
+    fireEvent.change(editor, {
+      target: { value: submitted + '\n# still editing' },
+    });
+    expect(screen.getByRole('dialog')).toHaveTextContent('External Changes');
   });
 
   it('validates the edited buffer once per idle window', async () => {
