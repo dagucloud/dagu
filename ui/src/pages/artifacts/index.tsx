@@ -450,10 +450,13 @@ function Artifacts() {
       hasUrlFilters = true;
     }
 
-    let base: ArtifactsFilterSet = {
-      ...DEFAULT_ARTIFACT_FILTERS,
-      ...(stored ?? {}),
-    };
+    // A URL that carries filters is self-contained: a link shared with someone
+    // else must resolve identically for them, so only a bare URL falls back to
+    // this session's stored filters. Every write to the URL carries the whole
+    // applied filter set, so an absent parameter means empty, not "unset".
+    let base: ArtifactsFilterSet = hasUrlFilters
+      ? { ...DEFAULT_ARTIFACT_FILTERS }
+      : { ...DEFAULT_ARTIFACT_FILTERS, ...(stored ?? {}) };
     let nextActiveArtifactViewId: string | null = null;
     const requestedViewId = params.get('view');
     const requestedView =
@@ -595,6 +598,8 @@ function Artifacts() {
     // Read the payload from the local dates: the state setters above have not
     // been applied yet within this handler.
     updateSearchParams({
+      name: searchOverrideKey(apiSearchText),
+      fileName: searchOverrideKey(apiFileNameText),
       dateMode: 'preset',
       preset,
       fromDate: undefined,

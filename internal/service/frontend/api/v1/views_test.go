@@ -277,6 +277,57 @@ func TestViewsAPI_UpdatePreservesOmittedArtifactSettings(t *testing.T) {
 	assert.True(t, *updated.IsDefault)
 }
 
+// An explicit empty date clears the bound; the nil-preserve branches must not
+// resurrect the value the caller just cleared.
+func TestViewsAPI_UpdateClearsArtifactDateBound(t *testing.T) {
+	ctx := context.Background()
+	api := newViewsTestAPI(t)
+	viewType := apigen.ViewSpecTypeArtifact
+	workspaceScope := apigen.ViewWorkspaceScopeAll
+	dateMode := apigen.RunDateModeCustom
+	datePreset := apigen.RunDatePresetAll
+	fromDate := "2026-09-01T00:00"
+	toDate := "2026-09-30T23:59"
+	cleared := ""
+	created := mustCreateView(t, api, ctx, apigen.ViewSpec{
+		Name:           "Nightly reports",
+		Type:           &viewType,
+		IntervalDays:   1,
+		WorkspaceScope: &workspaceScope,
+		DateMode:       &dateMode,
+		DatePreset:     &datePreset,
+		FromDate:       &fromDate,
+		ToDate:         &toDate,
+	})
+
+	resp, err := api.UpdateView(ctx, apigen.UpdateViewRequestObject{
+		ViewId: created.Id,
+		Body: &apigen.ViewSpec{
+			Name:           "Nightly reports",
+			Type:           &viewType,
+			IntervalDays:   1,
+			WorkspaceScope: &workspaceScope,
+			DateMode:       &dateMode,
+			DatePreset:     &datePreset,
+			FromDate:       &fromDate,
+			ToDate:         &cleared,
+		},
+	})
+	require.NoError(t, err)
+	updated, ok := resp.(apigen.UpdateView200JSONResponse)
+	require.True(t, ok, "expected 200, got %T", resp)
+	assert.Empty(t, valueOfString(updated.ToDate), "cleared end date must stay cleared")
+	require.NotNil(t, updated.FromDate)
+	assert.Equal(t, fromDate, *updated.FromDate)
+}
+
+func valueOfString(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
+}
+
 func TestViewsAPI_WorkflowDefaultIsSharedPerScope(t *testing.T) {
 	ctx := context.Background()
 	api := newViewsTestAPI(t)

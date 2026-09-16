@@ -27,3 +27,9 @@ Object.defineProperty(globalThis, 'ResizeObserver', {
 
 // jsdom doesn't implement scrollIntoView
 Element.prototype.scrollIntoView = () => {};
+
+// jsdom doesn't implement the Pointer Capture API, which Radix's Select uses
+// to track a press that starts on the trigger.
+Element.prototype.hasPointerCapture = () => false;
+Element.prototype.setPointerCapture = () => {};
+Element.prototype.releasePointerCapture = () => {};

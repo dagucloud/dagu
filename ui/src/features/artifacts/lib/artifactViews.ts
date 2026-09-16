@@ -59,8 +59,11 @@ export function buildArtifactViewSpec(
     fileName: filters.fileName,
     dateMode: filters.dateRangeMode as RunDateMode,
     datePreset: filters.datePreset as RunDatePreset,
-    fromDate: filters.fromDate,
-    toDate: filters.toDate,
+    // Send the dates explicitly, never omitted: the API preserves a field the
+    // request leaves out, so an omitted date would restore the value the user
+    // just cleared.
+    fromDate: filters.fromDate ?? '',
+    toDate: filters.toDate ?? '',
     intervalDays: 1,
     pinned,
     isDefault,

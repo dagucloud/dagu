@@ -660,6 +660,154 @@ describe('Artifacts page', () => {
     });
   });
 
+  // A link shared with a teammate must resolve to the same list for them, so
+  // filters the URL does not name fall back to defaults, not to whatever the
+  // reader's own session happens to hold.
+  it('ignores stored session filters for a URL that carries filters', async () => {
+    readSearchStateMock.mockReturnValue({
+      searchText: 'somethingelse',
+      fileName: '**/*.csv',
+      fromDate: undefined,
+      toDate: undefined,
+      dateRangeMode: 'preset',
+      datePreset: RunDatePreset.all,
+    });
+
+    renderPage(
+      vi.fn(),
+      {},
+      '/artifacts?name=reporter&dateMode=preset&preset=all'
+    );
+
+    await waitFor(() => {
+      expect(lastQuery()['name']).toBe('reporter');
+    });
+    expect(lastQuery()['fileName']).toBeUndefined();
+    expect(screen.getByPlaceholderText('Filter by file name...')).toHaveValue(
+      ''
+    );
+  });
+
+  it('restores stored session filters for a bare URL', async () => {
+    readSearchStateMock.mockReturnValue({
+      searchText: 'reporter',
+      fileName: '**/*.csv',
+      fromDate: undefined,
+      toDate: undefined,
+      dateRangeMode: 'preset',
+      datePreset: RunDatePreset.all,
+    });
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(lastQuery()['name']).toBe('reporter');
+    });
+    expect(lastQuery()['fileName']).toBe('**/*.csv');
+  });
+
+  // Changing the preset rewrites the URL, so it has to carry the filters that
+  // were restored from the session or they would be dropped on the next pass.
+  it('keeps restored filters when only the date preset changes', async () => {
+    const user = userEvent.setup();
+    readSearchStateMock.mockReturnValue({
+      searchText: 'reporter',
+      fileName: '**/*.csv',
+      fromDate: undefined,
+      toDate: undefined,
+      dateRangeMode: 'preset',
+      datePreset: RunDatePreset.all,
+    });
+
+    renderPage();
+    await waitFor(() => {
+      expect(lastQuery()['fileName']).toBe('**/*.csv');
+    });
+
+    await user.click(screen.getByRole('combobox', { name: 'Date preset' }));
+    await user.click(screen.getByRole('option', { name: 'Last 7 days' }));
+
+    await waitFor(() => {
+      expect(locationSearchParams().get('preset')).toBe('last7days');
+    });
+    expect(lastQuery()['name']).toBe('reporter');
+    expect(lastQuery()['fileName']).toBe('**/*.csv');
+  });
+
+  // A link shared with a teammate must resolve to the same list for them, so
+  // filters the URL does not name fall back to defaults, not to whatever the
+  // reader's own session happens to hold.
+  it('ignores stored session filters for a URL that carries filters', async () => {
+    readSearchStateMock.mockReturnValue({
+      searchText: 'somethingelse',
+      fileName: '**/*.csv',
+      fromDate: undefined,
+      toDate: undefined,
+      dateRangeMode: 'preset',
+      datePreset: RunDatePreset.all,
+    });
+
+    renderPage(
+      vi.fn(),
+      {},
+      '/artifacts?name=reporter&dateMode=preset&preset=all'
+    );
+
+    await waitFor(() => {
+      expect(lastQuery()['name']).toBe('reporter');
+    });
+    expect(lastQuery()['fileName']).toBeUndefined();
+    expect(screen.getByPlaceholderText('Filter by file name...')).toHaveValue(
+      ''
+    );
+  });
+
+  it('restores stored session filters for a bare URL', async () => {
+    readSearchStateMock.mockReturnValue({
+      searchText: 'reporter',
+      fileName: '**/*.csv',
+      fromDate: undefined,
+      toDate: undefined,
+      dateRangeMode: 'preset',
+      datePreset: RunDatePreset.all,
+    });
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(lastQuery()['name']).toBe('reporter');
+    });
+    expect(lastQuery()['fileName']).toBe('**/*.csv');
+  });
+
+  // Changing the preset rewrites the URL, so it has to carry the filters that
+  // were restored from the session or they would be dropped on the next pass.
+  it('keeps restored filters when only the date preset changes', async () => {
+    const user = userEvent.setup();
+    readSearchStateMock.mockReturnValue({
+      searchText: 'reporter',
+      fileName: '**/*.csv',
+      fromDate: undefined,
+      toDate: undefined,
+      dateRangeMode: 'preset',
+      datePreset: RunDatePreset.all,
+    });
+
+    renderPage();
+    await waitFor(() => {
+      expect(lastQuery()['fileName']).toBe('**/*.csv');
+    });
+
+    await user.click(screen.getByRole('combobox', { name: 'Date preset' }));
+    await user.click(screen.getByRole('option', { name: 'Last 7 days' }));
+
+    await waitFor(() => {
+      expect(locationSearchParams().get('preset')).toBe('last7days');
+    });
+    expect(lastQuery()['name']).toBe('reporter');
+    expect(lastQuery()['fileName']).toBe('**/*.csv');
+  });
+
   it('marks an artifact view as edited when its filters change', async () => {
     sharedArtifactViewState.views.push(
       makeArtifactView({ id: 'view-a', dagName: 'nightly-etl' })
