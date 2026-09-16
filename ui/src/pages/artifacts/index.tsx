@@ -4,6 +4,7 @@
 import dayjs from '@/lib/dayjs';
 import {
   AlertCircle,
+  ExternalLink,
   File,
   FileCode,
   FileImage,
@@ -13,6 +14,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import React from 'react';
+import { Link } from 'react-router-dom';
 import type {
   ArtifactListItem,
   ArtifactListQuery,
@@ -360,6 +362,18 @@ function Artifacts() {
     return `(${sign}${formattedHours}:${formattedMinutes})`;
   };
 
+  const formatTimestamp = (timestamp: string | undefined): string => {
+    if (!timestamp) {
+      return '-';
+    }
+    const value = dayjs(timestamp);
+    const configuredTime =
+      config.tzOffsetInSec === undefined
+        ? value
+        : value.utcOffset(config.tzOffsetInSec / 60);
+    return configuredTime.format('YYYY-MM-DD HH:mm:ss');
+  };
+
   const tzLabel = formatTimezoneOffset();
   const selectedNodeSyntheticPath =
     selected !== null
@@ -539,40 +553,53 @@ function Artifacts() {
                   const Icon = isOpen ? FolderOpen : Folder;
                   return (
                     <div key={runKey(item)}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setExpandedPaths((previous) => {
-                            const next = new Set(previous);
-                            if (next.has(root)) {
-                              next.delete(root);
+                      <div className="group/run flex items-center gap-1 rounded-md transition-colors hover:bg-muted">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setExpandedPaths((previous) => {
+                              const next = new Set(previous);
+                              if (next.has(root)) {
+                                next.delete(root);
+                                return next;
+                              }
+                              next.add(root);
+                              for (const dir of collectDirectoryPaths(nodes)) {
+                                next.add(dir);
+                              }
                               return next;
-                            }
-                            next.add(root);
-                            for (const dir of collectDirectoryPaths(nodes)) {
-                              next.add(dir);
-                            }
-                            return next;
-                          });
-                        }}
-                        className={cn(
-                          'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
-                          'text-foreground hover:bg-muted'
-                        )}
+                            });
+                          }}
+                          className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-foreground transition-colors"
+                        >
+                          <Icon className="h-4 w-4 shrink-0" />
+                          <span className="min-w-0 flex-1 truncate font-medium">
+                            {item.name}
+                          </span>
+                          <span className="shrink-0 text-[11px] text-muted-foreground">
+                            {item.files.length > 0
+                              ? ts('{count} files', {
+                                  count: item.files.length,
+                                })
+                              : '—'}
+                          </span>
+                        </button>
+                        <Link
+                          to={`/dag-runs/${item.name}/${item.dagRunId}`}
+                          className="mr-1 shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                          title="Open DAG run"
+                          aria-label={`Open DAG run ${item.name}`}
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                        </Link>
+                      </div>
+                      <Link
+                        to={`/dag-runs/${item.name}/${item.dagRunId}`}
+                        className="block truncate pl-8 text-[11px] text-muted-foreground transition-colors hover:text-foreground hover:underline"
                       >
-                        <Icon className="h-4 w-4 shrink-0" />
-                        <span className="min-w-0 flex-1 truncate font-medium">
-                          {item.name}
-                        </span>
-                        <span className="shrink-0 text-[11px] text-muted-foreground">
-                          {item.files.length > 0
-                            ? ts('{count} files', { count: item.files.length })
-                            : '—'}
-                        </span>
-                      </button>
-                      <span className="block truncate pl-8 text-[11px] text-muted-foreground">
-                        {item.dagRunId} · {item.createdAt}
-                      </span>
+                        {formatTimestamp(item.createdAt)} · {item.dagRunId}
+                      </Link>
                       {isOpen && nodes.length > 0 && (
                         <div className="space-y-0.5">
                           {nodes.map((node) => (

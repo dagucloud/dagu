@@ -4,6 +4,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
+import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import type { ArtifactListItem } from '@/features/artifacts/hooks/artifactListPagination';
 import { AppBarContext } from '@/contexts/AppBarContext';
@@ -89,26 +90,28 @@ function renderPage(
   configOverrides: Partial<Config> = {}
 ): void {
   render(
-    <ConfigContext.Provider
-      value={
-        {
-          ...config,
-          ...configOverrides,
-        } as Config
-      }
-    >
-      <AppBarContext.Provider
+    <MemoryRouter>
+      <ConfigContext.Provider
         value={
           {
-            setTitle,
-            selectedRemoteNode: 'local',
-            workspaceSelection: { kind: WorkspaceKind.all },
-          } as never
+            ...config,
+            ...configOverrides,
+          } as Config
         }
       >
-        <Artifacts />
-      </AppBarContext.Provider>
-    </ConfigContext.Provider>
+        <AppBarContext.Provider
+          value={
+            {
+              setTitle,
+              selectedRemoteNode: 'local',
+              workspaceSelection: { kind: WorkspaceKind.all },
+            } as never
+          }
+        >
+          <Artifacts />
+        </AppBarContext.Provider>
+      </ConfigContext.Provider>
+    </MemoryRouter>
   );
 }
 
@@ -200,6 +203,13 @@ describe('Artifacts page', () => {
     expect(
       screen.getByText('preview of out/report.md in reporter/run-1')
     ).toBeInTheDocument();
+    // Each run links to its DAG-run page.
+    expect(
+      screen.getByRole('link', { name: 'Open DAG run reporter' })
+    ).toHaveAttribute('href', '/dag-runs/reporter/run-1');
+    expect(
+      screen.getByRole('link', { name: 'Open DAG run ingest' })
+    ).toHaveAttribute('href', '/dag-runs/ingest/run-2');
   });
 
   it('previews a file after it is selected', () => {
