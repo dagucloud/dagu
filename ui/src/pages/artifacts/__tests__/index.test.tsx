@@ -336,6 +336,61 @@ describe('Artifacts page', () => {
     ).toBeInTheDocument();
   });
 
+  it('navigates files in the rendered tree order across directories', () => {
+    usePaginatedArtifactsResult.current.items = [
+      makeItem({
+        files: [
+          { path: 'out/a.txt', size: 1 },
+          { path: 'logs/b.txt', size: 2 },
+          { path: 'out/c.txt', size: 3 },
+        ],
+      }),
+    ];
+    renderPage();
+
+    // Tree shows out/, a.txt, c.txt, logs/, b.txt; the first file is the
+    // first one rendered (a.txt) regardless of API order.
+    expect(
+      screen.getByText('preview of out/a.txt in reporter/run-1')
+    ).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: 'j' });
+    expect(
+      screen.getByText('preview of out/c.txt in reporter/run-1')
+    ).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: 'j' });
+    expect(
+      screen.getByText('preview of logs/b.txt in reporter/run-1')
+    ).toBeInTheDocument();
+  });
+
+  it('ignores navigation keys from the filter bar', () => {
+    usePaginatedArtifactsResult.current.items = [makeItem()];
+    renderPage();
+
+    fireEvent.keyDown(
+      screen.getByRole('button', { name: 'Quick' }),
+      { key: 'ArrowDown' }
+    );
+
+    expect(
+      screen.getByText('preview of out/report.md in reporter/run-1')
+    ).toBeInTheDocument();
+  });
+
+  it('shows the real artifact path in file tooltips', () => {
+    usePaginatedArtifactsResult.current.items = [makeItem()];
+    renderPage();
+
+    expect(
+      screen.getByRole('button', { name: /report\.md/ })
+    ).toHaveAttribute('title', 'out/report.md');
+    expect(
+      screen.getByRole('button', { name: /plot\.png/ })
+    ).toHaveAttribute('title', 'out/plot.png');
+  });
+
   it('ignores navigation keys typed into filter inputs', async () => {
     const user = userEvent.setup();
     usePaginatedArtifactsResult.current.items = [makeItem()];

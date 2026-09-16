@@ -153,6 +153,18 @@ function collectDirectoryPaths(nodes: FileTreeNode[]): string[] {
   return paths;
 }
 
+function collectFileLeaves(nodes: FileTreeNode[]): FileTreeNode[] {
+  const leaves: FileTreeNode[] = [];
+  for (const node of nodes) {
+    if (node.type === 'file') {
+      leaves.push(node);
+    } else if (node.children) {
+      leaves.push(...collectFileLeaves(node.children));
+    }
+  }
+  return leaves;
+}
+
 function Artifacts() {
   const { ts } = useI18n();
   const appBarContext = React.useContext(AppBarContext);
@@ -381,20 +393,25 @@ function Artifacts() {
       : null;
 
   // Flat, depth-first ordered list of every visible file, matching the
-  // tree rendering order, for keyboard navigation across runs.
+  // tree rendering order (files nested under directories), for keyboard
+  // navigation across runs.
   const fileRefs = React.useMemo(
     () =>
-      items.flatMap((item) =>
-        item.files.map((file) => ({
-          name: item.name,
-          dagRunId: item.dagRunId,
-          path: file.path,
-        }))
-      ),
+      items.flatMap((item) => {
+        const root = runTreeRoot(item);
+        return collectFileLeaves(filesToTreeNodes(item.files, root)).map(
+          (node) => ({
+            name: item.name,
+            dagRunId: item.dagRunId,
+            path: node.path.slice(root.length + 1),
+          })
+        );
+      }),
     [items]
   );
 
   const listContainerRef = React.useRef<HTMLDivElement>(null);
+  const filterBarRef = React.useRef<HTMLDivElement>(null);
 
   const moveSelection = React.useCallback(
     (delta: number) => {
@@ -431,11 +448,15 @@ function Artifacts() {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (
-        target &&
-        (target.tagName === 'INPUT' ||
-          target.tagName === 'TEXTAREA' ||
-          target.tagName === 'SELECT' ||
-          target.isContentEditable)
+        (target !== null &&
+          (target.tagName === 'INPUT' ||
+            target.tagName === 'TEXTAREA' ||
+            target.tagName === 'SELECT' ||
+            target.isContentEditable)) ||
+        (target instanceof Node &&
+          filterBarRef.current?.contains(target)) ||
+        (target instanceof HTMLElement &&
+          target.closest('[role="listbox"]') !== null)
       ) {
         return;
       }
@@ -499,7 +520,10 @@ function Artifacts() {
           </Button>
         </I18nProps>
       </div>
-      <div className="mb-3 space-y-3 rounded-lg border border-border bg-card/50 p-3">
+      <div
+        ref={filterBarRef}
+        className="mb-3 space-y-3 rounded-lg border border-border bg-card/50 p-3"
+      >
         <div className="flex flex-wrap items-center gap-2">
           <I18nProps>
             <Input
@@ -710,6 +734,7 @@ function Artifacts() {
                               key={node.path}
                               node={node}
                               depth={1}
+                              rootPrefix={root}
                               expandedPaths={expandedPaths}
                               selectedPath={selectedNodeSyntheticPath}
                               onToggleDir={(path) => {
@@ -789,6 +814,7 @@ function Artifacts() {
 function TreeNode({
   node,
   depth,
+  rootPrefix,
   expandedPaths,
   selectedPath,
   onToggleDir,
@@ -796,6 +822,7 @@ function TreeNode({
 }: {
   node: FileTreeNode;
   depth: number;
+  rootPrefix: string;
   expandedPaths: Set<string>;
   selectedPath: string | null;
   onToggleDir: (path: string) => void;
@@ -804,6 +831,7 @@ function TreeNode({
   const isDir = node.type === 'directory';
   const isOpen = isDir && expandedPaths.has(node.path);
   const isSelected = !isDir && selectedPath === node.path;
+  const displayPath = node.path.slice(rootPrefix.length + 1);
 
   const Icon = isDir
     ? isOpen
@@ -821,7 +849,7 @@ function TreeNode({
     <div>
       <button
         type="button"
-        title={node.path}
+        title={displayPath}
         onClick={() => {
           if (isDir) {
             onToggleDir(node.path);
@@ -853,6 +881,7 @@ function TreeNode({
               key={child.path}
               node={child}
               depth={depth + 1}
+              rootPrefix={rootPrefix}
               expandedPaths={expandedPaths}
               selectedPath={selectedPath}
               onToggleDir={onToggleDir}
