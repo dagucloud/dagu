@@ -137,18 +137,8 @@ export function usePaginatedArtifacts({
       return;
     }
     previousHeadCursorRef.current = cursor;
-    if (
-      olderItems.length > 0 ||
-      continuationCursorOverride !== undefined
-    ) {
-      resetOlderPages();
-    }
-  }, [
-    continuationCursorOverride,
-    headPage?.nextCursor,
-    olderItems.length,
-    resetOlderPages,
-  ]);
+    resetOlderPages();
+  }, [headPage?.nextCursor, resetOlderPages]);
 
   const items = useMemo(
     () => mergeUniqueArtifacts(headPage?.items ?? [], olderItems),

@@ -165,6 +165,73 @@ describe('usePaginatedArtifacts', () => {
     });
   });
 
+  it('ignores an in-flight page when the head moves', async () => {
+    useQueryState.data = {
+      items: [createItem('reporter', 'run-4'), createItem('reporter', 'run-3')],
+      nextCursor: 'cursor-1',
+    };
+    let resolveStalePage!: (value: unknown) => void;
+    getMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveStalePage = resolve;
+      })
+    );
+
+    const { result, rerender } = renderHook(() =>
+      usePaginatedArtifacts({ query: createQuery() })
+    );
+    let pending!: Promise<void>;
+    act(() => {
+      pending = result.current.loadMore();
+    });
+
+    useQueryState.data = {
+      items: [createItem('reporter', 'run-5'), createItem('reporter', 'run-4')],
+      nextCursor: 'cursor-3',
+    };
+    rerender();
+
+    await act(async () => {
+      resolveStalePage({
+        data: {
+          items: [
+            createItem('reporter', 'run-2'),
+            createItem('reporter', 'run-1'),
+          ],
+          nextCursor: null,
+        },
+      });
+      await pending;
+    });
+
+    expect(result.current.items.map((item) => item.dagRunId)).toEqual([
+      'run-5',
+      'run-4',
+    ]);
+    expect(result.current.hasMore).toBe(true);
+
+    getMock.mockResolvedValueOnce({
+      data: {
+        items: [createItem('reporter', 'run-3')],
+        nextCursor: null,
+      },
+    });
+    await act(async () => {
+      await result.current.loadMore();
+    });
+
+    expect(result.current.items.map((item) => item.dagRunId)).toEqual([
+      'run-5',
+      'run-4',
+      'run-3',
+    ]);
+    expect(getMock.mock.calls[1]?.[1]).toMatchObject({
+      params: {
+        query: expect.objectContaining({ cursor: 'cursor-3' }),
+      },
+    });
+  });
+
   it('deduplicates runs that appear in the head and continuation pages', async () => {
     useQueryState.data = {
       items: [createItem('reporter', 'run-4'), createItem('reporter', 'run-3')],

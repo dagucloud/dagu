@@ -426,15 +426,8 @@ export function usePaginatedDAGRuns({
       return;
     }
     previousHeadCursorRef.current = cursor;
-    if (olderRuns.length > 0 || continuationCursorOverride !== undefined) {
-      resetOlderPages();
-    }
-  }, [
-    continuationCursorOverride,
-    headPage?.nextCursor,
-    olderRuns.length,
-    resetOlderPages,
-  ]);
+    resetOlderPages();
+  }, [headPage?.nextCursor, resetOlderPages]);
 
   useEffect(() => {
     lastSSEPayloadRef.current = null;
