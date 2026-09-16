@@ -267,8 +267,21 @@ describe('DAGRuns page', () => {
     runViewMode.current = 'grouped';
     usePaginatedDAGRunsMock.mockReturnValue({
       dagRuns: [
-        { name: 'demo', dagRunId: 'run-1' },
-        { name: 'demo', dagRunId: 'run-2' },
+        {
+          name: 'demo',
+          dagRunId: 'run-1',
+          scheduleTime: '2026-09-16T02:00:00Z',
+        },
+        {
+          name: 'other',
+          dagRunId: 'other-run',
+          scheduleTime: '2026-09-16T01:30:00Z',
+        },
+        {
+          name: 'demo',
+          dagRunId: 'run-2',
+          scheduleTime: '2026-09-16T01:00:00Z',
+        },
       ],
       isInitialLoading: false,
       isLoadingMore: false,
@@ -286,6 +299,7 @@ describe('DAGRuns page', () => {
     );
     expect(locationSearchParams().get('selectedRunId')).toBe('run-2');
     expect(locationSearchParams().get('name')).toBe('demo');
+    expect(locationSearchParams().get('selectedRunTab')).toBe('artifacts');
     fireEvent.click(screen.getByRole('button', { name: 'Next history' }));
     expect(screen.getByRole('dialog')).toHaveTextContent(
       'demo/run-2 on artifacts'
@@ -294,6 +308,7 @@ describe('DAGRuns page', () => {
     expect(screen.getByRole('dialog')).toHaveTextContent(
       'demo/run-1 on artifacts'
     );
+    expect(locationSearchParams().get('selectedRunTab')).toBe('artifacts');
     fireEvent.click(screen.getByRole('button', { name: 'Previous history' }));
     expect(screen.getByRole('dialog')).toHaveTextContent(
       'demo/run-1 on artifacts'

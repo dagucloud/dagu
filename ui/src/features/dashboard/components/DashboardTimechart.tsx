@@ -455,7 +455,13 @@ function DashboardTimeChart({ data: input, selectedDate }: Props) {
       if (!selectedDAGRun) {
         return;
       }
-      const index = input.findIndex(
+      const displayedRunIDs = new Set(
+        timelineItemsRef.current.get().map((item) => item.id)
+      );
+      const displayedRuns = input.filter((run) =>
+        displayedRunIDs.has(`${run.name}_${run.dagRunId}`)
+      );
+      const index = displayedRuns.findIndex(
         (run) =>
           run.name === selectedDAGRun.name &&
           run.dagRunId === selectedDAGRun.dagRunId
@@ -463,7 +469,7 @@ function DashboardTimeChart({ data: input, selectedDate }: Props) {
       if (index < 0) {
         return;
       }
-      const nextRun = input[index + (direction === 'down' ? 1 : -1)];
+      const nextRun = displayedRuns[index + (direction === 'down' ? 1 : -1)];
       if (nextRun) {
         setSelectedDAGRun({ name: nextRun.name, dagRunId: nextRun.dagRunId });
       }

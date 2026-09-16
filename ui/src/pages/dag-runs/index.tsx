@@ -47,6 +47,7 @@ import {
   workspaceSelectionKey,
   workspaceSelectionQuery,
 } from '../../lib/workspace';
+import { getDAGRunScheduleSortValue } from '../../lib/dagRunTiming';
 import StatusChip from '@/components/ui/status-chip';
 import Title from '@/components/ui/title';
 import type { StatusTab } from '@/features/dags/components/DAGStatus';
@@ -802,20 +803,24 @@ function DAGRuns() {
   } = usePaginatedDAGRuns({
     query: dagRunQuery,
   });
-  const navigateRunHistory = React.useCallback(
+  const navigateGroupedRunHistory = React.useCallback(
     (direction: 'up' | 'down') => {
       if (!selectedDAGRun) {
         return;
       }
-      const index = dagRuns.findIndex(
-        (run) =>
-          run.name === selectedDAGRun.name &&
-          run.dagRunId === selectedDAGRun.dagRunId
+      const groupRuns = dagRuns
+        .filter((run) => run.name === selectedDAGRun.name)
+        .sort(
+          (a, b) =>
+            getDAGRunScheduleSortValue(b) - getDAGRunScheduleSortValue(a)
+        );
+      const index = groupRuns.findIndex(
+        (run) => run.dagRunId === selectedDAGRun.dagRunId
       );
       if (index < 0) {
         return;
       }
-      const nextRun = dagRuns[index + (direction === 'down' ? 1 : -1)];
+      const nextRun = groupRuns[index + (direction === 'down' ? 1 : -1)];
       if (nextRun) {
         updateSelectedDAGRun(
           { name: nextRun.name, dagRunId: nextRun.dagRunId },
@@ -1625,7 +1630,7 @@ function DAGRuns() {
           isOpen={!!selectedDAGRun}
           onClose={() => updateSelectedDAGRun(null, 'status', true)}
           onNavigate={
-            viewMode === 'grouped' ? navigateRunHistory : undefined
+            viewMode === 'grouped' ? navigateGroupedRunHistory : undefined
           }
           initialTab={selectedDAGRunInitialTab}
         />

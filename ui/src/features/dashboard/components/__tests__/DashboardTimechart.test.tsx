@@ -85,16 +85,38 @@ afterEach(() => {
 
 describe('DashboardTimeChart', () => {
   it('navigates the displayed timeline histories without wrapping', () => {
-    const runs = ['run-1', 'run-2'].map((dagRunId) => ({
-      name: 'example',
-      dagRunId,
-      status: Status.Success,
-      statusLabel: StatusLabel.succeeded,
-      startedAt: '2026-08-01T01:00:00Z',
-      finishedAt: '2026-08-01T01:01:00Z',
-      artifactsAvailable: false,
-      autoRetryCount: 0,
-    }));
+    const runs = [
+      {
+        name: 'example',
+        dagRunId: 'run-1',
+        status: Status.Success,
+        statusLabel: StatusLabel.succeeded,
+        startedAt: '2026-08-01T01:00:00Z',
+        finishedAt: '2026-08-01T01:01:00Z',
+        artifactsAvailable: false,
+        autoRetryCount: 0,
+      },
+      {
+        name: 'example',
+        dagRunId: 'not-started',
+        status: Status.Queued,
+        statusLabel: StatusLabel.queued,
+        startedAt: '',
+        finishedAt: '',
+        artifactsAvailable: false,
+        autoRetryCount: 0,
+      },
+      {
+        name: 'example',
+        dagRunId: 'run-2',
+        status: Status.Success,
+        statusLabel: StatusLabel.succeeded,
+        startedAt: '2026-08-01T01:02:00Z',
+        finishedAt: '2026-08-01T01:03:00Z',
+        artifactsAvailable: false,
+        autoRetryCount: 0,
+      },
+    ];
     render(<DashboardTimeChart data={runs} />);
     act(() => timelineState.onClick?.({ item: 'example_run-1' }));
     expect(screen.getByRole('dialog')).toHaveTextContent('run-1');
