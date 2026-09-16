@@ -80,7 +80,12 @@ function CustomDateTimeInput({
     setDisplayValue(newValue);
     setCursorPosition(e.target.selectionStart || 0);
 
-    // Try to parse and update if valid
+    // Emptying the field clears the bound. A partially typed date reports
+    // nothing, so the bound only changes once it is whole again.
+    if (newValue.trim() === '') {
+      onChange('');
+      return;
+    }
     const parsed = parseDisplayValue(newValue);
     if (parsed) {
       onChange(parsed);
@@ -148,11 +153,9 @@ function CustomDateTimeInput({
   };
 
   const handleDatePickerChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newValue = e.target.value;
-    if (newValue) {
-      // The native date picker gives us YYYY-MM-DDTHH:mm format
-      onChange(newValue);
-    }
+    // The native date picker gives us YYYY-MM-DDTHH:mm format, and an empty
+    // value when its own clear control is used.
+    onChange(e.target.value);
   };
 
   const openDatePicker = () => {

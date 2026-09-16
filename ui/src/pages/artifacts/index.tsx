@@ -1231,8 +1231,8 @@ function Artifacts() {
             <DateRangePicker
               fromDate={fromDate}
               toDate={toDate}
-              onFromDateChange={setFromDate}
-              onToDateChange={setToDate}
+              onFromDateChange={(value) => setFromDate(value || undefined)}
+              onToDateChange={(value) => setToDate(value || undefined)}
               onEnterPress={() => handleSearch()}
               fromLabel={`From ${tzLabel}`}
               toLabel={`To ${tzLabel}`}
