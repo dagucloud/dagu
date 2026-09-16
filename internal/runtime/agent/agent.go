@@ -48,6 +48,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/docker"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/s3"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/ssh"
+	"github.com/dagucloud/dagu/v2/internal/runtime/durability"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/resourcelimit"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
@@ -208,6 +209,10 @@ type Agent struct {
 	// statusPusher is used to push status updates to a remote coordinator.
 	// When nil, status is written to local filesystem via the run-state attempt.
 	statusPusher StatusPusher
+
+	// tracker tracks durability of status writes for local-write mode.
+	// It is nil in dry-run mode and when statusPusher is set (distributed mode).
+	tracker *durability.DurabilityTracker
 
 	// subWorkflowRunnerFactory creates a runner for child workflows.
 	subWorkflowRunnerFactory SubWorkflowRunnerFactory
@@ -996,6 +1001,11 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	// It should receive node instance when the node status changes, for
 	// example, when started, stopped, or cancelled, etc.
 	progressCh := make(chan *runtime.Node)
+	if !a.dry && a.statusPusher == nil {
+		a.tracker = durability.New()
+		defer a.tracker.Close()
+		a.runner.SetTracker(a.tracker)
+	}
 	progressDone := make(chan struct{})
 	var progressDrained bool
 	defer func() {
@@ -1012,7 +1022,14 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	go execWithRecovery(ctx, func() {
 		defer close(progressDone)
 		for node := range progressCh {
-			status := a.recordCurrentStatus(ctx, attempt)
+			status, writeErr := a.recordCurrentStatus(ctx, attempt)
+			if a.tracker != nil {
+				if writeErr != nil {
+					a.tracker.Fail(writeErr)
+				} else {
+					a.tracker.Acknowledge(node)
+				}
+			}
 			if err := a.reporter.reportStep(ctx, a.dag, status, node); err != nil {
 				logger.Error(ctx, "Failed to report step", tag.Error(err))
 			}
@@ -1043,7 +1060,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		case <-timer.C:
 		}
 
-		a.recordCurrentStatus(ctx, attempt)
+		_, _ = a.recordCurrentStatus(ctx, attempt)
 	})
 
 	// Start the dag-run.
@@ -1649,16 +1666,17 @@ func (a *Agent) writeStatus(ctx context.Context, attempt runstate.Attempt, statu
 	return a.writeStatusLocally(ctx, attempt, status)
 }
 
-func (a *Agent) recordCurrentStatus(ctx context.Context, attempt runstate.Attempt) ir.DAGRunStatus {
+func (a *Agent) recordCurrentStatus(ctx context.Context, attempt runstate.Attempt) (ir.DAGRunStatus, error) {
 	a.statusWriteMu.Lock()
 	defer a.statusWriteMu.Unlock()
 
 	status := a.Status(ctx)
-	if a.finished.Load() || a.shouldDelayTerminalStatus(status.Status) {
-		return status
+	if a.finished.Load() || (a.shouldDelayTerminalStatus(status.Status) &&
+		!(a.tracker != nil && a.tracker.HasPending())) {
+		return status, nil
 	}
-	a.writeStatus(ctx, attempt, status)
-	return status
+	err := a.writeStatus(ctx, attempt, status)
+	return status, err
 }
 
 func (a *Agent) pushStatus(ctx context.Context, status ir.DAGRunStatus) error {

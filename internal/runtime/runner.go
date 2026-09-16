@@ -22,6 +22,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
+	"github.com/dagucloud/dagu/v2/internal/runtime/durability"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
@@ -82,6 +83,8 @@ type Runner struct {
 	handlerMu sync.RWMutex
 	handlers  map[ir.HandlerType]*Node
 
+	tracker *durability.DurabilityTracker
+
 	metrics struct {
 		startTime          time.Time
 		totalNodes         int
@@ -117,6 +120,32 @@ func New(cfg *Config) *Runner {
 		dagRunAutoRetryLimit: cfg.DAGRunAutoRetryLimit,
 		dagRunIsRoot:         cfg.DAGRunIsRoot,
 	}
+}
+
+// SetTracker configures the durability tracker for this runner. When set,
+// sendProgress blocks until the consumer goroutine acknowledges that the
+// status change has been persisted to storage.
+func (r *Runner) SetTracker(t *durability.DurabilityTracker) {
+	r.tracker = t
+}
+
+// sendProgress signals a node status change to the progress channel. When a
+// durability tracker is configured, it registers the node, sends it on the
+// channel, and blocks until the tracker acknowledges that the status has been
+// persisted (or the tracker fails/closes).
+func (r *Runner) sendProgress(ctx context.Context, progressCh chan *Node, node *Node) {
+	if progressCh == nil {
+		return
+	}
+	if r.tracker != nil {
+		id := r.tracker.Register(node)
+		progressCh <- node
+		if err := r.tracker.Await(ctx, id); err != nil {
+			r.setLastError(err)
+		}
+		return
+	}
+	progressCh <- node
 }
 
 type Config struct {
@@ -202,9 +231,7 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan *Node) err
 				r.setLastError(err)
 				r.setCanceled() // Fail the DAG if init fails
 			}
-			if progressCh != nil {
-				progressCh <- initNode
-			}
+			r.sendProgress(ctx, progressCh, initNode)
 		}
 	}
 
@@ -270,9 +297,7 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan *Node) err
 				logger.Error(handlerCtx, "onWait handler failed", tag.Error(err))
 			}
 
-			if progressCh != nil {
-				progressCh <- handlerNode
-			}
+			r.sendProgress(handlerCtx, progressCh, handlerNode)
 		}
 
 		logger.Info(ctx, "DAG waiting for human input")
@@ -303,9 +328,7 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan *Node) err
 				r.setLastError(err)
 			}
 
-			if progressCh != nil {
-				progressCh <- handlerNode
-			}
+			r.sendProgress(handlerCtx, progressCh, handlerNode)
 		}
 	}
 
@@ -432,9 +455,7 @@ func (r *Runner) runGraphLoop(ctx context.Context, plan *Plan, nodes []*Node, pr
 
 				// Status already set to Running before goroutine spawn
 				// Send progress notification after successful preparation
-				if progressCh != nil {
-					progressCh <- n
-				}
+				r.sendProgress(ctx, progressCh, n)
 
 				r.runNodeExecution(ctx, plan, n, progressCh)
 			}(node)
@@ -550,9 +571,7 @@ func (r *Runner) runNodeExecution(ctx context.Context, plan *Plan, node *Node, p
 	}
 	reportPreparedNode := func() {
 		teardownPreparedNode()
-		if progressCh != nil {
-			progressCh <- node
-		}
+		r.sendProgress(ctx, progressCh, node)
 	}
 	defer teardownPreparedNode()
 
@@ -579,7 +598,7 @@ func (r *Runner) runNodeExecution(ctx context.Context, plan *Plan, node *Node, p
 	if buildSession != nil {
 		preconditionProgress = nil
 	}
-	met, err := meetsPreconditions(ctx, node, preconditionProgress)
+	met, err := r.meetsPreconditions(ctx, node, preconditionProgress)
 	if err != nil {
 		markBuildPrecondition(buildSession, node, ir.BuildReasonPreconditionError, "", progressCh)
 		r.setLastError(err)
@@ -765,7 +784,7 @@ func (r *Runner) prepareNode(ctx context.Context, node *Node) error {
 
 func (r *Runner) runHumanTask(ctx context.Context, plan *Plan, node *Node, progressCh chan *Node) {
 	ctx = r.setupNodeExecutionEnv(ctx, node)
-	met, err := meetsPreconditions(ctx, node, progressCh)
+	met, err := r.meetsPreconditions(ctx, node, progressCh)
 	if err != nil {
 		r.setLastError(err)
 		r.Cancel(plan)
@@ -782,9 +801,7 @@ func (r *Runner) runHumanTask(ctx context.Context, plan *Plan, node *Node, progr
 		r.setLastError(err)
 		node.MarkError(err)
 		node.SetStatus(ir.NodeFailed)
-		if progressCh != nil {
-			progressCh <- node
-		}
+		r.sendProgress(ctx, progressCh, node)
 		return
 	}
 
@@ -793,9 +810,7 @@ func (r *Runner) runHumanTask(ctx context.Context, plan *Plan, node *Node, progr
 	} else {
 		node.OpenHumanTask(prompt, time.Now())
 	}
-	if progressCh != nil {
-		progressCh <- node
-	}
+	r.sendProgress(ctx, progressCh, node)
 }
 
 func (r *Runner) teardownNode(node *Node) error {
@@ -1062,9 +1077,7 @@ func (r *Runner) execNode(ctx context.Context, node *Node, progressCh chan *Node
 		return nil
 	}
 	report := func() {
-		if progressCh != nil {
-			progressCh <- node
-		}
+		r.sendProgress(ctx, progressCh, node)
 	}
 	if progressCh != nil && node.Step().SubDAG != nil {
 		// Send an additional progress notification after the executor is set up
@@ -1584,9 +1597,7 @@ func (r *Runner) recoverNodePanic(ctx context.Context, node *Node, progressCh ch
 		r.mu.Unlock()
 
 		// Signal progress so status is written to storage
-		if progressCh != nil {
-			progressCh <- node
-		}
+		r.sendProgress(ctx, progressCh, node)
 	}
 }
 
@@ -1630,21 +1641,17 @@ func externalStepRetryEnabled(ctx context.Context) bool {
 }
 
 // checkPreconditions evaluates the preconditions for a node and updates its status accordingly.
-func meetsPreconditions(ctx context.Context, node *Node, progressCh chan *Node) (bool, error) {
+func (r *Runner) meetsPreconditions(ctx context.Context, node *Node, progressCh chan *Node) (bool, error) {
 	err := node.evalPreconditions(ctx)
 	if err != nil {
 		if errors.Is(err, ErrConditionNotMet) {
 			node.SetStatus(ir.NodeSkipped)
-			if progressCh != nil {
-				progressCh <- node
-			}
+			r.sendProgress(ctx, progressCh, node)
 			return false, nil
 		}
 		node.SetStatus(ir.NodeFailed)
 		node.SetError(err)
-		if progressCh != nil {
-			progressCh <- node
-		}
+		r.sendProgress(ctx, progressCh, node)
 		return false, err
 	}
 	return true, nil
@@ -1805,9 +1812,7 @@ func (r *Runner) prepareNodeForRepeat(ctx context.Context, node *Node, progressC
 	node.SetRepeated(true) // mark as repeated
 	logger.Info(ctx, "Repeating step")
 
-	if progressCh != nil {
-		progressCh <- node
-	}
+	r.sendProgress(ctx, progressCh, node)
 }
 
 func NewPlanEnv(ctx context.Context, step ir.Step, plan *Plan) Env {

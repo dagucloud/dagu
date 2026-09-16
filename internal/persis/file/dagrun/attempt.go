@@ -214,24 +214,42 @@ func (att *Attempt) Write(ctx context.Context, status ir.DAGRunStatus) error {
 
 	ir.NormalizeDAGRunConditions(&status)
 
-	if writeErr := att.writer.Write(ctx, status); writeErr != nil {
-		return fmt.Errorf("failed to write status: %w", ErrWriteFailed)
+	var errs []error
+	var writeErr error
+	if writeErr = att.writer.Write(ctx, status); writeErr != nil {
+		errs = append(errs, fmt.Errorf("%w: %w", ErrWriteFailed, writeErr))
 	}
 
-	// Invalidate cache after successful write
+	// Invalidate cache after write
 	if att.cache != nil {
 		att.cache.Invalidate(att.file)
 	}
 
+	// Non-critical best-effort metadata updates. When the core persistence
+	// write succeeded these are logged-and-swallowed so transient indexing
+	// failures (e.g. a dirty retry-candidate directory that ListRetryCandidates
+	// rebuilds lazily) do not surface as write failures. When the core write
+	// ALSO failed, their errors are joined to preserve a complete diagnostic
+	// picture without masking the underlying persistence/sync failure.
 	if err := updateRetryCandidateFromStatus(att.file, status); err != nil {
 		logger.Warn(ctx, "Failed to update DAG-run retry candidate", tag.Error(err))
 		if dirtyErr := markRetryCandidatesDirty(att.file); dirtyErr != nil {
 			logger.Warn(ctx, "Failed to mark DAG-run retry candidates dirty", tag.Error(dirtyErr))
 		}
+		if writeErr != nil {
+			errs = append(errs, err)
+		}
 	}
 
 	if err := updateLatestAttemptPointer(ctx, att.file); err != nil {
 		logger.Warn(ctx, "Failed to update DAG-run latest attempt pointer", tag.Error(err))
+		if writeErr != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
 	}
 
 	if err := att.updateArtifactIndex(status); err != nil {
