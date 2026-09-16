@@ -5,6 +5,7 @@ package artifact
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -80,7 +81,7 @@ func TestWalkOrderAfterMatchesWalk(t *testing.T) {
 	}
 
 	var walked []string
-	require.NoError(t, walkFiles(dir, func(relPath string, _ int64) bool {
+	require.NoError(t, walkFiles(dir, func(relPath string, _ fs.DirEntry) bool {
 		walked = append(walked, relPath)
 		return true
 	}))
@@ -118,7 +119,7 @@ func TestWalkFilesStopsEarly(t *testing.T) {
 	}
 
 	visited := 0
-	require.NoError(t, walkFiles(dir, func(string, int64) bool {
+	require.NoError(t, walkFiles(dir, func(string, fs.DirEntry) bool {
 		visited++
 		return visited < 3
 	}))
@@ -130,7 +131,7 @@ func TestWalkFilesMissingDirectory(t *testing.T) {
 	t.Parallel()
 
 	visited := 0
-	err := walkFiles(filepath.Join(t.TempDir(), "gone"), func(string, int64) bool {
+	err := walkFiles(filepath.Join(t.TempDir(), "gone"), func(string, fs.DirEntry) bool {
 		visited++
 		return true
 	})

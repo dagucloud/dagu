@@ -141,12 +141,13 @@ func (s *Store) collectDay(
 		startedAt, _ := stringutil.ParseTime(rec.StartedAt)
 		createdAt := runDirTime(day, runDir.timeOfDay)
 
-		// Paging deep into one run re-walks it from the start, because a cursor
-		// names a path rather than an offset the filesystem can resume from.
-		// Bounded by the run's own size, and only reached by a caller paging
-		// through a single very large run.
+		// Paging deep into one run re-reads its directory, because a cursor
+		// names a path and the filesystem cannot resume a lexical walk from
+		// one. That read is the floor. Everything a page skips past costs a
+		// string comparison and nothing else: the size lookup below is a
+		// syscall, so it waits until an entry is actually being returned.
 		full := false
-		err := walkFiles(rec.Dir, func(relPath string, size int64) bool {
+		err := walkFiles(rec.Dir, func(relPath string, entry fs.DirEntry) bool {
 			// The cursor names the last file returned, so resume strictly after it.
 			if from != "" && !walkOrderAfter(relPath, from) {
 				return true
@@ -158,6 +159,11 @@ func (s *Store) collectDay(
 				full = true
 				return false
 			}
+			info, err := entry.Info()
+			if err != nil {
+				// Removed between the directory read and now; nothing to list.
+				return true
+			}
 			page.Items = append(page.Items, persis.ArtifactFile{
 				Name:         rec.Name,
 				DAGRunID:     rec.DAGRunID,
@@ -166,7 +172,7 @@ func (s *Store) collectDay(
 				RootName:     rec.RootName,
 				RootDAGRunID: rec.RootDAGRunID,
 				Path:         relPath,
-				Size:         size,
+				Size:         info.Size(),
 			})
 			page.NextCursor = encodeCursor(query, day, runDir.name, relPath)
 			return true
@@ -357,7 +363,11 @@ func listNumericDirsDesc(dir string, width int) ([]string, error) {
 // every call without materialising the whole tree first. That is what makes
 // stopping early safe: a page reads only as far as it needs, and the next page
 // resumes into the same order.
-func walkFiles(dir string, visit func(relPath string, size int64) bool) error {
+//
+// The entry is handed over unresolved. Its kind is known from the directory
+// read, but its size is a further syscall, and most entries a page visits are
+// ones it skips past.
+func walkFiles(dir string, visit func(relPath string, entry fs.DirEntry) bool) error {
 	err := filepath.WalkDir(dir, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -369,11 +379,7 @@ func walkFiles(dir string, visit func(relPath string, size int64) bool) error {
 		if err != nil {
 			return err
 		}
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		if !visit(filepath.ToSlash(rel), info.Size()) {
+		if !visit(filepath.ToSlash(rel), entry) {
 			return fs.SkipAll
 		}
 		return nil
