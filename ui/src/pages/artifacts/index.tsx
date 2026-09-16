@@ -373,7 +373,7 @@ function Artifacts() {
       : null;
 
   return (
-    <div className="max-w-7xl h-full min-h-0">
+    <div className="flex h-full min-h-0 flex-col">
       <div className="mb-2 flex min-w-0 items-center gap-3">
         <Title>
           <I18nText text={'Artifacts'} />
@@ -516,7 +516,7 @@ function Artifacts() {
           </div>
         )
       ) : (
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[320px_minmax(0,1fr)] h-full min-h-0">
+        <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 xl:grid-cols-[320px_minmax(0,1fr)] xl:grid-rows-1">
           <div className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-surface">
             <div className="flex items-center justify-between border-b border-border px-3 py-2">
               <div>
