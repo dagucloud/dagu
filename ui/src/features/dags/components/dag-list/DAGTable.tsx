@@ -105,7 +105,7 @@ import {
   isWorkspaceLabel,
   withoutWorkspaceLabels,
 } from '../../../../lib/workspace';
-import { WorkflowViewSelector } from './WorkflowViewSelector';
+import { ViewSelector } from '@/features/views/ViewSelector';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -1710,7 +1710,8 @@ function DAGTable({
         }`}
       >
         <div className="flex flex-wrap items-center gap-2">
-          <WorkflowViewSelector
+          <ViewSelector
+            kind="workflow"
             views={workflowViews}
             activeViewId={activeWorkflowViewId}
             defaultViewId={defaultWorkflowViewId}

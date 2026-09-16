@@ -347,8 +347,8 @@ func (r *Runner) runGraphLoop(ctx context.Context, plan *Plan, nodes []*Node, pr
 		var activeReadyCh chan *Node
 		// Only accept new nodes if:
 		// 1. Not canceled
-		// 2. maxActiveRuns is 0 (unlimited) OR running < maxActiveRuns
-		if !r.isCanceled() && (r.maxActiveRuns == 0 || running < r.maxActiveRuns) {
+		// 2. maxActiveRuns is non-positive (unlimited) OR running < maxActiveRuns
+		if !r.isCanceled() && (r.maxActiveRuns <= 0 || running < r.maxActiveRuns) {
 			activeReadyCh = readyCh
 		}
 

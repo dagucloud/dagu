@@ -467,9 +467,9 @@ describe('sidebar menu', () => {
   it('renders pinned views as standalone sidebar links', () => {
     useViewsMock.mockImplementation((type?: ViewSpecType) => ({
       views:
-        type === ViewSpecType.workflow
-          ? []
-          : [{ id: 'v1', name: 'Prod board', pinned: true }],
+        type === undefined
+          ? [{ id: 'v1', name: 'Prod board', pinned: true }]
+          : [],
     }));
 
     renderMenu('/');
@@ -527,6 +527,32 @@ describe('sidebar menu', () => {
     expect(
       screen.queryByRole('link', { name: 'Default workspace workflows' })
     ).not.toBeInTheDocument();
+  });
+
+  it('renders starred run views for the current scope in the sidebar', () => {
+    useViewsMock.mockImplementation((type?: ViewSpecType) => ({
+      views:
+        type === ViewSpecType.run
+          ? [
+              {
+                id: 'run-1',
+                name: 'Failed runs',
+                pinned: true,
+                workspace: '',
+                workspaceScope: ViewWorkspaceScope.all,
+              },
+            ]
+          : [],
+    }));
+
+    renderMenu('/dag-runs?view=run-1');
+
+    const runViewLink = screen.getByRole('link', { name: 'Failed runs' });
+    expect(runViewLink).toHaveAttribute('href', '/dag-runs?view=run-1');
+    expect(runViewLink).toHaveAttribute('aria-current', 'page');
+    expect(runViewLink.querySelector('svg')).toHaveClass('lucide-star');
+    const executionsLink = screen.getByRole('link', { name: 'Executions' });
+    expect(executionsLink).not.toHaveAttribute('aria-current');
   });
 
   it('keeps Workflows selected when the active view is not starred', () => {

@@ -34,12 +34,64 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import type { WorkflowFilterView } from './workflowViews';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 
+export type SavedViewItem = {
+  id: string;
+  name: string;
+  pinned: boolean;
+};
+
+type ViewKind = 'workflow' | 'run';
+
+const VIEW_COPY: Record<
+  ViewKind,
+  {
+    triggerAria: (label: string) => string;
+    allItems: string;
+    saveTitle: string;
+    saveDescription: string;
+    manageTitle: string;
+    manageDescription: string;
+    deleteTitle: string;
+    deleteBody: string;
+    noViews: string;
+  }
+> = {
+  workflow: {
+    triggerAria: (label: string) => `Workflow view: ${label}`,
+    allItems: 'All workflows',
+    saveTitle: 'Save workflow view',
+    saveDescription:
+      'Save the current name and label filters, plus the sort order, for this remote and workspace.',
+    manageTitle: 'Manage workflow views',
+    manageDescription:
+      'Star shared sidebar shortcuts, choose the shared default, or remove views saved for this remote and workspace.',
+    deleteTitle: 'Delete workflow view?',
+    deleteBody:
+      '“{name}” will be removed for everyone with access to this workspace scope. Workflows are not affected.',
+    noViews: 'No saved workflow views yet.',
+  },
+  run: {
+    triggerAria: (label: string) => `Run view: ${label}`,
+    allItems: 'All runs',
+    saveTitle: 'Save run view',
+    saveDescription:
+      'Save the current name, run ID, status, label, and date filters for this remote and workspace.',
+    manageTitle: 'Manage run views',
+    manageDescription:
+      'Star shared sidebar shortcuts, choose the shared default, or remove views saved for this remote and workspace.',
+    deleteTitle: 'Delete run view?',
+    deleteBody:
+      '“{name}” will be removed for everyone with access to this workspace scope. Runs are not affected.',
+    noViews: 'No saved run views yet.',
+  },
+};
+
 type Props = {
-  views: WorkflowFilterView[];
+  kind: ViewKind;
+  views: SavedViewItem[];
   activeViewId: string | null;
   defaultViewId?: string;
   isAllView: boolean;
@@ -60,7 +112,8 @@ type Props = {
   onDeleteView: (viewId: string) => Promise<void>;
 };
 
-export function WorkflowViewSelector({
+export function ViewSelector({
+  kind,
   views,
   activeViewId,
   defaultViewId,
@@ -84,12 +137,13 @@ export function WorkflowViewSelector({
   const [pinToSidebar, setPinToSidebar] = React.useState(false);
   const [isMutating, setIsMutating] = React.useState(false);
   const [pendingDelete, setPendingDelete] =
-    React.useState<WorkflowFilterView | null>(null);
+    React.useState<SavedViewItem | null>(null);
 
+  const copy = VIEW_COPY[kind];
   const activeView = views.find((view) => view.id === activeViewId);
   const isCustomView = !activeView && !isAllView;
   const selectedLabel =
-    activeView?.name ?? (isCustomView ? 'Custom view' : 'All workflows');
+    activeView?.name ?? (isCustomView ? 'Custom view' : copy.allItems);
   const normalizedName = viewName.trim();
   const duplicateName = views.some(
     (view) => view.name.toLowerCase() === normalizedName.toLowerCase()
@@ -127,11 +181,11 @@ export function WorkflowViewSelector({
       );
       setSaveDialogOpen(false);
     } catch {
-      // The page displays the server error alongside the workflow controls.
+      // The page displays the server error alongside the view controls.
     }
   };
 
-  const requestDelete = (view: WorkflowFilterView) => {
+  const requestDelete = (view: SavedViewItem) => {
     setManageDialogOpen(false);
     setPendingDelete(view);
   };
@@ -166,7 +220,7 @@ export function WorkflowViewSelector({
               type="button"
               variant="outline"
               className="h-9 min-w-[190px] max-w-[280px] justify-start px-3"
-              aria-label={`Workflow view: ${selectedLabel}`}
+              aria-label={copy.triggerAria(selectedLabel)}
             >
               {activeView?.pinned ? (
                 <Star className="fill-current text-primary" />
@@ -194,7 +248,7 @@ export function WorkflowViewSelector({
               <span className="mr-2 flex size-4 items-center justify-center">
                 {isAllView && <Check />}
               </span>
-              <I18nText text={'All workflows'} />
+              <I18nText text={copy.allItems} />
             </DropdownMenuItem>
 
             {views.length > 0 && (
@@ -273,24 +327,20 @@ export function WorkflowViewSelector({
           <form onSubmit={saveView}>
             <DialogHeader>
               <DialogTitle>
-                <I18nText text={'Save workflow view'} />
+                <I18nText text={copy.saveTitle} />
               </DialogTitle>
               <DialogDescription>
-                <I18nText
-                  text={
-                    'Save the current name and label filters, plus the sort order, for this remote and workspace.'
-                  }
-                />
+                <I18nText text={copy.saveDescription} />
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-5">
               <div className="space-y-2">
-                <Label htmlFor="workflow-view-name">
+                <Label htmlFor={`view-name-${kind}`}>
                   <I18nText text={'Name'} />
                 </Label>
                 <I18nProps>
                   <Input
-                    id="workflow-view-name"
+                    id={`view-name-${kind}`}
                     value={viewName}
                     maxLength={80}
                     autoFocus
@@ -306,25 +356,25 @@ export function WorkflowViewSelector({
               </div>
               <div className="flex items-center gap-2">
                 <Checkbox
-                  id="workflow-view-pinned"
+                  id={`view-pinned-${kind}`}
                   checked={pinToSidebar}
                   onCheckedChange={(checked) =>
                     setPinToSidebar(checked === true)
                   }
                 />
-                <Label htmlFor="workflow-view-pinned" className="font-normal">
+                <Label htmlFor={`view-pinned-${kind}`} className="font-normal">
                   <I18nText text={'Star and add to the sidebar for everyone'} />
                 </Label>
               </div>
               <div className="flex items-center gap-2">
                 <Checkbox
-                  id="workflow-view-default"
+                  id={`view-default-${kind}`}
                   checked={makeDefault}
                   onCheckedChange={(checked) =>
                     setMakeDefault(checked === true)
                   }
                 />
-                <Label htmlFor="workflow-view-default" className="font-normal">
+                <Label htmlFor={`view-default-${kind}`} className="font-normal">
                   <I18nText text={'Make this the default view for everyone'} />
                 </Label>
               </div>
@@ -354,14 +404,10 @@ export function WorkflowViewSelector({
         <DialogContent className="sm:max-w-[520px]">
           <DialogHeader>
             <DialogTitle>
-              <I18nText text={'Manage workflow views'} />
+              <I18nText text={copy.manageTitle} />
             </DialogTitle>
             <DialogDescription>
-              <I18nText
-                text={
-                  'Star shared sidebar shortcuts, choose the shared default, or remove views saved for this remote and workspace.'
-                }
-              />
+              <I18nText text={copy.manageDescription} />
             </DialogDescription>
           </DialogHeader>
           <div className="max-h-[360px] space-y-2 overflow-y-auto py-2">
@@ -437,7 +483,7 @@ export function WorkflowViewSelector({
               })
             ) : (
               <div className="rounded-md border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
-                <I18nText text={'No saved workflow views yet.'} />
+                <I18nText text={copy.noViews} />
               </div>
             )}
           </div>
@@ -456,7 +502,7 @@ export function WorkflowViewSelector({
 
       <I18nProps>
         <ConfirmDialog
-          title="Delete workflow view?"
+          title={copy.deleteTitle}
           buttonText="Delete view"
           visible={pendingDelete !== null}
           dismissModal={dismissDelete}
@@ -464,7 +510,7 @@ export function WorkflowViewSelector({
         >
           <p className="text-sm text-muted-foreground">
             <I18nText
-              text="“{name}” will be removed for everyone with access to this workspace scope. Workflows are not affected."
+              text={copy.deleteBody}
               values={{ name: pendingDelete?.name ?? '' }}
             />
           </p>

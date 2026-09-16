@@ -590,7 +590,7 @@
     },
     "max_active_steps": {
       "type": "integer",
-      "description": "Maximum number of concurrent steps that can be active at once. Useful for limiting resource usage."
+      "description": "Maximum number of concurrent steps that can be active at once. Non-positive values mean unlimited; use -1 to override a positive value inherited from base.yaml."
     },
     "max_clean_up_time_sec": {
       "type": "integer",

@@ -149,6 +149,9 @@ func (a *API) UpdateView(ctx context.Context, request api.UpdateViewRequestObjec
 	}
 
 	updated := viewFromSpec(*request.Body)
+	if request.Body.Workspace == nil {
+		updated.Workspace = existing.Workspace
+	}
 	if request.Body.Columns == nil {
 		updated.Columns = slices.Clone(existing.Columns)
 	}
@@ -163,6 +166,30 @@ func (a *API) UpdateView(ctx context.Context, request api.UpdateViewRequestObjec
 	}
 	if request.Body.ActiveOnly == nil {
 		updated.ActiveOnly = existing.ActiveOnly
+	}
+	if request.Body.DagRunId == nil {
+		updated.DAGRunID = existing.DAGRunID
+	}
+	if request.Body.RunStatus == nil {
+		updated.RunStatus = existing.RunStatus
+	}
+	if request.Body.DateMode == nil {
+		updated.DateMode = existing.DateMode
+	}
+	if request.Body.DatePreset == nil {
+		updated.DatePreset = existing.DatePreset
+	}
+	if request.Body.SpecificPeriod == nil {
+		updated.SpecificPeriod = existing.SpecificPeriod
+	}
+	if request.Body.SpecificValue == nil {
+		updated.SpecificValue = existing.SpecificValue
+	}
+	if request.Body.FromDate == nil {
+		updated.FromDate = existing.FromDate
+	}
+	if request.Body.ToDate == nil {
+		updated.ToDate = existing.ToDate
 	}
 	if request.Body.IsDefault == nil {
 		updated.Default = existing.Default
@@ -252,13 +279,18 @@ func (a *API) requireViewWriteForWorkspace(ctx context.Context, workspace string
 
 func viewFromSpec(spec api.ViewSpec) *view.View {
 	v := &view.View{
-		Name:         spec.Name,
-		IntervalDays: spec.IntervalDays,
-		Workspace:    valueOf(spec.Workspace),
-		DAGName:      valueOf(spec.DagName),
-		Pinned:       valueOf(spec.Pinned),
-		ActiveOnly:   valueOf(spec.ActiveOnly),
-		Default:      valueOf(spec.IsDefault),
+		Name:          spec.Name,
+		IntervalDays:  spec.IntervalDays,
+		Workspace:     valueOf(spec.Workspace),
+		DAGName:       valueOf(spec.DagName),
+		Pinned:        valueOf(spec.Pinned),
+		ActiveOnly:    valueOf(spec.ActiveOnly),
+		Default:       valueOf(spec.IsDefault),
+		DAGRunID:      valueOf(spec.DagRunId),
+		RunStatus:     valueOf(spec.RunStatus),
+		SpecificValue: valueOf(spec.SpecificValue),
+		FromDate:      valueOf(spec.FromDate),
+		ToDate:        valueOf(spec.ToDate),
 	}
 	if spec.Type != nil {
 		v.Type = string(*spec.Type)
@@ -280,6 +312,15 @@ func viewFromSpec(spec api.ViewSpec) *view.View {
 	}
 	if spec.SortOrder != nil {
 		v.SortOrder = string(*spec.SortOrder)
+	}
+	if spec.DateMode != nil {
+		v.DateMode = string(*spec.DateMode)
+	}
+	if spec.DatePreset != nil {
+		v.DatePreset = string(*spec.DatePreset)
+	}
+	if spec.SpecificPeriod != nil {
+		v.SpecificPeriod = string(*spec.SpecificPeriod)
 	}
 	return v
 }
@@ -314,6 +355,22 @@ func toViewResponse(v *view.View) api.View {
 		resp.SortField = &sortField
 		resp.SortOrder = &sortOrder
 		resp.ActiveOnly = ptrOf(v.ActiveOnly)
+		resp.IsDefault = ptrOf(v.Default)
+	}
+	if v.Type == view.TypeRun {
+		resp.DagRunId = ptrOf(v.DAGRunID)
+		resp.RunStatus = ptrOf(v.RunStatus)
+		dateMode := api.RunDateMode(v.DateMode)
+		datePreset := api.RunDatePreset(v.DatePreset)
+		specificPeriod := api.RunSpecificPeriod(v.SpecificPeriod)
+		workspaceScope := api.ViewWorkspaceScope(v.WorkspaceScope)
+		resp.DateMode = &dateMode
+		resp.DatePreset = &datePreset
+		resp.SpecificPeriod = &specificPeriod
+		resp.SpecificValue = ptrOf(v.SpecificValue)
+		resp.FromDate = ptrOf(v.FromDate)
+		resp.ToDate = ptrOf(v.ToDate)
+		resp.WorkspaceScope = &workspaceScope
 		resp.IsDefault = ptrOf(v.Default)
 	}
 	return resp

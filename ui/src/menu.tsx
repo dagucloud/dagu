@@ -23,9 +23,9 @@ import { roleAtLeast } from '@/lib/workspaceAccess';
 import { defaultWorkspaceSelection } from '@/lib/workspace';
 import { UserRole, ViewSpecType } from '@/api/v1/schema';
 import {
-  workflowViewMatchesScope,
-  workflowViewScopeForSelection,
-} from '@/features/dags/components/dag-list/workflowViews';
+  viewMatchesScope,
+  viewScopeForSelection,
+} from '@/features/views/viewScope';
 import {
   Activity,
   AlertTriangle,
@@ -487,17 +487,23 @@ export const mainListItems = React.forwardRef<
   const location = useLocation();
   const { views: kanbanViews } = useViews();
   const { views: workflowViews } = useViews(ViewSpecType.workflow);
-  const workflowViewScope = workflowViewScopeForSelection(
-    appBar.workspaceSelection
-  );
+  const { views: runViews } = useViews(ViewSpecType.run);
+  const workflowViewScope = viewScopeForSelection(appBar.workspaceSelection);
   const pinnedKanbanViews = kanbanViews.filter((view) => view.pinned);
+  const pinnedRunViews = runViews.filter(
+    (view) => view.pinned && viewMatchesScope(view, workflowViewScope)
+  );
   const pinnedWorkflowViews = workflowViews.filter(
-    (view) => view.pinned && workflowViewMatchesScope(view, workflowViewScope)
+    (view) => view.pinned && viewMatchesScope(view, workflowViewScope)
   );
   const activeWorkflowViewId = new URLSearchParams(location.search).get('view');
   const isPinnedWorkflowViewActive =
     location.pathname === '/dags' &&
     pinnedWorkflowViews.some((view) => view.id === activeWorkflowViewId);
+  const activeRunViewId = new URLSearchParams(location.search).get('view');
+  const isPinnedRunViewActive =
+    location.pathname === '/dag-runs' &&
+    pinnedRunViews.some((view) => view.id === activeRunViewId);
   const canWrite =
     config.authMode !== 'builtin'
       ? config.permissions.writeDags
@@ -679,6 +685,17 @@ export const mainListItems = React.forwardRef<
               customColor={customColor}
             />
           ))}
+          {pinnedRunViews.map((view) => (
+            <NavItem
+              key={`run-${view.id}`}
+              to={`/dag-runs?view=${encodeURIComponent(view.id)}`}
+              text={view.name}
+              icon={<Star size={18} />}
+              isOpen={isOpen}
+              onClick={onNavItemClick}
+              customColor={customColor}
+            />
+          ))}
           {pinnedWorkflowViews.map((view) => (
             <NavItem
               key={`workflow-${view.id}`}
@@ -761,6 +778,7 @@ export const mainListItems = React.forwardRef<
             to="/dag-runs"
             onClick={onNavItemClick}
             customColor={customColor}
+            suppressActive={isPinnedRunViewActive}
           >
             <NavItem
               to="/queues"

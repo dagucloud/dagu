@@ -28,9 +28,9 @@ import type {
   WorkflowFilterView,
 } from '../../features/dags/components/dag-list/workflowViews';
 import {
-  workflowViewMatchesScope,
-  workflowViewScopeForSelection,
-} from '../../features/dags/components/dag-list/workflowViews';
+  viewMatchesScope,
+  viewScopeForSelection,
+} from '../../features/views/viewScope';
 import { useClient, useQuery } from '../../hooks/api';
 import { useDAGsListSSE } from '../../hooks/useDAGsListSSE';
 import {
@@ -263,7 +263,7 @@ function DAGsContent() {
   });
   const { preferences } = useUserPreferences();
   const workflowViewScope = React.useMemo(
-    () => workflowViewScopeForSelection(workspaceSelection),
+    () => viewScopeForSelection(workspaceSelection),
     [workspaceSelection]
   );
   const canManageWorkflowViews = useCanWriteForWorkspace(
@@ -279,7 +279,7 @@ function DAGsContent() {
   const scopedWorkflowViews = React.useMemo(
     () =>
       sharedWorkflowViews.filter((view) =>
-        workflowViewMatchesScope(view, workflowViewScope)
+        viewMatchesScope(view, workflowViewScope)
       ),
     [sharedWorkflowViews, workflowViewScope]
   );
@@ -1169,7 +1169,7 @@ function DAGsContent() {
                 <div ref={loadMoreSentinelRef} className="h-4 w-full" />
                 {isLoadingMore ? (
                   <div className="text-sm text-muted-foreground">
-                    <I18nText text={"Loading more workflows..."} />
+                    <I18nText text={'Loading more workflows...'} />
                   </div>
                 ) : (
                   <Button
@@ -1178,15 +1178,17 @@ function DAGsContent() {
                     size="sm"
                     onClick={() => void handleLoadMore()}
                   >
-                    {loadMoreError
-                      ? <I18nText text={"Retry loading more"} />
-                      : <I18nText text={"Load more workflows"} />}
+                    {loadMoreError ? (
+                      <I18nText text={'Retry loading more'} />
+                    ) : (
+                      <I18nText text={'Load more workflows'} />
+                    )}
                   </Button>
                 )}
               </>
             ) : dagFiles.length > 0 ? (
               <div className="text-sm text-muted-foreground">
-                <I18nText text={"All workflows are displayed."} />
+                <I18nText text={'All workflows are displayed.'} />
               </div>
             ) : null}
           </div>

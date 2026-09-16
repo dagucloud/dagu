@@ -24,6 +24,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/chat"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -1941,6 +1942,37 @@ func TestRunner_ConcurrentExecution(t *testing.T) {
 	resultConcurrent.assertNodeStatus(t, "1", ir.NodeSucceeded)
 	resultConcurrent.assertNodeStatus(t, "2", ir.NodeSucceeded)
 	resultConcurrent.assertNodeStatus(t, "3", ir.NodeSucceeded)
+}
+
+// A negative child value must clear an inherited limit without blocking graph
+// scheduling.
+func TestRunner_NegativeMaxActiveSteps(t *testing.T) {
+	dag, err := spec.LoadYAML(t.Context(), []byte(`
+max_active_steps: -1
+steps:
+  - run: "true"
+`), spec.WithBaseConfigContent([]byte("max_active_steps: 1\n")))
+	require.NoError(t, err)
+	require.Equal(t, -1, dag.MaxActiveSteps)
+
+	const stepCount = 3
+	readyDir := filepath.Join(t.TempDir(), "ready")
+	steps := make([]ir.Step, 0, stepCount)
+	for i := 1; i <= stepCount; i++ {
+		name := strconv.Itoa(i)
+		steps = append(steps, newStep(name, withScript(concurrentBarrierScript(
+			name,
+			readyDir,
+			stepCount,
+			platformTestDuration(10*time.Second, 30*time.Second),
+		))))
+	}
+
+	r := setupRunner(t, withMaxActiveRuns(dag.MaxActiveSteps))
+	result := r.newPlan(t, steps...).assertRun(t, ir.Succeeded)
+	for i := 1; i <= stepCount; i++ {
+		result.assertNodeStatus(t, strconv.Itoa(i), ir.NodeSucceeded)
+	}
 }
 
 func TestRunner_ErrorHandling(t *testing.T) {

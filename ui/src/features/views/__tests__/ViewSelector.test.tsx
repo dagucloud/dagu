@@ -5,29 +5,26 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ComponentProps } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { ViewSortField, ViewSortOrder } from '@/api/v1/schema';
-import { WorkflowViewSelector } from '../WorkflowViewSelector';
-import type { WorkflowFilterView } from '../workflowViews';
+import { ViewSelector, type SavedViewItem } from '../ViewSelector';
 
-const views: WorkflowFilterView[] = [
+const views: SavedViewItem[] = [
   {
     id: 'production',
     name: 'Production operations',
     pinned: false,
-    filters: {
-      searchText: '',
-      searchLabels: ['env=prod'],
-      activeOnly: false,
-      sortField: ViewSortField.name,
-      sortOrder: ViewSortOrder.asc,
-    },
+  },
+  {
+    id: 'failed-runs',
+    name: 'Failed runs',
+    pinned: false,
   },
 ];
 
 function renderSelector(
-  overrides: Partial<ComponentProps<typeof WorkflowViewSelector>> = {}
+  overrides: Partial<ComponentProps<typeof ViewSelector>> = {}
 ) {
-  const props: ComponentProps<typeof WorkflowViewSelector> = {
+  const props: ComponentProps<typeof ViewSelector> = {
+    kind: 'run',
     views,
     activeViewId: null,
     defaultViewId: 'production',
@@ -44,17 +41,17 @@ function renderSelector(
     onDeleteView: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
-  render(<WorkflowViewSelector {...props} />);
+  render(<ViewSelector {...props} />);
   return props;
 }
 
-describe('WorkflowViewSelector', () => {
-  it('selects saved views and keeps All workflows available', async () => {
+describe('ViewSelector', () => {
+  it('selects saved views and keeps All runs available', async () => {
     const user = userEvent.setup();
     const props = renderSelector();
 
     await user.click(
-      screen.getByRole('button', { name: 'Workflow view: All workflows' })
+      screen.getByRole('button', { name: 'Run view: All runs' })
     );
     await user.click(
       screen.getByRole('menuitem', { name: /production operations/i })
@@ -62,18 +59,26 @@ describe('WorkflowViewSelector', () => {
     expect(props.onSelectView).toHaveBeenCalledWith('production');
 
     await user.click(
-      screen.getByRole('button', { name: 'Workflow view: All workflows' })
+      screen.getByRole('button', { name: 'Run view: All runs' })
     );
-    await user.click(screen.getByRole('menuitem', { name: 'All workflows' }));
+    await user.click(screen.getByRole('menuitem', { name: 'All runs' }));
     expect(props.onShowAll).toHaveBeenCalledOnce();
   });
 
-  it('saves the current filters as a named default view', async () => {
+  it('labels the trigger with the workflow kind when used for workflows', async () => {
+    renderSelector({ kind: 'workflow' });
+
+    expect(
+      screen.getByRole('button', { name: 'Workflow view: All workflows' })
+    ).toBeVisible();
+  });
+
+  it('saves the current filters as a named default run view', async () => {
     const user = userEvent.setup();
     const props = renderSelector({ views: [], defaultViewId: undefined });
 
     await user.click(
-      screen.getByRole('button', { name: 'Workflow view: All workflows' })
+      screen.getByRole('button', { name: 'Run view: All runs' })
     );
     await user.click(
       screen.getByRole('menuitem', {
@@ -82,7 +87,7 @@ describe('WorkflowViewSelector', () => {
     );
     await user.type(
       screen.getByRole('textbox', { name: 'Name' }),
-      'Production operations'
+      'Failed runs'
     );
     await user.click(
       screen.getByRole('checkbox', {
@@ -91,11 +96,7 @@ describe('WorkflowViewSelector', () => {
     );
     await user.click(screen.getByRole('button', { name: 'Save view' }));
 
-    expect(props.onSaveView).toHaveBeenCalledWith(
-      'Production operations',
-      true,
-      false
-    );
+    expect(props.onSaveView).toHaveBeenCalledWith('Failed runs', true, false);
   });
 
   it('lets read-only users select shared views without mutation actions', async () => {
@@ -103,7 +104,7 @@ describe('WorkflowViewSelector', () => {
     const props = renderSelector({ canManageViews: false });
 
     await user.click(
-      screen.getByRole('button', { name: 'Workflow view: All workflows' })
+      screen.getByRole('button', { name: 'Run view: All runs' })
     );
     await user.click(
       screen.getByRole('menuitem', { name: /production operations/i })
@@ -126,7 +127,7 @@ describe('WorkflowViewSelector', () => {
     expect(screen.getByText('Edited')).toBeVisible();
     await user.click(
       screen.getByRole('button', {
-        name: 'Workflow view: Production operations',
+        name: 'Run view: Production operations',
       })
     );
     await user.click(
@@ -138,7 +139,7 @@ describe('WorkflowViewSelector', () => {
 
     await user.click(
       screen.getByRole('button', {
-        name: 'Workflow view: Production operations',
+        name: 'Run view: Production operations',
       })
     );
     await user.click(screen.getByRole('menuitem', { name: 'Reset changes' }));
@@ -150,28 +151,28 @@ describe('WorkflowViewSelector', () => {
     const props = renderSelector({ defaultViewId: undefined });
 
     await user.click(
-      screen.getByRole('button', { name: 'Workflow view: All workflows' })
+      screen.getByRole('button', { name: 'Run view: All runs' })
     );
     await user.click(screen.getByRole('menuitem', { name: 'Manage views…' }));
     await user.click(
       screen.getByRole('button', {
-        name: 'Add Production operations to the sidebar',
+        name: 'Add Failed runs to the sidebar',
       })
     );
-    expect(props.onSetPinned).toHaveBeenCalledWith('production', true);
+    expect(props.onSetPinned).toHaveBeenCalledWith('failed-runs', true);
     expect(props.onSetDefault).not.toHaveBeenCalled();
 
     await user.click(
       screen.getByRole('button', {
-        name: 'Make Production operations the default view',
+        name: 'Make Failed runs the default view',
       })
     );
-    expect(props.onSetDefault).toHaveBeenCalledWith('production');
+    expect(props.onSetDefault).toHaveBeenCalledWith('failed-runs');
 
     await user.click(
-      screen.getByRole('button', { name: 'Delete Production operations' })
+      screen.getByRole('button', { name: 'Delete Failed runs' })
     );
     await user.click(screen.getByRole('button', { name: 'Delete view' }));
-    expect(props.onDeleteView).toHaveBeenCalledWith('production');
+    expect(props.onDeleteView).toHaveBeenCalledWith('failed-runs');
   });
 });

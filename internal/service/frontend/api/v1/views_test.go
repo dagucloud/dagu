@@ -116,6 +116,63 @@ func TestViewsAPI_CreateWorkflowView(t *testing.T) {
 	assert.True(t, *created.Pinned)
 }
 
+func TestViewsAPI_CreateRunView(t *testing.T) {
+	viewType := apigen.ViewSpecTypeRun
+	workspaceScope := apigen.ViewWorkspaceScopeWorkspace
+	dateMode := apigen.RunDateModePreset
+	datePreset := apigen.RunDatePresetLast7days
+	specificPeriod := apigen.RunSpecificPeriodDate
+	isDefault := true
+	pinned := true
+	workspace := "production"
+	dagRunId := "019df6cf-0127-7340-bd96-d51bc1453045"
+	runStatus := "5"
+	specificValue := "2026-09-15"
+	fromDate := "2026-09-15T00:00"
+	toDate := "2026-09-15T23:59"
+	created := mustCreateView(t, newViewsTestAPI(t), context.Background(), apigen.ViewSpec{
+		Name:           "Failed runs",
+		Type:           &viewType,
+		IntervalDays:   1,
+		Workspace:      &workspace,
+		WorkspaceScope: &workspaceScope,
+		DagRunId:       &dagRunId,
+		RunStatus:      &runStatus,
+		DateMode:       &dateMode,
+		DatePreset:     &datePreset,
+		SpecificPeriod: &specificPeriod,
+		SpecificValue:  &specificValue,
+		FromDate:       &fromDate,
+		ToDate:         &toDate,
+		IsDefault:      &isDefault,
+		Pinned:         &pinned,
+	})
+
+	assert.Equal(t, "run", created.Type)
+	require.NotNil(t, created.WorkspaceScope)
+	assert.Equal(t, workspaceScope, *created.WorkspaceScope)
+	require.NotNil(t, created.DagRunId)
+	assert.Equal(t, dagRunId, *created.DagRunId)
+	require.NotNil(t, created.RunStatus)
+	assert.Equal(t, runStatus, *created.RunStatus)
+	require.NotNil(t, created.DateMode)
+	assert.Equal(t, dateMode, *created.DateMode)
+	require.NotNil(t, created.DatePreset)
+	assert.Equal(t, datePreset, *created.DatePreset)
+	require.NotNil(t, created.SpecificPeriod)
+	assert.Equal(t, specificPeriod, *created.SpecificPeriod)
+	require.NotNil(t, created.SpecificValue)
+	assert.Equal(t, specificValue, *created.SpecificValue)
+	require.NotNil(t, created.FromDate)
+	assert.Equal(t, fromDate, *created.FromDate)
+	require.NotNil(t, created.ToDate)
+	assert.Equal(t, toDate, *created.ToDate)
+	require.NotNil(t, created.IsDefault)
+	assert.True(t, *created.IsDefault)
+	require.NotNil(t, created.Pinned)
+	assert.True(t, *created.Pinned)
+}
+
 func TestViewsAPI_WorkflowDefaultIsSharedPerScope(t *testing.T) {
 	ctx := context.Background()
 	api := newViewsTestAPI(t)
@@ -299,6 +356,98 @@ func TestViewsAPI_UpdatePreservesOmittedWorkflowSettings(t *testing.T) {
 	assert.True(t, *updated.IsDefault)
 	require.NotNil(t, updated.ActiveOnly)
 	assert.True(t, *updated.ActiveOnly)
+}
+
+func TestViewsAPI_UpdatePreservesOmittedRunSettings(t *testing.T) {
+	ctx := context.Background()
+	api := newViewsTestAPI(t)
+	viewType := apigen.ViewSpecTypeRun
+	workspaceScope := apigen.ViewWorkspaceScopeAll
+	dateMode := apigen.RunDateModeSpecific
+	datePreset := apigen.RunDatePresetToday
+	specificPeriod := apigen.RunSpecificPeriodMonth
+	dagRunId := "run-1"
+	runStatus := "5"
+	specificValue := "2026-09"
+	fromDate := "2026-09-01T00:00"
+	toDate := "2026-09-30T23:59"
+	isDefault := true
+	created := mustCreateView(t, api, ctx, apigen.ViewSpec{
+		Name:           "Before",
+		Type:           &viewType,
+		IntervalDays:   1,
+		WorkspaceScope: &workspaceScope,
+		DagRunId:       &dagRunId,
+		RunStatus:      &runStatus,
+		DateMode:       &dateMode,
+		DatePreset:     &datePreset,
+		SpecificPeriod: &specificPeriod,
+		SpecificValue:  &specificValue,
+		FromDate:       &fromDate,
+		ToDate:         &toDate,
+		IsDefault:      &isDefault,
+	})
+
+	resp, err := api.UpdateView(ctx, apigen.UpdateViewRequestObject{
+		ViewId: created.Id,
+		Body: &apigen.ViewSpec{
+			Name:         "After",
+			Type:         &viewType,
+			IntervalDays: 1,
+		},
+	})
+	require.NoError(t, err)
+	updated, ok := resp.(apigen.UpdateView200JSONResponse)
+	require.True(t, ok, "expected 200, got %T", resp)
+	require.NotNil(t, updated.DagRunId)
+	assert.Equal(t, dagRunId, *updated.DagRunId)
+	require.NotNil(t, updated.RunStatus)
+	assert.Equal(t, runStatus, *updated.RunStatus)
+	require.NotNil(t, updated.DateMode)
+	assert.Equal(t, dateMode, *updated.DateMode)
+	require.NotNil(t, updated.DatePreset)
+	assert.Equal(t, datePreset, *updated.DatePreset)
+	require.NotNil(t, updated.SpecificPeriod)
+	assert.Equal(t, specificPeriod, *updated.SpecificPeriod)
+	require.NotNil(t, updated.SpecificValue)
+	assert.Equal(t, specificValue, *updated.SpecificValue)
+	require.NotNil(t, updated.FromDate)
+	assert.Equal(t, fromDate, *updated.FromDate)
+	require.NotNil(t, updated.ToDate)
+	assert.Equal(t, toDate, *updated.ToDate)
+	require.NotNil(t, updated.IsDefault)
+	assert.True(t, *updated.IsDefault)
+}
+
+func TestViewsAPI_UpdatePreservesOmittedWorkspace(t *testing.T) {
+	ctx := context.Background()
+	api := newViewsTestAPI(t)
+	viewType := apigen.ViewSpecTypeWorkflow
+	workspaceScope := apigen.ViewWorkspaceScopeWorkspace
+	workspace := "prod"
+	created := mustCreateView(t, api, ctx, apigen.ViewSpec{
+		Name:           "Before",
+		Type:           &viewType,
+		IntervalDays:   1,
+		Workspace:      &workspace,
+		WorkspaceScope: &workspaceScope,
+	})
+
+	resp, err := api.UpdateView(ctx, apigen.UpdateViewRequestObject{
+		ViewId: created.Id,
+		Body: &apigen.ViewSpec{
+			Name:         "After",
+			Type:         &viewType,
+			IntervalDays: 1,
+		},
+	})
+	require.NoError(t, err)
+	updated, ok := resp.(apigen.UpdateView200JSONResponse)
+	require.True(t, ok, "expected 200, got %T", resp)
+	require.NotNil(t, updated.Workspace)
+	assert.Equal(t, workspace, *updated.Workspace, "omitted workspace keeps the existing scope")
+	require.NotNil(t, updated.WorkspaceScope)
+	assert.Equal(t, workspaceScope, *updated.WorkspaceScope)
 }
 
 func TestViewsAPI_UpdateNotFound(t *testing.T) {

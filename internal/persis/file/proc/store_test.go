@@ -95,8 +95,9 @@ func TestStoreWithLockSerializesIndependentStores(t *testing.T) {
 
 	select {
 	case <-held:
-	case <-time.After(time.Second):
-		t.Fatal("first store did not acquire the process-group lock")
+	case err := <-firstDone:
+		require.NoError(t, err)
+		t.Fatal("first store returned without acquiring the process-group lock")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
@@ -111,12 +112,7 @@ func TestStoreWithLockSerializesIndependentStores(t *testing.T) {
 	assert.False(t, called)
 
 	releaseFirst()
-	select {
-	case err := <-firstDone:
-		require.NoError(t, err)
-	case <-time.After(time.Second):
-		t.Fatal("first store did not release the process-group lock")
-	}
+	require.NoError(t, <-firstDone)
 }
 
 func TestStoreReadsAndRemovesReleasedProcFiles(t *testing.T) {
