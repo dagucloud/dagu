@@ -56,6 +56,11 @@ func decodeCursor(query persis.ArtifactQuery) (*cursor, error) {
 	if c.Version != cursorVersion || c.Filters != filterFingerprint(query) {
 		return nil, persis.ErrInvalidArtifactCursor
 	}
+	// The day serves as a bound that is sliced to each key's width, so it has
+	// to be a full one.
+	if len(c.Day) != len(dayLayoutForBounds) {
+		return nil, persis.ErrInvalidArtifactCursor
+	}
 	return &c, nil
 }
 

@@ -4,12 +4,15 @@
 package artifact
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -55,6 +58,22 @@ func TestOutsideBoundsUnbounded(t *testing.T) {
 	assert.False(t, outsideBounds("2030/01/01", "2026/01/01", ""))
 	assert.True(t, outsideBounds("2027/01/01", "", "2026/12/31"))
 	assert.False(t, outsideBounds("2020/01/01", "", "2026/12/31"))
+}
+
+// A cursor's day becomes a bound sliced to each key's width, so anything but a
+// full day must be rejected before it reaches the walk.
+func TestDecodeCursorRejectsShortDay(t *testing.T) {
+	t.Parallel()
+
+	query := persis.ArtifactQuery{Limit: 1}
+	data, err := json.Marshal(cursor{
+		Version: cursorVersion, Filters: filterFingerprint(query), Day: "2026", RunDir: "x",
+	})
+	require.NoError(t, err)
+	query.Cursor = base64.RawURLEncoding.EncodeToString(data)
+
+	_, err = decodeCursor(query)
+	assert.ErrorIs(t, err, persis.ErrInvalidArtifactCursor)
 }
 
 // A page must read only as far as it needs, or one run with thousands of files

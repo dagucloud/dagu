@@ -71,32 +71,22 @@ func (s *Store) QueryArtifacts(ctx context.Context, query persis.ArtifactQuery) 
 		return persis.ArtifactPage{}, err
 	}
 
-	bounds := newQueryBounds(query)
-	days, err := s.listDaysDesc(bounds)
+	bounds := newQueryBounds(query, resume)
+
+	page := persis.ArtifactPage{}
+	stopped, err := s.forEachDayDesc(bounds, func(day string) (bool, error) {
+		if err := ctx.Err(); err != nil {
+			return true, err
+		}
+		return s.collectDay(ctx, query, resume, day, bounds, &page)
+	})
 	if err != nil {
 		return persis.ArtifactPage{}, err
 	}
-
-	page := persis.ArtifactPage{}
-	for _, day := range days {
-		if err := ctx.Err(); err != nil {
-			return persis.ArtifactPage{}, err
-		}
-		if resume != nil && day > resume.Day {
-			continue
-		}
-
-		done, err := s.collectDay(ctx, query, resume, day, bounds, &page)
-		if err != nil {
-			return persis.ArtifactPage{}, err
-		}
-		if done {
-			return page, nil
-		}
+	if !stopped {
+		// Every remaining run was returned, so there is no next page.
+		page.NextCursor = ""
 	}
-
-	// Every remaining run was returned, so there is no next page.
-	page.NextCursor = ""
 	return page, nil
 }
 
@@ -260,24 +250,25 @@ func (s *Store) listRunDirsDesc(day string) ([]runDirEntry, error) {
 	return runDirs, nil
 }
 
-// listDaysDesc returns the "YYYY/MM/DD" days present in the tree within the
-// query's range, newest first.
-func (s *Store) listDaysDesc(bounds queryBounds) ([]string, error) {
+// forEachDayDesc calls visit with each "YYYY/MM/DD" day present in the tree
+// within the bounds, newest first, until visit asks to stop, and reports
+// whether it did. A month or year is opened only once a day inside it is
+// needed, so a page filled from today never reads past today's month.
+func (s *Store) forEachDayDesc(bounds queryBounds, visit func(day string) (bool, error)) (bool, error) {
 	from, to := bounds.from, bounds.to
 
 	years, err := listNumericDirsDesc(s.rootDir, 4)
 	if err != nil {
-		return nil, err
+		return false, err
 	}
 
-	var days []string
 	for _, year := range years {
 		if outsideBounds(year, from, to) {
 			continue
 		}
 		months, err := listNumericDirsDesc(filepath.Join(s.rootDir, year), 2)
 		if err != nil {
-			return nil, err
+			return false, err
 		}
 		for _, month := range months {
 			monthKey := year + "/" + month
@@ -286,18 +277,20 @@ func (s *Store) listDaysDesc(bounds queryBounds) ([]string, error) {
 			}
 			daysOfMonth, err := listNumericDirsDesc(filepath.Join(s.rootDir, year, month), 2)
 			if err != nil {
-				return nil, err
+				return false, err
 			}
 			for _, day := range daysOfMonth {
 				key := monthKey + "/" + day
 				if outsideBounds(key, from, to) {
 					continue
 				}
-				days = append(days, key)
+				if stop, err := visit(key); err != nil || stop {
+					return stop, err
+				}
 			}
 		}
 	}
-	return days, nil
+	return false, nil
 }
 
 // outsideBounds reports whether a "YYYY", "YYYY/MM" or "YYYY/MM/DD" key falls
@@ -321,7 +314,7 @@ func outsideBounds(key, from, to string) bool {
 // second comparisons alike.
 type queryBounds struct{ from, to string }
 
-func newQueryBounds(query persis.ArtifactQuery) queryBounds {
+func newQueryBounds(query persis.ArtifactQuery, resume *cursor) queryBounds {
 	const layout = dayLayoutForBounds + timeOfDayLayoutForBounds
 	var b queryBounds
 	if !query.From.IsZero() {
@@ -330,12 +323,22 @@ func newQueryBounds(query persis.ArtifactQuery) queryBounds {
 	if !query.To.IsZero() {
 		b.to = query.To.UTC().Format(layout)
 	}
+	// Everything after the cursor's day was already returned, so the day is an
+	// upper bound and prunes years and months the same way To does.
+	if resume != nil {
+		if to := resume.Day + lastTimeOfDay; b.to == "" || to < b.to {
+			b.to = to
+		}
+	}
 	return b
 }
 
 const (
 	dayLayoutForBounds       = "2006/01/02"
 	timeOfDayLayoutForBounds = "150405"
+
+	// lastTimeOfDay extends a cursor's day to the width of a bound.
+	lastTimeOfDay = "235959"
 )
 
 func listNumericDirsDesc(dir string, width int) ([]string, error) {
