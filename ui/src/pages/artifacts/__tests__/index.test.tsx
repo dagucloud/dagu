@@ -1,16 +1,66 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import dayjs from 'dayjs';
 import React from 'react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  RunDateMode,
+  RunDatePreset,
+  ViewSpecType,
+  ViewWorkspaceScope,
+} from '@/api/v1/schema';
 import type { ArtifactListItem } from '@/features/artifacts/hooks/artifactListPagination';
+import type { View } from '@/hooks/useViews';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { ConfigContext, type Config } from '@/contexts/ConfigContext';
 import { WorkspaceKind } from '@/lib/workspace';
 import Artifacts from '..';
+
+const {
+  createArtifactViewMock,
+  deleteArtifactViewMock,
+  readSearchStateMock,
+  searchStateMock,
+  sharedArtifactViewState,
+  updateArtifactViewMock,
+  viewsLoadingState,
+} = vi.hoisted(() => {
+  const readState = vi.fn((): unknown => null);
+  const writeState = vi.fn();
+  return {
+    createArtifactViewMock: vi.fn(),
+    deleteArtifactViewMock: vi.fn(),
+    updateArtifactViewMock: vi.fn(),
+    readSearchStateMock: readState,
+    searchStateMock: { readState, writeState },
+    sharedArtifactViewState: { views: [] as View[] },
+    viewsLoadingState: { current: false },
+  };
+});
+
+vi.mock('@/contexts/SearchStateContext', () => ({
+  useSearchState: () => searchStateMock,
+}));
+
+vi.mock('@/contexts/AuthContext', () => ({
+  useCanWriteForWorkspace: () => true,
+}));
+
+vi.mock('@/hooks/useViews', () => ({
+  useViews: () => ({
+    views: sharedArtifactViewState.views,
+    isLoading: viewsLoadingState.current,
+    error: undefined,
+    createView: createArtifactViewMock,
+    updateView: updateArtifactViewMock,
+    deleteView: deleteArtifactViewMock,
+    refresh: vi.fn(),
+  }),
+}));
 
 const usePaginatedArtifactsMock = vi.hoisted(() => vi.fn());
 
@@ -79,18 +129,56 @@ beforeEach(() => {
   usePaginatedArtifactsMock.mockImplementation(
     () => usePaginatedArtifactsResult.current
   );
+  sharedArtifactViewState.views = [];
+  viewsLoadingState.current = false;
+  readSearchStateMock.mockReset();
+  readSearchStateMock.mockReturnValue(null);
+  createArtifactViewMock.mockReset();
+  updateArtifactViewMock.mockReset();
+  deleteArtifactViewMock.mockReset();
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
 });
 
+function makeArtifactView(overrides: Partial<View> = {}): View {
+  return {
+    id: 'nightly-reports',
+    name: 'Nightly reports',
+    type: ViewSpecType.artifact,
+    intervalDays: 1,
+    dagName: '',
+    fileName: '',
+    dateMode: RunDateMode.preset,
+    datePreset: RunDatePreset.all,
+    pinned: false,
+    workspace: '',
+    workspaceScope: ViewWorkspaceScope.all,
+    createdAt: '2026-09-15T00:00:00Z',
+    updatedAt: '2026-09-15T00:00:00Z',
+    ...overrides,
+  };
+}
+
+function LocationProbe(): React.JSX.Element {
+  const location = useLocation();
+  return <output data-testid="location-search">{location.search}</output>;
+}
+
+function locationSearchParams(): URLSearchParams {
+  return new URLSearchParams(
+    screen.getByTestId('location-search').textContent ?? ''
+  );
+}
+
 function renderPage(
   setTitle = vi.fn(),
-  configOverrides: Partial<Config> = {}
+  configOverrides: Partial<Config> = {},
+  initialEntry = '/artifacts'
 ): void {
   render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <ConfigContext.Provider
         value={
           {
@@ -109,6 +197,7 @@ function renderPage(
           }
         >
           <Artifacts />
+          <LocationProbe />
         </AppBarContext.Provider>
       </ConfigContext.Provider>
     </MemoryRouter>
@@ -172,9 +261,7 @@ describe('Artifacts page', () => {
     renderPage(vi.fn(), { tzOffsetInSec: -5 * 60 * 60 });
 
     fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
-    const inputs = await screen.findAllByPlaceholderText(
-      'YYYY-MM-DD HH:mm:ss'
-    );
+    const inputs = await screen.findAllByPlaceholderText('YYYY-MM-DD HH:mm:ss');
     const fromInput = inputs[0]!;
     const toInput = inputs[1]!;
     await user.clear(fromInput);
@@ -195,11 +282,15 @@ describe('Artifacts page', () => {
     ];
     renderPage();
 
-    expect(screen.getByRole('button', { name: /reporter/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /reporter/ })
+    ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /ingest/ })).toBeInTheDocument();
     // The newest run with files opens automatically; its first file is
     // selected so the preview pane shows something immediately.
-    expect(screen.getByRole('button', { name: /report\.md/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /report\.md/ })
+    ).toBeInTheDocument();
     expect(
       screen.getByText('preview of out/report.md in reporter/run-1')
     ).toBeInTheDocument();
@@ -369,10 +460,9 @@ describe('Artifacts page', () => {
     usePaginatedArtifactsResult.current.items = [makeItem()];
     renderPage();
 
-    fireEvent.keyDown(
-      screen.getByRole('button', { name: 'Quick' }),
-      { key: 'ArrowDown' }
-    );
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Quick' }), {
+      key: 'ArrowDown',
+    });
 
     expect(
       screen.getByText('preview of out/report.md in reporter/run-1')
@@ -411,12 +501,14 @@ describe('Artifacts page', () => {
     usePaginatedArtifactsResult.current.items = [makeItem()];
     renderPage();
 
-    expect(
-      screen.getByRole('button', { name: /report\.md/ })
-    ).toHaveAttribute('title', 'out/report.md');
-    expect(
-      screen.getByRole('button', { name: /plot\.png/ })
-    ).toHaveAttribute('title', 'out/plot.png');
+    expect(screen.getByRole('button', { name: /report\.md/ })).toHaveAttribute(
+      'title',
+      'out/report.md'
+    );
+    expect(screen.getByRole('button', { name: /plot\.png/ })).toHaveAttribute(
+      'title',
+      'out/plot.png'
+    );
   });
 
   it('ignores navigation keys typed into filter inputs', async () => {
@@ -431,5 +523,162 @@ describe('Artifacts page', () => {
     expect(
       screen.getByText('preview of out/report.md in reporter/run-1')
     ).toBeInTheDocument();
+  });
+
+  it('applies the default artifact view to the first request', async () => {
+    sharedArtifactViewState.views.push(
+      makeArtifactView({
+        isDefault: true,
+        dagName: 'nightly-etl',
+        fileName: '*.csv',
+      })
+    );
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(lastQuery()['name']).toBe('nightly-etl');
+      expect(lastQuery()['fileName']).toBe('*.csv');
+    });
+    expect(
+      screen.getByRole('button', { name: 'Artifact view: Nightly reports' })
+    ).toBeVisible();
+  });
+
+  it('uses the bookmarked artifact view from the URL', async () => {
+    sharedArtifactViewState.views.push(
+      makeArtifactView({
+        id: 'url-view',
+        name: 'Weekly plots',
+        dagName: 'plotter',
+        fileName: '*.png',
+      })
+    );
+
+    renderPage(vi.fn(), {}, '/artifacts?view=url-view');
+
+    await waitFor(() => {
+      expect(lastQuery()['name']).toBe('plotter');
+      expect(lastQuery()['fileName']).toBe('*.png');
+    });
+    expect(
+      screen.getByRole('button', { name: 'Artifact view: Weekly plots' })
+    ).toBeVisible();
+  });
+
+  it('gives explicit URL filters precedence over the requested view', async () => {
+    sharedArtifactViewState.views.push(
+      makeArtifactView({ id: 'view-a', name: 'View A', dagName: 'nightly-etl' })
+    );
+
+    renderPage(vi.fn(), {}, '/artifacts?view=view-a&name=adhoc');
+
+    await waitFor(() => {
+      expect(lastQuery()['name']).toBe('adhoc');
+    });
+    expect(
+      screen.getByRole('button', { name: 'Artifact view: View A' })
+    ).toBeVisible();
+  });
+
+  it('restores the unfiltered list for the All artifacts view', async () => {
+    sharedArtifactViewState.views.push(
+      makeArtifactView({ isDefault: true, dagName: 'nightly-etl' })
+    );
+
+    renderPage(vi.fn(), {}, '/artifacts?view=all');
+
+    await waitFor(() => {
+      expect(lastQuery()['name']).toBeUndefined();
+      expect(lastQuery()['fromDate']).toBeUndefined();
+    });
+  });
+
+  it('derives fresh dates for a preset view instead of reusing stored ones', async () => {
+    sharedArtifactViewState.views.push(
+      makeArtifactView({
+        id: 'last-7',
+        datePreset: RunDatePreset.last7days,
+        // A stale range left over from when the view was saved.
+        fromDate: '2020-01-01T00:00',
+        toDate: '2020-01-08T00:00',
+      })
+    );
+
+    renderPage(vi.fn(), {}, '/artifacts?view=last-7');
+
+    await waitFor(() => {
+      expect(lastQuery()['fromDate']).toBeTypeOf('number');
+    });
+    expect(lastQuery()['fromDate']).toBeGreaterThan(
+      dayjs('2020-01-01T00:00').unix()
+    );
+  });
+
+  it('saves the current filters as an artifact view and applies it', async () => {
+    const user = userEvent.setup();
+    createArtifactViewMock.mockResolvedValue(
+      makeArtifactView({ id: 'saved-view', name: 'Nightly reports' })
+    );
+
+    renderPage();
+
+    fireEvent.change(screen.getByPlaceholderText('Filter by DAG name...'), {
+      target: { value: 'nightly-etl' },
+    });
+    fireEvent.keyDown(screen.getByPlaceholderText('Filter by DAG name...'), {
+      key: 'Enter',
+    });
+    await waitFor(() => {
+      expect(locationSearchParams().get('name')).toBe('nightly-etl');
+    });
+
+    await user.click(
+      screen.getByRole('button', { name: 'Artifact view: Custom view' })
+    );
+    await user.click(
+      screen.getByRole('menuitem', { name: 'Save current filters as view…' })
+    );
+    await user.type(
+      screen.getByRole('textbox', { name: 'Name' }),
+      'Nightly reports'
+    );
+    await user.click(screen.getByRole('button', { name: 'Save view' }));
+
+    await waitFor(() => {
+      expect(createArtifactViewMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: ViewSpecType.artifact,
+          name: 'Nightly reports',
+          dagName: 'nightly-etl',
+          intervalDays: 1,
+        })
+      );
+    });
+    await waitFor(() => {
+      expect(locationSearchParams().get('view')).toBe('saved-view');
+    });
+  });
+
+  it('marks an artifact view as edited when its filters change', async () => {
+    sharedArtifactViewState.views.push(
+      makeArtifactView({ id: 'view-a', dagName: 'nightly-etl' })
+    );
+
+    renderPage(vi.fn(), {}, '/artifacts?view=view-a');
+    await waitFor(() => {
+      expect(lastQuery()['name']).toBe('nightly-etl');
+    });
+
+    fireEvent.change(screen.getByPlaceholderText('Filter by DAG name...'), {
+      target: { value: 'other' },
+    });
+    fireEvent.keyDown(screen.getByPlaceholderText('Filter by DAG name...'), {
+      key: 'Enter',
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Edited')).toBeVisible();
+    });
   });
 });

@@ -14,12 +14,26 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import type {
   ArtifactListItem,
   ArtifactListQuery,
 } from '@/features/artifacts/hooks/artifactListPagination';
 import { usePaginatedArtifacts } from '@/features/artifacts/hooks/artifactListPagination';
+import {
+  ARTIFACT_PRESET_ALL,
+  artifactsFilterSetFromView,
+  buildArtifactViewSpec,
+  type ArtifactsFilterSet,
+  type ArtifactsFilterView,
+} from '@/features/artifacts/lib/artifactViews';
+import { ViewSelector } from '@/features/views/ViewSelector';
+import {
+  viewMatchesScope,
+  viewScopeForSelection,
+} from '@/features/views/viewScope';
+import { useViews, type View } from '@/hooks/useViews';
+import { ViewSpecType } from '@/api/v1/schema';
 import { ArtifactFilePreview } from '@/features/dags/components/artifacts/ArtifactFilePreview';
 import { Button } from '@/components/ui/button';
 import { DateRangePicker } from '@/components/ui/date-range-picker';
@@ -37,12 +51,57 @@ import { I18nProps } from '@/i18n/I18nProps';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
 import { AppBarContext } from '../../contexts/AppBarContext';
+import { useCanWriteForWorkspace } from '../../contexts/AuthContext';
 import { useConfig } from '../../contexts/ConfigContext';
-import { workspaceSelectionQuery } from '../../lib/workspace';
+import { useSearchState } from '../../contexts/SearchStateContext';
+import {
+  workspaceSelectionKey,
+  workspaceSelectionQuery,
+} from '../../lib/workspace';
 import { cn } from '@/lib/utils';
 
-const DEFAULT_PRESET = 'all';
 const ARTIFACT_LIST_LIMIT = 100;
+const ALL_ARTIFACTS_VIEW_PARAM = 'all';
+const SEARCH_STATE_PAGE_KEY = 'artifacts';
+
+const ARTIFACT_FILTER_QUERY_KEYS = [
+  'name',
+  'fileName',
+  'fromDate',
+  'toDate',
+  'dateMode',
+  'preset',
+  'view',
+] as const;
+
+const DEFAULT_ARTIFACT_FILTERS: ArtifactsFilterSet = {
+  searchText: '',
+  fileName: '',
+  fromDate: undefined,
+  toDate: undefined,
+  dateRangeMode: 'preset',
+  datePreset: ARTIFACT_PRESET_ALL,
+};
+
+const areArtifactFiltersEqual = (
+  a: ArtifactsFilterSet,
+  b: ArtifactsFilterSet
+): boolean =>
+  a.searchText === b.searchText &&
+  a.fileName === b.fileName &&
+  a.fromDate === b.fromDate &&
+  a.toDate === b.toDate &&
+  a.dateRangeMode === b.dateRangeMode &&
+  a.datePreset === b.datePreset;
+
+function artifactsFilterViewFromView(view: View): ArtifactsFilterView {
+  return {
+    id: view.id,
+    name: view.name,
+    pinned: view.pinned ?? false,
+    filters: artifactsFilterSetFromView(view),
+  };
+}
 
 function computePresetDates(
   preset: string,
@@ -83,13 +142,31 @@ function computePresetDates(
   }
 }
 
+// Preset ranges are relative to "now", so a saved view stores the preset and
+// the concrete dates are derived whenever the view is applied or compared.
+function resolveArtifactViewFilters(
+  filters: ArtifactsFilterSet,
+  tzOffsetInSec: number | undefined
+): ArtifactsFilterSet {
+  if (filters.dateRangeMode !== 'preset') {
+    return filters;
+  }
+  if (filters.datePreset === ARTIFACT_PRESET_ALL) {
+    return { ...filters, fromDate: undefined, toDate: undefined };
+  }
+  const dates = computePresetDates(filters.datePreset, tzOffsetInSec);
+  return { ...filters, fromDate: dates.from, toDate: dates.to };
+}
+
 function runKey(item: Pick<ArtifactListItem, 'name' | 'dagRunId'>): string {
   return `${item.name}\u0000${item.dagRunId}`;
 }
 
 // Synthetic paths keep tree node identities unique across runs while the
 // real relative path stays available for preview and download requests.
-function runTreeRoot(item: Pick<ArtifactListItem, 'name' | 'dagRunId'>): string {
+function runTreeRoot(
+  item: Pick<ArtifactListItem, 'name' | 'dagRunId'>
+): string {
   return `@run:${runKey(item)}`;
 }
 
@@ -174,22 +251,68 @@ function Artifacts() {
   const { ts } = useI18n();
   const appBarContext = React.useContext(AppBarContext);
   const config = useConfig();
+  const workspaceSelection = appBarContext.workspaceSelection;
   const workspaceQuery = React.useMemo(
-    () => workspaceSelectionQuery(appBarContext.workspaceSelection),
-    [appBarContext.workspaceSelection]
+    () => workspaceSelectionQuery(workspaceSelection),
+    [workspaceSelection]
   );
-    const [searchText, setSearchText] = React.useState('');
+  const location = useLocation();
+  const navigate = useNavigate();
+  const searchState = useSearchState();
+  const remoteNode = appBarContext.selectedRemoteNode || 'local';
+  const searchStateScope = JSON.stringify({
+    remoteNode,
+    workspace: workspaceSelectionKey(workspaceSelection),
+  });
+  const [searchText, setSearchText] = React.useState('');
   const [apiSearchText, setApiSearchText] = React.useState('');
   const [fileNameText, setFileNameText] = React.useState('');
   const [apiFileNameText, setApiFileNameText] = React.useState('');
-  const [dateRangeMode, setDateRangeMode] = React.useState<
-    'preset' | 'custom'
-  >('preset');
-  const [datePreset, setDatePreset] = React.useState(DEFAULT_PRESET);
+  const [dateRangeMode, setDateRangeMode] = React.useState<'preset' | 'custom'>(
+    DEFAULT_ARTIFACT_FILTERS.dateRangeMode
+  );
+  const [datePreset, setDatePreset] = React.useState(
+    DEFAULT_ARTIFACT_FILTERS.datePreset
+  );
   const [fromDate, setFromDate] = React.useState<string | undefined>();
   const [toDate, setToDate] = React.useState<string | undefined>();
   const [apiFromDate, setApiFromDate] = React.useState<string | undefined>();
   const [apiToDate, setApiToDate] = React.useState<string | undefined>();
+
+  const artifactViewScope = React.useMemo(
+    () => viewScopeForSelection(workspaceSelection),
+    [workspaceSelection]
+  );
+  const canManageArtifactViews = useCanWriteForWorkspace(
+    artifactViewScope.workspace
+  );
+  const {
+    views: sharedArtifactViews,
+    isLoading: artifactViewsLoading,
+    createView,
+    updateView,
+    deleteView,
+  } = useViews(ViewSpecType.artifact);
+  const scopedArtifactViews = React.useMemo(
+    () =>
+      sharedArtifactViews.filter((view) =>
+        viewMatchesScope(view, artifactViewScope)
+      ),
+    [sharedArtifactViews, artifactViewScope]
+  );
+  const artifactViews = React.useMemo(
+    () => scopedArtifactViews.map(artifactsFilterViewFromView),
+    [scopedArtifactViews]
+  );
+  const defaultArtifactViewId = scopedArtifactViews.find(
+    (view) => view.isDefault
+  )?.id;
+  const [activeArtifactViewId, setActiveArtifactViewId] = React.useState<
+    string | null
+  >(null);
+  const [artifactViewError, setArtifactViewError] = React.useState<
+    string | null
+  >(null);
   const [selected, setSelected] = React.useState<{
     name: string;
     dagRunId: string;
@@ -226,27 +349,257 @@ function Artifacts() {
     appBarContext.setTitle('Artifacts');
   }, [appBarContext]);
 
+  const currentFilters = React.useMemo<ArtifactsFilterSet>(
+    () => ({
+      searchText: apiSearchText,
+      fileName: apiFileNameText,
+      fromDate: apiFromDate,
+      toDate: apiToDate,
+      dateRangeMode,
+      datePreset,
+    }),
+    [
+      apiFileNameText,
+      apiFromDate,
+      apiSearchText,
+      apiToDate,
+      dateRangeMode,
+      datePreset,
+    ]
+  );
+  const currentFiltersRef = React.useRef(currentFilters);
+  currentFiltersRef.current = currentFilters;
+  const lastPersistedFiltersRef = React.useRef<ArtifactsFilterSet | null>(null);
+  const previousArtifactScopeRef = React.useRef(searchStateScope);
+
+  const applyResolvedFilters = React.useCallback(
+    (filters: ArtifactsFilterSet) => {
+      setSearchText(filters.searchText);
+      setFileNameText(filters.fileName);
+      setDateRangeMode(filters.dateRangeMode);
+      setDatePreset(filters.datePreset);
+      setFromDate(filters.fromDate);
+      setToDate(filters.toDate);
+      setApiSearchText(filters.searchText);
+      setApiFileNameText(filters.fileName);
+      setApiFromDate(filters.fromDate);
+      setApiToDate(filters.toDate);
+    },
+    []
+  );
+
+  React.useEffect(() => {
+    if (artifactViewsLoading) {
+      return;
+    }
+
+    // URL parameters belong to the previous workspace when the scope has just
+    // changed; drop them and start from the destination's default view (or All
+    // artifacts), so another workspace's filters cannot leak in.
+    const scopeChanged = previousArtifactScopeRef.current !== searchStateScope;
+    if (scopeChanged) {
+      previousArtifactScopeRef.current = searchStateScope;
+      setArtifactViewError(null);
+      const clean = new URLSearchParams();
+      clean.set('view', defaultArtifactViewId ?? ALL_ARTIFACTS_VIEW_PARAM);
+      navigate(
+        { pathname: location.pathname, search: `?${clean.toString()}` },
+        { replace: true }
+      );
+      return;
+    }
+
+    const params = new URLSearchParams(location.search);
+    const stored = searchState.readState<ArtifactsFilterSet>(
+      SEARCH_STATE_PAGE_KEY,
+      searchStateScope
+    );
+    const urlFilters: Partial<ArtifactsFilterSet> = {};
+    let hasUrlFilters = false;
+
+    if (params.has('name')) {
+      urlFilters.searchText = params.get('name') ?? '';
+      hasUrlFilters = true;
+    }
+    if (params.has('fileName')) {
+      urlFilters.fileName = params.get('fileName') ?? '';
+      hasUrlFilters = true;
+    }
+
+    const dateModeParam = params.get('dateMode');
+    if (dateModeParam === 'preset' || dateModeParam === 'custom') {
+      urlFilters.dateRangeMode = dateModeParam;
+      hasUrlFilters = true;
+    }
+    if (params.has('preset')) {
+      urlFilters.datePreset =
+        params.get('preset') || DEFAULT_ARTIFACT_FILTERS.datePreset;
+      hasUrlFilters = true;
+    }
+    // A concrete range without a mode comes from a hand-written link; treat it
+    // as custom so the dates are not overwritten by a preset.
+    if (
+      dateModeParam !== 'preset' &&
+      (params.has('fromDate') || params.has('toDate'))
+    ) {
+      urlFilters.fromDate = params.get('fromDate') ?? undefined;
+      urlFilters.toDate = params.get('toDate') ?? undefined;
+      if (dateModeParam === null) {
+        urlFilters.dateRangeMode = 'custom';
+      }
+      hasUrlFilters = true;
+    }
+
+    let base: ArtifactsFilterSet = {
+      ...DEFAULT_ARTIFACT_FILTERS,
+      ...(stored ?? {}),
+    };
+    let nextActiveArtifactViewId: string | null = null;
+    const requestedViewId = params.get('view');
+    const requestedView =
+      requestedViewId === ALL_ARTIFACTS_VIEW_PARAM
+        ? undefined
+        : artifactViews.find((view) => view.id === requestedViewId);
+    const defaultView = artifactViews.find(
+      (view) => view.id === defaultArtifactViewId
+    );
+
+    if (requestedViewId === ALL_ARTIFACTS_VIEW_PARAM) {
+      base = { ...DEFAULT_ARTIFACT_FILTERS };
+    } else if (requestedView) {
+      base = resolveArtifactViewFilters(
+        requestedView.filters,
+        config.tzOffsetInSec
+      );
+      nextActiveArtifactViewId = requestedView.id;
+    } else if (!hasUrlFilters && defaultView) {
+      base = resolveArtifactViewFilters(
+        defaultView.filters,
+        config.tzOffsetInSec
+      );
+      nextActiveArtifactViewId = defaultView.id;
+    }
+
+    const next = hasUrlFilters ? { ...base, ...urlFilters } : base;
+    // A standalone preset URL must derive fresh dates rather than reuse the
+    // ones a saved view or the session happened to carry.
+    const resolved =
+      dateModeParam === 'preset'
+        ? resolveArtifactViewFilters(next, config.tzOffsetInSec)
+        : next;
+
+    setActiveArtifactViewId(nextActiveArtifactViewId);
+
+    if (areArtifactFiltersEqual(currentFiltersRef.current, resolved)) {
+      if (hasUrlFilters) {
+        lastPersistedFiltersRef.current = resolved;
+        searchState.writeState(
+          SEARCH_STATE_PAGE_KEY,
+          searchStateScope,
+          resolved
+        );
+      }
+      return;
+    }
+
+    applyResolvedFilters(resolved);
+    lastPersistedFiltersRef.current = resolved;
+    searchState.writeState(SEARCH_STATE_PAGE_KEY, searchStateScope, resolved);
+  }, [
+    applyResolvedFilters,
+    artifactViews,
+    artifactViewsLoading,
+    config.tzOffsetInSec,
+    defaultArtifactViewId,
+    location.pathname,
+    location.search,
+    navigate,
+    searchState,
+    searchStateScope,
+  ]);
+
+  React.useEffect(() => {
+    // Persistence must wait for the URL/view restoration to complete: writing
+    // the initial default filters before stored state is restored would
+    // clobber the session's filters.
+    if (artifactViewsLoading) {
+      return;
+    }
+    const persisted = lastPersistedFiltersRef.current;
+    if (persisted && areArtifactFiltersEqual(persisted, currentFilters)) {
+      return;
+    }
+    lastPersistedFiltersRef.current = currentFilters;
+    searchState.writeState(
+      SEARCH_STATE_PAGE_KEY,
+      searchStateScope,
+      currentFilters
+    );
+  }, [artifactViewsLoading, currentFilters, searchState, searchStateScope]);
+
+  const updateSearchParams = (updates: Record<string, string | undefined>) => {
+    const params = new URLSearchParams(location.search);
+    if (!('view' in updates) && activeArtifactViewId) {
+      params.set('view', activeArtifactViewId);
+    }
+    for (const [key, value] of Object.entries(updates)) {
+      // An explicit empty string overrides a saved view's value; only
+      // undefined removes the parameter.
+      if (value !== undefined) {
+        params.set(key, value);
+      } else {
+        params.delete(key);
+      }
+    }
+    const search = params.toString();
+    navigate({
+      pathname: location.pathname,
+      search: search ? `?${search}` : '',
+    });
+  };
+
+  const searchOverrideKey = (value: string): string | undefined =>
+    activeArtifactViewId !== null
+      ? value
+      : value.length > 0
+        ? value
+        : undefined;
+
   const handleSearch = () => {
-    setApiSearchText(searchText.trim());
-    setApiFileNameText(fileNameText.trim());
+    const nextSearchText = searchText.trim();
+    const nextFileName = fileNameText.trim();
+    setApiSearchText(nextSearchText);
+    setApiFileNameText(nextFileName);
     setApiFromDate(fromDate);
     setApiToDate(toDate);
+    updateSearchParams({
+      name: searchOverrideKey(nextSearchText),
+      fileName: searchOverrideKey(nextFileName),
+      dateMode: dateRangeMode,
+      preset: dateRangeMode === 'preset' ? datePreset : undefined,
+      fromDate: dateRangeMode === 'custom' ? fromDate : undefined,
+      toDate: dateRangeMode === 'custom' ? toDate : undefined,
+    });
   };
 
   const handleDatePresetChange = (preset: string) => {
     setDatePreset(preset);
-    if (preset === 'all') {
-      setFromDate(undefined);
-      setToDate(undefined);
-      setApiFromDate(undefined);
-      setApiToDate(undefined);
-      return;
-    }
-    const dates = computePresetDates(preset, config.tzOffsetInSec);
-    setFromDate(dates.from);
-    setToDate(dates.to);
-    setApiFromDate(dates.from);
-    setApiToDate(dates.to);
+    const dates =
+      preset === ARTIFACT_PRESET_ALL
+        ? undefined
+        : computePresetDates(preset, config.tzOffsetInSec);
+    setFromDate(dates?.from);
+    setToDate(dates?.to);
+    setApiFromDate(dates?.from);
+    setApiToDate(dates?.to);
+    // Read the payload from the local dates: the state setters above have not
+    // been applied yet within this handler.
+    updateSearchParams({
+      dateMode: 'preset',
+      preset,
+      fromDate: undefined,
+      toDate: undefined,
+    });
   };
 
   const handleInputKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -254,6 +607,237 @@ function Artifacts() {
       handleSearch();
     }
   };
+
+  const applyArtifactView = React.useCallback(
+    (view: ArtifactsFilterView) => {
+      setArtifactViewError(null);
+      const params = new URLSearchParams(location.search);
+      const filters = resolveArtifactViewFilters(
+        view.filters,
+        config.tzOffsetInSec
+      );
+      // Apply the filters directly: when the resulting URL is unchanged (for
+      // example resetting a view that was selected from the dropdown), the
+      // restoration effect has no location change to react to.
+      applyResolvedFilters(filters);
+      for (const key of ARTIFACT_FILTER_QUERY_KEYS) {
+        params.delete(key);
+      }
+      params.set('view', view.id);
+      if (filters.searchText) {
+        params.set('name', filters.searchText);
+      }
+      if (filters.fileName) {
+        params.set('fileName', filters.fileName);
+      }
+      params.set('dateMode', filters.dateRangeMode);
+      if (filters.dateRangeMode === 'preset') {
+        params.set('preset', filters.datePreset);
+      } else {
+        // Only a custom range persists concrete dates; preset mode derives
+        // them whenever the view is applied.
+        if (filters.fromDate) {
+          params.set('fromDate', filters.fromDate);
+        }
+        if (filters.toDate) {
+          params.set('toDate', filters.toDate);
+        }
+      }
+      const search = params.toString();
+      navigate(
+        { pathname: location.pathname, search: search ? `?${search}` : '' },
+        { replace: true }
+      );
+    },
+    [
+      applyResolvedFilters,
+      config.tzOffsetInSec,
+      location.pathname,
+      location.search,
+      navigate,
+    ]
+  );
+
+  const handleSelectArtifactView = (viewId: string) => {
+    const view = artifactViews.find((item) => item.id === viewId);
+    if (view) {
+      applyArtifactView(view);
+    }
+  };
+
+  const handleShowAllArtifacts = () => {
+    setArtifactViewError(null);
+    // Same rationale as applyArtifactView: the target URL may already be
+    // active, so restore the default filters directly.
+    applyResolvedFilters({ ...DEFAULT_ARTIFACT_FILTERS });
+    const params = new URLSearchParams(location.search);
+    for (const key of ARTIFACT_FILTER_QUERY_KEYS) {
+      params.delete(key);
+    }
+    params.set('view', ALL_ARTIFACTS_VIEW_PARAM);
+    const search = params.toString();
+    navigate(
+      { pathname: location.pathname, search: search ? `?${search}` : '' },
+      { replace: true }
+    );
+  };
+
+  const handleResetArtifactView = () => {
+    const view = artifactViews.find((item) => item.id === activeArtifactViewId);
+    if (view) {
+      applyArtifactView(view);
+    }
+  };
+
+  const handleSaveArtifactView = async (
+    name: string,
+    makeDefault: boolean,
+    pinned: boolean
+  ): Promise<void> => {
+    setArtifactViewError(null);
+    try {
+      const view = await createView(
+        buildArtifactViewSpec(
+          name,
+          currentFiltersRef.current,
+          makeDefault,
+          pinned,
+          artifactViewScope
+        )
+      );
+      applyArtifactView(artifactsFilterViewFromView(view));
+    } catch (error) {
+      setArtifactViewError(
+        error instanceof Error ? error.message : 'Failed to save artifact view'
+      );
+      throw error;
+    }
+  };
+
+  const handleUpdateArtifactView = async (): Promise<void> => {
+    const view = scopedArtifactViews.find(
+      (item) => item.id === activeArtifactViewId
+    );
+    if (!view) {
+      return;
+    }
+    setArtifactViewError(null);
+    try {
+      const updated = await updateView(
+        view.id,
+        buildArtifactViewSpec(
+          view.name,
+          currentFiltersRef.current,
+          view.isDefault ?? false,
+          view.pinned ?? false,
+          artifactViewScope
+        )
+      );
+      applyArtifactView(artifactsFilterViewFromView(updated));
+    } catch (error) {
+      setArtifactViewError(
+        error instanceof Error
+          ? error.message
+          : 'Failed to update artifact view'
+      );
+      throw error;
+    }
+  };
+
+  const handleSetDefaultArtifactView = async (
+    viewId: string | undefined
+  ): Promise<void> => {
+    const target = scopedArtifactViews.find(
+      (view) => view.id === (viewId ?? defaultArtifactViewId)
+    );
+    if (!target) {
+      return;
+    }
+    setArtifactViewError(null);
+    try {
+      await updateView(
+        target.id,
+        buildArtifactViewSpec(
+          target.name,
+          artifactsFilterSetFromView(target),
+          viewId !== undefined,
+          target.pinned ?? false,
+          artifactViewScope
+        )
+      );
+    } catch (error) {
+      setArtifactViewError(
+        error instanceof Error
+          ? error.message
+          : 'Failed to update the default artifact view'
+      );
+      throw error;
+    }
+  };
+
+  const handleSetPinnedArtifactView = async (
+    viewId: string,
+    pinned: boolean
+  ): Promise<void> => {
+    const target = scopedArtifactViews.find((view) => view.id === viewId);
+    if (!target) {
+      return;
+    }
+    setArtifactViewError(null);
+    try {
+      await updateView(
+        target.id,
+        buildArtifactViewSpec(
+          target.name,
+          artifactsFilterSetFromView(target),
+          target.isDefault ?? false,
+          pinned,
+          artifactViewScope
+        )
+      );
+    } catch (error) {
+      setArtifactViewError(
+        error instanceof Error
+          ? error.message
+          : 'Failed to update the starred artifact view'
+      );
+      throw error;
+    }
+  };
+
+  const handleDeleteArtifactView = async (viewId: string): Promise<void> => {
+    const deletingActiveView = viewId === activeArtifactViewId;
+    setArtifactViewError(null);
+    try {
+      await deleteView(viewId);
+      if (deletingActiveView) {
+        handleShowAllArtifacts();
+      }
+    } catch (error) {
+      setArtifactViewError(
+        error instanceof Error
+          ? error.message
+          : 'Failed to delete artifact view'
+      );
+      throw error;
+    }
+  };
+
+  const activeArtifactView = artifactViews.find(
+    (view) => view.id === activeArtifactViewId
+  );
+  const isArtifactViewEdited = activeArtifactView
+    ? !areArtifactFiltersEqual(
+        currentFilters,
+        resolveArtifactViewFilters(
+          activeArtifactView.filters,
+          config.tzOffsetInSec
+        )
+      )
+    : false;
+  const isAllArtifactsView =
+    activeArtifactViewId === null &&
+    areArtifactFiltersEqual(currentFilters, DEFAULT_ARTIFACT_FILTERS);
 
   const artifactQuery = React.useMemo<ArtifactListQuery>(
     () => ({
@@ -358,10 +942,7 @@ function Artifacts() {
     }
   }, [isLoadingMore]);
 
-  const fileCount = items.reduce(
-    (total, item) => total + item.files.length,
-    0
-  );
+  const fileCount = items.reduce((total, item) => total + item.files.length, 0);
 
   const formatTimezoneOffset = (): string => {
     if (config.tzOffsetInSec === undefined) return '';
@@ -393,9 +974,7 @@ function Artifacts() {
 
   const tzLabel = formatTimezoneOffset();
   const selectedNodeSyntheticPath =
-    selected !== null
-      ? `${runTreeRoot(selected)}/${selected.path}`
-      : null;
+    selected !== null ? `${runTreeRoot(selected)}/${selected.path}` : null;
 
   // Flat, depth-first ordered list of every visible file (expanded runs and
   // directories only), matching the tree rendering order, for keyboard
@@ -462,8 +1041,7 @@ function Artifacts() {
             target.tagName === 'TEXTAREA' ||
             target.tagName === 'SELECT' ||
             target.isContentEditable)) ||
-        (target instanceof Node &&
-          filterBarRef.current?.contains(target)) ||
+        (target instanceof Node && filterBarRef.current?.contains(target)) ||
         (target instanceof HTMLElement &&
           target.closest('[role="listbox"]') !== null)
       ) {
@@ -518,6 +1096,24 @@ function Artifacts() {
         <Title>
           <I18nText text={'Artifacts'} />
         </Title>
+        <ViewSelector
+          kind="artifact"
+          views={artifactViews}
+          activeViewId={activeArtifactViewId}
+          defaultViewId={defaultArtifactViewId}
+          isAllView={isAllArtifactsView}
+          isActiveViewEdited={isArtifactViewEdited}
+          canManageViews={canManageArtifactViews}
+          error={artifactViewError}
+          onSelectView={handleSelectArtifactView}
+          onShowAll={handleShowAllArtifacts}
+          onResetView={handleResetArtifactView}
+          onSaveView={handleSaveArtifactView}
+          onUpdateView={handleUpdateArtifactView}
+          onSetDefault={handleSetDefaultArtifactView}
+          onSetPinned={handleSetPinnedArtifactView}
+          onDeleteView={handleDeleteArtifactView}
+        />
         <I18nProps>
           <Button
             variant="ghost"
@@ -529,6 +1125,11 @@ function Artifacts() {
           </Button>
         </I18nProps>
       </div>
+      {artifactViewError && (
+        <p role="alert" className="mb-2 text-xs text-destructive">
+          {artifactViewError}
+        </p>
+      )}
       <div
         ref={filterBarRef}
         className="mb-3 space-y-3 rounded-lg border border-border bg-card/50 p-3"
@@ -595,7 +1196,7 @@ function Artifacts() {
                 </SelectTrigger>
               </I18nProps>
               <SelectContent>
-                <SelectItem value="all">
+                <SelectItem value={ARTIFACT_PRESET_ALL}>
                   <I18nText text={'All time'} />
                 </SelectItem>
                 <SelectItem value="today">
@@ -673,7 +1274,9 @@ function Artifacts() {
                   {ts('{count} files', { count: fileCount })}
                   {items.some((item) => item.filesTruncated) ? (
                     <span className="ml-1">
-                      <I18nText text={'· selective list, use the run to view all files'} />
+                      <I18nText
+                        text={'· selective list, use the run to view all files'}
+                      />
                     </span>
                   ) : null}
                 </p>
@@ -758,9 +1361,7 @@ function Artifacts() {
                                 });
                               }}
                               onSelectFile={(path) => {
-                                const realPath = path.slice(
-                                  root.length + 1
-                                );
+                                const realPath = path.slice(root.length + 1);
                                 setSelected({
                                   name: item.name,
                                   dagRunId: item.dagRunId,

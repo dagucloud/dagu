@@ -558,6 +558,37 @@ describe('sidebar menu', () => {
     expect(executionsLink).not.toHaveAttribute('aria-current');
   });
 
+  it('renders starred artifact views for the current scope in the sidebar', () => {
+    useViewsMock.mockImplementation((type?: ViewSpecType) => ({
+      views:
+        type === ViewSpecType.artifact
+          ? [
+              {
+                id: 'artifact-1',
+                name: 'Nightly reports',
+                pinned: true,
+                workspace: '',
+                workspaceScope: ViewWorkspaceScope.all,
+              },
+            ]
+          : [],
+    }));
+
+    renderMenu('/artifacts?view=artifact-1');
+
+    const artifactViewLink = screen.getByRole('link', {
+      name: 'Nightly reports',
+    });
+    expect(artifactViewLink).toHaveAttribute(
+      'href',
+      '/artifacts?view=artifact-1'
+    );
+    expect(artifactViewLink).toHaveAttribute('aria-current', 'page');
+    expect(artifactViewLink.querySelector('svg')).toHaveClass('lucide-star');
+    const executionsLink = screen.getByRole('link', { name: 'Executions' });
+    expect(executionsLink).not.toHaveAttribute('aria-current');
+  });
+
   it('keeps Workflows selected when the active view is not starred', () => {
     useViewsMock.mockImplementation((type?: ViewSpecType) => ({
       views:

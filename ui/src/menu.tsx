@@ -488,6 +488,7 @@ export const mainListItems = React.forwardRef<
   const { views: kanbanViews } = useViews();
   const { views: workflowViews } = useViews(ViewSpecType.workflow);
   const { views: runViews } = useViews(ViewSpecType.run);
+  const { views: artifactViews } = useViews(ViewSpecType.artifact);
   const workflowViewScope = viewScopeForSelection(appBar.workspaceSelection);
   const pinnedKanbanViews = kanbanViews.filter((view) => view.pinned);
   const pinnedRunViews = runViews.filter(
@@ -496,14 +497,19 @@ export const mainListItems = React.forwardRef<
   const pinnedWorkflowViews = workflowViews.filter(
     (view) => view.pinned && viewMatchesScope(view, workflowViewScope)
   );
-  const activeWorkflowViewId = new URLSearchParams(location.search).get('view');
+  const pinnedArtifactViews = artifactViews.filter(
+    (view) => view.pinned && viewMatchesScope(view, workflowViewScope)
+  );
+  const activeViewId = new URLSearchParams(location.search).get('view');
   const isPinnedWorkflowViewActive =
     location.pathname === '/dags' &&
-    pinnedWorkflowViews.some((view) => view.id === activeWorkflowViewId);
-  const activeRunViewId = new URLSearchParams(location.search).get('view');
+    pinnedWorkflowViews.some((view) => view.id === activeViewId);
   const isPinnedRunViewActive =
     location.pathname === '/dag-runs' &&
-    pinnedRunViews.some((view) => view.id === activeRunViewId);
+    pinnedRunViews.some((view) => view.id === activeViewId);
+  const isPinnedArtifactViewActive =
+    location.pathname === '/artifacts' &&
+    pinnedArtifactViews.some((view) => view.id === activeViewId);
   const canWrite =
     config.authMode !== 'builtin'
       ? config.permissions.writeDags
@@ -707,6 +713,17 @@ export const mainListItems = React.forwardRef<
               customColor={customColor}
             />
           ))}
+          {pinnedArtifactViews.map((view) => (
+            <NavItem
+              key={`artifact-${view.id}`}
+              to={`/artifacts?view=${encodeURIComponent(view.id)}`}
+              text={view.name}
+              icon={<Star size={18} />}
+              isOpen={isOpen}
+              onClick={onNavItemClick}
+              customColor={customColor}
+            />
+          ))}
 
           <NavItem
             to="/"
@@ -778,7 +795,7 @@ export const mainListItems = React.forwardRef<
             to="/dag-runs"
             onClick={onNavItemClick}
             customColor={customColor}
-            suppressActive={isPinnedRunViewActive}
+            suppressActive={isPinnedRunViewActive || isPinnedArtifactViewActive}
           >
             <NavItem
               to="/queues"
