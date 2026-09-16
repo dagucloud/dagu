@@ -162,6 +162,7 @@ beforeEach(() => {
   mocks.post.mockResolvedValue({
     data: { valid: true, errors: [], dag: undefined },
   });
+  mocks.put.mockResolvedValue({ data: { errors: [] } });
 });
 
 afterEach(() => {
@@ -192,7 +193,6 @@ describe('DAGSpec live validation', () => {
         warnings: ['Harness step review has no explicit working_dir'],
       },
     });
-    mocks.put.mockResolvedValue({ data: { errors: [] } });
     renderSpec();
     const editor = screen.getByLabelText('DAG spec');
     fireEvent.change(editor, { target: { value: savedSpec + '# edited' } });
@@ -255,7 +255,7 @@ describe('DAGSpec live validation', () => {
     expect(screen.getByRole('status')).toHaveTextContent(warning);
   });
 
-  it('accepts a save echo before its response without losing newer edits', async () => {
+  it('prevents overlapping saves without losing newer edits', async () => {
     vi.useFakeTimers();
     let finishSave!: (value: { data: { errors: string[] } }) => void;
     mocks.put.mockReturnValueOnce(
@@ -269,6 +269,12 @@ describe('DAGSpec live validation', () => {
     const newerEdit = submitted + '\n# still editing';
     fireEvent.change(editor, { target: { value: submitted } });
     fireEvent.click(screen.getByRole('button', { name: /save/i }));
+    fireEvent.change(editor, { target: { value: submitted + '\n# next' } });
+    const saveButton = screen.getByRole('button', { name: /save/i });
+    expect(saveButton).toBeDisabled();
+    fireEvent.click(saveButton);
+    fireEvent.keyDown(document, { key: 's', ctrlKey: true });
+    expect(mocks.put).toHaveBeenCalledOnce();
 
     mocks.useQuery.mockReturnValue(specData({ spec: submitted }));
     fireEvent.change(editor, { target: { value: newerEdit } });
@@ -296,12 +302,36 @@ describe('DAGSpec live validation', () => {
       fireEvent.click(screen.getByRole('button', { name: /save/i }));
     });
     expect(mocks.showError).toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: /save/i })).toBeEnabled();
 
     mocks.useQuery.mockReturnValue(specData({ spec: submitted }));
     fireEvent.change(editor, {
       target: { value: submitted + '\n# still editing' },
     });
     expect(screen.getByRole('dialog')).toHaveTextContent('External Changes');
+  });
+
+  it('allows retrying a save after a network exception', async () => {
+    vi.useFakeTimers();
+    mocks.put.mockRejectedValueOnce(new Error('network unavailable'));
+    renderSpec();
+    fireEvent.change(screen.getByLabelText('DAG spec'), {
+      target: { value: savedSpec + '# edited' },
+    });
+    const saveButton = screen.getByRole('button', { name: /save/i });
+    await act(async () => {
+      fireEvent.click(saveButton);
+    });
+    expect(mocks.showError).toHaveBeenCalledWith(
+      'Failed to save spec',
+      'Please try again.'
+    );
+    expect(saveButton).toBeEnabled();
+    await act(async () => {
+      fireEvent.click(saveButton);
+    });
+    expect(mocks.showToast).toHaveBeenCalledWith('Changes saved successfully');
+    expect(saveButton).toBeDisabled();
   });
 
   it('validates the edited buffer once per idle window', async () => {

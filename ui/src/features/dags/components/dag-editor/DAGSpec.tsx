@@ -212,6 +212,7 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
     dag?: components['schemas']['DAGDetails'];
   } | null>(null);
   const [isValidating, setIsValidating] = React.useState(false);
+  const [isSaving, setIsSaving] = React.useState(false);
   const validateSeqRef = React.useRef(0);
 
   React.useEffect(() => {
@@ -389,6 +390,9 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
 
   // Save handler function
   const handleSave = React.useCallback(async () => {
+    if (isSaving) {
+      return;
+    }
     if (currentValue == null) {
       showError('No changes to save', 'Make some edits before saving.');
       return;
@@ -398,60 +402,67 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
     saveScrollPosition();
     beginSave(currentValue);
 
-    const { data: responseData, error } = await client
-      .PUT('/dags/{fileName}/spec', {
-        params: {
-          path: {
-            fileName: fileName,
+    setIsSaving(true);
+    try {
+      const { data: responseData, error } = await client.PUT(
+        '/dags/{fileName}/spec',
+        {
+          params: {
+            path: {
+              fileName: fileName,
+            },
+            query: {
+              remoteNode,
+            },
           },
-          query: {
-            remoteNode,
+          body: {
+            spec: currentValue,
           },
-        },
-        body: {
-          spec: currentValue,
-        },
-      })
-      .catch((error: unknown) => {
+        }
+      );
+
+      if (error) {
         cancelSave();
-        throw error;
-      });
+        showError(
+          error.message || 'Failed to save spec',
+          'Please check the YAML syntax and try again.'
+        );
+        return;
+      }
 
-    if (error) {
+      if (responseData?.errors?.length) {
+        cancelSave();
+        // Feed the rejected save into the same markers/panel as live validation.
+        setLiveValidation((prev) => ({
+          errors: responseData.errors,
+          warnings: prev?.warnings ?? [],
+          dag: prev?.dag,
+        }));
+        showError(
+          'The spec was not saved',
+          undefined,
+          'Validation errors',
+          responseData.errors
+        );
+        return;
+      }
+
+      // Mark as saved to prevent false conflict detection on our own save
+      markAsSaved(currentValue);
+
+      // Revalidate SWR cache from server as safety net
+      mutateSpec();
+
+      // Show success toast notification
+      showToast('Changes saved successfully');
+    } catch {
       cancelSave();
-      showError(
-        error.message || 'Failed to save spec',
-        'Please check the YAML syntax and try again.'
-      );
-      return;
+      showError('Failed to save spec', 'Please try again.');
+    } finally {
+      setIsSaving(false);
     }
-
-    if (responseData?.errors?.length) {
-      cancelSave();
-      // Feed the rejected save into the same markers/panel as live validation.
-      setLiveValidation((prev) => ({
-        errors: responseData.errors,
-        warnings: prev?.warnings ?? [],
-        dag: prev?.dag,
-      }));
-      showError(
-        'The spec was not saved',
-        undefined,
-        'Validation errors',
-        responseData.errors
-      );
-      return;
-    }
-
-    // Mark as saved to prevent false conflict detection on our own save
-    markAsSaved(currentValue);
-
-    // Revalidate SWR cache from server as safety net
-    mutateSpec();
-
-    // Show success toast notification
-    showToast('Changes saved successfully');
   }, [
+    isSaving,
     currentValue,
     fileName,
     remoteNode,
@@ -720,7 +731,7 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
                   <Button
                     id="save-config"
                     title="Save changes (Ctrl+S / Cmd+S)"
-                    disabled={!localHasUnsavedChanges}
+                    disabled={isSaving || !localHasUnsavedChanges}
                     onClick={async () => {
                       await handleSave();
                       props.refresh();

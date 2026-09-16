@@ -72,14 +72,24 @@ steps:
     const warning = page
       .getByRole('status')
       .filter({ hasText: 'has no explicit working_dir' });
+    const saveButton = page.getByRole('button', { name: 'Save', exact: true });
+    const saveSpec = async () => {
+      const response = page.waitForResponse(
+        (response) =>
+          response.request().method() === 'PUT' &&
+          new URL(response.url()).pathname.endsWith('/spec')
+      );
+      await saveButton.click();
+      expect((await response).ok()).toBeTruthy();
+      await expect(saveButton).toBeDisabled();
+    };
     await expect(warning).toBeVisible();
     const editor = page.locator('.monaco-editor textarea').first();
     await editor.focus();
     await page.keyboard.press('ControlOrMeta+End');
     await page.keyboard.insertText('\n# edited\n');
     await expect(page.getByText('Valid with warnings', { exact: true })).toBeVisible();
-    await page.getByRole('button', { name: 'Save', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
+    await saveSpec();
     await expect(warning).toBeVisible();
 
     await editor.focus();
@@ -87,8 +97,7 @@ steps:
     await page.keyboard.insertText('working_dir: ./repo\n');
     await expect(page.getByText('Valid', { exact: true })).toBeVisible();
     await expect(warning).toHaveCount(0);
-    await page.getByRole('button', { name: 'Save', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
+    await saveSpec();
     await page.reload();
     await expect(page.locator('.monaco-editor')).toBeVisible();
     await expect(warning).toHaveCount(0);
