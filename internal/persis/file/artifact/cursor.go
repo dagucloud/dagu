@@ -16,23 +16,21 @@ import (
 
 const cursorVersion = 1
 
-// cursor marks the last file a page returned. Listing resumes strictly after
-// it, so a page boundary neither repeats nor skips an entry.
+// cursor marks the last run a page returned. Listing resumes strictly after
+// it, so a page boundary neither repeats nor skips a run.
 type cursor struct {
 	Version int    `json:"v"`
 	Filters string `json:"f"`
 	Day     string `json:"d"`
 	RunDir  string `json:"r"`
-	Path    string `json:"p"`
 }
 
-func encodeCursor(query persis.ArtifactQuery, day, runDir, path string) string {
+func encodeCursor(query persis.ArtifactQuery, day, runDir string) string {
 	data, err := json.Marshal(cursor{
 		Version: cursorVersion,
 		Filters: filterFingerprint(query),
 		Day:     day,
 		RunDir:  runDir,
-		Path:    path,
 	})
 	if err != nil {
 		return ""

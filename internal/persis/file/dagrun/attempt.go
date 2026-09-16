@@ -255,6 +255,12 @@ func (att *Attempt) updateArtifactIndex(status ir.DAGRunStatus) error {
 		status.Status == ir.NotStarted || status.Status.IsActive() {
 		return nil
 	}
+	// Only a root run is indexed. A child's artifacts are reached through its
+	// root, and listing them on their own would name a root the viewer may not
+	// see. A zero root is a root run whose writer did not set it.
+	if root := status.Root; !root.Zero() && root != ir.NewDAGRunRef(status.Name, status.DAGRunID) {
+		return nil
+	}
 	metaPath, ok := artifactpath.MetaPath(att.artifactRoot, status.ArchiveDir)
 	if !ok {
 		return nil

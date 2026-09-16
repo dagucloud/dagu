@@ -5,6 +5,7 @@ package artifact_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -30,32 +31,6 @@ func newStoreFixture(t *testing.T) storeFixture {
 
 	root := t.TempDir()
 	return storeFixture{root: root, store: artifact.NewStore(root)}
-}
-
-// newStoreFixtureWithRoots builds a store that can look up a child run's root.
-func newStoreFixtureWithRoots(t *testing.T, resolve artifact.RootLabelsFunc) storeFixture {
-	t.Helper()
-
-	root := t.TempDir()
-	return storeFixture{root: root, store: artifact.NewStore(root, artifact.WithRootLabels(resolve))}
-}
-
-// indexChild writes a child run's record, pointing at rootRef, with the
-// child's own labels as given.
-func (f storeFixture) indexChild(t *testing.T, dagName, dagRunID string, rootRef ir.DAGRunRef, labels []string, at time.Time) {
-	t.Helper()
-
-	dir, err := artifactpath.NewRunDir(context.Background(), f.root, "", dagName, dagRunID, at)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "out.txt"), []byte("x"), 0o600))
-
-	metaPath, ok := artifactpath.MetaPath(f.root, dir)
-	require.True(t, ok)
-	require.NoError(t, artifact.WriteRecord(metaPath, artifact.Record{
-		Version: artifact.RecordVersion, Name: dagName, DAGRunID: dagRunID, Status: ir.Succeeded,
-		StartedAt: stringutil.FormatTime(at), Labels: labels, Dir: dir,
-		RootName: rootRef.Name, RootDAGRunID: rootRef.ID,
-	}))
 }
 
 // index writes one run's artifacts plus its index record, the way a finished
@@ -113,6 +88,22 @@ func runIDs(page persis.ArtifactPage) []string {
 	return ids
 }
 
+func filesOf(run persis.ArtifactRun) []string {
+	paths := make([]string, 0, len(run.Files))
+	for _, f := range run.Files {
+		paths = append(paths, f.Path)
+	}
+	return paths
+}
+
+func manyFiles(n int) []string {
+	names := make([]string, 0, n)
+	for i := range n {
+		names = append(names, fmt.Sprintf("f%04d.txt", i))
+	}
+	return names
+}
+
 var (
 	day1  = time.Date(2026, 9, 14, 10, 0, 0, 0, time.UTC)
 	day2  = time.Date(2026, 9, 15, 9, 0, 0, 0, time.UTC)
@@ -131,19 +122,20 @@ func TestQueryArtifacts(t *testing.T) {
 		assert.Equal(t, []string{"run-new", "run-mid", "run-old"}, runIDs(page))
 	})
 
-	t.Run("ReturnsFilesWithRunIdentity", func(t *testing.T) {
+	t.Run("OneItemPerRunWithItsFiles", func(t *testing.T) {
 		f := newStoreFixture(t)
 		f.index(t, "alpha", "run-1", day2, nil, "reports/summary.md", "top.txt")
 
 		page := f.query(t, persis.ArtifactQuery{})
 
-		require.Len(t, page.Items, 2)
-		assert.Equal(t, "alpha", page.Items[0].Name)
-		assert.Equal(t, "run-1", page.Items[0].DAGRunID)
-		assert.Equal(t, day2, page.Items[0].StartedAt.UTC())
-		assert.Equal(t, "reports/summary.md", page.Items[0].Path)
-		assert.Equal(t, int64(len("reports/summary.md")), page.Items[0].Size)
-		assert.Equal(t, "top.txt", page.Items[1].Path)
+		require.Len(t, page.Items, 1)
+		run := page.Items[0]
+		assert.Equal(t, "alpha", run.Name)
+		assert.Equal(t, "run-1", run.DAGRunID)
+		assert.Equal(t, day2, run.StartedAt.UTC())
+		assert.Equal(t, []string{"reports/summary.md", "top.txt"}, filesOf(run))
+		assert.Equal(t, int64(len("reports/summary.md")), run.Files[0].Size)
+		assert.False(t, run.FilesTruncated)
 	})
 
 	t.Run("FiltersByDAGName", func(t *testing.T) {
@@ -185,8 +177,8 @@ func TestQueryArtifacts(t *testing.T) {
 
 	// Filtering and ordering read the directory's timestamp, so a run admitted
 	// before midnight stays on its admission day even though it started after
-	// it. The point is that one clock decides both: the run is reachable, and
-	// the time it reports is the time it was ordered by.
+	// it. One clock decides both: the run is reachable, and the time it reports
+	// is the time it was ordered by.
 	t.Run("PlacesACrossMidnightRunOnItsAdmissionDay", func(t *testing.T) {
 		f := newStoreFixture(t)
 		admitted := time.Date(2026, 9, 14, 23, 59, 0, 0, time.UTC)
@@ -237,7 +229,7 @@ func TestQueryArtifacts(t *testing.T) {
 		page := f.query(t, persis.ArtifactQuery{})
 
 		require.Len(t, page.Items, 1)
-		assert.Equal(t, "out.txt", page.Items[0].Path)
+		assert.Equal(t, []string{"out.txt"}, filesOf(page.Items[0]))
 	})
 
 	t.Run("SkipsUnreadableRecord", func(t *testing.T) {
@@ -262,6 +254,58 @@ func TestQueryArtifacts(t *testing.T) {
 		page := f.query(t, persis.ArtifactQuery{})
 
 		assert.Empty(t, page.Items)
+	})
+}
+
+// One listing returns at most a hundred of a run's files. A run over that is
+// reported as truncated rather than either read out in full or dropped.
+func TestQueryArtifactsFileCap(t *testing.T) {
+	t.Run("RunAtTheCapIsWhole", func(t *testing.T) {
+		f := newStoreFixture(t)
+		f.index(t, "alpha", "run-1", day2, nil, manyFiles(100)...)
+
+		page := f.query(t, persis.ArtifactQuery{})
+
+		require.Len(t, page.Items, 1)
+		assert.Len(t, page.Items[0].Files, 100)
+		assert.False(t, page.Items[0].FilesTruncated)
+	})
+
+	t.Run("RunOverTheCapIsTruncated", func(t *testing.T) {
+		f := newStoreFixture(t)
+		f.index(t, "alpha", "run-1", day2, nil, manyFiles(150)...)
+
+		page := f.query(t, persis.ArtifactQuery{})
+
+		require.Len(t, page.Items, 1)
+		assert.Len(t, page.Items[0].Files, 100)
+		assert.True(t, page.Items[0].FilesTruncated)
+		assert.Equal(t, "f0000.txt", page.Items[0].Files[0].Path)
+		assert.Equal(t, "f0099.txt", page.Items[0].Files[99].Path)
+	})
+
+	// The cap counts matches, not files scanned.
+	t.Run("CapAppliesToMatchingFiles", func(t *testing.T) {
+		f := newStoreFixture(t)
+		files := append(manyFiles(150), "other.log")
+		f.index(t, "alpha", "run-1", day2, nil, files...)
+
+		page := f.query(t, persis.ArtifactQuery{FileName: ".txt"})
+
+		require.Len(t, page.Items, 1)
+		assert.Len(t, page.Items[0].Files, 100)
+		assert.True(t, page.Items[0].FilesTruncated)
+	})
+
+	t.Run("SmallRunIsNotTruncated", func(t *testing.T) {
+		f := newStoreFixture(t)
+		f.index(t, "alpha", "run-1", day2, nil, "a.txt", "b.txt", "c.txt")
+
+		page := f.query(t, persis.ArtifactQuery{})
+
+		require.Len(t, page.Items, 1)
+		assert.Len(t, page.Items[0].Files, 3)
+		assert.False(t, page.Items[0].FilesTruncated)
 	})
 }
 
@@ -294,9 +338,9 @@ func TestQueryArtifactsWorkspaceScoping(t *testing.T) {
 }
 
 func TestQueryArtifactsPagination(t *testing.T) {
-	// Paging must not repeat or drop an entry, including where a page boundary
-	// falls inside a run and where it falls between days.
-	t.Run("WalksEveryFileExactlyOnce", func(t *testing.T) {
+	// A run is never split across pages, so paging must return every run
+	// exactly once, whole, at any page size.
+	t.Run("WalksEveryRunExactlyOnce", func(t *testing.T) {
 		f := newStoreFixture(t)
 		f.index(t, "alpha", "run-old", day1, nil, "a1.txt", "a2.txt")
 		f.index(t, "beta", "run-mid", day2, nil, "b1.txt", "b2.txt", "b3.txt")
@@ -307,50 +351,21 @@ func TestQueryArtifactsPagination(t *testing.T) {
 			query := persis.ArtifactQuery{Limit: limit}
 			for {
 				page := f.query(t, query)
-				for _, item := range page.Items {
-					seen = append(seen, item.DAGRunID+"/"+item.Path)
+				for _, run := range page.Items {
+					seen = append(seen, fmt.Sprintf("%s:%d", run.DAGRunID, len(run.Files)))
 				}
 				if page.NextCursor == "" {
 					break
 				}
 				query.Cursor = page.NextCursor
 			}
-			assert.Equal(t, []string{
-				"run-new/c1.txt",
-				"run-mid/b1.txt", "run-mid/b2.txt", "run-mid/b3.txt",
-				"run-old/a1.txt", "run-old/a2.txt",
-			}, seen, "limit %d", limit)
-		}
-	})
-
-	// Paths where a nested file and a sibling file share a prefix are where
-	// resuming by a plain string comparison would skip or repeat an entry.
-	t.Run("WalksNestedAndSiblingPathsExactlyOnce", func(t *testing.T) {
-		f := newStoreFixture(t)
-		f.index(t, "alpha", "run-1", day2, nil, "a.txt", "a/b.txt", "a/y/z.txt", "a-b.txt")
-
-		for _, limit := range []int{1, 2, 3, 5} {
-			var seen []string
-			query := persis.ArtifactQuery{Limit: limit}
-			for {
-				page := f.query(t, query)
-				for _, item := range page.Items {
-					seen = append(seen, item.Path)
-				}
-				if page.NextCursor == "" {
-					break
-				}
-				query.Cursor = page.NextCursor
-			}
-			assert.ElementsMatch(t,
-				[]string{"a.txt", "a/b.txt", "a/y/z.txt", "a-b.txt"}, seen, "limit %d", limit)
-			assert.Len(t, seen, 4, "limit %d", limit)
+			assert.Equal(t, []string{"run-new:1", "run-mid:3", "run-old:2"}, seen, "limit %d", limit)
 		}
 	})
 
 	// Every filter has to be part of the fingerprint. One that is not lets a
-	// cursor issued under a different filter resume past entries the new one
-	// would have matched.
+	// cursor issued under a different filter resume past runs the new one
+	// would have returned.
 	t.Run("RejectsCursorFromDifferentFilters", func(t *testing.T) {
 		changed := []struct {
 			name  string
@@ -367,7 +382,8 @@ func TestQueryArtifactsPagination(t *testing.T) {
 		for _, tt := range changed {
 			t.Run(tt.name, func(t *testing.T) {
 				f := newStoreFixture(t)
-				f.index(t, "alpha", "run-1", day2, nil, "a1.txt", "a2.txt")
+				f.index(t, "alpha", "run-1", day2, nil, "a1.txt")
+				f.index(t, "alpha", "run-2", day2b, nil, "a2.txt")
 
 				page := f.query(t, persis.ArtifactQuery{Limit: 1})
 				require.NotEmpty(t, page.NextCursor)
@@ -387,6 +403,8 @@ func TestQueryArtifactsPagination(t *testing.T) {
 	})
 }
 
+// A file-name filter selects which of a run's files come back, and omits a run
+// that has none.
 func TestQueryArtifactsFileNameFilter(t *testing.T) {
 	newFixture := func(t *testing.T) storeFixture {
 		t.Helper()
@@ -396,52 +414,52 @@ func TestQueryArtifactsFileNameFilter(t *testing.T) {
 		return f
 	}
 
-	paths := func(page persis.ArtifactPage) []string {
-		out := make([]string, 0, len(page.Items))
-		for _, item := range page.Items {
-			out = append(out, item.Path)
-		}
-		return out
+	// filesOfOnly returns the single run's files, failing if the page holds
+	// anything other than one run.
+	filesOfOnly := func(t *testing.T, page persis.ArtifactPage) []string {
+		t.Helper()
+		require.Len(t, page.Items, 1)
+		return filesOf(page.Items[0])
 	}
 
 	t.Run("Substring", func(t *testing.T) {
 		f := newFixture(t)
 		assert.Equal(t, []string{"reports/summary.md"},
-			paths(f.query(t, persis.ArtifactQuery{FileName: "summary"})))
+			filesOfOnly(t, f.query(t, persis.ArtifactQuery{FileName: "summary"})))
 	})
 
 	t.Run("SubstringIsCaseInsensitive", func(t *testing.T) {
 		f := newFixture(t)
 		assert.Equal(t, []string{"reports/summary.md"},
-			paths(f.query(t, persis.ArtifactQuery{FileName: "SUMMARY"})))
+			filesOfOnly(t, f.query(t, persis.ArtifactQuery{FileName: "SUMMARY"})))
 	})
 
 	t.Run("SubstringMatchesDirectorySegment", func(t *testing.T) {
 		f := newFixture(t)
 		assert.ElementsMatch(t, []string{"reports/summary.md", "reports/q3.csv"},
-			paths(f.query(t, persis.ArtifactQuery{FileName: "reports/"})))
+			filesOfOnly(t, f.query(t, persis.ArtifactQuery{FileName: "reports/"})))
 	})
 
 	// A glob segment stops at a separator; ** crosses it.
 	t.Run("GlobDoesNotCrossSeparator", func(t *testing.T) {
 		f := newFixture(t)
 		assert.Equal(t, []string{"reports/q3.csv"},
-			paths(f.query(t, persis.ArtifactQuery{FileName: "reports/*.csv"})))
+			filesOfOnly(t, f.query(t, persis.ArtifactQuery{FileName: "reports/*.csv"})))
 	})
 
 	t.Run("GlobCrossesSeparatorWithDoubleStar", func(t *testing.T) {
 		f := newFixture(t)
 		assert.ElementsMatch(t, []string{"reports/q3.csv", "data/nested/deep.csv"},
-			paths(f.query(t, persis.ArtifactQuery{FileName: "**/*.csv"})))
+			filesOfOnly(t, f.query(t, persis.ArtifactQuery{FileName: "**/*.csv"})))
 	})
 
 	// "*.csv" is a glob anchored at the path root, so it must not behave like
 	// the substring ".csv" and match nested paths.
 	t.Run("GlobIsNotTreatedAsSubstring", func(t *testing.T) {
 		f := newFixture(t)
-		assert.Empty(t, paths(f.query(t, persis.ArtifactQuery{FileName: "*.csv"})))
+		assert.Empty(t, f.query(t, persis.ArtifactQuery{FileName: "*.csv"}).Items)
 		assert.ElementsMatch(t, []string{"reports/q3.csv", "data/nested/deep.csv"},
-			paths(f.query(t, persis.ArtifactQuery{FileName: ".csv"})))
+			filesOfOnly(t, f.query(t, persis.ArtifactQuery{FileName: ".csv"})))
 	})
 
 	t.Run("ComposesWithNameAndDateRange", func(t *testing.T) {
@@ -457,8 +475,7 @@ func TestQueryArtifactsFileNameFilter(t *testing.T) {
 		assert.Equal(t, []string{"run-1"}, runIDs(page))
 	})
 
-	// A run contributing nothing must not end the page early.
-	t.Run("RunWithoutMatchDoesNotEndPage", func(t *testing.T) {
+	t.Run("RunWithoutMatchIsOmitted", func(t *testing.T) {
 		f := newStoreFixture(t)
 		f.index(t, "older", "run-old", day1, nil, "reports/summary.md")
 		f.index(t, "newer", "run-new", day2, nil, "logs/stdout.txt")
@@ -468,129 +485,25 @@ func TestQueryArtifactsFileNameFilter(t *testing.T) {
 		assert.Equal(t, []string{"run-old"}, runIDs(page))
 	})
 
-	t.Run("PagesFilteredResults", func(t *testing.T) {
-		f := newFixture(t)
+	t.Run("PagesFilteredRuns", func(t *testing.T) {
+		f := newStoreFixture(t)
+		f.index(t, "alpha", "run-1", day2, nil, "a.csv", "a.log")
+		f.index(t, "beta", "run-2", day2b, nil, "b.csv", "b.log")
+		f.index(t, "gamma", "run-3", day1, nil, "c.log")
 
-		for _, limit := range []int{1, 2, 3} {
-			var seen []string
-			query := persis.ArtifactQuery{FileName: ".csv", Limit: limit}
-			for {
-				page := f.query(t, query)
-				seen = append(seen, paths(page)...)
-				if page.NextCursor == "" {
-					break
-				}
-				query.Cursor = page.NextCursor
+		var seen []string
+		query := persis.ArtifactQuery{FileName: ".csv", Limit: 1}
+		for {
+			page := f.query(t, query)
+			for _, run := range page.Items {
+				seen = append(seen, run.DAGRunID+":"+filesOf(run)[0])
+				assert.Len(t, run.Files, 1, "only the matching file is listed")
 			}
-			assert.ElementsMatch(t,
-				[]string{"reports/q3.csv", "data/nested/deep.csv"}, seen, "limit %d", limit)
+			if page.NextCursor == "" {
+				break
+			}
+			query.Cursor = page.NextCursor
 		}
-	})
-}
-
-// A child run's row carries its root's identity, so a scoped viewer must not
-// see it unless they may see the root. The child's own labels cannot decide
-// that: an unlabelled child of a hidden root would otherwise read as public
-// and hand over the root's name and run ID.
-func TestQueryArtifactsChildRootVisibility(t *testing.T) {
-	secretRoot := ir.NewDAGRunRef("secret-dag", "secret-run")
-	publicRoot := ir.NewDAGRunRef("public-dag", "public-run")
-	rootWorkspaces := map[ir.DAGRunRef][]string{
-		secretRoot: {"workspace=secret"},
-		publicRoot: {"workspace=public"},
-	}
-	resolve := func(_ context.Context, ref ir.DAGRunRef) ([]string, bool) {
-		labels, ok := rootWorkspaces[ref]
-		return labels, ok
-	}
-	publicViewer := &workspace.WorkspaceFilter{
-		Enabled: true, Workspaces: []string{"public"}, IncludeUnlabelled: true,
-	}
-
-	t.Run("UnlabelledChildOfHiddenRootIsHidden", func(t *testing.T) {
-		f := newStoreFixtureWithRoots(t, resolve)
-		f.indexChild(t, "child", "child-run", secretRoot, nil, day2)
-
-		page := f.query(t, persis.ArtifactQuery{WorkspaceFilter: publicViewer})
-
-		assert.Empty(t, page.Items)
-	})
-
-	// A child declaring a workspace the viewer may see still leaks the root's
-	// identity if the root is hidden, so the root decides regardless.
-	t.Run("LabelledChildOfHiddenRootIsHidden", func(t *testing.T) {
-		f := newStoreFixtureWithRoots(t, resolve)
-		f.indexChild(t, "child", "child-run", secretRoot, []string{"workspace=public"}, day2)
-
-		page := f.query(t, persis.ArtifactQuery{WorkspaceFilter: publicViewer})
-
-		assert.Empty(t, page.Items)
-	})
-
-	t.Run("ChildOfVisibleRootIsShownWithItsRoot", func(t *testing.T) {
-		f := newStoreFixtureWithRoots(t, resolve)
-		f.indexChild(t, "child", "child-run", publicRoot, nil, day2)
-
-		page := f.query(t, persis.ArtifactQuery{WorkspaceFilter: publicViewer})
-
-		require.Len(t, page.Items, 1)
-		assert.Equal(t, "public-dag", page.Items[0].RootName)
-		assert.Equal(t, "public-run", page.Items[0].RootDAGRunID)
-	})
-
-	// A root that no longer exists gives nothing to decide with; hidden is the
-	// only answer that cannot be wrong.
-	t.Run("ChildOfUnresolvableRootIsHidden", func(t *testing.T) {
-		f := newStoreFixtureWithRoots(t, resolve)
-		f.indexChild(t, "child", "child-run", ir.NewDAGRunRef("gone-dag", "gone-run"), nil, day2)
-
-		page := f.query(t, persis.ArtifactQuery{WorkspaceFilter: publicViewer})
-
-		assert.Empty(t, page.Items)
-	})
-
-	t.Run("ChildIsHiddenFromScopedViewerWithoutResolver", func(t *testing.T) {
-		f := newStoreFixture(t)
-		f.indexChild(t, "child", "child-run", publicRoot, nil, day2)
-
-		page := f.query(t, persis.ArtifactQuery{WorkspaceFilter: publicViewer})
-
-		assert.Empty(t, page.Items)
-	})
-
-	t.Run("UnscopedViewerSeesChildren", func(t *testing.T) {
-		f := newStoreFixture(t)
-		f.indexChild(t, "child", "child-run", secretRoot, nil, day2)
-
-		page := f.query(t, persis.ArtifactQuery{})
-
-		require.Len(t, page.Items, 1)
-		assert.Equal(t, "secret-dag", page.Items[0].RootName)
-	})
-
-	t.Run("RootRowsStillAnswerForThemselves", func(t *testing.T) {
-		f := newStoreFixtureWithRoots(t, resolve)
-		f.index(t, "secret-dag", "secret-run", day2, []string{"workspace=secret"}, "a.txt")
-		f.index(t, "public-dag", "public-run", day2b, []string{"workspace=public"}, "b.txt")
-
-		page := f.query(t, persis.ArtifactQuery{WorkspaceFilter: publicViewer})
-
-		assert.Equal(t, []string{"public-run"}, runIDs(page))
-	})
-
-	t.Run("RootResolvedOncePerQuery", func(t *testing.T) {
-		calls := 0
-		counting := func(ctx context.Context, ref ir.DAGRunRef) ([]string, bool) {
-			calls++
-			return resolve(ctx, ref)
-		}
-		f := newStoreFixtureWithRoots(t, counting)
-		f.indexChild(t, "child", "child-1", publicRoot, nil, day2)
-		f.indexChild(t, "child", "child-2", publicRoot, nil, day2b)
-
-		page := f.query(t, persis.ArtifactQuery{WorkspaceFilter: publicViewer})
-
-		assert.Len(t, page.Items, 2)
-		assert.Equal(t, 1, calls)
+		assert.Equal(t, []string{"run-2:b.csv", "run-1:a.csv"}, seen)
 	})
 }

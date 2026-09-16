@@ -8,7 +8,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -56,55 +55,6 @@ func TestOutsideBoundsUnbounded(t *testing.T) {
 	assert.False(t, outsideBounds("2030/01/01", "2026/01/01", ""))
 	assert.True(t, outsideBounds("2027/01/01", "", "2026/12/31"))
 	assert.False(t, outsideBounds("2020/01/01", "", "2026/12/31"))
-}
-
-// walkOrderAfter is the comparison a cursor resumes by, so it has to agree with
-// the order walkFiles actually produces. They disagree if it compares joined
-// paths: "a.txt" sorts before "a/b.txt" as a string, but the walk descends "a"
-// first.
-func TestWalkOrderAfterMatchesWalk(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	for _, rel := range []string{
-		"a.txt",
-		"a/b.txt",
-		"a/y/z.txt",
-		"a/x.txt",
-		"a-b.txt",
-		"b/c.txt",
-		"zz.txt",
-	} {
-		path := filepath.Join(dir, filepath.FromSlash(rel))
-		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
-		require.NoError(t, os.WriteFile(path, []byte("x"), 0o600))
-	}
-
-	var walked []string
-	require.NoError(t, walkFiles(dir, func(relPath string, _ fs.DirEntry) bool {
-		walked = append(walked, relPath)
-		return true
-	}))
-	require.Len(t, walked, 7)
-
-	// Every adjacent pair must be strictly increasing under the comparison.
-	for i := 1; i < len(walked); i++ {
-		assert.True(t, walkOrderAfter(walked[i], walked[i-1]),
-			"%q should come after %q", walked[i], walked[i-1])
-		assert.False(t, walkOrderAfter(walked[i-1], walked[i]),
-			"%q should not come after %q", walked[i-1], walked[i])
-	}
-
-	// Sorting by the comparison must reproduce the walk exactly.
-	shuffled := append([]string(nil), walked...)
-	sort.Slice(shuffled, func(i, j int) bool { return !walkOrderAfter(shuffled[i], shuffled[j]) })
-	assert.Equal(t, walked, shuffled)
-}
-
-func TestWalkOrderAfterIdentity(t *testing.T) {
-	t.Parallel()
-
-	assert.False(t, walkOrderAfter("a/b.txt", "a/b.txt"))
 }
 
 // A page must read only as far as it needs, or one run with thousands of files

@@ -23,15 +23,9 @@ import (
 
 var artifactTestStart = time.Date(2026, 9, 15, 14, 32, 7, 0, time.UTC)
 
-// newArtifactListAPI builds an API over a populated artifact tree whose runs
-// are their own root.
+// newArtifactListAPI builds an API over a populated artifact tree. Each run
+// holds two files, one nested.
 func newArtifactListAPI(t *testing.T, runs ...string) *API {
-	t.Helper()
-	return newArtifactListAPIWithRoot(t, ir.DAGRunRef{}, runs...)
-}
-
-// newArtifactListAPIWithRoot builds the same tree for runs belonging to root.
-func newArtifactListAPIWithRoot(t *testing.T, rootRun ir.DAGRunRef, runs ...string) *API {
 	t.Helper()
 
 	root := t.TempDir()
@@ -52,7 +46,6 @@ func newArtifactListAPIWithRoot(t *testing.T, rootRun ir.DAGRunRef, runs ...stri
 			DAGRunID:   dagRunID,
 			StartedAt:  stringutil.FormatTime(at),
 			ArchiveDir: dir,
-			Root:       rootRun,
 		}
 		require.NoError(t, fileartifact.WriteRecord(metaPath, fileartifact.RecordFromStatus(status)))
 	}
@@ -78,23 +71,33 @@ func itemRunIDs(body openapiv1.ArtifactListResponse) []string {
 	return ids
 }
 
+func itemFiles(item openapiv1.ArtifactListItem) []string {
+	paths := make([]string, 0, len(item.Files))
+	for _, f := range item.Files {
+		paths = append(paths, f.Path)
+	}
+	return paths
+}
+
 func TestListArtifacts(t *testing.T) {
-	t.Run("NewestRunFirst", func(t *testing.T) {
+	t.Run("NewestRunFirstWithNestedFiles", func(t *testing.T) {
 		a := newArtifactListAPI(t, "run-1", "run-2")
 
 		body := listArtifacts(t, a, openapiv1.ListArtifactsParams{})
 
-		require.Len(t, body.Items, 4)
-		assert.Equal(t, []string{"run-2", "run-2", "run-1", "run-1"}, itemRunIDs(body))
-		assert.Equal(t, "reporter", body.Items[0].Name)
-		assert.Equal(t, "out.txt", body.Items[0].Path)
-		assert.Equal(t, int64(len("hello")), body.Items[0].Size)
-		assert.NotEmpty(t, body.Items[0].CreatedAt, "createdAt is the key the listing is ordered by")
-		require.NotNil(t, body.Items[0].StartedAt)
+		require.Len(t, body.Items, 2)
+		assert.Equal(t, []string{"run-2", "run-1"}, itemRunIDs(body))
+		first := body.Items[0]
+		assert.Equal(t, "reporter", first.Name)
+		assert.Equal(t, []string{"out.txt", "reports/summary.md"}, itemFiles(first))
+		assert.Equal(t, int64(len("hello")), first.Files[0].Size)
+		assert.False(t, first.FilesTruncated)
+		assert.NotEmpty(t, first.CreatedAt, "createdAt is the key the listing is ordered by")
+		require.NotNil(t, first.StartedAt)
 		assert.Nil(t, body.NextCursor)
 	})
 
-	t.Run("PagesWithCursor", func(t *testing.T) {
+	t.Run("PagesOneRunAtATime", func(t *testing.T) {
 		a := newArtifactListAPI(t, "run-1", "run-2")
 		limit := 1
 
@@ -103,17 +106,15 @@ func TestListArtifacts(t *testing.T) {
 		for {
 			page := listArtifacts(t, a, params)
 			require.Len(t, page.Items, 1)
-			seen = append(seen, page.Items[0].DagRunId+"/"+page.Items[0].Path)
+			seen = append(seen, page.Items[0].DagRunId)
+			assert.Len(t, page.Items[0].Files, 2, "a run is returned whole")
 			if page.NextCursor == nil {
 				break
 			}
 			params.Cursor = page.NextCursor
 		}
 
-		assert.Equal(t, []string{
-			"run-2/out.txt", "run-2/reports/summary.md",
-			"run-1/out.txt", "run-1/reports/summary.md",
-		}, seen)
+		assert.Equal(t, []string{"run-2", "run-1"}, seen)
 	})
 
 	t.Run("RejectsMalformedCursor", func(t *testing.T) {
@@ -128,14 +129,14 @@ func TestListArtifacts(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, apiErr.HTTPStatus)
 	})
 
-	t.Run("FiltersByFileName", func(t *testing.T) {
+	t.Run("FileNameSelectsFilesWithinTheRun", func(t *testing.T) {
 		a := newArtifactListAPI(t, "run-1")
 		fileName := "summary"
 
 		body := listArtifacts(t, a, openapiv1.ListArtifactsParams{FileName: &fileName})
 
 		require.Len(t, body.Items, 1)
-		assert.Equal(t, "reports/summary.md", body.Items[0].Path)
+		assert.Equal(t, []string{"reports/summary.md"}, itemFiles(body.Items[0]))
 	})
 
 	// A malformed glob is reported rather than silently matching nothing.
@@ -149,29 +150,6 @@ func TestListArtifacts(t *testing.T) {
 		var apiErr *Error
 		require.ErrorAs(t, err, &apiErr)
 		assert.Equal(t, http.StatusBadRequest, apiErr.HTTPStatus)
-	})
-
-	// A child run is listed under its own name and ID, which cannot address the
-	// sub-run endpoints. The root pair is what makes the row followable.
-	t.Run("ExposesRootForChildRun", func(t *testing.T) {
-		a := newArtifactListAPIWithRoot(t, ir.NewDAGRunRef("parent", "parent-run"), "child-run")
-
-		body := listArtifacts(t, a, openapiv1.ListArtifactsParams{})
-
-		require.NotEmpty(t, body.Items)
-		assert.Equal(t, "parent", body.Items[0].RootDAGRunName)
-		assert.Equal(t, "parent-run", body.Items[0].RootDAGRunId)
-		assert.NotEqual(t, body.Items[0].DagRunId, body.Items[0].RootDAGRunId)
-	})
-
-	t.Run("RootRunReportsItself", func(t *testing.T) {
-		a := newArtifactListAPI(t, "run-1")
-
-		body := listArtifacts(t, a, openapiv1.ListArtifactsParams{})
-
-		require.NotEmpty(t, body.Items)
-		assert.Equal(t, body.Items[0].Name, body.Items[0].RootDAGRunName)
-		assert.Equal(t, body.Items[0].DagRunId, body.Items[0].RootDAGRunId)
 	})
 
 	// A deployment that never enabled artifacts has no repository wired.

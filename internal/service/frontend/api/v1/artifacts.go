@@ -58,18 +58,20 @@ func (a *API) ListArtifacts(
 	}
 
 	items := make([]api.ArtifactListItem, 0, len(page.Items))
-	for _, item := range page.Items {
-		entry := api.ArtifactListItem{
-			Name:           item.Name,
-			DagRunId:       item.DAGRunID,
-			RootDAGRunName: item.RootName,
-			RootDAGRunId:   item.RootDAGRunID,
-			CreatedAt:      stringutil.FormatTime(item.CreatedAt),
-			Path:           item.Path,
-			Size:           item.Size,
+	for _, run := range page.Items {
+		files := make([]api.ArtifactListFile, 0, len(run.Files))
+		for _, f := range run.Files {
+			files = append(files, api.ArtifactListFile{Path: f.Path, Size: f.Size})
 		}
-		if !item.StartedAt.IsZero() {
-			entry.StartedAt = ptrOf(stringutil.FormatTime(item.StartedAt))
+		entry := api.ArtifactListItem{
+			Name:           run.Name,
+			DagRunId:       run.DAGRunID,
+			CreatedAt:      stringutil.FormatTime(run.CreatedAt),
+			Files:          files,
+			FilesTruncated: run.FilesTruncated,
+		}
+		if !run.StartedAt.IsZero() {
+			entry.StartedAt = ptrOf(stringutil.FormatTime(run.StartedAt))
 		}
 		items = append(items, entry)
 	}

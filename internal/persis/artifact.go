@@ -23,18 +23,19 @@ var (
 	ErrInvalidArtifactFileName = errors.New("invalid artifact file name pattern")
 )
 
-// ArtifactStore lists files produced by DAG runs, newest run first.
+// ArtifactStore lists root DAG runs that produced artifacts, newest first.
 type ArtifactStore interface {
 	QueryArtifacts(ctx context.Context, query ArtifactQuery) (ArtifactPage, error)
 }
 
-// ArtifactQuery selects a page of artifact files.
+// ArtifactQuery selects a page of runs.
 type ArtifactQuery struct {
 	// Name matches DAG names containing it, case-insensitively.
 	Name string
 
-	// FileName matches artifact paths. A pattern holding glob metacharacters
-	// is a glob; anything else is a case-insensitive substring.
+	// FileName selects which of a run's files are returned. A pattern holding
+	// glob metacharacters is a glob; anything else is a case-insensitive
+	// substring. A run with no matching file is omitted.
 	FileName string
 
 	// From and To bound CreatedAt, not StartedAt.
@@ -47,14 +48,14 @@ type ArtifactQuery struct {
 	Cursor string
 }
 
-// ArtifactPage is one forward-only page of artifact files.
+// ArtifactPage is one forward-only page of runs.
 type ArtifactPage struct {
-	Items      []ArtifactFile
+	Items      []ArtifactRun
 	NextCursor string
 }
 
-// ArtifactFile is a single file produced by a DAG run.
-type ArtifactFile struct {
+// ArtifactRun is one DAG run together with the files it produced.
+type ArtifactRun struct {
 	Name     string
 	DAGRunID string
 
@@ -66,11 +67,16 @@ type ArtifactFile struct {
 	// is later than CreatedAt.
 	StartedAt time.Time
 
-	// RootName and RootDAGRunID address the run this one belongs to, naming
-	// the run itself when it is not a child.
-	RootName     string
-	RootDAGRunID string
+	// Files are in walk order, and only those matching the query's FileName
+	// when one is set.
+	Files []ArtifactFile
 
+	// FilesTruncated reports that the run holds more files than were returned.
+	FilesTruncated bool
+}
+
+// ArtifactFile is one file within a run's artifact directory.
+type ArtifactFile struct {
 	// Path is relative to the run's artifact directory and uses forward
 	// slashes on every platform.
 	Path string

@@ -230,34 +230,38 @@ func TestArtifactIndexWrite(t *testing.T) {
 	})
 }
 
-// A child run is indexed under its own name and ID, which cannot address the
-// sub-run endpoints on their own. The record carries the root so a caller can.
-func TestArtifactIndexHierarchy(t *testing.T) {
-	t.Run("ChildRecordsItsRoot", func(t *testing.T) {
+// Only root runs are indexed. A child's artifacts are reached through its
+// root, and listing them on their own would name a root the viewer may not
+// see.
+func TestArtifactIndexSkipsChildRuns(t *testing.T) {
+	t.Run("ChildIsNotIndexed", func(t *testing.T) {
 		f := newArtifactIndexFixture(t)
 		f.root = ir.NewDAGRunRef("parent-dag", "parent-run")
 		dir := f.runDir(t, f.artifactRoot, "child-run", true)
 
 		f.write(t, "child-run", ir.Succeeded, dir, false)
 
-		rec, err := artifact.ReadRecord(dir + artifactpath.MetaSuffix)
-		require.NoError(t, err)
-		assert.Equal(t, "parent-dag", rec.RootName)
-		assert.Equal(t, "parent-run", rec.RootDAGRunID)
+		assert.NoFileExists(t, dir+artifactpath.MetaSuffix)
 	})
 
-	// Not every writer sets the root, so a record without one has to read as
-	// its own root rather than as a child of nothing.
-	t.Run("RootRunRecordsItself", func(t *testing.T) {
+	t.Run("RootIsIndexed", func(t *testing.T) {
 		f := newArtifactIndexFixture(t)
 		dir := f.runDir(t, f.artifactRoot, "run-1", true)
 
 		f.write(t, "run-1", ir.Succeeded, dir, false)
 
-		rec, err := artifact.ReadRecord(dir + artifactpath.MetaSuffix)
-		require.NoError(t, err)
-		assert.Equal(t, f.dag.Name, rec.RootName)
-		assert.Equal(t, "run-1", rec.RootDAGRunID)
+		assert.FileExists(t, dir+artifactpath.MetaSuffix)
+	})
+
+	// A run whose writer set the root to itself is a root run.
+	t.Run("SelfRootedRunIsIndexed", func(t *testing.T) {
+		f := newArtifactIndexFixture(t)
+		f.root = ir.NewDAGRunRef(f.dag.Name, "run-1")
+		dir := f.runDir(t, f.artifactRoot, "run-1", true)
+
+		f.write(t, "run-1", ir.Succeeded, dir, false)
+
+		assert.FileExists(t, dir+artifactpath.MetaSuffix)
 	})
 }
 

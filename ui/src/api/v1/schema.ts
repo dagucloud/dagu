@@ -641,7 +641,7 @@ export interface paths {
         };
         /**
          * List recent DAG-run artifacts
-         * @description Returns files produced by DAG runs across all DAGs, newest run first
+         * @description Returns root DAG-runs that produced artifacts, newest first, each with its files. Child runs are reached through their root.
          */
         get: operations["listArtifacts"];
         put?: never;
@@ -5167,16 +5167,8 @@ export interface components {
             /** @description Whether completed human-task input is durable but the same DAG-run still needs its retry queued */
             humanTaskResumePending?: boolean;
         };
-        /** @description One file produced by a DAG-run */
-        ArtifactListItem: {
-            name: components["schemas"]["DAGName"];
-            dagRunId: components["schemas"]["DAGRunId"];
-            rootDAGRunName: components["schemas"]["DAGName"];
-            rootDAGRunId: components["schemas"]["DAGRunId"];
-            /** @description RFC 3339 timestamp of when the producing DAG-run was created. This is what fromDate and toDate bound and what the listing is ordered by; for a run that waited in a queue it precedes startedAt. */
-            createdAt: string;
-            /** @description RFC 3339 timestamp of when the producing DAG-run started */
-            startedAt?: string;
+        /** @description One file within a DAG-run's artifact directory */
+        ArtifactListFile: {
             /** @description Path of the file relative to the DAG-run artifact directory */
             path: string;
             /**
@@ -5185,7 +5177,20 @@ export interface components {
              */
             size: number;
         };
-        /** @description Page of DAG-run artifact files, newest run first */
+        /** @description One root DAG-run and the artifact files it produced */
+        ArtifactListItem: {
+            name: components["schemas"]["DAGName"];
+            dagRunId: components["schemas"]["DAGRunId"];
+            /** @description RFC 3339 timestamp of when the DAG-run was created. This is what fromDate and toDate bound and what the listing is ordered by; for a run that waited in a queue it precedes startedAt. */
+            createdAt: string;
+            /** @description RFC 3339 timestamp of when the DAG-run started */
+            startedAt?: string;
+            /** @description Files in the run's artifact directory, in walk order. With fileName set, only the matching files. At most 100 are returned; see filesTruncated. */
+            files: components["schemas"]["ArtifactListFile"][];
+            /** @description True when the run holds more files than were returned. The per-run artifact endpoint serves the full tree. */
+            filesTruncated: boolean;
+        };
+        /** @description Page of root DAG-runs that produced artifacts, newest first */
         ArtifactListResponse: {
             items: components["schemas"]["ArtifactListItem"][];
             /** @description Opaque cursor for the next page; absent when the last page was returned */
@@ -6800,9 +6805,9 @@ export interface components {
         WikiPagePrefix: components["schemas"]["WikiPagePath"];
         /** @description Filter by DAG names containing this value */
         ArtifactDAGName: string;
-        /** @description Filter by artifact path. A value containing glob metacharacters (* ? [ {) is matched as a glob against the path relative to the DAG-run artifact directory; any other value is matched as a case-insensitive substring of that path. */
+        /** @description Select files by path. A value containing glob metacharacters (* ? [ {) is matched as a glob against the path relative to the DAG-run artifact directory; any other value is matched as a case-insensitive substring of that path. A run is returned only if at least one file matches, and only the matching files are listed for it. */
         ArtifactFileName: string;
-        /** @description Number of artifact files to return (default 100, max 500) */
+        /** @description Number of runs to return (default 100, max 500) */
         ArtifactListLimit: number;
         /** @description Opaque cursor returned by the previous artifact list response */
         ArtifactListCursor: string;
@@ -9007,9 +9012,9 @@ export interface operations {
                 toDate?: components["parameters"]["DateTimeTo"];
                 /** @description Filter by DAG names containing this value */
                 name?: components["parameters"]["ArtifactDAGName"];
-                /** @description Filter by artifact path. A value containing glob metacharacters (* ? [ {) is matched as a glob against the path relative to the DAG-run artifact directory; any other value is matched as a case-insensitive substring of that path. */
+                /** @description Select files by path. A value containing glob metacharacters (* ? [ {) is matched as a glob against the path relative to the DAG-run artifact directory; any other value is matched as a case-insensitive substring of that path. A run is returned only if at least one file matches, and only the matching files are listed for it. */
                 fileName?: components["parameters"]["ArtifactFileName"];
-                /** @description Number of artifact files to return (default 100, max 500) */
+                /** @description Number of runs to return (default 100, max 500) */
                 limit?: components["parameters"]["ArtifactListLimit"];
                 /** @description Opaque cursor returned by the previous artifact list response */
                 cursor?: components["parameters"]["ArtifactListCursor"];

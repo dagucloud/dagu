@@ -19,38 +19,32 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
-	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
 var _ persis.ArtifactStore = (*Store)(nil)
+
+// maxFilesPerRun bounds how many of a run's files one listing returns.
+//
+// On a measured tree the median run held three files and the largest 15,131,
+// with under two percent of runs holding nearly all of them. A hundred returns
+// the vast majority of runs whole and keeps a page bounded when it lands on
+// one of the rest; the per-run endpoint serves the full tree.
+const maxFilesPerRun = 100
 
 // Store lists DAG-run artifacts from the date-partitioned artifact tree.
 //
 // The tree holds every DAG, so a descending walk of its day directories is
 // already newest-first and needs no merge across DAGs. Each day costs one
 // directory read; a record is opened only for an entry that survives the
-// filters that the directory name alone can decide.
+// filters that the directory name alone can decide, and a run's directory is
+// walked only for a run that is being returned.
 type Store struct {
-	rootDir    string
-	cache      *fileutil.Cache[*Record]
-	rootLabels RootLabelsFunc
+	rootDir string
+	cache   *fileutil.Cache[*Record]
 }
-
-// RootLabelsFunc reports the labels of the run a child run belongs to, and
-// whether that run could be found at all.
-type RootLabelsFunc func(ctx context.Context, ref ir.DAGRunRef) ([]string, bool)
 
 // StoreOption configures artifact listing.
 type StoreOption func(*Store)
-
-// WithRootLabels tells the store how to learn which workspace a child run's
-// root belongs to. Without it, child rows are withheld from scoped viewers,
-// since their visibility cannot be decided.
-func WithRootLabels(fn RootLabelsFunc) StoreOption {
-	return func(s *Store) {
-		s.rootLabels = fn
-	}
-}
 
 // WithRecordCache reuses decoded index records across queries.
 func WithRecordCache(cache *fileutil.Cache[*Record]) StoreOption {
@@ -83,7 +77,6 @@ func (s *Store) QueryArtifacts(ctx context.Context, query persis.ArtifactQuery) 
 		return persis.ArtifactPage{}, err
 	}
 
-	roots := newRootVisibility(s.rootLabels, query.WorkspaceFilter)
 	page := persis.ArtifactPage{}
 	for _, day := range days {
 		if err := ctx.Err(); err != nil {
@@ -93,7 +86,7 @@ func (s *Store) QueryArtifacts(ctx context.Context, query persis.ArtifactQuery) 
 			continue
 		}
 
-		done, err := s.collectDay(ctx, query, resume, day, bounds, roots, &page)
+		done, err := s.collectDay(ctx, query, resume, day, bounds, &page)
 		if err != nil {
 			return persis.ArtifactPage{}, err
 		}
@@ -102,12 +95,12 @@ func (s *Store) QueryArtifacts(ctx context.Context, query persis.ArtifactQuery) 
 		}
 	}
 
-	// Every remaining entry was returned, so there is no next page.
+	// Every remaining run was returned, so there is no next page.
 	page.NextCursor = ""
 	return page, nil
 }
 
-// collectDay appends one day's files to page and reports whether the page is
+// collectDay appends one day's runs to page and reports whether the page is
 // full.
 func (s *Store) collectDay(
 	ctx context.Context,
@@ -115,7 +108,6 @@ func (s *Store) collectDay(
 	resume *cursor,
 	day string,
 	bounds queryBounds,
-	roots *rootVisibility,
 	page *persis.ArtifactPage,
 ) (bool, error) {
 	runDirs, err := s.listRunDirsDesc(day)
@@ -131,14 +123,9 @@ func (s *Store) collectDay(
 			return true, nil
 		}
 
-		from := ""
-		if resume != nil && day == resume.Day {
-			if runDir.name > resume.RunDir {
-				continue
-			}
-			if runDir.name == resume.RunDir {
-				from = resume.Path
-			}
+		// The cursor names the last run returned, so resume strictly after it.
+		if resume != nil && day == resume.Day && runDir.name >= resume.RunDir {
+			continue
 		}
 		if !matchesName(runDir.dagName, query.Name) {
 			continue
@@ -154,58 +141,57 @@ func (s *Store) collectDay(
 		if !query.WorkspaceFilter.MatchesLabels(ir.NewLabels(rec.Labels)) {
 			continue
 		}
-		if !roots.visible(ctx, rec) {
-			continue
-		}
 
-		startedAt, _ := stringutil.ParseTime(rec.StartedAt)
-		createdAt := runDirTime(day, runDir.timeOfDay)
-
-		// Paging deep into one run re-reads its directory, because a cursor
-		// names a path and the filesystem cannot resume a lexical walk from
-		// one. That read is the floor. Everything a page skips past costs a
-		// string comparison and nothing else: the size lookup below is a
-		// syscall, so it waits until an entry is actually being returned.
-		full := false
-		err := walkFiles(rec.Dir, func(relPath string, entry fs.DirEntry) bool {
-			// The cursor names the last file returned, so resume strictly after it.
-			if from != "" && !walkOrderAfter(relPath, from) {
-				return true
-			}
-			if !persis.MatchArtifactFileName(relPath, query.FileName) {
-				return true
-			}
-			if len(page.Items) == query.Limit {
-				full = true
-				return false
-			}
-			info, err := entry.Info()
-			if err != nil {
-				// Removed between the directory read and now; nothing to list.
-				return true
-			}
-			page.Items = append(page.Items, persis.ArtifactFile{
-				Name:         rec.Name,
-				DAGRunID:     rec.DAGRunID,
-				CreatedAt:    createdAt,
-				StartedAt:    startedAt,
-				RootName:     rec.RootName,
-				RootDAGRunID: rec.RootDAGRunID,
-				Path:         relPath,
-				Size:         info.Size(),
-			})
-			page.NextCursor = encodeCursor(query, day, runDir.name, relPath)
-			return true
-		})
+		files, truncated, err := listRunFiles(rec.Dir, query.FileName)
 		if err != nil {
 			logger.Warn(ctx, "Failed to list artifact files", tag.Error(err), tag.Dir(rec.Dir))
 			continue
 		}
-		if full {
-			return true, nil
+		if len(files) == 0 {
+			continue
 		}
+
+		startedAt, _ := stringutil.ParseTime(rec.StartedAt)
+		page.Items = append(page.Items, persis.ArtifactRun{
+			Name:           rec.Name,
+			DAGRunID:       rec.DAGRunID,
+			CreatedAt:      runDirTime(day, runDir.timeOfDay),
+			StartedAt:      startedAt,
+			Files:          files,
+			FilesTruncated: truncated,
+		})
+		page.NextCursor = encodeCursor(query, day, runDir.name)
 	}
 	return false, nil
+}
+
+// listRunFiles collects a run's files that match pattern, in walk order, up
+// to maxFilesPerRun. The second result reports that the run held more.
+//
+// A file's size is a syscall and its match is a string comparison, so the
+// comparison goes first: without a pattern every file is a candidate and the
+// walk itself stops at the bound; with one, the walk scans the run and stops
+// once the bound is reached.
+func listRunFiles(dir, pattern string) ([]persis.ArtifactFile, bool, error) {
+	var files []persis.ArtifactFile
+	truncated := false
+	err := walkFiles(dir, func(relPath string, entry fs.DirEntry) bool {
+		if !persis.MatchArtifactFileName(relPath, pattern) {
+			return true
+		}
+		if len(files) == maxFilesPerRun {
+			truncated = true
+			return false
+		}
+		info, err := entry.Info()
+		if err != nil {
+			// Removed between the directory read and now; nothing to list.
+			return true
+		}
+		files = append(files, persis.ArtifactFile{Path: relPath, Size: info.Size()})
+		return true
+	})
+	return files, truncated, err
 }
 
 func (s *Store) readRecord(ctx context.Context, day, runDir string) *Record {
@@ -227,45 +213,6 @@ func (s *Store) readRecord(ctx context.Context, day, runDir string) *Record {
 		return nil
 	}
 	return rec
-}
-
-// rootVisibility decides whether a scoped viewer may see a run through the run
-// it belongs to. A child run is only as visible as its root: its row carries
-// the root's identity, and the child's own labels say nothing about who may
-// see that. Answers are remembered for the query, so a page of many children
-// of one root resolves it once.
-type rootVisibility struct {
-	resolve RootLabelsFunc
-	filter  *workspace.WorkspaceFilter
-	seen    map[ir.DAGRunRef]bool
-}
-
-func newRootVisibility(resolve RootLabelsFunc, filter *workspace.WorkspaceFilter) *rootVisibility {
-	return &rootVisibility{resolve: resolve, filter: filter, seen: map[ir.DAGRunRef]bool{}}
-}
-
-// visible reports whether rec may be returned. A root run answers for itself
-// and was already checked against its own labels; only a child is consulted
-// here. A root that cannot be resolved is treated as hidden, never as public.
-func (v *rootVisibility) visible(ctx context.Context, rec *Record) bool {
-	if v.filter == nil || !v.filter.Enabled {
-		return true
-	}
-	root := ir.NewDAGRunRef(rec.RootName, rec.RootDAGRunID)
-	if root.Zero() || root == ir.NewDAGRunRef(rec.Name, rec.DAGRunID) {
-		return true
-	}
-	if ok, seen := v.seen[root]; seen {
-		return ok
-	}
-	ok := false
-	if v.resolve != nil {
-		if labels, found := v.resolve(ctx, root); found {
-			ok = v.filter.MatchesLabels(ir.NewLabels(labels))
-		}
-	}
-	v.seen[root] = ok
-	return ok
 }
 
 type runDirEntry struct {
@@ -420,12 +367,11 @@ func listNumericDirsDesc(dir string, width int) ([]string, error) {
 //
 // Walk order is lexical within each directory, so the sequence is the same on
 // every call without materialising the whole tree first. That is what makes
-// stopping early safe: a page reads only as far as it needs, and the next page
-// resumes into the same order.
+// stopping early safe.
 //
 // The entry is handed over unresolved. Its kind is known from the directory
-// read, but its size is a further syscall, and most entries a page visits are
-// ones it skips past.
+// read, but its size is a further syscall, and a visit may decide it does not
+// want the file at all.
 func walkFiles(dir string, visit func(relPath string, entry fs.DirEntry) bool) error {
 	err := filepath.WalkDir(dir, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -447,23 +393,6 @@ func walkFiles(dir string, visit func(relPath string, entry fs.DirEntry) bool) e
 		return nil
 	}
 	return err
-}
-
-// walkOrderAfter reports whether path comes strictly after other in walk order.
-//
-// Walk order is not the order of the joined paths: a directory is descended
-// where its own name sorts, so everything under "a/" precedes "a.txt" even
-// though "a.txt" < "a/b.txt" as strings. Comparing component by component
-// reproduces that, which lets a cursor resume by comparison rather than by
-// searching the tree for the file it names.
-func walkOrderAfter(path, other string) bool {
-	left, right := strings.Split(path, "/"), strings.Split(other, "/")
-	for i := 0; i < len(left) && i < len(right); i++ {
-		if left[i] != right[i] {
-			return left[i] > right[i]
-		}
-	}
-	return len(left) > len(right)
 }
 
 func matchesName(dagName, filter string) bool {
