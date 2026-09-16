@@ -661,6 +661,7 @@ function Artifacts() {
                       <div className="group/run flex items-center gap-1 rounded-md transition-colors hover:bg-muted">
                         <button
                           type="button"
+                          title={item.name}
                           onClick={() => {
                             setExpandedPaths((previous) => {
                               const next = new Set(previous);
@@ -820,6 +821,7 @@ function TreeNode({
     <div>
       <button
         type="button"
+        title={node.path}
         onClick={() => {
           if (isDir) {
             onToggleDir(node.path);
