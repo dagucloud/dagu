@@ -39,6 +39,7 @@ const STATIC_ROUTE_LABELS: Record<string, TranslationKey> = {
   '/wiki': 'navigation.wiki',
   '/queues': 'navigation.queues',
   '/dag-runs': 'navigation.dagRuns',
+  '/artifacts': 'navigation.artifacts',
   '/system-status': 'navigation.systemStatus',
   '/users': 'navigation.users',
   '/administration': 'navigation.administration',

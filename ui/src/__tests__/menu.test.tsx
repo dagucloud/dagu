@@ -395,6 +395,9 @@ describe('sidebar menu', () => {
     const queueLink = screen.getByRole('link', { name: 'Queues' });
     expect(queueLink).toBeVisible();
     expect(queueLink.querySelector('svg')).toBeNull();
+    const artifactsLink = screen.getByRole('link', { name: 'Artifacts' });
+    expect(artifactsLink).toBeVisible();
+    expect(artifactsLink.querySelector('svg')).toBeNull();
   });
 
   it('expands the monitor section', () => {
@@ -611,6 +614,7 @@ describe('sidebar menu', () => {
 
   it.each([
     ['/dag-runs', 'executions'],
+    ['/artifacts', 'executions'],
     ['/system-status', 'monitor'],
     ['/notifications', 'notifications'],
     ['/integrations', 'integrations'],
@@ -639,6 +643,7 @@ describe('sidebar menu', () => {
   it.each([
     ['/git-sync', 'workflows'],
     ['/queues', 'executions'],
+    ['/artifacts', 'executions'],
     ['/event-logs', 'monitor'],
     ['/notification-channels', 'notifications'],
     ['/webhooks', 'integrations'],

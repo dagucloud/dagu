@@ -121,6 +121,15 @@ vi.mock('../pages/search', () => ({
   },
 }));
 vi.mock('../pages/setup', () => ({ default: () => <h1>Setup</h1> }));
+vi.mock('../pages/artifacts', () => ({
+  default: () => {
+    const { setTitle } = React.useContext(AppBarContext);
+    React.useEffect(() => {
+      setTitle('Artifacts');
+    }, [setTitle]);
+    return <h1>Artifacts</h1>;
+  },
+}));
 vi.mock('../pages/system-status', () => ({
   default: () => <h1>System Status</h1>,
 }));
@@ -218,6 +227,14 @@ describe('App document title', () => {
 
     await waitFor(() => {
       expect(document.title).toBe('Search - Dagu');
+    });
+  });
+
+  it('reflects the artifacts page title in the browser tab', async () => {
+    renderAt('/artifacts');
+
+    await waitFor(() => {
+      expect(document.title).toBe('Artifacts - Dagu');
     });
   });
 
