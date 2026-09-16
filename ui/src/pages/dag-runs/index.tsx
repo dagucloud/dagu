@@ -802,6 +802,30 @@ function DAGRuns() {
   } = usePaginatedDAGRuns({
     query: dagRunQuery,
   });
+  const navigateRunHistory = React.useCallback(
+    (direction: 'up' | 'down') => {
+      if (!selectedDAGRun) {
+        return;
+      }
+      const index = dagRuns.findIndex(
+        (run) =>
+          run.name === selectedDAGRun.name &&
+          run.dagRunId === selectedDAGRun.dagRunId
+      );
+      if (index < 0) {
+        return;
+      }
+      const nextRun = dagRuns[index + (direction === 'down' ? 1 : -1)];
+      if (nextRun) {
+        updateSelectedDAGRun(
+          { name: nextRun.name, dagRunId: nextRun.dagRunId },
+          selectedDAGRunInitialTab,
+          true
+        );
+      }
+    },
+    [dagRuns, selectedDAGRun, selectedDAGRunInitialTab, updateSelectedDAGRun]
+  );
   React.useEffect(() => {
     if (!isLoadingMore) {
       autoLoadPendingRef.current = false;
@@ -1600,6 +1624,9 @@ function DAGRuns() {
           dagRunId={selectedDAGRun.dagRunId}
           isOpen={!!selectedDAGRun}
           onClose={() => updateSelectedDAGRun(null, 'status', true)}
+          onNavigate={
+            viewMode === 'grouped' ? navigateRunHistory : undefined
+          }
           initialTab={selectedDAGRunInitialTab}
         />
       )}

@@ -25,6 +25,7 @@ type DAGRunDetailsModalProps = {
   dagRunId: string;
   isOpen: boolean;
   onClose: () => void;
+  onNavigate?: (direction: 'up' | 'down') => void;
   initialTab?: StatusTab;
 };
 
@@ -39,6 +40,7 @@ function DAGRunDetailsModal({
   dagRunId,
   isOpen,
   onClose,
+  onNavigate,
   initialTab = 'status',
 }: DAGRunDetailsModalProps): React.ReactElement | null {
   const navigate = useNavigate();
@@ -190,6 +192,15 @@ function DAGRunDetailsModal({
         return;
       }
 
+      if (
+        onNavigate &&
+        (event.key === 'ArrowDown' || event.key === 'ArrowUp')
+      ) {
+        event.preventDefault();
+        onNavigate(event.key === 'ArrowDown' ? 'down' : 'up');
+        return;
+      }
+
       if (event.key === 'Escape') {
         onClose();
       }
@@ -201,7 +212,7 @@ function DAGRunDetailsModal({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose, handleFullscreenClick]);
+  }, [isOpen, onClose, onNavigate, handleFullscreenClick]);
 
   if (!shouldRender) {
     return null;
