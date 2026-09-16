@@ -19,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
 var _ persis.ArtifactStore = (*Store)(nil)
@@ -30,12 +31,26 @@ var _ persis.ArtifactStore = (*Store)(nil)
 // directory read; a record is opened only for an entry that survives the
 // filters that the directory name alone can decide.
 type Store struct {
-	rootDir string
-	cache   *fileutil.Cache[*Record]
+	rootDir    string
+	cache      *fileutil.Cache[*Record]
+	rootLabels RootLabelsFunc
 }
+
+// RootLabelsFunc reports the labels of the run a child run belongs to, and
+// whether that run could be found at all.
+type RootLabelsFunc func(ctx context.Context, ref ir.DAGRunRef) ([]string, bool)
 
 // StoreOption configures artifact listing.
 type StoreOption func(*Store)
+
+// WithRootLabels tells the store how to learn which workspace a child run's
+// root belongs to. Without it, child rows are withheld from scoped viewers,
+// since their visibility cannot be decided.
+func WithRootLabels(fn RootLabelsFunc) StoreOption {
+	return func(s *Store) {
+		s.rootLabels = fn
+	}
+}
 
 // WithRecordCache reuses decoded index records across queries.
 func WithRecordCache(cache *fileutil.Cache[*Record]) StoreOption {
@@ -68,6 +83,7 @@ func (s *Store) QueryArtifacts(ctx context.Context, query persis.ArtifactQuery) 
 		return persis.ArtifactPage{}, err
 	}
 
+	roots := newRootVisibility(s.rootLabels, query.WorkspaceFilter)
 	page := persis.ArtifactPage{}
 	for _, day := range days {
 		if err := ctx.Err(); err != nil {
@@ -77,7 +93,7 @@ func (s *Store) QueryArtifacts(ctx context.Context, query persis.ArtifactQuery) 
 			continue
 		}
 
-		done, err := s.collectDay(ctx, query, resume, day, bounds, &page)
+		done, err := s.collectDay(ctx, query, resume, day, bounds, roots, &page)
 		if err != nil {
 			return persis.ArtifactPage{}, err
 		}
@@ -99,6 +115,7 @@ func (s *Store) collectDay(
 	resume *cursor,
 	day string,
 	bounds queryBounds,
+	roots *rootVisibility,
 	page *persis.ArtifactPage,
 ) (bool, error) {
 	runDirs, err := s.listRunDirsDesc(day)
@@ -135,6 +152,9 @@ func (s *Store) collectDay(
 			continue
 		}
 		if !query.WorkspaceFilter.MatchesLabels(ir.NewLabels(rec.Labels)) {
+			continue
+		}
+		if !roots.visible(ctx, rec) {
 			continue
 		}
 
@@ -207,6 +227,45 @@ func (s *Store) readRecord(ctx context.Context, day, runDir string) *Record {
 		return nil
 	}
 	return rec
+}
+
+// rootVisibility decides whether a scoped viewer may see a run through the run
+// it belongs to. A child run is only as visible as its root: its row carries
+// the root's identity, and the child's own labels say nothing about who may
+// see that. Answers are remembered for the query, so a page of many children
+// of one root resolves it once.
+type rootVisibility struct {
+	resolve RootLabelsFunc
+	filter  *workspace.WorkspaceFilter
+	seen    map[ir.DAGRunRef]bool
+}
+
+func newRootVisibility(resolve RootLabelsFunc, filter *workspace.WorkspaceFilter) *rootVisibility {
+	return &rootVisibility{resolve: resolve, filter: filter, seen: map[ir.DAGRunRef]bool{}}
+}
+
+// visible reports whether rec may be returned. A root run answers for itself
+// and was already checked against its own labels; only a child is consulted
+// here. A root that cannot be resolved is treated as hidden, never as public.
+func (v *rootVisibility) visible(ctx context.Context, rec *Record) bool {
+	if v.filter == nil || !v.filter.Enabled {
+		return true
+	}
+	root := ir.NewDAGRunRef(rec.RootName, rec.RootDAGRunID)
+	if root.Zero() || root == ir.NewDAGRunRef(rec.Name, rec.DAGRunID) {
+		return true
+	}
+	if ok, seen := v.seen[root]; seen {
+		return ok
+	}
+	ok := false
+	if v.resolve != nil {
+		if labels, found := v.resolve(ctx, root); found {
+			ok = v.filter.MatchesLabels(ir.NewLabels(labels))
+		}
+	}
+	v.seen[root] = ok
+	return ok
 }
 
 type runDirEntry struct {

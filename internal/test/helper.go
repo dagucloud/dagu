@@ -286,7 +286,8 @@ func Setup(t *testing.T, opts ...HelperOption) Helper {
 	dagRepository, err := file.NewDAGRepository(cfg, file.WithDAGSkipExamples(true))
 	require.NoError(t, err)
 	dagRunRepository := file.NewDAGRunRepository(cfg)
-	artifactRepository := file.NewArtifactRepository(cfg)
+	artifactRepository := file.NewArtifactRepository(cfg,
+		file.WithArtifactRootLabels(file.RootLabelsFromRuns(dagRunRepository)))
 	procRepository := newProcRepository(cfg)
 	backend := file.NewBackend(cfg.Paths)
 	queueStore := store.NewQueueStore(backend.Collection(persis.CollectionQueue))

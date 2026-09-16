@@ -68,7 +68,9 @@ func newFilePersistence(
 	dagRunOpts = append(dagRunOpts, file.WithDAGRunRemovalEnqueuer(cleanupQueue))
 	dagRunRepository := file.NewDAGRunRepository(cfg, dagRunOpts...)
 
-	var artifactOpts []file.ArtifactRepositoryOption
+	artifactOpts := []file.ArtifactRepositoryOption{
+		file.WithArtifactRootLabels(file.RootLabelsFromRuns(dagRunRepository)),
+	}
 	if opts.ArtifactRecordCache != nil {
 		artifactOpts = append(artifactOpts, file.WithArtifactRecordCache(opts.ArtifactRecordCache))
 	}

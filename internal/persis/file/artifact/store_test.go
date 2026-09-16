@@ -32,6 +32,32 @@ func newStoreFixture(t *testing.T) storeFixture {
 	return storeFixture{root: root, store: artifact.NewStore(root)}
 }
 
+// newStoreFixtureWithRoots builds a store that can look up a child run's root.
+func newStoreFixtureWithRoots(t *testing.T, resolve artifact.RootLabelsFunc) storeFixture {
+	t.Helper()
+
+	root := t.TempDir()
+	return storeFixture{root: root, store: artifact.NewStore(root, artifact.WithRootLabels(resolve))}
+}
+
+// indexChild writes a child run's record, pointing at rootRef, with the
+// child's own labels as given.
+func (f storeFixture) indexChild(t *testing.T, dagName, dagRunID string, rootRef ir.DAGRunRef, labels []string, at time.Time) {
+	t.Helper()
+
+	dir, err := artifactpath.NewRunDir(context.Background(), f.root, "", dagName, dagRunID, at)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "out.txt"), []byte("x"), 0o600))
+
+	metaPath, ok := artifactpath.MetaPath(f.root, dir)
+	require.True(t, ok)
+	require.NoError(t, artifact.WriteRecord(metaPath, artifact.Record{
+		Version: artifact.RecordVersion, Name: dagName, DAGRunID: dagRunID, Status: ir.Succeeded,
+		StartedAt: stringutil.FormatTime(at), Labels: labels, Dir: dir,
+		RootName: rootRef.Name, RootDAGRunID: rootRef.ID,
+	}))
+}
+
 // index writes one run's artifacts plus its index record, the way a finished
 // run leaves them behind.
 func (f storeFixture) index(t *testing.T, dagName, dagRunID string, at time.Time, labels []string, files ...string) string {
@@ -459,5 +485,112 @@ func TestQueryArtifactsFileNameFilter(t *testing.T) {
 			assert.ElementsMatch(t,
 				[]string{"reports/q3.csv", "data/nested/deep.csv"}, seen, "limit %d", limit)
 		}
+	})
+}
+
+// A child run's row carries its root's identity, so a scoped viewer must not
+// see it unless they may see the root. The child's own labels cannot decide
+// that: an unlabelled child of a hidden root would otherwise read as public
+// and hand over the root's name and run ID.
+func TestQueryArtifactsChildRootVisibility(t *testing.T) {
+	secretRoot := ir.NewDAGRunRef("secret-dag", "secret-run")
+	publicRoot := ir.NewDAGRunRef("public-dag", "public-run")
+	rootWorkspaces := map[ir.DAGRunRef][]string{
+		secretRoot: {"workspace=secret"},
+		publicRoot: {"workspace=public"},
+	}
+	resolve := func(_ context.Context, ref ir.DAGRunRef) ([]string, bool) {
+		labels, ok := rootWorkspaces[ref]
+		return labels, ok
+	}
+	publicViewer := &workspace.WorkspaceFilter{
+		Enabled: true, Workspaces: []string{"public"}, IncludeUnlabelled: true,
+	}
+
+	t.Run("UnlabelledChildOfHiddenRootIsHidden", func(t *testing.T) {
+		f := newStoreFixtureWithRoots(t, resolve)
+		f.indexChild(t, "child", "child-run", secretRoot, nil, day2)
+
+		page := f.query(t, persis.ArtifactQuery{WorkspaceFilter: publicViewer})
+
+		assert.Empty(t, page.Items)
+	})
+
+	// A child declaring a workspace the viewer may see still leaks the root's
+	// identity if the root is hidden, so the root decides regardless.
+	t.Run("LabelledChildOfHiddenRootIsHidden", func(t *testing.T) {
+		f := newStoreFixtureWithRoots(t, resolve)
+		f.indexChild(t, "child", "child-run", secretRoot, []string{"workspace=public"}, day2)
+
+		page := f.query(t, persis.ArtifactQuery{WorkspaceFilter: publicViewer})
+
+		assert.Empty(t, page.Items)
+	})
+
+	t.Run("ChildOfVisibleRootIsShownWithItsRoot", func(t *testing.T) {
+		f := newStoreFixtureWithRoots(t, resolve)
+		f.indexChild(t, "child", "child-run", publicRoot, nil, day2)
+
+		page := f.query(t, persis.ArtifactQuery{WorkspaceFilter: publicViewer})
+
+		require.Len(t, page.Items, 1)
+		assert.Equal(t, "public-dag", page.Items[0].RootName)
+		assert.Equal(t, "public-run", page.Items[0].RootDAGRunID)
+	})
+
+	// A root that no longer exists gives nothing to decide with; hidden is the
+	// only answer that cannot be wrong.
+	t.Run("ChildOfUnresolvableRootIsHidden", func(t *testing.T) {
+		f := newStoreFixtureWithRoots(t, resolve)
+		f.indexChild(t, "child", "child-run", ir.NewDAGRunRef("gone-dag", "gone-run"), nil, day2)
+
+		page := f.query(t, persis.ArtifactQuery{WorkspaceFilter: publicViewer})
+
+		assert.Empty(t, page.Items)
+	})
+
+	t.Run("ChildIsHiddenFromScopedViewerWithoutResolver", func(t *testing.T) {
+		f := newStoreFixture(t)
+		f.indexChild(t, "child", "child-run", publicRoot, nil, day2)
+
+		page := f.query(t, persis.ArtifactQuery{WorkspaceFilter: publicViewer})
+
+		assert.Empty(t, page.Items)
+	})
+
+	t.Run("UnscopedViewerSeesChildren", func(t *testing.T) {
+		f := newStoreFixture(t)
+		f.indexChild(t, "child", "child-run", secretRoot, nil, day2)
+
+		page := f.query(t, persis.ArtifactQuery{})
+
+		require.Len(t, page.Items, 1)
+		assert.Equal(t, "secret-dag", page.Items[0].RootName)
+	})
+
+	t.Run("RootRowsStillAnswerForThemselves", func(t *testing.T) {
+		f := newStoreFixtureWithRoots(t, resolve)
+		f.index(t, "secret-dag", "secret-run", day2, []string{"workspace=secret"}, "a.txt")
+		f.index(t, "public-dag", "public-run", day2b, []string{"workspace=public"}, "b.txt")
+
+		page := f.query(t, persis.ArtifactQuery{WorkspaceFilter: publicViewer})
+
+		assert.Equal(t, []string{"public-run"}, runIDs(page))
+	})
+
+	t.Run("RootResolvedOncePerQuery", func(t *testing.T) {
+		calls := 0
+		counting := func(ctx context.Context, ref ir.DAGRunRef) ([]string, bool) {
+			calls++
+			return resolve(ctx, ref)
+		}
+		f := newStoreFixtureWithRoots(t, counting)
+		f.indexChild(t, "child", "child-1", publicRoot, nil, day2)
+		f.indexChild(t, "child", "child-2", publicRoot, nil, day2b)
+
+		page := f.query(t, persis.ArtifactQuery{WorkspaceFilter: publicViewer})
+
+		assert.Len(t, page.Items, 2)
+		assert.Equal(t, 1, calls)
 	})
 }
