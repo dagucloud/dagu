@@ -14,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -529,7 +530,7 @@ func TestQueueProcessor_SelectRunnableQueueItemsSkipsOutstandingReservations(t *
 
 func TestQueueProcessor_StaleOutstandingDispatchReservationsExpire(t *testing.T) {
 	f := newQueueFixture(t).withDAG("distributed-stale-select-dag", 1).
-		withProcessor(config.Queues{}, WithLeaseStaleThreshold(time.Nanosecond)).
+		withProcessor(config.Queues{}, WithLeaseStaleThreshold(freshDistributedTestThreshold)).
 		simulateQueue(1, false)
 
 	f.enqueueRuns(1)
@@ -540,22 +541,26 @@ func TestQueueProcessor_StaleOutstandingDispatchReservationsExpire(t *testing.T)
 	status, err := attempt.ReadStatus(f.ctx)
 	require.NoError(t, err)
 
-	require.NoError(t, f.dispatchStore.Enqueue(f.ctx, &dispatch.DispatchTask{
-		DAGRunID:   runRef.ID,
-		Target:     f.dag.Name,
-		QueueName:  f.dag.Name,
-		AttemptID:  attempt.ID(),
-		AttemptKey: queueAttemptKey(runRef, attempt, status),
-	}))
+	synctest.Test(t, func(t *testing.T) {
+		require.NoError(t, f.dispatchStore.Enqueue(f.ctx, &dispatch.DispatchTask{
+			DAGRunID:   runRef.ID,
+			Target:     f.dag.Name,
+			QueueName:  f.dag.Name,
+			AttemptID:  attempt.ID(),
+			AttemptKey: queueAttemptKey(runRef, attempt, status),
+		}))
 
-	var count int
-	var countErr error
-	require.Eventually(t, func() bool {
-		count, countErr = f.processor.newQueueDispatcher().countOutstandingDispatchReservations(f.ctx, f.dag.Name)
-		return countErr == nil && count == 0
-	}, 500*time.Millisecond, 10*time.Millisecond)
-	require.NoError(t, countErr)
-	assert.Zero(t, count)
+		dispatcher := f.processor.newQueueDispatcher()
+		count, err := dispatcher.countOutstandingDispatchReservations(f.ctx, f.dag.Name)
+		require.NoError(t, err)
+		require.Equal(t, 1, count)
+
+		// Advance the test clock past expiry without imposing a deadline on disk I/O.
+		time.Sleep(2 * freshDistributedTestThreshold)
+		count, err = dispatcher.countOutstandingDispatchReservations(f.ctx, f.dag.Name)
+		require.NoError(t, err)
+		assert.Zero(t, count)
+	})
 
 	items, err := f.queueStore.List(f.ctx, f.dag.Name)
 	require.NoError(t, err)
