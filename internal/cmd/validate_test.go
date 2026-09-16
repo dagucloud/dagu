@@ -39,11 +39,6 @@ steps:
 			Args:        []string{"validate", dagFile},
 			ExpectedOut: []string{"working_dir", "review"},
 		})
-		th.LoggingOutput.Reset()
-		th.RunCommand(t, cmd.Validate(), test.CmdTest{
-			Args: []string{"validate", "--default-working-dir", t.TempDir(), dagFile},
-		})
-		require.NotContains(t, th.LoggingOutput.String(), "has no explicit working_dir")
 	})
 
 	t.Run("StateExpectedVersionExpression", func(t *testing.T) {

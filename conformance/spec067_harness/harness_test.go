@@ -151,17 +151,19 @@ func TestHarnessValidation(t *testing.T) {
 	t.Run("implicit working directory warns without failing", func(t *testing.T) {
 		t.Parallel()
 		dagu := harness.NewRunner(t)
-		dagu.WriteFile("implicit.yaml", `steps:
+		definition := `steps:
   - id: review
     action: harness.run
     with:
       provider: claude
       prompt: Review this repository.
-`)
+`
+		dagu.WriteFile("implicit.yaml", definition)
 		result := dagu.Run("validate", "implicit.yaml")
 		result.ExpectExitCode(0)
 		result.ExpectStderrContains("has no explicit working_dir")
-		result = dagu.Run("validate", "--default-working-dir", dagu.ProjectPath(""), "implicit.yaml")
+		dagu.WriteFile("configured.yaml", "working_dir: .\n"+definition)
+		result = dagu.Run("validate", "configured.yaml")
 		result.ExpectExitCode(0)
 		require.NotContains(t, result.Stderr(), "has no explicit working_dir")
 	})

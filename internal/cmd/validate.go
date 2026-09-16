@@ -60,7 +60,7 @@ default. Pass --show-unresolved to list them as well.`,
 	}
 
 	// Initialize flags required by NewContext
-	initFlags(cmd, showUnresolvedFlag, defaultWorkingDirFlag)
+	initFlags(cmd, showUnresolvedFlag)
 
 	return cmd
 }
@@ -80,11 +80,6 @@ func runValidate(ctx *Context, args []string, showUnresolved bool) error {
 	if ctx.Config.Paths.BaseConfig != "" {
 		loadOpts = append(loadOpts, spec.WithBaseConfig(ctx.Config.Paths.BaseConfig))
 	}
-	defaultWorkingDir, err := ctx.StringParam("default-working-dir")
-	if err != nil {
-		return fmt.Errorf("failed to get default-working-dir: %w", err)
-	}
-	loadOpts = append(loadOpts, spec.WithDefaultWorkingDir(defaultWorkingDir))
 
 	loadResult, err := spec.LoadWithResult(ctx, args[0], loadOpts...)
 	if err != nil {

@@ -111,7 +111,7 @@ non-fatal validation warning identifying its DAG and step. This includes steps
 inside `foreach` bodies, lifecycle handlers, and local DAG documents.
 
 - For host execution, a step `working_dir`, a root `working_dir` (including an
-  inherited base configuration), or a supplied `--default-working-dir` satisfies
+  inherited base configuration), or an explicitly configured default satisfies
   the check. Automatically selected manifest or run directories do not.
 - For container execution, the effective container configuration must declare
   `working_dir` to suppress the warning. A step container takes precedence over
@@ -121,8 +121,7 @@ inside `foreach` bodies, lifecycle handlers, and local DAG documents.
   not check directory existence or change directory resolution or creation.
 
 `dagu validate` prints the warning and exits successfully when there are no
-errors. It accepts `--default-working-dir` to validate with the same default used
-for execution. The spec API returns warnings separately from errors, and the DAG
+errors. The spec API returns warnings separately from errors, and the DAG
 editor displays them without blocking saves or execution. Warnings are transient
 and do not change retry behavior.
 

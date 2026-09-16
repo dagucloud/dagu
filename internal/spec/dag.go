@@ -839,7 +839,7 @@ func harnessWorkingDirWarnings(dag *ir.DAG) []string {
 					message = "has no explicit container.working_dir; set working_dir in the effective container configuration to choose the agent workspace"
 				}
 			} else if step.Dir == "" && dag.WorkingDir == "" {
-				message = "has no explicit working_dir; set working_dir on the step or DAG, or supply --default-working-dir, to choose the agent workspace"
+				message = "has no explicit working_dir; set working_dir on the step or DAG to choose the agent workspace"
 			}
 			if message != "" {
 				warnings = append(warnings, fmt.Sprintf("DAG %q: harness step %q %s", dag.Name, path, message))
