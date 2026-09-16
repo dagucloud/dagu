@@ -375,6 +375,7 @@ export function usePaginatedDAGRuns({
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const loadMoreControllerRef = useRef<AbortController | null>(null);
   const paginationGenerationRef = useRef(0);
+  const previousHeadCursorRef = useRef<string | null | undefined>(undefined);
   const lastSSEPayloadRef = useRef<DAGRunsListSSEResponse | null>(null);
   const skipNextSSEResetRef = useRef(true);
 
@@ -413,6 +414,27 @@ export function usePaginatedDAGRuns({
   useEffect(() => {
     resetOlderPages();
   }, [resetOlderPages, stableQueryKey]);
+
+  // A head page that moved (new top row, so its cursor differs) invalidates
+  // every previously loaded continuation page; the window shifted. Drop them
+  // and re-anchor at the new head, so a stale page can never mix into the
+  // merged list or leave an exhausted cursor behind. This covers silent
+  // head updates from SSE syncing and the SSE-fallback polling interval.
+  useEffect(() => {
+    const cursor = headPage?.nextCursor;
+    if (cursor === previousHeadCursorRef.current) {
+      return;
+    }
+    previousHeadCursorRef.current = cursor;
+    if (olderRuns.length > 0 || continuationCursorOverride !== undefined) {
+      resetOlderPages();
+    }
+  }, [
+    continuationCursorOverride,
+    headPage?.nextCursor,
+    olderRuns.length,
+    resetOlderPages,
+  ]);
 
   useEffect(() => {
     lastSSEPayloadRef.current = null;

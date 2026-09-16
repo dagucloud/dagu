@@ -305,6 +305,44 @@ describe('DAGRunTable', () => {
     expect(onSelectDAGRun).not.toHaveBeenCalled();
   });
 
+  it('opens the run in a new tab under the base path', () => {
+    const openMock = vi.spyOn(window, 'open').mockImplementation(() => null);
+    render(
+      <MemoryRouter>
+        <ConfigContext.Provider
+          value={{ ...config, basePath: '/dagu' } as Config}
+        >
+          <DAGRunTable
+            dagRuns={[
+              {
+                dagRunId: 'run-1',
+                name: 'reporter',
+                status: Status.Failed,
+                statusLabel: StatusLabel.failed,
+                artifactsAvailable: false,
+                autoRetryCount: 1,
+                autoRetryLimit: 3,
+                triggerType: TriggerType.scheduler,
+                queuedAt: '2026-03-13T10:00:30Z',
+                scheduleTime: '2026-03-13T10:00:00Z',
+                startedAt: '2026-03-13T10:00:05Z',
+                finishedAt: '2026-03-13T10:01:05Z',
+              },
+            ]}
+          />
+        </ConfigContext.Provider>
+      </MemoryRouter>
+    );
+
+    const nameLink = screen.getByRole('link', { name: 'reporter' });
+    fireEvent.click(nameLink.closest('tr') ?? nameLink, { ctrlKey: true });
+
+    expect(openMock).toHaveBeenCalledWith(
+      '/dagu/dag-runs/reporter/run-1',
+      '_blank'
+    );
+  });
+
   it('ignores Enter shortcuts while a filter input is focused', () => {
     const onSelectDAGRun = vi.fn();
 

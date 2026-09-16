@@ -234,11 +234,22 @@ function locationSearchParams(): URLSearchParams {
   );
 }
 
-function renderPage(setTitle = vi.fn(), initialEntry = '/dag-runs'): void {
+function renderPage(
+  setTitle = vi.fn(),
+  initialEntry = '/dag-runs',
+  configOverrides: Partial<Config> = {}
+): void {
   render(
     <MemoryRouter initialEntries={[initialEntry]}>
       <LocationProbe />
-      <ConfigContext.Provider value={config}>
+      <ConfigContext.Provider
+        value={
+          {
+            ...config,
+            ...configOverrides,
+          } as Config
+        }
+      >
         <AppBarContext.Provider
           value={
             {
@@ -440,6 +451,29 @@ describe('DAGRuns page', () => {
       expect(params.has('specificValue')).toBe(false);
       expect(params.has('specificPeriod')).toBe(false);
     });
+  });
+
+  it('interprets custom dates in the configured timezone', async () => {
+    const user = userEvent.setup();
+    renderPage(vi.fn(), '/dag-runs', { tzOffsetInSec: -5 * 60 * 60 });
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Custom range' })
+    );
+    const inputs = await screen.findAllByPlaceholderText(
+      'YYYY-MM-DD HH:mm:ss'
+    );
+    const fromInput = inputs[0]!;
+    const toInput = inputs[1]!;
+    await user.clear(fromInput);
+    await user.type(fromInput, '2026-09-15 00:00:00');
+    await user.clear(toInput);
+    await user.type(toInput, '2026-09-16 00:00:00');
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+
+    const query = lastRunQuery();
+    expect(query['fromDate']).toBe(Date.UTC(2026, 8, 15, 5, 0, 0) / 1000);
+    expect(query['toDate']).toBe(Date.UTC(2026, 8, 16, 5, 0, 0) / 1000);
   });
 
   it('restores the run and artifact tab from the URL', () => {

@@ -16,6 +16,7 @@ import {
 } from '../../hooks/useBulkDAGRunSelection';
 import { StepDetailsTooltip } from './StepDetailsTooltip';
 import { DAGRunArtifactsButton } from './DAGRunArtifactsButton';
+import { useConfig } from '../../../../contexts/ConfigContext';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
 
@@ -44,6 +45,7 @@ function DAGRunGroupedView({
   onToggleBulkSelect,
 }: DAGRunGroupedViewProps) {
   const { ts } = useI18n();
+  const config = useConfig();
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   // Group DAG runs by name
@@ -301,8 +303,9 @@ function DAGRunGroupedView({
                         } ${isBulkSelected(dagRun) ? 'bg-muted/30' : ''}`}
                         onClick={(e) => {
                           if (e.ctrlKey || e.metaKey) {
+                            const basePath = config.basePath || '';
                             window.open(
-                              `/dag-runs/${dagRun.name}/${dagRun.dagRunId}`,
+                              `${basePath}/dag-runs/${dagRun.name}/${dagRun.dagRunId}`,
                               '_blank'
                             );
                           } else if (onSelectDAGRun) {

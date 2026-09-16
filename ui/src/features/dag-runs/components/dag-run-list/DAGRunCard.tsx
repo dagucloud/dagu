@@ -15,6 +15,7 @@ import RelativeTime from '@/components/ui/relative-time';
 import StatusChip from '@/components/ui/status-chip';
 import AutoRetryBadge from '../common/AutoRetryBadge';
 import { DAGRunDetailsModal } from '../../components/dag-run-details';
+import { useConfig } from '../../../../contexts/ConfigContext';
 import { I18nText } from '@/i18n/I18nText';
 
 interface DAGRunCardProps {
@@ -24,6 +25,7 @@ interface DAGRunCardProps {
 
 function DAGRunCard({ dagRun, timezoneInfo }: DAGRunCardProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const config = useConfig();
 
   // Add keyboard navigation for the modal
   useEffect(() => {
@@ -50,8 +52,9 @@ function DAGRunCard({ dagRun, timezoneInfo }: DAGRunCardProps) {
         onClick={(e) => {
           if (e.ctrlKey || e.metaKey) {
             // Open in new tab
+            const basePath = config.basePath || '';
             window.open(
-              `/dag-runs/${dagRun.name}/${dagRun.dagRunId}`,
+              `${basePath}/dag-runs/${dagRun.name}/${dagRun.dagRunId}`,
               '_blank'
             );
           } else {

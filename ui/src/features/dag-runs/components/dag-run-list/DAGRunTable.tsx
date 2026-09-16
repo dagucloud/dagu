@@ -313,8 +313,9 @@ function DAGRunTable({
               // Navigate directly to DAG-run page with correct URL pattern
               if (e.metaKey || e.ctrlKey) {
                 // Open in new tab if Cmd/Ctrl is pressed
+                const basePath = config.basePath || '';
                 window.open(
-                  `/dag-runs/${dagRun.name}/${dagRun.dagRunId}`,
+                  `${basePath}/dag-runs/${dagRun.name}/${dagRun.dagRunId}`,
                   '_blank'
                 );
               } else {
@@ -517,8 +518,9 @@ function DAGRunTable({
               onClick={(e) => {
                 if (e.ctrlKey || e.metaKey) {
                   // Open in new tab
+                  const basePath = config.basePath || '';
                   window.open(
-                    `/dag-runs/${dagRun.name}/${dagRun.dagRunId}`,
+                    `${basePath}/dag-runs/${dagRun.name}/${dagRun.dagRunId}`,
                     '_blank'
                   );
                 } else if (isSmallScreen) {
