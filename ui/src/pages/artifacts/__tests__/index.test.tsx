@@ -6,7 +6,7 @@ import dayjs from 'dayjs';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import type { ArtifactListItem } from '@/features/artifacts/hooks/artifactListPagination';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { ConfigContext, type Config } from '@/contexts/ConfigContext';
@@ -18,7 +18,7 @@ const usePaginatedArtifactsMock = vi.hoisted(() => vi.fn());
 const usePaginatedArtifactsResult = vi.hoisted(() => ({
   current: {
     items: [] as ArtifactListItem[],
-    error: null,
+    error: null as Error | null,
     isInitialLoading: false,
     isLoadingMore: false,
     loadMoreError: null,
@@ -86,16 +86,31 @@ beforeEach(() => {
   );
 });
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 function LocationProbe(): React.JSX.Element {
   const location = useLocation();
   return <output data-testid="location-search">{location.search}</output>;
 }
 
-function renderPage(setTitle = vi.fn(), initialEntry = '/artifacts'): void {
+function renderPage(
+  setTitle = vi.fn(),
+  initialEntry = '/artifacts',
+  configOverrides: Partial<Config> = {}
+): void {
   render(
     <MemoryRouter initialEntries={[initialEntry]}>
       <LocationProbe />
-      <ConfigContext.Provider value={config}>
+      <ConfigContext.Provider
+        value={
+          {
+            ...config,
+            ...configOverrides,
+          } as Config
+        }
+      >
         <AppBarContext.Provider
           value={
             {
@@ -140,6 +155,59 @@ describe('Artifacts page', () => {
     expect(query.limit).toBe(100);
   });
 
+  it('bounds the initial query to the default Today preset', () => {
+    renderPage();
+
+    expect(lastQuery().fromDate).toBe(
+      dayjs(`${dayjs().format('YYYY-MM-DD')}T00:00:00`).unix()
+    );
+  });
+
+  it('interprets custom dates in the configured timezone', async () => {
+    const user = userEvent.setup();
+    renderPage(vi.fn(), '/artifacts', { tzOffsetInSec: -5 * 60 * 60 });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
+    const inputs = await screen.findAllByPlaceholderText(
+      'YYYY-MM-DD HH:mm:ss'
+    );
+    const fromInput = inputs[0]!;
+    const toInput = inputs[1]!;
+    await user.clear(fromInput);
+    await user.type(fromInput, '2026-09-15 00:00:00');
+    await user.clear(toInput);
+    await user.type(toInput, '2026-09-16 00:00:00');
+    fireEvent.keyDown(fromInput, { key: 'Enter' });
+
+    const query = lastQuery();
+    expect(query.fromDate).toBe(Date.UTC(2026, 8, 15, 5, 0, 0) / 1000);
+    expect(query.toDate).toBe(Date.UTC(2026, 8, 16, 5, 0, 0) / 1000);
+  });
+
+  it('shows an API error instead of an empty state', () => {
+    usePaginatedArtifactsResult.current.error = new Error(
+      'Invalid file name pattern'
+    );
+    renderPage();
+
+    expect(screen.getByText('Invalid file name pattern')).toBeInTheDocument();
+    expect(screen.queryByText('No artifacts found')).not.toBeInTheDocument();
+  });
+
+  it('opens the run in a new tab under the base path', () => {
+    const openMock = vi.spyOn(window, 'open').mockImplementation(() => null);
+    usePaginatedArtifactsResult.current.items = [makeItem()];
+    renderPage(vi.fn(), '/artifacts', { basePath: '/dagu' });
+
+    const nameLink = screen.getByRole('link', { name: 'reporter' });
+    fireEvent.click(nameLink.closest('tr') ?? nameLink, { metaKey: true });
+
+    expect(openMock).toHaveBeenCalledWith(
+      '/dagu/dag-runs/reporter/run-1',
+      '_blank'
+    );
+  });
+
   it('applies the DAG name filter when Enter is pressed', async () => {
     const user = userEvent.setup();
     renderPage();
@@ -172,7 +240,9 @@ describe('Artifacts page', () => {
     );
     const fromInput = inputs[0]!;
     const toInput = inputs[1]!;
+    await user.clear(fromInput);
     await user.type(fromInput, '2026-09-01 00:00:00');
+    await user.clear(toInput);
     await user.type(toInput, '2026-09-15 00:00:00');
     fireEvent.keyDown(fromInput, { key: 'Enter' });
 

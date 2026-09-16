@@ -1,8 +1,8 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import dayjs from 'dayjs';
-import { RefreshCw } from 'lucide-react';
+import dayjs from '@/lib/dayjs';
+import { AlertCircle, RefreshCw } from 'lucide-react';
 import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import type { StatusTab } from '@/features/dags/components/DAGStatus';
@@ -43,6 +43,45 @@ const DEFAULT_PRESET = 'today';
 const ARTIFACT_LIST_LIMIT = 100;
 const MAX_VISIBLE_FILES = 3;
 
+function computePresetDates(
+  preset: string,
+  tzOffsetInSec: number | undefined
+): { from: string; to?: string } {
+  const now = dayjs();
+  const startOfDay =
+    tzOffsetInSec !== undefined
+      ? now.utcOffset(tzOffsetInSec / 60).startOf('day')
+      : now.startOf('day');
+
+  switch (preset) {
+    case 'today':
+      return { from: startOfDay.format('YYYY-MM-DDTHH:mm') };
+    case 'yesterday':
+      return {
+        from: startOfDay.subtract(1, 'day').format('YYYY-MM-DDTHH:mm'),
+        to: startOfDay.format('YYYY-MM-DDTHH:mm'),
+      };
+    case 'last7days':
+      return {
+        from: startOfDay.subtract(7, 'day').format('YYYY-MM-DDTHH:mm'),
+      };
+    case 'last30days':
+      return {
+        from: startOfDay.subtract(30, 'day').format('YYYY-MM-DDTHH:mm'),
+      };
+    case 'thisWeek':
+      return {
+        from: startOfDay.startOf('week').format('YYYY-MM-DDTHH:mm'),
+      };
+    case 'thisMonth':
+      return {
+        from: startOfDay.startOf('month').format('YYYY-MM-DDTHH:mm'),
+      };
+    default:
+      return { from: startOfDay.format('YYYY-MM-DDTHH:mm') };
+  }
+}
+
 function useAutoLoadMore(
   sentinelRef: React.RefObject<HTMLDivElement | null>,
   enabled: boolean,
@@ -81,6 +120,10 @@ function Artifacts() {
     () => workspaceSelectionQuery(appBarContext.workspaceSelection),
     [appBarContext.workspaceSelection]
   );
+  const initialPresetDates = computePresetDates(
+    DEFAULT_PRESET,
+    config.tzOffsetInSec
+  );
 
   const [searchText, setSearchText] = React.useState('');
   const [apiSearchText, setApiSearchText] = React.useState('');
@@ -90,10 +133,18 @@ function Artifacts() {
     'preset' | 'custom'
   >('preset');
   const [datePreset, setDatePreset] = React.useState(DEFAULT_PRESET);
-  const [fromDate, setFromDate] = React.useState<string | undefined>();
-  const [toDate, setToDate] = React.useState<string | undefined>();
-  const [apiFromDate, setApiFromDate] = React.useState<string | undefined>();
-  const [apiToDate, setApiToDate] = React.useState<string | undefined>();
+  const [fromDate, setFromDate] = React.useState<string | undefined>(
+    initialPresetDates.from
+  );
+  const [toDate, setToDate] = React.useState<string | undefined>(
+    initialPresetDates.to
+  );
+  const [apiFromDate, setApiFromDate] = React.useState<string | undefined>(
+    initialPresetDates.from
+  );
+  const [apiToDate, setApiToDate] = React.useState<string | undefined>(
+    initialPresetDates.to
+  );
   const [selectedDAGRun, setSelectedDAGRun] = React.useState<{
     name: string;
     dagRunId: string;
@@ -113,54 +164,16 @@ function Artifacts() {
     const dateWithSeconds =
       dateString.split(':').length < 3 ? `${dateString}:00` : dateString;
 
-    // Apply timezone offset and convert to unix timestamp (seconds)
+    // Interpret the wall clock in the configured timezone, never in the
+    // browser's, then convert to the Unix timestamp.
     if (config.tzOffsetInSec !== undefined) {
       return dayjs(dateWithSeconds)
-        .utcOffset(config.tzOffsetInSec / 60)
+        .utcOffset(config.tzOffsetInSec / 60, true)
         .unix();
     } else {
       return dayjs(dateWithSeconds).unix();
     }
   };
-
-  const getPresetDates = React.useCallback(
-    (preset: string): { from: string; to?: string } => {
-      const now = dayjs();
-      const startOfDay =
-        config.tzOffsetInSec !== undefined
-          ? now.utcOffset(config.tzOffsetInSec / 60).startOf('day')
-          : now.startOf('day');
-
-      switch (preset) {
-        case 'today':
-          return { from: startOfDay.format('YYYY-MM-DDTHH:mm') };
-        case 'yesterday':
-          return {
-            from: startOfDay.subtract(1, 'day').format('YYYY-MM-DDTHH:mm'),
-            to: startOfDay.format('YYYY-MM-DDTHH:mm'),
-          };
-        case 'last7days':
-          return {
-            from: startOfDay.subtract(7, 'day').format('YYYY-MM-DDTHH:mm'),
-          };
-        case 'last30days':
-          return {
-            from: startOfDay.subtract(30, 'day').format('YYYY-MM-DDTHH:mm'),
-          };
-        case 'thisWeek':
-          return {
-            from: startOfDay.startOf('week').format('YYYY-MM-DDTHH:mm'),
-          };
-        case 'thisMonth':
-          return {
-            from: startOfDay.startOf('month').format('YYYY-MM-DDTHH:mm'),
-          };
-        default:
-          return { from: startOfDay.format('YYYY-MM-DDTHH:mm') };
-      }
-    },
-    [config.tzOffsetInSec]
-  );
 
   React.useEffect(() => {
     appBarContext.setTitle('Artifacts');
@@ -175,7 +188,7 @@ function Artifacts() {
 
   const handleDatePresetChange = (preset: string) => {
     setDatePreset(preset);
-    const dates = getPresetDates(preset);
+    const dates = computePresetDates(preset, config.tzOffsetInSec);
     setFromDate(dates.from);
     setToDate(dates.to);
     setApiFromDate(dates.from);
@@ -211,6 +224,7 @@ function Artifacts() {
 
   const {
     items,
+    error,
     isInitialLoading,
     isLoadingMore,
     loadMoreError,
@@ -451,6 +465,15 @@ function Artifacts() {
             <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
               <I18nText text={'Loading artifacts...'} />
             </div>
+          ) : error ? (
+            <div className="flex items-start gap-2 rounded-md bg-destructive/5 px-3 py-3 text-sm text-destructive">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>
+                {error instanceof Error
+                  ? error.message
+                  : 'Failed to load artifacts'}
+              </span>
+            </div>
           ) : (
             <div className="flex flex-col items-center justify-center rounded-md border border-dashed border-border bg-muted/20 px-4 py-10 text-sm text-muted-foreground">
               <p className="font-medium text-foreground">
@@ -504,8 +527,9 @@ function Artifacts() {
                   style={{ fontSize: '0.8125rem' }}
                   onClick={(e) => {
                     if (e.ctrlKey || e.metaKey) {
+                      const basePath = config.basePath || '';
                       window.open(
-                        `/dag-runs/${item.name}/${item.dagRunId}`,
+                        `${basePath}/dag-runs/${item.name}/${item.dagRunId}`,
                         '_blank'
                       );
                       return;
