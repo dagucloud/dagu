@@ -279,6 +279,31 @@ describe('DAGRuns page', () => {
     expect(setTitle).toHaveBeenCalledWith('Executions');
   });
 
+  // A preset range means "relative to now", so a session left open across a
+  // date boundary must not keep querying the range it computed back then.
+  it('recomputes a preset range restored from session state', async () => {
+    const stale = dayjs().subtract(3, 'day').startOf('day');
+    readSearchStateMock.mockReturnValue({
+      searchText: '',
+      dagRunId: '',
+      status: 'all',
+      labels: [],
+      fromDate: stale.format('YYYY-MM-DDTHH:mm'),
+      toDate: undefined,
+      dateRangeMode: 'preset',
+      datePreset: 'today',
+      specificPeriod: 'date',
+      specificValue: '',
+    });
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(usePaginatedDAGRunsMock.mock.calls.length).toBeGreaterThan(0);
+    });
+    expect(lastRunQuery()['fromDate']).toBe(dayjs().startOf('day').unix());
+  });
+
   it('keeps stored session filters while the shared views load', async () => {
     // The page reads and writes the same storage; model that so persistence
     // of the initial defaults while views load is visible to restoration.
@@ -457,12 +482,8 @@ describe('DAGRuns page', () => {
     const user = userEvent.setup();
     renderPage(vi.fn(), '/dag-runs', { tzOffsetInSec: -5 * 60 * 60 });
 
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Custom range' })
-    );
-    const inputs = await screen.findAllByPlaceholderText(
-      'YYYY-MM-DD HH:mm:ss'
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Custom range' }));
+    const inputs = await screen.findAllByPlaceholderText('YYYY-MM-DD HH:mm:ss');
     const fromInput = inputs[0]!;
     const toInput = inputs[1]!;
     await user.clear(fromInput);
