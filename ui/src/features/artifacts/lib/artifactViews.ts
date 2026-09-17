@@ -30,8 +30,10 @@ export function artifactsFilterSetFromView(view: View): ArtifactsFilterSet {
   return {
     searchText: view.dagName ?? '',
     fileName: view.fileName ?? '',
-    fromDate: view.fromDate ?? undefined,
-    toDate: view.toDate ?? undefined,
+    // An empty bound is no bound, whether it arrives absent or empty, so that
+    // it compares equal to the same filter restored from a URL.
+    fromDate: view.fromDate || undefined,
+    toDate: view.toDate || undefined,
     dateRangeMode: asDateRangeMode(view.dateMode),
     datePreset: view.datePreset ?? ARTIFACT_PRESET_ALL,
   };

@@ -858,6 +858,51 @@ describe('Artifacts page', () => {
     expect(lastQuery()['toDate']).toBeUndefined();
   });
 
+  // A preset range means "relative to now", so a session left open across a
+  // date boundary must not keep querying the range it computed back then.
+  it('recomputes a preset range restored from session state', async () => {
+    const stale = dayjs().subtract(3, 'day').startOf('day');
+    readSearchStateMock.mockReturnValue({
+      searchText: '',
+      fileName: '',
+      fromDate: stale.format('YYYY-MM-DDTHH:mm'),
+      toDate: undefined,
+      dateRangeMode: 'preset',
+      datePreset: RunDatePreset.today,
+    });
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(lastQuery()['fromDate']).toBe(dayjs().startOf('day').unix());
+    });
+  });
+
+  it('does not mark a view edited when a date bound is empty', async () => {
+    sharedArtifactViewState.views.push(
+      makeArtifactView({
+        id: 'custom-view',
+        name: 'Custom range',
+        dagName: 'reporter',
+        dateMode: RunDateMode.custom,
+        fromDate: '2026-09-01T00:00',
+        // An empty rather than absent bound, as a hand-edited record can hold.
+        toDate: '',
+      })
+    );
+
+    renderPage(
+      vi.fn(),
+      {},
+      '/artifacts?view=custom-view&name=reporter&dateMode=custom&fromDate=2026-09-01T00:00'
+    );
+
+    await waitFor(() => {
+      expect(lastQuery()['name']).toBe('reporter');
+    });
+    expect(screen.queryByText('Edited')).toBeNull();
+  });
+
   it('marks an artifact view as edited when its filters change', async () => {
     sharedArtifactViewState.views.push(
       makeArtifactView({ id: 'view-a', dagName: 'nightly-etl' })

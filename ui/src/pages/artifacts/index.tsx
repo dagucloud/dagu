@@ -487,10 +487,11 @@ function Artifacts() {
     }
 
     const next = hasUrlFilters ? { ...base, ...urlFilters } : base;
-    // A standalone preset URL must derive fresh dates rather than reuse the
-    // ones a saved view or the session happened to carry.
+    // A preset range is relative to "now", so it is derived on every restore.
+    // The concrete dates a saved view or this session carries were computed
+    // whenever the preset was last picked, which may be days ago.
     const resolved =
-      dateModeParam === 'preset'
+      next.dateRangeMode === 'preset'
         ? resolveArtifactViewFilters(next, config.tzOffsetInSec)
         : next;
 
