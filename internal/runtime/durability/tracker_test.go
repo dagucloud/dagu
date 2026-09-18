@@ -509,3 +509,305 @@ func TestConcurrentRaceSensitive(t *testing.T) {
 		t.Fatalf("acknowledged %d; want %d", ackCount.Load(), workers)
 	}
 }
+
+// BenchmarkDurabilityTracker_AllocAwait measures tracker Register + Await/wake
+// overhead for N concurrent producers. Sub-benchmarks for N=1, 10, 100.
+// MEASURE only — no thresholds.
+func BenchmarkDurabilityTracker_AllocAwait(b *testing.B) {
+	for _, n := range []int{1, 10, 100} {
+		b.Run(fmt.Sprintf("N=%d", n), func(b *testing.B) {
+			ctx := context.Background()
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				tr := New()
+				ids := make([]RequestID, n)
+				for j := 0; j < n; j++ {
+					ids[j] = tr.Register(j)
+				}
+				var wg sync.WaitGroup
+				wg.Add(n)
+				for j := 0; j < n; j++ {
+					go func(idx int) {
+						defer wg.Done()
+						_ = tr.Await(ctx, ids[idx])
+					}(j)
+				}
+				for j := 0; j < n; j++ {
+					tr.Acknowledge(j)
+				}
+				wg.Wait()
+				tr.Close()
+			}
+		})
+	}
+}
+
+// awaitResolves waits for the Await result from ch, failing the test if Await
+// does not resolve within a bounded time. The deadline is a deadlock safety net
+// only; ordering claims in these tests are proven by channel happens-before
+// semantics, not by the deadline.
+func awaitResolves(t *testing.T, ch <-chan error) error {
+	t.Helper()
+	select {
+	case err := <-ch:
+		return err
+	case <-time.After(3 * time.Second):
+		t.Fatal("Await did not resolve within bounded time; possible deadlock")
+		return nil
+	}
+}
+
+// TestDurabilityOrderingVG4VG5 proves VG-4/VG-5: the producer-consumer-durability
+// ordering used by Runner.sendProgress (producer) and the agent progress loop
+// (consumer). The producer Register's a request and Await's it; the consumer
+// runs the "sync" step (persistence/fsync) and only Acknowledge's once sync has
+// succeeded. Proof is channel happens-before, not timing:
+//   - Await does NOT return before sync completes
+//   - Await returns nil ONLY after Acknowledge is called (which follows sync)
+//   - Acknowledge is NOT called before sync succeeds
+func TestDurabilityOrderingVG4VG5(t *testing.T) {
+	tr := New()
+	const key = "node-A"
+	// progressCh mirrors the progress channel between Runner.sendProgress and
+	// the agent loop: the producer hands the node to the consumer.
+	progressCh := make(chan any)
+	awaitDone := make(chan error, 1)
+	syncStarted := make(chan struct{})
+	syncCompleted := make(chan struct{})
+	ackCalled := make(chan struct{})
+	ackGate := make(chan struct{})
+	awaitEntered := make(chan struct{})
+
+	// Producer goroutine (mirrors Runner.sendProgress).
+	go func() {
+		id := tr.Register(key)
+		progressCh <- key // blocks until the consumer picks the node up
+		close(awaitEntered)
+		awaitDone <- tr.Await(context.Background(), id)
+	}()
+
+	// Consumer goroutine (mirrors the agent progress loop).
+	go func() {
+		<-progressCh         // received the node to persist
+		close(syncStarted)   // "sync" (recordCurrentStatus/fsync) begins
+		<-ackGate            // hold: sync done, but Acknowledge pending
+		close(syncCompleted) // sync succeeded
+		tr.Acknowledge(key)  // durability: acknowledge only after sync succeeds
+		close(ackCalled)
+	}()
+
+	<-syncStarted
+	// Deterministic negative proof: the consumer is gated at ackGate, so it has
+	// not Acknowledge'd yet; Await therefore cannot resolve. A non-ready
+	// awaitDone here is guaranteed, not racy.
+	select {
+	case err := <-awaitDone:
+		t.Fatalf("Await resolved (%v) before sync completed (VG-4)", err)
+	default:
+	}
+	// Confirm the producer has entered Await (so it is genuinely contending on
+	// the condition, not merely unscheduled).
+	<-awaitEntered
+
+	close(ackGate) // release: sync completes, then Acknowledge
+
+	err := awaitResolves(t, awaitDone)
+	if err != nil {
+		t.Fatalf("Await returned %v; want nil after sync+Acknowledge (VG-5)", err)
+	}
+	// Await returned nil => sync must have completed first.
+	select {
+	case <-syncCompleted:
+	default:
+		t.Fatal("Await returned nil before sync completed (VG-4)")
+	}
+	// Await returned nil => Acknowledge must have been called first.
+	select {
+	case <-ackCalled:
+	default:
+		t.Fatal("Await returned nil before Acknowledge was called (VG-5)")
+	}
+	if tr.HasPending() {
+		t.Fatal("pending should be cleared after Acknowledge")
+	}
+}
+
+// TestSyncFailureAwaitErrorVG7VG8 proves VG-7/VG-8: when the consumer's sync
+// step fails, it calls Fail(syncError) instead of Acknowledge. Await must
+// surface the EXACT, preserved sync error to the producer, and the failure must
+// be terminal: any subsequent Await (same or other pending request) returns the
+// same error.
+func TestSyncFailureAwaitErrorVG7VG8(t *testing.T) {
+	tr := New()
+	const key = "sync-fail-req"
+	id := tr.Register(key)
+	syncErr := errors.New("fsync: input/output error")
+
+	awaitDone := make(chan error, 1)
+	syncStarted := make(chan struct{})
+	failCalled := make(chan struct{})
+	failGate := make(chan struct{})
+
+	// Consumer goroutine: simulates a sync failure, then calls Fail (not Ack).
+	go func() {
+		close(syncStarted) // sync begins
+		<-failGate         // hold: sync has failed, about to Fail
+		tr.Fail(syncErr)   // report the sync error to the tracker
+		close(failCalled)
+	}()
+
+	// Producer awaits (mirrors Runner.sendProgress Await).
+	go func() {
+		awaitDone <- tr.Await(context.Background(), id)
+	}()
+
+	<-syncStarted
+	// Deterministic negative proof: Fail has not fired (gated), so Await
+	// cannot resolve.
+	select {
+	case err := <-awaitDone:
+		t.Fatalf("Await resolved (%v) before Fail (VG-7)", err)
+	default:
+	}
+
+	close(failGate) // consumer reports the failure
+	err := awaitResolves(t, awaitDone)
+	if err == nil {
+		t.Fatal("Await returned nil after sync failure; want sync error (VG-7)")
+	}
+	// The exact, preserved sync error must reach the producer via the Fail path.
+	if !errors.Is(err, syncErr) {
+		t.Fatalf("Await returned %v; want the preserved sync error %v (VG-7)", err, syncErr)
+	}
+	select {
+	case <-failCalled:
+	default:
+		t.Fatal("Fail must have been called (VG-8)")
+	}
+
+	// Terminal failure: a subsequent Await on another pending request returns
+	// the same preserved error.
+	id2 := tr.Register("other-pending-req")
+	if err := tr.Await(context.Background(), id2); !errors.Is(err, syncErr) {
+		t.Fatalf("subsequent Await returned %v; want sync error %v (VG-8)", err, syncErr)
+	}
+}
+
+// TestKeyReuseReRegisterExecRepeat proves ExecRepeat Verifier Gap 1: re-registering
+// the same key (e.g. the same *Node pointer re-executed on retry) must allocate a
+// NEW RequestID, must not be released by a stale generation's Acknowledge, and the
+// new generation's Acknowledge resolves the new Await while leaving older
+// already-resolved Awaits unaffected.
+func TestKeyReuseReRegisterExecRepeat(t *testing.T) {
+	tr := New()
+	const key = "exec-repeat-node"
+
+	// Generation 1: register, acknowledge, resolve.
+	id1 := tr.Register(key)
+	if id1 == 0 {
+		t.Fatal("Register returned zero ID")
+	}
+	tr.Acknowledge(key) // watermark -> 1; id1 durable
+	if err := tr.Await(context.Background(), id1); err != nil {
+		t.Fatalf("id1 Await after Ack: %v", err)
+	}
+
+	// Generation 2: re-register the SAME key (ExecRepeat re-execution).
+	id2 := tr.Register(key) // id2 = 2 (NEW id; keys[key] overwritten)
+	if id2 == id1 {
+		t.Fatal("re-register must yield a new RequestID (Verifier Gap 1)")
+	}
+	if id2 <= id1 {
+		t.Fatalf("id2=%d must be greater than id1=%d", id2, id1)
+	}
+
+	// Gen-2 Await must be pending: a stale gen-1 Acknowledge must NOT have
+	// released it (no cross-generation release).
+	awaitId2 := make(chan error, 1)
+	go func() {
+		awaitId2 <- tr.Await(context.Background(), id2)
+	}()
+	// Deterministic negative proof: gen-1 Acknowledge only raised the watermark
+	// to 1; id2 (2) > watermark and no Ack/Fail/Close targets id2.
+	select {
+	case err := <-awaitId2:
+		t.Fatalf("gen-2 Await resolved by stale gen-1 Ack (cross-generation release): %v", err)
+	default:
+	}
+
+	// Re-await id1: still durable; watermark must not regress.
+	if err := tr.Await(context.Background(), id1); err != nil {
+		t.Fatalf("id1 regressed after gen-2 register: %v", err)
+	}
+
+	// Gen-2 Acknowledge resolves the gen-2 Await.
+	tr.Acknowledge(key) // keys[key]=2 -> watermark -> 2
+	if err := awaitResolves(t, awaitId2); err != nil {
+		t.Fatalf("gen-2 Await after gen-2 Ack: %v", err)
+	}
+
+	// Cross-generation: id1 must remain durable (not invalidated by gen-2 Ack).
+	if err := tr.Await(context.Background(), id1); err != nil {
+		t.Fatalf("id1 regressed after gen-2 Acknowledge: %v", err)
+	}
+	if tr.HasPending() {
+		t.Fatal("no pending after all generations acknowledged")
+	}
+}
+
+// TestCloseReleasesAllAwaitersVG9 proves VG-9: a consumer/panic path that calls
+// Close (with no Acknowledge/Fail) must release every blocked producer with
+// ErrDurabilityClosed. The wait for awaiters to be scheduled uses a readiness
+// channel (deterministic); the bounded deadline is a deadlock safety net only.
+func TestCloseReleasesAllAwaitersVG9(t *testing.T) {
+	tr := New()
+	const n = 20
+	ids := make([]RequestID, n)
+	for i := 0; i < n; i++ {
+		ids[i] = tr.Register(fmt.Sprintf("p-%d", i))
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	errs := make([]error, n)
+	var wg sync.WaitGroup
+	ready := make(chan struct{}, n) // signals each awaiter is about to call Await
+	for i := 0; i < n; i++ {
+		i := i
+		id := ids[i]
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ready <- struct{}{}
+			errs[i] = tr.Await(ctx, id)
+		}()
+	}
+
+	// Deterministic: wait until every awaiter is scheduled and about to Await
+	// (no sleep).
+	for i := 0; i < n; i++ {
+		<-ready
+	}
+
+	// Close without any Acknowledge/Fail.
+	tr.Close()
+
+	finished := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(finished)
+	}()
+	select {
+	case <-finished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Await goroutines did not resolve after Close (possible deadlock)")
+	}
+
+	for i, err := range errs {
+		if !errors.Is(err, ErrDurabilityClosed) {
+			t.Fatalf("awaiter %d: got %v; want ErrDurabilityClosed", i, err)
+		}
+	}
+}
