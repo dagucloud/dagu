@@ -150,6 +150,9 @@ export function useArtifactTreeNavigation({
     ) {
       elements.current.get(focusedPath)?.focus({ preventScroll: true });
     }
+    if (state.focused && state.focused !== focusedPath) {
+      setState((current) => ({ ...current, focused: focusedPath }));
+    }
     previousParents.current = parents;
   });
 

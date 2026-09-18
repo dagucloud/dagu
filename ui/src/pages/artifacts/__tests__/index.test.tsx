@@ -548,6 +548,19 @@ describe('Artifacts page', () => {
     );
   });
 
+  it('remembers the surviving parent while focus is in the filter', async () => {
+    const user = userEvent.setup();
+    usePaginatedArtifactsResult.current.items = [makeItem()];
+    const view = renderPage();
+    await user.keyboard('j/');
+    usePaginatedArtifactsResult.current.items = [
+      makeItem({ files: [{ path: 'out/report.md', size: 42 }] }),
+    ];
+    view.rerenderPage();
+    await user.keyboard('x{Escape}');
+    expect(screen.getByRole('treeitem', { name: 'out' })).toHaveFocus();
+  });
+
   it('ignores modified and composing navigation keys', async () => {
     const user = userEvent.setup();
     usePaginatedArtifactsResult.current.items = [makeItem()];
