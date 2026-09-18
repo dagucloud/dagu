@@ -58,7 +58,7 @@
     "monaco-editor-webpack-plugin": "7.1.1",
     "null-loader": "4.0.1",
     "openapi-typescript": "7.8.0",
-    "postcss": "8.5.18",
+    "postcss": "8.5.23",
     "postcss-loader": "8.1.1",
     "prettier": "3.6.2",
     "sass-loader": "16.0.7",
