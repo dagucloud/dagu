@@ -121,7 +121,13 @@ export function ArtifactListModal({
       if (event.shiftKey && document.activeElement === firstElement) {
         event.preventDefault();
         lastElement.focus();
-      } else if (!event.shiftKey && document.activeElement === lastElement) {
+      } else if (
+        !event.shiftKey &&
+        document.activeElement &&
+        (document.activeElement === lastElement ||
+          lastElement.compareDocumentPosition(document.activeElement) &
+            Node.DOCUMENT_POSITION_FOLLOWING)
+      ) {
         event.preventDefault();
         firstElement.focus();
       }

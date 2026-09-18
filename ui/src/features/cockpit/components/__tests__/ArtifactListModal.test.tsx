@@ -63,6 +63,32 @@ beforeEach(() => {
 });
 
 describe('ArtifactListModal', () => {
+  it('tabs into preview links before wrapping to the close button', async () => {
+    vi.mocked(ArtifactsTab).mockImplementation(() => (
+      <div role="region" aria-label="Preview" tabIndex={-1}>
+        <a href="#artifact-link">Artifact link</a>
+      </div>
+    ));
+    vi.mocked(useBoundedDAGRunDetails).mockReturnValue({
+      data: details,
+      isLoading: false,
+      isValidating: false,
+    } as never);
+    const user = userEvent.setup();
+    render(
+      <AppBarContext.Provider value={appBarValue}>
+        <ArtifactListModal run={run} isOpen onClose={() => {}} />
+      </AppBarContext.Provider>
+    );
+    const close = screen.getByTitle('Close artifact preview');
+    await waitFor(() => expect(close).toHaveFocus());
+    screen.getByRole('region', { name: 'Preview' }).focus();
+    await user.tab();
+    expect(screen.getByRole('link', { name: 'Artifact link' })).toHaveFocus();
+    await user.tab();
+    expect(close).toHaveFocus();
+  });
+
   it('loads DAG-run details and renders the shared artifact preview tab', () => {
     vi.mocked(useBoundedDAGRunDetails).mockReturnValue({
       data: details,
@@ -153,6 +179,14 @@ describe('ArtifactListModal', () => {
     expect(screen.getByRole('treeitem', { name: 'a.txt' })).toHaveFocus();
     await user.keyboard('j{Enter}');
     expect(screen.getByRole('region', { name: 'b.txt' })).toHaveFocus();
+    await user.tab();
+    expect(close).toHaveFocus();
+    await user.click(screen.getByRole('treeitem', { name: 'b.txt' }));
+    await user.keyboard('{Enter}');
+    await user.tab({ shift: true });
+    expect(screen.getByRole('button', { name: 'Download' })).toHaveFocus();
+    await user.click(screen.getByRole('treeitem', { name: 'b.txt' }));
+    await user.keyboard('{Enter}');
     await user.keyboard('{Escape}');
     expect(screen.getByRole('treeitem', { name: 'b.txt' })).toHaveFocus();
     expect(onClose).not.toHaveBeenCalled();

@@ -289,6 +289,11 @@ function Artifacts() {
     dagRunId: string;
     path: string;
   } | null>(null);
+  const [selectionScope, setSelectionScope] = React.useState(searchStateScope);
+  if (selectionScope !== searchStateScope) {
+    setSelectionScope(searchStateScope);
+    setSelected(null);
+  }
   const loadMoreSentinelRef = React.useRef<HTMLDivElement>(null);
   const autoLoadPendingRef = React.useRef(false);
 
@@ -849,10 +854,6 @@ function Artifacts() {
   } = usePaginatedArtifacts({
     query: artifactQuery,
   });
-
-  React.useEffect(() => {
-    setSelected(null);
-  }, [searchStateScope]);
 
   React.useEffect(() => {
     if (isInitialLoading) {

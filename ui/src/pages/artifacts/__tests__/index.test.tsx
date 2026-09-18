@@ -19,6 +19,10 @@ import { AppBarContext } from '@/contexts/AppBarContext';
 import { ConfigContext, type Config } from '@/contexts/ConfigContext';
 import { WorkspaceKind } from '@/lib/workspace';
 import Artifacts from '..';
+import { useClient } from '@/hooks/api';
+import { ArtifactFilePreview } from '@/features/dags/components/artifacts/ArtifactFilePreview';
+
+vi.mock('@/hooks/api', () => ({ useClient: vi.fn() }));
 
 const {
   createArtifactViewMock,
@@ -82,17 +86,7 @@ vi.mock('@/features/artifacts/hooks/artifactListPagination', () => ({
 }));
 
 vi.mock('@/features/dags/components/artifacts/ArtifactFilePreview', () => ({
-  ArtifactFilePreview: (props: {
-    dagRunName: string;
-    dagRunId: string;
-    path: string | null;
-  }) => (
-    <div data-testid="preview-pane">
-      {props.path
-        ? `preview of ${props.path} in ${props.dagRunName}/${props.dagRunId}`
-        : 'no selection'}
-    </div>
-  ),
+  ArtifactFilePreview: vi.fn(),
 }));
 
 const config = {
@@ -115,6 +109,13 @@ function makeItem(overrides: Partial<ArtifactListItem> = {}): ArtifactListItem {
 }
 
 beforeEach(() => {
+  vi.mocked(ArtifactFilePreview).mockImplementation((props) => (
+    <div data-testid="preview-pane">
+      {props.path
+        ? `preview of ${props.path} in ${props.dagRunName}/${props.dagRunId}`
+        : 'no selection'}
+    </div>
+  ));
   usePaginatedArtifactsResult.current = {
     items: [],
     error: null,
@@ -175,7 +176,8 @@ function locationSearchParams(): URLSearchParams {
 function renderPage(
   setTitle = vi.fn(),
   configOverrides: Partial<Config> = {},
-  initialEntry = '/artifacts'
+  initialEntry = '/artifacts',
+  selectedRemoteNode = 'local'
 ) {
   const content = () => (
     <MemoryRouter initialEntries={[initialEntry]}>
@@ -191,7 +193,7 @@ function renderPage(
           value={
             {
               setTitle,
-              selectedRemoteNode: 'local',
+              selectedRemoteNode,
               workspaceSelection: { kind: WorkspaceKind.all },
             } as never
           }
@@ -203,7 +205,13 @@ function renderPage(
     </MemoryRouter>
   );
   const view = render(content());
-  return { ...view, rerenderPage: () => view.rerender(content()) };
+  return {
+    ...view,
+    rerenderPage: (remoteNode = selectedRemoteNode) => {
+      selectedRemoteNode = remoteNode;
+      view.rerender(content());
+    },
+  };
 }
 
 function lastQuery(): Record<string, unknown> {
@@ -448,6 +456,38 @@ describe('Artifacts page', () => {
     );
     await user.keyboard('k');
     expect(screen.getByRole('treeitem', { name: 'top' })).toHaveFocus();
+  });
+
+  it('loads only the new remote node selection after switching nodes', async () => {
+    const { ArtifactFilePreview: RealArtifactFilePreview } = await vi.importActual<
+      typeof import('@/features/dags/components/artifacts/ArtifactFilePreview')
+    >('@/features/dags/components/artifacts/ArtifactFilePreview');
+    vi.mocked(ArtifactFilePreview).mockImplementation(RealArtifactFilePreview);
+    const get = vi.fn(async () => ({
+      data: { kind: 'text', content: 'Artifact contents', size: 17 },
+    }));
+    vi.mocked(useClient).mockReturnValue({ GET: get } as never);
+    usePaginatedArtifactsResult.current.items = [makeItem()];
+    const view = renderPage();
+    await screen.findByText('Artifact contents');
+    get.mockClear();
+
+    usePaginatedArtifactsResult.current = {
+      ...usePaginatedArtifactsResult.current,
+      items: [makeItem({ name: 'edge-dag', dagRunId: 'edge-run' })],
+      isInitialLoading: false,
+    };
+    view.rerenderPage('edge');
+    await screen.findByText('Artifact contents');
+    expect(get).toHaveBeenCalledExactlyOnceWith(
+      '/dag-runs/{name}/{dagRunId}/artifacts/preview',
+      expect.objectContaining({
+        params: {
+          path: { name: 'edge-dag', dagRunId: 'edge-run' },
+          query: { remoteNode: 'edge', path: 'out/report.md' },
+        },
+      })
+    );
   });
 
   it('returns from the filename filter without navigating while typing', async () => {
