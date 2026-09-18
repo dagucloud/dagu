@@ -35,6 +35,7 @@ import {
 import { useViews, type View } from '@/hooks/useViews';
 import { ViewSpecType } from '@/api/v1/schema';
 import { ArtifactFilePreview } from '@/features/dags/components/artifacts/ArtifactFilePreview';
+import { useArtifactTreeNavigation } from '@/features/dags/components/artifacts/useArtifactTreeNavigation';
 import { Button } from '@/components/ui/button';
 import { DateRangePicker } from '@/components/ui/date-range-picker';
 import { Input } from '@/components/ui/input';
@@ -217,36 +218,6 @@ function filesToTreeNodes(
   return root;
 }
 
-function collectDirectoryPaths(nodes: FileTreeNode[]): string[] {
-  const paths: string[] = [];
-  for (const node of nodes) {
-    if (node.type === 'directory') {
-      paths.push(node.path);
-      if (node.children) {
-        paths.push(...collectDirectoryPaths(node.children));
-      }
-    }
-  }
-  return paths;
-}
-
-// Only files whose run and directory ancestors are expanded are visible;
-// traversal must not land on hidden rows.
-function collectVisibleFileLeaves(
-  nodes: FileTreeNode[],
-  expandedPaths: Set<string>
-): FileTreeNode[] {
-  const leaves: FileTreeNode[] = [];
-  for (const node of nodes) {
-    if (node.type === 'file') {
-      leaves.push(node);
-    } else if (expandedPaths.has(node.path) && node.children) {
-      leaves.push(...collectVisibleFileLeaves(node.children, expandedPaths));
-    }
-  }
-  return leaves;
-}
-
 function Artifacts() {
   const { ts } = useI18n();
   const appBarContext = React.useContext(AppBarContext);
@@ -318,9 +289,6 @@ function Artifacts() {
     dagRunId: string;
     path: string;
   } | null>(null);
-  const [expandedPaths, setExpandedPaths] = React.useState<Set<string>>(
-    new Set()
-  );
   const loadMoreSentinelRef = React.useRef<HTMLDivElement>(null);
   const autoLoadPendingRef = React.useRef(false);
 
@@ -882,10 +850,14 @@ function Artifacts() {
     query: artifactQuery,
   });
 
-  // Keep the selection and the visible tree in sync with the loaded list:
-  // auto-select the first file of the newest run with files, and expand the
-  // run (and its subdirectories) the selection lives in.
   React.useEffect(() => {
+    setSelected(null);
+  }, [searchStateScope]);
+
+  React.useEffect(() => {
+    if (isInitialLoading) {
+      return;
+    }
     const selectedIsLoaded =
       selected !== null &&
       items.some(
@@ -894,11 +866,10 @@ function Artifacts() {
           item.dagRunId === selected.dagRunId &&
           item.files.some((file) => file.path === selected.path)
       );
-
     if (!selectedIsLoaded) {
       const firstRun = items.find((item) => item.files.length > 0);
       setSelected(
-        firstRun && firstRun.files.length > 0
+        firstRun
           ? {
               name: firstRun.name,
               dagRunId: firstRun.dagRunId,
@@ -906,32 +877,8 @@ function Artifacts() {
             }
           : null
       );
-      return;
     }
-
-    const run = items.find(
-      (item) =>
-        item.name === selected!.name && item.dagRunId === selected!.dagRunId
-    );
-    if (!run) {
-      return;
-    }
-    const dirs = [
-      runTreeRoot(run),
-      ...collectDirectoryPaths(filesToTreeNodes(run.files, runTreeRoot(run))),
-    ];
-    setExpandedPaths((previous) => {
-      const next = new Set(previous);
-      let changed = false;
-      for (const dir of dirs) {
-        if (!next.has(dir)) {
-          next.add(dir);
-          changed = true;
-        }
-      }
-      return changed ? next : previous;
-    });
-  }, [items, selected]);
+  }, [items, selected, isInitialLoading]);
 
   const canAutoLoadMore = typeof IntersectionObserver !== 'undefined';
   useAutoLoadMore(
@@ -985,119 +932,42 @@ function Artifacts() {
   const selectedNodeSyntheticPath =
     selected !== null ? `${runTreeRoot(selected)}/${selected.path}` : null;
 
-  // Flat, depth-first ordered list of every visible file (expanded runs and
-  // directories only), matching the tree rendering order, for keyboard
-  // navigation across runs.
-  const fileRefs = React.useMemo(
+  const treeNodes = React.useMemo<FileTreeNode[]>(
     () =>
-      items.flatMap((item) => {
-        const root = runTreeRoot(item);
-        if (!expandedPaths.has(root)) {
-          return [];
-        }
-        return collectVisibleFileLeaves(
-          filesToTreeNodes(item.files, root),
-          expandedPaths
-        ).map((node) => ({
+      items.map((item) => ({
+        name: item.name,
+        path: runTreeRoot(item),
+        type: 'directory',
+        children: filesToTreeNodes(item.files, runTreeRoot(item)),
+      })),
+    [items]
+  );
+  const filenameFilterRef = React.useRef<HTMLInputElement>(null);
+  const navigation = useArtifactTreeNavigation({
+    nodes: treeNodes,
+    selectedPath: selectedNodeSyntheticPath,
+    scope: searchStateScope,
+    ready: !isInitialLoading,
+    autoFocus: true,
+    onSearch: () => filenameFilterRef.current?.focus(),
+    onSelect: (path) => {
+      const item = items.find((item) =>
+        path.startsWith(`${runTreeRoot(item)}/`)
+      );
+      if (item) {
+        setSelected({
           name: item.name,
           dagRunId: item.dagRunId,
-          path: node.path.slice(root.length + 1),
-        }));
-      }),
-    [expandedPaths, items]
-  );
-
-  const listContainerRef = React.useRef<HTMLDivElement>(null);
-  const filterBarRef = React.useRef<HTMLDivElement>(null);
-
-  const moveSelection = React.useCallback(
-    (delta: number) => {
-      if (fileRefs.length === 0) {
-        return;
-      }
-      const currentIndex = selected
-        ? fileRefs.findIndex(
-            (file) =>
-              file.name === selected.name &&
-              file.dagRunId === selected.dagRunId &&
-              file.path === selected.path
-          )
-        : -1;
-      const nextIndex = Math.min(
-        Math.max(currentIndex + delta, 0),
-        fileRefs.length - 1
-      );
-      const next = fileRefs[nextIndex];
-      if (
-        next &&
-        (next.name !== selected?.name ||
-          next.dagRunId !== selected?.dagRunId ||
-          next.path !== selected?.path)
-      ) {
-        setSelected(next);
+          path: path.slice(runTreeRoot(item).length + 1),
+        });
       }
     },
-    [fileRefs, selected]
+  });
+  const focusedRun = items.find(
+    (item) =>
+      navigation.focusedPath === runTreeRoot(item) ||
+      navigation.focusedPath?.startsWith(`${runTreeRoot(item)}/`)
   );
-
-  // Cursor up/down and j/k move the selected file.
-  React.useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (
-        (target !== null &&
-          (target.tagName === 'INPUT' ||
-            target.tagName === 'TEXTAREA' ||
-            target.tagName === 'SELECT' ||
-            target.isContentEditable)) ||
-        (target instanceof Node && filterBarRef.current?.contains(target)) ||
-        (target instanceof HTMLElement &&
-          target.closest('[role="listbox"]') !== null)
-      ) {
-        return;
-      }
-
-      let delta: number | null = null;
-      switch (event.key) {
-        case 'ArrowDown':
-        case 'j':
-          delta = 1;
-          break;
-        case 'ArrowUp':
-        case 'k':
-          delta = -1;
-          break;
-        default:
-          return;
-      }
-      if (fileRefs.length === 0) {
-        return;
-      }
-      event.preventDefault();
-      moveSelection(delta);
-    };
-
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [fileRefs.length, moveSelection]);
-
-  // Keep the moved-to file visible inside the list's scroll container.
-  React.useEffect(() => {
-    if (!selectedNodeSyntheticPath || !listContainerRef.current) {
-      return;
-    }
-    for (const el of listContainerRef.current.querySelectorAll(
-      '[data-artifact-path]'
-    )) {
-      if (
-        el instanceof HTMLElement &&
-        el.dataset.artifactPath === selectedNodeSyntheticPath
-      ) {
-        el.scrollIntoView({ block: 'nearest' });
-        break;
-      }
-    }
-  }, [selected, selectedNodeSyntheticPath]);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -1139,10 +1009,7 @@ function Artifacts() {
           {artifactViewError}
         </p>
       )}
-      <div
-        ref={filterBarRef}
-        className="mb-3 space-y-3 rounded-lg border border-border bg-card/50 p-3"
-      >
+      <div className="mb-3 space-y-3 rounded-lg border border-border bg-card/50 p-3">
         <div className="flex flex-wrap items-center gap-2">
           <I18nProps>
             <Input
@@ -1155,10 +1022,18 @@ function Artifacts() {
           </I18nProps>
           <I18nProps>
             <Input
+              ref={filenameFilterRef}
               placeholder="Filter by file name..."
               value={fileNameText}
               onChange={(e) => setFileNameText(e.target.value)}
-              onKeyDown={handleInputKeyPress}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape' && !event.nativeEvent.isComposing) {
+                  event.preventDefault();
+                  navigation.returnToTree();
+                } else {
+                  handleInputKeyPress(event);
+                }
+              }}
               className="w-[200px]"
             />
           </I18nProps>
@@ -1291,36 +1166,26 @@ function Artifacts() {
                 </p>
               </div>
             </div>
-            <div
-              ref={listContainerRef}
-              className="min-h-0 flex-1 overflow-auto p-2"
-            >
-              <div className="space-y-0.5">
-                {items.map((item) => {
+            <div className="min-h-0 flex-1 overflow-auto p-2">
+              <div
+                {...navigation.treeProps}
+                aria-label={ts('Artifacts')}
+                className="space-y-0.5"
+              >
+                {items.map((item, index) => {
                   const root = runTreeRoot(item);
-                  const nodes = filesToTreeNodes(item.files, root);
-                  const isOpen = expandedPaths.has(root);
+                  const treeNode = treeNodes[index]!;
+                  const nodes = treeNode.children ?? [];
+                  const isOpen = navigation.expandedPaths.has(root);
                   const Icon = isOpen ? FolderOpen : Folder;
                   return (
-                    <div key={runKey(item)}>
+                    <div
+                      key={runKey(item)}
+                      {...navigation.getItemProps(treeNode)}
+                    >
                       <div className="group/run flex items-center gap-1 rounded-md transition-colors hover:bg-muted">
-                        <button
-                          type="button"
+                        <div
                           title={item.name}
-                          onClick={() => {
-                            setExpandedPaths((previous) => {
-                              const next = new Set(previous);
-                              if (next.has(root)) {
-                                next.delete(root);
-                                return next;
-                              }
-                              next.add(root);
-                              for (const dir of collectDirectoryPaths(nodes)) {
-                                next.add(dir);
-                              }
-                              return next;
-                            });
-                          }}
                           className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-foreground transition-colors"
                         >
                           <Icon className="h-4 w-4 shrink-0" />
@@ -1334,9 +1199,10 @@ function Artifacts() {
                                 })
                               : '—'}
                           </span>
-                        </button>
+                        </div>
                         <Link
                           to={`/dag-runs/${item.name}/${item.dagRunId}`}
+                          tabIndex={-1}
                           className="mr-1 shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                           title="Open DAG run"
                           aria-label={`Open DAG run ${item.name}`}
@@ -1349,34 +1215,15 @@ function Artifacts() {
                         {formatTimestamp(item.createdAt)} · {item.dagRunId}
                       </span>
                       {isOpen && nodes.length > 0 && (
-                        <div className="space-y-0.5">
+                        <div role="group" className="space-y-0.5">
                           {nodes.map((node) => (
                             <TreeNode
                               key={node.path}
                               node={node}
                               depth={1}
                               rootPrefix={root}
-                              expandedPaths={expandedPaths}
+                              navigation={navigation}
                               selectedPath={selectedNodeSyntheticPath}
-                              onToggleDir={(path) => {
-                                setExpandedPaths((previous) => {
-                                  const next = new Set(previous);
-                                  if (next.has(path)) {
-                                    next.delete(path);
-                                  } else {
-                                    next.add(path);
-                                  }
-                                  return next;
-                                });
-                              }}
-                              onSelectFile={(path) => {
-                                const realPath = path.slice(root.length + 1);
-                                setSelected({
-                                  name: item.name,
-                                  dagRunId: item.dagRunId,
-                                  path: realPath,
-                                });
-                              }}
                             />
                           ))}
                         </div>
@@ -1387,7 +1234,19 @@ function Artifacts() {
               </div>
               <div ref={loadMoreSentinelRef} className="h-4 w-full" />
             </div>
-            <div className="p-2">
+            <div className="space-y-2 p-2">
+              <p className="text-xs text-muted-foreground">
+                <I18nText text="↑↓ / j k navigate · ←→ folders · Enter preview · / filter" />
+              </p>
+              {focusedRun && (
+                <Link
+                  className="inline-flex items-center gap-1 rounded text-xs text-primary focus-visible:ring-2 focus-visible:ring-ring"
+                  to={`/dag-runs/${focusedRun.name}/${focusedRun.dagRunId}`}
+                >
+                  <LinkIcon className="h-3 w-3" />
+                  <I18nText text="Open DAG run" />
+                </Link>
+              )}
               {loadMoreError && (
                 <div className="text-sm text-error">{loadMoreError}</div>
               )}
@@ -1418,6 +1277,8 @@ function Artifacts() {
           </div>
 
           <ArtifactFilePreview
+            contentRef={navigation.previewRef}
+            onReturnToFiles={navigation.returnToTree}
             dagRunName={selected?.name ?? ''}
             dagRunId={selected?.dagRunId ?? ''}
             path={selected?.path ?? null}
@@ -1434,21 +1295,17 @@ function TreeNode({
   node,
   depth,
   rootPrefix,
-  expandedPaths,
+  navigation,
   selectedPath,
-  onToggleDir,
-  onSelectFile,
 }: {
   node: FileTreeNode;
   depth: number;
   rootPrefix: string;
-  expandedPaths: Set<string>;
+  navigation: ReturnType<typeof useArtifactTreeNavigation>;
   selectedPath: string | null;
-  onToggleDir: (path: string) => void;
-  onSelectFile: (path: string) => void;
 }) {
   const isDir = node.type === 'directory';
-  const isOpen = isDir && expandedPaths.has(node.path);
+  const isOpen = isDir && navigation.expandedPaths.has(node.path);
   const isSelected = !isDir && selectedPath === node.path;
   const displayPath = node.path.slice(rootPrefix.length + 1);
 
@@ -1465,17 +1322,8 @@ function TreeNode({
           : File;
 
   return (
-    <div>
-      <button
-        type="button"
-        title={displayPath}
-        onClick={() => {
-          if (isDir) {
-            onToggleDir(node.path);
-            return;
-          }
-          onSelectFile(node.path);
-        }}
+    <div {...navigation.getItemProps(node)} title={displayPath}>
+      <div
         className={cn(
           'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
           isSelected
@@ -1492,19 +1340,17 @@ function TreeNode({
             {Intl.NumberFormat().format(node.size)}
           </span>
         )}
-      </button>
+      </div>
       {isDir && isOpen && node.children && node.children.length > 0 && (
-        <div className="space-y-0.5">
+        <div role="group" className="space-y-0.5">
           {node.children.map((child) => (
             <TreeNode
               key={child.path}
               node={child}
               depth={depth + 1}
               rootPrefix={rootPrefix}
-              expandedPaths={expandedPaths}
+              navigation={navigation}
               selectedPath={selectedPath}
-              onToggleDir={onToggleDir}
-              onSelectFile={onSelectFile}
             />
           ))}
         </div>

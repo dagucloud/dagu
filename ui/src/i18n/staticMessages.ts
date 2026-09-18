@@ -4,6 +4,11 @@
 import type { Locale } from '@/contexts/UserPreference';
 
 const english = {
+  'Artifact preview': 'Artifact preview',
+  'Open DAG run': 'Open DAG run',
+  'Back to files': 'Back to files',
+  '↑↓ / j k navigate · ←→ folders · Enter preview': '↑↓ / j k navigate · ←→ folders · Enter preview',
+  '↑↓ / j k navigate · ←→ folders · Enter preview · / filter': '↑↓ / j k navigate · ←→ folders · Enter preview · / filter',
   'Incoming webhook': 'Incoming webhook',
   'Bot destination': 'Bot destination',
   'Webhook destination': 'Webhook destination',
@@ -2238,6 +2243,11 @@ export type StaticMessage = keyof typeof english;
 export type StaticTranslationValues = Record<string, string | number>;
 
 const chinese = {
+  'Artifact preview': '产物预览',
+  'Open DAG run': '打开 DAG 运行',
+  'Back to files': '返回文件列表',
+  '↑↓ / j k navigate · ←→ folders · Enter preview': '↑↓ / j k 导航 · ←→ 文件夹 · Enter 预览',
+  '↑↓ / j k navigate · ←→ folders · Enter preview · / filter': '↑↓ / j k 导航 · ←→ 文件夹 · Enter 预览 · / 筛选',
   'Incoming webhook': '传入 Webhook',
   'Bot destination': '机器人通知目标',
   'Webhook destination': 'Webhook 通知目标',
@@ -4410,6 +4420,11 @@ const chinese = {
 } as const satisfies Record<StaticMessage, string>;
 
 const japanese = {
+  'Artifact preview': '成果物プレビュー',
+  'Open DAG run': 'DAG 実行を開く',
+  'Back to files': 'ファイル一覧に戻る',
+  '↑↓ / j k navigate · ←→ folders · Enter preview': '↑↓ / j k 移動 · ←→ フォルダー · Enter プレビュー',
+  '↑↓ / j k navigate · ←→ folders · Enter preview · / filter': '↑↓ / j k 移動 · ←→ フォルダー · Enter プレビュー · / 絞り込み',
   'Incoming webhook': '受信用 Webhook',
   'Bot destination': 'Bot の通知先',
   'Webhook destination': 'Webhook の通知先',

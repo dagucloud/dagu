@@ -18,6 +18,7 @@ import {
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { components } from '../../../../api/v1/schema';
 import { ArtifactFilePreview } from './ArtifactFilePreview';
+import { useArtifactTreeNavigation } from './useArtifactTreeNavigation';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 import { I18nTemplate } from '@/i18n/I18nTemplate';
@@ -32,19 +33,6 @@ type Props = {
   className?: string;
   fillHeight?: boolean;
 };
-
-function collectDirectoryPaths(nodes: ArtifactTreeNode[]): string[] {
-  const paths: string[] = [];
-  for (const node of nodes) {
-    if (node.type === 'directory') {
-      paths.push(node.path);
-      if (node.children) {
-        paths.push(...collectDirectoryPaths(node.children));
-      }
-    }
-  }
-  return paths;
-}
 
 function findFirstFile(nodes: ArtifactTreeNode[]): ArtifactTreeNode | null {
   for (const node of nodes) {
@@ -75,20 +63,16 @@ function flattenNodes(nodes: ArtifactTreeNode[]): ArtifactTreeNode[] {
 function TreeNode({
   node,
   depth,
-  openDirs,
+  navigation,
   selectedPath,
-  onToggleDir,
-  onSelectFile,
 }: {
   node: ArtifactTreeNode;
   depth: number;
-  openDirs: Set<string>;
+  navigation: ReturnType<typeof useArtifactTreeNavigation>;
   selectedPath: string | null;
-  onToggleDir: (path: string) => void;
-  onSelectFile: (path: string) => void;
 }) {
   const isDir = node.type === 'directory';
-  const isOpen = isDir && openDirs.has(node.path);
+  const isOpen = isDir && navigation.expandedPaths.has(node.path);
   const isSelected = !isDir && selectedPath === node.path;
 
   const Icon = isDir
@@ -104,16 +88,8 @@ function TreeNode({
           : File;
 
   return (
-    <div>
-      <button
-        type="button"
-        onClick={() => {
-          if (isDir) {
-            onToggleDir(node.path);
-            return;
-          }
-          onSelectFile(node.path);
-        }}
+    <div {...navigation.getItemProps(node)}>
+      <div
         className={cn(
           'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
           isSelected
@@ -129,18 +105,16 @@ function TreeNode({
             {Intl.NumberFormat().format(node.size)}
           </span>
         )}
-      </button>
+      </div>
       {isDir && isOpen && node.children && node.children.length > 0 && (
-        <div className="space-y-0.5">
+        <div role="group" className="space-y-0.5">
           {node.children.map((child) => (
             <TreeNode
               key={child.path}
               node={child}
               depth={depth + 1}
-              openDirs={openDirs}
+              navigation={navigation}
               selectedPath={selectedPath}
-              onToggleDir={onToggleDir}
-              onSelectFile={onSelectFile}
             />
           ))}
         </div>
@@ -168,13 +142,27 @@ export default function ArtifactsTab({
   const [treeError, setTreeError] = useState<string | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [previewVersion, setPreviewVersion] = useState(0);
-  const [openDirs, setOpenDirs] = useState<Set<string>>(new Set());
   const treeRequestRef = useRef<{
     id: number;
     controller: AbortController | null;
   }>({ id: 0, controller: null });
 
   const allNodes = useMemo(() => flattenNodes(tree), [tree]);
+  const scope = JSON.stringify([
+    remoteNode,
+    dagRun.name,
+    dagRun.dagRunId,
+    dagRun.rootDAGRunName,
+    dagRun.rootDAGRunId,
+  ]);
+  const loadedScopeRef = useRef<string | null>(null);
+  const navigation = useArtifactTreeNavigation({
+    nodes: tree,
+    selectedPath,
+    onSelect: setSelectedPath,
+    scope,
+    ready: !treeLoading,
+  });
 
   const requestArtifactTree = async (signal?: AbortSignal) => {
     if (isSubDAGRun) {
@@ -213,7 +201,6 @@ export default function ArtifactsTab({
     if (!dagRun.artifactsAvailable) {
       treeRequestRef.current = { id: requestId, controller: null };
       setTree([]);
-      setOpenDirs(new Set());
       setSelectedPath(null);
       setTreeError(null);
       setTreeLoading(false);
@@ -230,6 +217,9 @@ export default function ArtifactsTab({
 
     setTreeLoading(true);
     setTreeError(null);
+    if (loadedScopeRef.current !== scope) {
+      setSelectedPath(null);
+    }
     try {
       const request = await requestArtifactTree(controller.signal);
 
@@ -239,7 +229,6 @@ export default function ArtifactsTab({
 
       if (request.error) {
         setTree([]);
-        setOpenDirs(new Set());
         setSelectedPath(null);
         setTreeError(request.error.message || 'Failed to load artifacts');
         return;
@@ -248,8 +237,9 @@ export default function ArtifactsTab({
       const items = request.data?.items ?? [];
       const nextNodes = flattenNodes(items);
       setTree(items);
-      setOpenDirs(new Set(collectDirectoryPaths(items)));
 
+      const sameScope = loadedScopeRef.current === scope;
+      loadedScopeRef.current = scope;
       const firstFile = findFirstFile(items);
       if (!firstFile) {
         setSelectedPath(null);
@@ -257,6 +247,7 @@ export default function ArtifactsTab({
       }
 
       if (
+        sameScope &&
         selectedPath &&
         nextNodes.some((node) => node.path === selectedPath)
       ) {
@@ -271,7 +262,6 @@ export default function ArtifactsTab({
       }
 
       setTree([]);
-      setOpenDirs(new Set());
       setSelectedPath(null);
       setTreeError(
         error instanceof Error ? error.message : 'Failed to load artifacts'
@@ -396,34 +386,33 @@ export default function ArtifactsTab({
               />
             </div>
           ) : (
-            <div className="space-y-0.5">
+            <div
+              {...navigation.treeProps}
+              aria-label={ts('Artifacts')}
+              className="space-y-0.5"
+            >
               {tree.map((node) => (
                 <TreeNode
                   key={node.path}
                   node={node}
                   depth={0}
-                  openDirs={openDirs}
+                  navigation={navigation}
                   selectedPath={selectedPath}
-                  onToggleDir={(path) => {
-                    setOpenDirs((current) => {
-                      const next = new Set(current);
-                      if (next.has(path)) {
-                        next.delete(path);
-                      } else {
-                        next.add(path);
-                      }
-                      return next;
-                    });
-                  }}
-                  onSelectFile={setSelectedPath}
                 />
               ))}
             </div>
           )}
         </div>
+        {tree.length > 0 && (
+          <p className="px-3 pb-2 text-xs text-muted-foreground">
+            <I18nText text="↑↓ / j k navigate · ←→ folders · Enter preview" />
+          </p>
+        )}
       </div>
 
       <ArtifactFilePreview
+        contentRef={navigation.previewRef}
+        onReturnToFiles={navigation.returnToTree}
         dagRunName={isSubDAGRun ? dagRun.rootDAGRunName! : dagRun.name}
         dagRunId={isSubDAGRun ? dagRun.rootDAGRunId! : dagRun.dagRunId}
         subDAGRunId={isSubDAGRun ? dagRun.dagRunId : null}

@@ -176,8 +176,8 @@ function renderPage(
   setTitle = vi.fn(),
   configOverrides: Partial<Config> = {},
   initialEntry = '/artifacts'
-): void {
-  render(
+) {
+  const content = () => (
     <MemoryRouter initialEntries={[initialEntry]}>
       <ConfigContext.Provider
         value={
@@ -202,6 +202,8 @@ function renderPage(
       </ConfigContext.Provider>
     </MemoryRouter>
   );
+  const view = render(content());
+  return { ...view, rerenderPage: () => view.rerender(content()) };
 }
 
 function lastQuery(): Record<string, unknown> {
@@ -283,13 +285,15 @@ describe('Artifacts page', () => {
     renderPage();
 
     expect(
-      screen.getByRole('button', { name: /reporter/ })
+      screen.getByRole('treeitem', { name: /reporter/ })
     ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /ingest/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole('treeitem', { name: /ingest/ })
+    ).toBeInTheDocument();
     // The newest run with files opens automatically; its first file is
     // selected so the preview pane shows something immediately.
     expect(
-      screen.getByRole('button', { name: /report\.md/ })
+      screen.getByRole('treeitem', { name: /report\.md/ })
     ).toBeInTheDocument();
     expect(
       screen.getByText('preview of out/report.md in reporter/run-1')
@@ -307,7 +311,7 @@ describe('Artifacts page', () => {
     usePaginatedArtifactsResult.current.items = [makeItem()];
     renderPage();
 
-    fireEvent.click(screen.getByRole('button', { name: /plot\.png/ }));
+    fireEvent.click(screen.getByRole('treeitem', { name: /plot\.png/ }));
 
     expect(
       screen.getByText('preview of out/plot.png in reporter/run-1')
@@ -326,13 +330,14 @@ describe('Artifacts page', () => {
     renderPage();
 
     expect(
-      screen.queryByRole('button', { name: /raw\.json/ })
+      screen.queryByRole('treeitem', { name: /raw\.json/ })
     ).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /oldest/ }));
+    fireEvent.click(screen.getByRole('treeitem', { name: /oldest/ }));
+    fireEvent.click(screen.getByRole('treeitem', { name: 'top' }));
 
     expect(
-      screen.getByRole('button', { name: /raw\.json/ })
+      screen.getByRole('treeitem', { name: /raw\.json/ })
     ).toBeInTheDocument();
     // The selection is untouched by expanding another run.
     expect(
@@ -385,12 +390,12 @@ describe('Artifacts page', () => {
       screen.getByText('preview of out/report.md in reporter/run-1')
     ).toBeInTheDocument();
 
-    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown' });
     expect(
       screen.getByText('preview of out/plot.png in reporter/run-1')
     ).toBeInTheDocument();
 
-    fireEvent.keyDown(window, { key: 'ArrowUp' });
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowUp' });
     expect(
       screen.getByText('preview of out/report.md in reporter/run-1')
     ).toBeInTheDocument();
@@ -400,34 +405,173 @@ describe('Artifacts page', () => {
     usePaginatedArtifactsResult.current.items = [makeItem()];
     renderPage();
 
-    fireEvent.keyDown(window, { key: 'j' });
+    fireEvent.keyDown(document.activeElement!, { key: 'j' });
     expect(
       screen.getByText('preview of out/plot.png in reporter/run-1')
     ).toBeInTheDocument();
 
-    fireEvent.keyDown(window, { key: 'k' });
+    fireEvent.keyDown(document.activeElement!, { key: 'k' });
     expect(
       screen.getByText('preview of out/report.md in reporter/run-1')
     ).toBeInTheDocument();
   });
 
-  it('clamps navigation at the first and last file', () => {
+  it('focuses files and collapsed runs with j and k', async () => {
+    const user = userEvent.setup();
+    usePaginatedArtifactsResult.current.items = [
+      makeItem(),
+      makeItem({
+        name: 'oldest',
+        dagRunId: 'run-9',
+        files: [{ path: 'top/raw.json', size: 7 }],
+      }),
+    ];
+    renderPage();
+
+    expect(screen.getByRole('treeitem', { name: 'report.md' })).toHaveFocus();
+    await user.keyboard('j');
+    expect(screen.getByRole('treeitem', { name: 'plot.png' })).toHaveFocus();
+    await user.keyboard('j');
+    const olderRun = screen.getByRole('treeitem', { name: 'oldest' });
+    expect(olderRun).toHaveFocus();
+    expect(olderRun).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByTestId('preview-pane')).toHaveTextContent(
+      'out/plot.png'
+    );
+
+    await user.keyboard('{ArrowRight}{ArrowRight}');
+    expect(screen.getByRole('treeitem', { name: 'top' })).toHaveFocus();
+    await user.keyboard('{ArrowRight}{ArrowRight}');
+    expect(screen.getByRole('treeitem', { name: 'raw.json' })).toHaveFocus();
+    expect(screen.getByTestId('preview-pane')).toHaveTextContent(
+      'oldest/run-9'
+    );
+    await user.keyboard('k');
+    expect(screen.getByRole('treeitem', { name: 'top' })).toHaveFocus();
+  });
+
+  it('returns from the filename filter without navigating while typing', async () => {
+    const user = userEvent.setup();
     usePaginatedArtifactsResult.current.items = [makeItem()];
     renderPage();
 
-    fireEvent.keyDown(window, { key: 'ArrowUp' });
-    expect(
-      screen.getByText('preview of out/report.md in reporter/run-1')
-    ).toBeInTheDocument();
-
-    fireEvent.keyDown(window, { key: 'ArrowDown' });
-    fireEvent.keyDown(window, { key: 'ArrowDown' });
-    expect(
-      screen.getByText('preview of out/plot.png in reporter/run-1')
-    ).toBeInTheDocument();
+    await user.keyboard('/');
+    const input = screen.getByPlaceholderText('Filter by file name...');
+    expect(input).toHaveFocus();
+    await user.keyboard('jk');
+    expect(input).toHaveValue('jk');
+    expect(screen.getByTestId('preview-pane')).toHaveTextContent(
+      'out/report.md'
+    );
+    await user.keyboard('{Escape}');
+    expect(screen.getByRole('treeitem', { name: 'report.md' })).toHaveFocus();
   });
 
-  it('navigates files in the rendered tree order across directories', () => {
+  it('leaves and reenters the tree with a single tab stop', async () => {
+    const user = userEvent.setup();
+    usePaginatedArtifactsResult.current.items = [makeItem()];
+    renderPage();
+
+    await user.keyboard('j');
+    await user.tab();
+    expect(screen.getByRole('link', { name: 'Open DAG run' })).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(screen.getByRole('treeitem', { name: 'plot.png' })).toHaveFocus();
+  });
+
+  it('does not steal focus when loading completes after typing', async () => {
+    const user = userEvent.setup();
+    usePaginatedArtifactsResult.current.isInitialLoading = true;
+    const view = renderPage();
+    const input = screen.getByPlaceholderText('Filter by file name...');
+    await user.type(input, 'j');
+
+    usePaginatedArtifactsResult.current.isInitialLoading = false;
+    usePaginatedArtifactsResult.current.items = [makeItem()];
+    view.rerenderPage();
+    expect(input).toHaveFocus();
+    expect(input).toHaveValue('j');
+    expect(screen.getByRole('treeitem', { name: 'report.md' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+  });
+
+  it('focuses the selected file when initial loading completes', () => {
+    usePaginatedArtifactsResult.current.isInitialLoading = true;
+    const view = renderPage();
+    usePaginatedArtifactsResult.current.isInitialLoading = false;
+    usePaginatedArtifactsResult.current.items = [makeItem()];
+    view.rerenderPage();
+    expect(screen.getByRole('treeitem', { name: 'report.md' })).toHaveFocus();
+  });
+
+  it('preserves focus and collapsed branches after refresh and pagination', async () => {
+    const user = userEvent.setup();
+    usePaginatedArtifactsResult.current.items = [makeItem()];
+    const view = renderPage();
+    await user.keyboard('{ArrowLeft}{ArrowLeft}');
+    expect(screen.getByRole('treeitem', { name: 'out' })).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    );
+
+    usePaginatedArtifactsResult.current.items = [
+      makeItem(),
+      makeItem({ name: 'other', dagRunId: 'run-2' }),
+    ];
+    view.rerenderPage();
+    expect(screen.getByRole('treeitem', { name: 'out' })).toHaveFocus();
+    expect(screen.getByRole('treeitem', { name: 'out' })).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    );
+    expect(screen.getByTestId('preview-pane')).toHaveTextContent(
+      'out/report.md'
+    );
+    await user.keyboard('j');
+    expect(screen.getByRole('treeitem', { name: 'other' })).toHaveFocus();
+  });
+
+  it('recovers focus to the parent when a file disappears', async () => {
+    const user = userEvent.setup();
+    usePaginatedArtifactsResult.current.items = [makeItem()];
+    const view = renderPage();
+    await user.keyboard('j');
+    usePaginatedArtifactsResult.current.items = [
+      makeItem({ files: [{ path: 'out/report.md', size: 42 }] }),
+    ];
+    view.rerenderPage();
+    expect(screen.getByRole('treeitem', { name: 'out' })).toHaveFocus();
+    expect(screen.getByTestId('preview-pane')).toHaveTextContent(
+      'out/report.md'
+    );
+  });
+
+  it('ignores modified and composing navigation keys', async () => {
+    const user = userEvent.setup();
+    usePaginatedArtifactsResult.current.items = [makeItem()];
+    renderPage();
+    await user.keyboard(
+      '{Control>}j{/Control}{Alt>}{ArrowDown}{/Alt}{Shift>}K{/Shift}'
+    );
+    fireEvent.keyDown(document.activeElement!, { key: 'j', isComposing: true });
+    expect(screen.getByRole('treeitem', { name: 'report.md' })).toHaveFocus();
+  });
+
+  it('clamps navigation at the first and last visible row', async () => {
+    const user = userEvent.setup();
+    usePaginatedArtifactsResult.current.items = [makeItem()];
+    renderPage();
+
+    await user.keyboard('{Home}k{ArrowUp}');
+    expect(screen.getByRole('treeitem', { name: 'reporter' })).toHaveFocus();
+    await user.keyboard('{End}j{ArrowDown}');
+    expect(screen.getByRole('treeitem', { name: 'plot.png' })).toHaveFocus();
+  });
+
+  it('navigates in rendered order and preserves collapsed folders', async () => {
+    const user = userEvent.setup();
     usePaginatedArtifactsResult.current.items = [
       makeItem({
         files: [
@@ -439,21 +583,17 @@ describe('Artifacts page', () => {
     ];
     renderPage();
 
-    // Tree shows out/, a.txt, c.txt, logs/, b.txt; the first file is the
-    // first one rendered (a.txt) regardless of API order.
-    expect(
-      screen.getByText('preview of out/a.txt in reporter/run-1')
-    ).toBeInTheDocument();
-
-    fireEvent.keyDown(window, { key: 'j' });
-    expect(
-      screen.getByText('preview of out/c.txt in reporter/run-1')
-    ).toBeInTheDocument();
-
-    fireEvent.keyDown(window, { key: 'j' });
-    expect(
-      screen.getByText('preview of logs/b.txt in reporter/run-1')
-    ).toBeInTheDocument();
+    await user.keyboard('j');
+    expect(screen.getByRole('treeitem', { name: 'c.txt' })).toHaveFocus();
+    await user.keyboard('j');
+    const logs = screen.getByRole('treeitem', { name: 'logs' });
+    expect(logs).toHaveFocus();
+    expect(logs).toHaveAttribute('aria-expanded', 'false');
+    await user.keyboard('{Enter}j');
+    expect(screen.getByRole('treeitem', { name: 'b.txt' })).toHaveFocus();
+    await user.keyboard('{ArrowLeft}{ArrowLeft}k');
+    expect(screen.getByRole('treeitem', { name: 'c.txt' })).toHaveFocus();
+    expect(logs).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('ignores navigation keys from the filter bar', () => {
@@ -469,43 +609,14 @@ describe('Artifacts page', () => {
     ).toBeInTheDocument();
   });
 
-  it('does not navigate into collapsed runs until they are expanded', () => {
-    usePaginatedArtifactsResult.current.items = [
-      makeItem(),
-      makeItem({
-        name: 'oldest',
-        dagRunId: 'run-9',
-        files: [{ path: 'top/raw.json', size: 7 }],
-      }),
-    ];
-    renderPage();
-
-    fireEvent.keyDown(window, { key: 'ArrowDown' });
-    expect(
-      screen.getByText('preview of out/plot.png in reporter/run-1')
-    ).toBeInTheDocument();
-    // The last visible file: the collapsed run's file is not reachable.
-    fireEvent.keyDown(window, { key: 'ArrowDown' });
-    expect(
-      screen.getByText('preview of out/plot.png in reporter/run-1')
-    ).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: /oldest/ }));
-    fireEvent.keyDown(window, { key: 'ArrowDown' });
-    expect(
-      screen.getByText('preview of top/raw.json in oldest/run-9')
-    ).toBeInTheDocument();
-  });
-
   it('shows the real artifact path in file tooltips', () => {
     usePaginatedArtifactsResult.current.items = [makeItem()];
     renderPage();
 
-    expect(screen.getByRole('button', { name: /report\.md/ })).toHaveAttribute(
-      'title',
-      'out/report.md'
-    );
-    expect(screen.getByRole('button', { name: /plot\.png/ })).toHaveAttribute(
+    expect(
+      screen.getByRole('treeitem', { name: /report\.md/ })
+    ).toHaveAttribute('title', 'out/report.md');
+    expect(screen.getByRole('treeitem', { name: /plot\.png/ })).toHaveAttribute(
       'title',
       'out/plot.png'
     );
