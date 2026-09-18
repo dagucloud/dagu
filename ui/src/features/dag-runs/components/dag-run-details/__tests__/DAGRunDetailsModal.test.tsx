@@ -32,51 +32,59 @@ afterEach(() => {
 });
 
 describe('DAGRunDetailsModal', () => {
-  it('navigates histories and prevents scrolling', () => {
-    vi.mocked(useBoundedDAGRunDetails).mockReturnValue({
-      data: { dagRunId: 'run-1', name: 'example' },
-      isLoading: false,
-      isValidating: false,
-      refresh: vi.fn(),
-    } as unknown as ReturnType<typeof useBoundedDAGRunDetails>);
-    const onNavigate = vi.fn();
-    render(
-      <MemoryRouter>
-        <DAGRunDetailsModal
-          name="example"
-          dagRunId="run-1"
-          isOpen
-          onClose={vi.fn()}
-          onNavigate={onNavigate}
-        />
-      </MemoryRouter>
-    );
-    for (const [key, direction] of [
-      ['ArrowDown', 'down'],
-      ['ArrowUp', 'up'],
-    ]) {
-      const event = new KeyboardEvent('keydown', {
-        key,
-        bubbles: true,
-        cancelable: true,
-      });
-      fireEvent(window, event);
-      expect(onNavigate).toHaveBeenLastCalledWith(direction);
-      expect(event.defaultPrevented).toBe(true);
+  it.each(['input', 'textarea', 'select'])(
+    'navigates histories but leaves %s arrow keys alone',
+    (tagName) => {
+      vi.mocked(useBoundedDAGRunDetails).mockReturnValue({
+        data: { dagRunId: 'run-1', name: 'example' },
+        isLoading: false,
+        isValidating: false,
+        refresh: vi.fn(),
+      } as unknown as ReturnType<typeof useBoundedDAGRunDetails>);
+      const onNavigate = vi.fn();
+      render(
+        <MemoryRouter>
+          <DAGRunDetailsModal
+            name="example"
+            dagRunId="run-1"
+            isOpen
+            onClose={vi.fn()}
+            onNavigate={onNavigate}
+          />
+        </MemoryRouter>
+      );
+      for (const [key, direction] of [
+        ['ArrowDown', 'down'],
+        ['ArrowUp', 'up'],
+      ]) {
+        const event = new KeyboardEvent('keydown', {
+          key,
+          bubbles: true,
+          cancelable: true,
+        });
+        fireEvent(window, event);
+        expect(onNavigate).toHaveBeenLastCalledWith(direction);
+        expect(event.defaultPrevented).toBe(true);
+      }
+      const input = document.createElement(tagName);
+      document.body.appendChild(input);
+      input.focus();
+      try {
+        for (const key of ['ArrowDown', 'ArrowUp']) {
+          const event = new KeyboardEvent('keydown', {
+            key,
+            bubbles: true,
+            cancelable: true,
+          });
+          fireEvent(input, event);
+          expect(event.defaultPrevented).toBe(false);
+          expect(onNavigate).toHaveBeenCalledTimes(2);
+        }
+      } finally {
+        input.remove();
+      }
     }
-    const input = document.createElement('input');
-    document.body.appendChild(input);
-    input.focus();
-    const event = new KeyboardEvent('keydown', {
-      key: 'ArrowDown',
-      bubbles: true,
-      cancelable: true,
-    });
-    fireEvent(input, event);
-    expect(event.defaultPrevented).toBe(false);
-    expect(onNavigate).toHaveBeenCalledTimes(2);
-    input.remove();
-  });
+  );
 
   it('fills the modal content height when artifacts are opened from the status tab', () => {
     vi.mocked(useBoundedDAGRunDetails).mockReturnValue({

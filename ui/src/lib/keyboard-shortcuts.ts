@@ -5,7 +5,7 @@
 
 /**
  * Determines if keyboard shortcuts should be ignored based on the currently focused element.
- * This prevents shortcuts from triggering when users are typing in input fields, textareas,
+ * This prevents shortcuts from triggering when users interact with inputs, selects, textareas,
  * contenteditable elements, or code editors.
  * 
  * @returns true if shortcuts should be ignored (user is editing text), false otherwise
@@ -19,7 +19,7 @@ export function shouldIgnoreKeyboardShortcuts(): boolean {
 
   // Check for standard form input elements
   const tagName = activeElement.tagName.toLowerCase();
-  if (tagName === 'input' || tagName === 'textarea') {
+  if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') {
     return true;
   }
 
