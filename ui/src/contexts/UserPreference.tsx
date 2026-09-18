@@ -98,7 +98,7 @@ export function UserPreferencesProvider({
     <K extends keyof UserPreferences>(key: K, value: UserPreferences[K]) => {
       setPreferences((prev) => {
         const next = { ...prev, [key]: value };
-        localStorage.setItem('user_preferences', JSON.stringify(next));
+        writeLocalStorage('user_preferences', JSON.stringify(next));
         return next;
       });
     },
