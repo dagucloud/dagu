@@ -327,6 +327,18 @@ Rules:
 - Consumers must not infer item slot identity from `results` or `outputs` array
   position unless a later spec adds an explicit ordering guarantee.
 
+- A finished `parallel` step also publishes its collected child outputs on the
+  step outputs channel as a JSON array of per-child output maps, so
+  `${step.outputs}` resolves after the step finishes. Each entry merges the
+  child run's output variables and declared outputs.
+
+- Entries in the published array preserve `parallel.items` order and include
+  only child runs counted as successful; a failed child contributes no entry,
+  so `${step.outputs[N]}` addresses the Nth successful child rather than the
+  Nth item. A successful child that published nothing contributes an empty
+  object. When no child run succeeds, the step publishes nothing on the
+  channel.
+
 For a `parallel` step using `action: dag.enqueue`, the payload object has these
 required fields, including when expansion or duplicate coalescing leaves exactly
 one represented enqueue request:

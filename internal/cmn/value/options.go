@@ -20,6 +20,11 @@ type options struct {
 	// in variable values from being interpreted when the script executes.
 	DeferShellVars bool
 
+	// QuotedRefStyle selects the escape used to re-quote a resolved "${ref}"
+	// value inside a double-quoted span so embedded quotes stay literal for
+	// the command interpreter that parses the result.
+	QuotedRefStyle quotedRefStyle
+
 	// NoExpansion skips all expansion and returns the input unchanged.
 	// Used by executors like template that treat the script body as a
 	// literal template, not a shell expression.
@@ -40,6 +45,21 @@ func newOptions() *options {
 		RecognizeEscapedDollar: true,
 	}
 }
+
+// quotedRefStyle identifies the escape convention applied when re-quoting a
+// resolved "${ref}" value that sits inside a double-quoted span.
+type quotedRefStyle int
+
+const (
+	// quotedRefPOSIX escapes with strconv.Quote ("\""), which POSIX shells
+	// and JSON-style contexts resolve back to a literal quote.
+	quotedRefPOSIX quotedRefStyle = iota
+	// quotedRefPowerShell escapes a literal quote as "" inside "...".
+	quotedRefPowerShell
+	// quotedRefCmd emits the value verbatim inside "..." because cmd.exe has
+	// no in-quote escape sequence.
+	quotedRefCmd
+)
 
 // option is a functional option for configuring evaluation.
 type option func(*options)
@@ -119,6 +139,13 @@ func withOSExpansion() option {
 func withNoExpansion() option {
 	return func(opts *options) {
 		opts.NoExpansion = true
+	}
+}
+
+// withQuotedRefStyle sets the escape convention used by the quoted-refs phase.
+func withQuotedRefStyle(style quotedRefStyle) option {
+	return func(opts *options) {
+		opts.QuotedRefStyle = style
 	}
 }
 

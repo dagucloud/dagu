@@ -130,14 +130,31 @@ func (t template) resolveReferences(ctx context.Context, r *resolver) string {
 	})
 }
 
-func (t template) resolveQuotedReferences(ctx context.Context, r *resolver) string {
+func (t template) resolveQuotedReferences(ctx context.Context, r *resolver, style quotedRefStyle) string {
 	return quotedReferencePattern.ReplaceAllStringFunc(t.source, func(match string) string {
 		ref := match[3 : len(match)-2]
 		if value, ok := resolveQuotedReference(ctx, r, ref); ok {
-			return strconv.Quote(value)
+			return quoteQuotedRefValue(value, style)
 		}
 		return match
 	})
+}
+
+// quoteQuotedRefValue re-quotes a resolved value for the double-quoted span it
+// was resolved inside, using the escape convention the command interpreter
+// understands. POSIX shells resolve \" back to a literal quote, PowerShell
+// uses "", and cmd.exe treats every quote inside a quoted span as literal.
+func quoteQuotedRefValue(value string, style quotedRefStyle) string {
+	switch style {
+	case quotedRefPowerShell:
+		return `"` + strings.ReplaceAll(value, `"`, `""`) + `"`
+	case quotedRefCmd:
+		return `"` + value + `"`
+	case quotedRefPOSIX:
+		return strconv.Quote(value)
+	default:
+		return strconv.Quote(value)
+	}
 }
 
 func referenceParts(match string) (string, string, bool) {

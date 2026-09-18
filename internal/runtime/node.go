@@ -595,7 +595,7 @@ func (n *Node) resolveStructuredOutputEntry(ctx context.Context, key string, ent
 	}
 }
 
-func serializeOutputsValue(ctx context.Context, values map[string]any) (string, error) {
+func serializeOutputsValue(ctx context.Context, values any) (string, error) {
 	data, err := json.Marshal(values)
 	if err != nil {
 		return "", fmt.Errorf("failed to serialize outputs: %w", err)

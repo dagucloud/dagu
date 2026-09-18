@@ -175,6 +175,14 @@ type OutputsProvider interface {
 	GetOutputs() map[string]any
 }
 
+// OutputsValueProvider is implemented by executors that publish a raw JSON
+// value through the step outputs channel. Unlike OutputsProvider, the payload
+// is not required to be a JSON object; a parallel executor, for example,
+// publishes an array of per-child output maps.
+type OutputsValueProvider interface {
+	GetOutputsValue() any
+}
+
 // DeclaredOutputsProvider marks executor outputs as available to strict step output references.
 type DeclaredOutputsProvider interface {
 	OutputsProvider

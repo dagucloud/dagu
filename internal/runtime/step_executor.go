@@ -237,6 +237,20 @@ func (e *StepExecutor) captureExecutorSideChannels(
 		node.SetToolDefinitions(toolDefs)
 	}
 
+	if valueProvider, ok := cmd.(executor.OutputsValueProvider); ok {
+		payload := valueProvider.GetOutputsValue()
+		if payload == nil {
+			node.clearOutputsValue()
+			return "", false, nil
+		}
+		serialized, err := serializeOutputsValue(ctx, payload)
+		if err != nil {
+			return "", false, err
+		}
+		node.setOutputsValue(serialized)
+		return "", false, nil
+	}
+
 	if outputsProvider, ok := cmd.(executor.OutputsProvider); ok {
 		outputs := outputsProvider.GetOutputs()
 		hasDeclaredOutputs := false

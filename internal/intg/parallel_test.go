@@ -352,6 +352,67 @@ func TestParallelExecution_WithOutput(t *testing.T) {
 	require.Equal(t, ir.NodeSucceeded, useOutputNode.Status)
 }
 
+// TestParallelExecution_ChildOutputsPropagation verifies that a parallel step
+// publishes each successful child run's output variables as a JSON array on
+// the step outputs channel, so downstream steps can read ${fan_out.outputs}.
+func TestParallelExecution_ChildOutputsPropagation(t *testing.T) {
+	items := []string{"alpha", "beta"}
+	if runtime.GOOS == "windows" {
+		items = items[:1]
+	}
+	dagContent := fmt.Sprintf(`steps:
+  - id: fan_out
+    action: dag.run
+    with:
+      dag: child-out-vars
+    parallel:
+      items:
+%s
+  - id: collect
+    depends: fan_out
+    run: echo "${fan_out.outputs}"
+    output: AGGREGATED
+`, yamlParallelItems("ITEM", items)) + `---
+name: child-out-vars
+params:
+  - ITEM: ""
+steps:
+  - run: echo "result-${ITEM}"
+    output: CHILD_RESULT
+`
+
+	th := test.Setup(t)
+	dag := th.DAG(t, dagContent)
+	agent := dag.Agent()
+	require.NoError(t, agent.Run(agent.Context))
+	dag.AssertLatestStatus(t, ir.Succeeded)
+
+	dagStatus, statusErr := dag.DAGRunMgr.GetLatestStatus(dag.Context, dag.DAG)
+	require.NoError(t, statusErr)
+	require.Len(t, dagStatus.Nodes, 2)
+
+	parallelNode := dagStatus.Nodes[0]
+	require.Equal(t, "fan_out", parallelNode.Step.ID)
+	require.Equal(t, ir.NodeSucceeded, parallelNode.Status)
+
+	expected := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		expected = append(expected, map[string]any{"CHILD_RESULT": "result-" + item})
+	}
+
+	require.NotNil(t, parallelNode.OutputsValue, "parallel step did not publish child outputs")
+	var published []map[string]any
+	require.NoError(t, json.Unmarshal([]byte(*parallelNode.OutputsValue), &published))
+	require.Equal(t, expected, published)
+
+	collectNode := dagStatus.Nodes[1]
+	require.Equal(t, ir.NodeSucceeded, collectNode.Status)
+	aggregated := test.StatusOutputValue(t, &dagStatus, "AGGREGATED")
+	var referenced []map[string]any
+	require.NoError(t, json.Unmarshal([]byte(aggregated), &referenced))
+	require.Equal(t, expected, referenced)
+}
+
 func TestParallelExecution_RetryBackoffDoesNotBlockScheduling(t *testing.T) {
 	th := test.Setup(t, test.WithBuiltExecutable())
 

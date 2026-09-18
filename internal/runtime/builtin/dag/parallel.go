@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -31,6 +32,7 @@ var errParallelCancelled = errors.New("parallel execution cancelled")
 var _ executor.ParallelExecutor = (*parallelExecutor)(nil)
 var _ executor.NodeStatusDeterminer = (*parallelExecutor)(nil)
 var _ executor.StatusDetailsProvider = (*parallelExecutor)(nil)
+var _ executor.OutputsValueProvider = (*parallelExecutor)(nil)
 
 type parallelExecutor struct {
 	step          ir.Step
@@ -306,6 +308,33 @@ func (e *parallelExecutor) SetParamsList(paramsList []executor.RunParams) {
 	e.lock.Lock()
 	defer e.lock.Unlock()
 	e.runParamsList = paramsList
+}
+
+// GetOutputsValue returns each successful child run's outputs as a JSON array
+// in parallel item order, powering ${step.outputs} references on the parallel
+// step. Entries merge the child's flat output variables with its declared
+// outputs, and a child that published nothing contributes an empty object.
+func (e *parallelExecutor) GetOutputsValue() any {
+	e.lock.Lock()
+	defer e.lock.Unlock()
+
+	outputs := make([]map[string]any, 0, len(e.results))
+	for _, params := range e.runParamsList {
+		result, ok := e.results[params.RunID]
+		if !ok || !result.Status.IsSuccess() {
+			continue
+		}
+		merged := make(map[string]any, len(result.Outputs)+len(result.OutputValues))
+		for k, v := range result.Outputs {
+			merged[k] = v
+		}
+		maps.Copy(merged, result.OutputValues)
+		outputs = append(outputs, merged)
+	}
+	if len(outputs) == 0 {
+		return nil
+	}
+	return outputs
 }
 
 func (e *parallelExecutor) GetStatusDetails() []ir.NodeStatusDetail {

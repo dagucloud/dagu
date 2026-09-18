@@ -82,6 +82,63 @@ func TestExpandQuotedRefs_WithStepRef(t *testing.T) {
 	assert.Equal(t, `{"out": "output_val"}`, result)
 }
 
+func TestExpandQuotedRefs_QuotedValueStyles(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name  string
+		style quotedRefStyle
+		want  string
+	}{
+		{name: "POSIX", style: quotedRefPOSIX, want: `echo "[{\"CHILD_RESULT\":\"result-1\"}]"`},
+		{name: "PowerShell", style: quotedRefPowerShell, want: `echo "[{""CHILD_RESULT"":""result-1""}]"`},
+		{name: "Cmd", style: quotedRefCmd, want: `echo "[{"CHILD_RESULT":"result-1"}]"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := newOptions()
+			withStepMap(map[string]StepInfo{
+				"fan_out": {Outputs: new(`[{"CHILD_RESULT":"result-1"}]`)},
+			})(opts)
+			withQuotedRefStyle(tt.style)(opts)
+
+			result, err := expandQuotedRefs(ctx, `echo "${fan_out.outputs}"`, opts)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, result)
+		})
+	}
+}
+
+func TestShellCommandField_QuotedRefStyleFollowsShell(t *testing.T) {
+	ctx := context.Background()
+	resolver := NewResolver(StaticScope{}, RuntimeScope{
+		Steps: map[string]StepInfo{
+			"fan_out": {Outputs: new(`[{"CHILD_RESULT":"result-1"}]`)},
+		},
+	})
+
+	tests := []struct {
+		shell string
+		want  string
+	}{
+		{"pwsh", `echo "[{""CHILD_RESULT"":""result-1""}]"`},
+		{"powershell", `echo "[{""CHILD_RESULT"":""result-1""}]"`},
+		{"cmd", `echo "[{"CHILD_RESULT":"result-1"}]"`},
+		{"sh", `echo "[{\"CHILD_RESULT\":\"result-1\"}]"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.shell, func(t *testing.T) {
+			field := ShellCommandField("run", CommandContext{
+				Target:          CommandTargetLocal,
+				Shell:           []string{tt.shell},
+				ShellConfigured: true,
+			})
+			got, err := resolver.String(ctx, `echo "${fan_out.outputs}"`, field)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestShellExpandPhase_FallbackOnError(t *testing.T) {
 	ctx := context.Background()
 	opts := newOptions()
