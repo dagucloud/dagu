@@ -337,13 +337,12 @@ describe('NotificationChannelsPage', () => {
     await user.click(screen.getByRole('button', { name: 'Add channel' }));
     await user.click(screen.getByLabelText('Provider'));
     await user.click(screen.getByRole('option', { name: 'Slack' }));
-    await user.clear(screen.getByLabelText('Channel name'));
-    await user.type(screen.getByLabelText('Channel name'), 'slack-test');
-    await user.type(
-      screen.getByPlaceholderText('Slack webhook URL'),
-      'https://hooks.slack.com/services/test'
-    );
-    await user.click(screen.getByRole('button', { name: 'Create channel' }));
+    const editor = within(screen.getByRole('dialog'));
+    await user.clear(editor.getByLabelText('Channel name'));
+    await user.paste('slack-test');
+    await user.click(editor.getByLabelText('Slack webhook URL'));
+    await user.paste('https://hooks.slack.com/services/test');
+    await user.click(editor.getByRole('button', { name: 'Create channel' }));
     expect(mocks.client.POST).toHaveBeenCalledWith(
       '/notification-channels',
       expect.objectContaining({
@@ -356,7 +355,9 @@ describe('NotificationChannelsPage', () => {
         }),
       })
     );
-    expect(screen.getByRole('listitem', { name: 'slack-test' })).toBeVisible();
+    expect(
+      await screen.findByRole('listitem', { name: 'slack-test' })
+    ).toBeVisible();
   });
 
   it('keeps edits and reports save failures inside the editor', async () => {
