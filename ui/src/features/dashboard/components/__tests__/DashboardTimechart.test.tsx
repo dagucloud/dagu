@@ -59,12 +59,20 @@ vi.mock(
     default: ({
       dagRunId,
       onNavigate,
+      activeTab,
+      onTabChange,
+      onClose,
     }: {
       dagRunId: string;
       onNavigate?: (direction: 'up' | 'down') => void;
+      activeTab?: string;
+      onTabChange?: (tab: 'outputs') => void;
+      onClose: () => void;
     }) => (
       <div role="dialog">
-        {dagRunId}
+        {dagRunId} on {activeTab}
+        <button onClick={() => onTabChange?.('outputs')}>Show outputs</button>
+        <button onClick={onClose}>Close</button>
         <button onClick={() => onNavigate?.('down')}>Next history</button>
         <button onClick={() => onNavigate?.('up')}>Previous history</button>
       </div>
@@ -120,12 +128,17 @@ describe('DashboardTimeChart', () => {
     render(<DashboardTimeChart data={runs} />);
     act(() => timelineState.onClick?.({ item: 'example_run-1' }));
     expect(screen.getByRole('dialog')).toHaveTextContent('run-1');
+    fireEvent.click(screen.getByRole('button', { name: 'Show outputs' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('run-1 on outputs');
     fireEvent.click(screen.getByRole('button', { name: 'Next history' }));
-    expect(screen.getByRole('dialog')).toHaveTextContent('run-2');
+    expect(screen.getByRole('dialog')).toHaveTextContent('run-2 on outputs');
     fireEvent.click(screen.getByRole('button', { name: 'Next history' }));
-    expect(screen.getByRole('dialog')).toHaveTextContent('run-2');
+    expect(screen.getByRole('dialog')).toHaveTextContent('run-2 on outputs');
     fireEvent.click(screen.getByRole('button', { name: 'Previous history' }));
-    expect(screen.getByRole('dialog')).toHaveTextContent('run-1');
+    expect(screen.getByRole('dialog')).toHaveTextContent('run-1 on outputs');
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    act(() => timelineState.onClick?.({ item: 'example_run-2' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('run-2 on status');
   });
 
   it('renders a running DAG run without a finished timestamp', () => {

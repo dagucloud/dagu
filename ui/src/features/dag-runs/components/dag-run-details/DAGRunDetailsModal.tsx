@@ -27,6 +27,8 @@ type DAGRunDetailsModalProps = {
   onClose: () => void;
   onNavigate?: (direction: 'up' | 'down') => void;
   initialTab?: StatusTab;
+  activeTab?: StatusTab;
+  onTabChange?: (tab: StatusTab) => void;
 };
 
 type PreviousData = {
@@ -42,6 +44,8 @@ function DAGRunDetailsModal({
   onClose,
   onNavigate,
   initialTab = 'status',
+  activeTab,
+  onTabChange,
 }: DAGRunDetailsModalProps): React.ReactElement | null {
   const navigate = useNavigate();
 
@@ -305,6 +309,8 @@ function DAGRunDetailsModal({
                   refreshFn={refreshFn}
                   dagRunId={displayDagRunId}
                   initialTab={initialTab}
+                  activeTab={activeTab}
+                  onTabChange={onTabChange}
                   fillHeight
                 />
               )}

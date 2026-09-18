@@ -58,6 +58,25 @@ type DAGRunsFilters = DAGRunsFilterSet;
 
 const ALL_RUNS_VIEW_PARAM = 'all';
 
+function readSelectedRunTab(search: string): StatusTab {
+  const tab = new URLSearchParams(search).get('selectedRunTab');
+  switch (tab) {
+    case 'status':
+    case 'timeline':
+    case 'outputs':
+    case 'artifacts':
+    case 'agent':
+    case 'chat':
+    case 'tasks':
+    case 'spec':
+    case 'approval':
+    case 'human-tasks':
+      return tab;
+    default:
+      return 'status';
+  }
+}
+
 const RUN_FILTER_QUERY_KEYS = [
   'name',
   'dagRunId',
@@ -323,12 +342,9 @@ function DAGRuns() {
     const dagRunId = params.get('selectedRunId');
     return name && dagRunId ? { name, dagRunId } : null;
   });
-  const [selectedDAGRunInitialTab, setSelectedDAGRunInitialTab] =
-    React.useState<StatusTab>(() =>
-      new URLSearchParams(location.search).get('selectedRunTab') === 'artifacts'
-        ? 'artifacts'
-        : 'status'
-    );
+  const [selectedDAGRunTab, setSelectedDAGRunTab] = React.useState<StatusTab>(() =>
+    readSelectedRunTab(location.search)
+  );
   const updateSelectedDAGRun = React.useCallback(
     (
       dagRun: { name: string; dagRunId: string } | null,
@@ -336,7 +352,7 @@ function DAGRuns() {
       replace = false
     ) => {
       setSelectedDAGRun(dagRun);
-      setSelectedDAGRunInitialTab(initialTab);
+      setSelectedDAGRunTab(initialTab);
       const params = new URLSearchParams(location.search);
       if (dagRun) {
         params.set('selectedRunName', dagRun.name);
@@ -368,9 +384,7 @@ function DAGRuns() {
     const name = params.get('selectedRunName');
     const dagRunId = params.get('selectedRunId');
     setSelectedDAGRun(name && dagRunId ? { name, dagRunId } : null);
-    setSelectedDAGRunInitialTab(
-      params.get('selectedRunTab') === 'artifacts' ? 'artifacts' : 'status'
-    );
+    setSelectedDAGRunTab(readSelectedRunTab(location.search));
   }, [location.search]);
 
   const selectDAGRun = React.useCallback(
@@ -826,12 +840,12 @@ function DAGRuns() {
       if (nextRun) {
         updateSelectedDAGRun(
           { name: nextRun.name, dagRunId: nextRun.dagRunId },
-          selectedDAGRunInitialTab,
+          selectedDAGRunTab,
           true
         );
       }
     },
-    [dagRuns, selectedDAGRun, selectedDAGRunInitialTab, updateSelectedDAGRun]
+    [dagRuns, selectedDAGRun, selectedDAGRunTab, updateSelectedDAGRun]
   );
   React.useEffect(() => {
     if (!isLoadingMore) {
@@ -1634,7 +1648,13 @@ function DAGRuns() {
           onNavigate={
             viewMode === 'grouped' ? navigateGroupedRunHistory : undefined
           }
-          initialTab={selectedDAGRunInitialTab}
+          initialTab={selectedDAGRunTab}
+          activeTab={viewMode === 'grouped' ? selectedDAGRunTab : undefined}
+          onTabChange={
+            viewMode === 'grouped'
+              ? (tab) => updateSelectedDAGRun(selectedDAGRun, tab, true)
+              : undefined
+          }
         />
       )}
     </div>

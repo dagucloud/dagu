@@ -14,6 +14,7 @@ import { statusColorMapping } from '../../../consts';
 import { useConfig } from '../../../contexts/ConfigContext';
 import dayjs from '../../../lib/dayjs';
 import DAGRunDetailsModal from '../../dag-runs/components/dag-run-details/DAGRunDetailsModal';
+import type { StatusTab } from '../../dags/components/DAGStatus';
 import { I18nText } from '@/i18n/I18nText';
 
 type Props = {
@@ -48,6 +49,7 @@ function DashboardTimeChart({ data: input, selectedDate }: Props) {
     dagRunId: string;
   } | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedTab, setSelectedTab] = useState<StatusTab>('status');
 
   // Helper function to ensure we have a valid IANA timezone
   const getValidTimezone = React.useCallback((tz: string): string => {
@@ -307,6 +309,7 @@ function DashboardTimeChart({ data: input, selectedDate }: Props) {
           (dagRun) => itemId === dagRun.name + `_${dagRun.dagRunId}`
         );
         if (matchingDAGRun) {
+          setSelectedTab('status');
           setSelectedDAGRun({
             name: matchingDAGRun.name,
             dagRunId: matchingDAGRun.dagRunId,
@@ -623,6 +626,8 @@ function DashboardTimeChart({ data: input, selectedDate }: Props) {
           isOpen={isModalOpen}
           onClose={handleCloseModal}
           onNavigate={navigateRunHistory}
+          activeTab={selectedTab}
+          onTabChange={setSelectedTab}
         />
       )}
       <style>

@@ -14,6 +14,8 @@ type DAGRunDetailsContentProps = {
   refreshFn: () => void;
   dagRunId?: string;
   initialTab?: StatusTab;
+  activeTab?: StatusTab;
+  onTabChange?: (tab: StatusTab) => void;
   fillHeight?: boolean;
 };
 
@@ -23,6 +25,8 @@ const DAGRunDetailsContent: React.FC<DAGRunDetailsContentProps> = ({
   refreshFn,
   dagRunId = 'latest',
   initialTab = 'status',
+  activeTab,
+  onTabChange,
   fillHeight = false,
 }) => {
   const remoteNode = useRemoteNode();
@@ -70,6 +74,8 @@ const DAGRunDetailsContent: React.FC<DAGRunDetailsContentProps> = ({
             dagRun={dagRun}
             fileName={name || ''}
             initialTab={initialTab}
+            activeTab={activeTab}
+            onTabChange={onTabChange}
             fillHeight={fillHeight}
           />
         </div>
