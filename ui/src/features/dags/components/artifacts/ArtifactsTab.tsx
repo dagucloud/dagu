@@ -140,7 +140,7 @@ export default function ArtifactsTab({
   const [tree, setTree] = useState<ArtifactTreeNode[]>([]);
   const [treeLoading, setTreeLoading] = useState(false);
   const [treeError, setTreeError] = useState<string | null>(null);
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [storedSelectedPath, setSelectedPath] = useState<string | null>(null);
   const [previewVersion, setPreviewVersion] = useState(0);
   const treeRequestRef = useRef<{
     id: number;
@@ -156,6 +156,8 @@ export default function ArtifactsTab({
     dagRun.rootDAGRunId,
   ]);
   const loadedScopeRef = useRef<string | null>(null);
+  const selectedPath =
+    loadedScopeRef.current === scope ? storedSelectedPath : null;
   const navigation = useArtifactTreeNavigation({
     nodes: tree,
     selectedPath,

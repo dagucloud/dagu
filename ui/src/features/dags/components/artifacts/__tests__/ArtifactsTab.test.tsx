@@ -162,6 +162,7 @@ describe('ArtifactsTab', () => {
     expect(
       await screen.findByText('contents of out/b.txt')
     ).toBeInTheDocument();
+    getMock.mockClear();
     view.rerender(
       <AppBarContext.Provider value={appBarValue}>
         <ArtifactsTab
@@ -183,6 +184,14 @@ describe('ArtifactsTab', () => {
       'aria-selected',
       'true'
     );
+    expect(
+      getMock.mock.calls
+        .filter(([endpoint]) => endpoint.endsWith('/preview'))
+        .map(([, init]) => ({
+          run: init.params.path.dagRunId,
+          path: init.params.query.path,
+        }))
+    ).toEqual([{ run: 'run-2', path: 'out/a.txt' }]);
   });
 
   it('lets users switch markdown artifacts between preview and raw modes', async () => {
