@@ -26,6 +26,7 @@ const {
   readSearchStateMock,
   searchStateMock,
   sharedRunViewState,
+  runViewMode,
   updateRunViewMock,
   viewsLoadingState,
   writeSearchStateMock,
@@ -39,6 +40,7 @@ const {
     readSearchStateMock: readState,
     searchStateMock: { readState, writeState },
     sharedRunViewState: { views: [] as View[] },
+    runViewMode: { current: 'list' },
     viewsLoadingState: { current: false },
     writeSearchStateMock: writeState,
   };
@@ -67,7 +69,7 @@ vi.mock('@/hooks/useViews', () => ({
 vi.mock('@/contexts/UserPreference', () => ({
   useUserPreferences: () => ({
     preferences: {
-      dagRunsViewMode: 'list',
+      dagRunsViewMode: runViewMode.current,
     },
     updatePreference: vi.fn(),
   }),
@@ -106,14 +108,18 @@ vi.mock('@/features/dag-runs/components/dag-run-details', () => ({
     dagRunId,
     initialTab,
     onClose,
+    onNavigate,
   }: {
     name: string;
     dagRunId: string;
     initialTab: string;
     onClose: () => void;
+    onNavigate?: (direction: 'up' | 'down') => void;
   }) => (
     <div role="dialog">
       Run modal for {name}/{dagRunId} on {initialTab}
+      <button onClick={() => onNavigate?.('down')}>Next history</button>
+      <button onClick={() => onNavigate?.('up')}>Previous history</button>
       <button type="button" onClick={onClose}>
         Close run
       </button>
@@ -165,6 +171,7 @@ const config = {
 } as Config;
 
 beforeEach(() => {
+  runViewMode.current = 'list';
   readSearchStateMock.mockReset();
   readSearchStateMock.mockReturnValue(null);
   writeSearchStateMock.mockReset();
@@ -267,6 +274,58 @@ function renderPage(
 }
 
 describe('DAGRuns page', () => {
+  it('navigates loaded histories in grouped view and keeps the tab and URL', () => {
+    runViewMode.current = 'grouped';
+    usePaginatedDAGRunsMock.mockReturnValue({
+      dagRuns: [
+        {
+          name: 'demo',
+          dagRunId: 'run-1',
+          scheduleTime: '2026-09-16T02:00:00Z',
+        },
+        {
+          name: 'other',
+          dagRunId: 'other-run',
+          scheduleTime: '2026-09-16T01:30:00Z',
+        },
+        {
+          name: 'demo',
+          dagRunId: 'run-2',
+          scheduleTime: '2026-09-16T01:00:00Z',
+        },
+      ],
+      isInitialLoading: false,
+      isLoadingMore: false,
+      hasMore: false,
+      loadMore: vi.fn(),
+      refresh: vi.fn(),
+    });
+    renderPage(
+      vi.fn(),
+      '/dag-runs?name=demo&selectedRunName=demo&selectedRunId=run-1&selectedRunTab=artifacts'
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Next history' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent(
+      'demo/run-2 on artifacts'
+    );
+    expect(locationSearchParams().get('selectedRunId')).toBe('run-2');
+    expect(locationSearchParams().get('name')).toBe('demo');
+    expect(locationSearchParams().get('selectedRunTab')).toBe('artifacts');
+    fireEvent.click(screen.getByRole('button', { name: 'Next history' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent(
+      'demo/run-2 on artifacts'
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Previous history' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent(
+      'demo/run-1 on artifacts'
+    );
+    expect(locationSearchParams().get('selectedRunTab')).toBe('artifacts');
+    fireEvent.click(screen.getByRole('button', { name: 'Previous history' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent(
+      'demo/run-1 on artifacts'
+    );
+  });
+
   it('uses the Executions page title', () => {
     const setTitle = vi.fn();
 

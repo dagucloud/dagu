@@ -450,6 +450,33 @@ function DashboardTimeChart({ data: input, selectedDate }: Props) {
     setIsModalOpen(false);
   };
 
+  const navigateRunHistory = React.useCallback(
+    (direction: 'up' | 'down') => {
+      if (!selectedDAGRun) {
+        return;
+      }
+      const displayedRunIDs = new Set(
+        timelineItemsRef.current.get().map((item) => item.id)
+      );
+      const displayedRuns = input.filter((run) =>
+        displayedRunIDs.has(`${run.name}_${run.dagRunId}`)
+      );
+      const index = displayedRuns.findIndex(
+        (run) =>
+          run.name === selectedDAGRun.name &&
+          run.dagRunId === selectedDAGRun.dagRunId
+      );
+      if (index < 0) {
+        return;
+      }
+      const nextRun = displayedRuns[index + (direction === 'down' ? 1 : -1)];
+      if (nextRun) {
+        setSelectedDAGRun({ name: nextRun.name, dagRunId: nextRun.dagRunId });
+      }
+    },
+    [input, selectedDAGRun]
+  );
+
   const handleZoomIn = () => {
     if (timelineInstance.current) {
       timelineInstance.current.zoomIn(0.5);
@@ -595,6 +622,7 @@ function DashboardTimeChart({ data: input, selectedDate }: Props) {
           dagRunId={selectedDAGRun.dagRunId}
           isOpen={isModalOpen}
           onClose={handleCloseModal}
+          onNavigate={navigateRunHistory}
         />
       )}
       <style>

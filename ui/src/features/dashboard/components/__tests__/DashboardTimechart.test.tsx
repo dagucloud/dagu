@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { render } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { components, Status, StatusLabel } from '@/api/v1/schema';
@@ -18,6 +18,7 @@ type TimelineDataSet = {
 
 const timelineState = vi.hoisted(() => ({
   dataSet: null as TimelineDataSet | null,
+  onClick: null as ((properties: { item: string }) => void) | null,
 }));
 
 vi.mock('vis-timeline/standalone', () => ({
@@ -34,7 +35,11 @@ vi.mock('vis-timeline/standalone', () => ({
     }
 
     setOptions() {}
-    on() {}
+    on(event: string, callback: (properties: { item: string }) => void) {
+      if (event === 'click') {
+        timelineState.onClick = callback;
+      }
+    }
     off() {}
     destroy() {}
     setWindow() {}
@@ -50,13 +55,28 @@ vi.mock('@/contexts/ConfigContext', () => ({
 
 vi.mock(
   '@/features/dag-runs/components/dag-run-details/DAGRunDetailsModal',
-  () => ({ default: () => null })
+  () => ({
+    default: ({
+      dagRunId,
+      onNavigate,
+    }: {
+      dagRunId: string;
+      onNavigate?: (direction: 'up' | 'down') => void;
+    }) => (
+      <div role="dialog">
+        {dagRunId}
+        <button onClick={() => onNavigate?.('down')}>Next history</button>
+        <button onClick={() => onNavigate?.('up')}>Previous history</button>
+      </div>
+    ),
+  })
 );
 
 type DAGRunSummary = components['schemas']['DAGRunSummary'];
 
 beforeEach(() => {
   timelineState.dataSet = null;
+  timelineState.onClick = null;
 });
 
 afterEach(() => {
@@ -64,6 +84,50 @@ afterEach(() => {
 });
 
 describe('DashboardTimeChart', () => {
+  it('navigates the displayed timeline histories without wrapping', () => {
+    const runs = [
+      {
+        name: 'example',
+        dagRunId: 'run-1',
+        status: Status.Success,
+        statusLabel: StatusLabel.succeeded,
+        startedAt: '2026-08-01T01:00:00Z',
+        finishedAt: '2026-08-01T01:01:00Z',
+        artifactsAvailable: false,
+        autoRetryCount: 0,
+      },
+      {
+        name: 'example',
+        dagRunId: 'not-started',
+        status: Status.Queued,
+        statusLabel: StatusLabel.queued,
+        startedAt: '',
+        finishedAt: '',
+        artifactsAvailable: false,
+        autoRetryCount: 0,
+      },
+      {
+        name: 'example',
+        dagRunId: 'run-2',
+        status: Status.Success,
+        statusLabel: StatusLabel.succeeded,
+        startedAt: '2026-08-01T01:02:00Z',
+        finishedAt: '2026-08-01T01:03:00Z',
+        artifactsAvailable: false,
+        autoRetryCount: 0,
+      },
+    ];
+    render(<DashboardTimeChart data={runs} />);
+    act(() => timelineState.onClick?.({ item: 'example_run-1' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('run-1');
+    fireEvent.click(screen.getByRole('button', { name: 'Next history' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('run-2');
+    fireEvent.click(screen.getByRole('button', { name: 'Next history' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('run-2');
+    fireEvent.click(screen.getByRole('button', { name: 'Previous history' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('run-1');
+  });
+
   it('renders a running DAG run without a finished timestamp', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-01T02:00:00Z'));
