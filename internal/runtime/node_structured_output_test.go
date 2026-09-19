@@ -855,3 +855,27 @@ func TestOutputNumbers(t *testing.T) {
 		}
 	}
 }
+
+// Captured output keeps the characters a step produced rather than escaping
+// them as JSON escape sequences.
+func TestOutputLiterals(t *testing.T) {
+	t.Parallel()
+	const payload = `{"note":"a < b & c > d"}`
+	for _, step := range []ir.Step{
+		{OutputSchema: map[string]any{"type": "object"}},
+		{StructuredOutput: map[string]ir.StepOutputEntry{"metadata": {From: ir.StepOutputSourceStdout, Decode: ir.StepOutputDecodeJSON}}},
+		{StdoutOutputs: &ir.StepOutputsConfig{Decode: ir.StepOutputDecodeJSON}},
+	} {
+		ctx := structuredOutputTestContext(t, nil, t.TempDir())
+		node := NodeWithData(NodeData{Step: step})
+		node.outputs.outputCaptured = true
+		node.outputs.outputData = payload
+		require.NoError(t, node.captureOutput(ctx))
+		state := node.State()
+		require.NotNil(t, state.StepOutputsValue)
+		assert.Contains(t, *state.StepOutputsValue, "a < b & c > d")
+		if state.OutputValue != nil {
+			assert.Contains(t, *state.OutputValue, "a < b & c > d")
+		}
+	}
+}

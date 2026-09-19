@@ -5,6 +5,7 @@ package runtime
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -453,7 +454,7 @@ func (n *Node) evaluateOutputSchema(ctx context.Context, raw string) (string, er
 	if err := decodeOutputJSON(trimmed, &decoded); err != nil {
 		return "", fmt.Errorf("failed to decode stdout JSON for output_schema: %w", err)
 	}
-	data, err := json.Marshal(decoded)
+	data, err := marshalCaptured(decoded)
 	if err != nil {
 		return "", fmt.Errorf("failed to serialize validated output_schema value: %w", err)
 	}
@@ -512,7 +513,7 @@ func (n *Node) evaluateStructuredOutput(ctx context.Context, stdout string, stdo
 		result[key] = value
 	}
 
-	data, err := json.Marshal(result)
+	data, err := marshalCaptured(result)
 	if err != nil {
 		return "", fmt.Errorf("failed to serialize structured output: %w", err)
 	}
@@ -606,7 +607,7 @@ func (n *Node) resolveStructuredOutputEntry(ctx context.Context, key string, ent
 }
 
 func serializeOutputsValue(ctx context.Context, values map[string]any) (string, error) {
-	data, err := json.Marshal(values)
+	data, err := marshalCaptured(values)
 	if err != nil {
 		return "", fmt.Errorf("failed to serialize outputs: %w", err)
 	}
@@ -671,6 +672,18 @@ func (n *Node) readStructuredOutputSource(ctx context.Context, key string, entry
 	default:
 		return "", fmt.Errorf("%s: unsupported output source %q", key, entry.From)
 	}
+}
+
+// marshalCaptured serializes captured output, leaving the characters a step
+// produced intact instead of escaping <, > and & as JSON escape sequences.
+func marshalCaptured(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimRight(buf.Bytes(), "\n"), nil
 }
 
 func decodeOutputJSON(raw string, target any) error {

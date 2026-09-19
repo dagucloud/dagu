@@ -491,7 +491,7 @@ func outputValueToString(value any) string {
 	case string:
 		return v
 	default:
-		data, err := json.Marshal(v)
+		data, err := marshalCaptured(v)
 		if err != nil {
 			return fmt.Sprint(v)
 		}
