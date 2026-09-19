@@ -431,6 +431,18 @@ func TestNodeCaptureOutputSchema(t *testing.T) {
 		assert.JSONEq(t, `{"category":"bug","confidence":0.9}`, *state.OutputValue)
 	})
 
+	t.Run("CanonicalJSON", func(t *testing.T) {
+		t.Parallel()
+		ctx := structuredOutputTestContext(t, nil, t.TempDir())
+		node := NodeWithData(NodeData{Step: ir.Step{OutputSchema: validSchema}})
+		node.outputs.outputCaptured = true
+		node.outputs.outputData = `{"category":"old","confidence":0.9000,"category":"bug"}`
+		require.NoError(t, node.captureOutput(ctx))
+		state := node.State()
+		require.NotNil(t, state.OutputValue)
+		assert.Equal(t, `{"category":"bug","confidence":0.9000}`, *state.OutputValue)
+	})
+
 	t.Run("InvalidJSONFails", func(t *testing.T) {
 		t.Parallel()
 

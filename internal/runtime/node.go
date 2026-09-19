@@ -447,7 +447,10 @@ func (n *Node) evaluateOutputSchema(ctx context.Context, raw string) (string, er
 	}
 
 	// Preserve number precision independently of the schema validator's numeric representation.
-	data, err := json.Marshal(json.RawMessage(trimmed))
+	if err := decodeOutputJSON(trimmed, &decoded); err != nil {
+		return "", fmt.Errorf("failed to decode stdout JSON for output_schema: %w", err)
+	}
+	data, err := json.Marshal(decoded)
 	if err != nil {
 		return "", fmt.Errorf("failed to serialize validated output_schema value: %w", err)
 	}
