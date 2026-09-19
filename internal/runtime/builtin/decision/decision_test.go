@@ -148,6 +148,32 @@ func TestResponse(t *testing.T) {
 	}
 }
 
+func TestBaseURL(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		url     string
+		wantErr bool
+	}{
+		{"https://api.example.com/v1", false},
+		{"http://localhost:8080/v1", false},
+		{"http://127.0.0.1:8080/v1", false},
+		{"http://[::1]:8080/v1", false},
+		{"http://api.example.com/v1", true},
+		{"http://192.168.1.2/v1", true},
+		{"http://localhost.example.com/v1", true},
+	} {
+		t.Run(tc.url, func(t *testing.T) {
+			cfg := config{Provider: openRouter, Model: "jev-test", BaseURL: tc.url}
+			err := cfg.validate(false)
+			if tc.wantErr {
+				require.ErrorContains(t, err, "HTTPS")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestHTTPFailures(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -187,11 +213,53 @@ func TestHTTPFailures(t *testing.T) {
 
 func TestCancellation(t *testing.T) {
 	t.Parallel()
-	started := make(chan struct{})
-	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-		_, _ = io.Copy(io.Discard, r.Body)
-		close(started)
-		<-r.Context().Done()
+	for _, mode := range []string{"kill", "run_context"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			started := make(chan struct{})
+			server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+				_, _ = io.Copy(io.Discard, r.Body)
+				close(started)
+				<-r.Context().Done()
+			}))
+			defer server.Close()
+			raw := testConfig(t)
+			raw["base_url"] = server.URL
+			scope := value.NewEnvScope(nil, false).WithEntry("OPENROUTER_API_KEY", "key", value.EnvSourceSecret)
+			ctx := runtime.WithEnv(t.Context(), runtime.Env{Scope: scope})
+			exec, err := newExecutor(ctx, ir.Step{ExecutorConfig: ir.ExecutorConfig{Config: raw}})
+			require.NoError(t, err)
+			defer exec.(*decisionExecutor).Close()
+			runCtx, cancel := context.WithCancel(ctx)
+			defer cancel()
+			done := make(chan error, 1)
+			go func() { done <- exec.Run(runCtx) }()
+			select {
+			case <-started:
+			case <-time.After(5 * time.Second):
+				t.Fatal("request did not start")
+			}
+			if mode == "kill" {
+				require.NoError(t, exec.Kill(os.Interrupt))
+			} else {
+				cancel()
+			}
+			select {
+			case err := <-done:
+				require.ErrorIs(t, err, context.Canceled)
+			case <-time.After(5 * time.Second):
+				t.Fatal("request did not cancel")
+			}
+		})
+	}
+}
+
+func TestRunCancellation(t *testing.T) {
+	t.Parallel()
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		_, _ = io.WriteString(w, responseJSON)
 	}))
 	defer server.Close()
 	raw := testConfig(t)
@@ -201,20 +269,11 @@ func TestCancellation(t *testing.T) {
 	exec, err := newExecutor(ctx, ir.Step{ExecutorConfig: ir.ExecutorConfig{Config: raw}})
 	require.NoError(t, err)
 	defer exec.(*decisionExecutor).Close()
-	done := make(chan error, 1)
-	go func() { done <- exec.Run(ctx) }()
-	select {
-	case <-started:
-	case <-time.After(5 * time.Second):
-		t.Fatal("request did not start")
-	}
-	require.NoError(t, exec.Kill(os.Interrupt))
-	select {
-	case err := <-done:
-		require.ErrorIs(t, err, context.Canceled)
-	case <-time.After(5 * time.Second):
-		t.Fatal("request did not cancel")
-	}
+	exec.SetStdout(io.Discard)
+	runCtx, cancel := context.WithCancel(ctx)
+	cancel()
+	require.ErrorIs(t, exec.Run(runCtx), context.Canceled)
+	assert.Zero(t, calls.Load())
 }
 
 func TestCredentials(t *testing.T) {

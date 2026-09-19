@@ -41,8 +41,9 @@ preserved. The API key variable name is a literal environment variable name.
 | `typesafe` | `https://api.typesafe.ai/v1` | `/systemone` | `TYPESAFE_API_KEY` |
 
 `with.base_url` overrides the API root, including its version prefix. A trailing
-slash is accepted. The URL must be absolute HTTP or HTTPS. `with.api_key_name`
-optionally names another environment variable; it is not the key's value.
+slash is accepted. The URL must use HTTPS, except HTTP is allowed for localhost
+and loopback IP addresses. `with.api_key_name` optionally names another
+environment variable; it is not the key's value.
 The key is resolved from the workflow environment, including declared secrets.
 An absent or empty key fails before sending a request.
 

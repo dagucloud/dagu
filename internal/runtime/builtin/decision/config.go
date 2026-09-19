@@ -6,6 +6,7 @@ package decision
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
 
@@ -78,6 +79,9 @@ func (c config) validate(deferReferences bool) error {
 		u, err := url.Parse(c.BaseURL)
 		if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 			return fmt.Errorf("decision: with.base_url must be an absolute HTTP API root without credentials, query, or fragment")
+		}
+		if u.Scheme == "http" && !strings.EqualFold(u.Hostname(), "localhost") && !net.ParseIP(u.Hostname()).IsLoopback() {
+			return fmt.Errorf("decision: with.base_url must use HTTPS for non-loopback hosts")
 		}
 	}
 	return nil

@@ -76,7 +76,12 @@ func (e *decisionExecutor) Close() error {
 	return nil
 }
 
-func (e *decisionExecutor) Run(context.Context) error {
+func (e *decisionExecutor) Run(ctx context.Context) error {
+	stop := context.AfterFunc(ctx, e.cancel)
+	defer stop()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	questions := make(map[string]question, len(e.cfg.Questions))
 	for id, q := range e.cfg.Questions {
 		q.Instructions = maskValue(q.Instructions, e.masker)
@@ -87,6 +92,9 @@ func (e *decisionExecutor) Run(context.Context) error {
 		Model: e.cfg.Model, State: maskValue(e.cfg.State, e.masker), Questions: questions,
 	})
 	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		if e.ctx.Err() != nil {
 			return e.ctx.Err()
 		}

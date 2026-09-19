@@ -6862,7 +6862,7 @@
         },
         "base_url": {
           "type": "string",
-          "description": "API root override, including its version prefix. The provider appends its decision path."
+          "description": "API root override, including its version prefix. Requires HTTPS except for localhost and loopback IP addresses. The provider appends its decision path."
         },
         "api_key_name": {
           "type": "string",
