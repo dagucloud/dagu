@@ -89,14 +89,11 @@ func (e *decisionExecutor) Run(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	questions := make(map[string]question, len(e.cfg.Questions))
-	for id, q := range e.cfg.Questions {
-		q.Instructions = maskValue(q.Instructions, e.masker)
-		q.Criteria = maskValue(q.Criteria, e.masker)
-		questions[id] = q
-	}
+	// The request carries the authored state verbatim: masking is a storage and
+	// display control, and rewriting the payload would silently change the
+	// decision the provider is asked to make.
 	result, err := e.client.evaluate(e.ctx, request{
-		Model: e.cfg.Model, State: maskValue(e.cfg.State, e.masker), Questions: questions,
+		Model: e.cfg.Model, State: e.cfg.State, Questions: e.cfg.Questions,
 	})
 	if err != nil {
 		if ctx.Err() != nil {

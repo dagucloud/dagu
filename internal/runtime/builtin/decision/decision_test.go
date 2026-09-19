@@ -308,7 +308,7 @@ func TestCredentials(t *testing.T) {
 		assert.Equal(t, "Bearer "+secret, r.Header.Get("Authorization"))
 		var req request
 		assert.NoError(t, json.NewDecoder(r.Body).Decode(&req))
-		assert.Equal(t, "*******", req.State)
+		assert.Equal(t, secret, req.State)
 		_, _ = w.Write([]byte(strings.Replace(responseJSON, "request-1", `secret-\"quoted\"-value`, 1)))
 	}))
 	defer server.Close()
@@ -324,6 +324,32 @@ func TestCredentials(t *testing.T) {
 	var result map[string]any
 	require.NoError(t, json.Unmarshal(stdout.Bytes(), &result))
 	assert.Equal(t, "*******", result["id"])
+}
+
+// A secret value that is merely a substring of the authored state must not
+// rewrite the request; the provider has to score the text the author wrote.
+func TestRequestNotMasked(t *testing.T) {
+	t.Parallel()
+	const state = "production outage"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req request
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+		assert.Equal(t, state, req.State)
+		_, _ = w.Write([]byte(responseJSON))
+	}))
+	defer server.Close()
+	raw := testConfig(t)
+	raw["base_url"] = server.URL
+	raw["state"] = state
+	scope := value.NewEnvScope(nil, false).
+		WithEntry("OPENROUTER_API_KEY", "test-key", value.EnvSourceSecret).
+		WithEntry("STAGE", "prod", value.EnvSourceSecret)
+	ctx := runtime.WithEnv(t.Context(), runtime.Env{Scope: scope})
+	exec, err := newExecutor(ctx, ir.Step{ExecutorConfig: ir.ExecutorConfig{Config: raw}})
+	require.NoError(t, err)
+	defer exec.(*decisionExecutor).Close()
+	exec.SetStdout(io.Discard)
+	require.NoError(t, exec.Run(ctx))
 }
 
 func TestResponseLimit(t *testing.T) {
