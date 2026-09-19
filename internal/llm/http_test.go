@@ -9,6 +9,9 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -22,10 +25,9 @@ func TestHTTPRetry(t *testing.T) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
 	t.Cleanup(func() { slog.SetDefault(previous) })
 
-	calls := 0
+	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		calls++
-		if calls == 1 {
+		if calls.Add(1) == 1 {
 			w.WriteHeader(statusOverloaded)
 			_, _ = io.WriteString(w, `{"error":"secret-from-request"}`)
 			return
@@ -41,7 +43,47 @@ func TestHTTPRetry(t *testing.T) {
 	data, err := io.ReadAll(body)
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"ok":true}`, string(data))
-	assert.Equal(t, 2, calls)
+	assert.EqualValues(t, 2, calls.Load())
 	assert.Contains(t, logs.String(), "retrying")
+	assert.Contains(t, logs.String(), "status=529")
 	assert.NotContains(t, logs.String(), "secret-from-request")
+}
+
+func TestHTTPRetryStatus(t *testing.T) {
+	for _, status := range []int{400, 401, 429, 500, 501, 502, 503, 504, 505, 529} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				calls.Add(1)
+				w.WriteHeader(status)
+			}))
+			defer server.Close()
+			cfg := DefaultConfig()
+			cfg.MaxRetries = 1
+			cfg.InitialInterval = time.Millisecond
+			_, err := NewHTTPClient(cfg).Do(t.Context(), server.URL, nil, nil)
+			var apiErr *APIError
+			require.ErrorAs(t, err, &apiErr)
+			expected := int32(1)
+			if apiErr.Retryable {
+				expected++
+			}
+			assert.Equal(t, expected, calls.Load())
+			if status == http.StatusNotImplemented {
+				assert.False(t, apiErr.Retryable)
+			}
+		})
+	}
+}
+
+func TestHTTPErrorBodyLimit(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, strings.Repeat("x", 65*1024))
+	}))
+	defer server.Close()
+	_, err := NewHTTPClient(DefaultConfig()).Do(t.Context(), server.URL, nil, nil)
+	var apiErr *APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, 64*1024, len(apiErr.Message))
 }
