@@ -1,0 +1,9 @@
+working_dir: .
+steps:
+  - id: should_fail
+    preconditions:
+      - condition: |
+          0.5
+          0.9
+        expected: "num:>=0.8"
+    run: printf '%s\n' bad > numeric-multiline-ran.txt

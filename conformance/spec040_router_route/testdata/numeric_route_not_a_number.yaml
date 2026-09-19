@@ -1,0 +1,10 @@
+working_dir: .
+steps:
+  - name: pick
+    action: router.route
+    with:
+      value: "$DAGU_CONFORMANCE_UNDEFINED_ROUTE"
+      routes:
+        "num:>=0.9": [auto_approve]
+  - name: auto_approve
+    run: echo approve > auto_approve.out

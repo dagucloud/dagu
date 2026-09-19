@@ -1,0 +1,14 @@
+working_dir: .
+steps:
+  - name: pick
+    action: router.route
+    stdout: route.txt
+    with:
+      value: "0.95"
+      routes:
+        "num:>=0.9": [auto_approve]
+        "num:<0.9": [human_review]
+  - name: auto_approve
+    run: echo approve > auto_approve.out
+  - name: human_review
+    run: echo review > human_review.out

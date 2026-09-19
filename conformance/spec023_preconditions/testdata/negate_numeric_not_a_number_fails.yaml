@@ -1,0 +1,8 @@
+working_dir: .
+steps:
+  - id: write
+    preconditions:
+      - condition: "$DAGU_CONFORMANCE_UNDEFINED_NUMBER"
+        expected: "num:>=0.8"
+        negate: true
+    run: printf '%s\n' ran > negate-numeric-not-a-number.txt

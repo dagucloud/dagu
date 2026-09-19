@@ -1,0 +1,7 @@
+working_dir: .
+steps:
+  - id: main
+    preconditions:
+      - condition: "0.9"
+        expected: "num:>=abc"
+    run: "true"

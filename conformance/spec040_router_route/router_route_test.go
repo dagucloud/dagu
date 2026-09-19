@@ -63,6 +63,12 @@ func TestRouteRuntime(t *testing.T) {
 			absent: []string{"a.out"},
 		},
 		{
+			name:   "num: pattern compares the value as a number",
+			file:   "numeric_route.yaml",
+			want:   []routeFile{{"auto_approve.out", "approve\n"}, {"route.txt", "Router evaluating: 0.95\n  num:<0.9 -> [human_review]\n  num:>=0.9 -> [auto_approve]\n"}},
+			absent: []string{"human_review.out"},
+		},
+		{
 			// after_a depends on branch_a, which is skipped (its route did not
 			// match); continueOn.skipped on branch_a means after_a still runs.
 			name:   "a step depending on a skipped target still runs",
@@ -128,6 +134,11 @@ func TestRouteValidation(t *testing.T) {
 			file:        "chain_type_rejected.yaml",
 			stderrParts: []string{"router steps require type 'graph'"},
 		},
+		{
+			name:        "route pattern with an unsupported numeric operator",
+			file:        "invalid_numeric_route.yaml",
+			stderrParts: []string{"has an invalid numeric comparison"},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -139,4 +150,16 @@ func TestRouteValidation(t *testing.T) {
 			result.ExpectStderrContains(tc.stderrParts...)
 		})
 	}
+}
+
+// A num: route is the one break from the router's leniency toward values that
+// resolve to literal text: a value that is not a number fails the target step
+// rather than quietly matching nothing.
+func TestNumericRouteRejectsNonNumericValue(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	result := dagu.Run("start", "numeric_route_not_a_number.yaml")
+	result.ExpectNonZeroExitCode()
+	dagu.ExpectNoFile("auto_approve.out")
 }
