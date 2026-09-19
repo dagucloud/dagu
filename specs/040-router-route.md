@@ -22,9 +22,8 @@ This spec covers:
   matching the same value at once
 - behavior when no pattern matches
 - the router step's own diagnostic output
-- validation errors, and that router.route has no runtime error behavior of
-  its own beyond what generic step and value resolution behavior already
-  define
+- validation errors, and the one runtime error router.route defines of its
+  own: a value that cannot be compared against a numeric route
 
 This spec does not define:
 
@@ -109,7 +108,9 @@ the quoted wording below (exact surrounding phrasing may vary):
 - `with.routes` is empty: `"router step requires at least one route"`.
 - A route's pattern is empty: `"route pattern cannot be empty"`.
 - A route's pattern starts with `num:` and the rest is not an ordering operator
-  followed by a finite number: `"has an invalid numeric comparison"`.
+  followed by a finite number: `"numeric comparison is invalid"`.
+- A route's pattern starts with `re:` and the rest is empty, whitespace only, or
+  not a valid Go regexp pattern: `"regexp is empty"` or `"regexp is invalid"`.
 - A route lists no targets: `"has no targets"`.
 - A route lists an empty target name: `"has empty target"`.
 - The same step name appears as a target of more than one route:
@@ -121,26 +122,36 @@ the quoted wording below (exact surrounding phrasing may vary):
 
 ### Runtime
 
-`router.route` has no runtime error behavior of its own. `with.value` is
-resolved using the same value resolution as any other step field: a
-reference that cannot be resolved is left as unresolved literal text (see
+`with.value` is resolved using the same value resolution as any other step
+field: a reference that cannot be resolved is left as unresolved literal text
+(see
 [Spec 003: Value Resolution and Field Evaluation](003-value-resolution.md)),
 not a runtime error. That literal text is then matched against every route
 exactly like any other resolved value -- it is not treated as inherently
 unmatchable. A `re:.*` catch-all route, or any route whose pattern happens
-to equal the unresolved literal text, still matches it. A router step
-itself can only fail at runtime the way any step can (signal delivery,
-cancellation; see
+to equal the unresolved literal text, still matches it. Beyond the numeric
+rule below, a router step can only fail at runtime the way any step can
+(signal delivery, cancellation; see
 [Spec 017: Built-In Run Context](017-built-in-run-context.md)).
 
 A `num:` route is the one exception to that leniency, because a numeric gate
-that silently stops gating is worse than a loud failure. When the resolved
-value is not a number, matching it against a `num:` route is an evaluation
-error on that route's target step, so the target reaches terminal status
-`failed` and the DAG run fails (see
-[Spec 023: Preconditions](023-preconditions.md)). The router step itself still
-does not fail, and targets of non-`num:` routes are unaffected: a route whose
-pattern still matches the literal text runs its targets as usual.
+that silently stops gating is worse than a loud failure. Rules:
+
+- If the DAG declares any `num:` route and the resolved value is not a finite
+  number, the router step itself reaches terminal status `failed` and the DAG
+  run fails.
+- The router writes its diagnostic output before failing, so the resolved value
+  and the route table are still reported.
+- No target runs. This includes targets of non-`num:` routes whose pattern
+  matches the value, and a `re:.*` catch-all. A routing decision that cannot be
+  evaluated is not partially carried out.
+- A `re:.*` catch-all therefore does not act as a fallback for non-numeric
+  input. There is no route pattern for "everything the numeric routes did not
+  cover"; a fallback step expresses that with its own negated `num:`
+  preconditions instead (see
+  [Spec 023: Preconditions](023-preconditions.md)).
+- Routing is unaffected when the value is a number: every route, numeric or
+  not, matches independently as usual.
 
 ## Related Specs
 

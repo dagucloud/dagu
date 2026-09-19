@@ -4,8 +4,11 @@ steps:
     action: router.route
     stdout: route.txt
     with:
-      value: "$DAGU_CONFORMANCE_UNDEFINED_ROUTE"
+      value: "abc"
       routes:
         "num:>=0.9": [auto_approve]
+        abc: [exact_match]
   - name: auto_approve
     run: echo approve > auto_approve.out
+  - name: exact_match
+    run: echo exact > exact_match.out
