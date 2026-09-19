@@ -1,0 +1,9 @@
+steps:
+  - action: decision.evaluate
+    with:
+      provider: openrouter
+      state: ticket
+      questions:
+        refund:
+          type: noul
+          instructions: Refund requested?

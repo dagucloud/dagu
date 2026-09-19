@@ -7,6 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -536,6 +538,81 @@ steps:
 	// The child declared one output, so that is the whole surface the caller
 	// sees. SCRATCH stays internal to the child run.
 	require.JSONEq(t, `{"verdict":"clean"}`, *status.Nodes[0].OutputsValue)
+}
+
+func TestDecisionOutputs(t *testing.T) {
+	outputsTestParallel(t)
+	for _, mode := range []string{"success", "failure", "retry"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			const response = `{"model":"jev-test","id":"decision-secret","answers":{"refund":{"type":"noul","noul":0.9}},"usage":{"input_tokens":10,"output_tokens":2}}`
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body map[string]any
+				assert.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+				assert.Equal(t, map[string]any{"message": []any{"Refund please", float64(2)}, "secret": "*******"}, body["state"])
+				assert.Equal(t, "Bearer decision-secret", r.Header.Get("Authorization"))
+				calls++
+				if mode == "failure" || (mode == "retry" && calls == 1) {
+					_, _ = fmt.Fprint(w, `{}`)
+					return
+				}
+				_, _ = fmt.Fprint(w, response)
+			}))
+			defer server.Close()
+			th := test.Setup(t)
+			dag := th.DAG(t, `
+env:
+  DECISION_KEY: decision-secret
+  MESSAGE: Refund please
+steps:
+  - id: classify
+    action: decision.evaluate
+    retry_policy:
+      limit: 1
+      interval_sec: 0
+    with:
+      provider: openrouter
+      base_url: `+server.URL+`
+      api_key_name: DECISION_KEY
+      model: jev-test
+      state:
+        message: ["${env.MESSAGE}", 2]
+        secret: ${env.DECISION_KEY}
+      questions:
+        refund:
+          type: noul
+          instructions: {message: "${env.MESSAGE}"}
+`)
+			agent := dag.Agent()
+			err := agent.Run(agent.Context)
+			if mode == "failure" {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
+			require.NoError(t, err)
+			require.Len(t, status.Nodes, 1)
+			node := status.Nodes[0]
+			if mode == "failure" {
+				assert.Equal(t, ir.NodeFailed, node.Status)
+				assert.Nil(t, node.StepOutputsValue)
+				return
+			}
+			assert.Equal(t, ir.NodeSucceeded, node.Status)
+			require.NotNil(t, node.OutputValue)
+			assert.NotContains(t, *node.OutputValue, "decision-secret")
+			require.NotNil(t, node.StepOutputsValue)
+			var outputs map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal([]byte(*node.StepOutputsValue), &outputs))
+			assert.JSONEq(t, `"*******"`, string(outputs["id"]))
+			assert.JSONEq(t, `{"refund":{"type":"noul","noul":0.9}}`, string(outputs["answers"]))
+			if mode == "retry" {
+				assert.Equal(t, 1, node.RetryCount)
+			}
+		})
+	}
 }
 
 func TestSubDAGWithoutDeclaredOutputsPublishesNothing(t *testing.T) {

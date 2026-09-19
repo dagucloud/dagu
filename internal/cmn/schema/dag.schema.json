@@ -2733,6 +2733,28 @@
         },
         {
           "if": {
+            "properties": {
+              "action": {
+                "const": "decision.evaluate"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "required": [
+              "with"
+            ],
+            "properties": {
+              "with": {
+                "$ref": "#/definitions/decisionEvaluateActionConfig"
+              }
+            }
+          }
+        },
+        {
+          "if": {
             "properties": { "action": { "const": "chat.completion" } },
             "required": ["action"]
           },
@@ -6211,6 +6233,7 @@
             "artifact.read",
             "artifact.write",
             "chat.completion",
+            "decision.evaluate",
             "container.run",
             "dag.enqueue",
             "dag.run",
@@ -6817,6 +6840,136 @@
         }
       },
       "description": "Configuration for action: router.route."
+    },
+    "decisionEvaluateActionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "model",
+        "state",
+        "questions"
+      ],
+      "properties": {
+        "provider": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Decision provider: openrouter or typesafe. Runtime references are supported."
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "base_url": {
+          "type": "string",
+          "description": "API root override, including its version prefix. The provider appends its decision path."
+        },
+        "api_key_name": {
+          "type": "string",
+          "description": "Name of a workflow environment variable containing the API key."
+        },
+        "state": {
+          "type": [
+            "string",
+            "object",
+            "array"
+          ]
+        },
+        "questions": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "instructions"
+            ],
+            "properties": {
+              "type": {
+                "enum": [
+                  "choice",
+                  "score",
+                  "noul"
+                ]
+              },
+              "instructions": {
+                "type": [
+                  "string",
+                  "object",
+                  "array"
+                ]
+              },
+              "criteria": {}
+            },
+            "oneOf": [
+              {
+                "properties": {
+                  "type": {
+                    "const": "choice"
+                  },
+                  "criteria": {
+                    "type": "object",
+                    "minProperties": 2,
+                    "maxProperties": 255,
+                    "additionalProperties": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "criteria"
+                ]
+              },
+              {
+                "properties": {
+                  "type": {
+                    "const": "score"
+                  },
+                  "criteria": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 10,
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "criteria"
+                ]
+              },
+              {
+                "properties": {
+                  "type": {
+                    "const": "noul"
+                  },
+                  "criteria": {
+                    "type": "object",
+                    "required": [
+                      "true",
+                      "false"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "true": {
+                        "type": "string"
+                      },
+                      "false": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "description": "Configuration for action: decision.evaluate. Responses are captured as JSON automatically unless output capture is explicitly configured."
     },
     "chatCompletionActionConfig": {
       "type": "object",

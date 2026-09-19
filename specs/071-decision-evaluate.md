@@ -2,7 +2,7 @@
 
 ## Status
 
-Not implemented.
+Implemented.
 
 ## Scope
 
@@ -29,8 +29,9 @@ type-specific `criteria`:
 - `noul`: an optional object with both `true` and `false` string descriptions.
 
 Question IDs correlate answers; instructions contain the question's meaning.
-Standard runtime references resolve in connection settings and string leaves
-of state, instructions, and criteria. Object and array structure is preserved.
+Standard runtime references resolve in provider, model, base URL, and string
+leaves of state, instructions, and criteria. Object and array structure is
+preserved. The API key variable name is a literal environment variable name.
 
 ### Connection
 

@@ -12,6 +12,7 @@ import (
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/command"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/dag"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/data"
+	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/decision"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/docker"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/file"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/foreach"
