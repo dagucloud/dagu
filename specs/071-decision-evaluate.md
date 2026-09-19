@@ -27,6 +27,7 @@ type-specific `criteria`:
 - `choice`: 2–255 named options, each with a string description or null.
 - `score`: 2–10 string descriptions ordered from level zero upward.
 - `noul`: an optional object with both `true` and `false` string descriptions.
+  The keys are the literal strings, so YAML must quote them.
 
 Question IDs correlate answers; instructions contain the question's meaning.
 Standard runtime references resolve in provider, model, base URL, and string
@@ -66,10 +67,9 @@ A successful response is one JSON object containing `model`, `answers`, and
 
 Probabilities and confidence must be numbers between zero and one. Low
 confidence is a successful result, not an execution error. Provider metadata
-is retained, including the precision and representation of JSON numbers through
-capture and persistence. Direct output references retain the precision of every
-number and the representation of integers a float64 cannot hold exactly.
-Whitespace and object-key order may change. Diagnostics do not appear in the JSON stdout response.
+is retained. An integer a float64 cannot hold exactly keeps its precision and
+representation through capture, persistence, and direct output references. Every
+other number renders through float64. Whitespace and object-key order may change. Diagnostics do not appear in the JSON stdout response.
 
 Without explicit output configuration, Dagu captures the response automatically.
 The existing `${classify.output.answers.department.choice}` JSON lookup works
@@ -116,6 +116,12 @@ steps:
           criteria:
             billing: Charges and refunds
             other: Anything else
+        refund:
+          type: noul
+          instructions: Is a refund requested?
+          criteria:
+            "true": A refund is requested
+            "false": No refund is requested
   - id: consume
     depends: [classify]
     action: log.write
