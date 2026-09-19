@@ -82,6 +82,7 @@ var builtinProviderCatalog = []providerDescriptor{
 	{name: "droid", binary: "droid", prefixArgs: []string{"exec"}, promptMode: ir.HarnessPromptModeArg, stdinMode: builtinStdinFold},
 	{name: "amp", binary: "amp", promptMode: ir.HarnessPromptModeFlag, promptFlag: "-x"},
 	{name: "deepseek", binary: "dsh", prefixArgs: []string{"--profile", "headless"}, promptMode: ir.HarnessPromptModeArg, promptPosition: ir.HarnessPromptPositionAfterFlags, stdinMode: builtinStdinFold},
+	{name: "kilo", binary: "kilo", prefixArgs: []string{"run"}, promptMode: ir.HarnessPromptModeArg, defaultConfig: map[string]any{"auto": true}},
 }
 
 var providers = map[string]*providerDescriptor{}

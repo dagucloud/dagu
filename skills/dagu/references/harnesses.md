@@ -17,6 +17,7 @@ Use `action: harness.run` to invoke external coding agents from DAG steps. Dagu 
 | `droid` | `droid` | `droid exec "<prompt>" [flags]` | Folded into the prompt |
 | `gemini` | `gemini` | `gemini -p "<prompt>" [flags]` | Piped to stdin |
 | `goose` | `goose` | `goose run --text "<prompt>" [flags]` | Folded into the prompt |
+| `kilo` | `kilo` | `kilo run "<prompt>" --auto [flags]` | Piped to stdin |
 | `kiro` | `kiro-cli` | `kiro-cli chat --no-interactive "<prompt>" [flags]` | Piped to stdin |
 | `opencode` | `opencode` | Managed session or `opencode run "<prompt>" [flags]` | Piped to stdin on the CLI path |
 | `pi` | `pi` | `pi -p "<prompt>" [flags]` | Piped to stdin |
@@ -25,6 +26,8 @@ Use `action: harness.run` to invoke external coding agents from DAG steps. Dagu 
 Codex defaults to `skip_git_repo_check: true`, so its default invocation includes `--skip-git-repo-check`. Set `skip_git_repo_check: false` or `skip-git-repo-check: false` to omit it.
 
 Cursor defaults to `output_format: text`, and Goose defaults to `quiet: true`. Explicit values in `with` override these defaults.
+
+Kilo defaults to `auto: true`, so `provider: kilo` runs unattended. Set `auto: false` to disable automatic approval explicitly.
 
 The `deepseek` adapter targets the official DeepSeek Harness `dsh` CLI and its headless profile. It does not select DeepSeek as the model backend for another harness.
 
@@ -36,7 +39,7 @@ For host subprocess runs, built-in provider adapters resolve binaries through `P
 
 - `with.prompt` is required and is passed to the selected provider according to its built-in adapter or custom harness definition. Multiline prompt text is preserved.
 - `with.stdin` is optional supplementary input for host subprocess runs. Each built-in adapter either pipes it to stdin or folds it into the prompt as shown above. Containerized harness runs reject it.
-- Built-in provider adapters are `aider`, `amp`, `claude`, `cline`, `codex`, `copilot`, `cursor`, `deepseek`, `droid`, `gemini`, `goose`, `kiro`, `opencode`, `pi`, and `qwen`. Non-reserved `with` keys become CLI flags.
+- Built-in provider adapters are `aider`, `amp`, `claude`, `cline`, `codex`, `copilot`, `cursor`, `deepseek`, `droid`, `gemini`, `goose`, `kilo`, `kiro`, `opencode`, `pi`, and `qwen`. Non-reserved `with` keys become CLI flags.
 - Custom providers must be declared under top-level `harnesses:`. A non-null custom definition shadows a built-in provider with the same name; deleting the custom definition exposes the built-in again.
 - `fallback` is an ordered list of provider configs. Dagu tries the next config only when the previous attempt fails and the run context is still active. Fallback configs cannot contain another `fallback`.
 - `provider` may use value references only if they resolve to a concrete provider string before executor creation. If `${...}` remains unresolved at runtime, the harness fails with an unresolved provider template error.
@@ -422,6 +425,20 @@ steps:
       provider: deepseek
     timeout_sec: 300
 ```
+
+### Kilo Code
+
+```yaml
+steps:
+  - id: task
+    action: harness.run
+    with:
+      prompt: "Review the current branch and fix the failing tests"
+      provider: kilo
+    timeout_sec: 300
+```
+
+Kilo runs as `kilo run "<prompt>" --auto` by default for unattended execution.
 
 ## Notes
 

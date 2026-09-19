@@ -4774,7 +4774,7 @@
       "properties": {
         "provider": {
           "type": "string",
-          "description": "Harness provider name. Use a built-in CLI provider (aider, amp, claude, cline, codex, copilot, cursor, deepseek, droid, gemini, goose, kiro, opencode, pi, or qwen) or a custom top-level harnesses entry. Supports ${VAR} interpolation."
+          "description": "Harness provider name. Use a built-in CLI provider (aider, amp, claude, cline, codex, copilot, cursor, deepseek, droid, gemini, goose, kilo, kiro, opencode, pi, or qwen) or a custom top-level harnesses entry. Supports ${VAR} interpolation."
         },
         "model": {
           "type": "string",
@@ -4797,7 +4797,7 @@
       "properties": {
         "provider": {
           "type": "string",
-          "description": "Harness provider name. Use a built-in CLI provider (aider, amp, claude, cline, codex, copilot, cursor, deepseek, droid, gemini, goose, kiro, opencode, pi, or qwen) or a custom top-level harnesses entry. Supports ${VAR} interpolation."
+          "description": "Harness provider name. Use a built-in CLI provider (aider, amp, claude, cline, codex, copilot, cursor, deepseek, droid, gemini, goose, kilo, kiro, opencode, pi, or qwen) or a custom top-level harnesses entry. Supports ${VAR} interpolation."
         },
         "fallback": {
           "type": "array",
