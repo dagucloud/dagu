@@ -184,6 +184,12 @@ func ResolveNumericComparison(ctx context.Context, pattern, fieldPath string) (s
 	}
 	comparison, err := stringutil.ParseNumericPattern(resolved)
 	if err != nil {
+		if resolved == pattern {
+			// Nothing was substituted, so the reference has no value. Say so
+			// rather than calling the reference text a bad number: the caller
+			// already quotes the pattern, which names the reference.
+			return stringutil.NumericComparison{}, fmt.Errorf("threshold reference did not resolve")
+		}
 		return stringutil.NumericComparison{}, fmt.Errorf("threshold did not resolve to a number")
 	}
 	return comparison, nil

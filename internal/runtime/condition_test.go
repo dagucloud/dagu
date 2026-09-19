@@ -479,4 +479,11 @@ func TestResolveNumericComparisonHidesResolvedThreshold(t *testing.T) {
 	_, err = runtime.ResolveNumericComparison(ctx, "num:>=abc", "expected")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "abc")
+
+	// A reference with no value is reported as unresolved rather than as a bad
+	// number, so the cause is not mistaken for a malformed threshold.
+	_, err = runtime.ResolveNumericComparison(ctx, "num:>=${env.NOT_DEFINED}", "expected")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "did not resolve")
+	require.NotContains(t, err.Error(), "not a number")
 }

@@ -227,6 +227,12 @@ Rules:
   validation error.
 - A referenced number accepts the same reference forms as `condition`, including
   the scoped forms and the unqualified `${NAME}` and `$NAME` environment forms.
+- A reference in the number does not create a step dependency, just as a
+  reference in `condition` does not. A number that reads an upstream step's
+  output resolves only once that step has published it, so the gated step must
+  already depend on it. Otherwise the number is unresolved and the condition is
+  an evaluation error, unlike an unresolved `condition`, which stays literal text
+  and produces a not-met condition.
 - A reference in the number is resolved when the condition is checked, not when
   the DAG is validated.
 - Whether a referenced number has a value is not decided by validation. An
