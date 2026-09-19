@@ -107,7 +107,9 @@ func (e *decisionExecutor) Run(ctx context.Context) error {
 		}
 		return errors.New(e.masker.MaskString(err.Error()))
 	}
-	return json.NewEncoder(e.stdout).Encode(maskValue(result, e.masker))
+	encoder := json.NewEncoder(e.stdout)
+	encoder.SetEscapeHTML(false)
+	return encoder.Encode(maskValue(result, e.masker))
 }
 
 func maskValue(v any, masker *masking.Masker) any {
