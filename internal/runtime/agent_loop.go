@@ -612,7 +612,8 @@ func (r *Runner) persistAgent(ctx context.Context, node *Node, state *agentloop.
 
 // report publishes a node state change and waits for the receiver to persist
 // the status snapshot covering it, so that a node's state is durable before
-// execution continues past it. The wait is abandoned once ctx is done.
+// execution continues past it. Waiting for that outcome stops once ctx is
+// done; publishing itself still blocks until the receiver takes the update.
 //
 // A failed persist is logged and does not alter the run outcome: the terminal
 // status write at the end of the run is the one that decides that.

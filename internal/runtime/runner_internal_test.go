@@ -754,3 +754,32 @@ func TestReportWithoutChannelDoesNotBlock(t *testing.T) {
 
 	New(&Config{}).report(context.Background(), nil, &Node{})
 }
+
+// A sender that stopped waiting must not wedge the receiver: the ack it
+// abandoned is still buffered, so a later one is dropped rather than blocking
+// the goroutine that drives every other node's status write.
+func TestAckDoesNotBlockAfterSenderAbandonsWait(t *testing.T) {
+	t.Parallel()
+
+	r := New(&Config{})
+	ch := make(chan ProgressUpdate)
+	go func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		r.report(ctx, ch, &Node{})
+	}()
+
+	update := <-ch
+	acked := make(chan struct{})
+	go func() {
+		update.Ack(nil)
+		update.Ack(nil)
+		close(acked)
+	}()
+
+	select {
+	case <-acked:
+	case <-time.After(time.Second):
+		t.Fatal("Ack blocked after the sender stopped waiting")
+	}
+}

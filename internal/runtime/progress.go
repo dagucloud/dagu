@@ -8,9 +8,9 @@ package runtime
 //
 // When ack is non-nil the sender is waiting for the status snapshot covering
 // this change to be persisted, so a node's state reaches durable storage
-// before execution continues past it. Receivers must call Ack exactly once
-// per update, passing the outcome of the persistence attempt; a zero value
-// carries no ack and releases nobody.
+// before execution continues past it. Receivers release the sender by calling
+// Ack with the outcome of that attempt; a zero value carries no ack and
+// releases nobody.
 type ProgressUpdate struct {
 	Node *Node
 
@@ -18,12 +18,17 @@ type ProgressUpdate struct {
 }
 
 // Ack releases the sender waiting on this update. err reports whether the
-// status snapshot was persisted. Calling it on an update without an ack
-// channel is a no-op.
+// status snapshot was persisted. The first call decides the outcome; later
+// calls, and calls on an update carrying no ack channel, are no-ops.
+//
+// Ack never blocks, so a receiver cannot be wedged by a sender that stopped
+// waiting.
 func (u ProgressUpdate) Ack(err error) {
-	if u.ack != nil {
-		// Buffered with room for this single send, so an abandoned waiter
-		// (see Runner.report) can never block the receiver.
-		u.ack <- err
+	if u.ack == nil {
+		return
+	}
+	select {
+	case u.ack <- err:
+	default:
 	}
 }

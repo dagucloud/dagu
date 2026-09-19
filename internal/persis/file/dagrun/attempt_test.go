@@ -650,48 +650,6 @@ func BenchmarkDAGRunJSON(b *testing.B) {
 	}
 }
 
-// BenchmarkStatusWrite_DurabilityRequired measures the full persistence path:
-// Attempt.Write → JSON encode → buffered file write → flush → fsync (Sync).
-// This is the durability boundary that the tracker Acks after, covering the
-// "watermark forces write past shouldDelayTerminalStatus" case where a terminal
-// status must be durably persisted before Acknowledge. MEASURE only — no
-// thresholds.
-func BenchmarkStatusWrite_DurabilityRequired(b *testing.B) {
-	attemptID, err := genAttemptID()
-	if err != nil {
-		b.Fatal(err)
-	}
-	attDir := filepath.Join(b.TempDir(), attemptDirName(persis.NewUTC(time.Now()), attemptID))
-	if err := os.MkdirAll(attDir, 0o750); err != nil {
-		b.Fatal(err)
-	}
-	file := filepath.Join(attDir, "status.dat")
-
-	ctx := context.Background()
-	att, err := NewAttempt(file, nil)
-	if err != nil {
-		b.Fatal(err)
-	}
-	b.Cleanup(func() { _ = att.Close(ctx) })
-	if err := att.Open(ctx); err != nil {
-		b.Fatal(err)
-	}
-
-	status := createTestStatus(ir.Succeeded)
-	status.AttemptID = "attempt-benchmark"
-	for i := range status.Nodes {
-		status.Nodes[i].Status = ir.NodeSucceeded
-	}
-
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		if err := att.Write(ctx, status); err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
 type benchmarkJSONEncoder func(any) ([]byte, error)
 
 func newStatusJSONBenchmarkEncoder() benchmarkJSONEncoder {
