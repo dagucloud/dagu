@@ -44,16 +44,16 @@ func parseJSONValue(ctx context.Context, varName, jsonStr string) (any, bool) {
 			tag.Error(err))
 		return nil, false
 	}
-	return normalizeJSONNumbers(raw), true
+	return NormalizeJSONNumbers(raw), true
 }
 
 // maxExactInt is the largest magnitude a float64 represents without rounding.
 const maxExactInt = 1 << 53
 
-// normalizeJSONNumbers converts decoded numbers back to float64 so resolved
-// references render as they always have, keeping the literal only for integers
-// that a float64 cannot hold exactly.
-func normalizeJSONNumbers(v any) any {
+// NormalizeJSONNumbers converts values decoded as json.Number to float64,
+// keeping the literal only for integers a float64 cannot hold exactly. Maps and
+// slices are normalized in place.
+func NormalizeJSONNumbers(v any) any {
 	switch v := v.(type) {
 	case json.Number:
 		if strings.ContainsAny(v.String(), ".eE") {
@@ -68,12 +68,12 @@ func normalizeJSONNumbers(v any) any {
 		return v
 	case map[string]any:
 		for key, val := range v {
-			v[key] = normalizeJSONNumbers(val)
+			v[key] = NormalizeJSONNumbers(val)
 		}
 		return v
 	case []any:
 		for i, val := range v {
-			v[i] = normalizeJSONNumbers(val)
+			v[i] = NormalizeJSONNumbers(val)
 		}
 		return v
 	default:

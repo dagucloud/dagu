@@ -622,7 +622,7 @@ steps:
 			require.NoError(t, json.Unmarshal(outputs["usage"], &usage))
 			assert.Equal(t, "0.0000042", string(usage["cost"]))
 			assert.Equal(t, "9007199254740993", string(usage["sequence"]))
-			assert.Equal(t, "1.2300e+19", string(usage["estimate"]))
+			assert.Equal(t, "12300000000000000000", string(usage["estimate"]))
 			if mode == "retry" || mode == "retry_limit" {
 				assert.Equal(t, 1, node.RetryCount)
 			}

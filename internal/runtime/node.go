@@ -682,6 +682,14 @@ func decodeOutputJSON(raw string, target any) error {
 	if decoder.Decode(new(any)) != io.EOF {
 		return fmt.Errorf("expected one JSON value")
 	}
+	// Numbers keep their literal only where a float64 would round them, so
+	// persisted output renders the same way a reference to it does.
+	switch t := target.(type) {
+	case *any:
+		*t = cmnvalue.NormalizeJSONNumbers(*t)
+	case *map[string]any:
+		cmnvalue.NormalizeJSONNumbers(*t)
+	}
 	return nil
 }
 

@@ -842,7 +842,7 @@ func TestOutputNumbers(t *testing.T) {
 		require.NoError(t, node.captureOutput(ctx))
 		state := node.State()
 		require.NotNil(t, state.StepOutputsValue)
-		for _, token := range []string{"0.0000042", "9007199254740993", "1.2300e+19"} {
+		for _, token := range []string{"0.0000042", "9007199254740993", "12300000000000000000"} {
 			assert.Contains(t, *state.StepOutputsValue, token)
 		}
 		values := NodeData{State: state}.StepOutputsValueMap()
@@ -851,7 +851,7 @@ func TestOutputNumbers(t *testing.T) {
 		} else {
 			assert.Equal(t, "0.0000042", values["cost"])
 			assert.Equal(t, "9007199254740993", values["sequence"])
-			assert.Equal(t, "1.2300e+19", values["estimate"])
+			assert.Equal(t, "12300000000000000000", values["estimate"])
 		}
 	}
 }
