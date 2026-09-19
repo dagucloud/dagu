@@ -450,7 +450,9 @@ func (n *Node) evaluateOutputSchema(ctx context.Context, raw string) (string, er
 		return "", err
 	}
 
-	// Preserve number precision independently of the schema validator's numeric representation.
+	// The validator reports a json.Number as a string, so validation must run on
+	// the plain decode above and the precision-preserving decode must follow it.
+	// Collapsing the two would fail any schema typing an integer past float64.
 	if err := decodeOutputJSON(trimmed, &decoded); err != nil {
 		return "", fmt.Errorf("failed to decode stdout JSON for output_schema: %w", err)
 	}
@@ -695,8 +697,7 @@ func decodeOutputJSON(raw string, target any) error {
 	if decoder.Decode(new(any)) != io.EOF {
 		return fmt.Errorf("expected one JSON value")
 	}
-	// Numbers keep their literal only where a float64 would round them, so
-	// persisted output renders the same way a reference to it does.
+	// Numbers keep their literal only where a float64 would round them.
 	switch t := target.(type) {
 	case *any:
 		*t = cmnvalue.NormalizeJSONNumbers(*t)
