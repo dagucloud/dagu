@@ -379,7 +379,10 @@ func (n *Node) captureOutput(ctx context.Context) error {
 		capturedOutputs = value
 	}
 
-	if step.HasOutputSchema() && !step.HasStructuredOutput() {
+	// A failed step leaves schemaOutput empty because the schema error is
+	// suppressed above in favor of the step's own error. Publishing it would
+	// make the output resolve as present and empty rather than absent.
+	if step.HasOutputSchema() && !step.HasStructuredOutput() && schemaOutput != "" {
 		n.setOutputValue(schemaOutput)
 		capturedOutputs = schemaOutput
 	}

@@ -605,6 +605,7 @@ steps:
 			if mode == "failure" {
 				assert.Equal(t, ir.NodeFailed, node.Status)
 				assert.Nil(t, node.StepOutputsValue)
+				assert.Nil(t, node.OutputValue)
 				return
 			}
 			assert.Equal(t, ir.NodeSucceeded, node.Status)
