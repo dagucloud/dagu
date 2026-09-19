@@ -48,7 +48,7 @@ func validateNumericPattern(pattern string) error {
 		return fmt.Errorf("numeric comparison is invalid: %w", err)
 	}
 
-	if isWholeValueReference(operand) {
+	if cmnvalue.IsWholeReference(operand) {
 		return nil
 	}
 
@@ -56,27 +56,4 @@ func validateNumericPattern(pattern string) error {
 		return fmt.Errorf("numeric comparison is invalid: %w", err)
 	}
 	return nil
-}
-
-// isWholeValueReference reports whether text is exactly one value reference and
-// nothing else.
-//
-// Interpolation is deliberately excluded: a threshold assembled from fragments
-// such as "0.${x}" reads like a typo, and a single reference is the form other
-// reference-only fields already require.
-func isWholeValueReference(text string) bool {
-	if cmnvalue.IsExactRef(text) {
-		return true
-	}
-	// IsExactRef covers only the canonical scoped namespaces, so a bare
-	// ${NAME} naming a param or environment entry needs its own check.
-	inner, ok := strings.CutPrefix(text, "${")
-	if !ok {
-		return false
-	}
-	inner, ok = strings.CutSuffix(inner, "}")
-	if !ok {
-		return false
-	}
-	return inner != "" && !strings.ContainsAny(inner, "${}")
 }

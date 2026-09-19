@@ -148,7 +148,7 @@ func matchCondition(ctx context.Context, shell []string, c *ir.Condition) error 
 // Every message reports the pattern as authored, never as resolved: a threshold
 // can come from a secret, and these strings are persisted with the run.
 func matchNumericCondition(ctx context.Context, expected, actual string) error {
-	comparison, err := resolveNumericComparison(ctx, expected)
+	comparison, err := ResolveNumericComparison(ctx, expected, "expected")
 	if err != nil {
 		return fmt.Errorf("invalid numeric comparison %q: %w", expected, err)
 	}
@@ -162,25 +162,28 @@ func matchNumericCondition(ctx context.Context, expected, actual string) error {
 	return fmt.Errorf("%w: expected %q, got %q", ErrConditionNotMet, expected, actual)
 }
 
-// resolveNumericComparison parses a numeric-comparison pattern, resolving a value
-// reference in its threshold first.
+// ResolveNumericComparison parses a numeric-comparison pattern, resolving a value
+// reference in its threshold first. fieldPath names the field for notices.
 //
 // The whole pattern is resolved rather than just the threshold, which is
 // equivalent because the numeric prefix and the ordering operators contain no
 // dollar sign. A reference that cannot be resolved is preserved as its own text,
 // so it reaches the parser as a non-number and fails there.
-func resolveNumericComparison(ctx context.Context, expected string) (stringutil.NumericComparison, error) {
-	if !strings.ContainsRune(expected, '$') {
-		return stringutil.ParseNumericPattern(expected)
+//
+// No returned error quotes a resolved threshold, which may hold a secret, so a
+// caller can wrap the error while reporting the pattern as authored. Every
+// surface that compares a numeric pattern must go through here, so that gating
+// and routing cannot disagree about what a threshold means.
+func ResolveNumericComparison(ctx context.Context, pattern, fieldPath string) (stringutil.NumericComparison, error) {
+	if !strings.ContainsRune(pattern, '$') {
+		return stringutil.ParseNumericPattern(pattern)
 	}
-	resolved, err := resolveRuntimeString(ctx, expected, cmnvalue.ConditionRuntimeValueField("expected"))
+	resolved, err := resolveRuntimeString(ctx, pattern, cmnvalue.ConditionRuntimeValueField(fieldPath))
 	if err != nil {
 		return stringutil.NumericComparison{}, err
 	}
 	comparison, err := stringutil.ParseNumericPattern(resolved)
 	if err != nil {
-		// The parse error would quote the resolved threshold, which may hold a
-		// secret, so report only that it did not resolve to a number.
 		return stringutil.NumericComparison{}, fmt.Errorf("threshold did not resolve to a number")
 	}
 	return comparison, nil

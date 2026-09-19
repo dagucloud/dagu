@@ -1427,7 +1427,13 @@ steps:
 		t.Parallel()
 
 		// Both reference forms resolve through different paths, so both are pinned.
-		for _, expected := range []string{"num:>=${threshold}", "num:>= ${params.threshold}"} {
+		for _, expected := range []string{
+			"num:>=${threshold}",
+			"num:>= ${params.threshold}",
+			// The same unqualified forms condition already accepts.
+			"num:>=$THRESHOLD",
+			"num:>=${env.THRESHOLD}",
+		} {
 			data := []byte(`
 steps:
   - name: "gate"

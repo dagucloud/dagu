@@ -225,6 +225,8 @@ Rules:
 - A referenced number must be exactly one whole reference. A number assembled
   from a reference and surrounding text, such as `num:>=0.${threshold}`, is a
   validation error.
+- A referenced number accepts the same reference forms as `condition`, including
+  the scoped forms and the unqualified `${NAME}` and `$NAME` environment forms.
 - A reference in the number is resolved when the condition is checked, not when
   the DAG is validated.
 - Whether a referenced number has a value is not decided by validation. An

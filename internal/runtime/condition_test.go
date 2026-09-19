@@ -462,3 +462,21 @@ func TestEvalConditions_CommandFormExpandsHomeRelativeScopeVars(t *testing.T) {
 	})
 	require.NoError(t, err)
 }
+
+// A threshold can come from a secret, and condition errors are persisted with
+// the run, so no error may quote the resolved threshold.
+func TestResolveNumericComparisonHidesResolvedThreshold(t *testing.T) {
+	ctx := newTestContext()
+	env := runtime.GetEnv(ctx)
+	env.Scope = env.Scope.WithEntry("SECRET_THRESHOLD", "sensitive-value", cmnvalue.EnvSourceDAGEnv)
+	ctx = runtime.WithEnv(ctx, env)
+
+	_, err := runtime.ResolveNumericComparison(ctx, "num:>=${env.SECRET_THRESHOLD}", "expected")
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "sensitive-value")
+
+	// A literal threshold is authored text, so quoting it is safe and useful.
+	_, err = runtime.ResolveNumericComparison(ctx, "num:>=abc", "expected")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "abc")
+}

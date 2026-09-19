@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
@@ -69,19 +68,10 @@ func checkNumericRoutes(ctx context.Context, routes []ir.RouteEntry, value strin
 		if !stringutil.HasNumericPrefix(route.Pattern) {
 			continue
 		}
-		pattern := route.Pattern
-		if strings.ContainsRune(pattern, '$') {
-			// A threshold may be a value reference; resolve it with the same
-			// policy the injected precondition uses.
-			resolved, err := runtime.ResolveString(ctx, pattern, cmnvalue.ConditionRuntimeValueField("routes"))
-			if err != nil {
-				return fmt.Errorf("route %q cannot be evaluated: %w", route.Pattern, err)
-			}
-			pattern = resolved
-		}
-		comparison, err := stringutil.ParseNumericPattern(pattern)
+		// Share the precondition's resolver so routing and gating cannot
+		// disagree, and so no resolved threshold reaches this error text.
+		comparison, err := runtime.ResolveNumericComparison(ctx, route.Pattern, "routes")
 		if err != nil {
-			// Report the route as authored: a resolved threshold may hold a secret.
 			return fmt.Errorf("route %q is an invalid numeric comparison: %w", route.Pattern, err)
 		}
 		if _, err := comparison.Match(value); err != nil {
