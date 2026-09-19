@@ -245,8 +245,14 @@ func (e *harnessExecutor) Run(ctx context.Context) error {
 
 		lastErr = err
 		if ctx.Err() != nil {
-			e.exitCode = 124
-			return ctx.Err()
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				e.exitCode = 124 // Standard timeout exit code
+			}
+			if errors.Is(err, ctx.Err()) {
+				return err
+			}
+			// Cancellation can race a real failure, such as a missing binary.
+			return errors.Join(ctx.Err(), err)
 		}
 		if i+1 < len(e.configs) {
 			next := e.configs[i+1]

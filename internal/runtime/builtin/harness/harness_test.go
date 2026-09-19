@@ -1174,6 +1174,39 @@ func (w *cancelOnWrite) Write(p []byte) (int, error) {
 	return n, err
 }
 
+// A cancellation that races a real startup failure keeps the failure and does
+// not report the timeout exit code.
+func TestHarnessExecutorRun_CancelKeepsStartupError(t *testing.T) {
+	if goruntime.GOOS == "windows" {
+		t.Skip("Skipping shell-based test on Windows")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var stdout, stderr strings.Builder
+	exec := &harnessExecutor{
+		stdout: &stdout,
+		stderr: &stderr,
+		configs: []providerConfig{
+			{
+				name: "primary",
+				definition: &ir.HarnessDefinition{
+					Binary:     filepath.Join(t.TempDir(), "missing-binary"),
+					PromptMode: ir.HarnessPromptModeArg,
+					FlagStyle:  ir.HarnessFlagStyleGNULong,
+				},
+				flags: map[string]any{"provider": "primary"},
+			},
+		},
+		prompt: "hello",
+	}
+
+	err := exec.Run(ctx)
+	require.ErrorIs(t, err, context.Canceled)
+	assert.NotEqual(t, context.Canceled.Error(), err.Error())
+	assert.NotEqual(t, 124, exec.ExitCode())
+}
+
 func TestHarnessExecutorRun_CreatesWorkingDir(t *testing.T) {
 	if goruntime.GOOS == "windows" {
 		t.Skip("Skipping shell-based test on Windows")
