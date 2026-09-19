@@ -69,12 +69,13 @@ func (c *HTTPClient) Do(ctx context.Context, url string, body []byte, headers ma
 	for attempt := range c.maxRetries + 1 {
 		if attempt > 0 {
 			backoff := c.backoff(attempt)
-			// Provider errors can contain credentials or sensitive request data.
+			// A provider message can echo credentials or request data, so only
+			// its status is logged. A transport failure carries neither.
 			attrs := []any{"attempt", attempt}
 			if apiErr, ok := errors.AsType[*APIError](lastErr); ok {
 				attrs = append(attrs, "status", apiErr.StatusCode)
 			} else {
-				attrs = append(attrs, "error_kind", "transport")
+				attrs = append(attrs, "error", lastErr)
 			}
 			slog.Warn("HTTP request failed, retrying", attrs...)
 			select {
