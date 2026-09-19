@@ -552,7 +552,9 @@ func TestDecisionOutputs(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				var body map[string]any
 				assert.NoError(t, json.NewDecoder(r.Body).Decode(&body))
-				assert.Equal(t, map[string]any{"message": []any{"Refund please", float64(2)}, "secret": "*******"}, body["state"])
+				// The authored state reaches the provider verbatim, credential
+				// included: the same endpoint already receives it as a bearer token.
+				assert.Equal(t, map[string]any{"message": []any{"Refund please", float64(2)}, "secret": "decision-secret"}, body["state"])
 				assert.Equal(t, "Bearer decision-secret", r.Header.Get("Authorization"))
 				call := calls.Add(1)
 				if mode == "retry_limit" && call == 1 {
