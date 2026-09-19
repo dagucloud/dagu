@@ -40,36 +40,52 @@ func HasNumericPrefix(pattern string) bool {
 	return strings.HasPrefix(pattern, numPrefix)
 }
 
-// ParseNumericPattern parses a numeric-comparison pattern.
+// SplitNumericPattern separates a numeric-comparison pattern into its ordering
+// operator and the text of its operand.
 //
-// It returns an error when pattern does not carry the numeric prefix, or when
-// the remaining text is not one of the ordering operators ">", ">=", "<", or
-// "<=" followed by a finite number. Equality operators are not supported.
-func ParseNumericPattern(pattern string) (NumericComparison, error) {
+// The operand is returned as written apart from surrounding whitespace, so a
+// caller can resolve a value reference in it before requiring a number. It
+// returns an error when pattern does not carry the numeric prefix or does not
+// continue with one of the ordering operators ">", ">=", "<", or "<=".
+// Equality operators are not supported.
+func SplitNumericPattern(pattern string) (operator, operand string, err error) {
 	rest, ok := strings.CutPrefix(pattern, numPrefix)
 	if !ok {
-		return NumericComparison{}, fmt.Errorf("pattern %q does not start with %q", pattern, numPrefix)
+		return "", "", fmt.Errorf("pattern %q does not start with %q", pattern, numPrefix)
 	}
 
 	rest = strings.TrimSpace(rest)
 	if rest == "" {
-		return NumericComparison{}, fmt.Errorf("comparison is empty")
+		return "", "", fmt.Errorf("comparison is empty")
 	}
 
 	for _, op := range numericOperators {
-		operand, ok := strings.CutPrefix(rest, string(op))
-		if !ok {
-			continue
+		if operand, ok := strings.CutPrefix(rest, string(op)); ok {
+			return string(op), strings.TrimSpace(operand), nil
 		}
-		value, err := parseFiniteFloat(operand)
-		if err != nil {
-			return NumericComparison{}, fmt.Errorf("operator %q needs a number: %w", op, err)
-		}
-		return NumericComparison{op: op, operand: value}, nil
 	}
 
-	return NumericComparison{}, fmt.Errorf(
+	return "", "", fmt.Errorf(
 		"comparison %q must start with one of >, >=, <, <=; use an exact match to test equality", rest)
+}
+
+// ParseNumericPattern parses a numeric-comparison pattern whose operand is a
+// literal number.
+//
+// It returns an error when the pattern is not a supported comparison or its
+// operand is not a finite number. A pattern whose operand is a value reference
+// must be resolved before it reaches this function.
+func ParseNumericPattern(pattern string) (NumericComparison, error) {
+	operator, operand, err := SplitNumericPattern(pattern)
+	if err != nil {
+		return NumericComparison{}, err
+	}
+
+	value, err := parseFiniteFloat(operand)
+	if err != nil {
+		return NumericComparison{}, fmt.Errorf("operator %q needs a number: %w", operator, err)
+	}
+	return NumericComparison{op: numericOperator(operator), operand: value}, nil
 }
 
 // Match reports whether value satisfies the comparison.

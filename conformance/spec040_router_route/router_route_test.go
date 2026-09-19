@@ -69,6 +69,14 @@ func TestRouteRuntime(t *testing.T) {
 			absent: []string{"human_review.out"},
 		},
 		{
+			// The diagnostic prints the route as authored, not as resolved: a
+			// threshold may come from a secret.
+			name:   "a num: route threshold can be a value reference",
+			file:   "numeric_route_threshold_reference.yaml",
+			want:   []routeFile{{"auto_approve.out", "approve\n"}, {"route.txt", "Router evaluating: 0.95\n  num:<${threshold} -> [human_review]\n  num:>=${threshold} -> [auto_approve]\n"}},
+			absent: []string{"human_review.out"},
+		},
+		{
 			// after_a depends on branch_a, which is skipped (its route did not
 			// match); continueOn.skipped on branch_a means after_a still runs.
 			name:   "a step depending on a skipped target still runs",

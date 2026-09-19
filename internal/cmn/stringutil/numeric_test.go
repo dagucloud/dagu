@@ -131,3 +131,49 @@ func TestNumericComparisonMatchNotANumber(t *testing.T) {
 		}
 	}
 }
+
+func TestSplitNumericPattern(t *testing.T) {
+	tests := []struct {
+		pattern      string
+		wantOperator string
+		wantOperand  string
+	}{
+		{"num:>0.8", ">", "0.8"},
+		{"num:>=0.8", ">=", "0.8"},
+		{"num:<0.8", "<", "0.8"},
+		{"num:<=0.8", "<=", "0.8"},
+		{"num:>= 0.8 ", ">=", "0.8"},
+		// The operand is returned as written so a caller can resolve it.
+		{"num:>=${threshold}", ">=", "${threshold}"},
+		{"num:>= ${params.threshold}", ">=", "${params.threshold}"},
+		{"num:>=abc", ">=", "abc"},
+	}
+
+	for _, tt := range tests {
+		operator, operand, err := stringutil.SplitNumericPattern(tt.pattern)
+		if err != nil {
+			t.Errorf("SplitNumericPattern(%q) returned error: %v", tt.pattern, err)
+			continue
+		}
+		if operator != tt.wantOperator || operand != tt.wantOperand {
+			t.Errorf("SplitNumericPattern(%q) = %q, %q, want %q, %q",
+				tt.pattern, operator, operand, tt.wantOperator, tt.wantOperand)
+		}
+	}
+
+	for _, pattern := range []string{"0.8", "re:.*", "num:", "num:   ", "num:0.8", "num:==0.8", "num:=>0.8"} {
+		if _, _, err := stringutil.SplitNumericPattern(pattern); err == nil {
+			t.Errorf("SplitNumericPattern(%q) did not return an error", pattern)
+		}
+	}
+}
+
+// A reference operand is not a number, so the strict parser still rejects it.
+// Resolution happens before ParseNumericPattern is reached.
+func TestParseNumericPatternRejectsReference(t *testing.T) {
+	for _, pattern := range []string{"num:>=${threshold}", "num:>=${params.threshold}"} {
+		if _, err := stringutil.ParseNumericPattern(pattern); err == nil {
+			t.Errorf("ParseNumericPattern(%q) did not return an error", pattern)
+		}
+	}
+}

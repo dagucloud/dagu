@@ -879,6 +879,27 @@ func TestBuildStepRepeatPolicy(t *testing.T) {
 			},
 		},
 		{
+			name: "NumericExpectedReference",
+			repeatPolicy: &repeatPolicy{
+				Repeat:    types.RepeatModeFromString("until"),
+				Condition: "${N}",
+				Expected:  "num:>=${threshold}",
+			},
+			expected: ir.RepeatPolicy{
+				RepeatMode: ir.RepeatModeUntil,
+				Condition:  &ir.Condition{Condition: "${N}", Expected: "num:>=${threshold}"},
+			},
+		},
+		{
+			name: "InvalidNumericExpectedInterpolated",
+			repeatPolicy: &repeatPolicy{
+				Repeat:    types.RepeatModeFromString("until"),
+				Condition: "${N}",
+				Expected:  "num:>=0.${threshold}",
+			},
+			wantErr: true,
+		},
+		{
 			// An unusable pattern here used to reach runtime, where an until
 			// loop with no limit repeats on it forever.
 			name: "InvalidNumericExpected",

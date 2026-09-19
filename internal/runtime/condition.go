@@ -120,7 +120,7 @@ func matchCondition(ctx context.Context, shell []string, c *ir.Condition) error 
 	}
 
 	if stringutil.HasNumericPrefix(c.Expected) {
-		return matchNumericCondition(c.Expected, evaluatedVal)
+		return matchNumericCondition(ctx, c.Expected, evaluatedVal)
 	}
 
 	// Get maxOutputSize from DAG configuration
@@ -144,8 +144,11 @@ func matchCondition(ctx context.Context, shell []string, c *ir.Condition) error 
 // matchNumericCondition compares an actual value against a numeric-comparison
 // pattern. A value that is not a number is an evaluation error rather than a
 // not-met condition, so that a numeric gate cannot silently stop gating.
-func matchNumericCondition(expected, actual string) error {
-	comparison, err := stringutil.ParseNumericPattern(expected)
+//
+// Every message reports the pattern as authored, never as resolved: a threshold
+// can come from a secret, and these strings are persisted with the run.
+func matchNumericCondition(ctx context.Context, expected, actual string) error {
+	comparison, err := resolveNumericComparison(ctx, expected)
 	if err != nil {
 		return fmt.Errorf("invalid numeric comparison %q: %w", expected, err)
 	}
@@ -157,6 +160,30 @@ func matchNumericCondition(expected, actual string) error {
 		return nil
 	}
 	return fmt.Errorf("%w: expected %q, got %q", ErrConditionNotMet, expected, actual)
+}
+
+// resolveNumericComparison parses a numeric-comparison pattern, resolving a value
+// reference in its threshold first.
+//
+// The whole pattern is resolved rather than just the threshold, which is
+// equivalent because the numeric prefix and the ordering operators contain no
+// dollar sign. A reference that cannot be resolved is preserved as its own text,
+// so it reaches the parser as a non-number and fails there.
+func resolveNumericComparison(ctx context.Context, expected string) (stringutil.NumericComparison, error) {
+	if !strings.ContainsRune(expected, '$') {
+		return stringutil.ParseNumericPattern(expected)
+	}
+	resolved, err := resolveRuntimeString(ctx, expected, cmnvalue.ConditionRuntimeValueField("expected"))
+	if err != nil {
+		return stringutil.NumericComparison{}, err
+	}
+	comparison, err := stringutil.ParseNumericPattern(resolved)
+	if err != nil {
+		// The parse error would quote the resolved threshold, which may hold a
+		// secret, so report only that it did not resolve to a number.
+		return stringutil.NumericComparison{}, fmt.Errorf("threshold did not resolve to a number")
+	}
+	return comparison, nil
 }
 
 func conditionEvalContext(ctx context.Context, shell []string) context.Context {

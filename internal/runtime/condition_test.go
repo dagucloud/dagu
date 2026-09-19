@@ -213,6 +213,29 @@ func TestEvalConditions(t *testing.T) {
 			wantErr:            true,
 			notConditionNotMet: true,
 		},
+		// A threshold may come from a value reference.
+		{
+			name:       "NumericThresholdReference",
+			conditions: []*ir.Condition{{Condition: "0.9", Expected: "num:>=${env.TEST_THRESHOLD}"}},
+		},
+		{
+			name:                "NumericThresholdReferenceNotMet",
+			conditions:          []*ir.Condition{{Condition: "0.5", Expected: "num:>=${env.TEST_THRESHOLD}"}},
+			wantErr:             true,
+			wantConditionNotMet: true,
+		},
+		{
+			name:               "NumericThresholdReferenceNotANumber",
+			conditions:         []*ir.Condition{{Condition: "0.9", Expected: "num:>=${env.TEST_NOT_NUMBER}"}},
+			wantErr:            true,
+			notConditionNotMet: true,
+		},
+		{
+			name:               "NumericThresholdReferenceUnresolved",
+			conditions:         []*ir.Condition{{Condition: "0.9", Expected: "num:>=${env.TEST_UNDEFINED}"}},
+			wantErr:            true,
+			notConditionNotMet: true,
+		},
 		{
 			// An evaluation error must survive a later not-met condition,
 			// otherwise the gate it belongs to silently downgrades to skipped.
@@ -241,6 +264,8 @@ func TestEvalConditions(t *testing.T) {
 			// Add TEST_CONDITION to the env scope (not OS env)
 			env := runtime.GetEnv(ctx)
 			env.Scope = env.Scope.WithEntry("TEST_CONDITION", "100", cmnvalue.EnvSourceDAGEnv)
+			env.Scope = env.Scope.WithEntry("TEST_THRESHOLD", "0.8", cmnvalue.EnvSourceDAGEnv)
+			env.Scope = env.Scope.WithEntry("TEST_NOT_NUMBER", "abc", cmnvalue.EnvSourceDAGEnv)
 			ctx = runtime.WithEnv(ctx, env)
 			err := evalConditions(ctx, []string{"sh"}, tt.conditions)
 

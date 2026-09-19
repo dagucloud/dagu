@@ -18,6 +18,8 @@ func TestValidatePreconditions(t *testing.T) {
 		"valid_empty_array.yaml",
 		"valid_missing_command_check.yaml",
 		"valid_eval_value_match.yaml",
+		// An undefined threshold is a notice, not a validation error.
+		"valid_numeric_threshold_undefined.yaml",
 	}
 	for _, file := range validCases {
 		t.Run(file, func(t *testing.T) {
@@ -135,6 +137,11 @@ func TestValidatePreconditions(t *testing.T) {
 		{
 			name:        "non-numeric operand",
 			file:        "invalid_numeric_operand.yaml",
+			stderrParts: []string{"preconditions", "expected", "numeric comparison"},
+		},
+		{
+			name:        "threshold mixes a reference with surrounding text",
+			file:        "invalid_numeric_interpolated_threshold.yaml",
 			stderrParts: []string{"preconditions", "expected", "numeric comparison"},
 		},
 	}
@@ -644,6 +651,30 @@ func TestRuntimeNumericValueMatchUnix(t *testing.T) {
 			file:       "value_match_numeric_multiline.yaml",
 			exitCode:   1,
 			absentFile: "numeric-multiline-ran.txt",
+		},
+		{
+			name:       "a threshold can come from a param",
+			file:       "value_match_numeric_threshold_reference.yaml",
+			exitCode:   0,
+			outputFile: "numeric-threshold-ran.txt",
+		},
+		{
+			name:       "a threshold can come from a scoped reference",
+			file:       "value_match_numeric_threshold_scoped.yaml",
+			exitCode:   0,
+			outputFile: "numeric-threshold-scoped-ran.txt",
+		},
+		{
+			name:       "a referenced threshold that is not met skips the step",
+			file:       "value_match_numeric_threshold_not_met.yaml",
+			exitCode:   0,
+			absentFile: "numeric-threshold-not-met-ran.txt",
+		},
+		{
+			name:       "a threshold that does not resolve to a number fails the step",
+			file:       "value_match_numeric_threshold_not_a_number.yaml",
+			exitCode:   1,
+			absentFile: "numeric-threshold-bad-ran.txt",
 		},
 		{
 			// A later not-met condition must not downgrade the numeric

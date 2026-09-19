@@ -1423,10 +1423,33 @@ steps:
 		assert.Len(t, th.Steps, 1)
 		assert.Equal(t, &ir.Condition{Condition: "${CONFIDENCE}", Expected: "num:>=0.8"}, th.Steps[0].Preconditions[0])
 	})
+	t.Run("PreconditionNumericThresholdReference", func(t *testing.T) {
+		t.Parallel()
+
+		// Both reference forms resolve through different paths, so both are pinned.
+		for _, expected := range []string{"num:>=${threshold}", "num:>= ${params.threshold}"} {
+			data := []byte(`
+steps:
+  - name: "gate"
+    run: "echo ok"
+    preconditions:
+      - condition: "0.9"
+        expected: "` + expected + `"
+`)
+			dag, err := spec.LoadYAML(context.Background(), data)
+			require.NoError(t, err, "expected %q should build", expected)
+			th := DAG{t: t, DAG: dag}
+			assert.Equal(t, expected, th.Steps[0].Preconditions[0].Expected)
+		}
+	})
 	t.Run("PreconditionInvalidNumericComparison", func(t *testing.T) {
 		t.Parallel()
 
-		for _, expected := range []string{"num:", "num:0.8", "num:==0.8", "num:>=abc", "num:>=NaN"} {
+		// A threshold must be exactly one reference: interpolation reads like a typo.
+		for _, expected := range []string{
+			"num:", "num:0.8", "num:==0.8", "num:>=abc", "num:>=NaN",
+			"num:>=0.${threshold}", "num:>=${a}${b}", "num:=>${threshold}",
+		} {
 			data := []byte(`
 steps:
   - name: "gate"

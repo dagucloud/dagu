@@ -193,10 +193,13 @@ Rules:
 - `expected` is optional.
 - `expected` must be a string with at least one non-whitespace character when
   present.
-- `expected` is literal.
-- Dagu must not value-resolve `expected`.
-- Dagu must not run dynamic evaluation or command substitution in `expected`.
-- A value reference written in `expected` is ordinary expected text.
+- `expected` is literal, except for the number in a `num:` comparison.
+- Dagu must not value-resolve `expected`, except for the number in a `num:`
+  comparison.
+- Dagu must not run dynamic evaluation or command substitution in `expected`,
+  including in a `num:` comparison.
+- A value reference written in `expected` is ordinary expected text, except for
+  the number in a `num:` comparison.
 - Literal matching is case-sensitive.
 - Regex matching is selected only when `expected` starts with `re:`.
 - The regex pattern is the text after `re:`.
@@ -211,8 +214,22 @@ Rules:
 - Whitespace around the operator and the number is allowed.
 - Equality operators are not supported in a numeric comparison. Exact string
   matching already covers equality.
-- Because Dagu must not value-resolve `expected`, the number in a numeric
-  comparison must be written literally. It cannot come from a value reference.
+- The number in a numeric comparison may be a value reference, so a threshold
+  can come from a param, the environment, or an upstream step.
+- The number is the only part of `expected` that is value-resolved. A numeric
+  operand can only ever be a number, so literal reference text there could never
+  match anything.
+- A referenced number is resolved with the same policy as `condition`:
+  Dagu-owned references and environment values resolve, and command substitution
+  is not executed.
+- A referenced number must be exactly one whole reference. A number assembled
+  from a reference and surrounding text, such as `num:>=0.${threshold}`, is a
+  validation error.
+- A reference in the number is resolved when the condition is checked, not when
+  the DAG is validated.
+- Whether a referenced number has a value is not decided by validation. An
+  unresolved reference is reported as a value-reference notice, never as a
+  validation error.
 
 ### Negation
 
@@ -505,10 +522,14 @@ Validation must fail when:
 - `expected` starts with `num:` and the remaining text is empty or whitespace
   only.
 - `expected` starts with `num:` and the remaining text is not one of the
-  ordering operators `>`, `>=`, `<`, or `<=` followed by a finite number.
+  ordering operators `>`, `>=`, `<`, or `<=` followed by a finite number or a
+  single whole value reference.
+- `expected` starts with `num:` and its number mixes a value reference with
+  surrounding text.
 
 Validation must not:
 
+- Reject a `num:` number whose value reference has no value at validation time.
 - Execute command-check conditions.
 - Execute runtime `$()` or backtick command substitution while validating
   `condition`.
@@ -530,6 +551,8 @@ Runtime checking must fail the owning DAG or step when:
 - The selected working directory cannot be used.
 - A regex pattern reaches runtime and cannot be compiled.
 - The actual value of a `num:` value-match condition is not a finite number.
+- The number of a `num:` value-match condition is a value reference that does not
+  resolve to a finite number.
 - Workflow abort interrupts precondition checking.
 - Workflow timeout interrupts precondition checking.
 

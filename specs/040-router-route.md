@@ -55,7 +55,9 @@ resolution as any other step field.
 names: `{pattern: [step1, step2, ...]}`. Each pattern is matched against the
 resolved value the same way a step `precondition`'s `expected` matches its
 `condition` -- an exact string, a `re:`-prefixed regular expression, or a
-`num:`-prefixed numeric comparison.
+`num:`-prefixed numeric comparison. A numeric route's threshold may be a single
+whole value reference, such as `num:>=${threshold}`, resolved when the router
+runs; see [Spec 023: Preconditions](023-preconditions.md).
 
 ### Target execution
 

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
@@ -52,7 +53,7 @@ func (e *routerExecutor) Run(ctx context.Context) error {
 			_, _ = fmt.Fprint(e.stdout, masker.MaskString(line))
 		}
 
-		if err := checkNumericRoutes(e.step.Router.Routes, value); err != nil {
+		if err := checkNumericRoutes(ctx, e.step.Router.Routes, value); err != nil {
 			return err
 		}
 	}
@@ -63,13 +64,24 @@ func (e *routerExecutor) Run(ctx context.Context) error {
 // a numeric route. Routing is reported here rather than left to each target's
 // injected precondition, so an undecidable routing decision produces one
 // failure and runs no target at all.
-func checkNumericRoutes(routes []ir.RouteEntry, value string) error {
+func checkNumericRoutes(ctx context.Context, routes []ir.RouteEntry, value string) error {
 	for _, route := range routes {
 		if !stringutil.HasNumericPrefix(route.Pattern) {
 			continue
 		}
-		comparison, err := stringutil.ParseNumericPattern(route.Pattern)
+		pattern := route.Pattern
+		if strings.ContainsRune(pattern, '$') {
+			// A threshold may be a value reference; resolve it with the same
+			// policy the injected precondition uses.
+			resolved, err := runtime.ResolveString(ctx, pattern, cmnvalue.ConditionRuntimeValueField("routes"))
+			if err != nil {
+				return fmt.Errorf("route %q cannot be evaluated: %w", route.Pattern, err)
+			}
+			pattern = resolved
+		}
+		comparison, err := stringutil.ParseNumericPattern(pattern)
 		if err != nil {
+			// Report the route as authored: a resolved threshold may hold a secret.
 			return fmt.Errorf("route %q is an invalid numeric comparison: %w", route.Pattern, err)
 		}
 		if _, err := comparison.Match(value); err != nil {

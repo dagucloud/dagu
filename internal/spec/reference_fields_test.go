@@ -229,3 +229,33 @@ func TestReferenceFieldsEmitsValidationPathSet(t *testing.T) {
 	assert.NotContains(t, got, "steps[0].llm.model[0].api_key_name")
 	assert.NotContains(t, got, "steps[0].llm.tools[0]")
 }
+
+// Only a numeric comparison resolves a reference in expected, so only that form
+// belongs in the reference set. Reporting a literal or regex pattern would
+// describe a resolution that never happens.
+func TestReferenceFieldsIncludesOnlyNumericExpected(t *testing.T) {
+	t.Parallel()
+
+	dag := &ir.DAG{
+		Steps: []ir.Step{
+			{
+				ID:   "gate",
+				Name: "gate",
+				Preconditions: []*ir.Condition{
+					{Condition: "0.9", Expected: "num:>=${params.threshold}"},
+					{Condition: "x", Expected: "${params.literal}"},
+					{Condition: "y", Expected: "re:${params.pattern}"},
+				},
+			},
+		},
+	}
+
+	paths := map[string]string{}
+	for _, field := range spec.ReferenceFields(dag) {
+		paths[field.Path] = field.Value
+	}
+
+	assert.Equal(t, "num:>=${params.threshold}", paths["steps[0].preconditions[0].expected"])
+	assert.NotContains(t, paths, "steps[0].preconditions[1].expected")
+	assert.NotContains(t, paths, "steps[0].preconditions[2].expected")
+}
