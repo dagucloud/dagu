@@ -440,7 +440,7 @@ func TestNodeCaptureOutputSchema(t *testing.T) {
 		require.NoError(t, node.captureOutput(ctx))
 		state := node.State()
 		require.NotNil(t, state.OutputValue)
-		assert.Equal(t, `{"category":"bug","confidence":0.9000}`, *state.OutputValue)
+		assert.Equal(t, `{"category":"bug","confidence":0.9}`, *state.OutputValue)
 	})
 
 	t.Run("InvalidJSONFails", func(t *testing.T) {
