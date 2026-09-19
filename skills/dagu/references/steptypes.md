@@ -691,7 +691,7 @@ steps:
     output: RESULT
 ```
 
-`with.prompt` is required and is passed to the selected provider according to its built-in adapter or custom harness definition. `with.provider` can be a built-in provider adapter (`aider`, `amp`, `claude`, `cline`, `codex`, `copilot`, `cursor`, `deepseek`, `droid`, `gemini`, `goose`, `kiro`, `opencode`, `pi`, `qwen`) or a top-level `harnesses:` entry. For host subprocess runs, each built-in adapter either pipes `with.stdin` to stdin or folds it into the prompt; see `references/harnesses.md` for the provider table.
+`with.prompt` is required and is passed to the selected provider according to its built-in adapter or custom harness definition. `with.provider` can be a built-in provider adapter (`aider`, `amp`, `claude`, `cline`, `codex`, `copilot`, `cursor`, `deepseek`, `droid`, `gemini`, `goose`, `kilo`, `kiro`, `opencode`, `pi`, `qwen`) or a top-level `harnesses:` entry. For host subprocess runs, each built-in adapter either pipes `with.stdin` to stdin or folds it into the prompt; see `references/harnesses.md` for the provider table.
 
 Harness behavior:
 

@@ -52,6 +52,7 @@ func TestBuiltinProviderInvocations(t *testing.T) {
 		{"droid", map[string]any{"provider": "droid"}, "droid", []string{"exec", "hello\n\ncontext"}, ""},
 		{"amp", map[string]any{"provider": "amp"}, "amp", []string{"-x", "hello"}, "context"},
 		{"deepseek", map[string]any{"provider": "deepseek", "patch": "overlay.yml"}, "dsh", []string{"--profile", "headless", "--patch", "overlay.yml", "hello\n\ncontext"}, ""},
+		{"kilo", map[string]any{"provider": "kilo"}, "kilo", []string{"run", "hello", "--auto"}, "context"},
 	}
 
 	for _, tt := range tests {

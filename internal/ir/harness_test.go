@@ -22,6 +22,7 @@ func TestBuiltinCLIHarnessProviderNamesSorted(t *testing.T) {
 		"droid",
 		"gemini",
 		"goose",
+		"kilo",
 		"kiro",
 		"opencode",
 		"pi",

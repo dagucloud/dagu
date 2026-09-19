@@ -59,6 +59,7 @@ var builtinHarnessCLIProviders = map[string]struct{}{
 	"gemini":   {},
 	"goose":    {},
 	"kiro":     {},
+	"kilo":     {},
 	"opencode": {},
 	"pi":       {},
 	"qwen":     {},
