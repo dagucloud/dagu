@@ -120,7 +120,7 @@ func validateAnswer(answer map[string]any, q question) error {
 	}
 	var options []string
 	if q.Type == choiceType {
-		criteria := q.Criteria.(map[string]any)
+		criteria, _ := q.Criteria.(map[string]any)
 		choice, ok := answer["choice"].(string)
 		if _, exists := criteria[choice]; !ok || !exists {
 			return fmt.Errorf("choice must be a configured option")
@@ -129,7 +129,7 @@ func validateAnswer(answer map[string]any, q question) error {
 			options = append(options, option)
 		}
 	} else {
-		criteria := q.Criteria.([]any)
+		criteria, _ := q.Criteria.([]any)
 		score, ok := number(answer["score"])
 		if !ok || score < 0 || score > float64(len(criteria)-1) {
 			return fmt.Errorf("score must be within the configured scale")
