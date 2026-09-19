@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -542,7 +543,7 @@ steps:
 
 func TestDecisionOutputs(t *testing.T) {
 	outputsTestParallel(t)
-	for _, mode := range []string{"success", "failure", "retry"} {
+	for _, mode := range []string{"success", "failure", "retry", "retry_limit"} {
 		t.Run(mode, func(t *testing.T) {
 			t.Parallel()
 			const response = `{"model":"jev-test","id":"decision-secret","answers":{"refund":{"type":"noul","noul":0.9}},"usage":{"input_tokens":10,"output_tokens":2}}`
@@ -553,6 +554,10 @@ func TestDecisionOutputs(t *testing.T) {
 				assert.Equal(t, map[string]any{"message": []any{"Refund please", float64(2)}, "secret": "*******"}, body["state"])
 				assert.Equal(t, "Bearer decision-secret", r.Header.Get("Authorization"))
 				calls++
+				if mode == "retry_limit" && calls == 1 {
+					_, _ = fmt.Fprint(w, `{"padding":"`+strings.Repeat("x", 1024)+`",`+response[1:])
+					return
+				}
 				if mode == "failure" || (mode == "retry" && calls == 1) {
 					_, _ = fmt.Fprint(w, `{}`)
 					return
@@ -562,6 +567,7 @@ func TestDecisionOutputs(t *testing.T) {
 			defer server.Close()
 			th := test.Setup(t)
 			dag := th.DAG(t, `
+max_output_size: 512
 env:
   DECISION_KEY: decision-secret
   MESSAGE: Refund please
@@ -608,7 +614,7 @@ steps:
 			require.NoError(t, json.Unmarshal([]byte(*node.StepOutputsValue), &outputs))
 			assert.JSONEq(t, `"*******"`, string(outputs["id"]))
 			assert.JSONEq(t, `{"refund":{"type":"noul","noul":0.9}}`, string(outputs["answers"]))
-			if mode == "retry" {
+			if mode == "retry" || mode == "retry_limit" {
 				assert.Equal(t, 1, node.RetryCount)
 			}
 		})

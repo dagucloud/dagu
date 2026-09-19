@@ -72,16 +72,21 @@ func TestOutputs(t *testing.T) {
 
 func TestFailures(t *testing.T) {
 	t.Parallel()
-	for _, tc := range []struct{ fixture, body string }{
-		{"automatic.yaml", `not json`},
-		{"automatic.yaml", strings.Replace(response, `"type":"noul"`, `"type":"score"`, 1)},
-		{"limited.yaml", response},
-		{"missing_key.yaml", response},
-		{"timeout.yaml", ""},
+	for _, tc := range []struct {
+		name, fixture, body, wantErr string
+		calls                        int32
+	}{
+		{"malformed", "automatic.yaml", `not json`, "decision response must be a JSON object", 1},
+		{"mismatched", "automatic.yaml", strings.Replace(response, `"type":"noul"`, `"type":"score"`, 1), "missing or mismatched answer", 1},
+		{"output_limit", "limited.yaml", response, "maximum size limit", 1},
+		{"missing_key", "missing_key.yaml", response, "MISSING_DECISION_KEY", 0},
+		{"timeout", "timeout.yaml", "", "timed out", 1},
 	} {
-		t.Run(tc.fixture+"/"+tc.body[:min(8, len(tc.body))], func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			var calls atomic.Int32
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
 				_, _ = io.Copy(io.Discard, r.Body)
 				if tc.fixture == "timeout.yaml" {
 					<-r.Context().Done()
@@ -93,6 +98,8 @@ func TestFailures(t *testing.T) {
 			dagu := harness.NewRunner(t)
 			result := dagu.RunWithEnv([]string{"ENDPOINT=" + srv.URL, "PROVIDER=openrouter", "DECISION_KEY=decision-test-key"}, "start", tc.fixture)
 			result.ExpectNonZeroExitCode()
+			result.ExpectStderrContains(tc.wantErr)
+			assert.Equal(t, tc.calls, calls.Load())
 		})
 	}
 }
