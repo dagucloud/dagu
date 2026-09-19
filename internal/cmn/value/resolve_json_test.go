@@ -145,3 +145,16 @@ func TestResolveJSONNumbers(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, `{"a":1,"b":9007199254740993}`, got)
 }
+
+// A resolved container keeps the characters the value holds, matching the way
+// the same payload is persisted.
+func TestResolveJSONLiterals(t *testing.T) {
+	t.Parallel()
+	const raw = `{"note":"a < b & c > d"}`
+	got, ok := resolveJSONPath(t.Context(), "value", raw, ".")
+	assert.True(t, ok)
+	assert.Equal(t, raw, got)
+	got, ok = resolveJSONPath(t.Context(), "value", raw, ".note")
+	assert.True(t, ok)
+	assert.Equal(t, "a < b & c > d", got)
+}

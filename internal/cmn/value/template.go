@@ -468,7 +468,7 @@ func foreachObjectField(value any, field string) (any, bool) {
 func formatForeachItemValue(value any) any {
 	switch value.(type) {
 	case map[string]any, map[string]string, []any, []string:
-		data, err := json.Marshal(value)
+		data, err := marshalUnescaped(value)
 		if err != nil {
 			return value
 		}
