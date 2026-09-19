@@ -4,7 +4,6 @@
 package runtime
 
 import (
-	"encoding/json"
 	"maps"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -30,7 +29,7 @@ func OutputValuesFromExecNodes(nodes []*ir.Node) map[string]any {
 			continue
 		}
 		var values map[string]any
-		if err := json.Unmarshal([]byte(*node.OutputsValue), &values); err != nil {
+		if err := decodeOutputJSON(*node.OutputsValue, &values); err != nil {
 			continue
 		}
 		maps.Copy(outputs, values)
