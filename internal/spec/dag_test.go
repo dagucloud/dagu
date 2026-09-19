@@ -3814,3 +3814,41 @@ func TestRouterNotAllowedInChainType(t *testing.T) {
 		})
 	}
 }
+
+func TestRouterNumericRoutePattern(t *testing.T) {
+	t.Parallel()
+
+	newDAG := func(pattern string) *dag {
+		return &dag{
+			Type: "graph",
+			Steps: []any{
+				map[string]any{
+					"name":  "router",
+					"type":  "router",
+					"value": "${CONFIDENCE}",
+					"routes": map[string]any{
+						pattern: []string{"step_a"},
+					},
+				},
+				map[string]any{"name": "step_a", "command": "echo A"},
+			},
+		}
+	}
+
+	t.Run("Valid", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := newDAG("num:>=0.8").build(testBuildContext())
+		require.NoError(t, err)
+	})
+
+	t.Run("Invalid", func(t *testing.T) {
+		t.Parallel()
+
+		for _, pattern := range []string{"num:", "num:0.8", "num:==0.8", "num:>=abc"} {
+			_, err := newDAG(pattern).build(testBuildContext())
+			require.Error(t, err, "pattern %q should be rejected", pattern)
+			assert.Contains(t, err.Error(), "has an invalid numeric comparison")
+		}
+	})
+}

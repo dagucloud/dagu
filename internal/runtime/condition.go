@@ -109,6 +109,10 @@ func matchCondition(ctx context.Context, shell []string, c *ir.Condition) error 
 		return fmt.Errorf("failed to evaluate the value: Error=%v", err)
 	}
 
+	if stringutil.HasNumericPrefix(c.Expected) {
+		return matchNumericCondition(c.Expected, evaluatedVal)
+	}
+
 	// Get maxOutputSize from DAG configuration
 	var maxOutputSize = defaultMaxOutputSizeBytes
 	if rCtx := GetDAGContext(ctx); rCtx.DAG != nil && rCtx.DAG.MaxOutputSize > 0 {
@@ -125,6 +129,24 @@ func matchCondition(ctx context.Context, shell []string, c *ir.Condition) error 
 	}
 	// Return an helpful error message if the condition is not met
 	return fmt.Errorf("%w: expected %q, got %q", ErrConditionNotMet, c.Expected, evaluatedVal)
+}
+
+// matchNumericCondition compares an actual value against a numeric-comparison
+// pattern. A value that is not a number is an evaluation error rather than a
+// not-met condition, so that a numeric gate cannot silently stop gating.
+func matchNumericCondition(expected, actual string) error {
+	comparison, err := stringutil.ParseNumericPattern(expected)
+	if err != nil {
+		return fmt.Errorf("invalid numeric comparison %q: %w", expected, err)
+	}
+	matched, err := comparison.Match(actual)
+	if err != nil {
+		return fmt.Errorf("numeric comparison %q: %w", expected, err)
+	}
+	if matched {
+		return nil
+	}
+	return fmt.Errorf("%w: expected %q, got %q", ErrConditionNotMet, expected, actual)
 }
 
 func conditionEvalContext(ctx context.Context, shell []string) context.Context {

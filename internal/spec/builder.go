@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
@@ -214,6 +215,11 @@ func parsePreconditionEntry(_ buildContext, precondition any) ([]*ir.Condition, 
 					}
 					if _, err := regexp.Compile(after); err != nil {
 						return nil, ir.NewValidationError("preconditions", vv, fmt.Errorf("expected regexp is invalid: %w", err))
+					}
+				}
+				if stringutil.HasNumericPrefix(val) {
+					if _, err := stringutil.ParseNumericPattern(val); err != nil {
+						return nil, ir.NewValidationError("preconditions", vv, fmt.Errorf("expected numeric comparison is invalid: %w", err))
 					}
 				}
 				ret.Expected = val

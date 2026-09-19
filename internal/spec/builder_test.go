@@ -1406,6 +1406,40 @@ steps:
 		assert.Len(t, th.Steps[0].Preconditions, 1)
 		assert.Equal(t, &ir.Condition{Condition: "${STATUS}", Expected: "success", Negate: true}, th.Steps[0].Preconditions[0])
 	})
+	t.Run("PreconditionNumericComparison", func(t *testing.T) {
+		t.Parallel()
+
+		data := []byte(`
+steps:
+  - name: "gate"
+    run: "echo ok"
+    preconditions:
+      - condition: "${CONFIDENCE}"
+        expected: "num:>=0.8"
+`)
+		dag, err := spec.LoadYAML(context.Background(), data)
+		require.NoError(t, err)
+		th := DAG{t: t, DAG: dag}
+		assert.Len(t, th.Steps, 1)
+		assert.Equal(t, &ir.Condition{Condition: "${CONFIDENCE}", Expected: "num:>=0.8"}, th.Steps[0].Preconditions[0])
+	})
+	t.Run("PreconditionInvalidNumericComparison", func(t *testing.T) {
+		t.Parallel()
+
+		for _, expected := range []string{"num:", "num:0.8", "num:==0.8", "num:>=abc", "num:>=NaN"} {
+			data := []byte(`
+steps:
+  - name: "gate"
+    run: "echo ok"
+    preconditions:
+      - condition: "${CONFIDENCE}"
+        expected: "` + expected + `"
+`)
+			_, err := spec.LoadYAML(context.Background(), data)
+			require.Error(t, err, "expected %q should be rejected", expected)
+			assert.Contains(t, err.Error(), "expected numeric comparison is invalid")
+		}
+	})
 }
 
 func TestNestedArrayParallelSyntax(t *testing.T) {

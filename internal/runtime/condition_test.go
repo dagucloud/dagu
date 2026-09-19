@@ -168,6 +168,51 @@ func TestEvalConditions(t *testing.T) {
 			wantErr:             true,
 			wantConditionNotMet: true,
 		},
+
+		// Numeric comparison tests
+		{
+			name:       "NumericMatch",
+			conditions: []*ir.Condition{{Condition: "0.87", Expected: "num:>=0.8"}},
+		},
+		{
+			name:       "NumericMatchEnvVar",
+			conditions: []*ir.Condition{{Condition: "${env.TEST_CONDITION}", Expected: "num:>50"}},
+		},
+		{
+			name:                "NumericNotMet",
+			conditions:          []*ir.Condition{{Condition: "0.5", Expected: "num:>=0.8"}},
+			wantErr:             true,
+			wantConditionNotMet: true,
+		},
+		{
+			name:       "NumericNotMetNegated",
+			conditions: []*ir.Condition{{Condition: "0.5", Expected: "num:>=0.8", Negate: true}},
+		},
+		{
+			name:               "NumericValueNotANumber",
+			conditions:         []*ir.Condition{{Condition: "abc", Expected: "num:>=0.8"}},
+			wantErr:            true,
+			notConditionNotMet: true,
+		},
+		{
+			// Negation must not turn a non-numeric value into a passing gate.
+			name:               "NumericValueNotANumberNegated",
+			conditions:         []*ir.Condition{{Condition: "abc", Expected: "num:>=0.8", Negate: true}},
+			wantErr:            true,
+			notConditionNotMet: true,
+		},
+		{
+			name:               "NumericValueMultiline",
+			conditions:         []*ir.Condition{{Condition: "0.5\n0.9", Expected: "num:>=0.8"}},
+			wantErr:            true,
+			notConditionNotMet: true,
+		},
+		{
+			name:               "NumericPatternInvalid",
+			conditions:         []*ir.Condition{{Condition: "0.87", Expected: "num:==0.8"}},
+			wantErr:            true,
+			notConditionNotMet: true,
+		},
 	}
 
 	for _, tt := range tests {

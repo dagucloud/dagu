@@ -19,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/signal"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -2831,6 +2832,13 @@ func buildStepRouter(_ stepBuildContext, s *step, result *ir.Step) error {
 		if pattern == "" {
 			return ir.NewValidationError("routes", nil,
 				fmt.Errorf("route pattern cannot be empty"))
+		}
+
+		if stringutil.HasNumericPrefix(pattern) {
+			if _, err := stringutil.ParseNumericPattern(pattern); err != nil {
+				return ir.NewValidationError("routes", pattern,
+					fmt.Errorf("route pattern %q has an invalid numeric comparison: %w", pattern, err))
+			}
 		}
 
 		if len(targets) == 0 {
