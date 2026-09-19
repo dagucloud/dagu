@@ -139,7 +139,7 @@ func isRetryableStatusCode(code int) bool {
 	switch code {
 	case 429: // Too Many Requests (rate limited)
 		return true
-	case 500, 502, 503, 504: // Server errors
+	case 500, 502, 503, 504, statusOverloaded: // Server errors
 		return true
 	default:
 		return false

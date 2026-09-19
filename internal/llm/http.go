@@ -15,6 +15,9 @@ import (
 	"time"
 )
 
+// statusOverloaded is the overload response used by System One providers.
+const statusOverloaded = 529
+
 // HTTPClient performs HTTP requests with retry logic.
 // Uses plain net/http instead of resty to ensure response bodies are
 // properly closed on retries (resty + SetDoNotParseResponse leaks FDs).
@@ -62,7 +65,8 @@ func (c *HTTPClient) Do(ctx context.Context, url string, body []byte, headers ma
 	for attempt := range c.maxRetries + 1 {
 		if attempt > 0 {
 			backoff := c.backoff(attempt)
-			slog.Warn("HTTP request failed, retrying", "error", lastErr, "attempt", attempt)
+			// Provider errors can contain credentials or sensitive request data.
+			slog.Warn("HTTP request failed, retrying", "attempt", attempt)
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
@@ -117,5 +121,5 @@ func (c *HTTPClient) backoff(attempt int) time.Duration {
 
 // isRetryable returns true for status codes that warrant a retry.
 func isRetryable(code int) bool {
-	return code == 429 || (code >= 500 && code <= 504)
+	return code == 429 || (code >= 500 && code <= 504) || code == statusOverloaded
 }
