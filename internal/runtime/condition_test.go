@@ -213,6 +213,26 @@ func TestEvalConditions(t *testing.T) {
 			wantErr:            true,
 			notConditionNotMet: true,
 		},
+		{
+			// An evaluation error must survive a later not-met condition,
+			// otherwise the gate it belongs to silently downgrades to skipped.
+			name: "EvaluationErrorOutranksLaterNotMet",
+			conditions: []*ir.Condition{
+				{Condition: "abc", Expected: "num:>=0.8"},
+				{Condition: "x", Expected: "y"},
+			},
+			wantErr:            true,
+			notConditionNotMet: true,
+		},
+		{
+			name: "EvaluationErrorOutranksEarlierNotMet",
+			conditions: []*ir.Condition{
+				{Condition: "x", Expected: "y"},
+				{Condition: "abc", Expected: "num:>=0.8"},
+			},
+			wantErr:            true,
+			notConditionNotMet: true,
+		},
 	}
 
 	for _, tt := range tests {

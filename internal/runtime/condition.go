@@ -27,12 +27,15 @@ const ErrMsgOtherConditionNotMet = "other condition was not met"
 // EvaluateConditions evaluates conditions and returns their runtime results.
 func EvaluateConditions(ctx context.Context, shell []string, conditions []*ir.Condition) ([]ir.ConditionResult, error) {
 	results := conditionResults(conditions)
-	var lastErr error
+	var lastErr, evalErr error
 
 	for i := range conditions {
 		if err := EvalCondition(ctx, shell, conditions[i]); err != nil {
 			results[i].Error = err.Error()
 			lastErr = err
+			if evalErr == nil && !errors.Is(err, ErrConditionNotMet) {
+				evalErr = err
+			}
 		}
 	}
 
@@ -43,6 +46,13 @@ func EvaluateConditions(ctx context.Context, shell []string, conditions []*ir.Co
 			}
 			results[i].Error = ErrMsgOtherConditionNotMet
 		}
+	}
+
+	// An evaluation error outranks a not-met condition regardless of the order
+	// they appear in, so that a broken gate fails the owning DAG or step
+	// instead of being downgraded to a skip by a later mismatch.
+	if evalErr != nil {
+		return results, evalErr
 	}
 
 	return results, lastErr

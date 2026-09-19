@@ -238,6 +238,9 @@ Rules:
 - Output produced by one command-check condition is not captured as data for a
   later condition entry.
 - Value-match conditions do not publish command output.
+- When a list produces both an evaluation error and a not-met condition, the
+  evaluation error decides the outcome, whatever order the entries appear in. A
+  broken condition must not be downgraded to a not-met result by another entry.
 
 ### Value-Match Conditions
 

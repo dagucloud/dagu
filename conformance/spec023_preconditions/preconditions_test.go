@@ -645,6 +645,14 @@ func TestRuntimeNumericValueMatchUnix(t *testing.T) {
 			exitCode:   1,
 			absentFile: "numeric-multiline-ran.txt",
 		},
+		{
+			// A later not-met condition must not downgrade the numeric
+			// evaluation error into a skip.
+			name:       "an evaluation error outranks a later not-met condition",
+			file:       "numeric_error_outranks_not_met.yaml",
+			exitCode:   1,
+			absentFile: "numeric-error-outranks-ran.txt",
+		},
 	}
 
 	for _, tc := range cases {
