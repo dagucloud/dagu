@@ -38,6 +38,7 @@ Flags:
   --run-id string (required) Unique identifier of the DAG-run to retry.
   --step string (optional) Retry only the specified step.
   --downstream (optional) Also retry reachable descendants of --step.
+  --bypass-preconditions (optional) Skip step precondition evaluation for retried steps.
   --sub-run-id string (optional) Retry the step in this persisted child DAG-run.
 
 Examples:
@@ -45,6 +46,7 @@ Examples:
   dagu retry --run-id=abc123 my_dag.yaml
   dagu retry --run-id=abc123 --step=build my_dag
   dagu retry --run-id=abc123 --step=build --downstream my_dag
+  dagu retry --run-id=abc123 --step=build --bypass-preconditions my_dag
   dagu retry --run-id=abc123 --sub-run-id=child123 --step=build my_dag
 `,
 			Args: cobra.ExactArgs(1),
@@ -56,6 +58,7 @@ var retryFlags = []commandLineFlag{
 	dagRunIDFlagRetry,
 	stepNameForRetry,
 	downstreamForRetry,
+	bypassPreconditionsFlag,
 	subDAGRunIDFlagStatus,
 	rootDAGRunFlag,
 	retryPathFlag,
@@ -78,6 +81,7 @@ const (
 func runRetry(ctx *Context, args []string) error {
 	if ctx.IsRemote() {
 		for _, flag := range []commandLineFlag{
+			bypassPreconditionsFlag,
 			rootDAGRunFlag,
 			retryPathFlag,
 			defaultWorkingDirFlag,
@@ -102,6 +106,13 @@ func runRetry(ctx *Context, args []string) error {
 	}
 	if includeDownstream && stepName == "" {
 		return fmt.Errorf("--downstream requires --step")
+	}
+	bypassPreconditions, err := ctx.Command.Flags().GetBool("bypass-preconditions")
+	if err != nil {
+		return fmt.Errorf("failed to get --bypass-preconditions: %w", err)
+	}
+	if bypassPreconditions && stepName == "" {
+		return fmt.Errorf("--bypass-preconditions requires --step")
 	}
 	subDAGRunID, _ := ctx.StringParam("sub-run-id")
 	rootRefStr, _ := ctx.StringParam("root")
@@ -254,20 +265,21 @@ func runRetry(ctx *Context, args []string) error {
 
 	ctx.Context = logger.WithValues(ctx.Context, tag.DAG(dag.Name), tag.RunID(dagRunID))
 	run := runOptions{
-		root:              rootRun,
-		parent:            status.Parent,
-		workerID:          workerID,
-		attemptID:         attemptID,
-		triggerType:       queue.PreservedQueueTriggerType(status),
-		triggerActor:      triggerActor,
-		parallelItem:      status.ParallelItem,
-		scheduleTime:      status.ScheduleTime,
-		profileName:       profileName,
-		definitionID:      status.DAGDefinitionID(),
-		noReuse:           status.NoReuse,
-		step:              stepName,
-		includeDownstream: includeDownstream,
-		retryPath:         retryPath,
+		root:                rootRun,
+		parent:              status.Parent,
+		workerID:            workerID,
+		attemptID:           attemptID,
+		triggerType:         queue.PreservedQueueTriggerType(status),
+		triggerActor:        triggerActor,
+		parallelItem:        status.ParallelItem,
+		scheduleTime:        status.ScheduleTime,
+		profileName:         profileName,
+		definitionID:        status.DAGDefinitionID(),
+		noReuse:             status.NoReuse,
+		step:                stepName,
+		includeDownstream:   includeDownstream,
+		bypassPreconditions: bypassPreconditions,
+		retryPath:           retryPath,
 	}
 
 	if workerID == "local" {
@@ -725,6 +737,7 @@ func executeRetry(ctx *Context, dag *ir.DAG, status *ir.DAGRunStatus, opts runOp
 			ExtraEnvs:                extraEnvs,
 			StepRetry:                opts.step,
 			IncludeDownstream:        opts.includeDownstream,
+			BypassPreconditions:      opts.bypassPreconditions,
 			RetryPath:                opts.retryPath,
 			WorkerID:                 opts.workerID,
 			AttemptID:                agentAttemptID(opts.attemptID, opts.preparedAttempt),

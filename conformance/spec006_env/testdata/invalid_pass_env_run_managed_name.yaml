@@ -1,0 +1,12 @@
+steps:
+  - name: call-child
+    action: dag.run
+    with:
+      dag: pass_env_managed_child
+    pass_env: [DAG_RUN_WORK_DIR]
+
+---
+name: pass_env_managed_child
+steps:
+  - name: noop
+    run: echo child

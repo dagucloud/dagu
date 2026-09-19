@@ -1,0 +1,12 @@
+steps:
+  - name: enqueue-child
+    action: dag.enqueue
+    with:
+      dag: pass_env_enqueue_child
+    pass_env: [SHARED]
+
+---
+name: pass_env_enqueue_child
+steps:
+  - name: noop
+    run: echo child

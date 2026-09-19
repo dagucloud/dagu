@@ -349,11 +349,12 @@ func (r *Local) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest)
 	defer cleanup()
 
 	opts := rtagent.Options{
-		RetryTarget:       retryTarget,
-		StepRetry:         req.StepName,
-		IncludeDownstream: req.IncludeDownstream,
-		TriggerType:       inProcessRetryTriggerType(retryTarget),
-		WorkDir:           workspaceDir,
+		RetryTarget:         retryTarget,
+		StepRetry:           req.StepName,
+		IncludeDownstream:   req.IncludeDownstream,
+		BypassPreconditions: req.BypassPreconditions,
+		TriggerType:         inProcessRetryTriggerType(retryTarget),
+		WorkDir:             workspaceDir,
 	}
 	if req.Workspace != nil {
 		opts.WorkspaceSeed = &executor.WorkspaceSeed{
@@ -675,6 +676,9 @@ func inProcessLoadOptions(
 
 func inProcessExtraEnvs(rCtx runctx.Context, req executor.SubWorkflowRequest) []string {
 	envs := inheritedEnvForLocalRunner(rCtx.InheritedEnvs())
+	// A local child already receives the parent run scope implicitly. Values the
+	// step passed explicitly are applied after it so they win on conflict.
+	envs = append(envs, req.PassedEnv...)
 	if req.ParallelItem != "" {
 		envs = append(envs, ir.ParallelItemVariable+"="+req.ParallelItem)
 	}

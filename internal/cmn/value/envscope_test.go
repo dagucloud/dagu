@@ -870,3 +870,28 @@ func TestEnvScope_ExcludesInternalTransportVars(t *testing.T) {
 	require.True(t, exists)
 	require.Equal(t, "visible", val)
 }
+
+// A name whose winning entry is excluded must be dropped, not resolved to the
+// value it shadows. Falling back would hand a caller a stale value under a name
+// it believes it filtered out.
+func TestEnvScope_ToSliceWithoutOriginOrSources_SkipsShadowedNames(t *testing.T) {
+	scope := NewEnvScope(nil, false).
+		WithEntries(map[string]string{"API_KEY": "placeholder", "PLAIN": "kept"}, EnvSourceDAGEnv).
+		WithEntries(map[string]string{"API_KEY": "real-secret"}, EnvSourceSecret)
+
+	got := scope.ToSliceWithoutOriginOrSources("some-origin", EnvSourceSecret)
+
+	require.Equal(t, []string{"PLAIN=kept"}, got)
+}
+
+// The reverse order must still yield the name: a secret shadowed by a plain
+// entry resolves to the plain entry, which is not excluded.
+func TestEnvScope_ToSliceWithoutOriginOrSources_KeepsShadowingPlainEntry(t *testing.T) {
+	scope := NewEnvScope(nil, false).
+		WithEntries(map[string]string{"API_KEY": "secret"}, EnvSourceSecret).
+		WithEntries(map[string]string{"API_KEY": "plain"}, EnvSourceDAGEnv)
+
+	got := scope.ToSliceWithoutOriginOrSources("some-origin", EnvSourceSecret)
+
+	require.Equal(t, []string{"API_KEY=plain"}, got)
+}

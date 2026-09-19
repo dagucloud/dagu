@@ -5,6 +5,7 @@ package runtime
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -36,6 +37,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
+	dagutools "github.com/dagucloud/dagu/v2/internal/tools"
 	"github.com/goccy/go-yaml"
 	"github.com/google/jsonschema-go/jsonschema"
 )
@@ -56,6 +58,9 @@ type Node struct {
 	done         atomic.Bool
 	retryPolicy  RetryPolicy
 	cmdEvaluated atomic.Bool
+	// bypassPreconditions skips step precondition evaluation for this node.
+	// Step-retry plans set it when the retry asks to bypass preconditions.
+	bypassPreconditions bool
 
 	outputSchemaOnce sync.Once
 	outputSchema     *jsonschema.Resolved
@@ -376,7 +381,10 @@ func (n *Node) captureOutput(ctx context.Context) error {
 		capturedOutputs = value
 	}
 
-	if step.HasOutputSchema() && !step.HasStructuredOutput() {
+	// A failed step leaves schemaOutput empty because the schema error is
+	// suppressed above in favor of the step's own error. Publishing it would
+	// make the output resolve as present and empty rather than absent.
+	if step.HasOutputSchema() && !step.HasStructuredOutput() && schemaOutput != "" {
 		n.setOutputValue(schemaOutput)
 		capturedOutputs = schemaOutput
 	}
@@ -403,7 +411,7 @@ func (n *Node) publishCapturedStepOutputs(ctx context.Context, payload string) e
 	}
 
 	var decoded any
-	if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
+	if err := decodeOutputJSON(payload, &decoded); err != nil {
 		return fmt.Errorf("failed to decode captured step outputs: %w", err)
 	}
 	// A payload that is not an object carries no addressable names, so an
@@ -415,7 +423,7 @@ func (n *Node) publishCapturedStepOutputs(ctx context.Context, payload string) e
 
 	if raw := n.State().StepOutputsValue; raw != nil && *raw != "" {
 		published := make(map[string]any)
-		if err := json.Unmarshal([]byte(*raw), &published); err != nil {
+		if err := decodeOutputJSON(*raw, &published); err != nil {
 			return fmt.Errorf("failed to decode step outputs before publishing captured outputs: %w", err)
 		}
 		maps.Copy(merged, published)
@@ -443,7 +451,13 @@ func (n *Node) evaluateOutputSchema(ctx context.Context, raw string) (string, er
 		return "", err
 	}
 
-	data, err := json.Marshal(decoded)
+	// The validator reports a json.Number as a string, so validation must run on
+	// the plain decode above and the precision-preserving decode must follow it.
+	// Collapsing the two would fail any schema typing an integer past float64.
+	if err := decodeOutputJSON(trimmed, &decoded); err != nil {
+		return "", fmt.Errorf("failed to decode stdout JSON for output_schema: %w", err)
+	}
+	data, err := marshalCaptured(decoded)
 	if err != nil {
 		return "", fmt.Errorf("failed to serialize validated output_schema value: %w", err)
 	}
@@ -502,7 +516,7 @@ func (n *Node) evaluateStructuredOutput(ctx context.Context, stdout string, stdo
 		result[key] = value
 	}
 
-	data, err := json.Marshal(result)
+	data, err := marshalCaptured(result)
 	if err != nil {
 		return "", fmt.Errorf("failed to serialize structured output: %w", err)
 	}
@@ -596,7 +610,7 @@ func (n *Node) resolveStructuredOutputEntry(ctx context.Context, key string, ent
 }
 
 func serializeOutputsValue(ctx context.Context, values map[string]any) (string, error) {
-	data, err := json.Marshal(values)
+	data, err := marshalCaptured(values)
 	if err != nil {
 		return "", fmt.Errorf("failed to serialize outputs: %w", err)
 	}
@@ -663,12 +677,43 @@ func (n *Node) readStructuredOutputSource(ctx context.Context, key string, entry
 	}
 }
 
+// marshalCaptured serializes captured output, leaving the characters a step
+// produced intact instead of escaping <, > and & as JSON escape sequences.
+func marshalCaptured(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimRight(buf.Bytes(), "\n"), nil
+}
+
+func decodeOutputJSON(raw string, target any) error {
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	if decoder.Decode(new(any)) != io.EOF {
+		return fmt.Errorf("expected one JSON value")
+	}
+	// Numbers keep their literal only where a float64 would round them.
+	switch t := target.(type) {
+	case *any:
+		*t = cmnvalue.NormalizeJSONNumbers(*t)
+	case *map[string]any:
+		cmnvalue.NormalizeJSONNumbers(*t)
+	}
+	return nil
+}
+
 func decodeStructuredOutputValue(ctx context.Context, key, raw, selectPath, decode string) (any, error) {
 	var decoded any
 
 	switch decode {
 	case ir.StepOutputDecodeJSON:
-		if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+		if err := decodeOutputJSON(raw, &decoded); err != nil {
 			return nil, fmt.Errorf("%s: failed to decode JSON: %w", key, err)
 		}
 	case ir.StepOutputDecodeYAML:
@@ -1060,6 +1105,10 @@ func (n *Node) evaluateCommandArgs(ctx context.Context) error {
 }
 
 func resolveStepCommandArgs(ctx context.Context, step ir.Step) (ir.Step, error) {
+	// Explicit jq arguments keep filter source literal; config values resolve separately.
+	if _, hasArgs := step.ExecutorConfig.Config["args"]; step.ExecutorConfig.Type == "jq" && hasArgs {
+		return step, nil
+	}
 	command := registry.CommandResolution(ctx, step)
 
 	if len(step.Commands) > 0 {
@@ -1357,6 +1406,10 @@ func (n *Node) BuildSubDAGRuns(ctx context.Context, subDAG *ir.SubDAG) ([]SubDAG
 }
 
 func (n *Node) buildChildRunParams(ctx context.Context, subDAG *ir.SubDAG) ([]executor.RunParams, error) {
+	passedEnv, err := resolveSubDAGPassEnv(ctx, subDAG.PassEnv)
+	if err != nil {
+		return nil, err
+	}
 	parallel := n.Step().Parallel
 
 	// Single sub DAG execution (non-parallel)
@@ -1384,6 +1437,7 @@ func (n *Node) buildChildRunParams(ctx context.Context, subDAG *ir.SubDAG) ([]ex
 			Params:         params,
 			DAGName:        dagName,
 			WorkerSelector: workerSelector,
+			PassedEnv:      passedEnv,
 		}}, nil
 	}
 
@@ -1509,6 +1563,7 @@ func (n *Node) buildChildRunParams(ctx context.Context, subDAG *ir.SubDAG) ([]ex
 			ParallelItem:   parallelItem,
 			DAGName:        dagName,
 			WorkerSelector: workerSelector,
+			PassedEnv:      passedEnv,
 		}
 	}
 
@@ -1518,6 +1573,82 @@ func (n *Node) buildChildRunParams(ctx context.Context, subDAG *ir.SubDAG) ([]ex
 	}
 
 	return runParams, nil
+}
+
+// isNonPassableEnvKey reports whether a name is never carried to a child run.
+// Reserved internal transport names would collide with the child's own
+// transport values, run-managed names describe the parent run and the host it
+// executes on, and tool-managed names point at the parent host's resolved
+// toolset.
+func isNonPassableEnvKey(key string) bool {
+	// Whatever crosses must be a name a child could declare itself, which is
+	// also what the name-list form accepts. Scope entries are not limited to
+	// that shape: positional params are held under "1", "2", and so on.
+	return !cmnvalue.ValidEnvName(key) ||
+		strings.HasPrefix(strings.ToUpper(key), ir.ReservedEnvPrefix) ||
+		runenv.IsNonTransferableRunEnvKey(key) ||
+		dagutools.IsManagedEnvKey(key)
+}
+
+// resolveSubDAGPassEnv resolves the "KEY=value" pairs a child run receives
+// through the step's opt-in pass_env field.
+//
+// The whole-environment form carries values the workflow itself declared.
+// Secrets, host process values, Dagu-managed run values, and runtime-profile
+// values are excluded because they are either sensitive or describe the parent
+// run and the host executing it rather than the child.
+//
+// The name-list form resolves each entry against the environment scope visible
+// to the calling step. It never reads the Dagu process environment directly,
+// because that would bypass the operator-controlled base environment allowlist.
+//
+// Resolving a name to a secret fails the step. Passing one would write the
+// value to the coordinator dispatch record and hand the child a value it cannot
+// know to mask, so the child must declare the secret itself instead.
+func resolveSubDAGPassEnv(ctx context.Context, passEnv *ir.SubDAGPassEnv) ([]string, error) {
+	if passEnv == nil {
+		return nil, nil
+	}
+	if passEnv.All {
+		all := GetDAGContext(ctx).PassableEnvs()
+		envs := make([]string, 0, len(all))
+		for _, env := range all {
+			key, _, _ := strings.Cut(env, "=")
+			if isNonPassableEnvKey(key) {
+				continue
+			}
+			envs = append(envs, env)
+		}
+		return envs, nil
+	}
+	// Read the step scope only when one exists. Asking for it unconditionally
+	// would build a fallback scope backed by the raw process environment, which
+	// is the boundary this field must not cross.
+	scope := GetDAGContext(ctx).EnvScope
+	if stepEnv, ok := LookupEnv(ctx); ok {
+		scope = stepEnv.Scope
+	}
+	var envs []string
+	for _, name := range passEnv.Names {
+		if isNonPassableEnvKey(name) {
+			logger.Warn(ctx, "pass_env variable is reserved or host-local and was not passed",
+				tag.String("env", name))
+			continue
+		}
+		entry, ok := scope.GetEntry(name)
+		if !ok {
+			logger.Warn(ctx, "pass_env variable not found in the parent environment",
+				tag.String("env", name))
+			continue
+		}
+		if entry.Source == cmnvalue.EnvSourceSecret {
+			return nil, fmt.Errorf(
+				"pass_env cannot pass %q because it is a secret in this run; declare it in the child DAG's secrets instead",
+				name)
+		}
+		envs = append(envs, name+"="+entry.Value)
+	}
+	return envs, nil
 }
 
 func resolveWorkerSelector(
@@ -1689,9 +1820,29 @@ func (n *Node) setupRepeatPolicy(ctx context.Context) error {
 	return nil
 }
 
+// SetBypassPreconditions marks the node to skip step precondition evaluation
+// when it executes. It is in-memory only and does not persist into node state.
+func (n *Node) SetBypassPreconditions(bypass bool) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.bypassPreconditions = bypass
+}
+
+// BypassPreconditions reports whether the node skips step precondition
+// evaluation.
+func (n *Node) BypassPreconditions() bool {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	return n.bypassPreconditions
+}
+
 func (node *Node) evalPreconditions(ctx context.Context) error {
 	conditions := node.Step().Preconditions
 	if len(conditions) == 0 {
+		return nil
+	}
+	if node.BypassPreconditions() {
+		logger.Infof(ctx, "Bypassing preconditions for \"%s\"", node.Name())
 		return nil
 	}
 	logger.Infof(ctx, "Checking preconditions for \"%s\"", node.Name())

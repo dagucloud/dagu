@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -23,6 +24,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/remotenode"
 )
+
+const remoteProxyTimeout = 30 * time.Second
 
 // WithRemoteNode is a middleware that checks if the request has a "remoteNode" query parameter.
 // If it does, it proxies the request to the specified remote node.
@@ -79,6 +82,20 @@ func WithRemoteNode(resolver *remotenode.Resolver, apiBasePath string) func(next
 					_ = resp.Body.Close()
 				}
 			}()
+
+			if isStepLogDownload(r, apiBasePath) && resp.StatusCode == http.StatusOK && resp.Header.Get("Content-Type") == stepLogArchiveContentType {
+				w.Header().Set("Content-Type", stepLogArchiveContentType)
+				w.Header().Set("Content-Disposition", resp.Header.Get("Content-Disposition"))
+				if encoding := resp.Header.Get("Content-Encoding"); encoding != "" {
+					w.Header().Set("Content-Encoding", encoding)
+				}
+				w.WriteHeader(resp.StatusCode)
+				if _, err := io.Copy(w, resp.Body); err != nil {
+					logger.Error(r.Context(), "Failed to proxy step log archive", tag.Error(err))
+					panic(http.ErrAbortHandler)
+				}
+				return
+			}
 
 			var reader io.Reader = resp.Body
 			switch resp.Header.Get("Content-Encoding") {
@@ -149,6 +166,17 @@ type remoteNodeProxy struct {
 // If yes, it proxies the request to the remote node and returns the remote response.
 // If not, it returns nil, indicating to proceed locally.
 func (h *remoteNodeProxy) proxy(r *http.Request) (*http.Response, error) {
+	if r.Method == http.MethodPost && isStepLogDownload(r, h.apiBasePath) {
+		// Browser credentials are local; the remote uses its configured authentication.
+		r = r.Clone(r.Context())
+		r.Method = http.MethodGet
+		r.Body = http.NoBody
+		r.ContentLength = 0
+		r.Header.Del("Content-Length")
+		r.Header.Del("Content-Type")
+		r.Header.Del("Transfer-Encoding")
+		return h.doRequest(nil, r)
+	}
 	legacyPath, hasLegacyWikiPath := legacyWikiProxyPath(r.URL.Path, h.apiBasePath)
 	if !hasLegacyWikiPath {
 		return h.doRequest(r.Body, r)
@@ -261,7 +289,17 @@ func (h *remoteNodeProxy) doRequest(body io.Reader, r *http.Request) (*http.Resp
 
 	client := &http.Client{
 		Transport: transport,
-		Timeout:   30 * time.Second, // Add a reasonable timeout
+		Timeout:   remoteProxyTimeout,
+	}
+
+	if isStepLogDownload(r, h.apiBasePath) {
+		// ZIP responses are already compressed and can be forwarded unchanged.
+		req.Header.Set("Accept-Encoding", "identity")
+		// Log downloads have no total duration limit; connection setup remains bounded.
+		client.Timeout = 0
+		transport.DialContext = (&net.Dialer{Timeout: remoteProxyTimeout}).DialContext
+		transport.TLSHandshakeTimeout = remoteProxyTimeout
+		transport.ResponseHeaderTimeout = remoteProxyTimeout
 	}
 
 	resp, err := doRemoteNodeProxyRequest(client, req)

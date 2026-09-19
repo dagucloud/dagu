@@ -236,7 +236,7 @@ func Setup(t *testing.T, opts ...HelperOption) Helper {
 	cfg.Paths.ProcDir = filepath.Join(dataDir, "proc")
 	cfg.Paths.ServiceRegistryDir = filepath.Join(dataDir, "service-registry")
 	cfg.Paths.UsersDir = filepath.Join(dataDir, "users")
-	cfg.Paths.SuspendFlagsDir = filepath.Join(tmpDir, "suspend-flags")
+	cfg.Paths.SuspendFlagsDir = filepath.Join(dataDir, "suspend-flags")
 	cfg.Paths.AdminLogsDir = filepath.Join(tmpDir, "admin-logs")
 	cfg.Paths.EventStoreDir = filepath.Join(cfg.Paths.AdminLogsDir, "events")
 	cfg.Coordinator.Enabled = false

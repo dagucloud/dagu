@@ -7,12 +7,19 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"time"
+)
+
+const (
+	// statusOverloaded indicates provider overload.
+	statusOverloaded  = 529
+	maxErrorBodyBytes = 64 * 1024
 )
 
 // HTTPClient performs HTTP requests with retry logic.
@@ -55,14 +62,22 @@ func NewHTTPClient(cfg Config) *HTTPClient {
 
 // Do performs an HTTP POST request with retry logic.
 // Returns the response body as an io.ReadCloser for streaming support.
-// Retries on network errors, 429 (rate limit), and 5xx (server errors).
+// Retries on network errors, rate limiting, and transient server errors.
 func (c *HTTPClient) Do(ctx context.Context, url string, body []byte, headers map[string]string) (io.ReadCloser, error) {
 	var lastErr error
 
 	for attempt := range c.maxRetries + 1 {
 		if attempt > 0 {
 			backoff := c.backoff(attempt)
-			slog.Warn("HTTP request failed, retrying", "error", lastErr, "attempt", attempt)
+			// A provider message can echo credentials or request data, so only
+			// its status is logged. A transport failure carries neither.
+			attrs := []any{"attempt", attempt}
+			if apiErr, ok := errors.AsType[*APIError](lastErr); ok {
+				attrs = append(attrs, "status", apiErr.StatusCode)
+			} else {
+				attrs = append(attrs, "error", lastErr)
+			}
+			slog.Warn("HTTP request failed, retrying", attrs...)
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
@@ -90,12 +105,12 @@ func (c *HTTPClient) Do(ctx context.Context, url string, body []byte, headers ma
 		}
 
 		// Read error body and close before potential retry.
-		errBody, _ := io.ReadAll(resp.Body)
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
 		_ = resp.Body.Close()
 
 		lastErr = NewAPIError("llm", resp.StatusCode, string(errBody))
 
-		if !isRetryable(resp.StatusCode) {
+		if !isRetryableStatusCode(resp.StatusCode) {
 			return nil, lastErr
 		}
 	}
@@ -113,9 +128,4 @@ func (c *HTTPClient) backoff(attempt int) time.Duration {
 		d = c.maxInterval
 	}
 	return d
-}
-
-// isRetryable returns true for status codes that warrant a retry.
-func isRetryable(code int) bool {
-	return code == 429 || (code >= 500 && code <= 504)
 }

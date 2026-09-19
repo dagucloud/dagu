@@ -186,6 +186,8 @@ type Agent struct {
 	stepRetry string
 	// includeDownstream resets reachable descendants of stepRetry.
 	includeDownstream bool
+	// bypassPreconditions skips step precondition evaluation for retried steps.
+	bypassPreconditions bool
 
 	// retryPath identifies the persisted child invocation selected by a root retry.
 	retryPath dagrun.RetryPath
@@ -321,6 +323,9 @@ type Options struct {
 	StepRetry string
 	// IncludeDownstream resets the selected step and every reachable descendant.
 	IncludeDownstream bool
+	// BypassPreconditions skips step precondition evaluation for the steps
+	// reset by a step retry.
+	BypassPreconditions bool
 	// RetryPath identifies a persisted child DAG step retry.
 	RetryPath dagrun.RetryPath
 	// WorkerID is the identifier of the worker executing this DAG run.
@@ -438,6 +443,7 @@ func New(
 		definitionID:             opts.DAGDefinitionID,
 		stepRetry:                opts.StepRetry,
 		includeDownstream:        opts.IncludeDownstream,
+		bypassPreconditions:      opts.BypassPreconditions,
 		retryPath:                opts.RetryPath,
 		peerConfig:               opts.PeerConfig,
 		workerID:                 opts.WorkerID,
@@ -672,6 +678,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		runtime.WithRootDAGRun(a.rootDAGRun),
 		runtime.WithRetryPath(a.retryPath),
 		runtime.WithIncludeDownstream(a.includeDownstream),
+		runtime.WithBypassPreconditions(a.bypassPreconditions),
 		runtime.WithAttemptID(a.dagRunAttemptID),
 		runtime.WithWorkerID(a.workerID),
 		runtime.WithTriggerType(a.triggerType),
@@ -2191,6 +2198,7 @@ func (a *Agent) dryRun(ctx context.Context) error {
 		runtime.WithRootDAGRun(a.rootDAGRun),
 		runtime.WithRetryPath(a.retryPath),
 		runtime.WithIncludeDownstream(a.includeDownstream),
+		runtime.WithBypassPreconditions(a.bypassPreconditions),
 		runtime.WithAttemptID(a.dagRunAttemptID),
 		runtime.WithWorkerID(a.workerID),
 		runtime.WithTriggerType(a.triggerType),
@@ -2373,7 +2381,8 @@ func (a *Agent) setupStepRetryPlan(nodes []*runtime.Node) (*runtime.Plan, error)
 	// DAG that contains the selected step (empty remaining retry hops).
 	includeDownstream := a.includeDownstream && len(a.retryPath.Hops) == 0
 	plan, err := runtime.CreateStepRetryPlanWithOptions(a.dag, nodes, a.stepRetry, runtime.StepRetryPlanOptions{
-		IncludeDownstream: includeDownstream,
+		IncludeDownstream:   includeDownstream,
+		BypassPreconditions: a.bypassPreconditions,
 	})
 	if err != nil {
 		return nil, err

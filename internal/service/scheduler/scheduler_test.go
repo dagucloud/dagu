@@ -208,6 +208,10 @@ func TestFileLockPreventsMultipleInstances(t *testing.T) {
 	// Start first scheduler
 	ctx := context.Background()
 	errCh1 := startSchedulerAsync(t, sc1, ctx)
+	legacyFlag := filepath.Join(th.Config.Paths.SuspendFlagsDirLegacy, "alpha.suspend")
+	primaryFlag := filepath.Join(th.Config.Paths.SuspendFlagsDir, "alpha.suspend")
+	require.NoError(t, os.MkdirAll(filepath.Dir(legacyFlag), 0o750))
+	require.NoError(t, os.WriteFile(legacyFlag, nil, 0o600))
 	waitStarted := make(chan struct{}, 1)
 
 	// Create second scheduler instance with same config
@@ -230,6 +234,7 @@ func TestFileLockPreventsMultipleInstances(t *testing.T) {
 	errCh2 := startWaitingSchedulerAsync(t, sc2, ctx, waitStarted)
 	// Check if second scheduler is still not running
 	require.False(t, sc2.IsRunning(), "Second scheduler should not be running while first one is active")
+	require.NoFileExists(t, primaryFlag, "a waiting scheduler must not migrate suspension state")
 
 	// Stop first scheduler
 	sc1.Stop(ctx)
@@ -246,6 +251,8 @@ func TestFileLockPreventsMultipleInstances(t *testing.T) {
 
 	// Give second scheduler time to start
 	requireSchedulerRunning(t, sc2, errCh2)
+	require.FileExists(t, primaryFlag)
+	require.FileExists(t, legacyFlag)
 
 	// Stop second scheduler to clean up
 	stopSchedulerAndWait(t, sc2, errCh2, ctx)
@@ -495,6 +502,58 @@ func TestScheduler_StartFailureCleansUpPartialStartup(t *testing.T) {
 	ctx := context.Background()
 	errCh2 := startSchedulerAsync(t, sc2, ctx)
 	defer stopSchedulerAndWait(t, sc2, errCh2, ctx)
+}
+
+func TestSchedulerMigrationBeforeEntryReader(t *testing.T) {
+	th := setupSchedulerWithoutDAGs(t)
+	legacyFlag := filepath.Join(th.Config.Paths.SuspendFlagsDirLegacy, "alpha.suspend")
+	primaryFlag := filepath.Join(th.Config.Paths.SuspendFlagsDir, "alpha.suspend")
+	require.NoError(t, os.MkdirAll(filepath.Dir(legacyFlag), 0o750))
+	require.NoError(t, os.WriteFile(legacyFlag, nil, 0o600))
+	reader := &migrationEntryReader{
+		mockJobManager: newMockJobManager(),
+		flags:          []string{primaryFlag, legacyFlag},
+	}
+	sc, err := scheduler.New(th.Config, schedulerDependencies(th, reader))
+	require.NoError(t, err)
+	ctx := context.Background()
+	errCh := startSchedulerAsync(t, sc, ctx)
+	stopSchedulerAndWait(t, sc, errCh, ctx)
+}
+
+func TestSchedulerMigrationFailureReleasesLock(t *testing.T) {
+	th := setupSchedulerWithoutDAGs(t)
+	legacy := th.Config.Paths.SuspendFlagsDirLegacy
+	require.NoError(t, os.MkdirAll(legacy, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(legacy, "alpha.suspend"), nil, 0o600))
+	flags := th.Config.Paths.SuspendFlagsDir
+	require.NoError(t, os.MkdirAll(filepath.Dir(flags), 0o750))
+	require.NoError(t, os.WriteFile(flags, nil, 0o600))
+	sc, err := scheduler.New(th.Config, schedulerDependencies(th, newMockJobManager()))
+	require.NoError(t, err)
+	require.ErrorContains(t, sc.Start(context.Background()), "migrate suspension state")
+	require.False(t, sc.IsRunning())
+
+	require.NoError(t, os.Remove(flags))
+	replacement, err := scheduler.New(th.Config, schedulerDependencies(th, newMockJobManager()))
+	require.NoError(t, err)
+	ctx := context.Background()
+	errCh := startSchedulerAsync(t, replacement, ctx)
+	stopSchedulerAndWait(t, replacement, errCh, ctx)
+}
+
+type migrationEntryReader struct {
+	*mockJobManager
+	flags []string
+}
+
+func (er *migrationEntryReader) Init(context.Context) error {
+	for _, flag := range er.flags {
+		if _, err := os.Stat(flag); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func TestScheduler_SelfFencesOnOwnershipLoss(t *testing.T) {

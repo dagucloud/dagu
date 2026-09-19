@@ -405,34 +405,37 @@ const (
 
 // PathsConfig represents the file system paths configuration.
 type PathsConfig struct {
-	DAGsDir            string
-	WikiDir            string
-	WikiDirLegacy      bool
-	Executable         string
-	LogDir             string
-	ArtifactDir        string
-	DAGStateDir        string
-	DataDir            string
-	ToolsDir           string
-	SuspendFlagsDir    string
-	AdminLogsDir       string
-	EventStoreDir      string
-	BaseConfig         string
-	AltDAGsDir         string
-	DAGRunsDir         string
-	DAGRunWorkDir      string
-	QueueDir           string
-	ProcDir            string
-	ServiceRegistryDir string
-	UsersDir           string
-	APIKeysDir         string
-	WebhooksDir        string
-	ContextsDir        string
-	RemoteNodesDir     string
-	WorkspacesDir      string
-	ViewsDir           string
-	ConfigFileUsed     string
-	ConfigFilesUsed    []string
+	DAGsDir         string
+	WikiDir         string
+	WikiDirLegacy   bool
+	Executable      string
+	LogDir          string
+	ArtifactDir     string
+	DAGStateDir     string
+	DataDir         string
+	ToolsDir        string
+	SuspendFlagsDir string
+	// SuspendFlagsDirLegacy is the fallback suspension directory when the
+	// primary directory was not configured explicitly.
+	SuspendFlagsDirLegacy string
+	AdminLogsDir          string
+	EventStoreDir         string
+	BaseConfig            string
+	AltDAGsDir            string
+	DAGRunsDir            string
+	DAGRunWorkDir         string
+	QueueDir              string
+	ProcDir               string
+	ServiceRegistryDir    string
+	UsersDir              string
+	APIKeysDir            string
+	WebhooksDir           string
+	ContextsDir           string
+	RemoteNodesDir        string
+	WorkspacesDir         string
+	ViewsDir              string
+	ConfigFileUsed        string
+	ConfigFilesUsed       []string
 }
 
 // SecretsConfig holds global defaults for external secret providers.

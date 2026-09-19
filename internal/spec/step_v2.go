@@ -50,6 +50,7 @@ var builtinActionNormalizers = map[string]actionNormalizer{
 	"dag.run":             normalizeDagRunAction,
 	"data.convert":        operationAction("data", "convert"),
 	"data.pick":           operationAction("data", "pick"),
+	"decision.evaluate":   normalizeDecisionAction,
 	"docker.run":          optionalCommandAction("docker", "command"),
 	"exec":                normalizeExecAction,
 	"file.copy":           operationAction("file", "copy"),
@@ -393,6 +394,25 @@ func typedAction(executorType string) actionNormalizer {
 	return func(normalized map[string]any, with map[string]any) error {
 		return normalizeTypedAction(normalized, executorType, with)
 	}
+}
+
+func normalizeDecisionAction(normalized map[string]any, with map[string]any) error {
+	_, hasOutput := normalized["output"]
+	_, hasSchema := normalized["output_schema"]
+	stdout, _ := normalized["stdout"].(map[string]any)
+	_, hasStdoutOutputs := stdout["outputs"]
+	if !hasOutput && !hasSchema && !hasStdoutOutputs {
+		normalized["output_schema"] = map[string]any{
+			"type":     "object",
+			"required": []any{"answers", "model", "usage"},
+			"properties": map[string]any{
+				"answers": map[string]any{"type": "object"},
+				"model":   map[string]any{"type": "string"},
+				"usage":   map[string]any{"type": "object"},
+			},
+		}
+	}
+	return finishAction(normalized, "decision", with)
 }
 
 func normalizeHTTPRequestAction(normalized map[string]any, with map[string]any) error {

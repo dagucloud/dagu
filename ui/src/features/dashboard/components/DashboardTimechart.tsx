@@ -14,6 +14,7 @@ import { statusColorMapping } from '../../../consts';
 import { useConfig } from '../../../contexts/ConfigContext';
 import dayjs from '../../../lib/dayjs';
 import DAGRunDetailsModal from '../../dag-runs/components/dag-run-details/DAGRunDetailsModal';
+import type { StatusTab } from '../../dags/components/DAGStatus';
 import { I18nText } from '@/i18n/I18nText';
 
 type Props = {
@@ -48,6 +49,7 @@ function DashboardTimeChart({ data: input, selectedDate }: Props) {
     dagRunId: string;
   } | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedTab, setSelectedTab] = useState<StatusTab>('status');
 
   // Helper function to ensure we have a valid IANA timezone
   const getValidTimezone = React.useCallback((tz: string): string => {
@@ -307,6 +309,7 @@ function DashboardTimeChart({ data: input, selectedDate }: Props) {
           (dagRun) => itemId === dagRun.name + `_${dagRun.dagRunId}`
         );
         if (matchingDAGRun) {
+          setSelectedTab('status');
           setSelectedDAGRun({
             name: matchingDAGRun.name,
             dagRunId: matchingDAGRun.dagRunId,
@@ -449,6 +452,33 @@ function DashboardTimeChart({ data: input, selectedDate }: Props) {
   const handleCloseModal = () => {
     setIsModalOpen(false);
   };
+
+  const navigateRunHistory = React.useCallback(
+    (direction: 'up' | 'down') => {
+      if (!selectedDAGRun) {
+        return;
+      }
+      const displayedRunIDs = new Set(
+        timelineItemsRef.current.get().map((item) => item.id)
+      );
+      const displayedRuns = input.filter((run) =>
+        displayedRunIDs.has(`${run.name}_${run.dagRunId}`)
+      );
+      const index = displayedRuns.findIndex(
+        (run) =>
+          run.name === selectedDAGRun.name &&
+          run.dagRunId === selectedDAGRun.dagRunId
+      );
+      if (index < 0) {
+        return;
+      }
+      const nextRun = displayedRuns[index + (direction === 'down' ? 1 : -1)];
+      if (nextRun) {
+        setSelectedDAGRun({ name: nextRun.name, dagRunId: nextRun.dagRunId });
+      }
+    },
+    [input, selectedDAGRun]
+  );
 
   const handleZoomIn = () => {
     if (timelineInstance.current) {
@@ -595,6 +625,9 @@ function DashboardTimeChart({ data: input, selectedDate }: Props) {
           dagRunId={selectedDAGRun.dagRunId}
           isOpen={isModalOpen}
           onClose={handleCloseModal}
+          onNavigate={navigateRunHistory}
+          activeTab={selectedTab}
+          onTabChange={setSelectedTab}
         />
       )}
       <style>

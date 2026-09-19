@@ -64,3 +64,28 @@ func TestReportValueReferenceNoticesDoesNotRunPreconditionEval(t *testing.T) {
 	_, err := os.Stat(marker)
 	require.True(t, os.IsNotExist(err), "expected marker to be absent")
 }
+
+func TestJQArgNotices(t *testing.T) {
+	t.Parallel()
+
+	dag := &ir.DAG{
+		Steps: []ir.Step{{
+			Name:     "filter",
+			Commands: []ir.CommandEntry{{CmdWithArgs: `"${consts.literal}"`}},
+			ExecutorConfig: ir.ExecutorConfig{
+				Type: "jq",
+				Config: map[string]any{
+					"args": map[string]any{"name": "${consts.argument}"},
+				},
+			},
+		}},
+	}
+
+	var collector cmnvalue.ValueReferenceNoticeCollector
+	spec.ReportValueReferenceNotices(dag, &collector)
+
+	notices := collector.Notices()
+	require.Len(t, notices, 1)
+	assert.Equal(t, "${consts.argument}", notices[0].Token)
+	assert.Equal(t, "steps[0].with.args.name", notices[0].FieldPath)
+}

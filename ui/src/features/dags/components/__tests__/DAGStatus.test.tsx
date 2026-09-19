@@ -24,7 +24,7 @@ import { AppBarContext } from '@/contexts/AppBarContext';
 import { useClient } from '@/hooks/api';
 import { toMermaidNodeId } from '@/lib/utils';
 import { DAGContext } from '../../contexts/DAGContext';
-import DAGStatus from '../DAGStatus';
+import DAGStatus, { type StatusTab } from '../DAGStatus';
 
 const patchMock = vi.hoisted(() => vi.fn());
 const approvalTabMock = vi.hoisted(() => vi.fn());
@@ -242,9 +242,27 @@ function agentSessionRun(): components['schemas']['DAGRunDetails'] {
   } as unknown as components['schemas']['DAGRunDetails'];
 }
 
+function ControlledStatus({
+  dagRun,
+}: {
+  dagRun: components['schemas']['DAGRunDetails'];
+}) {
+  const [tab, setTab] = React.useState<StatusTab>('status');
+  return (
+    <DAGStatus
+      dagRun={dagRun}
+      fileName="example.yaml"
+      initialTab={tab}
+      activeTab={tab}
+      onTabChange={setTab}
+    />
+  );
+}
+
 function dagStatusView(
   selectedRun: components['schemas']['DAGRunDetails'],
-  selectedRemoteNode = 'local'
+  selectedRemoteNode = 'local',
+  controlled = false
 ): React.JSX.Element {
   return (
     <MemoryRouter>
@@ -256,7 +274,11 @@ function dagStatusView(
             fileName: 'example.yaml',
           }}
         >
-          <DAGStatus dagRun={selectedRun} fileName="example.yaml" />
+          {controlled ? (
+            <ControlledStatus dagRun={selectedRun} />
+          ) : (
+            <DAGStatus dagRun={selectedRun} fileName="example.yaml" />
+          )}
         </DAGContext.Provider>
       </AppBarContext.Provider>
     </MemoryRouter>
@@ -282,6 +304,29 @@ afterEach(() => {
 });
 
 describe('DAGStatus', () => {
+  it('preserves a controlled tab across runs', () => {
+    const { rerender } = render(dagStatusView(dagRun, 'local', true));
+    fireEvent.click(screen.getByRole('button', { name: 'Outputs' }));
+    expect(screen.getByText('Outputs panel')).toBeVisible();
+
+    rerender(dagStatusView(waitingHumanTaskRun('run-2'), 'local', true));
+    expect(screen.getByText('Outputs panel')).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Human tasks' }));
+    expect(screen.getByText('Human task panel')).toBeVisible();
+    rerender(dagStatusView({ ...dagRun, dagRunId: 'run-3' }, 'local', true));
+    expect(screen.getByText('Status overview')).toBeVisible();
+    expect(screen.queryByText('Human task panel')).not.toBeInTheDocument();
+  });
+
+  it('surfaces manual actions without overriding an explicit status choice', () => {
+    const { rerender } = render(dagStatusView(dagRun, 'local', true));
+    rerender(dagStatusView(waitingHumanTaskRun('run-2'), 'local', true));
+    expect(screen.getByText('Human task panel')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Status' }));
+    expect(screen.getByText('Status overview')).toBeVisible();
+  });
+
   it('surfaces the failed step and error before the graph details', () => {
     const failedRun = {
       ...dagRun,
@@ -625,50 +670,62 @@ describe('DAGStatus', () => {
     expect(patchMock).not.toHaveBeenCalled();
   });
 
-  it('keeps the selected agent conversation when switching status tabs', () => {
-    vi.mocked(useClient).mockReturnValue({
-      PATCH: patchMock,
-      POST: vi.fn(),
-    } as unknown as ReturnType<typeof useClient>);
-    render(dagStatusView(agentSessionRun()));
+  it.each([false, true])(
+    'keeps the selected agent conversation when switching status tabs (controlled=%s)',
+    (controlled) => {
+      vi.mocked(useClient).mockReturnValue({
+        PATCH: patchMock,
+        POST: vi.fn(),
+      } as unknown as ReturnType<typeof useClient>);
+      render(dagStatusView(agentSessionRun(), 'local', controlled));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Agent' }));
-    const analyzeTab = screen.getByRole('tab', { name: /analyze/ });
-    fireEvent.click(analyzeTab);
-    expect(analyzeTab).toHaveAttribute('aria-selected', 'true');
+      fireEvent.click(screen.getByRole('button', { name: 'Agent' }));
+      const analyzeTab = screen.getByRole('tab', { name: /analyze/ });
+      fireEvent.click(analyzeTab);
+      expect(analyzeTab).toHaveAttribute('aria-selected', 'true');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Status' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Agent' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Status' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Agent' }));
 
-    expect(screen.getByRole('tab', { name: /analyze/ })).toHaveAttribute(
-      'aria-selected',
-      'true'
-    );
-  });
+      expect(screen.getByRole('tab', { name: /analyze/ })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      );
+    }
+  );
 
-  it('resets the selected agent conversation when the DAG run changes', () => {
-    vi.mocked(useClient).mockReturnValue({
-      PATCH: patchMock,
-      POST: vi.fn(),
-    } as unknown as ReturnType<typeof useClient>);
-    const { rerender } = render(dagStatusView(agentSessionRun()));
+  it.each([false, true])(
+    'resets the selected agent conversation when the DAG run changes (controlled=%s)',
+    (controlled) => {
+      vi.mocked(useClient).mockReturnValue({
+        PATCH: patchMock,
+        POST: vi.fn(),
+      } as unknown as ReturnType<typeof useClient>);
+      const { rerender } = render(
+        dagStatusView(agentSessionRun(), 'local', controlled)
+      );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Agent' }));
-    fireEvent.click(screen.getByRole('tab', { name: /analyze/ }));
+      fireEvent.click(screen.getByRole('button', { name: 'Agent' }));
+      fireEvent.click(screen.getByRole('tab', { name: /analyze/ }));
 
-    rerender(
-      dagStatusView({
-        ...agentSessionRun(),
-        dagRunId: 'run-2',
-      })
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Agent' }));
+      rerender(
+        dagStatusView(
+          {
+            ...agentSessionRun(),
+            dagRunId: 'run-2',
+          },
+          'local',
+          controlled
+        )
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Agent' }));
 
-    expect(screen.getByRole('tab', { name: /implement/ })).toHaveAttribute(
-      'aria-selected',
-      'true'
-    );
-  });
+      expect(screen.getByRole('tab', { name: /implement/ })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      );
+    }
+  );
 
   it('disables graph status mutation while waiting for approval', () => {
     vi.mocked(useClient).mockReturnValue({

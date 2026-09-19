@@ -6,6 +6,7 @@ package persis
 import (
 	"context"
 	"errors"
+	"io"
 	"sync/atomic"
 	"time"
 
@@ -18,6 +19,8 @@ var ErrInvalidDAGRunQueryCursor = errors.New("dagrun: invalid query cursor")
 
 // DAGRunStore persists DAG runs and their attempts as one consistency boundary.
 type DAGRunStore interface {
+	// OpenLog reads a regular log file up to its size when opened. The caller must close it.
+	OpenLog(ctx context.Context, path string) (io.ReadCloser, error)
 	CreateAttempt(ctx context.Context, req DAGRunCreateAttemptRequest) (dagrun.Attempt, error)
 	RecentStatuses(ctx context.Context, name string, limit int) ([]ir.DAGRunStatus, error)
 	LatestAttempt(ctx context.Context, query DAGRunLatestAttemptQuery) (dagrun.Attempt, error)

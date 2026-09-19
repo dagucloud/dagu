@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
@@ -378,4 +379,199 @@ func TestSetupExecutor_HarnessScriptPreservesLiteralCodeFences(t *testing.T) {
 	_, _, err := node.setupExecutor(ctx)
 	require.NoError(t, err)
 	require.Equal(t, "```yaml\nenv:\n  TEST_FILE: ~/dagu-test.txt\n\nsteps:\n  - command: touch $TEST_FILE\n```", node.Step().Script)
+}
+
+func TestBuildJQArgs(t *testing.T) {
+	t.Parallel()
+
+	step := ir.Step{
+		Commands: []ir.CommandEntry{{CmdWithArgs: "$who"}},
+		ExecutorConfig: ir.ExecutorConfig{
+			Type:   "jq",
+			Config: map[string]any{"args": map[string]any{"who": "${env.who}"}},
+		},
+	}
+	ctx := runctx.NewContext(context.Background(), &ir.DAG{Name: "test"}, "", "")
+	env := NewEnv(ctx, step).WithEnvVars("who", "Alice")
+	resolved, _, err := resolveBuildRecipe(WithEnv(ctx, env), step)
+	require.NoError(t, err)
+	require.Equal(t, "$who", resolved.Commands[0].CmdWithArgs)
+	require.Equal(t, map[string]any{"who": "Alice"}, resolved.ExecutorConfig.Config["args"])
+}
+
+// TestResolveSubDAGPassEnv covers which parent values a sub DAG step may
+// carry into a child run. The name list must never reach past the run's
+// environment scope into the Dagu process environment, because that scope is
+// the operator-controlled boundary for host values.
+func mustPassEnv(t *testing.T, ctx context.Context, passEnv *ir.SubDAGPassEnv) []string {
+	t.Helper()
+	envs, err := resolveSubDAGPassEnv(ctx, passEnv)
+	require.NoError(t, err)
+	return envs
+}
+
+func TestResolveSubDAGPassEnv(t *testing.T) {
+	newCtx := func(t *testing.T, secrets []string) context.Context {
+		t.Helper()
+		ctx := config.WithConfig(context.Background(), &config.Config{
+			Core: config.Core{
+				BaseEnv: config.NewBaseEnv([]string{"HOME=/parent/home"}),
+			},
+		})
+		return runctx.NewContext(
+			ctx,
+			&ir.DAG{
+				Name:       "parent",
+				Env:        []string{"TODAY=2026-03-05"},
+				ParamsJSON: `{"a":1}`,
+			},
+			"run-id",
+			"/parent/host/parent.log",
+			runctx.WithSecrets(secrets),
+			runctx.WithWorkDir("/parent/host/workdir"),
+			runctx.WithArtifactDir("/parent/host/artifacts"),
+		)
+	}
+
+	t.Run("ListIgnoresProcessEnv", func(t *testing.T) {
+		t.Setenv("DAGU_TEST_HOST_CREDENTIAL", "host-process-credential")
+		ctx := newCtx(t, nil)
+
+		got, err := resolveSubDAGPassEnv(ctx, &ir.SubDAGPassEnv{
+			Names: []string{"DAGU_TEST_HOST_CREDENTIAL"},
+		})
+
+		require.NoError(t, err)
+
+		require.Empty(t, got)
+	})
+
+	t.Run("ListResolvesFromScope", func(t *testing.T) {
+		ctx := newCtx(t, nil)
+		env := NewEnv(ctx, ir.Step{Name: "call_sub"})
+		env.Scope = env.Scope.WithEntries(map[string]string{
+			"GREETING": "hello",
+		}, cmnvalue.EnvSourceStepEnv)
+
+		got, err := resolveSubDAGPassEnv(WithEnv(ctx, env), &ir.SubDAGPassEnv{
+			Names: []string{"GREETING"},
+		})
+
+		require.NoError(t, err)
+
+		require.Equal(t, []string{"GREETING=hello"}, got)
+	})
+
+	t.Run("ListRejectsSecret", func(t *testing.T) {
+		ctx := newCtx(t, []string{"API_TOKEN=s3cr3t"})
+
+		got, err := resolveSubDAGPassEnv(ctx, &ir.SubDAGPassEnv{
+			Names: []string{"API_TOKEN"},
+		})
+
+		// Passing it would put the value in the dispatch record and give the
+		// child something it cannot know to mask.
+		require.Error(t, err)
+		require.ErrorContains(t, err, "API_TOKEN")
+		require.ErrorContains(t, err, "secret")
+		require.Nil(t, got)
+	})
+
+	t.Run("ListSkipsToolManagedNames", func(t *testing.T) {
+		ctx := newCtx(t, nil)
+
+		got, err := resolveSubDAGPassEnv(ctx, &ir.SubDAGPassEnv{
+			Names: []string{"PATH", "AQUA_ROOT_DIR"},
+		})
+
+		require.NoError(t, err)
+
+		require.Empty(t, got)
+	})
+
+	t.Run("AllExcludesSecretsAndHostValues", func(t *testing.T) {
+		ctx := newCtx(t, []string{"API_TOKEN=s3cr3t"})
+
+		got, err := resolveSubDAGPassEnv(ctx, &ir.SubDAGPassEnv{All: true})
+
+		require.NoError(t, err)
+
+		require.Contains(t, got, "TODAY=2026-03-05")
+		require.NotContains(t, got, "API_TOKEN=s3cr3t")
+		require.NotContains(t, got, "HOME=/parent/home")
+		// Run-managed values describe the parent run and its host. A child that
+		// does not set its own would otherwise keep the parent's, which for a
+		// remote child is a path that does not exist on its machine.
+		require.Equal(t, []string{"TODAY=2026-03-05"}, got)
+	})
+
+	t.Run("ListRejectsRunManagedNames", func(t *testing.T) {
+		ctx := newCtx(t, nil)
+
+		got, err := resolveSubDAGPassEnv(ctx, &ir.SubDAGPassEnv{
+			Names: []string{
+				"DAG_RUN_WORK_DIR", "DAG_PARAMS_JSON", "PWD",
+				"DAGU_OUTPUT_FILE", "DAG_WAITING_STEPS",
+				"DAGU_DAG_DEFINITION_ID", "DAGU_PARALLEL_ITEM",
+			},
+		})
+
+		require.NoError(t, err)
+
+		require.Empty(t, got)
+	})
+
+	t.Run("AllSkipsParams", func(t *testing.T) {
+		ctx := config.WithConfig(context.Background(), &config.Config{})
+		ctx = runctx.NewContext(ctx,
+			&ir.DAG{Name: "parent", Env: []string{"TODAY=2026-03-05"}},
+			"run-id", "parent.log",
+			runctx.WithParams([]string{"1=positional", "NAMED=value"}))
+
+		got, _ := resolveSubDAGPassEnv(ctx, &ir.SubDAGPassEnv{All: true})
+
+		// A child owns its own params. Forwarding the parent's would override
+		// the arguments the step passed to the child, and "1" is not a name a
+		// child could declare.
+		require.Equal(t, []string{"TODAY=2026-03-05"}, got)
+	})
+
+	t.Run("AllSkipsStepScopedValues", func(t *testing.T) {
+		ctx := newCtx(t, nil)
+		env := NewEnv(ctx, ir.Step{Name: "call_sub"})
+		env.Scope = env.Scope.WithEntries(map[string]string{
+			"STEP_ONLY": "step-value",
+		}, cmnvalue.EnvSourceStepEnv)
+		ctx = WithEnv(ctx, env)
+
+		// The whole-environment form reads the run scope, so step-scoped values
+		// reach a child only when named explicitly.
+		require.NotContains(t, mustPassEnv(t, ctx, &ir.SubDAGPassEnv{All: true}),
+			"STEP_ONLY=step-value")
+		require.Equal(t, []string{"STEP_ONLY=step-value"},
+			mustPassEnv(t, ctx, &ir.SubDAGPassEnv{Names: []string{"STEP_ONLY"}}))
+	})
+
+	t.Run("AllIsOrderedForStableTransport", func(t *testing.T) {
+		ctx := config.WithConfig(context.Background(), &config.Config{})
+		ctx = runctx.NewContext(ctx,
+			&ir.DAG{Name: "parent", Env: []string{"B=2", "A=1", "C=3", "D=4", "E=5"}},
+			"run-id", "parent.log")
+
+		first, err := resolveSubDAGPassEnv(ctx, &ir.SubDAGPassEnv{All: true})
+
+		require.NoError(t, err)
+		require.Equal(t, []string{"A=1", "B=2", "C=3", "D=4", "E=5"}, first)
+		// The value is serialized into the dispatch record and sent to a worker,
+		// so repeated resolution must produce the same representation.
+		again, err := resolveSubDAGPassEnv(ctx, &ir.SubDAGPassEnv{All: true})
+		require.NoError(t, err)
+		require.Equal(t, first, again)
+	})
+
+	t.Run("NilRequestsNothing", func(t *testing.T) {
+		envs, err := resolveSubDAGPassEnv(newCtx(t, nil), nil)
+		require.NoError(t, err)
+		require.Nil(t, envs)
+	})
 }

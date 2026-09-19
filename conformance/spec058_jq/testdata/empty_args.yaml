@@ -1,0 +1,12 @@
+working_dir: .
+env:
+  who: World
+steps:
+  - id: filter
+    action: jq.filter
+    stdout: result.out
+    with:
+      filter: '. as $who | [$who.name, "${env.who}"] | join("|")'
+      data: {name: Alice}
+      raw: true
+      args: {}

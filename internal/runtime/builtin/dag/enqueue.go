@@ -63,6 +63,9 @@ func newEnqueueExecutor(_ context.Context, step ir.Step) (executor.Executor, err
 	if step.SubDAG == nil {
 		return nil, fmt.Errorf("sub DAG configuration is missing")
 	}
+	if step.SubDAG.PassEnv != nil {
+		return nil, fmt.Errorf("pass_env is not supported for dag.enqueue")
+	}
 
 	if rawQueue, ok := step.ExecutorConfig.Config[dagEnqueueQueueConfigKey]; ok {
 		if _, ok := rawQueue.(string); !ok {

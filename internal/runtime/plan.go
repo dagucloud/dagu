@@ -43,8 +43,9 @@ type Plan struct {
 }
 
 type stepRetrySelection struct {
-	targetID int
-	resetIDs map[int]struct{}
+	targetID            int
+	resetIDs            map[int]struct{}
+	bypassPreconditions bool
 }
 
 // NewPlan creates a new execution plan from the given steps.
@@ -141,6 +142,9 @@ type StepRetryPlanOptions struct {
 	// IncludeDownstream resets the selected step and every reachable descendant.
 	// Unrelated branches keep their existing status.
 	IncludeDownstream bool
+	// BypassPreconditions marks reset nodes to skip step precondition
+	// evaluation when they execute.
+	BypassPreconditions bool
 }
 
 // CreateStepRetryPlan creates a new execution plan for retrying a specific step.
@@ -180,11 +184,15 @@ func CreateStepRetryPlanWithOptions(dag *ir.DAG, nodes []*Node, stepName string,
 		return nil, fmt.Errorf("%w: %s", ErrMissingNode, stepName)
 	}
 	resetStepRetryNode(targetNode, targetNode.State().Status == ir.NodeRetrying)
+	if opts.BypassPreconditions {
+		targetNode.SetBypassPreconditions(true)
+	}
 
 	if opts.IncludeDownstream {
 		p.stepRetry = &stepRetrySelection{
-			targetID: targetNode.id,
-			resetIDs: map[int]struct{}{targetNode.id: {}},
+			targetID:            targetNode.id,
+			resetIDs:            map[int]struct{}{targetNode.id: {}},
+			bypassPreconditions: opts.BypassPreconditions,
 		}
 		p.expandStepRetrySelection()
 	}
@@ -210,6 +218,9 @@ func (p *Plan) expandStepRetrySelection() {
 			continue
 		}
 		resetStepRetryNode(node, false)
+		if p.stepRetry.bypassPreconditions {
+			node.SetBypassPreconditions(true)
+		}
 		p.stepRetry.resetIDs[node.id] = struct{}{}
 	}
 	p.markSkippedSidePrerequisites(p.stepRetry.resetIDs)

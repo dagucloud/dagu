@@ -273,7 +273,7 @@ func TestNode_OutputExceedsLimit(t *testing.T) {
 	assert.Error(t, err, "should return error when output exceeds limit")
 	assert.Contains(t, err.Error(), "output exceeded maximum size limit", "error should mention output size limit")
 
-	_ = node.Teardown()
+	require.ErrorContains(t, node.Teardown(), "output exceeded maximum size limit")
 }
 
 func TestNode_CustomOutputLimit(t *testing.T) {
@@ -516,6 +516,42 @@ func TestOutputCoordinator_CloseResources(t *testing.T) {
 		_ = oc.closeResources()
 		assert.True(t, oc.closed)
 	})
+}
+
+func TestCaptureRetryAfterLimit(t *testing.T) {
+	t.Parallel()
+	for _, source := range []string{"stdout", "stderr"} {
+		t.Run(source, func(t *testing.T) {
+			t.Parallel()
+			oc := &OutputCoordinator{stdoutWriter: io.Discard, stderrWriter: io.Discard}
+			t.Cleanup(func() { require.NoError(t, oc.closeResources()) })
+			ctx := NewContext(t.Context(), &ir.DAG{MaxOutputSize: 16}, "capture-retry", "test.log")
+			data := NodeData{Step: ir.Step{
+				StructuredOutput: map[string]ir.StepOutputEntry{"value": {From: source}},
+			}}
+			cmd := &outputTestExecutor{}
+			capture := oc.capturedOutput
+			if source == "stderr" {
+				capture = oc.capturedStderr
+			}
+			for _, output := range []string{strings.Repeat("x", 32), "retry"} {
+				require.NoError(t, oc.setupExecutorIO(ctx, cmd, data))
+				writer := cmd.stdout
+				if source == "stderr" {
+					writer = cmd.stderr
+				}
+				_, err := io.WriteString(writer, output)
+				require.NoError(t, err)
+				got, err := capture(ctx)
+				if output == "retry" {
+					require.NoError(t, err)
+					assert.Equal(t, output, got)
+				} else {
+					require.ErrorContains(t, err, "maximum size limit")
+				}
+			}
+		})
+	}
 }
 
 // mockWriteCloser is a test implementation of io.WriteCloser

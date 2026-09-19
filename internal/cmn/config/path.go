@@ -20,6 +20,8 @@ type Paths struct {
 	DAGsDir string
 	// SuspendFlagsDir is the directory for storing flags that indicate DAG suspension.
 	SuspendFlagsDir string
+	// LegacySuspendFlagsDir is the fallback directory for existing suspend flags.
+	LegacySuspendFlagsDir string
 	// DataDir is the directory for persisting application data (e.g., history).
 	DataDir string
 	// LogsDir is the directory where application logs are stored.
@@ -105,8 +107,10 @@ func setXDGPaths(xdg XDGConfig, configDir string) Paths {
 		BaseConfigFile:  filepath.Join(xdg.ConfigHome, AppSlug, "base.yaml"),
 		AdminLogsDir:    filepath.Join(xdg.DataHome, AppSlug, "logs", "admin"),
 		EventStoreDir:   filepath.Join(xdg.DataHome, AppSlug, "logs", "admin", "events"),
-		SuspendFlagsDir: filepath.Join(xdg.DataHome, AppSlug, "suspend"),
-		DAGsDir:         filepath.Join(xdg.ConfigHome, AppSlug, "dags"),
+		SuspendFlagsDir: filepath.Join(xdg.DataHome, AppSlug, "data", "suspend"),
+		// Suspend flags lived next to the data directory before they moved under it.
+		LegacySuspendFlagsDir: filepath.Join(xdg.DataHome, AppSlug, "suspend"),
+		DAGsDir:               filepath.Join(xdg.ConfigHome, AppSlug, "dags"),
 	}
 }
 
@@ -122,7 +126,9 @@ func setUnifiedPaths(configDir string) Paths {
 		BaseConfigFile:  filepath.Join(configDir, "base.yaml"),
 		AdminLogsDir:    filepath.Join(configDir, "logs", "admin"),
 		EventStoreDir:   filepath.Join(configDir, "logs", "admin", "events"),
-		SuspendFlagsDir: filepath.Join(configDir, "suspend"),
-		DAGsDir:         filepath.Join(configDir, "dags"),
+		SuspendFlagsDir: filepath.Join(configDir, "data", "suspend"),
+		// Suspend flags lived next to the data directory before they moved under it.
+		LegacySuspendFlagsDir: filepath.Join(configDir, "suspend"),
+		DAGsDir:               filepath.Join(configDir, "dags"),
 	}
 }

@@ -1281,6 +1281,10 @@ func typedUnionDecodeHook() mapstructure.DecodeHookFunc {
 		if to == reflect.TypeFor[types.BackoffValue]() {
 			return decodeViaYAML[types.BackoffValue](data)
 		}
+		// Handle types.PassEnvValue
+		if to == reflect.TypeFor[types.PassEnvValue]() {
+			return decodeViaYAML[types.PassEnvValue](data)
+		}
 		return data, nil
 	}
 }

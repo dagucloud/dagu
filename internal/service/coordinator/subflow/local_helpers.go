@@ -92,20 +92,5 @@ func hasDAGToolsEnv(envs []string) bool {
 }
 
 func isDAGToolsEnvKey(key string) bool {
-	for _, candidate := range []string{
-		"PATH",
-		"AQUA_ROOT_DIR",
-		"AQUA_CONFIG",
-		"AQUA_DISABLE_LAZY_INSTALL",
-		"AQUA_CHECKSUM",
-		"AQUA_REQUIRE_CHECKSUM",
-		"AQUA_ENFORCE_CHECKSUM",
-		"AQUA_ENFORCE_REQUIRE_CHECKSUM",
-		dagutools.EnvManifest,
-	} {
-		if strings.EqualFold(key, candidate) {
-			return true
-		}
-	}
-	return false
+	return dagutools.IsManagedEnvKey(key)
 }

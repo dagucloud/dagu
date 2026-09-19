@@ -41,6 +41,7 @@ type Options struct {
 	Recursive              bool                     // Discover DAG definitions in subdirectories
 	Symlinks               bool                     // Include recursive file symlinks and external targets
 	SkipDirectoryCreation  bool                     // Skip creating base directory for execution-scoped stores
+	legacyFlagsBaseDir     string
 }
 
 // WithRecursiveDiscovery controls whether DAG files are discovered recursively.
@@ -68,6 +69,13 @@ func WithFileCache(cache *fileutil.Cache[*ir.DAG]) Option {
 func WithFlagsBaseDir(dir string) Option {
 	return func(o *Options) {
 		o.FlagsBaseDir = dir
+	}
+}
+
+// WithLegacyFlagsBaseDir sets the fallback suspension flag directory.
+func WithLegacyFlagsBaseDir(dir string) Option {
+	return func(o *Options) {
+		o.legacyFlagsBaseDir = dir
 	}
 }
 
@@ -129,6 +137,7 @@ func NewStore(baseDir string, opts ...Option) *Store {
 	return &Store{
 		baseDir:                baseDir,
 		flagsBaseDir:           options.FlagsBaseDir,
+		legacyFlagsBaseDir:     options.legacyFlagsBaseDir,
 		fileCache:              options.FileCache,
 		searchPaths:            searchPaths,
 		baseConfigPath:         options.BaseConfigPath,
@@ -142,8 +151,9 @@ func NewStore(baseDir string, opts ...Option) *Store {
 
 // Store persists DAG definitions in local files.
 type Store struct {
-	baseDir                string                   // Base directory for DAG storage
-	flagsBaseDir           string                   // Base directory for flag store
+	baseDir                string // Base directory for DAG storage
+	flagsBaseDir           string // Base directory for flag store
+	legacyFlagsBaseDir     string
 	fileCache              *fileutil.Cache[*ir.DAG] // Optional cache for DAG objects
 	searchPaths            []string                 // Additional search paths for DAG files
 	baseConfigPath         string                   // Optional base config file applied when loading DAGs
@@ -205,50 +215,6 @@ func (store *Store) catalog(ctx context.Context, includeSearchPaths bool) (persi
 		})
 	}
 	return result, nil
-}
-
-func (store *Store) SetSuspended(_ context.Context, id string, suspended bool) error {
-	var err error
-	if suspended {
-		err = store.createFlag(fileName(id))
-	} else {
-		err = store.deleteFlag(fileName(id))
-		if errors.Is(err, os.ErrNotExist) {
-			err = nil
-		}
-	}
-	if err == nil {
-		store.invalidateIndex()
-	}
-	return err
-}
-
-func (store *Store) IsSuspended(_ context.Context, id string) (bool, error) {
-	return store.flagExistsResult(fileName(id))
-}
-
-func (store *Store) readSuspendFlags(ctx context.Context) (dagindex.SuspendFlags, error) {
-	flags := make(dagindex.SuspendFlags)
-	flagEntries, err := os.ReadDir(store.flagsBaseDir)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			exists, statErr := store.suspendFlagsDirExists()
-			if statErr != nil {
-				return nil, statErr
-			}
-			if !exists {
-				logger.Debug(ctx, "Suspend flags directory does not exist", tag.Dir(store.flagsBaseDir))
-				return flags, nil
-			}
-		}
-		return nil, fmt.Errorf("read suspend flags directory %s: %w", store.flagsBaseDir, err)
-	}
-	for _, fe := range flagEntries {
-		if !fe.IsDir() {
-			flags[fe.Name()] = struct{}{}
-		}
-	}
-	return flags, nil
 }
 
 func (store *Store) defaultLoadOptions(opts ...spec.LoadOption) []spec.LoadOption {
@@ -681,49 +647,6 @@ func dagFileCandidates(name string) []string {
 		return []string{name + ".yaml", name + ".yml"}
 	}
 }
-
-// CreateFlag creates the given file.
-func (store *Store) createFlag(file string) error {
-	if err := os.MkdirAll(store.flagsBaseDir, flagPermission); err != nil {
-		return err
-	}
-	return fileutil.WriteFileAtomic(path.Join(store.flagsBaseDir, file), []byte{}, flagPermission)
-}
-
-func (store *Store) flagExistsResult(file string) (bool, error) {
-	_, err := os.Stat(path.Join(store.flagsBaseDir, file))
-	if err == nil {
-		return true, nil
-	}
-	if !errors.Is(err, os.ErrNotExist) {
-		return false, err
-	}
-
-	_, err = store.suspendFlagsDirExists()
-	return false, err
-}
-
-func (store *Store) suspendFlagsDirExists() (bool, error) {
-	info, err := os.Stat(store.flagsBaseDir)
-	if errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	if !info.IsDir() {
-		return false, fmt.Errorf("suspend flags path %s is not a directory", store.flagsBaseDir)
-	}
-	return true, nil
-}
-
-// deleteFlag deletes the given file.
-func (store *Store) deleteFlag(file string) error {
-	return fileutil.Remove(path.Join(store.flagsBaseDir, file))
-}
-
-// flagPermission is the default file permission for newly created files.
-var flagPermission os.FileMode = 0750
 
 // fileExists checks if a file exists.
 func fileExists(file string) bool {

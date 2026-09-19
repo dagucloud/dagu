@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -633,5 +634,165 @@ steps:
 
 		require.Equal(t, ir.Succeeded, status.Status)
 		f.assertAllNodesSucceeded(status)
+	})
+}
+
+func TestSubDAG_PassEnvDistributed(t *testing.T) {
+	readChildResult := func(t *testing.T, f *testFixture) string {
+		t.Helper()
+		parentStatus, err := f.latestStatus()
+		require.NoError(t, err)
+		require.Equal(t, ir.Succeeded, parentStatus.Status)
+		require.Len(t, parentStatus.Nodes, 1)
+		require.Len(t, parentStatus.Nodes[0].SubRuns, 1)
+
+		subRunID := parentStatus.Nodes[0].SubRuns[0].DAGRunID
+		subAttempt, err := f.coord.DAGRunRepository.FindSubAttempt(
+			f.coord.Context,
+			ir.NewDAGRunRef(parentStatus.Name, parentStatus.DAGRunID),
+			subRunID,
+		)
+		require.NoError(t, err)
+
+		childStatus, err := subAttempt.ReadStatus(f.coord.Context)
+		require.NoError(t, err)
+		require.Equal(t, ir.Succeeded, childStatus.Status)
+		require.Len(t, childStatus.Nodes, 1)
+		return nodeOutputValue(t, childStatus.Nodes[0], "RESULT")
+	}
+
+	t.Run("selective", func(t *testing.T) {
+		f := newTestFixture(t, `
+env:
+  - TODAY: "2026-03-05"
+  - NOT_LISTED: not-requested
+steps:
+  - name: run-child
+    action: dag.run
+    with:
+      dag: env-child
+    pass_env: [TODAY, GH_USER]
+
+---
+name: env-child
+worker_selector:
+  type: test-worker
+steps:
+  - name: report
+    run: echo "TODAY=${TODAY} GH=${GH_USER} NL=${NOT_LISTED}"
+    output: RESULT
+`, withLabels(map[string]string{"type": "test-worker"}))
+		defer f.cleanup()
+
+		agent := f.dagWrapper.Agent()
+		agent.RunSuccess(t)
+
+		require.Equal(t, "TODAY=2026-03-05 GH= NL=", readChildResult(t, f))
+	})
+
+	t.Run("all", func(t *testing.T) {
+		f := newTestFixture(t, `
+env:
+  - TODAY: "2026-03-05"
+  - NOT_LISTED: not-requested
+steps:
+  - name: run-child
+    action: dag.run
+    with:
+      dag: env-child
+    pass_env: true
+
+---
+name: env-child
+worker_selector:
+  type: test-worker
+steps:
+  - name: report
+    run: echo "TODAY=${TODAY} NL=${NOT_LISTED}"
+    output: RESULT
+`, withLabels(map[string]string{"type": "test-worker"}))
+		defer f.cleanup()
+
+		agent := f.dagWrapper.Agent()
+		agent.RunSuccess(t)
+
+		require.Equal(t, "TODAY=2026-03-05 NL=not-requested", readChildResult(t, f))
+	})
+
+	t.Run("defaultNoInheritance", func(t *testing.T) {
+		f := newTestFixture(t, `
+env:
+  - TODAY: "2026-03-05"
+steps:
+  - name: run-child
+    action: dag.run
+    with:
+      dag: env-child
+
+---
+name: env-child
+worker_selector:
+  type: test-worker
+steps:
+  - name: report
+    run: echo "TODAY=${TODAY}"
+    output: RESULT
+`, withLabels(map[string]string{"type": "test-worker"}))
+		defer f.cleanup()
+
+		agent := f.dagWrapper.Agent()
+		agent.RunSuccess(t)
+
+		require.Equal(t, "TODAY=", readChildResult(t, f))
+	})
+
+	t.Run("parallel", func(t *testing.T) {
+		f := newTestFixture(t, `
+env:
+  - TODAY: "2026-03-05"
+steps:
+  - name: run-children
+    action: dag.run
+    with:
+      dag: env-child
+      params: "ITEM_ID=${ITEM.id}"
+    pass_env: [TODAY]
+    parallel:
+      items:
+        - id: a
+        - id: b
+
+---
+name: env-child
+worker_selector:
+  type: test-worker
+params:
+  - ITEM_ID
+steps:
+  - name: report
+    run: echo "${ITEM_ID}:${TODAY}"
+    output: RESULT
+`, withLabels(map[string]string{"type": "test-worker"}))
+		defer f.cleanup()
+
+		agent := f.dagWrapper.Agent()
+		agent.RunSuccess(t)
+
+		parentStatus, err := f.latestStatus()
+		require.NoError(t, err)
+		require.Equal(t, ir.Succeeded, parentStatus.Status)
+		require.Len(t, parentStatus.Nodes, 1)
+		require.Len(t, parentStatus.Nodes[0].SubRuns, 2)
+
+		rootRef := ir.NewDAGRunRef(parentStatus.Name, parentStatus.DAGRunID)
+		results := map[string]string{}
+		for _, sub := range parentStatus.Nodes[0].SubRuns {
+			childStatus := readDistributedSubAttemptStatus(t, f, rootRef, sub.DAGRunID)
+			require.Equal(t, ir.Succeeded, childStatus.Status)
+			result := nodeOutputValue(t, childStatus.Nodes[0], "RESULT")
+			results[strings.Split(result, ":")[0]] = result
+		}
+		require.Equal(t, "a:2026-03-05", results["a"])
+		require.Equal(t, "b:2026-03-05", results["b"])
 	})
 }

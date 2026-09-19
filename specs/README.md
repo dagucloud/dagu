@@ -70,6 +70,7 @@ It must not be treated as product behavior until implementation catches up.
 | [068: State Executor](068-state.md) | Implemented |
 | [069: Secrets Providers](069-secrets-providers.md) | Partially implemented |
 | [070: Runtime Profiles](070-runtime-profiles.md) | Partially implemented |
+| [071: Decision Evaluation Action](071-decision-evaluate.md) | Implemented |
 
 **Writing guidelines:**
 

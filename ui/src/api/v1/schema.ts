@@ -1150,6 +1150,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dag-runs/{name}/{dagRunId}/steps/log/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download step logs as ZIP of a DAG-run
+         * @description Downloads stdout and stderr for the steps and lifecycle handlers of this
+         *     DAG-run only. Logs from nested DAG-runs are not included.
+         *     Returns a streaming ZIP archive with no size limit. Each available log is
+         *     stored as <index>-<step-name>/stdout.log or stderr.log, in run order.
+         *     Missing files are skipped. Each file includes only the bytes present when
+         *     it is opened; subsequent log growth is excluded.
+         *
+         */
+        get: operations["downloadDAGRunStepLogs"];
+        put?: never;
+        /**
+         * Download step logs as ZIP of a DAG-run
+         * @description Browser form download of the same streaming ZIP returned by GET.
+         *     The optional token field supplies a bearer credential when the
+         *     Authorization header is absent. Normal authentication and run visibility
+         *     checks apply. Tokens in the URL are not accepted.
+         *
+         */
+        post: operations["downloadDAGRunStepLogsForm"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dag-runs/{name}/{dagRunId}/steps/{stepName}/messages": {
         parameters: {
             query?: never;
@@ -1458,6 +1492,40 @@ export interface paths {
         get: operations["downloadSubDAGRunStepLog"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/steps/log/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download step logs as ZIP of a sub DAG-run
+         * @description Downloads stdout and stderr for the steps and lifecycle handlers of this
+         *     sub DAG-run only. Logs from nested DAG-runs are not included.
+         *     Returns a streaming ZIP archive with no size limit. Each available log is
+         *     stored as <index>-<step-name>/stdout.log or stderr.log, in run order.
+         *     Missing files are skipped. Each file includes only the bytes present when
+         *     it is opened; subsequent log growth is excluded.
+         *
+         */
+        get: operations["downloadSubDAGRunStepLogs"];
+        put?: never;
+        /**
+         * Download step logs as ZIP of a sub DAG-run
+         * @description Browser form download of the same streaming ZIP returned by GET.
+         *     The optional token field supplies a bearer credential when the
+         *     Authorization header is absent. Normal authentication and run visibility
+         *     checks apply. Tokens in the URL are not accepted.
+         *
+         */
+        post: operations["downloadSubDAGRunStepLogsForm"];
         delete?: never;
         options?: never;
         head?: never;
@@ -10543,6 +10611,109 @@ export interface operations {
             };
         };
     };
+    downloadDAGRunStepLogs: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description name of the DAG */
+                name: components["parameters"]["DAGName"];
+                /** @description ID of the DAG-run or 'latest' to get the most recent DAG-run */
+                dagRunId: components["parameters"]["DAGRunId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description ZIP archive of step log files */
+            200: {
+                headers: {
+                    /** @description Attachment filename */
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/zip": string;
+                };
+            };
+            /** @description DAG-run not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    downloadDAGRunStepLogsForm: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description name of the DAG */
+                name: components["parameters"]["DAGName"];
+                /** @description ID of the DAG-run or 'latest' to get the most recent DAG-run */
+                dagRunId: components["parameters"]["DAGRunId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/x-www-form-urlencoded": {
+                    /** @description Bearer credential for browser form downloads */
+                    token?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description ZIP archive of step log files */
+            200: {
+                headers: {
+                    /** @description Attachment filename */
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/zip": string;
+                };
+            };
+            /** @description DAG-run not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     getDAGRunStepMessages: {
         parameters: {
             query?: {
@@ -11426,6 +11597,113 @@ export interface operations {
                 };
             };
             /** @description Log file not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    downloadSubDAGRunStepLogs: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description name of the DAG */
+                name: components["parameters"]["DAGName"];
+                /** @description ID of the DAG-run or 'latest' to get the most recent DAG-run */
+                dagRunId: components["parameters"]["DAGRunId"];
+                /** @description ID of the sub DAG-run to download the step logs for */
+                subDAGRunId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description ZIP archive of step log files */
+            200: {
+                headers: {
+                    /** @description Attachment filename */
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/zip": string;
+                };
+            };
+            /** @description Sub DAG-run not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    downloadSubDAGRunStepLogsForm: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description name of the DAG */
+                name: components["parameters"]["DAGName"];
+                /** @description ID of the DAG-run or 'latest' to get the most recent DAG-run */
+                dagRunId: components["parameters"]["DAGRunId"];
+                /** @description ID of the sub DAG-run to download the step logs for */
+                subDAGRunId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/x-www-form-urlencoded": {
+                    /** @description Bearer credential for browser form downloads */
+                    token?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description ZIP archive of step log files */
+            200: {
+                headers: {
+                    /** @description Attachment filename */
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/zip": string;
+                };
+            };
+            /** @description Sub DAG-run not found */
             404: {
                 headers: {
                     [name: string]: unknown;

@@ -260,27 +260,6 @@ var (
 	secretRefPathPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*(/[a-z0-9][a-z0-9-]*)*$`)
 )
 
-var reservedSecretEnvNames = []string{
-	runenv.EnvKeyDAGName,
-	runenv.EnvKeyDAGRunID,
-	runenv.EnvKeyDAGRunLogFile,
-	runenv.EnvKeyDAGRunStepName,
-	runenv.EnvKeyDAGRunStepStdoutFile,
-	runenv.EnvKeyDAGRunStepStderrFile,
-	runenv.EnvKeyDAGRunStatus,
-	runenv.EnvKeyDAGWikiDir,
-	runenv.EnvKeyDAGDocsDir,
-	runenv.EnvKeyDAGParamsJSON,
-	runenv.EnvKeyDAGParamsJSONCompat,
-	runenv.EnvKeyDAGRunWorkDir,
-	runenv.EnvKeyDAGRunArtifactsDir,
-	runenv.EnvKeyDAGPushBack,
-	runenv.EnvKeyDAGPushBackIteration,
-	runenv.EnvKeyDAGPushBackPreviousStdoutFile,
-	runenv.EnvKeyExternalStepRetry,
-	runenv.EnvKeyQueueDispatchRetry,
-}
-
 // parseSecretRefs parses secret references from the YAML definition.
 func parseSecretRefs(ctx buildContext, d *dag) ([]secretref.Ref, error) {
 	secretRefs := d.Secrets
@@ -341,7 +320,7 @@ func parseSecretRefs(ctx buildContext, d *dag) ([]secretref.Ref, error) {
 
 func reservedSecretNameConflicts() map[string]string {
 	conflicts := make(map[string]string)
-	for _, name := range reservedSecretEnvNames {
+	for _, name := range runenv.ReservedRunEnvNames() {
 		conflicts[name] = "Dagu-managed runtime environment variable"
 	}
 	return conflicts

@@ -27,6 +27,31 @@ const (
 	EnvManifest = "DAGU_TOOLS_MANIFEST"
 )
 
+// managedEnvKeys are the environment variable keys a resolved toolset injects
+// into a run environment. Their values are local to the run's host and must
+// not be forwarded to other runs.
+var managedEnvKeys = []string{
+	"PATH",
+	"AQUA_ROOT_DIR",
+	"AQUA_CONFIG",
+	"AQUA_DISABLE_LAZY_INSTALL",
+	"AQUA_CHECKSUM",
+	"AQUA_REQUIRE_CHECKSUM",
+	"AQUA_ENFORCE_CHECKSUM",
+	"AQUA_ENFORCE_REQUIRE_CHECKSUM",
+	EnvManifest,
+}
+
+// IsManagedEnvKey reports whether key is a tool-managed environment variable.
+func IsManagedEnvKey(key string) bool {
+	for _, candidate := range managedEnvKeys {
+		if strings.EqualFold(key, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
 // Installer installs and resolves a DAG tool declaration.
 type Installer interface {
 	Install(ctx context.Context, cfg *ir.ToolConfig, opts InstallOptions) (*Manifest, error)

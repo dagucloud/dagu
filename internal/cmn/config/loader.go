@@ -70,6 +70,7 @@ type ConfigLoader struct {
 	trustedProxyGroupMappingsSet     bool
 	trustedProxyWorkspaceMappings    map[string][]TrustedProxyWorkspaceGrant
 	trustedProxyWorkspaceMappingsSet bool
+	legacySuspendFlagsDir            string
 }
 
 // ConfigLoaderOption defines a functional option for configuring a ConfigLoader.
@@ -1759,6 +1760,21 @@ func (l *ConfigLoader) finalizePaths(cfg *Config) error {
 		cfg.Paths.ToolsDir = filepath.Join(cfg.Paths.DataDir, "tools")
 	}
 
+	// Suspend flags default under the shared data directory so every process
+	// observing the same data_dir sees identical suspension state. A legacy
+	// default location is recorded for compatibility only when the path was
+	// not configured explicitly.
+	if cfg.Paths.SuspendFlagsDir == "" {
+		cfg.Paths.SuspendFlagsDir = filepath.Join(cfg.Paths.DataDir, "suspend")
+		if l.legacySuspendFlagsDir != "" && l.legacySuspendFlagsDir != cfg.Paths.SuspendFlagsDir {
+			cfg.Paths.SuspendFlagsDirLegacy = l.legacySuspendFlagsDir
+		}
+	} else if !pathWithinDir(cfg.Paths.DataDir, cfg.Paths.SuspendFlagsDir) {
+		l.warnings = append(l.warnings, fmt.Sprintf(
+			"paths.suspend_flags_dir %q is outside paths.data_dir %q; suspension state may diverge across Dagu processes",
+			cfg.Paths.SuspendFlagsDir, cfg.Paths.DataDir))
+	}
+
 	if cfg.Paths.EventStoreDir == "" {
 		cfg.Paths.EventStoreDir = filepath.Join(cfg.Paths.AdminLogsDir, "events")
 	}
@@ -1803,6 +1819,18 @@ func selectRenamedPath(canonical, legacy string) (string, bool, error) {
 		return legacy, true, nil
 	}
 	return canonical, false, nil
+}
+
+// pathWithinDir reports whether path is the same as or contained by dir.
+func pathWithinDir(dir, path string) bool {
+	if dir == "" || path == "" {
+		return false
+	}
+	rel, err := filepath.Rel(dir, path)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
 func pathExists(path string) (bool, error) {
@@ -1950,6 +1978,7 @@ func (l *ConfigLoader) setupViper(xdgConfig XDGConfig, homeDir, configFile, appH
 		}
 	}
 
+	l.legacySuspendFlagsDir = paths.LegacySuspendFlagsDir
 	l.configureViper(paths.ConfigDir, configFile)
 	l.bindEnvironmentVariables()
 	l.setViperDefaultValues(paths)
@@ -1963,7 +1992,6 @@ func (l *ConfigLoader) setViperDefaultValues(paths Paths) {
 	l.v.SetDefault("dag_discovery.recursive", false)
 	l.v.SetDefault("dag_discovery.symlinks", false)
 	l.v.SetDefault("paths.dags_dir", paths.DAGsDir)
-	l.v.SetDefault("paths.suspend_flags_dir", paths.SuspendFlagsDir)
 	l.v.SetDefault("paths.data_dir", paths.DataDir)
 	l.v.SetDefault("paths.log_dir", paths.LogsDir)
 	l.v.SetDefault("paths.artifact_dir", paths.ArtifactsDir)

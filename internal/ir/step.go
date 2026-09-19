@@ -229,7 +229,24 @@ func (s *Step) String() string {
 type SubDAG struct {
 	Name   string `json:"name,omitempty"`
 	Params string `json:"params,omitempty"`
+	// PassEnv selects parent environment values to hand to the child run.
+	// Nil preserves the default of passing nothing beyond params.
+	PassEnv *SubDAGPassEnv `json:"passEnv,omitempty"`
 }
+
+// SubDAGPassEnv describes which parent environment values a sub DAG run
+// receives beyond its own definition.
+type SubDAGPassEnv struct {
+	// All passes the parent run's own environment values.
+	All bool `json:"all,omitempty"`
+	// Names lists the parent environment variables to pass.
+	Names []string `json:"names,omitempty"`
+}
+
+// ReservedEnvPrefix marks environment variable names Dagu reserves for internal
+// run transport. Names carrying it are never accepted from authored workflows
+// and never cross a run boundary.
+const ReservedEnvPrefix = "_DAGU_"
 
 // CommandEntry represents a single command in a multi-command step.
 // Each entry contains a parsed command with its arguments.

@@ -119,3 +119,42 @@ func TestExpandReferences_ComplexJSON(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveJSONNumbers(t *testing.T) {
+	t.Parallel()
+	// Only integers beyond float64 precision render differently; every other
+	// literal keeps the rendering references have always produced.
+	for _, tt := range []struct{ number, want string }{
+		{"42", "42"},
+		{"1.0", "1"},
+		{"1e3", "1000"},
+		{"0.0000042", "4.2e-06"},
+		{"1.2300e+19", "1.23e+19"},
+		{"9007199254740993", "9007199254740993"},
+	} {
+		raw := `{"number":` + tt.number + `}`
+		got, ok := resolveJSONPath(t.Context(), "value", raw, ".number")
+		assert.True(t, ok)
+		assert.Equal(t, tt.want, got)
+		got, ok = resolveDeclaredStepOutput(t.Context(), "step", "number", map[string]StepInfo{"step": {DeclaredOutputs: &raw}})
+		assert.True(t, ok)
+		assert.Equal(t, tt.want, got)
+	}
+
+	got, ok := resolveJSONPath(t.Context(), "value", `{"a":1.0,"b":9007199254740993}`, ".")
+	assert.True(t, ok)
+	assert.Equal(t, `{"a":1,"b":9007199254740993}`, got)
+}
+
+// A resolved container keeps the characters the value holds, matching the way
+// the same payload is persisted.
+func TestResolveJSONLiterals(t *testing.T) {
+	t.Parallel()
+	const raw = `{"note":"a < b & c > d"}`
+	got, ok := resolveJSONPath(t.Context(), "value", raw, ".")
+	assert.True(t, ok)
+	assert.Equal(t, raw, got)
+	got, ok = resolveJSONPath(t.Context(), "value", raw, ".note")
+	assert.True(t, ok)
+	assert.Equal(t, "a < b & c > d", got)
+}

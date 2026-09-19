@@ -16,6 +16,7 @@ export type UserPreferences = {
   safeMode: boolean;
   wikiSortField: WikiSortField;
   wikiSortOrder: WikiSortOrder;
+  pinnedViewOrder: Record<string, string[]>;
 };
 
 const UserPreferencesContext = createContext<{
@@ -35,6 +36,7 @@ const defaultPreferences: UserPreferences = {
   safeMode: false,
   wikiSortField: 'type',
   wikiSortOrder: 'asc',
+  pinnedViewOrder: {},
 };
 
 function isWikiSortField(value: unknown): value is WikiSortField {
@@ -96,7 +98,7 @@ export function UserPreferencesProvider({
     <K extends keyof UserPreferences>(key: K, value: UserPreferences[K]) => {
       setPreferences((prev) => {
         const next = { ...prev, [key]: value };
-        localStorage.setItem('user_preferences', JSON.stringify(next));
+        writeLocalStorage('user_preferences', JSON.stringify(next));
         return next;
       });
     },

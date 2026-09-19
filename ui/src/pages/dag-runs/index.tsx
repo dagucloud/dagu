@@ -47,6 +47,7 @@ import {
   workspaceSelectionKey,
   workspaceSelectionQuery,
 } from '../../lib/workspace';
+import { getDAGRunScheduleSortValue } from '../../lib/dagRunTiming';
 import StatusChip from '@/components/ui/status-chip';
 import Title from '@/components/ui/title';
 import type { StatusTab } from '@/features/dags/components/DAGStatus';
@@ -56,6 +57,25 @@ import { I18nProps } from '@/i18n/I18nProps';
 type DAGRunsFilters = DAGRunsFilterSet;
 
 const ALL_RUNS_VIEW_PARAM = 'all';
+
+function readSelectedRunTab(search: string): StatusTab {
+  const tab = new URLSearchParams(search).get('selectedRunTab');
+  switch (tab) {
+    case 'status':
+    case 'timeline':
+    case 'outputs':
+    case 'artifacts':
+    case 'agent':
+    case 'chat':
+    case 'tasks':
+    case 'spec':
+    case 'approval':
+    case 'human-tasks':
+      return tab;
+    default:
+      return 'status';
+  }
+}
 
 const RUN_FILTER_QUERY_KEYS = [
   'name',
@@ -322,12 +342,9 @@ function DAGRuns() {
     const dagRunId = params.get('selectedRunId');
     return name && dagRunId ? { name, dagRunId } : null;
   });
-  const [selectedDAGRunInitialTab, setSelectedDAGRunInitialTab] =
-    React.useState<StatusTab>(() =>
-      new URLSearchParams(location.search).get('selectedRunTab') === 'artifacts'
-        ? 'artifacts'
-        : 'status'
-    );
+  const [selectedDAGRunTab, setSelectedDAGRunTab] = React.useState<StatusTab>(() =>
+    readSelectedRunTab(location.search)
+  );
   const updateSelectedDAGRun = React.useCallback(
     (
       dagRun: { name: string; dagRunId: string } | null,
@@ -335,7 +352,7 @@ function DAGRuns() {
       replace = false
     ) => {
       setSelectedDAGRun(dagRun);
-      setSelectedDAGRunInitialTab(initialTab);
+      setSelectedDAGRunTab(initialTab);
       const params = new URLSearchParams(location.search);
       if (dagRun) {
         params.set('selectedRunName', dagRun.name);
@@ -367,9 +384,7 @@ function DAGRuns() {
     const name = params.get('selectedRunName');
     const dagRunId = params.get('selectedRunId');
     setSelectedDAGRun(name && dagRunId ? { name, dagRunId } : null);
-    setSelectedDAGRunInitialTab(
-      params.get('selectedRunTab') === 'artifacts' ? 'artifacts' : 'status'
-    );
+    setSelectedDAGRunTab(readSelectedRunTab(location.search));
   }, [location.search]);
 
   const selectDAGRun = React.useCallback(
@@ -804,6 +819,34 @@ function DAGRuns() {
   } = usePaginatedDAGRuns({
     query: dagRunQuery,
   });
+  const navigateGroupedRunHistory = React.useCallback(
+    (direction: 'up' | 'down') => {
+      if (!selectedDAGRun) {
+        return;
+      }
+      const groupRuns = dagRuns
+        .filter((run) => run.name === selectedDAGRun.name)
+        .sort(
+          (a, b) =>
+            getDAGRunScheduleSortValue(b) - getDAGRunScheduleSortValue(a)
+        );
+      const index = groupRuns.findIndex(
+        (run) => run.dagRunId === selectedDAGRun.dagRunId
+      );
+      if (index < 0) {
+        return;
+      }
+      const nextRun = groupRuns[index + (direction === 'down' ? 1 : -1)];
+      if (nextRun) {
+        updateSelectedDAGRun(
+          { name: nextRun.name, dagRunId: nextRun.dagRunId },
+          selectedDAGRunTab,
+          true
+        );
+      }
+    },
+    [dagRuns, selectedDAGRun, selectedDAGRunTab, updateSelectedDAGRun]
+  );
   React.useEffect(() => {
     if (!isLoadingMore) {
       autoLoadPendingRef.current = false;
@@ -1602,7 +1645,16 @@ function DAGRuns() {
           dagRunId={selectedDAGRun.dagRunId}
           isOpen={!!selectedDAGRun}
           onClose={() => updateSelectedDAGRun(null, 'status', true)}
-          initialTab={selectedDAGRunInitialTab}
+          onNavigate={
+            viewMode === 'grouped' ? navigateGroupedRunHistory : undefined
+          }
+          initialTab={selectedDAGRunTab}
+          activeTab={viewMode === 'grouped' ? selectedDAGRunTab : undefined}
+          onTabChange={
+            viewMode === 'grouped'
+              ? (tab) => updateSelectedDAGRun(selectedDAGRun, tab, true)
+              : undefined
+          }
         />
       )}
     </div>

@@ -5,6 +5,7 @@ package testutil
 
 import (
 	"context"
+	"io"
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -53,4 +54,8 @@ func (DAGRunStoreStub) RemoveOldDAGRuns(context.Context, persis.DAGRunRetentionR
 
 func (DAGRunStoreStub) RemoveDAGRun(context.Context, persis.DAGRunRemoveRequest) error {
 	panic("unexpected DAG-run store call: RemoveDAGRun")
+}
+
+func (DAGRunStoreStub) OpenLog(context.Context, string) (io.ReadCloser, error) {
+	panic("unexpected DAG-run store call: OpenLog")
 }

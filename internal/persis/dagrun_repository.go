@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"time"
 
@@ -401,4 +402,10 @@ func childDAGRunIDs(nodes []*ir.Node) []string {
 		}
 	}
 	return ids
+}
+
+// OpenLog reads a regular log file up to its size when opened.
+// The caller must close the reader. Missing files return an fs.ErrNotExist error.
+func (r *DAGRunRepository) OpenLog(ctx context.Context, path string) (io.ReadCloser, error) {
+	return r.store.OpenLog(ctx, path)
 }

@@ -83,10 +83,10 @@ Stop and restart a DAG run: `dagu restart <dag-name> [--run-id/-r <id>]`
 Retry a previous DAG run using the same run ID.
 
 ```sh
-dagu retry <dag> --run-id/-r <id> [--step <name>] [--downstream] [--worker-id <id>]
+dagu retry <dag> --run-id/-r <id> [--step <name>] [--downstream] [--bypass-preconditions] [--worker-id <id>]
 ```
 
-`--step` retries only the selected step. Add `--downstream` to also reset every reachable descendant; unrelated branches keep their current status. `--downstream` requires `--step`.
+`--step` retries only the selected step. Add `--downstream` to also reset every reachable descendant; unrelated branches keep their current status. `--downstream` requires `--step`. Add `--bypass-preconditions` to skip step precondition evaluation for this retry; it also requires `--step` and a local CLI context. DAG-level preconditions and lifecycle handlers still apply. With `--sub-run-id <child-id>`, the bypass also reaches the selected child retry, including children dispatched to workers.
 
 ### dagu human-task complete
 

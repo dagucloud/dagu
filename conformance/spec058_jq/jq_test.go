@@ -22,6 +22,8 @@ func TestJQFilter(t *testing.T) {
 		{"basic.yaml", "\"World\"\n"},
 		{"raw_mode.yaml", "World\n"},
 		{"raw_null.yaml", "\n"},
+		{"args.yaml", "Alice:5:$who\nAlice:10:$who\n"},
+		{"empty_args.yaml", "Alice|${env.who}\n"},
 		{"with_input_file.yaml", "\"Metropolis\"\n"},
 		{"with_data_file_prefix.yaml", "\"Metropolis\"\n"},
 	} {

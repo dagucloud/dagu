@@ -520,6 +520,74 @@ func TestStepRetryPlan_IncludeDownstream(t *testing.T) {
 	}
 }
 
+func TestStepRetryPlan_BypassPreconditions(t *testing.T) {
+	t.Parallel()
+
+	dag := &ir.DAG{Steps: []ir.Step{
+		{Name: "A"},
+		{Name: "B", Depends: []string{"A"}},
+		{Name: "C", Depends: []string{"B"}},
+		{Name: "D", Depends: []string{"A"}},
+		{Name: "E", Depends: []string{"B", "D"}},
+	}}
+
+	tests := []struct {
+		name              string
+		step              string
+		includeDownstream bool
+		bypassPrecond     bool
+		wantBypass        map[string]bool
+	}{
+		{
+			name:              "target and reset descendants bypass",
+			step:              "B",
+			includeDownstream: true,
+			bypassPrecond:     true,
+			wantBypass: map[string]bool{
+				"A": false, "B": true, "C": true, "D": false, "E": true,
+			},
+		},
+		{
+			name:          "target only bypass without downstream",
+			step:          "B",
+			bypassPrecond: true,
+			wantBypass: map[string]bool{
+				"A": false, "B": true, "C": false, "D": false, "E": false,
+			},
+		},
+		{
+			name:              "no bypass leaves all unset",
+			step:              "B",
+			includeDownstream: true,
+			wantBypass: map[string]bool{
+				"A": false, "B": false, "C": false, "D": false, "E": false,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			nodes := []*runtime.Node{
+				makeNode("A", ir.NodeSucceeded),
+				makeNode("B", ir.NodeFailed, "A"),
+				makeNode("C", ir.NodeSucceeded, "B"),
+				makeNode("D", ir.NodeSkipped, "A"),
+				makeNode("E", ir.NodeSkipped, "B", "D"),
+			}
+			p, err := runtime.CreateStepRetryPlanWithOptions(dag, nodes, tt.step, runtime.StepRetryPlanOptions{
+				IncludeDownstream:   tt.includeDownstream,
+				BypassPreconditions: tt.bypassPrecond,
+			})
+			require.NoError(t, err)
+			require.NotNil(t, p)
+			for _, n := range nodes {
+				require.Equal(t, tt.wantBypass[n.Name()], n.BypassPreconditions(), "bypass mismatch for %s", n.Name())
+			}
+		})
+	}
+}
+
 func TestStepRetryPlan_PreservesRetryCountForRetryingStep(t *testing.T) {
 	dag := &ir.DAG{Steps: []ir.Step{
 		{Name: "retrying-step", RetryPolicy: ir.RetryPolicy{Limit: 1}},

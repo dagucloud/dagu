@@ -1,0 +1,17 @@
+working_dir: .
+steps:
+  - name: call-child
+    action: dag.run
+    with:
+      dag: pass_env_child
+    pass_env: [PASS_PROCESS_ONLY]
+
+---
+name: pass_env_child
+working_dir: .
+steps:
+  - name: write
+    action: file.write
+    with:
+      path: passed-env.txt
+      content: "[${PASS_PROCESS_ONLY}]"

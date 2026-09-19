@@ -505,11 +505,12 @@ func TestDispatchTaskStore_ClaimRecycleAndSelectorFiltering(t *testing.T) {
 		WorkerSelector: map[string]string{"type": "gpu"},
 	}))
 	require.NoError(t, s.Enqueue(ctx, &dispatch.DispatchTask{
-		DAGRunID:       "run-b",
-		Target:         "dag-b",
-		AttemptID:      "attempt-b",
-		AttemptKey:     "attempt-key-b",
-		WorkerSelector: map[string]string{"type": "cpu"},
+		DAGRunID:            "run-b",
+		Target:              "dag-b",
+		AttemptID:           "attempt-b",
+		AttemptKey:          "attempt-key-b",
+		WorkerSelector:      map[string]string{"type": "cpu"},
+		BypassPreconditions: true,
 	}))
 
 	claimed, err := s.ClaimNext(ctx, dispatch.DispatchTaskClaim{
@@ -521,6 +522,7 @@ func TestDispatchTaskStore_ClaimRecycleAndSelectorFiltering(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, claimed)
 	assert.Equal(t, "run-b", claimed.Task.DAGRunID)
+	assert.True(t, claimed.Task.BypassPreconditions)
 	assert.Equal(t, "coord-a", claimed.Task.Owner.ID)
 	assert.NotEmpty(t, claimed.Task.ClaimToken)
 
@@ -542,6 +544,7 @@ func TestDispatchTaskStore_ClaimRecycleAndSelectorFiltering(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, gpuClaim)
 	assert.Equal(t, "run-a", gpuClaim.Task.DAGRunID)
+	assert.False(t, gpuClaim.Task.BypassPreconditions)
 
 	var reclaimed *dispatch.ClaimedDispatchTask
 	var reclaimErr error
@@ -557,6 +560,7 @@ func TestDispatchTaskStore_ClaimRecycleAndSelectorFiltering(t *testing.T) {
 	require.NoError(t, reclaimErr)
 	require.NotNil(t, reclaimed)
 	assert.Equal(t, "run-b", reclaimed.Task.DAGRunID)
+	assert.True(t, reclaimed.Task.BypassPreconditions)
 	assert.Equal(t, "coord-b", reclaimed.Task.Owner.ID)
 
 	_, err = s.GetClaim(ctx, claimed.ClaimToken)

@@ -41,5 +41,5 @@ For a first contribution, leave the distributed and optional subsystems alone:
 ## Import rules
 
 `internal/persis/` must not import `internal/service/*`, and `internal/cmn/*`
-stays domain-independent. `CLAUDE.md` has the full set under "Architecture
+stays domain-independent. `AGENTS.md` has the full set under "Architecture
 rules".

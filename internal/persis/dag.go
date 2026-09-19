@@ -55,6 +55,7 @@ type DAGDefinitionStore interface {
 	// alt_dags_dir). Stores without additional search paths may return the same
 	// result as Catalog.
 	CatalogIncludingSearchPaths(ctx context.Context) (DAGCatalog, error)
+	MigrateSuspensionState(ctx context.Context) error
 	SetSuspended(ctx context.Context, id string, suspended bool) error
 	IsSuspended(ctx context.Context, id string) (bool, error)
 }

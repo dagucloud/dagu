@@ -35,6 +35,7 @@ import {
   LayoutGrid,
   Shield,
   Globe,
+  GripVertical,
   History,
   Moon,
   Network,
@@ -61,6 +62,7 @@ type NavItemProps = {
   onClick?: () => void;
   customColor?: boolean;
   activePaths?: string | string[];
+  reorderable?: boolean;
 };
 
 type MainListItemsProps = {
@@ -175,8 +177,10 @@ function NavItem({
   onClick,
   customColor = false,
   activePaths,
+  reorderable = false,
 }: NavItemProps): React.ReactElement {
   const location = useLocation();
+  const { t } = useI18n();
   const isActive = activePaths
     ? isBasePathActive(location, activePaths)
     : isNavTargetActive(location, to);
@@ -185,6 +189,7 @@ function NavItem({
     'flex items-center rounded-md px-2 group relative',
     'h-9 gap-3',
     'text-sidebar-foreground',
+    reorderable && 'cursor-grab active:cursor-grabbing',
     isActive
       ? cn(getActiveLinkStyle(), sidebarItemActiveClassName)
       : sidebarItemClassName
@@ -202,7 +207,16 @@ function NavItem({
         onClick={onClick}
         className={linkClassName}
         aria-current={isActive ? 'page' : undefined}
-        title={isOpen ? '' : text}
+        draggable={reorderable ? false : undefined}
+        aria-description={
+          reorderable ? t('navigation.reorderBookmark') : undefined
+        }
+        aria-keyshortcuts={
+          reorderable ? 'Alt+ArrowUp Alt+ArrowDown' : undefined
+        }
+        title={
+          isOpen ? (reorderable ? t('navigation.reorderBookmark') : '') : text
+        }
       >
         {isActive && (
           <div
@@ -229,8 +243,137 @@ function NavItem({
         >
           {text}
         </span>
+        {reorderable && isOpen && (
+          <GripVertical
+            size={14}
+            aria-hidden="true"
+            className="ml-auto shrink-0 opacity-0 group-hover:opacity-60 group-focus-visible:opacity-60"
+          />
+        )}
       </Link>
     </div>
+  );
+}
+
+function PinnedViewItems({
+  items,
+  remoteNode,
+  isOpen,
+  onNavItemClick,
+  customColor,
+}: MainListItemsProps & {
+  items: (Pick<NavItemProps, 'to' | 'text' | 'icon'> & { id: string })[];
+  remoteNode: string;
+}): React.ReactElement {
+  const { preferences, updatePreference } = useUserPreferences();
+  const [draggedId, setDraggedId] = React.useState<string | null>(null);
+  const [dropId, setDropId] = React.useState<string | null>(null);
+  const storedOrder = preferences.pinnedViewOrder?.[remoteNode];
+  const order = [
+    ...new Set([
+      ...(Array.isArray(storedOrder) ? storedOrder : []),
+      ...items.map((item) => item.id),
+    ]),
+  ];
+  const sortedItems = [...items].sort(
+    (a, b) => order.indexOf(a.id) - order.indexOf(b.id)
+  );
+
+  function moveItem(fromId: string, toId: string): void {
+    const ids = sortedItems.map((item) => item.id);
+    const from = ids.indexOf(fromId);
+    const to = ids.indexOf(toId);
+    if (from < 0 || to < 0 || from === to) {
+      return;
+    }
+    ids.splice(from, 1);
+    ids.splice(to, 0, fromId);
+    const visibleIds = new Set(ids);
+    let index = 0;
+    updatePreference('pinnedViewOrder', {
+      ...preferences.pinnedViewOrder,
+      // Preserve the positions of bookmarks hidden by the workspace filter.
+      [remoteNode]: order.map((id) =>
+        visibleIds.has(id) ? ids[index++]! : id
+      ),
+    });
+  }
+
+  function clearDrag(): void {
+    setDraggedId(null);
+    setDropId(null);
+  }
+
+  return (
+    <>
+      {sortedItems.map((item, index) => (
+        <div
+          key={item.id}
+          draggable
+          className={cn(
+            'relative cursor-grab active:cursor-grabbing',
+            draggedId === item.id && 'opacity-50',
+            dropId === item.id &&
+              draggedId !== item.id &&
+              'after:absolute after:inset-x-1 after:h-0.5 after:bg-sidebar-primary',
+            dropId === item.id &&
+              (sortedItems.findIndex((item) => item.id === draggedId) < index
+                ? 'after:bottom-0'
+                : 'after:top-0')
+          )}
+          onDragStart={(event) => {
+            event.dataTransfer.effectAllowed = 'move';
+            event.dataTransfer.setData('text/plain', item.id);
+            setDraggedId(item.id);
+          }}
+          onDragOver={(event) => {
+            if (draggedId === null) {
+              return;
+            }
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'move';
+            setDropId(item.id);
+          }}
+          onDragLeave={(event) => {
+            if (
+              !event.currentTarget.contains(event.relatedTarget as Node | null)
+            ) {
+              setDropId(null);
+            }
+          }}
+          onDrop={(event) => {
+            if (draggedId !== null) {
+              event.preventDefault();
+              moveItem(draggedId, item.id);
+            }
+            clearDrag();
+          }}
+          onDragEnd={clearDrag}
+          onKeyDown={(event) => {
+            if (
+              !event.altKey ||
+              !['ArrowUp', 'ArrowDown'].includes(event.key)
+            ) {
+              return;
+            }
+            event.preventDefault();
+            const target =
+              sortedItems[index + (event.key === 'ArrowUp' ? -1 : 1)];
+            if (target) {
+              moveItem(item.id, target.id);
+            }
+          }}
+        >
+          <NavItem
+            {...item}
+            isOpen={isOpen ?? false}
+            onClick={onNavItemClick}
+            customColor={customColor}
+            reorderable
+          />
+        </div>
+      ))}
+    </>
   );
 }
 
@@ -680,50 +823,39 @@ export const mainListItems = React.forwardRef<
         </AppBarContext.Consumer>
 
         <div className="space-y-1">
-          {pinnedKanbanViews.map((view) => (
-            <NavItem
-              key={`kanban-${view.id}`}
-              to={`/views/${view.id}`}
-              text={view.name}
-              icon={<LayoutGrid size={18} />}
-              isOpen={isOpen}
-              onClick={onNavItemClick}
-              customColor={customColor}
-            />
-          ))}
-          {pinnedRunViews.map((view) => (
-            <NavItem
-              key={`run-${view.id}`}
-              to={`/dag-runs?view=${encodeURIComponent(view.id)}`}
-              text={view.name}
-              icon={<Star size={18} />}
-              isOpen={isOpen}
-              onClick={onNavItemClick}
-              customColor={customColor}
-            />
-          ))}
-          {pinnedWorkflowViews.map((view) => (
-            <NavItem
-              key={`workflow-${view.id}`}
-              to={`/dags?view=${encodeURIComponent(view.id)}`}
-              text={view.name}
-              icon={<Star size={18} />}
-              isOpen={isOpen}
-              onClick={onNavItemClick}
-              customColor={customColor}
-            />
-          ))}
-          {pinnedArtifactViews.map((view) => (
-            <NavItem
-              key={`artifact-${view.id}`}
-              to={`/artifacts?view=${encodeURIComponent(view.id)}`}
-              text={view.name}
-              icon={<Star size={18} />}
-              isOpen={isOpen}
-              onClick={onNavItemClick}
-              customColor={customColor}
-            />
-          ))}
+          <PinnedViewItems
+            key={appBar.selectedRemoteNode}
+            remoteNode={appBar.selectedRemoteNode || 'local'}
+            items={[
+              ...pinnedKanbanViews.map((view) => ({
+                id: view.id,
+                to: `/views/${view.id}`,
+                text: view.name,
+                icon: <LayoutGrid size={18} />,
+              })),
+              ...pinnedRunViews.map((view) => ({
+                id: view.id,
+                to: `/dag-runs?view=${encodeURIComponent(view.id)}`,
+                text: view.name,
+                icon: <Star size={18} />,
+              })),
+              ...pinnedWorkflowViews.map((view) => ({
+                id: view.id,
+                to: `/dags?view=${encodeURIComponent(view.id)}`,
+                text: view.name,
+                icon: <Star size={18} />,
+              })),
+              ...pinnedArtifactViews.map((view) => ({
+                id: view.id,
+                to: `/artifacts?view=${encodeURIComponent(view.id)}`,
+                text: view.name,
+                icon: <Star size={18} />,
+              })),
+            ]}
+            isOpen={isOpen}
+            onNavItemClick={onNavItemClick}
+            customColor={customColor}
+          />
 
           <NavItem
             to="/"

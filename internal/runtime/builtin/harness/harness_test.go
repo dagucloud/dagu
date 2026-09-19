@@ -1110,14 +1110,80 @@ func TestHarnessExecutorRun_ContextCancellationSkipsFallback(t *testing.T) {
 
 	marker := filepath.Join(t.TempDir(), "fallback-ran")
 	primary := writeHarnessTestBinary(t, "primary", `#!/bin/sh
-sleep 1
-echo "primary stderr" >&2
-exit 1
+echo "ready" >&2
+exec sleep 60
 `)
 	fallback := writeHarnessTestBinary(t, "fallback", "#!/bin/sh\ntouch \""+marker+"\"\nexit 0\n")
 
-	var stdout strings.Builder
-	var stderr strings.Builder
+	for _, stage := range []string{"before_start", "running"} {
+		t.Run(stage, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			wantErr := context.Canceled
+			if stage == "before_start" {
+				cancel()
+				ctx, cancel = context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+				wantErr = context.DeadlineExceeded
+			}
+			defer cancel()
+			var stdout strings.Builder
+			var stderr strings.Builder
+			exec := &harnessExecutor{
+				stdout: &stdout,
+				stderr: &cancelOnWrite{Writer: &stderr, cancel: cancel},
+				configs: []providerConfig{
+					{
+						name: "primary",
+						definition: &ir.HarnessDefinition{
+							Binary:     primary,
+							PromptMode: ir.HarnessPromptModeArg,
+							FlagStyle:  ir.HarnessFlagStyleGNULong,
+						},
+						flags: map[string]any{"provider": "primary"},
+					},
+					{
+						name: "fallback",
+						definition: &ir.HarnessDefinition{
+							Binary:     fallback,
+							PromptMode: ir.HarnessPromptModeArg,
+							FlagStyle:  ir.HarnessFlagStyleGNULong,
+						},
+						flags: map[string]any{"provider": "fallback"},
+					},
+				},
+				prompt: "hello",
+			}
+
+			err := exec.Run(ctx)
+			require.ErrorIs(t, err, wantErr)
+			assert.NoFileExists(t, marker)
+			assert.NotContains(t, stderr.String(), "trying fallback")
+			assert.Equal(t, 124, exec.ExitCode())
+		})
+	}
+}
+
+// cancelOnWrite cancels only after the subprocess signals that it has started.
+type cancelOnWrite struct {
+	io.Writer
+	cancel context.CancelFunc
+}
+
+func (w *cancelOnWrite) Write(p []byte) (int, error) {
+	n, err := w.Writer.Write(p)
+	w.cancel()
+	return n, err
+}
+
+// A cancellation that races a real startup failure keeps the failure and does
+// not report the timeout exit code.
+func TestHarnessExecutorRun_CancelKeepsStartupError(t *testing.T) {
+	if goruntime.GOOS == "windows" {
+		t.Skip("Skipping shell-based test on Windows")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var stdout, stderr strings.Builder
 	exec := &harnessExecutor{
 		stdout: &stdout,
 		stderr: &stderr,
@@ -1125,34 +1191,20 @@ exit 1
 			{
 				name: "primary",
 				definition: &ir.HarnessDefinition{
-					Binary:     primary,
+					Binary:     filepath.Join(t.TempDir(), "missing-binary"),
 					PromptMode: ir.HarnessPromptModeArg,
 					FlagStyle:  ir.HarnessFlagStyleGNULong,
 				},
 				flags: map[string]any{"provider": "primary"},
 			},
-			{
-				name: "fallback",
-				definition: &ir.HarnessDefinition{
-					Binary:     fallback,
-					PromptMode: ir.HarnessPromptModeArg,
-					FlagStyle:  ir.HarnessFlagStyleGNULong,
-				},
-				flags: map[string]any{"provider": "fallback"},
-			},
 		},
 		prompt: "hello",
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-
 	err := exec.Run(ctx)
-	require.Error(t, err)
-	assert.ErrorIs(t, err, context.DeadlineExceeded)
-	assert.NoFileExists(t, marker)
-	assert.NotContains(t, stderr.String(), "trying fallback")
-	assert.Equal(t, 124, exec.ExitCode())
+	require.ErrorIs(t, err, context.Canceled)
+	assert.NotEqual(t, context.Canceled.Error(), err.Error())
+	assert.NotEqual(t, 124, exec.ExitCode())
 }
 
 func TestHarnessExecutorRun_CreatesWorkingDir(t *testing.T) {

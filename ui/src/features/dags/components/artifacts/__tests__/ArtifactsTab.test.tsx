@@ -40,6 +40,59 @@ function renderArtifactsTab() {
   );
 }
 
+function mockNavigationArtifacts() {
+  getMock.mockImplementation(
+    (endpoint: string, init?: { params?: { query?: { path?: string } } }) => {
+      if (endpoint.endsWith('/artifacts')) {
+        return Promise.resolve({
+          data: {
+            items: [
+              {
+                name: 'out',
+                path: 'out',
+                type: 'directory',
+                children: [
+                  { name: 'a.txt', path: 'out/a.txt', type: 'file', size: 12 },
+                  { name: 'b.txt', path: 'out/b.txt', type: 'file', size: 12 },
+                ],
+              },
+              {
+                name: 'other',
+                path: 'other',
+                type: 'directory',
+                children: [
+                  {
+                    name: 'c.txt',
+                    path: 'other/c.txt',
+                    type: 'file',
+                    size: 12,
+                  },
+                ],
+              },
+            ],
+          },
+        });
+      }
+      const path = init?.params?.query?.path;
+      if (endpoint.endsWith('/preview') && path) {
+        return Promise.resolve({
+          data: {
+            name: path.split('/').pop(),
+            path,
+            kind: 'text',
+            mimeType: 'text/plain',
+            size: 12,
+            tooLarge: false,
+            truncated: false,
+            content: `contents of ${path}`,
+          },
+        });
+      }
+      throw new Error(`Unhandled request: ${endpoint}`);
+    }
+  );
+}
+
 describe('ArtifactsTab', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -54,6 +107,91 @@ describe('ArtifactsTab', () => {
     useClientMock.mockReturnValue({
       GET: getMock,
     } as never);
+  });
+
+  it('returns to the file after reading its preview', async () => {
+    mockNavigationArtifacts();
+    const user = userEvent.setup();
+    renderArtifactsTab();
+    await user.click(await screen.findByRole('treeitem', { name: 'a.txt' }));
+    await user.keyboard('j{Enter}');
+    const preview = screen.getByRole('region', { name: 'b.txt' });
+    expect(preview).toHaveFocus();
+    expect(
+      await screen.findByText('contents of out/b.txt')
+    ).toBeInTheDocument();
+    await user.keyboard('j{ArrowDown}');
+    expect(preview).toHaveFocus();
+    expect(screen.getByRole('treeitem', { name: 'b.txt' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+
+    await user.keyboard('{Escape}');
+    expect(screen.getByRole('treeitem', { name: 'b.txt' })).toHaveFocus();
+    await user.keyboard('k{Enter}');
+    await user.click(screen.getByRole('button', { name: 'Back to files' }));
+    expect(screen.getByRole('treeitem', { name: 'a.txt' })).toHaveFocus();
+  });
+
+  it('preserves collapsed folders on reload', async () => {
+    mockNavigationArtifacts();
+    const user = userEvent.setup();
+    renderArtifactsTab();
+    await user.click(await screen.findByRole('treeitem', { name: 'a.txt' }));
+    await user.keyboard('{ArrowLeft} ');
+    expect(screen.getByRole('treeitem', { name: 'out' })).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    );
+    await user.click(screen.getByTitle('Reload artifacts'));
+    expect(
+      await screen.findByRole('treeitem', { name: 'out' })
+    ).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByTitle('Reload artifacts')).toHaveFocus();
+    expect(
+      await screen.findByText('contents of out/a.txt')
+    ).toBeInTheDocument();
+  });
+
+  it('resets file selection when the run changes', async () => {
+    mockNavigationArtifacts();
+    const user = userEvent.setup();
+    const view = renderArtifactsTab();
+    await user.click(await screen.findByRole('treeitem', { name: 'b.txt' }));
+    expect(
+      await screen.findByText('contents of out/b.txt')
+    ).toBeInTheDocument();
+    getMock.mockClear();
+    view.rerender(
+      <AppBarContext.Provider value={appBarValue}>
+        <ArtifactsTab
+          dagRun={
+            {
+              name: 'example-dag',
+              dagRunId: 'run-2',
+              artifactsAvailable: true,
+            } as never
+          }
+          artifactEnabled
+        />
+      </AppBarContext.Provider>
+    );
+    expect(
+      await screen.findByText('contents of out/a.txt')
+    ).toBeInTheDocument();
+    expect(screen.getByRole('treeitem', { name: 'a.txt' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    expect(
+      getMock.mock.calls
+        .filter(([endpoint]) => endpoint.endsWith('/preview'))
+        .map(([, init]) => ({
+          run: init.params.path.dagRunId,
+          path: init.params.query.path,
+        }))
+    ).toEqual([{ run: 'run-2', path: 'out/a.txt' }]);
   });
 
   it('lets users switch markdown artifacts between preview and raw modes', async () => {

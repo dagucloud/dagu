@@ -123,3 +123,9 @@ func (r *DAGRepository) SetSuspended(ctx context.Context, id string, suspended b
 func (r *DAGRepository) IsSuspended(ctx context.Context, id string) (bool, error) {
 	return r.store.IsSuspended(ctx, id)
 }
+
+// MigrateSuspensionState makes legacy suspension state available in primary storage
+// without removing the legacy state.
+func (r *DAGRepository) MigrateSuspensionState(ctx context.Context) error {
+	return r.store.MigrateSuspensionState(ctx)
+}

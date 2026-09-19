@@ -31,8 +31,10 @@ type runOptions struct {
 	step              string
 	includeDownstream bool
 	retryPath         dagrun.RetryPath
-	preparedAttempt   dagrun.Attempt
-	noReuse           bool
+
+	bypassPreconditions bool
+	preparedAttempt     dagrun.Attempt
+	noReuse             bool
 }
 
 func dagDefinitionIDFromEnv() string {

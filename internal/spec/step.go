@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/signal"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
@@ -94,6 +95,9 @@ type step struct {
 	Call string `yaml:"call,omitempty"`
 	// Params specifies the parameters for the sub dag-run.
 	Params any `yaml:"params,omitempty"`
+	// PassEnv specifies which parent environment variables the sub dag-run
+	// receives. Accepts a list of variable names or true to pass them all.
+	PassEnv types.PassEnvValue `yaml:"pass_env,omitempty"`
 	// Parallel specifies parallel execution configuration.
 	// Can be:
 	// - Direct array reference: parallel: ${ITEMS}
@@ -1755,6 +1759,10 @@ func buildSingleCommand(val string, result *ir.Step) error {
 	if trimmed == "" {
 		return ir.NewValidationError("command", raw, ErrStepCommandIsEmpty)
 	}
+	if literalJQFilter(*result) {
+		result.Commands = []ir.CommandEntry{{CmdWithArgs: raw}}
+		return nil
+	}
 
 	// Harness uses command as a prompt, so preserve multiline text as a single
 	// command entry instead of reclassifying it as an inline script.
@@ -1792,6 +1800,12 @@ func buildSingleCommand(val string, result *ir.Step) error {
 	}
 
 	return nil
+}
+
+// Explicit arguments make jq filters literal source instead of workflow expressions.
+func literalJQFilter(step ir.Step) bool {
+	_, hasArgs := step.ExecutorConfig.Config["args"]
+	return step.ExecutorConfig.Type == "jq" && hasArgs
 }
 
 // buildMultipleCommands parses an array of commands and populates the Step.Commands field.
@@ -2884,12 +2898,83 @@ func buildStepApproval(_ stepBuildContext, s *step, result *ir.Step) error {
 	return nil
 }
 
+// buildSubDAGPassEnv parses the optional pass_env field into its IR
+// representation. Returns nil when no values are passed.
+func buildSubDAGPassEnv(ctx stepBuildContext, s *step) (*ir.SubDAGPassEnv, error) {
+	// Queued child runs read their own DAG environment when dequeued; passed
+	// values cannot be carried through queue persistence. Reject any explicit
+	// pass_env value on dag.enqueue, including a disabling one.
+	if s.Type == ir.ExecutorTypeDAGEnqueue && !s.PassEnv.IsZero() {
+		return nil, ir.NewValidationError("pass_env", s.PassEnv.Value(),
+			fmt.Errorf("pass_env is not supported for dag.enqueue"))
+	}
+	if !s.PassEnv.Enabled() {
+		return nil, nil
+	}
+	if s.PassEnv.All() {
+		return &ir.SubDAGPassEnv{All: true}, nil
+	}
+	names := s.PassEnv.Names()
+	result := make([]string, 0, len(names))
+	seen := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if !cmnvalue.ValidEnvName(name) {
+			return nil, ir.NewValidationError("pass_env", s.PassEnv.Value(),
+				fmt.Errorf("invalid environment variable name %q", name))
+		}
+		// Names reserved for Dagu internal transport cannot be passed.
+		if strings.HasPrefix(strings.ToUpper(name), ir.ReservedEnvPrefix) {
+			return nil, ir.NewValidationError("pass_env", s.PassEnv.Value(),
+				fmt.Errorf("%q is reserved for Dagu internal use and cannot be passed", name))
+		}
+		// Run-managed names describe the parent run and the host executing it,
+		// so the child must resolve its own rather than receive them.
+		if runenv.IsNonTransferableRunEnvKey(name) {
+			return nil, ir.NewValidationError("pass_env", s.PassEnv.Value(),
+				fmt.Errorf("%q is managed by Dagu for each run and cannot be passed", name))
+		}
+		// A secret the run declares is rejected here so the workflow fails to
+		// build rather than at the step. A secret reaching the scope another
+		// way, such as through a runtime profile, is caught when the step runs.
+		if declaresSecret(ctx.dag, name) {
+			return nil, ir.NewValidationError("pass_env", s.PassEnv.Value(),
+				fmt.Errorf("%q is a secret; declare it in the child DAG's secrets instead of passing it", name))
+		}
+		if _, dup := seen[name]; dup {
+			continue
+		}
+		seen[name] = struct{}{}
+		result = append(result, name)
+	}
+	return &ir.SubDAGPassEnv{Names: result}, nil
+}
+
+// declaresSecret reports whether the DAG declares a secret bound to name.
+func declaresSecret(dag *ir.DAG, name string) bool {
+	if dag == nil {
+		return false
+	}
+	for _, secret := range dag.Secrets {
+		if secret.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
 // buildStepSubDAG parses the child ir.DAG definition and sets up the step to run a sub DAG.
 func buildStepSubDAG(ctx stepBuildContext, s *step, result *ir.Step) error {
 	name := strings.TrimSpace(s.Call)
 
 	// if the call field is not set, return nil.
 	if name == "" {
+		// Reject any explicit value, including a disabling one, the same as
+		// dag.enqueue does: the field has no meaning on a step with no child.
+		if !s.PassEnv.IsZero() {
+			return ir.NewValidationError("pass_env", s.PassEnv.Value(),
+				fmt.Errorf("pass_env requires a sub DAG call"))
+		}
 		return nil
 	}
 
@@ -2922,7 +3007,12 @@ func buildStepSubDAG(ctx stepBuildContext, s *step, result *ir.Step) error {
 		paramsStr = strings.Join(paramsToJoin, " ")
 	}
 
-	result.SubDAG = &ir.SubDAG{Name: name, Params: paramsStr}
+	passEnv, err := buildSubDAGPassEnv(ctx, s)
+	if err != nil {
+		return err
+	}
+
+	result.SubDAG = &ir.SubDAG{Name: name, Params: paramsStr, PassEnv: passEnv}
 
 	// Set executor type based on whether parallel execution is configured
 	if result.Parallel != nil {

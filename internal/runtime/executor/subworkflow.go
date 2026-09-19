@@ -60,13 +60,17 @@ type SubWorkflowRequest struct {
 	Reuse             bool
 	RetryPath         dagrun.RetryPath
 	Workspace         *SubWorkflowWorkspace
+	// PassedEnv holds resolved "KEY=value" pairs the parent opted to share
+	// with the child run via the step's pass_env field.
+	PassedEnv []string
 }
 
 // SubWorkflowRetryRequest describes a child workflow step retry.
 type SubWorkflowRetryRequest struct {
 	SubWorkflowRequest
-	StepName          string
-	IncludeDownstream bool
+	StepName            string
+	IncludeDownstream   bool
+	BypassPreconditions bool
 }
 
 // SubWorkflowCancelMode describes how a child workflow should be stopped.

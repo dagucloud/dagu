@@ -473,6 +473,29 @@ steps:
 
 Use `with.data` for inline JSON or `with.input` for a JSON file path. Do not set both.
 
+`with.args` binds named variables available as `$<key>` in the filter. Values keep their YAML type; string values, including nested strings, resolve Dagu references once through executor-config resolution. Reference-derived numeric strings need `tonumber` for numeric comparisons.
+
+Supplying `args`, including `{}`, makes the entire filter literal jq source. Pass Dagu references through `args`; steps without `args` retain their existing filter interpolation. Keys `name` and `$name` both bind `$name` and cannot be supplied together.
+
+```yaml
+params:
+  - MIN_PRICE: '4'
+steps:
+  - id: filter
+    action: jq.filter
+    with:
+      filter: '.items[] | select(.price > ($min_price | tonumber)) | .name'
+      data:
+        items:
+          - {name: apple, price: 5}
+          - {name: pear, price: 3}
+      raw: true
+      args:
+        min_price: ${params.MIN_PRICE}
+```
+
+Output: `apple`
+
 ## template.render
 
 Render text using Go `text/template`.

@@ -1,0 +1,10 @@
+steps:
+  - action: decision.evaluate
+    with:
+      provider: unsupported
+      model: jev-test
+      state: ticket
+      questions:
+        refund:
+          type: noul
+          instructions: Refund requested?

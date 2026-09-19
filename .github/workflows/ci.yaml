@@ -292,6 +292,13 @@ jobs:
           GOEXPERIMENT: nojsonv2
         run: go test ./internal/ir/... ./internal/persis/...
 
+      - name: Test jq on 386
+        if: ${{ matrix.suite == 'unit' }}
+        env:
+          GOARCH: '386'
+          CGO_ENABLED: '0'
+        run: go test ./internal/runtime/builtin/jq
+
       - name: Upload coverage
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:

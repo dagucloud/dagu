@@ -377,6 +377,75 @@ func TestRuntime(t *testing.T) {
 	})
 }
 
+// TestSubDAGPassedEnv covers the step-level pass_env field: which parent values
+// reach a child run, and which authored forms are rejected.
+func TestSubDAGPassedEnv(t *testing.T) {
+	t.Parallel()
+
+	t.Run("listed name does not fall back to the process environment", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := harness.NewRunner(t)
+		result := dagu.RunWithEnv(
+			[]string{"PASS_PROCESS_ONLY=from-process"},
+			"start",
+			"pass_env_no_process_env_fallback.yaml",
+		)
+		result.ExpectExitCode(0)
+		// An unresolved reference is preserved literally, so the literal is the
+		// signal that the name never resolved. A leak would write the value.
+		dagu.ExpectFileContent("passed-env.txt", "[${PASS_PROCESS_ONLY}]")
+	})
+
+	t.Run("listed name resolves from the parent run environment", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := harness.NewRunner(t)
+		result := dagu.Run("start", "pass_env_named_run_value.yaml")
+		result.ExpectExitCode(0)
+		dagu.ExpectFileContent("passed-named.txt", "[from-parent]")
+	})
+
+	invalidCases := []struct {
+		name        string
+		file        string
+		stderrParts []string
+	}{
+		{
+			name:        "rejected on dag.enqueue",
+			file:        "invalid_pass_env_enqueue.yaml",
+			stderrParts: []string{"pass_env", "dag.enqueue"},
+		},
+		{
+			name:        "rejected for a reserved name",
+			file:        "invalid_pass_env_reserved_name.yaml",
+			stderrParts: []string{"pass_env", "_DAGU_INTERNAL_THING"},
+		},
+		{
+			name:        "rejected for a secret",
+			file:        "invalid_pass_env_secret.yaml",
+			stderrParts: []string{"pass_env", "API_TOKEN", "secret"},
+		},
+		{
+			name:        "rejected for a run-managed name",
+			file:        "invalid_pass_env_run_managed_name.yaml",
+			stderrParts: []string{"pass_env", "DAG_RUN_WORK_DIR"},
+		},
+	}
+	for _, tc := range invalidCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			dagu := harness.NewRunner(t)
+			result := dagu.Run("validate", tc.file)
+			result.ExpectExitCode(1)
+			result.ExpectStdout("")
+			result.ExpectStderrContains(tc.stderrParts...)
+			result.ExpectStderrNotContains("Usage:")
+		})
+	}
+}
+
 // Compile outside the workflow timeout so direct execution tests measure
 // environment resolution independently of a cold Go build cache.
 func buildArgWriter(t *testing.T, dagu *harness.Runner) {

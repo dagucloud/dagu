@@ -40,15 +40,18 @@ type DispatchTask struct {
 	ParentDAGRunName string
 	ParentDAGRunID   string
 
-	Operation      DispatchOperation
-	DAGRunID       string
-	Target         string
-	Definition     string
-	AttemptID      string
-	AttemptKey     string
-	Step           string
-	Params         string
-	ParallelItem   string
+	Operation    DispatchOperation
+	DAGRunID     string
+	Target       string
+	Definition   string
+	AttemptID    string
+	AttemptKey   string
+	Step         string
+	Params       string
+	ParallelItem string
+	// PassedEnv carries resolved "KEY=value" pairs the parent opted to share
+	// with the child run via the step's pass_env field.
+	PassedEnv      []string
 	QueueName      string
 	WorkerID       string
 	TargetWorkerID string
@@ -67,9 +70,10 @@ type DispatchTask struct {
 
 	WorkerSelector map[string]string
 
-	ExternalStepRetry bool
-	IncludeDownstream bool
-	RetryPath         string
+	ExternalStepRetry   bool
+	IncludeDownstream   bool
+	BypassPreconditions bool
+	RetryPath           string
 
 	WorkspaceBundleDigest      string
 	WorkspaceBundleSize        int64

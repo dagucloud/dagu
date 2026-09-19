@@ -39,3 +39,32 @@ export async function downloadFromUrl(
     fallbackFilename;
   downloadBlob(blob, filename);
 }
+
+/** Requests a native browser download from a same-origin form endpoint. */
+export function downloadFromForm(url: string): void {
+  const action = new URL(url, window.location.origin);
+  if (action.origin !== window.location.origin) {
+    throw new Error('Download must use the same origin');
+  }
+  const form = document.createElement('form');
+  form.method = 'post';
+  form.action = action.toString();
+  form.target = '_blank';
+  form.rel = 'noopener';
+  form.hidden = true;
+  const token = getAuthToken();
+  if (token) {
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = 'token';
+    input.value = token;
+    form.appendChild(input);
+  }
+  document.body.appendChild(form);
+  try {
+    form.submit();
+  } finally {
+    // Keep the form attached until its navigation task has been scheduled.
+    window.setTimeout(() => form.remove(), 0);
+  }
+}

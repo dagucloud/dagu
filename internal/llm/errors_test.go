@@ -53,6 +53,7 @@ func TestNewAPIError(t *testing.T) {
 		{502, true},
 		{503, true},
 		{504, true},
+		{statusOverloaded, true},
 	}
 
 	for _, tc := range tests {

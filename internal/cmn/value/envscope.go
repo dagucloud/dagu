@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -171,6 +172,35 @@ func (e *EnvScope) ToSliceWithoutOrigin(origin string) []string {
 	return result
 }
 
+// ToSliceWithoutOriginOrSources returns variables except those whose effective
+// entry comes from one origin or from any of the given sources. Exclusion is
+// decided on the entry that wins the scope chain, so a name shadowed by an
+// excluded entry is dropped rather than falling back to the value it shadows.
+// The result is sorted so callers that transmit or persist it produce a stable
+// representation.
+func (e *EnvScope) ToSliceWithoutOriginOrSources(origin string, sources ...EnvSource) []string {
+	if e == nil {
+		return nil
+	}
+	excluded := make(map[EnvSource]struct{}, len(sources))
+	for _, source := range sources {
+		excluded[source] = struct{}{}
+	}
+	entries := e.collectAllEntries()
+	result := make([]string, 0, len(entries))
+	for key, entry := range entries {
+		if entry.Origin == origin {
+			continue
+		}
+		if _, skip := excluded[entry.Source]; skip {
+			continue
+		}
+		result = append(result, key+"="+entry.Value)
+	}
+	sort.Strings(result)
+	return result
+}
+
 // WithEntriesOrigin returns a new scope with source and origin metadata.
 func (e *EnvScope) WithEntriesOrigin(entries map[string]string, source EnvSource, origin string) *EnvScope {
 	if len(entries) == 0 {
@@ -302,6 +332,38 @@ func (e *EnvScope) AllSecrets() map[string]string {
 // AllUserEnvs returns all entries excluding OS environment.
 func (e *EnvScope) AllUserEnvs() map[string]string {
 	return e.collectAll(func(entry EnvEntry) bool { return entry.Source != EnvSourceOS })
+}
+
+// collectAllEntries gathers the effective entry for every name across the full
+// scope chain, so callers can decide on the entry that actually wins.
+func (e *EnvScope) collectAllEntries() map[string]EnvEntry {
+	if e == nil {
+		return make(map[string]EnvEntry)
+	}
+	result := make(map[string]EnvEntry)
+	keys := make(map[string]string)
+	e.collectEntries(result, keys)
+	return result
+}
+
+func (e *EnvScope) collectEntries(result map[string]EnvEntry, keys map[string]string) {
+	if e == nil {
+		return
+	}
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	if e.parent != nil {
+		e.parent.collectEntries(result, keys)
+	}
+	for k, entry := range e.entries {
+		id := envScopeKeyID(k)
+		if previous, ok := keys[id]; ok && previous != k {
+			delete(result, previous)
+		}
+		keys[id] = k
+		result[k] = entry
+	}
 }
 
 // collectAll gathers entries matching include across the full scope chain.

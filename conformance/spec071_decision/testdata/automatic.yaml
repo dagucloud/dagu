@@ -1,0 +1,61 @@
+type: graph
+working_dir: .
+env:
+  ENDPOINT: ${ENDPOINT}
+  PROVIDER: ${PROVIDER}
+  MESSAGE: Refund please
+secrets:
+  - name: DECISION_KEY
+    provider: env
+    key: DECISION_KEY
+steps:
+  - id: classify
+    action: decision.evaluate
+    stdout: response.json
+    with:
+      provider: ${env.PROVIDER}
+      base_url: ${env.ENDPOINT}
+      api_key_name: DECISION_KEY
+      model: jev-test
+      state:
+        message: ${env.MESSAGE}
+        count: 2
+        active: true
+      questions:
+        department:
+          type: choice
+          instructions: Which department?
+          criteria:
+            billing: Charges
+            other: null
+        urgency:
+          type: score
+          instructions: How urgent?
+          criteria: [Routine, Soon, Now]
+        refund:
+          type: noul
+          instructions: Refund requested?
+  - id: consume
+    depends: classify
+    action: log.write
+    stdout: actual.txt
+    with:
+      message: ${classify.output.answers.department.choice}|${classify.output.answers.urgency.score}|${classify.output.answers.refund.noul}
+  - id: named
+    depends: classify
+    action: log.write
+    stdout: named.json
+    with:
+      message: ${steps.classify.outputs.answers}
+  - id: numbers
+    depends: classify
+    action: log.write
+    stdout: numbers.txt
+    with:
+      message: ${classify.output.usage.cost}|${classify.output.usage.sequence}|${classify.output.usage.estimate}
+  - id: usage
+    depends: classify
+    action: log.write
+    stdout: usage.json
+    with:
+      message: ${steps.classify.outputs.usage}

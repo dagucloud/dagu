@@ -1,0 +1,18 @@
+working_dir: .
+env:
+  who: World
+  minimum: '4'
+steps:
+  - id: filter
+    action: jq.filter
+    stdout: result.out
+    with:
+      filter: |
+        .items[] | select(. > ($minimum | tonumber)) |
+        "\($who):\(.):\($literal)"
+      data: {items: [1, 5, 10]}
+      raw: true
+      args:
+        who: Alice
+        minimum: ${env.minimum}
+        literal: '\$who'

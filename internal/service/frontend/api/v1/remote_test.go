@@ -4,6 +4,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net/http"
@@ -253,6 +254,104 @@ func TestLegacyWikiProxyPath(t *testing.T) {
 			actual, ok := legacyWikiProxyPath(requestPath, "/api/v1")
 			require.True(t, ok)
 			assert.Equal(t, expected, actual)
+		})
+	}
+}
+
+func TestRemoteStepLogDownloadStreams(t *testing.T) {
+	for _, suffix := range []string{"/steps/log/download", "/sub-dag-runs/child/steps/log/download"} {
+		t.Run(suffix, func(t *testing.T) {
+			first := bytes.Repeat([]byte("archive bytes"), 4096)
+			release := make(chan struct{})
+			remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, "/api/v1/dag-runs/example/run"+suffix, r.URL.Path)
+				assert.Equal(t, "identity", r.Header.Get("Accept-Encoding"))
+				w.Header().Set("Content-Type", stepLogArchiveContentType)
+				w.Header().Set("Content-Disposition", `attachment; filename="remote.zip"`)
+				_, _ = w.Write(first)
+				_ = http.NewResponseController(w).Flush()
+				select {
+				case <-release:
+					_, _ = w.Write([]byte("tail"))
+				case <-r.Context().Done():
+				}
+			}))
+			defer remote.Close()
+			defer close(release)
+			resolver := remotenode.NewResolver([]config.RemoteNode{{Name: "edge", APIBaseURL: remote.URL + "/api/v1"}}, nil)
+			handler := WithRemoteNode(resolver, "/dagu/api/v1")(http.NotFoundHandler())
+			proxy := httptest.NewUnstartedServer(stepLogDownloadDeadline("/dagu/api/v1")(handler))
+			proxy.Config.WriteTimeout = 50 * time.Millisecond
+			proxy.Start()
+			defer proxy.Close()
+			client := proxy.Client()
+			client.Timeout = 5 * time.Second
+			resp, err := client.Get(proxy.URL + "/dagu/api/v1/dag-runs/example/run" + suffix + "?remoteNode=edge")
+			require.NoError(t, err)
+			defer func() { _ = resp.Body.Close() }()
+			require.Equal(t, stepLogArchiveContentType, resp.Header.Get("Content-Type"))
+			require.Equal(t, `attachment; filename="remote.zip"`, resp.Header.Get("Content-Disposition"))
+			got := make([]byte, 4096)
+			_, err = io.ReadFull(resp.Body, got)
+			require.NoError(t, err)
+			require.Equal(t, first[:len(got)], got)
+			// Finish after the normal server write deadline, once streaming is observed.
+			time.Sleep(100 * time.Millisecond)
+			release <- struct{}{}
+			tail, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+			require.Equal(t, append(first[len(got):], []byte("tail")...), tail)
+		})
+	}
+}
+
+func TestRemoteStepLogDownloadAbort(t *testing.T) {
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", stepLogArchiveContentType)
+		w.Header().Set("Content-Length", "100")
+		_, _ = w.Write([]byte("partial"))
+	}))
+	defer remote.Close()
+	resolver := remotenode.NewResolver([]config.RemoteNode{{Name: "edge", APIBaseURL: remote.URL + "/api/v1"}}, nil)
+	handler := WithRemoteNode(resolver, "/api/v1")(http.NotFoundHandler())
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/dag-runs/example/run/steps/log/download?remoteNode=edge", nil)
+	recorder := httptest.NewRecorder()
+	require.PanicsWithValue(t, http.ErrAbortHandler, func() { handler.ServeHTTP(recorder, request) })
+	require.Equal(t, "partial", recorder.Body.String())
+}
+
+func TestRemoteStepLogForm(t *testing.T) {
+	for _, suffix := range []string{"/steps/log/download", "/sub-dag-runs/child/steps/log/download"} {
+		t.Run(suffix, func(t *testing.T) {
+			remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, http.MethodGet, r.Method)
+				assert.Equal(t, "/api/v1/dag-runs/example/run"+suffix, r.URL.Path)
+				assert.Empty(t, r.URL.RawQuery)
+				body, err := io.ReadAll(r.Body)
+				assert.NoError(t, err)
+				assert.Empty(t, body)
+				assert.Zero(t, r.ContentLength)
+				assert.Equal(t, "Bearer remote-token", r.Header.Get("Authorization"))
+				assert.Equal(t, "identity", r.Header.Get("Accept-Encoding"))
+				w.Header().Set("Content-Type", stepLogArchiveContentType)
+				w.Header().Set("Content-Disposition", `attachment; filename="remote.zip"`)
+				_, _ = w.Write([]byte("archive"))
+			}))
+			defer remote.Close()
+			resolver := remotenode.NewResolver([]config.RemoteNode{{Name: "edge", APIBaseURL: remote.URL + "/api/v1", AuthType: "token", AuthToken: "remote-token"}}, nil)
+			a := &API{
+				config:             &config.Config{Server: config.Server{BasePath: "/dagu", APIBasePath: "/api/v1", StrictValidation: true, Auth: config.Auth{Mode: config.AuthModeBuiltin}}},
+				authService:        remoteSyncAuthService{user: &auth.User{Role: auth.RoleAdmin, WorkspaceAccess: auth.AllWorkspaceAccess()}},
+				remoteNodeResolver: resolver,
+			}
+			router := chi.NewRouter()
+			require.NoError(t, a.ConfigureRoutes(t.Context(), router, time.Second))
+			request := httptest.NewRequest(http.MethodPost, "/dagu/api/v1/dag-runs/example/run"+suffix+"?remoteNode=edge", strings.NewReader("token=caller-token"))
+			request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, request)
+			require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+			require.Equal(t, "archive", recorder.Body.String())
 		})
 	}
 }

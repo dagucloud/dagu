@@ -83,6 +83,9 @@ export function ArtifactListModal({
     }
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) {
+        return;
+      }
       if (event.key === 'Escape') {
         onClose();
         return;
@@ -95,8 +98,8 @@ export function ArtifactListModal({
       const focusableElements =
         drawerRef.current?.querySelectorAll<HTMLElement>(
           [
-            'a[href]',
-            'button:not([disabled])',
+            'a[href]:not([tabindex="-1"])',
+            'button:not([disabled]):not([tabindex="-1"])',
             'textarea:not([disabled])',
             'input:not([disabled])',
             'select:not([disabled])',
@@ -118,7 +121,13 @@ export function ArtifactListModal({
       if (event.shiftKey && document.activeElement === firstElement) {
         event.preventDefault();
         lastElement.focus();
-      } else if (!event.shiftKey && document.activeElement === lastElement) {
+      } else if (
+        !event.shiftKey &&
+        document.activeElement &&
+        (document.activeElement === lastElement ||
+          lastElement.compareDocumentPosition(document.activeElement) &
+            Node.DOCUMENT_POSITION_FOLLOWING)
+      ) {
         event.preventDefault();
         firstElement.focus();
       }

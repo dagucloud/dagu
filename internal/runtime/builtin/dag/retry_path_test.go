@@ -40,6 +40,7 @@ func TestParallelRetryPathReusesSiblings(t *testing.T) {
 		"",
 		runtime.WithRootDAGRun(rootRef),
 		runtime.WithRetryPath(path),
+		runtime.WithBypassPreconditions(true),
 	)
 	step := ir.Step{
 		Name:           "parallel-child",
@@ -65,6 +66,7 @@ func TestParallelRetryPathReusesSiblings(t *testing.T) {
 	require.Equal(t, "child-selected", retryRequests[0].RunID)
 	require.Equal(t, "target", retryRequests[0].StepName)
 	require.Equal(t, "target", retryRequests[0].RetryPath.Step)
+	require.True(t, retryRequests[0].BypassPreconditions)
 }
 
 // TestSubDAGRetryPathRejectsUnknownTarget asserts that a retry aimed at a child

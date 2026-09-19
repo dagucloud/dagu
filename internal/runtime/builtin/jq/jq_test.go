@@ -6,6 +6,7 @@ package jq
 import (
 	"bytes"
 	"context"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -675,4 +676,155 @@ func TestDecodeJqConfig(t *testing.T) {
 			assert.Equal(t, tt.expected, cfg)
 		})
 	}
+}
+
+func TestJQExecutor_Args(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		query          string
+		script         string
+		args           map[string]any
+		raw            bool
+		expectedOutput string
+		expectErr      bool
+	}{
+		{
+			name:           "StringVariable",
+			query:          `$greeting + " " + .name`,
+			script:         `{"name": "World"}`,
+			args:           map[string]any{"greeting": "Hello"},
+			raw:            true,
+			expectedOutput: "Hello World\n",
+		},
+		{
+			name:           "MultipleVariablesKeepSortedOrder",
+			query:          `[$b, $a, $c] | join("-")`,
+			script:         `{}`,
+			args:           map[string]any{"a": "first", "b": "second", "c": "third"},
+			raw:            true,
+			expectedOutput: "second-first-third\n",
+		},
+		{
+			name:           "NumberVariable",
+			query:          `.items[] | select(. > $threshold)`,
+			script:         `{"items": [1, 5, 10]}`,
+			args:           map[string]any{"threshold": 4},
+			raw:            true,
+			expectedOutput: "5\n10\n",
+		},
+		{
+			name:           "BooleanVariable",
+			query:          `if $enabled then "on" else "off" end`,
+			script:         `{}`,
+			args:           map[string]any{"enabled": true},
+			raw:            true,
+			expectedOutput: "on\n",
+		},
+		{
+			name:           "DollarPrefixedName",
+			query:          `$who`,
+			script:         `{}`,
+			args:           map[string]any{"$who": "dagu"},
+			raw:            true,
+			expectedOutput: "dagu\n",
+		},
+		{
+			name:           "ObjectVariable",
+			query:          `$cfg.name`,
+			script:         `{}`,
+			args:           map[string]any{"cfg": map[string]any{"name": "nested"}},
+			raw:            true,
+			expectedOutput: "nested\n",
+		},
+		{
+			name:           "LargeUint64VariableKeepsPrecision",
+			query:          `$big`,
+			script:         `{}`,
+			args:           map[string]any{"big": uint64(math.MaxUint64)},
+			raw:            true,
+			expectedOutput: "18446744073709551615\n",
+		},
+		{
+			name:   "SignedIntegerBounds",
+			query:  `$numbers[]`,
+			script: `{}`,
+			args: map[string]any{"numbers": []any{
+				int64(math.MinInt32), int64(math.MinInt32) - 1,
+				int64(math.MaxInt32), int64(math.MaxInt32) + 1,
+				int64(math.MinInt64), int64(math.MaxInt64),
+			}},
+			raw:            true,
+			expectedOutput: "-2147483648\n-2147483649\n2147483647\n2147483648\n-9223372036854775808\n9223372036854775807\n",
+		},
+		{
+			name:           "Uint32KeepsPrecision",
+			query:          `$n`,
+			script:         `{}`,
+			args:           map[string]any{"n": uint32(math.MaxUint32)},
+			raw:            true,
+			expectedOutput: "4294967295\n",
+		},
+		{
+			name:      "UndeclaredVariableFails",
+			query:     `$missing`,
+			script:    `{}`,
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var stdout, stderr bytes.Buffer
+
+			step := ir.Step{
+				Commands: []ir.CommandEntry{{CmdWithArgs: tt.query}},
+				Script:   tt.script,
+				ExecutorConfig: ir.ExecutorConfig{
+					Type: "jq",
+					Config: map[string]any{
+						"raw":  tt.raw,
+						"args": tt.args,
+					},
+				},
+			}
+
+			ctx := context.Background()
+			executor, err := newJQ(ctx, step)
+			require.NoError(t, err)
+
+			executor.SetStdout(&stdout)
+			executor.SetStderr(&stderr)
+
+			err = executor.Run(ctx)
+			if tt.expectErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedOutput, stdout.String())
+		})
+	}
+}
+
+func TestJQExecutor_ArgsDuplicateName(t *testing.T) {
+	t.Parallel()
+
+	step := ir.Step{
+		Commands: []ir.CommandEntry{{CmdWithArgs: "$name"}},
+		Script:   `{}`,
+		ExecutorConfig: ir.ExecutorConfig{
+			Type: "jq",
+			Config: map[string]any{
+				"args": map[string]any{"name": "a", "$name": "b"},
+			},
+		},
+	}
+
+	_, err := newJQ(context.Background(), step)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "duplicates variable $name")
 }

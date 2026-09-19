@@ -1,0 +1,12 @@
+steps:
+  - name: call-child
+    action: dag.run
+    with:
+      dag: pass_env_reserved_child
+    pass_env: [_DAGU_INTERNAL_THING]
+
+---
+name: pass_env_reserved_child
+steps:
+  - name: noop
+    run: echo child

@@ -8,7 +8,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
+	"math/big"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -25,16 +28,19 @@ import (
 var _ executor.Executor = (*jq)(nil)
 
 type jq struct {
-	stdout io.Writer
-	stderr io.Writer
-	query  string
-	input  any
-	cfg    *jqConfig
+	stdout    io.Writer
+	stderr    io.Writer
+	query     string
+	input     any
+	cfg       *jqConfig
+	variables []string
+	values    []any
 }
 
 type jqConfig struct {
-	Raw   bool   `mapstructure:"raw"`
-	Input string `mapstructure:"input"`
+	Raw   bool           `mapstructure:"raw"`
+	Input string         `mapstructure:"input"`
+	Args  map[string]any `mapstructure:"args"`
 }
 
 func newJQ(ctx context.Context, step ir.Step) (executor.Executor, error) {
@@ -87,12 +93,98 @@ func newJQ(ctx context.Context, step ir.Step) (executor.Executor, error) {
 		query = step.Commands[0].CmdWithArgs
 	}
 
+	variables := make([]string, 0, len(jqCfg.Args))
+	values := make([]any, 0, len(jqCfg.Args))
+	seen := make(map[string]struct{}, len(jqCfg.Args))
+	for _, name := range sortedKeys(jqCfg.Args) {
+		value := jqCfg.Args[name]
+		variable := "$" + strings.TrimPrefix(name, "$")
+		if _, dup := seen[variable]; dup {
+			return nil, fmt.Errorf("jq: args %q duplicates variable %s", name, variable)
+		}
+		seen[variable] = struct{}{}
+		variables = append(variables, variable)
+		values = append(values, normalizeArgValue(value))
+	}
+
 	return &jq{
-		stdout: os.Stdout,
-		input:  input,
-		query:  query,
-		cfg:    &jqCfg,
+		stdout:    os.Stdout,
+		input:     input,
+		query:     query,
+		cfg:       &jqCfg,
+		variables: variables,
+		values:    values,
 	}, nil
+}
+
+func sortedKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// normalizeArgValue converts decoded YAML values into the value types gojq
+// accepts (nil, bool, int, float64, *big.Int, string, []any, map[string]any).
+// YAML decoders produce types like uint64 that gojq cannot handle.
+func normalizeArgValue(v any) any {
+	switch v := v.(type) {
+	case nil, bool, int, float64, string:
+		return v
+	case int8:
+		return int(v)
+	case int16:
+		return int(v)
+	case int32:
+		return int(v)
+	case int64:
+		if v >= math.MinInt && v <= math.MaxInt {
+			return int(v)
+		}
+		return new(big.Int).SetInt64(v)
+	case uint:
+		if v <= uint(math.MaxInt) {
+			return int(v)
+		}
+		return new(big.Int).SetUint64(uint64(v))
+	case uint8:
+		return int(v)
+	case uint16:
+		return int(v)
+	case uint32:
+		return normalizeArgValue(uint64(v))
+	case uint64:
+		if v <= uint64(math.MaxInt) {
+			return int(v)
+		}
+		return new(big.Int).SetUint64(v)
+	case float32:
+		return float64(v)
+	case []any:
+		out := make([]any, len(v))
+		for i, item := range v {
+			out[i] = normalizeArgValue(item)
+		}
+		return out
+	case map[string]any:
+		out := make(map[string]any, len(v))
+		for k, item := range v {
+			out[k] = normalizeArgValue(item)
+		}
+		return out
+	default:
+		data, err := json.Marshal(v)
+		if err != nil {
+			return fmt.Sprint(v)
+		}
+		var out any
+		if err := json.Unmarshal(data, &out); err != nil {
+			return fmt.Sprint(v)
+		}
+		return out
+	}
 }
 
 func (e *jq) SetStdout(out io.Writer) {
@@ -112,7 +204,11 @@ func (e *jq) Run(_ context.Context) error {
 	if err != nil {
 		return err
 	}
-	iter := query.Run(e.input)
+	code, err := gojq.Compile(query, gojq.WithVariables(e.variables))
+	if err != nil {
+		return err
+	}
+	iter := code.Run(e.input, e.values...)
 	for {
 		v, ok := iter.Next()
 		if !ok {

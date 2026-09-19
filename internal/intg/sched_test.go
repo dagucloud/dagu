@@ -126,9 +126,13 @@ func TestScheduleEditWhileSuspendedDoesNotSuppressNewSlot(t *testing.T) {
 	dag, err := th.DAGRepository.GetDetails(th.Context, dagName, persis.DAGLoadOptions{})
 	require.NoError(t, err)
 
-	require.NoError(t, os.MkdirAll(th.Config.Paths.SuspendFlagsDir, 0o755))
-	suspendFlag := filepath.Join(th.Config.Paths.SuspendFlagsDir, dag.SuspendFlagName())
+	// Seed the legacy location to exercise migration before scheduling starts.
+	require.NoError(t, os.MkdirAll(th.Config.Paths.SuspendFlagsDirLegacy, 0o755))
+	suspendFlag := filepath.Join(th.Config.Paths.SuspendFlagsDirLegacy, dag.SuspendFlagName()+".suspend")
 	require.NoError(t, os.WriteFile(suspendFlag, []byte{}, 0o644))
+	suspended, err := th.DAGRepository.IsSuspended(th.Context, dag.FileName())
+	require.NoError(t, err)
+	require.True(t, suspended)
 
 	attempt, err := th.DAGRunRepository.CreateAttempt(th.Context, dag, oldSlot, "old-success", persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
@@ -184,7 +188,7 @@ func TestScheduleEditWhileSuspendedDoesNotSuppressNewSlot(t *testing.T) {
 
 	probe.RequireLoadedSchedule(dagName, "5 10 * * *", 5*time.Second)
 
-	require.NoError(t, os.Remove(suspendFlag))
+	require.NoError(t, th.DAGRepository.SetSuspended(th.Context, dag.FileName(), false))
 
 	probe.RequireEventually("expected edited schedule to dispatch", 35*time.Second, func() bool {
 		return dispatchCount.Load() > 0

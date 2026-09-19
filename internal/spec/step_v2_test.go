@@ -1267,3 +1267,189 @@ handler_on:
 	assert.Equal(t, "echo", dag.HandlerOn.Success.Commands[0].Command)
 	assert.Equal(t, []string{"success"}, dag.HandlerOn.Success.Commands[0].Args)
 }
+
+func TestStepSchemaV2_PassEnv(t *testing.T) {
+	t.Parallel()
+
+	t.Run("All", func(t *testing.T) {
+		t.Parallel()
+		dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: fanout
+    action: dag.run
+    with:
+      dag: child
+    pass_env: true
+`))
+		require.NoError(t, err)
+		require.NotNil(t, dag.Steps[0].SubDAG)
+		require.NotNil(t, dag.Steps[0].SubDAG.PassEnv)
+		assert.True(t, dag.Steps[0].SubDAG.PassEnv.All)
+	})
+
+	t.Run("List", func(t *testing.T) {
+		t.Parallel()
+		dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: fanout
+    call: child
+    pass_env: [TODAY, SINCE, GH_USER]
+`))
+		require.NoError(t, err)
+		require.NotNil(t, dag.Steps[0].SubDAG.PassEnv)
+		assert.False(t, dag.Steps[0].SubDAG.PassEnv.All)
+		assert.Equal(t, []string{"TODAY", "SINCE", "GH_USER"}, dag.Steps[0].SubDAG.PassEnv.Names)
+	})
+
+	t.Run("DuplicatesRemoved", func(t *testing.T) {
+		t.Parallel()
+		dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: fanout
+    call: child
+    pass_env: [TODAY, " TODAY ", TODAY]
+`))
+		require.NoError(t, err)
+		assert.Equal(t, []string{"TODAY"}, dag.Steps[0].SubDAG.PassEnv.Names)
+	})
+
+	t.Run("Disabled", func(t *testing.T) {
+		t.Parallel()
+		dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: fanout
+    call: child
+    pass_env: false
+`))
+		require.NoError(t, err)
+		assert.Nil(t, dag.Steps[0].SubDAG.PassEnv)
+	})
+
+	t.Run("Parallel", func(t *testing.T) {
+		t.Parallel()
+		dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: fanout
+    action: dag.run
+    with:
+      dag: child
+    pass_env: [TODAY]
+    parallel: ${ORGS}
+`))
+		require.NoError(t, err)
+		require.NotNil(t, dag.Steps[0].SubDAG.PassEnv)
+		assert.Equal(t, []string{"TODAY"}, dag.Steps[0].SubDAG.PassEnv.Names)
+	})
+
+	t.Run("InvalidType", func(t *testing.T) {
+		t.Parallel()
+		_, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: fanout
+    call: child
+    pass_env: TODAY
+`))
+		require.Error(t, err)
+	})
+
+	t.Run("InvalidName", func(t *testing.T) {
+		t.Parallel()
+		_, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: fanout
+    call: child
+    pass_env: ["BAD-NAME"]
+`))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid environment variable name")
+	})
+
+	t.Run("ReservedName", func(t *testing.T) {
+		t.Parallel()
+		_, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: fanout
+    call: child
+    pass_env: [_DAGU_INTERNAL_STATE]
+`))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "reserved")
+	})
+
+	t.Run("DeclaredSecret", func(t *testing.T) {
+		t.Parallel()
+		_, err := LoadYAML(context.Background(), []byte(`
+secrets:
+  - name: API_TOKEN
+    provider: env
+    key: SOURCE_TOKEN
+steps:
+  - id: fanout
+    call: child
+    pass_env: [API_TOKEN]
+`))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "API_TOKEN")
+		assert.Contains(t, err.Error(), "secret")
+	})
+
+	t.Run("RunManagedName", func(t *testing.T) {
+		t.Parallel()
+		for _, name := range []string{
+			"DAG_RUN_WORK_DIR", "DAG_PARAMS_JSON", "PWD",
+			"DAGU_OUTPUT_FILE", "DAG_WAITING_STEPS",
+			"DAGU_DAG_DEFINITION_ID", "DAGU_PARALLEL_ITEM",
+		} {
+			_, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: fanout
+    call: child
+    pass_env: [`+name+`]
+`))
+			require.Error(t, err, name)
+			assert.Contains(t, err.Error(), "managed by Dagu", name)
+		}
+	})
+
+	t.Run("RequiresSubDAG", func(t *testing.T) {
+		t.Parallel()
+		_, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: hello
+    run: echo hi
+    pass_env: [TODAY]
+`))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "pass_env")
+	})
+
+	t.Run("EnqueueRejected", func(t *testing.T) {
+		t.Parallel()
+		_, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: fanout
+    action: dag.enqueue
+    with:
+      dag: child
+    pass_env: [TODAY]
+`))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "pass_env is not supported for dag.enqueue")
+	})
+
+	t.Run("EnqueueRejectedDisabled", func(t *testing.T) {
+		t.Parallel()
+		for _, value := range []string{"false", "[]"} {
+			_, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: fanout
+    action: dag.enqueue
+    with:
+      dag: child
+    pass_env: `+value+`
+`))
+			require.Error(t, err, "pass_env: %s", value)
+			assert.Contains(t, err.Error(), "pass_env is not supported for dag.enqueue")
+		}
+	})
+}

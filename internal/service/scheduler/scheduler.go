@@ -67,6 +67,7 @@ type Scheduler struct {
 	entryReader         EntryReader
 	quit                chan any
 	running             atomic.Bool
+	dagRepository       *persis.DAGRepository
 	dagRunRepository    *persis.DAGRunRepository
 	queueStore          queuedomain.QueueStore
 	procRepository      processRepository
@@ -338,6 +339,7 @@ func newScheduler(
 	return &Scheduler{
 		quit:             make(chan any),
 		entryReader:      er,
+		dagRepository:    dagRepository,
 		dagRunRepository: dagRunRepository,
 		queueStore:       queueStore,
 		procRepository:   procRepository,
@@ -596,6 +598,24 @@ func (s *Scheduler) Start(ctx context.Context) error {
 		return nil
 	}
 
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		s.startHeartbeat(ctx)
+	})
+
+	if err := s.dagRepository.MigrateSuspensionState(ctx); err != nil {
+		if errors.Is(err, context.Canceled) && s.stopping() {
+			return nil
+		}
+		return fmt.Errorf("migrate suspension state: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		if s.stopping() {
+			return nil
+		}
+		return err
+	}
+
 	s.updateServiceStatus(ctx, serviceregistry.ServiceStatusActive, "Failed to update status to active", "Updated scheduler status to active")
 	if err := s.BootstrapMonitors(ctx); err != nil {
 		return err
@@ -616,12 +636,6 @@ func (s *Scheduler) Start(ctx context.Context) error {
 
 	signal.Notify(sig, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	defer signal.Stop(sig)
-
-	var wg sync.WaitGroup
-
-	wg.Go(func() {
-		s.startHeartbeat(ctx)
-	})
 
 	if err := s.entryReader.Init(ctx); err != nil {
 		logger.Error(ctx, "Failed to initialize entry reader", tag.Error(err))

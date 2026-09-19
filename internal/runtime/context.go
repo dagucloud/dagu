@@ -41,6 +41,9 @@ var (
 	// WithIncludeDownstream records that a targeted step retry should also
 	// reset reachable descendants.
 	WithIncludeDownstream = runctx.WithIncludeDownstream
+	// WithBypassPreconditions records that steps reset by a targeted step
+	// retry skip step precondition evaluation.
+	WithBypassPreconditions = runctx.WithBypassPreconditions
 	// WithAttemptID sets the DAG-run attempt identifier.
 	WithAttemptID = runctx.WithAttemptID
 	// WithWorkerID sets the execution host identifier.

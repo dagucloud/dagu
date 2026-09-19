@@ -477,17 +477,24 @@ func TestBaseWatchLifecycle(t *testing.T) {
 			expect(persis.DAGChangeDeleted, "")
 			write("queue: recovered\n")
 			expect(persis.DAGChangeAdded, "recovered")
+			// The reader may still hold base open on Windows while it reacts to
+			// the previous write; retry destructive ops until it releases it.
+			retryFileOp := func(op func() error) {
+				t.Helper()
+				require.Eventually(t, func() bool { return op() == nil },
+					3*time.Second, 10*time.Millisecond)
+			}
 			replacement := filepath.Join(filepath.Dir(base), "replacement.tmp")
 			require.NoError(t, os.WriteFile(replacement, []byte("queue: atomic\n"), 0600))
-			require.NoError(t, os.Rename(replacement, base))
+			retryFileOp(func() error { return os.Rename(replacement, base) })
 			expect(persis.DAGChangeUpdated, "atomic")
 			// Recreating a directory before the debounce expires must restore its watch.
-			require.NoError(t, os.RemoveAll(filepath.Dir(base)))
+			retryFileOp(func() error { return os.RemoveAll(filepath.Dir(base)) })
 			write("queue: restored\n")
 			expect(persis.DAGChangeUpdated, "restored")
 			write("queue: final\n")
 			expect(persis.DAGChangeUpdated, "final")
-			require.NoError(t, os.Remove(base))
+			retryFileOp(func() error { return os.Remove(base) })
 			expect(persis.DAGChangeUpdated, "scheduled")
 		})
 	}

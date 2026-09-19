@@ -1640,6 +1640,43 @@ steps:
 	require.Equal(t, []string{dag.FileName()}, notified)
 }
 
+func TestLegacySuspensionViaAPI(t *testing.T) {
+	t.Parallel()
+	helper := test.Setup(t, test.WithStatusPersistence())
+	dag := helper.DAG(t, "name: legacy-suspended\nsteps: []\n")
+	legacy := helper.Config.Paths.SuspendFlagsDirLegacy
+	require.NoError(t, os.MkdirAll(legacy, 0o750))
+	flag := filepath.Join(legacy, dag.FileName()+".suspend")
+	require.NoError(t, os.WriteFile(flag, nil, 0o600))
+	apiImpl := localapi.New(
+		helper.DAGRepository, helper.DAGRunRepository, helper.QueueStore,
+		helper.ProcRepository, helper.DAGRunMgr, helper.Config,
+		nil, helper.ServiceRegistry, nil, nil,
+	)
+	ctx := context.Background()
+	for _, suspended := range []bool{true, false} {
+		if !suspended {
+			resp, err := apiImpl.UpdateDAGSuspensionState(ctx, api.UpdateDAGSuspensionStateRequestObject{
+				FileName: dag.FileName(),
+				Body:     &api.UpdateDAGSuspensionStateJSONRequestBody{Suspend: false},
+			})
+			require.NoError(t, err)
+			require.IsType(t, api.UpdateDAGSuspensionState200Response{}, resp)
+		}
+		resp, err := apiImpl.ListDAGs(ctx, api.ListDAGsRequestObject{})
+		require.NoError(t, err)
+		list, ok := resp.(*api.ListDAGs200JSONResponse)
+		require.True(t, ok)
+		require.Len(t, list.Dags, 1)
+		assert.Equal(t, suspended, list.Dags[0].Suspended)
+	}
+	require.NoFileExists(t, flag)
+	require.NoError(t, helper.DAGRepository.MigrateSuspensionState(ctx))
+	suspended, err := helper.DAGRepository.IsSuspended(ctx, dag.FileName())
+	require.NoError(t, err)
+	assert.False(t, suspended)
+}
+
 func TestGetDAGDetails_EditorHintsIncludeInheritedLegacyDefinitions(t *testing.T) {
 	t.Parallel()
 

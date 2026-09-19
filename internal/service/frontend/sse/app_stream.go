@@ -672,9 +672,16 @@ func NewAppStreamService(cfg AppStreamConfig) (*AppStreamService, error) {
 	}
 	service.watchers = append(service.watchers,
 		newWikiDirectoryWatcher(cfg.Paths.WikiDir, true, service.handleWikiPageEvent, service.publishReset),
-		newDirectoryWatcher(cfg.Paths.SuspendFlagsDir, true, service.handleSuspendFlagEvent, service.publishReset),
 		newOneLevelDirectoryWatcher(cfg.Paths.QueueDir, true, service.handleQueueEvent, service.publishReset),
 	)
+	for _, flagsDir := range uniqueNonEmptyPaths(cfg.Paths.SuspendFlagsDir, cfg.Paths.SuspendFlagsDirLegacy) {
+		service.watchers = append(service.watchers, newDirectoryWatcher(
+			flagsDir,
+			flagsDir == filepath.Clean(cfg.Paths.SuspendFlagsDir),
+			service.handleSuspendFlagEvent,
+			service.publishReset,
+		))
+	}
 
 	for _, watcher := range service.watchers {
 		if watcher == nil {

@@ -277,6 +277,103 @@ Allowed references:
 - Container `env` follows the same rule as the root or step that owns the container.
 - Entries in a container `env` declaration may reference earlier entries from the same container `env` declaration.
 
+### Sub-DAG Passed Environment
+
+A step that runs a child DAG (`call`, or `action: dag.run`) may hand parent
+environment values to that child through the step field `pass_env`.
+
+`pass_env` is additive, not a filter. A child run that executes in the parent's
+process already observes the parent run environment scope; `pass_env` selects
+the values carried to a child run that may execute on another host. A name list
+therefore does not restrict what an in-process child observes.
+
+Forms:
+
+- `pass_env: true` passes the parent run's own environment values as they exist
+  when the step starts the child run. It reads the run scope, so it does not
+  carry step-scoped values such as step `env` declarations or step outputs.
+- `pass_env: [NAME, ...]` passes only the listed environment names. It reads the
+  scope visible to the calling step, so a listed name may resolve to a step
+  `env` declaration or a predecessor step output as well as a run value.
+- Omitting `pass_env`, or setting it to `false`, passes nothing beyond params.
+
+Rules:
+
+- `pass_env` requires a child DAG call. It is not supported for `dag.enqueue`
+  because queued child runs cannot carry transient parent environment values
+  through queue persistence.
+- `pass_env` is evaluated when the child run is created. Every represented child
+  run of a `parallel` step receives the same requested configuration.
+- Resolved values are ordered by name so a dispatched child run produces the
+  same record on every resolution.
+- Each list entry must match `^[A-Za-z_][A-Za-z0-9_]*$` after trimming.
+  Duplicate names collapse to one.
+- Names beginning with `_DAGU_` (any case) are reserved for Dagu internal
+  transport and are rejected.
+- Names Dagu manages for a run or a step are rejected. A child run resolves its
+  own, and the parent's describe the parent run and the host executing it:
+  `DAG_NAME`, `DAG_RUN_ID`, `DAG_RUN_LOG_FILE`, `DAG_RUN_STEP_NAME`,
+  `DAG_RUN_STEP_STDOUT_FILE`, `DAG_RUN_STEP_STDERR_FILE`, `DAG_RUN_STATUS`,
+  `DAG_RUN_WORK_DIR`, `DAG_RUN_ARTIFACTS_DIR`, `DAG_WIKI_DIR`, `DAG_DOCS_DIR`,
+  `DAG_PARAMS_JSON`, `DAGU_PARAMS_JSON`, `DAG_PUSHBACK*`, `PWD`, and the
+  internal retry markers.
+- A listed name resolves against the environment scope visible to the calling
+  step. Resolution never reads the Dagu process environment directly, so a host
+  process value reaches a child only when the operator's base environment policy
+  already admits it into the run. A name that does not resolve produces a
+  warning and contributes no value.
+- `pass_env: true` carries the values the workflow itself declared. It never
+  carries secrets, host process values, Dagu-managed run values, params, or
+  runtime-profile values. Those are either sensitive, describe the machine
+  running the parent rather than the machine running the child, or belong to the
+  parent run rather than the child. A child owns its own params: the step passes
+  them through `params`, and forwarding the parent's would override them.
+- Neither form carries a name that is not a valid environment variable name.
+  Positional params are held under `1`, `2`, and so on, which a child could not
+  declare for itself.
+- Neither form carries names reserved for Dagu internal transport (`_DAGU_*`),
+  names Dagu manages for a run or a step, or host-local tool environment values
+  managed by the `tools` feature (`PATH`, `AQUA_*`, `DAGU_TOOLS_MANIFEST`).
+- Passed values enter the child run environment scope as execution-scoped
+  values. They sit above inherited process environment and DAG `env`
+  declarations, and below protected Dagu-managed run environment values and
+  secrets.
+- Passed values are runtime values for the child run; they are not child runtime
+  params and do not relax child param declaration rules.
+
+Secrets:
+
+- `pass_env` never passes a secret. A name the workflow declares under
+  `secrets:` is rejected when the workflow is built. A name that reaches the run
+  scope as a secret another way, such as through a runtime profile, fails the
+  step when it runs.
+- The child declares the secret under its own `secrets:` instead. It is then
+  resolved through the secret provider in the child run, which keeps the value
+  masked there and keeps it out of the coordinator's dispatch record. A child
+  dispatched to a worker resolves it through the coordinator, which authorizes
+  the request against that run's lease.
+- The rejection sees only what the calling run itself holds as a secret. A run
+  that received a value implicitly from its own parent holds it as ordinary run
+  environment, because implicit inheritance does not carry the source with the
+  value. Such a value is not recognised as a secret and `pass_env` will pass it.
+  A workflow that nests child runs should declare secrets where they are used
+  rather than rely on a value reaching a nested run.
+
+Transient values:
+
+- Passed values are resolved when the parent step creates the child run, and are
+  not persisted with the child run. A retry or restart that re-runs the parent
+  step resolves them again.
+- A child run resumed directly from its own persisted state does not receive
+  them. This covers approving an `approval` gate on a step inside the child,
+  pushing such a step back, and resuming an agent session inside the child.
+  Because an unresolved reference is preserved literally rather than failing, a
+  step that runs after such a resume reads `${NAME}` as text instead of the
+  passed value. A workflow that must survive one of these resumes should take
+  the value as a child param or declare it in the child, not rely on `pass_env`.
+  A human task cannot occur here, because Spec 031 rejects a child DAG that
+  contains one.
+
 ### Environment References
 
 Forms:

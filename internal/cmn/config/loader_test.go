@@ -391,8 +391,10 @@ func TestLoad_Env(t *testing.T) {
 			},
 		},
 		DefaultExecMode: ExecutionModeLocal,
-		Warnings:        nil,
-		Cache:           CacheModeNormal,
+		Warnings: []string{fmt.Sprintf(
+			"paths.suspend_flags_dir %q is outside paths.data_dir %q; suspension state may diverge across Dagu processes",
+			filepath.Join(testPaths, "suspend"), filepath.Join(testPaths, "data"))},
+		Cache: CacheModeNormal,
 	}
 
 	assert.Equal(t, expected, cfg)
@@ -869,8 +871,10 @@ scheduler:
 			Interval:  5 * time.Second,
 		},
 		DefaultExecMode: ExecutionModeLocal,
-		Warnings:        nil,
-		Cache:           CacheModeNormal,
+		Warnings: []string{fmt.Sprintf(
+			"paths.suspend_flags_dir %q is outside paths.data_dir %q; suspension state may diverge across Dagu processes",
+			resolvedTestPath(t, "/var/dagu/suspend"), resolvedTestPath(t, "/var/dagu/data"))},
+		Cache: CacheModeNormal,
 	}
 
 	assert.Equal(t, expected, cfg)
@@ -1079,6 +1083,70 @@ paths:
 `)
 
 	assert.Equal(t, resolvedTestPath(t, "/custom/data/dag-state"), cfg.Paths.DAGStateDir)
+}
+
+func TestLoad_SuspendFlagsDir(t *testing.T) {
+	t.Run("defaults under data dir", func(t *testing.T) {
+		cfg := testLoad(t)
+
+		assert.Equal(t, filepath.Join(cfg.Paths.DataDir, "suspend"), cfg.Paths.SuspendFlagsDir)
+		// The pre-move default next to the data directory is recorded for migration.
+		assert.Equal(t,
+			filepath.Join(filepath.Dir(cfg.Paths.DataDir), "suspend"),
+			cfg.Paths.SuspendFlagsDirLegacy)
+		assert.NotContains(t, strings.Join(cfg.Warnings, "\n"), "suspend_flags_dir")
+	})
+
+	t.Run("derived from configured data dir", func(t *testing.T) {
+		appHome := t.TempDir()
+		configFile := filepath.Join(t.TempDir(), "config.yaml")
+		require.NoError(t, os.WriteFile(configFile, []byte(`
+paths:
+  data_dir: "/custom/data"
+`), 0600))
+
+		cfg := testLoad(t, WithAppHomeDir(appHome), WithConfigFile(configFile))
+
+		assert.Equal(t, resolvedTestPath(t, "/custom/data/suspend"), cfg.Paths.SuspendFlagsDir)
+		assert.Equal(t, filepath.Join(appHome, "suspend"), cfg.Paths.SuspendFlagsDirLegacy)
+		assert.NotContains(t, strings.Join(cfg.Warnings, "\n"), "suspend_flags_dir")
+	})
+
+	t.Run("explicit inside data dir", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+paths:
+  data_dir: "/custom/data"
+  suspend_flags_dir: "/custom/data/flags"
+`)
+
+		assert.Equal(t, resolvedTestPath(t, "/custom/data/flags"), cfg.Paths.SuspendFlagsDir)
+		assert.Empty(t, cfg.Paths.SuspendFlagsDirLegacy)
+		assert.NotContains(t, strings.Join(cfg.Warnings, "\n"), "suspend_flags_dir")
+	})
+
+	t.Run("explicit outside data dir warns", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+paths:
+  data_dir: "/custom/data"
+  suspend_flags_dir: "/custom/flags"
+`)
+
+		assert.Equal(t, resolvedTestPath(t, "/custom/flags"), cfg.Paths.SuspendFlagsDir)
+		assert.Empty(t, cfg.Paths.SuspendFlagsDirLegacy)
+		assert.Contains(t, strings.Join(cfg.Warnings, "\n"), "outside paths.data_dir")
+	})
+
+	t.Run("explicit from env", func(t *testing.T) {
+		cfg := loadWithEnv(t, `
+paths:
+  data_dir: "/custom/data"
+`, map[string]string{
+			"DAGU_SUSPEND_FLAGS_DIR": "/env/flags",
+		})
+
+		assert.Equal(t, resolvedTestPath(t, "/env/flags"), cfg.Paths.SuspendFlagsDir)
+		assert.Empty(t, cfg.Paths.SuspendFlagsDirLegacy)
+	})
 }
 
 func TestLoad_EdgeCases_Errors(t *testing.T) {

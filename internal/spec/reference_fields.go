@@ -100,35 +100,13 @@ func (w *referenceFieldWalker) walkStep(path string, step ir.Step) {
 	scriptCommand := registry.ScriptResolution(context.Background(), step)
 
 	w.add(base.withPathValue(path+".run", step.Script).withField(scriptReferenceField(path+".run", step, scriptCommand)))
-	w.add(base.withPathValue(path+".command", step.Command).withField(cmnvalue.DirectCommandField(path+".command", command)))
-	w.add(base.withPathValue(path+".cmd_with_args", step.CmdWithArgs).withField(cmnvalue.ShellCommandField(path+".cmd_with_args", command)))
-	w.add(base.withPathValue(path+".cmd_args_sys", step.CmdArgsSys).withField(cmnvalue.DirectCommandField(path+".cmd_args_sys", command)))
-	w.add(base.withPathValue(path+".shell_cmd_args", step.ShellCmdArgs).withField(cmnvalue.ShellCommandField(path+".shell_cmd_args", command)))
-	w.add(base.withPathValue(path+".shell", step.Shell).withField(cmnvalue.StepShellField(path + ".shell")))
-	for i, arg := range step.Args {
-		fieldPath := fmt.Sprintf("%s.args[%d]", path, i)
-		w.add(base.withPathValue(fieldPath, arg).withField(cmnvalue.DirectCommandField(fieldPath, command)))
+	if !literalJQFilter(step) {
+		w.walkStepCommands(path, step, base, command)
 	}
+	w.add(base.withPathValue(path+".shell", step.Shell).withField(cmnvalue.StepShellField(path + ".shell")))
 	for i, arg := range step.ShellArgs {
 		fieldPath := fmt.Sprintf("%s.shell_args[%d]", path, i)
 		w.add(base.withPathValue(fieldPath, arg).withField(cmnvalue.StepShellField(fieldPath)))
-	}
-	for i, cmd := range step.Commands {
-		noticePath := commandEntryNoticePath(path, i, len(step.Commands))
-		commandPath := fmt.Sprintf("%s.run[%d].command", path, i)
-		w.add(base.withPathValue(commandPath, cmd.Command).
-			withNoticePath(noticePath).
-			withField(cmnvalue.DirectCommandField(commandPath, command)))
-		cmdWithArgsPath := fmt.Sprintf("%s.run[%d].cmd_with_args", path, i)
-		w.add(base.withPathValue(cmdWithArgsPath, cmd.CmdWithArgs).
-			withNoticePath(noticePath).
-			withField(cmnvalue.ShellCommandField(cmdWithArgsPath, command)))
-		for j, arg := range cmd.Args {
-			argPath := fmt.Sprintf("%s.run[%d].args[%d]", path, i, j)
-			w.add(base.withPathValue(argPath, arg).
-				withNoticePath(noticePath).
-				withField(cmnvalue.DirectCommandField(argPath, command)))
-		}
 	}
 
 	w.walkStringLeaves(path+".with", step.ExecutorConfig.Config, base.withField(cmnvalue.ExecutorConfigField(path+".with")))
@@ -163,6 +141,34 @@ func (w *referenceFieldWalker) walkStep(path string, step ir.Step) {
 	w.walkContainer(path+".container", step.Container, base)
 	w.walkLLM(path+".llm", step.LLM, base)
 	w.walkMessages(path+".messages", step.Messages, base)
+}
+
+func (w *referenceFieldWalker) walkStepCommands(path string, step ir.Step, base ReferenceField, command cmnvalue.CommandContext) {
+	w.add(base.withPathValue(path+".command", step.Command).withField(cmnvalue.DirectCommandField(path+".command", command)))
+	w.add(base.withPathValue(path+".cmd_with_args", step.CmdWithArgs).withField(cmnvalue.ShellCommandField(path+".cmd_with_args", command)))
+	w.add(base.withPathValue(path+".cmd_args_sys", step.CmdArgsSys).withField(cmnvalue.DirectCommandField(path+".cmd_args_sys", command)))
+	w.add(base.withPathValue(path+".shell_cmd_args", step.ShellCmdArgs).withField(cmnvalue.ShellCommandField(path+".shell_cmd_args", command)))
+	for i, arg := range step.Args {
+		fieldPath := fmt.Sprintf("%s.args[%d]", path, i)
+		w.add(base.withPathValue(fieldPath, arg).withField(cmnvalue.DirectCommandField(fieldPath, command)))
+	}
+	for i, cmd := range step.Commands {
+		noticePath := commandEntryNoticePath(path, i, len(step.Commands))
+		commandPath := fmt.Sprintf("%s.run[%d].command", path, i)
+		w.add(base.withPathValue(commandPath, cmd.Command).
+			withNoticePath(noticePath).
+			withField(cmnvalue.DirectCommandField(commandPath, command)))
+		cmdWithArgsPath := fmt.Sprintf("%s.run[%d].cmd_with_args", path, i)
+		w.add(base.withPathValue(cmdWithArgsPath, cmd.CmdWithArgs).
+			withNoticePath(noticePath).
+			withField(cmnvalue.ShellCommandField(cmdWithArgsPath, command)))
+		for j, arg := range cmd.Args {
+			argPath := fmt.Sprintf("%s.run[%d].args[%d]", path, i, j)
+			w.add(base.withPathValue(argPath, arg).
+				withNoticePath(noticePath).
+				withField(cmnvalue.DirectCommandField(argPath, command)))
+		}
+	}
 }
 
 func scriptReferenceField(path string, step ir.Step, command cmnvalue.CommandContext) cmnvalue.Field {

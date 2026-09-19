@@ -203,11 +203,12 @@ func (h *remoteTaskHandler) handleRetry(ctx context.Context, task *coordinatorv1
 		owner:       owner,
 		profileName: profileName,
 		retry: &retryConfig{
-			target:            status,
-			stepName:          task.Step,
-			includeDownstream: task.IncludeDownstream,
-			triggerType:       queue.PreservedQueueTriggerType(status),
-			retryPath:         retryPath,
+			target:              status,
+			stepName:            task.Step,
+			includeDownstream:   task.IncludeDownstream,
+			bypassPreconditions: task.BypassPreconditions,
+			triggerType:         queue.PreservedQueueTriggerType(status),
+			retryPath:           retryPath,
 		},
 	}
 	logger.Info(ctx, "Using previous status from task for retry",
@@ -346,11 +347,12 @@ func sanitizeTaskLoadError(target string, loadErr error) string {
 
 // retryConfig holds retry-specific configuration
 type retryConfig struct {
-	target            *ir.DAGRunStatus
-	stepName          string
-	includeDownstream bool
-	triggerType       ir.TriggerType
-	retryPath         dagrun.RetryPath
+	target              *ir.DAGRunStatus
+	stepName            string
+	includeDownstream   bool
+	bypassPreconditions bool
+	triggerType         ir.TriggerType
+	retryPath           dagrun.RetryPath
 }
 
 type runHandlers struct {
@@ -402,7 +404,9 @@ func taskExtraEnvs(task *coordinatorv1.Task) []string {
 	if task == nil {
 		return nil
 	}
-	var envs []string
+	// Values passed by the parent step are applied first so run-managed
+	// transport values keep precedence.
+	envs := append([]string(nil), task.PassedEnvs...)
 	if task.ExternalStepRetry {
 		envs = append(envs, runenv.EnvKeyExternalStepRetry+"=1")
 	}
@@ -803,6 +807,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 		opts.RetryTarget = run.retry.target
 		opts.StepRetry = run.retry.stepName
 		opts.IncludeDownstream = run.retry.includeDownstream
+		opts.BypassPreconditions = run.retry.bypassPreconditions
 		opts.TriggerType = run.retry.triggerType
 		opts.RetryPath = run.retry.retryPath
 	}

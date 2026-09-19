@@ -7,13 +7,14 @@
  * @module features/dags/components/dag-execution
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Download } from 'lucide-react';
+import { Download, FileArchive } from 'lucide-react';
 import { components, Status } from '../../../../api/v1/schema';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ReloadButton } from '@/components/ui/reload-button';
 import { Switch } from '@/components/ui/switch';
-import { downloadFromUrl } from '@/lib/download';
+import { downloadFromUrl, downloadFromForm } from '@/lib/download';
+import { useSimpleToast } from '@/components/ui/simple-toast';
 import { useConfig } from '../../../../contexts/ConfigContext';
 import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import { useUserPreferences } from '../../../../contexts/UserPreference';
@@ -59,6 +60,7 @@ type Props = {
 function ExecutionLog({ name, dagRunId, dagRun }: Props) {
   const remoteNode = useRemoteNode();
   const config = useConfig();
+  const { showToast } = useSimpleToast();
   const { preferences, updatePreference } = useUserPreferences();
   const [viewMode, setViewMode] = useState<'tail' | 'head' | 'page'>('tail');
   const [pageSize, setPageSize] = useState(1000);
@@ -295,6 +297,32 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
     }
   }, [config.apiURL, name, dagRunId, dagRun, isSubDAGRun, remoteNode]);
 
+  const handleDownloadStepLogs = useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      try {
+        const endpoint = isSubDAGRun
+          ? `${config.apiURL}/dag-runs/${dagRun?.rootDAGRunName}/${dagRun?.rootDAGRunId}/sub-dag-runs/${dagRun?.dagRunId}/steps/log/download`
+          : `${config.apiURL}/dag-runs/${name}/${dagRunId}/steps/log/download`;
+        const url = new URL(endpoint, window.location.origin);
+        url.searchParams.set('remoteNode', remoteNode);
+        downloadFromForm(url.toString());
+        showToast('Download requested. Check your browser downloads.', {
+          variant: 'info',
+        });
+      } catch (err) {
+        showToast(
+          err instanceof Error ? err.message : 'Could not request download',
+          { variant: 'error' }
+        );
+      } finally {
+        button.disabled = false;
+      }
+    },
+    [config.apiURL, name, dagRunId, dagRun, isSubDAGRun, remoteNode, showToast]
+  );
+
   // Show loading indicator only on initial load
   if (isLoading && !cachedData && isInitialLoad.current) {
     return <LoadingIndicator />;
@@ -464,6 +492,19 @@ function ExecutionLog({ name, dagRunId, dagRun }: Props) {
                 title="Download full log"
               >
                 <Download className="h-4 w-4" />
+              </Button>
+            </I18nProps>
+
+            {/* Download step log archive */}
+            <I18nProps>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleDownloadStepLogs}
+                disabled={isNavigating}
+                title="Download step logs (ZIP)"
+              >
+                <FileArchive className="h-4 w-4" />
               </Button>
             </I18nProps>
 

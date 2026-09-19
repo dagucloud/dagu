@@ -29,8 +29,10 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
 	dagruntime "github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
+	"github.com/dagucloud/dagu/v2/internal/service/coordinator/subflow"
 	"github.com/dagucloud/dagu/v2/internal/service/worker/coordreport"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/spec"
@@ -41,6 +43,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 var _ TaskHandler = (*remoteTaskHandler)(nil)
@@ -1213,6 +1216,123 @@ steps:
 		require.Error(t, err)
 		require.NotContains(t, err.Error(), "retry requires previous_status in task")
 	})
+}
+
+// A local parent can dispatch a targeted child retry to a worker. Exercise
+// that boundary with real worker execution so dropping retry options is visible.
+func TestChildRetryBypassesPreconditions(t *testing.T) {
+	th := test.Setup(t)
+	dag := th.DAG(t, `name: retry-child-preconditions
+type: graph
+steps:
+  - name: target
+    run: echo target-ran
+    output: RESULT
+    preconditions:
+      - condition: blocked
+        expected: ready
+  - name: downstream
+    depends: target
+    run: echo downstream-ran
+    preconditions:
+      - condition: blocked
+        expected: ready
+  - name: unrelated
+    run: echo unrelated
+    preconditions:
+      - condition: blocked
+        expected: ready
+handler_on:
+  exit:
+    run: echo handler
+    preconditions:
+      - condition: blocked
+        expected: ready
+`)
+	root := ir.NewDAGRunRef("parent", "parent-run")
+	previous := ir.NewStatusBuilder(dag.DAG).Create("child-run", ir.Succeeded, 0, time.Now(), ir.WithHierarchyRefs(root, root))
+	for _, node := range previous.Nodes {
+		node.Status = ir.NodeSkipped
+	}
+	var mu sync.Mutex
+	latest := &previous
+	client := newMockRemoteCoordinatorClient()
+	client.GetDAGRunStatusFunc = func(context.Context, string, string, *ir.DAGRunRef) (*dispatch.DAGRunStatusResult, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		return &dispatch.DAGRunStatusResult{Found: true, Status: latest}, nil
+	}
+	client.ReportStatusFunc = func(_ context.Context, req *coordinatorv1.ReportStatusRequest) (*coordinatorv1.ReportStatusResponse, error) {
+		got, err := convert.ProtoToDAGRunStatus(req.Status)
+		if err != nil {
+			return nil, err
+		}
+		mu.Lock()
+		latest = got
+		mu.Unlock()
+		return &coordinatorv1.ReportStatusResponse{Accepted: true}, nil
+	}
+	handler := &remoteTaskHandler{
+		workerID: "test-worker", coordinatorClient: client,
+		dagRepository: th.DAGRepository, dagRunMgr: th.DAGRunMgr,
+		serviceRegistry: th.ServiceRegistry, config: th.Config,
+		peerConfig: config.Peer{Insecure: true},
+	}
+	client.DispatchFunc = func(ctx context.Context, task *dispatch.DispatchTask) error {
+		wire, err := convert.DispatchTaskToProto(task)
+		if err != nil {
+			return err
+		}
+		data, err := proto.Marshal(wire)
+		if err != nil {
+			return err
+		}
+		received := new(coordinatorv1.Task)
+		if err := proto.Unmarshal(data, received); err != nil {
+			return err
+		}
+		return handler.Handle(ctx, received)
+	}
+	runner := subflow.New(client, config.ExecutionModeLocal, subflow.WithPollInterval(time.Millisecond))
+	req := executor.SubWorkflowRetryRequest{
+		SubWorkflowRequest: executor.SubWorkflowRequest{
+			DAG: dag.DAG, RootDAGRun: root, ParentDAGRun: root,
+			RunID: previous.DAGRunID, WorkerSelector: map[string]string{"role": "worker"},
+		},
+		StepName: "target",
+	}
+	require.True(t, runner.ShouldRun(th.Context, req.SubWorkflowRequest))
+
+	// Reuse the reported attempt to verify that bypass does not leak into
+	// a later retry that omits the flag.
+	for _, tc := range []struct {
+		name                       string
+		bypass, downstream         bool
+		wantTarget, wantDownstream ir.NodeStatus
+	}{
+		{"default", false, false, ir.NodeSkipped, ir.NodeSkipped},
+		{"target", true, false, ir.NodeSucceeded, ir.NodeSkipped},
+		{"downstream", true, true, ir.NodeSucceeded, ir.NodeSucceeded},
+		{"default_again", false, true, ir.NodeSkipped, ir.NodeSkipped},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req.BypassPreconditions = tc.bypass
+			req.IncludeDownstream = tc.downstream
+			_, err := runner.Retry(th.Context, req)
+			require.NoError(t, err)
+			mu.Lock()
+			defer mu.Unlock()
+			require.Len(t, latest.Nodes, 3)
+			require.Equal(t, tc.wantTarget, latest.Nodes[0].Status)
+			require.Equal(t, tc.wantDownstream, latest.Nodes[1].Status)
+			require.Equal(t, ir.NodeSkipped, latest.Nodes[2].Status)
+			require.NotNil(t, latest.OnExit)
+			require.Equal(t, ir.NodeSkipped, latest.OnExit.Status)
+			if tc.bypass {
+				require.Equal(t, "target-ran", test.StatusOutputValue(t, latest, "RESULT"))
+			}
+		})
+	}
 }
 
 func TestRetryTaskProfileNameUsesStoredStatus(t *testing.T) {

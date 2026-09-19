@@ -191,3 +191,25 @@ func TestExpandStringDoesNotRejectFutureNamespaceShorthand(t *testing.T) {
 		})
 	}
 }
+
+// A foreach item renders the characters the value holds, not escape sequences.
+func TestExpandStringPreservesForeachItemLiterals(t *testing.T) {
+	t.Parallel()
+
+	resolver := value.NewResolver(
+		value.StaticScope{},
+		value.RuntimeScope{
+			Foreach: value.Values{
+				"item": map[string]any{"note": "a < b & c > d"},
+			},
+		},
+	)
+
+	got, err := resolver.String(
+		context.Background(),
+		"${foreach.item}",
+		value.WorkflowField("run"),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, `{"note":"a < b & c > d"}`, got)
+}

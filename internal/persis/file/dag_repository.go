@@ -78,6 +78,7 @@ func NewDAGRepository(cfg *config.Config, opts ...DAGRepositoryOption) (*persis.
 	dagStore := filedag.NewStore(
 		cfg.Paths.DAGsDir,
 		filedag.WithFlagsBaseDir(cfg.Paths.SuspendFlagsDir),
+		filedag.WithLegacyFlagsBaseDir(cfg.Paths.SuspendFlagsDirLegacy),
 		filedag.WithSearchPaths(options.SearchPaths),
 		filedag.WithBaseConfig(cfg.Paths.BaseConfig),
 		filedag.WithWorkspaceBaseConfigDir(workspaceBaseConfigDir),

@@ -6,8 +6,8 @@ Partially implemented.
 
 ## Scope
 
-This spec covers basic `jq.filter` input selection, scalar output, and
-configuration errors. The jq language, value-resolution permutations,
+This spec covers `jq.filter` input selection, named arguments, scalar output,
+and configuration errors. The jq language, other value-resolution permutations,
 object formatting, and per-value error iteration belong to executor tests.
 
 ## Goal
@@ -26,13 +26,37 @@ A scalar result is written as JSON followed by a newline. With
 `with.raw: true`, strings are written without JSON quotes and a null result
 writes exactly one newline.
 
+### Named Arguments
+
+`with.args` is an optional object whose keys bind jq variables as `$name`.
+One leading `$` on a key is optional. Supplying both `name` and `$name` is
+an error because they bind the same variable.
+
+Argument values preserve YAML scalar and container types. String values,
+including nested strings, follow ordinary executor-config reference resolution
+once. Escaped dollar references remain literal. String references do not gain
+numeric types automatically; numeric comparisons use `tonumber` when needed.
+
+The presence of `args`, including an empty object, makes the entire filter
+literal jq source. Dagu does not interpolate or interpret workflow references
+in that filter, including reference-looking text in jq strings. Multiline
+filters remain query text. Workflow references in `args` retain their normal
+validation and dependency semantics. Omitting `args` retains the existing
+filter interpolation behavior.
+
+The same rule applies to accepted `type: jq` steps with `config.args` or
+`with.args`.
+
 ## Errors
 
 `dagu validate` rejects a missing `with.filter` and configurations that set
 both `with.data` and `with.input`. It exits nonzero with an error identifying
 the invalid configuration.
 
-Filter-language errors, missing files, timeout, and abort behavior are
+Duplicate normalized argument names fail executor setup. Invalid variable names
+and undeclared jq variables fail filter compilation at step execution.
+
+Other filter-language errors, missing files, timeout, and abort behavior are
 outside this conformance scope.
 
 ## Example

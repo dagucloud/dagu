@@ -1955,6 +1955,23 @@
           "deprecated": true,
           "description": "Deprecated name of a DAG to execute as a sub dag-run. Use action: dag.run with with.dag."
         },
+        "pass_env": {
+          "oneOf": [
+            {
+              "type": "boolean",
+              "description": "true passes the parent run's own environment values, excluding secrets and host process values; false (default) passes nothing extra."
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^\\s*[A-Za-z_][A-Za-z0-9_]*\\s*$"
+              },
+              "description": "Names of parent environment variables to pass to the sub dag-run. Each name must already resolve in the parent run environment."
+            }
+          ],
+          "description": "Opt-in parent environment values handed to a sub dag-run. Not supported for dag.enqueue."
+        },
         "params": {
           "oneOf": [
             {
@@ -2728,6 +2745,28 @@
             "required": ["with"],
             "properties": {
               "with": { "$ref": "#/definitions/routerRouteActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "decision.evaluate"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "required": [
+              "with"
+            ],
+            "properties": {
+              "with": {
+                "$ref": "#/definitions/decisionEvaluateActionConfig"
+              }
             }
           }
         },
@@ -3928,6 +3967,10 @@
         "input": {
           "type": "string",
           "description": "File path to read JSON input from. Mutually exclusive with script."
+        },
+        "args": {
+          "type": "object",
+          "description": "Variables to bind in the jq filter. Each key is available as $<key>; values keep their YAML type and strings may use ${...} references. Supplying args, including {}, makes the filter literal jq source."
         }
       },
       "description": "Configuration for JQ JSON query executor."
@@ -6212,6 +6255,7 @@
             "dag.run",
             "data.convert",
             "data.pick",
+            "decision.evaluate",
             "docker.run",
             "exec",
             "file.copy",
@@ -6672,6 +6716,10 @@
         "input": {
           "type": "string",
           "description": "File path to read JSON input from."
+        },
+        "args": {
+          "type": "object",
+          "description": "Variables to bind in the jq filter. Each key is available as $<key>; values keep their YAML type and strings may use ${...} references. Supplying args, including {}, makes the filter literal jq source."
         }
       },
       "description": "Configuration for action: jq.filter."
@@ -6809,6 +6857,136 @@
         }
       },
       "description": "Configuration for action: router.route."
+    },
+    "decisionEvaluateActionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "model",
+        "state",
+        "questions"
+      ],
+      "properties": {
+        "provider": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Decision provider: openrouter or typesafe. Runtime references are supported."
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "base_url": {
+          "type": "string",
+          "description": "API root override, including its version prefix. Requires HTTPS except for localhost and loopback IP addresses. The provider appends its decision path."
+        },
+        "api_key_name": {
+          "type": "string",
+          "description": "Name of a workflow environment variable containing the API key."
+        },
+        "state": {
+          "type": [
+            "string",
+            "object",
+            "array"
+          ]
+        },
+        "questions": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "instructions"
+            ],
+            "properties": {
+              "type": {
+                "enum": [
+                  "choice",
+                  "score",
+                  "noul"
+                ]
+              },
+              "instructions": {
+                "type": [
+                  "string",
+                  "object",
+                  "array"
+                ]
+              },
+              "criteria": {}
+            },
+            "oneOf": [
+              {
+                "properties": {
+                  "type": {
+                    "const": "choice"
+                  },
+                  "criteria": {
+                    "type": "object",
+                    "minProperties": 2,
+                    "maxProperties": 255,
+                    "additionalProperties": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "criteria"
+                ]
+              },
+              {
+                "properties": {
+                  "type": {
+                    "const": "score"
+                  },
+                  "criteria": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 10,
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "criteria"
+                ]
+              },
+              {
+                "properties": {
+                  "type": {
+                    "const": "noul"
+                  },
+                  "criteria": {
+                    "type": "object",
+                    "required": [
+                      "true",
+                      "false"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "true": {
+                        "type": "string"
+                      },
+                      "false": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "description": "Configuration for action: decision.evaluate. Responses are captured as JSON automatically unless output capture is explicitly configured."
     },
     "chatCompletionActionConfig": {
       "type": "object",

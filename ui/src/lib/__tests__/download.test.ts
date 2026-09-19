@@ -3,7 +3,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TOKEN_KEY } from '../authSession';
-import { downloadBlob, downloadFromUrl } from '../download';
+import { downloadBlob, downloadFromUrl, downloadFromForm } from '../download';
 
 const createObjectURL = vi.fn(() => 'blob:mock');
 const revokeObjectURL = vi.fn();
@@ -115,5 +115,56 @@ describe('downloadFromUrl', () => {
     await expect(
       downloadFromUrl('/api/v1/log/download', 'fallback.log')
     ).rejects.toThrow('Download failed');
+  });
+});
+
+describe('downloadFromForm', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it.each(['token-1', null])(
+    'submits a native download with token %s',
+    (token) => {
+      vi.useFakeTimers();
+      if (token) {
+        localStorage.setItem(TOKEN_KEY, token);
+      }
+      const submit = vi
+        .spyOn(HTMLFormElement.prototype, 'submit')
+        .mockImplementation(function (this: HTMLFormElement) {
+          expect(this.isConnected).toBe(true);
+          expect(this.method).toBe('post');
+          expect(this.action).toBe(
+            `${window.location.origin}/api/v1/steps/log/download`
+          );
+          expect(this.target).toBe('_blank');
+          expect(this.rel).toBe('noopener');
+          expect(new FormData(this).get('token')).toBe(token);
+        });
+
+      downloadFromForm('/api/v1/steps/log/download');
+
+      expect(submit).toHaveBeenCalledTimes(1);
+      vi.runAllTimers();
+      expect(document.querySelector('form')).toBeNull();
+    }
+  );
+
+  it('rejects destinations outside this origin', () => {
+    expect(() => downloadFromForm('https://other.example/download')).toThrow(
+      'same origin'
+    );
+  });
+
+  it('reports a submission failure and removes the temporary form', () => {
+    vi.useFakeTimers();
+    vi.spyOn(HTMLFormElement.prototype, 'submit').mockImplementation(() => {
+      throw new Error('Cannot submit');
+    });
+    expect(() => downloadFromForm('/download')).toThrow('Cannot submit');
+    vi.runAllTimers();
+    expect(document.querySelector('form')).toBeNull();
   });
 });

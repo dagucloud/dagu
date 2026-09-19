@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { renderHook } from '@testing-library/react';
+import { act, renderHook } from '@testing-library/react';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { UserPreferencesProvider, useUserPreferences } from '../UserPreference';
@@ -83,5 +83,23 @@ describe('UserPreferencesProvider', () => {
 
     expect(result.current.preferences.wikiSortField).toBe('mtime');
     expect(result.current.preferences.wikiSortOrder).toBe('desc');
+  });
+
+  it('updates preferences when storage writes fail', () => {
+    const { result } = renderHook(() => useUserPreferences(), { wrapper });
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('read-only storage');
+    });
+
+    act(() => {
+      result.current.updatePreference('pinnedViewOrder', {
+        local: ['reports', 'workflows'],
+      });
+    });
+
+    expect(result.current.preferences.pinnedViewOrder).toEqual({
+      local: ['reports', 'workflows'],
+    });
+    expect(result.current.preferences.theme).toBe('light');
   });
 });

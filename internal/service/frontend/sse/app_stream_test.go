@@ -4,6 +4,7 @@
 package sse
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,6 +16,35 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 )
+
+func TestLegacySuspendFlagEvent(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	legacy := filepath.Join(root, "legacy")
+	require.NoError(t, os.Mkdir(legacy, 0o750))
+	flag := filepath.Join(legacy, "alpha.suspend")
+	require.NoError(t, os.WriteFile(flag, nil, 0o600))
+	service, err := NewAppStreamService(AppStreamConfig{
+		Paths: config.PathsConfig{
+			SuspendFlagsDir:       filepath.Join(root, "suspend"),
+			SuspendFlagsDirLegacy: legacy,
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(service.Shutdown)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	events, unsubscribe := service.Subscribe(ctx)
+	defer unsubscribe()
+	require.NoError(t, os.Remove(flag))
+	select {
+	case event := <-events:
+		assert.Equal(t, AppEventTypeDAGChanged, event.Type)
+		assert.Equal(t, "suspend_flag_removed", event.Reason)
+	case <-ctx.Done():
+		t.Fatal("legacy flag removal did not trigger a DAG refresh")
+	}
+}
 
 type recordingFileWatcher struct {
 	added []string

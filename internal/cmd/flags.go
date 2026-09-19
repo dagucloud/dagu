@@ -185,6 +185,12 @@ var (
 		isBool: true,
 	}
 
+	bypassPreconditionsFlag = commandLineFlag{
+		name:   "bypass-preconditions",
+		usage:  "Skip step precondition evaluation for retried steps (requires --step)",
+		isBool: true,
+	}
+
 	retryPathFlag = commandLineFlag{
 		name:   "retry-path",
 		usage:  "Internal persisted child DAG retry path",

@@ -1,0 +1,10 @@
+steps:
+  - action: decision.evaluate
+    with:
+      provider: openrouter
+      model: jev-test
+      state: ticket
+      questions:
+        refund:
+          type: choice
+          instructions: Refund requested?

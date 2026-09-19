@@ -64,6 +64,25 @@ func indentCommandBlock(command string, spaces int) string {
 	return prefix + strings.Join(lines, "\n"+prefix)
 }
 
+// envReportScript returns a portable command that prints labelled env values,
+// one per line, preserving empty values.
+func envReportScript(names ...string) string {
+	if runtime.GOOS == "windows" {
+		lines := make([]string, 0, len(names))
+		for _, name := range names {
+			lines = append(lines, fmt.Sprintf(`Write-Output "%s=$($env:%s)"`, name, name))
+		}
+		return strings.Join(lines, "\n")
+	}
+	format := make([]string, 0, len(names))
+	args := make([]string, 0, len(names))
+	for _, name := range names {
+		format = append(format, name+"=%s")
+		args = append(args, fmt.Sprintf(`"${%s:-}"`, name))
+	}
+	return fmt.Sprintf("printf '%s\\n' %s", strings.Join(format, "\\n"), strings.Join(args, " "))
+}
+
 func TestInlineSubDAG(t *testing.T) {
 	t.Run("SimpleExecution", func(t *testing.T) {
 		th := test.Setup(t)
@@ -938,5 +957,163 @@ steps:
 		variables := successStep.OutputVariables.Variables()
 		require.Contains(t, variables, "STEP_OUTPUT")
 		require.Contains(t, variables["STEP_OUTPUT"], "output_first_attempt_success")
+	})
+}
+
+func TestSubDAG_PassEnv(t *testing.T) {
+	readChildResult := func(t *testing.T, th test.Command, parentName, dagRunID string) string {
+		t.Helper()
+		ctx := context.Background()
+		ref := ir.NewDAGRunRef(parentName, dagRunID)
+		parentAttempt, err := th.DAGRunRepository.FindAttempt(ctx, ref)
+		require.NoError(t, err)
+		parentStatus, err := parentAttempt.ReadStatus(ctx)
+		require.NoError(t, err)
+		require.Equal(t, ir.Succeeded, parentStatus.Status)
+		subNode := parentStatus.Nodes[0]
+		require.Len(t, subNode.SubRuns, 1)
+		subAttempt, err := th.DAGRunRepository.FindSubAttempt(ctx, ref, subNode.SubRuns[0].DAGRunID)
+		require.NoError(t, err)
+		subStatus, err := subAttempt.ReadStatus(ctx)
+		require.NoError(t, err)
+		require.Equal(t, ir.Succeeded, subStatus.Status)
+		require.NotNil(t, subStatus.Nodes[0].OutputVariables)
+		// Windows PowerShell output keeps CRLF line endings in captured output.
+		return strings.ReplaceAll(
+			subStatus.Nodes[0].OutputVariables.Variables()["RESULT"], "\r\n", "\n")
+	}
+
+	t.Run("Selective", func(t *testing.T) {
+		th := test.SetupCommand(t)
+
+		th.CreateDAGFile(t, "parent_pass_selective.yaml", `
+env:
+  - TODAY: "2026-03-05"
+  - GH_USER: octocat
+  - NOT_LISTED: not-requested
+steps:
+  - name: call_sub
+    action: dag.run
+    with:
+      dag: sub_pass_env
+    pass_env: [TODAY, GH_USER]
+`)
+
+		th.CreateDAGFile(t, "sub_pass_env.yaml", fmt.Sprintf(`
+steps:
+  - name: report
+    run: |
+%s
+    output: RESULT
+`, indentCommandBlock(envReportScript("TODAY", "GH_USER", "NOT_LISTED"), 6)))
+
+		dagRunID := uuid.Must(uuid.NewV7()).String()
+		th.RunCommand(t, cmd.Start(), test.CmdTest{
+			Args:        []string{"start", "--run-id", dagRunID, "parent_pass_selective"},
+			ExpectedOut: []string{"DAG run finished"},
+		})
+
+		// Listed names resolve from the parent run environment. An in-process
+		// child also sees unlisted parent values like NOT_LISTED through the
+		// implicit local env scope; pass_env only controls the explicit set
+		// forwarded to a child that runs on another host.
+		require.Equal(t, "TODAY=2026-03-05\nGH_USER=octocat\nNOT_LISTED=not-requested", readChildResult(t, th, "parent_pass_selective", dagRunID))
+	})
+
+	t.Run("All", func(t *testing.T) {
+		th := test.SetupCommand(t)
+		t.Setenv("GH_USER", "octocat")
+
+		th.CreateDAGFile(t, "parent_pass_all.yaml", `
+env:
+  - TODAY: "2026-03-05"
+  - NOT_LISTED: not-requested
+steps:
+  - name: call_sub
+    action: dag.run
+    with:
+      dag: sub_pass_env
+    pass_env: true
+`)
+
+		th.CreateDAGFile(t, "sub_pass_env.yaml", fmt.Sprintf(`
+steps:
+  - name: report
+    run: |
+%s
+    output: RESULT
+`, indentCommandBlock(envReportScript("TODAY", "GH_USER", "NOT_LISTED"), 6)))
+
+		dagRunID := uuid.Must(uuid.NewV7()).String()
+		th.RunCommand(t, cmd.Start(), test.CmdTest{
+			Args:        []string{"start", "--run-id", dagRunID, "parent_pass_all"},
+			ExpectedOut: []string{"DAG run finished"},
+		})
+
+		// GH_USER is a host process value, so pass_env: true never forwards
+		// it. Only a name that is part of the parent run environment can be
+		// listed explicitly.
+		require.Equal(t, "TODAY=2026-03-05\nGH_USER=\nNOT_LISTED=not-requested", readChildResult(t, th, "parent_pass_all", dagRunID))
+	})
+
+	t.Run("Parallel", func(t *testing.T) {
+		th := test.SetupCommand(t)
+
+		th.CreateDAGFile(t, "parent_pass_parallel.yaml", `
+env:
+  - TODAY: "2026-03-05"
+  - GH_USER: octocat
+steps:
+  - name: call_sub
+    action: dag.run
+    with:
+      dag: sub_pass_env_parallel
+      params: "ITEM_ID=${ITEM.id}"
+    pass_env: [TODAY, GH_USER]
+    parallel:
+      items:
+        - id: a
+        - id: b
+
+---
+
+name: sub_pass_env_parallel
+params:
+  - ITEM_ID
+steps:
+  - name: report
+    run: |
+      echo "${ITEM_ID}:${TODAY}:${GH_USER}"
+    output: RESULT
+`)
+
+		dagRunID := uuid.Must(uuid.NewV7()).String()
+		th.RunCommand(t, cmd.Start(), test.CmdTest{
+			Args:        []string{"start", "--run-id", dagRunID, "parent_pass_parallel"},
+			ExpectedOut: []string{"DAG run finished"},
+		})
+
+		ctx := context.Background()
+		ref := ir.NewDAGRunRef("parent_pass_parallel", dagRunID)
+		parentAttempt, err := th.DAGRunRepository.FindAttempt(ctx, ref)
+		require.NoError(t, err)
+		parentStatus, err := parentAttempt.ReadStatus(ctx)
+		require.NoError(t, err)
+		require.Equal(t, ir.Succeeded, parentStatus.Status)
+		require.Len(t, parentStatus.Nodes[0].SubRuns, 2)
+
+		results := map[string]string{}
+		for _, sub := range parentStatus.Nodes[0].SubRuns {
+			subAttempt, err := th.DAGRunRepository.FindSubAttempt(ctx, ref, sub.DAGRunID)
+			require.NoError(t, err)
+			subStatus, err := subAttempt.ReadStatus(ctx)
+			require.NoError(t, err)
+			require.Equal(t, ir.Succeeded, subStatus.Status)
+			require.NotNil(t, subStatus.Nodes[0].OutputVariables)
+			result := subStatus.Nodes[0].OutputVariables.Variables()["RESULT"]
+			results[strings.Split(result, ":")[0]] = result
+		}
+		require.Equal(t, "a:2026-03-05:octocat", results["a"])
+		require.Equal(t, "b:2026-03-05:octocat", results["b"])
 	})
 }

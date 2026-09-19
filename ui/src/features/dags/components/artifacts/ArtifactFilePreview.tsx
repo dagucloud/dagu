@@ -17,6 +17,7 @@ import { components } from '../../../../api/v1/schema';
 import { HtmlArtifactPreview } from './HtmlArtifactPreview';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
+import { useI18n } from '@/i18n/I18nProvider';
 
 type ArtifactPreviewResponse = components['schemas']['ArtifactPreviewResponse'];
 
@@ -29,6 +30,8 @@ type Props = {
   version?: number;
   className?: string;
   fillHeight?: boolean;
+  contentRef?: React.Ref<HTMLDivElement>;
+  onReturnToFiles?: () => void;
 };
 
 export function ArtifactFilePreview({
@@ -40,7 +43,10 @@ export function ArtifactFilePreview({
   version = 0,
   className,
   fillHeight = false,
+  contentRef,
+  onReturnToFiles,
 }: Props) {
+  const { ts } = useI18n();
   const client = useClient();
   const isSubDAGRun = !!subDAGRunId;
 
@@ -280,6 +286,18 @@ export function ArtifactFilePreview({
 
   return (
     <div
+      onKeyDown={(event) => {
+        if (
+          event.key === 'Escape' &&
+          !event.defaultPrevented &&
+          !event.nativeEvent.isComposing &&
+          onReturnToFiles
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+          onReturnToFiles();
+        }
+      }}
       className={cn(
         'rounded-lg border border-border bg-background',
         fillHeight && 'flex min-h-0 flex-col overflow-hidden',
@@ -296,6 +314,11 @@ export function ArtifactFilePreview({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {onReturnToFiles && (
+            <Button variant="ghost" size="sm" onClick={onReturnToFiles}>
+              <I18nText text="Back to files" />
+            </Button>
+          )}
           {isCopyablePreview ? (
             <I18nProps>
               <button
@@ -382,8 +405,12 @@ export function ArtifactFilePreview({
       </div>
 
       <div
+        ref={contentRef}
+        role="region"
+        aria-label={selectedName || ts('Artifact preview')}
+        tabIndex={-1}
         className={cn(
-          'overflow-auto p-4',
+          'overflow-auto p-4 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
           fillHeight ? 'min-h-0 flex-1' : 'max-h-[34rem]'
         )}
       >

@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -490,6 +490,174 @@ describe('sidebar menu', () => {
       'href',
       '/views/v1'
     );
+  });
+
+  describe('bookmark ordering', () => {
+    const names = ['Board', 'Runs', 'Workflows view', 'Reports'];
+
+    function bookmarkNames(): (string | null)[] {
+      return screen
+        .getAllByRole('link')
+        .map((link) => link.textContent)
+        .filter((name) => names.includes(name ?? ''));
+    }
+
+    beforeEach(() => {
+      useViewsMock.mockImplementation((type?: ViewSpecType) => ({
+        views: [
+          {
+            id: type ?? 'kanban',
+            name: names[
+              [
+                undefined,
+                ViewSpecType.run,
+                ViewSpecType.workflow,
+                ViewSpecType.artifact,
+              ].indexOf(type)
+            ],
+            pinned: true,
+            workspaceScope: ViewWorkspaceScope.all,
+          },
+        ],
+      }));
+    });
+
+    it('reorders across view types by dragging and remembers the order', () => {
+      renderMenu();
+      const board = screen.getByRole('link', { name: 'Board' });
+      const reports = screen.getByRole('link', { name: 'Reports' });
+      const dataTransfer = {
+        setData: vi.fn(),
+        effectAllowed: '',
+        dropEffect: '',
+      };
+
+      fireEvent.dragStart(reports, { dataTransfer });
+      fireEvent.dragOver(board, { dataTransfer });
+      fireEvent.drop(board, { dataTransfer });
+      fireEvent.dragEnd(reports, { dataTransfer });
+
+      expect(bookmarkNames()).toEqual([
+        'Reports',
+        'Board',
+        'Runs',
+        'Workflows view',
+      ]);
+      expect(screen.getByRole('link', { name: 'Overview' })).toHaveAttribute(
+        'aria-current',
+        'page'
+      );
+      cleanup();
+      renderMenu();
+      expect(bookmarkNames()).toEqual([
+        'Reports',
+        'Board',
+        'Runs',
+        'Workflows view',
+      ]);
+      fireEvent.click(screen.getByRole('link', { name: 'Reports' }));
+      expect(screen.getByRole('link', { name: 'Reports' })).toHaveAttribute(
+        'aria-current',
+        'page'
+      );
+    });
+
+    it('moves focused bookmarks with Alt and arrow keys, including when collapsed', () => {
+      renderMenu('/cockpit', {}, {}, false);
+      const board = screen.getByRole('link', { name: 'Board' });
+      board.focus();
+
+      fireEvent.keyDown(board, { key: 'ArrowUp', altKey: true });
+      expect(bookmarkNames()).toEqual(names);
+      fireEvent.keyDown(board, { key: 'ArrowDown' });
+      expect(bookmarkNames()).toEqual(names);
+      fireEvent.keyDown(board, { key: 'ArrowDown', altKey: true });
+      expect(bookmarkNames()).toEqual([
+        'Runs',
+        'Board',
+        'Workflows view',
+        'Reports',
+      ]);
+      expect(board).toHaveFocus();
+      fireEvent.keyDown(board, { key: 'ArrowUp', altKey: true });
+      expect(bookmarkNames()).toEqual(names);
+    });
+
+    it('preserves hidden bookmarks and separate remote orders, appending new bookmarks', () => {
+      localStorage.setItem(
+        'user_preferences',
+        JSON.stringify({
+          pinnedViewOrder: {
+            local: ['workflow', 'hidden-workspace', 'kanban', 'run'],
+            remote: ['artifact', 'run', 'workflow', 'kanban'],
+          },
+        })
+      );
+      renderMenu();
+      expect(bookmarkNames()).toEqual([
+        'Workflows view',
+        'Board',
+        'Runs',
+        'Reports',
+      ]);
+      fireEvent.keyDown(screen.getByRole('link', { name: 'Board' }), {
+        key: 'ArrowUp',
+        altKey: true,
+      });
+      cleanup();
+
+      renderMenu('/cockpit', {}, { selectedRemoteNode: 'remote' });
+      expect(bookmarkNames()).toEqual([
+        'Reports',
+        'Runs',
+        'Workflows view',
+        'Board',
+      ]);
+      cleanup();
+
+      useViewsMock.mockImplementation((type?: ViewSpecType) => ({
+        views:
+          type === undefined
+            ? [
+                { id: 'kanban', name: 'Board', pinned: true },
+                {
+                  id: 'hidden-workspace',
+                  name: 'Hidden workspace',
+                  pinned: true,
+                },
+                { id: 'workflow', name: 'Workflows view', pinned: true },
+              ]
+            : [],
+      }));
+      renderMenu();
+      expect(
+        screen
+          .getAllByRole('link')
+          .slice(0, 3)
+          .map((link) => link.textContent)
+      ).toEqual(['Board', 'Hidden workspace', 'Workflows view']);
+    });
+
+    it('keeps the order when a drag is cancelled or comes from outside the bookmarks', () => {
+      renderMenu();
+      const board = screen.getByRole('link', { name: 'Board' });
+      const reports = screen.getByRole('link', { name: 'Reports' });
+      const dataTransfer = {
+        setData: vi.fn(),
+        effectAllowed: '',
+        dropEffect: '',
+      };
+
+      fireEvent.drop(board, { dataTransfer });
+      expect(bookmarkNames()).toEqual(names);
+      fireEvent.dragStart(reports, { dataTransfer });
+      fireEvent.dragOver(board, { dataTransfer });
+      fireEvent.dragEnd(reports, { dataTransfer });
+      expect(bookmarkNames()).toEqual(names);
+      cleanup();
+      renderMenu();
+      expect(bookmarkNames()).toEqual(names);
+    });
   });
 
   it('renders starred workflow views for the current scope in the sidebar', () => {

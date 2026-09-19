@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -14,6 +15,75 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/require"
 )
+
+// Retrying a parallel parent must not bypass preconditions on its children's
+// automatic step retries, even after a child closes its own precondition.
+func TestParentRetryKeepsChildPreconditions(t *testing.T) {
+	for _, bypass := range []bool{false, true} {
+		t.Run(fmt.Sprintf("bypass_%t", bypass), func(t *testing.T) {
+			th := test.Setup(t)
+			dir := t.TempDir()
+			gate := filepath.Join(dir, "closed")
+			count := filepath.Join(dir, "count")
+			condition := test.ForOS(
+				fmt.Sprintf("test ! -f %s", test.PosixQuote(test.ShellPath(gate))),
+				fmt.Sprintf("if (Test-Path %s) { exit 1 }", test.PowerShellQuote(gate)),
+			)
+			work := test.ForOS(
+				fmt.Sprintf("echo ran >> %s\ntouch %s\nexit 1", test.PosixQuote(test.ShellPath(count)), test.PosixQuote(test.ShellPath(gate))),
+				fmt.Sprintf("Add-Content -Path %s -Value ran\nNew-Item -ItemType File -Path %s -Force | Out-Null\nexit 1", test.PowerShellQuote(count), test.PowerShellQuote(gate)),
+			)
+			// Seed a skipped parent without creating child runs to reuse.
+			require.NoError(t, os.WriteFile(gate, nil, 0o600))
+			dag := th.DAG(t, fmt.Sprintf(`shell: %s
+steps:
+  - name: fanout
+    preconditions:
+      - %q
+    action: dag.run
+    with:
+      dag: child
+    parallel:
+      items: [one]
+---
+name: child
+shell: %s
+steps:
+  - name: work
+    preconditions:
+      - %q
+    run: |
+%s
+    retry_policy:
+      limit: 1
+      interval_sec: 0
+`, test.ForOS("sh", "powershell"), condition, test.ForOS("sh", "powershell"), condition, indentCommandBlock(work, 6)))
+			initial := dag.Agent()
+			initial.RunSuccess(t)
+			status := initial.Status(th.Context)
+			require.Equal(t, ir.NodeSkipped, status.Nodes[0].Status)
+			require.NoError(t, os.Remove(gate))
+
+			retry := dag.Agent(test.WithAgentOptions(agent.Options{
+				RetryTarget:         &status,
+				StepRetry:           "fanout",
+				BypassPreconditions: bypass,
+			}))
+			retry.RunSuccess(t)
+			data, err := os.ReadFile(count)
+			require.NoError(t, err)
+			require.Equal(t, []string{"ran"}, strings.Fields(string(data)))
+			retriedStatus := retry.Status(th.Context)
+			require.Len(t, retriedStatus.Nodes[0].SubRuns, 1)
+			childRef := retriedStatus.Nodes[0].SubRuns[0]
+			attempt, err := th.DAGRunRepository.FindSubAttempt(th.Context, ir.NewDAGRunRef(dag.Name, status.DAGRunID), childRef.DAGRunID)
+			require.NoError(t, err)
+			childStatus, err := attempt.ReadStatus(th.Context)
+			require.NoError(t, err)
+			require.Equal(t, ir.NodeSkipped, childStatus.Nodes[0].Status)
+		})
+	}
+}
 
 // TestChildStepRetryReExecutesTargetedChildRun verifies that retrying a step
 // inside one child DAG run of a parallel step re-executes that child run and

@@ -11,6 +11,7 @@ import (
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestDispatchTaskToProtoClonesWorkerSelector(t *testing.T) {
@@ -62,6 +63,25 @@ func TestDispatchTaskAttributionRoundTrips(t *testing.T) {
 	assert.Equal(t, "item-1", got.ParallelItem)
 	assert.True(t, got.IncludeDownstream)
 	assert.Equal(t, &baseWorkspace, got.BaseConfigWorkspace)
+}
+
+func TestRetryBypassRoundTrips(t *testing.T) {
+	t.Parallel()
+
+	for _, bypass := range []bool{false, true} {
+		task := &dispatch.DispatchTask{BypassPreconditions: bypass}
+		wire, err := convert.DispatchTaskToProto(task)
+		require.NoError(t, err)
+		data, err := proto.Marshal(wire)
+		require.NoError(t, err)
+		received := new(coordinatorv1.Task)
+		require.NoError(t, proto.Unmarshal(data, received))
+		require.Equal(t, bypass, received.BypassPreconditions)
+
+		got, err := convert.ProtoToDispatchTask(received)
+		require.NoError(t, err)
+		require.Equal(t, bypass, got.BypassPreconditions)
+	}
 }
 
 func TestDispatchTaskTargetWorkerRoundTrips(t *testing.T) {
@@ -154,4 +174,22 @@ func TestProtoToDispatchTaskValidatesOwnerPort(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+func TestDispatchTaskPassedEnvRoundTrips(t *testing.T) {
+	t.Parallel()
+
+	task := &dispatch.DispatchTask{
+		PassedEnv: []string{"TODAY=2026-01-01", "GH_USER=octocat"},
+	}
+
+	protoTask, err := convert.DispatchTaskToProto(task)
+	require.NoError(t, err)
+	require.NotNil(t, protoTask)
+	assert.Equal(t, []string{"TODAY=2026-01-01", "GH_USER=octocat"}, protoTask.PassedEnvs)
+
+	got, err := convert.ProtoToDispatchTask(protoTask)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, []string{"TODAY=2026-01-01", "GH_USER=octocat"}, got.PassedEnv)
 }

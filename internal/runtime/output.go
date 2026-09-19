@@ -295,14 +295,18 @@ func (oc *OutputCoordinator) closeResources() error {
 		oc.stderrFile,
 		oc.stdoutRedirectFile,
 		oc.StderrRedirectFile,
-		oc.outputReader,
-		oc.stderrOutputReader,
 	} {
 		if f != nil {
 			if err := f.Sync(); err != nil {
 				lastErr = err
 			}
 			_ = f.Close()
+		}
+	}
+	// Capture readers are pipes; syncing them fails and hides capture errors.
+	for _, reader := range []*os.File{oc.outputReader, oc.stderrOutputReader} {
+		if reader != nil {
+			_ = reader.Close()
 		}
 	}
 	return lastErr
@@ -477,6 +481,12 @@ func (oc *OutputCoordinator) capturedOutput(ctx context.Context) (string, error)
 
 		// Wait for the concurrent reader to finish
 		output, err := oc.outputCapture.wait()
+		if oc.outputReader != nil {
+			if closeErr := oc.outputReader.Close(); closeErr != nil {
+				logger.Error(ctx, "Failed to close pipe reader", tag.Error(closeErr))
+			}
+			oc.outputReader = nil
+		}
 		if err != nil {
 			return "", err
 		}
@@ -494,14 +504,6 @@ func (oc *OutputCoordinator) capturedOutput(ctx context.Context) (string, error)
 
 		// Mark as captured for caching
 		oc.outputCaptured = true
-
-		// Close the reader
-		if oc.outputReader != nil {
-			if err := oc.outputReader.Close(); err != nil {
-				logger.Error(ctx, "Failed to close pipe reader", tag.Error(err))
-			}
-			oc.outputReader = nil
-		}
 
 		return oc.outputData, nil
 	}
@@ -580,6 +582,12 @@ func (oc *OutputCoordinator) capturedStderr(ctx context.Context) (string, error)
 		}
 
 		output, err := oc.stderrCapture.wait()
+		if oc.stderrOutputReader != nil {
+			if closeErr := oc.stderrOutputReader.Close(); closeErr != nil {
+				logger.Error(ctx, "Failed to close stderr pipe reader", tag.Error(closeErr))
+			}
+			oc.stderrOutputReader = nil
+		}
 		if err != nil {
 			return "", err
 		}
@@ -590,12 +598,6 @@ func (oc *OutputCoordinator) capturedStderr(ctx context.Context) (string, error)
 		}
 
 		oc.stderrOutputCaptured = true
-		if oc.stderrOutputReader != nil {
-			if err := oc.stderrOutputReader.Close(); err != nil {
-				logger.Error(ctx, "Failed to close stderr pipe reader", tag.Error(err))
-			}
-			oc.stderrOutputReader = nil
-		}
 		return oc.stderrOutputData, nil
 	}
 

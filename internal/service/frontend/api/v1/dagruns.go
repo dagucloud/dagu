@@ -1147,6 +1147,30 @@ func (a *API) DownloadDAGRunStepLog(ctx context.Context, request api.DownloadDAG
 	}, nil
 }
 
+func (a *API) DownloadDAGRunStepLogs(ctx context.Context, request api.DownloadDAGRunStepLogsRequestObject) (api.DownloadDAGRunStepLogsResponseObject, error) {
+	ref := ir.NewDAGRunRef(request.Name, request.DagRunId)
+	dagStatus, err := a.dagRunMgr.GetSavedStatus(ctx, ref)
+	if err != nil {
+		if isDAGRunLookupNotFound(err) {
+			return api.DownloadDAGRunStepLogs404JSONResponse{
+				Code:    api.ErrorCodeNotFound,
+				Message: fmt.Sprintf("dag-run ID %s not found for DAG %s", request.DagRunId, request.Name),
+			}, nil
+		}
+		return nil, err
+	}
+	if err := a.requireDAGRunStatusVisible(ctx, dagStatus); err != nil {
+		return nil, err
+	}
+
+	return &stepLogArchiveResponse{
+		ctx:      ctx,
+		status:   dagStatus,
+		openLog:  a.dagRunRepository.OpenLog,
+		filename: fmt.Sprintf("%s-%s-steps.zip", sanitizeFilename(request.Name), sanitizeFilename(request.DagRunId)),
+	}, nil
+}
+
 func (a *API) UpdateDAGRunStepStatus(ctx context.Context, request api.UpdateDAGRunStepStatusRequestObject) (api.UpdateDAGRunStepStatusResponseObject, error) {
 	if err := a.isAllowed(config.PermissionRunDAGs); err != nil {
 		return nil, err
@@ -2662,6 +2686,30 @@ func (a *API) DownloadSubDAGRunStepLog(ctx context.Context, request api.Download
 	}, nil
 }
 
+func (a *API) DownloadSubDAGRunStepLogs(ctx context.Context, request api.DownloadSubDAGRunStepLogsRequestObject) (api.DownloadSubDAGRunStepLogsResponseObject, error) {
+	root := ir.NewDAGRunRef(request.Name, request.DagRunId)
+	dagStatus, err := a.getReferencedDAGRunStatus(ctx, root, request.SubDAGRunId, "")
+	if err != nil {
+		if isDAGRunLookupNotFound(err) {
+			return &api.DownloadSubDAGRunStepLogs404JSONResponse{
+				Code:    api.ErrorCodeNotFound,
+				Message: fmt.Sprintf("sub dag-run ID %s not found for DAG %s", request.SubDAGRunId, request.Name),
+			}, nil
+		}
+		return nil, err
+	}
+	if err := a.requireDAGRunStatusVisible(ctx, dagStatus); err != nil {
+		return nil, err
+	}
+
+	return &stepLogArchiveResponse{
+		ctx:      ctx,
+		status:   dagStatus,
+		openLog:  a.dagRunRepository.OpenLog,
+		filename: fmt.Sprintf("%s-%s-sub-%s-steps.zip", sanitizeFilename(request.Name), sanitizeFilename(request.DagRunId), sanitizeFilename(request.SubDAGRunId)),
+	}, nil
+}
+
 func (a *API) UpdateSubDAGRunStepStatus(ctx context.Context, request api.UpdateSubDAGRunStepStatusRequestObject) (api.UpdateSubDAGRunStepStatusResponseObject, error) {
 	if err := a.isAllowed(config.PermissionRunDAGs); err != nil {
 		return nil, err
@@ -3729,6 +3777,9 @@ func (a *API) getReferencedDAGRunStatusWithRef(ctx context.Context, parentRef ir
 	ref := ir.NewDAGRunRef(dagName, subRunID)
 	status, err = a.dagRunMgr.GetSavedStatus(ctx, ref)
 	if err != nil {
+		if !isDAGRunLookupNotFound(err) {
+			return ir.DAGRunRef{}, nil, err
+		}
 		return ir.DAGRunRef{}, nil, subErr
 	}
 	return ref, status, nil

@@ -1,0 +1,19 @@
+working_dir: .
+env:
+  - SHARED: from-parent
+steps:
+  - name: call-child
+    action: dag.run
+    with:
+      dag: pass_env_named_child
+    pass_env: [SHARED]
+
+---
+name: pass_env_named_child
+working_dir: .
+steps:
+  - name: write
+    action: file.write
+    with:
+      path: passed-named.txt
+      content: "[${SHARED}]"

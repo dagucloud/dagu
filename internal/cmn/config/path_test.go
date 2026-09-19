@@ -26,16 +26,17 @@ func TestResolver(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Equal(t, config.Paths{
-			ConfigDir:       filepath.Join(tmpDir, config.AppSlug),
-			DAGsDir:         filepath.Join(tmpDir, config.AppSlug, "dags"),
-			SuspendFlagsDir: filepath.Join(tmpDir, config.AppSlug, "suspend"),
-			DataDir:         filepath.Join(tmpDir, config.AppSlug, "data"),
-			LogsDir:         filepath.Join(tmpDir, config.AppSlug, "logs"),
-			ArtifactsDir:    filepath.Join(tmpDir, config.AppSlug, "data", "artifacts"),
-			DAGStateDir:     filepath.Join(tmpDir, config.AppSlug, "data", "dag-state"),
-			AdminLogsDir:    filepath.Join(tmpDir, config.AppSlug, "logs/admin"),
-			EventStoreDir:   filepath.Join(tmpDir, config.AppSlug, "logs/admin/events"),
-			BaseConfigFile:  filepath.Join(tmpDir, config.AppSlug, "base.yaml"),
+			ConfigDir:             filepath.Join(tmpDir, config.AppSlug),
+			DAGsDir:               filepath.Join(tmpDir, config.AppSlug, "dags"),
+			SuspendFlagsDir:       filepath.Join(tmpDir, config.AppSlug, "data", "suspend"),
+			LegacySuspendFlagsDir: filepath.Join(tmpDir, config.AppSlug, "suspend"),
+			DataDir:               filepath.Join(tmpDir, config.AppSlug, "data"),
+			LogsDir:               filepath.Join(tmpDir, config.AppSlug, "logs"),
+			ArtifactsDir:          filepath.Join(tmpDir, config.AppSlug, "data", "artifacts"),
+			DAGStateDir:           filepath.Join(tmpDir, config.AppSlug, "data", "dag-state"),
+			AdminLogsDir:          filepath.Join(tmpDir, config.AppSlug, "logs/admin"),
+			EventStoreDir:         filepath.Join(tmpDir, config.AppSlug, "logs/admin/events"),
+			BaseConfigFile:        filepath.Join(tmpDir, config.AppSlug, "base.yaml"),
 		}, paths)
 	})
 	t.Run("AppHomeDirectoryRelativePath", func(t *testing.T) {
@@ -67,17 +68,18 @@ func TestResolver(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Equal(t, config.Paths{
-			ConfigDir:       legacyPath,
-			DAGsDir:         filepath.Join(legacyPath, "dags"),
-			SuspendFlagsDir: filepath.Join(legacyPath, "suspend"),
-			DataDir:         filepath.Join(legacyPath, "data"),
-			LogsDir:         filepath.Join(legacyPath, "logs"),
-			ArtifactsDir:    filepath.Join(legacyPath, "data", "artifacts"),
-			DAGStateDir:     filepath.Join(legacyPath, "data", "dag-state"),
-			AdminLogsDir:    filepath.Join(legacyPath, "logs", "admin"),
-			EventStoreDir:   filepath.Join(legacyPath, "logs", "admin", "events"),
-			BaseConfigFile:  filepath.Join(legacyPath, "base.yaml"),
-			Notices:         []string{config.ExistingHomeDirNoticePrefix + legacyPath + "."},
+			ConfigDir:             legacyPath,
+			DAGsDir:               filepath.Join(legacyPath, "dags"),
+			SuspendFlagsDir:       filepath.Join(legacyPath, "data", "suspend"),
+			LegacySuspendFlagsDir: filepath.Join(legacyPath, "suspend"),
+			DataDir:               filepath.Join(legacyPath, "data"),
+			LogsDir:               filepath.Join(legacyPath, "logs"),
+			ArtifactsDir:          filepath.Join(legacyPath, "data", "artifacts"),
+			DAGStateDir:           filepath.Join(legacyPath, "data", "dag-state"),
+			AdminLogsDir:          filepath.Join(legacyPath, "logs", "admin"),
+			EventStoreDir:         filepath.Join(legacyPath, "logs", "admin", "events"),
+			BaseConfigFile:        filepath.Join(legacyPath, "base.yaml"),
+			Notices:               []string{config.ExistingHomeDirNoticePrefix + legacyPath + "."},
 		}, paths)
 	})
 	t.Run("XDGCONFIGHOME", func(t *testing.T) {
@@ -95,16 +97,17 @@ func TestResolver(t *testing.T) {
 		})
 		require.NoError(t, err)
 		assert.Equal(t, config.Paths{
-			ConfigDir:       filepath.Join(configHome, config.AppSlug),
-			DAGsDir:         filepath.Join(configHome, config.AppSlug, "dags"),
-			SuspendFlagsDir: filepath.Join(dataHome, config.AppSlug, "suspend"),
-			DataDir:         filepath.Join(dataHome, config.AppSlug, "data"),
-			LogsDir:         filepath.Join(dataHome, config.AppSlug, "logs"),
-			ArtifactsDir:    filepath.Join(dataHome, config.AppSlug, "data", "artifacts"),
-			DAGStateDir:     filepath.Join(dataHome, config.AppSlug, "data", "dag-state"),
-			AdminLogsDir:    filepath.Join(dataHome, config.AppSlug, "logs", "admin"),
-			EventStoreDir:   filepath.Join(dataHome, config.AppSlug, "logs", "admin", "events"),
-			BaseConfigFile:  filepath.Join(configHome, config.AppSlug, "base.yaml"),
+			ConfigDir:             filepath.Join(configHome, config.AppSlug),
+			DAGsDir:               filepath.Join(configHome, config.AppSlug, "dags"),
+			SuspendFlagsDir:       filepath.Join(dataHome, config.AppSlug, "data", "suspend"),
+			LegacySuspendFlagsDir: filepath.Join(dataHome, config.AppSlug, "suspend"),
+			DataDir:               filepath.Join(dataHome, config.AppSlug, "data"),
+			LogsDir:               filepath.Join(dataHome, config.AppSlug, "logs"),
+			ArtifactsDir:          filepath.Join(dataHome, config.AppSlug, "data", "artifacts"),
+			DAGStateDir:           filepath.Join(dataHome, config.AppSlug, "data", "dag-state"),
+			AdminLogsDir:          filepath.Join(dataHome, config.AppSlug, "logs", "admin"),
+			EventStoreDir:         filepath.Join(dataHome, config.AppSlug, "logs", "admin", "events"),
+			BaseConfigFile:        filepath.Join(configHome, config.AppSlug, "base.yaml"),
 		}, paths)
 	})
 }
