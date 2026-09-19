@@ -326,6 +326,31 @@ func TestCredentials(t *testing.T) {
 	assert.Equal(t, "*******", result["id"])
 }
 
+// Integers in the authored state reach the provider with full precision, as
+// the manifest decoder hands them to the executor.
+func TestRequestNumbers(t *testing.T) {
+	t.Parallel()
+	var body []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var err error
+		body, err = io.ReadAll(r.Body)
+		assert.NoError(t, err)
+		_, _ = w.Write([]byte(responseJSON))
+	}))
+	defer server.Close()
+	raw := testConfig(t)
+	raw["base_url"] = server.URL
+	raw["state"] = map[string]any{"order": int64(9007199254740993)}
+	scope := value.NewEnvScope(nil, false).WithEntry("OPENROUTER_API_KEY", "test-key", value.EnvSourceSecret)
+	ctx := runtime.WithEnv(t.Context(), runtime.Env{Scope: scope})
+	exec, err := newExecutor(ctx, ir.Step{ExecutorConfig: ir.ExecutorConfig{Config: raw}})
+	require.NoError(t, err)
+	defer exec.(*decisionExecutor).Close()
+	exec.SetStdout(io.Discard)
+	require.NoError(t, exec.Run(ctx))
+	assert.Contains(t, string(body), `"order":9007199254740993`)
+}
+
 // A secret value that is merely a substring of the authored state must not
 // rewrite the request; the provider has to score the text the author wrote.
 func TestRequestNotMasked(t *testing.T) {

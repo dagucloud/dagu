@@ -4,6 +4,7 @@
 package decision
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -66,7 +67,11 @@ func parseConfig(raw map[string]any) (config, error) {
 	if err != nil {
 		return cfg, fmt.Errorf("decision configuration: %w", err)
 	}
-	if err := json.Unmarshal(data, &cfg); err != nil {
+	// State and instructions are forwarded to the provider verbatim, so numbers
+	// must keep the precision and representation the author wrote.
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&cfg); err != nil {
 		return cfg, fmt.Errorf("decision configuration: %w", err)
 	}
 	return cfg, nil
