@@ -4,20 +4,26 @@
 package decision
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"strconv"
 
 	"github.com/dagucloud/dagu/v2/internal/llm"
 )
 
+// Connections are pooled across attempts; credentials remain request-scoped.
+var sharedHTTPClient = llm.NewHTTPClient(llm.DefaultConfig())
+
 type client struct {
-	http     *llm.HTTPClient
-	endpoint string
-	apiKey   string
+	maxResponseBytes int64
+	http             *llm.HTTPClient
+	endpoint         string
+	apiKey           string
 }
 
 type request struct {
@@ -40,8 +46,16 @@ func (c *client) evaluate(ctx context.Context, req request) (map[string]any, err
 	}
 	defer func() { _ = response.Close() }()
 
+	data, err := io.ReadAll(io.LimitReader(response, c.maxResponseBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("read decision response: %w", err)
+	}
+	if int64(len(data)) > c.maxResponseBytes {
+		return nil, fmt.Errorf("decision response exceeded maximum size limit of %d bytes", c.maxResponseBytes)
+	}
 	var result map[string]any
-	decoder := json.NewDecoder(response)
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
 	if err := decoder.Decode(&result); err != nil {
 		return nil, fmt.Errorf("decision response must be a JSON object")
 	}
@@ -64,7 +78,7 @@ func validateResponse(result map[string]any, questions map[string]question) erro
 		return fmt.Errorf("decision response: missing usage")
 	}
 	for _, field := range []string{"input_tokens", "output_tokens"} {
-		v, ok := usage[field].(float64)
+		v, ok := number(usage[field])
 		if !ok || v < 0 || v != float64(int64(v)) {
 			return fmt.Errorf("decision response: invalid usage.%s", field)
 		}
@@ -111,7 +125,7 @@ func validateAnswer(answer map[string]any, q question) error {
 		}
 	} else {
 		criteria := q.Criteria.([]any)
-		score, ok := answer["score"].(float64)
+		score, ok := number(answer["score"])
 		if !ok || score < 0 || score > float64(len(criteria)-1) {
 			return fmt.Errorf("score must be within the configured scale")
 		}
@@ -139,6 +153,15 @@ func validateAnswer(answer map[string]any, q question) error {
 }
 
 func probability(v any) bool {
-	n, ok := v.(float64)
+	n, ok := number(v)
 	return ok && n >= 0 && n <= 1
+}
+
+func number(v any) (float64, bool) {
+	n, ok := v.(json.Number)
+	if !ok {
+		return 0, false
+	}
+	value, err := n.Float64()
+	return value, err == nil && !math.IsInf(value, 0) && !math.IsNaN(value)
 }

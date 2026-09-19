@@ -41,8 +41,9 @@ preserved. The API key variable name is a literal environment variable name.
 | `typesafe` | `https://api.typesafe.ai/v1` | `/systemone` | `TYPESAFE_API_KEY` |
 
 `with.base_url` overrides the API root, including its version prefix. A trailing
-slash is accepted. The URL must use HTTPS, except HTTP is allowed for localhost
-and loopback IP addresses. `with.api_key_name` optionally names another
+slash is accepted. Query and fragment delimiters, including empty trailing
+`?` and `#`, are rejected. The URL must use HTTPS, except HTTP is allowed for
+localhost and loopback IP addresses. `with.api_key_name` optionally names another
 environment variable; it is not the key's value.
 The key is resolved from the workflow environment, including declared secrets.
 An absent or empty key fails before sending a request.
@@ -57,14 +58,16 @@ There is no streaming, model fallback, chat history, or tool execution.
 A successful response is one JSON object containing `model`, `answers`, and
 `usage`. Each requested question must have an answer of the matching type:
 
-- `choice`: a selected criterion, option probabilities, and confidence.
-- `score`: a numeric score within the configured scale, level probabilities,
-  a legend, and confidence.
+- `choice`: a selected criterion, probabilities for every option, and confidence.
+- `score`: a numeric score within the configured scale, probabilities and legend
+  entries for every level, and confidence.
 - `noul`: a probability between zero and one, not a boolean.
 
 Probabilities and confidence must be numbers between zero and one. Low
 confidence is a successful result, not an execution error. Provider metadata
-is retained. Diagnostics do not appear in the JSON stdout response.
+is retained, including the precision and representation of JSON numbers through
+capture, persistence, and direct output references. Whitespace and object-key
+order may change. Diagnostics do not appear in the JSON stdout response.
 
 Without explicit output configuration, Dagu captures the response automatically.
 The existing `${classify.output.answers.department.choice}` JSON lookup works
@@ -75,8 +78,10 @@ top-level references. Strict step-output references do not support nested paths.
 Explicit `output`, `output_schema`, or `stdout.outputs` uses existing capture
 semantics instead of the automatic default. `output: RESULT` captures the raw
 response, and object-form output can select or rename fields. Output size limits,
-secret masking, and persisted run output behavior apply. Failed attempts publish
-no successful named outputs. Each retry captures only its own response.
+secret masking, and persisted run output behavior apply. The raw provider
+response is also bounded by `max_output_size` (1 MiB by default), before JSON
+decoding or masking. An oversized response fails without publishing output.
+Failed attempts publish no successful named outputs. Each retry captures only its own response.
 
 ## Errors
 

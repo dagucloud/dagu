@@ -47,3 +47,15 @@ steps:
     stdout: named.json
     with:
       message: ${steps.classify.outputs.answers}
+  - id: numbers
+    depends: classify
+    action: log.write
+    stdout: numbers.txt
+    with:
+      message: ${classify.output.usage.cost}|${classify.output.usage.sequence}|${classify.output.usage.estimate}
+  - id: usage
+    depends: classify
+    action: log.write
+    stdout: usage.json
+    with:
+      message: ${steps.classify.outputs.usage}

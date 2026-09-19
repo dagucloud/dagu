@@ -17,12 +17,18 @@ import (
 )
 
 const (
-	executorType = "decision"
-	choiceType   = "choice"
-	scoreType    = "score"
-	noulType     = "noul"
-	openRouter   = "openrouter"
-	typeSafe     = "typesafe"
+	executorType      = "decision"
+	choiceType        = "choice"
+	scoreType         = "score"
+	noulType          = "noul"
+	openRouter        = "openrouter"
+	typeSafe          = "typesafe"
+	openRouterBaseURL = "https://openrouter.ai/api/alpha"
+	openRouterPath    = "decisions"
+	openRouterKey     = "OPENROUTER_API_KEY"
+	typeSafeBaseURL   = "https://api.typesafe.ai/v1"
+	typeSafePath      = "systemone"
+	typeSafeKey       = "TYPESAFE_API_KEY"
 )
 
 type config struct {
@@ -38,6 +44,17 @@ type question struct {
 	Type         string `json:"type"`
 	Instructions any    `json:"instructions"`
 	Criteria     any    `json:"criteria,omitempty"`
+}
+
+type providerDefinition struct {
+	baseURL string
+	path    string
+	keyName string
+}
+
+var providers = map[string]providerDefinition{
+	openRouter: {baseURL: openRouterBaseURL, path: openRouterPath, keyName: openRouterKey},
+	typeSafe:   {baseURL: typeSafeBaseURL, path: typeSafePath, keyName: typeSafeKey},
 }
 
 func parseConfig(raw map[string]any) (config, error) {
@@ -65,7 +82,7 @@ func validateStep(step ir.Step) error {
 
 func (c config) validate(deferReferences bool) error {
 	if !deferReferences || !value.HasValueReference(c.Provider) {
-		if c.Provider != openRouter && c.Provider != typeSafe {
+		if _, ok := providers[c.Provider]; !ok {
 			return fmt.Errorf("decision: with.provider must be openrouter or typesafe")
 		}
 	}
@@ -77,7 +94,7 @@ func (c config) validate(deferReferences bool) error {
 	}
 	if c.BaseURL != "" && (!deferReferences || !value.HasValueReference(c.BaseURL)) {
 		u, err := url.Parse(c.BaseURL)
-		if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || strings.ContainsAny(c.BaseURL, "?#") {
 			return fmt.Errorf("decision: with.base_url must be an absolute HTTP API root without credentials, query, or fragment")
 		}
 		if u.Scheme == "http" && !strings.EqualFold(u.Hostname(), "localhost") && !net.ParseIP(u.Hostname()).IsLoopback() {
@@ -87,23 +104,18 @@ func (c config) validate(deferReferences bool) error {
 	return nil
 }
 
-func (c config) connection() (endpoint, keyName string) {
+func (c config) connection() (endpoint, keyName string, err error) {
+	provider := providers[c.Provider]
 	baseURL := c.BaseURL
-	path := "/decisions"
-	keyName = "OPENROUTER_API_KEY"
-	if c.Provider == typeSafe {
-		path = "/systemone"
-		keyName = "TYPESAFE_API_KEY"
-		if baseURL == "" {
-			baseURL = "https://api.typesafe.ai/v1"
-		}
-	} else if baseURL == "" {
-		baseURL = "https://openrouter.ai/api/alpha"
+	if baseURL == "" {
+		baseURL = provider.baseURL
 	}
-	if c.APIKeyName != "" {
-		keyName = c.APIKeyName
+	keyName = c.APIKeyName
+	if keyName == "" {
+		keyName = provider.keyName
 	}
-	return strings.TrimRight(baseURL, "/") + path, keyName
+	endpoint, err = url.JoinPath(baseURL, provider.path)
+	return endpoint, keyName, err
 }
 
 var configSchema = &jsonschema.Schema{

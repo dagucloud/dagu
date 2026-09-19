@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -546,19 +547,19 @@ func TestDecisionOutputs(t *testing.T) {
 	for _, mode := range []string{"success", "failure", "retry", "retry_limit"} {
 		t.Run(mode, func(t *testing.T) {
 			t.Parallel()
-			const response = `{"model":"jev-test","id":"decision-secret","answers":{"refund":{"type":"noul","noul":0.9}},"usage":{"input_tokens":10,"output_tokens":2}}`
-			calls := 0
+			const response = `{"model":"jev-test","id":"decision-secret","answers":{"refund":{"type":"noul","noul":0.9}},"usage":{"input_tokens":10,"output_tokens":2,"cost":0.0000042,"sequence":9007199254740993,"estimate":1.2300e+19}}`
+			var calls atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				var body map[string]any
 				assert.NoError(t, json.NewDecoder(r.Body).Decode(&body))
 				assert.Equal(t, map[string]any{"message": []any{"Refund please", float64(2)}, "secret": "*******"}, body["state"])
 				assert.Equal(t, "Bearer decision-secret", r.Header.Get("Authorization"))
-				calls++
-				if mode == "retry_limit" && calls == 1 {
+				call := calls.Add(1)
+				if mode == "retry_limit" && call == 1 {
 					_, _ = fmt.Fprint(w, `{"padding":"`+strings.Repeat("x", 1024)+`",`+response[1:])
 					return
 				}
-				if mode == "failure" || (mode == "retry" && calls == 1) {
+				if mode == "failure" || (mode == "retry" && call == 1) {
 					_, _ = fmt.Fprint(w, `{}`)
 					return
 				}
@@ -614,6 +615,11 @@ steps:
 			require.NoError(t, json.Unmarshal([]byte(*node.StepOutputsValue), &outputs))
 			assert.JSONEq(t, `"*******"`, string(outputs["id"]))
 			assert.JSONEq(t, `{"refund":{"type":"noul","noul":0.9}}`, string(outputs["answers"]))
+			var usage map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(outputs["usage"], &usage))
+			assert.Equal(t, "0.0000042", string(usage["cost"]))
+			assert.Equal(t, "9007199254740993", string(usage["sequence"]))
+			assert.Equal(t, "1.2300e+19", string(usage["estimate"]))
 			if mode == "retry" || mode == "retry_limit" {
 				assert.Equal(t, 1, node.RetryCount)
 			}

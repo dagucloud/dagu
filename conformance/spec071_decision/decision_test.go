@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const response = `{"model":"jev-test","provider":"TypeSafe","answers":{"department":{"type":"choice","choice":"billing","probabilities":{"billing":0.6,"other":0.4},"confidence":0.1},"urgency":{"type":"score","score":1.4,"legend":{"0":"Routine","1":"Soon","2":"Now"},"probabilities":{"0":0.1,"1":0.4,"2":0.5},"confidence":0.2},"refund":{"type":"noul","noul":0.95}},"usage":{"input_tokens":100,"output_tokens":25}}`
+const response = `{"model":"jev-test","provider":"TypeSafe","answers":{"department":{"type":"choice","choice":"billing","probabilities":{"billing":0.6,"other":0.4},"confidence":0.1},"urgency":{"type":"score","score":1.4,"legend":{"0":"Routine","1":"Soon","2":"Now"},"probabilities":{"0":0.1,"1":0.4,"2":0.5},"confidence":0.2},"refund":{"type":"noul","noul":0.95}},"usage":{"input_tokens":100,"output_tokens":25,"cost":0.0000042,"sequence":9007199254740993,"estimate":1.2300e+19}}`
 
 func TestOutputs(t *testing.T) {
 	t.Parallel()
@@ -65,6 +65,14 @@ func TestOutputs(t *testing.T) {
 				var expected map[string]json.RawMessage
 				require.NoError(t, json.Unmarshal([]byte(response), &expected))
 				assert.JSONEq(t, string(expected["answers"]), string(data))
+				dagu.ExpectFileContent("numbers.txt", "0.0000042|9007199254740993|1.2300e+19\n")
+				usage, err := os.ReadFile(dagu.ProjectPath("usage.json"))
+				require.NoError(t, err)
+				var numbers map[string]json.RawMessage
+				require.NoError(t, json.Unmarshal(usage, &numbers))
+				assert.Equal(t, "0.0000042", string(numbers["cost"]))
+				assert.Equal(t, "9007199254740993", string(numbers["sequence"]))
+				assert.Equal(t, "1.2300e+19", string(numbers["estimate"]))
 			}
 		})
 	}

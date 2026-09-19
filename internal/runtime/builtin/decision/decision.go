@@ -14,7 +14,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
@@ -41,8 +40,12 @@ func newExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	if err := cfg.validate(false); err != nil {
 		return nil, err
 	}
-	endpoint, keyName := cfg.connection()
-	scope := runtime.GetEnv(ctx).Scope
+	endpoint, keyName, err := cfg.connection()
+	if err != nil {
+		return nil, fmt.Errorf("decision endpoint: %w", err)
+	}
+	env := runtime.GetEnv(ctx)
+	scope := env.Scope
 	if scope == nil {
 		return nil, fmt.Errorf("decision: API key environment variable %q is not set", keyName)
 	}
@@ -54,11 +57,15 @@ func newExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	for name, secret := range scope.AllSecrets() {
 		secrets = append(secrets, name+"="+secret)
 	}
+	limit := int64(ir.DefaultMaxOutputSize)
+	if env.DAG != nil && env.DAG.MaxOutputSize > 0 {
+		limit = int64(env.DAG.MaxOutputSize)
+	}
 	requestCtx, cancel := context.WithCancel(ctx)
 	return &decisionExecutor{
 		stdout: os.Stdout,
 		cfg:    cfg,
-		client: &client{http: llm.NewHTTPClient(llm.DefaultConfig()), endpoint: endpoint, apiKey: key},
+		client: &client{http: sharedHTTPClient, endpoint: endpoint, apiKey: key, maxResponseBytes: limit},
 		masker: masking.NewMasker(masking.SourcedEnvVars{Secrets: secrets}),
 		cancel: cancel,
 		ctx:    requestCtx,
