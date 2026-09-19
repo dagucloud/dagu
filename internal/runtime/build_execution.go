@@ -83,12 +83,13 @@ func (r *Runner) startBuildSession(ctx context.Context, plan *Plan, node *Node) 
 	return ctx, session, err
 }
 
-func markBuildPrecondition(
+func (r *Runner) markBuildPrecondition(
+	ctx context.Context,
 	session *build.Session,
 	node *Node,
 	reason ir.BuildReason,
 	detail string,
-	progressCh chan *Node,
+	progressCh chan ProgressUpdate,
 ) {
 	if session == nil {
 		return
@@ -99,9 +100,7 @@ func markBuildPrecondition(
 	metadata.Reason = reason
 	metadata.Detail = detail
 	node.setBuild(metadata)
-	if progressCh != nil {
-		progressCh <- node
-	}
+	r.report(ctx, progressCh, node)
 }
 
 func (r *Runner) evaluateBuildNode(

@@ -311,13 +311,8 @@ func (ch *agentHelper) run(t *testing.T) ir.Status {
 	logPath := path.Join(ch.cfg.LogDir, fmt.Sprintf("%s_%s.log", ch.dag.Name, ch.cfg.DAGRunID))
 	ctx := runtime.NewContext(ch.Context, ch.dag, ch.cfg.DAGRunID, logPath)
 
-	progressCh := make(chan *runtime.Node)
-	drained := make(chan struct{})
-	go func() {
-		for range progressCh {
-		}
-		close(drained)
-	}()
+	progressCh := make(chan runtime.ProgressUpdate)
+	drained := drainProgress(progressCh)
 
 	ch.runErr = ch.runner.Run(ctx, ch.plan, progressCh)
 	close(progressCh)
@@ -1257,13 +1252,8 @@ func resumeAgentWith(
 	logPath := path.Join(cfg.LogDir, fmt.Sprintf("%s_resume.log", dag.Name))
 	ctx := runtime.NewContext(prev.Context, dag, cfg.DAGRunID, logPath)
 
-	progressCh := make(chan *runtime.Node)
-	drained := make(chan struct{})
-	go func() {
-		for range progressCh {
-		}
-		close(drained)
-	}()
+	progressCh := make(chan runtime.ProgressUpdate)
+	drained := drainProgress(progressCh)
 	_ = runner.Run(ctx, plan, progressCh)
 	close(progressCh)
 	<-drained

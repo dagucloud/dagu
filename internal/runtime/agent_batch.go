@@ -26,7 +26,7 @@ func (r *Runner) runAgentActionBatch(
 	plan *Plan,
 	state *agentloop.State,
 	decisions []agentloop.Decision,
-	progressCh chan *Node,
+	progressCh chan ProgressUpdate,
 ) (suspended bool, err error) {
 	state.Nudges = 0
 	executions := make([]agentActionExecution, len(decisions))

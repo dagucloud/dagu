@@ -5,6 +5,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -672,4 +673,84 @@ func TestPrepareBuildPlanRejectsInferredCycle(t *testing.T) {
 	assert.False(t, plan.IsInferredDependency(firstNode.ID(), secondNode.ID()))
 	assert.Empty(t, plan.Dependents(firstNode.ID()))
 	assert.Equal(t, []int{secondNode.ID()}, plan.Dependencies(firstNode.ID()))
+}
+
+// report must not release the sender until the receiver has acknowledged the
+// update, so a node's status reaches durable storage before execution
+// continues past it.
+func TestReportWaitsForAck(t *testing.T) {
+	t.Parallel()
+
+	r := New(&Config{})
+	ch := make(chan ProgressUpdate)
+	node := &Node{}
+
+	returned := make(chan struct{})
+	go func() {
+		r.report(context.Background(), ch, node)
+		close(returned)
+	}()
+
+	update := <-ch
+	require.Same(t, node, update.Node)
+	select {
+	case <-returned:
+		t.Fatal("report returned before the update was acknowledged")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	update.Ack(nil)
+	select {
+	case <-returned:
+	case <-time.After(time.Second):
+		t.Fatal("report did not return after the update was acknowledged")
+	}
+}
+
+// A receiver that reports a persistence failure must not change the run
+// outcome: the terminal status write decides that.
+func TestReportKeepsRunOutcomeOnAckError(t *testing.T) {
+	t.Parallel()
+
+	r := New(&Config{})
+	ch := make(chan ProgressUpdate)
+	go func() {
+		update := <-ch
+		update.Ack(errors.New("sync error"))
+	}()
+
+	r.report(context.Background(), ch, &Node{})
+	require.False(t, r.isError())
+}
+
+// A receiver that never acknowledges must not pin the sender for the rest of
+// the run; a cancelled context releases it.
+func TestReportStopsWaitingOnContextDone(t *testing.T) {
+	t.Parallel()
+
+	r := New(&Config{})
+	ch := make(chan ProgressUpdate)
+	go func() { <-ch }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	done := make(chan struct{})
+	go func() {
+		r.report(ctx, ch, &Node{})
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("report did not return after the context was cancelled")
+	}
+}
+
+// A nil progress channel is the "nobody is listening" case and must never
+// block, so senders can stay unconditional.
+func TestReportWithoutChannelDoesNotBlock(t *testing.T) {
+	t.Parallel()
+
+	New(&Config{}).report(context.Background(), nil, &Node{})
 }

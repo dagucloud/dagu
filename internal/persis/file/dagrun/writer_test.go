@@ -5,9 +5,7 @@ package dagrun
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,7 +13,6 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
-	"github.com/dagucloud/dagu/v2/internal/runtime/durability"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -134,90 +131,4 @@ func TestWriterErrorHandling(t *testing.T) {
 
 		assert.Equal(t, byte('\n'), data[len(data)-1])
 	})
-}
-
-// awaitErr waits for the Await result from ch, failing the test if Await does
-// not resolve within a bounded time. The deadline is a deadlock safety net only.
-func awaitErr(t *testing.T, ch <-chan error) error {
-	t.Helper()
-	select {
-	case err := <-ch:
-		return err
-	case <-time.After(3 * time.Second):
-		t.Fatal("Await did not resolve within bounded time; possible deadlock")
-		return nil
-	}
-}
-
-// TestWriterSyncBeforeAcknowledgeVG4 proves VG-4 (with VG-7/VG-8 on the failure
-// path): the writer's file.Sync() (performed inside Writer.Write) is the
-// durability "sync" step. Acknowledge must be issued only AFTER Write returns
-// nil (Sync completed), and Await must resolve nil only once Sync has done so.
-// A Sync failure must be reported via tracker.Fail and surface to Await.
-func TestWriterSyncBeforeAcknowledgeVG4(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "status.ndjson")
-
-	writer := NewWriter(path)
-	require.NoError(t, writer.Open())
-	t.Cleanup(func() { _ = writer.Close(context.Background()) })
-
-	tr := durability.New()
-	const key = "write-req"
-	id := tr.Register(key)
-
-	dag := &ir.DAG{Name: "vg4"}
-	mkStatus := func(s ir.Status) ir.DAGRunStatus {
-		return ir.NewStatusBuilder(dag).Create(uuid.Must(uuid.NewV7()).String(), s, 1, time.Now())
-	}
-
-	// Producer awaits (mirrors Runner.sendProgress Await).
-	awaitDone := make(chan error, 1)
-	go func() {
-		awaitDone <- tr.Await(context.Background(), id)
-	}()
-
-	// Deterministic negative proof: no Acknowledge yet, so Await cannot resolve.
-	select {
-	case err := <-awaitDone:
-		t.Fatalf("Await resolved (%v) before Write+Ack", err)
-	default:
-	}
-
-	// Persist the status: Writer.Write performs encode + flush + file.Sync().
-	// Sync succeeds; only after it returns nil do we Acknowledge.
-	require.NoError(t, writer.Write(context.Background(), mkStatus(ir.Running)))
-	tr.Acknowledge(key) // durability: acknowledge only after Sync completed
-
-	err := awaitErr(t, awaitDone)
-	require.NoError(t, err, "Await should return nil after Sync+Ack (VG-4)")
-
-	// --- Sync-failure injection (VG-7/VG-8) ---
-	id2 := tr.Register("fail-req")
-	awaitFailDone := make(chan error, 1)
-	go func() {
-		awaitFailDone <- tr.Await(context.Background(), id2)
-	}()
-
-	// Deterministic negative proof: Fail not yet called.
-	select {
-	case err := <-awaitFailDone:
-		t.Fatalf("Await resolved (%v) before Fail", err)
-	default:
-	}
-
-	// Inject a Sync failure: close the underlying OS file descriptor so the
-	// next Writer.Write's flushAndSyncLocked hits a closed fd and errors.
-	// writer.file stays non-nil, so isOpenLocked() still reports open.
-	require.NoError(t, writer.file.Close())
-	writeErr := writer.Write(context.Background(), mkStatus(ir.Failed))
-	require.Error(t, writeErr, "Write should fail when Sync fails")
-
-	// Consumer reports the sync error via Fail (NOT Acknowledge).
-	tr.Fail(writeErr)
-	fErr := awaitErr(t, awaitFailDone)
-	require.Error(t, fErr, "Await should return error on sync failure (VG-7)")
-	if !errors.Is(fErr, writeErr) {
-		t.Fatalf("Await returned %v; want the preserved sync error %v (VG-8)", fErr, writeErr)
-	}
 }

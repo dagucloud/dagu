@@ -346,16 +346,8 @@ func (ph planHelper) assertRun(t *testing.T, expectedStatus ir.Status) runResult
 
 	ctx := runtime.NewContext(ph.Context, dag, ph.cfg.DAGRunID, logFilePath)
 
-	var doneNodes []*runtime.Node
-	progressCh := make(chan *runtime.Node)
-
-	done := make(chan struct{})
-	go func() {
-		for node := range progressCh {
-			doneNodes = append(doneNodes, node)
-		}
-		done <- struct{}{}
-	}()
+	progressCh := make(chan runtime.ProgressUpdate)
+	drained := drainProgress(progressCh)
 
 	err := ph.runner.Run(ctx, ph.Plan, progressCh)
 
@@ -376,13 +368,9 @@ func (ph planHelper) assertRun(t *testing.T, expectedStatus ir.Status) runResult
 	require.Equal(t, expectedStatus.String(), ph.runner.Status(ctx, ph.Plan).String(),
 		"expected status %s, got %s", expectedStatus, ph.runner.Status(ctx, ph.Plan))
 
-	// wait for items of nodeCompletedChan to be processed
-	<-done
-	close(done)
-
 	return runResult{
 		planHelper: ph,
-		Done:       doneNodes,
+		Done:       <-drained,
 		Error:      err,
 	}
 }
@@ -562,6 +550,22 @@ func waitForHandlerNodeStatus(r *runtime.Runner, handler ir.HandlerType, status 
 		case <-time.After(5 * time.Millisecond):
 		}
 	}
+}
+
+// drainProgress consumes progress updates until ch is closed, acknowledging
+// each one so the runner is never left waiting on a durability ack. The
+// returned channel yields the nodes seen, in order, once ch is drained.
+func drainProgress(ch chan runtime.ProgressUpdate) <-chan []*runtime.Node {
+	drained := make(chan []*runtime.Node, 1)
+	go func() {
+		var nodes []*runtime.Node
+		for update := range ch {
+			update.Ack(nil)
+			nodes = append(nodes, update.Node)
+		}
+		drained <- nodes
+	}()
+	return drained
 }
 
 func init() {

@@ -3683,8 +3683,11 @@ func TestRunner_DeadlockDetection(t *testing.T) {
 	logFile := filepath.Join(cfg.LogDir, dag.Name+".log")
 	ctx := runtime.NewContext(context.Background(), dag, cfg.DAGRunID, logFile)
 
-	progressCh := make(chan *runtime.Node, 2)
+	progressCh := make(chan runtime.ProgressUpdate)
+	drained := drainProgress(progressCh)
 	err = r.Run(ctx, plan, progressCh)
+	close(progressCh)
+	<-drained
 
 	require.ErrorIs(t, err, runtime.ErrDeadlockDetected)
 	require.Equal(t, ir.Failed, r.Status(ctx, plan))
@@ -3706,17 +3709,13 @@ func TestRunner_ClosesPreparedOutputWritersOnFailedProgress(t *testing.T) {
 		runtime.WithLogWriterFactory(writers),
 	)
 
-	progressCh := make(chan *runtime.Node, 4)
+	progressCh := make(chan runtime.ProgressUpdate)
+	drained := drainProgress(progressCh)
 	err := helper.runner.Run(ctx, plan.Plan, progressCh)
 	close(progressCh)
 
-	progressCount := 0
-	for range progressCh {
-		progressCount++
-	}
-
 	require.Error(t, err)
-	require.GreaterOrEqual(t, progressCount, 2)
+	require.GreaterOrEqual(t, len(<-drained), 2)
 	require.Equal(t, 2, writers.closes)
 }
 

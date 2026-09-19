@@ -138,3 +138,58 @@ func TestRecordCurrentStatusPreservesSnapshotOrder(t *testing.T) {
 	require.Empty(t, statuses[0].Nodes[0].SubRuns)
 	require.Equal(t, "child-run", statuses[1].Nodes[0].SubRuns[0].DAGRunID)
 }
+
+type recordingStatusPusher struct {
+	mu       sync.Mutex
+	statuses []ir.DAGRunStatus
+}
+
+func (p *recordingStatusPusher) Push(_ context.Context, status ir.DAGRunStatus) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.statuses = append(p.statuses, status)
+	return nil
+}
+
+func (p *recordingStatusPusher) count() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.statuses)
+}
+
+// A terminal status must stay unpublished while post-run work that can still
+// change it is outstanding — here, a failure notification. Publishing early
+// lets observers see an outcome the final write goes on to retract.
+func TestRecordCurrentStatusWithheldWhileTerminalDelayed(t *testing.T) {
+	step := ir.Step{Name: "done"}
+	plan, err := runtime.NewPlan(step)
+	require.NoError(t, err)
+	plan.Nodes()[0].SetStatus(ir.NodeSucceeded)
+
+	mail := &ir.MailConfig{From: "sender@example.com", To: []string{"recipient@example.com"}}
+	pusher := &recordingStatusPusher{}
+	a := &Agent{
+		dag: &ir.DAG{
+			Name:   "delayed",
+			Steps:  []ir.Step{step},
+			MailOn: &ir.MailOn{Success: true},
+		},
+		dagRunID:     "run-1",
+		rootDAGRun:   ir.NewDAGRunRef("delayed", "run-1"),
+		plan:         plan,
+		runner:       runtime.New(&runtime.Config{}),
+		reporter:     newReporter(nil, reporterConfig{InfoMail: mail}),
+		statusPusher: pusher,
+	}
+
+	status, err := a.recordCurrentStatus(t.Context(), nil)
+	require.NoError(t, err, "a withheld write is not a failure")
+	require.Equal(t, ir.Succeeded, status.Status)
+	require.Zero(t, pusher.count(), "terminal status was published before the notification completed")
+
+	// Without a notification to wait for, the same status is published.
+	a.dag.MailOn = nil
+	_, err = a.recordCurrentStatus(t.Context(), nil)
+	require.NoError(t, err)
+	require.Equal(t, 1, pusher.count())
+}

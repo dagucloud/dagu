@@ -48,7 +48,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/docker"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/s3"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/ssh"
-	"github.com/dagucloud/dagu/v2/internal/runtime/durability"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/resourcelimit"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
@@ -211,10 +210,6 @@ type Agent struct {
 	// statusPusher is used to push status updates to a remote coordinator.
 	// When nil, status is written to local filesystem via the run-state attempt.
 	statusPusher StatusPusher
-
-	// tracker tracks durability of status writes for local-write mode.
-	// It is nil in dry-run mode and when statusPusher is set (distributed mode).
-	tracker *durability.DurabilityTracker
 
 	// subWorkflowRunnerFactory creates a runner for child workflows.
 	subWorkflowRunnerFactory SubWorkflowRunnerFactory
@@ -1007,12 +1002,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	// Setup channels to receive status updates for each node in the DAG.
 	// It should receive node instance when the node status changes, for
 	// example, when started, stopped, or cancelled, etc.
-	progressCh := make(chan *runtime.Node)
-	if !a.dry && a.statusPusher == nil {
-		a.tracker = durability.New()
-		defer a.tracker.Close()
-		a.runner.SetTracker(a.tracker)
-	}
+	progressCh := make(chan runtime.ProgressUpdate)
 	progressDone := make(chan struct{})
 	var progressDrained bool
 	defer func() {
@@ -1026,16 +1016,20 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 			a.progressDisplay.Stop()
 		}
 	}()
+	// Distributed runs push status over the network rather than to a local
+	// durability boundary, so senders are released before the push instead of
+	// after it; waiting would stall every node transition on a round-trip.
+	ackBeforeWrite := a.statusPusher != nil
 	go execWithRecovery(ctx, func() {
 		defer close(progressDone)
-		for node := range progressCh {
+		for update := range progressCh {
+			node := update.Node
+			if ackBeforeWrite {
+				update.Ack(nil)
+			}
 			status, writeErr := a.recordCurrentStatus(ctx, attempt)
-			if a.tracker != nil {
-				if writeErr != nil {
-					a.tracker.Fail(writeErr)
-				} else {
-					a.tracker.Acknowledge(node)
-				}
+			if !ackBeforeWrite {
+				update.Ack(writeErr)
 			}
 			if err := a.reporter.reportStep(ctx, a.dag, status, node); err != nil {
 				logger.Error(ctx, "Failed to report step", tag.Error(err))
@@ -1678,12 +1672,12 @@ func (a *Agent) recordCurrentStatus(ctx context.Context, attempt runstate.Attemp
 	defer a.statusWriteMu.Unlock()
 
 	status := a.Status(ctx)
-	if a.finished.Load() || (a.shouldDelayTerminalStatus(status.Status) &&
-		!(a.tracker != nil && a.tracker.HasPending())) {
+	// A suppressed write reports success: the terminal status it withholds is
+	// written, and synced, by the final writeStatus at the end of Run.
+	if a.finished.Load() || a.shouldDelayTerminalStatus(status.Status) {
 		return status, nil
 	}
-	err := a.writeStatus(ctx, attempt, status)
-	return status, err
+	return status, a.writeStatus(ctx, attempt, status)
 }
 
 func (a *Agent) pushStatus(ctx context.Context, status ir.DAGRunStatus) error {
@@ -2181,13 +2175,15 @@ func (a *Agent) evaluateS3Config(ctx context.Context) error {
 func (a *Agent) dryRun(ctx context.Context) error {
 	// progressCh channel receives the node when the node status changes.
 	// It provides a way to update the status in real-time efficiently.
-	progressCh := make(chan *runtime.Node)
+	progressCh := make(chan runtime.ProgressUpdate)
 	defer close(progressCh)
 
 	go func() {
-		for node := range progressCh {
+		for update := range progressCh {
+			// A dry-run persists nothing, so the sender is released at once.
+			update.Ack(nil)
 			status := a.Status(ctx)
-			_ = a.reporter.reportStep(ctx, a.dag, status, node)
+			_ = a.reporter.reportStep(ctx, a.dag, status, update.Node)
 		}
 	}()
 
