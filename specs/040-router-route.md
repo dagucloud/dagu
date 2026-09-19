@@ -146,9 +146,9 @@ that silently stops gating is worse than a loud failure. Rules:
   matches the value, and a `re:.*` catch-all. A routing decision that cannot be
   evaluated is not partially carried out.
 - A `re:.*` catch-all therefore does not act as a fallback for non-numeric
-  input. There is no route pattern for "everything the numeric routes did not
-  cover"; a fallback step expresses that with its own negated `num:`
-  preconditions instead (see
+  input. There is also no single route pattern for a middle band such as
+  `0.1 < x < 0.9`, because a route carries one pattern. A step covering either
+  case states its own bounds as preconditions, which are combined with AND (see
   [Spec 023: Preconditions](023-preconditions.md)).
 - Routing is unaffected when the value is a number: every route, numeric or
   not, matches independently as usual.
@@ -210,5 +210,31 @@ steps:
   - name: auto_approve
     run: echo approve
   - name: human_review
+    run: echo review
+```
+
+A three-way split needs a middle band, which no single route pattern expresses.
+The band is stated on the step that covers it, as preconditions combined with
+AND:
+
+```yaml
+type: graph
+steps:
+  - id: auto_approve
+    preconditions:
+      - condition: "${CONFIDENCE}"
+        expected: "num:>=0.9"
+    run: echo approve
+  - id: auto_reject
+    preconditions:
+      - condition: "${CONFIDENCE}"
+        expected: "num:<=0.1"
+    run: echo reject
+  - id: human_review
+    preconditions:
+      - condition: "${CONFIDENCE}"
+        expected: "num:<0.9"
+      - condition: "${CONFIDENCE}"
+        expected: "num:>0.1"
     run: echo review
 ```
