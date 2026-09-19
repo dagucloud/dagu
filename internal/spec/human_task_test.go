@@ -101,6 +101,24 @@ steps:
 	assert.Empty(t, dag.Steps[0].Outputs)
 }
 
+func TestHumanTaskBuildsArtifactReferences(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Review
+      artifacts:
+        - changes.diff
+        - reports\\test-report.html
+`))
+	require.NoError(t, err)
+	require.NotNil(t, dag.Steps[0].HumanTask)
+	assert.Equal(t, []string{"changes.diff", "reports/test-report.html"}, dag.Steps[0].HumanTask.Artifacts)
+}
+
 func TestHumanTaskDoesNotInheritExecutionDefaults(t *testing.T) {
 	t.Parallel()
 
@@ -198,6 +216,102 @@ steps:
     with: {}
 `,
 			message: "with.prompt",
+		},
+		{
+			name: "ArtifactsMustBeArray",
+			yaml: `
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Review
+      artifacts: changes.diff
+`,
+			message: "with.artifacts must be an array",
+		},
+		{
+			name: "ArtifactsMustNotBeNull",
+			yaml: `
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Review
+      artifacts: null
+`,
+			message: "with.artifacts must be an array",
+		},
+		{
+			name: "ArtifactsMustContainStrings",
+			yaml: `
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Review
+      artifacts: [changes.diff, 1]
+`,
+			message: "entries must be strings",
+		},
+		{
+			name: "ArtifactsRejectEmptyPath",
+			yaml: `
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Review
+      artifacts: [""]
+`,
+			message: "path must not be empty",
+		},
+		{
+			name: "ArtifactsRejectAbsolutePath",
+			yaml: `
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Review
+      artifacts: [/etc/passwd]
+`,
+			message: "artifact path must be relative",
+		},
+		{
+			name: "ArtifactsRejectHomeRelativePath",
+			yaml: `
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Review
+      artifacts: [~/secret]
+`,
+			message: "artifact path must be relative",
+		},
+		{
+			name: "ArtifactsRejectUnsafePaths",
+			yaml: `
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Review
+      artifacts: [../../secret]
+`,
+			message: "must not contain parent directory segments",
+		},
+		{
+			name: "ArtifactsRejectDuplicatePaths",
+			yaml: `
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Review
+      artifacts: [changes.diff, changes.diff]
+`,
+			message: "contains duplicate path",
 		},
 		{
 			name: "ExplicitOutputs",

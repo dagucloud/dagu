@@ -490,10 +490,11 @@ type ApprovalConfig struct {
 	RewindTo string `json:"rewindTo,omitempty"`
 }
 
-// HumanTaskConfig defines the prompt and input form for a human task step.
+// HumanTaskConfig defines the prompt, input form, and artifact references for a human task step.
 type HumanTaskConfig struct {
-	Prompt string          `json:"prompt,omitempty"`
-	Form   json.RawMessage `json:"form,omitempty"`
+	Prompt    string          `json:"prompt,omitempty"`
+	Form      json.RawMessage `json:"form,omitempty"`
+	Artifacts []string        `json:"artifacts,omitempty"`
 }
 
 const (

@@ -109,8 +109,9 @@ func TestToDAGRunDetailsIncludesHumanTaskContract(t *testing.T) {
 				ID:   "review",
 				Name: "Review",
 				HumanTask: &ir.HumanTaskConfig{
-					Prompt: "Confirm the release",
-					Form:   json.RawMessage(`{"type":"object","properties":{"count":{"type":"integer","maximum":9007199254740993}}}`),
+					Prompt:    "Confirm the release",
+					Form:      json.RawMessage(`{"type":"object","properties":{"count":{"type":"integer","maximum":9007199254740993}}}`),
+					Artifacts: []string{"changes.diff", "reports/test.html"},
 				},
 			},
 			Status:         ir.NodeSucceeded,
@@ -122,6 +123,8 @@ func TestToDAGRunDetailsIncludesHumanTaskContract(t *testing.T) {
 	require.Len(t, details.Nodes, 1)
 	require.NotNil(t, details.Nodes[0].Step.HumanTask)
 	assert.Equal(t, "Confirm the release", details.Nodes[0].Step.HumanTask.Prompt)
+	require.NotNil(t, details.Nodes[0].Step.HumanTask.Artifacts)
+	assert.Equal(t, []string{"changes.diff", "reports/test.html"}, *details.Nodes[0].Step.HumanTask.Artifacts)
 	require.NotNil(t, details.Nodes[0].Step.HumanTask.Form)
 	assert.Equal(t, "object", (*details.Nodes[0].Step.HumanTask.Form)["type"])
 	properties := (*details.Nodes[0].Step.HumanTask.Form)["properties"].(map[string]any)

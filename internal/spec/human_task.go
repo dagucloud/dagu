@@ -45,7 +45,7 @@ func normalizeHumanTaskAction(normalized map[string]any, with map[string]any) er
 		return ir.NewValidationError("with", nil, fmt.Errorf("with.prompt is required"))
 	}
 	for name := range with {
-		if name != "prompt" && name != "form" {
+		if name != "prompt" && name != "form" && name != "artifacts" {
 			return ir.NewValidationError("with", with, fmt.Errorf("human.task does not support with.%s", name))
 		}
 	}
@@ -69,11 +69,45 @@ func buildStepHumanTask(_ stepBuildContext, s *step, result *ir.Step) error {
 	if err != nil {
 		return ir.NewValidationError("with.form", s.With["form"], err)
 	}
+	var artifacts []string
+	if value, exists := s.With["artifacts"]; exists {
+		artifacts, err = buildHumanTaskArtifacts(value)
+		if err != nil {
+			return ir.NewValidationError("with.artifacts", value, err)
+		}
+	}
 	prompt, _ := s.With["prompt"].(string)
 	result.HumanTask = &ir.HumanTaskConfig{
-		Prompt: prompt,
-		Form:   form,
+		Prompt:    prompt,
+		Form:      form,
+		Artifacts: artifacts,
 	}
 	result.Outputs = outputs
 	return nil
+}
+
+func buildHumanTaskArtifacts(value any) ([]string, error) {
+	values, ok := value.([]any)
+	if !ok {
+		return nil, fmt.Errorf("with.artifacts must be an array of artifact paths")
+	}
+
+	artifacts := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		artifact, ok := value.(string)
+		if !ok {
+			return nil, fmt.Errorf("with.artifacts entries must be strings")
+		}
+		artifact, err := cleanStepArtifactPath(artifact)
+		if err != nil {
+			return nil, err
+		}
+		if _, exists := seen[artifact]; exists {
+			return nil, fmt.Errorf("with.artifacts contains duplicate path %q", artifact)
+		}
+		seen[artifact] = struct{}{}
+		artifacts = append(artifacts, artifact)
+	}
+	return artifacts, nil
 }

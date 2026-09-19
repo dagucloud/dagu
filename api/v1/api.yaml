@@ -10916,7 +10916,7 @@ components:
 
     HumanTaskConfig:
       type: object
-      description: "Resolved human-task instructions and optional normalized input form"
+      description: "Resolved human-task instructions with optional normalized input form and artifact references"
       properties:
         prompt:
           type: string
@@ -10925,6 +10925,11 @@ components:
           type: object
           additionalProperties: true
           description: "Normalized flat JSON Schema for typed completion input"
+        artifacts:
+          type: array
+          items:
+            type: string
+          description: "Artifact-relative paths in the current root DAG run"
       required:
         - prompt
 

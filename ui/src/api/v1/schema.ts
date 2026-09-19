@@ -3904,7 +3904,7 @@ export interface components {
             /** @description Optional step name to restart from when the approver pushes the step back. Must reference the step itself or an upstream dependency. */
             rewindTo?: string;
         };
-        /** @description Resolved human-task instructions and optional normalized input form */
+        /** @description Resolved human-task instructions with optional normalized input form and artifact references */
         HumanTaskConfig: {
             /** @description Instructions displayed to the operator. Run details contain the resolved, secret-masked snapshot. */
             prompt: string;
@@ -3912,6 +3912,8 @@ export interface components {
             form?: {
                 [key: string]: unknown;
             };
+            /** @description Artifact-relative paths in the current root DAG run */
+            artifacts?: string[];
         };
         /** @description Typed human-task completion input. An empty object acknowledges a task without a form. */
         HumanTaskInput: {

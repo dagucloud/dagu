@@ -89,15 +89,26 @@ Fields owned by this spec:
 | `id` | Yes | Step identity used for completion and output references. |
 | `with.prompt` | Yes | Instructions for the operator. |
 | `with.form` | No | Flat typed input object. Omit for acknowledgement only. |
+| `with.artifacts` | No | Literal artifact-relative paths available as review context. |
 
 Rules:
 
 - The step must define an explicit `id` accepted by Spec 009.
 - `name` does not satisfy the explicit `id` requirement.
-- `with` must be an object containing only `prompt` and optional `form`.
+- `with` must be an object containing only `prompt`, optional `form`, and optional
+  `artifacts`.
 - `with.prompt` must be a string containing a non-whitespace character before
   runtime value resolution.
 - `with.form: null` is invalid. Acknowledgement-only tasks omit `form`.
+- `with.artifacts`, when present, must be an array of unique, non-empty strings.
+  Each path is literal, relative to the current root DAG run's artifact
+  directory, and must not be absolute, home-relative, or contain
+  parent-directory segments. Artifact references are not value-resolved.
+- The waiting-task snapshot stores artifact paths only; it never copies artifact
+  contents into human-task state. Missing or unavailable referenced artifacts
+  do not change task completion or resume semantics.
+- A human task without `artifacts` behaves exactly as it did before artifact
+  references were introduced.
 - A human task starts no command, executor, container, or child DAG.
 - `name`, `description`, `depends`, `working_dir`, `env`, `preconditions`, and
   `continue_on` retain their owning behavior.

@@ -19,7 +19,9 @@ import type { JSONSchema } from '../../../../lib/schema-utils';
 import { buildParamSchemaUiSchema } from '../dag-execution/paramSchemaForm';
 import { schemaFormTemplates } from '../dag-execution/schemaFormTemplates';
 import { schemaFormWidgets } from '../dag-execution/schemaFormWidgets';
+import { ArtifactFilePreview } from '../artifacts/ArtifactFilePreview';
 import { I18nText } from '@/i18n/I18nText';
+import { Tab, Tabs } from '@/components/ui/tabs';
 
 type DAGRunDetails = components['schemas']['DAGRunDetails'];
 type HumanTaskNode = components['schemas']['Node'];
@@ -72,6 +74,15 @@ function HumanTaskCard({
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const task = node.step.humanTask!;
+  const artifacts = task.artifacts ?? [];
+  const artifactListKey = artifacts.join('\u0000');
+  const [selectedArtifact, setSelectedArtifact] = React.useState<string | null>(
+    artifacts[0] ?? null
+  );
+  const activeArtifact =
+    selectedArtifact && artifacts.includes(selectedArtifact)
+      ? selectedArtifact
+      : (artifacts[0] ?? null);
   const schema = (task.form ?? undefined) as JSONSchema | undefined;
   const hasForm = !!schema && Object.keys(schema).length > 0;
   const completionDisabled = !canExecute || submitting || !node.step.id;
@@ -82,6 +93,12 @@ function HumanTaskCard({
     }),
     [schema]
   );
+
+  React.useEffect(() => {
+    setSelectedArtifact((current) =>
+      current && artifacts.includes(current) ? current : (artifacts[0] ?? null)
+    );
+  }, [artifactListKey]);
 
   const complete = async (input: FormData) => {
     if (!node.step.id || submitting) return;
@@ -130,6 +147,33 @@ function HumanTaskCard({
         <div className="text-sm font-semibold">{node.step.name}</div>
         <div className="whitespace-pre-wrap text-base">{task.prompt}</div>
       </div>
+
+      {artifacts.length > 0 && (
+        <div className="space-y-2">
+          <div className="text-sm font-semibold">
+            <I18nText text={'Artifacts'} />
+          </div>
+          {artifacts.length > 1 && (
+            <Tabs aria-label="Task artifacts">
+              {artifacts.map((artifact) => (
+                <Tab
+                  key={artifact}
+                  isActive={activeArtifact === artifact}
+                  onClick={() => setSelectedArtifact(artifact)}
+                >
+                  {artifact}
+                </Tab>
+              ))}
+            </Tabs>
+          )}
+          <ArtifactFilePreview
+            dagRunName={dagRun.name}
+            dagRunId={dagRun.dagRunId}
+            path={activeArtifact}
+            remoteNode={remoteNode}
+          />
+        </div>
+      )}
 
       {error && (
         <Alert variant="destructive">

@@ -205,6 +205,9 @@ func toStep(obj ir.Step) api.Step {
 
 	if obj.HumanTask != nil {
 		humanTask := &api.HumanTaskConfig{Prompt: obj.HumanTask.Prompt}
+		if len(obj.HumanTask.Artifacts) > 0 {
+			humanTask.Artifacts = ptrOf(append([]string(nil), obj.HumanTask.Artifacts...))
+		}
 		if len(obj.HumanTask.Form) > 0 {
 			var form map[string]any
 			decoder := json.NewDecoder(bytes.NewReader(obj.HumanTask.Form))

@@ -1,0 +1,8 @@
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Review the generated reports
+      artifacts:
+        - changes.diff
+        - 1
