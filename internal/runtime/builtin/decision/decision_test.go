@@ -159,6 +159,21 @@ func TestResponse(t *testing.T) {
 	}
 }
 
+// Token counts are provider accounting: a response that omits them is still a
+// usable decision.
+func TestResponseWithoutTokenCounts(t *testing.T) {
+	t.Parallel()
+	cfg, err := parseConfig(testConfig(t))
+	require.NoError(t, err)
+	stripped := strings.Replace(responseJSON, `"input_tokens":100,"output_tokens":25,`, ``, 1)
+	require.NotEqual(t, responseJSON, stripped)
+	var response map[string]any
+	decoder := json.NewDecoder(strings.NewReader(stripped))
+	decoder.UseNumber()
+	require.NoError(t, decoder.Decode(&response))
+	require.NoError(t, validateResponse(response, cfg.Questions))
+}
+
 func TestBaseURL(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {

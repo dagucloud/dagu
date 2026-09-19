@@ -82,8 +82,14 @@ func validateResponse(result map[string]any, questions map[string]question) erro
 	if !ok {
 		return fmt.Errorf("decision response: missing usage")
 	}
+	// Token counts are provider accounting, not part of the decision, so a
+	// response that omits them is still usable.
 	for _, field := range []string{"input_tokens", "output_tokens"} {
-		v, ok := number(usage[field])
+		raw, present := usage[field]
+		if !present {
+			continue
+		}
+		v, ok := number(raw)
 		if !ok || v < 0 || v != float64(int64(v)) {
 			return fmt.Errorf("decision response: invalid usage.%s", field)
 		}

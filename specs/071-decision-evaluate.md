@@ -58,7 +58,9 @@ There is no streaming, model fallback, chat history, or tool execution.
 ### Answers and outputs
 
 A successful response is one JSON object containing `model`, `answers`, and
-`usage`. Each requested question must have an answer of the matching type:
+`usage`. `usage` is an object whose `input_tokens` and `output_tokens` counts are
+validated as non-negative integers when present; a response that omits them is
+still valid. Each requested question must have an answer of the matching type:
 
 - `choice`: a selected criterion, probabilities for every option, and confidence.
 - `score`: a numeric score within the configured scale, probabilities and legend
