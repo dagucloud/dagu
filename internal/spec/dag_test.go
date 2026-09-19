@@ -3848,7 +3848,17 @@ func TestRouterNumericRoutePattern(t *testing.T) {
 		for _, pattern := range []string{"num:", "num:0.8", "num:==0.8", "num:>=abc"} {
 			_, err := newDAG(pattern).build(testBuildContext())
 			require.Error(t, err, "pattern %q should be rejected", pattern)
-			assert.Contains(t, err.Error(), "has an invalid numeric comparison")
+			assert.Contains(t, err.Error(), "numeric comparison is invalid")
 		}
+	})
+
+	// Route patterns went unvalidated for re: until they shared precondition
+	// pattern validation.
+	t.Run("InvalidRegexp", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := newDAG("re:[").build(testBuildContext())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "regexp is invalid")
 	})
 }

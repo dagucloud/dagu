@@ -19,7 +19,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/signal"
-	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -1046,6 +1045,9 @@ func buildStepRepeatPolicy(_ stepBuildContext, s *step) (ir.RepeatPolicy, error)
 	result.LimitStr = rp.Limit.Str()
 
 	if rp.Condition != "" {
+		if err := validateMatchPattern(rp.Expected); err != nil {
+			return ir.RepeatPolicy{}, fmt.Errorf("repeat_policy.expected is invalid: %w", err)
+		}
 		result.Condition = &ir.Condition{
 			Condition: rp.Condition,
 			Expected:  rp.Expected,
@@ -2834,11 +2836,9 @@ func buildStepRouter(_ stepBuildContext, s *step, result *ir.Step) error {
 				fmt.Errorf("route pattern cannot be empty"))
 		}
 
-		if stringutil.HasNumericPrefix(pattern) {
-			if _, err := stringutil.ParseNumericPattern(pattern); err != nil {
-				return ir.NewValidationError("routes", pattern,
-					fmt.Errorf("route pattern %q has an invalid numeric comparison: %w", pattern, err))
-			}
+		if err := validateMatchPattern(pattern); err != nil {
+			return ir.NewValidationError("routes", pattern,
+				fmt.Errorf("route pattern %q is invalid: %w", pattern, err))
 		}
 
 		if len(targets) == 0 {

@@ -1911,7 +1911,7 @@
             },
             "expected": {
               "type": "string",
-              "description": "Expected value or pattern to match against the condition result. Supports regex patterns with 're:' prefix."
+              "description": "Expected value or pattern to match against the condition result. Supports regex patterns with 're:' prefix and numeric comparisons with 'num:' prefix (e.g., 'num:>=0.8')."
             },
             "exit_code": {
               "oneOf": [
