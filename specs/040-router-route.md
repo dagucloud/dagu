@@ -55,7 +55,8 @@ resolution as any other step field.
 `with.routes` (required) is a map from pattern to a list of target step
 names: `{pattern: [step1, step2, ...]}`. Each pattern is matched against the
 resolved value the same way a step `precondition`'s `expected` matches its
-`condition` -- an exact string, or a `re:`-prefixed regular expression.
+`condition` -- an exact string, a `re:`-prefixed regular expression, or a
+`num:`-prefixed numeric comparison.
 
 ### Target execution
 
@@ -107,6 +108,8 @@ the quoted wording below (exact surrounding phrasing may vary):
 - `with.routes` is missing: `"with.routes is required"`.
 - `with.routes` is empty: `"router step requires at least one route"`.
 - A route's pattern is empty: `"route pattern cannot be empty"`.
+- A route's pattern starts with `num:` and the rest is not an ordering operator
+  followed by a finite number: `"has an invalid numeric comparison"`.
 - A route lists no targets: `"has no targets"`.
 - A route lists an empty target name: `"has empty target"`.
 - The same step name appears as a target of more than one route:
@@ -129,6 +132,15 @@ to equal the unresolved literal text, still matches it. A router step
 itself can only fail at runtime the way any step can (signal delivery,
 cancellation; see
 [Spec 017: Built-In Run Context](017-built-in-run-context.md)).
+
+A `num:` route is the one exception to that leniency, because a numeric gate
+that silently stops gating is worse than a loud failure. When the resolved
+value is not a number, matching it against a `num:` route is an evaluation
+error on that route's target step, so the target reaches terminal status
+`failed` and the DAG run fails (see
+[Spec 023: Preconditions](023-preconditions.md)). The router step itself still
+does not fail, and targets of non-`num:` routes are unaffected: a route whose
+pattern still matches the literal text runs its targets as usual.
 
 ## Related Specs
 
@@ -169,4 +181,23 @@ steps:
     run: echo "5xx"
   - name: catch_all
     run: echo "other"
+```
+
+Route by numeric comparison. The two routes are mutually exclusive, so exactly
+one target runs; adding a `re:.*` catch-all here would run its targets as well,
+because routing is not first-match-wins:
+
+```yaml
+steps:
+  - name: pick
+    action: router.route
+    with:
+      value: "${CONFIDENCE}"
+      routes:
+        "num:>=0.9": [auto_approve]
+        "num:<0.9": [human_review]
+  - name: auto_approve
+    run: echo approve
+  - name: human_review
+    run: echo review
 ```

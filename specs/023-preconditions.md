@@ -204,6 +204,15 @@ Rules:
 - Regex matching is case-sensitive unless the pattern uses a Go regexp flag
   such as `(?i)`.
 - Regex patterns are not implicitly anchored.
+- Numeric matching is selected only when `expected` starts with `num:`.
+- The numeric comparison is the text after `num:`.
+- A numeric comparison is one of the ordering operators `>`, `>=`, `<`, or `<=`
+  followed by a number.
+- Whitespace around the operator and the number is allowed.
+- Equality operators are not supported in a numeric comparison. Exact string
+  matching already covers equality.
+- Because Dagu must not value-resolve `expected`, the number in a numeric
+  comparison must be written literally. It cannot come from a value reference.
 
 ### Negation
 
@@ -259,12 +268,25 @@ Rules:
   equals `expected`.
 - `expected: re:<pattern>` passes when `<pattern>` matches at least one line in
   the actual value.
+- `expected: num:<operator><number>` passes when the actual value, with
+  surrounding whitespace removed, is a number that satisfies `<operator>`
+  against `<number>`.
+- Numeric matching is not line-based, unlike literal and regex matching. The
+  whole actual value is the number, so a multi-line actual value is never a
+  number.
+- Numeric matching compares both sides as 64-bit floating point values. It
+  compares only; it does not compute.
+- NaN and infinity are not numbers for numeric matching, on either side.
+- A numeric comparison that does not hold is a not-met condition.
+- An actual value that is not a number is a numeric-matching evaluation error,
+  not a not-met condition. A numeric gate must not silently stop gating.
 - Matching against an empty actual value is allowed only when value resolution or
   dynamic evaluation produced an empty string.
 - An invalid regex pattern is a validation error when it is known before
   runtime.
 - If an invalid regex pattern is not detected until runtime, checking the
   condition is an evaluation error.
+- An invalid numeric comparison is a validation error.
 
 Example:
 
@@ -279,6 +301,22 @@ preconditions:
 steps:
   - id: deploy
     run: ./deploy.sh ${params.environment}
+```
+
+Numeric example, gating a step on a confidence score without a shell:
+
+```yaml
+type: graph
+steps:
+  - id: classify
+    run: ./classify.sh
+    output: RESULT
+  - id: handle_automatically
+    depends: classify
+    preconditions:
+      - condition: ${RESULT.confidence}
+        expected: "num:>=0.8"
+    run: ./handle.sh
 ```
 
 ### Command-Check Conditions
@@ -461,6 +499,10 @@ Validation must fail when:
 - An object condition entry contains legacy `command`.
 - `expected` starts with `re:` and the remaining text is empty, whitespace
   only, or not a valid Go regexp pattern.
+- `expected` starts with `num:` and the remaining text is empty or whitespace
+  only.
+- `expected` starts with `num:` and the remaining text is not one of the
+  ordering operators `>`, `>=`, `<`, or `<=` followed by a finite number.
 
 Validation must not:
 
@@ -484,12 +526,15 @@ Runtime checking must fail the owning DAG or step when:
 - The selected shell cannot be resolved.
 - The selected working directory cannot be used.
 - A regex pattern reaches runtime and cannot be compiled.
+- The actual value of a `num:` value-match condition is not a finite number.
 - Workflow abort interrupts precondition checking.
 - Workflow timeout interrupts precondition checking.
 
 Runtime checking must produce a not-met condition, not an evaluation error, when:
 
 - A value-match condition does not match `expected`.
+- A `num:` value-match condition's actual value is a number that does not
+  satisfy the comparison.
 - A command-check condition exits with a non-zero exit code.
 - A command-check condition process cannot be started.
 
