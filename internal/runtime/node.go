@@ -406,7 +406,7 @@ func (n *Node) publishCapturedStepOutputs(ctx context.Context, payload string) e
 	}
 
 	var decoded any
-	if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
+	if err := decodeOutputJSON(payload, &decoded); err != nil {
 		return fmt.Errorf("failed to decode captured step outputs: %w", err)
 	}
 	// A payload that is not an object carries no addressable names, so an
@@ -418,7 +418,7 @@ func (n *Node) publishCapturedStepOutputs(ctx context.Context, payload string) e
 
 	if raw := n.State().StepOutputsValue; raw != nil && *raw != "" {
 		published := make(map[string]any)
-		if err := json.Unmarshal([]byte(*raw), &published); err != nil {
+		if err := decodeOutputJSON(*raw, &published); err != nil {
 			return fmt.Errorf("failed to decode step outputs before publishing captured outputs: %w", err)
 		}
 		maps.Copy(merged, published)
@@ -446,7 +446,8 @@ func (n *Node) evaluateOutputSchema(ctx context.Context, raw string) (string, er
 		return "", err
 	}
 
-	data, err := json.Marshal(decoded)
+	// Preserve number precision independently of the schema validator's numeric representation.
+	data, err := json.Marshal(json.RawMessage(trimmed))
 	if err != nil {
 		return "", fmt.Errorf("failed to serialize validated output_schema value: %w", err)
 	}
@@ -666,12 +667,24 @@ func (n *Node) readStructuredOutputSource(ctx context.Context, key string, entry
 	}
 }
 
+func decodeOutputJSON(raw string, target any) error {
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	if decoder.Decode(new(any)) != io.EOF {
+		return fmt.Errorf("expected one JSON value")
+	}
+	return nil
+}
+
 func decodeStructuredOutputValue(ctx context.Context, key, raw, selectPath, decode string) (any, error) {
 	var decoded any
 
 	switch decode {
 	case ir.StepOutputDecodeJSON:
-		if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+		if err := decodeOutputJSON(raw, &decoded); err != nil {
 			return nil, fmt.Errorf("%s: failed to decode JSON: %w", key, err)
 		}
 	case ir.StepOutputDecodeYAML:

@@ -445,7 +445,7 @@ func (d NodeData) OutputsValueMap() map[string]any {
 		return nil
 	}
 	var values map[string]any
-	if err := json.Unmarshal([]byte(*d.State.OutputsValue), &values); err != nil {
+	if err := decodeOutputJSON(*d.State.OutputsValue, &values); err != nil {
 		return nil
 	}
 	return values
@@ -471,7 +471,7 @@ func (d NodeData) StepOutputsValueMap() map[string]string {
 		return nil
 	}
 	var values map[string]any
-	if err := json.Unmarshal([]byte(*d.State.StepOutputsValue), &values); err != nil {
+	if err := decodeOutputJSON(*d.State.StepOutputsValue, &values); err != nil {
 		return nil
 	}
 	if len(values) == 0 {

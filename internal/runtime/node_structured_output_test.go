@@ -814,3 +814,32 @@ func TestStepOutputsValueMapRendersTypedValues(t *testing.T) {
 		"meta":  `{"tag":"v1"}`,
 	}, data.StepOutputsValueMap())
 }
+
+func TestOutputNumbers(t *testing.T) {
+	t.Parallel()
+	const payload = `{"cost":0.0000042,"sequence":9007199254740993,"estimate":1.2300e+19}`
+	for _, step := range []ir.Step{
+		{OutputSchema: map[string]any{"type": "object"}},
+		{StructuredOutput: map[string]ir.StepOutputEntry{"metadata": {From: ir.StepOutputSourceStdout, Decode: ir.StepOutputDecodeJSON}}},
+		{StdoutOutputs: &ir.StepOutputsConfig{Decode: ir.StepOutputDecodeJSON}},
+	} {
+		ctx := structuredOutputTestContext(t, nil, t.TempDir())
+		node := NodeWithData(NodeData{Step: step})
+		node.outputs.outputCaptured = true
+		node.outputs.outputData = payload
+		require.NoError(t, node.captureOutput(ctx))
+		state := node.State()
+		require.NotNil(t, state.StepOutputsValue)
+		for _, token := range []string{"0.0000042", "9007199254740993", "1.2300e+19"} {
+			assert.Contains(t, *state.StepOutputsValue, token)
+		}
+		values := NodeData{State: state}.StepOutputsValueMap()
+		if step.HasStructuredOutput() {
+			assert.Contains(t, values["metadata"], "9007199254740993")
+		} else {
+			assert.Equal(t, "0.0000042", values["cost"])
+			assert.Equal(t, "9007199254740993", values["sequence"])
+			assert.Equal(t, "1.2300e+19", values["estimate"])
+		}
+	}
+}

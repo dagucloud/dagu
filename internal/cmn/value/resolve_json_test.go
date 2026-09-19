@@ -119,3 +119,16 @@ func TestExpandReferences_ComplexJSON(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveJSONNumbers(t *testing.T) {
+	t.Parallel()
+	for _, number := range []string{"0.0000042", "9007199254740993", "1.2300e+19"} {
+		raw := `{"number":` + number + `}`
+		got, ok := resolveJSONPath(t.Context(), "value", raw, ".number")
+		assert.True(t, ok)
+		assert.Equal(t, number, got)
+		got, ok = resolveDeclaredStepOutput(t.Context(), "step", "number", map[string]StepInfo{"step": {DeclaredOutputs: &raw}})
+		assert.True(t, ok)
+		assert.Equal(t, number, got)
+	}
+}

@@ -7,8 +7,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"reflect"
+	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/datapath"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
@@ -30,7 +32,13 @@ func resolveJSONPath(ctx context.Context, varName, jsonStr, path string) (string
 
 func parseJSONValue(ctx context.Context, varName, jsonStr string) (any, bool) {
 	var raw any
-	if err := json.Unmarshal([]byte(jsonStr), &raw); err != nil {
+	decoder := json.NewDecoder(strings.NewReader(jsonStr))
+	decoder.UseNumber()
+	err := decoder.Decode(&raw)
+	if err == nil && decoder.Decode(new(any)) != io.EOF {
+		err = fmt.Errorf("expected one JSON value")
+	}
+	if err != nil {
 		logger.Warn(ctx, "Failed to parse JSON",
 			slog.String("var", varName),
 			tag.Error(err))
