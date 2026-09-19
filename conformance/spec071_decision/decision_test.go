@@ -65,14 +65,16 @@ func TestOutputs(t *testing.T) {
 				var expected map[string]json.RawMessage
 				require.NoError(t, json.Unmarshal([]byte(response), &expected))
 				assert.JSONEq(t, string(expected["answers"]), string(data))
-				dagu.ExpectFileContent("numbers.txt", "0.0000042|9007199254740993|1.2300e+19\n")
+				// References render numbers as they always have, except for
+				// integers a float64 cannot hold exactly.
+				dagu.ExpectFileContent("numbers.txt", "4.2e-06|9007199254740993|1.23e+19\n")
 				usage, err := os.ReadFile(dagu.ProjectPath("usage.json"))
 				require.NoError(t, err)
 				var numbers map[string]json.RawMessage
 				require.NoError(t, json.Unmarshal(usage, &numbers))
 				assert.Equal(t, "0.0000042", string(numbers["cost"]))
 				assert.Equal(t, "9007199254740993", string(numbers["sequence"]))
-				assert.Equal(t, "1.2300e+19", string(numbers["estimate"]))
+				assert.Equal(t, "12300000000000000000", string(numbers["estimate"]))
 			}
 		})
 	}

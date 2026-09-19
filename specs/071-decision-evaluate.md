@@ -67,8 +67,9 @@ A successful response is one JSON object containing `model`, `answers`, and
 Probabilities and confidence must be numbers between zero and one. Low
 confidence is a successful result, not an execution error. Provider metadata
 is retained, including the precision and representation of JSON numbers through
-capture, persistence, and direct output references. Whitespace and object-key
-order may change. Diagnostics do not appear in the JSON stdout response.
+capture and persistence. Direct output references retain the precision of every
+number and the representation of integers a float64 cannot hold exactly.
+Whitespace and object-key order may change. Diagnostics do not appear in the JSON stdout response.
 
 Without explicit output configuration, Dagu captures the response automatically.
 The existing `${classify.output.answers.department.choice}` JSON lookup works
