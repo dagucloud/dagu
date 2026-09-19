@@ -2,7 +2,7 @@ working_dir: .
 steps:
   - id: should_fail
     preconditions:
-      - condition: "$DAGU_CONFORMANCE_UNDEFINED_NUMBER"
+      - condition: "not-a-number"
         expected: "num:>=0.8"
       - condition: actual
         expected: expected
