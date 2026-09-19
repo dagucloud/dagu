@@ -17,7 +17,12 @@ import (
 )
 
 // Connections are pooled across attempts; credentials remain request-scoped.
-var sharedHTTPClient = llm.NewHTTPClient(llm.DefaultConfig())
+// The step context owns the request deadline, so the client sets no ceiling.
+var sharedHTTPClient = llm.NewHTTPClient(llm.Config{
+	MaxRetries:      llm.DefaultConfig().MaxRetries,
+	InitialInterval: llm.DefaultConfig().InitialInterval,
+	MaxInterval:     llm.DefaultConfig().MaxInterval,
+})
 
 type client struct {
 	maxResponseBytes int64

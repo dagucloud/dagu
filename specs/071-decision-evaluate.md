@@ -51,6 +51,7 @@ An absent or empty key fails before sending a request.
 Requests use JSON HTTP POST with bearer authentication. The body contains only
 `model`, `state`, and `questions`. All questions share one request. Requests
 use the existing LLM HTTP retry policy and respect step timeout and cancellation.
+Without a step timeout a request has no deadline of its own.
 There is no streaming, model fallback, chat history, or tool execution.
 
 ### Answers and outputs
