@@ -245,7 +245,8 @@ func (e *harnessExecutor) Run(ctx context.Context) error {
 
 		lastErr = err
 		if ctx.Err() != nil {
-			return err
+			e.exitCode = 124
+			return ctx.Err()
 		}
 		if i+1 < len(e.configs) {
 			next := e.configs[i+1]
