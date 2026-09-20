@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/mail"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -502,9 +503,12 @@ func TestService_SendTestEmailUsesCustomSubjectAndBodyTemplates(t *testing.T) {
 	assert.True(t, results[0].Delivered)
 	data, _ := smtpServer.data.Load().(string)
 	assert.Contains(t, data, "Subject: daily-report failed")
-	assert.Contains(t, data, base64.StdEncoding.EncodeToString(
-		[]byte("Run notification-test failed: This is a test notification from Dagu."),
-	))
+	message, err := mail.ReadMessage(strings.NewReader(data))
+	require.NoError(t, err)
+	assert.Equal(t, "base64", message.Header.Get("Content-Transfer-Encoding"))
+	body, err := io.ReadAll(base64.NewDecoder(base64.StdEncoding, message.Body))
+	require.NoError(t, err)
+	assert.Equal(t, "Run notification-test failed: This is a test notification from Dagu.", string(body))
 }
 
 func TestService_SendTestWebhookIncludesCustomMessage(t *testing.T) {
