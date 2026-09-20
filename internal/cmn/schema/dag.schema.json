@@ -6575,6 +6575,16 @@
         "form": {
           "$ref": "#/definitions/humanTaskFormSchema",
           "description": "Optional inline JSON Schema for typed completion input. Omit for acknowledgement-only tasks."
+        },
+        "artifacts": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "description": "Relative artifact paths shown to the operator as review context. Each path must stay within the DAG-run artifact directory."
         }
       },
       "description": "Configuration for a processless human task in a root DAG. Root DAGs containing human tasks may run locally or on distributed workers; human tasks are not supported in sub-DAGs."

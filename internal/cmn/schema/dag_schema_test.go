@@ -1007,6 +1007,46 @@ steps:
             type: object
 `,
 		},
+		{
+			name: "ArtifactsList",
+			spec: `
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Review the generated reports
+      artifacts:
+        - changes.diff
+        - reports/test-report.html
+`,
+			valid: true,
+		},
+		{
+			name: "RejectArtifactsNonString",
+			spec: `
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Review
+      artifacts:
+        - changes.diff
+        - 1
+`,
+		},
+		{
+			name: "RejectArtifactsDuplicate",
+			spec: `
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Review
+      artifacts:
+        - changes.diff
+        - changes.diff
+`,
+		},
 	}
 
 	for _, tt := range tests {
