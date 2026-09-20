@@ -86,6 +86,7 @@ func maskStepSecrets(masker *masking.Masker, step ir.Step) ir.Step {
 	if step.HumanTask != nil {
 		humanTask := *step.HumanTask
 		humanTask.Prompt = masker.MaskString(humanTask.Prompt)
+		humanTask.Artifacts = maskStrings(masker, humanTask.Artifacts)
 		step.HumanTask = &humanTask
 	}
 

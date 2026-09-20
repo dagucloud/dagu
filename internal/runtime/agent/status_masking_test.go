@@ -11,14 +11,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestMaskNodeSecretsMasksHumanTaskPrompt(t *testing.T) {
+// Artifact paths carry runtime-resolved text just like the prompt, so a secret
+// reaches persisted status through either field.
+func TestMaskNodeSecretsMasksHumanTask(t *testing.T) {
 	t.Parallel()
 
 	masker := newStatusSecretMasker([]string{"DEPLOY_TOKEN=very-secret-token"})
 	require.NotNil(t, masker)
 	node := &ir.Node{
 		Step: ir.Step{HumanTask: &ir.HumanTaskConfig{
-			Prompt: "Review very-secret-token",
+			Prompt:    "Review very-secret-token",
+			Artifacts: []string{"reports/very-secret-token.html", "changes.diff"},
 		}},
 	}
 
@@ -26,6 +29,9 @@ func TestMaskNodeSecretsMasksHumanTaskPrompt(t *testing.T) {
 
 	require.NotNil(t, node.Step.HumanTask)
 	assert.NotContains(t, node.Step.HumanTask.Prompt, "very-secret-token")
+	require.Len(t, node.Step.HumanTask.Artifacts, 2)
+	assert.NotContains(t, node.Step.HumanTask.Artifacts[0], "very-secret-token")
+	assert.Equal(t, "changes.diff", node.Step.HumanTask.Artifacts[1])
 }
 
 func TestMaskNodeSecretsMasksStatusDetailLabels(t *testing.T) {
