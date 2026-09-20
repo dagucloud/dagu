@@ -6,13 +6,19 @@ package mailer
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/tls"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"mime"
+	"mime/multipart"
 	"net"
 	"net/smtp"
+	"net/textproto"
 	"os"
 	"path/filepath"
 	"slices"
@@ -57,7 +63,6 @@ var (
 	replacer = strings.NewReplacer(
 		"\r\n", "", "\r", "", "\n", "", "%0a", "", "%0d", "",
 	)
-	boundary     = "==simple-boundary-dagu-mailer"
 	errFileEmpty = errors.New("file is empty")
 	mailTimeout  = 30 * time.Second
 	maxHeaderLen = 256
@@ -156,7 +161,10 @@ func (m *Client) send(
 		return fmt.Errorf("DATA command failed: %w", err)
 	}
 
-	payload := m.composeMail(to, cc, safeFrom, safeSubject, processEmailBody(body), attachments)
+	payload, err := m.composeMail(to, cc, safeFrom, safeSubject, processEmailBody(body), attachments)
+	if err != nil {
+		return fmt.Errorf("failed to compose email: %w", err)
+	}
 	_, err = wc.Write(payload)
 	if err != nil {
 		return fmt.Errorf("failed to write email body: %w", err)
@@ -320,7 +328,7 @@ func (a *loginAuth) Next(fromServer []byte, more bool) ([]byte, error) {
 }
 
 func (*Client) composeHeader(
-	to []string, cc []string, from string, subject string,
+	to []string, cc []string, from string, subject string, contentType string,
 ) string {
 	to = sanitizeAddresses(to)
 	cc = sanitizeAddresses(cc)
@@ -333,12 +341,10 @@ func (*Client) composeHeader(
 	return header +
 		"From: " + from + "\r\n" +
 		"Subject: " + subject + "\r\n" +
-		"Content-Type: multipart/mixed;\r\n" +
-		"  boundary=\"" + boundary + "\"\r\n\r\n" +
-		"\r\n\r\n" +
-		"--" + boundary + "\r\n" +
-		"Content-Type: text/html; charset=\"UTF-8\"\r\n" +
-		"Content-Transfer-Encoding: base64\r\n"
+		"Date: " + time.Now().Format(time.RFC1123Z) + "\r\n" +
+		"Message-ID: " + newMessageID() + "\r\n" +
+		"MIME-Version: 1.0\r\n" +
+		"Content-Type: " + contentType + "\r\n"
 }
 
 func (m *Client) composeMail(
@@ -346,16 +352,116 @@ func (m *Client) composeMail(
 	cc []string,
 	from, subject, body string,
 	attachments []string,
-) []byte {
+) ([]byte, error) {
+	loadedAttachments := loadAttachments(attachments)
+	if len(loadedAttachments) == 0 {
+		return m.composeSinglePartMail(to, cc, from, subject, body)
+	}
+	return m.composeMultipartMail(to, cc, from, subject, body, loadedAttachments)
+}
+
+type attachment struct {
+	name string
+	data []byte
+}
+
+func loadAttachments(fileNames []string) []attachment {
+	attachments := make([]attachment, 0, len(fileNames))
+	for _, fileName := range fileNames {
+		data, err := readFile(fileName)
+		if err != nil {
+			continue
+		}
+		attachments = append(attachments, attachment{
+			name: filepath.Base(fileName),
+			data: data,
+		})
+	}
+	return attachments
+}
+
+func (m *Client) composeSinglePartMail(
+	to []string,
+	cc []string,
+	from, subject, body string,
+) ([]byte, error) {
 	var buf bytes.Buffer
-	buf.WriteString(m.composeHeader(to, cc, from, subject))
+	contentType := mime.FormatMediaType("text/html", map[string]string{"charset": "UTF-8"})
+	buf.WriteString(m.composeHeader(to, cc, from, subject, contentType))
+	buf.WriteString("Content-Transfer-Encoding: base64\r\n\r\n")
+	if err := writeBase64(&buf, []byte(body)); err != nil {
+		return nil, err
+	}
 	buf.WriteString("\r\n")
-	buf.WriteString(base64.StdEncoding.EncodeToString([]byte(body)))
-	buf.Write(addAttachments(attachments))
-	buf.WriteString("\r\n--")
-	buf.WriteString(boundary)
-	buf.WriteString("--\r\n")
-	return buf.Bytes()
+	return buf.Bytes(), nil
+}
+
+func (m *Client) composeMultipartMail(
+	to []string,
+	cc []string,
+	from, subject, body string,
+	attachments []attachment,
+) ([]byte, error) {
+	var content bytes.Buffer
+	writer := multipart.NewWriter(&content)
+
+	bodyHeader := make(textproto.MIMEHeader)
+	bodyHeader.Set("Content-Type", mime.FormatMediaType("text/html", map[string]string{"charset": "UTF-8"}))
+	bodyHeader.Set("Content-Transfer-Encoding", "base64")
+	bodyPart, err := writer.CreatePart(bodyHeader)
+	if err != nil {
+		return nil, err
+	}
+	if err := writeBase64(bodyPart, []byte(body)); err != nil {
+		return nil, err
+	}
+
+	for _, attachment := range attachments {
+		attachmentHeader := make(textproto.MIMEHeader)
+		attachmentHeader.Set("Content-Type", "text/plain")
+		attachmentHeader.Set("Content-Transfer-Encoding", "base64")
+		attachmentHeader.Set(
+			"Content-Disposition",
+			mime.FormatMediaType("attachment", map[string]string{"filename": attachment.name}),
+		)
+		part, err := writer.CreatePart(attachmentHeader)
+		if err != nil {
+			return nil, err
+		}
+		if err := writeBase64(part, attachment.data); err != nil {
+			return nil, err
+		}
+	}
+	if err := writer.Close(); err != nil {
+		return nil, err
+	}
+
+	contentType := mime.FormatMediaType("multipart/mixed", map[string]string{"boundary": writer.Boundary()})
+	var message bytes.Buffer
+	message.WriteString(m.composeHeader(to, cc, from, subject, contentType))
+	message.WriteString("\r\n")
+	message.Write(content.Bytes())
+	return message.Bytes(), nil
+}
+
+func newMessageID() string {
+	var random [16]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		return fmt.Sprintf("<%d@dagu.local>", time.Now().UnixNano())
+	}
+	return "<" + hex.EncodeToString(random[:]) + "@dagu.local>"
+}
+
+func writeBase64(w io.Writer, data []byte) error {
+	encoded := base64.StdEncoding.EncodeToString(data)
+	for len(encoded) > 76 {
+		if _, err := io.WriteString(w, encoded[:76]+"\r\n"); err != nil {
+			return err
+		}
+		encoded = encoded[76:]
+	}
+	_, err := io.WriteString(w, encoded)
+	return err
 }
 
 func newlineToBrTag(body string) string {
@@ -377,25 +483,6 @@ func processEmailBody(body string) string {
 		return newlineToBrTag(body)
 	}
 	return body
-}
-
-func addAttachments(attachments []string) []byte {
-	var buf bytes.Buffer
-	for _, fileName := range attachments {
-		data, err := readFile(fileName)
-		if err == nil {
-			_, _ = fmt.Fprintf(&buf, "\r\n--%s\r\n", boundary)
-			_, _ = buf.WriteString("Content-Type: text/plain\r\n")
-			_, _ = buf.WriteString("Content-Transfer-Encoding: base64\r\n")
-			_, _ = buf.WriteString(
-				"Content-Disposition: attachment; filename=" +
-					filepath.Base(fileName) + "\r\n",
-			)
-			_, _ = buf.WriteString("\r\n")
-			_, _ = buf.WriteString(base64.StdEncoding.EncodeToString(data))
-		}
-	}
-	return buf.Bytes()
 }
 
 func readFile(fileName string) (data []byte, err error) {

@@ -15,8 +15,12 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"math/big"
+	"mime"
+	"mime/multipart"
 	"net"
+	"net/mail"
 	"net/smtp"
 	"os"
 	"path/filepath"
@@ -504,14 +508,16 @@ func TestComposeMailSanitizesHeaders(t *testing.T) {
 	t.Parallel()
 
 	client := New(Config{})
-	payload := string(client.composeMail(
+	payloadBytes, err := client.composeMail(
 		[]string{"to@example.com\r\nX-Dagu-To: injected"},
 		nil,
 		"from@example.com\r\nX-Dagu-From: injected",
 		"subject\r\nX-Dagu-Subject: injected",
 		"body",
 		nil,
-	))
+	)
+	require.NoError(t, err)
+	payload := string(payloadBytes)
 
 	assert.NotContains(t, payload, "\r\nX-Dagu-To:")
 	assert.NotContains(t, payload, "\r\nX-Dagu-From:")
@@ -519,6 +525,111 @@ func TestComposeMailSanitizesHeaders(t *testing.T) {
 	assert.Contains(t, payload, "To: to@example.comX-Dagu-To: injected")
 	assert.Contains(t, payload, "From: from@example.comX-Dagu-From: injected")
 	assert.Contains(t, payload, "Subject: subjectX-Dagu-Subject: injected")
+}
+
+func TestComposeMailWithoutAttachmentsIsSinglePart(t *testing.T) {
+	t.Parallel()
+
+	client := New(Config{})
+	body := "<!DOCTYPE html><html><body>Hello</body></html>"
+	payload, err := client.composeMail(
+		[]string{"to@example.com"},
+		nil,
+		"from@example.com",
+		"subject",
+		body,
+		nil,
+	)
+	require.NoError(t, err)
+
+	message, err := mail.ReadMessage(bytes.NewReader(payload))
+	require.NoError(t, err)
+	require.Equal(t, "1.0", message.Header.Get("MIME-Version"))
+	require.NotEmpty(t, message.Header.Get("Message-ID"))
+	_, err = mail.ParseDate(message.Header.Get("Date"))
+	require.NoError(t, err)
+
+	mediaType, params, err := mime.ParseMediaType(message.Header.Get("Content-Type"))
+	require.NoError(t, err)
+	assert.Equal(t, "text/html", mediaType)
+	assert.Empty(t, params["boundary"])
+
+	encodedBody, err := io.ReadAll(message.Body)
+	require.NoError(t, err)
+	decodedBody, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(encodedBody)))
+	require.NoError(t, err)
+	assert.Equal(t, body, string(decodedBody))
+}
+
+func TestComposeMailWithoutReadableAttachmentsIsSinglePart(t *testing.T) {
+	t.Parallel()
+
+	client := New(Config{})
+	payload, err := client.composeMail(
+		[]string{"to@example.com"},
+		nil,
+		"from@example.com",
+		"subject",
+		"body",
+		[]string{filepath.Join(t.TempDir(), "missing.txt")},
+	)
+	require.NoError(t, err)
+
+	message, err := mail.ReadMessage(bytes.NewReader(payload))
+	require.NoError(t, err)
+	mediaType, params, err := mime.ParseMediaType(message.Header.Get("Content-Type"))
+	require.NoError(t, err)
+	assert.Equal(t, "text/html", mediaType)
+	assert.Empty(t, params["boundary"])
+}
+
+func TestComposeMailWithAttachmentsUsesUniqueBoundaries(t *testing.T) {
+	t.Parallel()
+
+	attachment := filepath.Join(t.TempDir(), "attachment.txt")
+	require.NoError(t, os.WriteFile(attachment, []byte("hello"), 0600))
+
+	client := New(Config{})
+	boundaries := make([]string, 2)
+	messageIDs := make([]string, 2)
+	for i := range boundaries {
+		payload, err := client.composeMail(
+			[]string{"to@example.com"},
+			nil,
+			"from@example.com",
+			"subject",
+			"body",
+			[]string{attachment},
+		)
+		require.NoError(t, err)
+		message, err := mail.ReadMessage(bytes.NewReader(payload))
+		require.NoError(t, err)
+		require.Equal(t, "1.0", message.Header.Get("MIME-Version"))
+		messageIDs[i] = message.Header.Get("Message-ID")
+		require.NotEmpty(t, messageIDs[i])
+		_, err = mail.ParseDate(message.Header.Get("Date"))
+		require.NoError(t, err)
+		mediaType, params, err := mime.ParseMediaType(message.Header.Get("Content-Type"))
+		require.NoError(t, err)
+		require.Equal(t, "multipart/mixed", mediaType)
+		boundaries[i] = params["boundary"]
+		require.NotEmpty(t, boundaries[i])
+
+		parts := multipart.NewReader(message.Body, boundaries[i])
+		partCount := 0
+		for {
+			_, err := parts.NextPart()
+			if err == io.EOF {
+				break
+			}
+			require.NoError(t, err)
+			partCount++
+		}
+		assert.Equal(t, 2, partCount)
+	}
+
+	assert.NotEqual(t, boundaries[0], boundaries[1])
+	assert.NotEqual(t, messageIDs[0], messageIDs[1])
 }
 
 func TestSanitizeHeaderFieldRemovesControlCharactersAndTruncates(t *testing.T) {
@@ -543,33 +654,45 @@ func TestComposeMailAttachmentTransferEncodingHeaderAppearsOncePerPart(t *testin
 	require.NoError(t, os.WriteFile(attachment, []byte("hello"), 0600))
 
 	client := New(Config{})
-	payload := string(client.composeMail(
+	payloadBytes, err := client.composeMail(
 		[]string{"to@example.com"},
 		nil,
 		"from@example.com",
 		"subject",
 		"body",
 		[]string{attachment},
-	))
+	)
+	require.NoError(t, err)
+	payload := string(payloadBytes)
 
 	require.Equal(t, 2, strings.Count(payload, "Content-Transfer-Encoding: base64"))
 }
 
-func TestComposeMailEndsWithClosingBoundary(t *testing.T) {
+func TestComposeMultipartMailEndsWithClosingBoundary(t *testing.T) {
 	t.Parallel()
 
+	attachment := filepath.Join(t.TempDir(), "attachment.txt")
+	require.NoError(t, os.WriteFile(attachment, []byte("hello"), 0600))
+
 	client := New(Config{})
-	payload := string(client.composeMail(
+	payload, err := client.composeMail(
 		[]string{"to@example.com"},
 		nil,
 		"from@example.com",
 		"subject",
 		"body",
-		nil,
-	))
+		[]string{attachment},
+	)
+	require.NoError(t, err)
+	message, err := mail.ReadMessage(bytes.NewReader(payload))
+	require.NoError(t, err)
+	_, params, err := mime.ParseMediaType(message.Header.Get("Content-Type"))
+	require.NoError(t, err)
+	boundary := params["boundary"]
+	require.NotEmpty(t, boundary)
 
-	require.True(t, strings.HasSuffix(payload, "--"+boundary+"--\r\n"))
-	require.NotContains(t, payload, "--"+boundary+"--\r\n\r\n")
+	require.True(t, strings.HasSuffix(string(payload), "--"+boundary+"--\r\n"))
+	require.NotContains(t, string(payload), "--"+boundary+"--\r\n\r\n")
 }
 
 func TestSendWithoutAuthSkipsStartTLS(t *testing.T) {
