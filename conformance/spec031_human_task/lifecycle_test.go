@@ -275,3 +275,29 @@ func runConcurrentCompletions(
 	wg.Wait()
 	return results
 }
+
+func TestArtifactReferencesResolveWhenTaskOpens(t *testing.T) {
+	dagu := harness.NewRunner(t)
+	env := sharedEnv(t)
+	const runID = "spec031-artifacts"
+
+	startWaiting(t, dagu, env, runID, "artifact_snapshot.yaml")
+	status := waitForStatus(t, dagu, env, runID, "artifact_snapshot.yaml", "Waiting")
+	require.Contains(t, status.Stdout(), "reports/production/summary.txt")
+	require.Contains(t, status.Stdout(), "reports/release.diff")
+	require.NotContains(t, status.Stdout(), "${params.target}")
+}
+
+func TestArtifactReferenceEscapingArtifactDirFailsWithoutOpening(t *testing.T) {
+	dagu := harness.NewRunner(t)
+	env := sharedEnv(t)
+	const runID = "spec031-artifact-escape"
+
+	start := dagu.RunWithEnv(env, "start", "--run-id="+runID,
+		"--params=target=../../secret", "artifact_escape.yaml")
+	start.ExpectNonZeroExitCode()
+	start.ExpectStderrContains("human task artifacts", "parent directory segments")
+
+	status := waitForStatus(t, dagu, env, runID, "artifact_escape.yaml", "Failed")
+	require.NotContains(t, status.Stdout(), "Waiting")
+}

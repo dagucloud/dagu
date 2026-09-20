@@ -15,6 +15,7 @@ func TestHumanTaskShapeValidation(t *testing.T) {
 		"valid_acknowledgement_shape.yaml",
 		"valid_form_shape.yaml",
 		"valid_artifacts.yaml",
+		"valid_artifacts_reference.yaml",
 		"child_human.yaml",
 		"multi_document_human.yaml",
 	}
@@ -38,6 +39,7 @@ func TestHumanTaskShapeValidation(t *testing.T) {
 		{file: "invalid_artifacts_type.yaml", parts: []string{"with.artifacts", "array"}},
 		{file: "invalid_artifacts_entry.yaml", parts: []string{"with.artifacts", "strings"}},
 		{file: "invalid_artifacts_path.yaml", parts: []string{"with.artifacts", "parent directory"}},
+		{file: "invalid_artifacts_reference_path.yaml", parts: []string{"with.artifacts", "parent directory"}},
 		{file: "invalid_form_null.yaml", parts: []string{"with.form", "object"}},
 		{file: "invalid_form_root.yaml", parts: []string{"form", "type"}},
 		{file: "invalid_form_property.yaml", parts: []string{"1invalid", "property"}},

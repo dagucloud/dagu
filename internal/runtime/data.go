@@ -378,30 +378,33 @@ func (d *Data) setBuild(value ir.BuildExecution) {
 	d.inner.State.Build = &copy
 }
 
-// OpenHumanTask records the resolved prompt and transitions the node to waiting.
-func (d *Data) OpenHumanTask(prompt string, startedAt time.Time) {
+// OpenHumanTask records the resolved prompt and artifact paths and transitions
+// the node to waiting.
+func (d *Data) OpenHumanTask(prompt string, artifacts []string, startedAt time.Time) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	d.setHumanTaskPrompt(prompt)
+	d.setHumanTask(prompt, artifacts)
 	d.inner.State.StartedAt = startedAt
 	d.inner.State.DoneCount++
 	d.inner.State.Status = ir.NodeWaiting
 }
 
-// CompleteHumanTaskDryRun records the resolved prompt and completes a dry-run task.
-func (d *Data) CompleteHumanTaskDryRun(prompt string) {
+// CompleteHumanTaskDryRun records the resolved prompt and artifact paths and
+// completes a dry-run task.
+func (d *Data) CompleteHumanTaskDryRun(prompt string, artifacts []string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	d.setHumanTaskPrompt(prompt)
+	d.setHumanTask(prompt, artifacts)
 	d.inner.State.DoneCount++
 	d.inner.State.Status = ir.NodeSucceeded
 }
 
-func (d *Data) setHumanTaskPrompt(prompt string) {
+func (d *Data) setHumanTask(prompt string, artifacts []string) {
 	task := *d.inner.Step.HumanTask
 	task.Prompt = prompt
+	task.Artifacts = artifacts
 	d.inner.Step.HumanTask = &task
 }
 

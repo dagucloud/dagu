@@ -261,6 +261,9 @@ func (r *Renderer) renderHumanTask(node *ir.Node, isLastSection bool, prefix str
 		"step id: " + node.Step.ID,
 		"prompt: " + node.Step.HumanTask.Prompt,
 	}
+	if len(node.Step.HumanTask.Artifacts) > 0 {
+		details = append(details, "artifacts: "+strings.Join(node.Step.HumanTask.Artifacts, ", "))
+	}
 	if len(node.Step.HumanTask.Form) > 0 {
 		details = append(details, "form: "+string(node.Step.HumanTask.Form))
 	}

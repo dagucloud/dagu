@@ -1,0 +1,20 @@
+name: spec031_artifact_snapshot
+params:
+  - name: target
+    type: string
+    default: production
+working_dir: .
+steps:
+  - id: describe
+    run: printf 'subject=release\n' >> "$DAGU_OUTPUT_FILE"
+    outputs:
+      - name: subject
+
+  - id: review
+    depends: describe
+    action: human.task
+    with:
+      prompt: Review the reports
+      artifacts:
+        - "reports/${params.target}/summary.txt"
+        - "reports/${steps.describe.outputs.subject}.diff"

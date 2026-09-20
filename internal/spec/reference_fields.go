@@ -113,6 +113,10 @@ func (w *referenceFieldWalker) walkStep(path string, step ir.Step) {
 	if step.HumanTask != nil {
 		fieldPath := path + ".with.prompt"
 		w.add(base.withPathValue(fieldPath, step.HumanTask.Prompt).withField(cmnvalue.WorkflowField(fieldPath)))
+		for i, artifact := range step.HumanTask.Artifacts {
+			artifactPath := fmt.Sprintf("%s.with.artifacts[%d]", path, i)
+			w.add(base.withPathValue(artifactPath, artifact).withField(cmnvalue.StepArtifactOutputField(artifactPath)))
+		}
 	}
 	w.add(base.withPathValue(path+".working_dir", step.Dir).withField(cmnvalue.StepDirField(path + ".working_dir")))
 	w.walkEnvWith(path+".env", step.Env, base, cmnvalue.StepEnvField)

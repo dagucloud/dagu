@@ -784,10 +784,20 @@ func (r *Runner) runHumanTask(ctx context.Context, plan *Plan, node *Node, progr
 		return
 	}
 
+	artifacts, err := resolveHumanTaskArtifacts(ctx, task.Artifacts)
+	if err != nil {
+		err = fmt.Errorf("failed to evaluate human task artifacts: %w", err)
+		r.setLastError(err)
+		node.MarkError(err)
+		node.SetStatus(ir.NodeFailed)
+		r.report(ctx, progressCh, node)
+		return
+	}
+
 	if r.dry {
-		node.CompleteHumanTaskDryRun(prompt)
+		node.CompleteHumanTaskDryRun(prompt, artifacts)
 	} else {
-		node.OpenHumanTask(prompt, time.Now())
+		node.OpenHumanTask(prompt, artifacts, time.Now())
 	}
 	r.report(ctx, progressCh, node)
 }

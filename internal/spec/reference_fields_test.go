@@ -229,3 +229,28 @@ func TestReferenceFieldsEmitsValidationPathSet(t *testing.T) {
 	assert.NotContains(t, got, "steps[0].llm.model[0].api_key_name")
 	assert.NotContains(t, got, "steps[0].llm.tools[0]")
 }
+
+func TestReferenceFieldsIncludesHumanTaskArtifacts(t *testing.T) {
+	t.Parallel()
+
+	dag := &ir.DAG{
+		Steps: []ir.Step{
+			{
+				Name: "review",
+				HumanTask: &ir.HumanTaskConfig{
+					Prompt:    "${consts.prompt}",
+					Artifacts: []string{"${consts.report}", "changes.diff"},
+				},
+			},
+		},
+	}
+
+	got := make([]string, 0)
+	for _, field := range spec.ReferenceFields(dag) {
+		got = append(got, field.Path)
+	}
+
+	assert.Contains(t, got, "steps[0].with.prompt")
+	assert.Contains(t, got, "steps[0].with.artifacts[0]")
+	assert.Contains(t, got, "steps[0].with.artifacts[1]")
+}

@@ -119,6 +119,30 @@ steps:
 	assert.Equal(t, []string{"changes.diff", "reports/test-report.html"}, dag.Steps[0].HumanTask.Artifacts)
 }
 
+// Artifact references stay verbatim through the build; the runtime resolves
+// them when the task opens.
+func TestHumanTaskKeepsArtifactReferencesForRuntime(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+params:
+  - OUT: reports
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Review
+      artifacts:
+        - "${params.OUT}/report.html"
+        - "${OUT}/summary.txt"
+`))
+	require.NoError(t, err)
+	require.NotNil(t, dag.Steps[0].HumanTask)
+	assert.Equal(t,
+		[]string{"${params.OUT}/report.html", "${OUT}/summary.txt"},
+		dag.Steps[0].HumanTask.Artifacts)
+}
+
 func TestHumanTaskDoesNotInheritExecutionDefaults(t *testing.T) {
 	t.Parallel()
 
@@ -298,6 +322,18 @@ steps:
     with:
       prompt: Review
       artifacts: [../../secret]
+`,
+			message: "must not contain parent directory segments",
+		},
+		{
+			name: "ArtifactsRejectParentSegmentsBesideReferences",
+			yaml: `
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Review
+      artifacts: ["${params.OUT}/../secret"]
 `,
 			message: "must not contain parent directory segments",
 		},

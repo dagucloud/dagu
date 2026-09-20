@@ -1,0 +1,12 @@
+params:
+  - name: OUT
+    type: string
+    default: reports
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Review the generated reports
+      artifacts:
+        - "${params.OUT}/report.html"
+        - changes.diff

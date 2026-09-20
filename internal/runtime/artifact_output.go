@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
+	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 )
 
 func artifactOutputFilePath(ctx context.Context, raw string) (string, error) {
@@ -143,4 +144,35 @@ func pathInsideOrSame(parent, child string) bool {
 		return false
 	}
 	return rel != ".." && !filepath.IsAbs(rel) && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// resolveHumanTaskArtifacts value-resolves each authored human-task artifact
+// path and re-checks the result against the artifact-relative path rules. A
+// reference can introduce path segments the authored literal never had, so the
+// resolved value cannot inherit the build-time check. Entries that resolve to
+// the same path contribute one reference, keeping the first authored position.
+func resolveHumanTaskArtifacts(ctx context.Context, artifacts []string) ([]string, error) {
+	if len(artifacts) == 0 {
+		return nil, nil
+	}
+
+	resolved := make([]string, 0, len(artifacts))
+	seen := make(map[string]struct{}, len(artifacts))
+	for i, raw := range artifacts {
+		field := cmnvalue.StepArtifactOutputField(fmt.Sprintf("with.artifacts[%d]", i))
+		value, err := resolveRuntimeString(ctx, raw, field)
+		if err != nil {
+			return nil, fmt.Errorf("artifact %q: %w", raw, err)
+		}
+		clean, err := cleanArtifactOutputPath(value)
+		if err != nil {
+			return nil, fmt.Errorf("artifact %q: %w", raw, err)
+		}
+		if _, exists := seen[clean]; exists {
+			continue
+		}
+		seen[clean] = struct{}{}
+		resolved = append(resolved, clean)
+	}
+	return resolved, nil
 }

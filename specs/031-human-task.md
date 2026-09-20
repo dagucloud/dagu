@@ -89,7 +89,7 @@ Fields owned by this spec:
 | `id` | Yes | Step identity used for completion and output references. |
 | `with.prompt` | Yes | Instructions for the operator. |
 | `with.form` | No | Flat typed input object. Omit for acknowledgement only. |
-| `with.artifacts` | No | Literal artifact-relative paths available as review context. |
+| `with.artifacts` | No | Artifact-relative paths available as review context. |
 
 Rules:
 
@@ -101,12 +101,20 @@ Rules:
   runtime value resolution.
 - `with.form: null` is invalid. Acknowledgement-only tasks omit `form`.
 - `with.artifacts`, when present, must be an array of unique, non-empty strings.
-  Each path is literal, relative to the current root DAG run's artifact
-  directory, and must not be absolute, home-relative, or contain
-  parent-directory segments. Artifact references are not value-resolved.
-- The waiting-task snapshot stores artifact paths only; it never copies artifact
-  contents into human-task state. Missing or unavailable referenced artifacts
-  do not change task completion or resume semantics.
+  Each path is relative to the current root DAG run's artifact directory. The
+  authored text must not be absolute, home-relative, or contain
+  parent-directory segments.
+- `with.artifacts` entries are value-resolved with `with.prompt` when the task
+  opens, so an entry can name an artifact a dependency produced. Command
+  substitution is never run.
+- Each resolved path is re-checked against the same relative-path rules. A
+  resolved path that is empty, absolute, home-relative, or contains a
+  parent-directory segment fails the step without opening it.
+- Two entries that resolve to the same path contribute one artifact reference,
+  positioned at the first authored occurrence.
+- The waiting-task snapshot stores resolved artifact paths only; it never copies
+  artifact contents into human-task state. Missing or unavailable referenced
+  artifacts do not change task completion or resume semantics.
 - A human task without `artifacts` behaves exactly as it did before artifact
   references were introduced.
 - A human task starts no command, executor, container, or child DAG.
@@ -172,10 +180,14 @@ Rules:
   the step to start.
 - Prompt resolution uses parameters, constants, environment values, built-in
   context, and dependency outputs defined by Specs 003, 006, and 007.
-- The resolved prompt is fixed for that open task.
+- `with.artifacts` entries are value-resolved in the same step, from the same
+  scope, and under the artifact path rules of this spec.
+- The resolved prompt and resolved artifact paths are fixed for that open task.
 - Changing the DAG file or process environment after the task opens does not
-  change the prompt observed by status or resume.
+  change the prompt or artifact paths observed by status or resume.
 - A prompt-resolution error fails the step without opening it.
+- An artifact-path resolution error, or a resolved path that is not a safe
+  relative artifact path, fails the step without opening it.
 - Form schemas and their metadata are literal and are not value-resolved.
 
 ### Form Integration
@@ -244,7 +256,7 @@ the task.
 When the step becomes ready, Dagu:
 
 1. evaluates preconditions
-2. resolves the prompt
+2. resolves the prompt and artifact paths
 3. changes the step to `waiting`
 4. continues independent ready or running branches
 5. finalizes the root run as `waiting` after no ordinary node remains ready or
@@ -276,6 +288,7 @@ identify:
 - overall status `Waiting`
 - each waiting human task's explicit step ID
 - each task's resolved prompt
+- each task's resolved artifact paths when the task declares any
 - each task's normalized form as JSON when a form exists
 
 The displayed normalized form must:
@@ -457,7 +470,7 @@ remain outside this spec.
 
 Rules:
 
-- Dry run evaluates preconditions and resolves the prompt.
+- Dry run evaluates preconditions and resolves the prompt and artifact paths.
 - A successful dry-run human task becomes `succeeded` without entering
   `waiting`.
 - Dry run does not accept completion input or publish form outputs, including
@@ -485,8 +498,9 @@ Validation must not value-resolve the prompt or form.
 
 ### Runtime Opening Errors
 
-The step fails without opening when prompt resolution fails or a precondition
-evaluation fails. A child-DAG invocation fails before creating child-run state
+The step fails without opening when prompt resolution fails, an artifact path
+fails to resolve to a safe relative artifact path, or a precondition evaluation
+fails. A child-DAG invocation fails before creating child-run state
 and identifies that human tasks are not permitted in child DAGs.
 
 ### Completion Error Diagnostics

@@ -389,7 +389,7 @@ func (r *Runner) askUser(
 	}
 
 	logger.Info(ctx, "Agent is asking a question", slog.String("question", question))
-	node.OpenHumanTask(question, time.Now())
+	node.OpenHumanTask(question, nil, time.Now())
 	state.RecordEvent(agentloop.Event{
 		Kind:       agentloop.EventAskUser,
 		Name:       ir.AskUserStepName,

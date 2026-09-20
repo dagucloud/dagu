@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
+	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 
 	"github.com/dagucloud/dagu/v2/internal/build"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -782,4 +783,66 @@ func TestAckDoesNotBlockAfterSenderAbandonsWait(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("Ack blocked after the sender stopped waiting")
 	}
+}
+
+func TestResolveHumanTaskArtifacts(t *testing.T) {
+	newContext := func(entries map[string]string) context.Context {
+		ctx := runctx.NewContext(context.Background(), &ir.DAG{Name: "test-dag"}, "", "")
+		env := NewEnv(ctx, ir.Step{Name: "review"})
+		env.Scope = env.Scope.WithEntries(entries, cmnvalue.EnvSourceStepEnv)
+		return WithEnv(ctx, env)
+	}
+
+	t.Run("ResolvesReferences", func(t *testing.T) {
+		ctx := newContext(map[string]string{"OUT": "reports"})
+
+		got, err := resolveHumanTaskArtifacts(ctx, []string{"${OUT}/report.html", "changes.diff"})
+
+		require.NoError(t, err)
+		assert.Equal(t, []string{"reports/report.html", "changes.diff"}, got)
+	})
+
+	// Two distinct templates can collapse to one path, which must not fail the
+	// task or render the same reference twice.
+	t.Run("DeduplicatesResolvedPaths", func(t *testing.T) {
+		ctx := newContext(map[string]string{"A": "reports", "B": "reports"})
+
+		got, err := resolveHumanTaskArtifacts(ctx, []string{"${A}/r.html", "changes.diff", "${B}/r.html"})
+
+		require.NoError(t, err)
+		assert.Equal(t, []string{"reports/r.html", "changes.diff"}, got)
+	})
+
+	t.Run("RejectsResolvedEmptyPath", func(t *testing.T) {
+		ctx := newContext(map[string]string{"OUT": ""})
+
+		_, err := resolveHumanTaskArtifacts(ctx, []string{"${OUT}"})
+
+		require.ErrorContains(t, err, "must not be empty")
+	})
+
+	t.Run("NoArtifacts", func(t *testing.T) {
+		got, err := resolveHumanTaskArtifacts(newContext(nil), nil)
+
+		require.NoError(t, err)
+		assert.Nil(t, got)
+	})
+
+	// A reference can carry path segments that the authored literal never had,
+	// so the resolved value must be re-checked against the artifact-path rules.
+	t.Run("RejectsResolvedEscape", func(t *testing.T) {
+		ctx := newContext(map[string]string{"OUT": "../../etc"})
+
+		_, err := resolveHumanTaskArtifacts(ctx, []string{"${OUT}/passwd"})
+
+		require.ErrorContains(t, err, "parent directory")
+	})
+
+	t.Run("RejectsResolvedAbsolutePath", func(t *testing.T) {
+		ctx := newContext(map[string]string{"OUT": "/etc"})
+
+		_, err := resolveHumanTaskArtifacts(ctx, []string{"${OUT}/passwd"})
+
+		require.ErrorContains(t, err, "must be relative")
+	})
 }

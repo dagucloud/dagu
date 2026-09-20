@@ -1,0 +1,13 @@
+name: spec031_artifact_escape
+params:
+  - name: target
+    type: string
+    default: reports
+working_dir: .
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Review the reports
+      artifacts:
+        - "${params.target}/summary.txt"
