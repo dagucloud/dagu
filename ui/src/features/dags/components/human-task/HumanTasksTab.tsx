@@ -21,6 +21,7 @@ import { schemaFormTemplates } from '../dag-execution/schemaFormTemplates';
 import { schemaFormWidgets } from '../dag-execution/schemaFormWidgets';
 import { ArtifactFilePreview } from '../artifacts/ArtifactFilePreview';
 import { I18nText } from '@/i18n/I18nText';
+import { useI18n } from '@/i18n/I18nProvider';
 import { Tab, Tabs } from '@/components/ui/tabs';
 
 type DAGRunDetails = components['schemas']['DAGRunDetails'];
@@ -70,14 +71,14 @@ function HumanTaskCard({
 }) {
   const client = useClient();
   const remoteNode = useRemoteNode();
+  const { ts } = useI18n();
   const [formData, setFormData] = React.useState<FormData>({});
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const task = node.step.humanTask!;
   const artifacts = task.artifacts ?? [];
-  const artifactListKey = artifacts.join('\u0000');
   const [selectedArtifact, setSelectedArtifact] = React.useState<string | null>(
-    artifacts[0] ?? null
+    null
   );
   const activeArtifact =
     selectedArtifact && artifacts.includes(selectedArtifact)
@@ -93,12 +94,6 @@ function HumanTaskCard({
     }),
     [schema]
   );
-
-  React.useEffect(() => {
-    setSelectedArtifact((current) =>
-      current && artifacts.includes(current) ? current : (artifacts[0] ?? null)
-    );
-  }, [artifactListKey]);
 
   const complete = async (input: FormData) => {
     if (!node.step.id || submitting) return;
@@ -154,7 +149,7 @@ function HumanTaskCard({
             <I18nText text={'Artifacts'} />
           </div>
           {artifacts.length > 1 && (
-            <Tabs aria-label="Task artifacts">
+            <Tabs aria-label={ts('Task artifacts')}>
               {artifacts.map((artifact) => (
                 <Tab
                   key={artifact}
