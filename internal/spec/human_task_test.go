@@ -119,9 +119,10 @@ steps:
 	assert.Equal(t, []string{"changes.diff", "reports/test-report.html"}, dag.Steps[0].HumanTask.Artifacts)
 }
 
-// Artifact references stay verbatim through the build; the runtime resolves
-// them when the task opens.
-func TestHumanTaskKeepsArtifactReferencesForRuntime(t *testing.T) {
+// The build normalizes artifact paths but never resolves their references;
+// resolution happens when the task opens. The first entry is deliberately not
+// a path.Clean fixed point, so a normalization change cannot pass unnoticed.
+func TestHumanTaskDoesNotResolveArtifactReferencesAtBuild(t *testing.T) {
 	t.Parallel()
 
 	dag, err := LoadYAML(context.Background(), []byte(`
@@ -133,7 +134,7 @@ steps:
     with:
       prompt: Review
       artifacts:
-        - "${params.OUT}/report.html"
+        - "./${params.OUT}//report.html"
         - "${OUT}/summary.txt"
 `))
 	require.NoError(t, err)

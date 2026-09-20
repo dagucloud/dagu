@@ -112,6 +112,9 @@ Rules:
   parent-directory segment fails the step without opening it.
 - Two entries that resolve to the same path contribute one artifact reference,
   positioned at the first authored occurrence.
+- `with.artifacts` references artifacts that other steps in the run produce. It
+  does not itself enable artifact storage for the DAG, unlike the `artifact.*`
+  actions of Spec 051, and a DAG that stores no artifacts is still valid.
 - The waiting-task snapshot stores resolved artifact paths only; it never copies
   artifact contents into human-task state. Missing or unavailable referenced
   artifacts do not change task completion or resume semantics.

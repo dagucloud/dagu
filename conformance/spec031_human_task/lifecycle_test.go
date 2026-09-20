@@ -286,6 +286,12 @@ func TestArtifactReferencesResolveWhenTaskOpens(t *testing.T) {
 	require.Contains(t, status.Stdout(), "reports/production/summary.txt")
 	require.Contains(t, status.Stdout(), "reports/release.diff")
 	require.NotContains(t, status.Stdout(), "${params.target}")
+
+	// The run writes none of the referenced artifacts, and completion must not
+	// care.
+	result := complete(t, dagu, env, runID, "review", "artifact_snapshot.yaml")
+	result.ExpectExitCode(0)
+	waitForStatus(t, dagu, env, runID, "artifact_snapshot.yaml", "Succeeded")
 }
 
 func TestArtifactReferenceEscapingArtifactDirFailsWithoutOpening(t *testing.T) {
