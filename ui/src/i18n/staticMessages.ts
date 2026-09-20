@@ -5,6 +5,9 @@ import type { Locale } from '@/contexts/UserPreference';
 
 const english = {
   'Artifact preview': 'Artifact preview',
+  'Task artifacts': 'Task artifacts',
+  'Referenced artifacts are not available for this DAG run yet.':
+    'Referenced artifacts are not available for this DAG run yet.',
   'Open DAG run': 'Open DAG run',
   'Back to files': 'Back to files',
   '↑↓ / j k navigate · ←→ folders · Enter preview': '↑↓ / j k navigate · ←→ folders · Enter preview',
@@ -2244,6 +2247,9 @@ export type StaticTranslationValues = Record<string, string | number>;
 
 const chinese = {
   'Artifact preview': '产物预览',
+  'Task artifacts': '任务产物',
+  'Referenced artifacts are not available for this DAG run yet.':
+    '此次 DAG 运行尚无可用的引用产物。',
   'Open DAG run': '打开 DAG 运行',
   'Back to files': '返回文件列表',
   '↑↓ / j k navigate · ←→ folders · Enter preview': '↑↓ / j k 导航 · ←→ 文件夹 · Enter 预览',
@@ -4421,6 +4427,9 @@ const chinese = {
 
 const japanese = {
   'Artifact preview': '成果物プレビュー',
+  'Task artifacts': 'タスク成果物',
+  'Referenced artifacts are not available for this DAG run yet.':
+    'この DAG 実行では参照された成果物はまだ利用できません。',
   'Open DAG run': 'DAG 実行を開く',
   'Back to files': 'ファイル一覧に戻る',
   '↑↓ / j k navigate · ←→ folders · Enter preview': '↑↓ / j k 移動 · ←→ フォルダー · Enter プレビュー',

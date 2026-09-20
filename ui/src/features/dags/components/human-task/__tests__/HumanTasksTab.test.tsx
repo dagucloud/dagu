@@ -53,7 +53,8 @@ vi.mock('../../artifacts/ArtifactFilePreview', () => ({
 
 function humanTaskRun(
   form?: Record<string, unknown>,
-  artifacts?: string[]
+  artifacts?: string[],
+  artifactsAvailable = true
 ): components['schemas']['DAGRunDetails'] {
   return {
     name: 'deploy',
@@ -66,7 +67,7 @@ function humanTaskRun(
     autoRetryCount: 0,
     startedAt: '',
     finishedAt: '',
-    artifactsAvailable: false,
+    artifactsAvailable,
     log: '',
     nodes: [
       {
@@ -128,11 +129,15 @@ describe('HumanTasksTab', () => {
       />
     );
 
-    expect(screen.getByRole('button', { name: 'changes.diff' })).toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: 'report.html' }));
+    expect(screen.getByRole('tab', { name: 'changes.diff' })).toBeVisible();
+    fireEvent.click(screen.getByRole('tab', { name: 'report.html' }));
 
     expect(screen.getByTestId('artifact-preview')).toHaveTextContent(
       'deploy:run-1:worker-a:report.html'
+    );
+    expect(screen.getByRole('tab', { name: 'report.html' })).toHaveAttribute(
+      'aria-selected',
+      'true'
     );
   });
 
@@ -144,7 +149,7 @@ describe('HumanTasksTab', () => {
       />
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'report.html' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'report.html' }));
     rerender(
       <HumanTasksTab
         dagRun={humanTaskRun(undefined, ['changes.diff', 'report.html'])}
@@ -165,7 +170,7 @@ describe('HumanTasksTab', () => {
       />
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'report.html' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'report.html' }));
     artifactPreviewMock.mockClear();
     rerender(
       <HumanTasksTab
@@ -180,6 +185,22 @@ describe('HumanTasksTab', () => {
     expect(screen.getByTestId('artifact-preview')).toHaveTextContent(
       'deploy:run-1:worker-a:changes.diff'
     );
+  });
+
+  it('explains that referenced artifacts are unavailable instead of erroring', () => {
+    render(
+      <HumanTasksTab
+        dagRun={humanTaskRun(undefined, ['changes.diff'], false)}
+        onChanged={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByTestId('artifact-preview')).toBeNull();
+    expect(
+      screen.getByText(
+        'Referenced artifacts are not available for this DAG run yet.'
+      )
+    ).toBeVisible();
   });
 
   it('completes a task without a form using an empty object', async () => {

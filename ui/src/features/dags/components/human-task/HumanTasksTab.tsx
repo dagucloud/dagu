@@ -148,25 +148,37 @@ function HumanTaskCard({
           <div className="text-sm font-semibold">
             <I18nText text={'Artifacts'} />
           </div>
-          {artifacts.length > 1 && (
-            <Tabs aria-label={ts('Task artifacts')}>
-              {artifacts.map((artifact) => (
-                <Tab
-                  key={artifact}
-                  isActive={activeArtifact === artifact}
-                  onClick={() => setSelectedArtifact(artifact)}
-                >
-                  {artifact}
-                </Tab>
-              ))}
-            </Tabs>
+          {dagRun.artifactsAvailable ? (
+            <>
+              {artifacts.length > 1 && (
+                <Tabs role="tablist" aria-label={ts('Task artifacts')}>
+                  {artifacts.map((artifact) => (
+                    <Tab
+                      key={artifact}
+                      role="tab"
+                      aria-selected={activeArtifact === artifact}
+                      isActive={activeArtifact === artifact}
+                      onClick={() => setSelectedArtifact(artifact)}
+                    >
+                      {artifact}
+                    </Tab>
+                  ))}
+                </Tabs>
+              )}
+              <ArtifactFilePreview
+                dagRunName={dagRun.name}
+                dagRunId={dagRun.dagRunId}
+                path={activeArtifact}
+                remoteNode={remoteNode}
+              />
+            </>
+          ) : (
+            <div className="rounded-lg border border-dashed border-border bg-muted/20 p-6 text-sm text-muted-foreground">
+              <I18nText
+                text={'Referenced artifacts are not available for this DAG run yet.'}
+              />
+            </div>
           )}
-          <ArtifactFilePreview
-            dagRunName={dagRun.name}
-            dagRunId={dagRun.dagRunId}
-            path={activeArtifact}
-            remoteNode={remoteNode}
-          />
         </div>
       )}
 
