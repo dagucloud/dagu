@@ -5,11 +5,16 @@ package spec
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
+
+	cmnschema "github.com/dagucloud/dagu/v2/internal/cmn/schema"
 
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -4240,6 +4245,52 @@ func TestCleanStepArtifactPathAgreement(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// The DAG JSON schema re-encodes the artifact-path rule as a regular
+// expression so the editor can flag a bad path before the parser sees it.
+// That makes it a second implementation of cleanStepArtifactPath, in another
+// language, and it is only useful while the two agree.
+func TestArtifactPathSchemaPatternMatchesParser(t *testing.T) {
+	t.Parallel()
+
+	var doc struct {
+		Definitions map[string]struct {
+			Properties map[string]struct {
+				Items *struct {
+					Not *struct {
+						Pattern string `json:"pattern"`
+					} `json:"not"`
+				} `json:"items"`
+			} `json:"properties"`
+		} `json:"definitions"`
+	}
+	require.NoError(t, json.Unmarshal(cmnschema.DAGSchemaJSON, &doc))
+
+	items := doc.Definitions["humanTaskActionConfig"].Properties["artifacts"].Items
+	require.NotNil(t, items)
+	require.NotNil(t, items.Not, "artifacts.items must keep its rejection pattern")
+	reject := regexp.MustCompile(items.Not.Pattern)
+
+	for _, input := range []string{
+		"", "   ", "/etc/passwd", "~", "~/secret", "C:/secret", `\secret`,
+		"../secret", "a/../b", "a/..", "..", ".", "  ~  ",
+		`reports\test.html`, "reports/", "a//b.txt", "./a.txt", "  a.txt  ",
+		"reports/2026/a.txt", "${params.OUT}/report.html", "~foo", "a/..b/c",
+		"...", "a.txt",
+	} {
+		t.Run(input, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := cleanStepArtifactPath(input)
+			// minLength and the \S pattern already reject these two.
+			schemaRejects := reject.MatchString(input) ||
+				input == "" || strings.TrimSpace(input) == ""
+
+			assert.Equal(t, err != nil, schemaRejects,
+				"schema and parser disagree on %q", input)
 		})
 	}
 }

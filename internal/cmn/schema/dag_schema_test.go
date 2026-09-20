@@ -1035,6 +1035,43 @@ steps:
 `,
 		},
 		{
+			name: "RejectAbsoluteArtifactPath",
+			spec: `
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Review
+      artifacts:
+        - /etc/passwd
+`,
+		},
+		{
+			name: "RejectArtifactParentSegment",
+			spec: `
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Review
+      artifacts:
+        - reports/../../secret
+`,
+		},
+		{
+			name: "AllowsUnresolvedReferenceArtifact",
+			spec: `
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Review
+      artifacts:
+        - "${params.OUT}/report.html"
+`,
+			valid: true,
+		},
+		{
 			name: "RejectArtifactsDuplicate",
 			spec: `
 steps:

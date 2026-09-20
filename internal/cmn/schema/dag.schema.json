@@ -6587,7 +6587,10 @@
           "items": {
             "type": "string",
             "minLength": 1,
-            "pattern": "\\S"
+            "pattern": "\\S",
+            "not": {
+              "pattern": "^\\s*(?:[/\\\\]|~\\s*$|~[/\\\\]|[A-Za-z]:|\\.\\s*$|\\.[/\\\\]*\\s*$)|(?:^|[/\\\\])\\.\\.(?:[/\\\\]|\\s*$)"
+            }
           },
           "description": "Relative artifact paths shown to the operator as review context. Each path must stay within the DAG-run artifact directory."
         }
