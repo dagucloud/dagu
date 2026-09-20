@@ -227,6 +227,34 @@ Shell selection order is:
 
 - The working directory path is value-resolved before the command or script starts.
 
+### Standard Input
+
+#### Source
+
+- Step-level `stdin` names a file whose contents are piped to the step process standard input.
+
+- If `stdin` is not set, the step process receives empty standard input.
+
+- Every entry of an array-form `run` receives the file from its start.
+
+#### Path Resolution
+
+- A leading `~` expands to the user home directory.
+
+- A relative `stdin` path is resolved against the step process working directory.
+
+#### Action Support
+
+- An action that cannot consume standard input must reject `stdin`.
+
+- The `ssh` action does not support `stdin`, because the remote shell reads its script from the session standard input channel.
+
+#### Value Resolution
+
+- The `stdin` path is value-resolved before the command or script starts.
+
+- Unlike `run`, an unresolved supported reference in `stdin` must fail the step rather than remain literal.
+
 ### Environment
 
 #### Runtime Environment
@@ -295,6 +323,8 @@ Validation must fail when:
 
 - An array-form `run` entry contains a line break.
 
+- `stdin` is set on an action that does not support standard input.
+
 Validation must not:
 
 - Execute `run`.
@@ -303,11 +333,17 @@ Validation must not:
 
 - Check whether the command path exists.
 
+- Check whether the `stdin` file exists.
+
 ### Runtime Errors
 
 Runtime must fail when:
 
 - The selected `working_dir` value cannot be used as a process working directory.
+
+- The `stdin` path resolves to an empty value, or still carries a supported reference.
+
+- The `stdin` file cannot be opened for reading.
 
 - The selected shell or script interpreter cannot be started.
 
@@ -350,6 +386,18 @@ steps:
     run:
       - go test ./internal/spec/...
       - go test ./internal/runtime/...
+```
+
+A file piped to standard input:
+
+```yaml
+steps:
+  - id: fetch
+    run: echo payload
+  - id: summarize
+    stdin: ${fetch.stdout}
+    run: cat
+    depends: fetch
 ```
 
 Dagu references are resolved before the shell or script interpreter runs:

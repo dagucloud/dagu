@@ -1,0 +1,7 @@
+working_dir: .
+env:
+  - EMPTY_PATH: ""
+steps:
+  - id: read
+    stdin: ${env.EMPTY_PATH}
+    run: cat

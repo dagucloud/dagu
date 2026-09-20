@@ -399,3 +399,37 @@ func TestResolverSemanticFieldsApplyOwnerSemantics(t *testing.T) {
 		})
 	}
 }
+
+func TestIsWholeReference(t *testing.T) {
+	t.Parallel()
+
+	whole := []string{
+		"${params.threshold}",
+		"${env.THRESHOLD}",
+		"${consts.threshold}",
+		"${steps.classify.outputs.score}",
+		"${THRESHOLD}",
+		"$THRESHOLD",
+		"$_private",
+	}
+	for _, text := range whole {
+		assert.True(t, value.IsWholeReference(text), "%q should be a whole reference", text)
+	}
+
+	notWhole := []string{
+		"",
+		"0.8",
+		"0.${THRESHOLD}",
+		"${A}${B}",
+		"${THRESHOLD} ",
+		"${THRESHOLD}x",
+		"${}",
+		"${1BAD}",
+		"$",
+		"$1BAD",
+		"${a b}",
+	}
+	for _, text := range notWhole {
+		assert.False(t, value.IsWholeReference(text), "%q should not be a whole reference", text)
+	}
+}

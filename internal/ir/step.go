@@ -51,6 +51,8 @@ type Step struct {
 	// Each entry represents a command to be executed sequentially.
 	// For single commands, this will contain exactly one entry.
 	Commands []CommandEntry `json:"commands,omitempty"`
+	// Stdin is the file whose contents are piped to the standard input.
+	Stdin string `json:"stdin,omitempty"`
 	// Stdout is the file to store the standard output.
 	Stdout string `json:"stdout,omitempty"`
 	// StdoutArtifact is the artifact-relative file path to store standard output.

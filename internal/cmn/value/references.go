@@ -4,6 +4,7 @@
 package value
 
 import (
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -99,6 +100,29 @@ func HasReferenceToNamespace(raw string, namespaces ...string) bool {
 		if slices.Contains(namespaces, ref.Namespace) {
 			return true
 		}
+	}
+	return false
+}
+
+// plainReferenceName matches an unqualified environment name.
+var plainReferenceName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// IsWholeReference reports whether text is exactly one value reference and
+// nothing else.
+//
+// It accepts the canonical scoped forms IsExactRef accepts, and the unqualified
+// environment forms ${NAME} and $NAME, which resolve wherever a field expands
+// environment values.
+func IsWholeReference(text string) bool {
+	if IsExactRef(text) {
+		return true
+	}
+	if inner, ok := strings.CutPrefix(text, "${"); ok {
+		name, closed := strings.CutSuffix(inner, "}")
+		return closed && plainReferenceName.MatchString(name)
+	}
+	if name, ok := strings.CutPrefix(text, "$"); ok {
+		return plainReferenceName.MatchString(name)
 	}
 	return false
 }

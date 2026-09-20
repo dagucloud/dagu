@@ -4,6 +4,7 @@
 package spec005_params_test
 
 import (
+	"runtime"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
@@ -196,6 +197,22 @@ func TestMissingRuntimeValues(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestStepStdinPathResolvesNamedParams covers the `steps[].stdin` row of the
+// Spec 003 field matrix. It stands apart from the shared runtime table because
+// the fixture reads standard input with cat.
+func TestStepStdinPathResolvesNamedParams(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fixture uses cat to read standard input")
+	}
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	dagu.WriteFile("stdin-prod.txt", "prod\n")
+	result := dagu.Run("start", "--params", spec005RuntimeParams, "step_stdin_path.yaml")
+	result.ExpectExitCode(0)
+	dagu.ExpectFileContent("stdin-read.txt", "prod\n")
 }
 
 func spec005StartCases() []spec005StartCase {

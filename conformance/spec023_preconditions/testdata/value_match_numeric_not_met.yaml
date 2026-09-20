@@ -1,0 +1,7 @@
+working_dir: .
+steps:
+  - id: should_skip
+    preconditions:
+      - condition: "0.5"
+        expected: "num:>=0.8"
+    run: printf '%s\n' bad > numeric-not-met-ran.txt

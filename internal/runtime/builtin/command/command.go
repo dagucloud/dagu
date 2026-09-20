@@ -70,18 +70,36 @@ func (e *commandExecutor) Run(ctx context.Context) error {
 	e.stderrTail = tw
 	e.config.Stderr = tw
 
+	// Ensure the working directory exists. This precedes opening the stdin
+	// file because a relative stdin path resolves against it.
+	if e.config.Dir != "" {
+		if err := os.MkdirAll(e.config.Dir, 0750); err != nil {
+			e.mu.Unlock()
+			return fmt.Errorf("failed to create working directory: %w", err)
+		}
+	}
+
+	// Open the stdin file, if configured, so its contents are piped to the
+	// command's standard input.
+	if e.config.StdinPath != "" {
+		stdinPath, err := resolveStdinPath(e.config.StdinPath, e.config.Dir)
+		if err != nil {
+			e.mu.Unlock()
+			return err
+		}
+		stdin, err := os.Open(stdinPath)
+		if err != nil {
+			e.mu.Unlock()
+			return fmt.Errorf("failed to open stdin file %q: %w", stdinPath, err)
+		}
+		defer func() { _ = stdin.Close() }()
+		e.config.Stdin = stdin
+	}
+
 	cmd, err := e.config.newCmd(ctx, e.scriptFile)
 	if err != nil {
 		e.mu.Unlock()
 		return fmt.Errorf("failed to create command: %w", err)
-	}
-
-	// Ensure the working directory exists
-	if cmd.Dir != "" {
-		if err := os.MkdirAll(cmd.Dir, 0750); err != nil {
-			e.mu.Unlock()
-			return fmt.Errorf("failed to create working directory: %w", err)
-		}
 	}
 
 	process, err := cmdutil.StartManagedProcess(cmd)
@@ -160,6 +178,22 @@ func (e *commandExecutor) stop(req cmdutil.StopRequest) error {
 	return err
 }
 
+// resolveStdinPath expands a leading tilde and anchors a relative path to the
+// step working directory.
+func resolveStdinPath(path, dir string) (string, error) {
+	if strings.HasPrefix(path, "~") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("failed to expand %q: %w", path, err)
+		}
+		return filepath.Join(home, path[1:]), nil
+	}
+	if dir != "" && !filepath.IsAbs(path) {
+		return filepath.Join(dir, path), nil
+	}
+	return path, nil
+}
+
 // annotateStderrTail returns a cleaned version of the tail with the temp script
 // path stripped for use in the error field.
 func (e *commandExecutor) annotateStderrTail(tail string) string {
@@ -179,16 +213,19 @@ func (e *commandExecutor) annotateStderrTail(tail string) string {
 }
 
 type commandConfig struct {
-	Ctx                context.Context
-	Dir                string
-	Command            string
-	Args               []string
-	Script             string
-	Shell              []string // Shell command and arguments, e.g., ["/bin/sh", "-e"]
-	ShellCommandArgs   string   // The command string to execute via shell -c
-	ShellPackages      []string // Packages for nix-shell
-	Stdout             io.Writer
-	Stderr             io.Writer
+	Ctx              context.Context
+	Dir              string
+	Command          string
+	Args             []string
+	Script           string
+	Shell            []string // Shell command and arguments, e.g., ["/bin/sh", "-e"]
+	ShellCommandArgs string   // The command string to execute via shell -c
+	ShellPackages    []string // Packages for nix-shell
+	Stdout           io.Writer
+	Stderr           io.Writer
+	// StdinPath is the resolved path of the file piped to the command's stdin.
+	StdinPath          string
+	Stdin              io.Reader
 	UserSpecifiedShell bool
 }
 
@@ -283,6 +320,7 @@ func (cfg *commandConfig) newCmd(ctx context.Context, scriptFile string) (*exec.
 
 	cmd.Env = append(cmd.Env, runtime.AllEnvs(ctx)...)
 	cmd.Dir = cfg.Dir
+	cmd.Stdin = cfg.Stdin
 	cmd.Stdout = cfg.Stdout
 	cmd.Stderr = cfg.Stderr
 	cmdutil.SetupCommand(cmd)
@@ -359,6 +397,7 @@ func NewCommandConfig(ctx context.Context, step ir.Step) (*commandConfig, error)
 		Shell:              env.Shell(ctx),
 		ShellCommandArgs:   shellCmdArgs,
 		ShellPackages:      step.ShellPackages,
+		StdinPath:          step.Stdin,
 		UserSpecifiedShell: step.Shell != "",
 	}, nil
 }
@@ -371,6 +410,7 @@ func init() {
 		MultipleCommands: true,
 		Script:           true,
 		Shell:            true,
+		Stdin:            true,
 		CommandContext: func(ctx context.Context, step ir.Step) cmnvalue.CommandContext {
 			shell := commandContextShell(ctx, step)
 			return cmnvalue.CommandContext{

@@ -1,0 +1,9 @@
+params:
+  - name: environment
+    description: Runtime environment.
+working_dir: .
+steps:
+  - name: read
+    stdin: "stdin-${params.environment}.txt"
+    stdout: stdin-read.txt
+    run: cat

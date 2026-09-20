@@ -1,0 +1,9 @@
+working_dir: .
+steps:
+  - id: should_fail
+    preconditions:
+      - condition: "not-a-number"
+        expected: "num:>=0.8"
+      - condition: actual
+        expected: expected
+    run: printf '%s\n' bad > numeric-error-outranks-ran.txt

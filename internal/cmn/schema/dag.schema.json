@@ -1678,6 +1678,10 @@
           "deprecated": true,
           "description": "Deprecated multi-line script content. Use run with a multi-line string."
         },
+        "stdin": {
+          "type": "string",
+          "description": "File path whose contents are piped to the step command's standard input."
+        },
         "stdout": {
           "oneOf": [
             {
@@ -1911,7 +1915,7 @@
             },
             "expected": {
               "type": "string",
-              "description": "Expected value or pattern to match against the condition result. Supports regex patterns with 're:' prefix."
+              "description": "Expected value or pattern to match against the condition result. Supports regex patterns with 're:' prefix and numeric comparisons with 'num:' prefix (e.g., 'num:>=0.8'). A numeric threshold may be a single value reference, such as 'num:>=${threshold}'."
             },
             "exit_code": {
               "oneOf": [
@@ -2403,6 +2407,7 @@
                 { "required": ["retry_policy"] },
                 { "required": ["signal_on_stop"] },
                 { "required": ["stderr"] },
+                { "required": ["stdin"] },
                 { "required": ["stdout"] },
                 { "required": ["timeout_sec"] },
                 { "required": ["worker_selector"] }
@@ -3074,7 +3079,7 @@
         "expected": {
           "type": "string",
           "minLength": 1,
-          "description": "Expected value or pattern to match against the condition result. Supports regex patterns with 're:' prefix (e.g., 're:0[1-9]' for matching numbers 01-09)."
+          "description": "Expected value or pattern to match against the condition result. Supports regex patterns with 're:' prefix (e.g., 're:0[1-9]' for matching numbers 01-09) and numeric comparisons with 'num:' prefix (e.g., 'num:>=0.8'). A numeric threshold may be a single value reference, such as 'num:>=${threshold}'."
         },
         "negate": {
           "type": "boolean",
@@ -6863,7 +6868,7 @@
               "minLength": 1
             }
           },
-          "description": "Map of patterns to target step names."
+          "description": "Map of patterns to target step names. A pattern is an exact string, a regex with 're:' prefix, or a numeric comparison with 'num:' prefix (e.g., 'num:>=0.8')."
         }
       },
       "description": "Configuration for action: router.route."

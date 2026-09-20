@@ -1,0 +1,9 @@
+working_dir: .
+params:
+  - threshold: "0.8"
+steps:
+  - id: write
+    preconditions:
+      - condition: "0.9"
+        expected: "num:>=${params.threshold}"
+    run: printf '%s\n' ran > numeric-threshold-scoped-ran.txt

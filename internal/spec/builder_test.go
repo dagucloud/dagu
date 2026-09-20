@@ -1348,6 +1348,61 @@ steps:
 	})
 }
 
+func TestBuildStepStdin(t *testing.T) {
+	t.Parallel()
+
+	t.Run("StdinField", func(t *testing.T) {
+		t.Parallel()
+
+		data := []byte(`
+steps:
+  - id: fetch
+    run: echo data
+  - id: summarize
+    stdin: ${fetch.stdout}
+    run: cat
+    depends: fetch
+`)
+		dag, err := spec.LoadYAML(context.Background(), data)
+		require.NoError(t, err)
+		th := DAG{t: t, DAG: dag}
+		assert.Len(t, th.Steps, 2)
+		assert.Equal(t, "", th.Steps[0].Stdin)
+		assert.Equal(t, "${fetch.stdout}", th.Steps[1].Stdin)
+	})
+	t.Run("StdinRejectedForUnsupportedExecutor", func(t *testing.T) {
+		t.Parallel()
+
+		data := []byte(`
+steps:
+  - name: fetch
+    type: ssh
+    stdin: data.txt
+    command: cat
+    with:
+      host: example.com
+      user: test
+`)
+		_, err := spec.LoadYAML(context.Background(), data)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "does not support stdin field")
+	})
+	t.Run("StdinTrimmed", func(t *testing.T) {
+		t.Parallel()
+
+		data := []byte(`
+steps:
+  - name: reader
+    stdin: "  data.txt  "
+    run: cat
+`)
+		dag, err := spec.LoadYAML(context.Background(), data)
+		require.NoError(t, err)
+		th := DAG{t: t, DAG: dag}
+		assert.Equal(t, "data.txt", th.Steps[0].Stdin)
+	})
+}
+
 func TestBuildStepPreconditions(t *testing.T) {
 	t.Parallel()
 
@@ -1405,6 +1460,69 @@ steps:
 		assert.Len(t, th.Steps, 1)
 		assert.Len(t, th.Steps[0].Preconditions, 1)
 		assert.Equal(t, &ir.Condition{Condition: "${STATUS}", Expected: "success", Negate: true}, th.Steps[0].Preconditions[0])
+	})
+	t.Run("PreconditionNumericComparison", func(t *testing.T) {
+		t.Parallel()
+
+		data := []byte(`
+steps:
+  - name: "gate"
+    run: "echo ok"
+    preconditions:
+      - condition: "${CONFIDENCE}"
+        expected: "num:>=0.8"
+`)
+		dag, err := spec.LoadYAML(context.Background(), data)
+		require.NoError(t, err)
+		th := DAG{t: t, DAG: dag}
+		assert.Len(t, th.Steps, 1)
+		assert.Equal(t, &ir.Condition{Condition: "${CONFIDENCE}", Expected: "num:>=0.8"}, th.Steps[0].Preconditions[0])
+	})
+	t.Run("PreconditionNumericThresholdReference", func(t *testing.T) {
+		t.Parallel()
+
+		// Both reference forms resolve through different paths, so both are pinned.
+		for _, expected := range []string{
+			"num:>=${threshold}",
+			"num:>= ${params.threshold}",
+			// The same unqualified forms condition already accepts.
+			"num:>=$THRESHOLD",
+			"num:>=${env.THRESHOLD}",
+		} {
+			data := []byte(`
+steps:
+  - name: "gate"
+    run: "echo ok"
+    preconditions:
+      - condition: "0.9"
+        expected: "` + expected + `"
+`)
+			dag, err := spec.LoadYAML(context.Background(), data)
+			require.NoError(t, err, "expected %q should build", expected)
+			th := DAG{t: t, DAG: dag}
+			assert.Equal(t, expected, th.Steps[0].Preconditions[0].Expected)
+		}
+	})
+	t.Run("PreconditionInvalidNumericComparison", func(t *testing.T) {
+		t.Parallel()
+
+		// A threshold must be exactly one reference: interpolation reads like a typo.
+		for _, expected := range []string{
+			"num:", "num:0.8", "num:==0.8", "num:>=abc", "num:>=NaN",
+			"num:>=0.${threshold}", "num:>=${a}${b}", "num:=>${threshold}",
+		} {
+			data := []byte(`
+steps:
+  - name: "gate"
+    run: "echo ok"
+    preconditions:
+      - condition: "${CONFIDENCE}"
+        expected: "` + expected + `"
+`)
+			_, err := spec.LoadYAML(context.Background(), data)
+			require.Error(t, err, "expected %q should be rejected", expected)
+			assert.Contains(t, err.Error(), "expected numeric comparison is invalid")
+		}
 	})
 }
 

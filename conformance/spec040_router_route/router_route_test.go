@@ -63,6 +63,20 @@ func TestRouteRuntime(t *testing.T) {
 			absent: []string{"a.out"},
 		},
 		{
+			name:   "num: pattern compares the value as a number",
+			file:   "numeric_route.yaml",
+			want:   []routeFile{{"auto_approve.out", "approve\n"}, {"route.txt", "Router evaluating: 0.95\n  num:<0.9 -> [human_review]\n  num:>=0.9 -> [auto_approve]\n"}},
+			absent: []string{"human_review.out"},
+		},
+		{
+			// The diagnostic prints the route as authored, not as resolved: a
+			// threshold may come from a secret.
+			name:   "a num: route threshold can be a value reference",
+			file:   "numeric_route_threshold_reference.yaml",
+			want:   []routeFile{{"auto_approve.out", "approve\n"}, {"route.txt", "Router evaluating: 0.95\n  num:<${threshold} -> [human_review]\n  num:>=${threshold} -> [auto_approve]\n"}},
+			absent: []string{"human_review.out"},
+		},
+		{
 			// after_a depends on branch_a, which is skipped (its route did not
 			// match); continueOn.skipped on branch_a means after_a still runs.
 			name:   "a step depending on a skipped target still runs",
@@ -128,6 +142,16 @@ func TestRouteValidation(t *testing.T) {
 			file:        "chain_type_rejected.yaml",
 			stderrParts: []string{"router steps require type 'graph'"},
 		},
+		{
+			name:        "route pattern with an unsupported numeric operator",
+			file:        "invalid_numeric_route.yaml",
+			stderrParts: []string{"numeric comparison is invalid"},
+		},
+		{
+			name:        "route pattern with an uncompilable regexp",
+			file:        "invalid_regex_route.yaml",
+			stderrParts: []string{"regexp is invalid"},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -139,4 +163,29 @@ func TestRouteValidation(t *testing.T) {
 			result.ExpectStderrContains(tc.stderrParts...)
 		})
 	}
+}
+
+// A num: route is the one break from the router's leniency toward values that
+// resolve to literal text. The failure lands on the router itself, and the
+// diagnostic is still written so the routing decision is reportable.
+func TestNumericRouteRejectsNonNumericValue(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	result := dagu.Run("start", "numeric_route_not_a_number.yaml")
+	result.ExpectNonZeroExitCode()
+	dagu.ExpectNoFile("auto_approve.out")
+	dagu.ExpectFileContent("route.txt", "Router evaluating: $DAGU_CONFORMANCE_UNDEFINED_ROUTE\n  num:>=0.9 -> [auto_approve]\n")
+}
+
+// An undecidable routing decision is not partially carried out: a route that
+// matches the value exactly still does not run its target.
+func TestNumericRouteFailureBlocksMatchingRoutes(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	result := dagu.Run("start", "numeric_route_mixed_patterns.yaml")
+	result.ExpectNonZeroExitCode()
+	dagu.ExpectNoFile("auto_approve.out")
+	dagu.ExpectNoFile("exact_match.out")
 }

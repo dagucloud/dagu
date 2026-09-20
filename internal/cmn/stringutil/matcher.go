@@ -17,6 +17,17 @@ import (
 
 const rePrefix = "re:"
 
+// HasRegexPrefix reports whether pattern selects regular-expression matching.
+func HasRegexPrefix(pattern string) bool {
+	return strings.HasPrefix(pattern, rePrefix)
+}
+
+// TrimRegexPrefix returns the regular-expression source of a pattern that
+// carries the regex prefix.
+func TrimRegexPrefix(pattern string) (string, bool) {
+	return strings.CutPrefix(pattern, rePrefix)
+}
+
 // MatchOption represents an option for pattern matching
 type MatchOption func(*matchOptions)
 

@@ -1,0 +1,8 @@
+working_dir: .
+steps:
+  - id: write
+    preconditions:
+      - condition: "not-a-number"
+        expected: "num:>=0.8"
+        negate: true
+    run: printf '%s\n' ran > negate-numeric-not-a-number.txt

@@ -54,6 +54,8 @@ type step struct {
 	ShellPackages []string `yaml:"shell_packages,omitempty"`
 	// Script is the script to run.
 	Script string `yaml:"script,omitempty"`
+	// Stdin is the file whose contents are piped to the command's standard input.
+	Stdin string `yaml:"stdin,omitempty"`
 	// Stdout is the file to write the stdout.
 	Stdout any `yaml:"stdout,omitempty"`
 	// Stderr is the file to write the stderr.
@@ -434,6 +436,7 @@ var stepLogOutputStage = stepTransformStage{
 			out.Stderr = v.filePath
 			out.StderrArtifact = v.artifactPath
 		}),
+	stepField("stdin", buildStepStdin, func(out *ir.Step, v string) { out.Stdin = v }),
 	stepField("log_output", buildStepLogOutput, func(out *ir.Step, v ir.LogOutputMode) { out.LogOutput = v }),
 }
 
@@ -563,6 +566,7 @@ var stepCommandValidationStage = stepValidationStage{
 	{"command", validateMultipleCommands},
 	{"script", validateScript},
 	{"shell", validateShell},
+	{"stdin", validateStdin},
 }
 
 var stepExecutionValidationStage = stepValidationStage{
@@ -671,6 +675,10 @@ func buildStepShellPackages(_ stepBuildContext, s *step) ([]string, error) {
 
 func buildStepScript(_ stepBuildContext, s *step) (string, error) {
 	return strings.TrimSpace(s.Script), nil
+}
+
+func buildStepStdin(_ stepBuildContext, s *step) (string, error) {
+	return strings.TrimSpace(s.Stdin), nil
 }
 
 type stepOutputRedirect struct {
@@ -1045,6 +1053,9 @@ func buildStepRepeatPolicy(_ stepBuildContext, s *step) (ir.RepeatPolicy, error)
 	result.LimitStr = rp.Limit.Str()
 
 	if rp.Condition != "" {
+		if err := validateMatchPattern(rp.Expected); err != nil {
+			return ir.RepeatPolicy{}, fmt.Errorf("repeat_policy.expected is invalid: %w", err)
+		}
 		result.Condition = &ir.Condition{
 			Condition: rp.Condition,
 			Expected:  rp.Expected,
@@ -1963,6 +1974,21 @@ func validateShell(result *ir.Step) error {
 	return nil
 }
 
+// validateStdin checks if the executor type supports the stdin field.
+func validateStdin(result *ir.Step) error {
+	if result.Stdin == "" {
+		return nil
+	}
+	if !registry.ExecutorCapabilitiesFor(result.ExecutorConfig.Type).Stdin {
+		return ir.NewValidationError(
+			"stdin",
+			result.Stdin,
+			fmt.Errorf("action %q does not support stdin field", result.ExecutorConfig.Type),
+		)
+	}
+	return nil
+}
+
 // validateContainer checks if the executor type supports the container field.
 func validateContainer(result *ir.Step) error {
 	if result.Container == nil {
@@ -2831,6 +2857,11 @@ func buildStepRouter(_ stepBuildContext, s *step, result *ir.Step) error {
 		if pattern == "" {
 			return ir.NewValidationError("routes", nil,
 				fmt.Errorf("route pattern cannot be empty"))
+		}
+
+		if err := validateMatchPattern(pattern); err != nil {
+			return ir.NewValidationError("routes", pattern,
+				fmt.Errorf("route pattern %q is invalid: %w", pattern, err))
 		}
 
 		if len(targets) == 0 {

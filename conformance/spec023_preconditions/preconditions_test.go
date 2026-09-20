@@ -18,6 +18,8 @@ func TestValidatePreconditions(t *testing.T) {
 		"valid_empty_array.yaml",
 		"valid_missing_command_check.yaml",
 		"valid_eval_value_match.yaml",
+		// An undefined threshold is a notice, not a validation error.
+		"valid_numeric_threshold_undefined.yaml",
 	}
 	for _, file := range validCases {
 		t.Run(file, func(t *testing.T) {
@@ -121,6 +123,26 @@ func TestValidatePreconditions(t *testing.T) {
 			name:        "empty regex",
 			file:        "invalid_regex_empty.yaml",
 			stderrParts: []string{"preconditions", "expected", "regexp"},
+		},
+		{
+			name:        "empty numeric comparison",
+			file:        "invalid_numeric_empty.yaml",
+			stderrParts: []string{"preconditions", "expected", "numeric comparison"},
+		},
+		{
+			name:        "unsupported numeric operator",
+			file:        "invalid_numeric_operator.yaml",
+			stderrParts: []string{"preconditions", "expected", "numeric comparison"},
+		},
+		{
+			name:        "non-numeric operand",
+			file:        "invalid_numeric_operand.yaml",
+			stderrParts: []string{"preconditions", "expected", "numeric comparison"},
+		},
+		{
+			name:        "threshold mixes a reference with surrounding text",
+			file:        "invalid_numeric_interpolated_threshold.yaml",
+			stderrParts: []string{"preconditions", "expected", "numeric comparison"},
 		},
 	}
 	for _, tc := range invalidCases {
@@ -407,6 +429,12 @@ func TestRuntimeNegatedPreconditionsUnix(t *testing.T) {
 			exitCode:   1,
 			absentFile: "negate-invalid-regex.txt",
 		},
+		{
+			name:       "negation does not convert a non-numeric value into success",
+			file:       "negate_numeric_not_a_number_fails.yaml",
+			exitCode:   1,
+			absentFile: "negate-numeric-not-a-number.txt",
+		},
 	}
 
 	for _, tc := range cases {
@@ -578,6 +606,98 @@ func TestRuntimePreconditionOutcomesUnix(t *testing.T) {
 			result.ExpectExitCode(tc.exitCode)
 			for _, file := range tc.absentFiles {
 				dagu.ExpectNoFile(file)
+			}
+		})
+	}
+}
+
+// A num: comparison that does not hold skips the step, but a value that is not
+// a number fails it, so that a numeric gate cannot silently stop gating.
+func TestRuntimeNumericValueMatchUnix(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("fixtures use POSIX shell snippets")
+	}
+
+	cases := []struct {
+		name       string
+		file       string
+		exitCode   int
+		outputFile string
+		absentFile string
+	}{
+		{
+			name:       "comparison holds and the step runs",
+			file:       "value_match_numeric_met.yaml",
+			exitCode:   0,
+			outputFile: "numeric-met-ran.txt",
+		},
+		{
+			name:       "comparison does not hold and the step is skipped",
+			file:       "value_match_numeric_not_met.yaml",
+			exitCode:   0,
+			absentFile: "numeric-not-met-ran.txt",
+		},
+		{
+			name:       "a value that is not a number fails the step",
+			file:       "value_match_numeric_not_a_number.yaml",
+			exitCode:   1,
+			absentFile: "numeric-not-a-number-ran.txt",
+		},
+		{
+			// Numeric matching is not line-based, so no line is considered on
+			// its own and the multi-line value is simply not a number.
+			name:       "a multi-line value fails the step",
+			file:       "value_match_numeric_multiline.yaml",
+			exitCode:   1,
+			absentFile: "numeric-multiline-ran.txt",
+		},
+		{
+			name:       "a threshold can come from a param",
+			file:       "value_match_numeric_threshold_reference.yaml",
+			exitCode:   0,
+			outputFile: "numeric-threshold-ran.txt",
+		},
+		{
+			name:       "a threshold can come from a scoped reference",
+			file:       "value_match_numeric_threshold_scoped.yaml",
+			exitCode:   0,
+			outputFile: "numeric-threshold-scoped-ran.txt",
+		},
+		{
+			name:       "a referenced threshold that is not met skips the step",
+			file:       "value_match_numeric_threshold_not_met.yaml",
+			exitCode:   0,
+			absentFile: "numeric-threshold-not-met-ran.txt",
+		},
+		{
+			name:       "a threshold that does not resolve to a number fails the step",
+			file:       "value_match_numeric_threshold_not_a_number.yaml",
+			exitCode:   1,
+			absentFile: "numeric-threshold-bad-ran.txt",
+		},
+		{
+			// A later not-met condition must not downgrade the numeric
+			// evaluation error into a skip.
+			name:       "an evaluation error outranks a later not-met condition",
+			file:       "numeric_error_outranks_not_met.yaml",
+			exitCode:   1,
+			absentFile: "numeric-error-outranks-ran.txt",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			dagu := harness.NewRunner(t)
+			result := dagu.Run("start", tc.file)
+			result.ExpectExitCode(tc.exitCode)
+			if tc.outputFile != "" {
+				dagu.ExpectFileContent(tc.outputFile, "ran\n")
+			}
+			if tc.absentFile != "" {
+				dagu.ExpectNoFile(tc.absentFile)
 			}
 		})
 	}

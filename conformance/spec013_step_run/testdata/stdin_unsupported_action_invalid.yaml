@@ -1,0 +1,8 @@
+steps:
+  - id: read
+    type: ssh
+    stdin: payload.txt
+    command: cat
+    with:
+      host: example.com
+      user: test

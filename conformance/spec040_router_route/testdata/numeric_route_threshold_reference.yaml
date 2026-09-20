@@ -1,0 +1,16 @@
+working_dir: .
+params:
+  - threshold: "0.9"
+steps:
+  - name: pick
+    action: router.route
+    stdout: route.txt
+    with:
+      value: "0.95"
+      routes:
+        "num:>=${threshold}": [auto_approve]
+        "num:<${threshold}": [human_review]
+  - name: auto_approve
+    run: echo approve > auto_approve.out
+  - name: human_review
+    run: echo review > human_review.out

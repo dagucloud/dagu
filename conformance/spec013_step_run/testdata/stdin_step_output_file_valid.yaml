@@ -1,0 +1,9 @@
+working_dir: .
+steps:
+  - id: fetch
+    run: echo payload
+  - id: read
+    stdin: ${fetch.stdout}
+    stdout: out.txt
+    run: cat
+    depends: fetch

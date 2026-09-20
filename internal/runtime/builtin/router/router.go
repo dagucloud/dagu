@@ -10,6 +10,7 @@ import (
 	"os"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -49,6 +50,32 @@ func (e *routerExecutor) Run(ctx context.Context) error {
 		for _, route := range e.step.Router.Routes {
 			line := fmt.Sprintf("  %s -> %v\n", route.Pattern, route.Targets)
 			_, _ = fmt.Fprint(e.stdout, masker.MaskString(line))
+		}
+
+		if err := checkNumericRoutes(ctx, e.step.Router.Routes, value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// checkNumericRoutes fails the router when the value cannot be compared against
+// a numeric route. Routing is reported here rather than left to each target's
+// injected precondition, so an undecidable routing decision produces one
+// failure and runs no target at all.
+func checkNumericRoutes(ctx context.Context, routes []ir.RouteEntry, value string) error {
+	for _, route := range routes {
+		if !stringutil.HasNumericPrefix(route.Pattern) {
+			continue
+		}
+		// Share the precondition's resolver so routing and gating cannot
+		// disagree, and so no resolved threshold reaches this error text.
+		comparison, err := runtime.ResolveNumericComparison(ctx, route.Pattern, "routes")
+		if err != nil {
+			return fmt.Errorf("route %q is an invalid numeric comparison: %w", route.Pattern, err)
+		}
+		if _, err := comparison.Match(value); err != nil {
+			return fmt.Errorf("route %q cannot be evaluated: %w", route.Pattern, err)
 		}
 	}
 	return nil

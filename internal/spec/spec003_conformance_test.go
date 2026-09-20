@@ -144,6 +144,11 @@ steps:
       template: literal ${params.environment}
       data:
         message: resolved ${params.environment}
+
+  - id: stdin_step
+    type: shell
+    command: cat
+    stdin: stdin/${params.environment}.txt
 `)
 
 	resolved := resolveSpec003Fields(t, dag, cmnvalue.Values{
@@ -202,6 +207,8 @@ steps:
 
 	assert.Equal(t, "literal ${params.environment}", resolved["steps[6].run"])
 	assert.Equal(t, "resolved prod", resolved["steps[6].with.data.message"])
+
+	assert.Equal(t, "stdin/prod.txt", resolved["steps[7].stdin"])
 
 	assertSpec003FieldAbsent(t, resolved, "name")
 	assertSpec003FieldAbsent(t, resolved, "description")
@@ -355,7 +362,7 @@ func registerSpec003ExecutorCapabilities() {
 	registerSpec003ExecutorCapabilitiesOnce.Do(func() {
 		for _, typ := range []string{"", "shell", "command"} {
 			registry.RegisterExecutorCapabilities(typ, registry.ExecutorCapabilities{
-				Command: true, MultipleCommands: true, Script: true, Shell: true,
+				Command: true, MultipleCommands: true, Script: true, Shell: true, Stdin: true,
 			})
 		}
 		for _, typ := range []string{"docker", "container"} {

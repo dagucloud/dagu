@@ -1,0 +1,10 @@
+working_dir: .
+steps:
+  - name: pick
+    action: router.route
+    with:
+      value: "0.95"
+      routes:
+        "num:==0.9": [only_target]
+  - name: only_target
+    run: echo ran > only_target.out

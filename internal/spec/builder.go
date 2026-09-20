@@ -208,13 +208,8 @@ func parsePreconditionEntry(_ buildContext, precondition any) ([]*ir.Condition, 
 				if !ok || strings.TrimSpace(val) == "" {
 					return nil, ir.NewValidationError("preconditions", vv, ErrPreconditionValueMustBeString)
 				}
-				if after, ok0 := strings.CutPrefix(val, "re:"); ok0 {
-					if strings.TrimSpace(after) == "" {
-						return nil, ir.NewValidationError("preconditions", vv, fmt.Errorf("expected regexp is empty"))
-					}
-					if _, err := regexp.Compile(after); err != nil {
-						return nil, ir.NewValidationError("preconditions", vv, fmt.Errorf("expected regexp is invalid: %w", err))
-					}
+				if err := validateMatchPattern(val); err != nil {
+					return nil, ir.NewValidationError("preconditions", vv, fmt.Errorf("expected %w", err))
 				}
 				ret.Expected = val
 				hasExpected = true

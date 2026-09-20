@@ -2376,6 +2376,61 @@ steps:
 	}
 }
 
+func TestDAGSchemaStepStdin(t *testing.T) {
+	t.Parallel()
+
+	resolved := mustResolveDAGSchema(t)
+	tests := []struct {
+		name    string
+		spec    string
+		wantErr bool
+	}{
+		{
+			name: "stdin accepts a path",
+			spec: `
+steps:
+  - id: summarize
+    stdin: ${fetch.stdout}
+    run: cat
+`,
+		},
+		{
+			name: "stdin rejects a non-string",
+			spec: `
+steps:
+  - id: summarize
+    stdin:
+      artifact: in.txt
+    run: cat
+`,
+			wantErr: true,
+		},
+		{
+			name: "stdin is not allowed on a human task",
+			spec: `
+steps:
+  - id: approve
+    action: human.task
+    stdin: in.txt
+    with:
+      prompt: ok?
+`,
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := resolved.Validate(mustParseYAMLDocument(t, tt.spec))
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 func mustResolveDAGSchema(t *testing.T) *jsonschema.Resolved {
 	t.Helper()
 

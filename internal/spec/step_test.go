@@ -23,10 +23,10 @@ func TestMain(m *testing.M) {
 	// Register executor capabilities for testing.
 	// In production, this is done by runtime/builtin init functions.
 
-	// Command executors: support command, multiple commands, script, shell
+	// Command executors: support command, multiple commands, script, shell, stdin
 	for _, t := range []string{"", "shell", "command"} {
 		registry.RegisterExecutorCapabilities(t, registry.ExecutorCapabilities{
-			Command: true, MultipleCommands: true, Script: true, Shell: true,
+			Command: true, MultipleCommands: true, Script: true, Shell: true, Stdin: true,
 		})
 	}
 	// Docker: supports command, multiple commands, and container
@@ -863,6 +863,59 @@ func TestBuildStepRepeatPolicy(t *testing.T) {
 			name: "WhileWithoutConditionOrExitCode",
 			repeatPolicy: &repeatPolicy{
 				Repeat: types.RepeatModeFromString("while"),
+			},
+			wantErr: true,
+		},
+		{
+			name: "NumericExpected",
+			repeatPolicy: &repeatPolicy{
+				Repeat:    types.RepeatModeFromString("until"),
+				Condition: "${N}",
+				Expected:  "num:>=3",
+			},
+			expected: ir.RepeatPolicy{
+				RepeatMode: ir.RepeatModeUntil,
+				Condition:  &ir.Condition{Condition: "${N}", Expected: "num:>=3"},
+			},
+		},
+		{
+			name: "NumericExpectedReference",
+			repeatPolicy: &repeatPolicy{
+				Repeat:    types.RepeatModeFromString("until"),
+				Condition: "${N}",
+				Expected:  "num:>=${threshold}",
+			},
+			expected: ir.RepeatPolicy{
+				RepeatMode: ir.RepeatModeUntil,
+				Condition:  &ir.Condition{Condition: "${N}", Expected: "num:>=${threshold}"},
+			},
+		},
+		{
+			name: "InvalidNumericExpectedInterpolated",
+			repeatPolicy: &repeatPolicy{
+				Repeat:    types.RepeatModeFromString("until"),
+				Condition: "${N}",
+				Expected:  "num:>=0.${threshold}",
+			},
+			wantErr: true,
+		},
+		{
+			// An unusable pattern here used to reach runtime, where an until
+			// loop with no limit repeats on it forever.
+			name: "InvalidNumericExpected",
+			repeatPolicy: &repeatPolicy{
+				Repeat:    types.RepeatModeFromString("until"),
+				Condition: "${N}",
+				Expected:  "num:==3",
+			},
+			wantErr: true,
+		},
+		{
+			name: "InvalidRegexpExpected",
+			repeatPolicy: &repeatPolicy{
+				Repeat:    types.RepeatModeFromString("until"),
+				Condition: "${N}",
+				Expected:  "re:[",
 			},
 			wantErr: true,
 		},
@@ -2434,6 +2487,84 @@ func TestValidateShell(t *testing.T) {
 			if tt.wantErr {
 				assert.Error(t, err)
 				assert.Contains(t, err.Error(), "does not support shell configuration")
+				assert.Contains(t, err.Error(), tt.executorType)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidateStdin(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		executorType string
+		stdin        string
+		wantErr      bool
+	}{
+		// Executors that support stdin
+		{
+			name:         "StdinWithDefaultExecutor",
+			executorType: "",
+			stdin:        "data.txt",
+			wantErr:      false,
+		},
+		{
+			name:         "StdinWithCommandExecutor",
+			executorType: "command",
+			stdin:        "data.txt",
+			wantErr:      false,
+		},
+		{
+			name:         "StdinWithShellExecutor",
+			executorType: "shell",
+			stdin:        "data.txt",
+			wantErr:      false,
+		},
+		// Executors that do not support stdin
+		{
+			name:         "StdinWithDockerExecutor",
+			executorType: "docker",
+			stdin:        "data.txt",
+			wantErr:      true,
+		},
+		{
+			name:         "StdinWithSSHExecutor",
+			executorType: "ssh",
+			stdin:        "data.txt",
+			wantErr:      true,
+		},
+		{
+			name:         "StdinWithHTTPExecutor",
+			executorType: "http",
+			stdin:        "data.txt",
+			wantErr:      true,
+		},
+		// Empty stdin - should always pass
+		{
+			name:         "EmptyStdinWithSSHExecutor",
+			executorType: "ssh",
+			stdin:        "",
+			wantErr:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			result := &ir.Step{
+				Stdin: tt.stdin,
+				ExecutorConfig: ir.ExecutorConfig{
+					Type: tt.executorType,
+				},
+			}
+			err := validateStdin(result)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "does not support stdin field")
 				assert.Contains(t, err.Error(), tt.executorType)
 			} else {
 				assert.NoError(t, err)

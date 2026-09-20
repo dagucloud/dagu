@@ -1,0 +1,9 @@
+working_dir: .
+params:
+  - threshold: "0.95"
+steps:
+  - id: should_skip
+    preconditions:
+      - condition: "0.9"
+        expected: "num:>=${threshold}"
+    run: printf '%s\n' bad > numeric-threshold-not-met-ran.txt

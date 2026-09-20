@@ -22,9 +22,8 @@ This spec covers:
   matching the same value at once
 - behavior when no pattern matches
 - the router step's own diagnostic output
-- validation errors, and that router.route has no runtime error behavior of
-  its own beyond what generic step and value resolution behavior already
-  define
+- validation errors, and the one runtime error router.route defines of its
+  own: a value that cannot be compared against a numeric route
 
 This spec does not define:
 
@@ -55,7 +54,10 @@ resolution as any other step field.
 `with.routes` (required) is a map from pattern to a list of target step
 names: `{pattern: [step1, step2, ...]}`. Each pattern is matched against the
 resolved value the same way a step `precondition`'s `expected` matches its
-`condition` -- an exact string, or a `re:`-prefixed regular expression.
+`condition` -- an exact string, a `re:`-prefixed regular expression, or a
+`num:`-prefixed numeric comparison. A numeric route's threshold may be a single
+whole value reference, such as `num:>=${threshold}`, resolved when the router
+runs; see [Spec 023: Preconditions](023-preconditions.md).
 
 ### Target execution
 
@@ -107,6 +109,10 @@ the quoted wording below (exact surrounding phrasing may vary):
 - `with.routes` is missing: `"with.routes is required"`.
 - `with.routes` is empty: `"router step requires at least one route"`.
 - A route's pattern is empty: `"route pattern cannot be empty"`.
+- A route's pattern starts with `num:` and the rest is not an ordering operator
+  followed by a finite number: `"numeric comparison is invalid"`.
+- A route's pattern starts with `re:` and the rest is empty, whitespace only, or
+  not a valid Go regexp pattern: `"regexp is empty"` or `"regexp is invalid"`.
 - A route lists no targets: `"has no targets"`.
 - A route lists an empty target name: `"has empty target"`.
 - The same step name appears as a target of more than one route:
@@ -118,17 +124,36 @@ the quoted wording below (exact surrounding phrasing may vary):
 
 ### Runtime
 
-`router.route` has no runtime error behavior of its own. `with.value` is
-resolved using the same value resolution as any other step field: a
-reference that cannot be resolved is left as unresolved literal text (see
+`with.value` is resolved using the same value resolution as any other step
+field: a reference that cannot be resolved is left as unresolved literal text
+(see
 [Spec 003: Value Resolution and Field Evaluation](003-value-resolution.md)),
 not a runtime error. That literal text is then matched against every route
 exactly like any other resolved value -- it is not treated as inherently
 unmatchable. A `re:.*` catch-all route, or any route whose pattern happens
-to equal the unresolved literal text, still matches it. A router step
-itself can only fail at runtime the way any step can (signal delivery,
-cancellation; see
+to equal the unresolved literal text, still matches it. Beyond the numeric
+rule below, a router step can only fail at runtime the way any step can
+(signal delivery, cancellation; see
 [Spec 017: Built-In Run Context](017-built-in-run-context.md)).
+
+A `num:` route is the one exception to that leniency, because a numeric gate
+that silently stops gating is worse than a loud failure. Rules:
+
+- If the DAG declares any `num:` route and the resolved value is not a finite
+  number, the router step itself reaches terminal status `failed` and the DAG
+  run fails.
+- The router writes its diagnostic output before failing, so the resolved value
+  and the route table are still reported.
+- No target runs. This includes targets of non-`num:` routes whose pattern
+  matches the value, and a `re:.*` catch-all. A routing decision that cannot be
+  evaluated is not partially carried out.
+- A `re:.*` catch-all therefore does not act as a fallback for non-numeric
+  input. There is also no single route pattern for a middle band such as
+  `0.1 < x < 0.9`, because a route carries one pattern. A step covering either
+  case states its own bounds as preconditions, which are combined with AND (see
+  [Spec 023: Preconditions](023-preconditions.md)).
+- Routing is unaffected when the value is a number: every route, numeric or
+  not, matches independently as usual.
 
 ## Related Specs
 
@@ -169,4 +194,49 @@ steps:
     run: echo "5xx"
   - name: catch_all
     run: echo "other"
+```
+
+Route by numeric comparison. The two routes are mutually exclusive, so exactly
+one target runs; adding a `re:.*` catch-all here would run its targets as well,
+because routing is not first-match-wins:
+
+```yaml
+steps:
+  - name: pick
+    action: router.route
+    with:
+      value: "${CONFIDENCE}"
+      routes:
+        "num:>=0.9": [auto_approve]
+        "num:<0.9": [human_review]
+  - name: auto_approve
+    run: echo approve
+  - name: human_review
+    run: echo review
+```
+
+A three-way split needs a middle band, which no single route pattern expresses.
+The band is stated on the step that covers it, as preconditions combined with
+AND:
+
+```yaml
+type: graph
+steps:
+  - id: auto_approve
+    preconditions:
+      - condition: "${CONFIDENCE}"
+        expected: "num:>=0.9"
+    run: echo approve
+  - id: auto_reject
+    preconditions:
+      - condition: "${CONFIDENCE}"
+        expected: "num:<=0.1"
+    run: echo reject
+  - id: human_review
+    preconditions:
+      - condition: "${CONFIDENCE}"
+        expected: "num:<0.9"
+      - condition: "${CONFIDENCE}"
+        expected: "num:>0.1"
+    run: echo review
 ```

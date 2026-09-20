@@ -27,12 +27,15 @@ const ErrMsgOtherConditionNotMet = "other condition was not met"
 // EvaluateConditions evaluates conditions and returns their runtime results.
 func EvaluateConditions(ctx context.Context, shell []string, conditions []*ir.Condition) ([]ir.ConditionResult, error) {
 	results := conditionResults(conditions)
-	var lastErr error
+	var lastErr, evalErr error
 
 	for i := range conditions {
 		if err := EvalCondition(ctx, shell, conditions[i]); err != nil {
 			results[i].Error = err.Error()
 			lastErr = err
+			if evalErr == nil && !errors.Is(err, ErrConditionNotMet) {
+				evalErr = err
+			}
 		}
 	}
 
@@ -43,6 +46,13 @@ func EvaluateConditions(ctx context.Context, shell []string, conditions []*ir.Co
 			}
 			results[i].Error = ErrMsgOtherConditionNotMet
 		}
+	}
+
+	// An evaluation error outranks a not-met condition regardless of the order
+	// they appear in, so that a broken gate fails the owning DAG or step
+	// instead of being downgraded to a skip by a later mismatch.
+	if evalErr != nil {
+		return results, evalErr
 	}
 
 	return results, lastErr
@@ -109,6 +119,10 @@ func matchCondition(ctx context.Context, shell []string, c *ir.Condition) error 
 		return fmt.Errorf("failed to evaluate the value: Error=%v", err)
 	}
 
+	if stringutil.HasNumericPrefix(c.Expected) {
+		return matchNumericCondition(ctx, c.Expected, evaluatedVal)
+	}
+
 	// Get maxOutputSize from DAG configuration
 	var maxOutputSize = defaultMaxOutputSizeBytes
 	if rCtx := GetDAGContext(ctx); rCtx.DAG != nil && rCtx.DAG.MaxOutputSize > 0 {
@@ -125,6 +139,60 @@ func matchCondition(ctx context.Context, shell []string, c *ir.Condition) error 
 	}
 	// Return an helpful error message if the condition is not met
 	return fmt.Errorf("%w: expected %q, got %q", ErrConditionNotMet, c.Expected, evaluatedVal)
+}
+
+// matchNumericCondition compares an actual value against a numeric-comparison
+// pattern. A value that is not a number is an evaluation error rather than a
+// not-met condition, so that a numeric gate cannot silently stop gating.
+//
+// Every message reports the pattern as authored, never as resolved: a threshold
+// can come from a secret, and these strings are persisted with the run.
+func matchNumericCondition(ctx context.Context, expected, actual string) error {
+	comparison, err := ResolveNumericComparison(ctx, expected, "expected")
+	if err != nil {
+		return fmt.Errorf("invalid numeric comparison %q: %w", expected, err)
+	}
+	matched, err := comparison.Match(actual)
+	if err != nil {
+		return fmt.Errorf("numeric comparison %q: %w", expected, err)
+	}
+	if matched {
+		return nil
+	}
+	return fmt.Errorf("%w: expected %q, got %q", ErrConditionNotMet, expected, actual)
+}
+
+// ResolveNumericComparison parses a numeric-comparison pattern, resolving a value
+// reference in its threshold first. fieldPath names the field for notices.
+//
+// The whole pattern is resolved rather than just the threshold, which is
+// equivalent because the numeric prefix and the ordering operators contain no
+// dollar sign. A reference that cannot be resolved is preserved as its own text,
+// so it reaches the parser as a non-number and fails there.
+//
+// No returned error quotes a resolved threshold, which may hold a secret, so a
+// caller can wrap the error while reporting the pattern as authored. Every
+// surface that compares a numeric pattern must go through here, so that gating
+// and routing cannot disagree about what a threshold means.
+func ResolveNumericComparison(ctx context.Context, pattern, fieldPath string) (stringutil.NumericComparison, error) {
+	if !strings.ContainsRune(pattern, '$') {
+		return stringutil.ParseNumericPattern(pattern)
+	}
+	resolved, err := resolveRuntimeString(ctx, pattern, cmnvalue.ConditionRuntimeValueField(fieldPath))
+	if err != nil {
+		return stringutil.NumericComparison{}, err
+	}
+	comparison, err := stringutil.ParseNumericPattern(resolved)
+	if err != nil {
+		if resolved == pattern {
+			// Nothing was substituted, so the reference has no value. Say so
+			// rather than calling the reference text a bad number: the caller
+			// already quotes the pattern, which names the reference.
+			return stringutil.NumericComparison{}, fmt.Errorf("threshold reference did not resolve")
+		}
+		return stringutil.NumericComparison{}, fmt.Errorf("threshold did not resolve to a number")
+	}
+	return comparison, nil
 }
 
 func conditionEvalContext(ctx context.Context, shell []string) context.Context {

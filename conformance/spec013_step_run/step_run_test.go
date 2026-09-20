@@ -99,3 +99,82 @@ func TestShellSelectionPrecedence(t *testing.T) {
 		dagu.ExpectFileContent("result.out", "ok\n")
 	})
 }
+
+// TestStdinPipesFileToStepProcess proves the "Standard Input" source rules: the
+// named file reaches the step process standard input, a step output file path
+// is an accepted source, and every array-form entry reads the file from its
+// start.
+func TestStdinPipesFileToStepProcess(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fixtures use cat to read standard input")
+	}
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		file    string
+		content string
+	}{
+		{name: "single command", file: "stdin_file_piped_valid.yaml", content: "payload\n"},
+		{name: "array form", file: "stdin_array_run_valid.yaml", content: "payload\npayload\n"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			dagu := harness.NewRunner(t)
+			dagu.WriteFile("payload.txt", "payload\n")
+			result := dagu.Run("start", tc.file)
+			result.ExpectExitCode(0)
+			dagu.ExpectFileContent("out.txt", tc.content)
+		})
+	}
+
+	t.Run("step output file", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := harness.NewRunner(t)
+		result := dagu.Run("start", "stdin_step_output_file_valid.yaml")
+		result.ExpectExitCode(0)
+		dagu.ExpectFileContent("out.txt", "payload\n")
+	})
+}
+
+// TestStdinErrors proves the "Standard Input" error rules: an action that
+// cannot consume standard input rejects the field at validation, and an
+// unreadable file fails the step at runtime.
+func TestStdinErrors(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fixtures use cat to read standard input")
+	}
+	t.Parallel()
+
+	t.Run("unsupported action is rejected by validate", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := harness.NewRunner(t)
+		result := dagu.Run("validate", "stdin_unsupported_action_invalid.yaml")
+		result.ExpectNonZeroExitCode()
+		result.ExpectStderrContains("stdin")
+	})
+
+	runtimeFailures := []struct {
+		name string
+		file string
+	}{
+		{name: "missing file", file: "stdin_missing_file_invalid.yaml"},
+		{name: "unresolved reference", file: "stdin_unresolved_reference_invalid.yaml"},
+		{name: "reference resolving to nothing", file: "stdin_empty_reference_invalid.yaml"},
+	}
+
+	for _, tc := range runtimeFailures {
+		t.Run(tc.name+" fails the step", func(t *testing.T) {
+			t.Parallel()
+
+			dagu := harness.NewRunner(t)
+			result := dagu.Run("start", tc.file)
+			result.ExpectNonZeroExitCode()
+		})
+	}
+}

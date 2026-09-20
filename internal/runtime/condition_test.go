@@ -168,6 +168,94 @@ func TestEvalConditions(t *testing.T) {
 			wantErr:             true,
 			wantConditionNotMet: true,
 		},
+
+		// Numeric comparison tests
+		{
+			name:       "NumericMatch",
+			conditions: []*ir.Condition{{Condition: "0.87", Expected: "num:>=0.8"}},
+		},
+		{
+			name:       "NumericMatchEnvVar",
+			conditions: []*ir.Condition{{Condition: "${env.TEST_CONDITION}", Expected: "num:>50"}},
+		},
+		{
+			name:                "NumericNotMet",
+			conditions:          []*ir.Condition{{Condition: "0.5", Expected: "num:>=0.8"}},
+			wantErr:             true,
+			wantConditionNotMet: true,
+		},
+		{
+			name:       "NumericNotMetNegated",
+			conditions: []*ir.Condition{{Condition: "0.5", Expected: "num:>=0.8", Negate: true}},
+		},
+		{
+			name:               "NumericValueNotANumber",
+			conditions:         []*ir.Condition{{Condition: "abc", Expected: "num:>=0.8"}},
+			wantErr:            true,
+			notConditionNotMet: true,
+		},
+		{
+			// Negation must not turn a non-numeric value into a passing gate.
+			name:               "NumericValueNotANumberNegated",
+			conditions:         []*ir.Condition{{Condition: "abc", Expected: "num:>=0.8", Negate: true}},
+			wantErr:            true,
+			notConditionNotMet: true,
+		},
+		{
+			name:               "NumericValueMultiline",
+			conditions:         []*ir.Condition{{Condition: "0.5\n0.9", Expected: "num:>=0.8"}},
+			wantErr:            true,
+			notConditionNotMet: true,
+		},
+		{
+			name:               "NumericPatternInvalid",
+			conditions:         []*ir.Condition{{Condition: "0.87", Expected: "num:==0.8"}},
+			wantErr:            true,
+			notConditionNotMet: true,
+		},
+		// A threshold may come from a value reference.
+		{
+			name:       "NumericThresholdReference",
+			conditions: []*ir.Condition{{Condition: "0.9", Expected: "num:>=${env.TEST_THRESHOLD}"}},
+		},
+		{
+			name:                "NumericThresholdReferenceNotMet",
+			conditions:          []*ir.Condition{{Condition: "0.5", Expected: "num:>=${env.TEST_THRESHOLD}"}},
+			wantErr:             true,
+			wantConditionNotMet: true,
+		},
+		{
+			name:               "NumericThresholdReferenceNotANumber",
+			conditions:         []*ir.Condition{{Condition: "0.9", Expected: "num:>=${env.TEST_NOT_NUMBER}"}},
+			wantErr:            true,
+			notConditionNotMet: true,
+		},
+		{
+			name:               "NumericThresholdReferenceUnresolved",
+			conditions:         []*ir.Condition{{Condition: "0.9", Expected: "num:>=${env.TEST_UNDEFINED}"}},
+			wantErr:            true,
+			notConditionNotMet: true,
+		},
+		{
+			// An evaluation error must survive a later not-met condition,
+			// otherwise the gate it belongs to silently downgrades to skipped.
+			name: "EvaluationErrorOutranksLaterNotMet",
+			conditions: []*ir.Condition{
+				{Condition: "abc", Expected: "num:>=0.8"},
+				{Condition: "x", Expected: "y"},
+			},
+			wantErr:            true,
+			notConditionNotMet: true,
+		},
+		{
+			name: "EvaluationErrorOutranksEarlierNotMet",
+			conditions: []*ir.Condition{
+				{Condition: "x", Expected: "y"},
+				{Condition: "abc", Expected: "num:>=0.8"},
+			},
+			wantErr:            true,
+			notConditionNotMet: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -176,6 +264,8 @@ func TestEvalConditions(t *testing.T) {
 			// Add TEST_CONDITION to the env scope (not OS env)
 			env := runtime.GetEnv(ctx)
 			env.Scope = env.Scope.WithEntry("TEST_CONDITION", "100", cmnvalue.EnvSourceDAGEnv)
+			env.Scope = env.Scope.WithEntry("TEST_THRESHOLD", "0.8", cmnvalue.EnvSourceDAGEnv)
+			env.Scope = env.Scope.WithEntry("TEST_NOT_NUMBER", "abc", cmnvalue.EnvSourceDAGEnv)
 			ctx = runtime.WithEnv(ctx, env)
 			err := evalConditions(ctx, []string{"sh"}, tt.conditions)
 
@@ -371,4 +461,29 @@ func TestEvalConditions_CommandFormExpandsHomeRelativeScopeVars(t *testing.T) {
 		{Condition: "test -f $TEST_FILE"},
 	})
 	require.NoError(t, err)
+}
+
+// A threshold can come from a secret, and condition errors are persisted with
+// the run, so no error may quote the resolved threshold.
+func TestResolveNumericComparisonHidesResolvedThreshold(t *testing.T) {
+	ctx := newTestContext()
+	env := runtime.GetEnv(ctx)
+	env.Scope = env.Scope.WithEntry("SECRET_THRESHOLD", "sensitive-value", cmnvalue.EnvSourceDAGEnv)
+	ctx = runtime.WithEnv(ctx, env)
+
+	_, err := runtime.ResolveNumericComparison(ctx, "num:>=${env.SECRET_THRESHOLD}", "expected")
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "sensitive-value")
+
+	// A literal threshold is authored text, so quoting it is safe and useful.
+	_, err = runtime.ResolveNumericComparison(ctx, "num:>=abc", "expected")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "abc")
+
+	// A reference with no value is reported as unresolved rather than as a bad
+	// number, so the cause is not mistaken for a malformed threshold.
+	_, err = runtime.ResolveNumericComparison(ctx, "num:>=${env.NOT_DEFINED}", "expected")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "did not resolve")
+	require.NotContains(t, err.Error(), "not a number")
 }

@@ -150,6 +150,7 @@ This matrix defines the required `${params}` and `${params.name}` behavior for v
 | `steps[].repeat_policy.condition` | Repeat condition strings resolve declared params. |
 | `steps[].parallel` | `variable`, `items[]`, `items[].value`, and `items[].params.*` string values resolve declared params. |
 | `steps[].foreach` | `items`, `key`, value-resolved string fields inside `foreach.steps`, and `collect` values resolve declared params. |
+| `steps[].stdin` | Standard input file path strings resolve declared params. |
 | `steps[].stdout`, `steps[].stdout.artifact` | Stdout file path strings and artifact path strings resolve declared params. |
 | `steps[].stderr`, `steps[].stderr.artifact` | Stderr file path strings and artifact path strings resolve declared params. |
 | `steps[].stdout.outputs.fields.*` | Literal string values under field entries resolve declared params. |

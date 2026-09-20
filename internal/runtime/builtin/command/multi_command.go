@@ -43,6 +43,7 @@ func newMultiCommandExecutor(ctx context.Context, step ir.Step) (*multiCommandEx
 			Shell:              env.Shell(ctx),
 			ShellCommandArgs:   cmd.CmdWithArgs,
 			ShellPackages:      step.ShellPackages,
+			StdinPath:          step.Stdin,
 			UserSpecifiedShell: step.Shell != "",
 			Stdout:             os.Stdout,
 			Stderr:             os.Stderr,

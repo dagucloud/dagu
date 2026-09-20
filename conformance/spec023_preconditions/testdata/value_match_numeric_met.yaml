@@ -1,0 +1,7 @@
+working_dir: .
+steps:
+  - id: write
+    preconditions:
+      - condition: "0.87"
+        expected: "num:>=0.8"
+    run: printf '%s\n' ran > numeric-met-ran.txt

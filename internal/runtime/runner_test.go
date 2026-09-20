@@ -1463,6 +1463,91 @@ func TestRunner(t *testing.T) {
 		assert.Contains(t, string(content), "downstream")
 	})
 
+	t.Run("StdinPipesStepStdoutFileToProcess", func(t *testing.T) {
+		if windowsShellTest() {
+			t.Skip("uses cat to read stdin")
+		}
+		r := setupRunner(t)
+
+		plan := r.newPlan(t,
+			newStep("first",
+				withID("first"),
+				withCommand("echo upstream-data"),
+			),
+			newStep("second",
+				withDepends("first"),
+				withStdin("${first.stdout}"),
+				withCommand("cat"),
+				withOutput("OUT"),
+			),
+		)
+
+		result := plan.assertRun(t, ir.Succeeded)
+		result.assertNodeStatus(t, "first", ir.NodeSucceeded)
+		result.assertNodeStatus(t, "second", ir.NodeSucceeded)
+
+		node := result.nodeByName(t, "second")
+		output, ok := node.NodeData().State.OutputVariables.Load("OUT")
+		require.True(t, ok, "output variable not found")
+		assert.Equal(t, "OUT=upstream-data", output)
+	})
+
+	t.Run("StdinMissingFileFailsStep", func(t *testing.T) {
+		if windowsShellTest() {
+			t.Skip("uses cat to read stdin")
+		}
+		r := setupRunner(t)
+
+		plan := r.newPlan(t,
+			newStep("reader",
+				withStdin("does-not-exist.txt"),
+				withCommand("cat"),
+			),
+		)
+
+		result := plan.assertRun(t, ir.Failed)
+		result.assertNodeStatus(t, "reader", ir.NodeFailed)
+	})
+
+	t.Run("StdinEmptyAfterResolutionFailsStep", func(t *testing.T) {
+		if windowsShellTest() {
+			t.Skip("uses cat to read stdin")
+		}
+		r := setupRunner(t)
+
+		plan := r.newPlan(t,
+			newStep("reader",
+				withEnvVars("EMPTY="),
+				withStdin("${env.EMPTY}"),
+				withCommand("cat"),
+			),
+		)
+
+		result := plan.assertRun(t, ir.Failed)
+		result.assertNodeStatus(t, "reader", ir.NodeFailed)
+		node := result.nodeByName(t, "reader")
+		require.ErrorContains(t, node.State().Error, "resolved to an empty path")
+	})
+
+	t.Run("StdinUnresolvedReferenceFailsStep", func(t *testing.T) {
+		if windowsShellTest() {
+			t.Skip("uses cat to read stdin")
+		}
+		r := setupRunner(t)
+
+		plan := r.newPlan(t,
+			newStep("reader",
+				withStdin("${no_such_step.stdout}"),
+				withCommand("cat"),
+			),
+		)
+
+		result := plan.assertRun(t, ir.Failed)
+		result.assertNodeStatus(t, "reader", ir.NodeFailed)
+		node := result.nodeByName(t, "reader")
+		require.ErrorContains(t, node.State().Error, "must resolve before execution")
+	})
+
 	t.Run("DAGRunStatusNotAvailableToMainSteps", func(t *testing.T) {
 		r := setupRunner(t)
 
