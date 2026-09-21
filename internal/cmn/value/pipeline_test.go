@@ -153,8 +153,8 @@ func TestExpandQuotedRefs_PowerShellEscapesInterpretedCharacters(t *testing.T) {
 	}{
 		{name: "Quote", value: `a"b`, want: `echo "a""b"`},
 		{name: "Backtick", value: "a`b", want: "echo \"a``b\""},
-		{name: "Dollar", value: `a$(whoami)b`, want: "echo \"a`$(whoami)b\""},
 		{name: "Newline", value: "a\nb", want: "echo \"a`nb\""},
+		{name: "CarriageReturn", value: "a\rb", want: "echo \"a`rb\""},
 		{name: "Tab", value: "a\tb", want: "echo \"a`tb\""},
 		{name: "WindowsPath", value: `C:\logs\run`, want: `echo "C:\logs\run"`},
 	}
@@ -167,6 +167,67 @@ func TestExpandQuotedRefs_PowerShellEscapesInterpretedCharacters(t *testing.T) {
 			result, err := expandQuotedRefs(ctx, `echo "${step1.output}"`, opts)
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, result)
+		})
+	}
+}
+
+// The whole local resolver, not just the quoted-refs phase, has to leave a
+// PowerShell command runnable. The variables phase runs after quoting and
+// expands $VAR for every shell commandDefersShellVars does not name, so a
+// resolved value carrying a dollar must come out of quoting unescaped: a
+// backtick placed in front of it would survive the expansion and escape the
+// first character of the expanded value.
+func TestResolver_PowerShellCommandQuotesResolvedValues(t *testing.T) {
+	scope := NewEnvScope(nil, false).WithEntries(
+		map[string]string{"HOME": "/defined/home"}, EnvSourceStepEnv)
+	ctx := WithEnvScope(context.Background(), scope)
+
+	tests := []struct {
+		name     string
+		value    string
+		wantPwsh string
+		wantSh   string
+	}{
+		{
+			name:     "Quote",
+			value:    `{"k":"v"}`,
+			wantPwsh: `echo "{""k"":""v""}"`,
+			wantSh:   `echo "{\"k\":\"v\"}"`,
+		},
+		{
+			name:     "Backtick",
+			value:    "a`b",
+			wantPwsh: "echo \"a``b\"",
+			wantSh:   "echo \"a`b\"",
+		},
+		{
+			name:     "WindowsPath",
+			value:    `C:\logs\run`,
+			wantPwsh: `echo "C:\logs\run"`,
+			wantSh:   `echo "C:\\logs\\run"`,
+		},
+		{
+			name:     "Dollar",
+			value:    `a$HOME b`,
+			wantPwsh: `echo "a/defined/home b"`,
+			wantSh:   `echo "a$HOME b"`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resolver := NewResolver(StaticScope{}, RuntimeScope{
+				Steps: map[string]StepInfo{"step1": {Output: new(tt.value)}},
+			})
+			for shell, want := range map[string]string{"pwsh": tt.wantPwsh, "sh": tt.wantSh} {
+				field := ShellCommandField("run", CommandContext{
+					Target:          CommandTargetLocal,
+					Shell:           []string{shell},
+					ShellConfigured: true,
+				})
+				got, err := resolver.String(ctx, `echo "${step1.output}"`, field)
+				require.NoError(t, err)
+				assert.Equal(t, want, got, "shell %s", shell)
+			}
 		})
 	}
 }

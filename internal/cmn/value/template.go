@@ -156,11 +156,17 @@ func quoteQuotedRefValue(value string, style quotedRefStyle) string {
 	}
 }
 
-// quotePowerShellValue renders value as a PowerShell double-quoted string.
-// Inside such a string PowerShell expands $ and reads the backtick as its
-// escape character, and a literal quote doubles rather than taking a
-// backslash, so each needs its own escape. Control characters take their
+// quotePowerShellValue renders value as a PowerShell double-quoted string. A
+// literal quote doubles rather than taking a backslash, the backtick is the
+// escape character and so doubles too, and a control character takes its
 // backtick form because a raw one would otherwise end the line.
+//
+// $ is deliberately left alone. Only a shell named by commandDefersShellVars
+// keeps $VAR for the shell to expand; for every other shell the variables
+// phase expands it after this one, and it does not recognize a backtick
+// escape, so escaping here would strand the backtick against the expanded
+// value. Whether a resolved value should be re-expanded at all is a separate
+// question from how it is quoted.
 func quotePowerShellValue(value string) string {
 	var b strings.Builder
 	b.Grow(len(value) + 2)
@@ -171,8 +177,6 @@ func quotePowerShellValue(value string) string {
 			b.WriteString(`""`)
 		case '`':
 			b.WriteString("``")
-		case '$':
-			b.WriteString("`$")
 		case '\n':
 			b.WriteString("`n")
 		case '\r':
