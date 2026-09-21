@@ -211,6 +211,9 @@ Rules:
 - The numeric comparison is the text after `num:`.
 - A numeric comparison is one of the ordering operators `>`, `>=`, `<`, or `<=`
   followed by a number.
+- The number uses Go floating-point literal syntax, so forms such as `1_000.5`
+  and `0x1p-2` are accepted alongside plain decimals. A magnitude too large for
+  a 64-bit float is not a finite number and is rejected.
 - Whitespace around the operator and the number is allowed.
 - Equality operators are not supported in a numeric comparison. Exact string
   matching already covers equality.
