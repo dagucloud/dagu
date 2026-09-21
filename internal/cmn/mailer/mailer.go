@@ -17,6 +17,7 @@ import (
 	"mime"
 	"mime/multipart"
 	"net"
+	"net/mail"
 	"net/smtp"
 	"net/textproto"
 	"os"
@@ -66,6 +67,12 @@ var (
 	errFileEmpty = errors.New("file is empty")
 	mailTimeout  = 30 * time.Second
 	maxHeaderLen = 256
+)
+
+const (
+	// fallbackMessageIDDomain is used when the sender address carries no usable
+	// domain.
+	fallbackMessageIDDomain = "dagu.local"
 )
 
 // SendMail sends an email.
@@ -342,7 +349,7 @@ func (*Client) composeHeader(
 		"From: " + from + "\r\n" +
 		"Subject: " + subject + "\r\n" +
 		"Date: " + time.Now().Format(time.RFC1123Z) + "\r\n" +
-		"Message-ID: " + newMessageID() + "\r\n" +
+		"Message-ID: " + newMessageID(from) + "\r\n" +
 		"MIME-Version: 1.0\r\n" +
 		"Content-Type: " + contentType + "\r\n"
 }
@@ -444,12 +451,46 @@ func (m *Client) composeMultipartMail(
 	return message.Bytes(), nil
 }
 
-func newMessageID() string {
+func newMessageID(from string) string {
+	domain := messageIDDomain(from)
 	var random [16]byte
 	if _, err := rand.Read(random[:]); err != nil {
-		return fmt.Sprintf("<%d@dagu.local>", time.Now().UnixNano())
+		return fmt.Sprintf("<%d@%s>", time.Now().UnixNano(), domain)
 	}
-	return "<" + hex.EncodeToString(random[:]) + "@dagu.local>"
+	return "<" + hex.EncodeToString(random[:]) + "@" + domain + ">"
+}
+
+// messageIDDomain derives the Message-ID right-hand side from the sender
+// address. Spam filters score a Message-ID aligned with the From domain more
+// favorably than an unrelated literal.
+func messageIDDomain(from string) string {
+	address := from
+	if parsed, err := mail.ParseAddress(from); err == nil {
+		address = parsed.Address
+	}
+	index := strings.LastIndex(address, "@")
+	if index < 0 {
+		return fallbackMessageIDDomain
+	}
+	domain := strings.TrimRight(address[index+1:], ">")
+	if !isDotAtom(domain) {
+		return fallbackMessageIDDomain
+	}
+	return domain
+}
+
+// isDotAtom reports whether value is usable unquoted in a structured header
+// field, per the dot-atom production of RFC 5322.
+func isDotAtom(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		if r <= ' ' || r >= 0x7f || strings.ContainsRune(`()<>[]:;@\,"`, r) {
+			return false
+		}
+	}
+	return true
 }
 
 func writeBase64(w io.Writer, data []byte) error {

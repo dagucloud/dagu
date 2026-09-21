@@ -527,6 +527,45 @@ func TestComposeMailSanitizesHeaders(t *testing.T) {
 	assert.Contains(t, payload, "Subject: subjectX-Dagu-Subject: injected")
 }
 
+func TestComposeMailMessageIDUsesFromDomain(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		from   string
+		suffix string
+	}{
+		{name: "bare address", from: "sender@example.com", suffix: "@example.com>"},
+		{name: "display name", from: "Daily Digest <sender@example.com>", suffix: "@example.com>"},
+		{name: "subdomain", from: "sender@mail.example.co.jp", suffix: "@mail.example.co.jp>"},
+		{name: "no domain", from: "sender", suffix: "@dagu.local>"},
+		{name: "empty domain", from: "sender@", suffix: "@dagu.local>"},
+	}
+
+	client := New(Config{})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			payload, err := client.composeMail(
+				[]string{"to@example.com"},
+				nil,
+				tt.from,
+				"subject",
+				"body",
+				nil,
+			)
+			require.NoError(t, err)
+
+			message, err := mail.ReadMessage(bytes.NewReader(payload))
+			require.NoError(t, err)
+			messageID := message.Header.Get("Message-ID")
+			require.True(t, strings.HasPrefix(messageID, "<"), "got %q", messageID)
+			assert.True(t, strings.HasSuffix(messageID, tt.suffix), "got %q", messageID)
+		})
+	}
+}
+
 func TestComposeMailWithoutAttachmentsIsSinglePart(t *testing.T) {
 	t.Parallel()
 
