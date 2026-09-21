@@ -1844,7 +1844,7 @@
                   "oneOf": [
                     {
                       "type": "string",
-                      "description": "Output text or pattern that indicates success. Supports regex with 're:' prefix."
+                      "description": "Output text or pattern that indicates success. Supports regex with 're:' prefix. Numeric comparison with 'num:' is not supported here."
                     },
                     {
                       "type": "array",

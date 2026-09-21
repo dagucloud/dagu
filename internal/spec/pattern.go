@@ -35,6 +35,24 @@ func validateMatchPattern(pattern string) error {
 	return nil
 }
 
+// validateLogPattern checks a pattern matched against log lines: an exact
+// string or a "re:"-prefixed regular expression.
+//
+// Numeric comparison reads a whole value, so it has no meaning line by line.
+// Without this check a "num:" pattern is matched as the literal text it is
+// written as, which never matches and reports nothing.
+//
+// The returned error names what is wrong with the pattern; callers add the
+// field it came from.
+func validateLogPattern(pattern string) error {
+	if stringutil.HasNumericPrefix(pattern) {
+		return fmt.Errorf("numeric comparison is not supported in log patterns; " +
+			`compare numbers with a precondition or router route, or use "re:" to match the text literally`)
+	}
+
+	return validateMatchPattern(pattern)
+}
+
 // validateNumericPattern checks a numeric comparison as far as it can be checked
 // before a run.
 //

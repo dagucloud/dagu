@@ -881,12 +881,20 @@ func buildStepContinueOn(_ stepBuildContext, s *step) (ir.ContinueOn, error) {
 		return ir.ContinueOn{}, nil
 	}
 
+	output := s.ContinueOn.Output()
+	for _, pattern := range output {
+		if err := validateLogPattern(pattern); err != nil {
+			return ir.ContinueOn{}, ir.NewValidationError("continue_on.output", pattern,
+				fmt.Errorf("pattern %q is invalid: %w", pattern, err))
+		}
+	}
+
 	return ir.ContinueOn{
 		Skipped:     s.ContinueOn.Skipped(),
 		Failure:     s.ContinueOn.Failed(),
 		MarkSuccess: s.ContinueOn.MarkSuccess(),
 		ExitCode:    s.ContinueOn.ExitCode(),
-		Output:      s.ContinueOn.Output(),
+		Output:      output,
 	}, nil
 }
 

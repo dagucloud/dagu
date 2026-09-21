@@ -625,6 +625,61 @@ func TestBuildStepContinueOn(t *testing.T) {
 	}
 }
 
+// An unusable pattern here used to reach runtime, where a numeric comparison
+// was matched as the literal text it is written as and an uncompilable regexp
+// was dropped, both without reporting anything.
+func TestBuildStepContinueOnOutputPattern(t *testing.T) {
+	t.Parallel()
+
+	build := func(pattern string) error {
+		s := &step{ContinueOn: continueOnValueMap(map[string]any{"output": []string{pattern}})}
+		_, err := buildStepContinueOn(testStepBuildContext(), s)
+		return err
+	}
+
+	t.Run("Valid", func(t *testing.T) {
+		t.Parallel()
+
+		// re: matches the text of a numeric comparison literally.
+		for _, pattern := range []string{"WARNING", "re:^ERROR.*", "re:num:>=5"} {
+			require.NoError(t, build(pattern), "pattern %q should be accepted", pattern)
+		}
+	})
+
+	t.Run("Numeric", func(t *testing.T) {
+		t.Parallel()
+
+		for _, pattern := range []string{"num:>=5", "num:", "num:>=abc"} {
+			err := build(pattern)
+			require.Error(t, err, "pattern %q should be rejected", pattern)
+			assert.Contains(t, err.Error(), "continue_on.output")
+			assert.Contains(t, err.Error(), "numeric comparison is not supported in log patterns")
+		}
+	})
+
+	t.Run("InvalidRegexp", func(t *testing.T) {
+		t.Parallel()
+
+		err := build("re:[")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "regexp is invalid")
+	})
+
+	t.Run("StepDefault", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := LoadYAML(context.Background(), []byte(`
+defaults:
+  continue_on:
+    output: ["num:>=5"]
+steps:
+  - command: echo hi
+`))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "numeric comparison is not supported in log patterns")
+	})
+}
+
 func TestBuildStepRetryPolicy(t *testing.T) {
 	t.Parallel()
 
