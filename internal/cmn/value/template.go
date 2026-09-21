@@ -130,14 +130,63 @@ func (t template) resolveReferences(ctx context.Context, r *resolver) string {
 	})
 }
 
-func (t template) resolveQuotedReferences(ctx context.Context, r *resolver) string {
+func (t template) resolveQuotedReferences(ctx context.Context, r *resolver, style quotedRefStyle) string {
 	return quotedReferencePattern.ReplaceAllStringFunc(t.source, func(match string) string {
 		ref := match[3 : len(match)-2]
 		if value, ok := resolveQuotedReference(ctx, r, ref); ok {
-			return strconv.Quote(value)
+			return quoteQuotedRefValue(value, style)
 		}
 		return match
 	})
+}
+
+// quoteQuotedRefValue re-quotes a resolved value for the double-quoted span it
+// was resolved inside, using the escape convention the command interpreter
+// understands. POSIX shells resolve \" back to a literal quote; PowerShell
+// resolves neither that nor the backslash doubling strconv.Quote applies, so
+// it needs its own rendering.
+func quoteQuotedRefValue(value string, style quotedRefStyle) string {
+	switch style {
+	case quotedRefPowerShell:
+		return quotePowerShellValue(value)
+	case quotedRefPOSIX:
+		return strconv.Quote(value)
+	default:
+		return strconv.Quote(value)
+	}
+}
+
+// quotePowerShellValue renders value as a PowerShell double-quoted string.
+// Inside such a string PowerShell expands $ and reads the backtick as its
+// escape character, and a literal quote doubles rather than taking a
+// backslash, so each needs its own escape. Control characters take their
+// backtick form because a raw one would otherwise end the line.
+func quotePowerShellValue(value string) string {
+	var b strings.Builder
+	b.Grow(len(value) + 2)
+	b.WriteByte('"')
+	for _, r := range value {
+		switch r {
+		case '"':
+			b.WriteString(`""`)
+		case '`':
+			b.WriteString("``")
+		case '$':
+			b.WriteString("`$")
+		case '\n':
+			b.WriteString("`n")
+		case '\r':
+			b.WriteString("`r")
+		case '\t':
+			b.WriteString("`t")
+		case 0:
+			b.WriteString("`0")
+		default:
+			b.WriteRune(r)
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
 }
 
 func referenceParts(match string) (string, string, bool) {

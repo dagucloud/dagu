@@ -82,6 +82,95 @@ func TestExpandQuotedRefs_WithStepRef(t *testing.T) {
 	assert.Equal(t, `{"out": "output_val"}`, result)
 }
 
+func TestExpandQuotedRefs_QuotedValueStyles(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name  string
+		style quotedRefStyle
+		want  string
+	}{
+		{name: "POSIX", style: quotedRefPOSIX, want: `echo "[{\"CHILD_RESULT\":\"result-1\"}]"`},
+		{name: "PowerShell", style: quotedRefPowerShell, want: `echo "[{""CHILD_RESULT"":""result-1""}]"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := newOptions()
+			withStepMap(map[string]StepInfo{
+				"fan_out": {Outputs: new(`[{"CHILD_RESULT":"result-1"}]`)},
+			})(opts)
+			withQuotedRefStyle(tt.style)(opts)
+
+			result, err := expandQuotedRefs(ctx, `echo "${fan_out.outputs}"`, opts)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, result)
+		})
+	}
+}
+
+func TestShellCommandField_QuotedRefStyleFollowsShell(t *testing.T) {
+	ctx := context.Background()
+	resolver := NewResolver(StaticScope{}, RuntimeScope{
+		Steps: map[string]StepInfo{
+			"fan_out": {Outputs: new(`[{"CHILD_RESULT":"result-1"}]`)},
+		},
+	})
+
+	tests := []struct {
+		shell string
+		want  string
+	}{
+		{"pwsh", `echo "[{""CHILD_RESULT"":""result-1""}]"`},
+		{"powershell", `echo "[{""CHILD_RESULT"":""result-1""}]"`},
+		{"sh", `echo "[{\"CHILD_RESULT\":\"result-1\"}]"`},
+		// cmd.exe reads neither the backslash escapes strconv.Quote emits nor
+		// the doubled quote PowerShell reads, so it keeps the POSIX rendering
+		// until it gets a convention of its own.
+		{"cmd", `echo "[{\"CHILD_RESULT\":\"result-1\"}]"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.shell, func(t *testing.T) {
+			field := ShellCommandField("run", CommandContext{
+				Target:          CommandTargetLocal,
+				Shell:           []string{tt.shell},
+				ShellConfigured: true,
+			})
+			got, err := resolver.String(ctx, `echo "${fan_out.outputs}"`, field)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// A PowerShell double-quoted span interprets the backtick and $, and ends at
+// a raw newline, so a resolved value carrying any of them must be escaped
+// rather than spliced in.
+func TestExpandQuotedRefs_PowerShellEscapesInterpretedCharacters(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{name: "Quote", value: `a"b`, want: `echo "a""b"`},
+		{name: "Backtick", value: "a`b", want: "echo \"a``b\""},
+		{name: "Dollar", value: `a$(whoami)b`, want: "echo \"a`$(whoami)b\""},
+		{name: "Newline", value: "a\nb", want: "echo \"a`nb\""},
+		{name: "Tab", value: "a\tb", want: "echo \"a`tb\""},
+		{name: "WindowsPath", value: `C:\logs\run`, want: `echo "C:\logs\run"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := newOptions()
+			withStepMap(map[string]StepInfo{"step1": {Output: new(tt.value)}})(opts)
+			withQuotedRefStyle(quotedRefPowerShell)(opts)
+
+			result, err := expandQuotedRefs(ctx, `echo "${step1.output}"`, opts)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, result)
+		})
+	}
+}
+
 func TestShellExpandPhase_FallbackOnError(t *testing.T) {
 	ctx := context.Background()
 	opts := newOptions()
