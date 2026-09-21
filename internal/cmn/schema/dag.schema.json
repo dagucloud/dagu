@@ -1850,7 +1850,7 @@
                       "type": "array",
                       "items": {
                         "type": "string",
-                        "description": "Output text or patterns that indicate success. Supports regex with 're:' prefix."
+                        "description": "Output text or patterns that indicate success. Supports regex with 're:' prefix. Numeric comparison with 'num:' is not supported here."
                       }
                     }
                   ]
