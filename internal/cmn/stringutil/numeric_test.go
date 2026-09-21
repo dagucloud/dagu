@@ -4,6 +4,7 @@
 package stringutil_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
@@ -40,6 +41,11 @@ func TestParseNumericPattern(t *testing.T) {
 		"num:>=+1",
 		"num:>=0",
 		"num:>=1e3",
+		// The number is a Go floating-point literal, so the forms below are
+		// accepted. "1e-400" underflows to zero rather than failing.
+		"num:>=1_000.5",
+		"num:>=0x1p-2",
+		"num:>=1e-400",
 	}
 	for _, pattern := range valid {
 		if _, err := stringutil.ParseNumericPattern(pattern); err != nil {
@@ -63,11 +69,25 @@ func TestParseNumericPattern(t *testing.T) {
 		"num:>=NaN",
 		"num:>=Inf",
 		"num:>=-Inf",
+		"num:>=1e400", // parses, but no 64-bit float holds it
+		"num:>=-1e400",
 	}
 	for _, pattern := range invalid {
 		if _, err := stringutil.ParseNumericPattern(pattern); err == nil {
 			t.Errorf("ParseNumericPattern(%q) did not return an error", pattern)
 		}
+	}
+}
+
+// A number too large to hold parses fine, so reporting it as text that is not a
+// number sends the author looking for the wrong mistake.
+func TestParseNumericPatternOutOfRange(t *testing.T) {
+	_, err := stringutil.ParseNumericPattern("num:>=1e400")
+	if err == nil {
+		t.Fatal("ParseNumericPattern(\"num:>=1e400\") did not return an error")
+	}
+	if !strings.Contains(err.Error(), "out of range") {
+		t.Errorf("ParseNumericPattern(\"num:>=1e400\") returned %q, want it to report the number is out of range", err)
 	}
 }
 

@@ -4,6 +4,7 @@
 package stringutil
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
@@ -115,10 +116,17 @@ func (c NumericComparison) Match(value string) (bool, error) {
 
 // parseFiniteFloat rejects the non-finite values strconv accepts, such as "NaN"
 // and "Inf", because no ordering test against them is meaningful.
+//
+// The number is a Go floating-point literal, so a magnitude too large for a
+// 64-bit float is a number that cannot be compared rather than text that is not
+// a number, and says so.
 func parseFiniteFloat(text string) (float64, error) {
 	trimmed := strings.TrimSpace(text)
 	value, err := strconv.ParseFloat(trimmed, 64)
 	if err != nil {
+		if errors.Is(err, strconv.ErrRange) {
+			return 0, fmt.Errorf("%q is out of range", trimmed)
+		}
 		return 0, fmt.Errorf("%q is not a number", trimmed)
 	}
 	if math.IsNaN(value) || math.IsInf(value, 0) {
