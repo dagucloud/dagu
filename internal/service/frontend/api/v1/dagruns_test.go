@@ -1914,6 +1914,61 @@ steps:
 	require.Equal(t, "alice", status.TriggerActor)
 }
 
+func TestForeachChildRunInspection(t *testing.T) {
+	server := test.SetupServer(t)
+	const dagName = "foreach-inspection"
+	dagSpec := fmt.Sprintf(`name: foreach-inspection
+type: graph
+steps:
+  - id: process
+    foreach:
+      items: [alpha, beta]
+      max_concurrent: 2
+      steps:
+        - id: show
+          run: %q
+`, test.Output("${foreach.item}"))
+	server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
+		Name: dagName,
+		Spec: &dagSpec,
+	}).ExpectStatus(http.StatusCreated).Send(t)
+	start := server.Client().Post("/api/v1/dags/"+dagName+"/start", api.ExecuteDAGJSONRequestBody{}).
+		ExpectStatus(http.StatusOK).Send(t)
+	var started api.ExecuteDAG200JSONResponse
+	start.Unmarshal(t, &started)
+	waitForStoredDAGRunStatus(t, server, dagName, started.DagRunId, 30*time.Second,
+		func(status *ir.DAGRunStatus) bool { return status.Status == ir.Succeeded })
+
+	path := fmt.Sprintf("/api/v1/dag-runs/%s/%s/sub-dag-runs", dagName, started.DagRunId)
+	var children api.GetSubDAGRuns200JSONResponse
+	server.Client().Get(path).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &children)
+	require.Len(t, children.SubRuns, 2)
+	items := make([]string, 0, len(children.SubRuns))
+	for _, child := range children.SubRuns {
+		require.Equal(t, api.Status(ir.Succeeded), child.Status)
+		require.NotNil(t, child.Params)
+		var metadata struct{ Item string }
+		require.NoError(t, json.Unmarshal([]byte(*child.Params), &metadata))
+		items = append(items, metadata.Item)
+		childPath := path + "/" + child.DagRunId
+
+		var details api.GetSubDAGRunDetails200JSONResponse
+		server.Client().Get(childPath).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &details)
+		require.Equal(t, child.DagRunId, details.DagRunDetails.DagRunId)
+		require.Len(t, details.DagRunDetails.Nodes, 1)
+		require.Equal(t, api.NodeStatusSuccess, details.DagRunDetails.Nodes[0].Status)
+
+		var spec api.GetSubDAGRunSpec200JSONResponse
+		server.Client().Get(childPath+"/spec").ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &spec)
+		require.Contains(t, spec.Spec, "id: show")
+
+		var log api.GetSubDAGRunStepLog200JSONResponse
+		server.Client().Get(childPath+"/steps/show/log?stream=stdout").ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &log)
+		require.Equal(t, metadata.Item, strings.TrimSpace(log.Content))
+	}
+	require.ElementsMatch(t, []string{"alpha", "beta"}, items)
+}
+
 func TestGetSubDAGRunsIncludesTopLevelDagEnqueueRun(t *testing.T) {
 	server := test.SetupServer(t)
 

@@ -90,6 +90,10 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 
 	e.setupExecutorSideChannels(cmd, node)
 	if progressAware, ok := cmd.(executor.ProgressCallbackAware); ok {
+		if _, providesRuns := cmd.(executor.SubRunProvider); providesRuns && node.IsRepeated() {
+			node.AddSubRunsRepeated(node.State().SubRuns...)
+			node.SetSubRuns(nil)
+		}
 		progressAware.SetProgressCallback(func() {
 			e.captureLiveExecutorSideChannels(cmd, node)
 			if onProgress != nil {
@@ -194,6 +198,18 @@ func (e *StepExecutor) setupExecutorSideChannels(cmd executor.Executor, node *No
 }
 
 func (e *StepExecutor) captureLiveExecutorSideChannels(cmd executor.Executor, node *Node) {
+	if provider, ok := cmd.(executor.SubRunProvider); ok {
+		refs := provider.GetSubRuns()
+		runs := make([]SubDAGRun, len(refs))
+		for i, ref := range refs {
+			runs[i] = SubDAGRun(ref)
+		}
+		node.SetSubRuns(runs)
+	}
+	if provider, ok := cmd.(executor.StatusDetailsProvider); ok {
+		node.SetStatusDetails(provider.GetStatusDetails())
+	}
+
 	if chatHandler, ok := cmd.(executor.ChatMessageHandler); ok {
 		node.SetChatMessages(chatHandler.GetMessages())
 	}
@@ -207,30 +223,12 @@ func (e *StepExecutor) captureExecutorSideChannels(
 	cmd executor.Executor,
 	node *Node,
 ) (string, bool, error) {
-	if statusDetailsProvider, ok := cmd.(executor.StatusDetailsProvider); ok {
-		node.SetStatusDetails(statusDetailsProvider.GetStatusDetails())
-	}
-
-	if chatHandler, ok := cmd.(executor.ChatMessageHandler); ok {
-		node.SetChatMessages(chatHandler.GetMessages())
-	}
-
-	if agentHandler, ok := cmd.(executor.AgentSessionHandler); ok {
-		node.SetAgentSession(agentHandler.GetAgentSession())
-	}
-
-	if subRunProvider, ok := cmd.(executor.SubRunProvider); ok {
-		if node.IsRepeated() && len(node.State().SubRuns) > 0 {
+	if _, ok := cmd.(executor.SubRunProvider); ok {
+		if _, live := cmd.(executor.ProgressCallbackAware); node.IsRepeated() && !live && len(node.State().SubRuns) > 0 {
 			node.AddSubRunsRepeated(node.State().SubRuns...)
 		}
-
-		subRuns := subRunProvider.GetSubRuns()
-		runtimeSubRuns := make([]SubDAGRun, len(subRuns))
-		for i, sr := range subRuns {
-			runtimeSubRuns[i] = SubDAGRun(sr)
-		}
-		node.SetSubRuns(runtimeSubRuns)
 	}
+	e.captureLiveExecutorSideChannels(cmd, node)
 
 	if toolDefProvider, ok := cmd.(executor.ToolDefinitionProvider); ok {
 		toolDefs := toolDefProvider.GetToolDefinitions()

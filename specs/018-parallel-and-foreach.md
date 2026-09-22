@@ -585,6 +585,18 @@ Rules:
 - Parent step retry retries the entire `foreach` step. This spec does not
   define per-item retry of only failed item bodies.
 
+#### Recorded Item Executions
+
+Persisted runs record each item body as a child DAG run linked to its immediate
+parent and root execution. The child contains the item's index, key, and value,
+the body definition, and its step statuses. Each attempt has separate step logs
+and a run log, including failures while collecting body outputs.
+
+The parent publishes child references while items are queued or running. The
+existing child-run APIs expose their details, definitions, and logs after
+completion as well. Nested loops preserve the same root and their immediate
+parent links. Repeated loops retain earlier child references in repeat history.
+
 #### Aggregate Outputs
 
 When a `foreach` step defines `output`, the captured value is a JSON object with

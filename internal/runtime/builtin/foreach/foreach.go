@@ -35,6 +35,9 @@ type foreachExecutor struct {
 	stderr        io.Writer
 	cancel        context.CancelFunc
 	statusDetails []ir.NodeStatusDetail
+	mu            sync.Mutex
+	subRuns       []ir.SubDAGRun
+	progress      func()
 }
 
 type expandedItem struct {
@@ -95,7 +98,10 @@ func (e *foreachExecutor) Run(ctx context.Context) error {
 	}
 
 	results, runErr := e.runItems(ctx, items)
+	e.mu.Lock()
 	e.statusDetails = foreachStatusDetails(items, results, e.step.Foreach.Key != "")
+	e.mu.Unlock()
+	e.notifyProgress()
 	if err := e.writeAggregate(results); err != nil {
 		return err
 	}
@@ -103,6 +109,8 @@ func (e *foreachExecutor) Run(ctx context.Context) error {
 }
 
 func (e *foreachExecutor) GetStatusDetails() []ir.NodeStatusDetail {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	return append([]ir.NodeStatusDetail(nil), e.statusDetails...)
 }
 
@@ -236,6 +244,34 @@ func (e *foreachExecutor) runItems(ctx context.Context, items []expandedItem) ([
 		return results, nil
 	}
 
+	runs := make([]*itemRun, len(items))
+	defer func() {
+		for _, run := range runs {
+			if run != nil {
+				_ = run.close()
+			}
+		}
+	}()
+	for _, item := range items {
+		run, err := e.prepareItem(ctx, item)
+		if err != nil {
+			for _, prepared := range runs {
+				if prepared != nil {
+					_ = prepared.record(ir.Aborted, err)
+				}
+			}
+			return results, err
+		}
+		runs[item.index] = run
+	}
+	e.mu.Lock()
+	e.subRuns = make([]ir.SubDAGRun, len(runs))
+	for i, run := range runs {
+		e.subRuns[i] = run.ref
+	}
+	e.mu.Unlock()
+	e.notifyProgress()
+
 	maxConcurrent := e.step.Foreach.MaxConcurrent
 	if maxConcurrent <= 0 {
 		maxConcurrent = ir.DefaultMaxConcurrent
@@ -257,11 +293,17 @@ dispatch:
 		go func(item expandedItem) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			results[item.index] = e.runItem(ctx, item)
+			results[item.index] = e.runItem(runs[item.index])
 		}(item)
 	}
 	wg.Wait()
 	if dispatchErr != nil {
+		for i, result := range results {
+			if result.Status == ir.NodeNotStarted.String() {
+				results[i].Status = ir.NodeAborted.String()
+				_ = runs[i].record(ir.Aborted, dispatchErr)
+			}
+		}
 		return results, dispatchErr
 	}
 
@@ -278,42 +320,58 @@ dispatch:
 	return results, nil
 }
 
-func (e *foreachExecutor) runItem(ctx context.Context, item expandedItem) itemResult {
-	itemCtx, err := contextWithItemScope(ctx, e.step.Foreach.As, item.index, item.key, item.value)
-	if err != nil {
-		return itemResult{Index: item.index, Key: item.key, Status: ir.NodeFailed.String(), Error: err.Error()}
+func (e *foreachExecutor) runItem(run *itemRun) itemResult {
+	item := run.item
+	result := itemResult{Index: item.index, Key: item.key, Status: ir.NodeFailed.String()}
+	if err := run.openLog(); err != nil {
+		result.Error = err.Error()
+		_ = run.record(ir.Failed, err)
+		return result
 	}
-
-	plan, err := runtime.NewPlan(cloneSteps(e.step.Foreach.Steps)...)
-	if err != nil {
-		return itemResult{Index: item.index, Key: item.key, Status: ir.NodeFailed.String(), Error: err.Error()}
+	defer func() { _ = run.logWriter.Close(); run.logWriter = nil; run.log = nil }()
+	if err := run.record(ir.Running, nil); err != nil {
+		result.Error = err.Error()
+		return result
 	}
-
-	bodyRunID := bodyDAGRunID(ctx, item.index)
-	runner := runtime.New(&runtime.Config{
-		LogDir:   bodyLogDir(ctx),
-		DAGRunID: bodyRunID,
-	})
-	err = runner.Run(itemCtx, plan, nil)
-	status := runner.Status(itemCtx, plan)
-	if err != nil || status != ir.Succeeded {
-		message := status.String()
-		if err != nil {
-			message = err.Error()
+	progress := make(chan runtime.ProgressUpdate)
+	done := make(chan error, 1)
+	go func() {
+		var writeErr error
+		for update := range progress {
+			err := run.record(ir.Running, nil)
+			update.Ack(err)
+			if err != nil && writeErr == nil {
+				writeErr = err
+			}
 		}
-		return itemResult{Index: item.index, Key: item.key, Status: ir.NodeFailed.String(), Error: message}
+		done <- writeErr
+	}()
+	err := run.runner.Run(run.ctx, run.plan, progress)
+	close(progress)
+	err = errors.Join(err, <-done)
+	status := run.runner.Status(run.ctx, run.plan)
+	if err == nil && status == ir.Succeeded {
+		result.Outputs, err = e.collectOutputs(run.ctx, run.plan)
 	}
-
-	outputs, err := e.collectOutputs(itemCtx, plan)
 	if err != nil {
-		return itemResult{Index: item.index, Key: item.key, Status: ir.NodeFailed.String(), Error: err.Error()}
+		status = ir.Failed
 	}
-	return itemResult{
-		Index:   item.index,
-		Key:     item.key,
-		Status:  ir.NodeSucceeded.String(),
-		Outputs: outputs,
+	if run.ctx.Err() != nil {
+		status = ir.Aborted
 	}
+	if recordErr := run.record(status, err); recordErr != nil {
+		err = errors.Join(err, recordErr)
+		status = ir.Failed
+	}
+	if status == ir.Succeeded {
+		result.Status = ir.NodeSucceeded.String()
+	} else {
+		result.Error = status.String()
+		if err != nil {
+			result.Error = err.Error()
+		}
+	}
+	return result
 }
 
 func cloneSteps(steps []ir.Step) []ir.Step {
@@ -436,14 +494,6 @@ func bodyLogDir(ctx context.Context) string {
 		return filepath.Join(rCtx.DAGRunLogDir, "foreach")
 	}
 	return filepath.Join(os.TempDir(), "dagu-foreach")
-}
-
-func bodyDAGRunID(ctx context.Context, index int) string {
-	runID := runtime.GetDAGContext(ctx).DAGRunID
-	if runID == "" {
-		runID = "foreach"
-	}
-	return fmt.Sprintf("%s-foreach-%d", runID, index)
 }
 
 func sortedCollectNames(values map[string]string) []string {
