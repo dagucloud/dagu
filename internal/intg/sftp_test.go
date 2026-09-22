@@ -35,6 +35,45 @@ func TestSFTPExecutorIntegration(t *testing.T) {
 	// Wait for SSH server to be ready
 	waitForSSHReady(t, sshServer)
 
+	t.Run("DAGLevelConfig", func(t *testing.T) {
+		th := test.Setup(t)
+		localDir := t.TempDir()
+		source := filepath.Join(localDir, "source.txt")
+		destination := filepath.Join(localDir, "downloaded.txt")
+		content := []byte("inherited SSH configuration\n")
+		require.NoError(t, os.WriteFile(source, content, 0600))
+
+		dagConfig := fmt.Sprintf(`
+type: graph
+ssh:
+  host: 127.0.0.1
+  port: "%s"
+  user: %s
+  key: "%s"
+  strict_host_key: false
+steps:
+  - name: upload
+    action: sftp.upload
+    with:
+      source: "%s"
+      destination: /tmp/inherited-ssh.txt
+  - name: download
+    action: sftp.download
+    with:
+      source: /tmp/inherited-ssh.txt
+      destination: "%s"
+    depends:
+      - upload
+`, sshServer.hostPort, sshTestUser, sshServer.keyPath, source, destination)
+
+		dag := th.DAG(t, dagConfig)
+		dag.Agent().RunSuccess(t)
+		dag.AssertLatestStatus(t, ir.Succeeded)
+		got, err := os.ReadFile(destination)
+		require.NoError(t, err)
+		require.Equal(t, content, got)
+	})
+
 	t.Run("UploadFile", func(t *testing.T) {
 		th := test.Setup(t)
 

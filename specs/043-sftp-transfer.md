@@ -22,6 +22,10 @@ for invalid transfer inputs.
 
 Both actions accept `with.source` and `with.destination` paths and SSH
 connection fields under `with`.
+When `with` contains only transfer options (`source`, `destination`, and
+`direction`), the action inherits the DAG-level `ssh` configuration. Explicit
+step-level SSH configuration takes precedence and is not merged with DAG-level
+connection settings.
 `dagu validate` accepts configured transfers without contacting the host.
 The action name determines the transfer direction. An optional
 `with.direction` must agree with the action name.

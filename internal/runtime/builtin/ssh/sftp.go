@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -38,6 +39,12 @@ type sftpExecutor struct {
 
 // NewSFTPExecutor creates a new SFTP executor for file transfers.
 func NewSFTPExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {
+	config := step.ExecutorConfig.Config
+	// Transfer options alone must not override the DAG-level SSH client.
+	step.ExecutorConfig.Config = maps.Clone(config)
+	delete(step.ExecutorConfig.Config, "direction")
+	delete(step.ExecutorConfig.Config, "source")
+	delete(step.ExecutorConfig.Config, "destination")
 	client, err := resolveSSHClient(ctx, step)
 	if err != nil {
 		return nil, fmt.Errorf("failed to set up sftp step: %w", err)
@@ -46,7 +53,6 @@ func NewSFTPExecutor(ctx context.Context, step ir.Step) (executor.Executor, erro
 		return nil, fmt.Errorf("ssh configuration is not found for sftp step")
 	}
 
-	config := step.ExecutorConfig.Config
 	direction := getStringConfig(config, "direction", "upload")
 	if direction != "upload" && direction != "download" {
 		return nil, fmt.Errorf("invalid direction %q: must be 'upload' or 'download'", direction)

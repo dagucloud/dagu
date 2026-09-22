@@ -786,6 +786,62 @@ func TestNewSFTPExecutor(t *testing.T) {
 	assert.Equal(t, "/remote/path", sftpExec.destination)
 }
 
+func TestSFTPClientInheritance(t *testing.T) {
+	t.Parallel()
+
+	dagClient := &Client{hostPort: "dag-host:2222"}
+	for _, direction := range []string{"upload", "download"} {
+		t.Run(direction, func(t *testing.T) {
+			t.Parallel()
+			config := map[string]any{
+				"direction":   direction,
+				"source":      "/source",
+				"destination": "/destination",
+			}
+			step := ir.Step{ExecutorConfig: ir.ExecutorConfig{Type: "sftp", Config: config}}
+			ctx := WithSSHClient(context.Background(), dagClient)
+
+			exec, err := NewSFTPExecutor(ctx, step)
+			require.NoError(t, err)
+			sftpExec := exec.(*sftpExecutor)
+			assert.Same(t, dagClient, sftpExec.client)
+			assert.Equal(t, direction, sftpExec.direction)
+			assert.Equal(t, "/source", sftpExec.source)
+			assert.Equal(t, "/destination", sftpExec.destination)
+			assert.Len(t, config, 3, "executor construction must preserve the step config")
+
+			_, err = NewSFTPExecutor(context.Background(), step)
+			require.ErrorContains(t, err, "ssh configuration is not found for sftp step")
+		})
+	}
+}
+
+func TestSFTPClientOverride(t *testing.T) {
+	t.Parallel()
+
+	ctx := WithSSHClient(context.Background(), &Client{hostPort: "dag-host:2222"})
+	config := map[string]any{
+		"host":            "step-host",
+		"port":            "2200",
+		"user":            "step-user",
+		"password":        "testpass",
+		"strict_host_key": false,
+		"source":          "/source",
+		"destination":     "/destination",
+	}
+	step := ir.Step{ExecutorConfig: ir.ExecutorConfig{Type: "sftp", Config: config}}
+	exec, err := NewSFTPExecutor(ctx, step)
+	require.NoError(t, err)
+	sftpExec := exec.(*sftpExecutor)
+	assert.Equal(t, "step-host:2200", sftpExec.client.hostPort)
+	assert.Equal(t, "step-user", sftpExec.client.cfg.User)
+
+	// Invalid explicit connection settings must not fall back to the DAG client.
+	config["timeout"] = "invalid"
+	_, err = NewSFTPExecutor(ctx, step)
+	require.ErrorContains(t, err, "invalid timeout duration")
+}
+
 func TestNewSFTPExecutor_ValidationErrors(t *testing.T) {
 	t.Parallel()
 
