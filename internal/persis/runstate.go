@@ -6,6 +6,7 @@ package persis
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
@@ -23,6 +24,7 @@ func NewRunStateStore(repository *DAGRunRepository, prepared dagrun.Attempt) run
 type runStateStore struct {
 	repository *DAGRunRepository
 	prepared   dagrun.Attempt
+	preparedMu sync.Mutex
 }
 
 func (s *runStateStore) BeginAttempt(ctx context.Context, req runstate.BeginAttemptRequest) (runstate.Attempt, error) {
@@ -32,7 +34,10 @@ func (s *runStateStore) BeginAttempt(ctx context.Context, req runstate.BeginAtte
 		}
 	}
 
+	s.preparedMu.Lock()
 	attempt := s.prepared
+	s.prepared = nil
+	s.preparedMu.Unlock()
 	if attempt != nil {
 		if req.AttemptID != "" && attempt.ID() != req.AttemptID {
 			return nil, fmt.Errorf(

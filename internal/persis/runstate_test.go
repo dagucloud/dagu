@@ -311,3 +311,18 @@ func (a *recordingAttempt) WriteStepMessages(_ context.Context, stepName string,
 func (a *recordingAttempt) ReadStepMessages(_ context.Context, stepName string) ([]ir.LLMMessage, error) {
 	return append([]ir.LLMMessage(nil), a.messages[stepName]...), nil
 }
+
+func TestRunStateStoreChildrenDoNotReusePreparedAttempt(t *testing.T) {
+	ctx := context.Background()
+	prepared := newRecordingAttempt("parent-attempt")
+	backend := &recordingRunStateBackend{createAttempt: newRecordingAttempt("child-attempt")}
+	store := persis.NewRunStateStore(testDAGRunRepository(backend), prepared)
+	parent, err := store.BeginAttempt(ctx, runstate.BeginAttemptRequest{DAG: &ir.DAG{Name: "parent"}, RunID: "parent-run", AttemptID: prepared.ID()})
+	require.NoError(t, err)
+	require.Equal(t, "parent-attempt", parent.ID())
+	child, err := store.BeginAttempt(ctx, runstate.BeginAttemptRequest{DAG: &ir.DAG{Name: "each"}, RunID: "child-run", RootDAGRun: ir.NewDAGRunRef("parent", "parent-run")})
+	require.NoError(t, err)
+	require.Equal(t, "child-attempt", child.ID())
+	require.Equal(t, 1, backend.createCalls)
+	require.Equal(t, "parent", prepared.dag.Name)
+}
