@@ -37,6 +37,12 @@ var v2RunWithFields = map[string]struct{}{
 
 type actionNormalizer func(normalized map[string]any, with map[string]any) error
 
+// Name prefixes of builtin action families.
+const (
+	artifactActionPrefix = "artifact."
+	browserActionPrefix  = "browser."
+)
+
 var builtinActionNormalizers = map[string]actionNormalizer{
 	"artifact.list":       operationAction("artifact", "list"),
 	"artifact.read":       operationAction("artifact", "read"),
@@ -44,6 +50,8 @@ var builtinActionNormalizers = map[string]actionNormalizer{
 	"archive.create":      operationAction("archive", "create"),
 	"archive.extract":     operationAction("archive", "extract"),
 	"archive.list":        operationAction("archive", "list"),
+	"browser.extract":     normalizeBrowserExtractAction,
+	"browser.run":         normalizeBrowserRunAction,
 	"chat.completion":     normalizeChatAction,
 	"container.run":       optionalCommandAction("container", "command"),
 	"dag.enqueue":         normalizeDagEnqueueAction,
@@ -413,6 +421,46 @@ func normalizeDecisionAction(normalized map[string]any, with map[string]any) err
 		}
 	}
 	return finishAction(normalized, "decision", with)
+}
+
+// normalizeBrowserRunAction moves with.llm to the step llm field, where it
+// replaces the DAG-level llm block as it does for chat.completion.
+func normalizeBrowserRunAction(normalized map[string]any, with map[string]any) error {
+	if _, ok := with["do"]; !ok {
+		return ir.NewValidationError("with", with, fmt.Errorf("browser.run requires with.do"))
+	}
+	if llm, ok := with["llm"]; ok {
+		normalized["llm"] = llm
+		delete(with, "llm")
+	}
+	return finishAction(normalized, ir.ExecutorTypeBrowser, with)
+}
+
+// normalizeBrowserExtractAction rewrites browser.extract into browser.run
+// with a single extract operation.
+func normalizeBrowserExtractAction(normalized map[string]any, with map[string]any) error {
+	if _, err := requireActionStringField(with, "url"); err != nil {
+		return err
+	}
+	instruction, err := requireActionStringField(with, "instruction")
+	if err != nil {
+		return err
+	}
+	schema, ok := with["schema"].(map[string]any)
+	if !ok {
+		return ir.NewValidationError("with", with, fmt.Errorf("with.schema must be an object schema"))
+	}
+	extract := map[string]any{
+		"extract": map[string]any{"instruction": instruction, "schema": schema},
+	}
+	if timeout, ok := with["timeout"]; ok {
+		extract["timeout"] = timeout
+		delete(with, "timeout")
+	}
+	delete(with, "instruction")
+	delete(with, "schema")
+	with["do"] = []any{extract}
+	return normalizeBrowserRunAction(normalized, with)
 }
 
 func normalizeHTTPRequestAction(normalized map[string]any, with map[string]any) error {

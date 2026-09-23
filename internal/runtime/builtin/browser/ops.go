@@ -368,7 +368,15 @@ func (r *run) extract(ctx context.Context, index int, spec extractSpec, timeout 
 	if err := json.Unmarshal(data, &values); err != nil {
 		return fmt.Errorf("extract returned a non-object value: %w", err)
 	}
-	maps.Copy(r.outputs, values)
+	// Only the fields a schema lists are published, matching the output
+	// names known when the DAG loads.
+	properties, listed := spec.Schema["properties"].(map[string]any)
+	for name, value := range values {
+		if _, ok := properties[name]; listed && !ok {
+			continue
+		}
+		r.outputs[name] = value
+	}
 	r.report(ctx, operationReport{
 		index: index, kind: opExtract, subject: spec.Instruction, status: statusCompleted,
 		detail: string(data), tokens: r.bridge.totals().sub(before).total(), duration: time.Since(began),

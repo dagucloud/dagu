@@ -17,7 +17,7 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
-const executorType = "browser"
+const executorType = ir.ExecutorTypeBrowser
 
 // Operation kinds accepted in with.do.
 const (
@@ -49,10 +49,7 @@ var (
 
 func init() {
 	registry.RegisterExecutorConfigSchema(executorType, configSchema)
-	executor.RegisterExecutor(executorType, newExecutor, validateStep, registry.ExecutorCapabilities{
-		Command: true,
-		LLM:     true,
-	})
+	executor.RegisterExecutor(executorType, newExecutor, validateStep, registry.ExecutorCapabilities{LLM: true})
 }
 
 // config is the resolved with block of a browser step.

@@ -527,6 +527,9 @@ const (
 
 	// ExecutorTypeOutputs is the executor type for publishing named outputs.
 	ExecutorTypeOutputs = "outputs"
+
+	// ExecutorTypeBrowser is the executor type for browser automation steps.
+	ExecutorTypeBrowser = "browser"
 )
 
 // RouterConfig contains routing configuration for router-type steps.

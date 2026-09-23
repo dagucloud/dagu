@@ -85,6 +85,8 @@ func TestMain(m *testing.M) {
 	registry.RegisterExecutorCapabilities("chat", registry.ExecutorCapabilities{LLM: true, Messages: true})
 	// llm_tool: uses an llm config without chat messages
 	registry.RegisterExecutorCapabilities("llm_tool", registry.ExecutorCapabilities{LLM: true})
+	// browser: uses an llm config without chat messages
+	registry.RegisterExecutorCapabilities(ir.ExecutorTypeBrowser, registry.ExecutorCapabilities{LLM: true})
 
 	os.Exit(m.Run())
 }

@@ -79,8 +79,35 @@ func capturedOutputs(step *ir.Step) capturedOutputContract {
 			return capturedOutputContract{dynamic: true}
 		}
 		return capturedOutputContract{declarations: capturedNames(sortedKeys(values))}
+	case step.ExecutorConfig.Type == ir.ExecutorTypeBrowser:
+		return browserExtractOutputs(step.ExecutorConfig.Config["do"])
 	}
 	return capturedOutputContract{}
+}
+
+// browserExtractOutputs lists the fields a browser step extracts. Each
+// extract operation publishes the top-level properties its schema lists.
+func browserExtractOutputs(operations any) capturedOutputContract {
+	items, ok := operations.([]any)
+	if !ok {
+		return capturedOutputContract{}
+	}
+	var contract capturedOutputContract
+	for _, item := range items {
+		operation, _ := item.(map[string]any)
+		extract, ok := operation["extract"].(map[string]any)
+		if !ok {
+			continue
+		}
+		schema, _ := extract["schema"].(map[string]any)
+		properties, ok := schema["properties"].(map[string]any)
+		if !ok {
+			contract.dynamic = true
+			continue
+		}
+		contract.declarations = append(contract.declarations, outputSchemaDeclarations(properties)...)
+	}
+	return contract
 }
 
 // stdoutOutputNames returns the field names a stdout outputs config publishes.

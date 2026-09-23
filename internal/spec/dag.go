@@ -1187,7 +1187,10 @@ func buildLogDir(_ buildContext, d *dag) (string, error) {
 func buildArtifacts(_ buildContext, d *dag) (*ir.ArtifactsConfig, error) {
 	usesArtifactAction := dagUsesBuiltinArtifactAction(d)
 	usesArtifactOutput := dagUsesArtifactOutput(d)
-	autoEnable := dagReferencesRunArtifactsDir(d) || usesArtifactAction || usesArtifactOutput
+	// Browser actions store screenshots and downloads as artifacts but still
+	// run, without them, when artifacts are disabled explicitly.
+	usesBrowserAction := dagUsesBuiltinAction(d, browserActionPrefix)
+	autoEnable := dagReferencesRunArtifactsDir(d) || usesArtifactAction || usesArtifactOutput || usesBrowserAction
 
 	if usesArtifactAction && d.Artifacts != nil && d.Artifacts.Enabled != nil && !*d.Artifacts.Enabled {
 		return nil, ir.NewValidationError(
@@ -1239,29 +1242,35 @@ func dagReferencesRunArtifactsDir(d *dag) bool {
 // Step names are searched like any other map key, so a step is detected
 // whichever name it is declared under.
 func dagUsesBuiltinArtifactAction(d *dag) bool {
+	return dagUsesBuiltinAction(d, artifactActionPrefix)
+}
+
+// dagUsesBuiltinAction reports whether the spec declares a builtin action
+// whose name starts with prefix.
+func dagUsesBuiltinAction(d *dag, prefix string) bool {
 	if d == nil {
 		return false
 	}
-	return artifactActionInStepContainer(reflect.ValueOf(d.Steps)) ||
-		artifactActionInStepContainer(reflect.ValueOf(d.HandlerOn)) ||
-		customStepSpecsUseBuiltinArtifactAction(d.StepTypes) ||
-		customStepSpecsUseBuiltinArtifactAction(d.Actions)
+	return actionInStepContainer(reflect.ValueOf(d.Steps), prefix) ||
+		actionInStepContainer(reflect.ValueOf(d.HandlerOn), prefix) ||
+		customStepSpecsUseBuiltinAction(d.StepTypes, prefix) ||
+		customStepSpecsUseBuiltinAction(d.Actions, prefix)
 }
 
-func customStepSpecsUseBuiltinArtifactAction(specs map[string]customStepTypeSpec) bool {
+func customStepSpecsUseBuiltinAction(specs map[string]customStepTypeSpec, prefix string) bool {
 	for _, spec := range specs {
 		// A template is a single step declaration.
-		if artifactActionInStep(reflect.ValueOf(spec.Template)) {
+		if actionInStep(reflect.ValueOf(spec.Template), prefix) {
 			return true
 		}
 	}
 	return false
 }
 
-// artifactActionInStepContainer searches a value holding step declarations. In
+// actionInStepContainer searches a value holding step declarations. In
 // map form the keys name the steps, so they are not field names and carry no
 // meaning for this search.
-func artifactActionInStepContainer(v reflect.Value) bool {
+func actionInStepContainer(v reflect.Value, prefix string) bool {
 	v, ok := derefForSearch(v)
 	if !ok {
 		return false
@@ -1270,7 +1279,7 @@ func artifactActionInStepContainer(v reflect.Value) bool {
 	if v.Kind() == reflect.Map {
 		iter := v.MapRange()
 		for iter.Next() {
-			if artifactActionInStep(iter.Value()) {
+			if actionInStep(iter.Value(), prefix) {
 				return true
 			}
 		}
@@ -1285,12 +1294,12 @@ func artifactActionInStepContainer(v reflect.Value) bool {
 			}
 			// A nested list declares steps that run at one position.
 			if item.Kind() == reflect.Slice || item.Kind() == reflect.Array {
-				if artifactActionInStepContainer(item) {
+				if actionInStepContainer(item, prefix) {
 					return true
 				}
 				continue
 			}
-			if artifactActionInStep(item) {
+			if actionInStep(item, prefix) {
 				return true
 			}
 		}
@@ -1304,7 +1313,7 @@ func artifactActionInStepContainer(v reflect.Value) bool {
 			if t.Field(i).PkgPath != "" {
 				continue
 			}
-			if artifactActionInStep(v.Field(i)) {
+			if actionInStep(v.Field(i), prefix) {
 				return true
 			}
 		}
@@ -1313,10 +1322,10 @@ func artifactActionInStepContainer(v reflect.Value) bool {
 	return false
 }
 
-// artifactActionInStep searches one step declaration. Within a step every
+// actionInStep searches one step declaration. Within a step every
 // params entry is a payload handed to a child DAG rather than step syntax,
 // and a steps entry opens a nested container whose keys name steps again.
-func artifactActionInStep(v reflect.Value) bool {
+func actionInStep(v reflect.Value, prefix string) bool {
 	v, ok := derefForSearch(v)
 	if !ok {
 		return false
@@ -1327,7 +1336,7 @@ func artifactActionInStep(v reflect.Value) bool {
 		for iter.Next() {
 			key, value := iter.Key(), iter.Value()
 			if key.Kind() != reflect.String {
-				if artifactActionInStep(value) {
+				if actionInStep(value, prefix) {
 					return true
 				}
 				continue
@@ -1336,16 +1345,16 @@ func artifactActionInStep(v reflect.Value) bool {
 			case "params":
 				continue
 			case "steps":
-				if artifactActionInStepContainer(value) {
+				if actionInStepContainer(value, prefix) {
 					return true
 				}
 				continue
 			case "action":
-				if action, ok := reflectString(value); ok && strings.HasPrefix(action, "artifact.") {
+				if action, ok := reflectString(value); ok && strings.HasPrefix(action, prefix) {
 					return true
 				}
 			}
-			if artifactActionInStep(value) {
+			if actionInStep(value, prefix) {
 				return true
 			}
 		}
@@ -1354,7 +1363,7 @@ func artifactActionInStep(v reflect.Value) bool {
 
 	if v.Kind() == reflect.Slice || v.Kind() == reflect.Array {
 		for i := range v.Len() {
-			if artifactActionInStep(v.Index(i)) {
+			if actionInStep(v.Index(i), prefix) {
 				return true
 			}
 		}
@@ -1373,16 +1382,16 @@ func artifactActionInStep(v reflect.Value) bool {
 			case "Params":
 				continue
 			case "Steps":
-				if artifactActionInStepContainer(field) {
+				if actionInStepContainer(field, prefix) {
 					return true
 				}
 				continue
 			case "Action":
-				if action, ok := reflectString(field); ok && strings.HasPrefix(action, "artifact.") {
+				if action, ok := reflectString(field); ok && strings.HasPrefix(action, prefix) {
 					return true
 				}
 			}
-			if artifactActionInStep(field) {
+			if actionInStep(field, prefix) {
 				return true
 			}
 		}

@@ -2789,6 +2789,30 @@
         },
         {
           "if": {
+            "properties": { "action": { "const": "browser.extract" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/browserExtractActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "browser.run" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/browserRunActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
             "properties": { "action": { "const": "template.render" } },
             "required": ["action"]
           },
@@ -6254,6 +6278,8 @@
             "artifact.list",
             "artifact.read",
             "artifact.write",
+            "browser.extract",
+            "browser.run",
             "chat.completion",
             "container.run",
             "dag.enqueue",
@@ -7029,6 +7055,240 @@
         }
       },
       "description": "Configuration for action: chat.completion."
+    },
+    "browserExtractActionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "instruction", "schema"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Page to open before extracting."
+        },
+        "instruction": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What to extract, in natural language. Its text is sent to the model; pass secrets through variables."
+        },
+        "schema": {
+          "$ref": "#/definitions/browserExtractSchema"
+        },
+        "timeout": {
+          "type": "string",
+          "description": "Maximum time for the extraction, such as 90s. Defaults to 2m."
+        },
+        "llm": {
+          "$ref": "#/definitions/standardLLMConfig",
+          "description": "Model for this step. Replaces the DAG-level llm block entirely."
+        },
+        "browser": { "$ref": "#/definitions/browserOptions" },
+        "variables": { "$ref": "#/definitions/browserVariables" }
+      },
+      "description": "Configuration for action: browser.extract. Opens a page and publishes the top-level fields of schema as step outputs."
+    },
+    "browserRunActionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["do"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Page to open before the first operation."
+        },
+        "do": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/definitions/browserOperation" },
+          "description": "Operations run in order in one browser session."
+        },
+        "cache": {
+          "type": "boolean",
+          "default": true,
+          "description": "Record successful act operations and replay them on later runs without a model call."
+        },
+        "llm": {
+          "$ref": "#/definitions/standardLLMConfig",
+          "description": "Model for this step. Replaces the DAG-level llm block entirely."
+        },
+        "browser": { "$ref": "#/definitions/browserOptions" },
+        "variables": { "$ref": "#/definitions/browserVariables" }
+      },
+      "description": "Configuration for action: browser.run. Extract operations publish their schema fields as step outputs."
+    },
+    "browserOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "headless": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run Chrome without a window."
+        },
+        "executable": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Chrome or Chromium binary. Defaults to CHROME_PATH or an installed Chrome."
+        },
+        "viewport": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["width", "height"],
+          "properties": {
+            "width": { "type": "integer", "minimum": 1 },
+            "height": { "type": "integer", "minimum": 1 }
+          },
+          "description": "Window size in pixels."
+        },
+        "proxy": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Proxy server URL. Authenticated proxies are not supported."
+        },
+        "allowed_domains": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Domains the browser may navigate to, such as example.com or *.example.com."
+        },
+        "screenshots": {
+          "type": "string",
+          "enum": ["on_failure", "each", "never"],
+          "default": "on_failure",
+          "description": "Automatic screenshots stored as run artifacts: on failure and at the end, after every operation, or never."
+        },
+        "profile": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "description": "Persistent profile name. Cookies and storage are kept across runs; runs sharing a profile wait for each other."
+        }
+      },
+      "description": "Browser launch options."
+    },
+    "browserVariables": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+      "additionalProperties": { "type": "string" },
+      "description": "Values referenced as %name% in act instructions. The browser receives the values; the model sees only the names."
+    },
+    "browserExtractSchema": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "const": "object" }
+      },
+      "description": "JSON Schema of the extracted object. Its top-level properties become step outputs."
+    },
+    "browserOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "oneOf": [
+        { "required": ["goto"] },
+        { "required": ["act"] },
+        { "required": ["extract"] },
+        { "required": ["expect"] },
+        { "required": ["wait"] },
+        { "required": ["screenshot"] },
+        { "required": ["ask"] }
+      ],
+      "properties": {
+        "goto": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Navigate to a URL."
+        },
+        "act": {
+          "oneOf": [
+            { "type": "string", "minLength": 1 },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["instruction"],
+              "properties": {
+                "instruction": { "type": "string", "minLength": 1 },
+                "cache": {
+                  "type": "boolean",
+                  "description": "Replay recorded actions for this operation. Defaults to with.cache."
+                }
+              }
+            }
+          ],
+          "description": "Perform an action described in natural language, such as clicking or typing. Reference variables as %name%."
+        },
+        "extract": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["instruction", "schema"],
+          "properties": {
+            "instruction": { "type": "string", "minLength": 1 },
+            "schema": { "$ref": "#/definitions/browserExtractSchema" }
+          },
+          "description": "Extract structured data from the page into step outputs."
+        },
+        "expect": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Statement about the page that must be true; the step fails with the model's reason otherwise."
+        },
+        "wait": {
+          "type": "object",
+          "additionalProperties": false,
+          "oneOf": [
+            { "required": ["selector"] },
+            { "required": ["duration"] }
+          ],
+          "properties": {
+            "selector": {
+              "type": "string",
+              "minLength": 1,
+              "description": "CSS selector to wait for until it is visible."
+            },
+            "duration": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Time to pause, such as 2s."
+            }
+          },
+          "description": "Wait for an element or a fixed time."
+        },
+        "screenshot": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "description": "Save a screenshot with this name as a run artifact."
+        },
+        "ask": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["prompt", "as"],
+          "properties": {
+            "prompt": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Question shown to the person who answers in the Web UI."
+            },
+            "as": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+              "description": "Variable that receives the answer, referenced as %name% in later act operations."
+            },
+            "timeout": {
+              "type": "string",
+              "description": "How long the browser stays open waiting for the answer, such as 30m. Defaults to 1h."
+            }
+          },
+          "description": "Pause the step until a person answers, keeping the browser open. Answers are stored in the run history; use it for short-lived codes."
+        },
+        "when": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Statement about the page; the operation is skipped unless it is true."
+        },
+        "timeout": {
+          "type": "string",
+          "description": "Maximum time for this operation, such as 30s. Defaults to 2m."
+        }
+      },
+      "description": "One browser operation. Set exactly one of goto, act, extract, expect, wait, screenshot, or ask."
     },
     "templateRenderActionConfig": {
       "type": "object",

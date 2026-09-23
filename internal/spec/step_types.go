@@ -72,6 +72,7 @@ var builtinStepTypeNames = map[string]struct{}{
 	"action":        {},
 	"artifact":      {},
 	"archive":       {},
+	"browser":       {},
 	"chat":          {},
 	"command":       {},
 	"container":     {},
