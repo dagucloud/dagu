@@ -450,8 +450,19 @@ After completion:
 - While a resumed attempt is queued or running, completing another open task
   fails with the run-not-waiting diagnostic. It succeeds once the run reaches
   its next waiting checkpoint.
-- Each return to a waiting checkpoint is a new checkpoint for wait handlers
-  and notifications, which list every task that is still open.
+- A resumed attempt checks DAG-level preconditions again (Spec 023) and runs
+  `handler_on.init` again. Each return to a waiting checkpoint runs
+  `handler_on.wait` again; `DAG_WAITING_STEPS` lists every step still waiting,
+  including open tasks.
+- If a resumed attempt ends before its next waiting checkpoint, the run leaves
+  `waiting` and open tasks can no longer be completed. This happens when the
+  queued resume is removed from the queue, `handler_on.init` fails, a DAG-level
+  precondition is not met, the attempt is stopped, or its process dies.
+  - Tasks that the attempt aborted or failed open again when the run is
+    retried, with their prompt and artifact paths resolved anew.
+  - Tasks left `waiting` stay open after a retry, with their stored prompt and
+    artifact paths.
+  - Completed task input is kept.
 - A completed human task that a later retry resets opens again with its prompt
   and artifact paths resolved anew.
 - A later sequential human task can create another checkpoint in the same
