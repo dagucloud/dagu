@@ -957,24 +957,22 @@ Container support:
 
 ## browser.extract / browser.run
 
-Automate a website in a local Chrome with natural-language operations. The model comes from the DAG-level `llm` block, or `with.llm`, which replaces it entirely. Chrome or Chromium must be installed on the host that runs the step (`browser.executable` or `CHROME_PATH` selects it).
+Automate a website in a local Chrome with natural-language operations. The model comes from the DAG-level `llm` block, or `with.llm`, which replaces it entirely; use a model that follows tool-call schemas reliably. Chrome or Chromium must be installed on the host that runs the step (`browser.executable` or `CHROME_PATH` selects it).
 
 ```yaml
+secrets:
+  - name: VENDOR_USER
+    provider: env
+    key: VENDOR_USER
+  - name: VENDOR_PASSWORD
+    provider: env
+    key: VENDOR_PASSWORD
+
 llm:
   provider: anthropic
   model: claude-sonnet-5
 
 steps:
-  - id: hn
-    action: browser.extract
-    with:
-      url: https://news.ycombinator.com
-      instruction: The top 5 stories
-      schema:
-        type: object
-        properties:
-          stories: {type: array}
-
   - id: invoice
     action: browser.run
     with:
@@ -987,8 +985,8 @@ steps:
         password: ${VENDOR_PASSWORD}
       do:
         - act: Sign in with %user% and %password%
-          when: A login form is visible
-        - expect: The billing page lists at least one invoice
+          when: {selector: "form#login"}
+        - expect: {text: Invoices}
         - extract:
             instruction: The latest invoice
             schema:
@@ -1004,13 +1002,15 @@ steps:
 
 Browser behavior:
 
-- Each `do` item sets exactly one of `goto`, `act`, `extract`, `expect`, `wait` (`selector` or `duration`), `screenshot`, or `ask`, plus optional `when` (skip unless true) and `timeout`.
-- Put secrets in `variables` and reference them as `%name%`; the browser gets the value, the model only the name. An instruction containing a secret value fails the step. Do not write `${SECRET}` inside an instruction.
+- Each `do` item sets exactly one of `goto`, `act`, `extract`, `expect`, `wait` (`selector` or `duration`), `screenshot`, or `ask`, plus optional `when` (skip unless it holds) and `timeout`.
+- `expect` and `when` take a statement the model judges, or a fixed check `{text}`, `{selector}`, or `{url}` that reads the page without a model call. Prefer fixed checks for monitoring; they give the same result on every run.
+- Declare secrets under `secrets:`, pass them in `variables`, and reference them as `%name%`. The browser gets the value, the model only the name. An instruction containing a declared secret value (4+ characters) fails the step; do not write `${SECRET}` inside an instruction. A `%name%` that is not a variable or an earlier `ask.as` fails validation.
 - The top-level properties of each `extract` schema become `${steps.<id>.outputs.<name>}`. The same property in two extracts is a validation error.
-- `expect` fails the step when the statement is false.
-- Successful `act` operations are replayed on later runs without a model call; set `cache: false` on the step or on one `act` to always ask the model.
-- `ask: {prompt, as}` puts the step in Waiting until someone answers in the Web UI; the answer becomes `%<as>%`. Use it for short-lived codes; answers are stored in run history.
-- Screenshots (on failure and at the end by default) and downloads are stored under `browser/<step id>/` in the run artifacts.
+- Successful `act` operations are replayed on later runs on the same host without a model call; `extract` and model-judged conditions still call the model. A replay can hit a different element after a layout change, so follow important acts with an `expect`.
+- `allowed_domains` applies to every request the page makes. `example.com` matches only that host; `*.example.com` matches its subdomains. The step fails when the page leaves the list.
+- `ask: {prompt, as}` puts the step in Waiting until someone answers in the Web UI; the answer becomes `%<as>%`. Not supported on Windows. Answers are stored in run history, so use it for short-lived codes.
+- Downloads are saved under `browser/<step id>/downloads/` in the run artifacts and awaited before the step ends. Screenshots are saved on failure by default (`screenshots: final` also keeps one of a successful end). Artifacts are not masked.
+- Profiles and the replay cache live on the host that runs the step. Pin such steps with `worker_selector` in distributed mode.
 
 ## router.route
 

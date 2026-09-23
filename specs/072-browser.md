@@ -4,24 +4,24 @@
 
 Partially implemented.
 
-Conformance covers extraction into outputs, a multi-operation run, the replay
-cache, the secret check, allowed domains, and validation. Waiting for input and
-resuming the same browser need the REST API and are covered by integration
-tests. Model prompts, page interaction internals, and profile locking belong to
-executor tests.
+Conformance covers extraction into outputs, a multi-operation run with model
+and fixed conditions, screenshots, downloads, the replay cache, the secret
+check, allowed domains, and validation. Waiting for input and resuming the same
+browser need the REST API and are covered by integration tests. Model prompts,
+page interaction internals, and profile locking belong to executor tests.
 
 ## Scope
 
 This spec defines the `browser.extract` and `browser.run` action boundary: the
-`with` contract, model configuration, outputs, artifacts, the replay cache, and
-human input. It does not define how a model chooses page elements or the
-browser runtime's prompts.
+`with` contract, model configuration, outputs, artifacts, downloads, the replay
+cache, allowed domains, and human input. It does not define how a model chooses
+page elements or the browser runtime's prompts.
 
 ## Goal
 
 Workflow authors can drive a website that has no API from a step: act on pages
-in natural language, extract structured data into step outputs, and pause for a
-person when the site asks for input.
+in natural language, extract structured data into step outputs, check page
+state, and pause for a person when the site asks for input.
 
 ## Behavior
 
@@ -40,15 +40,27 @@ Each operation sets exactly one of:
   instruction string or an object with `instruction` and optional `cache`.
 - `extract`: `{instruction, schema}`. The schema must be a JSON Schema with
   `type: object`.
-- `expect`: a statement about the page. The step fails when the model judges it
-  false, with the model's reason.
+- `expect`: a condition that must hold; otherwise the step fails with the
+  reason.
 - `wait`: `{selector}` waits until the element is visible; `{duration}` pauses.
 - `screenshot`: a name; the page is saved as a PNG run artifact.
 - `ask`: `{prompt, as, timeout}` waits for a person's answer (see Human input).
 
-Any operation may set `when`, a statement about the page; the operation is
-skipped unless the model judges it true. Any operation may set `timeout`, a
+Any operation may set `when`, a condition checked once before the operation;
+the operation is skipped unless it holds. Any operation may set `timeout`, a
 duration such as `30s`; the default is two minutes.
+
+### Conditions
+
+A condition is either:
+
+- a string: a statement about the page, judged by the model; or
+- an object with exactly one of `text` (the page's visible text contains it),
+  `selector` (a CSS selector matches a visible element), or `url` (the current
+  URL contains it). These fixed checks read the page and make no model request.
+
+A fixed `expect` is retried until the operation timeout. A model-judged
+`expect` is asked once.
 
 ### Model
 
@@ -57,16 +69,27 @@ with the same shape and providers as the DAG-level block. A browser step with no
 model configuration fails validation. When several models are listed, each
 model request tries them in order.
 
+Every model request asks for a tool call whose parameters are the response
+schema. A reply without a tool call is accepted when its text is valid JSON.
+Models that follow tool-call schemas reliably are required for dependable
+results.
+
 ### Variables and secrets
 
 `with.variables` maps names to values. An `act` instruction references them as
-`%name%`. The browser receives the values; requests to the model carry only the
-names. Secret and variable values are masked in text sent to the model, in the
-step log, and in the timeline.
+`%name%`, and so does a later act for an `ask.as` name. A reference to any other
+name fails validation. An act that references the answer of an `ask` that was
+skipped fails the step. The browser receives variable values; requests to the
+model carry only the names.
 
-The step fails before starting a browser when an `act`, `extract`, `expect`,
-`when`, or `ask` text contains the resolved value of a declared secret of four
-or more characters.
+The step fails before starting a browser when an `act`, `extract`, `ask`, or
+model-judged `expect` or `when` text contains the resolved value of a secret
+declared under `secrets:` that has four or more characters. Values that only
+come from `env:` are not secrets and are not checked.
+
+Declared secret values and `ask` answers of four or more characters are masked
+in text sent to the model, in the step log, and in the timeline. Other variable
+values are not masked.
 
 ### Outputs
 
@@ -83,57 +106,96 @@ those outputs. Operation progress is written to stderr.
 `CHROME_PATH` or an installed Chrome), `viewport` `{width, height}`, `proxy`
 (unauthenticated), `allowed_domains`, `screenshots`, and `profile`.
 
-With `allowed_domains`, navigation to a host outside the listed domains fails
-the step. A domain matches itself and its subdomains; `*.example.com` matches
-subdomains of `example.com`.
+### Allowed domains
+
+`allowed_domains` limits every request the page makes, including scripts,
+images, and API calls, not only navigation. `example.com` matches only that
+host; `*.example.com` matches its subdomains but not `example.com`. An entry
+with a scheme, port, or path, a `*` other than a leading `*.`, or fewer than two
+labels fails validation.
+
+A `goto` or `with.url` outside the list fails before navigating. After the start
+URL and after every operation the step checks the current page again and fails
+when a redirect or an action left the allowed domains. Pages without a network
+host, such as `about:blank`, are not checked.
 
 ### Artifacts
 
 A DAG with a browser action enables artifact storage unless it sets
 `artifacts.enabled: false`. Files are written under `browser/<step id>/` in the
-run's artifacts directory. `screenshots: on_failure` (the default) saves a
-screenshot when the step fails and when it succeeds; `each` also saves one after
-every operation; `never` saves none automatically. Downloads started by the page
-are saved under `browser/<step id>/downloads/`. With artifacts disabled, no
-automatic screenshots or downloads are saved, and a `screenshot` operation fails.
+run's artifacts directory and are not masked.
+
+| `screenshots` | Automatic screenshots |
+| --- | --- |
+| `on_failure` (default) | When the step fails. |
+| `final` | When the step fails, and at the end of a successful step. |
+| `each` | After every operation, plus the `final` ones. |
+| `never` | None. |
+
+With artifacts disabled, no automatic screenshots are saved, a `screenshot`
+operation fails, and the browser refuses downloads.
+
+### Downloads
+
+Files the page downloads are saved under `browser/<step id>/downloads/` with
+the name the site suggests, made unique within the directory. After every
+operation the step waits for running downloads, up to that operation's
+timeout. Before the step ends, and before it pauses for an `ask`, it also waits
+a few seconds for a download to begin. A canceled download, or one still
+running at the timeout, fails the step.
 
 ### Replay cache
 
 With `with.cache` true (the default), a successful `act` records the actions it
-performed. A later run of the same step replays them without a model request
-when the operation position, instruction, and page URL without query or
-fragment match. When a replay fails, the step asks the model again and records
-the new actions. `act.cache: false` disables the cache for one operation.
+performed. A later run of the same step on the same host replays them without a
+model request when the operation position, instruction, and page URL without
+query or fragment match. When a replay fails, the step asks the model again and
+records the new actions. `act.cache: false` disables the cache for one
+operation.
+
+The cache covers `act` only. `extract` and model-judged conditions make model
+requests on every run. A replay that finds an element at the recorded location
+succeeds even if the page layout changed and a different element is now there.
 
 ### Profiles
 
 `browser.profile` names a persistent browser profile kept on the executing
-host. Cookies and storage survive across runs. Runs that use the same profile
-run one at a time; a run fails immediately when another run waiting for input
-holds the profile.
+host. Cookies and storage survive across runs on that host. Runs that use the
+same profile run one at a time; a run fails immediately when another run
+waiting for input holds the profile.
 
 ### Human input
 
 An `ask` operation puts the step in `Waiting` with a pending question, keeps the
 browser open, and ends the step execution. Answering the question from the Web
-UI or REST API resumes the step in the same browser at the operation after the
-`ask`. The answer is available to later `act` instructions as `%<as>%`.
-Rejecting the question fails the step. The browser stays open for
-`ask.timeout` (default one hour); an answer after that fails the step.
+UI or REST API resumes the step in the same browser, on the host that holds it,
+at the operation after the `ask`. The answer is available to later `act`
+instructions as `%<as>%`. Rejecting the question fails the step. The browser
+stays open for `ask.timeout` (default one hour); an answer after that fails the
+step.
 
 Answers are stored in the run's history like other human input.
+
+On Windows, a step with an `ask` operation fails before starting a browser,
+because the browser cannot outlive the step process there.
 
 ## Errors
 
 A missing `with.do`, `with.url` for `browser.extract`, `with.instruction`, or
 `with.schema` fails validation with a diagnostic naming the field. An operation
-that sets zero or several operation keys fails validation. A step fails when an
-`act` does not complete, an `expect` is false, a selector does not appear before
-the timeout, or the browser cannot be started.
+or condition that sets zero or several keys fails validation. A step fails when
+an `act` does not complete, an `expect` does not hold, a selector does not
+appear before the timeout, a download does not finish, the page leaves the
+allowed domains, or the browser cannot be started.
 
 ## Examples
 
 ```yaml
+secrets:
+  - name: SHOP_COUPON
+    provider: env
+    key: SHOP_COUPON
+
 llm:
   provider: anthropic
   model: claude-sonnet-5
@@ -143,12 +205,14 @@ steps:
     action: browser.run
     with:
       url: https://shop.example.com/cart
+      browser:
+        allowed_domains: [shop.example.com]
       variables:
-        coupon: SPRING
+        coupon: ${SHOP_COUPON}
       do:
         - act: Enter %coupon% in the coupon field and apply it
         - act: Click the Place order button
-        - expect: The page shows the order confirmation
+        - expect: {text: Order confirmed}
         - extract:
             instruction: The order number
             schema:

@@ -72,7 +72,8 @@ Authoring rules:
 - Containerized harness runs support Dagu CLI providers and custom providers that pass the prompt as an argument or flag. They do not support provider=builtin, with.stdin, or custom prompt_mode=stdin.
 - Docker or Podman is selected by the Dagu service process through DAGU_CONTAINER_RUNTIME and optional DAGU_PODMAN_HOST, not by a DAG YAML runtime field.
 - browser.extract and browser.run drive a local Chrome using the DAG-level llm block or with.llm, which replaces it. browser.run takes with.do, a list where each item sets one of goto, act, extract, expect, wait, screenshot, or ask, plus optional when and timeout.
-- Browser steps publish the top-level properties of each extract schema as ${steps.step_id.outputs.name}; do not declare outputs on the step. Pass secrets through with.variables and reference them as %name% in act instructions; an instruction containing a secret value fails the step.`,
+- Browser steps publish the top-level properties of each extract schema as ${steps.step_id.outputs.name}; do not declare outputs on the step. Pass secrets through with.variables and reference them as %name% in act instructions; an instruction containing a declared secret value fails the step, and a %name% that is not a variable or an earlier ask.as fails validation.
+- Browser expect and when take a statement the model judges or a fixed check object with one of text, selector, or url; prefer fixed checks for repeatable results. allowed_domains matches exact hosts, *.example.com matches subdomains only, and it applies to every request the page makes.`,
 		},
 		{
 			topic:       "tools",
