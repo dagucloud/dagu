@@ -287,8 +287,11 @@ func TestPushBackReviewLoop(t *testing.T) {
 	result.ExpectStderr("")
 
 	waitForFileContent(t, dagu.ProjectPath("attempts.txt"), ":\n1:add-tests\n")
-	status = waitForStatus(t, dagu, env, runID, file, "push-back iteration: 1")
-	require.Contains(t, status.Stdout(), "Waiting")
+	// The resumed attempt wrote the second line, so the next waiting checkpoint
+	// is the reopened review. The review line can show the iteration while that
+	// attempt is still finalizing, so wait for the run itself to be waiting.
+	status = waitForStatus(t, dagu, env, runID, file, "Waiting")
+	require.Contains(t, status.Stdout(), "push-back iteration: 1")
 	dagu.ExpectNoFile("published.txt")
 
 	stale := pushBack(t, dagu, env, runID, "review", file, "--input=feedback=again", "--expected-iteration=0")
