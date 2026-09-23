@@ -274,7 +274,7 @@ Rules:
 
 | Field | Availability | Meaning |
 | --- | --- | --- |
-| `context.pushback.iteration` | Steps re-executed after approval push-back | Current push-back iteration as a decimal string. |
+| `context.pushback.iteration` | Steps re-executed after an approval or human-task push-back | Current push-back iteration as a decimal string. |
 | `context.pushback.previous_stdout_file` | Rewound steps that had previous stdout | Absolute path to the previous stdout log for the current step. |
 
 Rules:
@@ -333,8 +333,8 @@ Push-back projection:
 
 | Environment variable | Source | Availability |
 | --- | --- | --- |
-| `DAG_PUSHBACK` | Push-back metadata JSON | Steps re-executed after approval push-back only. |
-| `DAG_PUSHBACK_ITERATION` | `context.pushback.iteration` | Steps re-executed after approval push-back only. |
+| `DAG_PUSHBACK` | Push-back metadata JSON | Steps re-executed after an approval or human-task push-back only. |
+| `DAG_PUSHBACK_ITERATION` | `context.pushback.iteration` | Steps re-executed after an approval or human-task push-back only. |
 | `DAG_PUSHBACK_PREVIOUS_STDOUT_FILE` | `context.pushback.previous_stdout_file` | Rewound steps that had previous stdout. |
 
 Webhook projection:
@@ -386,7 +386,7 @@ Availability rules:
 - Profile context is available only when a runtime profile was selected.
 - Webhook context is available only for webhook-triggered runs.
 - Push-back context is available only for step executions caused by an
-  approval push-back cycle.
+  approval or human-task push-back cycle.
 
 Validation rules:
 
