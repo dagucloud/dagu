@@ -55,7 +55,7 @@ steps:
     await page.getByRole('button', { name: 'Request changes' }).click();
     await expect(
       page.getByText(
-        'implement and the steps after it run again with your feedback. This task reopens afterward.'
+        'implement and the steps that depend on it run again with your feedback. This task reopens afterward.'
       )
     ).toBeVisible();
     await page.getByLabel(/Feedback/).fill('Add tests');

@@ -288,7 +288,7 @@ function HumanTaskCard({
             <p className="text-sm text-muted-foreground">
               <I18nText
                 text={
-                  '{step} and the steps after it run again with your feedback. This task reopens afterward.'
+                  '{step} and the steps that depend on it run again with your feedback. This task reopens afterward.'
                 }
                 values={{ step: pushBack.rewindTo }}
               />

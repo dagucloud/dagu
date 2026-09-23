@@ -497,7 +497,7 @@ describe('HumanTasksTab push-back', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Request changes' }));
     expect(
       screen.getByText(
-        'implement and the steps after it run again with your feedback. This task reopens afterward.'
+        'implement and the steps that depend on it run again with your feedback. This task reopens afterward.'
       )
     ).toBeVisible();
     expect(
