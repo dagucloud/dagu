@@ -305,6 +305,15 @@ func readLogArchive(t *testing.T, body string) map[string]string {
 	return logs
 }
 
+// getLogDownload fetches a single log attachment and returns its content.
+func getLogDownload(t *testing.T, server test.Server, path, filename string) string {
+	t.Helper()
+	resp := server.Client().Get(path).ExpectStatus(http.StatusOK).Send(t)
+	require.Equal(t, "text/plain", resp.Response.Header().Get("Content-Type"))
+	require.Equal(t, fmt.Sprintf("attachment; filename=%q", filename), resp.Response.Header().Get("Content-Disposition"))
+	return resp.Body
+}
+
 func postLogForm(t *testing.T, server test.Server, path, token string) (int, http.Header, string) {
 	t.Helper()
 	endpoint := fmt.Sprintf("http://%s:%d%s", server.Config.Server.Host, server.Config.Server.Port, path)
@@ -390,7 +399,7 @@ func TestDownloadDAGRunStepLogs(t *testing.T) {
 	startResp.Unmarshal(t, &startBody)
 	require.NotEmpty(t, startBody.DagRunId)
 
-	waitForStoredDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *ir.DAGRunStatus) bool {
+	status := waitForStoredDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *ir.DAGRunStatus) bool {
 		return status.Status == ir.Succeeded
 	})
 
@@ -412,6 +421,15 @@ func TestDownloadDAGRunStepLogs(t *testing.T) {
 	require.Equal(t, http.StatusOK, code)
 	require.Equal(t, disposition, headers.Get("Content-Disposition"))
 	require.Equal(t, logs, readLogArchive(t, body))
+
+	runPath := fmt.Sprintf("/api/v1/dag-runs/%s/%s", dagName, startBody.DagRunId)
+	filePrefix := fmt.Sprintf("%s-%s", dagName, startBody.DagRunId)
+	assert.NotEmpty(t, getLogDownload(t, server, runPath+"/log/download", filePrefix+"-scheduler.log"))
+	assert.Equal(t, logs["001-first/stdout.log"], getLogDownload(t, server, runPath+"/steps/first/log/download", filePrefix+"-first-stdout.log"))
+	assert.Equal(t, logs["001-first/stderr.log"], getLogDownload(t, server, runPath+"/steps/first/log/download?stream=stderr", filePrefix+"-first-stderr.log"))
+	_ = server.Client().Get(runPath + "/steps/missing/log/download").ExpectStatus(http.StatusNotFound).Send(t)
+	require.NoError(t, os.Remove(status.Nodes[1].Stdout))
+	_ = server.Client().Get(runPath + "/steps/second/log/download").ExpectStatus(http.StatusNotFound).Send(t)
 
 	_ = server.Client().Get(
 		fmt.Sprintf("/api/v1/dag-runs/%s/%s/steps/log/download", dagName, "non_existent_run"),
@@ -483,6 +501,19 @@ steps:
 	for name := range logs {
 		assert.True(t, strings.HasPrefix(name, "001-child_step/"))
 	}
+
+	subPath := fmt.Sprintf("/api/v1/dag-runs/%s/%s/sub-dag-runs/%s", dagName, startBody.DagRunId, subDAGRunID)
+	filePrefix := fmt.Sprintf("%s-%s-sub-%s", dagName, startBody.DagRunId, subDAGRunID)
+	assert.Equal(t, logs["001-child_step/stdout.log"], getLogDownload(t, server, subPath+"/steps/child_step/log/download", filePrefix+"-child_step-stdout.log"))
+	assert.Equal(t, logs["001-child_step/stderr.log"], getLogDownload(t, server, subPath+"/steps/child_step/log/download?stream=stderr", filePrefix+"-child_step-stderr.log"))
+	_ = server.Client().Get(subPath + "/steps/missing/log/download").ExpectStatus(http.StatusNotFound).Send(t)
+	subAttempt, err := server.DAGRunRepository.FindSubAttempt(server.Context, ir.NewDAGRunRef(dagName, startBody.DagRunId), subDAGRunID)
+	require.NoError(t, err)
+	subStatus, err := subAttempt.ReadStatus(server.Context)
+	require.NoError(t, err)
+	// Local in-process sub-DAG runs record a scheduler log path without writing to it.
+	require.NoError(t, os.WriteFile(subStatus.Log, []byte("sub scheduler"), 0o600))
+	assert.Equal(t, "sub scheduler", getLogDownload(t, server, subPath+"/log/download", filePrefix+"-scheduler.log"))
 
 	code, headers, body := postLogForm(t, server,
 		fmt.Sprintf("/api/v1/dag-runs/%s/%s/sub-dag-runs/%s/steps/log/download", dagName, startBody.DagRunId, subDAGRunID), "")

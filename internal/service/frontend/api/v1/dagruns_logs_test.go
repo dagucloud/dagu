@@ -189,6 +189,119 @@ func TestStepLogArchiveStreams(t *testing.T) {
 	assert.Equal(t, []byte("PK\x03\x04"), data[:4])
 }
 
+func TestLogFileDownload(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "large.log")
+	file, err := os.Create(path)
+	require.NoError(t, err)
+	// A sparse file provides a large log without a large fixture or allocation.
+	tail := []byte{0xff, 0, 'x', '\r', '\n'}
+	const size = 65 << 20
+	require.NoError(t, file.Truncate(size))
+	_, err = file.WriteAt(tail, size-int64(len(tail)))
+	require.NoError(t, err)
+	require.NoError(t, file.Close())
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reader, err := filedagrun.NewStore(dir).OpenLog(r.Context(), path)
+		if !assert.NoError(t, err) {
+			return
+		}
+		response := logFileResponse{ctx: r.Context(), reader: reader, filename: "run-step-stdout.log"}
+		_ = response.VisitDownloadDAGRunStepLogResponse(w)
+	}))
+	defer server.Close()
+	client := server.Client()
+	client.Timeout = 10 * time.Second
+	resp, err := client.Get(server.URL)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, "text/plain", resp.Header.Get("Content-Type"))
+	require.Equal(t, `attachment; filename="run-step-stdout.log"`, resp.Header.Get("Content-Disposition"))
+	_, err = io.CopyN(io.Discard, resp.Body, size-int64(len(tail)))
+	require.NoError(t, err)
+	got, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.Equal(t, tail, got)
+}
+
+// blockedReader yields no data until release closes or ctx ends.
+type blockedReader struct {
+	ctx     context.Context
+	release <-chan struct{}
+}
+
+func (r blockedReader) Read([]byte) (int, error) {
+	select {
+	case <-r.release:
+		return 0, io.EOF
+	case <-r.ctx.Done():
+		return 0, r.ctx.Err()
+	}
+}
+
+func TestLogFileStreams(t *testing.T) {
+	first := make([]byte, 256<<10)
+	_, err := rand.Read(first)
+	require.NoError(t, err)
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		response := logFileResponse{
+			ctx:      r.Context(),
+			reader:   io.NopCloser(io.MultiReader(bytes.NewReader(first), blockedReader{ctx: r.Context(), release: release})),
+			filename: "run-scheduler.log",
+		}
+		_ = response.VisitDownloadSubDAGRunLogResponse(w)
+	}))
+	defer server.Close()
+	defer close(release)
+	client := server.Client()
+	client.Timeout = 5 * time.Second
+	resp, err := client.Get(server.URL)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	// The rest of the log remains blocked until the first bytes reach the client.
+	data := make([]byte, 4096)
+	_, err = io.ReadFull(resp.Body, data)
+	require.NoError(t, err)
+	assert.Equal(t, first[:len(data)], data)
+}
+
+type closeRecorder struct {
+	io.ReadCloser
+	closed bool
+}
+
+func (r *closeRecorder) Close() error {
+	r.closed = true
+	return r.ReadCloser.Close()
+}
+
+func TestLogFileAbort(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "log")
+	require.NoError(t, os.WriteFile(path, []byte("log"), 0o600))
+	for _, failure := range []string{"read", "cancel"} {
+		t.Run(failure, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			source := io.NopCloser(archiveErrorReader{})
+			if failure == "cancel" {
+				var err error
+				source, err = filedagrun.NewStore(dir).OpenLog(ctx, path)
+				require.NoError(t, err)
+				// A client disconnect cancels the request context before the log is copied.
+				cancel()
+			}
+			reader := &closeRecorder{ReadCloser: source}
+			response := logFileResponse{ctx: ctx, reader: reader, filename: "run.log"}
+			w := httptest.NewRecorder()
+			require.PanicsWithValue(t, http.ErrAbortHandler, func() { _ = response.writeTo(w) })
+			require.Empty(t, w.Body.String())
+			require.True(t, reader.closed)
+		})
+	}
+}
+
 func TestLogDownloadDeadline(t *testing.T) {
 	for _, suffix := range []string{
 		"/log/download",
