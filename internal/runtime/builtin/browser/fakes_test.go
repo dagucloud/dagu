@@ -19,10 +19,11 @@ import (
 // fakeLauncher hands out one shared fakeEngine so a test can observe a
 // session across launch, detach, and reattach.
 type fakeLauncher struct {
-	engine     *fakeEngine
-	mu         sync.Mutex
-	launches   []launchOptions
-	reattaches []browserHandle
+	engine          *fakeEngine
+	mu              sync.Mutex
+	launches        []launchOptions
+	reattaches      []browserHandle
+	reattachOptions []launchOptions
 }
 
 func (l *fakeLauncher) Launch(_ context.Context, opts launchOptions) (engine, error) {
@@ -37,6 +38,7 @@ func (l *fakeLauncher) Reattach(_ context.Context, handle browserHandle, opts la
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.reattaches = append(l.reattaches, handle)
+	l.reattachOptions = append(l.reattachOptions, opts)
 	l.engine.attach(opts.Generate)
 	return l.engine, nil
 }

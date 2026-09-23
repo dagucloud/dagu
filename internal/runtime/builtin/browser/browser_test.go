@@ -294,6 +294,31 @@ func TestAskWaitsAndResumesSameBrowser(t *testing.T) {
 	assert.Empty(t, run.records())
 }
 
+// A resumed step applies allowed_domains to the browser it reattaches, as the
+// first launch did.
+func TestAskResumeKeepsAllowedDomains(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{
+		"browser": {"allowed_domains": ["shop.example.com"]},
+		"do": [
+			{"ask": {"prompt": "Enter the code", "as": "otp"}},
+			{"act": "Type %otp% and submit"}
+		]
+	}`
+	run := newTestRun(t, pageModel(nil))
+	waiting := run.execute(steps, nil)
+	require.NoError(t, waiting.err)
+	session := waiting.exec.GetAgentSession()
+	require.Len(t, session.Interactions, 1)
+	session.Interactions[0].Status = ir.AgentInteractionAnswered
+	session.Interactions[0].Answers = [][]string{{"123456"}}
+	require.NoError(t, run.execute(steps, session).err)
+
+	require.Len(t, run.launcher.reattachOptions, 1)
+	assert.Equal(t, []string{"shop.example.com"}, run.launcher.reattachOptions[0].AllowedDomains)
+}
+
 func TestAskUnsupportedOnWindows(t *testing.T) {
 	t.Parallel()
 	if goruntime.GOOS != "windows" {

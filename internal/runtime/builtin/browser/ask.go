@@ -170,8 +170,9 @@ func (r *run) resumeSession(ctx context.Context, recordID string, session *ir.Ag
 		r.profile = lease
 	}
 	opts := launchOptions{
-		DownloadsDir: record.DownloadsDir,
-		Generate:     r.bridge.generate,
+		DownloadsDir:   record.DownloadsDir,
+		AllowedDomains: r.cfg.Browser.AllowedDomains,
+		Generate:       r.bridge.generate,
 	}
 	eng, err := r.exec.launcher.Reattach(ctx, browserHandle{
 		CDPURL:       record.CDPURL,
