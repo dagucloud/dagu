@@ -500,3 +500,38 @@ func TestActNeedingSkippedAskFails(t *testing.T) {
 	require.ErrorContains(t, execution.err, "do[1] act failed: the instruction uses %otp%, but the ask that sets it did not run")
 	assert.Empty(t, run.engine.actInstructions())
 }
+
+// Fixed checks read the page directly, so they give the same answer on
+// every run and make no model call.
+func TestFixedConditions(t *testing.T) {
+	t.Parallel()
+
+	t.Run("expect passes", func(t *testing.T) {
+		t.Parallel()
+		run := newTestRun(t, pageModel(nil))
+		run.engine.pageText = "Order confirmed: A-100"
+		execution := run.execute(`{"do": [{"expect": {"text": "Order confirmed"}}]}`, nil)
+		require.NoError(t, execution.err)
+		assert.Zero(t, run.provider.callCount())
+	})
+
+	t.Run("expect times out", func(t *testing.T) {
+		t.Parallel()
+		run := newTestRun(t, pageModel(nil))
+		execution := run.execute(`{"do": [{"expect": {"selector": "#done"}, "timeout": "300ms"}]}`, nil)
+		require.ErrorContains(t, execution.err, `do[0] expect failed: expectation not met: "#done" is not visible`)
+		assert.Zero(t, run.provider.callCount())
+	})
+
+	t.Run("when skips", func(t *testing.T) {
+		t.Parallel()
+		run := newTestRun(t, pageModel(nil))
+		run.engine.url = "https://shop.example.com/cart"
+		execution := run.execute(`{"do": [
+			{"act": "Close the cookie banner", "when": {"selector": "#banner"}},
+			{"act": "Open the account page", "when": {"url": "/cart"}}
+		]}`, nil)
+		require.NoError(t, execution.err)
+		assert.Equal(t, []string{"Open the account page"}, run.engine.actInstructions())
+	})
+}

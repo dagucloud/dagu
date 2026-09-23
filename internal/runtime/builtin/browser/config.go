@@ -94,11 +94,11 @@ type operation struct {
 	Goto       string       `json:"goto,omitempty"`
 	Act        *actSpec     `json:"act,omitempty"`
 	Extract    *extractSpec `json:"extract,omitempty"`
-	Expect     string       `json:"expect,omitempty"`
+	Expect     *condition   `json:"expect,omitempty"`
 	Wait       *waitSpec    `json:"wait,omitempty"`
 	Screenshot string       `json:"screenshot,omitempty"`
 	Ask        *askSpec     `json:"ask,omitempty"`
-	When       string       `json:"when,omitempty"`
+	When       *condition   `json:"when,omitempty"`
 	Timeout    string       `json:"timeout,omitempty"`
 }
 
@@ -143,7 +143,7 @@ func (o operation) kind() string {
 		return opAct
 	case o.Extract != nil:
 		return opExtract
-	case o.Expect != "":
+	case o.Expect != nil:
 		return opExpect
 	case o.Wait != nil:
 		return opWait
@@ -159,16 +159,16 @@ func (o operation) kind() string {
 // promptTexts returns the operation texts that reach the model.
 func (o operation) promptTexts() []string {
 	texts := make([]string, 0, 2)
-	if o.When != "" {
-		texts = append(texts, o.When)
+	if o.When != nil && o.When.judged() {
+		texts = append(texts, o.When.Statement)
 	}
 	switch {
 	case o.Act != nil:
 		texts = append(texts, o.Act.Instruction)
 	case o.Extract != nil:
 		texts = append(texts, o.Extract.Instruction)
-	case o.Expect != "":
-		texts = append(texts, o.Expect)
+	case o.Expect != nil && o.Expect.judged():
+		texts = append(texts, o.Expect.Statement)
 	case o.Ask != nil:
 		texts = append(texts, o.Ask.Prompt)
 	}
@@ -304,7 +304,16 @@ func (o operation) validate() error {
 	if err := validateDuration("timeout", o.Timeout); err != nil {
 		return err
 	}
+	if o.When != nil {
+		if err := o.When.validate(); err != nil {
+			return fmt.Errorf("when: %w", err)
+		}
+	}
 	switch {
+	case o.Expect != nil:
+		if err := o.Expect.validate(); err != nil {
+			return fmt.Errorf("expect: %w", err)
+		}
 	case o.Act != nil:
 		if strings.TrimSpace(o.Act.Instruction) == "" {
 			return errors.New("act instruction must not be empty")
@@ -366,6 +375,28 @@ func nonEmptyString() *jsonschema.Schema {
 	return &jsonschema.Schema{Type: "string", MinLength: new(1)}
 }
 
+// conditionSchema accepts a statement or an object with exactly one fixed
+// check.
+func conditionSchema() *jsonschema.Schema {
+	return &jsonschema.Schema{AnyOf: []*jsonschema.Schema{
+		nonEmptyString(),
+		{
+			Type:                 "object",
+			AdditionalProperties: noExtraProperties(),
+			Properties: map[string]*jsonschema.Schema{
+				"text":     nonEmptyString(),
+				"selector": nonEmptyString(),
+				"url":      nonEmptyString(),
+			},
+			OneOf: []*jsonschema.Schema{
+				{Required: []string{"text"}},
+				{Required: []string{"selector"}},
+				{Required: []string{"url"}},
+			},
+		},
+	}}
+}
+
 var operationSchema = &jsonschema.Schema{
 	Type:                 "object",
 	AdditionalProperties: noExtraProperties(),
@@ -390,7 +421,7 @@ var operationSchema = &jsonschema.Schema{
 				"schema":      {Type: "object"},
 			},
 		},
-		opExpect: nonEmptyString(),
+		opExpect: conditionSchema(),
 		opWait: {
 			Type:                 "object",
 			AdditionalProperties: noExtraProperties(),
@@ -410,7 +441,7 @@ var operationSchema = &jsonschema.Schema{
 				"timeout": stringSchema(),
 			},
 		},
-		"when":    nonEmptyString(),
+		"when":    conditionSchema(),
 		"timeout": stringSchema(),
 	},
 	OneOf: []*jsonschema.Schema{

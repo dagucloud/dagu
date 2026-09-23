@@ -49,6 +49,9 @@ type fakeEngine struct {
 	replayFails bool
 	// actNavigatesTo is the page an act leaves the browser on, if set.
 	actNavigatesTo string
+	// pageText and visible describe the page that fixed checks read.
+	pageText string
+	visible  []string
 	// downloads and downloadErr script what the next download wait reports.
 	downloads   []string
 	downloadErr error
@@ -143,6 +146,18 @@ func (e *fakeEngine) CurrentURL(context.Context) (string, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return e.url, nil
+}
+
+func (e *fakeEngine) PageText(context.Context) (string, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.pageText, nil
+}
+
+func (e *fakeEngine) SelectorVisible(_ context.Context, selector string) (bool, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return slices.Contains(e.visible, selector), nil
 }
 
 // WaitForDownloads reports the scripted downloads once, as if they finished

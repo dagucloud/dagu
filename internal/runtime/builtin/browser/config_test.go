@@ -85,6 +85,16 @@ func TestValidateStep(t *testing.T) {
 			want: `do[0]: act references %otp%`,
 		},
 		{
+			name: "condition with two checks",
+			with: `{"do":[{"expect":{"text":"a","url":"b"}}]}`,
+			want: "invalid browser config",
+		},
+		{
+			name: "empty condition",
+			with: `{"do":[{"act":"a","when":{}}]}`,
+			want: "invalid browser config",
+		},
+		{
 			name: "single-label allowed domain",
 			with: `{"browser":{"allowed_domains":["localhost"]},"do":[{"act":"a"}]}`,
 			want: `allowed domain "localhost" must have at least two labels`,

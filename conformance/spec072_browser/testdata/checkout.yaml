@@ -13,7 +13,8 @@ steps:
       url: ${SHOP_URL}
       do:
         - act: Click the Place order button
-        - expect: The page shows 'Order confirmed'
+          when: The page shows 'Cart has 2 items'
+        - expect: {text: "Order confirmed"}
         - extract:
             instruction: The order number
             schema:

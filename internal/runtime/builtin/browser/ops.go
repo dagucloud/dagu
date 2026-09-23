@@ -26,12 +26,14 @@ import (
 const (
 	// downloadGrace is how long a step waits, before it ends or pauses, for
 	// a download the last operation started to begin.
-	downloadGrace    = 3 * time.Second
-	kindDownload     = "download"
-	sweepBudget      = 5 * time.Second
-	shutdownTimeout  = 30 * time.Second
-	finalShotLabel   = "final"
-	failureShotLabel = "failure"
+	downloadGrace = 3 * time.Second
+	kindDownload  = "download"
+	// conditionPollInterval spaces the retries of a fixed expect check.
+	conditionPollInterval = 250 * time.Millisecond
+	sweepBudget           = 5 * time.Second
+	shutdownTimeout       = 30 * time.Second
+	finalShotLabel        = "final"
+	failureShotLabel      = "failure"
 )
 
 // statementSchema is the extract schema used to judge when and expect
@@ -139,15 +141,15 @@ func (r *run) execute(ctx context.Context) error {
 	}
 	for i := start; i < len(r.cfg.Do); i++ {
 		op := r.cfg.Do[i]
-		if op.When != "" {
+		if op.When != nil {
 			began, before := time.Now(), r.bridge.totals()
-			holds, reason, err := r.judge(ctx, op.When, op.timeout())
+			holds, reason, err := r.evaluate(ctx, *op.When, op.timeout())
 			if err != nil {
 				return r.fail(ctx, i, op.kind(), fmt.Errorf("evaluate when: %w", err))
 			}
 			if !holds {
 				r.timeline.operation(operationReport{
-					index: i, kind: op.kind(), subject: op.When, status: statusSkipped, detail: reason,
+					index: i, kind: op.kind(), subject: op.When.String(), status: statusSkipped, detail: reason,
 					tokens: r.bridge.totals().sub(before).total(), duration: time.Since(began),
 				})
 				continue
@@ -336,8 +338,8 @@ func (r *run) runOperation(ctx context.Context, index int, op operation) error {
 		return r.act(ctx, index, *op.Act, timeout)
 	case op.Extract != nil:
 		return r.extract(ctx, index, *op.Extract, timeout)
-	case op.Expect != "":
-		return r.expect(ctx, index, op.Expect, timeout)
+	case op.Expect != nil:
+		return r.expect(ctx, index, *op.Expect, timeout)
 	case op.Wait != nil:
 		return r.wait(ctx, index, *op.Wait, timeout)
 	case op.Screenshot != "":
@@ -448,20 +450,67 @@ func (r *run) extract(ctx context.Context, index int, spec extractSpec, timeout 
 	return nil
 }
 
-func (r *run) expect(ctx context.Context, index int, statement string, timeout time.Duration) error {
+// expect fails unless the condition holds. A fixed check is retried until
+// the timeout, because the page may still be updating.
+func (r *run) expect(ctx context.Context, index int, c condition, timeout time.Duration) error {
 	began, before := time.Now(), r.bridge.totals()
-	holds, reason, err := r.judge(ctx, statement, timeout)
-	if err != nil {
-		return err
+	deadline := began.Add(timeout)
+	for {
+		holds, reason, err := r.evaluate(ctx, c, timeout)
+		if err != nil {
+			return err
+		}
+		if holds {
+			r.report(ctx, operationReport{
+				index: index, kind: opExpect, subject: c.String(), status: statusCompleted, detail: reason,
+				tokens: r.bridge.totals().sub(before).total(), duration: time.Since(began),
+			})
+			return nil
+		}
+		if c.judged() || !time.Now().Before(deadline) {
+			return fmt.Errorf("expectation not met: %s", reason)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(conditionPollInterval):
+		}
 	}
-	if !holds {
-		return fmt.Errorf("expectation not met: %s", reason)
+}
+
+// evaluate reports whether a condition holds now, and why.
+func (r *run) evaluate(ctx context.Context, c condition, timeout time.Duration) (bool, string, error) {
+	switch {
+	case c.judged():
+		return r.judge(ctx, c.Statement, timeout)
+	case c.Text != "":
+		text, err := r.eng.PageText(ctx)
+		if err != nil {
+			return false, "", err
+		}
+		if strings.Contains(text, c.Text) {
+			return true, fmt.Sprintf("the page text contains %q", c.Text), nil
+		}
+		return false, fmt.Sprintf("the page text does not contain %q", c.Text), nil
+	case c.Selector != "":
+		visible, err := r.eng.SelectorVisible(ctx, c.Selector)
+		if err != nil {
+			return false, "", err
+		}
+		if visible {
+			return true, fmt.Sprintf("%q is visible", c.Selector), nil
+		}
+		return false, fmt.Sprintf("%q is not visible", c.Selector), nil
+	default:
+		current, err := r.eng.CurrentURL(ctx)
+		if err != nil {
+			return false, "", err
+		}
+		if strings.Contains(current, c.URL) {
+			return true, fmt.Sprintf("the URL contains %q", c.URL), nil
+		}
+		return false, fmt.Sprintf("the URL %s does not contain %q", current, c.URL), nil
 	}
-	r.report(ctx, operationReport{
-		index: index, kind: opExpect, subject: statement, status: statusCompleted, detail: reason,
-		tokens: r.bridge.totals().sub(before).total(), duration: time.Since(began),
-	})
-	return nil
 }
 
 func (r *run) wait(ctx context.Context, index int, spec waitSpec, timeout time.Duration) error {

@@ -25,6 +25,19 @@ const extractBatchSource = `async (batch, input) => (await batch.extract(input.i
 
 const telemetryPath = "/v1/traces"
 
+// pageTextExpression reads the text a person sees on the page.
+const pageTextExpression = `document.body ? document.body.innerText : ""`
+
+// selectorVisibleExpression reports whether the selector, a JSON string
+// literal substituted for %s, matches a rendered, visible element.
+const selectorVisibleExpression = `(() => {
+	const element = document.querySelector(%s);
+	if (!element) return false;
+	const box = element.getBoundingClientRect();
+	const style = getComputedStyle(element);
+	return box.width > 0 && box.height > 0 && style.visibility !== "hidden" && style.display !== "none";
+})()`
+
 var errImageInput = errors.New("browser: image input to the model is not supported")
 
 // stagehandLauncher runs sessions through the Stagehand Go SDK.
@@ -261,6 +274,43 @@ func (e *stagehandEngine) CurrentURL(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return page.URL(ctx)
+}
+
+func (e *stagehandEngine) PageText(ctx context.Context) (string, error) {
+	page, err := e.page(ctx)
+	if err != nil {
+		return "", err
+	}
+	raw, err := page.Evaluate(ctx, pageTextExpression)
+	if err != nil {
+		return "", err
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err != nil {
+		return "", fmt.Errorf("read page text: %w", err)
+	}
+	return text, nil
+}
+
+func (e *stagehandEngine) SelectorVisible(ctx context.Context, selector string) (bool, error) {
+	page, err := e.page(ctx)
+	if err != nil {
+		return false, err
+	}
+	// The selector is embedded as a JSON string literal, never as code.
+	literal, err := json.Marshal(selector)
+	if err != nil {
+		return false, err
+	}
+	raw, err := page.Evaluate(ctx, fmt.Sprintf(selectorVisibleExpression, literal))
+	if err != nil {
+		return false, err
+	}
+	var visible bool
+	if err := json.Unmarshal(raw, &visible); err != nil {
+		return false, fmt.Errorf("check selector %q: %w", selector, err)
+	}
+	return visible, nil
 }
 
 func (e *stagehandEngine) Handle() browserHandle {

@@ -7179,6 +7179,42 @@
       },
       "description": "JSON Schema of the extracted object. Its top-level properties become step outputs."
     },
+    "browserCondition": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "description": "Statement about the page, judged by the model."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "oneOf": [
+            { "required": ["text"] },
+            { "required": ["selector"] },
+            { "required": ["url"] }
+          ],
+          "properties": {
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Holds when the page's visible text contains this text."
+            },
+            "selector": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Holds when this CSS selector matches a visible element."
+            },
+            "url": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Holds when the current page URL contains this text."
+            }
+          },
+          "description": "Fixed check that reads the page without a model call."
+        }
+      ]
+    },
     "browserOperation": {
       "type": "object",
       "additionalProperties": false,
@@ -7226,9 +7262,8 @@
           "description": "Extract structured data from the page into step outputs."
         },
         "expect": {
-          "type": "string",
-          "minLength": 1,
-          "description": "Statement about the page that must be true; the step fails with the model's reason otherwise."
+          "$ref": "#/definitions/browserCondition",
+          "description": "Condition that must hold, or the step fails. A statement is judged by the model; a text, selector, or url check reads the page and is retried until the operation timeout."
         },
         "wait": {
           "type": "object",
@@ -7279,9 +7314,8 @@
           "description": "Pause the step until a person answers, keeping the browser open. Answers are stored in the run history; use it for short-lived codes."
         },
         "when": {
-          "type": "string",
-          "minLength": 1,
-          "description": "Statement about the page; the operation is skipped unless it is true."
+          "$ref": "#/definitions/browserCondition",
+          "description": "Condition checked once before the operation; the operation is skipped unless it holds."
         },
         "timeout": {
           "type": "string",

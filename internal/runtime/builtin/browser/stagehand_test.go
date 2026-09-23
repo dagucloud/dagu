@@ -316,3 +316,19 @@ func TestStagehandWaitsForDownloads(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, reportBody, string(data))
 }
+
+func TestStagehandPageChecks(t *testing.T) {
+	t.Parallel()
+
+	eng := launchShop(t, &shopModel{})
+	text, err := eng.PageText(t.Context())
+	require.NoError(t, err)
+	assert.Contains(t, text, "Widget Shop")
+
+	visible, err := eng.SelectorVisible(t.Context(), "#status")
+	require.NoError(t, err)
+	assert.True(t, visible)
+	visible, err = eng.SelectorVisible(t.Context(), `#missing, [data-x="1"]`)
+	require.NoError(t, err)
+	assert.False(t, visible)
+}

@@ -28,6 +28,11 @@ type engine interface {
 	WaitForSelector(ctx context.Context, selector string, timeout time.Duration) error
 	Screenshot(ctx context.Context) ([]byte, error)
 	CurrentURL(ctx context.Context) (string, error)
+	// PageText returns the visible text of the page.
+	PageText(ctx context.Context) (string, error)
+	// SelectorVisible reports whether a CSS selector matches a visible
+	// element.
+	SelectorVisible(ctx context.Context, selector string) (bool, error)
 	// WaitForDownloads returns the names of downloads completed since the
 	// previous call, after allowing grace for one to begin and waiting up to
 	// timeout for running ones to finish.

@@ -46,6 +46,10 @@ steps:
           timeout: 30s
         - ask: {prompt: Enter the code, as: otp, timeout: 10m}
         - expect: The billing page lists an invoice
+        - expect: {text: Invoice}
+          when: {url: /billing}
+        - act: Open the invoice
+          when: {selector: "#invoice"}
         - extract:
             instruction: The latest invoice
             schema: {type: object, properties: {invoice_number: {type: string}}}
@@ -65,6 +69,8 @@ steps:
 		{"unknown screenshot policy", "screenshots: each", "screenshots: sometimes"},
 		{"invalid variable name", "        user: alice", "        user-name: alice"},
 		{"unknown browser option", "headless: true", "stealth: true"},
+		{"condition with two checks", "expect: {text: Invoice}", "expect: {text: Invoice, url: /x}"},
+		{"unknown condition check", "when: {url: /billing}", "when: {title: Billing}"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			doc := mustParseYAMLDocument(t, strings.Replace(source, tc.from, tc.to, 1))
