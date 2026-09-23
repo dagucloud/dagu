@@ -1061,7 +1061,7 @@ export interface paths {
         put?: never;
         /**
          * Complete a waiting human task
-         * @description Validates typed input against the stored human-task form, completes the step atomically, and queues the same DAG-run when no manual steps remain waiting or when the completion unblocks a step. A step counts as unblocked only when every dependency lets it run, it declares no build inputs, and no step in the run has failed.
+         * @description Validates typed input against the stored human-task form, completes the step atomically, and queues the same DAG-run when no manual steps remain waiting or when the completion unblocks a step. A step counts as unblocked only when every dependency lets it run, it declares no build inputs, and no step in the run is failed, aborted, rejected, or retrying.
          */
         post: operations["completeHumanTask"];
         delete?: never;
@@ -3928,7 +3928,7 @@ export interface components {
             /** @description Whether this request durably queued the DAG-run retry */
             queued: boolean;
             remainingWaitingSteps: number;
-            /** @description Whether the DAG-run needed a resume, queued by this request or already queued by another */
+            /** @description True when this request found the DAG-run waiting and ready to resume, whether it queued the resume or a concurrent request queued it first; false if the run keeps waiting or has already left waiting */
             resumeRequested: boolean;
         };
         /** @description Result of queueing a completed human-task retry */

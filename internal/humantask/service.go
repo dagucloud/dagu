@@ -106,8 +106,9 @@ type Result struct {
 	AlreadyCompleted      bool
 	Queued                bool
 	RemainingWaitingSteps int
-	// ResumeRequested reports that the run needed a resume, whether this
-	// request queued it or a concurrent request already had.
+	// ResumeRequested reports that the run was waiting and ready to resume
+	// when this request checked it, whether this request queued the resume or
+	// a concurrent request queued it first.
 	ResumeRequested bool
 }
 
