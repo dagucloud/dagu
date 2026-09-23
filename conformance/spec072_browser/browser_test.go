@@ -207,10 +207,16 @@ func newBrowserEnv(t *testing.T) *browserEnv {
 	t.Helper()
 	requireChrome(t)
 	model, modelURL := startModel(t)
+	env := []string{"SHOP_URL=" + startShop(t), "LLM_BASE_URL=" + modelURL}
+	if runtime.GOOS == "windows" {
+		// The harness points the profile folders at empty temporary paths;
+		// Chrome on Windows needs the real ones to start.
+		env = append(env, "USERPROFILE="+os.Getenv("USERPROFILE"), "APPDATA="+os.Getenv("APPDATA"))
+	}
 	return &browserEnv{
 		dagu:  harness.NewRunner(t),
 		model: model,
-		env:   []string{"SHOP_URL=" + startShop(t), "LLM_BASE_URL=" + modelURL},
+		env:   env,
 	}
 }
 

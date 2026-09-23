@@ -126,6 +126,9 @@ func requireBrowser(t *testing.T) {
 // An ask operation parks the step in Waiting; answering it through the API
 // resumes the same browser, which receives the answer as a variable.
 func TestBrowserAskResumesSameBrowser(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("ask operations are not supported on Windows")
+	}
 	requireBrowser(t)
 
 	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

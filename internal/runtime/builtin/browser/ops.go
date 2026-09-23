@@ -117,6 +117,9 @@ func newRun(ctx context.Context, e *browserExecutor) (*run, error) {
 }
 
 func (r *run) execute(ctx context.Context) error {
+	if r.cfg.hasAsk() && !r.exec.askSupported {
+		return errors.New("browser: ask operations are not supported on Windows, where the browser cannot outlive the step process")
+	}
 	sweepCtx, cancel := context.WithTimeout(ctx, sweepBudget)
 	_ = browserhost.Sweep(sweepCtx, r.store, time.Now(), nil)
 	cancel()

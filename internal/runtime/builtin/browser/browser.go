@@ -10,6 +10,7 @@ import (
 	"io"
 	"maps"
 	"os"
+	goruntime "runtime"
 	"sync"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -32,6 +33,9 @@ type browserExecutor struct {
 	newProvider providerFactory
 	stdout      io.Writer
 	stderr      io.Writer
+	// askSupported reports whether a browser left open for an ask outlives
+	// the step process on this platform.
+	askSupported bool
 
 	mu            sync.Mutex
 	cancel        context.CancelFunc
@@ -59,6 +63,9 @@ func newExecutor(_ context.Context, step ir.Step) (executor.Executor, error) {
 		launcher: stagehandLauncher{},
 		stdout:   os.Stdout,
 		stderr:   os.Stderr,
+		// On Windows, Dagu runs steps in a job object that ends every child
+		// process, including the browser, when the step process exits.
+		askSupported: goruntime.GOOS != "windows",
 	}, nil
 }
 

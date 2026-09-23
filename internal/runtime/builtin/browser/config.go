@@ -192,6 +192,15 @@ func (c config) screenshotPolicy() string {
 	return c.Browser.Screenshots
 }
 
+func (c config) hasAsk() bool {
+	for _, op := range c.Do {
+		if op.Ask != nil {
+			return true
+		}
+	}
+	return false
+}
+
 func parseConfig(raw map[string]any) (config, error) {
 	var cfg config
 	if err := registry.ValidateExecutorConfig(executorType, raw); err != nil {

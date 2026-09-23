@@ -7,8 +7,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/browserhost"
@@ -69,6 +71,7 @@ func (r *testRun) execute(withJSON string, session *ir.AgentSession) *stepExecut
 	require.NoError(r.t, err)
 	execution := &stepExecution{exec: created.(*browserExecutor)}
 	execution.exec.launcher = r.launcher
+	execution.exec.askSupported = true
 	execution.exec.newProvider = func(context.Context, *ir.LLMConfig) (llmpkg.Provider, error) {
 		return r.provider, nil
 	}
@@ -217,13 +220,13 @@ func TestReplayCache(t *testing.T) {
 	second := run.execute(steps, nil)
 	require.NoError(t, second.err)
 	assert.Equal(t, modelCalls, run.provider.callCount(), "a cache hit makes no model call")
-	assert.Equal(t, []string{"act:cache-hit"}, eventNames(second.exec.GetAgentSession()))
+	assert.Equal(t, []string{"goto:completed", "act:cache-hit"}, eventNames(second.exec.GetAgentSession()))
 
 	run.engine.replayFails = true
 	third := run.execute(steps, nil)
 	require.NoError(t, third.err)
 	assert.Greater(t, run.provider.callCount(), modelCalls)
-	assert.Equal(t, []string{"act:healed"}, eventNames(third.exec.GetAgentSession()))
+	assert.Equal(t, []string{"goto:completed", "act:healed"}, eventNames(third.exec.GetAgentSession()))
 }
 
 func TestReplayCacheCanBeDisabled(t *testing.T) {
@@ -287,6 +290,29 @@ func TestAskWaitsAndResumesSameBrowser(t *testing.T) {
 	assert.True(t, resumed.exec.GetAgentSession().Interactions[0].Applied)
 	assert.True(t, run.engine.closed)
 	assert.Empty(t, run.records())
+}
+
+func TestAskUnsupportedOnWindows(t *testing.T) {
+	t.Parallel()
+	if goruntime.GOOS != "windows" {
+		t.Skip("Windows only")
+	}
+
+	run := newTestRun(t, pageModel(nil))
+	var with map[string]any
+	require.NoError(t, json.Unmarshal([]byte(loginSteps), &with))
+	created, err := newExecutor(t.Context(), ir.Step{
+		Name:           "shop",
+		ExecutorConfig: ir.ExecutorConfig{Type: executorType, Config: with},
+		LLM:            &ir.LLMConfig{Provider: "openai", Model: "test-model"},
+	})
+	require.NoError(t, err)
+	exec := created.(*browserExecutor)
+	exec.launcher = run.launcher
+	exec.SetStderr(io.Discard)
+
+	require.ErrorContains(t, exec.Run(run.context()), "ask operations are not supported on Windows")
+	assert.Empty(t, run.launcher.launches)
 }
 
 func TestAskRejectionFailsStep(t *testing.T) {
