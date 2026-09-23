@@ -11,7 +11,7 @@ import type { IChangeEvent } from '@rjsf/core';
 import Form from '@rjsf/shadcn';
 import type { RJSFSchema, UiSchema } from '@rjsf/utils';
 import validator from '@rjsf/validator-ajv8';
-import { AlertTriangle, Check, RefreshCcw } from 'lucide-react';
+import { AlertTriangle, Check, Info, RefreshCcw } from 'lucide-react';
 import React from 'react';
 
 import { components } from '../../../../api/v1/schema';
@@ -62,11 +62,13 @@ function HumanTaskCard({
   node,
   dagRun,
   canExecute,
+  runWaiting,
   onChanged,
 }: {
   node: HumanTaskNode;
   dagRun: DAGRunDetails;
   canExecute: boolean;
+  runWaiting: boolean;
   onChanged: () => void;
 }) {
   const client = useClient();
@@ -75,6 +77,13 @@ function HumanTaskCard({
   const [formData, setFormData] = React.useState<FormData>({});
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  // A completion rejected while the run was executing no longer applies once
+  // the run is waiting again.
+  React.useEffect(() => {
+    if (runWaiting) {
+      setError(null);
+    }
+  }, [runWaiting]);
   const task = node.step.humanTask!;
   const artifacts = task.artifacts ?? [];
   const [selectedArtifact, setSelectedArtifact] = React.useState<string | null>(
@@ -86,7 +95,8 @@ function HumanTaskCard({
       : (artifacts[0] ?? null);
   const schema = (task.form ?? undefined) as JSONSchema | undefined;
   const hasForm = !!schema && Object.keys(schema).length > 0;
-  const completionDisabled = !canExecute || submitting || !node.step.id;
+  const completionDisabled =
+    !canExecute || !runWaiting || submitting || !node.step.id;
   const uiSchema = React.useMemo<UiSchema<FormData>>(
     () => ({
       ...(schema ? buildParamSchemaUiSchema(schema) : {}),
@@ -255,7 +265,8 @@ export function HumanTasksTab({ dagRun, onChanged }: HumanTasksTabProps) {
   const canExecute = useCanExecuteForWorkspace(dagRun.workspace);
   const [resuming, setResuming] = React.useState(false);
   const [resumeError, setResumeError] = React.useState<string | null>(null);
-  const { waitingHumanTaskNodes: waitingTasks } = getManualActionState(dagRun);
+  const { isWaiting, waitingHumanTaskNodes: waitingTasks } =
+    getManualActionState(dagRun);
 
   const resume = async () => {
     if (resuming) return;
@@ -324,12 +335,22 @@ export function HumanTasksTab({ dagRun, onChanged }: HumanTasksTabProps) {
         </Alert>
       )}
 
+      {!isWaiting && waitingTasks.length > 0 && (
+        <Alert variant="info">
+          <Info className="h-4 w-4" />
+          <AlertDescription>
+            <I18nText text={"This DAG-run is queued or running. Open tasks become editable once it is waiting."} />
+          </AlertDescription>
+        </Alert>
+      )}
+
       {waitingTasks.map((node) => (
         <HumanTaskCard
           key={node.step.id ?? node.step.name}
           node={node}
           dagRun={dagRun}
           canExecute={canExecute}
+          runWaiting={isWaiting}
           onChanged={onChanged}
         />
       ))}

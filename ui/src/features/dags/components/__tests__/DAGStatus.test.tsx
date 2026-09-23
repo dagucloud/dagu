@@ -823,6 +823,36 @@ describe('DAGStatus', () => {
     }
   );
 
+  // Completing one task can resume the run while this task stays open; the
+  // draft must survive the queued and running phases of that resume.
+  it.each([false, true])(
+    'keeps a human-task draft while a resumed run executes (controlled=%s)',
+    async (controlled) => {
+      vi.mocked(useClient).mockReturnValue({
+        PATCH: patchMock,
+      } as unknown as ReturnType<typeof useClient>);
+      const waitingRun = waitingHumanTaskRun('run-1');
+      const { rerender } = render(
+        dagStatusView(waitingRun, 'local', controlled)
+      );
+
+      const draft = await screen.findByLabelText('Human task draft');
+      fireEvent.change(draft, { target: { value: 'half-typed input' } });
+
+      for (const status of [Status.Queued, Status.Running]) {
+        rerender(dagStatusView({ ...waitingRun, status }, 'local', controlled));
+        expect(screen.getByLabelText('Human task draft')).toHaveValue(
+          'half-typed input'
+        );
+      }
+
+      rerender(dagStatusView(waitingRun, 'local', controlled));
+      expect(screen.getByLabelText('Human task draft')).toHaveValue(
+        'half-typed input'
+      );
+    }
+  );
+
   // Agent steps recorded before the rename carry the 'controller' executor
   // type, and their LLM transcript still belongs on the Chat tab.
   it('offers the chat transcript for a legacy controller step', () => {

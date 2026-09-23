@@ -15,6 +15,8 @@ import { useCanExecuteForWorkspace } from '@/contexts/AuthContext';
 import { useClient } from '@/hooks/api';
 import { HumanTasksTab } from '../HumanTasksTab';
 
+const runExecutingNotice =
+  'This DAG-run is queued or running. Open tasks become editable once it is waiting.';
 const postMock = vi.hoisted(() => vi.fn());
 const artifactPreviewMock = vi.hoisted(() => vi.fn());
 
@@ -360,6 +362,85 @@ describe('HumanTasksTab', () => {
 
     expect(await screen.findByText('Network unavailable')).toBeVisible();
     expect(onChanged).toHaveBeenCalledTimes(1);
+  });
+
+  // Completing another task can resume the run while this one stays open. The
+  // draft stays on screen, read-only, until the run is waiting again.
+  it.each([
+    { name: 'queued', status: Status.Queued },
+    { name: 'running', status: Status.Running },
+  ])('keeps a read-only draft while the run is $name', async ({ status }) => {
+    const waitingRun = humanTaskRun({
+      type: 'object',
+      properties: {
+        count: { type: 'integer', title: 'Replica count' },
+      },
+      required: ['count'],
+      additionalProperties: false,
+    });
+    const { rerender } = render(
+      <HumanTasksTab dagRun={waitingRun} onChanged={vi.fn()} />
+    );
+    fireEvent.change(screen.getByLabelText(/Replica count/), {
+      target: { value: '3' },
+    });
+
+    rerender(
+      <HumanTasksTab dagRun={{ ...waitingRun, status }} onChanged={vi.fn()} />
+    );
+    expect(screen.getByLabelText(/Replica count/)).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: 'Complete task' })
+    ).toBeDisabled();
+    expect(screen.getByText(runExecutingNotice)).toBeVisible();
+
+    rerender(<HumanTasksTab dagRun={waitingRun} onChanged={vi.fn()} />);
+    expect(screen.queryByText(runExecutingNotice)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Complete task' }));
+
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith(
+        '/dag-runs/{name}/{dagRunId}/human-tasks/{stepId}/complete',
+        expect.objectContaining({ body: { count: 3 } })
+      )
+    );
+  });
+
+  it('disables completing a task without a form while the run is running', () => {
+    render(
+      <HumanTasksTab
+        dagRun={{ ...humanTaskRun(), status: Status.Running }}
+        onChanged={vi.fn()}
+      />
+    );
+
+    expect(
+      screen.getByRole('button', { name: 'Complete task' })
+    ).toBeDisabled();
+  });
+
+  // A completion that raced another task's resume is rejected; the stale
+  // error must not linger once the task is editable again.
+  it('clears a rejected completion once the run is waiting again', async () => {
+    postMock.mockResolvedValueOnce({
+      error: { message: 'DAG-run deploy is not waiting (status: queued)' },
+    });
+    const waitingRun = humanTaskRun();
+    const { rerender } = render(
+      <HumanTasksTab dagRun={waitingRun} onChanged={vi.fn()} />
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Complete task' }));
+    expect(await screen.findByText(/is not waiting/)).toBeVisible();
+
+    rerender(
+      <HumanTasksTab
+        dagRun={{ ...waitingRun, status: Status.Running }}
+        onChanged={vi.fn()}
+      />
+    );
+    rerender(<HumanTasksTab dagRun={waitingRun} onChanged={vi.fn()} />);
+
+    expect(screen.queryByText(/is not waiting/)).not.toBeInTheDocument();
   });
 
   it('disables mutations without workspace execute permission', () => {

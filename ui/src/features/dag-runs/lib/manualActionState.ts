@@ -39,10 +39,13 @@ export function getManualActionState(dagRun?: DAGRun): ManualActionState {
     (node) =>
       node.status === NodeStatus.Waiting && node.step.humanTask !== undefined
   );
+  // Open tasks stay listed while a resume executes the run so their drafts
+  // survive until the run is waiting again.
+  const isExecuting =
+    dagRun.status === Status.Queued || dagRun.status === Status.Running;
   const hasHumanTaskWork =
-    isWaiting &&
-    (waitingHumanTaskNodes.length > 0 ||
-      Boolean(dagRun.humanTaskResumePending));
+    ((isWaiting || isExecuting) && waitingHumanTaskNodes.length > 0) ||
+    (isWaiting && Boolean(dagRun.humanTaskResumePending));
 
   return {
     isWaiting,
