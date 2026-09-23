@@ -191,7 +191,7 @@ func (s *Service) repeatPushBack(
 	request PushBackRequest,
 ) (PushBackResult, error) {
 	stored := node.PushBackHistory[len(node.PushBackHistory)-1]
-	if request.ExpectedIteration != nil && *request.ExpectedIteration != node.ApprovalIteration-1 {
+	if request.ExpectedIteration != nil && *request.ExpectedIteration != pushBackStartIteration(node) {
 		return PushBackResult{}, errorf(
 			ErrorConflict,
 			"human task step %q was already pushed back at iteration %d and has not opened again",
@@ -230,6 +230,17 @@ func checkExpectedIteration(request PushBackRequest, iteration int) error {
 		iteration,
 		*request.ExpectedIteration,
 	)
+}
+
+// pushBackStartIteration returns the iteration a pending push-back started
+// from. Every reset stamps a step's iteration on its latest history entry, so
+// the entry before the pending one holds it; a push-back can skip iterations
+// when a reset step was already ahead.
+func pushBackStartIteration(node *ir.Node) int {
+	if n := len(node.PushBackHistory); n > 1 {
+		return node.PushBackHistory[n-2].Iteration
+	}
+	return 0
 }
 
 // ownPushBackPending reports whether node's own push-back is stored and the

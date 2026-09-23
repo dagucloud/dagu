@@ -190,6 +190,47 @@ func TestPushBackKeepsStalePagesStaleAcrossTasks(t *testing.T) {
 	assert.ErrorContains(t, err, "at push-back iteration 3, not 1")
 }
 
+// A push-back can move a task's iteration by more than one when a reset step
+// was already ahead. Retrying it must still accept the iteration it started
+// from, and only that one.
+func TestPushBackRepeatAcceptsStartingIterationAfterJump(t *testing.T) {
+	fixture := newServiceFixture(t, nil)
+	docs := stepNode("docs", ir.NodeSucceeded, "implement")
+	docs.ApprovalIteration = 2
+	fixture.status.Nodes = []*ir.Node{
+		stepNode("implement", ir.NodeSucceeded),
+		docs,
+		{
+			Step: ir.Step{
+				ID: "code_review", Name: "code_review", Depends: []string{"docs"},
+				HumanTask: &ir.HumanTaskConfig{Prompt: "Review", PushBack: &ir.HumanTaskPushBackConfig{RewindTo: "implement"}},
+			},
+			Status: ir.NodeWaiting,
+		},
+	}
+	fixture.queue.enqueueErrors = []error{errors.New("queue unavailable")}
+	request := PushBackRequest{
+		DAGName: fixture.dag.Name, DAGRunID: fixture.status.DAGRunID, StepID: "code_review", ExpectedIteration: new(0),
+	}
+
+	result, err := fixture.service.PushBack(t.Context(), request)
+	var queueFailure *PushBackQueueError
+	require.ErrorAs(t, err, &queueFailure)
+	assert.Equal(t, 3, result.Iteration)
+
+	request.ExpectedIteration = new(2)
+	_, err = fixture.service.PushBack(t.Context(), request)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "already pushed back at iteration 3")
+
+	request.ExpectedIteration = new(0)
+	result, err = fixture.service.PushBack(t.Context(), request)
+	require.NoError(t, err)
+	assert.True(t, result.AlreadyPushedBack)
+	assert.True(t, result.Queued)
+	assert.Equal(t, 3, result.Iteration)
+}
+
 func TestPushBackValidatesRequest(t *testing.T) {
 	tests := []struct {
 		name    string
