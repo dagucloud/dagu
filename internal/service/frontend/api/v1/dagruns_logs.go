@@ -110,12 +110,21 @@ func isStepLogDownload(r *http.Request, apiBasePath string) bool {
 		(len(parts) == 7 && parts[2] == "sub-dag-runs" && strings.Join(parts[4:], "/") == "steps/log/download")
 }
 
-func stepLogDownloadDeadline(apiBasePath string) func(http.Handler) http.Handler {
+// isLogDownload matches scheduler, step, and all-step log downloads.
+func isLogDownload(r *http.Request, apiBasePath string) bool {
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		return false
+	}
+	suffix, ok := strings.CutPrefix(r.URL.Path, strings.TrimRight(apiBasePath, "/")+"/dag-runs/")
+	return ok && strings.HasSuffix(suffix, "/log/download")
+}
+
+func logDownloadDeadline(apiBasePath string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if isStepLogDownload(r, apiBasePath) {
+			if isLogDownload(r, apiBasePath) {
 				if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil && !errors.Is(err, http.ErrNotSupported) {
-					logger.Error(r.Context(), "Failed to clear step log download deadline", tag.Error(err))
+					logger.Error(r.Context(), "Failed to clear log download deadline", tag.Error(err))
 				}
 			}
 			next.ServeHTTP(w, r)

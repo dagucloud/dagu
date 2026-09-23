@@ -280,7 +280,7 @@ func TestRemoteStepLogDownloadStreams(t *testing.T) {
 			defer close(release)
 			resolver := remotenode.NewResolver([]config.RemoteNode{{Name: "edge", APIBaseURL: remote.URL + "/api/v1"}}, nil)
 			handler := WithRemoteNode(resolver, "/dagu/api/v1")(http.NotFoundHandler())
-			proxy := httptest.NewUnstartedServer(stepLogDownloadDeadline("/dagu/api/v1")(handler))
+			proxy := httptest.NewUnstartedServer(logDownloadDeadline("/dagu/api/v1")(handler))
 			proxy.Config.WriteTimeout = 50 * time.Millisecond
 			proxy.Start()
 			defer proxy.Close()

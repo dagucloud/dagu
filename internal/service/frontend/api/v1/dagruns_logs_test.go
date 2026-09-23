@@ -189,6 +189,38 @@ func TestStepLogArchiveStreams(t *testing.T) {
 	assert.Equal(t, []byte("PK\x03\x04"), data[:4])
 }
 
+func TestLogDownloadDeadline(t *testing.T) {
+	for _, suffix := range []string{
+		"/log/download",
+		"/steps/build/log/download",
+		"/steps/log/download",
+		"/sub-dag-runs/child/log/download",
+		"/sub-dag-runs/child/steps/build/log/download",
+		"/sub-dag-runs/child/steps/log/download",
+	} {
+		t.Run(suffix, func(t *testing.T) {
+			server := httptest.NewUnstartedServer(logDownloadDeadline("/api/v1")(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = io.WriteString(w, "head")
+				_ = http.NewResponseController(w).Flush()
+				// Finish after the normal server write deadline.
+				time.Sleep(100 * time.Millisecond)
+				_, _ = io.WriteString(w, "tail")
+			})))
+			server.Config.WriteTimeout = 50 * time.Millisecond
+			server.Start()
+			defer server.Close()
+			client := server.Client()
+			client.Timeout = 5 * time.Second
+			resp, err := client.Get(server.URL + "/api/v1/dag-runs/example/run" + suffix)
+			require.NoError(t, err)
+			defer func() { _ = resp.Body.Close() }()
+			body, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+			require.Equal(t, "headtail", string(body))
+		})
+	}
+}
+
 func TestStepLogFormValidation(t *testing.T) {
 	for _, tc := range []struct {
 		name, body, contentType, header string

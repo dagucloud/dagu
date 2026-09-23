@@ -486,7 +486,7 @@ func (a *API) ConfigureRoutes(ctx context.Context, r chi.Router, writeTimeout ti
 		if a.config.Server.StrictValidation {
 			r.Use(a.createValidatorMiddleware(swagger))
 		}
-		r.Use(stepLogDownloadDeadline(mountedAPIPath))
+		r.Use(logDownloadDeadline(mountedAPIPath))
 		r.Use(WithRemoteNode(a.remoteNodeResolver, mountedAPIPath))
 		r.Use(WebhookRequestContextMiddleware(a.webhookMaxPayloadSize()))
 
