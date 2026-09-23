@@ -997,6 +997,10 @@ const english = {
   'No human tasks are waiting.': 'No human tasks are waiting.',
   'This DAG-run is queued or running. Open tasks become editable once it is waiting.':
     'This DAG-run is queued or running. Open tasks become editable once it is waiting.',
+  'Request changes': 'Request changes',
+  'Requesting changes…': 'Requesting changes…',
+  '{step} and the steps after it run again with your feedback. This task reopens afterward.':
+    '{step} and the steps after it run again with your feedback. This task reopens afterward.',
   'No incident connections configured.': 'No incident connections configured.',
   'No incident connections selected.': 'No incident connections selected.',
   'No inherited route is configured for this DAG.':
@@ -3217,6 +3221,10 @@ const chinese = {
   'No human tasks are waiting.': '没有等待中的人工任务。',
   'This DAG-run is queued or running. Open tasks become editable once it is waiting.':
     '此 DAG 运行正在排队或运行中。进入等待状态后即可编辑待处理任务。',
+  'Request changes': '请求修改',
+  'Requesting changes…': '正在请求修改…',
+  '{step} and the steps after it run again with your feedback. This task reopens afterward.':
+    '{step} 及其后续步骤将根据你的反馈重新运行，之后此任务会重新打开。',
   'No incident connections configured.': '未配置事件连接。',
   'No incident connections selected.': '未选择事件连接。',
   'No inherited route is configured for this DAG.': '此 DAG 未配置继承的路由。',
@@ -5435,6 +5443,10 @@ const japanese = {
   'No human tasks are waiting.': '待機中の人間タスクはありません。',
   'This DAG-run is queued or running. Open tasks become editable once it is waiting.':
     'この DAG 実行はキュー待ちまたは実行中です。待機状態になると未完了のタスクを編集できます。',
+  'Request changes': '修正を依頼',
+  'Requesting changes…': '修正を依頼中…',
+  '{step} and the steps after it run again with your feedback. This task reopens afterward.':
+    '{step} とそれ以降のステップがフィードバックを受けて再実行され、その後このタスクが再び開きます。',
   'No incident connections configured.':
     'インシデント接続が設定されていません。',
   'No incident connections selected.': 'インシデント接続が選択されていません。',

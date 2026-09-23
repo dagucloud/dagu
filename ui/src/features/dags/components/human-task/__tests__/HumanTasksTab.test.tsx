@@ -95,6 +95,31 @@ function humanTaskRun(
   };
 }
 
+const feedbackForm = {
+  type: 'object',
+  properties: {
+    feedback: { type: 'string', title: 'Feedback' },
+  },
+  required: ['feedback'],
+  additionalProperties: false,
+};
+
+// A null form builds a push-back that accepts no feedback.
+function pushBackRun(
+  form: Record<string, unknown> | null = feedbackForm,
+  iteration?: number
+): components['schemas']['DAGRunDetails'] {
+  const dagRun = humanTaskRun();
+  const node = dagRun.nodes[0];
+  if (!node?.step.humanTask) throw new Error('expected a human task fixture');
+  node.step.humanTask.pushBack = {
+    rewindTo: 'implement',
+    form: form ?? undefined,
+  };
+  node.approvalIteration = iteration;
+  return dagRun;
+}
+
 beforeEach(() => {
   vi.mocked(useCanExecuteForWorkspace).mockReturnValue(true);
   vi.mocked(useClient).mockReturnValue({
@@ -453,5 +478,178 @@ describe('HumanTasksTab', () => {
     expect(
       screen.getByText('Execute permission is required to complete this task.')
     ).toBeVisible();
+  });
+});
+
+describe('HumanTasksTab push-back', () => {
+  it('offers push-back only when the task declares it', () => {
+    render(<HumanTasksTab dagRun={humanTaskRun()} onChanged={vi.fn()} />);
+
+    expect(
+      screen.queryByRole('button', { name: 'Request changes' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('submits feedback with the reviewed iteration', async () => {
+    const onChanged = vi.fn();
+    render(<HumanTasksTab dagRun={pushBackRun()} onChanged={onChanged} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Request changes' }));
+    expect(
+      screen.getByText(
+        'implement and the steps after it run again with your feedback. This task reopens afterward.'
+      )
+    ).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: 'Complete task' })
+    ).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/Feedback/), {
+      target: { value: 'Add tests' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Request changes' }));
+
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith(
+        '/dag-runs/{name}/{dagRunId}/human-tasks/{stepId}/push-back',
+        {
+          params: {
+            path: { name: 'deploy', dagRunId: 'run-1', stepId: 'review' },
+            query: { remoteNode: 'worker-a', expectedIteration: 0 },
+          },
+          body: { feedback: 'Add tests' },
+        }
+      )
+    );
+    expect(onChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it('requires the feedback form before posting', async () => {
+    render(<HumanTasksTab dagRun={pushBackRun()} onChanged={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Request changes' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Request changes' }));
+
+    expect(
+      await screen.findByText(
+        'Fix the highlighted form errors before requesting changes.'
+      )
+    ).toBeVisible();
+    expect(postMock).not.toHaveBeenCalled();
+  });
+
+  it('pushes back without a feedback form using an empty object', async () => {
+    render(<HumanTasksTab dagRun={pushBackRun(null, 2)} onChanged={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Request changes' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Request changes' }));
+
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith(
+        '/dag-runs/{name}/{dagRunId}/human-tasks/{stepId}/push-back',
+        expect.objectContaining({
+          params: expect.objectContaining({
+            query: { remoteNode: 'worker-a', expectedIteration: 2 },
+          }),
+          body: {},
+        })
+      )
+    );
+  });
+
+  it('returns to completion without posting when cancelled', () => {
+    render(<HumanTasksTab dagRun={pushBackRun()} onChanged={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Request changes' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.getByRole('button', { name: 'Complete task' })).toBeEnabled();
+    expect(screen.queryByLabelText(/Feedback/)).not.toBeInTheDocument();
+    expect(postMock).not.toHaveBeenCalled();
+  });
+
+  it('shows a rejected push-back and keeps the feedback', async () => {
+    postMock.mockResolvedValueOnce({
+      error: {
+        message: 'human task step "review" is at push-back iteration 1, not 0',
+      },
+    });
+    render(<HumanTasksTab dagRun={pushBackRun()} onChanged={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Request changes' }));
+    fireEvent.change(screen.getByLabelText(/Feedback/), {
+      target: { value: 'Add tests' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Request changes' }));
+
+    expect(
+      await screen.findByText(/is at push-back iteration 1, not 0/)
+    ).toBeVisible();
+    expect(screen.getByLabelText(/Feedback/)).toHaveValue('Add tests');
+  });
+
+  it('shows the iteration and previous push-backs of a reopened task', () => {
+    const dagRun = pushBackRun(feedbackForm, 1);
+    const node = dagRun.nodes[0];
+    if (!node) throw new Error('expected a human task fixture');
+    node.pushBackHistory = [
+      {
+        iteration: 1,
+        by: 'alice',
+        at: '2026-07-21T01:02:03Z',
+        inputs: { feedback: 'Add tests' },
+      },
+    ];
+    render(<HumanTasksTab dagRun={dagRun} onChanged={vi.fn()} />);
+
+    expect(screen.getByText('Previous Push-backs')).toBeVisible();
+    expect(screen.getByText('feedback="Add tests"')).toBeVisible();
+    expect(screen.getAllByText(/Iteration/).length).toBeGreaterThan(0);
+  });
+
+  // A reopened task is a new review, so the previous mode and draft must not
+  // carry over from the earlier iteration.
+  it('starts a fresh review when the task reopens at a new iteration', () => {
+    const { rerender } = render(
+      <HumanTasksTab dagRun={pushBackRun()} onChanged={vi.fn()} />
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Request changes' }));
+    fireEvent.change(screen.getByLabelText(/Feedback/), {
+      target: { value: 'Add tests' },
+    });
+
+    rerender(
+      <HumanTasksTab
+        dagRun={pushBackRun(feedbackForm, 1)}
+        onChanged={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole('button', { name: 'Complete task' })).toBeEnabled();
+    expect(screen.queryByLabelText(/Feedback/)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    {
+      name: 'without execute permission',
+      canExecute: false,
+      status: Status.Waiting,
+    },
+    {
+      name: 'while the run is running',
+      canExecute: true,
+      status: Status.Running,
+    },
+  ])('disables push-back $name', ({ canExecute, status }) => {
+    vi.mocked(useCanExecuteForWorkspace).mockReturnValue(canExecute);
+    render(
+      <HumanTasksTab
+        dagRun={{ ...pushBackRun(), status }}
+        onChanged={vi.fn()}
+      />
+    );
+
+    expect(
+      screen.getByRole('button', { name: 'Request changes' })
+    ).toBeDisabled();
   });
 });
