@@ -184,7 +184,7 @@ Sub-DAGs do not inherit parent env vars. Pass values explicitly via `with.params
 
 ## human.task
 
-Pause a root DAG run until an operator completes a processless step. A human task does not execute a command and is distinct from an approval gate: completion always succeeds the step, with no reject or rewind operation.
+Pause a root DAG run until an operator completes a processless step. A human task does not execute a command and is distinct from an approval gate: completion always succeeds the step, and there is no reject operation. With `with.push_back`, the operator can instead send the work back to an upstream step with feedback.
 
 ```yaml
 params:
@@ -256,6 +256,43 @@ dagu human-task complete --run-id=<run-id> --step=review --input window=morning 
 Use `--inputs-json` instead of repeated `--input` flags when input types must be preserved exactly.
 
 Completing a human task resumes the run when it unblocks a step or no other step is waiting. A distributed run is re-queued, so its scheduler must be running.
+
+Add `with.push_back` when the reviewer may request changes instead of completing:
+
+```yaml
+steps:
+  - id: implement
+    action: harness.run
+    with:
+      provider: codex
+      prompt: Implement the requested change
+
+  - id: review
+    depends: [implement]
+    action: human.task
+    with:
+      prompt: Review the implementation
+      push_back:
+        rewind_to: implement
+        form:
+          type: object
+          required: [feedback]
+          properties:
+            feedback:
+              type: string
+```
+
+- `rewind_to` is required and must name a step the task depends on directly or transitively, by `id` or `name`. It cannot be the task itself.
+- `form` is optional and follows the `with.form` rules, but `additionalProperties` must stay `false`. Feedback properties never become step outputs.
+- A push-back resets `rewind_to` and every step after it, including the task, then re-queues the run. Rewound steps receive `DAG_PUSHBACK`, `DAG_PUSHBACK_ITERATION`, `${context.pushback.iteration}`, and one environment variable per feedback property. `harness.run` and `chat.completion` also get the feedback in their prompt.
+- The task then opens again with its prompt re-resolved. It can be completed or pushed back again.
+- `push_back` is invalid in `type: agent` DAGs.
+
+Push back from a local CLI context, passing the iteration that was reviewed:
+
+```sh
+dagu human-task push-back --run-id=<run-id> --step=review --input feedback="Add tests" --expected-iteration 0 <dag-name>
+```
 
 ## Declared Value Outputs
 

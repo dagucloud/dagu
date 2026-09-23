@@ -110,6 +110,28 @@ dagu human-task complete --run-id=run-1 --step=review --input environment=produc
 dagu human-task complete --run-id=run-1 --step=review --inputs-json='{"environment":"production","notify":true}' deploy
 ```
 
+### dagu human-task push-back
+
+Send a waiting human task that declares `with.push_back` back to its rewind target with feedback. The rewind target and every step after it run again, then the task opens again.
+
+```sh
+dagu human-task push-back [flags] <root-dag-name>
+```
+
+Flags:
+
+- `--run-id/-r`: Root DAG-run ID containing the human task; required
+- `--step`: Human task step ID; required and matched against `id`
+- `--input`: Feedback in `key=value` form; repeatable and coerced using `with.push_back.form`
+- `--inputs-json`: Typed feedback as one JSON object
+- `--expected-iteration`: Fail unless the task is at this push-back iteration; `0` before the first push-back
+
+Push-back is not idempotent, so pass `--expected-iteration` when a command may be repeated. If the run cannot be queued, the push-back is undone and the command can be run again. The command only supports the local context.
+
+```sh
+dagu human-task push-back --run-id=run-1 --step=review --input feedback="Add tests" --expected-iteration=0 deploy
+```
+
 ### dagu dry
 
 Dry-run a DAG without executing commands: `dagu dry [--params/-p] [--name/-N] [--no-reuse] <dag> [-- params...]`
