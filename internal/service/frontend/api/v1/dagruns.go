@@ -1338,8 +1338,9 @@ func (a *API) ApproveDAGRunStep(ctx context.Context, request api.ApproveDAGRunSt
 		}, nil
 	}
 
-	// Resume DAG if no more waiting steps
-	shouldResume := !hasWaitingSteps(updated.Nodes)
+	// Resume DAG if no more waiting steps, or if the approval unblocked a step
+	// that also waits on a completed human task.
+	shouldResume := !hasWaitingSteps(updated.Nodes) || humantask.ResumePending(updated)
 	if shouldResume {
 		var resumeErr error
 		if humantask.HasCompletedTask(updated) {
