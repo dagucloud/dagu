@@ -13,6 +13,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/browserhost"
 	cmnconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
@@ -79,17 +80,16 @@ func (r *testRun) execute(withJSON string, session *ir.AgentSession) *stepExecut
 }
 
 func (r *testRun) context() context.Context {
-	scope := value.NewEnvScope(nil, false)
+	scope := value.NewEnvScope(nil, false).WithEntry(runenv.EnvKeyDAGRunArtifactsDir, r.artifacts, value.EnvSourceDAGEnv)
 	for name, secret := range r.secrets {
 		scope = scope.WithEntry(name, secret, value.EnvSourceSecret)
 	}
 	ctx := cmnconfig.WithConfig(r.t.Context(), &cmnconfig.Config{Paths: cmnconfig.PathsConfig{DataDir: r.dataDir}})
 	return runtime.WithEnv(ctx, runtime.Env{
 		Context: runtime.Context{
-			DAG:               &ir.DAG{Name: "orders"},
-			DAGRunID:          "run-1",
-			WorkerID:          "worker-a",
-			DAGRunArtifactDir: r.artifacts,
+			DAG:      &ir.DAG{Name: "orders"},
+			DAGRunID: "run-1",
+			WorkerID: "worker-a",
 		},
 		Scope: scope,
 	})

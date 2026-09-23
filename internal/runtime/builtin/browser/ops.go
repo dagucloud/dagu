@@ -19,6 +19,7 @@ import (
 	cmnconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 )
@@ -66,8 +67,10 @@ func newRun(ctx context.Context, e *browserExecutor) (*run, error) {
 		return nil, errors.New("browser: the Dagu data directory is not configured")
 	}
 	var secrets map[string]string
+	artifactsDir := ""
 	if env.Scope != nil {
 		secrets = env.Scope.AllSecrets()
+		artifactsDir, _ = env.Scope.Get(runenv.EnvKeyDAGRunArtifactsDir)
 	}
 	if err := checkSecrets(e.cfg, secrets); err != nil {
 		return nil, err
@@ -98,7 +101,7 @@ func newRun(ctx context.Context, e *browserExecutor) (*run, error) {
 		secrets:   secrets,
 		masker:    masker,
 		bridge:    bridge,
-		artifacts: newArtifactStore(env.DAGRunArtifactDir, stepKey),
+		artifacts: newArtifactStore(artifactsDir, stepKey),
 		variables: maps.Clone(e.cfg.Variables),
 		outputs:   map[string]any{},
 	}

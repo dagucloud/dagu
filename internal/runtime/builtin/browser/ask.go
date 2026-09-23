@@ -146,6 +146,9 @@ func (r *run) resumeSession(ctx context.Context, recordID string, session *ir.Ag
 	if answer.rejected {
 		return 0, errAskRejected
 	}
+	if time.Now().After(record.Deadline) {
+		return 0, errors.New("the answer arrived after ask.timeout and the browser was closed; retry the step to start over")
+	}
 	for _, interaction := range session.Interactions {
 		index, generation, ok := parseAskInteractionID(interaction.ID)
 		if !ok || generation != session.Generation || interaction.Status != ir.AgentInteractionAnswered {

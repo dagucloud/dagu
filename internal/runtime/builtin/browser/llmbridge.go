@@ -34,16 +34,22 @@ type providerFactory func(ctx context.Context, cfg *ir.LLMConfig) (llmpkg.Provid
 // modelBridge answers browser runtime model requests with Dagu providers,
 // trying the configured models in order.
 type modelBridge struct {
-	cfg         *ir.LLMConfig
-	models      []ir.ModelEntry
-	masker      *masking.Masker
-	newProvider providerFactory
-	mu          sync.Mutex
-	providers   map[int]llmpkg.Provider
-	usage       tokenUsage
-	lastModel   string
+	cfg       *ir.LLMConfig
+	models    []ir.ModelEntry
+	providers []llmpkg.Provider
+	masker    *masking.Masker
+	// runCtx bounds every request. The browser runtime calls generate with
+	// its own context, which carries no step cancellation.
+	runCtx    context.Context
+	mu        sync.Mutex
+	usage     tokenUsage
+	lastModel string
 }
 
+// newModelBridge resolves every configured model against the step's
+// runtime environment. Provider settings such as base_url and API keys are
+// resolved here because the browser runtime's callbacks carry no step
+// environment.
 func newModelBridge(ctx context.Context, cfg *ir.LLMConfig, masker *masking.Masker, factory providerFactory) (*modelBridge, error) {
 	models, err := runtime.ResolveModels(ctx, cfg.GetModels())
 	if err != nil {
@@ -52,12 +58,18 @@ func newModelBridge(ctx context.Context, cfg *ir.LLMConfig, masker *masking.Mask
 	if factory == nil {
 		factory = runtime.NewLLMProvider
 	}
+	providers := make([]llmpkg.Provider, len(models))
+	for i, model := range models {
+		if providers[i], err = factory(ctx, runtime.EffectiveLLMConfig(cfg, model)); err != nil {
+			return nil, fmt.Errorf("%s/%s: %w", model.Provider, model.Name, err)
+		}
+	}
 	return &modelBridge{
-		cfg:         cfg,
-		models:      models,
-		masker:      masker,
-		newProvider: factory,
-		providers:   make(map[int]llmpkg.Provider, len(models)),
+		cfg:       cfg,
+		models:    models,
+		providers: providers,
+		masker:    masker,
+		runCtx:    ctx,
 	}, nil
 }
 
@@ -76,6 +88,11 @@ func (b *modelBridge) modelName() string {
 }
 
 func (b *modelBridge) generate(ctx context.Context, req generateRequest) (generateResponse, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stop := context.AfterFunc(b.runCtx, cancel)
+	defer stop()
+
 	parameters, err := toolParameters(req.Schema)
 	if err != nil {
 		return generateResponse{}, err
@@ -91,11 +108,6 @@ func (b *modelBridge) generate(ctx context.Context, req generateRequest) (genera
 	var errs []error
 	for i, model := range b.models {
 		effective := runtime.EffectiveLLMConfig(b.cfg, model)
-		provider, err := b.provider(ctx, i, effective)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("%s/%s: %w", model.Provider, model.Name, err))
-			continue
-		}
 		chatReq := &llmpkg.ChatRequest{
 			Model:       effective.Model,
 			Messages:    messages,
@@ -115,7 +127,7 @@ func (b *modelBridge) generate(ctx context.Context, req generateRequest) (genera
 		if chatReq.Temperature == nil {
 			chatReq.Temperature = req.Temperature
 		}
-		resp, err := llmpkg.ChatWithRetry(ctx, provider, chatReq, llmpkg.DefaultLogicalRetryConfig())
+		resp, err := llmpkg.ChatWithRetry(ctx, b.providers[i], chatReq, llmpkg.DefaultLogicalRetryConfig())
 		if err != nil {
 			if ctx.Err() != nil {
 				return generateResponse{}, ctx.Err()
@@ -133,20 +145,6 @@ func (b *modelBridge) generate(ctx context.Context, req generateRequest) (genera
 		return generateResponse{JSON: answer, Usage: usage}, nil
 	}
 	return generateResponse{}, fmt.Errorf("model request failed: %w", errors.Join(errs...))
-}
-
-func (b *modelBridge) provider(ctx context.Context, index int, cfg *ir.LLMConfig) (llmpkg.Provider, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if provider, ok := b.providers[index]; ok {
-		return provider, nil
-	}
-	provider, err := b.newProvider(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-	b.providers[index] = provider
-	return provider, nil
 }
 
 func (b *modelBridge) record(usage tokenUsage, model string) {
