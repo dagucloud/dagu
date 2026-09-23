@@ -28,6 +28,10 @@ type engine interface {
 	WaitForSelector(ctx context.Context, selector string, timeout time.Duration) error
 	Screenshot(ctx context.Context) ([]byte, error)
 	CurrentURL(ctx context.Context) (string, error)
+	// WaitForDownloads returns the names of downloads completed since the
+	// previous call, after allowing grace for one to begin and waiting up to
+	// timeout for running ones to finish.
+	WaitForDownloads(ctx context.Context, grace, timeout time.Duration) ([]string, error)
 	Handle() browserHandle
 	// Detach releases the session while the browser keeps running.
 	Detach(ctx context.Context) error

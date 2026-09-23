@@ -64,14 +64,6 @@ func StagehandExtension(ctx context.Context, cdpURL string) (Extension, error) {
 	return Extension{}, ErrExtensionNotFound
 }
 
-// SetDownloadDir makes the browser save downloads into dir without prompting.
-func SetDownloadDir(ctx context.Context, cdpURL, dir string) error {
-	return call(ctx, cdpURL, "Browser.setDownloadBehavior", map[string]any{
-		"behavior":     "allow",
-		"downloadPath": dir,
-	}, nil)
-}
-
 // CloseBrowser asks the browser at cdpURL to exit. A browser that no longer
 // answers is treated as already closed.
 func CloseBrowser(ctx context.Context, cdpURL string) error {

@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -408,4 +409,32 @@ func TestCheckAllowedDomain(t *testing.T) {
 	assert.NoError(t, checkAllowedDomain("https://portal.vendor.io/", allowed))
 	assert.ErrorContains(t, checkAllowedDomain("https://evil.test/", allowed), "outside browser.allowed_domains")
 	assert.NoError(t, checkAllowedDomain("https://anything.test/", nil))
+}
+
+func TestDownloadsAreRecorded(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.engine.downloads = []string{"invoice.pdf"}
+	execution := run.execute(`{"do": [{"act": "Download the latest invoice"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	var files []string
+	for _, event := range execution.exec.GetAgentSession().Events {
+		if event.Name == kindDownload {
+			files = append(files, event.Files...)
+		}
+	}
+	assert.Equal(t, []string{"browser/shop/downloads/invoice.pdf"}, files)
+}
+
+func TestUnfinishedDownloadFailsStep(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.engine.downloadErr = errors.New("download of invoice.pdf did not finish within 2m0s")
+	execution := run.execute(`{"do": [{"act": "Download the latest invoice"}]}`, nil)
+
+	require.ErrorContains(t, execution.err, "do[0] download failed: download of invoice.pdf did not finish")
+	assert.True(t, run.engine.closed)
 }

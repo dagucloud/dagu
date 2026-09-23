@@ -52,6 +52,12 @@ func (s *artifactStore) downloadsDir() (string, error) {
 	return dir, nil
 }
 
+// downloadPath returns where a finished download is stored, relative to the
+// run artifacts directory.
+func (s *artifactStore) downloadPath(name string) string {
+	return path.Join(s.rel, downloadsSubdir, name)
+}
+
 // writeScreenshot stores a PNG and returns its path relative to the run
 // artifacts directory.
 func (s *artifactStore) writeScreenshot(label string, data []byte) (string, error) {

@@ -47,6 +47,9 @@ type fakeEngine struct {
 	handle browserHandle
 	// replayFails makes recorded actions fail, as if the page changed.
 	replayFails bool
+	// downloads and downloadErr script what the next download wait reports.
+	downloads   []string
+	downloadErr error
 	mu          sync.Mutex
 	generate    generateFunc
 	url         string
@@ -135,6 +138,16 @@ func (e *fakeEngine) CurrentURL(context.Context) (string, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return e.url, nil
+}
+
+// WaitForDownloads reports the scripted downloads once, as if they finished
+// after the operation that started them.
+func (e *fakeEngine) WaitForDownloads(context.Context, time.Duration, time.Duration) ([]string, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	downloads := e.downloads
+	e.downloads = nil
+	return downloads, e.downloadErr
 }
 
 func (e *fakeEngine) Handle() browserHandle {

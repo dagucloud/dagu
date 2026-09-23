@@ -203,7 +203,14 @@ func TestStagehandReattachAfterProcessExit(t *testing.T) {
 	t.Parallel()
 	requireChrome(t)
 
-	userDataDir := t.TempDir()
+	// Chrome keeps profile files open for a moment after it exits, so the
+	// directory is removed with retries instead of by t.TempDir.
+	userDataDir, err := os.MkdirTemp("", "dagu-browser-test-")
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.Eventually(t, func() bool { return os.RemoveAll(userDataDir) == nil },
+			10*time.Second, 200*time.Millisecond, "remove the browser profile")
+	})
 	cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestStagehandDetachHelper$", "-test.v")
 	cmd.Env = append(os.Environ(), detachHelperEnv+"="+userDataDir)
 	output, err := cmd.CombinedOutput()
@@ -237,4 +244,75 @@ func TestStagehandReattachAfterProcessExit(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return browserhost.Probe(context.Background(), handle.CDPURL) != nil
 	}, 10*time.Second, 200*time.Millisecond, "closing terminates the browser")
+}
+
+const reportBody = "id,total\n1,10\n2,20\n"
+
+// serveReport serves a page linking to a CSV that arrives in slow chunks, so
+// the download is still running when the click returns.
+func serveReport(t *testing.T) string {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = io.WriteString(w, `<!doctype html><html><body><a href="/report.csv">Download report</a></body></html>`)
+	})
+	mux.HandleFunc("/report.csv", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/csv")
+		w.Header().Set("Content-Disposition", `attachment; filename="report.csv"`)
+		for _, line := range strings.SplitAfter(reportBody, "\n") {
+			_, _ = io.WriteString(w, line)
+			w.(http.Flusher).Flush()
+			time.Sleep(300 * time.Millisecond)
+		}
+	})
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	return server.URL
+}
+
+var reportLinkPattern = regexp.MustCompile(`\[(\d+-\d+)\] link: Download report`)
+
+// reportModel clicks the report link and answers nothing else.
+func reportModel(_ context.Context, req generateRequest) (generateResponse, error) {
+	text := ""
+	for _, message := range req.Messages {
+		text += message.Text
+	}
+	match := reportLinkPattern.FindStringSubmatch(text)
+	if match == nil {
+		return generateResponse{}, fmt.Errorf("report link not found in prompt:\n%s", text)
+	}
+	answer := fmt.Sprintf(`{"action":{"elementId":%q,"description":"report link","method":"click","arguments":[]},"twoStep":false}`, match[1])
+	return generateResponse{JSON: json.RawMessage(answer)}, nil
+}
+
+// A download started by an act is saved whole under its suggested name
+// before the watcher reports it.
+func TestStagehandWaitsForDownloads(t *testing.T) {
+	t.Parallel()
+	requireChrome(t)
+
+	downloads := t.TempDir()
+	eng, err := stagehandLauncher{}.Launch(t.Context(), launchOptions{
+		Executable:   chromePath(),
+		Headless:     true,
+		UserDataDir:  t.TempDir(),
+		DownloadsDir: downloads,
+		Generate:     reportModel,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = eng.Close(context.WithoutCancel(t.Context())) })
+	require.NoError(t, eng.Goto(t.Context(), serveReport(t), time.Minute))
+
+	outcome, err := eng.Act(t.Context(), "Click the Download report link", nil, time.Minute)
+	require.NoError(t, err)
+	require.True(t, outcome.Success, outcome.Message)
+
+	names, err := eng.WaitForDownloads(t.Context(), 3*time.Second, time.Minute)
+	require.NoError(t, err)
+	require.Equal(t, []string{"report.csv"}, names)
+	data, err := os.ReadFile(filepath.Join(downloads, "report.csv"))
+	require.NoError(t, err)
+	assert.Equal(t, reportBody, string(data))
 }

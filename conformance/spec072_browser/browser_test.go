@@ -28,7 +28,10 @@ const shopPage = `<!doctype html><html><head><title>Checkout</title></head><body
 <h1>Widget Checkout</h1>
 <p id="status">Cart has 2 items</p>
 <button onclick="document.getElementById('status').textContent='Order confirmed: A-100'">Place order</button>
+<a href="/report.csv">Download report</a>
 </body></html>`
+
+const reportBody = "id,total\n1,10\n2,20\n"
 
 // Model request kinds, told apart by the response schema the browser
 // runtime asks for.
@@ -40,7 +43,7 @@ const (
 )
 
 var (
-	buttonPattern    = regexp.MustCompile(`\[(\d+-\d+)\] button: ([^\n]+)`)
+	buttonPattern    = regexp.MustCompile(`\[(\d+-\d+)\] (?:button|link): ([^\n]+)`)
 	quotedPattern    = regexp.MustCompile(`'([^']+)'`)
 	orderPattern     = regexp.MustCompile(`Order confirmed: (\S+)`)
 	headingPattern   = regexp.MustCompile(`heading: ([^\n]+)`)
@@ -154,7 +157,13 @@ func (m *scriptedModel) serve(w http.ResponseWriter, r *http.Request) {
 
 func startShop(t *testing.T) string {
 	t.Helper()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/report.csv" {
+			w.Header().Set("Content-Type", "text/csv")
+			w.Header().Set("Content-Disposition", `attachment; filename="report.csv"`)
+			_, _ = io.WriteString(w, reportBody)
+			return
+		}
 		w.Header().Set("Content-Type", "text/html")
 		_, _ = io.WriteString(w, shopPage)
 	}))
@@ -229,6 +238,16 @@ func TestBrowserRunCheckout(t *testing.T) {
 	b.dagu.ExpectTextFileContent("order.out", "A-100\n")
 	b.dagu.ExpectFileContains("shots.out", "confirmation.png", "final.png")
 	require.Equal(t, 1, b.model.count(kindAct))
+}
+
+// A file the page downloads is saved in the run artifacts before the step
+// ends.
+func TestBrowserDownload(t *testing.T) {
+	t.Parallel()
+
+	b := newBrowserEnv(t)
+	b.dagu.RunWithEnv(b.env, "start", "download.yaml").ExpectExitCode(0)
+	b.dagu.ExpectTextFileContent("report.out", reportBody)
 }
 
 func TestBrowserExtract(t *testing.T) {

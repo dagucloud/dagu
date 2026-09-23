@@ -25,6 +25,10 @@ import (
 )
 
 const (
+	// downloadGrace is how long a step waits, before it ends or pauses, for
+	// a download the last operation started to begin.
+	downloadGrace    = 3 * time.Second
+	kindDownload     = "download"
 	sweepBudget      = 5 * time.Second
 	shutdownTimeout  = 30 * time.Second
 	finalShotLabel   = "final"
@@ -145,13 +149,37 @@ func (r *run) execute(ctx context.Context) error {
 			}
 		}
 		if op.Ask != nil {
+			if err := r.settleDownloads(ctx, i-1, downloadGrace, defaultOperationTimeout); err != nil {
+				return r.fail(ctx, i, kindDownload, err)
+			}
 			return r.waitForInput(ctx, i, *op.Ask)
 		}
 		if err := r.runOperation(ctx, i, op); err != nil {
 			return r.fail(ctx, i, op.kind(), err)
 		}
+		if err := r.settleDownloads(ctx, i, 0, op.timeout()); err != nil {
+			return r.fail(ctx, i, kindDownload, err)
+		}
+	}
+	last := len(r.cfg.Do) - 1
+	if err := r.settleDownloads(ctx, last, downloadGrace, defaultOperationTimeout); err != nil {
+		return r.fail(ctx, last, kindDownload, err)
 	}
 	return r.succeed(ctx)
+}
+
+// settleDownloads waits for downloads that are still running and records the
+// finished ones. index is the operation that ran last.
+func (r *run) settleDownloads(ctx context.Context, index int, grace, timeout time.Duration) error {
+	names, err := r.eng.WaitForDownloads(ctx, grace, timeout)
+	for _, name := range names {
+		rel := r.artifacts.downloadPath(name)
+		r.timeline.operation(operationReport{
+			index: index, kind: kindDownload, subject: name, status: statusCompleted,
+			detail: rel, files: []string{rel},
+		})
+	}
+	return err
 }
 
 // startSession launches a browser, or reattaches to the one an answered ask

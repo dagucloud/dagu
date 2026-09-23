@@ -50,10 +50,6 @@ func (stagehandLauncher) Launch(ctx context.Context, opts launchOptions) (engine
 	if opts.Proxy != "" {
 		launch.Proxy = &stagehand.LocalProxyConfig{Server: opts.Proxy}
 	}
-	if opts.DownloadsDir != "" {
-		launch.DownloadsPath = opts.DownloadsDir
-		launch.AcceptDownloads = new(true)
-	}
 	browser, err := stagehand.LaunchLocalBrowser(ctx, launch)
 	if err != nil {
 		return nil, fmt.Errorf("launch browser: %w", err)
@@ -69,6 +65,9 @@ func (stagehandLauncher) Launch(ctx context.Context, opts launchOptions) (engine
 	}
 	eng.handle.ExtensionID = extension.ID
 	eng.handle.ExtensionDir = extension.Path
+	if err := eng.handleDownloads(ctx, opts.DownloadsDir); err != nil {
+		return nil, errors.Join(err, eng.Close(context.WithoutCancel(ctx)))
+	}
 	return eng, nil
 }
 
@@ -80,17 +79,15 @@ func (stagehandLauncher) Reattach(ctx context.Context, handle browserHandle, opt
 	if err != nil {
 		return nil, fmt.Errorf("reattach browser: %w", err)
 	}
-	if opts.DownloadsDir != "" {
-		if err := browserhost.SetDownloadDir(ctx, handle.CDPURL, opts.DownloadsDir); err != nil {
-			return nil, errors.Join(err, browser.Close(context.WithoutCancel(ctx)))
-		}
-	}
 	eng, err := startEngine(ctx, browser, handle.CDPURL, opts)
 	if err != nil {
 		return nil, errors.Join(err, browser.Close(context.WithoutCancel(ctx)))
 	}
 	eng.handle.ExtensionID = handle.ExtensionID
 	eng.handle.ExtensionDir = handle.ExtensionDir
+	if err := eng.handleDownloads(ctx, opts.DownloadsDir); err != nil {
+		return nil, errors.Join(err, eng.Close(context.WithoutCancel(ctx)))
+	}
 	return eng, nil
 }
 
@@ -134,6 +131,23 @@ type stagehandEngine struct {
 	client  *stagehand.Stagehand
 	sink    *telemetrySink
 	handle  browserHandle
+	// downloads saves downloads into the step's artifacts; nil when
+	// downloads are refused.
+	downloads *browserhost.DownloadWatcher
+}
+
+// handleDownloads saves downloads into dir, or refuses them when dir is
+// empty.
+func (e *stagehandEngine) handleDownloads(ctx context.Context, dir string) error {
+	if dir == "" {
+		return browserhost.DenyDownloads(ctx, e.handle.CDPURL)
+	}
+	watcher, err := browserhost.WatchDownloads(ctx, e.handle.CDPURL, dir)
+	if err != nil {
+		return fmt.Errorf("watch downloads: %w", err)
+	}
+	e.downloads = watcher
+	return nil
 }
 
 func (e *stagehandEngine) page(ctx context.Context) (*stagehand.Page, error) {
@@ -253,6 +267,18 @@ func (e *stagehandEngine) Handle() browserHandle {
 	return e.handle
 }
 
+func (e *stagehandEngine) WaitForDownloads(ctx context.Context, grace, timeout time.Duration) ([]string, error) {
+	if e.downloads == nil {
+		return nil, nil
+	}
+	downloads, err := e.downloads.Wait(ctx, grace, timeout)
+	names := make([]string, 0, len(downloads))
+	for _, download := range downloads {
+		names = append(names, download.Name)
+	}
+	return names, err
+}
+
 // Detach leaves the browser running. Closing the SDK browser handle would
 // terminate it and delete the unpacked extension a later reattach needs.
 func (e *stagehandEngine) Detach(ctx context.Context) error {
@@ -264,9 +290,14 @@ func (e *stagehandEngine) Close(ctx context.Context) error {
 }
 
 func (e *stagehandEngine) release(ctx context.Context) error {
-	err := e.client.Close(ctx)
+	var errs []error
+	if e.downloads != nil {
+		errs = append(errs, e.downloads.Close())
+		e.downloads = nil
+	}
+	errs = append(errs, e.client.Close(ctx))
 	e.sink.close()
-	return err
+	return errors.Join(errs...)
 }
 
 func actOptions(variables map[string]string, timeout time.Duration) *stagehand.StagehandClientActOptions {
