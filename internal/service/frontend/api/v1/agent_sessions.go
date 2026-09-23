@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -218,7 +219,11 @@ func (a *API) requireAgentOwnerAvailable(ctx context.Context, ref ir.DAGRunRef, 
 // open on this host still answers.
 func (a *API) requireLocalBrowserSession(ctx context.Context, ref ir.DAGRunRef, stepName string) error {
 	const message = "The browser waiting for this answer is no longer running; restart the session to run the step again"
-	if browserSessionWaiting(ctx, a.config.Paths.DataDir, ref.ID, stepName, time.Now()) {
+	waiting, err := browserSessionWaiting(ctx, a.config.Paths.DataDir, ref.ID, stepName, time.Now())
+	if err != nil {
+		return &agentSessionActionError{conflict: true, message: "The browser waiting for this answer could not be verified; the interaction remains pending"}
+	}
+	if waiting {
 		return nil
 	}
 	_ = a.markAgentSessionUnavailable(ctx, ref, stepName, message)
@@ -226,12 +231,24 @@ func (a *API) requireLocalBrowserSession(ctx context.Context, ref ir.DAGRunRef, 
 }
 
 // browserSessionWaiting reports whether a step's browser is still open and
-// waiting to be resumed.
-func browserSessionWaiting(ctx context.Context, dataDir, dagRunID, stepName string, now time.Time) bool {
+// waiting to be resumed. An error means the browser's state is unknown.
+func browserSessionWaiting(ctx context.Context, dataDir, dagRunID, stepName string, now time.Time) (bool, error) {
 	store := browserhost.NewStore(filepath.Join(dataDir, browserhost.DataDirName))
 	record, err := store.Load(browserhost.RecordID(dagRunID, stepName))
-	return err == nil && record.State == browserhost.StateDetached && now.Before(record.Deadline) &&
-		browserhost.Probe(ctx, record.CDPURL) == nil
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if record.State != browserhost.StateDetached || !now.Before(record.Deadline) {
+		return false, nil
+	}
+	err = browserhost.Probe(ctx, record.CDPURL)
+	if errors.Is(err, browserhost.ErrUnreachable) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 // agentSessionProvider returns the provider of a step's agent session.

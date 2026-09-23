@@ -1349,7 +1349,8 @@ func TestApplyAgentSessionRestartBrowser(t *testing.T) {
 }
 
 // A waiting browser step can be answered only while its browser is open,
-// unexpired, and reachable.
+// unexpired, and reachable. A browser that answers with an error is neither
+// open nor known to be gone.
 func TestBrowserSessionWaiting(t *testing.T) {
 	t.Parallel()
 
@@ -1357,20 +1358,26 @@ func TestBrowserSessionWaiting(t *testing.T) {
 		_, _ = io.WriteString(w, `{"webSocketDebuggerUrl":"ws://127.0.0.1/devtools/browser/x"}`)
 	}))
 	t.Cleanup(devtools.Close)
+	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(failing.Close)
 	closed := httptest.NewServer(http.NotFoundHandler())
 	closed.Close()
 
 	now := time.Now()
 	for _, test := range []struct {
-		name   string
-		record *browserhost.Record
-		want   bool
+		name    string
+		record  *browserhost.Record
+		want    bool
+		wantErr bool
 	}{
 		{name: "open", record: &browserhost.Record{State: browserhost.StateDetached, Deadline: now.Add(time.Hour), CDPURL: devtools.URL}, want: true},
 		{name: "no record"},
 		{name: "expired", record: &browserhost.Record{State: browserhost.StateDetached, Deadline: now.Add(-time.Minute), CDPURL: devtools.URL}},
 		{name: "unreachable", record: &browserhost.Record{State: browserhost.StateDetached, Deadline: now.Add(time.Hour), CDPURL: closed.URL}},
 		{name: "running", record: &browserhost.Record{State: browserhost.StateRunning, Deadline: now.Add(time.Hour), CDPURL: devtools.URL}},
+		{name: "unknown", record: &browserhost.Record{State: browserhost.StateDetached, Deadline: now.Add(time.Hour), CDPURL: failing.URL}, wantErr: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -1380,7 +1387,9 @@ func TestBrowserSessionWaiting(t *testing.T) {
 				record.ID = browserhost.RecordID("run-1", "login")
 				require.NoError(t, browserhost.NewStore(filepath.Join(dataDir, browserhost.DataDirName)).Save(record))
 			}
-			assert.Equal(t, test.want, browserSessionWaiting(t.Context(), dataDir, "run-1", "login", now))
+			waiting, err := browserSessionWaiting(t.Context(), dataDir, "run-1", "login", now)
+			assert.Equal(t, test.want, waiting)
+			assert.Equal(t, test.wantErr, err != nil, "error: %v", err)
 		})
 	}
 }
