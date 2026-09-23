@@ -18,6 +18,8 @@ import {
 } from 'lucide-react';
 import React from 'react';
 import { combineQuestionAnswer } from './agentSessionAnswers';
+import { ArtifactThumbnail, isImageArtifact } from './ArtifactThumbnail';
+import type { ArtifactRunRef } from '../artifacts/artifactDownload';
 
 import {
   AgentInteractionResponseRequestDecision,
@@ -31,6 +33,10 @@ type DAGRunDetails = components['schemas']['DAGRunDetails'];
 type AgentInteraction = components['schemas']['AgentInteraction'];
 type AgentSessionEvent = components['schemas']['AgentSessionEvent'];
 type NodeData = components['schemas']['Node'];
+
+// Providers whose sessions can start over in a new generation.
+const BROWSER_PROVIDER = 'browser';
+const RESTARTABLE_PROVIDERS = ['opencode', BROWSER_PROVIDER];
 
 type Props = {
   dagRun: DAGRunDetails;
@@ -60,11 +66,24 @@ function EventIcon({ event }: { event: AgentSessionEvent }) {
   return <Bot className="h-4 w-4" />;
 }
 
-function AgentTimeline({ events }: { events: AgentSessionEvent[] }) {
+function AgentTimeline({
+  events,
+  isBrowser,
+  artifactRun,
+}: {
+  events: AgentSessionEvent[];
+  isBrowser: boolean;
+  // Set when event files are run artifacts that can be shown inline.
+  artifactRun?: ArtifactRunRef;
+}) {
   if (events.length === 0) {
     return (
       <div className="rounded-md border border-dashed border-border p-5 text-center text-sm text-muted-foreground">
-        <I18nText text={"OpenCode has not emitted any timeline events yet."} />
+        {isBrowser ? (
+          <I18nText text={"No timeline events yet."} />
+        ) : (
+          <I18nText text={"OpenCode has not emitted any timeline events yet."} />
+        )}
       </div>
     );
   }
@@ -96,12 +115,16 @@ function AgentTimeline({ events }: { events: AgentSessionEvent[] }) {
               </div>
             )}
             {event.files && event.files.length > 0 && (
-              <div className="mt-2 space-y-1 font-mono text-xs text-muted-foreground">
-                {event.files.map((file) => (
-                  <div key={file} className="truncate" title={file}>
-                    {file}
-                  </div>
-                ))}
+              <div className="mt-2 flex flex-wrap gap-2 font-mono text-xs text-muted-foreground">
+                {event.files.map((file) =>
+                  artifactRun && isImageArtifact(file) ? (
+                    <ArtifactThumbnail key={file} run={artifactRun} path={file} />
+                  ) : (
+                    <div key={file} className="w-full truncate" title={file}>
+                      {file}
+                    </div>
+                  )
+                )}
               </div>
             )}
           </div>
@@ -113,11 +136,13 @@ function AgentTimeline({ events }: { events: AgentSessionEvent[] }) {
 
 function InteractionCard({
   interaction,
+  isBrowser,
   busy,
   onPermission,
   onQuestion,
 }: {
   interaction: AgentInteraction;
+  isBrowser: boolean;
   busy: boolean;
   onPermission: (
     decision: AgentInteractionResponseRequestDecision
@@ -222,7 +247,12 @@ function InteractionCard({
   return (
     <div className="space-y-4 rounded-lg border border-warning/40 bg-warning/5 p-4">
       <div className="flex items-center gap-2 font-medium">
-        <Bot className="h-4 w-4 text-warning" /> <I18nText text={"OpenCode needs an answer"} />
+        <Bot className="h-4 w-4 text-warning" />{' '}
+        {isBrowser ? (
+          <I18nText text={"The browser step needs an answer"} />
+        ) : (
+          <I18nText text={"OpenCode needs an answer"} />
+        )}
       </div>
       {questions.map((question, questionIndex) => (
         <div key={`${interaction.id}-${questionIndex}`} className="space-y-2">
@@ -321,6 +351,7 @@ function AgentSessionCard({
   const [error, setError] = React.useState<string>();
   const [confirmRestart, setConfirmRestart] = React.useState(false);
   const session = node.agentSession!;
+  const isBrowser = session.provider === BROWSER_PROVIDER;
   const pending = (session.interactions || []).filter(
     (interaction) => interaction.status === 'pending'
   );
@@ -395,9 +426,18 @@ function AgentSessionCard({
     NodeStatus.Rejected,
   ];
   const canRestart =
-    (node.status === NodeStatus.Waiting &&
+    RESTARTABLE_PROVIDERS.includes(session.provider) &&
+    ((node.status === NodeStatus.Waiting &&
       (session.state === 'waiting' || session.state === 'unavailable')) ||
-    terminalNodeStatuses.includes(node.status);
+      terminalNodeStatuses.includes(node.status));
+  const artifactRun: ArtifactRunRef | undefined = isBrowser
+    ? {
+        dagRunName: path.name,
+        dagRunId: path.dagRunId,
+        subDAGRunId: isSubRun ? dagRun.dagRunId : null,
+        remoteNode,
+      }
+    : undefined;
 
   return (
     <section className="space-y-4 rounded-lg border border-border bg-surface p-4">
@@ -421,7 +461,12 @@ function AgentSessionCard({
           <div className="mt-1 text-xs text-muted-foreground">
             {[session.agent, session.model, session.variant]
               .filter(Boolean)
-              .join(' · ') || <I18nText text={"OpenCode managed session"} />}
+              .join(' · ') ||
+              (isBrowser ? (
+                <I18nText text={"Browser session"} />
+              ) : (
+                <I18nText text={"OpenCode managed session"} />
+              ))}
             {session.providerVersion &&
               ` · OpenCode ${session.providerVersion}`}
           </div>
@@ -457,6 +502,7 @@ function AgentSessionCard({
         <InteractionCard
           key={interaction.id}
           interaction={interaction}
+          isBrowser={isBrowser}
           busy={busy}
           onPermission={(decision) => respond(interaction, { decision })}
           onQuestion={(answers) =>
@@ -486,18 +532,30 @@ function AgentSessionCard({
 
       <div>
         <h4 className="mb-2 text-sm font-medium"><I18nText text={"Session timeline"} /></h4>
-        <AgentTimeline events={session.events || []} />
+        <AgentTimeline
+          events={session.events || []}
+          isBrowser={isBrowser}
+          artifactRun={artifactRun}
+        />
       </div>
 
       <I18nProps><ConfirmDialog
-        title="Start a clean OpenCode session?"
+        title={
+          isBrowser
+            ? 'Start this browser step over?'
+            : 'Start a clean OpenCode session?'
+        }
         buttonText="Start clean session"
         visible={confirmRestart}
         dismissModal={() => setConfirmRestart(false)}
         onSubmit={restart}
         submitDisabled={busy}
       >
-        <I18nText text={"This starts a new conversation and retries this step with its original prompt. The previous conversation is retained until this DAG run is deleted. Files already changed in the workspace are not reverted."} />
+        {isBrowser ? (
+          <I18nText text={"This closes the browser if it is still open and runs the step again from its first operation."} />
+        ) : (
+          <I18nText text={"This starts a new conversation and retries this step with its original prompt. The previous conversation is retained until this DAG run is deleted. Files already changed in the workspace are not reverted."} />
+        )}
       </ConfirmDialog></I18nProps>
     </section>
   );

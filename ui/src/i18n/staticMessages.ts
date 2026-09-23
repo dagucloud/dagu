@@ -1094,6 +1094,12 @@ const english = {
     'OpenCode has not emitted any timeline events yet.',
   'OpenCode managed session': 'OpenCode managed session',
   'OpenCode needs an answer': 'OpenCode needs an answer',
+  'No timeline events yet.': 'No timeline events yet.',
+  'The browser step needs an answer': 'The browser step needs an answer',
+  'Browser session': 'Browser session',
+  'Start this browser step over?': 'Start this browser step over?',
+  'This closes the browser if it is still open and runs the step again from its first operation.':
+    'This closes the browser if it is still open and runs the step again from its first operation.',
   'Opens on final failure and resolves on recovery.':
     'Opens on final failure and resolves on recovery.',
   Operations: 'Operations',
@@ -3309,6 +3315,12 @@ const chinese = {
     'OpenCode 尚未发出任何时间线事件。',
   'OpenCode managed session': 'OpenCode 托管会话',
   'OpenCode needs an answer': 'OpenCode 需要回答',
+  'No timeline events yet.': '暂无时间线事件。',
+  'The browser step needs an answer': '浏览器步骤需要回答',
+  'Browser session': '浏览器会话',
+  'Start this browser step over?': '要重新开始此浏览器步骤吗？',
+  'This closes the browser if it is still open and runs the step again from its first operation.':
+    '如果浏览器仍处于打开状态，将关闭它，并从第一个操作重新运行此步骤。',
   'Opens on final failure and resolves on recovery.':
     '在最终失败时打开，并在恢复时解决。',
   Operations: '操作',
@@ -5532,6 +5544,12 @@ const japanese = {
     'OpenCode はまだタイムラインイベントを出力していません。',
   'OpenCode managed session': 'OpenCode 管理セッション',
   'OpenCode needs an answer': 'OpenCode は回答が必要です',
+  'No timeline events yet.': 'タイムラインイベントはまだありません。',
+  'The browser step needs an answer': 'ブラウザステップは回答が必要です',
+  'Browser session': 'ブラウザセッション',
+  'Start this browser step over?': 'このブラウザステップを最初からやり直しますか？',
+  'This closes the browser if it is still open and runs the step again from its first operation.':
+    'ブラウザが開いたままの場合は閉じ、最初の操作からステップを再実行します。',
   'Opens on final failure and resolves on recovery.':
     '最終的な失敗時に開き、回復時に解決されます。',
   Operations: '操作',

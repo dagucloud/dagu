@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import { components } from '../../../../api/v1/schema';
+import { fetchArtifactDownload as fetchArtifact } from './artifactDownload';
 import { HtmlArtifactPreview } from './HtmlArtifactPreview';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
@@ -105,48 +106,13 @@ export function ArtifactFilePreview({
     });
   };
 
-  const fetchArtifactDownload = async (
-    selectedPath: string,
-    signal?: AbortSignal
-  ) => {
-    const request = isSubDAGRun
-      ? await client.GET(
-          '/dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/artifacts/download',
-          {
-            params: {
-              path: {
-                name: dagRunName,
-                dagRunId,
-                subDAGRunId: subDAGRunId!,
-              },
-              query: { remoteNode, path: selectedPath },
-            },
-            parseAs: 'blob',
-            signal,
-          }
-        )
-      : await client.GET('/dag-runs/{name}/{dagRunId}/artifacts/download', {
-          params: {
-            path: {
-              name: dagRunName,
-              dagRunId,
-            },
-            query: { remoteNode, path: selectedPath },
-          },
-          parseAs: 'blob',
-          signal,
-        });
-
-    if (request.error) {
-      throw new Error(
-        request.error.message ||
-          request.response.statusText ||
-          'Download failed'
-      );
-    }
-
-    return request;
-  };
+  const fetchArtifactDownload = (selectedPath: string, signal?: AbortSignal) =>
+    fetchArtifact(
+      client,
+      { dagRunName, dagRunId, subDAGRunId, remoteNode },
+      selectedPath,
+      signal
+    );
 
   useEffect(() => {
     if (!path) {

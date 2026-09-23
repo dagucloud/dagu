@@ -51,6 +51,8 @@ export function getExecutorCommand(
       return config.image ? `docker: ${config.image}` : null;
     case 'router':
       return config.value ? `route: ${config.value}` : 'router';
+    case 'browser':
+      return config.url ? `browser: ${config.url}` : 'browser';
     default:
       return null;
   }

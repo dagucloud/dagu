@@ -3,7 +3,11 @@
 
 import type { components } from '@/api/v1/schema';
 import { describe, expect, it } from 'vitest';
-import { formatLogStepOutput, getLogStepMessage } from '../executor-utils';
+import {
+  formatLogStepOutput,
+  getExecutorCommand,
+  getLogStepMessage,
+} from '../executor-utils';
 
 describe('getLogStepMessage', () => {
   it('returns the configured log message for log steps', () => {
@@ -45,5 +49,19 @@ describe('formatLogStepOutput', () => {
     expect(
       formatLogStepOutput('\u001b[32mDeploying production\u001b[0m\n')
     ).toBe('Deploying production');
+  });
+});
+
+describe('getExecutorCommand', () => {
+  it('shows the start URL of a browser step', () => {
+    const step = {
+      name: 'checkout',
+      executorConfig: {
+        type: 'browser',
+        config: { url: 'https://shop.example.com', do: [] },
+      },
+    } as components['schemas']['Step'];
+
+    expect(getExecutorCommand(step)).toBe('browser: https://shop.example.com');
   });
 });
