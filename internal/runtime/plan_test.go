@@ -301,6 +301,46 @@ func TestRetryPlan_ResetHumanTaskUsesTemplate(t *testing.T) {
 	require.Equal(t, template, review.Step().HumanTask)
 }
 
+// A downstream step retry reopens completed human tasks from the template so
+// they resolve again; tasks outside the selection keep their snapshot.
+func TestStepRetryPlan_DownstreamReopensHumanTaskFromTemplate(t *testing.T) {
+	t.Parallel()
+
+	template := &ir.HumanTaskConfig{
+		Prompt:    "Review ${params.target}",
+		Artifacts: []string{"reports/${params.target}.md"},
+	}
+	resolved := &ir.HumanTaskConfig{
+		Prompt:    "Review production",
+		Artifacts: []string{"reports/production.md"},
+	}
+	dag := &ir.DAG{Steps: []ir.Step{
+		{Name: "build"},
+		{Name: "review", Depends: []string{"build"}, HumanTask: template},
+		{Name: "audit", HumanTask: template},
+	}}
+	completed := runtime.NodeState{Status: ir.NodeSucceeded, HumanTaskInput: []byte(`{}`)}
+	review := runtime.NodeWithData(runtime.NodeData{
+		Step:  ir.Step{Name: "review", Depends: []string{"build"}, HumanTask: resolved},
+		State: completed,
+	})
+	audit := runtime.NodeWithData(runtime.NodeData{
+		Step:  ir.Step{Name: "audit", HumanTask: resolved},
+		State: completed,
+	})
+	nodes := []*runtime.Node{makeNode("build", ir.NodeSucceeded), review, audit}
+
+	_, err := runtime.CreateStepRetryPlanWithOptions(dag, nodes, "build", runtime.StepRetryPlanOptions{
+		IncludeDownstream: true,
+	})
+	require.NoError(t, err)
+
+	require.Equal(t, ir.NodeNotStarted, review.State().Status)
+	require.Equal(t, template, review.Step().HumanTask)
+	require.Equal(t, ir.NodeSucceeded, audit.State().Status)
+	require.Equal(t, resolved, audit.Step().HumanTask)
+}
+
 func TestStepRetryPlan_RebindsStepsFromRestoredDAG(t *testing.T) {
 	t.Parallel()
 

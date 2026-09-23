@@ -247,6 +247,44 @@ func TestRunner_StepRetryWithDownstreamIncludesInferredBuildDescendant(t *testin
 	assert.Equal(t, ir.BuildDecisionDeferred, consumerBuild.Decision)
 }
 
+// Descendants reached through inferred build edges are reset at run start,
+// after build planning resolved their paths. A reset human task still reopens
+// from its template, and the other reset steps keep their resolved paths.
+func TestFinalizeStepRetrySelectionReopensHumanTaskFromTemplate(t *testing.T) {
+	t.Parallel()
+
+	template := &ir.HumanTaskConfig{Prompt: "Review ${params.target}"}
+	producer := ir.Step{Name: "producer", Outputs: []ir.StepOutputDeclaration{{Name: "artifact", Path: "artifact.txt"}}}
+	consumer := ir.Step{Name: "consumer", Inputs: []ir.StepInputDeclaration{{Name: "artifact", Path: "artifact.txt"}}}
+	review := ir.Step{Name: "review", Depends: []string{"consumer"}, HumanTask: template}
+	dag := &ir.DAG{Type: ir.TypeBuild, Steps: []ir.Step{producer, consumer, review}}
+	openedReview := review
+	openedReview.HumanTask = &ir.HumanTaskConfig{Prompt: "Review production"}
+	nodes := []*Node{
+		NodeWithData(NodeData{Step: producer, State: NodeState{Status: ir.NodeSucceeded}}),
+		NodeWithData(NodeData{Step: consumer, State: NodeState{Status: ir.NodeSucceeded}}),
+		NodeWithData(NodeData{
+			Step:  openedReview,
+			State: NodeState{Status: ir.NodeSucceeded, HumanTaskInput: []byte(`{}`)},
+		}),
+	}
+	plan, err := CreateStepRetryPlanWithOptions(dag, nodes, producer.Name, StepRetryPlanOptions{
+		IncludeDownstream: true,
+	})
+	require.NoError(t, err)
+
+	resolvedConsumer := nodes[1].Step()
+	resolvedConsumer.Inputs = []ir.StepInputDeclaration{{Name: "artifact", Path: "/work/artifact.txt"}}
+	nodes[1].SetStep(resolvedConsumer)
+	require.NoError(t, plan.AddInferredDependency(producer.Name, consumer.Name))
+	plan.finalizeStepRetrySelection()
+
+	assert.Equal(t, ir.NodeNotStarted, nodes[1].State().Status)
+	assert.Equal(t, "/work/artifact.txt", nodes[1].Step().Inputs[0].Path)
+	assert.Equal(t, ir.NodeNotStarted, nodes[2].State().Status)
+	assert.Equal(t, template, nodes[2].Step().HumanTask)
+}
+
 func TestPrepareBuildPlanRejectsRedirectAlias(t *testing.T) {
 	t.Parallel()
 

@@ -2365,9 +2365,9 @@ func (a *Agent) retryNodes() ([]*runtime.Node, error) {
 		if !ok {
 			return nil, fmt.Errorf("%w: %s", runtime.ErrMissingNode, node.Step.Name)
 		}
-		// An opened human task keeps the prompt and artifacts it was presented with.
-		if step.HumanTask != nil && node.Step.HumanTask != nil &&
-			(node.Status == ir.NodeWaiting || len(node.HumanTaskInput) > 0) {
+		// Carry the persisted human-task snapshot; the retry plan decides
+		// whether the task keeps it.
+		if step.HumanTask != nil && node.Step.HumanTask != nil {
 			step.HumanTask = node.Step.HumanTask
 		}
 		nodes = append(nodes, transform.ToNodeWithStep(node, step))

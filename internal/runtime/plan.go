@@ -46,6 +46,8 @@ type stepRetrySelection struct {
 	targetID            int
 	resetIDs            map[int]struct{}
 	bypassPreconditions bool
+	// steps holds the restored DAG steps that reset descendants reopen from.
+	steps map[string]ir.Step
 }
 
 // NewPlan creates a new execution plan from the given steps.
@@ -183,7 +185,11 @@ func CreateStepRetryPlanWithOptions(dag *ir.DAG, nodes []*Node, stepName string,
 	if targetNode == nil {
 		return nil, fmt.Errorf("%w: %s", ErrMissingNode, stepName)
 	}
-	resetStepRetryNode(targetNode, targetNode.State().Status == ir.NodeRetrying)
+	template, err := retryStepForNode(targetNode, steps)
+	if err != nil {
+		return nil, err
+	}
+	resetStepRetryNode(targetNode, template, targetNode.State().Status == ir.NodeRetrying)
 	if opts.BypassPreconditions {
 		targetNode.SetBypassPreconditions(true)
 	}
@@ -193,6 +199,7 @@ func CreateStepRetryPlanWithOptions(dag *ir.DAG, nodes []*Node, stepName string,
 			targetID:            targetNode.id,
 			resetIDs:            map[int]struct{}{targetNode.id: {}},
 			bypassPreconditions: opts.BypassPreconditions,
+			steps:               steps,
 		}
 		p.expandStepRetrySelection()
 	}
@@ -200,9 +207,14 @@ func CreateStepRetryPlanWithOptions(dag *ir.DAG, nodes []*Node, stepName string,
 	return p, nil
 }
 
-func resetStepRetryNode(node *Node, preserveRetryBudget bool) {
+// resetStepRetryNode clears node for another run. It keeps the node's current
+// step, which build planning may have resolved, but takes the human-task
+// template so a reopened task resolves its prompt and artifacts again.
+func resetStepRetryNode(node *Node, template ir.Step, preserveRetryBudget bool) {
 	retryCount := node.GetRetryCount()
-	clearNodeForRetry(node, node.Step())
+	step := node.Step()
+	step.HumanTask = template.HumanTask
+	clearNodeForRetry(node, step)
 	node.SetRetryCount(retryCount)
 	if !preserveRetryBudget {
 		node.retryPolicy = RetryPolicy{} // manual step retries start with a fresh retry budget
@@ -217,7 +229,7 @@ func (p *Plan) expandStepRetrySelection() {
 		if _, reset := p.stepRetry.resetIDs[node.id]; reset {
 			continue
 		}
-		resetStepRetryNode(node, false)
+		resetStepRetryNode(node, p.stepRetry.steps[node.Name()], false)
 		if p.stepRetry.bypassPreconditions {
 			node.SetBypassPreconditions(true)
 		}

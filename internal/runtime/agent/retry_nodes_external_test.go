@@ -4,6 +4,7 @@
 package agent_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -79,7 +80,7 @@ func TestRetryNodesUseRestoredDAGStepDefinition(t *testing.T) {
 	require.Equal(t, 2, state.RetryCount)
 }
 
-func TestRetryNodesKeepOpenedHumanTaskSnapshot(t *testing.T) {
+func TestRetryNodesCarryPersistedHumanTask(t *testing.T) {
 	t.Parallel()
 
 	sourceStep := ir.Step{
@@ -115,4 +116,31 @@ func TestRetryNodesRejectMissingRestoredSourceStep(t *testing.T) {
 
 	_, err := agent.RetryNodesForTest(&ir.DAG{}, status)
 	require.ErrorIs(t, err, runtime.ErrMissingNode)
+}
+
+// The retry plan, not retryNodes, decides which human tasks keep the carried
+// snapshot. Push-back resets a task to not started without clearing its step.
+func TestRetryPlanReopensResetHumanTaskFromTemplate(t *testing.T) {
+	t.Parallel()
+
+	sourceStep := ir.Step{
+		Name:      "review",
+		HumanTask: &ir.HumanTaskConfig{Prompt: "Review ${params.target}"},
+	}
+	status := &ir.DAGRunStatus{
+		Nodes: []*ir.Node{
+			{
+				Step:   ir.Step{Name: "review", HumanTask: &ir.HumanTaskConfig{Prompt: "Review production"}},
+				Status: ir.NodeNotStarted,
+			},
+		},
+	}
+	dag := &ir.DAG{Steps: []ir.Step{sourceStep}}
+
+	nodes, err := agent.RetryNodesForTest(dag, status)
+	require.NoError(t, err)
+	_, err = runtime.CreateRetryPlan(context.Background(), dag, nodes...)
+	require.NoError(t, err)
+
+	require.Equal(t, sourceStep.HumanTask, nodes[0].Step().HumanTask)
 }
