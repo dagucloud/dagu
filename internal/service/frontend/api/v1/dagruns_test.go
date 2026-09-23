@@ -1046,6 +1046,7 @@ func TestCompleteHumanTask(t *testing.T) {
 	completeResp.Unmarshal(t, &completeBody)
 	require.Equal(t, "review", completeBody.StepId)
 	require.True(t, completeBody.Queued)
+	require.True(t, completeBody.ResumeRequested)
 	require.Zero(t, completeBody.RemainingWaitingSteps)
 
 	queuedStatus := waitForStoredDAGRunStatus(t, server, "human_task_api_test", startBody.DagRunId, 10*time.Second, func(status *ir.DAGRunStatus) bool {
@@ -1069,6 +1070,7 @@ func TestCompleteHumanTask(t *testing.T) {
 	idempotentResp.Unmarshal(t, &completeBody)
 	require.True(t, completeBody.AlreadyCompleted)
 	require.False(t, completeBody.Queued)
+	require.False(t, completeBody.ResumeRequested)
 }
 
 func TestManualStepActionsRejectWhileDAGRunIsRunning(t *testing.T) {

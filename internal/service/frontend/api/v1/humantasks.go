@@ -123,6 +123,7 @@ func (a *API) CompleteHumanTask(
 		AlreadyCompleted:      result.AlreadyCompleted,
 		Queued:                result.Queued,
 		RemainingWaitingSteps: result.RemainingWaitingSteps,
+		ResumeRequested:       result.ResumeRequested,
 	}, nil
 }
 
@@ -267,6 +268,7 @@ func (a *API) logHumanTaskCompletion(
 		"already_completed":       result.AlreadyCompleted,
 		"queued":                  result.Queued,
 		"remaining_waiting_steps": result.RemainingWaitingSteps,
+		"resume_requested":        result.ResumeRequested,
 		"outcome":                 "succeeded",
 	}
 	if err != nil {
