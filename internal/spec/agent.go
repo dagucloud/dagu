@@ -146,6 +146,10 @@ func validateAgent(d *ir.DAG) error {
 			errs = append(errs, ir.NewValidationError("router", step.Name,
 				fmt.Errorf("step %q: router steps require type 'graph'", step.Name)))
 		}
+		if step.HumanTask != nil && step.HumanTask.PushBack != nil {
+			errs = append(errs, ir.NewValidationError("with.push_back", step.Name,
+				fmt.Errorf("step %q: with.push_back is not allowed in type: agent; the agent decides step order", step.Name)))
+		}
 	}
 
 	if actionable == 0 {

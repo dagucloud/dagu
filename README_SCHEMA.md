@@ -199,7 +199,7 @@ Current builtin actions:
 | `jq.filter` | jq transforms | `filter`, plus `data` or `input` |
 | `dag.run` | Child DAG execution | `dag`, optional `params` |
 | `dag.enqueue` | Asynchronous child DAG enqueue | `dag`, optional `params`, optional `queue` |
-| `human.task` | Operator input before downstream steps continue | `prompt`, optional flat scalar `form`, optional `artifacts` |
+| `human.task` | Operator input before downstream steps continue | `prompt`, optional flat scalar `form`, optional `artifacts`, optional `push_back` |
 | `router.route` | Conditional routing | `value`, `routes` |
 | `chat.completion` | LLM chat completion | `prompt` or `messages`, model config |
 | `harness.run` | CLI coding-agent harnesses | `prompt`, provider config, optional `stdin` |

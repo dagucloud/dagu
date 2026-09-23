@@ -45,7 +45,7 @@ func normalizeHumanTaskAction(normalized map[string]any, with map[string]any) er
 		return ir.NewValidationError("with", nil, fmt.Errorf("with.prompt is required"))
 	}
 	for name := range with {
-		if name != "prompt" && name != "form" && name != "artifacts" {
+		if name != "prompt" && name != "form" && name != "artifacts" && name != "push_back" {
 			return ir.NewValidationError("with", with, fmt.Errorf("human.task does not support with.%s", name))
 		}
 	}
@@ -76,14 +76,57 @@ func buildStepHumanTask(_ stepBuildContext, s *step, result *ir.Step) error {
 			return ir.NewValidationError("with.artifacts", value, err)
 		}
 	}
+	var pushBack *ir.HumanTaskPushBackConfig
+	if value, exists := s.With["push_back"]; exists {
+		pushBack, err = buildHumanTaskPushBack(value)
+		if err != nil {
+			return err
+		}
+	}
 	prompt, _ := s.With["prompt"].(string)
 	result.HumanTask = &ir.HumanTaskConfig{
 		Prompt:    prompt,
 		Form:      form,
 		Artifacts: artifacts,
+		PushBack:  pushBack,
 	}
 	result.Outputs = outputs
 	return nil
+}
+
+// buildHumanTaskPushBack builds with.push_back. Feedback properties create no
+// step outputs, and undeclared feedback is rejected because push-back inputs
+// become environment variables of every rewound step.
+func buildHumanTaskPushBack(value any) (*ir.HumanTaskPushBackConfig, error) {
+	config, ok := value.(map[string]any)
+	if !ok {
+		return nil, ir.NewValidationError("with.push_back", value, fmt.Errorf("with.push_back must be an object"))
+	}
+	for name := range config {
+		if name != "rewind_to" && name != "form" {
+			return nil, ir.NewValidationError("with.push_back", config, fmt.Errorf("with.push_back does not support %s", name))
+		}
+	}
+	rewindTo, ok := config["rewind_to"].(string)
+	if !ok || strings.TrimSpace(rewindTo) == "" {
+		return nil, ir.NewValidationError("with.push_back.rewind_to", config["rewind_to"], fmt.Errorf("with.push_back.rewind_to must be a non-empty step id or name"))
+	}
+
+	rawForm, hasForm := config["form"]
+	if hasForm && rawForm == nil {
+		return nil, ir.NewValidationError("with.push_back.form", nil, fmt.Errorf("with.push_back.form must be an object schema"))
+	}
+	form, _, err := buildHumanTaskForm(rawForm)
+	if err != nil {
+		return nil, ir.NewValidationError("with.push_back.form", rawForm, err)
+	}
+	if formMap, ok := rawForm.(map[string]any); ok && formMap["additionalProperties"] == true {
+		return nil, ir.NewValidationError("with.push_back.form", rawForm, fmt.Errorf("with.push_back.form additionalProperties must be false"))
+	}
+	return &ir.HumanTaskPushBackConfig{
+		RewindTo: strings.TrimSpace(rewindTo),
+		Form:     form,
+	}, nil
 }
 
 func buildHumanTaskArtifacts(value any) ([]string, error) {

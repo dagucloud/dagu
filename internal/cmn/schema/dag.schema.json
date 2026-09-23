@@ -6593,9 +6593,38 @@
             }
           },
           "description": "Relative artifact paths shown to the operator as review context. Each path must stay within the DAG-run artifact directory."
+        },
+        "push_back": {
+          "$ref": "#/definitions/humanTaskPushBackConfig",
+          "description": "Optional push-back. Lets the operator send the task back to an upstream step with feedback instead of completing it."
         }
       },
       "description": "Configuration for a processless human task in a root DAG. Root DAGs containing human tasks may run locally or on distributed workers; human tasks are not supported in sub-DAGs."
+    },
+    "humanTaskPushBackConfig": {
+      "type": "object",
+      "required": ["rewind_to"],
+      "additionalProperties": false,
+      "properties": {
+        "rewind_to": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "description": "ID or name of the step that runs again first after a push-back. It must be a step the task depends on directly or transitively; that step and every step depending on it run again, then the task opens again."
+        },
+        "form": {
+          "allOf": [
+            { "$ref": "#/definitions/humanTaskFormSchema" },
+            {
+              "properties": {
+                "additionalProperties": { "const": false }
+              }
+            }
+          ],
+          "description": "Optional flat feedback form. Feedback values become push-back inputs of the rewound steps, so undeclared properties are not accepted. Omit when push-back accepts no input."
+        }
+      },
+      "description": "Push-back configuration for a human task. Feedback reaches the rewound steps through DAG_PUSHBACK and related push-back context."
     },
     "humanTaskFormSchema": {
       "type": "object",

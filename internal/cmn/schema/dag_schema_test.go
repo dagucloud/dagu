@@ -1084,6 +1084,83 @@ steps:
         - changes.diff
 `,
 		},
+		{
+			name: "PushBackWithFeedbackForm",
+			spec: `
+steps:
+  - id: implement
+    run: echo implement
+  - id: review
+    depends: implement
+    action: human.task
+    with:
+      prompt: Review
+      push_back:
+        rewind_to: implement
+        form:
+          type: object
+          required: [feedback]
+          properties:
+            feedback:
+              type: string
+`,
+			valid: true,
+		},
+		{
+			name: "PushBackWithoutForm",
+			spec: `
+steps:
+  - id: implement
+    run: echo implement
+  - id: review
+    depends: implement
+    action: human.task
+    with:
+      prompt: Review
+      push_back:
+        rewind_to: implement
+`,
+			valid: true,
+		},
+		{
+			name: "PushBackRequiresRewindTo",
+			spec: `
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Review
+      push_back: {}
+`,
+		},
+		{
+			name: "PushBackRejectsUnknownField",
+			spec: `
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Review
+      push_back:
+        rewind_to: implement
+        limit: 3
+`,
+		},
+		{
+			name: "PushBackFormRejectsAdditionalProperties",
+			spec: `
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Review
+      push_back:
+        rewind_to: implement
+        form:
+          type: object
+          additionalProperties: true
+`,
+		},
 	}
 
 	for _, tt := range tests {

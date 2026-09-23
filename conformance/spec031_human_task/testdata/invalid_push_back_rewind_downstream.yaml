@@ -1,0 +1,15 @@
+steps:
+  - id: implement
+    run: printf 'implement\n'
+
+  - id: review
+    depends: implement
+    action: human.task
+    with:
+      prompt: Review the implementation
+      push_back:
+        rewind_to: publish
+
+  - id: publish
+    depends: review
+    run: printf 'publish\n'

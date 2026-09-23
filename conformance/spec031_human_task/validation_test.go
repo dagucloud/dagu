@@ -16,6 +16,7 @@ func TestHumanTaskShapeValidation(t *testing.T) {
 		"valid_form_shape.yaml",
 		"valid_artifacts.yaml",
 		"valid_artifacts_reference.yaml",
+		"valid_push_back_shape.yaml",
 		"child_human.yaml",
 		"multi_document_human.yaml",
 	}
@@ -50,6 +51,12 @@ func TestHumanTaskShapeValidation(t *testing.T) {
 		{file: "invalid_output_field.yaml", parts: []string{"outputs", "human.task"}},
 		{file: "invalid_foreach_human_task.yaml", parts: []string{"foreach", "human.task"}},
 		{file: "invalid_handler_human_task.yaml", parts: []string{"handler", "human.task"}},
+		{file: "invalid_push_back_null.yaml", parts: []string{"with.push_back", "object"}},
+		{file: "invalid_push_back_field.yaml", parts: []string{"with.push_back", "limit"}},
+		{file: "invalid_push_back_rewind_self.yaml", parts: []string{"with.push_back.rewind_to", "itself"}},
+		{file: "invalid_push_back_rewind_missing.yaml", parts: []string{"with.push_back.rewind_to", "build"}},
+		{file: "invalid_push_back_rewind_downstream.yaml", parts: []string{"with.push_back.rewind_to", "upstream"}},
+		{file: "invalid_push_back_form_extra.yaml", parts: []string{"with.push_back.form", "additionalProperties"}},
 	}
 	for _, tc := range invalid {
 		t.Run(tc.file, func(t *testing.T) {

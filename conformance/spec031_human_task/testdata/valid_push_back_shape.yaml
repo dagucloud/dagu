@@ -1,0 +1,17 @@
+steps:
+  - id: implement
+    run: printf 'implement\n'
+
+  - id: review
+    depends: implement
+    action: human.task
+    with:
+      prompt: Review the implementation
+      push_back:
+        rewind_to: implement
+        form:
+          type: object
+          required: [feedback]
+          properties:
+            feedback:
+              type: string

@@ -492,11 +492,25 @@ type ApprovalConfig struct {
 	RewindTo string `json:"rewindTo,omitempty"`
 }
 
-// HumanTaskConfig defines the prompt, input form, and artifact references for a human task step.
+// HumanTaskConfig defines the prompt, input form, artifact references, and
+// push-back for a human task step.
 type HumanTaskConfig struct {
 	Prompt    string          `json:"prompt,omitempty"`
 	Form      json.RawMessage `json:"form,omitempty"`
 	Artifacts []string        `json:"artifacts,omitempty"`
+	// PushBack lets the operator send the task back to an upstream step.
+	// Nil means the task can only be completed.
+	PushBack *HumanTaskPushBackConfig `json:"pushBack,omitempty"`
+}
+
+// HumanTaskPushBackConfig defines where a human-task push-back rewinds and the
+// feedback it accepts.
+type HumanTaskPushBackConfig struct {
+	// RewindTo is the name of the upstream step that runs again first.
+	RewindTo string `json:"rewindTo"`
+	// Form is the normalized feedback form. Empty means push-back accepts no
+	// input.
+	Form json.RawMessage `json:"form,omitempty"`
 }
 
 const (

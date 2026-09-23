@@ -46,6 +46,7 @@ func ValidateSteps(dag *ir.DAG) error {
 	resolveForeachStepDependencies(dag.Steps)
 	validateDependenciesExist(dag, stepNames, &errs)
 	validateApprovalRewindTargets(dag, stepNames, &errs)
+	validateHumanTaskRewindTargets(dag, stepNames, &errs)
 	validateBuildSteps(dag, &errs)
 
 	for _, step := range dag.Steps {
@@ -430,6 +431,32 @@ func validateApprovalRewindTargets(dag *ir.DAG, stepNames map[string]struct{}, e
 	}
 }
 
+func validateHumanTaskRewindTargets(dag *ir.DAG, stepNames map[string]struct{}, errs *ir.ErrorList) {
+	stepByName := make(map[string]ir.Step, len(dag.Steps))
+	for _, step := range dag.Steps {
+		stepByName[step.Name] = step
+	}
+
+	for _, step := range dag.Steps {
+		if step.HumanTask == nil || step.HumanTask.PushBack == nil {
+			continue
+		}
+		target := step.HumanTask.PushBack.RewindTo
+		var err error
+		switch _, exists := stepNames[target]; {
+		case !exists:
+			err = fmt.Errorf("step %s with.push_back.rewind_to references non-existent step %s", step.Name, target)
+		case target == step.Name:
+			err = fmt.Errorf("step %s with.push_back.rewind_to must reference an upstream dependency, not the task itself", step.Name)
+		case !isUpstreamDependency(stepByName, step.Name, target):
+			err = fmt.Errorf("step %s with.push_back.rewind_to must reference an upstream dependency", step.Name)
+		}
+		if err != nil {
+			*errs = append(*errs, ir.NewValidationError("with.push_back.rewind_to", target, err))
+		}
+	}
+}
+
 func isUpstreamDependency(stepByName map[string]ir.Step, stepName, target string) bool {
 	start, ok := stepByName[stepName]
 	if !ok {
@@ -631,6 +658,11 @@ func resolveStepDependencies(dag *ir.DAG) {
 		if dag.Steps[i].Approval != nil {
 			if name, exists := idToName[dag.Steps[i].Approval.RewindTo]; exists {
 				dag.Steps[i].Approval.RewindTo = name
+			}
+		}
+		if task := dag.Steps[i].HumanTask; task != nil && task.PushBack != nil {
+			if name, exists := idToName[task.PushBack.RewindTo]; exists {
+				task.PushBack.RewindTo = name
 			}
 		}
 	}

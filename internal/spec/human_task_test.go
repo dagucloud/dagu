@@ -68,6 +68,84 @@ steps:
 	assert.Equal(t, false, form["additionalProperties"])
 }
 
+// A push-back target written as a step ID resolves to the step name, and the
+// feedback form adds no outputs next to the completion form.
+func TestHumanTaskBuildsPushBack(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: implement
+    name: Implement change
+    run: echo implement
+  - id: test
+    depends: implement
+    run: echo test
+  - id: review
+    depends: test
+    action: human.task
+    with:
+      prompt: Review
+      form:
+        type: object
+        properties:
+          note:
+            type: string
+      push_back:
+        rewind_to: " implement "
+        form:
+          type: object
+          required: [feedback]
+          properties:
+            feedback:
+              type: string
+            severity:
+              type: string
+              enum: [minor, major]
+`))
+	require.NoError(t, err)
+
+	task := dag.Steps[2].HumanTask
+	require.NotNil(t, task)
+	require.NotNil(t, task.PushBack)
+	assert.Equal(t, "Implement change", task.PushBack.RewindTo)
+	assert.JSONEq(t, `{
+		"type": "object",
+		"properties": {
+			"feedback": {"type": "string"},
+			"severity": {"type": "string", "enum": ["minor", "major"]}
+		},
+		"required": ["feedback"],
+		"additionalProperties": false
+	}`, string(task.PushBack.Form))
+	assert.Equal(t, []ir.StepOutputDeclaration{
+		{Name: "note", Type: ir.StepDeclaredOutputTypeString},
+	}, dag.Steps[2].Outputs)
+}
+
+func TestHumanTaskBuildsPushBackWithoutForm(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: implement
+    run: echo implement
+  - id: review
+    depends: implement
+    action: human.task
+    with:
+      prompt: Review
+      push_back:
+        rewind_to: implement
+`))
+	require.NoError(t, err)
+
+	pushBack := dag.Steps[1].HumanTask.PushBack
+	require.NotNil(t, pushBack)
+	assert.Equal(t, "implement", pushBack.RewindTo)
+	assert.Empty(t, pushBack.Form)
+}
+
 func TestHumanTaskAllowsDAGWorkerSelector(t *testing.T) {
 	t.Parallel()
 
@@ -429,6 +507,212 @@ steps:
         required: [missing]
 `,
 			message: "is not declared",
+		},
+		{
+			name: "PushBackMustBeObject",
+			yaml: `
+steps:
+  - id: implement
+    run: echo implement
+  - id: review
+    depends: implement
+    action: human.task
+    with:
+      prompt: Review
+      push_back: implement
+`,
+			message: "with.push_back must be an object",
+		},
+		{
+			name: "PushBackMustNotBeNull",
+			yaml: `
+steps:
+  - id: implement
+    run: echo implement
+  - id: review
+    depends: implement
+    action: human.task
+    with:
+      prompt: Review
+      push_back: null
+`,
+			message: "with.push_back must be an object",
+		},
+		{
+			name: "PushBackUnknownField",
+			yaml: `
+steps:
+  - id: implement
+    run: echo implement
+  - id: review
+    depends: implement
+    action: human.task
+    with:
+      prompt: Review
+      push_back:
+        rewind_to: implement
+        limit: 3
+`,
+			message: "with.push_back does not support limit",
+		},
+		{
+			name: "PushBackRequiresRewindTo",
+			yaml: `
+steps:
+  - id: implement
+    run: echo implement
+  - id: review
+    depends: implement
+    action: human.task
+    with:
+      prompt: Review
+      push_back: {}
+`,
+			message: "with.push_back.rewind_to must be a non-empty step id or name",
+		},
+		{
+			name: "PushBackRejectsBlankRewindTo",
+			yaml: `
+steps:
+  - id: implement
+    run: echo implement
+  - id: review
+    depends: implement
+    action: human.task
+    with:
+      prompt: Review
+      push_back:
+        rewind_to: " "
+`,
+			message: "with.push_back.rewind_to must be a non-empty step id or name",
+		},
+		{
+			name: "PushBackRejectsMissingTarget",
+			yaml: `
+steps:
+  - id: implement
+    run: echo implement
+  - id: review
+    depends: implement
+    action: human.task
+    with:
+      prompt: Review
+      push_back:
+        rewind_to: build
+`,
+			message: "with.push_back.rewind_to references non-existent step build",
+		},
+		{
+			name: "PushBackRejectsSelf",
+			yaml: `
+steps:
+  - id: implement
+    run: echo implement
+  - id: review
+    depends: implement
+    action: human.task
+    with:
+      prompt: Review
+      push_back:
+        rewind_to: review
+`,
+			message: "not the task itself",
+		},
+		{
+			name: "PushBackRejectsNonUpstreamTarget",
+			yaml: `
+steps:
+  - id: implement
+    run: echo implement
+  - id: review
+    depends: implement
+    action: human.task
+    with:
+      prompt: Review
+      push_back:
+        rewind_to: publish
+  - id: publish
+    depends: review
+    run: echo publish
+`,
+			message: "with.push_back.rewind_to must reference an upstream dependency",
+		},
+		{
+			name: "PushBackFormMustNotBeNull",
+			yaml: `
+steps:
+  - id: implement
+    run: echo implement
+  - id: review
+    depends: implement
+    action: human.task
+    with:
+      prompt: Review
+      push_back:
+        rewind_to: implement
+        form: null
+`,
+			message: "with.push_back.form must be an object schema",
+		},
+		{
+			name: "PushBackFormRejectsAdditionalProperties",
+			yaml: `
+steps:
+  - id: implement
+    run: echo implement
+  - id: review
+    depends: implement
+    action: human.task
+    with:
+      prompt: Review
+      push_back:
+        rewind_to: implement
+        form:
+          type: object
+          additionalProperties: true
+`,
+			message: "with.push_back.form additionalProperties must be false",
+		},
+		{
+			name: "PushBackFormUsesFormRules",
+			yaml: `
+steps:
+  - id: implement
+    run: echo implement
+  - id: review
+    depends: implement
+    action: human.task
+    with:
+      prompt: Review
+      push_back:
+        rewind_to: implement
+        form:
+          type: object
+          properties:
+            details:
+              type: object
+`,
+			message: "with.push_back.form",
+		},
+		{
+			name: "PushBackInAgentDAG",
+			yaml: `
+type: agent
+llm: { provider: anthropic, model: claude-opus-5 }
+steps:
+  - id: implement
+    run: echo implement
+  - id: review
+    action: human.task
+    with:
+      prompt: Review
+      push_back:
+        rewind_to: implement
+tasks:
+  - name: ship
+    description: done when reviewed
+`,
+			message: "with.push_back is not allowed in type: agent",
 		},
 		{
 			name: "LifecycleHandler",
