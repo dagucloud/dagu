@@ -1,0 +1,22 @@
+working_dir: .
+env:
+  - SHOP_URL: ${SHOP_URL}
+  - LLM_BASE_URL: ${LLM_BASE_URL}
+llm:
+  provider: local
+  model: test-model
+  base_url: ${LLM_BASE_URL}
+steps:
+  - id: page
+    action: browser.extract
+    with:
+      url: ${SHOP_URL}
+      instruction: The page heading
+      schema:
+        type: object
+        properties:
+          heading:
+            type: string
+  - id: record
+    depends: page
+    run: echo "${steps.page.outputs.heading}" > heading.out

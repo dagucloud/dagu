@@ -1,0 +1,17 @@
+working_dir: .
+env:
+  - SHOP_URL: ${SHOP_URL}
+  - LLM_BASE_URL: ${LLM_BASE_URL}
+llm:
+  provider: local
+  model: test-model
+  base_url: ${LLM_BASE_URL}
+steps:
+  - id: checkout
+    action: browser.run
+    with:
+      url: ${SHOP_URL}
+      browser:
+        allowed_domains: [example.com]
+      do:
+        - act: Click the Place order button
