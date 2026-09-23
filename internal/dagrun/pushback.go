@@ -64,13 +64,28 @@ func FilterPushBackInputs(allowed []string, inputs map[string]string) map[string
 	return filtered
 }
 
-// NormalizePushBackHistory ensures stored history is filtered and seeded from
-// legacy state when only the latest iteration/input pair is available.
+// NormalizePushBackHistory returns the history a step with the given input
+// allowlist observes, seeded from legacy state when only the latest
+// iteration/input pair is available. Human-task feedback is never filtered.
 func NormalizePushBackHistory(
 	allowed []string,
 	iteration int,
 	latestInputs map[string]string,
 	history []ir.PushBackEntry,
+) []ir.PushBackEntry {
+	return normalizePushBackHistory(allowed, iteration, latestInputs, history, func(entry ir.PushBackEntry) bool {
+		return entry.HumanTask
+	})
+}
+
+// normalizePushBackHistory seeds legacy history and filters every entry that
+// keep does not exempt.
+func normalizePushBackHistory(
+	allowed []string,
+	iteration int,
+	latestInputs map[string]string,
+	history []ir.PushBackEntry,
+	keep func(ir.PushBackEntry) bool,
 ) []ir.PushBackEntry {
 	normalized := ClonePushBackHistory(history)
 	if len(normalized) == 0 && iteration > 0 {
@@ -80,7 +95,7 @@ func NormalizePushBackHistory(
 		})
 	}
 	for i := range normalized {
-		if normalized[i].HumanTask {
+		if keep(normalized[i]) {
 			continue
 		}
 		normalized[i].Inputs = FilterPushBackInputs(allowed, normalized[i].Inputs)
@@ -152,7 +167,10 @@ func ApplyPushBack(status *ir.DAGRunStatus, source *ir.Node, pb PushBack) (int, 
 	iteration++
 	inputs := FilterPushBackInputs(pb.AllowedInputs, pb.Inputs)
 	history := append(
-		NormalizePushBackHistory(pb.AllowedInputs, source.ApprovalIteration, source.PushBackInputs, source.PushBackHistory),
+		// Entries that name their step were scoped when that step recorded
+		// them; only legacy entries take the new source's allowlist.
+		normalizePushBackHistory(pb.AllowedInputs, source.ApprovalIteration, source.PushBackInputs, source.PushBackHistory,
+			func(entry ir.PushBackEntry) bool { return entry.Step != "" }),
 		ir.PushBackEntry{
 			Iteration: iteration,
 			By:        pb.By,

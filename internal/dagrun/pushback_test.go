@@ -101,6 +101,34 @@ func TestApplyPushBackExtendsSourceHistory(t *testing.T) {
 	}, implement.PushBackHistory)
 }
 
+// Each entry was scoped by the step that recorded it, so a later push-back
+// from another step must keep it intact. Only legacy entries, which do not
+// name their step, are filtered with the new source's allowlist.
+func TestApplyPushBackKeepsEntriesRecordedByOtherSteps(t *testing.T) {
+	t.Parallel()
+
+	status := pushBackStatus()
+	source := status.Nodes[3]
+	source.ApprovalIteration = 2
+	source.PushBackHistory = []ir.PushBackEntry{
+		{Iteration: 1, Inputs: map[string]string{"FEEDBACK": "legacy", "PATH": "/tmp"}},
+		{Iteration: 2, Inputs: map[string]string{"FEEDBACK": "tighten"}, Step: "approve"},
+	}
+
+	_, err := dagrun.ApplyPushBack(status, source, dagrun.PushBack{
+		TargetName:    "implement",
+		AllowedInputs: []string{"feedback"},
+		Inputs:        map[string]string{"feedback": "add tests"},
+	})
+	require.NoError(t, err)
+
+	history := status.Nodes[1].PushBackHistory
+	require.Len(t, history, 3)
+	assert.Nil(t, history[0].Inputs)
+	assert.Equal(t, map[string]string{"FEEDBACK": "tighten"}, history[1].Inputs)
+	assert.Equal(t, map[string]string{"feedback": "add tests"}, history[2].Inputs)
+}
+
 // Human-task feedback holds only declared properties, so a step's approval
 // input allowlist never hides it; approval push-back inputs stay filtered.
 func TestVisiblePushBackInputs(t *testing.T) {
