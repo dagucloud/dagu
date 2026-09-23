@@ -10441,7 +10441,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description The DAG-run still has waiting steps or no recoverable human-task checkpoint */
+            /** @description Manual steps are still waiting and no step is ready to run, or the DAG-run has no recoverable human-task checkpoint */
             409: {
                 headers: {
                     [name: string]: unknown;
