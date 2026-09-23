@@ -99,6 +99,7 @@ func runScheduler(ctx *Context, _ []string) error {
 	)
 
 	schedulerCtx := ctx.WithEventSource(eventstore.SourceServiceScheduler)
+	startBrowserReaper(schedulerCtx, ctx.Config.Paths.DataDir, ctx.Persistence.DAGRunRepository)
 	scheduler, err := newScheduler(schedulerCtx, deps)
 	if err != nil {
 		return fmt.Errorf("failed to initialize scheduler: %w", err)

@@ -117,6 +117,9 @@ func runWorker(ctx *Context, _ []string) error {
 	logger.Info(ctx, "Using remote task handler")
 
 	logger.Info(ctx, "Starting worker", tag.WorkerID(workerID), tag.MaxConcurrency(maxActiveRuns), slog.Any("labels", labels))
+	// Run status lives with the coordinator, so the worker closes waiting
+	// browsers by deadline and owner liveness only.
+	startBrowserReaper(ctx, ctx.Config.Paths.DataDir, nil)
 
 	// Start the worker in a goroutine to allow for graceful shutdown
 	errCh := make(chan error, 1)

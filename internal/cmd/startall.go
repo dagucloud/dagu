@@ -153,6 +153,7 @@ func runStartAll(ctx *Context, _ []string) error {
 
 	openCodeHost := opencodehost.New(signalCtx, ctx.Config.OpenCode)
 	cleanupCancel, cleanupDone := startLocalAgentSessionCleanup(signalCtx, ctx.Persistence, openCodeHost)
+	startBrowserReaper(signalCtx, ctx.Config.Paths.DataDir, ctx.Persistence.DAGRunRepository)
 	defer func() {
 		stop()
 		shutdownCtx, shutdownCancel := localAgentSessionShutdownContext(ctx)

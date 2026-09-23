@@ -100,6 +100,7 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 	serviceCtx := ctx.WithContext(signalCtx)
 	openCodeHost := opencodehost.New(signalCtx, ctx.Config.OpenCode)
 	cleanupCancel, cleanupDone := startLocalAgentSessionCleanup(signalCtx, ctx.Persistence, openCodeHost)
+	startBrowserReaper(signalCtx, ctx.Config.Paths.DataDir, ctx.Persistence.DAGRunRepository)
 	var tunnelService *tunnel.Service
 	var resourceService *resource.Service
 	defer func() {
