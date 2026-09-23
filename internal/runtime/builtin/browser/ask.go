@@ -155,7 +155,9 @@ func (r *run) resumeSession(ctx context.Context, recordID string, session *ir.Ag
 			continue
 		}
 		if index < len(r.cfg.Do) && r.cfg.Do[index].Ask != nil {
-			r.variables[r.cfg.Do[index].Ask.As] = firstAnswer(interaction)
+			name, value := r.cfg.Do[index].Ask.As, firstAnswer(interaction)
+			r.variables[name] = value
+			r.answers[name] = value
 		}
 	}
 	r.refreshMasker()
@@ -189,9 +191,9 @@ func (r *run) resumeSession(ctx context.Context, recordID string, session *ir.Ag
 }
 
 // refreshMasker rebuilds the masker so answers given through ask
-// operations are hidden like other variables.
+// operations are hidden like secrets.
 func (r *run) refreshMasker() {
-	masker := newMasker(r.secrets, r.variables)
+	masker := newMasker(r.secrets, r.answers)
 	r.masker = masker
 	r.bridge.masker = masker
 	r.timeline.masker = masker

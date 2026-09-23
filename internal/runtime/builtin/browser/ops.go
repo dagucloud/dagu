@@ -59,7 +59,9 @@ type run struct {
 	record    browserhost.Record
 	profile   *profileLease
 	variables map[string]string
-	outputs   map[string]any
+	// answers holds the values people gave to ask operations.
+	answers map[string]string
+	outputs map[string]any
 }
 
 func newRun(ctx context.Context, e *browserExecutor) (*run, error) {
@@ -85,7 +87,7 @@ func newRun(ctx context.Context, e *browserExecutor) (*run, error) {
 	if stepKey == "" {
 		stepKey = e.step.Name
 	}
-	masker := newMasker(secrets, e.cfg.Variables)
+	masker := newMasker(secrets, nil)
 	bridge, err := newModelBridge(ctx, e.step.LLM, masker, e.newProvider)
 	if err != nil {
 		return nil, err
@@ -105,6 +107,7 @@ func newRun(ctx context.Context, e *browserExecutor) (*run, error) {
 		bridge:    bridge,
 		artifacts: newArtifactStore(artifactsDir, stepKey),
 		variables: maps.Clone(e.cfg.Variables),
+		answers:   map[string]string{},
 		outputs:   map[string]any{},
 	}
 	if r.variables == nil {

@@ -11,16 +11,16 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 )
 
-// minGuardedSecretLength skips very short secret values, which would match
-// ordinary words in instructions.
-const minGuardedSecretLength = 4
+// minSecretLength skips very short secret values, which would match ordinary
+// words, numbers, and element IDs in instructions and page text.
+const minSecretLength = 4
 
 // checkSecrets rejects operations whose model-bound text contains a secret
 // value. Such values must travel as variables, which the model never sees.
 func checkSecrets(cfg config, secrets map[string]string) error {
 	names := make([]string, 0, len(secrets))
 	for name, value := range secrets {
-		if len(value) >= minGuardedSecretLength {
+		if len(value) >= minSecretLength {
 			names = append(names, name)
 		}
 	}
@@ -40,15 +40,17 @@ func checkSecrets(cfg config, secrets map[string]string) error {
 	return nil
 }
 
-// newMasker hides secrets and variable values in logs, timeline events, and
-// text sent to the model.
-func newMasker(secrets, variables map[string]string) *masking.Masker {
-	pairs := make([]string, 0, len(secrets)+len(variables))
-	for name, value := range secrets {
-		pairs = append(pairs, name+"="+value)
-	}
-	for name, value := range variables {
-		pairs = append(pairs, name+"="+value)
+// newMasker hides declared secrets and ask answers in logs, timeline events,
+// and text sent to the model. Plain variables are not secret; masking them
+// would also corrupt page text and element IDs that happen to contain them.
+func newMasker(secrets, answers map[string]string) *masking.Masker {
+	pairs := make([]string, 0, len(secrets)+len(answers))
+	for _, values := range []map[string]string{secrets, answers} {
+		for name, value := range values {
+			if len(value) >= minSecretLength {
+				pairs = append(pairs, name+"="+value)
+			}
+		}
 	}
 	return masking.NewMasker(masking.SourcedEnvVars{Secrets: pairs})
 }
