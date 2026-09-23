@@ -571,6 +571,26 @@ func TestFinalScreenshotPolicy(t *testing.T) {
 	assert.FileExists(t, filepath.Join(run.artifacts, "browser", "shop", "01-final.png"))
 }
 
+// A retried step keeps the screenshots of earlier attempts and numbers its
+// own after them.
+func TestRetryKeepsEarlierScreenshots(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	require.Error(t, run.execute(`{"do": [{"screenshot": "cart"}, {"expect": "The order is confirmed"}]}`, nil).err)
+	require.Error(t, run.execute(`{"do": [{"expect": "The order is confirmed"}]}`, nil).err)
+
+	entries, err := os.ReadDir(filepath.Join(run.artifacts, "browser", "shop"))
+	require.NoError(t, err)
+	var names []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			names = append(names, entry.Name())
+		}
+	}
+	assert.Equal(t, []string{"01-cart.png", "02-failure.png", "03-failure.png"}, names)
+}
+
 // A download gets the timeout of the act that can have started it, even when
 // a later operation is shorter, and a step without acts does not wait.
 func TestDownloadWaitTimeouts(t *testing.T) {

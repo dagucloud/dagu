@@ -6,9 +6,12 @@ package browser
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 )
@@ -18,6 +21,7 @@ const (
 	downloadsSubdir  = "downloads"
 	artifactDirMode  = 0o755
 	artifactFileMode = 0o644
+	screenshotExt    = ".png"
 )
 
 var errNoArtifactStorage = errors.New("browser: screenshots need artifact storage, which is disabled for this DAG")
@@ -59,19 +63,50 @@ func (s *artifactStore) downloadPath(name string) string {
 }
 
 // writeScreenshot stores a PNG and returns its path relative to the run
-// artifacts directory.
+// artifacts directory. Screenshots from earlier executions of the step, such
+// as a retry or the part before an ask, are kept.
 func (s *artifactStore) writeScreenshot(label string, data []byte) (string, error) {
 	if !s.enabled() {
 		return "", errNoArtifactStorage
 	}
-	s.sequence++
-	rel := path.Join(s.rel, fmt.Sprintf("%02d-%s.png", s.sequence, fileutil.SafeName(label)))
-	full := filepath.Join(s.root, filepath.FromSlash(rel))
-	if err := os.MkdirAll(filepath.Dir(full), artifactDirMode); err != nil {
+	dir := filepath.Join(s.root, filepath.FromSlash(s.rel))
+	if err := os.MkdirAll(dir, artifactDirMode); err != nil {
 		return "", fmt.Errorf("create screenshot directory: %w", err)
 	}
-	if err := os.WriteFile(full, data, artifactFileMode); err != nil {
-		return "", fmt.Errorf("write screenshot: %w", err)
+	if s.sequence == 0 {
+		s.sequence = lastScreenshotSequence(dir)
 	}
-	return rel, nil
+	for {
+		s.sequence++
+		name := fmt.Sprintf("%02d-%s%s", s.sequence, fileutil.SafeName(label), screenshotExt)
+		file, err := os.OpenFile(filepath.Join(dir, name), os.O_WRONLY|os.O_CREATE|os.O_EXCL, artifactFileMode)
+		if errors.Is(err, fs.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return "", fmt.Errorf("write screenshot: %w", err)
+		}
+		_, err = file.Write(data)
+		if err := errors.Join(err, file.Close()); err != nil {
+			return "", fmt.Errorf("write screenshot: %w", err)
+		}
+		return path.Join(s.rel, name), nil
+	}
+}
+
+// lastScreenshotSequence returns the highest sequence number among the
+// screenshots in dir, so numbering continues across step executions.
+func lastScreenshotSequence(dir string) int {
+	entries, _ := os.ReadDir(dir)
+	last := 0
+	for _, entry := range entries {
+		prefix, _, ok := strings.Cut(entry.Name(), "-")
+		if entry.IsDir() || !ok || filepath.Ext(entry.Name()) != screenshotExt {
+			continue
+		}
+		if sequence, err := strconv.Atoi(prefix); err == nil && sequence > last {
+			last = sequence
+		}
+	}
+	return last
 }
