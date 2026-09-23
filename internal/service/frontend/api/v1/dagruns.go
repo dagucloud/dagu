@@ -4158,14 +4158,16 @@ func validateRequiredInputs(step ir.Step, body *api.ApproveStepRequest) error {
 }
 
 func validatePushBackInputs(step ir.Step, body *api.PushBackStepRequest) error {
-	if step.Approval == nil || len(step.Approval.Required) == 0 {
-		return nil
-	}
 	var provided map[string]string
 	if body != nil && body.Inputs != nil {
 		provided = *body.Inputs
 	}
-	return checkMissingInputs(step.Approval.Required, provided)
+	if step.Approval != nil && len(step.Approval.Required) > 0 {
+		if err := checkMissingInputs(step.Approval.Required, provided); err != nil {
+			return err
+		}
+	}
+	return dagrun.ValidatePushBackInputsSize(dagrun.FilterPushBackInputs(pushBackAllowedInputs(step), provided))
 }
 
 func applyPushBack(ctx context.Context, node *ir.Node, status *ir.DAGRunStatus, body *api.PushBackStepRequest) error {

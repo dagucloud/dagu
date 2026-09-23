@@ -6,6 +6,7 @@ package dagrun_test
 import (
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
@@ -227,6 +228,15 @@ func TestRevertPushBackRejectsChangedStep(t *testing.T) {
 	before := mustJSON(t, latest)
 	require.ErrorContains(t, dagrun.RevertPushBack(latest, original, applied), "implement changed after push-back")
 	assert.JSONEq(t, before, mustJSON(t, latest))
+}
+
+func TestValidatePushBackInputsSize(t *testing.T) {
+	t.Parallel()
+
+	require.NoError(t, dagrun.ValidatePushBackInputsSize(nil))
+	require.NoError(t, dagrun.ValidatePushBackInputsSize(map[string]string{"feedback": strings.Repeat("x", 16000)}))
+	err := dagrun.ValidatePushBackInputsSize(map[string]string{"feedback": strings.Repeat("x", dagrun.MaxPushBackInputsSize)})
+	require.ErrorContains(t, err, "maximum size of 16384 bytes")
 }
 
 func cloneStatus(t *testing.T, status *ir.DAGRunStatus) *ir.DAGRunStatus {

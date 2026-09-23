@@ -335,6 +335,9 @@ func preparePushBack(
 	if _, err := marshalOutputs(dag, result); err != nil {
 		return nil, nil, errorf(ErrorInvalid, "human task step %q: %v", node.Step.ID, err)
 	}
+	if err := dagrun.ValidatePushBackInputsSize(result.Outputs); err != nil {
+		return nil, nil, errorf(ErrorInvalid, "human task step %q: %v", node.Step.ID, err)
+	}
 	allowed, err := formPropertyNames(config.Form)
 	if err != nil {
 		return nil, nil, errorf(ErrorInternal, "human task step %q: %v", node.Step.ID, err)

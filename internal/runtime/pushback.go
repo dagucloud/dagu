@@ -10,6 +10,11 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
+// maxPushBackPayloadSize bounds DAG_PUSHBACK below the 32,767-character limit
+// of one Windows environment variable. Recorded inputs are at most
+// dagrun.MaxPushBackInputsSize, so the latest inputs always fit.
+const maxPushBackPayloadSize = 30 << 10
+
 type pushBackPayload struct {
 	Iteration int                    `json:"iteration"`
 	By        string                 `json:"by,omitempty"`
@@ -64,7 +69,13 @@ func marshalPushBackPayload(allowedInputs []string, state NodeState) (string, er
 		payload.At = history[len(history)-1].At
 	}
 
+	// The payload is one environment variable, so drop the oldest history
+	// entries until it fits. The run status keeps the full history.
 	data, err := json.Marshal(payload)
+	for err == nil && len(data) > maxPushBackPayloadSize && len(payload.History) > 0 {
+		payload.History = payload.History[1:]
+		data, err = json.Marshal(payload)
+	}
 	if err != nil {
 		return "", err
 	}

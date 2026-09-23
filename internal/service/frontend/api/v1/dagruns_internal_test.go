@@ -649,6 +649,22 @@ func TestApproveDAGRunStepReturnsInternalErrorWhenStatusWriteFails(t *testing.T)
 	assert.Equal(t, http.StatusInternalServerError, statusCode)
 }
 
+// Push-back inputs become environment variables of every rewound step, so an
+// oversized value is rejected before the push-back is stored. Undeclared keys
+// that the allowlist drops do not count.
+func TestValidatePushBackInputsRejectsOversizedInputs(t *testing.T) {
+	t.Parallel()
+
+	step := ir.Step{Name: "review", Approval: &ir.ApprovalConfig{Input: []string{"FEEDBACK"}}}
+	large := strings.Repeat("x", dagrun.MaxPushBackInputsSize)
+
+	err := validatePushBackInputs(step, &openapiv1.PushBackStepRequest{Inputs: &map[string]string{"FEEDBACK": large}})
+	require.ErrorContains(t, err, "maximum size")
+	require.NoError(t, validatePushBackInputs(step, &openapiv1.PushBackStepRequest{
+		Inputs: &map[string]string{"FEEDBACK": "tighten", "IGNORED": large},
+	}))
+}
+
 func TestApplyPushBackAppendsLegacyPushBackInputsToHistory(t *testing.T) {
 	t.Parallel()
 

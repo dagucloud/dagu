@@ -547,6 +547,9 @@ Rules:
 - Feedback defaults and canonical feedback input follow Form Integration and
   Canonical Input. Canonical feedback input must fit within the owning DAG's
   `max_output_size`.
+- The recorded feedback values, encoded as one JSON object, must fit within
+  16 KiB (16384 bytes), because every rewound step receives them as
+  environment variables.
 - The run must be `waiting` and the task must be open.
 - A task without `with.push_back` rejects push-back.
 - `--expected-iteration` must be a non-negative integer. When it differs from

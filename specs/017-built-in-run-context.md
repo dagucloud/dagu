@@ -283,6 +283,12 @@ Rules:
   compatibility environment variables.
 - Push-back context is missing on the first execution before any push-back
   occurs.
+- `DAG_PUSHBACK` stays within 30 KiB (30720 bytes). When the full history does
+  not fit, the payload keeps the most recent history entries that fit; the run
+  status keeps the full history.
+- The inputs of one push-back, encoded as one JSON object, are limited to
+  16 KiB (16384 bytes). A larger push-back is rejected before it changes the
+  run.
 - A step that declares `approval.input` receives only those input names from an
   approval push-back. Human-task push-back feedback holds only declared
   feedback properties and reaches every rewound step unchanged.

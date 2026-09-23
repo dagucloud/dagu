@@ -4,6 +4,7 @@
 package dagrun
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -13,6 +14,28 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/build"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
+
+// MaxPushBackInputsSize is the largest JSON encoding of the inputs one
+// push-back may record. Rewound steps receive the inputs as environment
+// variables, and a single variable is limited to 32,767 characters on Windows
+// and 128 KiB on Linux.
+const MaxPushBackInputsSize = 16 << 10
+
+// ValidatePushBackInputsSize reports an error when inputs exceed
+// MaxPushBackInputsSize.
+func ValidatePushBackInputsSize(inputs map[string]string) error {
+	if len(inputs) == 0 {
+		return nil
+	}
+	data, err := json.Marshal(inputs)
+	if err != nil {
+		return fmt.Errorf("encode push-back inputs: %w", err)
+	}
+	if len(data) > MaxPushBackInputsSize {
+		return fmt.Errorf("push-back inputs exceed the maximum size of %d bytes", MaxPushBackInputsSize)
+	}
+	return nil
+}
 
 // FilterPushBackInputs returns only declared push-back inputs. If no allowlist
 // is provided, the stored inputs are preserved as-is.

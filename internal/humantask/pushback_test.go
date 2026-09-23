@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -244,6 +245,12 @@ func TestPushBackValidatesRequest(t *testing.T) {
 			values:  map[string]any{"feedback": strings.Repeat("x", 32)},
 			kind:    ErrorInvalid,
 			message: "maximum size",
+		},
+		{
+			name:    "feedback above push-back input limit",
+			values:  map[string]any{"feedback": strings.Repeat("x", dagrun.MaxPushBackInputsSize)},
+			kind:    ErrorInvalid,
+			message: "maximum size of 16384 bytes",
 		},
 		{
 			name:    "negative expected iteration",
