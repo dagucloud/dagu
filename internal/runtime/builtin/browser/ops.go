@@ -359,6 +359,13 @@ func (r *run) gotoURL(ctx context.Context, index int, target string, timeout tim
 }
 
 func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Duration) error {
+	// Validation guarantees every reference names a variable or an earlier
+	// ask, so a missing value means that ask was skipped.
+	for _, name := range variableReferences(spec.Instruction) {
+		if _, ok := r.variables[name]; !ok {
+			return fmt.Errorf("the instruction uses %%%s%%, but the ask that sets it did not run", name)
+		}
+	}
 	began, before := time.Now(), r.bridge.totals()
 	useCache := r.cache != nil && (spec.Cache == nil || *spec.Cache)
 	key := ""

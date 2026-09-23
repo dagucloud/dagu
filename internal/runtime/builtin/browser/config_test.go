@@ -75,6 +75,16 @@ func TestValidateStep(t *testing.T) {
 			want: `profile "../escape" must match`,
 		},
 		{
+			name: "unknown variable reference",
+			with: `{"variables":{"user":"u"},"do":[{"act":"Type %user% and %pasword%"}]}`,
+			want: `do[0]: act references %pasword%, which is not in with.variables or an earlier ask`,
+		},
+		{
+			name: "reference to a later ask",
+			with: `{"do":[{"act":"Type %otp%"},{"ask":{"prompt":"Code?","as":"otp"}}]}`,
+			want: `do[0]: act references %otp%`,
+		},
+		{
 			name: "single-label allowed domain",
 			with: `{"browser":{"allowed_domains":["localhost"]},"do":[{"act":"a"}]}`,
 			want: `allowed domain "localhost" must have at least two labels`,

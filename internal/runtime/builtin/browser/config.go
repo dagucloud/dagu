@@ -45,7 +45,19 @@ const (
 var (
 	identifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 	fileNamePattern   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+	// variableReferencePattern finds %name% references in act instructions.
+	variableReferencePattern = regexp.MustCompile(`%([A-Za-z_][A-Za-z0-9_]*)%`)
 )
+
+// variableReferences returns the names an instruction references as %name%.
+func variableReferences(instruction string) []string {
+	matches := variableReferencePattern.FindAllStringSubmatch(instruction, -1)
+	names := make([]string, 0, len(matches))
+	for _, match := range matches {
+		names = append(names, match[1])
+	}
+	return names
+}
 
 func init() {
 	registry.RegisterExecutorConfigSchema(executorType, configSchema)
@@ -253,6 +265,15 @@ func (c config) validate() error {
 	for i, op := range c.Do {
 		if err := op.validate(); err != nil {
 			return fmt.Errorf("browser: do[%d]: %w", i, err)
+		}
+		if op.Act != nil {
+			for _, name := range variableReferences(op.Act.Instruction) {
+				_, isVariable := c.Variables[name]
+				_, isEarlierAsk := asks[name]
+				if !isVariable && !isEarlierAsk {
+					return fmt.Errorf("browser: do[%d]: act references %%%s%%, which is not in with.variables or an earlier ask", i, name)
+				}
+			}
 		}
 		if op.Extract != nil {
 			properties, _ := op.Extract.Schema["properties"].(map[string]any)

@@ -485,3 +485,18 @@ func TestMaskerHidesSecretsAndAnswers(t *testing.T) {
 	assert.Equal(t, "[0-23] ******* ******* qty 2 pin 12",
 		masker.MaskString("[0-23] s3cr3t-token 424242 qty 2 pin 12"))
 }
+
+// When an ask is skipped, an act that needs its answer fails instead of
+// typing the literal %name%.
+func TestActNeedingSkippedAskFails(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	execution := run.execute(`{"do": [
+		{"ask": {"prompt": "Enter the code", "as": "otp"}, "when": "The page asks for a code"},
+		{"act": "Type %otp% into the code field"}
+	]}`, nil)
+
+	require.ErrorContains(t, execution.err, "do[1] act failed: the instruction uses %otp%, but the ask that sets it did not run")
+	assert.Empty(t, run.engine.actInstructions())
+}
