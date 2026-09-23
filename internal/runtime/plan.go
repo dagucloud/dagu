@@ -326,9 +326,22 @@ func rebindRetryNodesToSteps(nodes []*Node, steps map[string]ir.Step) error {
 		if err != nil {
 			return err
 		}
-		node.SetStep(step)
+		node.SetStep(withOpenedHumanTask(node, step))
 	}
 	return nil
+}
+
+// withOpenedHumanTask keeps the prompt and artifacts an opened human task was
+// presented with, so they stay stable while the task carries across attempts.
+func withOpenedHumanTask(node *Node, step ir.Step) ir.Step {
+	opened := node.Step().HumanTask
+	state := node.State()
+	if step.HumanTask == nil || opened == nil ||
+		(state.Status != ir.NodeWaiting && len(state.HumanTaskInput) == 0) {
+		return step
+	}
+	step.HumanTask = opened
+	return step
 }
 
 func retryStepForNode(node *Node, steps map[string]ir.Step) (ir.Step, error) {

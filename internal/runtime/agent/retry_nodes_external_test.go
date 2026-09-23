@@ -79,6 +79,31 @@ func TestRetryNodesUseRestoredDAGStepDefinition(t *testing.T) {
 	require.Equal(t, 2, state.RetryCount)
 }
 
+func TestRetryNodesKeepOpenedHumanTaskSnapshot(t *testing.T) {
+	t.Parallel()
+
+	sourceStep := ir.Step{
+		Name:      "review",
+		HumanTask: &ir.HumanTaskConfig{Prompt: "Review ${params.target}"},
+	}
+	resolved := &ir.HumanTaskConfig{Prompt: "Review production"}
+	status := &ir.DAGRunStatus{
+		Nodes: []*ir.Node{
+			{
+				Step:   ir.Step{Name: "review", HumanTask: resolved},
+				Status: ir.NodeWaiting,
+			},
+		},
+	}
+
+	nodes, err := agent.RetryNodesForTest(&ir.DAG{Steps: []ir.Step{sourceStep}}, status)
+	require.NoError(t, err)
+	require.Len(t, nodes, 1)
+
+	require.Equal(t, resolved, nodes[0].Step().HumanTask)
+	require.Equal(t, ir.NodeWaiting, nodes[0].State().Status)
+}
+
 func TestRetryNodesRejectMissingRestoredSourceStep(t *testing.T) {
 	t.Parallel()
 

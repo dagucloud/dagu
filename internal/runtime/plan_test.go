@@ -240,6 +240,67 @@ func TestRetryPlan_RebindsStepsFromRestoredDAG(t *testing.T) {
 	require.Equal(t, []string{"CONTAINER_ENV=from-container"}, rebound.Container.Env)
 }
 
+// Opened human tasks keep the prompt and artifacts resolved when they opened;
+// the restored DAG step only holds the unresolved templates.
+func TestRetryPlan_KeepsOpenedHumanTaskSnapshot(t *testing.T) {
+	t.Parallel()
+
+	template := &ir.HumanTaskConfig{
+		Prompt:    "Review ${params.target}",
+		Artifacts: []string{"reports/${params.target}.md"},
+	}
+	resolved := &ir.HumanTaskConfig{
+		Prompt:    "Review production",
+		Artifacts: []string{"reports/production.md"},
+	}
+	dag := &ir.DAG{Steps: []ir.Step{
+		{Name: "waiting", HumanTask: template},
+		{Name: "completed", HumanTask: template},
+	}}
+	waiting := runtime.NodeWithData(runtime.NodeData{
+		Step:  ir.Step{Name: "waiting", HumanTask: resolved},
+		State: runtime.NodeState{Status: ir.NodeWaiting},
+	})
+	completed := runtime.NodeWithData(runtime.NodeData{
+		Step: ir.Step{Name: "completed", HumanTask: resolved},
+		State: runtime.NodeState{
+			Status:         ir.NodeSucceeded,
+			HumanTaskInput: []byte(`{}`),
+		},
+	})
+
+	_, err := runtime.CreateRetryPlan(context.Background(), dag, waiting, completed)
+	require.NoError(t, err)
+
+	require.Equal(t, ir.NodeWaiting, waiting.State().Status)
+	require.Equal(t, resolved, waiting.Step().HumanTask)
+	require.Equal(t, resolved, completed.Step().HumanTask)
+}
+
+func TestRetryPlan_ResetHumanTaskUsesTemplate(t *testing.T) {
+	t.Parallel()
+
+	template := &ir.HumanTaskConfig{Prompt: "Review ${params.target}"}
+	dag := &ir.DAG{Steps: []ir.Step{
+		{Name: "build"},
+		{Name: "review", Depends: []string{"build"}, HumanTask: template},
+	}}
+	review := runtime.NodeWithData(runtime.NodeData{
+		Step: ir.Step{
+			Name:      "review",
+			Depends:   []string{"build"},
+			HumanTask: &ir.HumanTaskConfig{Prompt: "Review production"},
+		},
+		State: runtime.NodeState{Status: ir.NodeWaiting},
+	})
+
+	_, err := runtime.CreateRetryPlan(context.Background(), dag, makeNode("build", ir.NodeFailed), review)
+	require.NoError(t, err)
+
+	require.Equal(t, ir.NodeNotStarted, review.State().Status)
+	require.Equal(t, template, review.Step().HumanTask)
+}
+
 func TestStepRetryPlan_RebindsStepsFromRestoredDAG(t *testing.T) {
 	t.Parallel()
 
