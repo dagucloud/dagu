@@ -7,7 +7,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +18,7 @@ import (
 
 	openapiv1 "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/auth"
+	"github.com/dagucloud/dagu/v2/internal/browserhost"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
@@ -1323,6 +1326,63 @@ func TestApplyAgentInteractionRejectsPermission(t *testing.T) {
 	decision := openapiv1.AgentInteractionResponseRequestDecisionReject
 	require.NoError(t, applyAgentInteractionResponse(t.Context(), node, "permission-1", &openapiv1.AgentInteractionResponseRequest{Decision: &decision}))
 	assert.Equal(t, ir.AgentInteractionRejected, node.AgentSession.Interactions[0].Status)
+}
+
+func TestApplyAgentSessionRestartBrowser(t *testing.T) {
+	t.Parallel()
+
+	node := &ir.Node{
+		Status: ir.NodeWaiting,
+		AgentSession: &ir.AgentSession{
+			Provider: browserhost.AgentProvider, Generation: 1, State: ir.AgentSessionUnavailable,
+			PromptSent:   true,
+			Interactions: []ir.AgentInteraction{{ID: "ask-1-1"}},
+		},
+	}
+
+	require.NoError(t, applyAgentSessionRestart(node))
+	assert.Equal(t, ir.NodeNotStarted, node.Status)
+	assert.Equal(t, 2, node.AgentSession.Generation)
+	assert.Empty(t, node.AgentSession.Interactions)
+	last := node.AgentSession.Events[len(node.AgentSession.Events)-1]
+	assert.Equal(t, "Starting a clean browser session", last.Content)
+}
+
+// A waiting browser step can be answered only while its browser is open,
+// unexpired, and reachable.
+func TestBrowserSessionWaiting(t *testing.T) {
+	t.Parallel()
+
+	devtools := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"webSocketDebuggerUrl":"ws://127.0.0.1/devtools/browser/x"}`)
+	}))
+	t.Cleanup(devtools.Close)
+	closed := httptest.NewServer(http.NotFoundHandler())
+	closed.Close()
+
+	now := time.Now()
+	for _, test := range []struct {
+		name   string
+		record *browserhost.Record
+		want   bool
+	}{
+		{name: "open", record: &browserhost.Record{State: browserhost.StateDetached, Deadline: now.Add(time.Hour), CDPURL: devtools.URL}, want: true},
+		{name: "no record"},
+		{name: "expired", record: &browserhost.Record{State: browserhost.StateDetached, Deadline: now.Add(-time.Minute), CDPURL: devtools.URL}},
+		{name: "unreachable", record: &browserhost.Record{State: browserhost.StateDetached, Deadline: now.Add(time.Hour), CDPURL: closed.URL}},
+		{name: "running", record: &browserhost.Record{State: browserhost.StateRunning, Deadline: now.Add(time.Hour), CDPURL: devtools.URL}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			dataDir := t.TempDir()
+			if test.record != nil {
+				record := *test.record
+				record.ID = browserhost.RecordID("run-1", "login")
+				require.NoError(t, browserhost.NewStore(filepath.Join(dataDir, browserhost.DataDirName)).Save(record))
+			}
+			assert.Equal(t, test.want, browserSessionWaiting(t.Context(), dataDir, "run-1", "login", now))
+		})
+	}
 }
 
 func TestApplyAgentSessionRestartGuards(t *testing.T) {

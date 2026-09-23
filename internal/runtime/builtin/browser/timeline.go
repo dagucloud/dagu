@@ -9,12 +9,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/browserhost"
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // providerName identifies browser steps in agent sessions.
-const providerName = "browser"
+const providerName = browserhost.AgentProvider
 
 // Timeline event types and statuses shown in the step's agent session.
 const (

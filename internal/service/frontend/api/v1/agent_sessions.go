@@ -7,11 +7,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
 	api "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/audit"
+	"github.com/dagucloud/dagu/v2/internal/browserhost"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
@@ -24,6 +26,7 @@ import (
 const (
 	managedAgentOwnerStaleThreshold = 30 * time.Second
 	maxAgentSessionAPIEvents        = 1000
+	openCodeAgentProvider           = "opencode"
 )
 
 var errAgentSessionAlreadyUnavailable = errors.New("managed-agent session is already unavailable")
@@ -171,15 +174,20 @@ func (a *API) requireAgentOwnerAvailable(ctx context.Context, ref ir.DAGRunRef, 
 	if err != nil {
 		return err
 	}
-	workerID := node.AgentSession.OwnerWorkerID
+	session := node.AgentSession
+	label := agentProviderLabel(session.Provider)
+	workerID := session.OwnerWorkerID
 	if workerID == "" || workerID == "local" {
+		if session.Provider == browserhost.AgentProvider {
+			return a.requireLocalBrowserSession(ctx, ref, stepName)
+		}
 		message := "The server that owns this OpenCode session is unavailable; the interaction remains pending"
 		if a.openCodeHost != nil {
 			hostConfig, hostErr := a.openCodeHost.Ensure()
 			if hostErr != nil {
 				return &agentSessionActionError{conflict: true, message: "The managed OpenCode service is temporarily unavailable; the interaction remains pending"}
 			}
-			available, probeErr := opencodehost.SessionAvailable(ctx, hostConfig, node.AgentSession.Directory, node.AgentSession.SessionID)
+			available, probeErr := opencodehost.SessionAvailable(ctx, hostConfig, session.Directory, session.SessionID)
 			if probeErr != nil {
 				return &agentSessionActionError{conflict: true, message: "The managed OpenCode session could not be verified; the interaction remains pending"}
 			}
@@ -190,7 +198,7 @@ func (a *API) requireAgentOwnerAvailable(ctx context.Context, ref ir.DAGRunRef, 
 		_ = a.markAgentSessionUnavailable(ctx, ref, stepName, message)
 		return &agentSessionActionError{conflict: true, message: message}
 	}
-	message := "The worker that owns this OpenCode session is unavailable; the interaction remains pending"
+	message := fmt.Sprintf("The worker that owns this %s session is unavailable; the interaction remains pending", label)
 	if a.workerHeartbeatStore == nil {
 		_ = a.markAgentSessionUnavailable(ctx, ref, stepName, message)
 		return &agentSessionActionError{conflict: true, message: message}
@@ -204,6 +212,53 @@ func (a *API) requireAgentOwnerAvailable(ctx context.Context, ref ir.DAGRunRef, 
 	}
 	_ = a.markAgentSessionUnavailable(ctx, ref, stepName, message)
 	return &agentSessionActionError{conflict: true, message: message}
+}
+
+// requireLocalBrowserSession verifies that the browser a waiting step left
+// open on this host still answers.
+func (a *API) requireLocalBrowserSession(ctx context.Context, ref ir.DAGRunRef, stepName string) error {
+	const message = "The browser waiting for this answer is no longer running; restart the session to run the step again"
+	if browserSessionWaiting(ctx, a.config.Paths.DataDir, ref.ID, stepName, time.Now()) {
+		return nil
+	}
+	_ = a.markAgentSessionUnavailable(ctx, ref, stepName, message)
+	return &agentSessionActionError{conflict: true, message: message}
+}
+
+// browserSessionWaiting reports whether a step's browser is still open and
+// waiting to be resumed.
+func browserSessionWaiting(ctx context.Context, dataDir, dagRunID, stepName string, now time.Time) bool {
+	store := browserhost.NewStore(filepath.Join(dataDir, browserhost.DataDirName))
+	record, err := store.Load(browserhost.RecordID(dagRunID, stepName))
+	return err == nil && record.State == browserhost.StateDetached && now.Before(record.Deadline) &&
+		browserhost.Probe(ctx, record.CDPURL) == nil
+}
+
+// agentSessionProvider returns the provider of a step's agent session.
+func agentSessionProvider(status *ir.DAGRunStatus, stepName string) string {
+	node, err := agentSessionNode(status, stepName)
+	if err != nil {
+		return ""
+	}
+	return node.AgentSession.Provider
+}
+
+// agentProviderLabel names a managed-agent provider in messages.
+func agentProviderLabel(provider string) string {
+	switch provider {
+	case openCodeAgentProvider:
+		return "OpenCode"
+	case "":
+		return "managed-agent"
+	default:
+		return provider
+	}
+}
+
+// agentProviderRestartable reports whether a provider's session can start
+// over in a new generation.
+func agentProviderRestartable(provider string) bool {
+	return provider == openCodeAgentProvider || provider == browserhost.AgentProvider
 }
 
 func (a *API) markAgentSessionUnavailable(ctx context.Context, ref ir.DAGRunRef, stepName, message string) error {
@@ -284,8 +339,9 @@ func (a *API) respondAgentInteraction(ctx context.Context, root ir.DAGRunRef, su
 		if err != nil {
 			_ = a.rollbackPushBack(ctx, mutationRef, applied, original)
 			if isAgentOwnerDispatchUnavailable(err) {
-				_ = a.markAgentSessionUnavailable(ctx, mutationRef, stepName, "The worker that owns this OpenCode session is unavailable")
-				return api.AgentInteractionResponse{}, &agentSessionActionError{conflict: true, message: "The worker that owns this OpenCode session is unavailable; the response remains pending"}
+				label := agentProviderLabel(agentSessionProvider(applied, stepName))
+				_ = a.markAgentSessionUnavailable(ctx, mutationRef, stepName, fmt.Sprintf("The worker that owns this %s session is unavailable", label))
+				return api.AgentInteractionResponse{}, &agentSessionActionError{conflict: true, message: fmt.Sprintf("The worker that owns this %s session is unavailable; the response remains pending", label)}
 			}
 			return api.AgentInteractionResponse{}, fmt.Errorf("resume managed-agent session: %w", err)
 		}
@@ -342,7 +398,7 @@ func (a *API) restartAgentSession(ctx context.Context, root ir.DAGRunRef, subDAG
 	if err != nil {
 		_ = a.rollbackPushBack(ctx, mutationRef, applied, original)
 		if isAgentOwnerDispatchUnavailable(err) {
-			return api.AgentSessionRestartResponse{}, &agentSessionActionError{conflict: true, message: "No eligible worker is available to start a clean OpenCode session"}
+			return api.AgentSessionRestartResponse{}, &agentSessionActionError{conflict: true, message: fmt.Sprintf("No eligible worker is available to start a clean %s session", agentProviderLabel(node.AgentSession.Provider))}
 		}
 		return api.AgentSessionRestartResponse{}, fmt.Errorf("restart managed-agent session: %w", err)
 	}
@@ -472,15 +528,15 @@ func applyAgentSessionRestart(node *ir.Node) error {
 		return errors.New("managed-agent step is still running")
 	}
 	session := node.AgentSession
-	if session.Provider != "opencode" {
-		return errors.New("only managed OpenCode sessions can be restarted")
+	if !agentProviderRestartable(session.Provider) {
+		return fmt.Errorf("%s sessions cannot be restarted", agentProviderLabel(session.Provider))
 	}
 	session.StartNewGeneration()
 	node.ChatMessages = nil
 	node.Status = ir.NodeNotStarted
 	node.Error = ""
 	node.FinishedAt = "-"
-	appendAgentAPIEvent(session, "lifecycle", "restarting", "Starting a clean OpenCode session")
+	appendAgentAPIEvent(session, "lifecycle", "restarting", fmt.Sprintf("Starting a clean %s session", agentProviderLabel(session.Provider)))
 	return nil
 }
 

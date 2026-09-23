@@ -17,6 +17,14 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 )
 
+const (
+	// AgentProvider identifies browser steps in agent sessions.
+	AgentProvider = "browser"
+	// DataDirName is the directory under the Dagu data directory that holds
+	// browser state.
+	DataDirName = "browser"
+)
+
 // State describes who currently holds a browser session.
 type State string
 

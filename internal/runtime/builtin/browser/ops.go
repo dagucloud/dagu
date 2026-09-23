@@ -25,11 +25,10 @@ import (
 )
 
 const (
-	browserDataDirName = "browser"
-	sweepBudget        = 5 * time.Second
-	shutdownTimeout    = 30 * time.Second
-	finalShotLabel     = "final"
-	failureShotLabel   = "failure"
+	sweepBudget      = 5 * time.Second
+	shutdownTimeout  = 30 * time.Second
+	finalShotLabel   = "final"
+	failureShotLabel = "failure"
 )
 
 // statementSchema is the extract schema used to judge when and expect
@@ -88,7 +87,7 @@ func newRun(ctx context.Context, e *browserExecutor) (*run, error) {
 	if err != nil {
 		return nil, err
 	}
-	browserDir := filepath.Join(dataDir, browserDataDirName)
+	browserDir := filepath.Join(dataDir, browserhost.DataDirName)
 	r := &run{
 		exec:      e,
 		cfg:       e.cfg,

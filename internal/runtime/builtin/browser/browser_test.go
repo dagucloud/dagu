@@ -97,7 +97,7 @@ func (r *testRun) context() context.Context {
 
 func (r *testRun) records() []browserhost.Record {
 	r.t.Helper()
-	records, err := browserhost.NewStore(filepath.Join(r.dataDir, browserDataDirName)).List()
+	records, err := browserhost.NewStore(filepath.Join(r.dataDir, browserhost.DataDirName)).List()
 	require.NoError(r.t, err)
 	return records
 }
@@ -312,7 +312,7 @@ func TestAskAnswerAfterBrowserExpired(t *testing.T) {
 	waiting := run.execute(loginSteps, nil)
 	require.NoError(t, waiting.err)
 	for _, record := range run.records() {
-		require.NoError(t, os.Remove(filepath.Join(run.dataDir, browserDataDirName, "sessions", record.ID+".json")))
+		require.NoError(t, os.Remove(filepath.Join(run.dataDir, browserhost.DataDirName, "sessions", record.ID+".json")))
 	}
 
 	session := waiting.exec.GetAgentSession()
