@@ -205,7 +205,7 @@ Complete the task from a local CLI context with `dagu human-task complete --run-
 
 Load only the file you need:
 
-- `references/steptypes.md` when choosing an action or checking action-specific behavior such as `human.task`, `dag.run`, `parallel`, `git.worktree.*`, `jq.filter`, `file.*`, `state.*`, or `template.render`
+- `references/steptypes.md` when choosing an action or checking action-specific behavior such as `human.task`, `dag.run`, `parallel`, `git.worktree.*`, `jq.filter`, `file.*`, `state.*`, `template.render`, or `browser.*`
 - `references/dagu-action.md` when creating a reusable `dagu-action.yaml` package or checking action input/output schema behavior
 - `references/cli.md` when choosing or using Dagu CLI commands, including workflow inspection, execution, and cleanup operations
 - `references/context.md` when using `${context.*}` metadata references or declared step `outputs:`

@@ -208,7 +208,7 @@ Complete the task from a local CLI context with `dagu human-task complete --run-
 
 Load only the file you need:
 
-- `references/steptypes.md` when choosing an action or checking action-specific behavior such as `human.task`, `dag.run`, `parallel`, `git.worktree.*`, `jq.filter`, `file.*`, `state.*`, or `template.render`
+- `references/steptypes.md` when choosing an action or checking action-specific behavior such as `human.task`, `dag.run`, `parallel`, `git.worktree.*`, `jq.filter`, `file.*`, `state.*`, `template.render`, or `browser.*`
 - `references/dagu-action.md` when creating a reusable `dagu-action.yaml` package or checking action input/output schema behavior
 - `references/cli.md` when choosing or using Dagu CLI commands, including workflow inspection, execution, and cleanup operations
 - `references/context.md` when using `${context.*}` metadata references or declared step `outputs:`
@@ -954,6 +954,63 @@ Container support:
 - `with.stdin` and custom `prompt_mode: stdin` are rejected for containerized harness steps.
 - Do not set `container.name` for step-level image-mode harness steps. Use `container.exec` when the step must run inside an existing container.
 - Docker or Podman is selected by the Dagu service process, not by a DAG YAML field.
+
+## browser.extract / browser.run
+
+Automate a website in a local Chrome with natural-language operations. The model comes from the DAG-level `llm` block, or `with.llm`, which replaces it entirely. Chrome or Chromium must be installed on the host that runs the step (`browser.executable` or `CHROME_PATH` selects it).
+
+```yaml
+llm:
+  provider: anthropic
+  model: claude-sonnet-5
+
+steps:
+  - id: hn
+    action: browser.extract
+    with:
+      url: https://news.ycombinator.com
+      instruction: The top 5 stories
+      schema:
+        type: object
+        properties:
+          stories: {type: array}
+
+  - id: invoice
+    action: browser.run
+    with:
+      url: https://portal.example.com/billing
+      browser:
+        profile: vendor
+        allowed_domains: [portal.example.com]
+      variables:
+        user: ${VENDOR_USER}
+        password: ${VENDOR_PASSWORD}
+      do:
+        - act: Sign in with %user% and %password%
+          when: A login form is visible
+        - expect: The billing page lists at least one invoice
+        - extract:
+            instruction: The latest invoice
+            schema:
+              type: object
+              properties:
+                invoice_number: {type: string}
+        - act: Download the latest invoice PDF
+
+  - id: book
+    depends: invoice
+    run: ./book.sh "${steps.invoice.outputs.invoice_number}"
+```
+
+Browser behavior:
+
+- Each `do` item sets exactly one of `goto`, `act`, `extract`, `expect`, `wait` (`selector` or `duration`), `screenshot`, or `ask`, plus optional `when` (skip unless true) and `timeout`.
+- Put secrets in `variables` and reference them as `%name%`; the browser gets the value, the model only the name. An instruction containing a secret value fails the step. Do not write `${SECRET}` inside an instruction.
+- The top-level properties of each `extract` schema become `${steps.<id>.outputs.<name>}`. The same property in two extracts is a validation error.
+- `expect` fails the step when the statement is false.
+- Successful `act` operations are replayed on later runs without a model call; set `cache: false` on the step or on one `act` to always ask the model.
+- `ask: {prompt, as}` puts the step in Waiting until someone answers in the Web UI; the answer becomes `%<as>%`. Use it for short-lived codes; answers are stored in run history.
+- Screenshots (on failure and at the end by default) and downloads are stored under `browser/<step id>/` in the run artifacts.
 
 ## router.route
 
