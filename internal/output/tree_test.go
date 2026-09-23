@@ -220,6 +220,36 @@ func TestRenderDAGStatus_WaitingHumanTask(t *testing.T) {
 	assert.Contains(t, output, `form: {"type":"object","additionalProperties":false}`)
 }
 
+func TestRenderDAGStatus_WaitingHumanTaskPushBack(t *testing.T) {
+	t.Parallel()
+
+	dag := &ir.DAG{Name: "deploy"}
+	status := &ir.DAGRunStatus{
+		Name:   "deploy",
+		Status: ir.Waiting,
+		Nodes: []*ir.Node{{
+			Step: ir.Step{
+				ID:   "review",
+				Name: "review",
+				HumanTask: &ir.HumanTaskConfig{
+					Prompt: "Review the change",
+					PushBack: &ir.HumanTaskPushBackConfig{
+						RewindTo: "implement",
+						Form:     []byte(`{"type":"object","additionalProperties":false}`),
+					},
+				},
+			},
+			Status:            ir.NodeWaiting,
+			ApprovalIteration: 2,
+		}},
+	}
+
+	output := newTestRenderer().RenderDAGStatus(dag, status)
+	assert.Contains(t, output, "push back: rewind to implement")
+	assert.Contains(t, output, `push-back form: {"type":"object","additionalProperties":false}`)
+	assert.Contains(t, output, "push-back iteration: 2")
+}
+
 func TestRenderDAGStatus_WaitingHumanTaskPreservesResolvedPromptAndUTF8(t *testing.T) {
 	t.Parallel()
 

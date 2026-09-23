@@ -5,6 +5,7 @@ package output
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -266,6 +267,15 @@ func (r *Renderer) renderHumanTask(node *ir.Node, isLastSection bool, prefix str
 	}
 	if len(node.Step.HumanTask.Form) > 0 {
 		details = append(details, "form: "+string(node.Step.HumanTask.Form))
+	}
+	if pushBack := node.Step.HumanTask.PushBack; pushBack != nil {
+		details = append(details, "push back: rewind to "+pushBack.RewindTo)
+		if len(pushBack.Form) > 0 {
+			details = append(details, "push-back form: "+string(pushBack.Form))
+		}
+	}
+	if node.ApprovalIteration > 0 {
+		details = append(details, "push-back iteration: "+strconv.Itoa(node.ApprovalIteration))
 	}
 
 	var buf strings.Builder

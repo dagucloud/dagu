@@ -35,6 +35,20 @@ func TestHumanTaskCommandStructure(t *testing.T) {
 	assert.NotNil(t, complete.Flags().Lookup(humanTaskFlagInputsJSON))
 	assert.NotNil(t, complete.Flags().Lookup(humanTaskRunIDFlag.name))
 	assert.NotNil(t, complete.Flags().Lookup(humanTaskStepFlag.name))
+
+	pushBack, _, err := command.Find([]string{"push-back"})
+	require.NoError(t, err)
+	assert.Equal(t, "push-back", pushBack.Name())
+	assert.Equal(t, commandScopeLocalOnly, scopeForCommand(pushBack.Name()))
+	for _, name := range []string{
+		humanTaskFlagInput,
+		humanTaskFlagInputsJSON,
+		humanTaskFlagExpectedIteration,
+		humanTaskRunIDFlag.name,
+		humanTaskPushBackStepFlag.name,
+	} {
+		assert.NotNil(t, pushBack.Flags().Lookup(name), name)
+	}
 }
 
 func TestParseHumanTaskCompletionInput(t *testing.T) {
@@ -307,6 +321,123 @@ func TestRunHumanTaskCompleteEnforcesSavedDAGOutputSize(t *testing.T) {
 	assert.Empty(t, fixture.queue.enqueued)
 }
 
+func TestRunHumanTaskPushBackQueuesResume(t *testing.T) {
+	fixture := newHumanTaskPushBackFixture(t)
+	require.NoError(t, fixture.command.Flags().Set(humanTaskFlagInput, "feedback=add tests"))
+	require.NoError(t, fixture.command.Flags().Set(humanTaskFlagExpectedIteration, "0"))
+
+	err := runHumanTaskPushBackWith(fixture.ctx, []string{"human-task-test"}, fixture.deps())
+	require.NoError(t, err)
+	assert.Equal(t, "Pushed back human task review to implement; DAG-run queued for resume.\n", fixture.output.String())
+	assert.Empty(t, fixture.errorOutput.String())
+	assert.Equal(t, []ir.DAGRunRef{fixture.status.DAGRun()}, fixture.queue.enqueued)
+
+	implement := fixture.status.Nodes[0]
+	assert.Equal(t, ir.NodeNotStarted, implement.Status)
+	assert.Equal(t, map[string]string{"feedback": "add tests"}, implement.PushBackInputs)
+	assert.Equal(t, []ir.PushBackEntry{{
+		Iteration: 1, By: "local-operator", ByID: "os:501", At: "2026-07-20T01:02:03Z",
+		Inputs: map[string]string{"feedback": "add tests"},
+	}}, implement.PushBackHistory)
+	assert.Equal(t, ir.NodeNotStarted, fixture.status.Nodes[1].Status)
+}
+
+func TestRunHumanTaskPushBackReportsResumeState(t *testing.T) {
+	t.Run("AlreadyQueued", func(t *testing.T) {
+		fixture := newHumanTaskPushBackFixture(t)
+		require.NoError(t, fixture.command.Flags().Set(humanTaskFlagInput, "feedback=add tests"))
+		compareAndSwapCalls := 0
+		fixture.store.beforeMutate = func() {
+			compareAndSwapCalls++
+			if compareAndSwapCalls == 2 {
+				fixture.status.Status = ir.Queued
+			}
+		}
+
+		err := runHumanTaskPushBackWith(fixture.ctx, []string{"human-task-test"}, fixture.deps())
+		require.NoError(t, err)
+		assert.Equal(t, "Pushed back human task review to implement; DAG-run was already queued for resume.\n", fixture.output.String())
+	})
+
+	// A failed step elsewhere keeps the run waiting until the other task is resolved.
+	t.Run("RemainsWaiting", func(t *testing.T) {
+		fixture := newHumanTaskPushBackFixture(t)
+		require.NoError(t, fixture.command.Flags().Set(humanTaskFlagInput, "feedback=add tests"))
+		fixture.status.Nodes = append(fixture.status.Nodes,
+			&ir.Node{Step: ir.Step{ID: "lint", Name: "lint"}, Status: ir.NodeFailed},
+			&ir.Node{Step: ir.Step{ID: "approval", Name: "Approval"}, Status: ir.NodeWaiting},
+		)
+
+		err := runHumanTaskPushBackWith(fixture.ctx, []string{"human-task-test"}, fixture.deps())
+		require.NoError(t, err)
+		assert.Equal(t, "Pushed back human task review to implement; DAG-run remains waiting.\n", fixture.output.String())
+		assert.Empty(t, fixture.queue.enqueued)
+		assert.Equal(t, ir.Waiting, fixture.status.Status)
+	})
+}
+
+func TestRunHumanTaskPushBackRejectsStaleExpectedIteration(t *testing.T) {
+	fixture := newHumanTaskPushBackFixture(t)
+	require.NoError(t, fixture.command.Flags().Set(humanTaskFlagInput, "feedback=add tests"))
+	require.NoError(t, fixture.command.Flags().Set(humanTaskFlagExpectedIteration, "1"))
+
+	err := runHumanTaskPushBackWith(fixture.ctx, []string{"human-task-test"}, fixture.deps())
+	require.Error(t, err)
+	assert.ErrorContains(t, err, `human task step "review" is at push-back iteration 0, not 1`)
+	assert.Empty(t, fixture.output.String())
+	assert.Equal(t, ir.NodeSucceeded, fixture.status.Nodes[0].Status)
+	assert.Empty(t, fixture.queue.enqueued)
+}
+
+func TestRunHumanTaskPushBackUndoesWhenEnqueueFails(t *testing.T) {
+	fixture := newHumanTaskPushBackFixture(t)
+	require.NoError(t, fixture.command.Flags().Set(humanTaskFlagInput, "feedback=add tests"))
+	fixture.queue.enqueueErrors = []error{errors.New("queue unavailable")}
+
+	err := runHumanTaskPushBackWith(fixture.ctx, []string{"human-task-test"}, fixture.deps())
+	require.Error(t, err)
+	var queueFailure *humantask.PushBackQueueError
+	require.ErrorAs(t, err, &queueFailure)
+	assert.ErrorContains(t, err, `push-back of human task "review" was not applied`)
+	assert.ErrorContains(t, err, "could not be queued for resume")
+	assert.ErrorContains(t, err, "run the same command again to retry")
+	assert.Empty(t, fixture.output.String())
+	assert.Equal(t, ir.Waiting, fixture.status.Status)
+	assert.Equal(t, ir.NodeSucceeded, fixture.status.Nodes[0].Status)
+	assert.Equal(t, ir.NodeWaiting, fixture.status.Nodes[1].Status)
+	assert.Zero(t, fixture.status.Nodes[1].ApprovalIteration)
+}
+
+func TestRunHumanTaskPushBackRejectsRemoteContext(t *testing.T) {
+	fixture := newHumanTaskPushBackFixture(t)
+	fixture.ctx.ContextName = "production"
+	fixture.ctx.Remote = &remoteClient{}
+
+	err := runHumanTaskPushBackWith(fixture.ctx, []string{"human-task-test"}, fixture.deps())
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "human-task push-back only supports the local context")
+}
+
+func TestParseHumanTaskExpectedIteration(t *testing.T) {
+	command := humanTaskPushBackCommand()
+	iteration, err := parseHumanTaskExpectedIteration(command)
+	require.NoError(t, err)
+	assert.Nil(t, iteration)
+
+	require.NoError(t, command.Flags().Set(humanTaskFlagExpectedIteration, "2"))
+	iteration, err = parseHumanTaskExpectedIteration(command)
+	require.NoError(t, err)
+	require.NotNil(t, iteration)
+	assert.Equal(t, 2, *iteration)
+
+	for _, value := range []string{"-1", "one", ""} {
+		command := humanTaskPushBackCommand()
+		require.NoError(t, command.Flags().Set(humanTaskFlagExpectedIteration, value))
+		_, err := parseHumanTaskExpectedIteration(command)
+		assert.ErrorContains(t, err, "--expected-iteration must be a non-negative integer", value)
+	}
+}
+
 type humanTaskCompleteFixture struct {
 	command     *cobra.Command
 	ctx         *Context
@@ -379,6 +510,32 @@ func newHumanTaskCompleteFixture(t *testing.T, form json.RawMessage, anotherWait
 		output:      output,
 		errorOutput: errorOutput,
 	}
+}
+
+// newHumanTaskPushBackFixture builds implement -> Review, where Review rewinds
+// to implement with a required feedback property.
+func newHumanTaskPushBackFixture(t *testing.T) *humanTaskCompleteFixture {
+	t.Helper()
+	fixture := newHumanTaskCompleteFixture(t, nil, false)
+	review := fixture.status.Nodes[0]
+	review.Step.Depends = []string{"implement"}
+	review.Step.HumanTask.PushBack = &ir.HumanTaskPushBackConfig{
+		RewindTo: "implement",
+		Form:     json.RawMessage(`{"type":"object","properties":{"feedback":{"type":"string"}},"required":["feedback"],"additionalProperties":false}`),
+	}
+	fixture.status.Nodes = []*ir.Node{
+		{Step: ir.Step{ID: "implement", Name: "implement"}, Status: ir.NodeSucceeded},
+		review,
+	}
+
+	command := humanTaskPushBackCommand()
+	require.NoError(t, command.Flags().Set(humanTaskRunIDFlag.name, "run-1"))
+	require.NoError(t, command.Flags().Set(humanTaskPushBackStepFlag.name, "review"))
+	command.SetOut(fixture.output)
+	command.SetErr(fixture.errorOutput)
+	fixture.command = command
+	fixture.ctx.Command = command
+	return fixture
 }
 
 func (*humanTaskCompleteFixture) deps() humanTaskCompleteDeps {

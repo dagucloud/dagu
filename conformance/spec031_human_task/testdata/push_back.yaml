@@ -1,0 +1,23 @@
+name: spec031_push_back
+working_dir: .
+steps:
+  - id: implement
+    run: printf '%s:%s\n' "$DAG_PUSHBACK_ITERATION" "$feedback" >> attempts.txt
+
+  - id: review
+    depends: implement
+    action: human.task
+    with:
+      prompt: Review the implementation
+      push_back:
+        rewind_to: implement
+        form:
+          type: object
+          required: [feedback]
+          properties:
+            feedback:
+              type: string
+
+  - id: publish
+    depends: review
+    run: printf 'published\n' > published.txt

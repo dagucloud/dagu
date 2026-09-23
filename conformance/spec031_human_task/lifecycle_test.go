@@ -265,6 +265,47 @@ func TestPreconditionSkipAndDryRun(t *testing.T) {
 	dagu.ExpectNoFile("snapshot.txt")
 }
 
+// A push-back re-runs the rewind target with the feedback, reopens the task
+// at the next iteration, rejects a request made for the earlier review, and
+// lets completion finish the run once.
+func TestPushBackReviewLoop(t *testing.T) {
+	dagu := harness.NewRunner(t)
+	env := sharedEnv(t)
+	const runID = "spec031-review"
+	const file = "push_back.yaml"
+
+	startWaiting(t, dagu, env, runID, file)
+	waitForFileContent(t, dagu.ProjectPath("attempts.txt"), ":\n")
+	status := waitForStatus(t, dagu, env, runID, file, "Waiting")
+	require.Contains(t, status.Stdout(), "push back: rewind to implement")
+	require.Contains(t, collapseStatusLines(status.Stdout()), `"feedback":{"type":"string"}`)
+	status.ExpectStdoutNotContains("push-back iteration")
+
+	result := pushBack(t, dagu, env, runID, "review", file, "--input=feedback=add-tests", "--expected-iteration=0")
+	result.ExpectExitCode(0)
+	result.ExpectStdout("Pushed back human task review to implement; DAG-run queued for resume.\n")
+	result.ExpectStderr("")
+
+	waitForFileContent(t, dagu.ProjectPath("attempts.txt"), ":\n1:add-tests\n")
+	status = waitForStatus(t, dagu, env, runID, file, "push-back iteration: 1")
+	require.Contains(t, status.Stdout(), "Waiting")
+	dagu.ExpectNoFile("published.txt")
+
+	stale := pushBack(t, dagu, env, runID, "review", file, "--input=feedback=again", "--expected-iteration=0")
+	stale.ExpectNonZeroExitCode()
+	stale.ExpectStdout("")
+	stale.ExpectStderrContains("review", "iteration 1")
+
+	done := complete(t, dagu, env, runID, "review", file)
+	done.ExpectExitCode(0)
+	done.ExpectStdout("Completed human task review; DAG-run queued for resume.\n")
+	done.ExpectStderr("")
+
+	waitForStatus(t, dagu, env, runID, file, "Succeeded")
+	waitForFileContent(t, dagu.ProjectPath("published.txt"), "published\n")
+	waitForFileContent(t, dagu.ProjectPath("attempts.txt"), ":\n1:add-tests\n")
+}
+
 func collapseStatusLines(stdout string) string {
 	var result strings.Builder
 	for line := range strings.SplitSeq(stdout, "\n") {

@@ -59,6 +59,14 @@ func complete(t *testing.T, dagu *harness.Runner, env []string, runID, step, fil
 	return dagu.RunWithEnv(env, args...)
 }
 
+func pushBack(t *testing.T, dagu *harness.Runner, env []string, runID, step, file string, inputs ...string) *harness.Result {
+	t.Helper()
+	args := []string{"human-task", "push-back", "--run-id=" + runID, "--step=" + step}
+	args = append(args, inputs...)
+	args = append(args, fixtureDAGName(file))
+	return dagu.RunWithEnv(env, args...)
+}
+
 func fixtureDAGName(file string) string {
 	base := strings.TrimSuffix(filepath.Base(file), filepath.Ext(file))
 	return "spec031_" + base
