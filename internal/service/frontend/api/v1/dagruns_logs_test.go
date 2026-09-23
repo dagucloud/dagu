@@ -210,20 +210,44 @@ func TestLogFileDownload(t *testing.T) {
 		_ = response.VisitDownloadDAGRunStepLogResponse(w)
 	}))
 	defer server.Close()
-	// Transfer time depends on the runner, so only the test deadline bounds the
-	// download; a client timeout would fail a complete but slow transfer.
-	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL, nil)
+	// Transfer time depends on the runner, so the download is cancelled only
+	// when it stops making progress; a total timeout would fail a complete but
+	// slow transfer.
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	stalled := time.AfterFunc(logDownloadStallTimeout, cancel)
+	defer stalled.Stop()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL, nil)
 	require.NoError(t, err)
 	resp, err := server.Client().Do(request)
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, "text/plain", resp.Header.Get("Content-Type"))
 	require.Equal(t, `attachment; filename="run-step-stdout.log"`, resp.Header.Get("Content-Disposition"))
-	_, err = io.CopyN(io.Discard, resp.Body, size-int64(len(tail)))
+	body := progressReader{Reader: resp.Body, progress: func() { stalled.Reset(logDownloadStallTimeout) }}
+	_, err = io.CopyN(io.Discard, body, size-int64(len(tail)))
 	require.NoError(t, err)
-	got, err := io.ReadAll(resp.Body)
+	got, err := io.ReadAll(body)
 	require.NoError(t, err)
 	require.Equal(t, tail, got)
+}
+
+// logDownloadStallTimeout is how long a download may go without receiving any
+// bytes before the test treats it as stalled.
+const logDownloadStallTimeout = 30 * time.Second
+
+// progressReader calls progress whenever a read returns data.
+type progressReader struct {
+	io.Reader
+	progress func()
+}
+
+func (r progressReader) Read(p []byte) (int, error) {
+	n, err := r.Reader.Read(p)
+	if n > 0 {
+		r.progress()
+	}
+	return n, err
 }
 
 // blockedReader yields no data until release closes or ctx ends.
