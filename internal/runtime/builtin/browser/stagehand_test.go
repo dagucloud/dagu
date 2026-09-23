@@ -331,4 +331,10 @@ func TestStagehandPageChecks(t *testing.T) {
 	visible, err = eng.SelectorVisible(t.Context(), `#missing, [data-x="1"]`)
 	require.NoError(t, err)
 	assert.False(t, visible)
+
+	// The first match is hidden; a later one is visible.
+	require.NoError(t, eng.Goto(t.Context(), `data:text/html,<p class="row" style="display:none">a</p><p class="row">b</p>`, time.Minute))
+	visible, err = eng.SelectorVisible(t.Context(), ".row")
+	require.NoError(t, err)
+	assert.True(t, visible)
 }

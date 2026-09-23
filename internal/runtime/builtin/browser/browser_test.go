@@ -565,3 +565,20 @@ func TestDownloadWaitTimeouts(t *testing.T) {
 	]}`, nil).err)
 	assert.Empty(t, extractOnly.engine.downloadWaits)
 }
+
+// A fixed when with a within window keeps reading a page that is still
+// loading instead of skipping the operation on the first look.
+func TestFixedWhenWaitsWithin(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		run.engine.setPageText("Enter the verification code")
+	}()
+	execution := run.execute(`{"do": [
+		{"act": "Open the code form", "when": {"text": "verification code", "within": "5s"}}
+	]}`, nil)
+	require.NoError(t, execution.err)
+	assert.Equal(t, []string{"Open the code form"}, run.engine.actInstructions())
+}

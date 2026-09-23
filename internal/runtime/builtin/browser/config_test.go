@@ -90,6 +90,11 @@ func TestValidateStep(t *testing.T) {
 			want: "invalid browser config",
 		},
 		{
+			name: "invalid within",
+			with: `{"do":[{"act":"a","when":{"text":"b","within":"soon"}}]}`,
+			want: `within "soon" must be a positive duration`,
+		},
+		{
 			name: "empty condition",
 			with: `{"do":[{"act":"a","when":{}}]}`,
 			want: "invalid browser config",

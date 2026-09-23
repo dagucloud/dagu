@@ -150,6 +150,13 @@ func (e *fakeEngine) CurrentURL(context.Context) (string, error) {
 	return e.url, nil
 }
 
+// setPageText changes the page text while a step runs.
+func (e *fakeEngine) setPageText(text string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.pageText = text
+}
+
 func (e *fakeEngine) PageText(context.Context) (string, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()

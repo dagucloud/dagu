@@ -398,6 +398,7 @@ func conditionSchema() *jsonschema.Schema {
 				"text":     nonEmptyString(),
 				"selector": nonEmptyString(),
 				"url":      nonEmptyString(),
+				"within":   stringSchema(),
 			},
 			OneOf: []*jsonschema.Schema{
 				{Required: []string{"text"}},

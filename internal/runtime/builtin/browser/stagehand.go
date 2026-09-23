@@ -29,14 +29,12 @@ const telemetryPath = "/v1/traces"
 const pageTextExpression = `document.body ? document.body.innerText : ""`
 
 // selectorVisibleExpression reports whether the selector, a JSON string
-// literal substituted for %s, matches a rendered, visible element.
-const selectorVisibleExpression = `(() => {
-	const element = document.querySelector(%s);
-	if (!element) return false;
+// literal substituted for %s, matches any rendered, visible element.
+const selectorVisibleExpression = `Array.from(document.querySelectorAll(%s)).some((element) => {
 	const box = element.getBoundingClientRect();
 	const style = getComputedStyle(element);
 	return box.width > 0 && box.height > 0 && style.visibility !== "hidden" && style.display !== "none";
-})()`
+})`
 
 var errImageInput = errors.New("browser: image input to the model is not supported")
 

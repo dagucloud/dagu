@@ -146,7 +146,7 @@ func (r *run) execute(ctx context.Context) error {
 		op := r.cfg.Do[i]
 		if op.When != nil {
 			began, before := time.Now(), r.bridge.totals()
-			holds, reason, err := r.evaluate(ctx, *op.When, op.timeout())
+			holds, reason, err := r.await(ctx, *op.When, op.When.window(0), op.timeout())
 			if err != nil {
 				return r.fail(ctx, i, op.kind(), fmt.Errorf("evaluate when: %w", err))
 			}
@@ -466,29 +466,38 @@ func (r *run) extract(ctx context.Context, index int, spec extractSpec, timeout 
 	return nil
 }
 
-// expect fails unless the condition holds. A fixed check is retried until
-// the timeout, because the page may still be updating.
+// expect fails unless the condition holds. A fixed check keeps reading the
+// page until its within window or the operation timeout, because the page
+// may still be updating.
 func (r *run) expect(ctx context.Context, index int, c condition, timeout time.Duration) error {
 	began, before := time.Now(), r.bridge.totals()
-	deadline := began.Add(timeout)
+	holds, reason, err := r.await(ctx, c, c.window(timeout), timeout)
+	if err != nil {
+		return err
+	}
+	if !holds {
+		return fmt.Errorf("expectation not met: %s", reason)
+	}
+	r.report(ctx, operationReport{
+		index: index, kind: opExpect, subject: c.String(), status: statusCompleted, detail: reason,
+		tokens: r.bridge.totals().sub(before).total(), duration: time.Since(began),
+	})
+	return nil
+}
+
+// await evaluates a condition. The model judges a statement once; a fixed
+// check is read repeatedly until it holds or window passes. A zero window
+// reads the page once.
+func (r *run) await(ctx context.Context, c condition, window, timeout time.Duration) (bool, string, error) {
+	deadline := time.Now().Add(window)
 	for {
 		holds, reason, err := r.evaluate(ctx, c, timeout)
-		if err != nil {
-			return err
-		}
-		if holds {
-			r.report(ctx, operationReport{
-				index: index, kind: opExpect, subject: c.String(), status: statusCompleted, detail: reason,
-				tokens: r.bridge.totals().sub(before).total(), duration: time.Since(began),
-			})
-			return nil
-		}
-		if c.judged() || !time.Now().Before(deadline) {
-			return fmt.Errorf("expectation not met: %s", reason)
+		if err != nil || holds || c.judged() || !time.Now().Before(deadline) {
+			return holds, reason, err
 		}
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return false, "", ctx.Err()
 		case <-time.After(conditionPollInterval):
 		}
 	}

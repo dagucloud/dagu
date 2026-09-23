@@ -7209,6 +7209,10 @@
               "type": "string",
               "minLength": 1,
               "description": "Holds when the current page URL contains this text."
+            },
+            "within": {
+              "type": "string",
+              "description": "How long to keep reading the page before deciding, such as 10s. A when check reads once by default; an expect check reads until the operation timeout."
             }
           },
           "description": "Fixed check that reads the page without a model call."

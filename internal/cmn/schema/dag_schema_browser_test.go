@@ -49,7 +49,7 @@ steps:
         - expect: {text: Invoice}
           when: {url: /billing}
         - act: Open the invoice
-          when: {selector: "#invoice"}
+          when: {selector: "#invoice", within: 5s}
         - extract:
             instruction: The latest invoice
             schema: {type: object, properties: {invoice_number: {type: string}}}

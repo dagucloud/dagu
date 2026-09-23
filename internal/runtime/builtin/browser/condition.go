@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 )
 
 // condition is the value of expect or when: a statement the model judges,
@@ -20,6 +21,9 @@ type condition struct {
 	Selector string `json:"selector,omitempty"`
 	// URL holds when the current page URL contains it.
 	URL string `json:"url,omitempty"`
+	// Within is how long a fixed check keeps reading the page before it
+	// gives up, such as 10s.
+	Within string `json:"within,omitempty"`
 }
 
 // UnmarshalJSON accepts a statement string or a fixed check object.
@@ -48,7 +52,16 @@ func (c condition) validate() error {
 	if set != 1 {
 		return errors.New("a condition is a statement, or an object with exactly one of text, selector, or url")
 	}
-	return nil
+	return validateDuration("within", c.Within)
+}
+
+// window returns how long a fixed check keeps reading the page, or fallback
+// when within is unset.
+func (c condition) window(fallback time.Duration) time.Duration {
+	if d, err := time.ParseDuration(c.Within); err == nil && d > 0 {
+		return d
+	}
+	return fallback
 }
 
 // String describes the condition for logs and the timeline.
