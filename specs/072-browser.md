@@ -59,8 +59,11 @@ A condition is either:
   `selector` (a CSS selector matches a visible element), or `url` (the current
   URL contains it). These fixed checks read the page and make no model request.
 
-A fixed `expect` is retried until the operation timeout. A model-judged
-`expect` is asked once.
+A fixed check may set `within`, a duration during which it keeps reading the
+page until it holds. A fixed `when` reads the page once unless `within` is set;
+a fixed `expect` keeps reading until `within`, or the operation timeout when
+`within` is unset. A model-judged condition is asked once. A `selector` check
+holds when any matching element is visible.
 
 ### Model
 
@@ -108,15 +111,16 @@ those outputs. Operation progress is written to stderr.
 
 ### Allowed domains
 
-`allowed_domains` limits every request the page makes, including scripts,
-images, and API calls, not only navigation. `example.com` matches only that
-host; `*.example.com` matches its subdomains but not `example.com`. An entry
-with a scheme, port, or path, a `*` other than a leading `*.`, or fewer than two
-labels fails validation.
+The browser runtime applies `allowed_domains` to the page's HTTP(S) requests,
+including scripts, images, and API calls, so a site's CDN and sign-in hosts
+must be listed. WebSocket connections are not covered, and the runtime's check
+can be bypassed. `example.com` matches only that host; `*.example.com` matches
+its subdomains but not `example.com`. An entry with a scheme, port, or path, a
+`*` other than a leading `*.`, or fewer than two labels fails validation.
 
-A `goto` or `with.url` outside the list fails before navigating. After the start
-URL and after every operation the step checks the current page again and fails
-when a redirect or an action left the allowed domains. Pages without a network
+Dagu itself checks only the page URL: a `goto` or `with.url` outside the list
+fails before navigating, and after the start URL and after every operation the
+step fails when a redirect or an action left the allowed domains. Pages without a network
 host, such as `about:blank`, are not checked.
 
 ### Artifacts
@@ -138,11 +142,12 @@ operation fails, and the browser refuses downloads.
 ### Downloads
 
 Files the page downloads are saved under `browser/<step id>/downloads/` with
-the name the site suggests, made unique within the directory. After every
-operation the step waits for running downloads, up to that operation's
-timeout. Before the step ends, and before it pauses for an `ask`, it also waits
-a few seconds for a download to begin. A canceled download, or one still
-running at the timeout, fails the step.
+the name the site suggests, made unique within the directory. Only `act` and
+`goto` operations start downloads. Once one has run, the step waits for running
+downloads after every operation, and before it ends or pauses for an `ask` it
+also waits a few seconds for a download to begin. A download may run for the
+longest timeout of the acts and gotos run so far. A canceled download, or one
+still running at that timeout, fails the step.
 
 ### Replay cache
 
@@ -206,7 +211,8 @@ steps:
     with:
       url: https://shop.example.com/cart
       browser:
-        allowed_domains: [shop.example.com]
+        # Every host the site loads from, including CDNs.
+        allowed_domains: ["*.example.com"]
       variables:
         coupon: ${SHOP_COUPON}
       do:
