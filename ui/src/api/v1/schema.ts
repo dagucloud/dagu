@@ -1061,7 +1061,7 @@ export interface paths {
         put?: never;
         /**
          * Complete a waiting human task
-         * @description Validates typed input against the stored human-task form, completes the step atomically, and queues the same DAG-run when no manual steps remain waiting.
+         * @description Validates typed input against the stored human-task form, completes the step atomically, and queues the same DAG-run when the completion unblocks a step or no manual steps remain waiting.
          */
         post: operations["completeHumanTask"];
         delete?: never;

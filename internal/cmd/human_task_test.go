@@ -182,6 +182,21 @@ func TestRunHumanTaskCompleteLeavesRunWaitingForAnotherStep(t *testing.T) {
 	assert.Contains(t, fixture.output.String(), "remains waiting")
 }
 
+func TestRunHumanTaskCompleteResumesUnblockedStepWhileAnotherWaits(t *testing.T) {
+	fixture := newHumanTaskCompleteFixture(t, nil, true)
+	fixture.status.Nodes = append(fixture.status.Nodes, &ir.Node{
+		Step:   ir.Step{ID: "after", Name: "After", Depends: []string{"Review"}},
+		Status: ir.NodeNotStarted,
+	})
+
+	err := runHumanTaskCompleteWith(fixture.ctx, []string{"human-task-test"}, fixture.deps())
+
+	require.NoError(t, err)
+	assert.Len(t, fixture.queue.enqueued, 1)
+	assert.Equal(t, ir.NodeWaiting, fixture.status.Nodes[1].Status)
+	assert.Equal(t, "Completed human task review; DAG-run queued for resume.\n", fixture.output.String())
+}
+
 func TestRunHumanTaskCompleteIsIdempotentForSameCanonicalInput(t *testing.T) {
 	fixture := newHumanTaskCompleteFixture(t, nil, false)
 	node := fixture.status.Nodes[0]
