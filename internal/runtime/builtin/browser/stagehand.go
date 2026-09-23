@@ -1,0 +1,372 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package browser
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
+
+	stagehand "github.com/browserbase/stagehand/packages/sdk-go/v4"
+	"github.com/dagucloud/dagu/v2/internal/browserhost"
+)
+
+// extractBatchSource runs an extract with a schema chosen at run time. The
+// source is constant; every caller value travels through the batch input.
+const extractBatchSource = `async (batch, input) => (await batch.extract(input.instruction, input.schema, input.options))`
+
+const telemetryPath = "/v1/traces"
+
+var errImageInput = errors.New("browser: image input to the model is not supported")
+
+// stagehandLauncher runs sessions through the Stagehand Go SDK.
+type stagehandLauncher struct{}
+
+var _ launcher = stagehandLauncher{}
+
+func (stagehandLauncher) Launch(ctx context.Context, opts launchOptions) (engine, error) {
+	port, err := freeLoopbackPort()
+	if err != nil {
+		return nil, err
+	}
+	launch := &stagehand.LocalBrowserLaunchOptions{
+		ExecutablePath: opts.Executable,
+		Headless:       opts.Headless,
+		Port:           port,
+		UserDataDir:    opts.UserDataDir,
+		KeepAlive:      true,
+	}
+	if opts.Viewport != nil {
+		launch.Viewport = &stagehand.LocalViewport{Width: opts.Viewport.Width, Height: opts.Viewport.Height}
+	}
+	if opts.Proxy != "" {
+		launch.Proxy = &stagehand.LocalProxyConfig{Server: opts.Proxy}
+	}
+	if opts.DownloadsDir != "" {
+		launch.DownloadsPath = opts.DownloadsDir
+		launch.AcceptDownloads = new(true)
+	}
+	browser, err := stagehand.LaunchLocalBrowser(ctx, launch)
+	if err != nil {
+		return nil, fmt.Errorf("launch browser: %w", err)
+	}
+	cdpURL := fmt.Sprintf("http://127.0.0.1:%d", port)
+	eng, err := startEngine(ctx, browser, cdpURL, opts)
+	if err != nil {
+		return nil, errors.Join(err, browser.Close(context.WithoutCancel(ctx)))
+	}
+	extension, err := browserhost.StagehandExtension(ctx, cdpURL)
+	if err != nil {
+		return nil, errors.Join(fmt.Errorf("locate browser runtime extension: %w", err), eng.Close(context.WithoutCancel(ctx)))
+	}
+	eng.handle.ExtensionID = extension.ID
+	eng.handle.ExtensionDir = extension.Path
+	return eng, nil
+}
+
+func (stagehandLauncher) Reattach(ctx context.Context, handle browserHandle, opts launchOptions) (engine, error) {
+	browser, err := stagehand.ConnectLocalBrowser(ctx, stagehand.LocalBrowserConnectOptions{
+		CDPURL:      handle.CDPURL,
+		ExtensionID: handle.ExtensionID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("reattach browser: %w", err)
+	}
+	if opts.DownloadsDir != "" {
+		if err := browserhost.SetDownloadDir(ctx, handle.CDPURL, opts.DownloadsDir); err != nil {
+			return nil, errors.Join(err, browser.Close(context.WithoutCancel(ctx)))
+		}
+	}
+	eng, err := startEngine(ctx, browser, handle.CDPURL, opts)
+	if err != nil {
+		return nil, errors.Join(err, browser.Close(context.WithoutCancel(ctx)))
+	}
+	eng.handle.ExtensionID = handle.ExtensionID
+	eng.handle.ExtensionDir = handle.ExtensionDir
+	return eng, nil
+}
+
+func startEngine(ctx context.Context, browser *stagehand.Browser, cdpURL string, opts launchOptions) (*stagehandEngine, error) {
+	sink, err := startTelemetrySink()
+	if err != nil {
+		return nil, err
+	}
+	off := false
+	client, err := stagehand.Create(ctx, stagehand.CreateOptions{
+		Browser:  browser,
+		Generate: stagehandGenerate(opts.Generate),
+		Cache:    new(stagehand.CacheEnabled(false)),
+		SelfHeal: &off,
+		// The SDK writes every enabled log line to the process stderr,
+		// including filled-in variable values; the step keeps its own log.
+		Logging: &stagehand.StagehandClientLoggingConfig{Level: stagehand.StagehandClientLogLevelOff},
+		// Traces cannot be disabled, so they go to a loopback sink.
+		Telemetry: stagehand.TelemetryConfig{Traces: stagehand.TelemetryTraces{Endpoint: sink.url}},
+	})
+	if err != nil {
+		sink.close()
+		return nil, fmt.Errorf("start browser runtime: %w", err)
+	}
+	eng := &stagehandEngine{browser: browser, client: client, sink: sink, handle: browserHandle{CDPURL: cdpURL}}
+	if len(opts.AllowedDomains) > 0 {
+		browserContext, err := browser.Context()
+		if err == nil {
+			err = browserContext.SetDomainPolicy(ctx, &stagehand.DomainPolicy{AllowedDomains: opts.AllowedDomains})
+		}
+		if err != nil {
+			return nil, errors.Join(fmt.Errorf("apply allowed_domains: %w", err), eng.release(context.WithoutCancel(ctx)))
+		}
+	}
+	return eng, nil
+}
+
+// stagehandEngine is an engine backed by one Stagehand client.
+type stagehandEngine struct {
+	browser *stagehand.Browser
+	client  *stagehand.Stagehand
+	sink    *telemetrySink
+	handle  browserHandle
+}
+
+func (e *stagehandEngine) page(ctx context.Context) (*stagehand.Page, error) {
+	browserContext, err := e.browser.Context()
+	if err != nil {
+		return nil, err
+	}
+	return browserContext.ActivePage(ctx)
+}
+
+func (e *stagehandEngine) Goto(ctx context.Context, url string, timeout time.Duration) error {
+	page, err := e.page(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = page.Goto(ctx, url, &stagehand.PageNavigationOptions{Timeout: new(int(timeout.Milliseconds()))})
+	return err
+}
+
+func (e *stagehandEngine) Act(ctx context.Context, instruction string, variables map[string]string, timeout time.Duration) (actOutcome, error) {
+	result, err := e.client.Act(ctx, stagehand.ActInstruction(instruction), actOptions(variables, timeout))
+	if err != nil {
+		return actOutcome{}, err
+	}
+	outcome := actOutcome{Message: result.Data.Message, Success: result.Data.Success}
+	for _, action := range result.Data.Actions {
+		recorded := recordedAction{
+			Selector:    action.Selector,
+			Description: action.Description,
+			Arguments:   action.Arguments,
+		}
+		if action.Method != nil {
+			recorded.Method = *action.Method
+		}
+		outcome.Actions = append(outcome.Actions, recorded)
+	}
+	return outcome, nil
+}
+
+func (e *stagehandEngine) Replay(ctx context.Context, actions []recordedAction, variables map[string]string, timeout time.Duration) (bool, error) {
+	for _, recorded := range actions {
+		action := stagehand.Action{
+			Selector:    recorded.Selector,
+			Description: recorded.Description,
+			Arguments:   recorded.Arguments,
+		}
+		if recorded.Method != "" {
+			action.Method = new(recorded.Method)
+		}
+		result, err := e.client.Act(ctx, stagehand.ObservedAction(action), actOptions(variables, timeout))
+		if err != nil {
+			if ctx.Err() != nil {
+				return false, ctx.Err()
+			}
+			return false, nil
+		}
+		if !result.Data.Success {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func (e *stagehandEngine) Extract(ctx context.Context, instruction string, schema json.RawMessage, timeout time.Duration) (json.RawMessage, error) {
+	page, err := e.page(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var result struct {
+		Data json.RawMessage `json:"data"`
+	}
+	err = e.client.ExperimentalBatch(ctx, extractBatchSource,
+		map[string]any{"instruction": instruction, "schema": schema, "options": map[string]any{}},
+		&result, stagehand.ExperimentalBatchOptions{Timeout: timeout, Page: page})
+	if err != nil {
+		return nil, err
+	}
+	return result.Data, nil
+}
+
+func (e *stagehandEngine) WaitForSelector(ctx context.Context, selector string, timeout time.Duration) error {
+	page, err := e.page(ctx)
+	if err != nil {
+		return err
+	}
+	state := stagehand.PageWaitForSelectorOptionsStateVisible
+	matched, err := page.WaitForSelector(ctx, selector, &stagehand.PageWaitForSelectorOptions{
+		State:   &state,
+		Timeout: new(int(timeout.Milliseconds())),
+	})
+	if err != nil {
+		return err
+	}
+	if !matched {
+		return fmt.Errorf("selector %q did not appear within %s", selector, timeout)
+	}
+	return nil
+}
+
+func (e *stagehandEngine) Screenshot(ctx context.Context) ([]byte, error) {
+	page, err := e.page(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return page.Screenshot(ctx, nil)
+}
+
+func (e *stagehandEngine) CurrentURL(ctx context.Context) (string, error) {
+	page, err := e.page(ctx)
+	if err != nil {
+		return "", err
+	}
+	return page.URL(ctx)
+}
+
+func (e *stagehandEngine) Handle() browserHandle {
+	return e.handle
+}
+
+// Detach leaves the browser running. Closing the SDK browser handle would
+// terminate it and delete the unpacked extension a later reattach needs.
+func (e *stagehandEngine) Detach(ctx context.Context) error {
+	return e.release(ctx)
+}
+
+func (e *stagehandEngine) Close(ctx context.Context) error {
+	return errors.Join(e.release(ctx), e.browser.Close(ctx))
+}
+
+func (e *stagehandEngine) release(ctx context.Context) error {
+	err := e.client.Close(ctx)
+	e.sink.close()
+	return err
+}
+
+func actOptions(variables map[string]string, timeout time.Duration) *stagehand.StagehandClientActOptions {
+	options := &stagehand.StagehandClientActOptions{Timeout: new(float64(timeout.Milliseconds()))}
+	if len(variables) > 0 {
+		options.Variables = make(stagehand.Variables, len(variables))
+		for name, value := range variables {
+			options.Variables[name] = stagehand.PrimitiveVariable(stagehand.StringVariable(value))
+		}
+	}
+	return options
+}
+
+// stagehandGenerate adapts the runtime's model requests to generate.
+func stagehandGenerate(generate generateFunc) stagehand.LLMGenerateFunc {
+	return func(ctx context.Context, params stagehand.LLMGenerateParams) (stagehand.LLMGenerateResult, error) {
+		structured, ok := params.AsStructured()
+		if !ok {
+			return stagehand.LLMGenerateResult{}, errors.New("browser: only structured model requests are supported")
+		}
+		req := generateRequest{
+			SchemaName:  structured.ResponseFormat.Name,
+			Schema:      structured.ResponseFormat.Schema,
+			Temperature: structured.Temperature,
+		}
+		if structured.SystemPrompt != nil {
+			req.System = *structured.SystemPrompt
+		}
+		for _, message := range structured.Messages {
+			text, err := messageText(message.Content)
+			if err != nil {
+				return stagehand.LLMGenerateResult{}, err
+			}
+			req.Messages = append(req.Messages, generateMessage{Role: string(message.Role), Text: text})
+		}
+		resp, err := generate(ctx, req)
+		if err != nil {
+			return stagehand.LLMGenerateResult{}, err
+		}
+		return stagehand.StructuredGenerateResult(stagehand.LLMStructuredGenerateResult{
+			Role: stagehand.LLMRoleAssistant,
+			Content: stagehand.LLMMessageContent{
+				stagehand.TextContentBlock(stagehand.LLMTextContent{Type: "text", Text: string(resp.JSON)}),
+			},
+			StructuredContent: resp.JSON,
+			Usage: &stagehand.LLMUsage{
+				InputTokens:  resp.Usage.Input,
+				OutputTokens: resp.Usage.Output,
+				TotalTokens:  resp.Usage.total(),
+			},
+		}), nil
+	}
+}
+
+func messageText(content stagehand.LLMMessageContent) (string, error) {
+	var text strings.Builder
+	for _, block := range content {
+		if part, ok := block.AsText(); ok {
+			text.WriteString(part.Text)
+			continue
+		}
+		if _, ok := block.AsImage(); ok {
+			return "", errImageInput
+		}
+	}
+	return text.String(), nil
+}
+
+func freeLoopbackPort() (int, error) {
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		return 0, fmt.Errorf("reserve browser debugging port: %w", err)
+	}
+	defer func() { _ = listener.Close() }()
+	return listener.Addr().(*net.TCPAddr).Port, nil
+}
+
+// telemetrySink accepts and discards trace exports on loopback.
+type telemetrySink struct {
+	url       string
+	server    *http.Server
+	closeOnce sync.Once
+}
+
+func startTelemetrySink() (*telemetrySink, error) {
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		return nil, fmt.Errorf("start telemetry sink: %w", err)
+	}
+	server := &http.Server{
+		ReadHeaderTimeout: 5 * time.Second,
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = io.Copy(io.Discard, r.Body)
+			w.WriteHeader(http.StatusOK)
+		}),
+	}
+	go func() { _ = server.Serve(listener) }()
+	return &telemetrySink{url: "http://" + listener.Addr().String() + telemetryPath, server: server}, nil
+}
+
+func (s *telemetrySink) close() {
+	s.closeOnce.Do(func() { _ = s.server.Close() })
+}
