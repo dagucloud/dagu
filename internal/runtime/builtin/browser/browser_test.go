@@ -500,16 +500,16 @@ func TestUnfinishedDownloadFailsStep(t *testing.T) {
 
 // Only declared secrets and ask answers of at least four characters are
 // masked, so short values such as a quantity leave page text and element
-// IDs intact.
+// IDs intact. Length counts characters, not bytes.
 func TestMaskerHidesSecretsAndAnswers(t *testing.T) {
 	t.Parallel()
 
 	masker := newMasker(
-		map[string]string{"TOKEN": "s3cr3t-token", "PIN": "12"},
+		map[string]string{"TOKEN": "s3cr3t-token", "PIN": "12", "SHORT": "éé", "WORD": "パスワード"},
 		map[string]string{"otp": "424242", "choice": "2"},
 	)
-	assert.Equal(t, "[0-23] ******* ******* qty 2 pin 12",
-		masker.MaskString("[0-23] s3cr3t-token 424242 qty 2 pin 12"))
+	assert.Equal(t, "[0-23] ******* ******* qty 2 pin 12 éé *******",
+		masker.MaskString("[0-23] s3cr3t-token 424242 qty 2 pin 12 éé パスワード"))
 }
 
 // When an ask is skipped, an act that needs its answer fails instead of

@@ -7,20 +7,26 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 )
 
-// minSecretLength skips very short secret values, which would match ordinary
-// words, numbers, and element IDs in instructions and page text.
+// minSecretLength skips secret values shorter than this many characters,
+// which would match ordinary words, numbers, and element IDs in instructions
+// and page text.
 const minSecretLength = 4
+
+func longEnoughToCheck(value string) bool {
+	return utf8.RuneCountInString(value) >= minSecretLength
+}
 
 // checkSecrets rejects operations whose model-bound text contains a secret
 // value. Such values must travel as variables, which the model never sees.
 func checkSecrets(cfg config, secrets map[string]string) error {
 	names := make([]string, 0, len(secrets))
 	for name, value := range secrets {
-		if len(value) >= minSecretLength {
+		if longEnoughToCheck(value) {
 			names = append(names, name)
 		}
 	}
@@ -47,7 +53,7 @@ func newMasker(secrets, answers map[string]string) *masking.Masker {
 	pairs := make([]string, 0, len(secrets)+len(answers))
 	for _, values := range []map[string]string{secrets, answers} {
 		for name, value := range values {
-			if len(value) >= minSecretLength {
+			if longEnoughToCheck(value) {
 				pairs = append(pairs, name+"="+value)
 			}
 		}
