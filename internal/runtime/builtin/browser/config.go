@@ -32,9 +32,13 @@ const (
 
 // Automatic screenshot policies.
 const (
+	// screenshotsOnFailure captures the page only when the step fails.
 	screenshotsOnFailure = "on_failure"
-	screenshotsEach      = "each"
-	screenshotsNever     = "never"
+	// screenshotsFinal also captures the page when the step succeeds.
+	screenshotsFinal = "final"
+	// screenshotsEach also captures the page after every operation.
+	screenshotsEach  = "each"
+	screenshotsNever = "never"
 )
 
 const (
@@ -202,6 +206,13 @@ func (c config) screenshotPolicy() string {
 		return screenshotsOnFailure
 	}
 	return c.Browser.Screenshots
+}
+
+// capturesFinalScreenshot reports whether a successful step saves a
+// screenshot of the page it ends on.
+func (c config) capturesFinalScreenshot() bool {
+	policy := c.screenshotPolicy()
+	return policy == screenshotsFinal || policy == screenshotsEach
 }
 
 func (c config) hasAsk() bool {
@@ -478,7 +489,7 @@ var configSchema = &jsonschema.Schema{
 				},
 				"proxy":           nonEmptyString(),
 				"allowed_domains": {Type: "array", Items: nonEmptyString()},
-				"screenshots":     {Type: "string", Enum: []any{screenshotsOnFailure, screenshotsEach, screenshotsNever}},
+				"screenshots":     {Type: "string", Enum: []any{screenshotsOnFailure, screenshotsFinal, screenshotsEach, screenshotsNever}},
 				"profile":         nonEmptyString(),
 			},
 		},

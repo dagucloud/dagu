@@ -143,7 +143,7 @@ func TestRunPublishesExtractedOutputs(t *testing.T) {
 
 	assert.True(t, run.engine.closed)
 	assert.Empty(t, run.records(), "a finished step keeps no browser session")
-	assert.FileExists(t, filepath.Join(run.artifacts, "browser", "shop", "01-final.png"))
+	assert.NoFileExists(t, filepath.Join(run.artifacts, "browser", "shop", "01-final.png"), "a successful step keeps no screenshot by default")
 }
 
 func TestWhenSkipsOperation(t *testing.T) {
@@ -534,4 +534,13 @@ func TestFixedConditions(t *testing.T) {
 		require.NoError(t, execution.err)
 		assert.Equal(t, []string{"Open the account page"}, run.engine.actInstructions())
 	})
+}
+
+func TestFinalScreenshotPolicy(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	execution := run.execute(`{"browser": {"screenshots": "final"}, "do": [{"act": "Click the checkout button"}]}`, nil)
+	require.NoError(t, execution.err)
+	assert.FileExists(t, filepath.Join(run.artifacts, "browser", "shop", "01-final.png"))
 }

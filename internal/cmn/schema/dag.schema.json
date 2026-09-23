@@ -7153,9 +7153,9 @@
         },
         "screenshots": {
           "type": "string",
-          "enum": ["on_failure", "each", "never"],
+          "enum": ["on_failure", "final", "each", "never"],
           "default": "on_failure",
-          "description": "Automatic screenshots stored as run artifacts: on failure and at the end, after every operation, or never."
+          "description": "Automatic screenshots stored as run artifacts, unmasked: on_failure only when the step fails, final also at the end of a successful step, each also after every operation, never none."
         },
         "profile": {
           "type": "string",

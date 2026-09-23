@@ -11,6 +11,8 @@ steps:
     action: browser.run
     with:
       url: ${SHOP_URL}
+      browser:
+        screenshots: final
       do:
         - act: Click the Place order button
           when: The page shows 'Cart has 2 items'

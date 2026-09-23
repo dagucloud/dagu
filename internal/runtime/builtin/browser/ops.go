@@ -594,7 +594,7 @@ func (r *run) capture(ctx context.Context, label string) (string, error) {
 
 func (r *run) succeed(ctx context.Context) error {
 	var files []string
-	if r.cfg.screenshotPolicy() != screenshotsNever && r.artifacts.enabled() {
+	if r.cfg.capturesFinalScreenshot() && r.artifacts.enabled() {
 		if rel, err := r.capture(ctx, finalShotLabel); err == nil {
 			files = append(files, rel)
 		}
