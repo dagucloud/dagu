@@ -35,6 +35,8 @@ export function ArtifactThumbnail({
   React.useEffect(() => {
     let objectUrl = '';
     const controller = new AbortController();
+    setUrl(undefined);
+    setFailed(false);
     fetchArtifactDownload(
       client,
       { dagRunName, dagRunId, subDAGRunId, remoteNode },
@@ -42,6 +44,9 @@ export function ArtifactThumbnail({
       controller.signal
     )
       .then((request) => {
+        // A fetch that settles after cleanup must not create a URL that
+        // nothing revokes.
+        if (controller.signal.aborted) return;
         objectUrl = URL.createObjectURL(request.data);
         setUrl(objectUrl);
       })
