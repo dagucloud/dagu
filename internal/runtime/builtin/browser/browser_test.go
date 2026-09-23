@@ -175,6 +175,32 @@ func TestExpectFailureCapturesPage(t *testing.T) {
 	assert.FileExists(t, filepath.Join(run.artifacts, "browser", "shop", "01-failure.png"))
 }
 
+// A browser a previous attempt left open that does not close keeps its
+// record, so the reaper can retry, and the new attempt fails instead of
+// replacing that record with its own browser.
+func TestStaleBrowserThatWillNotCloseFailsTheStep(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	stale := browserhost.Record{
+		ID:       browserhost.RecordID("run-1", "shop"),
+		DAGRunID: "run-1",
+		StepName: "shop",
+		State:    browserhost.StateDetached,
+		Deadline: time.Now().Add(time.Hour),
+		CDPURL:   serveHungBrowser(t),
+	}
+	require.NoError(t, browserhost.NewStore(filepath.Join(run.dataDir, browserhost.DataDirName)).Save(stale))
+
+	execution := run.execute(`{"do": [{"act": "Click the checkout button"}]}`, nil)
+
+	require.ErrorContains(t, execution.err, "close the browser a previous attempt left open")
+	assert.Empty(t, run.launcher.launches, "no browser starts")
+	records := run.records()
+	require.Len(t, records, 1)
+	assert.Equal(t, stale.CDPURL, records[0].CDPURL)
+}
+
 func TestSecretInInstructionIsRejected(t *testing.T) {
 	t.Parallel()
 

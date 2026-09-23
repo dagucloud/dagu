@@ -8,11 +8,15 @@ import (
 	"encoding/json"
 	"errors"
 	"maps"
+	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"sync"
+	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
 )
 
@@ -280,4 +284,35 @@ func pageModel(extracts map[string]string, trueStatements ...string) func(req *l
 		}
 		return "", errors.New("unexpected request: " + text)
 	}
+}
+
+// serveHungBrowser serves the DevTools endpoint of a browser that
+// acknowledges every command, including Browser.close, and keeps running.
+func serveHungBrowser(t *testing.T) string {
+	t.Helper()
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/json/version" {
+			wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/devtools/browser/hung"
+			_ = json.NewEncoder(w).Encode(map[string]string{"webSocketDebuggerUrl": wsURL})
+			return
+		}
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.CloseNow() }()
+		_, data, err := conn.Read(r.Context())
+		if err != nil {
+			return
+		}
+		var request struct {
+			ID int `json:"id"`
+		}
+		_ = json.Unmarshal(data, &request)
+		response, _ := json.Marshal(map[string]any{"id": request.ID, "result": map[string]any{}})
+		_ = conn.Write(r.Context(), websocket.MessageText, response)
+	}))
+	t.Cleanup(server.Close)
+	return server.URL
 }

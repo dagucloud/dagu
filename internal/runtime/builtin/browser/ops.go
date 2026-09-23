@@ -234,8 +234,11 @@ func (r *run) startSession(ctx context.Context) (int, error) {
 		return r.resumeSession(ctx, recordID, session, answer)
 	}
 	if stale, err := r.store.Load(recordID); err == nil {
-		// A previous attempt left a browser behind; it cannot be resumed.
-		_ = browserhost.Release(ctx, r.store, stale)
+		// A previous attempt left a browser behind; it cannot be resumed. When
+		// it does not close, its record is the only way to find it again.
+		if err := browserhost.Release(ctx, r.store, stale); err != nil {
+			return 0, fmt.Errorf("close the browser a previous attempt left open: %w", err)
+		}
 	}
 
 	r.exec.updateSession(func(s *ir.AgentSession) {
