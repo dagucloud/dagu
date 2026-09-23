@@ -186,7 +186,7 @@ func (e *StepExecutor) setupExecutorSideChannels(cmd executor.Executor, node *No
 	}
 
 	if pbHandler, ok := cmd.(executor.PushBackAware); ok {
-		pbHandler.SetPushBackContext(state.PushBackInputs, state.ApprovalIteration)
+		pbHandler.SetPushBackContext(visiblePushBackInputs(node.Step(), state), state.ApprovalIteration)
 	}
 	if pbHandler, ok := cmd.(executor.PushBackPreviousStdoutAware); ok {
 		pbHandler.SetPushBackPreviousStdout(state.PushBackPreviousStdout)

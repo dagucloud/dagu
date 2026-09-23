@@ -337,7 +337,7 @@ func TestRunHumanTaskPushBackQueuesResume(t *testing.T) {
 	assert.Equal(t, map[string]string{"feedback": "add tests"}, implement.PushBackInputs)
 	assert.Equal(t, []ir.PushBackEntry{{
 		Iteration: 1, By: "local-operator", ByID: "os:501", At: "2026-07-20T01:02:03Z",
-		Inputs: map[string]string{"feedback": "add tests"},
+		Inputs: map[string]string{"feedback": "add tests"}, Step: "Review", HumanTask: true,
 	}}, implement.PushBackHistory)
 	assert.Equal(t, ir.NodeNotStarted, fixture.status.Nodes[1].Status)
 }

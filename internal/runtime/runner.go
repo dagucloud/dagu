@@ -19,7 +19,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 
 	"github.com/dagucloud/dagu/v2/internal/build"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
 
@@ -701,12 +700,9 @@ func (r *Runner) setupNodeExecutionEnv(ctx context.Context, node *Node) context.
 	state := node.State()
 	env := GetEnv(ctx)
 	approval := node.Step().Approval
-	var allowedInputs []string
-	if approval != nil {
-		allowedInputs = approval.Input
-	}
+	allowedInputs := pushBackAllowlist(node.Step())
 
-	filteredInputs := dagrun.FilterPushBackInputs(allowedInputs, state.PushBackInputs)
+	filteredInputs := visiblePushBackInputs(node.Step(), state)
 	for k, v := range filteredInputs {
 		env = env.WithEnvVars(k, v)
 	}

@@ -18,6 +18,11 @@ type PushBackEntry struct {
 	ByID      string            `json:"byId,omitempty"`
 	At        string            `json:"at,omitempty"`
 	Inputs    map[string]string `json:"inputs,omitempty"`
+	// Step names the step that requested the push-back.
+	Step string `json:"step,omitempty"`
+	// HumanTask reports that a human task requested the push-back. Its inputs
+	// hold only declared feedback properties and reach every rewound step.
+	HumanTask bool `json:"humanTask,omitempty"`
 }
 
 // NodeStatusDetail identifies an independently tracked execution within a node.

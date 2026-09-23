@@ -216,7 +216,7 @@ func (e *Executor) executionMessages(ctx context.Context) ([]ir.LLMMessage, erro
 	pushBackMessages := systemMessages(evaluatedMessages)
 	pushBackMessages = append(pushBackMessages, ir.LLMMessage{
 		Role:    ir.LLMRoleUser,
-		Content: formatPushBackFeedback(e.pushBackInputs, e.pushBackIteration, e.step.Approval),
+		Content: formatPushBackFeedback(e.pushBackInputs, e.pushBackIteration),
 	})
 	return buildMessageList(pushBackMessages, e.contextMessages), nil
 }
@@ -231,25 +231,14 @@ func systemMessages(messages []ir.LLMMessage) []ir.LLMMessage {
 	return result
 }
 
-func formatPushBackFeedback(inputs map[string]string, iteration int, approval *ir.ApprovalConfig) string {
+// formatPushBackFeedback renders the push-back inputs the step receives. The
+// runtime has already limited them to what the step may see.
+func formatPushBackFeedback(inputs map[string]string, iteration int) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "The reviewer has requested changes to your previous work for push-back iteration %d.\n", iteration)
 
-	var allowed map[string]struct{}
-	if approval != nil && len(approval.Input) > 0 {
-		allowed = make(map[string]struct{}, len(approval.Input))
-		for _, key := range approval.Input {
-			allowed[key] = struct{}{}
-		}
-	}
-
 	keys := make([]string, 0, len(inputs))
 	for key := range inputs {
-		if allowed != nil {
-			if _, ok := allowed[key]; !ok {
-				continue
-			}
-		}
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)

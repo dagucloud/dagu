@@ -57,9 +57,22 @@ func NormalizePushBackHistory(
 		})
 	}
 	for i := range normalized {
+		if normalized[i].HumanTask {
+			continue
+		}
 		normalized[i].Inputs = FilterPushBackInputs(allowed, normalized[i].Inputs)
 	}
 	return normalized
+}
+
+// VisiblePushBackInputs returns the latest push-back inputs a step with the
+// given input allowlist receives. Feedback from a human task is never
+// filtered because it holds only declared feedback properties.
+func VisiblePushBackInputs(allowed []string, latest map[string]string, history []ir.PushBackEntry) map[string]string {
+	if n := len(history); n > 0 && history[n-1].HumanTask {
+		return maps.Clone(latest)
+	}
+	return FilterPushBackInputs(allowed, latest)
 }
 
 // ClonePushBackHistory returns a deep copy of push-back history entries.
@@ -76,6 +89,8 @@ func ClonePushBackHistory(src []ir.PushBackEntry) []ir.PushBackEntry {
 			ByID:      entry.ByID,
 			At:        entry.At,
 			Inputs:    maps.Clone(entry.Inputs),
+			Step:      entry.Step,
+			HumanTask: entry.HumanTask,
 		}
 	}
 	return dst
@@ -121,6 +136,8 @@ func ApplyPushBack(status *ir.DAGRunStatus, source *ir.Node, pb PushBack) (int, 
 			ByID:      pb.ByID,
 			At:        pb.At,
 			Inputs:    maps.Clone(inputs),
+			Step:      source.Step.Name,
+			HumanTask: source.Step.HumanTask != nil,
 		},
 	)
 

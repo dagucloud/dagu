@@ -103,6 +103,7 @@ func TestPushBackResetsRewoundStepsAndQueuesResume(t *testing.T) {
 	feedback := map[string]string{"feedback": "add tests", "priority": "2"}
 	wantHistory := []ir.PushBackEntry{{
 		Iteration: 1, By: "alice", ByID: "user-1", At: "2026-07-21T01:02:03Z", Inputs: feedback,
+		Step: "Review", HumanTask: true,
 	}}
 	for _, name := range []string{"implement", "test", "Review", "publish"} {
 		node := fixture.node(t, name)

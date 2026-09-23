@@ -576,7 +576,8 @@ feedback input are recorded.
 When a reset step runs again, it observes the push-back context of Spec 017:
 `DAG_PUSHBACK`, `DAG_PUSHBACK_ITERATION`, `context.pushback.iteration`, and
 `DAG_PUSHBACK_PREVIOUS_STDOUT_FILE` when it produced stdout before. Each
-feedback value is also an environment variable named after its property. The
+feedback value is also an environment variable named after its property, even
+on an approval step whose `approval.input` does not list that property. The
 same values are available when the reopened task resolves its prompt.
 
 The task opens again after its dependencies finish, with its prompt and

@@ -283,6 +283,9 @@ Rules:
   compatibility environment variables.
 - Push-back context is missing on the first execution before any push-back
   occurs.
+- A step that declares `approval.input` receives only those input names from an
+  approval push-back. Human-task push-back feedback holds only declared
+  feedback properties and reaches every rewound step unchanged.
 
 ### Environment Projection
 

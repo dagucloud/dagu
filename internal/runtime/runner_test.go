@@ -4296,6 +4296,61 @@ func TestPushBackInputsExposeJSONHistoryEnvForRewoundStep(t *testing.T) {
 	assert.Equal(t, "2026-04-26T06:20:00Z", second["at"])
 }
 
+// An approval step's input allowlist limits approval push-back inputs, but
+// human-task feedback holds only declared properties and reaches it unchanged.
+func TestPushBackEnvScopesApprovalAllowlistBySource(t *testing.T) {
+	t.Parallel()
+
+	if windowsShellTest() {
+		t.Skip("Skipping Unix-specific env assertion on Windows")
+	}
+
+	tests := []struct {
+		name      string
+		humanTask bool
+		want      string
+	}{
+		{name: "HumanTaskFeedback", humanTask: true, want: "feedback=add tests extra=kept"},
+		{name: "ApprovalInputs", want: "feedback= extra="},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := setupRunner(t)
+			step := newStep("draft",
+				withScript("printf 'feedback=%s extra=%s\\n' \"$feedback\" \"$extra\"\nprintf '%s' \"$DAG_PUSHBACK\""),
+				withApproval(&ir.ApprovalConfig{Input: []string{"FEEDBACK"}}),
+			)
+			plan := r.newPlan(t, step)
+			node := plan.GetNodeByName("draft")
+			require.NotNil(t, node)
+
+			inputs := map[string]string{"feedback": "add tests", "extra": "kept"}
+			node.SetApprovalIteration(1)
+			node.SetPushBackInputs(inputs)
+			node.SetPushBackHistory([]ir.PushBackEntry{{Iteration: 1, Inputs: inputs, Step: "review", HumanTask: tt.humanTask}})
+
+			result := plan.assertRun(t, ir.Waiting)
+			output, err := os.ReadFile(result.nodeByName(t, "draft").GetStdout())
+			require.NoError(t, err)
+			lines := strings.SplitN(strings.TrimSpace(string(output)), "\n", 2)
+			require.Len(t, lines, 2)
+			assert.Equal(t, tt.want, lines[0])
+
+			var payload struct {
+				Inputs map[string]string `json:"inputs"`
+			}
+			require.NoError(t, json.Unmarshal([]byte(lines[1]), &payload))
+			if tt.humanTask {
+				assert.Equal(t, inputs, payload.Inputs)
+			} else {
+				assert.Empty(t, payload.Inputs)
+			}
+		})
+	}
+}
+
 // TestPushBackPreconditionUsesSameEnvAsCommand verifies that rewound steps
 // evaluate preconditions with the same push-back env seen by the step command.
 func TestPushBackPreconditionUsesSameEnvAsCommand(t *testing.T) {

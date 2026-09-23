@@ -138,13 +138,10 @@ func TestExecutor_PushBackExecutionMessagesUsePreviousConversationAndFeedback(t 
 			{Role: ir.LLMRoleUser, Content: "original prompt"},
 			{Role: ir.LLMRoleAssistant, Content: "previous answer"},
 		},
-		step: ir.Step{
-			Approval: &ir.ApprovalConfig{Input: []string{"FEEDBACK"}},
-		},
 	}
+	// The step executor passes only the inputs the step may see.
 	executor.SetPushBackContext(map[string]string{
 		"FEEDBACK": "revise with more detail",
-		"IGNORED":  "do not include",
 	}, 2)
 
 	messages, err := executor.executionMessages(context.Background())
@@ -157,7 +154,6 @@ func TestExecutor_PushBackExecutionMessagesUsePreviousConversationAndFeedback(t 
 	assert.Equal(t, "previous answer", messages[2].Content)
 	assert.Contains(t, messages[3].Content, "iteration 2")
 	assert.Contains(t, messages[3].Content, "FEEDBACK: revise with more detail")
-	assert.NotContains(t, messages[3].Content, "IGNORED")
 	assert.NotContains(t, messages[3].Content, "original YAML prompt should not repeat")
 }
 

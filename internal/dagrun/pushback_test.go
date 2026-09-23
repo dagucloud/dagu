@@ -54,7 +54,7 @@ func TestApplyPushBack(t *testing.T) {
 	}
 	wantHistory := []ir.PushBackEntry{{
 		Iteration: 1, By: "reviewer", ByID: "user-1", At: "2026-09-23T10:00:00Z",
-		Inputs: map[string]string{"feedback": "add tests"},
+		Inputs: map[string]string{"feedback": "add tests"}, Step: "review", HumanTask: true,
 	}}
 	for _, idx := range []int{1, 2, 3, 4} {
 		node := status.Nodes[idx]
@@ -96,8 +96,31 @@ func TestApplyPushBackExtendsSourceHistory(t *testing.T) {
 	assert.Equal(t, map[string]string{"feedback": "rename it"}, implement.PushBackInputs)
 	assert.Equal(t, []ir.PushBackEntry{
 		{Iteration: 1, By: "first", Inputs: map[string]string{"feedback": "add tests"}},
-		{Iteration: 2, By: "second", Inputs: map[string]string{"feedback": "rename it"}},
+		{Iteration: 2, By: "second", Inputs: map[string]string{"feedback": "rename it"}, Step: "review", HumanTask: true},
 	}, implement.PushBackHistory)
+}
+
+// Human-task feedback holds only declared properties, so a step's approval
+// input allowlist never hides it; approval push-back inputs stay filtered.
+func TestVisiblePushBackInputs(t *testing.T) {
+	t.Parallel()
+
+	allowed := []string{"FEEDBACK"}
+	latest := map[string]string{"feedback": "add tests", "FEEDBACK": "tighten"}
+	approvalEntry := ir.PushBackEntry{Iteration: 1, Inputs: latest, Step: "draft"}
+	humanTaskEntry := ir.PushBackEntry{Iteration: 2, Inputs: latest, Step: "review", HumanTask: true}
+
+	assert.Equal(t, map[string]string{"FEEDBACK": "tighten"},
+		dagrun.VisiblePushBackInputs(allowed, latest, []ir.PushBackEntry{approvalEntry}))
+	assert.Equal(t, latest,
+		dagrun.VisiblePushBackInputs(allowed, latest, []ir.PushBackEntry{approvalEntry, humanTaskEntry}))
+	assert.Equal(t, map[string]string{"FEEDBACK": "tighten"},
+		dagrun.VisiblePushBackInputs(allowed, latest, nil))
+
+	history := dagrun.NormalizePushBackHistory(allowed, 2, latest, []ir.PushBackEntry{approvalEntry, humanTaskEntry})
+	require.Len(t, history, 2)
+	assert.Equal(t, map[string]string{"FEEDBACK": "tighten"}, history[0].Inputs)
+	assert.Equal(t, latest, history[1].Inputs)
 }
 
 // Another push-back may already have moved a reset step to a higher

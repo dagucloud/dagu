@@ -266,3 +266,42 @@ func TestStepExecutorCapturesExecutorSideChannels(t *testing.T) {
 	require.NotNil(t, state.OutputsValue)
 	require.JSONEq(t, `{"answer":42}`, *state.OutputsValue)
 }
+
+// Push-back-aware executors receive the inputs the step may see: an approval
+// allowlist limits approval push-back inputs but not human-task feedback.
+func TestStepExecutorScopesPushBackInputs(t *testing.T) {
+	executorType := "test-step-executor-push-back-scope"
+	execCh := make(chan *sideChannelExecutor, 2)
+	runtimeexec.RegisterExecutor(executorType, func(context.Context, ir.Step) (runtimeexec.Executor, error) {
+		exec := &sideChannelExecutor{}
+		execCh <- exec
+		return exec, nil
+	}, nil, registry.ExecutorCapabilities{})
+	t.Cleanup(func() { runtimeexec.UnregisterExecutor(executorType) })
+
+	inputs := map[string]string{"FEEDBACK": "tighten", "feedback": "add tests"}
+	for _, tc := range []struct {
+		humanTask bool
+		want      map[string]string
+	}{
+		{humanTask: false, want: map[string]string{"FEEDBACK": "tighten"}},
+		{humanTask: true, want: inputs},
+	} {
+		node := runtime.NewNode(ir.Step{
+			Name:           "draft",
+			ExecutorConfig: ir.ExecutorConfig{Type: executorType},
+			Approval:       &ir.ApprovalConfig{Input: []string{"FEEDBACK"}},
+		}, runtime.NodeState{
+			ApprovalIteration: 1,
+			PushBackInputs:    inputs,
+			PushBackHistory:   []ir.PushBackEntry{{Iteration: 1, Inputs: inputs, HumanTask: tc.humanTask}},
+		})
+
+		ctx := runtime.NewContext(context.Background(), &ir.DAG{}, "run-1", "dag.log")
+		require.NoError(t, runtime.NewStepExecutor().Execute(ctx, node))
+
+		fakeExec := <-execCh
+		require.Equal(t, tc.want, fakeExec.pushBackInputs, "humanTask=%v", tc.humanTask)
+		require.Equal(t, 1, fakeExec.pushBackIteration)
+	}
+}
