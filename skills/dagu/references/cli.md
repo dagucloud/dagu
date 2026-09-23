@@ -112,7 +112,7 @@ dagu human-task complete --run-id=run-1 --step=review --inputs-json='{"environme
 
 ### dagu human-task push-back
 
-Send a waiting human task that declares `with.push_back` back to its rewind target with feedback. The rewind target and every step after it run again, then the task opens again.
+Send a waiting human task that declares `with.push_back` back to its rewind target with feedback. The rewind target and every step that depends on it, directly or transitively, run again, then the task opens again.
 
 ```sh
 dagu human-task push-back [flags] <root-dag-name>
@@ -126,7 +126,7 @@ Flags:
 - `--inputs-json`: Typed feedback as one JSON object
 - `--expected-iteration`: Fail unless the task is at this push-back iteration; `0` before the first push-back
 
-Push-back is not idempotent, so pass `--expected-iteration` when a command may be repeated. If the run cannot be queued, the push-back is undone and the command can be run again. The command only supports the local context.
+Feedback is limited to 16 KiB as JSON. The push-back is stored before the run is queued. If queueing fails, run the same command again: until the task opens again, an identical repeat only retries the queue and prints `Human task <step> was already pushed back to <target>`. After the task reopens, a repeat pushes it back again, so pass `--expected-iteration` when a command may be repeated. The command only supports the local context.
 
 ```sh
 dagu human-task push-back --run-id=run-1 --step=review --input feedback="Add tests" --expected-iteration=0 deploy

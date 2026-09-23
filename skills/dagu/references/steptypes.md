@@ -284,7 +284,9 @@ steps:
 
 - `rewind_to` is required and must name a step the task depends on directly or transitively, by `id` or `name`. It cannot be the task itself.
 - `form` is optional and follows the `with.form` rules, but `additionalProperties` must stay `false`. Feedback properties never become step outputs.
-- A push-back resets `rewind_to` and every step after it, including the task, then re-queues the run. Rewound steps receive `DAG_PUSHBACK`, `DAG_PUSHBACK_ITERATION`, `${context.pushback.iteration}`, and one environment variable per feedback property. `harness.run` and `chat.completion` also get the feedback in their prompt.
+- A push-back resets `rewind_to` and every step that depends on it directly or transitively, including the task and, in `type: build` DAGs, steps that consume its output paths. It then re-queues the run.
+- Rewound steps receive `DAG_PUSHBACK`, `DAG_PUSHBACK_ITERATION`, `${context.pushback.iteration}`, and one environment variable per feedback property, even approval steps whose `approval.input` does not list it. `harness.run` and `chat.completion` also get the feedback in their prompt.
+- Feedback is limited to 16 KiB as JSON because it is passed as environment variables. `DAG_PUSHBACK` keeps the most recent history entries that fit in 30 KiB.
 - The task then opens again with its prompt re-resolved. It can be completed or pushed back again.
 - `push_back` is invalid in `type: agent` DAGs.
 
