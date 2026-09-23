@@ -232,22 +232,6 @@ func TestResumeRejectsRunWithoutCompletedCheckpoint(t *testing.T) {
 	assert.ErrorContains(t, err, "has no completed human-task checkpoint")
 }
 
-func TestCompleteWaitsForEveryManualStepBeforeResuming(t *testing.T) {
-	fixture := newServiceFixture(t, nil)
-	fixture.status.Nodes = append(fixture.status.Nodes, &ir.Node{
-		Step:   ir.Step{ID: "approval", Name: "Approval", Approval: &ir.ApprovalConfig{}},
-		Status: ir.NodeWaiting,
-	})
-	result, err := fixture.service.Complete(t.Context(), CompleteRequest{
-		DAGName: fixture.dag.Name, DAGRunID: fixture.status.DAGRunID, StepID: "review", Input: Input{Values: map[string]any{}},
-	})
-	require.NoError(t, err)
-	assert.Equal(t, 1, result.RemainingWaitingSteps)
-	assert.False(t, result.ResumeRequested)
-	assert.False(t, result.Queued)
-	assert.Empty(t, fixture.queue.enqueued)
-}
-
 // A completion resumes the run as soon as it unblocks a step, even while
 // manual steps on independent branches keep waiting.
 func TestCompleteResumesUnblockedBranch(t *testing.T) {
@@ -255,10 +239,6 @@ func TestCompleteResumesUnblockedBranch(t *testing.T) {
 	continuedSkip.Step.ContinueOn.Skipped = true
 	retrySkip := stepNode("side", ir.NodeSkipped)
 	retrySkip.SkippedByRetry = true
-	approval := &ir.Node{
-		Step:   ir.Step{ID: "approval", Name: "Approval", Approval: &ir.ApprovalConfig{}},
-		Status: ir.NodeWaiting,
-	}
 	tests := []struct {
 		name  string
 		nodes []*ir.Node
@@ -268,7 +248,7 @@ func TestCompleteResumesUnblockedBranch(t *testing.T) {
 			stepNode("after", ir.NodeNotStarted, "Review"),
 		}},
 		{name: "approval waits", nodes: []*ir.Node{
-			approval,
+			waitingApprovalNode(),
 			stepNode("after", ir.NodeNotStarted, "Review"),
 		}},
 		// Router targets continue past a skipped route.
@@ -310,22 +290,32 @@ func TestCompleteKeepsWaitingWhenNoStepIsReady(t *testing.T) {
 		name  string
 		nodes []*ir.Node
 	}{
-		{name: "join", nodes: []*ir.Node{stepNode("deploy", ir.NodeNotStarted, "Review", "Other")}},
+		{name: "approval waits", nodes: []*ir.Node{waitingApprovalNode()}},
+		{name: "join", nodes: []*ir.Node{
+			waitingHumanTaskNode("Other"),
+			stepNode("deploy", ir.NodeNotStarted, "Review", "Other"),
+		}},
 		// Build inputs can add producer edges that the stored status does not record.
-		{name: "build inputs", nodes: []*ir.Node{buildConsumer}},
+		{name: "build inputs", nodes: []*ir.Node{waitingHumanTaskNode("Other"), buildConsumer}},
 		// Agent DAG steps declare no dependencies.
-		{name: "no dependencies", nodes: []*ir.Node{stepNode("next", ir.NodeNotStarted)}},
+		{name: "no dependencies", nodes: []*ir.Node{
+			waitingHumanTaskNode("Other"),
+			stepNode("next", ir.NodeNotStarted),
+		}},
 		// The resumed attempt would only mark the step skipped.
 		{name: "skipped dependency", nodes: []*ir.Node{
+			waitingHumanTaskNode("Other"),
 			stepNode("side", ir.NodeSkipped),
 			stepNode("after", ir.NodeNotStarted, "Review", "side"),
 		}},
 		// Every resume re-runs failed steps, so they run once after the last task.
 		{name: "failed step elsewhere", nodes: []*ir.Node{
+			waitingHumanTaskNode("Other"),
 			stepNode("lint", ir.NodeFailed),
 			stepNode("after", ir.NodeNotStarted, "Review"),
 		}},
 		{name: "aborted step elsewhere", nodes: []*ir.Node{
+			waitingHumanTaskNode("Other"),
 			stepNode("lint", ir.NodeAborted),
 			stepNode("after", ir.NodeNotStarted, "Review"),
 		}},
@@ -333,11 +323,11 @@ func TestCompleteKeepsWaitingWhenNoStepIsReady(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fixture := newServiceFixture(t, nil)
-			fixture.status.Nodes = append(fixture.status.Nodes, waitingHumanTaskNode("Other"))
 			fixture.status.Nodes = append(fixture.status.Nodes, tt.nodes...)
 
 			result, err := fixture.completeReview(t)
 			require.NoError(t, err)
+			assert.Equal(t, 1, result.RemainingWaitingSteps)
 			assert.False(t, result.ResumeRequested)
 			assert.False(t, result.Queued)
 			assert.Equal(t, ir.Waiting, fixture.status.Status)
@@ -549,6 +539,13 @@ func (f *serviceFixture) completeReview(t *testing.T) (Result, error) {
 func waitingHumanTaskNode(name string) *ir.Node {
 	return &ir.Node{
 		Step:   ir.Step{ID: strings.ToLower(name), Name: name, HumanTask: &ir.HumanTaskConfig{Prompt: name}},
+		Status: ir.NodeWaiting,
+	}
+}
+
+func waitingApprovalNode() *ir.Node {
+	return &ir.Node{
+		Step:   ir.Step{ID: "approval", Name: "Approval", Approval: &ir.ApprovalConfig{}},
 		Status: ir.NodeWaiting,
 	}
 }
