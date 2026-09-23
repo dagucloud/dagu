@@ -16,6 +16,10 @@ const (
 	closeTimeout = 10 * time.Second
 	// ReapInterval is how often a long-lived process sweeps browser sessions.
 	ReapInterval = time.Minute
+	// removeAttempts and removeRetryDelay give a closing browser time to
+	// release its profile files.
+	removeAttempts   = 20
+	removeRetryDelay = 250 * time.Millisecond
 )
 
 // ResumableFunc reports whether a detached session still belongs to a step
@@ -54,13 +58,30 @@ func Release(ctx context.Context, store *Store, record Record) error {
 		errs = append(errs, CloseBrowser(closeCtx, record.CDPURL))
 	}
 	if record.ExtensionDir != "" {
-		errs = append(errs, os.RemoveAll(record.ExtensionDir))
+		errs = append(errs, removeAll(closeCtx, record.ExtensionDir))
 	}
 	if record.OwnsUserDataDir && record.UserDataDir != "" {
-		errs = append(errs, os.RemoveAll(record.UserDataDir))
+		errs = append(errs, removeAll(closeCtx, record.UserDataDir))
 	}
 	errs = append(errs, store.Delete(record.ID))
 	return errors.Join(errs...)
+}
+
+// removeAll deletes dir, retrying while an exiting browser still writes to
+// it or holds its files open.
+func removeAll(ctx context.Context, dir string) error {
+	var err error
+	for range removeAttempts {
+		if err = os.RemoveAll(dir); err == nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(removeRetryDelay):
+		}
+	}
+	return err
 }
 
 // RunReaper sweeps the store until ctx is cancelled.

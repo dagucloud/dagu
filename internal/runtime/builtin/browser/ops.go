@@ -488,7 +488,11 @@ func (r *run) succeed(ctx context.Context) error {
 			files = append(files, rel)
 		}
 	}
-	closeErr := r.shutdown(ctx)
+	// The operations succeeded; leftover browser files are reported, not
+	// treated as a step failure.
+	if err := r.shutdown(ctx); err != nil {
+		_, _ = fmt.Fprintf(r.timeline.log, "warning: browser cleanup: %s\n", r.masker.MaskString(err.Error()))
+	}
 	usage := r.bridge.totals()
 	summary := fmt.Sprintf("Completed %d operations using %d tokens", len(r.cfg.Do), usage.total())
 	r.timeline.appendEvent(ir.AgentSessionEvent{Type: eventLifecycle, Status: statusCompleted, Content: summary, Files: files})
@@ -505,7 +509,7 @@ func (r *run) succeed(ctx context.Context) error {
 			return err
 		}
 	}
-	return closeErr
+	return nil
 }
 
 // fail captures the failure, closes the browser, and returns the masked
