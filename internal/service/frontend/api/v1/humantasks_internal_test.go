@@ -85,6 +85,64 @@ func TestResumeHumanTaskFailureResponseIsStable(t *testing.T) {
 	assert.Equal(t, true, (*typed.Details)["resumePending"])
 }
 
+// The push-back error must not leak the queue failure and must tell clients
+// that nothing was stored.
+func TestPushBackHumanTaskQueueFailureResponseIsStable(t *testing.T) {
+	response, err := pushBackHumanTaskErrorResponse(t.Context(), &humantask.PushBackQueueError{
+		Result: humantask.PushBackResult{DAGName: "deploy", DAGRunID: "run-1", StepID: "review"},
+		Err:    errors.New("storage endpoint included sensitive diagnostics"),
+	})
+	require.NoError(t, err)
+
+	typed, ok := response.(*apiv1.PushBackHumanTask503JSONResponse)
+	require.True(t, ok)
+	assert.Equal(t, apiv1.ErrorCodeHumanTaskResumeFailed, typed.Code)
+	assert.Equal(
+		t,
+		"the DAG-run could not be queued for resume, so the push-back was not applied; retry the same push-back request",
+		typed.Message,
+	)
+	require.NotNil(t, typed.Details)
+	assert.Equal(t, false, (*typed.Details)["pushBackApplied"])
+	assert.Equal(t, "review", (*typed.Details)["stepId"])
+}
+
+func TestHumanTaskInputMiddlewareParsesPushBackInput(t *testing.T) {
+	called := false
+	handler := humanTaskInputMiddleware("/api/v1")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		input, ok := r.Context().Value(humanTaskInputContextKey{}).(humantask.Input)
+		require.True(t, ok)
+		assert.Equal(t, "add tests", input.Values["feedback"])
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/dag-runs/deploy/run-1/human-tasks/review/push-back?expectedIteration=0",
+		strings.NewReader(`{"feedback":"add tests"}`),
+	)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	assert.True(t, called)
+	assert.Equal(t, http.StatusNoContent, response.Code)
+
+	rejected := humanTaskInputMiddleware("/api/v1")(
+		WithRemoteNode(nil, "/api/v1")(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})),
+	)
+	request = httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/dag-runs/deploy/run-1/human-tasks/review/push-back?remoteNode=edge",
+		strings.NewReader(`{"feedback":"a","feedback":"b"}`),
+	)
+	response = httptest.NewRecorder()
+
+	rejected.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusBadRequest, response.Code)
+}
+
 func TestHumanTaskInputMiddlewarePreservesValidatedBody(t *testing.T) {
 	const raw = `{"count":9007199254740993}`
 	originalBody := &trackingReadCloser{Reader: strings.NewReader(raw)}

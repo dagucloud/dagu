@@ -40,16 +40,18 @@ func TestOpenapiJSON_StrictValidation(t *testing.T) {
 func TestHumanTaskCompletionBodyLimit(t *testing.T) {
 	server := test.SetupServer(t)
 
-	response := server.Client().Post(
-		"/api/v1/dag-runs/test/run-1/human-tasks/review/complete",
-		strings.Repeat("x", (16<<20)+1),
-	).ExpectStatus(http.StatusRequestEntityTooLarge).Send(t)
+	for _, operation := range []string{"complete", "push-back"} {
+		response := server.Client().Post(
+			"/api/v1/dag-runs/test/run-1/human-tasks/review/"+operation,
+			strings.Repeat("x", (16<<20)+1),
+		).ExpectStatus(http.StatusRequestEntityTooLarge).Send(t)
 
-	var apiError struct {
-		Code string `json:"code"`
+		var apiError struct {
+			Code string `json:"code"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(response.Body), &apiError), operation)
+		require.Equal(t, "payload_too_large", apiError.Code, operation)
 	}
-	require.NoError(t, json.Unmarshal([]byte(response.Body), &apiError))
-	require.Equal(t, "payload_too_large", apiError.Code)
 }
 
 func TestOpenapiJSON_BuiltinAuth(t *testing.T) {

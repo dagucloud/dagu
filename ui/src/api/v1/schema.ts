@@ -1070,6 +1070,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dag-runs/{name}/{dagRunId}/human-tasks/{stepId}/push-back": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Push a waiting human task back to its rewind target
+         * @description Validates feedback against the stored push-back form of a human task that declares with.push_back, then atomically resets the rewind target and every step depending on it, including the task, with the feedback as push-back context. The same DAG-run is queued when no manual step remains waiting or when the rewind target can run and no step in the run is failed, aborted, rejected, or retrying. If the retry cannot be queued, the push-back is undone and the task stays open.
+         */
+        post: operations["pushBackHumanTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dag-runs/{name}/{dagRunId}/human-tasks/resume": {
         parameters: {
             query?: never;
@@ -3914,8 +3934,18 @@ export interface components {
             };
             /** @description Artifact-relative paths in the current root DAG run */
             artifacts?: string[];
+            pushBack?: components["schemas"]["HumanTaskPushBackConfig"];
         };
-        /** @description Typed human-task completion input. An empty object acknowledges a task without a form. */
+        /** @description Push-back configuration of a human task */
+        HumanTaskPushBackConfig: {
+            /** @description Name of the upstream step that runs again first after a push-back */
+            rewindTo: string;
+            /** @description Normalized flat JSON Schema for typed push-back feedback. Omitted when push-back accepts no input. */
+            form?: {
+                [key: string]: unknown;
+            };
+        };
+        /** @description Typed human-task input: completion values or push-back feedback. An empty object supplies no values, which acknowledges a task without a form. */
         HumanTaskInput: {
             [key: string]: unknown;
         };
@@ -3929,6 +3959,20 @@ export interface components {
             queued: boolean;
             remainingWaitingSteps: number;
             /** @description True when this request found the DAG-run waiting and ready to resume, whether it queued the resume or a concurrent request queued it first; false if the run keeps waiting or has already left waiting */
+            resumeRequested: boolean;
+        };
+        /** @description Result of pushing back one human task */
+        HumanTaskPushBackResponse: {
+            dagName: components["schemas"]["DAGName"];
+            dagRunId: components["schemas"]["DAGRunId"];
+            stepId: string;
+            /** @description Name of the step that runs again first */
+            rewindTo: string;
+            /** @description Push-back iteration this request recorded */
+            iteration: number;
+            /** @description Whether this request durably queued the DAG-run retry */
+            queued: boolean;
+            /** @description True when the DAG-run was ready to resume after the push-back, whether this request queued the resume or a concurrent request queued it first; false if the run keeps waiting */
             resumeRequested: boolean;
         };
         /** @description Result of queueing a completed human-task retry */
@@ -5534,7 +5578,7 @@ export interface components {
             status?: string;
             files?: string[];
         };
-        /** @description One push-back event recorded for an approval step */
+        /** @description One push-back event recorded for an approval step or a human task */
         PushBackHistoryEntry: {
             /** @description Push-back iteration number */
             iteration: number;
@@ -10387,6 +10431,97 @@ export interface operations {
                 };
             };
             /** @description Completion was stored but the DAG-run retry could not be queued */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    pushBackHumanTask: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Push-back iteration of the task the caller reviewed. When it differs from the task's current push-back iteration, the request fails with 409 and changes nothing. */
+                expectedIteration?: number;
+            };
+            header?: never;
+            path: {
+                /** @description name of the DAG */
+                name: components["parameters"]["DAGName"];
+                /** @description ID of the DAG-run; must not be the special 'latest' alias */
+                dagRunId: components["parameters"]["DAGRunConcreteId"];
+                /** @description explicit ID of the human-task step */
+                stepId: components["parameters"]["HumanTaskStepId"];
+            };
+            cookie?: never;
+        };
+        /** @description Typed feedback input. The JSON request body is limited to 16 MiB. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HumanTaskInput"];
+            };
+        };
+        responses: {
+            /** @description Human task pushed back */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HumanTaskPushBackResponse"];
+                };
+            };
+            /** @description Malformed or invalid feedback, or the task does not declare push-back */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description DAG-run or human task not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Human task is not open, is at a different push-back iteration, or the run changed concurrently */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Feedback exceeds the 16 MiB request-body limit */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The DAG-run retry could not be queued, so the push-back was undone and the same request can be retried */
             503: {
                 headers: {
                     [name: string]: unknown;

@@ -134,6 +134,47 @@ func TestToDAGRunDetailsIncludesHumanTaskContract(t *testing.T) {
 	assert.True(t, *details.HumanTaskResumePending)
 }
 
+func TestToDAGRunDetailsIncludesHumanTaskPushBack(t *testing.T) {
+	status := ir.DAGRunStatus{
+		Name:     "test-dag",
+		DAGRunID: "run-1",
+		Status:   ir.Waiting,
+		Nodes: []*ir.Node{
+			{
+				Step: ir.Step{ID: "review", Name: "Review", HumanTask: &ir.HumanTaskConfig{
+					Prompt: "Review",
+					PushBack: &ir.HumanTaskPushBackConfig{
+						RewindTo: "implement",
+						Form:     json.RawMessage(`{"type":"object","properties":{"feedback":{"type":"string"}},"additionalProperties":false}`),
+					},
+				}},
+				Status: ir.NodeWaiting,
+			},
+			{
+				Step: ir.Step{ID: "confirm", Name: "Confirm", HumanTask: &ir.HumanTaskConfig{
+					Prompt:   "Confirm",
+					PushBack: &ir.HumanTaskPushBackConfig{RewindTo: "implement"},
+				}},
+				Status: ir.NodeWaiting,
+			},
+		},
+	}
+
+	details := ToDAGRunDetails(status)
+	require.Len(t, details.Nodes, 2)
+
+	pushBack := details.Nodes[0].Step.HumanTask.PushBack
+	require.NotNil(t, pushBack)
+	assert.Equal(t, "implement", pushBack.RewindTo)
+	require.NotNil(t, pushBack.Form)
+	assert.Equal(t, false, (*pushBack.Form)["additionalProperties"])
+
+	pushBack = details.Nodes[1].Step.HumanTask.PushBack
+	require.NotNil(t, pushBack)
+	assert.Equal(t, "implement", pushBack.RewindTo)
+	assert.Nil(t, pushBack.Form)
+}
+
 func TestToDAGRunDetailsTreatsNullHumanTaskFormAsAbsent(t *testing.T) {
 	status := ir.DAGRunStatus{
 		Name:     "test-dag",

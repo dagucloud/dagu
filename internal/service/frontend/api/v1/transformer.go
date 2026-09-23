@@ -208,15 +208,11 @@ func toStep(obj ir.Step) api.Step {
 		if len(obj.HumanTask.Artifacts) > 0 {
 			humanTask.Artifacts = ptrOf(append([]string(nil), obj.HumanTask.Artifacts...))
 		}
-		if len(obj.HumanTask.Form) > 0 {
-			var form map[string]any
-			decoder := json.NewDecoder(bytes.NewReader(obj.HumanTask.Form))
-			decoder.UseNumber()
-			if err := decoder.Decode(&form); err == nil && form != nil {
-				var extra any
-				if err := decoder.Decode(&extra); err == io.EOF {
-					humanTask.Form = &form
-				}
+		humanTask.Form = toHumanTaskForm(obj.HumanTask.Form)
+		if pushBack := obj.HumanTask.PushBack; pushBack != nil {
+			humanTask.PushBack = &api.HumanTaskPushBackConfig{
+				RewindTo: pushBack.RewindTo,
+				Form:     toHumanTaskForm(pushBack.Form),
 			}
 		}
 		step.HumanTask = humanTask
@@ -594,6 +590,25 @@ func toAgentSessionEvent(event ir.AgentSessionEvent) api.AgentSessionEvent {
 		Timestamp: ptrOf(event.Timestamp), Role: ptrOf(event.Role), Content: ptrOf(event.Content),
 		Name: ptrOf(event.Name), Status: ptrOf(event.Status), Files: ptrOf(event.Files),
 	}
+}
+
+// toHumanTaskForm decodes a stored human-task form, keeping number precision.
+// It returns nil for an empty or unreadable form.
+func toHumanTaskForm(raw json.RawMessage) *map[string]any {
+	if len(raw) == 0 {
+		return nil
+	}
+	var form map[string]any
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&form); err != nil || form == nil {
+		return nil
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return nil
+	}
+	return &form
 }
 
 func toPushBackHistory(node *ir.Node) []api.PushBackHistoryEntry {

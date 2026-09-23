@@ -2928,6 +2928,76 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /dag-runs/{name}/{dagRunId}/human-tasks/{stepId}/push-back:
+    post:
+      summary: "Push a waiting human task back to its rewind target"
+      description: "Validates feedback against the stored push-back form of a human task that declares with.push_back, then atomically resets the rewind target and every step depending on it, including the task, with the feedback as push-back context. The same DAG-run is queued when no manual step remains waiting or when the rewind target can run and no step in the run is failed, aborted, rejected, or retrying. If the retry cannot be queued, the push-back is undone and the task stays open."
+      operationId: "pushBackHumanTask"
+      tags:
+        - "dag-runs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGName"
+        - $ref: "#/components/parameters/DAGRunConcreteId"
+        - $ref: "#/components/parameters/HumanTaskStepId"
+        - name: expectedIteration
+          in: query
+          description: "Push-back iteration of the task the caller reviewed. When it differs from the task's current push-back iteration, the request fails with 409 and changes nothing."
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+      requestBody:
+        required: true
+        description: "Typed feedback input. The JSON request body is limited to 16 MiB."
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HumanTaskInput"
+      responses:
+        "200":
+          description: "Human task pushed back"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HumanTaskPushBackResponse"
+        "400":
+          description: "Malformed or invalid feedback, or the task does not declare push-back"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "DAG-run or human task not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Human task is not open, is at a different push-back iteration, or the run changed concurrently"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: "Feedback exceeds the 16 MiB request-body limit"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: "The DAG-run retry could not be queued, so the push-back was undone and the same request can be retried"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /dag-runs/{name}/{dagRunId}/human-tasks/resume:
     post:
       summary: "Queue a completed human-task checkpoint for resume"
@@ -10930,11 +11000,27 @@ components:
           items:
             type: string
           description: "Artifact-relative paths in the current root DAG run"
+        pushBack:
+          $ref: "#/components/schemas/HumanTaskPushBackConfig"
       required:
         - prompt
 
+    HumanTaskPushBackConfig:
+      type: object
+      description: "Push-back configuration of a human task"
+      properties:
+        rewindTo:
+          type: string
+          description: "Name of the upstream step that runs again first after a push-back"
+        form:
+          type: object
+          additionalProperties: true
+          description: "Normalized flat JSON Schema for typed push-back feedback. Omitted when push-back accepts no input."
+      required:
+        - rewindTo
+
     HumanTaskInput:
-      description: "Typed human-task completion input. An empty object acknowledges a task without a form."
+      description: "Typed human-task input: completion values or push-back feedback. An empty object supplies no values, which acknowledges a task without a form."
       type: object
       additionalProperties: true
 
@@ -10966,6 +11052,38 @@ components:
         - alreadyCompleted
         - queued
         - remainingWaitingSteps
+        - resumeRequested
+
+    HumanTaskPushBackResponse:
+      type: object
+      description: "Result of pushing back one human task"
+      properties:
+        dagName:
+          $ref: "#/components/schemas/DAGName"
+        dagRunId:
+          $ref: "#/components/schemas/DAGRunId"
+        stepId:
+          type: string
+        rewindTo:
+          type: string
+          description: "Name of the step that runs again first"
+        iteration:
+          type: integer
+          minimum: 1
+          description: "Push-back iteration this request recorded"
+        queued:
+          type: boolean
+          description: "Whether this request durably queued the DAG-run retry"
+        resumeRequested:
+          type: boolean
+          description: "True when the DAG-run was ready to resume after the push-back, whether this request queued the resume or a concurrent request queued it first; false if the run keeps waiting"
+      required:
+        - dagName
+        - dagRunId
+        - stepId
+        - rewindTo
+        - iteration
+        - queued
         - resumeRequested
 
     HumanTaskResumeResponse:
@@ -13972,7 +14090,7 @@ components:
 
     PushBackHistoryEntry:
       type: object
-      description: "One push-back event recorded for an approval step"
+      description: "One push-back event recorded for an approval step or a human task"
       properties:
         iteration:
           type: integer

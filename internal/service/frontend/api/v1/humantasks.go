@@ -34,7 +34,7 @@ func humanTaskInputMiddleware(mountedAPIPath string) func(http.Handler) http.Han
 func humanTaskInputMiddlewareWithLimit(mountedAPIPath string, maxBodyBytes int64) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != http.MethodPost || !isHumanTaskCompletionPath(r.URL.Path, mountedAPIPath) {
+			if r.Method != http.MethodPost || !isHumanTaskInputPath(r.URL.Path, mountedAPIPath) {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -46,7 +46,7 @@ func humanTaskInputMiddlewareWithLimit(mountedAPIPath string, maxBodyBytes int64
 					WriteErrorResponse(w, &Error{
 						HTTPStatus: http.StatusRequestEntityTooLarge,
 						Code:       api.ErrorCodePayloadTooLarge,
-						Message:    fmt.Sprintf("human-task completion input exceeds the %d-byte limit", maxBodyBytes),
+						Message:    fmt.Sprintf("human-task input exceeds the %d-byte limit", maxBodyBytes),
 					})
 					return
 				}
@@ -66,13 +66,16 @@ func humanTaskInputMiddlewareWithLimit(mountedAPIPath string, maxBodyBytes int64
 	}
 }
 
-func isHumanTaskCompletionPath(path, mountedAPIPath string) bool {
+// isHumanTaskInputPath reports whether path is a human-task operation whose
+// body is typed input: completion or push-back.
+func isHumanTaskInputPath(path, mountedAPIPath string) bool {
 	relative, ok := strings.CutPrefix(path, strings.TrimSuffix(mountedAPIPath, "/"))
 	if !ok {
 		return false
 	}
 	parts := strings.Split(strings.Trim(relative, "/"), "/")
-	return len(parts) == 6 && parts[0] == "dag-runs" && parts[3] == "human-tasks" && parts[5] == "complete"
+	return len(parts) == 6 && parts[0] == "dag-runs" && parts[3] == "human-tasks" &&
+		(parts[5] == "complete" || parts[5] == "push-back")
 }
 
 // CompleteHumanTask validates and completes one root DAG-run human task.
@@ -124,6 +127,58 @@ func (a *API) CompleteHumanTask(
 		Queued:                result.Queued,
 		RemainingWaitingSteps: result.RemainingWaitingSteps,
 		ResumeRequested:       result.ResumeRequested,
+	}, nil
+}
+
+// PushBackHumanTask validates feedback and pushes one root DAG-run human task
+// back to its rewind target.
+func (a *API) PushBackHumanTask(
+	ctx context.Context,
+	request api.PushBackHumanTaskRequestObject,
+) (api.PushBackHumanTaskResponseObject, error) {
+	if err := a.isAllowed(config.PermissionRunDAGs); err != nil {
+		return nil, err
+	}
+	status, err := a.authorizeHumanTaskMutation(ctx, request.Name, request.DagRunId)
+	if err != nil {
+		return nil, err
+	}
+	if err := a.requireDAGRunStatusExecute(ctx, status); err != nil {
+		return nil, err
+	}
+	if request.Body == nil {
+		return &api.PushBackHumanTask400JSONResponse{
+			Code:    api.ErrorCodeBadRequest,
+			Message: "human-task push-back input must be a JSON object",
+		}, nil
+	}
+	input, ok := ctx.Value(humanTaskInputContextKey{}).(humantask.Input)
+	if !ok {
+		return nil, errors.New("validated human-task input is missing from the request context")
+	}
+
+	by, byID := manualActionSubject(ctx)
+	result, err := a.humanTaskService().PushBack(a.withEventContext(ctx), humantask.PushBackRequest{
+		DAGName:           request.Name,
+		DAGRunID:          request.DagRunId,
+		StepID:            request.StepId,
+		Input:             input,
+		ExpectedIteration: request.Params.ExpectedIteration,
+		By:                by,
+		ByID:              byID,
+	})
+	a.logHumanTaskPushBack(ctx, request.Name, request.DagRunId, request.StepId, result, err)
+	if err != nil {
+		return pushBackHumanTaskErrorResponse(ctx, err)
+	}
+	return &api.PushBackHumanTask200JSONResponse{
+		DagName:         result.DAGName,
+		DagRunId:        result.DAGRunID,
+		StepId:          result.StepID,
+		RewindTo:        result.RewindTo,
+		Iteration:       result.Iteration,
+		Queued:          result.Queued,
+		ResumeRequested: result.ResumeRequested,
 	}, nil
 }
 
@@ -226,6 +281,38 @@ func completeHumanTaskErrorResponse(ctx context.Context, err error) (api.Complet
 	return nil, err
 }
 
+func pushBackHumanTaskErrorResponse(ctx context.Context, err error) (api.PushBackHumanTaskResponseObject, error) {
+	if queueErr, ok := errors.AsType[*humantask.PushBackQueueError](err); ok {
+		logger.Error(ctx, "Undid human-task push-back because the DAG-run could not be queued",
+			tag.Error(queueErr.Err),
+			tag.DAG(queueErr.Result.DAGName),
+			tag.RunID(queueErr.Result.DAGRunID),
+			slog.String("step", queueErr.Result.StepID),
+		)
+		details := map[string]any{
+			"pushBackApplied": false,
+			"dagRunId":        queueErr.Result.DAGRunID,
+			"stepId":          queueErr.Result.StepID,
+		}
+		return &api.PushBackHumanTask503JSONResponse{
+			Code:    api.ErrorCodeHumanTaskResumeFailed,
+			Message: "the DAG-run could not be queued for resume, so the push-back was not applied; retry the same push-back request",
+			Details: &details,
+		}, nil
+	}
+	switch humantask.KindOf(err) {
+	case humantask.ErrorInvalid:
+		return &api.PushBackHumanTask400JSONResponse{Code: api.ErrorCodeBadRequest, Message: err.Error()}, nil
+	case humantask.ErrorNotFound:
+		return &api.PushBackHumanTask404JSONResponse{Code: api.ErrorCodeNotFound, Message: err.Error()}, nil
+	case humantask.ErrorConflict:
+		return &api.PushBackHumanTask409JSONResponse{Code: api.ErrorCodeConflict, Message: err.Error()}, nil
+	case humantask.ErrorInternal:
+		return nil, err
+	}
+	return nil, err
+}
+
 func resumeHumanTaskErrorResponse(ctx context.Context, err error) (api.ResumeHumanTaskDAGRunResponseObject, error) {
 	if resumeErr, ok := errors.AsType[*humantask.ResumeError](err); ok {
 		logger.Error(ctx, "Failed to queue human-task DAG-run resume",
@@ -278,6 +365,31 @@ func (a *API) logHumanTaskCompletion(
 		}
 	}
 	a.logAudit(ctx, audit.CategoryDAG, "dag_human_task_complete", details)
+}
+
+func (a *API) logHumanTaskPushBack(
+	ctx context.Context,
+	dagName, dagRunID, stepID string,
+	result humantask.PushBackResult,
+	err error,
+) {
+	details := map[string]any{
+		"dag_name":         dagName,
+		"dag_run_id":       dagRunID,
+		"step_id":          stepID,
+		"rewind_to":        result.RewindTo,
+		"iteration":        result.Iteration,
+		"queued":           result.Queued,
+		"resume_requested": result.ResumeRequested,
+		"outcome":          "succeeded",
+	}
+	if err != nil {
+		details["outcome"] = "failed"
+		if _, ok := errors.AsType[*humantask.PushBackQueueError](err); ok {
+			details["outcome"] = "undone_resume_failed"
+		}
+	}
+	a.logAudit(ctx, audit.CategoryDAG, "dag_human_task_push_back", details)
 }
 
 func (a *API) logHumanTaskResume(
