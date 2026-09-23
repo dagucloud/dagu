@@ -45,7 +45,8 @@ func (e *agentExecutor) Kill(_ os.Signal) error {
 
 func init() {
 	executor.RegisterExecutor(ir.ExecutorTypeAgent, newAgent, nil, registry.ExecutorCapabilities{
-		LLM: true,
+		LLM:      true,
+		Messages: true,
 	})
 
 	registry.RegisterStepValidator(ir.ExecutorTypeAgent, func(step ir.Step) error {

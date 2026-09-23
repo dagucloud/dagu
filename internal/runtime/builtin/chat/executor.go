@@ -801,7 +801,8 @@ func (e *Executor) createResponseMetadata(cfg *ir.LLMConfig, usage *llmpkg.Usage
 
 func init() {
 	executor.RegisterExecutor(ir.ExecutorTypeChat, newChatExecutor, nil, registry.ExecutorCapabilities{
-		LLM: true,
+		LLM:      true,
+		Messages: true,
 		// All others false - chat doesn't support command, script, shell, container, subdag
 	})
 }

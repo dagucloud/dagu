@@ -2076,8 +2076,8 @@ func validateLLM(result *ir.Step) error {
 		}
 	}
 
-	// Messages are required (at step level)
-	if len(result.Messages) == 0 {
+	// Message-driven executors need at least one step message.
+	if registry.ExecutorCapabilitiesFor(result.ExecutorConfig.Type).Messages && len(result.Messages) == 0 {
 		return ir.NewValidationError(
 			"messages",
 			result.Messages,
@@ -2092,7 +2092,7 @@ func validateMessages(result *ir.Step) error {
 	if len(result.Messages) == 0 {
 		return nil
 	}
-	if !registry.ExecutorCapabilitiesFor(result.ExecutorConfig.Type).LLM {
+	if !registry.ExecutorCapabilitiesFor(result.ExecutorConfig.Type).Messages {
 		return ir.NewValidationError(
 			"messages",
 			result.Messages,

@@ -75,6 +75,6 @@ func (m *MockEmptyExecutor) GetMessages() []ir.LLMMessage { return nil }
 
 // RegisterMockExecutors registers mock executors for testing.
 func RegisterMockExecutors() {
-	executor.RegisterExecutor(MockExecutorType, NewMockExecutor, nil, registry.ExecutorCapabilities{LLM: true})
-	executor.RegisterExecutor(MockEmptyExecutorType, NewMockEmptyExecutor, nil, registry.ExecutorCapabilities{LLM: true})
+	executor.RegisterExecutor(MockExecutorType, NewMockExecutor, nil, registry.ExecutorCapabilities{LLM: true, Messages: true})
+	executor.RegisterExecutor(MockEmptyExecutorType, NewMockEmptyExecutor, nil, registry.ExecutorCapabilities{LLM: true, Messages: true})
 }

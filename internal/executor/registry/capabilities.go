@@ -32,6 +32,9 @@ type ExecutorCapabilities struct {
 	WorkerSelector bool
 	// LLM indicates whether the executor supports the llm field.
 	LLM bool
+	// Messages indicates whether the executor takes the messages field and
+	// requires at least one message when an llm config is present.
+	Messages bool
 	// CommandContext returns command execution facts for command field resolution.
 	CommandContext func(ctx context.Context, step ir.Step) cmnvalue.CommandContext
 	// ScriptContext returns command execution facts for script field resolution.

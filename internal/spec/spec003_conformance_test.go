@@ -375,7 +375,7 @@ func registerSpec003ExecutorCapabilities() {
 				SubDAG: true, WorkerSelector: true,
 			})
 		}
-		registry.RegisterExecutorCapabilities("chat", registry.ExecutorCapabilities{LLM: true})
+		registry.RegisterExecutorCapabilities("chat", registry.ExecutorCapabilities{LLM: true, Messages: true})
 		registry.RegisterExecutorCapabilities("harness", registry.ExecutorCapabilities{
 			Command: true, Script: true, Container: true,
 		})
