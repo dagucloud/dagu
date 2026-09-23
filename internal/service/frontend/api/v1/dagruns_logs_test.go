@@ -210,9 +210,11 @@ func TestLogFileDownload(t *testing.T) {
 		_ = response.VisitDownloadDAGRunStepLogResponse(w)
 	}))
 	defer server.Close()
-	client := server.Client()
-	client.Timeout = 10 * time.Second
-	resp, err := client.Get(server.URL)
+	// Transfer time depends on the runner, so only the test deadline bounds the
+	// download; a client timeout would fail a complete but slow transfer.
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL, nil)
+	require.NoError(t, err)
+	resp, err := server.Client().Do(request)
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, "text/plain", resp.Header.Get("Content-Type"))
