@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -24,6 +25,8 @@ const StagehandExtensionName = "Stagehand Runtime"
 
 const (
 	probeTimeout      = 3 * time.Second
+	exitTimeout       = 5 * time.Second
+	exitPollInterval  = 100 * time.Millisecond
 	cdpReadLimitBytes = 16 << 20
 )
 
@@ -64,30 +67,72 @@ func StagehandExtension(ctx context.Context, cdpURL string) (Extension, error) {
 	return Extension{}, ErrExtensionNotFound
 }
 
+// BrowserProcessID returns the process ID of the browser at cdpURL.
+func BrowserProcessID(ctx context.Context, cdpURL string) (int, error) {
+	var response struct {
+		ProcessInfo []struct {
+			Type string `json:"type"`
+			ID   int    `json:"id"`
+		} `json:"processInfo"`
+	}
+	if err := call(ctx, cdpURL, "SystemInfo.getProcessInfo", map[string]any{}, &response); err != nil {
+		return 0, err
+	}
+	for _, process := range response.ProcessInfo {
+		if process.Type == "browser" && process.ID > 0 {
+			return process.ID, nil
+		}
+	}
+	return 0, errors.New("browser process not reported")
+}
+
 // CloseBrowser asks the browser at cdpURL to exit. A browser that no longer
 // answers is treated as already closed.
 func CloseBrowser(ctx context.Context, cdpURL string) error {
 	err := call(ctx, cdpURL, "Browser.close", map[string]any{}, nil)
-	if err == nil || isUnreachable(err) {
+	if errors.Is(err, ErrUnreachable) {
 		return nil
 	}
-	// The browser may exit before it acknowledges the command.
-	if Probe(ctx, cdpURL) != nil {
+	// The browser often exits before it acknowledges the command.
+	if waitForExit(ctx, cdpURL) {
 		return nil
+	}
+	if err == nil {
+		err = errors.New("browser did not exit after Browser.close")
 	}
 	return err
 }
 
-type unreachableError struct {
-	err error
+// waitForExit reports whether the browser at cdpURL stops accepting
+// connections within exitTimeout. It outlives ctx, because a caller that
+// stopped waiting for the close still needs its outcome.
+func waitForExit(ctx context.Context, cdpURL string) bool {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), exitTimeout)
+	defer cancel()
+	for {
+		if errors.Is(Probe(ctx, cdpURL), ErrUnreachable) {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(exitPollInterval):
+		}
+	}
 }
 
-func (e *unreachableError) Error() string { return e.err.Error() }
-func (e *unreachableError) Unwrap() error { return e.err }
+// ErrUnreachable reports that nothing accepts connections at a browser's
+// DevTools address, so the browser is no longer running.
+var ErrUnreachable = errors.New("browser is not running")
 
-func isUnreachable(err error) bool {
-	var target *unreachableError
-	return errors.As(err, &target)
+// classifyDialError marks a refused connection as ErrUnreachable. Timeouts
+// and other failures leave the browser's state unknown.
+func classifyDialError(err error) error {
+	var opErr *net.OpError
+	if errors.As(err, &opErr) && opErr.Op == "dial" && !opErr.Timeout() {
+		return fmt.Errorf("%w: %w", ErrUnreachable, err)
+	}
+	return err
 }
 
 func browserWebSocketURL(ctx context.Context, cdpURL string) (string, error) {
@@ -97,7 +142,7 @@ func browserWebSocketURL(ctx context.Context, cdpURL string) (string, error) {
 	}
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		return "", &unreachableError{err: err}
+		return "", classifyDialError(err)
 	}
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
@@ -126,7 +171,7 @@ func call(ctx context.Context, cdpURL, method string, params, result any) error 
 		_ = response.Body.Close()
 	}
 	if err != nil {
-		return &unreachableError{err: err}
+		return classifyDialError(err)
 	}
 	defer func() { _ = conn.CloseNow() }()
 	conn.SetReadLimit(cdpReadLimitBytes)

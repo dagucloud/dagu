@@ -4,11 +4,14 @@
 package browserhost_test
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -23,10 +26,31 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// hungBrowserEnv makes the test binary run as a browser process that keeps
+// running after Browser.close, and print its DevTools URL.
+const hungBrowserEnv = "BROWSERHOST_TEST_HUNG_BROWSER"
+
+// hungBrowserLifetime bounds a helper browser process the test failed to end.
+const hungBrowserLifetime = time.Minute
+
+func TestMain(m *testing.M) {
+	if os.Getenv(hungBrowserEnv) != "" {
+		fake := &fakeBrowser{hung: true}
+		fake.start()
+		fmt.Println(fake.server.URL)
+		time.Sleep(hungBrowserLifetime)
+		return
+	}
+	os.Exit(m.Run())
+}
+
 // fakeBrowser serves the subset of the DevTools protocol the package uses.
+// Like Chrome, it stops accepting connections after Browser.close unless it
+// is hung.
 type fakeBrowser struct {
 	server     *httptest.Server
 	extensions []browserhost.Extension
+	hung       bool
 	mu         sync.Mutex
 	methods    []string
 }
@@ -34,9 +58,21 @@ type fakeBrowser struct {
 func newFakeBrowser(t *testing.T, extensions ...browserhost.Extension) *fakeBrowser {
 	t.Helper()
 	fake := &fakeBrowser{extensions: extensions}
-	fake.server = httptest.NewServer(http.HandlerFunc(fake.serve))
+	fake.start()
 	t.Cleanup(fake.server.Close)
 	return fake
+}
+
+func newHungBrowser(t *testing.T) *fakeBrowser {
+	t.Helper()
+	fake := &fakeBrowser{hung: true}
+	fake.start()
+	t.Cleanup(fake.server.Close)
+	return fake
+}
+
+func (f *fakeBrowser) start() {
+	f.server = httptest.NewServer(http.HandlerFunc(f.serve))
 }
 
 func (f *fakeBrowser) serve(w http.ResponseWriter, r *http.Request) {
@@ -68,6 +104,10 @@ func (f *fakeBrowser) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	response, _ := json.Marshal(map[string]any{"id": request.ID, "result": result})
 	_ = conn.Write(r.Context(), websocket.MessageText, response)
+	if request.Method == "Browser.close" && !f.hung {
+		// Close waits for this handler to return.
+		go f.server.Close()
+	}
 }
 
 func (f *fakeBrowser) calls() []string {
@@ -155,9 +195,10 @@ func TestProbeAndClose(t *testing.T) {
 	require.NoError(t, browserhost.Probe(context.Background(), fake.server.URL))
 	require.NoError(t, browserhost.CloseBrowser(context.Background(), fake.server.URL))
 	assert.Equal(t, []string{"Browser.close"}, fake.calls())
+	assert.ErrorIs(t, browserhost.Probe(context.Background(), fake.server.URL), browserhost.ErrUnreachable)
 
 	gone := closedURL(t)
-	assert.Error(t, browserhost.Probe(context.Background(), gone))
+	assert.ErrorIs(t, browserhost.Probe(context.Background(), gone), browserhost.ErrUnreachable)
 	assert.NoError(t, browserhost.CloseBrowser(context.Background(), gone), "an unreachable browser is already closed")
 }
 
@@ -229,4 +270,105 @@ func TestSweep(t *testing.T) {
 			assert.NoDirExists(t, userDataDir)
 		})
 	}
+}
+
+// A browser that keeps running after Browser.close keeps its record and
+// files, so a later sweep can try again.
+func TestReleaseKeepsHungBrowser(t *testing.T) {
+	t.Parallel()
+
+	fake := newHungBrowser(t)
+	store := browserhost.NewStore(t.TempDir())
+	record := ownedRecord(t, fake.server.URL)
+	require.NoError(t, store.Save(record))
+
+	assert.Error(t, browserhost.Release(context.Background(), store, record))
+
+	_, err := store.Load(record.ID)
+	require.NoError(t, err)
+	assert.DirExists(t, record.ExtensionDir)
+	assert.DirExists(t, record.UserDataDir)
+}
+
+// A browser process that ignores Browser.close is ended through its recorded
+// process ID, but only while that ID still belongs to the same process.
+func TestReleaseEndsHungBrowserProcess(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name       string
+		startDelta int64
+		released   bool
+	}{
+		{name: "same process", released: true},
+		{name: "reused process ID", startDelta: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			pid, cdpURL, exited := startHungBrowserProcess(t)
+			startedAt, ok := procutil.StartTime(pid)
+			require.True(t, ok)
+			store := browserhost.NewStore(t.TempDir())
+			record := ownedRecord(t, cdpURL)
+			record.BrowserPID = pid
+			record.BrowserStartedAt = startedAt + tc.startDelta
+			require.NoError(t, store.Save(record))
+
+			err := browserhost.Release(context.Background(), store, record)
+
+			_, loadErr := store.Load(record.ID)
+			if !tc.released {
+				assert.Error(t, err)
+				require.NoError(t, loadErr)
+				assert.NoError(t, browserhost.Probe(context.Background(), cdpURL), "the process keeps running")
+				return
+			}
+			require.NoError(t, err)
+			assert.ErrorIs(t, loadErr, os.ErrNotExist)
+			assert.NoDirExists(t, record.UserDataDir)
+			select {
+			case <-exited:
+			case <-time.After(10 * time.Second):
+				t.Fatal("browser process did not exit")
+			}
+		})
+	}
+}
+
+// ownedRecord returns a session record for the browser at cdpURL that owns
+// its extension and profile directories.
+func ownedRecord(t *testing.T, cdpURL string) browserhost.Record {
+	t.Helper()
+	return browserhost.Record{
+		ID:              "session",
+		State:           browserhost.StateDetached,
+		CDPURL:          cdpURL,
+		ExtensionDir:    t.TempDir(),
+		UserDataDir:     t.TempDir(),
+		OwnsUserDataDir: true,
+	}
+}
+
+// startHungBrowserProcess runs a browser process that ignores Browser.close
+// and returns its process ID, DevTools URL, and a channel closed on exit.
+func startHungBrowserProcess(t *testing.T) (int, string, <-chan struct{}) {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], "-test.run=^$")
+	cmd.Env = append(os.Environ(), hungBrowserEnv+"=1")
+	stdout, err := cmd.StdoutPipe()
+	require.NoError(t, err)
+	require.NoError(t, cmd.Start())
+	exited := make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		close(exited)
+	}()
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		<-exited
+	})
+	line, err := bufio.NewReader(stdout).ReadString('\n')
+	require.NoError(t, err)
+	return cmd.Process.Pid, strings.TrimSpace(line), exited
 }

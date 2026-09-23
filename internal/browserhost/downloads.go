@@ -65,7 +65,7 @@ func WatchDownloads(ctx context.Context, cdpURL, dir string) (*DownloadWatcher, 
 		_ = response.Body.Close()
 	}
 	if err != nil {
-		return nil, &unreachableError{err: err}
+		return nil, classifyDialError(err)
 	}
 	conn.SetReadLimit(cdpReadLimitBytes)
 

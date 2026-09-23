@@ -76,6 +76,8 @@ func (stagehandLauncher) Launch(ctx context.Context, opts launchOptions) (engine
 	}
 	eng.handle.ExtensionID = extension.ID
 	eng.handle.ExtensionDir = extension.Path
+	// Without a process ID, a browser that stops answering cannot be ended.
+	eng.handle.BrowserPID, _ = browserhost.BrowserProcessID(ctx, cdpURL)
 	if err := eng.handleDownloads(ctx, opts.DownloadsDir); err != nil {
 		return nil, errors.Join(err, eng.Close(context.WithoutCancel(ctx)))
 	}

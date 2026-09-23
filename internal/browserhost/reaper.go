@@ -6,6 +6,7 @@ package browserhost
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"time"
 
@@ -53,10 +54,14 @@ func Sweep(ctx context.Context, store *Store, now time.Time, resumable Resumable
 func Release(ctx context.Context, store *Store, record Record) error {
 	closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), closeTimeout)
 	defer cancel()
-	var errs []error
+	// A browser that did not close keeps its record and files, so a later
+	// sweep can try again.
 	if record.CDPURL != "" {
-		errs = append(errs, CloseBrowser(closeCtx, record.CDPURL))
+		if err := closeRecordedBrowser(closeCtx, record); err != nil {
+			return fmt.Errorf("close browser at %s: %w", record.CDPURL, err)
+		}
 	}
+	var errs []error
 	if record.ExtensionDir != "" {
 		errs = append(errs, removeAll(closeCtx, record.ExtensionDir))
 	}
@@ -65,6 +70,35 @@ func Release(ctx context.Context, store *Store, record Record) error {
 	}
 	errs = append(errs, store.Delete(record.ID))
 	return errors.Join(errs...)
+}
+
+// closeRecordedBrowser closes the browser over DevTools. When the browser
+// does not answer, it ends the recorded browser process instead, provided
+// the process ID still belongs to that browser.
+func closeRecordedBrowser(ctx context.Context, record Record) error {
+	err := CloseBrowser(ctx, record.CDPURL)
+	if err == nil {
+		return nil
+	}
+	if endProcess(record.BrowserPID, record.BrowserStartedAt) && waitForExit(ctx, record.CDPURL) {
+		return nil
+	}
+	return err
+}
+
+// endProcess ends pid when it is still the process that started at
+// startedAt. Without a recorded start time it does nothing, because the
+// process ID may have been reused.
+func endProcess(pid int, startedAt int64) bool {
+	matched, _, ok := procutil.MatchesStartTime(pid, startedAt)
+	if !ok || !matched {
+		return false
+	}
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	return process.Kill() == nil
 }
 
 // removeAll deletes dir, retrying while an exiting browser still writes to

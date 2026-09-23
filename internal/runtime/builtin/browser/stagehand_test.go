@@ -6,6 +6,7 @@ package browser
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -337,4 +338,20 @@ func TestStagehandPageChecks(t *testing.T) {
 	visible, err = eng.SelectorVisible(t.Context(), ".row")
 	require.NoError(t, err)
 	assert.True(t, visible)
+}
+
+// The process ID a launched browser reports is the browser itself: ending it
+// closes the browser.
+func TestStagehandReportsBrowserProcess(t *testing.T) {
+	t.Parallel()
+
+	eng := launchShop(t, &shopModel{})
+	handle := eng.Handle()
+	require.Positive(t, handle.BrowserPID)
+	process, err := os.FindProcess(handle.BrowserPID)
+	require.NoError(t, err)
+	require.NoError(t, process.Kill())
+	require.Eventually(t, func() bool {
+		return errors.Is(browserhost.Probe(context.Background(), handle.CDPURL), browserhost.ErrUnreachable)
+	}, 10*time.Second, 200*time.Millisecond, "the browser stops answering")
 }

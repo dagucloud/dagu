@@ -61,6 +61,8 @@ type browserHandle struct {
 	CDPURL       string
 	ExtensionID  string
 	ExtensionDir string
+	// BrowserPID is the browser process ID, or zero when it is unknown.
+	BrowserPID int
 }
 
 // recordedAction is one deterministic action an act operation performed.

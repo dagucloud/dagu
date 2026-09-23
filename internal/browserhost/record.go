@@ -62,6 +62,11 @@ type Record struct {
 	Profile         string `json:"profile,omitempty"`
 	DownloadsDir    string `json:"downloadsDir,omitempty"`
 
+	// BrowserPID and BrowserStartedAt identify the browser process, so it can
+	// be ended when it no longer answers on its DevTools address.
+	BrowserPID       int   `json:"browserPid,omitempty"`
+	BrowserStartedAt int64 `json:"browserStartedAt,omitempty"`
+
 	// OwnerPID and OwnerStartedAt identify the process driving a running
 	// browser, so a crashed owner can be detected even after PID reuse.
 	OwnerPID       int   `json:"ownerPid,omitempty"`
