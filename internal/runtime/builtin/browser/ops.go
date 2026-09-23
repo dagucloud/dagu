@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -129,6 +128,9 @@ func (r *run) execute(ctx context.Context) error {
 	cancel()
 
 	start, err := r.startSession(ctx)
+	if err == nil {
+		err = r.checkPage(ctx)
+	}
 	if err != nil {
 		return r.fail(ctx, -1, "", err)
 	}
@@ -157,6 +159,9 @@ func (r *run) execute(ctx context.Context) error {
 		if err := r.runOperation(ctx, i, op); err != nil {
 			return r.fail(ctx, i, op.kind(), err)
 		}
+		if err := r.checkPage(ctx); err != nil {
+			return r.fail(ctx, i, op.kind(), err)
+		}
 		if err := r.settleDownloads(ctx, i, 0, op.timeout()); err != nil {
 			return r.fail(ctx, i, kindDownload, err)
 		}
@@ -166,6 +171,22 @@ func (r *run) execute(ctx context.Context) error {
 		return r.fail(ctx, last, kindDownload, err)
 	}
 	return r.succeed(ctx)
+}
+
+// checkPage fails when the page has left browser.allowed_domains, which a
+// redirect or an act can cause even when every goto target was allowed.
+func (r *run) checkPage(ctx context.Context) error {
+	if len(r.cfg.Browser.AllowedDomains) == 0 {
+		return nil
+	}
+	current, err := r.eng.CurrentURL(ctx)
+	if err != nil {
+		return err
+	}
+	if err := checkAllowedDomain(current, r.cfg.Browser.AllowedDomains); err != nil {
+		return fmt.Errorf("the page navigated away: %w", err)
+	}
+	return nil
 }
 
 // settleDownloads waits for downloads that are still running and records the
@@ -594,26 +615,6 @@ func (r *run) modelLabel() string {
 		return ""
 	}
 	return models[0].Provider + "/" + models[0].Name
-}
-
-// checkAllowedDomain rejects navigation outside allowed domains. The
-// browser runtime enforces the same list, but its policy can be bypassed.
-func checkAllowedDomain(target string, allowed []string) error {
-	if len(allowed) == 0 {
-		return nil
-	}
-	parsed, err := url.Parse(target)
-	if err != nil {
-		return fmt.Errorf("invalid URL %q: %w", target, err)
-	}
-	host := strings.ToLower(parsed.Hostname())
-	for _, domain := range allowed {
-		domain = strings.ToLower(strings.TrimPrefix(domain, "*."))
-		if host == domain || strings.HasSuffix(host, "."+domain) {
-			return nil
-		}
-	}
-	return fmt.Errorf("%s is outside browser.allowed_domains", parsed.Host)
 }
 
 func describeActions(actions []recordedAction) string {

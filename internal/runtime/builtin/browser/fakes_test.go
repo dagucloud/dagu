@@ -47,6 +47,8 @@ type fakeEngine struct {
 	handle browserHandle
 	// replayFails makes recorded actions fail, as if the page changed.
 	replayFails bool
+	// actNavigatesTo is the page an act leaves the browser on, if set.
+	actNavigatesTo string
 	// downloads and downloadErr script what the next download wait reports.
 	downloads   []string
 	downloadErr error
@@ -85,6 +87,9 @@ func (e *fakeEngine) Goto(_ context.Context, url string, _ time.Duration) error 
 func (e *fakeEngine) Act(ctx context.Context, instruction string, variables map[string]string, _ time.Duration) (actOutcome, error) {
 	e.mu.Lock()
 	e.acts = append(e.acts, fakeAct{instruction: instruction, variables: maps.Clone(variables)})
+	if e.actNavigatesTo != "" {
+		e.url = e.actNavigatesTo
+	}
 	generate := e.generate
 	e.mu.Unlock()
 	resp, err := generate(ctx, generateRequest{

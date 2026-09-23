@@ -236,6 +236,15 @@ func (c config) validate() error {
 			return fmt.Errorf("browser: variable name %q must match %s", name, identifierPattern)
 		}
 	}
+	for _, pattern := range c.Browser.AllowedDomains {
+		// References resolve at run time, where the resolved value is checked.
+		if strings.Contains(pattern, "$") {
+			continue
+		}
+		if err := validateDomainPattern(pattern); err != nil {
+			return fmt.Errorf("browser: %w", err)
+		}
+	}
 	if profile := c.Browser.Profile; profile != "" && !fileNamePattern.MatchString(profile) {
 		return fmt.Errorf("browser: profile %q must match %s", profile, fileNamePattern)
 	}

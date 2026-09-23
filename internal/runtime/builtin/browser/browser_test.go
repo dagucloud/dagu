@@ -403,12 +403,45 @@ func TestStructuredAnswerFromText(t *testing.T) {
 func TestCheckAllowedDomain(t *testing.T) {
 	t.Parallel()
 
-	allowed := []string{"example.com", "*.vendor.io"}
-	assert.NoError(t, checkAllowedDomain("https://example.com/a", allowed))
-	assert.NoError(t, checkAllowedDomain("https://shop.example.com/a", allowed))
-	assert.NoError(t, checkAllowedDomain("https://portal.vendor.io/", allowed))
-	assert.ErrorContains(t, checkAllowedDomain("https://evil.test/", allowed), "outside browser.allowed_domains")
+	allowed := []string{"Example.com.", "*.vendor.io"}
+	for _, tc := range []struct {
+		url     string
+		allowed bool
+	}{
+		{"https://example.com/a", true},
+		{"https://shop.example.com/a", false},
+		{"https://portal.vendor.io/", true},
+		{"https://a.b.vendor.io/", true},
+		{"https://vendor.io/", false},
+		{"https://evil.test/", false},
+		{"about:blank", true},
+		{"data:text/html,hi", true},
+	} {
+		err := checkAllowedDomain(tc.url, allowed)
+		if tc.allowed {
+			assert.NoError(t, err, tc.url)
+		} else {
+			assert.ErrorContains(t, err, "outside browser.allowed_domains", tc.url)
+		}
+	}
 	assert.NoError(t, checkAllowedDomain("https://anything.test/", nil))
+}
+
+// An act can navigate away without a goto; the step fails once the page is
+// outside the allowed domains.
+func TestNavigationOutsideAllowedDomainsFailsStep(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.engine.actNavigatesTo = "https://evil.test/collect"
+	execution := run.execute(`{
+		"url": "https://shop.example.com/cart",
+		"browser": {"allowed_domains": ["shop.example.com"]},
+		"do": [{"act": "Click the checkout button"}]
+	}`, nil)
+
+	require.ErrorContains(t, execution.err, "do[0] act failed: the page navigated away: evil.test is outside browser.allowed_domains")
+	assert.True(t, run.engine.closed)
 }
 
 func TestDownloadsAreRecorded(t *testing.T) {

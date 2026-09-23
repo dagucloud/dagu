@@ -75,6 +75,21 @@ func TestValidateStep(t *testing.T) {
 			want: `profile "../escape" must match`,
 		},
 		{
+			name: "single-label allowed domain",
+			with: `{"browser":{"allowed_domains":["localhost"]},"do":[{"act":"a"}]}`,
+			want: `allowed domain "localhost" must have at least two labels`,
+		},
+		{
+			name: "wildcard inside allowed domain",
+			with: `{"browser":{"allowed_domains":["shop.*.example.com"]},"do":[{"act":"a"}]}`,
+			want: `may use * only as a leading *.`,
+		},
+		{
+			name: "allowed domain with a scheme",
+			with: `{"browser":{"allowed_domains":["https://example.com"]},"do":[{"act":"a"}]}`,
+			want: `must be a host name without a scheme`,
+		},
+		{
 			name: "unknown screenshot policy",
 			with: `{"browser":{"screenshots":"sometimes"},"do":[{"act":"a"}]}`,
 			want: "invalid browser config",
