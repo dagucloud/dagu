@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	goruntime "runtime"
 	"testing"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/browserhost"
 	cmnconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -543,4 +544,24 @@ func TestFinalScreenshotPolicy(t *testing.T) {
 	execution := run.execute(`{"browser": {"screenshots": "final"}, "do": [{"act": "Click the checkout button"}]}`, nil)
 	require.NoError(t, execution.err)
 	assert.FileExists(t, filepath.Join(run.artifacts, "browser", "shop", "01-final.png"))
+}
+
+// A download gets the timeout of the act that can have started it, even when
+// a later operation is shorter, and a step without acts does not wait.
+func TestDownloadWaitTimeouts(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(map[string]string{"The title": `{"title":"Shop"}`}))
+	execution := run.execute(`{"do": [
+		{"act": "Download the yearly export", "timeout": "10m"},
+		{"extract": {"instruction": "The title", "schema": {"type": "object", "properties": {"title": {"type": "string"}}}}, "timeout": "30s"}
+	]}`, nil)
+	require.NoError(t, execution.err)
+	assert.Equal(t, []time.Duration{10 * time.Minute, 10 * time.Minute, 10 * time.Minute}, run.engine.downloadWaits)
+
+	extractOnly := newTestRun(t, pageModel(map[string]string{"The title": `{"title":"Shop"}`}))
+	require.NoError(t, extractOnly.execute(`{"url": "https://shop.example.com", "do": [
+		{"extract": {"instruction": "The title", "schema": {"type": "object", "properties": {"title": {"type": "string"}}}}}
+	]}`, nil).err)
+	assert.Empty(t, extractOnly.engine.downloadWaits)
 }

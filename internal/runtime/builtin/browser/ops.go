@@ -64,6 +64,9 @@ type run struct {
 	// answers holds the values people gave to ask operations.
 	answers map[string]string
 	outputs map[string]any
+	// downloadWindow is the longest timeout of the acts and gotos run so
+	// far, which can start downloads; zero until one runs.
+	downloadWindow time.Duration
 }
 
 func newRun(ctx context.Context, e *browserExecutor) (*run, error) {
@@ -156,7 +159,7 @@ func (r *run) execute(ctx context.Context) error {
 			}
 		}
 		if op.Ask != nil {
-			if err := r.settleDownloads(ctx, i-1, downloadGrace, defaultOperationTimeout); err != nil {
+			if err := r.settleDownloads(ctx, i-1, true); err != nil {
 				return r.fail(ctx, i, kindDownload, err)
 			}
 			return r.waitForInput(ctx, i, *op.Ask)
@@ -167,12 +170,15 @@ func (r *run) execute(ctx context.Context) error {
 		if err := r.checkPage(ctx); err != nil {
 			return r.fail(ctx, i, op.kind(), err)
 		}
-		if err := r.settleDownloads(ctx, i, 0, op.timeout()); err != nil {
+		if op.Act != nil || op.Goto != "" {
+			r.downloadWindow = max(r.downloadWindow, op.timeout())
+		}
+		if err := r.settleDownloads(ctx, i, false); err != nil {
 			return r.fail(ctx, i, kindDownload, err)
 		}
 	}
 	last := len(r.cfg.Do) - 1
-	if err := r.settleDownloads(ctx, last, downloadGrace, defaultOperationTimeout); err != nil {
+	if err := r.settleDownloads(ctx, last, true); err != nil {
 		return r.fail(ctx, last, kindDownload, err)
 	}
 	return r.succeed(ctx)
@@ -195,9 +201,19 @@ func (r *run) checkPage(ctx context.Context) error {
 }
 
 // settleDownloads waits for downloads that are still running and records the
-// finished ones. index is the operation that ran last.
-func (r *run) settleDownloads(ctx context.Context, index int, grace, timeout time.Duration) error {
-	names, err := r.eng.WaitForDownloads(ctx, grace, timeout)
+// finished ones. index is the operation that ran last. Downloads get the
+// longest timeout of the acts and gotos that could have started them.
+// Before the step ends or pauses, it also allows a download that an act or
+// goto just triggered a moment to begin.
+func (r *run) settleDownloads(ctx context.Context, index int, final bool) error {
+	if r.downloadWindow == 0 {
+		return nil
+	}
+	grace := time.Duration(0)
+	if final {
+		grace = downloadGrace
+	}
+	names, err := r.eng.WaitForDownloads(ctx, grace, r.downloadWindow)
 	for _, name := range names {
 		rel := r.artifacts.downloadPath(name)
 		r.timeline.operation(operationReport{

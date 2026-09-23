@@ -55,13 +55,15 @@ type fakeEngine struct {
 	// downloads and downloadErr script what the next download wait reports.
 	downloads   []string
 	downloadErr error
-	mu          sync.Mutex
-	generate    generateFunc
-	url         string
-	acts        []fakeAct
-	replays     [][]recordedAction
-	detached    bool
-	closed      bool
+	// downloadWaits records the timeout of each download wait.
+	downloadWaits []time.Duration
+	mu            sync.Mutex
+	generate      generateFunc
+	url           string
+	acts          []fakeAct
+	replays       [][]recordedAction
+	detached      bool
+	closed        bool
 }
 
 type fakeAct struct {
@@ -162,9 +164,10 @@ func (e *fakeEngine) SelectorVisible(_ context.Context, selector string) (bool, 
 
 // WaitForDownloads reports the scripted downloads once, as if they finished
 // after the operation that started them.
-func (e *fakeEngine) WaitForDownloads(context.Context, time.Duration, time.Duration) ([]string, error) {
+func (e *fakeEngine) WaitForDownloads(_ context.Context, _ time.Duration, timeout time.Duration) ([]string, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	e.downloadWaits = append(e.downloadWaits, timeout)
 	downloads := e.downloads
 	e.downloads = nil
 	return downloads, e.downloadErr
