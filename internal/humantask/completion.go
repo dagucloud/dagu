@@ -107,9 +107,6 @@ func (s *Service) Complete(ctx context.Context, request CompleteRequest) (Result
 	}
 
 	result := resultFor(updated, request.StepID, false)
-	if result.RemainingWaitingSteps > 0 {
-		return result, nil
-	}
 	return s.enqueueResume(ctx, target.withStatus(updated), result)
 }
 

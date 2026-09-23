@@ -68,6 +68,7 @@ func TestCompletePersistsTypedInputAndQueuesResume(t *testing.T) {
 		}},
 	})
 	require.NoError(t, err)
+	assert.True(t, result.ResumeRequested)
 	assert.True(t, result.Queued)
 	assert.False(t, result.AlreadyCompleted)
 	assert.Zero(t, result.RemainingWaitingSteps)
@@ -110,6 +111,7 @@ func TestCompleteKeepsCheckpointRecoverableWhenEnqueueFails(t *testing.T) {
 	require.ErrorAs(t, err, &resumeErr)
 	assert.ErrorIs(t, err, queueErr)
 	assert.Equal(t, result, resumeErr.Result)
+	assert.True(t, result.ResumeRequested)
 	assert.False(t, result.Queued)
 	assert.Equal(t, ir.NodeSucceeded, fixture.status.Nodes[0].Status)
 	assert.Equal(t, ir.Waiting, fixture.status.Status)
@@ -241,6 +243,7 @@ func TestCompleteWaitsForEveryManualStepBeforeResuming(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, 1, result.RemainingWaitingSteps)
+	assert.False(t, result.ResumeRequested)
 	assert.False(t, result.Queued)
 	assert.Empty(t, fixture.queue.enqueued)
 }

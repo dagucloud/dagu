@@ -44,6 +44,7 @@ func (s *Service) enqueueResume(ctx context.Context, target *target, result Resu
 	if target.status == nil || target.status.Status != ir.Waiting || hasWaitingNodes(target.status.Nodes) {
 		return result, nil
 	}
+	result.ResumeRequested = true
 	if s.QueueStore == nil {
 		return result, &ResumeError{Result: result, Err: errors.New("queue store is not configured")}
 	}

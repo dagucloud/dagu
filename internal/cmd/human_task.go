@@ -129,7 +129,7 @@ func runHumanTaskCompleteWith(ctx *Context, args []string, deps humanTaskComplet
 		}
 		return err
 	}
-	if result.RemainingWaitingSteps > 0 {
+	if !result.ResumeRequested {
 		if result.AlreadyCompleted {
 			_, err := fmt.Fprintf(ctx.Command.OutOrStdout(), "Human task %s was already completed.\n", stepID)
 			return err
