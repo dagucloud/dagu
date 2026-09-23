@@ -50,3 +50,22 @@ func TestMaskNodeSecretsMasksStatusDetailLabels(t *testing.T) {
 	assert.NotContains(t, node.StatusDetails[0].Label, "very-secret-token")
 	assert.Equal(t, ir.NodeFailed, node.StatusDetails[0].Status)
 }
+
+func TestMaskNodeSecretsMasksAgentSession(t *testing.T) {
+	t.Parallel()
+
+	masker := newStatusSecretMasker([]string{"PORTAL_TOKEN=very-secret-token"})
+	require.NotNil(t, masker)
+	session := &ir.AgentSession{
+		LastError: "login rejected very-secret-token",
+		Events:    []ir.AgentSessionEvent{{Content: "typed very-secret-token"}},
+	}
+	node := &ir.Node{AgentSession: session}
+
+	maskNodeSecrets(masker, node)
+
+	require.NotNil(t, node.AgentSession)
+	assert.NotContains(t, node.AgentSession.LastError, "very-secret-token")
+	assert.NotContains(t, node.AgentSession.Events[0].Content, "very-secret-token")
+	assert.Contains(t, session.Events[0].Content, "very-secret-token", "the live session is not modified")
+}
