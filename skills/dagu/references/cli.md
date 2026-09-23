@@ -103,7 +103,7 @@ Flags:
 - `--input` — Form input in `key=value` form; repeatable and coerced using the form schema
 - `--inputs-json` — Typed form input as one JSON object
 
-`--input` and `--inputs-json` are mutually exclusive. Omit both for an acknowledgement-only task. Completing one of several waiting human tasks leaves the DAG run waiting; completing the last one starts the run resume automatically. Human tasks cannot be used in sub-DAGs. A distributed run is re-queued, so its scheduler must be running. The command only supports the local context.
+`--input` and `--inputs-json` are mutually exclusive. Omit both for an acknowledgement-only task. Completing a human task resumes the DAG run automatically when it unblocks a step or no other step is waiting; otherwise the run keeps waiting. Human tasks cannot be used in sub-DAGs. A distributed run is re-queued, so its scheduler must be running. The command only supports the local context.
 
 ```sh
 dagu human-task complete --run-id=run-1 --step=review --input environment=production deploy

@@ -229,15 +229,34 @@ func countWaitingNodes(nodes []*ir.Node) int {
 }
 
 // resumeReady reports whether a resumed attempt can make progress: either no
-// manual step is waiting, or a completed human task unblocked a step.
+// manual step is waiting, or a completed human task unblocked a step in a run
+// that has nothing for the resume to re-run.
 func resumeReady(nodes []*ir.Node) bool {
-	return !hasWaitingNodes(nodes) || hasUnblockedNode(nodes)
+	return !hasWaitingNodes(nodes) || (!hasRetryableNode(nodes) && hasUnblockedNode(nodes))
 }
 
-// hasUnblockedNode reports whether a not-started step has every dependency
-// finished and at least one of them is a completed human task. Steps with
-// build inputs are excluded because their inferred producer edges are not
-// stored with the run.
+// hasRetryableNode reports whether a node has a status that every resume
+// re-runs (see runtime Plan.setupRetry). Such runs resume only once no manual
+// step is waiting, so those steps run again once rather than at each resume.
+func hasRetryableNode(nodes []*ir.Node) bool {
+	for _, node := range nodes {
+		if node == nil {
+			continue
+		}
+		switch node.Status {
+		case ir.NodeFailed, ir.NodeRetrying, ir.NodeAborted, ir.NodeRejected:
+			return true
+		case ir.NodeNotStarted, ir.NodeRunning, ir.NodeSucceeded, ir.NodeSkipped,
+			ir.NodePartiallySucceeded, ir.NodeWaiting:
+		}
+	}
+	return false
+}
+
+// hasUnblockedNode reports whether a not-started step will run once resumed:
+// every dependency lets it proceed and at least one of them is a completed
+// human task. Steps with build inputs are excluded because their inferred
+// producer edges are not stored with the run.
 func hasUnblockedNode(nodes []*ir.Node) bool {
 	byName := make(map[string]*ir.Node, len(nodes))
 	for _, node := range nodes {
@@ -260,7 +279,7 @@ func dependenciesUnblocked(depends []string, byName map[string]*ir.Node) bool {
 	unblockedByTask := false
 	for _, name := range depends {
 		dep := byName[name]
-		if dep == nil || !dep.Status.IsDone() {
+		if dep == nil || !dependencyAllowsRun(dep) {
 			return false
 		}
 		if dep.Step.HumanTask != nil && nodeCompleted(dep) {
@@ -268,6 +287,22 @@ func dependenciesUnblocked(depends []string, byName map[string]*ir.Node) bool {
 		}
 	}
 	return unblockedByTask
+}
+
+// dependencyAllowsRun mirrors the runtime readiness check (runtime isReady) for
+// states it can decide from stored status. A failed dependency never counts
+// because its continuation can depend on exit codes and logs.
+func dependencyAllowsRun(dep *ir.Node) bool {
+	switch dep.Status {
+	case ir.NodeSucceeded, ir.NodePartiallySucceeded:
+		return true
+	case ir.NodeSkipped:
+		return dep.SkippedByRetry || dep.Step.ContinueOn.Skipped
+	case ir.NodeNotStarted, ir.NodeRunning, ir.NodeFailed, ir.NodeAborted,
+		ir.NodeWaiting, ir.NodeRejected, ir.NodeRetrying:
+		return false
+	}
+	return false
 }
 
 func hasCompletedHumanTask(nodes []*ir.Node) bool {

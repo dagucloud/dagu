@@ -251,23 +251,47 @@ func TestCompleteWaitsForEveryManualStepBeforeResuming(t *testing.T) {
 // A completion resumes the run as soon as it unblocks a step, even while
 // manual steps on independent branches keep waiting.
 func TestCompleteResumesUnblockedBranch(t *testing.T) {
+	continuedSkip := stepNode("side", ir.NodeSkipped)
+	continuedSkip.Step.ContinueOn.Skipped = true
+	retrySkip := stepNode("side", ir.NodeSkipped)
+	retrySkip.SkippedByRetry = true
+	approval := &ir.Node{
+		Step:   ir.Step{ID: "approval", Name: "Approval", Approval: &ir.ApprovalConfig{}},
+		Status: ir.NodeWaiting,
+	}
 	tests := []struct {
-		name    string
-		waiting *ir.Node
+		name  string
+		nodes []*ir.Node
 	}{
-		{name: "human task", waiting: waitingHumanTaskNode("Other")},
-		{name: "approval", waiting: &ir.Node{
-			Step:   ir.Step{ID: "approval", Name: "Approval", Approval: &ir.ApprovalConfig{}},
-			Status: ir.NodeWaiting,
+		{name: "human task waits", nodes: []*ir.Node{
+			waitingHumanTaskNode("Other"),
+			stepNode("after", ir.NodeNotStarted, "Review"),
+		}},
+		{name: "approval waits", nodes: []*ir.Node{
+			approval,
+			stepNode("after", ir.NodeNotStarted, "Review"),
+		}},
+		// Router targets continue past a skipped route.
+		{name: "skipped dependency continues", nodes: []*ir.Node{
+			waitingHumanTaskNode("Other"),
+			continuedSkip,
+			stepNode("after", ir.NodeNotStarted, "Review", "side"),
+		}},
+		{name: "dependency skipped by retry", nodes: []*ir.Node{
+			waitingHumanTaskNode("Other"),
+			retrySkip,
+			stepNode("after", ir.NodeNotStarted, "Review", "side"),
+		}},
+		{name: "partially succeeded dependency", nodes: []*ir.Node{
+			waitingHumanTaskNode("Other"),
+			stepNode("side", ir.NodePartiallySucceeded),
+			stepNode("after", ir.NodeNotStarted, "Review", "side"),
 		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fixture := newServiceFixture(t, nil)
-			fixture.status.Nodes = append(fixture.status.Nodes,
-				tt.waiting,
-				stepNode("after", ir.NodeNotStarted, "Review"),
-			)
+			fixture.status.Nodes = append(fixture.status.Nodes, tt.nodes...)
 
 			result, err := fixture.completeReview(t)
 			require.NoError(t, err)
@@ -283,19 +307,34 @@ func TestCompleteKeepsWaitingWhenNoStepIsReady(t *testing.T) {
 	buildConsumer := stepNode("package", ir.NodeNotStarted, "Review")
 	buildConsumer.Step.Inputs = []ir.StepInputDeclaration{{Name: "binary", Path: "bin/app"}}
 	tests := []struct {
-		name string
-		node *ir.Node
+		name  string
+		nodes []*ir.Node
 	}{
-		{name: "join", node: stepNode("deploy", ir.NodeNotStarted, "Review", "Other")},
+		{name: "join", nodes: []*ir.Node{stepNode("deploy", ir.NodeNotStarted, "Review", "Other")}},
 		// Build inputs can add producer edges that the stored status does not record.
-		{name: "build inputs", node: buildConsumer},
+		{name: "build inputs", nodes: []*ir.Node{buildConsumer}},
 		// Agent DAG steps declare no dependencies.
-		{name: "no dependencies", node: stepNode("next", ir.NodeNotStarted)},
+		{name: "no dependencies", nodes: []*ir.Node{stepNode("next", ir.NodeNotStarted)}},
+		// The resumed attempt would only mark the step skipped.
+		{name: "skipped dependency", nodes: []*ir.Node{
+			stepNode("side", ir.NodeSkipped),
+			stepNode("after", ir.NodeNotStarted, "Review", "side"),
+		}},
+		// Every resume re-runs failed steps, so they run once after the last task.
+		{name: "failed step elsewhere", nodes: []*ir.Node{
+			stepNode("lint", ir.NodeFailed),
+			stepNode("after", ir.NodeNotStarted, "Review"),
+		}},
+		{name: "aborted step elsewhere", nodes: []*ir.Node{
+			stepNode("lint", ir.NodeAborted),
+			stepNode("after", ir.NodeNotStarted, "Review"),
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fixture := newServiceFixture(t, nil)
-			fixture.status.Nodes = append(fixture.status.Nodes, waitingHumanTaskNode("Other"), tt.node)
+			fixture.status.Nodes = append(fixture.status.Nodes, waitingHumanTaskNode("Other"))
+			fixture.status.Nodes = append(fixture.status.Nodes, tt.nodes...)
 
 			result, err := fixture.completeReview(t)
 			require.NoError(t, err)
@@ -303,6 +342,7 @@ func TestCompleteKeepsWaitingWhenNoStepIsReady(t *testing.T) {
 			assert.False(t, result.Queued)
 			assert.Equal(t, ir.Waiting, fixture.status.Status)
 			assert.Empty(t, fixture.queue.enqueued)
+			assert.False(t, ResumePending(fixture.status))
 		})
 	}
 }

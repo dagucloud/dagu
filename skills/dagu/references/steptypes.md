@@ -255,7 +255,7 @@ dagu human-task complete --run-id=<run-id> --step=review --input window=morning 
 
 Use `--inputs-json` instead of repeated `--input` flags when input types must be preserved exactly.
 
-Completing the last waiting human task resumes a local run directly. A distributed run is re-queued, so its scheduler must be running.
+Completing a human task resumes the run when it unblocks a step or no other step is waiting. A distributed run is re-queued, so its scheduler must be running.
 
 ## Declared Value Outputs
 

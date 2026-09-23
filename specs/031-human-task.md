@@ -430,9 +430,14 @@ Rules:
 After completion:
 
 - If the completion unblocks a step, Dagu requests resume automatically, even
-  while other nodes remain `waiting`. A step is unblocked when it has not
-  started, every dependency has finished, and at least one dependency is a
-  completed human task.
+  while other nodes remain `waiting`. A step is unblocked when:
+  - it has not started and declares no build inputs
+  - every dependency succeeded, partially succeeded, or was skipped in a way
+    that lets dependents continue
+  - at least one dependency is a completed human task
+- A completion never unblocks a step while any node in the run is failed,
+  aborted, rejected, or retrying. Every resume re-runs those nodes, so they run
+  again once, at the resume requested after no node remains `waiting`.
 - Otherwise, if any node remains `waiting`, the run remains `waiting` and no
   resume is requested by that completion.
 - If no node remains `waiting`, Dagu requests resume automatically.
@@ -445,6 +450,10 @@ After completion:
 - While a resumed attempt is queued or running, completing another open task
   fails with the run-not-waiting diagnostic. It succeeds once the run reaches
   its next waiting checkpoint.
+- Each return to a waiting checkpoint is a new checkpoint for wait handlers
+  and notifications, which list every task that is still open.
+- A completed human task that a later retry resets opens again with its prompt
+  and artifact paths resolved anew.
 - A later sequential human task can create another checkpoint in the same
   logical run.
 
