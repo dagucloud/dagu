@@ -4177,24 +4177,22 @@ func applyPushBack(ctx context.Context, node *ir.Node, status *ir.DAGRunStatus, 
 	if node.Step.Approval != nil && strings.TrimSpace(node.Step.Approval.RewindTo) != "" {
 		targetName = strings.TrimSpace(node.Step.Approval.RewindTo)
 	}
-	if findStepByName(status.Nodes, targetName) < 0 {
-		return fmt.Errorf("step %s approval.rewind_to references non-existent step %s", node.Step.Name, targetName)
-	}
-
 	var inputs map[string]string
 	if body != nil && body.Inputs != nil {
 		inputs = cloneStringMap(*body.Inputs)
 	}
 	actor, actorID := manualActionSubject(ctx)
-	_, err := dagrun.ApplyPushBack(status, node, dagrun.PushBack{
+	if _, err := dagrun.ApplyPushBack(status, node, dagrun.PushBack{
 		TargetName:    targetName,
 		AllowedInputs: pushBackAllowedInputs(node.Step),
 		Inputs:        inputs,
 		By:            actor,
 		ByID:          actorID,
 		At:            time.Now().UTC().Format(time.RFC3339),
-	})
-	return err
+	}); err != nil {
+		return fmt.Errorf("step %s approval.rewind_to: %w", node.Step.Name, err)
+	}
+	return nil
 }
 
 func pushBackAllowedInputs(step ir.Step) []string {
