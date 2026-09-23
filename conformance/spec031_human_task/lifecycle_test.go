@@ -108,6 +108,30 @@ func TestMultipleAndSequentialCheckpoints(t *testing.T) {
 		waitForFileContent(t, dagu.ProjectPath("deployed.txt"), "deployed\n")
 	})
 
+	t.Run("independent task branches", func(t *testing.T) {
+		dagu := harness.NewRunner(t)
+		env := sharedEnv(t)
+		const runID = "spec031-independent-tasks"
+
+		startWaiting(t, dagu, env, runID, "independent_waiting.yaml")
+		first := complete(t, dagu, env, runID, "review_a", "independent_waiting.yaml")
+		first.ExpectExitCode(0)
+		first.ExpectStdout("Completed human task review_a; DAG-run queued for resume.\n")
+		first.ExpectStderr("")
+		waitForFileContent(t, dagu.ProjectPath("after_a.txt"), "after_a\n")
+		// review_b renders as waiting while the resumed attempt runs, so match the run result.
+		status := waitForStatus(t, dagu, env, runID, "independent_waiting.yaml", "Result: Waiting")
+		require.Contains(t, status.Stdout(), "Confirm B in "+runID)
+		dagu.ExpectNoFile("finished.txt")
+
+		second := complete(t, dagu, env, runID, "review_b", "independent_waiting.yaml")
+		second.ExpectExitCode(0)
+		second.ExpectStdout("Completed human task review_b; DAG-run queued for resume.\n")
+		second.ExpectStderr("")
+		waitForStatus(t, dagu, env, runID, "independent_waiting.yaml", "Succeeded")
+		waitForFileContent(t, dagu.ProjectPath("finished.txt"), "finished\n")
+	})
+
 	t.Run("sequential tasks", func(t *testing.T) {
 		dagu := harness.NewRunner(t)
 		env := sharedEnv(t)

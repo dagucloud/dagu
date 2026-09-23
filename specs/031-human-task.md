@@ -378,7 +378,7 @@ nothing to stderr:
 
 | Condition | Stdout |
 | --- | --- |
-| New completion; another node remains waiting | `Completed human task <step>; DAG-run remains waiting.` |
+| New completion; another node remains waiting and no step is unblocked | `Completed human task <step>; DAG-run remains waiting.` |
 | New completion; resume accepted | `Completed human task <step>; DAG-run queued for resume.` |
 | New completion; a concurrent request already queued resume | `Completed human task <step>; DAG-run was already queued for resume.` |
 | Identical repeat; no resume is needed | `Human task <step> was already completed.` |
@@ -429,12 +429,22 @@ Rules:
 
 After completion:
 
-- If any node remains `waiting`, the run remains `waiting` and no resume is
-  requested by that completion.
+- If the completion unblocks a step, Dagu requests resume automatically, even
+  while other nodes remain `waiting`. A step is unblocked when it has not
+  started, every dependency has finished, and at least one dependency is a
+  completed human task.
+- Otherwise, if any node remains `waiting`, the run remains `waiting` and no
+  resume is requested by that completion.
 - If no node remains `waiting`, Dagu requests resume automatically.
 - Resume keeps the same DAG-run ID and uses the stored DAG snapshot.
 - Completed nodes, including human-task outputs, remain completed.
 - Downstream nodes become eligible according to their dependencies.
+- Tasks that remain open stay `waiting` with their stored prompt and artifact
+  paths. The resumed run returns to a `waiting` checkpoint after no ordinary
+  node remains ready or running.
+- While a resumed attempt is queued or running, completing another open task
+  fails with the run-not-waiting diagnostic. It succeeds once the run reaches
+  its next waiting checkpoint.
 - A later sequential human task can create another checkpoint in the same
   logical run.
 
@@ -635,9 +645,42 @@ steps:
     run: printf 'deployed\n' > deployed.txt
 ```
 
-Completing `review_a` leaves the run waiting and does not create
-`deployed.txt`. Completing `review_b` requests one resume and creates the file
-once.
+Completing `review_a` leaves the run waiting because `deploy` also depends on
+`review_b`, and does not create `deployed.txt`. Completing `review_b` requests
+one resume and creates the file once.
+
+### Independent Task Branches
+
+```yaml
+steps:
+  - id: start
+    run: printf 'start\n'
+
+  - id: review_a
+    depends: start
+    action: human.task
+    with:
+      prompt: Confirm A
+
+  - id: after_a
+    depends: review_a
+    run: printf 'after_a\n' > after_a.txt
+
+  - id: review_b
+    depends: start
+    action: human.task
+    with:
+      prompt: Confirm B in ${DAG_RUN_ID}
+
+  - id: finish
+    depends: [after_a, review_b]
+    run: printf 'finished\n' > finished.txt
+```
+
+Completing `review_a` requests resume. The resumed run creates `after_a.txt`,
+returns to `waiting` on `review_b` with its stored prompt, and does not create
+`finished.txt`. Completing `review_b` requests another resume and creates
+`finished.txt` once.
 
 ### Stored Form Snapshot
 

@@ -1,0 +1,27 @@
+name: spec031_independent_waiting
+working_dir: .
+steps:
+  - id: start
+    run: printf 'start\n'
+
+  - id: review_a
+    depends: start
+    action: human.task
+    with:
+      prompt: Confirm A
+
+  - id: after_a
+    depends: review_a
+    run: printf 'after_a\n'
+    stdout: after_a.txt
+
+  - id: review_b
+    depends: start
+    action: human.task
+    with:
+      prompt: Confirm B in ${DAG_RUN_ID}
+
+  - id: finish
+    depends: [after_a, review_b]
+    run: printf 'finished\n'
+    stdout: finished.txt
