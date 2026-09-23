@@ -145,6 +145,49 @@ func TestPushBackRejectsStaleExpectedIteration(t *testing.T) {
 	assert.Empty(t, fixture.queue.enqueued)
 }
 
+// A push-back from another task can reset this task. Its iteration must still
+// move forward, so a page kept open from its earlier review stays stale.
+func TestPushBackKeepsStalePagesStaleAcrossTasks(t *testing.T) {
+	fixture := newServiceFixture(t, nil)
+	task := func(id, depends, rewindTo string, iteration int) *ir.Node {
+		return &ir.Node{
+			Step: ir.Step{
+				ID: id, Name: id, Depends: []string{depends},
+				HumanTask: &ir.HumanTaskConfig{Prompt: id, PushBack: &ir.HumanTaskPushBackConfig{RewindTo: rewindTo}},
+			},
+			Status:            ir.NodeWaiting,
+			ApprovalIteration: iteration,
+		}
+	}
+	docs := stepNode("docs", ir.NodeSucceeded, "implement")
+	docs.ApprovalIteration = 2
+	fixture.status.Nodes = []*ir.Node{
+		stepNode("implement", ir.NodeSucceeded),
+		docs,
+		task("code_review", "implement", "implement", 0),
+		task("docs_review", "docs", "docs", 2),
+	}
+
+	result, err := fixture.service.PushBack(t.Context(), PushBackRequest{
+		DAGName: fixture.dag.Name, DAGRunID: fixture.status.DAGRunID, StepID: "code_review", ExpectedIteration: new(0),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 3, result.Iteration)
+	assert.Equal(t, 3, fixture.node(t, "docs_review").ApprovalIteration)
+
+	fixture.status.Status = ir.Waiting
+	for _, name := range []string{"implement", "docs"} {
+		fixture.node(t, name).Status = ir.NodeSucceeded
+	}
+	fixture.node(t, "docs_review").Status = ir.NodeWaiting
+	_, err = fixture.service.PushBack(t.Context(), PushBackRequest{
+		DAGName: fixture.dag.Name, DAGRunID: fixture.status.DAGRunID, StepID: "docs_review", ExpectedIteration: new(1),
+	})
+	require.Error(t, err)
+	assert.Equal(t, ErrorConflict, KindOf(err))
+	assert.ErrorContains(t, err, "at push-back iteration 3, not 1")
+}
+
 func TestPushBackValidatesRequest(t *testing.T) {
 	tests := []struct {
 		name    string

@@ -96,14 +96,20 @@ type PushBack struct {
 // ApplyPushBack resets the target step and every step that depends on it,
 // directly or transitively, for another execution. Each reset step records the
 // push-back iteration, the feedback, the source step's push-back history, and
-// its own previous stdout. It returns the new iteration.
+// its own previous stdout. The new iteration exceeds the iteration of the
+// source and of every reset step, and is returned.
 func ApplyPushBack(status *ir.DAGRunStatus, source *ir.Node, pb PushBack) (int, error) {
 	target := nodeByStepName(status.Nodes, pb.TargetName)
 	if target == nil {
 		return 0, fmt.Errorf("push-back target step %s does not exist", pb.TargetName)
 	}
 
-	iteration := source.ApprovalIteration + 1
+	rewound := append([]*ir.Node{target}, dependentNodes(status.Nodes, pb.TargetName)...)
+	iteration := source.ApprovalIteration
+	for _, node := range rewound {
+		iteration = max(iteration, node.ApprovalIteration)
+	}
+	iteration++
 	inputs := FilterPushBackInputs(pb.AllowedInputs, pb.Inputs)
 	history := append(
 		NormalizePushBackHistory(pb.AllowedInputs, source.ApprovalIteration, source.PushBackInputs, source.PushBackHistory),
@@ -116,7 +122,7 @@ func ApplyPushBack(status *ir.DAGRunStatus, source *ir.Node, pb PushBack) (int, 
 		},
 	)
 
-	for _, node := range append([]*ir.Node{target}, dependentNodes(status.Nodes, pb.TargetName)...) {
+	for _, node := range rewound {
 		previousStdout := node.Stdout
 		*node = *ir.NewNodeFromStep(node.Step)
 		node.ApprovalIteration = iteration

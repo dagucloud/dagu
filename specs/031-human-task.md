@@ -74,8 +74,9 @@ preserving completed nodes and outputs.
 The rewind target is the step named by `with.push_back.rewind_to`.
 
 A step's push-back iteration is the iteration of the last push-back that reset
-it, or `0` when no push-back has. A push-back of a task at iteration `N`
-records iteration `N+1`.
+it, or `0` when no push-back has. A push-back records one more than the highest
+push-back iteration among the task and the steps it resets, so a step's
+iteration only increases.
 
 ## Behavior
 

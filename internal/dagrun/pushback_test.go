@@ -99,6 +99,31 @@ func TestApplyPushBackExtendsSourceHistory(t *testing.T) {
 	}, implement.PushBackHistory)
 }
 
+// Another push-back may already have moved a reset step to a higher
+// iteration. The new iteration must exceed every reset step's iteration so an
+// expected-iteration check can never match an earlier review again.
+func TestApplyPushBackKeepsIterationsIncreasing(t *testing.T) {
+	t.Parallel()
+
+	status := pushBackStatus()
+	for _, idx := range []int{2, 3} {
+		status.Nodes[idx].ApprovalIteration = 2
+	}
+
+	iteration, err := dagrun.ApplyPushBack(status, status.Nodes[3], dagrun.PushBack{TargetName: "implement"})
+	require.NoError(t, err)
+	assert.Equal(t, 3, iteration)
+
+	source := pushBackStatus()
+	source.Nodes[4].ApprovalIteration = 5
+	iteration, err = dagrun.ApplyPushBack(source, source.Nodes[3], dagrun.PushBack{TargetName: "implement"})
+	require.NoError(t, err)
+	assert.Equal(t, 6, iteration)
+	for _, idx := range []int{1, 2, 3, 4} {
+		assert.Equal(t, 6, source.Nodes[idx].ApprovalIteration, source.Nodes[idx].Step.Name)
+	}
+}
+
 func TestApplyPushBackRejectsMissingTarget(t *testing.T) {
 	t.Parallel()
 
