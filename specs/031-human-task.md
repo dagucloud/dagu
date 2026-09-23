@@ -558,7 +558,9 @@ Rules:
 A successful push-back atomically makes these observable changes:
 
 - the rewind target and every step that depends on it directly or
-  transitively, including the task, become not started
+  transitively, including the task, become not started; in a `type: build`
+  DAG, a step that consumes a declared output path of one of those steps
+  depends on it
 - those steps lose their previous status, outputs, completion input, and
   approval decisions; human tasks and approval steps among them wait again when
   they run

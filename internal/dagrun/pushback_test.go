@@ -5,6 +5,7 @@ package dagrun_test
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
@@ -122,6 +123,42 @@ func TestApplyPushBackKeepsIterationsIncreasing(t *testing.T) {
 	for _, idx := range []int{1, 2, 3, 4} {
 		assert.Equal(t, 6, source.Nodes[idx].ApprovalIteration, source.Nodes[idx].Step.Name)
 	}
+}
+
+// Build steps consume producer outputs through declared paths without
+// declaring depends. Such consumers depend on the rewind target and must run
+// again, or they keep outputs built from the rejected result.
+func TestApplyPushBackResetsBuildConsumers(t *testing.T) {
+	t.Parallel()
+
+	binary := filepath.Join(t.TempDir(), "bin", "app")
+	status := &ir.DAGRunStatus{Status: ir.Waiting, Nodes: []*ir.Node{
+		{
+			Step:   ir.Step{Name: "compile", Outputs: []ir.StepOutputDeclaration{{Name: "binary", Path: binary}}},
+			Status: ir.NodeSucceeded,
+		},
+		{
+			Step:   ir.Step{Name: "package", Inputs: []ir.StepInputDeclaration{{Name: "binary", Path: binary}}},
+			Status: ir.NodeSucceeded,
+		},
+		{
+			Step: ir.Step{
+				ID: "review", Name: "review", Depends: []string{"compile", "package"},
+				HumanTask: &ir.HumanTaskConfig{Prompt: "Review"},
+			},
+			Status: ir.NodeWaiting,
+		},
+		{Step: ir.Step{Name: "docs"}, Status: ir.NodeSucceeded},
+	}}
+
+	_, err := dagrun.ApplyPushBack(status, status.Nodes[2], dagrun.PushBack{TargetName: "compile"})
+	require.NoError(t, err)
+
+	for _, idx := range []int{0, 1, 2} {
+		assert.Equal(t, ir.NodeNotStarted, status.Nodes[idx].Status, status.Nodes[idx].Step.Name)
+		assert.Equal(t, 1, status.Nodes[idx].ApprovalIteration, status.Nodes[idx].Step.Name)
+	}
+	assert.Equal(t, ir.NodeSucceeded, status.Nodes[3].Status)
 }
 
 func TestApplyPushBackRejectsMissingTarget(t *testing.T) {

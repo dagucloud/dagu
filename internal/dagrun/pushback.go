@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"maps"
 	"reflect"
+	"slices"
 
+	"github.com/dagucloud/dagu/v2/internal/build"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -181,6 +183,7 @@ func nodeByStepName(nodes []*ir.Node, name string) *ir.Node {
 // dependentNodes returns the steps that depend on stepName directly or
 // transitively, excluding stepName itself.
 func dependentNodes(nodes []*ir.Node, stepName string) []*ir.Node {
+	dependencies := stepDependencies(nodes)
 	dependents := map[string]bool{stepName: true}
 	for changed := true; changed; {
 		changed = false
@@ -188,7 +191,7 @@ func dependentNodes(nodes []*ir.Node, stepName string) []*ir.Node {
 			if node == nil || dependents[node.Step.Name] {
 				continue
 			}
-			for _, dep := range node.Step.Depends {
+			for _, dep := range dependencies[node.Step.Name] {
 				if dependents[dep] {
 					dependents[node.Step.Name] = true
 					changed = true
@@ -205,4 +208,48 @@ func dependentNodes(nodes []*ir.Node, stepName string) []*ir.Node {
 		}
 	}
 	return result
+}
+
+// stepDependencies returns each step's declared dependencies plus the build
+// producers whose output paths it consumes, since build steps link through
+// declared paths without declaring depends. Stored steps carry the paths the
+// run resolved.
+func stepDependencies(nodes []*ir.Node) map[string][]string {
+	dependencies := make(map[string][]string, len(nodes))
+	hasInputs := false
+	for _, node := range nodes {
+		if node == nil {
+			continue
+		}
+		dependencies[node.Step.Name] = node.Step.Depends
+		hasInputs = hasInputs || len(node.Step.Inputs) > 0
+	}
+	if !hasInputs {
+		return dependencies
+	}
+
+	pathKeys := build.NewPathKeyResolver()
+	producers := make(map[string]string)
+	for _, node := range nodes {
+		if node == nil {
+			continue
+		}
+		for _, output := range node.Step.Outputs {
+			if output.Path != "" {
+				producers[pathKeys.ComparisonKey(output.Path)] = node.Step.Name
+			}
+		}
+	}
+	for _, node := range nodes {
+		if node == nil {
+			continue
+		}
+		for _, input := range node.Step.Inputs {
+			producer, ok := producers[pathKeys.ComparisonKey(input.Path)]
+			if ok && producer != node.Step.Name {
+				dependencies[node.Step.Name] = append(slices.Clone(dependencies[node.Step.Name]), producer)
+			}
+		}
+	}
+	return dependencies
 }
