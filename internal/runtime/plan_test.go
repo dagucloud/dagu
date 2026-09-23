@@ -277,6 +277,68 @@ func TestRetryPlan_KeepsOpenedHumanTaskSnapshot(t *testing.T) {
 	require.Equal(t, resolved, completed.Step().HumanTask)
 }
 
+// A resume re-runs failed steps and everything after them. Steps reset that
+// way stay in the same push-back cycle, so they keep its iteration, feedback,
+// history, and previous stdout.
+func TestRetryPlan_KeepsPushBackContext(t *testing.T) {
+	t.Parallel()
+
+	pushBack := runtime.NodeState{
+		ApprovalIteration:      1,
+		PushBackInputs:         map[string]string{"feedback": "add tests"},
+		PushBackHistory:        []ir.PushBackEntry{{Iteration: 1, By: "alice", Inputs: map[string]string{"feedback": "add tests"}}},
+		PushBackPreviousStdout: "/logs/review.out",
+	}
+	dag := &ir.DAG{Steps: []ir.Step{
+		{Name: "implement"},
+		{Name: "lint"},
+		{Name: "review", Depends: []string{"implement", "lint"}},
+	}}
+	failedState := pushBack
+	failedState.Status = ir.NodeFailed
+	implement := runtime.NodeWithData(runtime.NodeData{Step: ir.Step{Name: "implement"}, State: failedState})
+	resetState := pushBack
+	resetState.Status = ir.NodeNotStarted
+	review := runtime.NodeWithData(runtime.NodeData{
+		Step:  ir.Step{Name: "review", Depends: []string{"implement", "lint"}},
+		State: resetState,
+	})
+
+	_, err := runtime.CreateRetryPlan(context.Background(), dag, implement, makeNode("lint", ir.NodeFailed), review)
+	require.NoError(t, err)
+
+	for _, node := range []*runtime.Node{implement, review} {
+		state := node.State()
+		require.Equal(t, ir.NodeNotStarted, state.Status, node.Name())
+		require.Equal(t, pushBack.ApprovalIteration, state.ApprovalIteration, node.Name())
+		require.Equal(t, pushBack.PushBackInputs, state.PushBackInputs, node.Name())
+		require.Equal(t, pushBack.PushBackHistory, state.PushBackHistory, node.Name())
+		require.Equal(t, pushBack.PushBackPreviousStdout, state.PushBackPreviousStdout, node.Name())
+	}
+}
+
+func TestStepRetryPlan_KeepsPushBackContext(t *testing.T) {
+	t.Parallel()
+
+	state := runtime.NodeState{
+		Status:            ir.NodeSucceeded,
+		ApprovalIteration: 2,
+		PushBackInputs:    map[string]string{"feedback": "rename it"},
+		PushBackHistory:   []ir.PushBackEntry{{Iteration: 2, Inputs: map[string]string{"feedback": "rename it"}}},
+	}
+	dag := &ir.DAG{Steps: []ir.Step{{Name: "implement"}}}
+	implement := runtime.NodeWithData(runtime.NodeData{Step: ir.Step{Name: "implement"}, State: state})
+
+	_, err := runtime.CreateStepRetryPlan(dag, []*runtime.Node{implement}, "implement")
+	require.NoError(t, err)
+
+	retried := implement.State()
+	require.Equal(t, ir.NodeNotStarted, retried.Status)
+	require.Equal(t, 2, retried.ApprovalIteration)
+	require.Equal(t, state.PushBackInputs, retried.PushBackInputs)
+	require.Equal(t, state.PushBackHistory, retried.PushBackHistory)
+}
+
 func TestRetryPlan_ResetHumanTaskUsesTemplate(t *testing.T) {
 	t.Parallel()
 

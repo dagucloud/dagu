@@ -501,7 +501,7 @@ func (p *Plan) setupRetry(ctx context.Context, steps map[string]ir.Step) error {
 func clearNodeForRetry(node *Node, step ir.Step) {
 	session := node.GetAgentSession()
 	previousStatus := node.State().Status
-	node.ClearState(step)
+	node.clearStateForRetry(step)
 	if session == nil {
 		return
 	}

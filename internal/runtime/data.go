@@ -813,6 +813,23 @@ func (d *Data) ClearState(s ir.Step) {
 	d.inner.Step = s
 }
 
+// clearStateForRetry resets the step for another execution but keeps its
+// push-back context. A retry re-runs the step within the same push-back cycle,
+// so the reviewer feedback still applies.
+func (d *Data) clearStateForRetry(s ir.Step) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	previous := d.inner.State
+	d.inner.State = NodeState{
+		ApprovalIteration:      previous.ApprovalIteration,
+		PushBackInputs:         previous.PushBackInputs,
+		PushBackHistory:        previous.PushBackHistory,
+		PushBackPreviousStdout: previous.PushBackPreviousStdout,
+	}
+	d.inner.Step = s
+}
+
 func (d *Data) MarkError(err error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
