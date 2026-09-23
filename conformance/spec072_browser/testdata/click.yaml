@@ -13,3 +13,4 @@ steps:
       url: ${SHOP_URL}
       do:
         - act: Click the Place order button
+        - expect: {text: "Order confirmed"}
