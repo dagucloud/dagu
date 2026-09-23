@@ -6,6 +6,7 @@ package humantask
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
@@ -24,24 +25,28 @@ func (s *Service) Resume(ctx context.Context, dagName, dagRunID string) (Result,
 	if err != nil {
 		return Result{}, err
 	}
+	nodes := target.status.Nodes
 	if target.status.Status != ir.Waiting {
-		if !hasCompletedHumanTask(target.status.Nodes) {
+		if !hasCompletedHumanTask(nodes) && !hasPendingPushBack(nodes) {
 			return Result{}, errorf(ErrorConflict, "DAG-run %s has no completed human-task checkpoint to resume", target.ref)
 		}
 		return resultFor(target.status, "", true), nil
 	}
-	if !resumeReady(target.status.Nodes) {
-		return Result{}, errorf(ErrorConflict, "DAG-run %s has no step ready to run while manual steps wait for input", target.ref)
-	}
-	if !hasCompletedHumanTask(target.status.Nodes) {
-		return Result{}, errorf(ErrorConflict, "DAG-run %s has no completed human-task checkpoint to resume", target.ref)
+	if !pushBackResumeReady(nodes) {
+		if !resumeReady(nodes) {
+			return Result{}, errorf(ErrorConflict, "DAG-run %s has no step ready to run while manual steps wait for input", target.ref)
+		}
+		if !hasCompletedHumanTask(nodes) {
+			return Result{}, errorf(ErrorConflict, "DAG-run %s has no completed human-task checkpoint to resume", target.ref)
+		}
 	}
 	result := resultFor(target.status, "", true)
 	return s.enqueueResume(ctx, target, result)
 }
 
 func (s *Service) enqueueResume(ctx context.Context, target *target, result Result) (Result, error) {
-	if target.status == nil || target.status.Status != ir.Waiting || !resumeReady(target.status.Nodes) {
+	if target.status == nil || target.status.Status != ir.Waiting ||
+		(!resumeReady(target.status.Nodes) && !pushBackResumeReady(target.status.Nodes)) {
 		return result, nil
 	}
 	result.ResumeRequested = true
@@ -78,7 +83,7 @@ func (s *Service) enqueueResume(ctx context.Context, target *target, result Resu
 			return result, errorf(ErrorInternal, "failed to verify DAG-run status after queue failure: %v", readErr)
 		}
 		if errors.Is(err, queue.ErrRetryStaleLatest) {
-			completed := hasCompletedHumanTask(latest.Nodes)
+			completed := hasCompletedHumanTask(latest.Nodes) || latest.AttemptID != target.status.AttemptID
 			if result.StepID != "" {
 				node, findErr := findNodeByID(latest.Nodes, result.StepID)
 				completed = findErr == nil && nodeCompleted(node)
@@ -253,40 +258,80 @@ func hasRetryableNode(nodes []*ir.Node) bool {
 	return false
 }
 
-// hasUnblockedNode reports whether a not-started step will run once resumed:
-// every dependency lets it proceed and at least one of them is a completed
-// human task. Steps with build inputs are excluded because their inferred
-// producer edges are not stored with the run.
+// hasUnblockedNode reports whether a not-started step will run once resumed
+// because at least one of its dependencies is a completed human task.
 func hasUnblockedNode(nodes []*ir.Node) bool {
-	byName := make(map[string]*ir.Node, len(nodes))
+	byName := nodesByName(nodes)
 	for _, node := range nodes {
-		if node != nil {
-			byName[node.Step.Name] = node
-		}
-	}
-	for _, node := range nodes {
-		if node == nil || node.Status != ir.NodeNotStarted || len(node.Step.Inputs) > 0 {
-			continue
-		}
-		if dependenciesUnblocked(node.Step.Depends, byName) {
+		if nodeRunnable(node, byName) && dependsOnCompletedHumanTask(node, byName) {
 			return true
 		}
 	}
 	return false
 }
 
-func dependenciesUnblocked(depends []string, byName map[string]*ir.Node) bool {
-	unblockedByTask := false
-	for _, name := range depends {
-		dep := byName[name]
-		if dep == nil || !dependencyAllowsRun(dep) {
+// pushBackResumeReady reports whether a human-task push-back awaits a resume
+// that can make progress: no manual step is waiting, or the push-back's rewind
+// target can run in a run that has nothing for the resume to re-run.
+func pushBackResumeReady(nodes []*ir.Node) bool {
+	byName := nodesByName(nodes)
+	pending, runnable := false, false
+	for _, node := range nodes {
+		if !pushBackPending(node) {
+			continue
+		}
+		pending = true
+		runnable = runnable || nodeRunnable(node, byName)
+	}
+	return pending && (!hasWaitingNodes(nodes) || (!hasRetryableNode(nodes) && runnable))
+}
+
+// pushBackPending reports whether a human-task push-back reset node and no
+// resumed attempt has run it since.
+func pushBackPending(node *ir.Node) bool {
+	if node == nil || node.Status != ir.NodeNotStarted {
+		return false
+	}
+	n := len(node.PushBackHistory)
+	return n > 0 && node.PushBackHistory[n-1].HumanTask && node.PushBackHistory[n-1].Iteration == node.ApprovalIteration
+}
+
+func hasPendingPushBack(nodes []*ir.Node) bool {
+	return slices.ContainsFunc(nodes, pushBackPending)
+}
+
+// nodeRunnable reports whether a not-started step will run once resumed
+// because every dependency lets it proceed. Steps with build inputs are
+// excluded because their inferred producer edges are not stored with the run.
+func nodeRunnable(node *ir.Node, byName map[string]*ir.Node) bool {
+	if node == nil || node.Status != ir.NodeNotStarted || len(node.Step.Inputs) > 0 {
+		return false
+	}
+	for _, name := range node.Step.Depends {
+		if dep := byName[name]; dep == nil || !dependencyAllowsRun(dep) {
 			return false
 		}
-		if dep.Step.HumanTask != nil && nodeCompleted(dep) {
-			unblockedByTask = true
+	}
+	return true
+}
+
+func dependsOnCompletedHumanTask(node *ir.Node, byName map[string]*ir.Node) bool {
+	for _, name := range node.Step.Depends {
+		if dep := byName[name]; dep != nil && dep.Step.HumanTask != nil && nodeCompleted(dep) {
+			return true
 		}
 	}
-	return unblockedByTask
+	return false
+}
+
+func nodesByName(nodes []*ir.Node) map[string]*ir.Node {
+	byName := make(map[string]*ir.Node, len(nodes))
+	for _, node := range nodes {
+		if node != nil {
+			byName[node.Step.Name] = node
+		}
+	}
+	return byName
 }
 
 // dependencyAllowsRun mirrors the runtime readiness check (runtime isReady) for
@@ -330,7 +375,16 @@ func HasCompletedTask(status *ir.DAGRunStatus) bool {
 
 // ResumePending reports whether a run is waiting for its human-task retry to be queued.
 func ResumePending(status *ir.DAGRunStatus) bool {
-	return status != nil && status.Status == ir.Waiting && resumeReady(status.Nodes) && hasCompletedHumanTask(status.Nodes)
+	if status == nil || status.Status != ir.Waiting {
+		return false
+	}
+	return (resumeReady(status.Nodes) && hasCompletedHumanTask(status.Nodes)) || pushBackResumeReady(status.Nodes)
+}
+
+// PushBackPending reports whether a stored human-task push-back has not been
+// run by a resumed attempt yet.
+func PushBackPending(status *ir.DAGRunStatus) bool {
+	return status != nil && hasPendingPushBack(status.Nodes)
 }
 
 // ValidateRetry rejects retry operations that would bypass human-task completion state.

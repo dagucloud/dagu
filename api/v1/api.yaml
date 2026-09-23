@@ -2931,7 +2931,7 @@ paths:
   /dag-runs/{name}/{dagRunId}/human-tasks/{stepId}/push-back:
     post:
       summary: "Push a waiting human task back to its rewind target"
-      description: "Validates feedback against the stored push-back form of a human task that declares with.push_back, then atomically resets the rewind target and every step depending on it, including the task, with the feedback as push-back context. The same DAG-run is queued when no manual step remains waiting or when the rewind target can run and no step in the run is failed, aborted, rejected, or retrying. If the retry cannot be queued, the push-back is undone and the task stays open."
+      description: "Validates feedback against the stored push-back form of a human task that declares with.push_back, then atomically resets the rewind target and every step depending on it, including the task, with the feedback as push-back context. The push-back is stored before the same DAG-run is queued. The run is queued when no manual step remains waiting or when the rewind target can run and no step in the run is failed, aborted, rejected, or retrying. Repeating an identical push-back before the task opens again only retries the queue."
       operationId: "pushBackHumanTask"
       tags:
         - "dag-runs"
@@ -2974,7 +2974,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "409":
-          description: "Human task is not open, is at a different push-back iteration, or the run changed concurrently"
+          description: "Human task is not open, is at a different push-back iteration, was already pushed back with different feedback, or the run changed concurrently"
           content:
             application/json:
               schema:
@@ -2986,7 +2986,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "503":
-          description: "The DAG-run retry could not be queued, so the push-back was undone and the same request can be retried"
+          description: "The push-back was stored, but the DAG-run retry could not be queued; retry the same request or the resume endpoint"
           content:
             application/json:
               schema:
@@ -3001,7 +3001,7 @@ paths:
   /dag-runs/{name}/{dagRunId}/human-tasks/resume:
     post:
       summary: "Queue a completed human-task checkpoint for resume"
-      description: "Queues a retry for a completed human-task checkpoint without requiring the previously submitted form values."
+      description: "Queues a retry for a completed human-task checkpoint or a stored human-task push-back without requiring the previously submitted form values or feedback."
       operationId: "resumeHumanTaskDAGRun"
       tags:
         - "dag-runs"
@@ -11070,7 +11070,10 @@ components:
         iteration:
           type: integer
           minimum: 1
-          description: "Push-back iteration this request recorded"
+          description: "Push-back iteration the push-back recorded"
+        alreadyPushedBack:
+          type: boolean
+          description: "Whether identical feedback had already pushed the task back and the task has not opened again since"
         queued:
           type: boolean
           description: "Whether this request durably queued the DAG-run retry"
@@ -11083,6 +11086,7 @@ components:
         - stepId
         - rewindTo
         - iteration
+        - alreadyPushedBack
         - queued
         - resumeRequested
 

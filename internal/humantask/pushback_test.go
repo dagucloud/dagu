@@ -395,48 +395,105 @@ func TestPushBackResumeGate(t *testing.T) {
 	}
 }
 
-func TestPushBackUndoesWhenEnqueueFails(t *testing.T) {
+// A push-back is stored before the resume is queued. When queueing fails the
+// run is recoverable: resume is pending, and an identical repeat or a resume
+// request queues it.
+func TestPushBackStaysStoredWhenEnqueueFails(t *testing.T) {
 	fixture := newPushBackFixture(t)
 	queueErr := errors.New("queue unavailable")
 	fixture.queue.enqueueErrors = []error{queueErr}
-	before := mustStatusJSON(t, fixture.status)
 
 	result, err := fixture.pushBackReview(t, map[string]any{"feedback": "add tests"}, new(0))
 	require.Error(t, err)
 	var queueFailure *PushBackQueueError
 	require.ErrorAs(t, err, &queueFailure)
 	assert.ErrorIs(t, err, queueErr)
-	assert.ErrorContains(t, err, `push-back of human task "review" was not applied`)
+	assert.ErrorContains(t, err, `human task "review" was pushed back, but the DAG-run could not be queued for resume`)
 	assert.Equal(t, result, queueFailure.Result)
 	assert.True(t, result.ResumeRequested)
 	assert.False(t, result.Queued)
-	assert.JSONEq(t, before, mustStatusJSON(t, fixture.status))
+	assert.Equal(t, ir.Waiting, fixture.status.Status)
+	assert.Equal(t, ir.NodeNotStarted, fixture.node(t, "implement").Status)
+	assert.True(t, ResumePending(fixture.status))
+	assert.True(t, PushBackPending(fixture.status))
 
-	result, err = fixture.pushBackReview(t, map[string]any{"feedback": "add tests"}, new(0))
+	resumed, err := fixture.service.Resume(t.Context(), fixture.dag.Name, fixture.status.DAGRunID)
 	require.NoError(t, err)
-	assert.True(t, result.Queued)
-	assert.Equal(t, 1, result.Iteration)
+	assert.True(t, resumed.Queued)
+	assert.Equal(t, ir.Queued, fixture.status.Status)
+	assert.Equal(t, 1, fixture.node(t, "Review").ApprovalIteration)
 }
 
-func TestPushBackReportsUndoFailure(t *testing.T) {
+func TestPushBackIdenticalRepeatRetriesQueue(t *testing.T) {
 	fixture := newPushBackFixture(t)
 	fixture.queue.enqueueErrors = []error{errors.New("queue unavailable")}
-	// Push-back, queued swap, queued rollback, then the undo.
-	fixture.backend.compareAndSwapErrors = []error{nil, nil, nil, errors.New("store unavailable")}
-
-	_, err := fixture.pushBackReview(t, map[string]any{"feedback": "add tests"}, nil)
+	feedback := map[string]any{"feedback": "add tests"}
+	_, err := fixture.pushBackReview(t, feedback, new(0))
 	require.Error(t, err)
-	var queueFailure *PushBackQueueError
-	assert.NotErrorAs(t, err, &queueFailure)
-	assert.Equal(t, ErrorInternal, KindOf(err))
-	assert.ErrorContains(t, err, `push-back of human task "review" could not be undone`)
-	assert.Equal(t, ir.NodeNotStarted, fixture.node(t, "implement").Status)
+
+	result, err := fixture.pushBackReview(t, feedback, new(0))
+	require.NoError(t, err)
+	assert.Equal(t, PushBackResult{
+		DAGName: "deploy", DAGRunID: "run-1", StepID: "review", RewindTo: "implement",
+		Iteration: 1, AlreadyPushedBack: true, ResumeRequested: true, Queued: true,
+	}, result)
+	assert.Equal(t, ir.Queued, fixture.status.Status)
+	assert.Len(t, fixture.node(t, "implement").PushBackHistory, 1)
+
+	// Once the run has left waiting, a repeat never queues another resume.
+	result, err = fixture.pushBackReview(t, feedback, nil)
+	require.NoError(t, err)
+	assert.True(t, result.AlreadyPushedBack)
+	assert.False(t, result.ResumeRequested)
+	assert.False(t, result.Queued)
+	assert.Len(t, fixture.queue.enqueued, 1)
 }
 
-func TestPushBackAcceptsConcurrentResume(t *testing.T) {
+func TestPushBackRepeatRejectsDifferentRequest(t *testing.T) {
 	tests := []struct {
-		name   string
-		moveOn func(*serviceFixture)
+		name     string
+		feedback map[string]any
+		expected *int
+		message  string
+	}{
+		{
+			name:     "different feedback",
+			feedback: map[string]any{"feedback": "rename it"},
+			message:  `human task step "review" was already pushed back with different feedback`,
+		},
+		{
+			name:     "different expected iteration",
+			feedback: map[string]any{"feedback": "add tests"},
+			expected: new(1),
+			message:  `human task step "review" was already pushed back at iteration 1 and has not opened again`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fixture := newPushBackFixture(t)
+			fixture.queue.enqueueErrors = []error{errors.New("queue unavailable")}
+			_, err := fixture.pushBackReview(t, map[string]any{"feedback": "add tests"}, nil)
+			require.Error(t, err)
+			before := mustStatusJSON(t, fixture.status)
+
+			_, err = fixture.pushBackReview(t, tt.feedback, tt.expected)
+			require.Error(t, err)
+			assert.Equal(t, ErrorConflict, KindOf(err))
+			assert.ErrorContains(t, err, tt.message)
+			assert.JSONEq(t, before, mustStatusJSON(t, fixture.status))
+			assert.Empty(t, fixture.queue.enqueued)
+		})
+	}
+}
+
+// Another process can move the run on between the push-back and its queue
+// request. A new attempt or queued run carries the push-back; a run that
+// stopped does not, and saying it was queued would be wrong.
+func TestPushBackReportsRunThatMovedOn(t *testing.T) {
+	tests := []struct {
+		name    string
+		moveOn  func(*serviceFixture)
+		message string
 	}{
 		{
 			name: "another request queued the run",
@@ -452,6 +509,13 @@ func TestPushBackAcceptsConcurrentResume(t *testing.T) {
 				f.status.AttemptKey = "key-2"
 			},
 		},
+		{
+			name: "the run was stopped",
+			moveOn: func(f *serviceFixture) {
+				f.status.Status = ir.Aborted
+			},
+			message: `human task "review" was pushed back, but the DAG-run left waiting (status: aborted)`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -465,11 +529,17 @@ func TestPushBackAcceptsConcurrentResume(t *testing.T) {
 			}
 
 			result, err := fixture.pushBackReview(t, map[string]any{"feedback": "add tests"}, nil)
-			require.NoError(t, err)
 			assert.True(t, result.ResumeRequested)
 			assert.False(t, result.Queued)
 			assert.Empty(t, fixture.queue.enqueued)
 			assert.Equal(t, 1, fixture.node(t, "Review").ApprovalIteration)
+			if tt.message == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Equal(t, ErrorConflict, KindOf(err))
+			assert.ErrorContains(t, err, tt.message)
 		})
 	}
 }

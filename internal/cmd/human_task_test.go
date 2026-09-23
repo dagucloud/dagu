@@ -389,7 +389,9 @@ func TestRunHumanTaskPushBackRejectsStaleExpectedIteration(t *testing.T) {
 	assert.Empty(t, fixture.queue.enqueued)
 }
 
-func TestRunHumanTaskPushBackUndoesWhenEnqueueFails(t *testing.T) {
+// A stored push-back survives a queue failure, and repeating the same command
+// queues the resume without pushing the task back again.
+func TestRunHumanTaskPushBackRetriesQueueOnRepeat(t *testing.T) {
 	fixture := newHumanTaskPushBackFixture(t)
 	require.NoError(t, fixture.command.Flags().Set(humanTaskFlagInput, "feedback=add tests"))
 	fixture.queue.enqueueErrors = []error{errors.New("queue unavailable")}
@@ -398,14 +400,23 @@ func TestRunHumanTaskPushBackUndoesWhenEnqueueFails(t *testing.T) {
 	require.Error(t, err)
 	var queueFailure *humantask.PushBackQueueError
 	require.ErrorAs(t, err, &queueFailure)
-	assert.ErrorContains(t, err, `push-back of human task "review" was not applied`)
-	assert.ErrorContains(t, err, "could not be queued for resume")
+	assert.ErrorContains(t, err, `human task "review" was pushed back, but the DAG-run could not be queued for resume`)
 	assert.ErrorContains(t, err, "run the same command again to retry")
 	assert.Empty(t, fixture.output.String())
 	assert.Equal(t, ir.Waiting, fixture.status.Status)
-	assert.Equal(t, ir.NodeSucceeded, fixture.status.Nodes[0].Status)
-	assert.Equal(t, ir.NodeWaiting, fixture.status.Nodes[1].Status)
-	assert.Zero(t, fixture.status.Nodes[1].ApprovalIteration)
+	assert.Equal(t, ir.NodeNotStarted, fixture.status.Nodes[0].Status)
+	assert.Equal(t, 1, fixture.status.Nodes[1].ApprovalIteration)
+
+	err = runHumanTaskPushBackWith(fixture.ctx, []string{"human-task-test"}, fixture.deps())
+	require.NoError(t, err)
+	assert.Equal(t, "Human task review was already pushed back to implement; DAG-run queued for resume.\n", fixture.output.String())
+	assert.Len(t, fixture.queue.enqueued, 1)
+	assert.Len(t, fixture.status.Nodes[1].PushBackHistory, 1)
+
+	fixture.output.Reset()
+	err = runHumanTaskPushBackWith(fixture.ctx, []string{"human-task-test"}, fixture.deps())
+	require.NoError(t, err)
+	assert.Equal(t, "Human task review was already pushed back to implement.\n", fixture.output.String())
 }
 
 func TestRunHumanTaskPushBackRejectsRemoteContext(t *testing.T) {
@@ -430,11 +441,13 @@ func TestParseHumanTaskExpectedIteration(t *testing.T) {
 	require.NotNil(t, iteration)
 	assert.Equal(t, 2, *iteration)
 
-	for _, value := range []string{"-1", "one", ""} {
-		command := humanTaskPushBackCommand()
-		require.NoError(t, command.Flags().Set(humanTaskFlagExpectedIteration, value))
-		_, err := parseHumanTaskExpectedIteration(command)
-		assert.ErrorContains(t, err, "--expected-iteration must be a non-negative integer", value)
+	command = humanTaskPushBackCommand()
+	require.NoError(t, command.Flags().Set(humanTaskFlagExpectedIteration, "-1"))
+	_, err = parseHumanTaskExpectedIteration(command)
+	assert.ErrorContains(t, err, "--expected-iteration must be a non-negative integer")
+
+	for _, value := range []string{"one", ""} {
+		assert.Error(t, humanTaskPushBackCommand().Flags().Set(humanTaskFlagExpectedIteration, value), value)
 	}
 }
 

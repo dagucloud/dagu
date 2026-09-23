@@ -550,11 +550,12 @@ Rules:
 - The recorded feedback values, encoded as one JSON object, must fit within
   16 KiB (16384 bytes), because every rewound step receives them as
   environment variables.
-- The run must be `waiting` and the task must be open.
+- A new push-back requires the run to be `waiting` and the task to be open.
 - A task without `with.push_back` rejects push-back.
 - `--expected-iteration` must be a non-negative integer. When it differs from
   the task's push-back iteration, the command fails with a conflict and changes
-  nothing.
+  nothing. Until the task opens again after its own push-back, the iteration
+  that push-back started from is accepted.
 
 ### Push-Back Effects
 
@@ -599,6 +600,8 @@ nothing to stderr. `<target>` is the name of the rewind target.
 | Resume accepted | `Pushed back human task <step> to <target>; DAG-run queued for resume.` |
 | A concurrent request already queued resume | `Pushed back human task <step> to <target>; DAG-run was already queued for resume.` |
 | No resume requested | `Pushed back human task <step> to <target>; DAG-run remains waiting.` |
+| Identical repeat; the run still needs resume | `Human task <step> was already pushed back to <target>; DAG-run queued for resume.` |
+| Identical repeat; no resume is needed | `Human task <step> was already pushed back to <target>.` |
 
 Each line ends with one newline. Success exits zero. A failed push-back exits
 non-zero, writes no stdout, and writes a diagnostic to stderr without command
@@ -617,26 +620,35 @@ After a push-back, Dagu requests resume when:
 Otherwise the run remains `waiting` and the reset steps run at the next resume.
 Open tasks outside the reset steps keep their stored prompt and artifact paths.
 
-If queueing the resume fails, the push-back is undone:
+A push-back is durable before resume is requested. If queueing the resume
+fails:
 
-- every reset step returns to its state before the push-back
-- the task stays open with its previous push-back iteration
-- the command exits non-zero and states that the push-back was not applied
-- repeating the same command is safe
+- the push-back remains stored and the task does not open again
+- the run stays `waiting` with its resume pending
+- the command exits non-zero and states that the task was pushed back but the
+  DAG-run could not be queued for resume
+- repeating the same push-back retries the resume without changing the
+  push-back
 
-If the push-back cannot be undone, the command exits non-zero and states that
-it could not be undone.
+Only one successful resume can result from those retries.
+
+If the run leaves `waiting` before this command queues the resume, an attempt
+that another request queued or started carries the push-back. A run that
+stopped instead makes the command fail with its status; the reset steps run
+when the run is retried.
 
 ### Push-Back Idempotency And Concurrency
 
 Rules:
 
-- Each successful push-back starts a new iteration. Push-back is not
-  idempotent.
-- Repeating a push-back after the task left `waiting` fails with the
-  not-waiting diagnostic. Repeating it after the task opened again pushes the
-  task back again unless `--expected-iteration` names the iteration the first
-  command saw.
+- Each new push-back starts a new iteration.
+- Until the task opens again, repeating its push-back with the same canonical
+  feedback exits zero and does not change the push-back. It retries a pending
+  resume, and never starts another resume after the run leaves `waiting`.
+- Until the task opens again, a push-back with different canonical feedback
+  fails with a conflict.
+- After the task opens again, repeating a push-back pushes the task back again
+  unless `--expected-iteration` names the iteration the first command saw.
 - Concurrent completion and push-back of the same task produce exactly one
   successful operation.
 - Two concurrent push-backs of the same task produce exactly one successful
@@ -747,8 +759,9 @@ They also contain:
 | Invalid expected iteration | `--expected-iteration` |
 | Iteration mismatch | step ID, `iteration`, and the task's push-back iteration |
 | Completed task | step ID and `already completed` |
-| Resume queueing failure | step ID, `not applied`, and `could not be queued for resume` |
-| Undo failure | step ID and `could not be undone` |
+| Different prior feedback | step ID and `different feedback` |
+| Resume queueing failure | step ID, `pushed back`, and `could not be queued for resume` |
+| Run left waiting before queueing | step ID, `left waiting`, and the run status |
 
 The task and every other step remain unchanged for every failure before atomic
 push-back.

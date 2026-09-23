@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -26,8 +27,9 @@ type PushBackRequest struct {
 	DAGRunID string
 	StepID   string
 	Input    Input
-	// ExpectedIteration, when set, must equal the task's current push-back
-	// iteration, so a request made for an earlier review changes nothing.
+	// ExpectedIteration, when set, must equal the task's push-back iteration
+	// when the request was made, so a request made for an earlier review
+	// changes nothing.
 	ExpectedIteration *int
 	By                string
 	ByID              string
@@ -40,8 +42,11 @@ type PushBackResult struct {
 	StepID   string
 	// RewindTo is the name of the step that runs again first.
 	RewindTo string
-	// Iteration is the push-back iteration this request recorded.
+	// Iteration is the push-back iteration the push-back recorded.
 	Iteration int
+	// AlreadyPushedBack reports that identical feedback had already pushed
+	// the task back and the task has not opened again since.
+	AlreadyPushedBack bool
 	// ResumeRequested reports that the run was ready to resume after the
 	// push-back, whether this request queued the resume or a concurrent
 	// request queued it first.
@@ -49,9 +54,9 @@ type PushBackResult struct {
 	Queued          bool
 }
 
-// PushBackQueueError reports a push-back that was undone because the DAG-run
-// could not be queued for resume. The task is still open and the same request
-// can be retried.
+// PushBackQueueError reports a stored push-back whose DAG-run could not be
+// queued for resume. Repeating the same push-back or resuming the run retries
+// the queue without changing the push-back.
 type PushBackQueueError struct {
 	Result PushBackResult
 	Err    error
@@ -59,7 +64,7 @@ type PushBackQueueError struct {
 
 func (e *PushBackQueueError) Error() string {
 	return fmt.Sprintf(
-		"push-back of human task %q was not applied because the DAG-run could not be queued for resume: %v",
+		"human task %q was pushed back, but the DAG-run could not be queued for resume: %v",
 		e.Result.StepID,
 		e.Err,
 	)
@@ -69,7 +74,9 @@ func (e *PushBackQueueError) Unwrap() error { return e.Err }
 
 // PushBack validates feedback and resets the task's rewind target and every
 // step depending on it for another execution, then queues the run when the
-// rewind target can run.
+// rewind target can run. The push-back is stored before the queue is
+// requested; an identical repeat before the task opens again only retries the
+// queue.
 func (s *Service) PushBack(ctx context.Context, request PushBackRequest) (PushBackResult, error) {
 	s.defaults()
 	if s.DAGRunRepository == nil {
@@ -102,6 +109,9 @@ func (s *Service) PushBack(ctx context.Context, request PushBackRequest) (PushBa
 	if nodeCompleted(node) {
 		return PushBackResult{}, errorf(ErrorConflict, "human task step %q was already completed", request.StepID)
 	}
+	if ownPushBackPending(node) {
+		return s.repeatPushBack(ctx, target, node, config, feedback, request)
+	}
 	if target.status.Status != ir.Waiting {
 		return PushBackResult{}, errorf(
 			ErrorConflict,
@@ -112,7 +122,6 @@ func (s *Service) PushBack(ctx context.Context, request PushBackRequest) (PushBa
 	}
 
 	at := s.Now().UTC().Format(time.RFC3339)
-	var original *ir.DAGRunStatus
 	var iteration int
 	updated, swapped, err := s.DAGRunRepository.CompareAndSwapLatestAttemptStatus(
 		ctx,
@@ -135,17 +144,7 @@ func (s *Service) PushBack(ctx context.Context, request PushBackRequest) (PushBa
 					latestNode.Status,
 				)
 			}
-			if request.ExpectedIteration != nil && *request.ExpectedIteration != latestNode.ApprovalIteration {
-				return errorf(
-					ErrorConflict,
-					"human task step %q is at push-back iteration %d, not %d",
-					request.StepID,
-					latestNode.ApprovalIteration,
-					*request.ExpectedIteration,
-				)
-			}
-			original, err = cloneStatus(latest)
-			if err != nil {
+			if err := checkExpectedIteration(request, latestNode.ApprovalIteration); err != nil {
 				return err
 			}
 			iteration, err = dagrun.ApplyPushBack(latest, latestNode, dagrun.PushBack{
@@ -177,27 +176,80 @@ func (s *Service) PushBack(ctx context.Context, request PushBackRequest) (PushBa
 		RewindTo:  config.RewindTo,
 		Iteration: iteration,
 	}
-	return s.enqueuePushBackResume(ctx, target.withStatus(updated), original, result)
+	return s.enqueuePushBackResume(ctx, target.withStatus(updated), result)
 }
 
-// enqueuePushBackResume queues the resume a push-back needs and undoes the
-// push-back when queueing fails. Once the task is reset, repeating the request
-// cannot retry the resume, so a push-back is applied only together with it.
-func (s *Service) enqueuePushBackResume(
+// repeatPushBack answers a push-back request for a task whose own push-back
+// has not run yet. Identical feedback only retries the queue, like a repeated
+// completion; different feedback conflicts with the stored push-back.
+func (s *Service) repeatPushBack(
 	ctx context.Context,
 	target *target,
-	original *ir.DAGRunStatus,
-	result PushBackResult,
+	node *ir.Node,
+	config *ir.HumanTaskPushBackConfig,
+	feedback map[string]string,
+	request PushBackRequest,
 ) (PushBackResult, error) {
-	if !pushBackResumeReady(target.status.Nodes, result.RewindTo) {
+	stored := node.PushBackHistory[len(node.PushBackHistory)-1]
+	if request.ExpectedIteration != nil && *request.ExpectedIteration != node.ApprovalIteration-1 {
+		return PushBackResult{}, errorf(
+			ErrorConflict,
+			"human task step %q was already pushed back at iteration %d and has not opened again",
+			request.StepID,
+			node.ApprovalIteration,
+		)
+	}
+	if !maps.Equal(stored.Inputs, feedback) {
+		return PushBackResult{}, errorf(
+			ErrorConflict,
+			"human task step %q was already pushed back with different feedback",
+			request.StepID,
+		)
+	}
+	result := PushBackResult{
+		DAGName:           target.status.Name,
+		DAGRunID:          target.status.DAGRunID,
+		StepID:            request.StepID,
+		RewindTo:          config.RewindTo,
+		Iteration:         node.ApprovalIteration,
+		AlreadyPushedBack: true,
+	}
+	return s.enqueuePushBackResume(ctx, target, result)
+}
+
+// checkExpectedIteration rejects a request made for a review other than the
+// one at iteration.
+func checkExpectedIteration(request PushBackRequest, iteration int) error {
+	if request.ExpectedIteration == nil || *request.ExpectedIteration == iteration {
+		return nil
+	}
+	return errorf(
+		ErrorConflict,
+		"human task step %q is at push-back iteration %d, not %d",
+		request.StepID,
+		iteration,
+		*request.ExpectedIteration,
+	)
+}
+
+// ownPushBackPending reports whether node's own push-back is stored and the
+// task has not opened again since.
+func ownPushBackPending(node *ir.Node) bool {
+	return pushBackPending(node) && node.PushBackHistory[len(node.PushBackHistory)-1].Step == node.Step.Name
+}
+
+// enqueuePushBackResume queues the resume a stored push-back needs. A queue
+// failure leaves the push-back stored and the resume pending.
+func (s *Service) enqueuePushBackResume(ctx context.Context, target *target, result PushBackResult) (PushBackResult, error) {
+	if target.status.Status != ir.Waiting || !pushBackResumeReady(target.status.Nodes) {
 		return result, nil
 	}
 	result.ResumeRequested = true
+	if s.QueueStore == nil {
+		return result, &PushBackQueueError{Result: result, Err: errors.New("queue store is not configured")}
+	}
 
 	postCommitCtx := context.WithoutCancel(ctx)
-	if s.QueueStore == nil {
-		return result, s.undoPushBack(postCommitCtx, target, original, result, errors.New("queue store is not configured"))
-	}
 	enqueueCtx, cancel := context.WithTimeout(postCommitCtx, s.EnqueueTimeout)
 	defer cancel()
 	queued, err := queue.EnqueueRetry(
@@ -212,112 +264,53 @@ func (s *Service) enqueuePushBackResume(
 		result.Queued = queued
 		return result, nil
 	}
+
+	readCtx, readCancel := context.WithTimeout(postCommitCtx, s.EnqueueTimeout)
+	defer readCancel()
+	latest, readErr := s.readLatestStatus(readCtx, target.ref)
+	if readErr != nil {
+		return result, errorf(ErrorInternal, "failed to verify DAG-run status after queue failure: %v", readErr)
+	}
+	if ResumePending(latest) {
+		return result, &PushBackQueueError{Result: result, Err: err}
+	}
 	if errors.Is(err, queue.ErrRetryStaleLatest) {
-		// The run left the checkpoint after the push-back was stored, so the
-		// attempt that moved it on carries the reset steps.
-		return s.verifyPushBackCarried(postCommitCtx, target, result, err)
+		return pushBackCarried(target, latest, result, err)
 	}
-	return result, s.undoPushBack(postCommitCtx, target, original, result, err)
+	return result, errorf(ErrorInternal, "failed to queue DAG-run resume: %v", err)
 }
 
-func (s *Service) verifyPushBackCarried(
-	ctx context.Context,
-	target *target,
-	result PushBackResult,
-	cause error,
-) (PushBackResult, error) {
-	readCtx, cancel := context.WithTimeout(ctx, s.EnqueueTimeout)
-	defer cancel()
-	attempt, err := s.DAGRunRepository.FindAttempt(readCtx, target.ref)
-	if err != nil {
-		return result, errorf(ErrorInternal, "failed to verify DAG-run status after queue failure: %v", err)
+// pushBackCarried reports the outcome when the run left the checkpoint that
+// stored the push-back before this request could queue it.
+func pushBackCarried(target *target, latest *ir.DAGRunStatus, result PushBackResult, cause error) (PushBackResult, error) {
+	node, err := findNodeByID(latest.Nodes, result.StepID)
+	if err != nil || node.ApprovalIteration < result.Iteration {
+		return result, errorf(ErrorInternal, "failed to queue DAG-run resume: %v", cause)
 	}
-	latest, err := attempt.ReadStatus(readCtx)
-	if err != nil {
-		return result, errorf(ErrorInternal, "failed to verify DAG-run status after queue failure: %v", err)
+	if latest.AttemptID != target.status.AttemptID || latest.Status == ir.Queued || latest.Status == ir.Running {
+		return result, nil
 	}
-	if latest != nil {
-		if node, findErr := findNodeByID(latest.Nodes, result.StepID); findErr == nil && node.ApprovalIteration >= result.Iteration {
-			return result, nil
-		}
-	}
-	return result, errorf(ErrorInternal, "failed to queue DAG-run resume: %v", cause)
+	return result, errorf(
+		ErrorConflict,
+		"human task %q was pushed back, but the DAG-run left waiting (status: %s) before it could be queued for resume; retry the DAG-run to run the reset steps",
+		result.StepID,
+		latest.Status,
+	)
 }
 
-func (s *Service) undoPushBack(
-	ctx context.Context,
-	target *target,
-	original *ir.DAGRunStatus,
-	result PushBackResult,
-	cause error,
-) error {
-	undoCtx, cancel := context.WithTimeout(ctx, s.EnqueueTimeout)
-	defer cancel()
-	// Every status is compared in its stored form so that representation
-	// differences, such as compacted form JSON, never count as a change.
-	applied, err := cloneStatus(target.status)
-	swapped := false
-	if err == nil {
-		_, swapped, err = s.DAGRunRepository.CompareAndSwapLatestAttemptStatus(
-			undoCtx,
-			target.ref,
-			applied.AttemptID,
-			ir.Waiting,
-			func(latest *ir.DAGRunStatus) error {
-				stored, err := cloneStatus(latest)
-				if err != nil {
-					return err
-				}
-				if err := dagrun.RevertPushBack(stored, original, applied); err != nil {
-					return err
-				}
-				latest.Nodes = stored.Nodes
-				return nil
-			}, persis.DAGRunCompareAndSwapOptions{},
-		)
-	}
-	if err == nil && !swapped {
-		err = errors.New("the DAG-run changed after the push-back")
-	}
+func (s *Service) readLatestStatus(ctx context.Context, ref ir.DAGRunRef) (*ir.DAGRunStatus, error) {
+	attempt, err := s.DAGRunRepository.FindAttempt(ctx, ref)
 	if err != nil {
-		return errorf(
-			ErrorInternal,
-			"push-back of human task %q could not be undone after the DAG-run could not be queued for resume (%v): %v",
-			result.StepID,
-			cause,
-			err,
-		)
+		return nil, err
 	}
-	return &PushBackQueueError{Result: result, Err: cause}
-}
-
-// pushBackResumeReady reports whether a resume after a push-back can make
-// progress: no manual step is waiting, or the rewind target can run in a run
-// that has nothing for the resume to re-run. A target with build inputs is
-// excluded because its inferred producer edges are not stored with the run.
-func pushBackResumeReady(nodes []*ir.Node, rewindTo string) bool {
-	if !hasWaitingNodes(nodes) {
-		return true
+	latest, err := attempt.ReadStatus(ctx)
+	if err != nil {
+		return nil, err
 	}
-	if hasRetryableNode(nodes) {
-		return false
+	if latest == nil {
+		return nil, dagrun.ErrNoStatusData
 	}
-	byName := make(map[string]*ir.Node, len(nodes))
-	for _, node := range nodes {
-		if node != nil {
-			byName[node.Step.Name] = node
-		}
-	}
-	target := byName[rewindTo]
-	if target == nil || len(target.Step.Inputs) > 0 {
-		return false
-	}
-	for _, name := range target.Step.Depends {
-		if dep := byName[name]; dep == nil || !dependencyAllowsRun(dep) {
-			return false
-		}
-	}
-	return true
+	return latest, nil
 }
 
 // preparePushBack validates feedback against the push-back form and returns
@@ -361,16 +354,4 @@ func formPropertyNames(form json.RawMessage) ([]string, error) {
 	}
 	slices.Sort(names)
 	return names, nil
-}
-
-func cloneStatus(status *ir.DAGRunStatus) (*ir.DAGRunStatus, error) {
-	data, err := json.Marshal(status)
-	if err != nil {
-		return nil, fmt.Errorf("snapshot DAG-run status: %w", err)
-	}
-	var clone ir.DAGRunStatus
-	if err := json.Unmarshal(data, &clone); err != nil {
-		return nil, fmt.Errorf("snapshot DAG-run status: %w", err)
-	}
-	return &clone, nil
 }

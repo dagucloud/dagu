@@ -1343,7 +1343,9 @@ func (a *API) ApproveDAGRunStep(ctx context.Context, request api.ApproveDAGRunSt
 	shouldResume := !hasWaitingSteps(updated.Nodes) || humantask.ResumePending(updated)
 	if shouldResume {
 		var resumeErr error
-		if humantask.HasCompletedTask(updated) {
+		// Human-task checkpoints resume through the queue: dagu retry rejects a
+		// run while a human task waits.
+		if humantask.HasCompletedTask(updated) || humantask.PushBackPending(updated) {
 			_, resumeErr = a.humanTaskService().Resume(a.withEventContext(ctx), request.Name, request.DagRunId)
 		} else {
 			resumeErr = a.resumeDAGRun(ctx, ref, request.DagRunId)

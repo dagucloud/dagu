@@ -86,7 +86,7 @@ func TestResumeHumanTaskFailureResponseIsStable(t *testing.T) {
 }
 
 // The push-back error must not leak the queue failure and must tell clients
-// that nothing was stored.
+// that the push-back is stored and only the resume is pending.
 func TestPushBackHumanTaskQueueFailureResponseIsStable(t *testing.T) {
 	response, err := pushBackHumanTaskErrorResponse(t.Context(), &humantask.PushBackQueueError{
 		Result: humantask.PushBackResult{DAGName: "deploy", DAGRunID: "run-1", StepID: "review"},
@@ -99,11 +99,12 @@ func TestPushBackHumanTaskQueueFailureResponseIsStable(t *testing.T) {
 	assert.Equal(t, apiv1.ErrorCodeHumanTaskResumeFailed, typed.Code)
 	assert.Equal(
 		t,
-		"the DAG-run could not be queued for resume, so the push-back was not applied; retry the same push-back request",
+		"human-task push-back was saved, but the DAG-run could not be queued for resume; retry the same push-back request or the resume endpoint",
 		typed.Message,
 	)
 	require.NotNil(t, typed.Details)
-	assert.Equal(t, false, (*typed.Details)["pushBackApplied"])
+	assert.Equal(t, true, (*typed.Details)["pushBackStored"])
+	assert.Equal(t, true, (*typed.Details)["resumePending"])
 	assert.Equal(t, "review", (*typed.Details)["stepId"])
 }
 

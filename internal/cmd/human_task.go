@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os/user"
-	"strconv"
 	"strings"
 	"time"
 
@@ -82,7 +81,7 @@ func humanTaskPushBackCommand() *cobra.Command {
 		humanTaskInputsJSONFlag,
 	}, runHumanTaskPushBack)
 	command.Flags().StringArray(humanTaskFlagInput, nil, "Push-back feedback in key=value form; repeatable")
-	command.Flags().String(humanTaskFlagExpectedIteration, "", "Fail unless the task is at this push-back iteration")
+	command.Flags().Int(humanTaskFlagExpectedIteration, 0, "Fail unless the task is at this push-back iteration")
 	return command
 }
 
@@ -229,14 +228,24 @@ func runHumanTaskPushBackWith(ctx *Context, args []string, deps humanTaskComplet
 		return err
 	}
 
+	out := ctx.Command.OutOrStdout()
+	if result.AlreadyPushedBack {
+		message := fmt.Sprintf("Human task %s was already pushed back to %s", command.stepID, result.RewindTo)
+		if result.Queued {
+			_, err = fmt.Fprintf(out, "%s; DAG-run queued for resume.\n", message)
+			return err
+		}
+		_, err = fmt.Fprintf(out, "%s.\n", message)
+		return err
+	}
 	message := fmt.Sprintf("Pushed back human task %s to %s", command.stepID, result.RewindTo)
 	switch {
 	case !result.ResumeRequested:
-		_, err = fmt.Fprintf(ctx.Command.OutOrStdout(), "%s; DAG-run remains waiting.\n", message)
+		_, err = fmt.Fprintf(out, "%s; DAG-run remains waiting.\n", message)
 	case !result.Queued:
-		_, err = fmt.Fprintf(ctx.Command.OutOrStdout(), "%s; DAG-run was already queued for resume.\n", message)
+		_, err = fmt.Fprintf(out, "%s; DAG-run was already queued for resume.\n", message)
 	default:
-		_, err = fmt.Fprintf(ctx.Command.OutOrStdout(), "%s; DAG-run queued for resume.\n", message)
+		_, err = fmt.Fprintf(out, "%s; DAG-run queued for resume.\n", message)
 	}
 	return err
 }
@@ -245,12 +254,11 @@ func parseHumanTaskExpectedIteration(command *cobra.Command) (*int, error) {
 	if !command.Flags().Changed(humanTaskFlagExpectedIteration) {
 		return nil, nil
 	}
-	raw, err := command.Flags().GetString(humanTaskFlagExpectedIteration)
+	iteration, err := command.Flags().GetInt(humanTaskFlagExpectedIteration)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read --%s: %w", humanTaskFlagExpectedIteration, err)
 	}
-	iteration, err := strconv.Atoi(strings.TrimSpace(raw))
-	if err != nil || iteration < 0 {
+	if iteration < 0 {
 		return nil, fmt.Errorf("--%s must be a non-negative integer", humanTaskFlagExpectedIteration)
 	}
 	return &iteration, nil

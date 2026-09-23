@@ -172,13 +172,14 @@ func (a *API) PushBackHumanTask(
 		return pushBackHumanTaskErrorResponse(ctx, err)
 	}
 	return &api.PushBackHumanTask200JSONResponse{
-		DagName:         result.DAGName,
-		DagRunId:        result.DAGRunID,
-		StepId:          result.StepID,
-		RewindTo:        result.RewindTo,
-		Iteration:       result.Iteration,
-		Queued:          result.Queued,
-		ResumeRequested: result.ResumeRequested,
+		DagName:           result.DAGName,
+		DagRunId:          result.DAGRunID,
+		StepId:            result.StepID,
+		RewindTo:          result.RewindTo,
+		Iteration:         result.Iteration,
+		AlreadyPushedBack: result.AlreadyPushedBack,
+		Queued:            result.Queued,
+		ResumeRequested:   result.ResumeRequested,
 	}, nil
 }
 
@@ -283,20 +284,21 @@ func completeHumanTaskErrorResponse(ctx context.Context, err error) (api.Complet
 
 func pushBackHumanTaskErrorResponse(ctx context.Context, err error) (api.PushBackHumanTaskResponseObject, error) {
 	if queueErr, ok := errors.AsType[*humantask.PushBackQueueError](err); ok {
-		logger.Error(ctx, "Undid human-task push-back because the DAG-run could not be queued",
+		logger.Error(ctx, "Failed to queue DAG-run after human-task push-back",
 			tag.Error(queueErr.Err),
 			tag.DAG(queueErr.Result.DAGName),
 			tag.RunID(queueErr.Result.DAGRunID),
 			slog.String("step", queueErr.Result.StepID),
 		)
 		details := map[string]any{
-			"pushBackApplied": false,
-			"dagRunId":        queueErr.Result.DAGRunID,
-			"stepId":          queueErr.Result.StepID,
+			"pushBackStored": true,
+			"resumePending":  true,
+			"dagRunId":       queueErr.Result.DAGRunID,
+			"stepId":         queueErr.Result.StepID,
 		}
 		return &api.PushBackHumanTask503JSONResponse{
 			Code:    api.ErrorCodeHumanTaskResumeFailed,
-			Message: "the DAG-run could not be queued for resume, so the push-back was not applied; retry the same push-back request",
+			Message: "human-task push-back was saved, but the DAG-run could not be queued for resume; retry the same push-back request or the resume endpoint",
 			Details: &details,
 		}, nil
 	}
@@ -374,19 +376,20 @@ func (a *API) logHumanTaskPushBack(
 	err error,
 ) {
 	details := map[string]any{
-		"dag_name":         dagName,
-		"dag_run_id":       dagRunID,
-		"step_id":          stepID,
-		"rewind_to":        result.RewindTo,
-		"iteration":        result.Iteration,
-		"queued":           result.Queued,
-		"resume_requested": result.ResumeRequested,
-		"outcome":          "succeeded",
+		"dag_name":            dagName,
+		"dag_run_id":          dagRunID,
+		"step_id":             stepID,
+		"rewind_to":           result.RewindTo,
+		"iteration":           result.Iteration,
+		"already_pushed_back": result.AlreadyPushedBack,
+		"queued":              result.Queued,
+		"resume_requested":    result.ResumeRequested,
+		"outcome":             "succeeded",
 	}
 	if err != nil {
 		details["outcome"] = "failed"
 		if _, ok := errors.AsType[*humantask.PushBackQueueError](err); ok {
-			details["outcome"] = "undone_resume_failed"
+			details["outcome"] = "push_back_stored_resume_pending"
 		}
 	}
 	a.logAudit(ctx, audit.CategoryDAG, "dag_human_task_push_back", details)

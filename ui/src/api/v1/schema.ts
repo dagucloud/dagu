@@ -1081,7 +1081,7 @@ export interface paths {
         put?: never;
         /**
          * Push a waiting human task back to its rewind target
-         * @description Validates feedback against the stored push-back form of a human task that declares with.push_back, then atomically resets the rewind target and every step depending on it, including the task, with the feedback as push-back context. The same DAG-run is queued when no manual step remains waiting or when the rewind target can run and no step in the run is failed, aborted, rejected, or retrying. If the retry cannot be queued, the push-back is undone and the task stays open.
+         * @description Validates feedback against the stored push-back form of a human task that declares with.push_back, then atomically resets the rewind target and every step depending on it, including the task, with the feedback as push-back context. The push-back is stored before the same DAG-run is queued. The run is queued when no manual step remains waiting or when the rewind target can run and no step in the run is failed, aborted, rejected, or retrying. Repeating an identical push-back before the task opens again only retries the queue.
          */
         post: operations["pushBackHumanTask"];
         delete?: never;
@@ -1101,7 +1101,7 @@ export interface paths {
         put?: never;
         /**
          * Queue a completed human-task checkpoint for resume
-         * @description Queues a retry for a completed human-task checkpoint without requiring the previously submitted form values.
+         * @description Queues a retry for a completed human-task checkpoint or a stored human-task push-back without requiring the previously submitted form values or feedback.
          */
         post: operations["resumeHumanTaskDAGRun"];
         delete?: never;
@@ -3968,8 +3968,10 @@ export interface components {
             stepId: string;
             /** @description Name of the step that runs again first */
             rewindTo: string;
-            /** @description Push-back iteration this request recorded */
+            /** @description Push-back iteration the push-back recorded */
             iteration: number;
+            /** @description Whether identical feedback had already pushed the task back and the task has not opened again since */
+            alreadyPushedBack: boolean;
             /** @description Whether this request durably queued the DAG-run retry */
             queued: boolean;
             /** @description True when the DAG-run was ready to resume after the push-back, whether this request queued the resume or a concurrent request queued it first; false if the run keeps waiting */
@@ -10503,7 +10505,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Human task is not open, is at a different push-back iteration, or the run changed concurrently */
+            /** @description Human task is not open, is at a different push-back iteration, was already pushed back with different feedback, or the run changed concurrently */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -10521,7 +10523,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description The DAG-run retry could not be queued, so the push-back was undone and the same request can be retried */
+            /** @description The push-back was stored, but the DAG-run retry could not be queued; retry the same request or the resume endpoint */
             503: {
                 headers: {
                     [name: string]: unknown;
