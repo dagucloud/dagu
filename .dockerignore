@@ -47,6 +47,8 @@ testdata/
 # Development files
 docker-compose*.yml
 deploy/
+# The dev image bundles its Chromium seccomp profile.
+!deploy/docker/browser/seccomp-chromium.json
 
 # Kubernetes
 *.yaml
