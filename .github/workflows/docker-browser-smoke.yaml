@@ -78,11 +78,11 @@ jobs:
       - name: Run a browser step with the sandbox
         run: |
           docker run --rm --security-opt seccomp="$PWD/deploy/docker/seccomp-chromium.json" \
-            -v "$PWD/deploy/docker/smoke:/smoke:ro" \
+            --shm-size=1g -v "$PWD/deploy/docker/smoke:/smoke:ro" \
             dagu-ci:dev dagu start /smoke/browser.yaml
 
       - name: Run a browser step with the sandbox turned off
         run: |
-          docker run --rm -e DAGU_BROWSER_ARGS=--no-sandbox,--disable-dev-shm-usage \
-            -v "$PWD/deploy/docker/smoke:/smoke:ro" \
+          docker run --rm -e DAGU_BROWSER_ARGS=--no-sandbox \
+            --shm-size=1g -v "$PWD/deploy/docker/smoke:/smoke:ro" \
             dagu-ci:dev dagu start /smoke/browser.yaml
