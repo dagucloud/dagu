@@ -37,6 +37,23 @@ func TestDispatchBaseConfig(t *testing.T) {
 	assert.Equal(t, string(dag.BaseConfigData), client.task.BaseConfig)
 }
 
+// A selected-steps run is dispatched as a retry of its seeded queued attempt,
+// so the worker starts from the seeded node states.
+func TestDispatchSeededRun(t *testing.T) {
+	t.Parallel()
+
+	ctx := &Context{Context: context.Background(), Config: &config.Config{}, Quiet: true}
+	dag := &ir.DAG{Name: "seeded"}
+	seed := &ir.DAGRunStatus{Name: "seeded", DAGRunID: "run", Status: ir.Queued}
+	client := &smtpDispatchClient{err: errors.New("stop after dispatch")}
+	err := dispatchToCoordinatorAndWait(ctx, dag, "run", runOptions{seed: seed}, client)
+	require.ErrorIs(t, err, client.err)
+	require.NotNil(t, client.task)
+	assert.Equal(t, dispatch.DispatchOperationRetry, client.task.Operation)
+	require.NotNil(t, client.task.PreviousStatus)
+	assert.Equal(t, ir.Queued, client.task.PreviousStatus.Status)
+}
+
 type smtpDispatchClient struct {
 	coordinator.Client
 	task *dispatch.DispatchTask

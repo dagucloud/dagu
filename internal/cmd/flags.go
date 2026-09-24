@@ -11,15 +11,16 @@ import (
 
 // commandLineFlag defines a CLI flag with its configuration options.
 type commandLineFlag struct {
-	name         string
-	shorthand    string
-	defaultValue string
-	usage        string
-	required     bool
-	isBool       bool
-	hidden       bool
-	bindViper    bool
-	viperKey     string // Custom viper key (if different from kebab-to-camel name)
+	name          string
+	shorthand     string
+	defaultValue  string
+	usage         string
+	required      bool
+	isBool        bool
+	isStringArray bool // Repeatable flag; each occurrence adds one value
+	hidden        bool
+	bindViper     bool
+	viperKey      string // Custom viper key (if different from kebab-to-camel name)
 }
 
 // Base flags included in all commands
@@ -533,6 +534,8 @@ func initFlags(cmd *cobra.Command, additionalFlags ...commandLineFlag) {
 func registerFlag(cmd *cobra.Command, flag commandLineFlag) {
 	if flag.isBool {
 		cmd.Flags().BoolP(flag.name, flag.shorthand, false, flag.usage)
+	} else if flag.isStringArray {
+		cmd.Flags().StringArrayP(flag.name, flag.shorthand, nil, flag.usage)
 	} else {
 		cmd.Flags().StringP(flag.name, flag.shorthand, flag.defaultValue, flag.usage)
 	}

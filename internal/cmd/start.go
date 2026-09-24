@@ -21,6 +21,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/queue"
@@ -52,9 +53,16 @@ instance with a unique DAG-run ID.
 Parameters after the "--" separator are passed as execution parameters (either positional or key=value pairs).
 Flags can override default settings such as DAG-run ID, DAG name, or suppress output.
 
+Use --only to run just the named steps (by name or ID) in a new DAG-run of the
+current definition; every other step is recorded as skipped. Add --outputs-from
+to carry the step outputs and work directory of a finished run into the skipped
+steps, so the selected steps can reference them.
+
 Examples:
   dagu start my_dag -- P1=foo P2=bar
   dagu start --name my_custom_name my_dag.yaml -- P1=foo P2=bar
+  dagu start --only build my_dag
+  dagu start --only test --only lint --outputs-from 20260101_120000 my_dag -- ENV=dev
 
 This command parses the DAG definition, resolves parameters, and initiates the DAG-run execution.
 `,
@@ -64,11 +72,22 @@ This command parses the DAG definition, resolves parameters, and initiates the D
 }
 
 // Command line flags for the start command
-var startFlags = []commandLineFlag{paramsFlag, nameFlag, dagRunIDFlag, fromRunIDFlag, parentDAGRunFlag, rootDAGRunFlag, labelsFlag, tagsFlag, defaultWorkingDirFlag, profileFlag, startWorkerIDFlag, attemptIDFlag, triggerTypeFlag, triggerActorFlag, scheduleTimeFlag, sourceFileFlag, noReuseFlag}
+var startFlags = []commandLineFlag{paramsFlag, nameFlag, dagRunIDFlag, fromRunIDFlag, parentDAGRunFlag, rootDAGRunFlag, labelsFlag, tagsFlag, defaultWorkingDirFlag, profileFlag, startWorkerIDFlag, attemptIDFlag, triggerTypeFlag, triggerActorFlag, scheduleTimeFlag, sourceFileFlag, noReuseFlag, onlyFlag, outputsFromFlag}
 
 var fromRunIDFlag = commandLineFlag{
 	name:  "from-run-id",
 	usage: "Historic dag-run ID to use as the template for a new run",
+}
+
+var onlyFlag = commandLineFlag{
+	name:          "only",
+	usage:         "Run only this step (name or ID) and record every other step as skipped; repeatable",
+	isStringArray: true,
+}
+
+var outputsFromFlag = commandLineFlag{
+	name:  "outputs-from",
+	usage: "Finished dag-run ID whose step outputs and work directory feed the steps selected by --only",
 }
 
 // startWorkerIDFlag identifies which worker executes this DAG run (for distributed execution tracking)
@@ -106,6 +125,10 @@ func runStart(ctx *Context, args []string) error {
 	if ctx.IsRemote() {
 		return remoteRunStart(ctx, args)
 	}
+	selection, err := selectedStepsParams(ctx)
+	if err != nil {
+		return err
+	}
 	fromRunID, err := ctx.StringParam("from-run-id")
 	if err != nil {
 		return fmt.Errorf("failed to get from-run-id: %w", err)
@@ -142,6 +165,9 @@ func runStart(ctx *Context, args []string) error {
 
 	if fromRunID != "" && isSubDAGRun {
 		return fmt.Errorf("--from-run-id cannot be combined with --parent or --root")
+	}
+	if len(selection.steps) > 0 && (isSubDAGRun || rootRef != "" || workerID != "local") {
+		return fmt.Errorf("--only cannot be combined with --parent, --root, or --worker-id")
 	}
 
 	var (
@@ -252,6 +278,14 @@ func runStart(ctx *Context, args []string) error {
 		}
 		opts.parent = parent
 		return handleSubDAGRun(ctx, dag, dagRunID, params, opts)
+	}
+
+	if len(selection.steps) > 0 {
+		logger.Info(ctx, "Executing selected steps",
+			slog.Any("steps", selection.steps),
+			slog.String("params", params),
+		)
+		return runSelectedSteps(ctx, dag, dagRunID, params, opts, selection)
 	}
 
 	if fromRunID != "" {
@@ -662,15 +696,24 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *ir.DAG, dagRunID string, opts
 		taskOpts = append(taskOpts, executor.WithTriggerActor(opts.triggerActor))
 	}
 
+	operation := dispatch.DispatchOperationStart
+	if opts.seed != nil {
+		operation = dispatch.DispatchOperationRetry
+		taskOpts = append(taskOpts, executor.WithPreviousStatus(opts.seed))
+	}
+
 	task := executor.CreateTask(
 		d.Name,
 		string(d.YamlData),
-		dispatch.DispatchOperationStart,
+		operation,
 		dagRunID,
 		taskOpts...,
 	)
 
 	if err := coordinatorCli.Dispatch(signalAwareCtx, dispatch.DispatchRequest{Task: task}); err != nil {
+		if opts.seed != nil {
+			intake.MarkSeedFailed(ctx, ctx.Persistence.DAGRunRepository, opts.seed, err)
+		}
 		return fmt.Errorf("failed to dispatch task: %w", err)
 	}
 
