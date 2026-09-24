@@ -47,10 +47,13 @@ func TestRmCommand(t *testing.T) {
 		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertDAGRunCount(t, 1)
 
+		seedBrowserReplayCache(t, th, dag.Name, "login")
+
 		th.RunCommand(t, cmd.Rm(), test.CmdTest{
 			Args: []string{"rm", "--history", "--force", dag.Name},
 		})
 		dag.AssertDAGRunCount(t, 0)
+		assert.Empty(t, browserReplayCacheSteps(t, th, dag.Name))
 	})
 
 	t.Run("OlderThanPreservesRecentHistory", func(t *testing.T) {
@@ -67,10 +70,13 @@ func TestRmCommand(t *testing.T) {
 		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertDAGRunCount(t, 1)
 
+		seedBrowserReplayCache(t, th, dag.Name, "login")
+
 		th.RunCommand(t, cmd.Rm(), test.CmdTest{
 			Args: []string{"rm", "-H", "-t", "30d", "-f", dag.Name},
 		})
 		dag.AssertDAGRunCount(t, 1)
+		assert.Equal(t, []string{"login"}, browserReplayCacheSteps(t, th, dag.Name))
 	})
 
 	t.Run("OlderThanRequiresHistory", func(t *testing.T) {
@@ -241,9 +247,12 @@ steps:
 		dag.AssertLatestStatus(t, ir.Succeeded)
 		dag.AssertDAGRunCount(t, 1)
 
+		seedBrowserReplayCache(t, th, dag.Name, "login")
+
 		th.RunCommand(t, cmd.Rm(), test.CmdTest{
 			Args: []string{"rm", "-H", "--dry-run", dag.Name},
 		})
 		dag.AssertDAGRunCount(t, 1)
+		assert.Equal(t, []string{"login"}, browserReplayCacheSteps(t, th, dag.Name))
 	})
 }
