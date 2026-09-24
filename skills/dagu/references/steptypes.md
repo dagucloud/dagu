@@ -804,7 +804,11 @@ steps:
         user: ${VENDOR_USER}
         password: ${VENDOR_PASSWORD}
       do:
-        - act: Sign in with %user% and %password%
+        - act: Type %user% into the email field
+          when: {selector: "form#login"}
+        - act: Type %password% into the password field
+          when: {selector: "form#login"}
+        - act: Click the Sign in button
           when: {selector: "form#login"}
         - expect: {text: Invoices}
         - extract:
@@ -823,6 +827,7 @@ steps:
 Browser behavior:
 
 - Each `do` item sets exactly one of `goto`, `act`, `extract`, `expect`, `wait` (`selector` or `duration`), `screenshot`, or `ask`, plus optional `when` (skip unless it holds) and `timeout`.
+- An `act` performs one action: "Sign in with %user% and %password%" types into one field and stops. Write one act per field and one for the button.
 - `expect` and `when` take a statement the model judges, or a fixed check `{text}`, `{selector}`, or `{url}` that reads the page without a model call. Prefer fixed checks for monitoring; they give the same result on every run. A fixed `when` reads the page once; add `within: 10s` when the page may still be loading.
 - Declare secrets under `secrets:`, pass them in `variables`, and reference them as `%name%`. The browser gets the value, the model only the name. An instruction containing a declared secret value (4+ characters) fails the step; do not write `${SECRET}` inside an instruction. A `%name%` that is not a variable or an earlier `ask.as` fails validation.
 - The top-level properties of each `extract` schema become `${steps.<id>.outputs.<name>}`. The same property in two extracts is a validation error.
