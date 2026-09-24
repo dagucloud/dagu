@@ -230,7 +230,7 @@ describe('AgentSessionTab', () => {
     expect(screen.getByText('Implementation running')).toBeInTheDocument();
   });
 
-  it('shows a browser question with screenshot thumbnails', async () => {
+  it('shows a browser question with its deadline and screenshot thumbnails', async () => {
     const GET = vi.fn().mockResolvedValue({
       data: new Blob(['png'], { type: 'image/png' }),
       response: new Response(),
@@ -267,6 +267,7 @@ describe('AgentSessionTab', () => {
                 custom: true,
               },
             ],
+            expiresAt: new Date(Date.now() + 42 * 60 * 1000).toISOString(),
           },
         ],
       },
@@ -279,6 +280,7 @@ describe('AgentSessionTab', () => {
     expect(
       screen.getByText('Enter the code sent to your phone')
     ).toBeInTheDocument();
+    expect(screen.getByText('in 42 minutes')).toBeInTheDocument();
     expect(screen.getByText('Browser session')).toBeInTheDocument();
     expect(
       await screen.findByRole('img', { name: '01-goto.png' })

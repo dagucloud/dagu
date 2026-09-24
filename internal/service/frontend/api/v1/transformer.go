@@ -564,7 +564,7 @@ func toAgentSession(session *ir.AgentSession) *api.AgentSession {
 			Id: interaction.ID, Kind: api.AgentInteractionKind(interaction.Kind), Status: api.AgentInteractionStatus(interaction.Status),
 			Permission: ptrOf(interaction.Permission), Patterns: ptrOf(interaction.Patterns), AllowForSessionPatterns: ptrOf(interaction.AllowForSessionPatterns),
 			Questions: ptrOf(questions), Decision: ptrOf(interaction.Decision), Answers: ptrOf(interaction.Answers),
-			CreatedAt: ptrOf(interaction.CreatedAt), RespondedAt: ptrOf(interaction.RespondedAt),
+			CreatedAt: ptrOf(interaction.CreatedAt), ExpiresAt: ptrOf(interaction.ExpiresAt), RespondedAt: ptrOf(interaction.RespondedAt),
 			RespondedBy: ptrOf(interaction.RespondedBy), RespondedById: ptrOf(interaction.RespondedByID),
 		})
 	}

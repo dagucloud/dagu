@@ -199,7 +199,7 @@ UI or REST API resumes the step in the same browser, on the host that holds it,
 at the operation after the `ask`. The answer is available to later `act`
 instructions as `%<as>%`. Rejecting the question fails the step. The browser
 stays open for `ask.timeout` (default one hour); an answer after that fails the
-step.
+step. The pending question carries that deadline as `expiresAt`.
 
 Answers are stored in the run's history like other human input.
 

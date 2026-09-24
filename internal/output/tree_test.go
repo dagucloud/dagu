@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -248,6 +249,62 @@ func TestRenderDAGStatus_WaitingHumanTaskPushBack(t *testing.T) {
 	assert.Contains(t, output, "push back: rewind to implement")
 	assert.Contains(t, output, `push-back form: {"type":"object","additionalProperties":false}`)
 	assert.Contains(t, output, "push-back iteration: 2")
+}
+
+func TestRenderDAGStatus_WaitingBrowserAsk(t *testing.T) {
+	t.Parallel()
+
+	expiresAt := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
+	dag := &ir.DAG{Name: "login"}
+	status := &ir.DAGRunStatus{
+		Status: ir.Waiting,
+		Nodes: []*ir.Node{{
+			Step:   ir.Step{Name: "sign_in"},
+			Status: ir.NodeWaiting,
+			AgentSession: &ir.AgentSession{
+				Provider: "browser",
+				State:    ir.AgentSessionWaiting,
+				Interactions: []ir.AgentInteraction{{
+					ID:        "ask-1-1",
+					Kind:      ir.AgentInteractionQuestion,
+					Status:    ir.AgentInteractionPending,
+					Questions: []ir.AgentQuestion{{Header: "Browser input", Question: "Enter the code sent to your phone"}},
+					ExpiresAt: expiresAt.Format(time.RFC3339Nano),
+				}},
+			},
+		}},
+	}
+
+	output := newTestRenderer().RenderDAGStatus(dag, status)
+	assert.Contains(t, output, "question: Enter the code sent to your phone")
+	assert.Contains(t, output, "expires at: "+expiresAt.Local().Format(time.RFC3339))
+}
+
+func TestRenderDAGStatus_WaitingAgentPermission(t *testing.T) {
+	t.Parallel()
+
+	dag := &ir.DAG{Name: "agent"}
+	status := &ir.DAGRunStatus{
+		Status: ir.Waiting,
+		Nodes: []*ir.Node{{
+			Step:   ir.Step{Name: "code"},
+			Status: ir.NodeWaiting,
+			AgentSession: &ir.AgentSession{
+				Provider: "opencode",
+				State:    ir.AgentSessionWaiting,
+				Interactions: []ir.AgentInteraction{{
+					ID:         "perm-1",
+					Kind:       ir.AgentInteractionPermission,
+					Status:     ir.AgentInteractionPending,
+					Permission: "bash",
+					Patterns:   []string{"git push", "rm -rf build"},
+				}},
+			},
+		}},
+	}
+
+	output := newTestRenderer().RenderDAGStatus(dag, status)
+	assert.Contains(t, output, "permission: bash (git push, rm -rf build)")
 }
 
 func TestRenderDAGStatus_WaitingHumanTaskPreservesResolvedPromptAndUTF8(t *testing.T) {

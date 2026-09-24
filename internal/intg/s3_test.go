@@ -13,7 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const minioImage = "quay.io/minio/minio:RELEASE.2024-10-02T17-50-41Z"
+// minioImage bundles the MinIO server, the mc client, and a shell.
+const minioImage = "bitnamilegacy/minio:2025.7.23-debian-12-r5"
 
 // TestMinIOContainer_WithMCCommands tests S3-like operations using MinIO's mc client
 // inside a container. This validates the container-based workflow pattern for object storage.
@@ -36,6 +37,9 @@ func TestMinIOContainer_WithMCCommands(t *testing.T) {
 type: graph
 container:
   image: %s
+  # The image defaults to an unprivileged user without a writable home or
+  # /data; run as root so mc and the server can write their state.
+  user: "0"
   startup: command
   command: ["minio", "server", "/data", "--console-address", ":9001"]
   wait_for: running

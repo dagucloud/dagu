@@ -14063,6 +14063,9 @@ components:
               type: string
         createdAt:
           type: string
+        expiresAt:
+          type: string
+          description: "RFC 3339 time after which an answer fails the step. Set for browser asks."
         respondedAt:
           type: string
         respondedBy:
