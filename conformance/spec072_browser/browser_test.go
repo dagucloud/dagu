@@ -319,6 +319,27 @@ func TestBrowserReplayCache(t *testing.T) {
 	require.Equal(t, 1, b.model.count(kindAct), "the replayed act makes no model request")
 }
 
+// Clearing a step's cache, or removing all of the DAG's history, makes the
+// next run ask the model again.
+func TestBrowserReplayCacheClear(t *testing.T) {
+	t.Parallel()
+
+	b := newBrowserEnv(t)
+	env := append(b.env, "DAGU_HOME="+t.TempDir())
+	b.dagu.RunWithEnv(env, "start", "click.yaml").ExpectExitCode(0)
+	require.Equal(t, 1, b.model.count(kindAct))
+
+	cleared := b.dagu.RunWithEnv(env, "browser", "cache", "clear", "click", "--step", "checkout")
+	cleared.ExpectExitCode(0)
+	require.Contains(t, cleared.Stdout(), `Removed browser replay cache for step "checkout" of DAG "click"`)
+	b.dagu.RunWithEnv(env, "start", "click.yaml").ExpectExitCode(0)
+	require.Equal(t, 2, b.model.count(kindAct), "the cleared act asks the model again")
+
+	b.dagu.RunWithEnv(env, "rm", "--history", "--force", "click").ExpectExitCode(0)
+	b.dagu.RunWithEnv(env, "start", "click.yaml").ExpectExitCode(0)
+	require.Equal(t, 3, b.model.count(kindAct), "removing all history clears the cache")
+}
+
 func TestBrowserSecretInInstruction(t *testing.T) {
 	t.Parallel()
 

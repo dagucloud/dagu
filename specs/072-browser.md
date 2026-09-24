@@ -184,6 +184,14 @@ The cache covers `act` only. `extract` and model-judged conditions make model
 requests on every run. A replay that finds an element at the recorded location
 succeeds even if the page layout changed and a different element is now there.
 
+`dagu browser cache clear <dag>` removes the recorded actions of every step of
+the DAG, or of one step with `--step <id>`, and reports the steps it removed.
+`DELETE /dags/{fileName}/browser-cache[?step=<id>]` does the same and returns
+the removed steps. Removing all of a DAG's history with `dagu rm --history`
+also clears its cache; removing only older runs keeps it. Each clears the cache
+on its own host only. After a clear, the next run of the step makes a model
+request and records again.
+
 ### Profiles
 
 `browser.profile` names a persistent browser profile kept on the executing

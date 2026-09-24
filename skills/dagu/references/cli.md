@@ -188,7 +188,7 @@ Flags:
 
 ### dagu rm
 
-Remove DAG run history and/or the DAG YAML definition. At least one of `--history` or `--definition` is required. Active runs are never deleted from history; definition deletion is refused while the DAG has alive processes. With `--definition`, identify the DAG by filename, stem, or configured path.
+Remove DAG run history and/or the DAG YAML definition. At least one of `--history` or `--definition` is required. Active runs are never deleted from history; definition deletion is refused while the DAG has alive processes. With `--definition`, identify the DAG by filename, stem, or configured path. Deleting all history (no `--older-than`) also clears the browser replay cache of the DAG on this host.
 
 ```sh
 dagu rm [--history|-H] [--definition|-d] [-t <duration>] [-f] [--dry-run] <dag>
@@ -201,6 +201,14 @@ Flags:
 - `--older-than/-t` — With `--history`: delete runs older than a duration (e.g. `10d`, `24h`, `1w`). Omitted = delete all history
 - `--force/-f` — Skip confirmation prompt
 - `--dry-run` — Preview deletions without removing history or the definition
+
+### dagu browser cache clear
+
+Clear the recorded `act` operations that browser steps replay, so the next run asks the model again. Use it after a site changes its layout. Without `--step`, every step of the DAG is cleared. The cache lives on the host that ran the step; in distributed mode, run it on the worker. REST: `DELETE /api/v1/dags/{fileName}/browser-cache[?step=<id>]`.
+
+```sh
+dagu browser cache clear <dag> [--step <id>]
+```
 
 ### dagu ps
 
