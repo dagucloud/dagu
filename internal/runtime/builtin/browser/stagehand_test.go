@@ -138,18 +138,24 @@ func (m *shopModel) generate(_ context.Context, req generateRequest) (generateRe
 // without the sandbox, which cannot start on every CI host.
 func launchShop(t *testing.T, model *shopModel) engine {
 	t.Helper()
+	eng := launchBrowser(t, launchOptions{Generate: model.generate})
+	require.NoError(t, eng.Goto(t.Context(), serveShop(t), time.Minute))
+	return eng
+}
+
+// launchBrowser starts a headless test browser with opts, closed when the
+// test ends.
+func launchBrowser(t *testing.T, opts launchOptions) engine {
+	t.Helper()
 	requireChrome(t)
 	ctx := t.Context()
-	eng, err := stagehandLauncher{}.Launch(ctx, launchOptions{
-		Executable:  chromePath(),
-		Headless:    true,
-		UserDataDir: t.TempDir(),
-		NoSandbox:   true,
-		Generate:    model.generate,
-	})
+	opts.Executable = chromePath()
+	opts.Headless = true
+	opts.UserDataDir = t.TempDir()
+	opts.NoSandbox = true
+	eng, err := stagehandLauncher{}.Launch(ctx, opts)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = eng.Close(context.WithoutCancel(ctx)) })
-	require.NoError(t, eng.Goto(ctx, serveShop(t), time.Minute))
 	return eng
 }
 
@@ -386,6 +392,31 @@ func TestStagehandAcceptsDialogs(t *testing.T) {
 		{Type: "confirm", Message: "Continue?"},
 		{Type: "prompt", Message: "Name?"},
 	}, eng.TakeDialogs())
+}
+
+// blockedPage loads images and a script from hosts outside the allowed
+// domains. As a data: page it has no host of its own to block.
+const blockedPage = `<img src="http://cdn.blocked.test/logo.png">
+<img src="http://cdn.blocked.test/banner.png">
+<script src="http://sso.blocked.test/login.js"></script>`
+
+// Requests allowed_domains blocks are counted by host.
+func TestStagehandReportsBlockedRequests(t *testing.T) {
+	t.Parallel()
+
+	eng := launchBrowser(t, launchOptions{AllowedDomains: []string{"example.com"}, Generate: (&shopModel{}).generate})
+	require.NoError(t, eng.Goto(t.Context(), "data:text/html,"+url.PathEscape(blockedPage), 30*time.Second))
+
+	// The preload scanner can request a resource again, so counts are only
+	// bounded below.
+	blocked := map[string]int{}
+	require.Eventually(t, func() bool {
+		for host, count := range eng.TakeBlockedRequests() {
+			blocked[host] += count
+		}
+		return blocked["cdn.blocked.test"] >= 2 && blocked["sso.blocked.test"] >= 1
+	}, 10*time.Second, 100*time.Millisecond, "blocked so far: %v", blocked)
+	assert.Len(t, blocked, 2, "only blocked hosts are counted")
 }
 
 // A page whose script never yields fails a screenshot after the page call

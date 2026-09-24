@@ -4,13 +4,20 @@
 package browser
 
 import (
+	"cmp"
 	"fmt"
+	"maps"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 )
 
-const wildcardPrefix = "*."
+const (
+	wildcardPrefix = "*."
+	// maxBlockedHosts caps the hosts a blocked-request summary names.
+	maxBlockedHosts = 10
+)
 
 // domainLabelPattern matches one DNS label, as the browser runtime requires.
 var domainLabelPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
@@ -71,4 +78,32 @@ func checkAllowedDomain(target string, allowed []string) error {
 
 func canonicalHost(host string) string {
 	return strings.TrimRight(strings.ToLower(strings.TrimSpace(host)), ".")
+}
+
+// describeBlocked summarizes blocked requests by host, most blocked first,
+// such as "3 requests: cdn.example.com (2), sso.example.com (1)".
+func describeBlocked(counts map[string]int) string {
+	hosts := slices.SortedFunc(maps.Keys(counts), func(a, b string) int {
+		return cmp.Or(cmp.Compare(counts[b], counts[a]), strings.Compare(a, b))
+	})
+	total := 0
+	parts := make([]string, 0, min(len(hosts), maxBlockedHosts)+1)
+	for i, host := range hosts {
+		total += counts[host]
+		if i < maxBlockedHosts {
+			parts = append(parts, fmt.Sprintf("%s (%d)", host, counts[host]))
+		}
+	}
+	if more := len(hosts) - maxBlockedHosts; more > 0 {
+		parts = append(parts, "and "+countOf(more, "more host"))
+	}
+	return countOf(total, "request") + ": " + strings.Join(parts, ", ")
+}
+
+// countOf writes n with noun, plural unless n is 1.
+func countOf(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }

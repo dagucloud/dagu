@@ -40,6 +40,9 @@ type engine interface {
 	// TakeDialogs returns the JavaScript dialogs the browser accepted since
 	// the previous call.
 	TakeDialogs() []dialog
+	// TakeBlockedRequests returns the number of requests allowed_domains
+	// blocked since the previous call, by host.
+	TakeBlockedRequests() map[string]int
 	Handle() browserHandle
 	// Detach releases the session while the browser keeps running.
 	Detach(ctx context.Context) error

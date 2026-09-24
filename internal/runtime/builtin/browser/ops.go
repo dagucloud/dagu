@@ -29,6 +29,8 @@ const (
 	downloadGrace = 3 * time.Second
 	kindDownload  = "download"
 	kindDialog    = "dialog"
+	// kindAllowedDomains labels the requests allowed_domains blocked.
+	kindAllowedDomains = "allowed_domains"
 	// conditionPollInterval spaces the retries of a fixed expect check.
 	conditionPollInterval = 250 * time.Millisecond
 	sweepBudget           = 5 * time.Second
@@ -69,6 +71,9 @@ type run struct {
 	// answers holds the values people gave to ask operations.
 	answers map[string]string
 	outputs map[string]any
+	// blocked counts the requests allowed_domains blocked in this attempt,
+	// by host.
+	blocked map[string]int
 	// downloadWindow is the longest timeout of the acts and gotos run so
 	// far, which can start downloads; zero until one runs.
 	downloadWindow time.Duration
@@ -119,6 +124,7 @@ func newRun(ctx context.Context, e *browserExecutor) (*run, error) {
 		variables: maps.Clone(e.cfg.Variables),
 		answers:   map[string]string{},
 		outputs:   map[string]any{},
+		blocked:   map[string]int{},
 	}
 	if r.variables == nil {
 		r.variables = map[string]string{}
@@ -142,6 +148,7 @@ func (r *run) execute(ctx context.Context) error {
 
 	start, err := r.startSession(ctx)
 	r.reportDialogs(-1)
+	r.reportBlocked(-1)
 	if err == nil {
 		err = r.checkPage(ctx)
 	}
@@ -172,6 +179,7 @@ func (r *run) execute(ctx context.Context) error {
 		}
 		err := r.runOperation(ctx, i, op)
 		r.reportDialogs(i)
+		r.reportBlocked(i)
 		if err != nil {
 			return r.fail(ctx, i, op.kind(), err)
 		}
@@ -203,6 +211,22 @@ func (r *run) reportDialogs(index int) {
 			index: index, kind: kindDialog, subject: d.Message, status: statusCompleted, detail: "accepted " + d.Type,
 		})
 	}
+}
+
+// reportBlocked records the requests allowed_domains blocked while the
+// operation at index ran.
+func (r *run) reportBlocked(index int) {
+	if r.eng == nil {
+		return
+	}
+	blocked := r.eng.TakeBlockedRequests()
+	if len(blocked) == 0 {
+		return
+	}
+	for host, count := range blocked {
+		r.blocked[host] += count
+	}
+	r.timeline.blocked(index, describeBlocked(blocked))
 }
 
 // checkPage fails when the page has left browser.allowed_domains, which a
@@ -686,6 +710,7 @@ func (r *run) fail(ctx context.Context, index int, kind string, cause error) err
 	if ctx.Err() != nil && errors.Is(cause, context.Canceled) {
 		cause = ctx.Err()
 	}
+	r.reportBlocked(index)
 	var files []string
 	if r.cfg.screenshotPolicy() != screenshotsNever && r.artifacts.enabled() && r.eng != nil {
 		if rel, err := r.capture(context.WithoutCancel(ctx), failureShotLabel); err == nil {
@@ -696,6 +721,11 @@ func (r *run) fail(ctx context.Context, index int, kind string, cause error) err
 	message := r.masker.MaskString(cause.Error())
 	if index >= 0 {
 		message = fmt.Sprintf("do[%d] %s failed: %s", index, kind, message)
+	}
+	// A blocked request often breaks the page long before an operation
+	// fails, so the failure names every host blocked in the attempt.
+	if len(r.blocked) > 0 {
+		message += "; browser.allowed_domains blocked " + r.masker.MaskString(describeBlocked(r.blocked))
 	}
 	usage := r.bridge.totals()
 	r.timeline.appendEvent(ir.AgentSessionEvent{Type: eventLifecycle, Status: statusFailed, Content: message, Files: files})

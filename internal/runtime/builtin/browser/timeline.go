@@ -29,6 +29,7 @@ const (
 	statusWaiting   = "waiting"
 	statusCacheHit  = "cache-hit"
 	statusHealed    = "healed"
+	statusBlocked   = "blocked"
 )
 
 const (
@@ -67,11 +68,7 @@ func (t *timeline) lifecycle(status, content string) {
 func (t *timeline) operation(report operationReport) {
 	subject := t.masker.MaskString(report.subject)
 	detail := t.masker.MaskString(report.detail)
-	position := "[start]"
-	if report.index >= 0 {
-		position = fmt.Sprintf("[%d/%d]", report.index+1, t.total)
-	}
-	line := fmt.Sprintf("%s %s %s", position, report.kind, quoteShort(subject))
+	line := fmt.Sprintf("%s %s %s", t.position(report.index), report.kind, quoteShort(subject))
 	if detail != "" {
 		line += " → " + detail
 	}
@@ -89,6 +86,23 @@ func (t *timeline) operation(report operationReport) {
 		Content: content,
 		Files:   report.files,
 	})
+}
+
+// blocked reports the requests allowed_domains blocked while the operation at
+// index ran, summarized by describeBlocked.
+func (t *timeline) blocked(index int, summary string) {
+	summary = t.masker.MaskString(summary)
+	_, _ = fmt.Fprintf(t.log, "%s %s %s %s\n", t.position(index), kindAllowedDomains, statusBlocked, summary)
+	t.appendEvent(ir.AgentSessionEvent{Type: eventOperation, Name: kindAllowedDomains, Status: statusBlocked, Content: summary})
+}
+
+// position labels the operation at index, or the navigation to with.url when
+// index is -1.
+func (t *timeline) position(index int) string {
+	if index < 0 {
+		return "[start]"
+	}
+	return fmt.Sprintf("[%d/%d]", index+1, t.total)
 }
 
 func (t *timeline) appendEvent(event ir.AgentSessionEvent) {
