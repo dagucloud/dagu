@@ -17,12 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/dispatch"
-	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/launcher"
-	"github.com/dagucloud/dagu/v2/internal/queue"
-	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 )
@@ -531,103 +526,16 @@ func (a *API) launchEditRetryDAGRun(ctx context.Context, plan *editRetryPlan) (q
 	if plan == nil || plan.editedDAG == nil || plan.sourceStatus == nil {
 		return false, fmt.Errorf("edit retry plan is incomplete")
 	}
-	queueConfigured := a.config.FindQueueConfig(plan.editedDAG.ProcGroup()) != nil
-	shouldDispatch := !queueConfigured && dispatch.ShouldDispatchToCoordinator(plan.editedDAG, a.coordinatorCli != nil, a.defaultExecMode)
-	if shouldDispatch && plan.editedDAG.Type == ir.TypeBuild {
-		return false, buildRequiresLocalAPIError()
-	}
-
-	nodes := transform.SeedNodes(plan.editedDAG, plan.sourceStatus, plan.skippedSteps)
-	_, seedStatus, err := intake.SeedRun(ctx, intake.SeedRequest{
-		DAGRunRepository: a.dagRunRepository,
-		DAG:              plan.editedDAG,
-		DAGRunID:         plan.newDAGRunID,
-		Nodes:            nodes,
-		Source:           plan.sourceStatus,
-		Params:           plan.params,
-		TriggerType:      ir.TriggerTypeRetry,
-		TriggerActor:     triggerActorFromContext(ctx),
-		ProfileName:      plan.profileName,
-		LogBaseDir:       a.config.Paths.LogDir,
-		ArtifactBaseDir:  a.config.Paths.ArtifactDir,
+	return a.launchSeededDAGRun(ctx, seededRun{
+		dag:         plan.editedDAG,
+		dagRunID:    plan.newDAGRunID,
+		nodes:       transform.SeedNodes(plan.editedDAG, plan.sourceStatus, plan.skippedSteps),
+		source:      plan.sourceStatus,
+		params:      plan.params,
+		profileName: plan.profileName,
+		triggerType: ir.TriggerTypeRetry,
+		enqueue:     true,
 	})
-	if err != nil {
-		return false, err
-	}
-	defer func() {
-		if err != nil {
-			intake.MarkSeedFailed(ctx, a.dagRunRepository, seedStatus, err)
-		}
-	}()
-
-	if queueConfigured {
-		if a.queueStore == nil {
-			return false, fmt.Errorf("queue store is not configured")
-		}
-		if err := a.queueStore.Enqueue(ctx, plan.editedDAG.ProcGroup(), queue.QueuePriorityLow, seedStatus.DAGRun()); err != nil {
-			return false, fmt.Errorf("failed to enqueue edit retry dag-run: %w", err)
-		}
-		return true, nil
-	}
-
-	if shouldDispatch {
-		if err := a.dispatchEditRetry(ctx, plan.editedDAG, seedStatus); err != nil {
-			return false, err
-		}
-		return false, nil
-	}
-
-	prepared, err := a.prepareRetryDAGForSubprocess(ctx, plan.editedDAG, seedStatus)
-	if err != nil {
-		return false, fmt.Errorf("error preparing edit retry DAG env: %w", err)
-	}
-
-	retrySpec := a.subCmdBuilder.Retry(prepared, launcher.RetryOptions{
-		DAGRunID:      plan.newDAGRunID,
-		TriggerActor:  seedStatus.TriggerActor,
-		QueueDispatch: true,
-	})
-	retrySpec.Env = append(retrySpec.Env, a.managedOpenCodeEnv(ctx, prepared)...)
-	if err := launcher.Start(ctx, retrySpec); err != nil {
-		return false, fmt.Errorf("error starting edit retry DAG: %w", err)
-	}
-
-	return false, nil
-}
-
-func (a *API) dispatchEditRetry(ctx context.Context, dag *ir.DAG, status *ir.DAGRunStatus) error {
-	dag, err := a.refreshBaseSMTP(ctx, dag, status)
-	if err != nil {
-		return err
-	}
-	opts := []executor.TaskOption{
-		executor.WithWorkerSelector(dag.WorkerSelector),
-		executor.WithPreviousStatus(status),
-		executor.WithBaseConfig(executor.ResolveBaseConfig(dag.BaseConfigData, a.config.Paths.BaseConfig), dag.BaseConfigWorkspace),
-	}
-	if dag.SourceFile != "" {
-		opts = append(opts, executor.WithSourceFile(dag.SourceFile))
-	}
-	if status.ProfileName != "" {
-		opts = append(opts, executor.WithProfileName(status.ProfileName))
-	}
-	if status.TriggerActor != "" {
-		opts = append(opts, executor.WithTriggerActor(status.TriggerActor))
-	}
-	if status.ParallelItem != "" {
-		opts = append(opts, executor.WithParallelItem(status.ParallelItem))
-	}
-	task := executor.CreateTask(
-		dag.Name,
-		string(dag.YamlData),
-		dispatch.DispatchOperationRetry,
-		status.DAGRunID,
-		opts...,
-	)
-	if err := a.coordinatorCli.Dispatch(ctx, dispatch.DispatchRequest{Task: task}); err != nil {
-		return fmt.Errorf("error dispatching edit retry to coordinator: %w", err)
-	}
-	return nil
 }
 
 func cloneStringMap(src map[string]string) map[string]string {
