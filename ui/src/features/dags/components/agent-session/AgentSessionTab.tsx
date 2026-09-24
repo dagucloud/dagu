@@ -3,6 +3,7 @@
 
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { RelativeTime } from '@/components/ui/relative-time';
 import { Tab, Tabs } from '@/components/ui/tabs';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useClient } from '@/hooks/api';
@@ -28,6 +29,7 @@ import {
 } from '../../../../api/v1/schema';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
+import { I18nTemplate } from '@/i18n/I18nTemplate';
 
 type DAGRunDetails = components['schemas']['DAGRunDetails'];
 type AgentInteraction = components['schemas']['AgentInteraction'];
@@ -254,6 +256,16 @@ function InteractionCard({
           <I18nText text={"OpenCode needs an answer"} />
         )}
       </div>
+      {interaction.expiresAt && (
+        <div className="text-xs text-muted-foreground">
+          <I18nTemplate
+            text="Answer deadline: {time}"
+            values={{
+              time: <RelativeTime timestamp={interaction.expiresAt} />,
+            }}
+          />
+        </div>
+      )}
       {questions.map((question, questionIndex) => (
         <div key={`${interaction.id}-${questionIndex}`} className="space-y-2">
           <div>

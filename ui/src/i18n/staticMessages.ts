@@ -1102,6 +1102,7 @@ const english = {
   'OpenCode needs an answer': 'OpenCode needs an answer',
   'No timeline events yet.': 'No timeline events yet.',
   'The browser step needs an answer': 'The browser step needs an answer',
+  'Answer deadline: {time}': 'Answer deadline: {time}',
   'Browser session': 'Browser session',
   'Start this browser step over?': 'Start this browser step over?',
   'This closes the browser if it is still open and runs the step again from its first operation.':
@@ -3329,6 +3330,7 @@ const chinese = {
   'OpenCode needs an answer': 'OpenCode 需要回答',
   'No timeline events yet.': '暂无时间线事件。',
   'The browser step needs an answer': '浏览器步骤需要回答',
+  'Answer deadline: {time}': '回答截止：{time}',
   'Browser session': '浏览器会话',
   'Start this browser step over?': '要重新开始此浏览器步骤吗？',
   'This closes the browser if it is still open and runs the step again from its first operation.':
@@ -5564,6 +5566,7 @@ const japanese = {
   'OpenCode needs an answer': 'OpenCode は回答が必要です',
   'No timeline events yet.': 'タイムラインイベントはまだありません。',
   'The browser step needs an answer': 'ブラウザステップは回答が必要です',
+  'Answer deadline: {time}': '回答期限: {time}',
   'Browser session': 'ブラウザセッション',
   'Start this browser step over?': 'このブラウザステップを最初からやり直しますか？',
   'This closes the browser if it is still open and runs the step again from its first operation.':
