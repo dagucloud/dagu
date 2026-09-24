@@ -16,6 +16,7 @@ import (
 	"sort"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
@@ -318,6 +319,12 @@ func writeProcFileAtomicOnce(path string, data []byte, createTemp createProcTemp
 	}
 	tmpFile, err := createTemp(dir, filepath.Base(path)+".tmp.*")
 	if err != nil {
+		// Another process prunes the directory once its last proc file is
+		// gone. When that races the create, macOS reports EINVAL instead of
+		// ENOENT; both mean the directory vanished, so the write is retried.
+		if errors.Is(err, syscall.EINVAL) {
+			return fmt.Errorf("proc directory removed during create: %w: %w", os.ErrNotExist, err)
+		}
 		return err
 	}
 	tmpPath := tmpFile.Name()
