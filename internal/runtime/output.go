@@ -124,6 +124,10 @@ func (oc *OutputCoordinator) setupExecutorIO(ctx context.Context, cmd executor.E
 	oc.mu.Lock()
 	defer oc.mu.Unlock()
 
+	if err := oc.resetArtifactRedirects(data); err != nil {
+		return err
+	}
+
 	var stdout io.Writer = os.Stdout
 	if oc.stdoutWriter != nil {
 		stdout = oc.stdoutWriter
@@ -320,18 +324,13 @@ func (oc *OutputCoordinator) setupStdoutRedirect(ctx context.Context, data NodeD
 		return nil
 	}
 
-	file, err := oc.setupFile(ctx, data.Step.Stdout, data)
+	file, err := oc.setupFile(ctx, data.Step.Stdout, data.Step.StdoutArtifact != "")
 	if err != nil {
 		return fmt.Errorf("failed to setup stdout file: %w", err)
 	}
 
 	oc.stdoutRedirectFile = file
-	// Wrap with MaskingWriter if masker is available
-	var writer io.Writer = oc.stdoutRedirectFile
-	if oc.masker != nil {
-		writer = masking.NewMaskingWriter(oc.stdoutRedirectFile, oc.masker)
-	}
-	oc.stdoutRedirectWriter = newSafeBufferedWriter(writer)
+	oc.stdoutRedirectWriter = oc.newRedirectWriter(file)
 
 	return nil
 }
@@ -344,20 +343,52 @@ func (oc *OutputCoordinator) setupStderrRedirect(ctx context.Context, data NodeD
 		return nil
 	}
 
-	file, err := oc.setupFile(ctx, data.Step.Stderr, data)
+	file, err := oc.setupFile(ctx, data.Step.Stderr, data.Step.StderrArtifact != "")
 	if err != nil {
 		return fmt.Errorf("failed to setup stderr file: %w", err)
 	}
 
 	oc.StderrRedirectFile = file
-	// Wrap with MaskingWriter if masker is available
-	var writer io.Writer = oc.StderrRedirectFile
-	if oc.masker != nil {
-		writer = masking.NewMaskingWriter(oc.StderrRedirectFile, oc.masker)
-	}
-	oc.stderrRedirectWriter = newSafeBufferedWriter(writer)
+	oc.stderrRedirectWriter = oc.newRedirectWriter(file)
 
 	return nil
+}
+
+// newRedirectWriter returns a buffered writer for a redirect file, masking
+// secrets when a masker is available.
+func (oc *OutputCoordinator) newRedirectWriter(file *os.File) io.Writer {
+	var writer io.Writer = file
+	if oc.masker != nil {
+		writer = masking.NewMaskingWriter(file, oc.masker)
+	}
+	return newSafeBufferedWriter(writer)
+}
+
+// resetArtifactRedirects empties artifact redirects so that an artifact holds
+// only the output of the latest attempt. Plain redirects keep appending.
+func (oc *OutputCoordinator) resetArtifactRedirects(data NodeData) error {
+	if data.Step.StdoutArtifact != "" && oc.stdoutRedirectFile != nil {
+		if err := truncateFile(oc.stdoutRedirectFile); err != nil {
+			return fmt.Errorf("failed to reset stdout artifact: %w", err)
+		}
+		// A fresh writer drops any partial line the previous attempt left buffered.
+		oc.stdoutRedirectWriter = oc.newRedirectWriter(oc.stdoutRedirectFile)
+	}
+	if data.Step.StderrArtifact != "" && oc.StderrRedirectFile != nil {
+		if err := truncateFile(oc.StderrRedirectFile); err != nil {
+			return fmt.Errorf("failed to reset stderr artifact: %w", err)
+		}
+		oc.stderrRedirectWriter = oc.newRedirectWriter(oc.StderrRedirectFile)
+	}
+	return nil
+}
+
+func truncateFile(file *os.File) error {
+	if err := file.Truncate(0); err != nil {
+		return err
+	}
+	_, err := file.Seek(0, io.SeekStart)
+	return err
 }
 
 func (oc *OutputCoordinator) setupWriters(ctx context.Context, data NodeData) error {
@@ -436,7 +467,7 @@ func (oc *OutputCoordinator) setupLocalWriters(_ context.Context, data NodeData)
 	return nil
 }
 
-func (oc *OutputCoordinator) setupFile(ctx context.Context, filePath string, _ NodeData) (*os.File, error) {
+func (oc *OutputCoordinator) setupFile(ctx context.Context, filePath string, truncate bool) (*os.File, error) {
 	absFilePath := filePath
 	if !filepath.IsAbs(absFilePath) {
 		dir := GetEnv(ctx).WorkingDir
@@ -444,7 +475,11 @@ func (oc *OutputCoordinator) setupFile(ctx context.Context, filePath string, _ N
 		absFilePath = filepath.Clean(absFilePath)
 	}
 
-	file, err := fileutil.OpenOrCreateFile(absFilePath)
+	open := fileutil.OpenOrCreateFile
+	if truncate {
+		open = fileutil.CreateOrTruncateFile
+	}
+	file, err := open(absFilePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file %q: %w", absFilePath, err)
 	}

@@ -1741,6 +1741,53 @@ func TestNodeOutputRedirectWithWorkingDir(t *testing.T) {
 	})
 }
 
+// Inline retries and repeats execute a prepared node again, and a dag-run
+// retry prepares a new node over the same artifact directory. Either way an
+// artifact redirect holds only the latest attempt's output.
+func TestNodeArtifactRedirectLatestAttempt(t *testing.T) {
+	t.Parallel()
+
+	artifactDir := t.TempDir()
+	logDir := t.TempDir()
+	step := ir.Step{
+		Name: "report",
+		Commands: []ir.CommandEntry{{
+			Command: "sh",
+			Args:    []string{"-c", "echo out; echo err >&2"},
+		}},
+		StdoutArtifact: "report.out",
+		StderrArtifact: "report.err",
+	}
+	ctx := runtime.NewContext(context.Background(), &ir.DAG{Name: "test"}, "run-1",
+		filepath.Join(logDir, "dag.log"), runtime.WithArtifactDir(artifactDir))
+	ctx = runtime.WithEnv(ctx, runtime.NewEnv(ctx, step))
+
+	assertArtifacts := func(t *testing.T) {
+		t.Helper()
+		stdout, err := os.ReadFile(filepath.Join(artifactDir, "report.out"))
+		require.NoError(t, err)
+		assert.Equal(t, "out\n", string(stdout))
+		stderr, err := os.ReadFile(filepath.Join(artifactDir, "report.err"))
+		require.NoError(t, err)
+		assert.Equal(t, "err\n", string(stderr))
+	}
+
+	node := runtime.NewNode(step, runtime.NodeState{})
+	node.Init()
+	require.NoError(t, node.Prepare(ctx, logDir, "run-1"))
+	require.NoError(t, node.Execute(ctx))
+	require.NoError(t, node.Execute(ctx))
+	require.NoError(t, node.Teardown())
+	assertArtifacts(t)
+
+	retried := runtime.NewNode(step, runtime.NodeState{})
+	retried.Init()
+	require.NoError(t, retried.Prepare(ctx, logDir, "run-1"))
+	require.NoError(t, retried.Execute(ctx))
+	require.NoError(t, retried.Teardown())
+	assertArtifacts(t)
+}
+
 func TestLogOutputMode(t *testing.T) {
 	t.Parallel()
 
