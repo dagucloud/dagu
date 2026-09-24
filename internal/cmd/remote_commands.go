@@ -185,7 +185,7 @@ func mapAPIStepInputs(inputs *[]api.StepInputDeclaration) []ir.StepInputDeclarat
 }
 
 func validateRemoteStartLikeFlags(ctx *Context) error {
-	disallowed := []string{"parent", "root", "worker-id", "attempt-id", "schedule-time", "profile", "trigger-actor", "only", "outputs-from"}
+	disallowed := []string{"parent", "root", "worker-id", "attempt-id", "schedule-time", "profile", "trigger-actor"}
 	for _, flag := range disallowed {
 		if ctx.Command.Flags().Changed(flag) {
 			return fmt.Errorf("--%s is only supported in the local context", flag)
@@ -209,6 +209,10 @@ func remoteResolveDAG(ctx *Context, arg string) (*api.DAGFile, error) {
 
 func remoteRunStart(ctx *Context, args []string) error {
 	if err := validateRemoteStartLikeFlags(ctx); err != nil {
+		return err
+	}
+	selection, err := selectedStepsParams(ctx)
+	if err != nil {
 		return err
 	}
 	fromRunID, err := ctx.StringParam("from-run-id")
@@ -267,12 +271,18 @@ func remoteRunStart(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	var steps *[]string
+	if len(selection.steps) > 0 {
+		steps = &selection.steps
+	}
 	resp, err := ctx.Remote.startDAG(ctx, dag.FileName, api.ExecuteDAGJSONBody{
-		DagName:  stringPtrOrNil(nameOverride),
-		DagRunId: stringPtrOrNil(runID),
-		Params:   stringPtrOrNil(params),
-		Labels:   labels,
-		NoReuse:  &noReuse,
+		DagName:          stringPtrOrNil(nameOverride),
+		DagRunId:         stringPtrOrNil(runID),
+		Params:           stringPtrOrNil(params),
+		Labels:           labels,
+		NoReuse:          &noReuse,
+		Steps:            steps,
+		OutputsFromRunId: stringPtrOrNil(selection.outputsFrom),
 	})
 	if err != nil {
 		return err

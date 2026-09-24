@@ -169,6 +169,42 @@ func TestRemoteClientRetryDAGRunSendsChildTarget(t *testing.T) {
 	assert.Equal(t, "child-run", *got.body.SubDAGRunId)
 }
 
+func TestRemoteStartSendsSteps(t *testing.T) {
+	t.Parallel()
+
+	bodies := make(chan api.ExecuteDAGJSONBody, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(`{"fileName":"etl"}`))
+			return
+		}
+		var body api.ExecuteDAGJSONBody
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		bodies <- body
+		_, _ = w.Write([]byte(`{"dagRunId":"run-1"}`))
+	}))
+	defer server.Close()
+
+	command := &cobra.Command{Use: "start"}
+	initFlags(command, startFlags...)
+	require.NoError(t, command.Flags().Set("only", "load"))
+	require.NoError(t, command.Flags().Set("outputs-from", "source"))
+	ctx := &Context{
+		Context: context.Background(),
+		Command: command,
+		Remote:  &remoteClient{baseURL: server.URL, client: server.Client()},
+	}
+
+	require.NoError(t, remoteRunStart(ctx, []string{"etl"}))
+
+	body := <-bodies
+	require.NotNil(t, body.Steps)
+	assert.Equal(t, []string{"load"}, *body.Steps)
+	require.NotNil(t, body.OutputsFromRunId)
+	assert.Equal(t, "source", *body.OutputsFromRunId)
+}
+
 func TestWaitForRemoteStopHonorsContextCancellation(t *testing.T) {
 	t.Parallel()
 
