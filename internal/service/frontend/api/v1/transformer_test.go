@@ -493,6 +493,24 @@ func TestToNodeIncludesNormalizedPushBackHistory(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestToAgentSession(t *testing.T) {
+	session := toAgentSession(&ir.AgentSession{
+		Provider: "browser",
+		State:    ir.AgentSessionWaiting,
+		Interactions: []ir.AgentInteraction{
+			{ID: "ask-1-1", Kind: ir.AgentInteractionQuestion, Status: ir.AgentInteractionPending, ExpiresAt: "2026-09-24T12:00:00Z"},
+			{ID: "perm-1", Kind: ir.AgentInteractionPermission, Status: ir.AgentInteractionPending},
+		},
+	})
+
+	require.NotNil(t, session.Interactions)
+	interactions := *session.Interactions
+	require.Len(t, interactions, 2)
+	require.NotNil(t, interactions[0].ExpiresAt)
+	assert.Equal(t, "2026-09-24T12:00:00Z", *interactions[0].ExpiresAt)
+	assert.Nil(t, interactions[1].ExpiresAt)
+}
+
 func TestToDAGIncludesTypedSchedules(t *testing.T) {
 	cronSchedule, err := ir.NewCronSchedule("*/5 * * * *")
 	require.NoError(t, err)

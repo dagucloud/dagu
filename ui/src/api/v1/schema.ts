@@ -5553,6 +5553,8 @@ export interface components {
             decision?: string;
             answers?: string[][];
             createdAt?: string;
+            /** @description RFC 3339 time after which an answer fails the step. Set for browser asks. */
+            expiresAt?: string;
             respondedAt?: string;
             respondedBy?: string;
             respondedById?: string;
