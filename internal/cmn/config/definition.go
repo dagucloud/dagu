@@ -28,6 +28,7 @@ type Definition struct {
 	EnvPassthrough         []string     `mapstructure:"env_passthrough"`
 	EnvPassthroughPrefixes []string     `mapstructure:"env_passthrough_prefixes"`
 	OpenCode               *OpenCodeDef `mapstructure:"opencode"`
+	Browser                *BrowserDef  `mapstructure:"browser"`
 
 	// Authentication
 	Auth *AuthDef `mapstructure:"auth"`
@@ -102,6 +103,11 @@ type Definition struct {
 type OpenCodeDef struct {
 	Executable     string   `mapstructure:"executable"`
 	EnvPassthrough []string `mapstructure:"env_passthrough"`
+}
+
+// BrowserDef configures the browsers that browser steps start on this host.
+type BrowserDef struct {
+	Args []string `mapstructure:"args"`
 }
 
 // DAGDiscoveryDef configures DAG definition discovery.

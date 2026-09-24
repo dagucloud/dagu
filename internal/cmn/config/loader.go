@@ -366,6 +366,7 @@ func (l *ConfigLoader) loadCoreConfig(cfg *Config, def Definition) error {
 	if cfg.OpenCode.Executable == "" {
 		cfg.OpenCode.Executable = "opencode"
 	}
+	cfg.Browser = BrowserConfig{Args: parseStringList(l.v.Get("browser.args"))}
 	cfg.DAGDiscovery = DAGDiscoveryConfig{
 		Recursive: l.v.GetBool("dag_discovery.recursive"),
 		Symlinks:  l.v.GetBool("dag_discovery.symlinks"),
@@ -2119,6 +2120,7 @@ var envBindings = []envBinding{
 	{key: "env_passthrough_prefixes", env: "ENV_PASSTHROUGH_PREFIXES"},
 	{key: "opencode.executable", env: "OPENCODE_EXECUTABLE"},
 	{key: "opencode.env_passthrough", env: "OPENCODE_ENV_PASSTHROUGH"},
+	{key: "browser.args", env: "BROWSER_ARGS"},
 
 	// Secrets
 	{key: "secrets.vault.address", env: "SECRETS_VAULT_ADDRESS"},

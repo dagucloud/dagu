@@ -574,6 +574,26 @@ func TestLoad_OpenCodeConfigFromEnv(t *testing.T) {
 	require.Equal(t, []string{"OPENAI_API_KEY", "ANTHROPIC_API_KEY"}, cfg.OpenCode.EnvPassthrough)
 }
 
+// A flag in a config file list may contain commas; the environment form is
+// split on commas.
+func TestLoad_BrowserArgs(t *testing.T) {
+	configFile := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(configFile, []byte(`
+browser:
+  args:
+    - --no-sandbox
+    - --disable-features=Translate,MediaRouter
+`), 0o600))
+	cfg := testLoad(t, WithConfigFile(configFile))
+	require.Equal(t, []string{"--no-sandbox", "--disable-features=Translate,MediaRouter"}, cfg.Browser.Args)
+}
+
+func TestLoad_BrowserArgsFromEnv(t *testing.T) {
+	t.Setenv("DAGU_BROWSER_ARGS", "--no-sandbox, --disable-dev-shm-usage")
+	cfg := testLoad(t)
+	require.Equal(t, []string{"--no-sandbox", "--disable-dev-shm-usage"}, cfg.Browser.Args)
+}
+
 func TestLoad_OpenCodeRejectsReservedPassthrough(t *testing.T) {
 	configFile := filepath.Join(t.TempDir(), "config.yaml")
 	require.NoError(t, os.WriteFile(configFile, []byte(`

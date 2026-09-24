@@ -112,6 +112,11 @@ those outputs. Operation progress is written to stderr.
 `CHROME_PATH` or an installed Chrome), `viewport` `{width, height}`, `proxy`
 (unauthenticated), `allowed_domains`, `screenshots`, and `profile`.
 
+The host configuration `browser.args`, or the environment variable
+`DAGU_BROWSER_ARGS` as a comma-separated list, adds command-line flags to
+every browser the host starts, such as `--no-sandbox` where the browser
+sandbox is unavailable. A DAG cannot set them.
+
 ### Allowed domains
 
 The browser runtime applies `allowed_domains` to the page's HTTP(S) requests,

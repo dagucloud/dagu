@@ -64,6 +64,7 @@ func (stagehandLauncher) Launch(ctx context.Context, opts launchOptions) (engine
 		Headless:       opts.Headless,
 		Port:           port,
 		UserDataDir:    opts.UserDataDir,
+		Args:           opts.Args,
 		KeepAlive:      true,
 	}
 	if opts.Viewport != nil {

@@ -194,6 +194,9 @@
     "opencode": {
       "$ref": "#/definitions/OpenCodeDef"
     },
+    "browser": {
+      "$ref": "#/definitions/BrowserDef"
+    },
     "proc": {
       "$ref": "#/definitions/ProcDef"
     },
@@ -1119,6 +1122,20 @@
         "env_passthrough": {
           "type": "array",
           "description": "Exact environment variable names forwarded to the managed OpenCode service.",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "BrowserDef": {
+      "type": "object",
+      "description": "Browsers that browser steps start on this host.",
+      "additionalProperties": false,
+      "properties": {
+        "args": {
+          "type": "array",
+          "description": "Extra command-line flags for every browser started on this host, such as --no-sandbox where the browser sandbox is unavailable.",
           "items": {
             "type": "string"
           }

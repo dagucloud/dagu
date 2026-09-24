@@ -56,7 +56,9 @@ type launchOptions struct {
 	UserDataDir    string
 	DownloadsDir   string
 	AllowedDomains []string
-	Generate       generateFunc
+	// Args are extra browser command-line flags.
+	Args     []string
+	Generate generateFunc
 }
 
 // browserHandle locates a running browser.

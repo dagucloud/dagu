@@ -21,6 +21,7 @@ import (
 type Config struct {
 	Core            Core
 	OpenCode        OpenCodeConfig
+	Browser         BrowserConfig
 	Server          Server
 	EventStore      EventStoreConfig
 	Webhooks        WebhooksConfig
@@ -47,6 +48,14 @@ type Config struct {
 type OpenCodeConfig struct {
 	Executable     string
 	EnvPassthrough []string
+}
+
+// BrowserConfig configures the browsers that browser steps start on this
+// host.
+type BrowserConfig struct {
+	// Args are extra command-line flags for every browser started on this
+	// host, such as --no-sandbox where the browser sandbox is unavailable.
+	Args []string
 }
 
 // DAGDiscoveryConfig controls how DAG definitions are discovered.

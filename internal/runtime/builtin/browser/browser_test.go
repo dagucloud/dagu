@@ -36,6 +36,8 @@ type testRun struct {
 	launcher  *fakeLauncher
 	provider  *scriptedProvider
 	secrets   map[string]string
+	// browserArgs are the host's configured browser flags.
+	browserArgs []string
 }
 
 func newTestRun(t *testing.T, answer func(*llmpkg.ChatRequest) (string, error)) *testRun {
@@ -89,7 +91,10 @@ func (r *testRun) context() context.Context {
 	for name, secret := range r.secrets {
 		scope = scope.WithEntry(name, secret, value.EnvSourceSecret)
 	}
-	ctx := cmnconfig.WithConfig(r.t.Context(), &cmnconfig.Config{Paths: cmnconfig.PathsConfig{DataDir: r.dataDir}})
+	ctx := cmnconfig.WithConfig(r.t.Context(), &cmnconfig.Config{
+		Paths:   cmnconfig.PathsConfig{DataDir: r.dataDir},
+		Browser: cmnconfig.BrowserConfig{Args: r.browserArgs},
+	})
 	return runtime.WithEnv(ctx, runtime.Env{
 		Context: runtime.Context{
 			DAG:      &ir.DAG{Name: "orders"},
@@ -215,6 +220,18 @@ func TestAcceptedDialogsAreReported(t *testing.T) {
 	session := execution.exec.GetAgentSession()
 	assert.Equal(t, []string{"act:completed", "dialog:completed", "screenshot:completed"}, eventNames(session))
 	assert.Contains(t, execution.stderr.String(), `[1/2] dialog "Send *******?" → accepted confirm`)
+}
+
+// Browser flags from the host configuration reach every launch.
+func TestHostBrowserArgsReachLaunch(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.browserArgs = []string{"--no-sandbox", "--disable-dev-shm-usage"}
+	require.NoError(t, run.execute(`{"do": [{"act": "Click the checkout button"}]}`, nil).err)
+
+	require.Len(t, run.launcher.launches, 1)
+	assert.Equal(t, run.browserArgs, run.launcher.launches[0].Args)
 }
 
 func TestSecretInInstructionIsRejected(t *testing.T) {

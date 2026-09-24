@@ -330,6 +330,7 @@ func (r *run) launchOptions(ctx context.Context, recordID string) (launchOptions
 		Proxy:          r.cfg.Browser.Proxy,
 		DownloadsDir:   downloads,
 		AllowedDomains: r.cfg.Browser.AllowedDomains,
+		Args:           cmnconfig.GetConfig(ctx).Browser.Args,
 		Generate:       r.bridge.generate,
 	}
 	if name := r.cfg.Browser.Profile; name != "" {
