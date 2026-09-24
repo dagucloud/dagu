@@ -217,3 +217,34 @@ func call(ctx context.Context, cdpURL, method string, params, result any) error 
 		return json.Unmarshal(response.Result, result)
 	}
 }
+
+// cdpMessage is a command reply or an event read from a DevTools connection.
+type cdpMessage struct {
+	ID        int64           `json:"id"`
+	SessionID string          `json:"sessionId"`
+	Method    string          `json:"method"`
+	Params    json.RawMessage `json:"params"`
+	Error     *struct {
+		Message string `json:"message"`
+	} `json:"error"`
+}
+
+// autoAttachParams makes Target.setAutoAttach attach the connection to every
+// target, existing and future, without pausing them.
+func autoAttachParams() map[string]any {
+	return map[string]any{"autoAttach": true, "waitForDebuggerOnStart": false, "flatten": true}
+}
+
+// writeCommand sends one command on conn, to a target session when sessionID
+// is set.
+func writeCommand(ctx context.Context, conn *websocket.Conn, id int64, sessionID, method string, params map[string]any) error {
+	message := map[string]any{"id": id, "method": method, "params": params}
+	if sessionID != "" {
+		message["sessionId"] = sessionID
+	}
+	data, err := json.Marshal(message)
+	if err != nil {
+		return err
+	}
+	return conn.Write(ctx, websocket.MessageText, data)
+}

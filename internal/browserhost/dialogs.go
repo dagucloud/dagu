@@ -56,9 +56,7 @@ func WatchDialogs(ctx context.Context, cdpURL string) (*DialogWatcher, error) {
 
 	// Attaching to every page, existing and future, delivers their dialog
 	// events on this connection.
-	if err := w.write(ctx, w.autoAttachID, "", "Target.setAutoAttach", map[string]any{
-		"autoAttach": true, "waitForDebuggerOnStart": false, "flatten": true,
-	}); err != nil {
+	if err := writeCommand(ctx, w.conn, w.autoAttachID, "", "Target.setAutoAttach", autoAttachParams()); err != nil {
 		_ = w.Close()
 		return nil, err
 	}
@@ -103,15 +101,7 @@ func (w *DialogWatcher) read(ctx context.Context, acknowledged chan<- error) {
 			}
 			return
 		}
-		var message struct {
-			ID        int64           `json:"id"`
-			SessionID string          `json:"sessionId"`
-			Method    string          `json:"method"`
-			Params    json.RawMessage `json:"params"`
-			Error     *struct {
-				Message string `json:"message"`
-			} `json:"error"`
-		}
+		var message cdpMessage
 		if json.Unmarshal(data, &message) != nil {
 			continue
 		}
@@ -133,7 +123,7 @@ func (w *DialogWatcher) read(ctx context.Context, acknowledged chan<- error) {
 				} `json:"targetInfo"`
 			}
 			if json.Unmarshal(message.Params, &event) == nil && event.TargetInfo.Type == targetTypePage {
-				_ = w.write(ctx, w.lastID.Add(1), event.SessionID, "Page.enable", map[string]any{})
+				_ = writeCommand(ctx, w.conn, w.lastID.Add(1), event.SessionID, "Page.enable", map[string]any{})
 			}
 		case message.Method == "Page.javascriptDialogOpening":
 			var event struct {
@@ -148,24 +138,11 @@ func (w *DialogWatcher) read(ctx context.Context, acknowledged chan<- error) {
 			if event.Type == dialogTypePrompt {
 				params["promptText"] = event.DefaultPrompt
 			}
-			if w.write(ctx, w.lastID.Add(1), message.SessionID, "Page.handleJavaScriptDialog", params) == nil {
+			if writeCommand(ctx, w.conn, w.lastID.Add(1), message.SessionID, "Page.handleJavaScriptDialog", params) == nil {
 				w.mu.Lock()
 				w.accepted = append(w.accepted, Dialog{Type: event.Type, Message: event.Message})
 				w.mu.Unlock()
 			}
 		}
 	}
-}
-
-// write sends one command, to a page session when sessionID is set.
-func (w *DialogWatcher) write(ctx context.Context, id int64, sessionID, method string, params map[string]any) error {
-	message := map[string]any{"id": id, "method": method, "params": params}
-	if sessionID != "" {
-		message["sessionId"] = sessionID
-	}
-	data, err := json.Marshal(message)
-	if err != nil {
-		return err
-	}
-	return w.conn.Write(ctx, websocket.MessageText, data)
 }
