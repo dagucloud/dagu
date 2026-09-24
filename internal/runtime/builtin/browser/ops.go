@@ -16,6 +16,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/browserhost"
 	cmnconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
@@ -393,7 +394,9 @@ func (r *run) releaseProfile(_ context.Context, opts launchOptions) {
 		r.profile = nil
 		return
 	}
-	_ = os.RemoveAll(opts.UserDataDir)
+	// A browser that failed to start can still hold profile files open for
+	// a moment on Windows.
+	_ = fileutil.RemoveAll(opts.UserDataDir)
 }
 
 func (r *run) saveRunningRecord() error {
