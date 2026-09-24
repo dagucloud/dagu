@@ -220,7 +220,7 @@ jobs:
             "alpine:3"
             "busybox:latest"
             "redis:7-alpine"
-            "quay.io/minio/minio:RELEASE.2024-10-02T17-50-41Z"
+            "bitnamilegacy/minio:2025.7.23-debian-12-r5"
           )
 
           for image in "${images[@]}"; do
