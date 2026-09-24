@@ -28,6 +28,7 @@ const (
 	// a download the last operation started to begin.
 	downloadGrace = 3 * time.Second
 	kindDownload  = "download"
+	kindDialog    = "dialog"
 	// conditionPollInterval spaces the retries of a fixed expect check.
 	conditionPollInterval = 250 * time.Millisecond
 	sweepBudget           = 5 * time.Second
@@ -136,6 +137,7 @@ func (r *run) execute(ctx context.Context) error {
 	cancel()
 
 	start, err := r.startSession(ctx)
+	r.reportDialogs(-1)
 	if err == nil {
 		err = r.checkPage(ctx)
 	}
@@ -164,7 +166,9 @@ func (r *run) execute(ctx context.Context) error {
 			}
 			return r.waitForInput(ctx, i, *op.Ask)
 		}
-		if err := r.runOperation(ctx, i, op); err != nil {
+		err := r.runOperation(ctx, i, op)
+		r.reportDialogs(i)
+		if err != nil {
 			return r.fail(ctx, i, op.kind(), err)
 		}
 		if err := r.checkPage(ctx); err != nil {
@@ -182,6 +186,19 @@ func (r *run) execute(ctx context.Context) error {
 		return r.fail(ctx, last, kindDownload, err)
 	}
 	return r.succeed(ctx)
+}
+
+// reportDialogs records the dialogs the browser accepted while the operation
+// at index ran.
+func (r *run) reportDialogs(index int) {
+	if r.eng == nil {
+		return
+	}
+	for _, d := range r.eng.TakeDialogs() {
+		r.timeline.operation(operationReport{
+			index: index, kind: kindDialog, subject: d.Message, status: statusCompleted, detail: "accepted " + d.Type,
+		})
+	}
 }
 
 // checkPage fails when the page has left browser.allowed_domains, which a

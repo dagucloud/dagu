@@ -160,21 +160,30 @@ func browserWebSocketURL(ctx context.Context, cdpURL string) (string, error) {
 	return version.WebSocketDebuggerURL, nil
 }
 
-// call sends one browser-level DevTools command and decodes its result.
-func call(ctx context.Context, cdpURL, method string, params, result any) error {
+// dialBrowser opens a browser-level DevTools connection.
+func dialBrowser(ctx context.Context, cdpURL string) (*websocket.Conn, error) {
 	webSocketURL, err := browserWebSocketURL(ctx, cdpURL)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	conn, response, err := websocket.Dial(ctx, webSocketURL, nil)
 	if response != nil && response.Body != nil {
 		_ = response.Body.Close()
 	}
 	if err != nil {
-		return classifyDialError(err)
+		return nil, classifyDialError(err)
+	}
+	conn.SetReadLimit(cdpReadLimitBytes)
+	return conn, nil
+}
+
+// call sends one browser-level DevTools command and decodes its result.
+func call(ctx context.Context, cdpURL, method string, params, result any) error {
+	conn, err := dialBrowser(ctx, cdpURL)
+	if err != nil {
+		return err
 	}
 	defer func() { _ = conn.CloseNow() }()
-	conn.SetReadLimit(cdpReadLimitBytes)
 
 	const requestID = 1
 	message, err := json.Marshal(map[string]any{"id": requestID, "method": method, "params": params})

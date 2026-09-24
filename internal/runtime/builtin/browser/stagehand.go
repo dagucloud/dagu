@@ -25,6 +25,15 @@ const extractBatchSource = `async (batch, input) => (await batch.extract(input.i
 
 const telemetryPath = "/v1/traces"
 
+const (
+	// pageCallTimeout bounds a page read or screenshot, so a page that stops
+	// responding fails the step instead of hanging it.
+	pageCallTimeout = 30 * time.Second
+	// callTimeoutSlack lets the runtime report its own timeout before the
+	// call is abandoned.
+	callTimeoutSlack = 5 * time.Second
+)
+
 // pageTextExpression reads the text a person sees on the page.
 const pageTextExpression = `document.body ? document.body.innerText : ""`
 
@@ -125,7 +134,18 @@ func startEngine(ctx context.Context, browser *stagehand.Browser, cdpURL string,
 		sink.close()
 		return nil, fmt.Errorf("start browser runtime: %w", err)
 	}
-	eng := &stagehandEngine{browser: browser, client: client, sink: sink, handle: browserHandle{CDPURL: cdpURL}}
+	eng := &stagehandEngine{
+		browser:         browser,
+		client:          client,
+		sink:            sink,
+		handle:          browserHandle{CDPURL: cdpURL},
+		pageCallTimeout: pageCallTimeout,
+	}
+	// An unanswered dialog blocks its page, and the runtime does not answer
+	// dialogs itself.
+	if eng.dialogs, err = browserhost.WatchDialogs(ctx, cdpURL); err != nil {
+		return nil, errors.Join(fmt.Errorf("watch dialogs: %w", err), eng.release(context.WithoutCancel(ctx)))
+	}
 	if len(opts.AllowedDomains) > 0 {
 		browserContext, err := browser.Context()
 		if err == nil {
@@ -147,6 +167,9 @@ type stagehandEngine struct {
 	// downloads saves downloads into the step's artifacts; nil when
 	// downloads are refused.
 	downloads *browserhost.DownloadWatcher
+	dialogs   *browserhost.DialogWatcher
+	// pageCallTimeout bounds calls that take no timeout of their own.
+	pageCallTimeout time.Duration
 }
 
 // handleDownloads saves downloads into dir, or refuses them when dir is
@@ -172,16 +195,21 @@ func (e *stagehandEngine) page(ctx context.Context) (*stagehand.Page, error) {
 }
 
 func (e *stagehandEngine) Goto(ctx context.Context, url string, timeout time.Duration) error {
-	page, err := e.page(ctx)
-	if err != nil {
-		return err
-	}
-	_, err = page.Goto(ctx, url, &stagehand.PageNavigationOptions{Timeout: new(int(timeout.Milliseconds()))})
+	_, err := boundCall(ctx, timeout+callTimeoutSlack, func(ctx context.Context) (struct{}, error) {
+		page, err := e.page(ctx)
+		if err != nil {
+			return struct{}{}, err
+		}
+		_, err = page.Goto(ctx, url, &stagehand.PageNavigationOptions{Timeout: new(int(timeout.Milliseconds()))})
+		return struct{}{}, err
+	})
 	return err
 }
 
 func (e *stagehandEngine) Act(ctx context.Context, instruction string, variables map[string]string, timeout time.Duration) (actOutcome, error) {
-	result, err := e.client.Act(ctx, stagehand.ActInstruction(instruction), actOptions(variables, timeout))
+	result, err := boundCall(ctx, timeout+callTimeoutSlack, func(ctx context.Context) (stagehand.ActResult, error) {
+		return e.client.Act(ctx, stagehand.ActInstruction(instruction), actOptions(variables, timeout))
+	})
 	if err != nil {
 		return actOutcome{}, err
 	}
@@ -210,7 +238,9 @@ func (e *stagehandEngine) Replay(ctx context.Context, actions []recordedAction, 
 		if recorded.Method != "" {
 			action.Method = new(recorded.Method)
 		}
-		result, err := e.client.Act(ctx, stagehand.ObservedAction(action), actOptions(variables, timeout))
+		result, err := boundCall(ctx, timeout+callTimeoutSlack, func(ctx context.Context) (stagehand.ActResult, error) {
+			return e.client.Act(ctx, stagehand.ObservedAction(action), actOptions(variables, timeout))
+		})
 		if err != nil {
 			if ctx.Err() != nil {
 				return false, ctx.Err()
@@ -225,31 +255,35 @@ func (e *stagehandEngine) Replay(ctx context.Context, actions []recordedAction, 
 }
 
 func (e *stagehandEngine) Extract(ctx context.Context, instruction string, schema json.RawMessage, timeout time.Duration) (json.RawMessage, error) {
-	page, err := e.page(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var result struct {
-		Data json.RawMessage `json:"data"`
-	}
-	err = e.client.ExperimentalBatch(ctx, extractBatchSource,
-		map[string]any{"instruction": instruction, "schema": schema, "options": map[string]any{}},
-		&result, stagehand.ExperimentalBatchOptions{Timeout: timeout, Page: page})
-	if err != nil {
-		return nil, err
-	}
-	return result.Data, nil
+	return boundCall(ctx, timeout+callTimeoutSlack, func(ctx context.Context) (json.RawMessage, error) {
+		page, err := e.page(ctx)
+		if err != nil {
+			return nil, err
+		}
+		var result struct {
+			Data json.RawMessage `json:"data"`
+		}
+		err = e.client.ExperimentalBatch(ctx, extractBatchSource,
+			map[string]any{"instruction": instruction, "schema": schema, "options": map[string]any{}},
+			&result, stagehand.ExperimentalBatchOptions{Timeout: timeout, Page: page})
+		if err != nil {
+			return nil, err
+		}
+		return result.Data, nil
+	})
 }
 
 func (e *stagehandEngine) WaitForSelector(ctx context.Context, selector string, timeout time.Duration) error {
-	page, err := e.page(ctx)
-	if err != nil {
-		return err
-	}
-	state := stagehand.PageWaitForSelectorOptionsStateVisible
-	matched, err := page.WaitForSelector(ctx, selector, &stagehand.PageWaitForSelectorOptions{
-		State:   &state,
-		Timeout: new(int(timeout.Milliseconds())),
+	matched, err := boundCall(ctx, timeout+callTimeoutSlack, func(ctx context.Context) (bool, error) {
+		page, err := e.page(ctx)
+		if err != nil {
+			return false, err
+		}
+		state := stagehand.PageWaitForSelectorOptionsStateVisible
+		return page.WaitForSelector(ctx, selector, &stagehand.PageWaitForSelectorOptions{
+			State:   &state,
+			Timeout: new(int(timeout.Milliseconds())),
+		})
 	})
 	if err != nil {
 		return err
@@ -261,27 +295,27 @@ func (e *stagehandEngine) WaitForSelector(ctx context.Context, selector string, 
 }
 
 func (e *stagehandEngine) Screenshot(ctx context.Context) ([]byte, error) {
-	page, err := e.page(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return page.Screenshot(ctx, nil)
+	return boundCall(ctx, e.pageCallTimeout, func(ctx context.Context) ([]byte, error) {
+		page, err := e.page(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return page.Screenshot(ctx, nil)
+	})
 }
 
 func (e *stagehandEngine) CurrentURL(ctx context.Context) (string, error) {
-	page, err := e.page(ctx)
-	if err != nil {
-		return "", err
-	}
-	return page.URL(ctx)
+	return boundCall(ctx, e.pageCallTimeout, func(ctx context.Context) (string, error) {
+		page, err := e.page(ctx)
+		if err != nil {
+			return "", err
+		}
+		return page.URL(ctx)
+	})
 }
 
 func (e *stagehandEngine) PageText(ctx context.Context) (string, error) {
-	page, err := e.page(ctx)
-	if err != nil {
-		return "", err
-	}
-	raw, err := page.Evaluate(ctx, pageTextExpression)
+	raw, err := e.evaluate(ctx, pageTextExpression)
 	if err != nil {
 		return "", err
 	}
@@ -293,16 +327,12 @@ func (e *stagehandEngine) PageText(ctx context.Context) (string, error) {
 }
 
 func (e *stagehandEngine) SelectorVisible(ctx context.Context, selector string) (bool, error) {
-	page, err := e.page(ctx)
-	if err != nil {
-		return false, err
-	}
 	// The selector is embedded as a JSON string literal, never as code.
 	literal, err := json.Marshal(selector)
 	if err != nil {
 		return false, err
 	}
-	raw, err := page.Evaluate(ctx, fmt.Sprintf(selectorVisibleExpression, literal))
+	raw, err := e.evaluate(ctx, fmt.Sprintf(selectorVisibleExpression, literal))
 	if err != nil {
 		return false, err
 	}
@@ -311,6 +341,29 @@ func (e *stagehandEngine) SelectorVisible(ctx context.Context, selector string) 
 		return false, fmt.Errorf("check selector %q: %w", selector, err)
 	}
 	return visible, nil
+}
+
+// evaluate runs a JavaScript expression in the active page.
+func (e *stagehandEngine) evaluate(ctx context.Context, expression string) (json.RawMessage, error) {
+	return boundCall(ctx, e.pageCallTimeout, func(ctx context.Context) (json.RawMessage, error) {
+		page, err := e.page(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return page.Evaluate(ctx, expression)
+	})
+}
+
+func (e *stagehandEngine) TakeDialogs() []dialog {
+	if e.dialogs == nil {
+		return nil
+	}
+	accepted := e.dialogs.Take()
+	dialogs := make([]dialog, 0, len(accepted))
+	for _, d := range accepted {
+		dialogs = append(dialogs, dialog{Type: d.Type, Message: d.Message})
+	}
+	return dialogs
 }
 
 func (e *stagehandEngine) Handle() browserHandle {
@@ -345,9 +398,30 @@ func (e *stagehandEngine) release(ctx context.Context) error {
 		errs = append(errs, e.downloads.Close())
 		e.downloads = nil
 	}
-	errs = append(errs, e.client.Close(ctx))
+	if e.dialogs != nil {
+		errs = append(errs, e.dialogs.Close())
+		e.dialogs = nil
+	}
+	// The runtime ends its session over the page connection, which an
+	// unresponsive page blocks; the client is released either way.
+	_, err := boundCall(ctx, e.pageCallTimeout, func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, e.client.Close(ctx)
+	})
+	errs = append(errs, err)
 	e.sink.close()
 	return errors.Join(errs...)
+}
+
+// boundCall runs call with a deadline of limit and reports when the browser
+// did not answer in time, so an unresponsive page cannot hang the step.
+func boundCall[T any](ctx context.Context, limit time.Duration, call func(context.Context) (T, error)) (T, error) {
+	callCtx, cancel := context.WithTimeout(ctx, limit)
+	defer cancel()
+	result, err := call(callCtx)
+	if err != nil && ctx.Err() == nil && errors.Is(callCtx.Err(), context.DeadlineExceeded) {
+		return result, fmt.Errorf("the browser did not respond within %s: %w", limit, err)
+	}
+	return result, err
 }
 
 func actOptions(variables map[string]string, timeout time.Duration) *stagehand.StagehandClientActOptions {

@@ -6,7 +6,7 @@ Partially implemented.
 
 Conformance covers extraction into outputs, a multi-operation run with model
 and fixed conditions, screenshots, downloads, the replay cache, the secret
-check, allowed domains, and validation. Waiting for input and resuming the same
+check, allowed domains, dialogs, and validation. Waiting for input and resuming the same
 browser need the REST API and are covered by integration tests. Model prompts,
 page interaction internals, and profile locking belong to executor tests.
 
@@ -48,7 +48,9 @@ Each operation sets exactly one of:
 
 Any operation may set `when`, a condition checked once before the operation;
 the operation is skipped unless it holds. Any operation may set `timeout`, a
-duration such as `30s`; the default is two minutes.
+duration such as `30s`; the default is two minutes. A browser that stops
+responding fails the step: an operation is abandoned a few seconds after its
+timeout, and a screenshot or page check after 30 seconds.
 
 ### Conditions
 
@@ -149,6 +151,13 @@ also waits a few seconds for a download to begin. A download may run for the
 longest timeout of the acts and gotos run so far. A canceled download, or one
 still running at that timeout, fails the step.
 
+### Dialogs
+
+The step accepts every JavaScript dialog a page opens, so a dialog never
+blocks the page: `alert`, `confirm`, and `beforeunload` are accepted, and a
+`prompt` is answered with its default text. Each accepted dialog appears in
+the timeline and the step log after the operation that opened it.
+
 ### Replay cache
 
 With `with.cache` true (the default), a successful `act` records the actions it
@@ -191,7 +200,8 @@ A missing `with.do`, `with.url` for `browser.extract`, `with.instruction`, or
 or condition that sets zero or several keys fails validation. A step fails when
 an `act` does not complete, an `expect` does not hold, a selector does not
 appear before the timeout, a download does not finish, the page leaves the
-allowed domains, or the browser cannot be started.
+allowed domains, the browser stops responding, or the browser cannot be
+started.
 
 ## Examples
 

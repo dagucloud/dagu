@@ -201,6 +201,22 @@ func TestStaleBrowserThatWillNotCloseFailsTheStep(t *testing.T) {
 	assert.Equal(t, stale.CDPURL, records[0].CDPURL)
 }
 
+// Dialogs the browser accepted appear in the timeline after the operation
+// that opened them, masked like other page text.
+func TestAcceptedDialogsAreReported(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.secrets = map[string]string{"TOKEN": "s3cr3t-token"}
+	run.engine.actDialogs = []dialog{{Type: "confirm", Message: "Send s3cr3t-token?"}}
+	execution := run.execute(`{"do": [{"act": "Click the checkout button"}, {"screenshot": "after"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	session := execution.exec.GetAgentSession()
+	assert.Equal(t, []string{"act:completed", "dialog:completed", "screenshot:completed"}, eventNames(session))
+	assert.Contains(t, execution.stderr.String(), `[1/2] dialog "Send *******?" → accepted confirm`)
+}
+
 func TestSecretInInstructionIsRejected(t *testing.T) {
 	t.Parallel()
 

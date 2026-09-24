@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -354,4 +355,47 @@ func TestStagehandReportsBrowserProcess(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return errors.Is(browserhost.Probe(context.Background(), handle.CDPURL), browserhost.ErrUnreachable)
 	}, 10*time.Second, 200*time.Millisecond, "the browser stops answering")
+}
+
+// dialogPage opens an alert, a confirm, and a prompt while it loads, and
+// shows how the confirm and the prompt were answered.
+const dialogPage = `<p id="result"></p><script>
+alert("Welcome");
+const result = document.getElementById("result");
+result.textContent = (confirm("Continue?") ? "confirmed" : "cancelled") + "/" + prompt("Name?", "guest");
+</script>`
+
+// A page that opens dialogs keeps loading: every dialog is accepted, a
+// prompt with its default text, and reported.
+func TestStagehandAcceptsDialogs(t *testing.T) {
+	t.Parallel()
+
+	eng := launchShop(t, &shopModel{})
+	require.NoError(t, eng.Goto(t.Context(), "data:text/html,"+url.PathEscape(dialogPage), 30*time.Second))
+
+	text, err := eng.PageText(t.Context())
+	require.NoError(t, err)
+	assert.Contains(t, text, "confirmed/guest")
+	assert.Equal(t, []dialog{
+		{Type: "alert", Message: "Welcome"},
+		{Type: "confirm", Message: "Continue?"},
+		{Type: "prompt", Message: "Name?"},
+	}, eng.TakeDialogs())
+}
+
+// A page whose script never yields fails a screenshot after the page call
+// timeout instead of hanging the step.
+func TestStagehandBoundsUnresponsivePage(t *testing.T) {
+	t.Parallel()
+
+	eng := launchShop(t, &shopModel{})
+	const busyPage = `<p>busy</p><script>setTimeout(() => { for (;;) {} }, 200)</script>`
+	require.NoError(t, eng.Goto(t.Context(), "data:text/html,"+url.PathEscape(busyPage), 30*time.Second))
+	time.Sleep(time.Second)
+
+	eng.(*stagehandEngine).pageCallTimeout = 2 * time.Second
+	began := time.Now()
+	_, err := eng.Screenshot(t.Context())
+	require.ErrorContains(t, err, "the browser did not respond within 2s")
+	assert.Less(t, time.Since(began), 10*time.Second)
 }

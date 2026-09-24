@@ -37,6 +37,9 @@ type engine interface {
 	// previous call, after allowing grace for one to begin and waiting up to
 	// timeout for running ones to finish.
 	WaitForDownloads(ctx context.Context, grace, timeout time.Duration) ([]string, error)
+	// TakeDialogs returns the JavaScript dialogs the browser accepted since
+	// the previous call.
+	TakeDialogs() []dialog
 	Handle() browserHandle
 	// Detach releases the session while the browser keeps running.
 	Detach(ctx context.Context) error
@@ -63,6 +66,12 @@ type browserHandle struct {
 	ExtensionDir string
 	// BrowserPID is the browser process ID, or zero when it is unknown.
 	BrowserPID int
+}
+
+// dialog is a JavaScript dialog the browser accepted.
+type dialog struct {
+	Type    string
+	Message string
 }
 
 // recordedAction is one deterministic action an act operation performed.

@@ -56,18 +56,10 @@ func DenyDownloads(ctx context.Context, cdpURL string) error {
 // WatchDownloads saves downloads from the browser at cdpURL into dir until
 // the watcher is closed.
 func WatchDownloads(ctx context.Context, cdpURL, dir string) (*DownloadWatcher, error) {
-	webSocketURL, err := browserWebSocketURL(ctx, cdpURL)
+	conn, err := dialBrowser(ctx, cdpURL)
 	if err != nil {
 		return nil, err
 	}
-	conn, response, err := websocket.Dial(ctx, webSocketURL, nil)
-	if response != nil && response.Body != nil {
-		_ = response.Body.Close()
-	}
-	if err != nil {
-		return nil, classifyDialError(err)
-	}
-	conn.SetReadLimit(cdpReadLimitBytes)
 
 	readCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	w := &DownloadWatcher{

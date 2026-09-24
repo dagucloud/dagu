@@ -1011,6 +1011,7 @@ Browser behavior:
 - The browser runtime applies `allowed_domains` to the page's HTTP(S) requests, so list CDN and sign-in hosts too; WebSockets are not covered. `example.com` matches only that host; `*.example.com` matches its subdomains. Dagu also fails the step when the page URL leaves the list.
 - `ask: {prompt, as}` puts the step in Waiting until someone answers in the Web UI; the answer becomes `%<as>%`. Not supported on Windows. Answers are stored in run history, so use it for short-lived codes.
 - Downloads started by an act or goto are saved under `browser/<step id>/downloads/` in the run artifacts and awaited, up to the longest act or goto timeout, before the step ends. Screenshots are saved on failure by default (`screenshots: final` also keeps one of a successful end). Artifacts are not masked.
+- JavaScript dialogs are accepted automatically (a `prompt` gets its default text) and listed in the timeline, so an act that raises "Are you sure?" goes through.
 - Profiles and the replay cache live on the host that runs the step. Pin such steps with `worker_selector` in distributed mode.
 
 ## router.route
