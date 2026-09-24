@@ -61,6 +61,7 @@ type AgentInteraction struct {
 	Answers                 [][]string             `json:"answers,omitempty"`
 	Applied                 bool                   `json:"applied,omitempty"`
 	CreatedAt               string                 `json:"createdAt,omitempty"`
+	ExpiresAt               string                 `json:"expiresAt,omitempty"`
 	RespondedAt             string                 `json:"respondedAt,omitempty"`
 	RespondedBy             string                 `json:"respondedBy,omitempty"`
 	RespondedByID           string                 `json:"respondedById,omitempty"`

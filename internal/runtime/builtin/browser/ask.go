@@ -120,6 +120,7 @@ func (r *run) waitForInput(ctx context.Context, index int, spec askSpec) error {
 				Custom:   true,
 			}},
 			CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+			ExpiresAt: r.record.Deadline.UTC().Format(time.RFC3339Nano),
 		})
 	})
 	r.exec.setNodeStatus(ir.NodeWaiting)

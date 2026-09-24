@@ -352,6 +352,9 @@ func TestAskWaitsAndResumesSameBrowser(t *testing.T) {
 	records := run.records()
 	require.Len(t, records, 1)
 	assert.Equal(t, browserhost.StateDetached, records[0].State)
+	expiresAt, err := time.Parse(time.RFC3339Nano, interaction.ExpiresAt)
+	require.NoError(t, err)
+	assert.True(t, expiresAt.Equal(records[0].Deadline), "expiresAt %s, deadline %s", expiresAt, records[0].Deadline)
 
 	session.Interactions[0].Status = ir.AgentInteractionAnswered
 	session.Interactions[0].Answers = [][]string{{"123456"}}
