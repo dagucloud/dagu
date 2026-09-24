@@ -1609,6 +1609,50 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /dags/{fileName}/browser-cache:
+    delete:
+      summary: "Clear a DAG's browser replay cache"
+      description: "Removes the recorded act operations that the DAG's browser steps replay on later runs, so the next run asks the model again. Only the cache on the node that serves the request is cleared; in distributed mode it is kept on the worker that ran the step. Operator or above."
+      operationId: "clearDAGBrowserCache"
+      tags:
+        - "dags"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGFileName"
+        - name: step
+          in: query
+          required: false
+          description: "Clear only this step: its ID, or its name when the step has no ID. Omit to clear every step."
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 255
+      responses:
+        "200":
+          description: "Replay cache cleared"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DAGBrowserCacheClearResult"
+        "403":
+          description: "Forbidden - insufficient permissions"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "DAG not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /dags/search:
     get:
       summary: "Search DAGs"
@@ -12068,6 +12112,18 @@ components:
           allOf:
             - $ref: "#/components/schemas/RuntimeProfileName"
           description: "Default runtime profile used when a DAG run does not provide an explicit profile override"
+
+    DAGBrowserCacheClearResult:
+      type: object
+      description: "Browser steps whose replay cache was removed"
+      required:
+        - steps
+      properties:
+        steps:
+          type: array
+          description: "Keys of the steps whose recorded act operations were removed. Empty when there was nothing to clear."
+          items:
+            type: string
 
     DAGNotificationSettings:
       type: object

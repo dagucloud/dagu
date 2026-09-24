@@ -533,6 +533,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dags/{fileName}/browser-cache": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Clear a DAG's browser replay cache
+         * @description Removes the recorded act operations that the DAG's browser steps replay on later runs, so the next run asks the model again. Only the cache on the node that serves the request is cleared; in distributed mode it is kept on the worker that ran the step. Operator or above.
+         */
+        delete: operations["clearDAGBrowserCache"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dags/search": {
         parameters: {
             query?: never;
@@ -4497,6 +4517,11 @@ export interface components {
         UpdateDAGSettingsRequest: {
             /** @description Default runtime profile used when a DAG run does not provide an explicit profile override */
             profile?: components["schemas"]["RuntimeProfileName"];
+        };
+        /** @description Browser steps whose replay cache was removed */
+        DAGBrowserCacheClearResult: {
+            /** @description Keys of the steps whose recorded act operations were removed. Empty when there was nothing to clear. */
+            steps: string[];
         };
         /** @description Server-side DAG notification settings */
         DAGNotificationSettings: {
@@ -8883,6 +8908,61 @@ export interface operations {
                         /** @description Errors encountered */
                         errors: string[];
                     };
+                };
+            };
+            /** @description DAG not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    clearDAGBrowserCache: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Clear only this step: its ID, or its name when the step has no ID. Omit to clear every step. */
+                step?: string;
+            };
+            header?: never;
+            path: {
+                /** @description the name of the DAG file */
+                fileName: components["parameters"]["DAGFileName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Replay cache cleared */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DAGBrowserCacheClearResult"];
+                };
+            };
+            /** @description Forbidden - insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description DAG not found */
