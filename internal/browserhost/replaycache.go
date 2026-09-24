@@ -89,12 +89,13 @@ func (c *ReplayCache) Clear(dagName, stepKey string) ([]string, error) {
 }
 
 // dagDir keeps DAGs whose names differ only in characters SafeName replaces,
-// such as "etl.daily" and "etl_daily", in separate directories.
+// such as "etl.daily" and "etl_daily", in separate directories. The 128-bit
+// suffix keeps crafted names from sharing one.
 func (c *ReplayCache) dagDir(dagName string) string {
 	name := fileutil.SafeName(dagName)
 	if name != dagName {
 		sum := sha256.Sum256([]byte(dagName))
-		name += "-" + hex.EncodeToString(sum[:])[:4]
+		name += "-" + hex.EncodeToString(sum[:16])
 	}
 	return filepath.Join(c.dir, name)
 }

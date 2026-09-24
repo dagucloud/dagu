@@ -70,21 +70,27 @@ func TestReplayCacheClearStepByName(t *testing.T) {
 	assert.Equal(t, []string{"Log in"}, removed)
 }
 
-// Names that map to the same file-safe form still keep separate records.
+// Names that map to the same file-safe form still keep separate records. The
+// second pair also shares the first 16 bits of its SHA-256.
 func TestReplayCacheKeepsDAGsApart(t *testing.T) {
 	t.Parallel()
 
-	cache := browserhost.NewReplayCache(t.TempDir())
-	seedReplayCache(t, cache, "etl.daily", "login")
-	seedReplayCache(t, cache, "etl_daily", "login")
+	for _, pair := range [][2]string{
+		{"etl.daily", "etl_daily"},
+		{"x..._...__...x", "x..._._._..._x"},
+	} {
+		cache := browserhost.NewReplayCache(t.TempDir())
+		seedReplayCache(t, cache, pair[0], "login")
+		seedReplayCache(t, cache, pair[1], "login")
 
-	removed, err := cache.Clear("etl.daily", "")
-	require.NoError(t, err)
-	assert.Equal(t, []string{"login"}, removed)
+		removed, err := cache.Clear(pair[0], "")
+		require.NoError(t, err)
+		assert.Equal(t, []string{"login"}, removed, pair[0])
 
-	steps, err := cache.Steps("etl_daily")
-	require.NoError(t, err)
-	assert.Equal(t, []string{"login"}, steps)
+		steps, err := cache.Steps(pair[1])
+		require.NoError(t, err)
+		assert.Equal(t, []string{"login"}, steps, "%s keeps its records", pair[1])
+	}
 }
 
 func TestReplayCacheClearMissing(t *testing.T) {
