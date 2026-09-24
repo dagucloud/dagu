@@ -564,6 +564,20 @@ func TestCheckAllowedDomain(t *testing.T) {
 	assert.NoError(t, checkAllowedDomain("https://anything.test/", nil))
 }
 
+// When blocked requests can no longer be counted, the step log says so once
+// and the step goes on.
+func TestLostBlockedRequestCountIsReported(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.engine.blockedErr = errors.New("connection closed")
+	execution := run.execute(`{"do": [{"act": "Click the checkout button"}, {"screenshot": "after"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	const warning = "warning: stopped counting requests blocked by allowed_domains: connection closed\n"
+	assert.Equal(t, 1, strings.Count(execution.stderr.String(), warning), execution.stderr.String())
+}
+
 // A blocked-request summary names the most blocked hosts first, ties by
 // name, and stops after maxBlockedHosts.
 func TestDescribeBlocked(t *testing.T) {

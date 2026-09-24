@@ -74,6 +74,9 @@ type run struct {
 	// blocked counts the requests allowed_domains blocked in this attempt,
 	// by host.
 	blocked map[string]int
+	// blockedUncounted is set once blocked requests can no longer be
+	// counted.
+	blockedUncounted bool
 	// downloadWindow is the longest timeout of the acts and gotos run so
 	// far, which can start downloads; zero until one runs.
 	downloadWindow time.Duration
@@ -219,7 +222,12 @@ func (r *run) reportBlocked(index int) {
 	if r.eng == nil {
 		return
 	}
-	blocked := r.eng.TakeBlockedRequests()
+	blocked, err := r.eng.TakeBlockedRequests()
+	if err != nil && !r.blockedUncounted {
+		r.blockedUncounted = true
+		_, _ = fmt.Fprintf(r.timeline.log, "warning: stopped counting requests blocked by allowed_domains: %s\n",
+			r.masker.MaskString(err.Error()))
+	}
 	if len(blocked) == 0 {
 		return
 	}
@@ -723,7 +731,7 @@ func (r *run) fail(ctx context.Context, index int, kind string, cause error) err
 		message = fmt.Sprintf("do[%d] %s failed: %s", index, kind, message)
 	}
 	// A blocked request often breaks the page long before an operation
-	// fails, so the failure names every host blocked in the attempt.
+	// fails, so the failure summarizes every request blocked in the attempt.
 	if len(r.blocked) > 0 {
 		message += "; browser.allowed_domains blocked " + r.masker.MaskString(describeBlocked(r.blocked))
 	}

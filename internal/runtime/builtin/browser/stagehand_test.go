@@ -411,7 +411,9 @@ func TestStagehandReportsBlockedRequests(t *testing.T) {
 	// bounded below.
 	blocked := map[string]int{}
 	require.Eventually(t, func() bool {
-		for host, count := range eng.TakeBlockedRequests() {
+		taken, err := eng.TakeBlockedRequests()
+		assert.NoError(t, err)
+		for host, count := range taken {
 			blocked[host] += count
 		}
 		return blocked["cdn.blocked.test"] >= 2 && blocked["sso.blocked.test"] >= 1

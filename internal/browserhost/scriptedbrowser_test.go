@@ -36,6 +36,7 @@ type scriptedBrowser struct {
 	script   func(cdpCommand) []cdpEvent
 	mu       sync.Mutex
 	commands []cdpCommand
+	conns    []*websocket.Conn
 }
 
 func newScriptedBrowser(t *testing.T, script func(cdpCommand) []cdpEvent) *scriptedBrowser {
@@ -57,6 +58,9 @@ func (f *scriptedBrowser) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer func() { _ = conn.CloseNow() }()
+	f.mu.Lock()
+	f.conns = append(f.conns, conn)
+	f.mu.Unlock()
 	ctx := r.Context()
 	send := func(message any) {
 		data, _ := json.Marshal(message)
@@ -81,6 +85,15 @@ func (f *scriptedBrowser) serve(w http.ResponseWriter, r *http.Request) {
 		for _, event := range f.script(command.cdpCommand) {
 			send(event)
 		}
+	}
+}
+
+// disconnect drops every DevTools connection, as a browser that exits does.
+func (f *scriptedBrowser) disconnect() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, conn := range f.conns {
+		_ = conn.CloseNow()
 	}
 }
 

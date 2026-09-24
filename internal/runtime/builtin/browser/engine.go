@@ -41,8 +41,9 @@ type engine interface {
 	// the previous call.
 	TakeDialogs() []dialog
 	// TakeBlockedRequests returns the number of requests allowed_domains
-	// blocked since the previous call, by host.
-	TakeBlockedRequests() map[string]int
+	// blocked since the previous call, by host. Its error reports that
+	// later blocked requests go uncounted.
+	TakeBlockedRequests() (map[string]int, error)
 	Handle() browserHandle
 	// Detach releases the session while the browser keeps running.
 	Detach(ctx context.Context) error

@@ -62,6 +62,8 @@ type fakeEngine struct {
 	// the next act runs.
 	actBlocked map[string]int
 	blocked    map[string]int
+	// blockedErr is the error every blocked-request count reports.
+	blockedErr error
 	// pageText and visible describe the page that fixed checks read.
 	pageText string
 	visible  []string
@@ -103,12 +105,12 @@ func (e *fakeEngine) TakeDialogs() []dialog {
 	return dialogs
 }
 
-func (e *fakeEngine) TakeBlockedRequests() map[string]int {
+func (e *fakeEngine) TakeBlockedRequests() (map[string]int, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	blocked := e.blocked
 	e.blocked = nil
-	return blocked
+	return blocked, e.blockedErr
 }
 
 func (e *fakeEngine) Goto(_ context.Context, url string, _ time.Duration) error {

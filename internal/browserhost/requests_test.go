@@ -76,16 +76,37 @@ func TestBlockedRequestWatcherCountsBlockedHosts(t *testing.T) {
 	want := map[string]int{"cdn.example.net": 3, "sso.example.net": 1}
 	blocked := map[string]int{}
 	require.Eventually(t, func() bool {
-		for host, count := range watcher.Take() {
+		taken, err := watcher.Take()
+		assert.NoError(t, err)
+		for host, count := range taken {
 			blocked[host] += count
 		}
 		return maps.Equal(want, blocked)
 	}, 5*time.Second, 20*time.Millisecond, "blocked so far: %v", blocked)
-	assert.Empty(t, watcher.Take())
+	taken, err := watcher.Take()
+	require.NoError(t, err)
+	assert.Empty(t, taken)
 
-	enable := map[string]any{"maxTotalBufferSize": float64(0), "maxResourceBufferSize": float64(0)}
+	enable := map[string]any{"maxTotalBufferSize": float64(0), "maxResourceBufferSize": float64(0), "maxPostDataSize": float64(0)}
 	assert.Equal(t, []cdpCommand{
 		{Method: "Network.enable", SessionID: "page-1", Params: enable},
 		{Method: "Network.enable", SessionID: "frame-1", Params: enable},
 	}, fake.received("Network.enable"), "only pages and frames are watched")
+}
+
+// A watcher that loses its connection says so, since it counts no more
+// blocked requests.
+func TestBlockedRequestWatcherReportsLostConnection(t *testing.T) {
+	t.Parallel()
+
+	fake := newScriptedBrowser(t, requestScript)
+	watcher, err := browserhost.WatchBlockedRequests(context.Background(), fake.server.URL)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = watcher.Close() })
+
+	fake.disconnect()
+	require.Eventually(t, func() bool {
+		_, err := watcher.Take()
+		return err != nil
+	}, 5*time.Second, 20*time.Millisecond)
 }

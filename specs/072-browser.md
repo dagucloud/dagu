@@ -142,9 +142,11 @@ Requests the runtime blocks are counted per host. When the start URL or an
 operation causes blocked requests, the timeline and the step log show a line
 after it such as `allowed_domains blocked 14 requests: cdn.example.com (12),
 sso.example.com (2)`, naming up to ten hosts, most blocked first. A failed
-step's error ends with every host blocked during the attempt, since a page
-missing a script or a sign-in redirect usually fails a later operation. A
-request blocked after its operation returns is counted with the next one.
+step's error ends with the same summary of every request blocked during the
+attempt, since a page missing a script or a sign-in redirect usually fails a
+later operation. A request blocked after its operation returns is counted with
+the next one. When counting stops, for example because the browser's DevTools
+connection closes, the step log warns once.
 
 ### Artifacts
 

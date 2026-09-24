@@ -36,6 +36,8 @@ type BlockedRequestWatcher struct {
 
 	mu      sync.Mutex
 	blocked map[string]int
+	// readErr ends the counting; nil while the connection is read.
+	readErr error
 }
 
 // WatchBlockedRequests counts blocked requests in the pages of the browser
@@ -70,16 +72,17 @@ func WatchBlockedRequests(ctx context.Context, cdpURL string) (*BlockedRequestWa
 }
 
 // Take returns the number of requests blocked per host since the previous
-// call, or nil when none were.
-func (w *BlockedRequestWatcher) Take() map[string]int {
+// call, or nil when none were. Its error reports that the watcher lost its
+// connection and counts no further requests.
+func (w *BlockedRequestWatcher) Take() (map[string]int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if len(w.blocked) == 0 {
-		return nil
+		return nil, w.readErr
 	}
 	blocked := w.blocked
 	w.blocked = map[string]int{}
-	return blocked
+	return blocked, w.readErr
 }
 
 // Close stops watching.
@@ -98,6 +101,9 @@ func (w *BlockedRequestWatcher) read(ctx context.Context, acknowledged chan<- er
 	for {
 		_, data, err := w.conn.Read(ctx)
 		if err != nil {
+			w.mu.Lock()
+			w.readErr = err
+			w.mu.Unlock()
 			select {
 			case acknowledged <- err:
 			default:
@@ -134,9 +140,9 @@ func (w *BlockedRequestWatcher) read(ctx context.Context, acknowledged chan<- er
 			if event.TargetInfo.Type != targetTypePage && event.TargetInfo.Type != targetTypeIframe {
 				continue
 			}
-			// Only request metadata is read, so response bodies are not kept.
+			// Only request URLs are read, so bodies are neither kept nor sent.
 			_ = writeCommand(ctx, w.conn, w.lastID.Add(1), event.SessionID, "Network.enable",
-				map[string]any{"maxTotalBufferSize": 0, "maxResourceBufferSize": 0})
+				map[string]any{"maxTotalBufferSize": 0, "maxResourceBufferSize": 0, "maxPostDataSize": 0})
 			// Cross-origin frames are targets of their own under the page.
 			_ = writeCommand(ctx, w.conn, w.lastID.Add(1), event.SessionID, "Target.setAutoAttach", autoAttachParams())
 		case "Target.detachedFromTarget":

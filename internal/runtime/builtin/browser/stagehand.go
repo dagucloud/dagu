@@ -408,9 +408,9 @@ func (e *stagehandEngine) TakeDialogs() []dialog {
 	return dialogs
 }
 
-func (e *stagehandEngine) TakeBlockedRequests() map[string]int {
+func (e *stagehandEngine) TakeBlockedRequests() (map[string]int, error) {
 	if e.blocked == nil {
-		return nil
+		return nil, nil
 	}
 	return e.blocked.Take()
 }
