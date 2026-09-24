@@ -11,7 +11,7 @@ on:
       - Dockerfile.dev
       - entrypoint.sh
       - deploy/docker/smoke/**
-      - deploy/docker/seccomp-chromium.json
+      - deploy/docker/browser/**
       - internal/runtime/builtin/browser/**
       - internal/browserhost/**
       - internal/cmn/config/**
@@ -25,7 +25,7 @@ on:
       - Dockerfile.dev
       - entrypoint.sh
       - deploy/docker/smoke/**
-      - deploy/docker/seccomp-chromium.json
+      - deploy/docker/browser/**
       - internal/runtime/builtin/browser/**
       - internal/browserhost/**
       - internal/cmn/config/**
@@ -71,18 +71,25 @@ jobs:
           provenance: false
           tags: dagu-ci:dev
 
-      # The entrypoint runs Dagu as the image's non-root user, and CI is not
-      # passed into the container, so the browser starts as it does for users.
-      # Docker's default seccomp profile blocks the user namespaces the
-      # browser sandbox needs; the Chromium profile allows them.
-      - name: Run a browser step with the sandbox
+      # The documented command copies the bundled profile out of the image.
+      - name: Check the bundled seccomp profile
         run: |
-          docker run --rm --security-opt seccomp="$PWD/deploy/docker/seccomp-chromium.json" \
-            --shm-size=1g -v "$PWD/deploy/docker/smoke:/smoke:ro" \
-            dagu-ci:dev dagu start /smoke/browser.yaml
+          docker run --rm dagu-ci:dev cat /usr/share/dagu/seccomp-chromium.json \
+            | cmp - deploy/docker/browser/seccomp-chromium.json
 
-      - name: Run a browser step with the sandbox turned off
+      # The Compose service applies the seccomp profile and the /dev/shm size.
+      # The entrypoint runs Dagu as the image's non-root user, and CI is not
+      # passed into the container, so the browser starts with its sandbox.
+      - name: Run a browser step through Docker Compose
+        working-directory: deploy/docker/browser
+        env:
+          DAGU_IMAGE: dagu-ci:dev
         run: |
-          docker run --rm -e DAGU_BROWSER_ARGS=--no-sandbox \
-            --shm-size=1g -v "$PWD/deploy/docker/smoke:/smoke:ro" \
+          docker compose run --rm -v "$GITHUB_WORKSPACE/deploy/docker/smoke:/smoke:ro" \
+            dagu dagu start /smoke/browser.yaml
+
+      - name: Run a browser step with the sandbox off
+        run: |
+          docker run --rm -e DAGU_BROWSER_SANDBOX=false --shm-size=1g \
+            -v "$PWD/deploy/docker/smoke:/smoke:ro" \
             dagu-ci:dev dagu start /smoke/browser.yaml

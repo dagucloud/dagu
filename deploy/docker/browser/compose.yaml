@@ -1,0 +1,31 @@
+# Dagu with Chromium for browser steps. From this directory, run:
+#
+#   docker compose up -d
+#
+# then open http://localhost:8080 and create the first admin account.
+#
+# seccomp-chromium.json lets Chromium's sandbox start. It applies to every
+# process in the container and lets DAG steps call clone, setns, and unshare
+# without argument filters, so use it only when you trust the DAG steps.
+# Without this directory, copy the profile out of the image first:
+#
+#   docker run --rm ghcr.io/dagucloud/dagu:dev cat /usr/share/dagu/seccomp-chromium.json > seccomp-chromium.json
+services:
+  dagu:
+    image: ${DAGU_IMAGE:-ghcr.io/dagucloud/dagu:dev}
+    ports:
+      - "8080:8080"
+    environment:
+      - DAGU_AUTH_MODE=builtin
+      # Turn off the browser sandbox instead of using the seccomp profile.
+      # Pages then run without Chromium's isolation; use only for trusted sites.
+      # - DAGU_BROWSER_SANDBOX=false
+    volumes:
+      - dagu-data:/var/lib/dagu
+    security_opt:
+      - seccomp=./seccomp-chromium.json
+    # Docker's default 64 MB /dev/shm is too small for Chromium.
+    shm_size: 1gb
+
+volumes:
+  dagu-data:
