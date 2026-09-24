@@ -398,7 +398,8 @@ func (e *stagehandEngine) Close(ctx context.Context) error {
 // browser, closeRuntime waits for every process that inherited the browser's
 // output, such as the Chrome updater on macOS, which can outlive the browser
 // by minutes; that wait continues in the background once the browser with
-// process ID pid has exited. Without a process ID, it waits for closeRuntime.
+// process ID pid has exited where browserExited can tell. Otherwise, and
+// without a process ID, it waits for closeRuntime.
 func closeBrowser(ctx context.Context, pid int, closeRuntime func(context.Context) error) error {
 	closed := make(chan error, 1)
 	go func() { closed <- closeRuntime(ctx) }()

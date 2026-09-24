@@ -5,10 +5,10 @@
 
 package browser
 
-import "github.com/dagucloud/dagu/v2/internal/cmn/procutil"
-
-// browserExited reports whether the browser started as process pid has
-// exited.
-func browserExited(pid int) bool {
-	return !procutil.IsAlive(pid)
+// browserExited always reports false. Windows has no process group that
+// tells the browser's helpers apart, and they keep the profile open after
+// the browser process exits, so closing waits for the runtime, which ends
+// the whole process tree.
+func browserExited(int) bool {
+	return false
 }
