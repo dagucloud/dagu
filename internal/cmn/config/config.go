@@ -53,9 +53,10 @@ type OpenCodeConfig struct {
 // BrowserConfig configures the browsers that browser steps start on this
 // host.
 type BrowserConfig struct {
-	// Args are extra command-line flags for every browser started on this
-	// host, such as --no-sandbox where the browser sandbox is unavailable.
-	Args []string
+	// NoSandbox turns off Chromium's sandbox for every browser started on
+	// this host, for hosts where the sandbox cannot start. Pages are then
+	// isolated from the host only by the operating system user.
+	NoSandbox bool
 }
 
 // DAGDiscoveryConfig controls how DAG definitions are discovered.

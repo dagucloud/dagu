@@ -107,7 +107,7 @@ type OpenCodeDef struct {
 
 // BrowserDef configures the browsers that browser steps start on this host.
 type BrowserDef struct {
-	Args []string `mapstructure:"args"`
+	Sandbox *bool `mapstructure:"sandbox"`
 }
 
 // DAGDiscoveryDef configures DAG definition discovery.

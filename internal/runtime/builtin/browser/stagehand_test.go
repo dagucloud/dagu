@@ -425,5 +425,5 @@ func TestLaunchFailureSuggestsBrowserFlags(t *testing.T) {
 		UserDataDir: t.TempDir(),
 	})
 	require.ErrorContains(t, err, "seccomp-chromium.json")
-	require.ErrorContains(t, err, "DAGU_BROWSER_ARGS")
+	require.ErrorContains(t, err, "DAGU_BROWSER_SANDBOX=false")
 }

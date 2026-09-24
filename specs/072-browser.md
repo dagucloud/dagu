@@ -112,10 +112,10 @@ those outputs. Operation progress is written to stderr.
 `CHROME_PATH` or an installed Chrome), `viewport` `{width, height}`, `proxy`
 (unauthenticated), `allowed_domains`, `screenshots`, and `profile`.
 
-The host configuration `browser.args`, or the environment variable
-`DAGU_BROWSER_ARGS` as a comma-separated list, adds command-line flags to
-every browser the host starts, such as `--no-sandbox` where the browser
-sandbox is unavailable. A DAG cannot set them.
+The host configuration `browser.sandbox: false`, or the environment variable
+`DAGU_BROWSER_SANDBOX=false`, turns off Chromium's sandbox for every browser
+the host starts, for hosts where the sandbox cannot start. The sandbox is on
+by default, and a DAG cannot change it.
 
 ### Allowed domains
 

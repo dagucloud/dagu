@@ -1133,12 +1133,10 @@
       "description": "Browsers that browser steps start on this host.",
       "additionalProperties": false,
       "properties": {
-        "args": {
-          "type": "array",
-          "description": "Extra command-line flags for every browser started on this host, such as --no-sandbox where the browser sandbox is unavailable.",
-          "items": {
-            "type": "string"
-          }
+        "sandbox": {
+          "type": "boolean",
+          "description": "Keep Chromium's sandbox on for every browser started on this host. Set to false only where the sandbox cannot start; pages are then isolated from the host only by the operating system user.",
+          "default": true
         }
       }
     },

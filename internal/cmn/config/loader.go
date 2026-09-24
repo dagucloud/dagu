@@ -366,7 +366,7 @@ func (l *ConfigLoader) loadCoreConfig(cfg *Config, def Definition) error {
 	if cfg.OpenCode.Executable == "" {
 		cfg.OpenCode.Executable = "opencode"
 	}
-	cfg.Browser = BrowserConfig{Args: parseStringList(l.v.Get("browser.args"))}
+	cfg.Browser = BrowserConfig{NoSandbox: !l.v.GetBool("browser.sandbox")}
 	cfg.DAGDiscovery = DAGDiscoveryConfig{
 		Recursive: l.v.GetBool("dag_discovery.recursive"),
 		Symlinks:  l.v.GetBool("dag_discovery.symlinks"),
@@ -2038,6 +2038,9 @@ func (l *ConfigLoader) setViperDefaultValues(paths Paths) {
 	// Queues
 	l.v.SetDefault("queues.enabled", true)
 
+	// Browser steps
+	l.v.SetDefault("browser.sandbox", true)
+
 	// Scheduler
 	l.v.SetDefault("scheduler.lock_stale_threshold", "30s")
 	l.v.SetDefault("scheduler.lock_retry_interval", "5s")
@@ -2120,7 +2123,7 @@ var envBindings = []envBinding{
 	{key: "env_passthrough_prefixes", env: "ENV_PASSTHROUGH_PREFIXES"},
 	{key: "opencode.executable", env: "OPENCODE_EXECUTABLE"},
 	{key: "opencode.env_passthrough", env: "OPENCODE_ENV_PASSTHROUGH"},
-	{key: "browser.args", env: "BROWSER_ARGS"},
+	{key: "browser.sandbox", env: "BROWSER_SANDBOX"},
 
 	// Secrets
 	{key: "secrets.vault.address", env: "SECRETS_VAULT_ADDRESS"},

@@ -36,8 +36,8 @@ type testRun struct {
 	launcher  *fakeLauncher
 	provider  *scriptedProvider
 	secrets   map[string]string
-	// browserArgs are the host's configured browser flags.
-	browserArgs []string
+	// noSandbox is the host's setting that turns off the browser sandbox.
+	noSandbox bool
 }
 
 func newTestRun(t *testing.T, answer func(*llmpkg.ChatRequest) (string, error)) *testRun {
@@ -93,7 +93,7 @@ func (r *testRun) context() context.Context {
 	}
 	ctx := cmnconfig.WithConfig(r.t.Context(), &cmnconfig.Config{
 		Paths:   cmnconfig.PathsConfig{DataDir: r.dataDir},
-		Browser: cmnconfig.BrowserConfig{Args: r.browserArgs},
+		Browser: cmnconfig.BrowserConfig{NoSandbox: r.noSandbox},
 	})
 	return runtime.WithEnv(ctx, runtime.Env{
 		Context: runtime.Context{
@@ -222,16 +222,18 @@ func TestAcceptedDialogsAreReported(t *testing.T) {
 	assert.Contains(t, execution.stderr.String(), `[1/2] dialog "Send *******?" → accepted confirm`)
 }
 
-// Browser flags from the host configuration reach every launch.
-func TestHostBrowserArgsReachLaunch(t *testing.T) {
+// The browser sandbox stays on unless the host configuration turns it off.
+func TestHostSandboxSetting(t *testing.T) {
 	t.Parallel()
 
-	run := newTestRun(t, pageModel(nil))
-	run.browserArgs = []string{"--no-sandbox", "--disable-dev-shm-usage"}
-	require.NoError(t, run.execute(`{"do": [{"act": "Click the checkout button"}]}`, nil).err)
+	for _, noSandbox := range []bool{false, true} {
+		run := newTestRun(t, pageModel(nil))
+		run.noSandbox = noSandbox
+		require.NoError(t, run.execute(`{"do": [{"act": "Click the checkout button"}]}`, nil).err)
 
-	require.Len(t, run.launcher.launches, 1)
-	assert.Equal(t, run.browserArgs, run.launcher.launches[0].Args)
+		require.Len(t, run.launcher.launches, 1)
+		assert.Equal(t, noSandbox, run.launcher.launches[0].NoSandbox)
+	}
 }
 
 func TestSecretInInstructionIsRejected(t *testing.T) {

@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"os"
 	goruntime "runtime"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -52,21 +51,18 @@ const selectorVisibleExpression = `Array.from(document.querySelectorAll(%s)).som
 
 var errImageInput = errors.New("browser: image input to the model is not supported")
 
-// noSandboxFlag turns off the browser sandbox.
-const noSandboxFlag = "--no-sandbox"
-
 // sandboxHint suggests how to let the browser sandbox start, or turn it off,
 // when a launch fails where the sandbox is a likely cause: on Linux, as a
 // non-root user, with the sandbox still on. The browser runtime turns it off
 // for root itself.
-func sandboxHint(args []string) string {
-	if goruntime.GOOS != "linux" || os.Geteuid() == 0 || slices.Contains(args, noSandboxFlag) {
+func sandboxHint(noSandbox bool) string {
+	if goruntime.GOOS != "linux" || os.Geteuid() == 0 || noSandbox {
 		return ""
 	}
 	return "; if the browser cannot use its sandbox here, as under Docker's default seccomp profile, " +
-		"run the container with a profile that allows user namespaces, such as Dagu's " +
-		"deploy/docker/seccomp-chromium.json, or turn the sandbox off with " + noSandboxFlag +
-		" in browser.args in the Dagu config or DAGU_BROWSER_ARGS"
+		"run the container with a profile that allows user namespaces, such as " +
+		"/usr/share/dagu/seccomp-chromium.json in the dev image, or turn the sandbox off " +
+		"with browser.sandbox: false in the Dagu config or DAGU_BROWSER_SANDBOX=false"
 }
 
 // stagehandLauncher runs sessions through the Stagehand Go SDK.
@@ -84,8 +80,10 @@ func (stagehandLauncher) Launch(ctx context.Context, opts launchOptions) (engine
 		Headless:       opts.Headless,
 		Port:           port,
 		UserDataDir:    opts.UserDataDir,
-		Args:           opts.Args,
 		KeepAlive:      true,
+	}
+	if opts.NoSandbox {
+		launch.ChromiumSandbox = new(false)
 	}
 	if opts.Viewport != nil {
 		launch.Viewport = &stagehand.LocalViewport{Width: opts.Viewport.Width, Height: opts.Viewport.Height}
@@ -95,7 +93,7 @@ func (stagehandLauncher) Launch(ctx context.Context, opts launchOptions) (engine
 	}
 	browser, err := stagehand.LaunchLocalBrowser(ctx, launch)
 	if err != nil {
-		return nil, fmt.Errorf("launch browser: %w%s", err, sandboxHint(opts.Args))
+		return nil, fmt.Errorf("launch browser: %w%s", err, sandboxHint(opts.NoSandbox))
 	}
 	cdpURL := fmt.Sprintf("http://127.0.0.1:%d", port)
 	eng, err := startEngine(ctx, browser, cdpURL, opts)

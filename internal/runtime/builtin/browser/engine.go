@@ -56,9 +56,9 @@ type launchOptions struct {
 	UserDataDir    string
 	DownloadsDir   string
 	AllowedDomains []string
-	// Args are extra browser command-line flags.
-	Args     []string
-	Generate generateFunc
+	// NoSandbox turns off the browser sandbox.
+	NoSandbox bool
+	Generate  generateFunc
 }
 
 // browserHandle locates a running browser.

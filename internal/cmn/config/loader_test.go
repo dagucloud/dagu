@@ -574,24 +574,19 @@ func TestLoad_OpenCodeConfigFromEnv(t *testing.T) {
 	require.Equal(t, []string{"OPENAI_API_KEY", "ANTHROPIC_API_KEY"}, cfg.OpenCode.EnvPassthrough)
 }
 
-// A flag in a config file list may contain commas; the environment form is
-// split on commas.
-func TestLoad_BrowserArgs(t *testing.T) {
+// The browser sandbox stays on unless the config file or the environment
+// turns it off.
+func TestLoad_BrowserSandbox(t *testing.T) {
+	require.False(t, testLoad(t).Browser.NoSandbox, "the sandbox is on by default")
+
 	configFile := filepath.Join(t.TempDir(), "config.yaml")
-	require.NoError(t, os.WriteFile(configFile, []byte(`
-browser:
-  args:
-    - --no-sandbox
-    - --disable-features=Translate,MediaRouter
-`), 0o600))
-	cfg := testLoad(t, WithConfigFile(configFile))
-	require.Equal(t, []string{"--no-sandbox", "--disable-features=Translate,MediaRouter"}, cfg.Browser.Args)
+	require.NoError(t, os.WriteFile(configFile, []byte("browser:\n  sandbox: false\n"), 0o600))
+	require.True(t, testLoad(t, WithConfigFile(configFile)).Browser.NoSandbox)
 }
 
-func TestLoad_BrowserArgsFromEnv(t *testing.T) {
-	t.Setenv("DAGU_BROWSER_ARGS", "--no-sandbox, --disable-dev-shm-usage")
-	cfg := testLoad(t)
-	require.Equal(t, []string{"--no-sandbox", "--disable-dev-shm-usage"}, cfg.Browser.Args)
+func TestLoad_BrowserSandboxFromEnv(t *testing.T) {
+	t.Setenv("DAGU_BROWSER_SANDBOX", "false")
+	require.True(t, testLoad(t).Browser.NoSandbox)
 }
 
 func TestLoad_OpenCodeRejectsReservedPassthrough(t *testing.T) {
