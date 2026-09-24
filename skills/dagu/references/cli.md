@@ -20,6 +20,8 @@ Flags:
 - `--name/-N` — Override DAG name
 - `--run-id/-r` — Custom run ID
 - `--from-run-id` — Historic dag-run ID to use as the template for a new run
+- `--only` — Run only this step (name or ID) in a new run of the current definition; repeatable. Other steps are recorded as skipped. Not with `--from-run-id`
+- `--outputs-from` — Finished run of the same DAG whose step outputs and work directory feed the `--only` steps (requires `--only`)
 - `--labels` — Additional labels (comma-separated key=value or key-only)
 - `--tags` — Deprecated alias for `--labels`
 - `--default-working-dir` — Default working directory for DAGs without explicit workingDir
