@@ -25,6 +25,8 @@ import (
 type Runner struct {
 	t   *testing.T
 	dir string
+	// commandTimeout replaces the platform default budget when set.
+	commandTimeout time.Duration
 }
 
 // Result captures a completed Dagu command invocation.
@@ -89,6 +91,14 @@ func NewRunner(t *testing.T) *Runner {
 	if err := os.CopyFS(r.dir, os.DirFS("testdata")); err != nil {
 		r.t.Fatalf("copying testdata: %v", err)
 	}
+	return r
+}
+
+// WithCommandTimeout gives each of the runner's commands timeout instead of
+// the platform default, for commands that start slow subsystems such as a
+// browser. DAGU_CONFORMANCE_COMMAND_TIMEOUT still takes precedence.
+func (r *Runner) WithCommandTimeout(timeout time.Duration) *Runner {
+	r.commandTimeout = timeout
 	return r
 }
 
@@ -203,6 +213,9 @@ func (r *Runner) run(extraEnv []string, args ...string) *Result {
 	r.t.Helper()
 
 	timeout := commandTimeout(r.t)
+	if r.commandTimeout > 0 && os.Getenv("DAGU_CONFORMANCE_COMMAND_TIMEOUT") == "" {
+		timeout = r.commandTimeout
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 

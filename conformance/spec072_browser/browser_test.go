@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
 	"github.com/stretchr/testify/require"
@@ -41,6 +42,10 @@ const rowsPage = `<!doctype html><html><head><title>Rows</title></head><body>
 </body></html>`
 
 const reportBody = "id,total\n1,10\n2,20\n"
+
+// browserCommandTimeout bounds a command that starts a browser. Starting
+// one takes tens of seconds when the conformance job loads the runner.
+const browserCommandTimeout = 2 * time.Minute
 
 // Model request kinds, told apart by the response schema the browser
 // runtime asks for.
@@ -237,7 +242,7 @@ func newBrowserEnv(t *testing.T) *browserEnv {
 		env = append(env, "USERPROFILE="+os.Getenv("USERPROFILE"), "APPDATA="+os.Getenv("APPDATA"))
 	}
 	return &browserEnv{
-		dagu:  harness.NewRunner(t),
+		dagu:  harness.NewRunner(t).WithCommandTimeout(browserCommandTimeout),
 		model: model,
 		env:   env,
 	}
