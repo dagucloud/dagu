@@ -42,6 +42,14 @@ const rowsPage = `<!doctype html><html><head><title>Rows</title></head><body>
 <button onclick="if (confirm('Delete the row?')) document.getElementById('status').textContent='Row deleted'">Delete row</button>
 </body></html>`
 
+// signinPage loads its script and images from hosts the blocked_requests
+// fixture leaves out of allowed_domains, so it never shows "Signed in".
+const signinPage = `<!doctype html><html><head><title>Sign in</title>
+<script src="http://sso.blocked.test/login.js"></script></head><body>
+<img src="http://cdn.blocked.test/logo.png"><img src="http://cdn.blocked.test/banner.png">
+<p id="status">Signing in</p>
+</body></html>`
+
 const reportBody = "id,total\n1,10\n2,20\n"
 
 // browserCommandTimeout bounds a command that starts a browser. Starting
@@ -176,6 +184,11 @@ func startShop(t *testing.T) string {
 		if r.URL.Path == "/rows" {
 			w.Header().Set("Content-Type", "text/html")
 			_, _ = io.WriteString(w, rowsPage)
+			return
+		}
+		if r.URL.Path == "/signin" {
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = io.WriteString(w, signinPage)
 			return
 		}
 		if r.URL.Path == "/report.csv" {
@@ -338,6 +351,18 @@ func TestBrowserAllowedDomains(t *testing.T) {
 	result.ExpectNonZeroExitCode()
 	result.ExpectStderrContains("outside browser.allowed_domains")
 	require.Zero(t, b.model.total())
+}
+
+// A page that cannot load hosts outside allowed_domains fails a later
+// operation, and the failure names the blocked hosts.
+func TestBrowserBlockedRequests(t *testing.T) {
+	t.Parallel()
+
+	b := newBrowserEnv(t)
+	result := b.dagu.RunWithEnv(b.env, "start", "blocked_requests.yaml")
+	result.ExpectNonZeroExitCode()
+	result.ExpectStderrContains("expectation not met", "browser.allowed_domains blocked",
+		"cdn.blocked.test (", "sso.blocked.test (")
 }
 
 func TestBrowserValidation(t *testing.T) {
