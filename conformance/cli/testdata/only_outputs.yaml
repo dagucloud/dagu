@@ -1,0 +1,18 @@
+working_dir: .
+steps:
+  - id: produce
+    run: |
+      printf 'value=from-source\n' >> "$DAGU_OUTPUT_FILE"
+      printf 'shared\n' > "$DAG_RUN_WORK_DIR/shared.txt"
+    outputs:
+      - name: value
+
+  - id: consume
+    depends: produce
+    run: |
+      printf '%s\n' '${steps.produce.outputs.value}' > consume.out
+      if [ -f "$DAG_RUN_WORK_DIR/shared.txt" ]; then
+        cat "$DAG_RUN_WORK_DIR/shared.txt" >> consume.out
+      else
+        printf 'missing\n' >> consume.out
+      fi

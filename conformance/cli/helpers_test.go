@@ -3,7 +3,7 @@
 
 // Package cli holds black-box conformance tests for CLI commands that are
 // not owned by any single numbered spec: general dag-run lifecycle
-// management (ls, rm, ps, dequeue, retry, restart, stop) and standalone
+// management (ls, rm, ps, dequeue, retry, restart, stop, start --only) and standalone
 // utility commands (profile, config, context, version, cleanup, schema,
 // example, sync). Flag-level depth for commands whose core behavior already
 // has a natural home in a numbered spec's conformance package belongs there

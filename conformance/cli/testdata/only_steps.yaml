@@ -1,0 +1,10 @@
+working_dir: .
+steps:
+  - id: first
+    run: printf 'first\n' >> only.out
+  - id: second
+    depends: first
+    run: printf 'second\n' >> only.out
+  - id: third
+    depends: second
+    run: printf 'third\n' >> only.out
