@@ -72,13 +72,6 @@ func OpenOrCreateFileWithoutSync(filepath string) (*os.File, error) {
 	return openOrCreateFile(filepath, 0)
 }
 
-// CreateOrTruncateFile opens the named file for writing with synchronous I/O,
-// discarding any existing content, or creates it with permissions 0600.
-// Unlike an append-mode file, the returned file can be truncated again.
-func CreateOrTruncateFile(filepath string) (*os.File, error) {
-	return openFileWithFlags(filepath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC|os.O_SYNC)
-}
-
 // OpenOrCreateFileForRandomWrite opens or creates a file for writes at explicit offsets.
 func OpenOrCreateFileForRandomWrite(filepath string) (*os.File, error) {
 	return openFileWithFlags(filepath, os.O_CREATE|os.O_WRONLY)

@@ -100,13 +100,21 @@ func (oc *OutputCoordinator) setupMasker(ctx context.Context, _ NodeData) error 
 	return nil
 }
 
-func (oc *OutputCoordinator) setup(ctx context.Context, data NodeData) error {
+func (oc *OutputCoordinator) setup(ctx context.Context, data NodeData) (err error) {
 	// This attempt gets its own writers, so the closed latch from the previous
 	// one must not survive: it guards every flush path, and a set latch would
 	// drop this attempt's buffered output on teardown.
 	oc.mu.Lock()
 	oc.closed = false
 	oc.mu.Unlock()
+
+	// A node that fails to prepare is never torn down, so release what was
+	// opened here.
+	defer func() {
+		if err != nil {
+			_ = oc.closeResources()
+		}
+	}()
 
 	if err := oc.setupMasker(ctx, data); err != nil {
 		return fmt.Errorf("failed to setup masker: %w", err)
@@ -117,7 +125,10 @@ func (oc *OutputCoordinator) setup(ctx context.Context, data NodeData) error {
 	if err := oc.setupStdoutRedirect(ctx, data); err != nil {
 		return err
 	}
-	return oc.setupStderrRedirect(ctx, data)
+	if err := oc.setupStderrRedirect(ctx, data); err != nil {
+		return err
+	}
+	return oc.checkArtifactRedirects(data)
 }
 
 func (oc *OutputCoordinator) setupExecutorIO(ctx context.Context, cmd executor.Executor, data NodeData) error {
@@ -391,6 +402,33 @@ func truncateFile(file *os.File) error {
 	return err
 }
 
+// checkArtifactRedirects rejects an artifact redirect that shares its file
+// with the other stream's redirect. Artifacts are rewritten from the start on
+// each attempt, so the two streams would overwrite each other.
+func (oc *OutputCoordinator) checkArtifactRedirects(data NodeData) error {
+	oc.mu.Lock()
+	defer oc.mu.Unlock()
+
+	if data.Step.StdoutArtifact == "" && data.Step.StderrArtifact == "" {
+		return nil
+	}
+	if oc.stdoutRedirectFile == nil || oc.StderrRedirectFile == nil {
+		return nil
+	}
+	stdoutInfo, err := oc.stdoutRedirectFile.Stat()
+	if err != nil {
+		return fmt.Errorf("failed to stat stdout file: %w", err)
+	}
+	stderrInfo, err := oc.StderrRedirectFile.Stat()
+	if err != nil {
+		return fmt.Errorf("failed to stat stderr file: %w", err)
+	}
+	if os.SameFile(stdoutInfo, stderrInfo) {
+		return fmt.Errorf("stdout and stderr cannot write to the same artifact file %q; use 'log_output: merged' instead", data.Step.Stdout)
+	}
+	return nil
+}
+
 func (oc *OutputCoordinator) setupWriters(ctx context.Context, data NodeData) error {
 	oc.mu.Lock()
 	defer oc.mu.Unlock()
@@ -467,7 +505,7 @@ func (oc *OutputCoordinator) setupLocalWriters(_ context.Context, data NodeData)
 	return nil
 }
 
-func (oc *OutputCoordinator) setupFile(ctx context.Context, filePath string, truncate bool) (*os.File, error) {
+func (oc *OutputCoordinator) setupFile(ctx context.Context, filePath string, artifact bool) (*os.File, error) {
 	absFilePath := filePath
 	if !filepath.IsAbs(absFilePath) {
 		dir := GetEnv(ctx).WorkingDir
@@ -476,8 +514,10 @@ func (oc *OutputCoordinator) setupFile(ctx context.Context, filePath string, tru
 	}
 
 	open := fileutil.OpenOrCreateFile
-	if truncate {
-		open = fileutil.CreateOrTruncateFile
+	if artifact {
+		// Keep existing content until an attempt starts, and avoid append mode:
+		// Windows does not allow truncating an append-mode file.
+		open = fileutil.OpenOrCreateFileForRandomWrite
 	}
 	file, err := open(absFilePath)
 	if err != nil {

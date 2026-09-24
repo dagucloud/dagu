@@ -1743,7 +1743,8 @@ func TestNodeOutputRedirectWithWorkingDir(t *testing.T) {
 
 // Inline retries and repeats execute a prepared node again, and a dag-run
 // retry prepares a new node over the same artifact directory. Either way an
-// artifact redirect holds only the latest attempt's output.
+// artifact redirect holds only the latest attempt's output, and a node that
+// never executes, such as one skipped by a precondition, leaves it intact.
 func TestNodeArtifactRedirectLatestAttempt(t *testing.T) {
 	t.Parallel()
 
@@ -1786,6 +1787,38 @@ func TestNodeArtifactRedirectLatestAttempt(t *testing.T) {
 	require.NoError(t, retried.Execute(ctx))
 	require.NoError(t, retried.Teardown())
 	assertArtifacts(t)
+
+	skipped := runtime.NewNode(step, runtime.NodeState{})
+	skipped.Init()
+	require.NoError(t, skipped.Prepare(ctx, logDir, "run-1"))
+	require.NoError(t, skipped.Teardown())
+	assertArtifacts(t)
+}
+
+// Spec validation compares the literal paths, so equivalent spellings reach
+// the runtime, which must still refuse to point both streams at one artifact.
+func TestNodeArtifactRedirectRejectsSharedFile(t *testing.T) {
+	t.Parallel()
+
+	logDir := t.TempDir()
+	step := ir.Step{
+		Name: "report",
+		Commands: []ir.CommandEntry{{
+			Command: "sh",
+			Args:    []string{"-c", "echo out; echo err >&2"},
+		}},
+		StdoutArtifact: "./report.txt",
+		StderrArtifact: "report.txt",
+	}
+	ctx := runtime.NewContext(context.Background(), &ir.DAG{Name: "test"}, "run-1",
+		filepath.Join(logDir, "dag.log"), runtime.WithArtifactDir(t.TempDir()))
+	ctx = runtime.WithEnv(ctx, runtime.NewEnv(ctx, step))
+
+	node := runtime.NewNode(step, runtime.NodeState{})
+	node.Init()
+	err := node.Prepare(ctx, logDir, "run-1")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "same artifact file")
 }
 
 func TestLogOutputMode(t *testing.T) {
