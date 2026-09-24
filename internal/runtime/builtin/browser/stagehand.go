@@ -52,11 +52,10 @@ const selectorVisibleExpression = `Array.from(document.querySelectorAll(%s)).som
 var errImageInput = errors.New("browser: image input to the model is not supported")
 
 // sandboxHint suggests how to let the browser sandbox start, or turn it off,
-// when a launch fails where the sandbox is a likely cause: on Linux, as a
-// non-root user, with the sandbox still on. The browser runtime turns it off
-// for root itself.
+// when a launch fails where the sandbox is a likely cause: on Linux, with the
+// sandbox still on.
 func sandboxHint(noSandbox bool) string {
-	if goruntime.GOOS != "linux" || os.Geteuid() == 0 || noSandbox {
+	if goruntime.GOOS != "linux" || noSandbox {
 		return ""
 	}
 	return "; if the browser cannot use its sandbox here, as under Docker's default seccomp profile, " +
@@ -65,12 +64,28 @@ func sandboxHint(noSandbox bool) string {
 		"with browser.sandbox: false in the Dagu config or DAGU_BROWSER_SANDBOX=false"
 }
 
+// sandboxOverride reports why the browser runtime would turn off the sandbox
+// whatever the host setting says, or "" when it keeps it.
+func sandboxOverride() string {
+	if os.Getenv("CI") != "" {
+		return "because CI is set"
+	}
+	if goruntime.GOOS == "linux" && os.Geteuid() == 0 {
+		return "when running as root"
+	}
+	return ""
+}
+
 // stagehandLauncher runs sessions through the Stagehand Go SDK.
 type stagehandLauncher struct{}
 
 var _ launcher = stagehandLauncher{}
 
 func (stagehandLauncher) Launch(ctx context.Context, opts launchOptions) (engine, error) {
+	if reason := sandboxOverride(); reason != "" && !opts.NoSandbox {
+		return nil, fmt.Errorf("launch browser: the browser sandbox is on, but the browser runtime turns it off %s; "+
+			"set browser.sandbox: false in the Dagu config or DAGU_BROWSER_SANDBOX=false to run without it", reason)
+	}
 	port, err := freeLoopbackPort()
 	if err != nil {
 		return nil, err
@@ -82,9 +97,7 @@ func (stagehandLauncher) Launch(ctx context.Context, opts launchOptions) (engine
 		UserDataDir:    opts.UserDataDir,
 		KeepAlive:      true,
 	}
-	if opts.NoSandbox {
-		launch.ChromiumSandbox = new(false)
-	}
+	launch.ChromiumSandbox = new(!opts.NoSandbox)
 	if opts.Viewport != nil {
 		launch.Viewport = &stagehand.LocalViewport{Width: opts.Viewport.Width, Height: opts.Viewport.Height}
 	}

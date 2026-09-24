@@ -134,6 +134,8 @@ func (m *shopModel) generate(_ context.Context, req generateRequest) (generateRe
 	return generateResponse{JSON: json.RawMessage(answer), Usage: tokenUsage{Input: 10, Output: 2}}, nil
 }
 
+// launchShop starts a browser on the shop page. Browsers in these tests run
+// without the sandbox, which cannot start on every CI host.
 func launchShop(t *testing.T, model *shopModel) engine {
 	t.Helper()
 	requireChrome(t)
@@ -142,6 +144,7 @@ func launchShop(t *testing.T, model *shopModel) engine {
 		Executable:  chromePath(),
 		Headless:    true,
 		UserDataDir: t.TempDir(),
+		NoSandbox:   true,
 		Generate:    model.generate,
 	})
 	require.NoError(t, err)
@@ -189,6 +192,7 @@ func TestStagehandDetachHelper(t *testing.T) {
 		Executable:  chromePath(),
 		Headless:    true,
 		UserDataDir: os.Getenv(detachHelperEnv),
+		NoSandbox:   true,
 		Generate:    (&shopModel{}).generate,
 	})
 	require.NoError(t, err)
@@ -301,6 +305,7 @@ func TestStagehandWaitsForDownloads(t *testing.T) {
 		Headless:     true,
 		UserDataDir:  t.TempDir(),
 		DownloadsDir: downloads,
+		NoSandbox:    true,
 		Generate:     reportModel,
 	})
 	require.NoError(t, err)
@@ -414,10 +419,11 @@ func TestCloseBrowserReportsRuntimeError(t *testing.T) {
 // sandbox, so the error names the seccomp profile that lets it start and the
 // host setting that turns it off.
 func TestLaunchFailureSuggestsBrowserFlags(t *testing.T) {
-	t.Parallel()
 	if runtime.GOOS != "linux" || os.Geteuid() == 0 {
 		t.Skip("the hint applies to non-root Linux users")
 	}
+	// With CI set the launch is refused before the browser starts.
+	t.Setenv("CI", "")
 
 	_, err := stagehandLauncher{}.Launch(t.Context(), launchOptions{
 		Executable:  "/bin/false",
@@ -425,5 +431,19 @@ func TestLaunchFailureSuggestsBrowserFlags(t *testing.T) {
 		UserDataDir: t.TempDir(),
 	})
 	require.ErrorContains(t, err, "seccomp-chromium.json")
+	require.ErrorContains(t, err, "DAGU_BROWSER_SANDBOX=false")
+}
+
+// With the sandbox on, a launch is refused where the browser runtime would
+// turn the sandbox off anyway, so a browser never runs without it silently.
+func TestLaunchRefusesSilentSandboxOff(t *testing.T) {
+	t.Setenv("CI", "true")
+
+	_, err := stagehandLauncher{}.Launch(t.Context(), launchOptions{
+		Executable:  chromePath(),
+		Headless:    true,
+		UserDataDir: t.TempDir(),
+	})
+	require.ErrorContains(t, err, "because CI is set")
 	require.ErrorContains(t, err, "DAGU_BROWSER_SANDBOX=false")
 }

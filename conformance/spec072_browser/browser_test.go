@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -235,7 +236,9 @@ func newBrowserEnv(t *testing.T) *browserEnv {
 	t.Helper()
 	requireChrome(t)
 	model, modelURL := startModel(t)
-	env := []string{"SHOP_URL=" + startShop(t), "LLM_BASE_URL=" + modelURL}
+	// The harness sets CI, where the browser runtime turns off the sandbox,
+	// so the tests turn it off explicitly instead of being refused.
+	env := []string{"SHOP_URL=" + startShop(t), "LLM_BASE_URL=" + modelURL, "DAGU_BROWSER_SANDBOX=false"}
 	if runtime.GOOS == "windows" {
 		// The harness points the profile folders at empty temporary paths;
 		// Chrome on Windows needs the real ones to start.
@@ -277,6 +280,21 @@ func TestBrowserDialogs(t *testing.T) {
 	b := newBrowserEnv(t)
 	b.dagu.RunWithEnv(b.env, "start", "dialogs.yaml").ExpectExitCode(0)
 	require.Equal(t, 1, b.model.count(kindAct))
+}
+
+// With the sandbox on, a browser step fails before starting a browser where
+// the browser runtime would turn the sandbox off, here because CI is set.
+func TestBrowserSandboxNotSilentlyOff(t *testing.T) {
+	t.Parallel()
+
+	b := newBrowserEnv(t)
+	env := slices.DeleteFunc(slices.Clone(b.env), func(entry string) bool {
+		return strings.HasPrefix(entry, "DAGU_BROWSER_SANDBOX=")
+	})
+	result := b.dagu.RunWithEnv(env, "start", "extract.yaml")
+	result.ExpectNonZeroExitCode()
+	result.ExpectStderrContains("because CI is set", "DAGU_BROWSER_SANDBOX=false")
+	require.Zero(t, b.model.total())
 }
 
 func TestBrowserExtract(t *testing.T) {

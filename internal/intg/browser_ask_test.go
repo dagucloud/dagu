@@ -130,6 +130,8 @@ func TestBrowserAskResumesSameBrowser(t *testing.T) {
 		t.Skip("ask operations are not supported on Windows")
 	}
 	requireBrowser(t)
+	// The browser sandbox cannot start on every CI host.
+	t.Setenv("DAGU_BROWSER_SANDBOX", "false")
 
 	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html")

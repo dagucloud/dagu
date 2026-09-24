@@ -115,7 +115,9 @@ those outputs. Operation progress is written to stderr.
 The host configuration `browser.sandbox: false`, or the environment variable
 `DAGU_BROWSER_SANDBOX=false`, turns off Chromium's sandbox for every browser
 the host starts, for hosts where the sandbox cannot start. The sandbox is on
-by default, and a DAG cannot change it.
+by default, and a DAG cannot change it. With the sandbox on, a step fails
+before starting a browser where the browser runtime would turn the sandbox off
+anyway: when `CI` is set, or when Dagu runs as root on Linux.
 
 ### Allowed domains
 
