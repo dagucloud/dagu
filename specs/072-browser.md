@@ -138,6 +138,14 @@ fails before navigating, and after the start URL and after every operation the
 step fails when a redirect or an action left the allowed domains. Pages without a network
 host, such as `about:blank`, are not checked.
 
+Requests the runtime blocks are counted per host. When the start URL or an
+operation causes blocked requests, the timeline and the step log show a line
+after it such as `allowed_domains blocked 14 requests: cdn.example.com (12),
+sso.example.com (2)`, naming up to ten hosts, most blocked first. A failed
+step's error ends with every host blocked during the attempt, since a page
+missing a script or a sign-in redirect usually fails a later operation. A
+request blocked after its operation returns is counted with the next one.
+
 ### Artifacts
 
 A DAG with a browser action enables artifact storage unless it sets
