@@ -6,31 +6,22 @@ package api
 import (
 	"context"
 	"fmt"
-	"io"
-	"io/fs"
 	"maps"
 	"net/http"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	api "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/audit"
-	"github.com/dagucloud/dagu/v2/internal/cmn/artifactpath"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
-	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
-	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/queue"
-	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
 	"github.com/dagucloud/dagu/v2/internal/spec"
@@ -547,21 +538,25 @@ func (a *API) launchEditRetryDAGRun(ctx context.Context, plan *editRetryPlan) (q
 	}
 
 	nodes := transform.SeedNodes(plan.editedDAG, plan.sourceStatus, plan.skippedSteps)
-	seedStatus, err := a.seedEditRetryAttempt(
-		ctx,
-		plan.editedDAG,
-		plan.newDAGRunID,
-		plan.params,
-		plan.profileName,
-		nodes,
-		dagrun.WorkDirRef{RootDAGRun: plan.sourceStatus.Root, DAGRun: plan.sourceStatus.DAGRun()},
-	)
+	_, seedStatus, err := intake.SeedRun(ctx, intake.SeedRequest{
+		DAGRunRepository: a.dagRunRepository,
+		DAG:              plan.editedDAG,
+		DAGRunID:         plan.newDAGRunID,
+		Nodes:            nodes,
+		Source:           plan.sourceStatus,
+		Params:           plan.params,
+		TriggerType:      ir.TriggerTypeRetry,
+		TriggerActor:     triggerActorFromContext(ctx),
+		ProfileName:      plan.profileName,
+		LogBaseDir:       a.config.Paths.LogDir,
+		ArtifactBaseDir:  a.config.Paths.ArtifactDir,
+	})
 	if err != nil {
 		return false, err
 	}
 	defer func() {
 		if err != nil {
-			a.markEditRetrySeedFailed(ctx, seedStatus, err)
+			intake.MarkSeedFailed(ctx, a.dagRunRepository, seedStatus, err)
 		}
 	}()
 
@@ -598,321 +593,6 @@ func (a *API) launchEditRetryDAGRun(ctx context.Context, plan *editRetryPlan) (q
 	}
 
 	return false, nil
-}
-
-func (a *API) markEditRetrySeedFailed(ctx context.Context, status *ir.DAGRunStatus, cause error) {
-	if status == nil || cause == nil {
-		return
-	}
-	_, _, err := a.dagRunRepository.CompareAndSwapLatestAttemptStatus(
-		ctx,
-		status.DAGRun(),
-		status.AttemptID,
-		ir.Queued,
-		func(latest *ir.DAGRunStatus) error {
-			latest.Status = ir.Failed
-			latest.FinishedAt = stringutil.FormatTime(time.Now())
-			latest.Error = cause.Error()
-			return nil
-		}, persis.DAGRunCompareAndSwapOptions{},
-	)
-	if err != nil {
-		logger.Warn(ctx, "Failed to mark edit retry seed as failed",
-			tag.DAG(status.Name),
-			tag.RunID(status.DAGRunID),
-			tag.Error(err),
-		)
-	}
-}
-
-func (a *API) seedEditRetryAttempt(
-	ctx context.Context,
-	dag *ir.DAG,
-	dagRunID string,
-	params string,
-	profileName string,
-	nodes []runtime.NodeData,
-	sourceWorkDirRef dagrun.WorkDirRef,
-) (*ir.DAGRunStatus, error) {
-	now := time.Now()
-	attempt, err := a.dagRunRepository.CreateAttempt(ctx, dag, now, dagRunID, persis.DAGRunCreateAttemptOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create edit retry attempt: %w", err)
-	}
-	committed := false
-	defer func() {
-		if committed {
-			return
-		}
-		if rmErr := a.dagRunRepository.RemoveDAGRun(ctx, ir.NewDAGRunRef(dag.Name, dagRunID), persis.DAGRunRemoveOptions{}); rmErr != nil {
-			logger.Error(ctx, "Failed to rollback edit retry attempt",
-				tag.DAG(dag.Name),
-				tag.RunID(dagRunID),
-				tag.Error(rmErr),
-			)
-		}
-	}()
-
-	logFile, err := logpath.Generate(ctx, a.config.Paths.LogDir, dag.LogDir, dag.Name, dagRunID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate edit retry log file: %w", err)
-	}
-	artifactDir, err := editRetryArtifactDir(ctx, a.config.Paths.ArtifactDir, dag, dagRunID)
-	if err != nil {
-		return nil, err
-	}
-
-	opts := []ir.StatusOption{
-		transform.WithNodes(nodes),
-		ir.WithLogFilePath(logFile),
-		ir.WithArchiveDir(artifactDir),
-		ir.WithAttemptID(attempt.ID()),
-		ir.WithQueuedAt(stringutil.FormatTime(now)),
-		ir.WithPreconditions(dag.Preconditions),
-		ir.WithHierarchyRefs(
-			ir.NewDAGRunRef(dag.Name, dagRunID),
-			ir.DAGRunRef{},
-		),
-		ir.WithTriggerType(ir.TriggerTypeRetry),
-		ir.WithTriggerActor(triggerActorFromContext(ctx)),
-		ir.WithRuntimeProfile(profileName, "", nil),
-	}
-	status := ir.NewStatusBuilder(dag).Create(dagRunID, ir.Queued, 0, time.Time{}, opts...)
-	status.Params = params
-	status.ParamsList = dag.Params
-	targetWorkDirRef := dagrun.WorkDirRef{DAGRun: ir.NewDAGRunRef(dag.Name, dagRunID)}
-	targetWorkDir, err := a.dagRunRepository.MaterializeWorkDir(ctx, targetWorkDirRef)
-	if err != nil {
-		return nil, fmt.Errorf("failed to materialize edit retry work directory: %w", err)
-	}
-
-	if err := attempt.Open(ctx); err != nil {
-		return nil, fmt.Errorf("failed to open edit retry attempt: %w", err)
-	}
-	if hasSkippedEditRetryNode(nodes) {
-		sourceWorkDir, err := a.dagRunRepository.MaterializeWorkDir(ctx, sourceWorkDirRef)
-		if err != nil {
-			_ = attempt.Close(ctx)
-			return nil, fmt.Errorf("failed to materialize source edit retry work directory: %w", err)
-		}
-		if err := copyEditRetryWorkDir(sourceWorkDir, targetWorkDir); err != nil {
-			_ = attempt.Close(ctx)
-			return nil, fmt.Errorf("failed to copy edit retry work directory: %w", err)
-		}
-		remapEditRetryWorkDirOutputs(status.Nodes, sourceWorkDir, targetWorkDir)
-	}
-
-	if err := attempt.Write(ctx, status); err != nil {
-		_ = attempt.Close(ctx)
-		return nil, fmt.Errorf("failed to save edit retry status: %w", err)
-	}
-	if err := attempt.Close(ctx); err != nil {
-		return nil, fmt.Errorf("failed to close edit retry attempt: %w", err)
-	}
-	if err := a.dagRunRepository.SnapshotWorkDir(ctx, targetWorkDirRef, targetWorkDir); err != nil {
-		return nil, fmt.Errorf("failed to snapshot edit retry work directory: %w", err)
-	}
-	committed = true
-
-	return &status, nil
-}
-
-func hasSkippedEditRetryNode(nodes []runtime.NodeData) bool {
-	for _, node := range nodes {
-		if node.State.SkippedByRetry {
-			return true
-		}
-	}
-	return false
-}
-
-func copyEditRetryWorkDir(sourceWorkDir, targetWorkDir string) error {
-	sourceWorkDir = cleanEditRetryWorkDir(sourceWorkDir)
-	targetWorkDir = cleanEditRetryWorkDir(targetWorkDir)
-	if sourceWorkDir == "" || targetWorkDir == "" || sourceWorkDir == targetWorkDir {
-		return nil
-	}
-
-	info, err := os.Stat(sourceWorkDir)
-	if err != nil {
-		return err
-	}
-	if !info.IsDir() {
-		return fmt.Errorf("%s is not a directory", sourceWorkDir)
-	}
-	if err := os.MkdirAll(targetWorkDir, 0o750); err != nil {
-		return err
-	}
-
-	return filepath.WalkDir(sourceWorkDir, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		rel, err := filepath.Rel(sourceWorkDir, path)
-		if err != nil {
-			return err
-		}
-		if rel == "." {
-			return nil
-		}
-
-		targetPath := filepath.Join(targetWorkDir, rel)
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		mode := info.Mode()
-		switch {
-		case entry.IsDir():
-			return os.MkdirAll(targetPath, mode.Perm())
-		case mode.Type()&os.ModeSymlink != 0:
-			return copyEditRetrySymlink(sourceWorkDir, targetWorkDir, path, targetPath)
-		case mode.IsRegular():
-			return copyEditRetryFile(path, targetPath, mode)
-		default:
-			return nil
-		}
-	})
-}
-
-func copyEditRetrySymlink(sourceWorkDir, targetWorkDir, sourcePath, targetPath string) error {
-	linkTarget, err := os.Readlink(sourcePath)
-	if err != nil {
-		return err
-	}
-
-	resolvedSourceTarget := linkTarget
-	if !filepath.IsAbs(resolvedSourceTarget) {
-		resolvedSourceTarget = filepath.Join(filepath.Dir(sourcePath), resolvedSourceTarget)
-	}
-	resolvedSourceTarget = filepath.Clean(resolvedSourceTarget)
-	if err := ensureEditRetryPathWithin(sourceWorkDir, resolvedSourceTarget); err != nil {
-		return fmt.Errorf("unsafe symlink target %s: %w", sourcePath, err)
-	}
-	if evaluatedSourceTarget, err := filepath.EvalSymlinks(resolvedSourceTarget); err == nil {
-		if err := ensureEditRetryResolvedPathWithin(sourceWorkDir, evaluatedSourceTarget); err != nil {
-			return fmt.Errorf("unsafe symlink target %s: %w", sourcePath, err)
-		}
-	} else if !os.IsNotExist(err) {
-		return err
-	}
-
-	sourceTargetRel, err := filepath.Rel(sourceWorkDir, resolvedSourceTarget)
-	if err != nil {
-		return err
-	}
-	targetLinkTarget := filepath.Join(targetWorkDir, sourceTargetRel)
-	relativeTargetLink, err := filepath.Rel(filepath.Dir(targetPath), targetLinkTarget)
-	if err != nil {
-		return err
-	}
-
-	if err := os.MkdirAll(filepath.Dir(targetPath), 0o750); err != nil {
-		return err
-	}
-	if err := os.Remove(targetPath); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	return os.Symlink(relativeTargetLink, targetPath) //nolint:gosec // symlink target is constrained to the copied work directory.
-}
-
-func ensureEditRetryPathWithin(baseDir, targetPath string) error {
-	baseAbs, err := filepath.Abs(baseDir)
-	if err != nil {
-		return err
-	}
-	targetAbs, err := filepath.Abs(targetPath)
-	if err != nil {
-		return err
-	}
-	relToBase, err := filepath.Rel(baseAbs, targetAbs)
-	if err != nil {
-		return err
-	}
-	if relToBase == ".." || strings.HasPrefix(relToBase, ".."+string(filepath.Separator)) || filepath.IsAbs(relToBase) {
-		return fmt.Errorf("path escapes source work directory")
-	}
-	return nil
-}
-
-func ensureEditRetryResolvedPathWithin(baseDir, targetPath string) error {
-	resolvedBase, err := filepath.EvalSymlinks(baseDir)
-	if err != nil {
-		return err
-	}
-	return ensureEditRetryPathWithin(resolvedBase, targetPath)
-}
-
-func copyEditRetryFile(sourcePath, targetPath string, mode fs.FileMode) error {
-	source, err := os.Open(sourcePath) //nolint:gosec
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = source.Close()
-	}()
-
-	if err := os.MkdirAll(filepath.Dir(targetPath), 0o750); err != nil {
-		return err
-	}
-	target, err := os.OpenFile(targetPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode.Perm()) //nolint:gosec
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = target.Close()
-	}()
-
-	if _, err := io.Copy(target, source); err != nil {
-		return err
-	}
-	return target.Chmod(mode.Perm())
-}
-
-func remapEditRetryWorkDirOutputs(nodes []*ir.Node, sourceWorkDir, targetWorkDir string) {
-	sourceWorkDir = cleanEditRetryWorkDir(sourceWorkDir)
-	targetWorkDir = cleanEditRetryWorkDir(targetWorkDir)
-	if sourceWorkDir == "" || targetWorkDir == "" || sourceWorkDir == targetWorkDir {
-		return
-	}
-
-	replacements := [][2]string{{sourceWorkDir, targetWorkDir}}
-	sourceSlash := filepath.ToSlash(sourceWorkDir)
-	targetSlash := filepath.ToSlash(targetWorkDir)
-	if sourceSlash != sourceWorkDir || targetSlash != targetWorkDir {
-		replacements = append(replacements, [2]string{sourceSlash, targetSlash})
-	}
-
-	for _, node := range nodes {
-		if node == nil || !node.SkippedByRetry || node.OutputVariables == nil {
-			continue
-		}
-		node.OutputVariables.Range(func(key, value any) bool {
-			text, ok := value.(string)
-			if !ok {
-				return true
-			}
-			rewritten := text
-			for _, replacement := range replacements {
-				rewritten = strings.ReplaceAll(rewritten, replacement[0], replacement[1])
-			}
-			if rewritten != text {
-				node.OutputVariables.Store(key, rewritten)
-			}
-			return true
-		})
-	}
-}
-
-func cleanEditRetryWorkDir(dir string) string {
-	dir = strings.TrimSpace(dir)
-	if dir == "" {
-		return ""
-	}
-	if abs, err := filepath.Abs(dir); err == nil {
-		return filepath.Clean(abs)
-	}
-	return filepath.Clean(dir)
 }
 
 func (a *API) dispatchEditRetry(ctx context.Context, dag *ir.DAG, status *ir.DAGRunStatus) error {
@@ -957,21 +637,6 @@ func cloneStringMap(src map[string]string) map[string]string {
 	dst := make(map[string]string, len(src))
 	maps.Copy(dst, src)
 	return dst
-}
-
-func editRetryArtifactDir(ctx context.Context, baseDir string, dag *ir.DAG, dagRunID string) (string, error) {
-	if dag == nil || !dag.ArtifactsEnabled() {
-		return "", nil
-	}
-	dagArtifactDir := ""
-	if dag.Artifacts != nil {
-		dagArtifactDir = dag.Artifacts.Dir
-	}
-	artifactDir, err := artifactpath.NewRunDir(ctx, baseDir, dagArtifactDir, dag.Name, dagRunID, time.Now())
-	if err != nil {
-		return "", fmt.Errorf("failed to generate edit retry artifact directory: %w", err)
-	}
-	return artifactDir, nil
 }
 
 func editRetryPreviewSteps(dag *ir.DAG) []api.Step {

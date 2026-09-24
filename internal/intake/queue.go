@@ -82,7 +82,7 @@ func EnqueueRun(ctx context.Context, req QueueRequest) (*QueuedRun, error) {
 		return nil, fmt.Errorf("failed to generate log file name: %w", err)
 	}
 
-	artifactDir, err := artifactDir(ctx, req)
+	artifactDir, err := runArtifactDir(ctx, req.ArtifactBaseDir, req.DAG, req.DAGRunID)
 	if err != nil {
 		return nil, err
 	}
@@ -161,12 +161,12 @@ func (r QueueRequest) queueName() string {
 	return r.DAG.ProcGroup()
 }
 
-func artifactDir(ctx context.Context, req QueueRequest) (string, error) {
-	if !req.DAG.ArtifactsEnabled() {
+func runArtifactDir(ctx context.Context, baseDir string, dag *ir.DAG, dagRunID string) (string, error) {
+	if !dag.ArtifactsEnabled() {
 		return "", nil
 	}
 
-	dir, err := artifactpath.NewRunDir(ctx, req.ArtifactBaseDir, req.DAG.Artifacts.Dir, req.DAG.Name, req.DAGRunID, time.Now())
+	dir, err := artifactpath.NewRunDir(ctx, baseDir, dag.Artifacts.Dir, dag.Name, dagRunID, time.Now())
 	if err != nil {
 		return "", fmt.Errorf("failed to generate artifact directory: %w", err)
 	}
