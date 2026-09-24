@@ -1,0 +1,17 @@
+# Runs a browser step without a model: it opens a local page, checks its
+# text, and saves a screenshot. The dev image smoke test runs it.
+llm:
+  provider: local
+  model: smoke
+  base_url: http://127.0.0.1:9
+steps:
+  - id: page
+    action: browser.run
+    with:
+      url: "data:text/html,<h1>Dagu%20browser%20smoke%20test</h1>"
+      do:
+        - expect: {text: "Dagu browser smoke test"}
+        - screenshot: page
+  - id: check
+    depends: page
+    run: test -s "$DAG_RUN_ARTIFACTS_DIR/browser/page/01-page.png"
