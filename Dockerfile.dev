@@ -84,10 +84,10 @@ RUN set -ex; \
       /usr/local/bin/chromium --version && \
       apt-get clean && rm -rf /var/lib/apt/lists/* /root/.npm; \
     fi
-# Browser steps run as a non-root user, where Chromium's sandbox is
-# unavailable in a container, and Docker's /dev/shm is too small for it.
+# Docker's /dev/shm is too small for Chromium. Its sandbox stays on: run the
+# container with deploy/docker/seccomp-chromium.json so the sandbox can start.
 ENV CHROME_PATH=/usr/local/bin/chromium
-ENV DAGU_BROWSER_ARGS=--no-sandbox,--disable-dev-shm-usage
+ENV DAGU_BROWSER_ARGS=--disable-dev-shm-usage
 
 COPY --from=go-builder /app/bin/dagu /usr/local/bin/
 COPY ./entrypoint.sh /entrypoint.sh

@@ -996,7 +996,7 @@ Container support:
 
 ## browser.extract / browser.run
 
-Automate a website in a local Chrome with natural-language operations. The model comes from the DAG-level `llm` block, or `with.llm`, which replaces it entirely; use a model that follows tool-call schemas reliably. Chrome or Chromium must be installed on the host that runs the step (`browser.executable` or `CHROME_PATH` selects it). Of the container images, only `ghcr.io/dagucloud/dagu:dev` includes Chromium, on amd64 and arm64.
+Automate a website in a local Chrome with natural-language operations. The model comes from the DAG-level `llm` block, or `with.llm`, which replaces it entirely; use a model that follows tool-call schemas reliably. Chrome or Chromium must be installed on the host that runs the step (`browser.executable` or `CHROME_PATH` selects it). Of the container images, only `ghcr.io/dagucloud/dagu:dev` includes Chromium, on amd64 and arm64; run it with `--security-opt seccomp=deploy/docker/seccomp-chromium.json` so the browser sandbox can start.
 
 ```yaml
 secrets:
@@ -1056,7 +1056,7 @@ Browser behavior:
 - `ask: {prompt, as}` puts the step in Waiting until someone answers in the Web UI; the answer becomes `%<as>%`. Not supported on Windows. Answers are stored in run history, so use it for short-lived codes.
 - Downloads started by an act or goto are saved under `browser/<step id>/downloads/` in the run artifacts and awaited, up to the longest act or goto timeout, before the step ends. Screenshots are saved on failure by default (`screenshots: final` also keeps one of a successful end). Artifacts are not masked.
 - JavaScript dialogs are accepted automatically (a `prompt` gets its default text) and listed in the timeline, so an act that raises "Are you sure?" goes through.
-- Hosts add browser flags for every browser step with `browser.args` in the Dagu config, or `DAGU_BROWSER_ARGS` as a comma-separated list, for example `--no-sandbox,--disable-dev-shm-usage` in a container where the browser sandbox is unavailable. DAGs cannot set them.
+- Hosts add browser flags for every browser step with `browser.args` in the Dagu config, or `DAGU_BROWSER_ARGS` as a comma-separated list. `--no-sandbox` turns off the browser sandbox where it cannot start; a compromised page then runs with the Dagu process's permissions, so prefer the seccomp profile. DAGs cannot set these flags.
 - Profiles and the replay cache live on the host that runs the step. Pin such steps with `worker_selector` in distributed mode.
 
 ## router.route

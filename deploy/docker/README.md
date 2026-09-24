@@ -6,6 +6,7 @@ This directory hosts Docker-centric deployment assets for Dagu.
 - `compose.prod.yaml` – production-like stack including OpenTelemetry collector and Prometheus.
 - `otel-collector.yaml` – default collector configuration used by `compose.prod.yaml`.
 - `prometheus.yaml` – scrape configuration paired with the production-like compose stack.
+- `seccomp-chromium.json` – Docker's default seccomp profile plus the user-namespace calls Chromium's sandbox needs, for browser steps in the development image.
 
 Run examples from the repository root:
 
@@ -16,6 +17,8 @@ docker compose -f deploy/docker/compose.minimal.yaml up -d
 ```
 
 The standard Ubuntu image includes CA certificates and common runtime utilities such as `curl`, `git`, `jq`, the OpenSSH client, and `unzip`. The Alpine image remains minimal, while the development image includes the broader build and language toolchain.
+
+Only the development image includes Chromium for browser steps. Chromium keeps its sandbox, which Docker's default seccomp profile blocks, so run that image with `--security-opt seccomp=deploy/docker/seccomp-chromium.json` (or `security_opt` in Compose). Do not add `apparmor=unconfined`: on hosts that restrict unprivileged user namespaces, such as Ubuntu 24.04, it stops the sandbox from starting.
 
 The Compose stacks mount `deploy/docker/dags/` read-write on server-side Dagu services so Dagu can seed first-run examples and save DAG edits. Add `:ro` to that mount only when using immutable DAG sources.
 

@@ -411,7 +411,8 @@ func TestCloseBrowserReportsRuntimeError(t *testing.T) {
 }
 
 // On Linux a browser that exits at launch is often one that cannot use its
-// sandbox, so the error points to the host setting that turns it off.
+// sandbox, so the error names the seccomp profile that lets it start and the
+// host setting that turns it off.
 func TestLaunchFailureSuggestsBrowserFlags(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS != "linux" || os.Geteuid() == 0 {
@@ -423,5 +424,6 @@ func TestLaunchFailureSuggestsBrowserFlags(t *testing.T) {
 		Headless:    true,
 		UserDataDir: t.TempDir(),
 	})
+	require.ErrorContains(t, err, "seccomp-chromium.json")
 	require.ErrorContains(t, err, "DAGU_BROWSER_ARGS")
 }
