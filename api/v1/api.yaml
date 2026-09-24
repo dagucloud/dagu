@@ -1110,11 +1110,31 @@ paths:
                   allOf:
                     - $ref: "#/components/schemas/Labels"
                   description: "Additional labels to apply to the DAG-run. Mutually exclusive with `tags`; the server returns HTTP 400 if both are set."
+                steps:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: string
+                    minLength: 1
+                  description: "Run only these steps, by step name or ID, in a new DAG-run of the current definition. Every other step is recorded as skipped and does not run. Not supported for agent DAGs."
+                outputsFromRunId:
+                  allOf:
+                    - $ref: "#/components/schemas/DAGRunId"
+                    - description: "Finished DAG-run of the same DAG whose step outputs and work directory are carried into the skipped steps. Outputs come only from steps that succeeded there. Requires steps."
                 tags:
                   allOf:
                     - $ref: "#/components/schemas/Tags"
                   deprecated: true
                   description: "Deprecated alias for `labels`; mutually exclusive with `labels`."
+              not:
+                allOf:
+                  - type: object
+                    required:
+                      - outputsFromRunId
+                  - not:
+                      type: object
+                      required:
+                        - steps
       responses:
         "200":
           description: "A successful response"
@@ -2035,6 +2055,17 @@ paths:
                   allOf:
                     - $ref: "#/components/schemas/Labels"
                   description: "Additional labels to apply to the DAG-run. Mutually exclusive with `tags`; the server returns HTTP 400 if both are set."
+                steps:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: string
+                    minLength: 1
+                  description: "Run only these steps, by step name or ID, in a new DAG-run of the current definition. Every other step is recorded as skipped and does not run. Not supported for agent DAGs."
+                outputsFromRunId:
+                  allOf:
+                    - $ref: "#/components/schemas/DAGRunId"
+                    - description: "Finished DAG-run of the same DAG whose step outputs and work directory are carried into the skipped steps. Outputs come only from steps that succeeded there. Requires steps."
                 tags:
                   allOf:
                     - $ref: "#/components/schemas/Tags"
@@ -2042,6 +2073,15 @@ paths:
                   description: "Deprecated alias for `labels`; mutually exclusive with `labels`."
               required:
                 - spec
+              not:
+                allOf:
+                  - type: object
+                    required:
+                      - outputsFromRunId
+                  - not:
+                      type: object
+                      required:
+                        - steps
       responses:
         "200":
           description: "Run created and started"

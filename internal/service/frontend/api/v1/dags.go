@@ -1027,6 +1027,11 @@ func (a *API) ExecuteDAG(ctx context.Context, request api.ExecuteDAGRequestObjec
 		}
 	}
 
+	steps, outputsFrom, err := selectedStepsFromBody(request.Body.Steps, request.Body.OutputsFromRunId)
+	if err != nil {
+		return nil, err
+	}
+
 	dagRunId := valueOf(request.Body.DagRunId)
 	params := valueOf(request.Body.Params)
 	singleton := valueOf(request.Body.Singleton)
@@ -1074,7 +1079,19 @@ func (a *API) ExecuteDAG(ctx context.Context, request api.ExecuteDAGRequestObjec
 		return nil, err
 	}
 
-	if _, err := a.startDAGRun(ctx, dag, params, dagRunId, nameOverride, labels, profileName, valueOf(request.Body.NoReuse)); err != nil {
+	if len(steps) > 0 {
+		if err := a.startSelectedSteps(ctx, dag, selectedStepsStart{
+			steps:       steps,
+			outputsFrom: outputsFrom,
+			params:      params,
+			dagRunID:    dagRunId,
+			labels:      labels,
+			profileName: profileName,
+			noReuse:     valueOf(request.Body.NoReuse),
+		}); err != nil {
+			return nil, err
+		}
+	} else if _, err := a.startDAGRun(ctx, dag, params, dagRunId, nameOverride, labels, profileName, valueOf(request.Body.NoReuse)); err != nil {
 		return nil, fmt.Errorf("error starting dag-run: %w", err)
 	}
 
@@ -1085,6 +1102,7 @@ func (a *API) ExecuteDAG(ctx context.Context, request api.ExecuteDAGRequestObjec
 	if params != "" {
 		detailsMap["params"] = params
 	}
+	addSelectedStepsAudit(detailsMap, steps, outputsFrom)
 	a.logAudit(ctx, audit.CategoryDAG, "dag_execute", detailsMap)
 
 	return api.ExecuteDAG200JSONResponse{

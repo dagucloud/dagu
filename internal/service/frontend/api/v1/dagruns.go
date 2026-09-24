@@ -174,6 +174,11 @@ func (a *API) ExecuteDAGRunFromSpec(ctx context.Context, request api.ExecuteDAGR
 		}
 	}
 
+	steps, outputsFrom, err := selectedStepsFromBody(request.Body.Steps, request.Body.OutputsFromRunId)
+	if err != nil {
+		return nil, err
+	}
+
 	labels, err := extractLabelsParam(request.Body.Labels, request.Body.Tags)
 	if err != nil {
 		return nil, err
@@ -235,7 +240,23 @@ func (a *API) ExecuteDAGRunFromSpec(ctx context.Context, request api.ExecuteDAGR
 		return nil, err
 	}
 
-	started, err := a.startDAGRun(ctx, dag, params, dagRunId, valueOf(request.Body.Name), labels, profileName, valueOf(request.Body.NoReuse))
+	var started *launcher.StartResult
+	if len(steps) > 0 {
+		if err := a.startSelectedSteps(ctx, dag, selectedStepsStart{
+			steps:       steps,
+			outputsFrom: outputsFrom,
+			params:      params,
+			dagRunID:    dagRunId,
+			labels:      labels,
+			profileName: profileName,
+			noReuse:     valueOf(request.Body.NoReuse),
+			inline:      true,
+		}); err != nil {
+			return nil, err
+		}
+	} else {
+		started, err = a.startDAGRun(ctx, dag, params, dagRunId, valueOf(request.Body.Name), labels, profileName, valueOf(request.Body.NoReuse))
+	}
 	if started != nil {
 		cleanupOnReturn = false
 		go func() {
@@ -260,6 +281,7 @@ func (a *API) ExecuteDAGRunFromSpec(ctx context.Context, request api.ExecuteDAGR
 	if params != "" {
 		detailsMap["params"] = params
 	}
+	addSelectedStepsAudit(detailsMap, steps, outputsFrom)
 	a.logAudit(ctx, audit.CategoryDAG, "dag_execute", detailsMap)
 
 	return api.ExecuteDAGRunFromSpec200JSONResponse{
