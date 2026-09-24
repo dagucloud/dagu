@@ -32,6 +32,8 @@ const (
 	// callTimeoutSlack lets the runtime report its own timeout before the
 	// call is abandoned.
 	callTimeoutSlack = 5 * time.Second
+	// exitPollInterval spaces the checks for a closing browser's exit.
+	exitPollInterval = 100 * time.Millisecond
 )
 
 // pageTextExpression reads the text a person sees on the page.
@@ -389,7 +391,35 @@ func (e *stagehandEngine) Detach(ctx context.Context) error {
 }
 
 func (e *stagehandEngine) Close(ctx context.Context) error {
-	return errors.Join(e.release(ctx), e.browser.Close(ctx))
+	return errors.Join(e.release(ctx), closeBrowser(ctx, e.handle.BrowserPID, e.browser.Close))
+}
+
+// closeBrowser terminates a launched browser with closeRuntime. Besides the
+// browser, closeRuntime waits for every process that inherited the browser's
+// output, such as the Chrome updater on macOS, which can outlive the browser
+// by minutes; that wait continues in the background once the browser with
+// process ID pid has exited. Without a process ID, it waits for closeRuntime.
+func closeBrowser(ctx context.Context, pid int, closeRuntime func(context.Context) error) error {
+	closed := make(chan error, 1)
+	go func() { closed <- closeRuntime(ctx) }()
+	var exitChecks <-chan time.Time
+	if pid > 0 {
+		ticker := time.NewTicker(exitPollInterval)
+		defer ticker.Stop()
+		exitChecks = ticker.C
+	}
+	for {
+		select {
+		case err := <-closed:
+			return err
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-exitChecks:
+			if browserExited(pid) {
+				return nil
+			}
+		}
+	}
 }
 
 func (e *stagehandEngine) release(ctx context.Context) error {

@@ -399,3 +399,13 @@ func TestStagehandBoundsUnresponsivePage(t *testing.T) {
 	require.ErrorContains(t, err, "the browser did not respond within 2s")
 	assert.Less(t, time.Since(began), 10*time.Second)
 }
+
+// A runtime close that fails while the browser is still running is
+// reported.
+func TestCloseBrowserReportsRuntimeError(t *testing.T) {
+	t.Parallel()
+
+	closeErr := errors.New("close failed")
+	err := closeBrowser(t.Context(), os.Getpid(), func(context.Context) error { return closeErr })
+	require.ErrorIs(t, err, closeErr)
+}
