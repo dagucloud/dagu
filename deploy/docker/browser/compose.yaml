@@ -13,8 +13,9 @@
 services:
   dagu:
     image: ${DAGU_IMAGE:-ghcr.io/dagucloud/dagu:dev}
+    # Local only: the first visitor creates the admin account.
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     environment:
       - DAGU_AUTH_MODE=builtin
       # Turn off the browser sandbox instead of using the seccomp profile.
