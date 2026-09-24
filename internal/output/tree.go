@@ -190,8 +190,8 @@ func (r *Renderer) renderStepContent(node *ir.Node, isLast bool, prefix string) 
 	hasError := node.Error != "" && node.Status == ir.NodeFailed
 	hasSubRuns := len(node.SubRuns) > 0
 	hasHumanTask := node.Status == ir.NodeWaiting && node.Step.HumanTask != nil
-	pendingInteractions := pendingAgentInteractions(node)
-	hasInteractions := len(pendingInteractions) > 0
+	interactionDetails := agentInteractionDetails(node)
+	hasInteractions := len(interactionDetails) > 0
 	hasBuild := node.Build != nil
 
 	hasFollowingContent := hasOutput || hasError || hasSubRuns || hasHumanTask || hasInteractions || hasBuild
@@ -211,7 +211,7 @@ func (r *Renderer) renderStepContent(node *ir.Node, isLast bool, prefix string) 
 
 	if hasInteractions {
 		r.addFieldSpacing(&buf, wroteField, cPrefix)
-		buf.WriteString(r.renderAgentInteractions(pendingInteractions, !hasOutput && !hasError && !hasSubRuns, cPrefix))
+		buf.WriteString(r.renderDetails(interactionDetails, !hasOutput && !hasError && !hasSubRuns, cPrefix))
 		wroteField = true
 	}
 
@@ -288,23 +288,16 @@ func (r *Renderer) renderHumanTask(node *ir.Node, isLastSection bool, prefix str
 	return r.renderDetails(details, isLastSection, prefix)
 }
 
-// pendingAgentInteractions returns the agent requests a waiting step needs answered.
-func pendingAgentInteractions(node *ir.Node) []ir.AgentInteraction {
+// agentInteractionDetails describes the agent requests a waiting step needs answered.
+func agentInteractionDetails(node *ir.Node) []string {
 	if node.Status != ir.NodeWaiting || node.AgentSession == nil {
 		return nil
 	}
-	var pending []ir.AgentInteraction
-	for _, interaction := range node.AgentSession.Interactions {
-		if interaction.Status == ir.AgentInteractionPending {
-			pending = append(pending, interaction)
-		}
-	}
-	return pending
-}
-
-func (r *Renderer) renderAgentInteractions(interactions []ir.AgentInteraction, isLastSection bool, prefix string) string {
 	var details []string
-	for _, interaction := range interactions {
+	for _, interaction := range node.AgentSession.Interactions {
+		if interaction.Status != ir.AgentInteractionPending {
+			continue
+		}
 		switch interaction.Kind {
 		case ir.AgentInteractionQuestion:
 			for _, question := range interaction.Questions {
@@ -321,7 +314,7 @@ func (r *Renderer) renderAgentInteractions(interactions []ir.AgentInteraction, i
 			details = append(details, "expires at: "+formatInteractionTime(interaction.ExpiresAt))
 		}
 	}
-	return r.renderDetails(details, isLastSection, prefix)
+	return details
 }
 
 // formatInteractionTime shows an RFC 3339 interaction time in local time,
