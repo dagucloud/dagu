@@ -4,6 +4,8 @@
 package browserhost
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
@@ -36,7 +38,8 @@ func (c *ReplayCache) Path(dagName, stepKey string) string {
 	return filepath.Join(c.dagDir(dagName), fileutil.SafeName(stepKey)+replayCacheFileExt)
 }
 
-// Steps returns the sorted keys of the DAG's steps that have records.
+// Steps returns the sorted keys of the DAG's steps that have records. A step
+// name is returned in the file-safe form its records are stored under.
 func (c *ReplayCache) Steps(dagName string) ([]string, error) {
 	entries, err := os.ReadDir(c.dagDir(dagName))
 	if errors.Is(err, os.ErrNotExist) {
@@ -58,8 +61,8 @@ func (c *ReplayCache) Steps(dagName string) ([]string, error) {
 }
 
 // Clear removes the records of one step, or of every step of the DAG when
-// stepKey is empty, and returns the keys of the steps it removed. Missing
-// records are not an error.
+// stepKey is empty, and returns the keys of the steps it removed: stepKey
+// itself, or the keys Steps reports. Missing records are not an error.
 func (c *ReplayCache) Clear(dagName, stepKey string) ([]string, error) {
 	if dagName == "" {
 		// An empty name maps to the cache root, which holds every DAG.
@@ -73,7 +76,7 @@ func (c *ReplayCache) Clear(dagName, stepKey string) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		return []string{fileutil.SafeName(stepKey)}, nil
+		return []string{stepKey}, nil
 	}
 	steps, err := c.Steps(dagName)
 	if err != nil {
@@ -85,6 +88,13 @@ func (c *ReplayCache) Clear(dagName, stepKey string) ([]string, error) {
 	return steps, nil
 }
 
+// dagDir keeps DAGs whose names differ only in characters SafeName replaces,
+// such as "etl.daily" and "etl_daily", in separate directories.
 func (c *ReplayCache) dagDir(dagName string) string {
-	return filepath.Join(c.dir, fileutil.SafeName(dagName))
+	name := fileutil.SafeName(dagName)
+	if name != dagName {
+		sum := sha256.Sum256([]byte(dagName))
+		name += "-" + hex.EncodeToString(sum[:])[:4]
+	}
+	return filepath.Join(c.dir, name)
 }

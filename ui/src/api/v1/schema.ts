@@ -4520,7 +4520,7 @@ export interface components {
         };
         /** @description Browser steps whose replay cache was removed */
         DAGBrowserCacheClearResult: {
-            /** @description Keys of the steps whose recorded act operations were removed. Empty when there was nothing to clear. */
+            /** @description Keys of the steps whose recorded act operations were removed: the requested step, or every cleared step with step names in their file-safe form. Empty when there was nothing to clear. */
             steps: string[];
         };
         /** @description Server-side DAG notification settings */

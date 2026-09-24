@@ -12121,7 +12121,7 @@ components:
       properties:
         steps:
           type: array
-          description: "Keys of the steps whose recorded act operations were removed. Empty when there was nothing to clear."
+          description: "Keys of the steps whose recorded act operations were removed: the requested step, or every cleared step with step names in their file-safe form. Empty when there was nothing to clear."
           items:
             type: string
 

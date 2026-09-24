@@ -57,6 +57,36 @@ func TestReplayCacheClearStep(t *testing.T) {
 	assert.Equal(t, []string{"download"}, steps)
 }
 
+// A step without an ID is keyed by its name, which may hold characters a file
+// name cannot.
+func TestReplayCacheClearStepByName(t *testing.T) {
+	t.Parallel()
+
+	cache := browserhost.NewReplayCache(t.TempDir())
+	seedReplayCache(t, cache, "billing", "Log in")
+
+	removed, err := cache.Clear("billing", "Log in")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Log in"}, removed)
+}
+
+// Names that map to the same file-safe form still keep separate records.
+func TestReplayCacheKeepsDAGsApart(t *testing.T) {
+	t.Parallel()
+
+	cache := browserhost.NewReplayCache(t.TempDir())
+	seedReplayCache(t, cache, "etl.daily", "login")
+	seedReplayCache(t, cache, "etl_daily", "login")
+
+	removed, err := cache.Clear("etl.daily", "")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"login"}, removed)
+
+	steps, err := cache.Steps("etl_daily")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"login"}, steps)
+}
+
 func TestReplayCacheClearMissing(t *testing.T) {
 	t.Parallel()
 
