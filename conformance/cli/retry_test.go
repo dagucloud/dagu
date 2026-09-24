@@ -47,6 +47,26 @@ func TestRetryStepFlagReexecutesOnlyThatStep(t *testing.T) {
 	dagu.ExpectFileContent("steps.out", "first\nsecond\nsecond\n")
 }
 
+// TestRetryReplacesStdoutArtifact proves a stdout artifact holds the output of
+// the latest attempt, not the output of every attempt of the run.
+func TestRetryReplacesStdoutArtifact(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	env := sharedEnv(t)
+	const runID = "cli-retry-artifact"
+	const artifact = "artifacts/*/*/*/*_artifact_retry_*/report.txt"
+
+	first := dagu.RunWithEnv(env, "start", "--run-id="+runID, "artifact_retry.yaml")
+	first.ExpectNonZeroExitCode()
+	dagu.ExpectGlobFileContent(artifact, "line\n")
+
+	dagu.WriteFile("ok", "")
+	retry := dagu.RunWithEnv(env, "retry", "--run-id="+runID, "artifact_retry")
+	retry.ExpectExitCode(0)
+	dagu.ExpectGlobFileContent(artifact, "line\n")
+}
+
 func TestRetryDownstreamRequiresStep(t *testing.T) {
 	t.Parallel()
 

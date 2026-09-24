@@ -1,0 +1,10 @@
+working_dir: .
+artifacts:
+  dir: artifacts
+steps:
+  - id: report
+    run: |
+      printf 'line\n'
+      test -f ok
+    stdout:
+      artifact: report.txt
