@@ -37,3 +37,31 @@ func TestSeedNodesHumanTask(t *testing.T) {
 	require.JSONEq(t, outputs, *state.StepOutputsValue)
 	require.Equal(t, ir.NodeNotStarted, nodes[1].State.Status)
 }
+
+func TestSeedNodesNoSource(t *testing.T) {
+	dag := &ir.DAG{Steps: []ir.Step{{Name: "build"}, {Name: "test"}}}
+
+	nodes := transform.SeedNodes(dag, nil, []string{"build"})
+
+	require.Len(t, nodes, 2)
+	require.Equal(t, ir.NodeSkipped, nodes[0].State.Status)
+	require.True(t, nodes[0].State.SkippedByRetry)
+	require.Equal(t, ir.NodeNotStarted, nodes[1].State.Status)
+}
+
+// A failed attempt publishes no outputs, so a skipped step seeded from one
+// must not carry the partial output it recorded.
+func TestSeedNodesFailedSource(t *testing.T) {
+	partial := `{"token":"partial"}`
+	dag := &ir.DAG{Steps: []ir.Step{{Name: "build"}}}
+	source := &ir.DAGRunStatus{Nodes: []*ir.Node{{
+		Step:             ir.Step{Name: "build"},
+		Status:           ir.NodeFailed,
+		StepOutputsValue: &partial,
+	}}}
+
+	nodes := transform.SeedNodes(dag, source, []string{"build"})
+
+	require.Equal(t, ir.NodeSkipped, nodes[0].State.Status)
+	require.Nil(t, nodes[0].State.StepOutputsValue)
+}

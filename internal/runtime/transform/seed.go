@@ -15,13 +15,15 @@ import (
 
 // SeedNodes returns the initial node states for a new run of dag. Steps named
 // in skipped are recorded as skipped by retry, so their dependents still run,
-// and carry the outputs and completion details that source recorded for them.
-// Every other step starts as not started.
+// and carry the outputs and completion details of the matching Reusable node
+// in source. Every other step starts as not started. source may be nil.
 func SeedNodes(dag *ir.DAG, source *ir.DAGRunStatus, skipped []string) []runtime.NodeData {
-	sourceNodes := make(map[string]*ir.Node, len(source.Nodes))
-	for _, node := range source.Nodes {
-		if node != nil {
-			sourceNodes[node.Step.Name] = node
+	sourceNodes := make(map[string]*ir.Node)
+	if source != nil {
+		for _, node := range source.Nodes {
+			if Reusable(node) {
+				sourceNodes[node.Step.Name] = node
+			}
 		}
 	}
 	skipSet := make(map[string]struct{}, len(skipped))

@@ -33,7 +33,7 @@ func TestSeedRun(t *testing.T) {
 		DAGRunRepository: repo,
 		DAG:              dag,
 		DAGRunID:         "run-1",
-		Nodes:            transform.SeedNodes(dag, &ir.DAGRunStatus{}, []string{"build"}),
+		Nodes:            transform.SeedNodes(dag, nil, []string{"build"}),
 		Params:           "ENV=dev",
 		TriggerType:      ir.TriggerTypeManual,
 		TriggerActor:     "alice",
@@ -123,7 +123,7 @@ func TestSeedRunExistingRun(t *testing.T) {
 		DAGRunRepository: repo,
 		DAG:              dag,
 		DAGRunID:         "run-1",
-		Nodes:            transform.SeedNodes(dag, &ir.DAGRunStatus{}, nil),
+		Nodes:            transform.SeedNodes(dag, nil, nil),
 		LogBaseDir:       logDir,
 	})
 	require.Error(t, err)
@@ -142,7 +142,7 @@ func TestMarkSeedFailed(t *testing.T) {
 		DAGRunRepository: repo,
 		DAG:              dag,
 		DAGRunID:         "run-1",
-		Nodes:            transform.SeedNodes(dag, &ir.DAGRunStatus{}, nil),
+		Nodes:            transform.SeedNodes(dag, nil, nil),
 		TriggerType:      ir.TriggerTypeManual,
 		LogBaseDir:       logDir,
 	})
