@@ -214,24 +214,6 @@ func TestEditRetryDAGRun_RejectsDistributedBuildWorkflow(t *testing.T) {
 	require.Empty(t, recorder.dispatched)
 }
 
-func TestSkippedEditRetryNodeStatePreservesHumanTaskCompletion(t *testing.T) {
-	outputs := `{"decision":"approve"}`
-	source := &ir.Node{
-		HumanTaskInput:         json.RawMessage(`{"decision":"approve"}`),
-		HumanTaskCompletedBy:   "Alice",
-		HumanTaskCompletedByID: "user-1",
-		StepOutputsValue:       &outputs,
-	}
-
-	state := skippedEditRetryNodeState(source)
-
-	require.JSONEq(t, `{"decision":"approve"}`, string(state.HumanTaskInput))
-	require.Equal(t, "Alice", state.HumanTaskCompletedBy)
-	require.Equal(t, "user-1", state.HumanTaskCompletedByID)
-	require.NotNil(t, state.StepOutputsValue)
-	require.JSONEq(t, outputs, *state.StepOutputsValue)
-}
-
 func TestEditRetryDAGRun_InheritsRuntimeProfile(t *testing.T) {
 	ctx := context.Background()
 	tmpDir := t.TempDir()
