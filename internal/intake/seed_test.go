@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"testing"
 	"time"
@@ -105,6 +106,61 @@ func TestSeedRunCopiesWorkDir(t *testing.T) {
 	raw, ok := status.Nodes[0].OutputVariables.Load("RESULT")
 	require.True(t, ok)
 	require.Equal(t, "RESULT="+copied, raw)
+}
+
+// A read-only directory in the source work directory, such as a Go module
+// cache, is copied with its files and keeps its permissions.
+func TestSeedRunCopiesReadOnlyDir(t *testing.T) {
+	if goruntime.GOOS == "windows" {
+		t.Skip("directory permission bits are not enforced on Windows")
+	}
+	t.Parallel()
+
+	ctx := context.Background()
+	repo, logDir := newSeedRepository(t)
+	dag := seedTestDAG()
+
+	sourceRef := ir.NewDAGRunRef(dag.Name, "source")
+	sourceAttempt, err := repo.CreateAttempt(ctx, dag, time.Now(), sourceRef.ID, persis.DAGRunCreateAttemptOptions{})
+	require.NoError(t, err)
+	sourceWorkDir, err := repo.MaterializeWorkDir(ctx, dagrun.WorkDirRef{DAGRun: sourceRef})
+	require.NoError(t, err)
+	readOnlyDir := filepath.Join(sourceWorkDir, "modcache")
+	require.NoError(t, os.Mkdir(readOnlyDir, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(readOnlyDir, "go.mod"), []byte("module x\n"), 0o400))
+	require.NoError(t, os.Chmod(readOnlyDir, 0o500))
+	source := ir.NewStatusBuilder(dag).Create(sourceRef.ID, ir.Succeeded, 0, time.Now(), ir.WithAttemptID(sourceAttempt.ID()))
+	source.Nodes[0].Status = ir.NodeSucceeded
+	require.NoError(t, sourceAttempt.Open(ctx))
+	require.NoError(t, sourceAttempt.Write(ctx, source))
+	require.NoError(t, sourceAttempt.Close(ctx))
+
+	workDir, err := repo.MaterializeWorkDir(ctx, dagrun.WorkDirRef{DAGRun: ir.NewDAGRunRef(dag.Name, "run-1")})
+	require.NoError(t, err)
+	copiedDir := filepath.Join(workDir, "modcache")
+	// Read-only directories would make the temporary directory cleanup fail.
+	t.Cleanup(func() {
+		_ = os.Chmod(readOnlyDir, 0o750)
+		_ = os.Chmod(copiedDir, 0o750)
+	})
+
+	_, _, err = intake.SeedRun(ctx, intake.SeedRequest{
+		DAGRunRepository: repo,
+		DAG:              dag,
+		DAGRunID:         "run-1",
+		Nodes:            transform.SeedNodes(dag, &source, []string{"build"}),
+		Source:           &source,
+		TriggerType:      ir.TriggerTypeManual,
+		LogBaseDir:       logDir,
+	})
+	require.NoError(t, err)
+
+	content, err := os.ReadFile(filepath.Join(copiedDir, "go.mod")) //nolint:gosec
+	require.NoError(t, err)
+	require.Equal(t, "module x\n", string(content))
+	info, err := os.Stat(copiedDir)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o500), info.Mode().Perm())
 }
 
 func TestSeedRunExistingRun(t *testing.T) {

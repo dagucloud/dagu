@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -32,7 +33,14 @@ func copyWorkDir(sourceWorkDir, targetWorkDir string) error {
 		return err
 	}
 
-	return filepath.WalkDir(sourceWorkDir, func(path string, entry fs.DirEntry, walkErr error) error {
+	// Directories are created writable so their contents can be copied in;
+	// their source permissions are applied once the walk has finished.
+	type dirMode struct {
+		path string
+		mode fs.FileMode
+	}
+	var dirs []dirMode
+	err = filepath.WalkDir(sourceWorkDir, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -52,7 +60,8 @@ func copyWorkDir(sourceWorkDir, targetWorkDir string) error {
 		mode := info.Mode()
 		switch {
 		case entry.IsDir():
-			return os.MkdirAll(targetPath, mode.Perm())
+			dirs = append(dirs, dirMode{path: targetPath, mode: mode.Perm()})
+			return os.MkdirAll(targetPath, 0o750)
 		case mode.Type()&os.ModeSymlink != 0:
 			return copyWorkDirSymlink(sourceWorkDir, targetWorkDir, path, targetPath)
 		case mode.IsRegular():
@@ -61,6 +70,15 @@ func copyWorkDir(sourceWorkDir, targetWorkDir string) error {
 			return nil
 		}
 	})
+	if err != nil {
+		return err
+	}
+	for _, dir := range slices.Backward(dirs) {
+		if err := os.Chmod(dir.path, dir.mode); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func copyWorkDirSymlink(sourceWorkDir, targetWorkDir, sourcePath, targetPath string) error {
