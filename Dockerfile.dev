@@ -71,6 +71,24 @@ RUN set -ex && \
     apt-get clean && rm -rf /var/lib/apt/lists/*; \
     ln -sf /usr/bin/tini /usr/local/bin/tini
 
+# Chromium for browser steps. Ubuntu ships Chromium only as a snap, so the
+# build comes from Playwright, which provides amd64 and arm64. Playwright
+# 1.61 is the last release that runs on Ubuntu's Node.js 18.
+ARG TARGETARCH
+ARG PLAYWRIGHT_VERSION=1.61.1
+RUN set -ex; \
+    if [ "$TARGETARCH" = "amd64" ] || [ "$TARGETARCH" = "arm64" ]; then \
+      PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright \
+        npx --yes "playwright@${PLAYWRIGHT_VERSION}" install --with-deps --no-shell chromium && \
+      ln -s "$(find /opt/ms-playwright -type f -name chrome -path '*/chromium-*' | head -n 1)" /usr/local/bin/chromium && \
+      /usr/local/bin/chromium --version && \
+      apt-get clean && rm -rf /var/lib/apt/lists/* /root/.npm; \
+    fi
+# Browser steps run as a non-root user, where Chromium's sandbox is
+# unavailable in a container, and Docker's /dev/shm is too small for it.
+ENV CHROME_PATH=/usr/local/bin/chromium
+ENV DAGU_BROWSER_ARGS=--no-sandbox,--disable-dev-shm-usage
+
 COPY --from=go-builder /app/bin/dagu /usr/local/bin/
 COPY ./entrypoint.sh /entrypoint.sh
 

@@ -776,7 +776,7 @@ Container support:
 
 ## browser.extract / browser.run
 
-Automate a website in a local Chrome with natural-language operations. The model comes from the DAG-level `llm` block, or `with.llm`, which replaces it entirely; use a model that follows tool-call schemas reliably. Chrome or Chromium must be installed on the host that runs the step (`browser.executable` or `CHROME_PATH` selects it).
+Automate a website in a local Chrome with natural-language operations. The model comes from the DAG-level `llm` block, or `with.llm`, which replaces it entirely; use a model that follows tool-call schemas reliably. Chrome or Chromium must be installed on the host that runs the step (`browser.executable` or `CHROME_PATH` selects it). Of the container images, only `ghcr.io/dagucloud/dagu:dev` includes Chromium, on amd64 and arm64.
 
 ```yaml
 secrets:
