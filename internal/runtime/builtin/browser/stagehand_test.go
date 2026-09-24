@@ -409,3 +409,19 @@ func TestCloseBrowserReportsRuntimeError(t *testing.T) {
 	err := closeBrowser(t.Context(), os.Getpid(), func(context.Context) error { return closeErr })
 	require.ErrorIs(t, err, closeErr)
 }
+
+// On Linux a browser that exits at launch is often one that cannot use its
+// sandbox, so the error points to the host setting that turns it off.
+func TestLaunchFailureSuggestsBrowserFlags(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS != "linux" || os.Geteuid() == 0 {
+		t.Skip("the hint applies to non-root Linux users")
+	}
+
+	_, err := stagehandLauncher{}.Launch(t.Context(), launchOptions{
+		Executable:  "/bin/false",
+		Headless:    true,
+		UserDataDir: t.TempDir(),
+	})
+	require.ErrorContains(t, err, "DAGU_BROWSER_ARGS")
+}

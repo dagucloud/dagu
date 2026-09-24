@@ -11,6 +11,9 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
+	goruntime "runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -49,6 +52,21 @@ const selectorVisibleExpression = `Array.from(document.querySelectorAll(%s)).som
 
 var errImageInput = errors.New("browser: image input to the model is not supported")
 
+// noSandboxFlag turns off the browser sandbox.
+const noSandboxFlag = "--no-sandbox"
+
+// sandboxHint suggests the host setting that turns off the browser sandbox
+// when a launch fails where the sandbox is a likely cause: on Linux, as a
+// non-root user, with the sandbox still on. The browser runtime turns it off
+// for root itself.
+func sandboxHint(args []string) string {
+	if goruntime.GOOS != "linux" || os.Geteuid() == 0 || slices.Contains(args, noSandboxFlag) {
+		return ""
+	}
+	return "; if the browser cannot use its sandbox here, such as in a container, add " +
+		noSandboxFlag + " with browser.args in the Dagu config or DAGU_BROWSER_ARGS"
+}
+
 // stagehandLauncher runs sessions through the Stagehand Go SDK.
 type stagehandLauncher struct{}
 
@@ -75,7 +93,7 @@ func (stagehandLauncher) Launch(ctx context.Context, opts launchOptions) (engine
 	}
 	browser, err := stagehand.LaunchLocalBrowser(ctx, launch)
 	if err != nil {
-		return nil, fmt.Errorf("launch browser: %w", err)
+		return nil, fmt.Errorf("launch browser: %w%s", err, sandboxHint(opts.Args))
 	}
 	cdpURL := fmt.Sprintf("http://127.0.0.1:%d", port)
 	eng, err := startEngine(ctx, browser, cdpURL, opts)
