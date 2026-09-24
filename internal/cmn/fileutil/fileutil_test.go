@@ -4,6 +4,7 @@
 package fileutil
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -82,6 +83,36 @@ func TestOpenOrCreateFileWithoutSync(t *testing.T) {
 	data, err = os.ReadFile(filePath)
 	require.NoError(t, err)
 	assert.Equal(t, "first-second", string(data))
+}
+
+func TestCreateOrTruncateFile(t *testing.T) {
+	t.Parallel()
+
+	filePath := filepath.Join(t.TempDir(), "report.txt")
+	require.NoError(t, os.WriteFile(filePath, []byte("stale"), 0o600))
+
+	file, err := CreateOrTruncateFile(filePath)
+	require.NoError(t, err)
+	defer func() {
+		_ = file.Close()
+	}()
+
+	_, err = file.WriteString("first")
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(filePath)
+	require.NoError(t, err)
+	assert.Equal(t, "first", string(data))
+
+	require.NoError(t, file.Truncate(0))
+	_, err = file.Seek(0, io.SeekStart)
+	require.NoError(t, err)
+	_, err = file.WriteString("second")
+	require.NoError(t, err)
+
+	data, err = os.ReadFile(filePath)
+	require.NoError(t, err)
+	assert.Equal(t, "second", string(data))
 }
 
 func TestOpenOrCreateFileForRandomWrite(t *testing.T) {
