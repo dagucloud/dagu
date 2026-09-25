@@ -5,8 +5,9 @@
 Partially implemented.
 
 Conformance covers direct provider references declared on a DAG's `secrets:`
-field, build-time validation of that field, and live resolution for the
-`env`, `file`, and `aws` providers. It does not cover the workspace-managed
+field, build-time validation of that field, live resolution for the
+`env`, `file`, and `aws` providers, and masking of stored step outputs as a
+retried run reads them. It does not cover the workspace-managed
 secret registry (`ref:`-style references), which requires a running Dagu
 server and its secrets management API.
 
@@ -69,8 +70,18 @@ An unregistered `provider` fails with `unknown secret provider: <name>`.
 
 Every resolved secret value is masked wherever Dagu writes run output: the
 step's stdout/stderr log files on disk, the rendered status tree, and stored
-run status (error messages, output variables, step configuration). The
-mask replaces the literal value with `*******`.
+run status (error messages, output variables, outputs a step publishes, step
+configuration). Published outputs include values written to
+`DAGU_OUTPUT_FILE`. In stored run status, a secret that appears in escaped
+form inside JSON text, such as a value containing `"`, `\`, `<`, `>`, `&`, or
+a newline, is masked too. The mask replaces the literal value with `*******`.
+
+Masking does not change the values steps exchange within a run. A later step
+of the same run reads a published output with the secret intact. A run that
+reuses a step's stored result instead of executing the step again reads the
+stored value, so each secret in a reused output reads as `*******`. This
+covers retry, resume after an approval or a human task, and runs that reuse
+another run's outputs.
 
 Provider-specific behavior covered here:
 

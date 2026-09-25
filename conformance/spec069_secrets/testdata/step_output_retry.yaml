@@ -1,0 +1,22 @@
+working_dir: .
+secrets:
+  - name: API_TOKEN
+    provider: file
+    key: file_secret.txt
+steps:
+  - id: login
+    run: |
+      printf 'login\n' >> logins.out
+      printf 'token=%s\n' "$API_TOKEN" >> "$DAGU_OUTPUT_FILE"
+    outputs:
+      - name: token
+
+  - id: use
+    depends: login
+    run: |
+      if [ '${steps.login.outputs.token}' = "$API_TOKEN" ]; then
+        printf 'real\n' >> received.out
+      else
+        printf '%s\n' '${steps.login.outputs.token}' >> received.out
+      fi
+      [ -f ready ]
