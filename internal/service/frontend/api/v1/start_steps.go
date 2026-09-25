@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	api "github.com/dagucloud/dagu/v2/api/v1"
@@ -19,8 +20,7 @@ import (
 
 // selectedStepsStart is a start request that runs only some steps of a DAG.
 type selectedStepsStart struct {
-	steps       []string
-	outputsFrom string
+	selection   stepSelection
 	params      string
 	dagRunID    string
 	labels      string
@@ -30,23 +30,34 @@ type selectedStepsStart struct {
 	inline bool
 }
 
+// stepSelection is the step selection of a start request body.
+type stepSelection struct {
+	steps       []string
+	outputsFrom string
+	// outputs are outputs of skipped steps, by step and then output name.
+	outputs map[string]map[string]string
+}
+
 // selectedStepsFromBody validates the step selection fields of a start
 // request body. It returns no steps when the request runs the whole DAG.
-func selectedStepsFromBody(steps *[]string, outputsFromRunID *string) ([]string, string, error) {
+func selectedStepsFromBody(steps *[]string, outputsFromRunID *string, outputs *map[string]map[string]string) (stepSelection, error) {
 	outputsFrom := strings.TrimSpace(valueOf(outputsFromRunID))
 	if steps == nil {
 		if outputsFrom != "" {
-			return nil, "", badSelectedStepsRequest("outputsFromRunId requires steps")
+			return stepSelection{}, badSelectedStepsRequest("outputsFromRunId requires steps")
 		}
-		return nil, "", nil
+		if outputs != nil {
+			return stepSelection{}, badSelectedStepsRequest("outputs requires steps")
+		}
+		return stepSelection{}, nil
 	}
 	if len(*steps) == 0 {
-		return nil, "", badSelectedStepsRequest("steps must name at least one step")
+		return stepSelection{}, badSelectedStepsRequest("steps must name at least one step")
 	}
 	if err := validateDAGRunID(outputsFrom); err != nil {
-		return nil, "", err
+		return stepSelection{}, err
 	}
-	return *steps, outputsFrom, nil
+	return stepSelection{steps: *steps, outputsFrom: outputsFrom, outputs: valueOf(outputs)}, nil
 }
 
 // startSelectedSteps starts a new run of dag in which only the selected steps
@@ -77,13 +88,13 @@ func (a *API) startSelectedSteps(ctx context.Context, dag *ir.DAG, req selectedS
 	}
 
 	var source *ir.DAGRunStatus
-	if req.outputsFrom != "" {
-		source, err = a.selectedStepsSource(ctx, dag.Name, req.outputsFrom)
+	if req.selection.outputsFrom != "" {
+		source, err = a.selectedStepsSource(ctx, dag.Name, req.selection.outputsFrom)
 		if err != nil {
 			return err
 		}
 	}
-	nodes, err := intake.SelectedStepNodes(dag, req.steps, source, nil)
+	nodes, err := intake.SelectedStepNodes(dag, req.selection.steps, source, req.selection.outputs)
 	if err != nil {
 		return badSelectedStepsRequest(err.Error())
 	}
@@ -125,14 +136,26 @@ func (a *API) selectedStepsSource(ctx context.Context, dagName, dagRunID string)
 	return status, nil
 }
 
-// addSelectedStepsAudit records the step selection of a start request.
-func addSelectedStepsAudit(details map[string]any, steps []string, outputsFrom string) {
-	if len(steps) == 0 {
+// addSelectedStepsAudit records the step selection of a start request. Only
+// the names of supplied outputs are recorded, since their values may be
+// credentials.
+func addSelectedStepsAudit(details map[string]any, selection stepSelection) {
+	if len(selection.steps) == 0 {
 		return
 	}
-	details["steps"] = steps
-	if outputsFrom != "" {
-		details["outputs_from_dag_run_id"] = outputsFrom
+	details["steps"] = selection.steps
+	if selection.outputsFrom != "" {
+		details["outputs_from_dag_run_id"] = selection.outputsFrom
+	}
+	if len(selection.outputs) > 0 {
+		var names []string
+		for step, values := range selection.outputs {
+			for name := range values {
+				names = append(names, step+"."+name)
+			}
+		}
+		slices.Sort(names)
+		details["outputs"] = names
 	}
 }
 

@@ -8380,6 +8380,12 @@ export interface operations {
                     /** @description Run only these steps, by step name or ID, in a new DAG-run of the current definition. Every other step is recorded as skipped and does not run. Not supported for agent DAGs. */
                     steps?: string[];
                     outputsFromRunId?: components["schemas"]["DAGRunId"] & unknown;
+                    /** @description Outputs of skipped steps, keyed by step name or ID and then by output name. A declared output, or any name when the step declares none, resolves through ${steps.<id>.outputs.<name>}; the name of the step's string-form output variable sets that variable. Takes precedence over outputs from outputsFromRunId. Requires steps. */
+                    outputs?: {
+                        [key: string]: {
+                            [key: string]: string;
+                        };
+                    };
                     /**
                      * @deprecated
                      * @description Deprecated alias for `labels`; mutually exclusive with `labels`.
@@ -9478,6 +9484,12 @@ export interface operations {
                     /** @description Run only these steps, by step name or ID, in a new DAG-run of the current definition. Every other step is recorded as skipped and does not run. Not supported for agent DAGs. */
                     steps?: string[];
                     outputsFromRunId?: components["schemas"]["DAGRunId"] & unknown;
+                    /** @description Outputs of skipped steps, keyed by step name or ID and then by output name. A declared output, or any name when the step declares none, resolves through ${steps.<id>.outputs.<name>}; the name of the step's string-form output variable sets that variable. Takes precedence over outputs from outputsFromRunId. Requires steps. */
+                    outputs?: {
+                        [key: string]: {
+                            [key: string]: string;
+                        };
+                    };
                     /**
                      * @deprecated
                      * @description Deprecated alias for `labels`; mutually exclusive with `labels`.

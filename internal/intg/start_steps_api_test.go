@@ -54,6 +54,34 @@ func TestAPIStartSteps(t *testing.T) {
 	require.Equal(t, "CONSUMED=from-source", consumed)
 }
 
+// Supplied outputs stand in for a skipped step without any earlier run.
+func TestAPIStartStepsSetsOutputs(t *testing.T) {
+	server := test.SetupServer(t)
+	dagName := "intg_start_steps_outputs"
+	spec := startStepsSpec(dagName)
+	_ = server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
+		Name: dagName,
+		Spec: &spec,
+	}).ExpectStatus(http.StatusCreated).Send(t)
+
+	runID := "only-consume-given"
+	server.Client().Post(
+		fmt.Sprintf("/api/v1/dags/%s/start", dagName),
+		api.ExecuteDAGJSONRequestBody{
+			DagRunId: &runID,
+			Steps:    &[]string{"consume"},
+			Outputs:  &map[string]map[string]string{"build": {"RESULT": "given"}},
+		},
+	).ExpectStatus(http.StatusOK).Send(t)
+
+	status := waitForEditRetryStoredStatus(t, server, dagName, runID, ir.Succeeded)
+	require.Equal(t, ir.NodeSkipped, status.Nodes[0].Status)
+	require.Equal(t, ir.NodeSucceeded, status.Nodes[1].Status)
+	consumed, ok := status.Nodes[1].OutputVariables.Load("CONSUMED")
+	require.True(t, ok)
+	require.Equal(t, "CONSUMED=given", consumed)
+}
+
 func TestAPIStartStepsFromSpec(t *testing.T) {
 	server := test.SetupServer(t)
 	dagName := "intg_start_steps_inline"
@@ -87,6 +115,7 @@ func TestAPIStartStepsRejects(t *testing.T) {
 		body api.ExecuteDAGJSONRequestBody
 	}{
 		{name: "OutputsFromWithoutSteps", body: api.ExecuteDAGJSONRequestBody{OutputsFromRunId: &source}},
+		{name: "OutputsWithoutSteps", body: api.ExecuteDAGJSONRequestBody{Outputs: &map[string]map[string]string{"build": {"RESULT": "x"}}}},
 		{name: "EmptySteps", body: api.ExecuteDAGJSONRequestBody{Steps: &[]string{}}},
 		{name: "UnknownStep", body: api.ExecuteDAGJSONRequestBody{Steps: &[]string{"missing"}}},
 	}

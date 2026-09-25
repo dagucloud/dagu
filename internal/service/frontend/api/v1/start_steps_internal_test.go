@@ -26,10 +26,9 @@ func TestStartStepsDispatchesSeed(t *testing.T) {
 	require.NoError(t, err)
 
 	err = api.startSelectedSteps(ctx, dag, selectedStepsStart{
-		steps:       []string{"consume"},
-		outputsFrom: "source-run",
-		dagRunID:    "only-run",
-		labels:      "team=qa",
+		selection: stepSelection{steps: []string{"consume"}, outputsFrom: "source-run"},
+		dagRunID:  "only-run",
+		labels:    "team=qa",
 	})
 	require.NoError(t, err)
 
@@ -56,6 +55,35 @@ func TestStartStepsDispatchesSeed(t *testing.T) {
 	require.Equal(t, ir.NodeSkipped, status.Nodes[2].Status)
 }
 
+// Supplied outputs are seeded onto the skipped step, replacing the value the
+// source run recorded for the same output.
+func TestStartStepsSetsOutputs(t *testing.T) {
+	ctx := context.Background()
+	api, sourceDAG := setupEditRetryAPI(t, t.TempDir(), editRetrySourceYAML())
+	seedEditRetrySourceAttempt(t, ctx, api.dagRunRepository, sourceDAG, "source-run")
+	api.coordinatorCli = &retryCoordinatorRecorder{}
+	dag, err := spec.LoadYAML(ctx, []byte(editRetryEditedYAMLWithWorkerSelector()))
+	require.NoError(t, err)
+
+	err = api.startSelectedSteps(ctx, dag, selectedStepsStart{
+		selection: stepSelection{
+			steps:       []string{"consume"},
+			outputsFrom: "source-run",
+			outputs:     map[string]map[string]string{"build": {"RESULT": "given"}},
+		},
+		dagRunID: "only-run",
+	})
+	require.NoError(t, err)
+
+	attempt, err := api.dagRunRepository.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, "only-run"))
+	require.NoError(t, err)
+	status, err := attempt.ReadStatus(ctx)
+	require.NoError(t, err)
+	raw, ok := status.Nodes[0].OutputVariables.Load("RESULT")
+	require.True(t, ok)
+	require.Equal(t, "RESULT=given", raw)
+}
+
 func TestStartStepsRejects(t *testing.T) {
 	ctx := context.Background()
 	api, dag := setupEditRetryAPI(t, t.TempDir(), editRetrySourceYAML())
@@ -68,15 +96,24 @@ func TestStartStepsRejects(t *testing.T) {
 	}{
 		{
 			name:       "UnknownStep",
-			req:        selectedStepsStart{steps: []string{"missing"}, dagRunID: "run"},
+			req:        selectedStepsStart{selection: stepSelection{steps: []string{"missing"}}, dagRunID: "run"},
 			wantStatus: http.StatusBadRequest,
 			wantMsg:    `unknown step "missing"`,
 		},
 		{
 			name:       "MissingSource",
-			req:        selectedStepsStart{steps: []string{"consume"}, outputsFrom: "nope", dagRunID: "run"},
+			req:        selectedStepsStart{selection: stepSelection{steps: []string{"consume"}, outputsFrom: "nope"}, dagRunID: "run"},
 			wantStatus: http.StatusNotFound,
 			wantMsg:    "dag-run nope not found",
+		},
+		{
+			name: "OutputOfSelectedStep",
+			req: selectedStepsStart{selection: stepSelection{
+				steps:   []string{"consume"},
+				outputs: map[string]map[string]string{"consume": {"RESULT": "x"}},
+			}, dagRunID: "run"},
+			wantStatus: http.StatusBadRequest,
+			wantMsg:    `cannot set outputs of step "consume": it is selected to run`,
 		},
 	}
 	for _, tt := range tests {
@@ -90,10 +127,18 @@ func TestStartStepsRejects(t *testing.T) {
 	}
 
 	t.Run("OutputsFromNeedsSteps", func(t *testing.T) {
-		_, _, err := selectedStepsFromBody(nil, ptrOf("source"))
+		_, err := selectedStepsFromBody(nil, ptrOf("source"), nil)
 		var apiErr *Error
 		require.ErrorAs(t, err, &apiErr)
 		require.Equal(t, http.StatusBadRequest, apiErr.HTTPStatus)
 		require.Contains(t, apiErr.Message, "outputsFromRunId requires steps")
+	})
+
+	t.Run("OutputsNeedSteps", func(t *testing.T) {
+		_, err := selectedStepsFromBody(nil, nil, &map[string]map[string]string{"build": {"RESULT": "x"}})
+		var apiErr *Error
+		require.ErrorAs(t, err, &apiErr)
+		require.Equal(t, http.StatusBadRequest, apiErr.HTTPStatus)
+		require.Contains(t, apiErr.Message, "outputs requires steps")
 	})
 }

@@ -174,7 +174,7 @@ func (a *API) ExecuteDAGRunFromSpec(ctx context.Context, request api.ExecuteDAGR
 		}
 	}
 
-	steps, outputsFrom, err := selectedStepsFromBody(request.Body.Steps, request.Body.OutputsFromRunId)
+	selection, err := selectedStepsFromBody(request.Body.Steps, request.Body.OutputsFromRunId, request.Body.Outputs)
 	if err != nil {
 		return nil, err
 	}
@@ -241,10 +241,9 @@ func (a *API) ExecuteDAGRunFromSpec(ctx context.Context, request api.ExecuteDAGR
 	}
 
 	var started *launcher.StartResult
-	if len(steps) > 0 {
+	if len(selection.steps) > 0 {
 		if err := a.startSelectedSteps(ctx, dag, selectedStepsStart{
-			steps:       steps,
-			outputsFrom: outputsFrom,
+			selection:   selection,
 			params:      params,
 			dagRunID:    dagRunId,
 			labels:      labels,
@@ -281,7 +280,7 @@ func (a *API) ExecuteDAGRunFromSpec(ctx context.Context, request api.ExecuteDAGR
 	if params != "" {
 		detailsMap["params"] = params
 	}
-	addSelectedStepsAudit(detailsMap, steps, outputsFrom)
+	addSelectedStepsAudit(detailsMap, selection)
 	a.logAudit(ctx, audit.CategoryDAG, "dag_execute", detailsMap)
 
 	return api.ExecuteDAGRunFromSpec200JSONResponse{

@@ -1121,17 +1121,31 @@ paths:
                   allOf:
                     - $ref: "#/components/schemas/DAGRunId"
                     - description: "Finished DAG-run of the same DAG whose step outputs and work directory are carried into the skipped steps. Outputs come only from steps that succeeded there. Requires steps."
+                outputs:
+                  type: object
+                  description: "Outputs of skipped steps, keyed by step name or ID and then by output name. A declared output, or any name when the step declares none, resolves through ${steps.<id>.outputs.<name>}; the name of the step's string-form output variable sets that variable. Takes precedence over outputs from outputsFromRunId. Requires steps."
+                  additionalProperties:
+                    type: object
+                    additionalProperties:
+                      type: string
                 tags:
                   allOf:
                     - $ref: "#/components/schemas/Tags"
                   deprecated: true
                   description: "Deprecated alias for `labels`; mutually exclusive with `labels`."
               not:
-                allOf:
+                anyOf:
                   - type: object
                     required:
                       - outputsFromRunId
-                  - not:
+                    not:
+                      type: object
+                      required:
+                        - steps
+                  - type: object
+                    required:
+                      - outputs
+                    not:
                       type: object
                       required:
                         - steps
@@ -2110,6 +2124,13 @@ paths:
                   allOf:
                     - $ref: "#/components/schemas/DAGRunId"
                     - description: "Finished DAG-run of the same DAG whose step outputs and work directory are carried into the skipped steps. Outputs come only from steps that succeeded there. Requires steps."
+                outputs:
+                  type: object
+                  description: "Outputs of skipped steps, keyed by step name or ID and then by output name. A declared output, or any name when the step declares none, resolves through ${steps.<id>.outputs.<name>}; the name of the step's string-form output variable sets that variable. Takes precedence over outputs from outputsFromRunId. Requires steps."
+                  additionalProperties:
+                    type: object
+                    additionalProperties:
+                      type: string
                 tags:
                   allOf:
                     - $ref: "#/components/schemas/Tags"
@@ -2118,11 +2139,18 @@ paths:
               required:
                 - spec
               not:
-                allOf:
+                anyOf:
                   - type: object
                     required:
                       - outputsFromRunId
-                  - not:
+                    not:
+                      type: object
+                      required:
+                        - steps
+                  - type: object
+                    required:
+                      - outputs
+                    not:
                       type: object
                       required:
                         - steps
