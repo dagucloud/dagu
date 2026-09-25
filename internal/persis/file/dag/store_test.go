@@ -2372,6 +2372,28 @@ steps:
 	assert.False(t, fileExists(indexPath), "index should be removed after invalidation")
 }
 
+func TestIndexDirInvalidation(t *testing.T) {
+	dagsDir := t.TempDir()
+	indexDir := filepath.Join(t.TempDir(), "dag-index")
+	store := newRepository(dagsDir, WithSkipExamples(true), WithIndexDir(indexDir))
+	ctx := context.Background()
+	content := []byte("steps:\n  - run: echo ok\n")
+	indexFiles := func() []string {
+		files, err := filepath.Glob(filepath.Join(indexDir, "*.index"))
+		require.NoError(t, err)
+		return files
+	}
+
+	require.NoError(t, store.Create(ctx, "alpha", content))
+	_, _, err := store.List(ctx, persis.DAGListOptions{})
+	require.NoError(t, err)
+	assert.Len(t, indexFiles(), 1)
+	assert.False(t, fileExists(filepath.Join(dagsDir, ".dag.index")))
+
+	require.NoError(t, store.Create(ctx, "beta", content))
+	assert.Empty(t, indexFiles(), "index should be invalidated after Create")
+}
+
 func TestLabelListUsesIndex(t *testing.T) {
 	tmpDir := t.TempDir()
 	store := newRepository(tmpDir, WithSkipExamples(true))

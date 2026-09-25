@@ -5,6 +5,8 @@ package dag
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -42,6 +44,7 @@ type Options struct {
 	Symlinks               bool                     // Include recursive file symlinks and external targets
 	SkipDirectoryCreation  bool                     // Skip creating base directory for execution-scoped stores
 	legacyFlagsBaseDir     string
+	indexDir               string
 }
 
 // WithRecursiveDiscovery controls whether DAG files are discovered recursively.
@@ -76,6 +79,14 @@ func WithFlagsBaseDir(dir string) Option {
 func WithLegacyFlagsBaseDir(dir string) Option {
 	return func(o *Options) {
 		o.legacyFlagsBaseDir = dir
+	}
+}
+
+// WithIndexDir sets the directory holding the DAG definition index.
+// When unset, the index is kept in the DAG directory.
+func WithIndexDir(dir string) Option {
+	return func(o *Options) {
+		o.indexDir = dir
 	}
 }
 
@@ -136,6 +147,7 @@ func NewStore(baseDir string, opts ...Option) *Store {
 
 	return &Store{
 		baseDir:                baseDir,
+		indexPath:              resolveIndexPath(baseDir, options.indexDir),
 		flagsBaseDir:           options.FlagsBaseDir,
 		legacyFlagsBaseDir:     options.legacyFlagsBaseDir,
 		fileCache:              options.FileCache,
@@ -152,6 +164,7 @@ func NewStore(baseDir string, opts ...Option) *Store {
 // Store persists DAG definitions in local files.
 type Store struct {
 	baseDir                string // Base directory for DAG storage
+	indexPath              string // DAG definition index file
 	flagsBaseDir           string // Base directory for flag store
 	legacyFlagsBaseDir     string
 	fileCache              *fileutil.Cache[*ir.DAG] // Optional cache for DAG objects
@@ -442,7 +455,7 @@ func (store *Store) loadIndex(ctx context.Context, files []DiscoveredFile) ([]*i
 		return nil, err
 	}
 
-	indexPath := filepath.Join(store.baseDir, dagindex.IndexFileName)
+	indexPath := store.indexPath
 
 	// Try loading existing index. A cached load error is re-checked against the
 	// current parser before it is served, so upgrading Dagu clears errors that
@@ -469,7 +482,17 @@ func (store *Store) loadIndex(ctx context.Context, files []DiscoveredFile) ([]*i
 func (store *Store) invalidateIndex() {
 	store.indexMu.Lock()
 	defer store.indexMu.Unlock()
-	_ = fileutil.Remove(filepath.Join(store.baseDir, dagindex.IndexFileName))
+	_ = fileutil.Remove(store.indexPath)
+}
+
+// resolveIndexPath names the index file inside indexDir after a hash of
+// baseDir, so DAG directories sharing one indexDir keep separate indexes.
+func resolveIndexPath(baseDir, indexDir string) string {
+	if indexDir == "" {
+		return filepath.Join(baseDir, dagindex.IndexFileName)
+	}
+	sum := sha256.Sum256([]byte(filepath.Clean(baseDir)))
+	return filepath.Join(indexDir, hex.EncodeToString(sum[:8])+".index")
 }
 
 func fileName(id string) string {

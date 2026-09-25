@@ -5,6 +5,7 @@ package file
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
@@ -79,6 +80,7 @@ func NewDAGRepository(cfg *config.Config, opts ...DAGRepositoryOption) (*persis.
 		cfg.Paths.DAGsDir,
 		filedag.WithFlagsBaseDir(cfg.Paths.SuspendFlagsDir),
 		filedag.WithLegacyFlagsBaseDir(cfg.Paths.SuspendFlagsDirLegacy),
+		filedag.WithIndexDir(dagIndexDir(cfg)),
 		filedag.WithSearchPaths(options.SearchPaths),
 		filedag.WithBaseConfig(cfg.Paths.BaseConfig),
 		filedag.WithWorkspaceBaseConfigDir(workspaceBaseConfigDir),
@@ -95,4 +97,13 @@ func NewDAGRepository(cfg *config.Config, opts ...DAGRepositoryOption) (*persis.
 		BaseConfigPath:         cfg.Paths.BaseConfig,
 		WorkspaceBaseConfigDir: workspaceBaseConfigDir,
 	}), nil
+}
+
+// dagIndexDir keeps the rebuildable DAG index out of the DAGs directory, which
+// may be read-only. Without a data directory the store's default applies.
+func dagIndexDir(cfg *config.Config) string {
+	if cfg.Paths.DataDir == "" {
+		return ""
+	}
+	return filepath.Join(cfg.Paths.DataDir, "cache", "dag-index")
 }

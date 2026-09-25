@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -222,11 +223,14 @@ func NewIndex(entries []*indexv1.DAGIndexEntry) *indexv1.DAGIndex {
 	}
 }
 
-// Write atomically writes the index to disk.
+// Write atomically writes the index to disk, creating its directory if needed.
 func Write(indexPath string, idx *indexv1.DAGIndex) error {
 	data, err := proto.Marshal(idx)
 	if err != nil {
 		return fmt.Errorf("failed to marshal DAG index: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(indexPath), 0750); err != nil {
+		return fmt.Errorf("failed to create DAG index directory: %w", err)
 	}
 	return fileutil.WriteFileAtomic(indexPath, data, 0600)
 }
