@@ -109,23 +109,72 @@ func TestMaskNodeSecretsKeepsHumanTaskOutputs(t *testing.T) {
 	assert.Equal(t, `{"note":"very-secret-token"}`, *node.StepOutputsValue)
 }
 
-// A secret can match a JSON number, where plain replacement would leave the
-// stored outputs unreadable for a run that reuses them.
+// A secret can match a JSON number, boolean, or null, where plain replacement
+// would leave the stored outputs unreadable for a run that reuses them.
 func TestMaskNodeSecretsKeepsOutputsValidJSON(t *testing.T) {
 	t.Parallel()
 
-	masker := newStatusSecretMasker([]string{"PIN=4242"})
+	tests := []struct {
+		name     string
+		secret   string
+		outputs  string
+		expected string
+	}{
+		{
+			name:     "Number",
+			secret:   "4242",
+			outputs:  `{"count":4242,"note":"pin 4242","region":"us"}`,
+			expected: `{"count":"*******","note":"pin *******","region":"us"}`,
+		},
+		{
+			name:     "Boolean",
+			secret:   "true",
+			outputs:  `{"enabled":true,"note":"true story"}`,
+			expected: `{"enabled":"*******","note":"******* story"}`,
+		},
+		{
+			name:     "Null",
+			secret:   "null",
+			outputs:  `{"note":"null value","parent":null}`,
+			expected: `{"note":"******* value","parent":"*******"}`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			masker := newStatusSecretMasker([]string{"SECRET=" + tt.secret})
+			require.NotNil(t, masker)
+			outputs := tt.outputs
+			node := &ir.Node{OutputsValue: &outputs, StepOutputsValue: &outputs}
+
+			maskNodeSecrets(masker, node)
+
+			require.NotNil(t, node.OutputsValue)
+			assert.JSONEq(t, tt.expected, *node.OutputsValue)
+			require.NotNil(t, node.StepOutputsValue)
+			assert.JSONEq(t, tt.expected, *node.StepOutputsValue)
+		})
+	}
+}
+
+// A secret can span JSON values, so no single decoded value holds it. Keeping
+// the document valid must not store the secret again.
+func TestMaskNodeSecretsMasksSecretAcrossOutputValues(t *testing.T) {
+	t.Parallel()
+
+	const secret = `x","b`
+	masker := newStatusSecretMasker([]string{"SECRET=" + secret})
 	require.NotNil(t, masker)
-	outputs := `{"count":4242,"note":"pin 4242","region":"us"}`
+	outputs := `{"a":"x","b":"y"}`
 	node := &ir.Node{OutputsValue: &outputs, StepOutputsValue: &outputs}
 
 	maskNodeSecrets(masker, node)
 
-	const expected = `{"count":"*******","note":"pin *******","region":"us"}`
 	require.NotNil(t, node.OutputsValue)
-	assert.JSONEq(t, expected, *node.OutputsValue)
+	assert.NotContains(t, *node.OutputsValue, secret)
 	require.NotNil(t, node.StepOutputsValue)
-	assert.JSONEq(t, expected, *node.StepOutputsValue)
+	assert.NotContains(t, *node.StepOutputsValue, secret)
 }
 
 // Stored outputs are JSON text, written both with and without HTML escaping,

@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"maps"
+	"strconv"
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
@@ -93,6 +94,7 @@ func maskStepOutputs(masker *masking.Masker, node *ir.Node) *string {
 // maskOutputDocument masks a stored JSON output document. Plain replacement
 // can split a JSON token, such as a secret matching a number; such a document
 // is masked value by value instead, so a run that reuses it can still read it.
+// It never keeps secret text that plain replacement masks.
 func maskOutputDocument(masker *masking.Masker, value *string) *string {
 	masked := maskStringPointer(masker, value)
 	if masked == nil || *masked == *value || json.Valid([]byte(*masked)) || !json.Valid([]byte(*value)) {
@@ -111,20 +113,26 @@ func maskOutputDocument(masker *masking.Masker, value *string) *string {
 		return masked
 	}
 	document := strings.TrimSuffix(buf.String(), "\n")
+	// A secret spanning JSON values is in no single decoded value, so
+	// re-encoding writes it back out.
+	if masker.MaskString(document) != document {
+		return masked
+	}
 	return &document
 }
 
-// maskJSONValue masks secrets in decoded JSON. A number holding a secret
-// becomes the masked string.
+// maskJSONValue masks secrets in decoded JSON. A number, boolean, or null
+// holding a secret becomes the masked string.
 func maskJSONValue(masker *masking.Masker, value any) any {
 	switch typed := value.(type) {
 	case string:
 		return masker.MaskString(typed)
 	case json.Number:
-		if masked := masker.MaskString(typed.String()); masked != typed.String() {
-			return masked
-		}
-		return typed
+		return maskJSONLiteral(masker, typed.String(), typed)
+	case bool:
+		return maskJSONLiteral(masker, strconv.FormatBool(typed), typed)
+	case nil:
+		return maskJSONLiteral(masker, "null", nil)
 	case []any:
 		masked := make([]any, len(typed))
 		for i, item := range typed {
@@ -140,6 +148,15 @@ func maskJSONValue(masker *masking.Masker, value any) any {
 	default:
 		return value
 	}
+}
+
+// maskJSONLiteral returns the masked text of a JSON literal holding a secret,
+// and value otherwise.
+func maskJSONLiteral(masker *masking.Masker, literal string, value any) any {
+	if masked := masker.MaskString(literal); masked != literal {
+		return masked
+	}
+	return value
 }
 
 // maskAgentSession masks the displayed text of an agent session. Answers are
