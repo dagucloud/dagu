@@ -58,6 +58,12 @@ type fakeEngine struct {
 	// actDialogs are the dialogs the next act opens and the browser accepts.
 	actDialogs []dialog
 	dialogs    []dialog
+	// actBlocked counts the requests per host allowed_domains blocks while
+	// the next act runs.
+	actBlocked map[string]int
+	blocked    map[string]int
+	// blockedErr is the error every blocked-request count reports.
+	blockedErr error
 	// pageText and visible describe the page that fixed checks read.
 	pageText string
 	visible  []string
@@ -99,6 +105,14 @@ func (e *fakeEngine) TakeDialogs() []dialog {
 	return dialogs
 }
 
+func (e *fakeEngine) TakeBlockedRequests() (map[string]int, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	blocked := e.blocked
+	e.blocked = nil
+	return blocked, e.blockedErr
+}
+
 func (e *fakeEngine) Goto(_ context.Context, url string, _ time.Duration) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -114,6 +128,7 @@ func (e *fakeEngine) Act(ctx context.Context, instruction string, variables map[
 	}
 	e.dialogs = append(e.dialogs, e.actDialogs...)
 	e.actDialogs = nil
+	e.blocked, e.actBlocked = e.actBlocked, nil
 	generate := e.generate
 	e.mu.Unlock()
 	resp, err := generate(ctx, generateRequest{

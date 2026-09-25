@@ -138,19 +138,57 @@ func (m *shopModel) generate(_ context.Context, req generateRequest) (generateRe
 // without the sandbox, which cannot start on every CI host.
 func launchShop(t *testing.T, model *shopModel) engine {
 	t.Helper()
+	eng := launchBrowser(t, launchOptions{Generate: model.generate})
+	require.NoError(t, eng.Goto(t.Context(), serveShop(t), time.Minute))
+	return eng
+}
+
+// launchBrowser starts a headless test browser with opts, closed when the
+// test ends.
+func launchBrowser(t *testing.T, opts launchOptions) engine {
+	t.Helper()
 	requireChrome(t)
 	ctx := t.Context()
-	eng, err := stagehandLauncher{}.Launch(ctx, launchOptions{
-		Executable:  chromePath(),
-		Headless:    true,
-		UserDataDir: t.TempDir(),
-		NoSandbox:   true,
-		Generate:    model.generate,
+	opts.Executable = chromePath()
+	opts.Headless = true
+	opts.UserDataDir = browserProfileDir(t)
+	opts.NoSandbox = true
+	var eng engine
+	err := withStartupSlot(func() (err error) {
+		eng, err = stagehandLauncher{}.Launch(ctx, opts)
+		return err
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = eng.Close(context.WithoutCancel(ctx)) })
-	require.NoError(t, eng.Goto(ctx, serveShop(t), time.Minute))
 	return eng
+}
+
+// startupSlot lets one test browser start at a time. The runtime gives its
+// extension a fixed minute to start, which parallel Chrome startups on a
+// loaded CI host can exceed together.
+var startupSlot = make(chan struct{}, 1)
+
+// withStartupSlot runs start, which launches or wakes a browser runtime,
+// while holding startupSlot.
+func withStartupSlot(start func() error) error {
+	startupSlot <- struct{}{}
+	defer func() { <-startupSlot }()
+	return start()
+}
+
+// browserProfileDir returns a new browser profile directory. Chrome keeps
+// profile files open for a moment after it exits, so the directory is
+// removed with retries instead of by t.TempDir. Call it before launching the
+// browser, so the removal runs after the browser is closed.
+func browserProfileDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "dagu-browser-test-")
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.Eventually(t, func() bool { return os.RemoveAll(dir) == nil },
+			10*time.Second, 200*time.Millisecond, "remove the browser profile")
+	})
+	return dir
 }
 
 func TestStagehandExtractWithRuntimeSchema(t *testing.T) {
@@ -209,17 +247,14 @@ func TestStagehandReattachAfterProcessExit(t *testing.T) {
 	t.Parallel()
 	requireChrome(t)
 
-	// Chrome keeps profile files open for a moment after it exits, so the
-	// directory is removed with retries instead of by t.TempDir.
-	userDataDir, err := os.MkdirTemp("", "dagu-browser-test-")
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		require.Eventually(t, func() bool { return os.RemoveAll(userDataDir) == nil },
-			10*time.Second, 200*time.Millisecond, "remove the browser profile")
-	})
+	userDataDir := browserProfileDir(t)
 	cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestStagehandDetachHelper$", "-test.v")
 	cmd.Env = append(os.Environ(), detachHelperEnv+"="+userDataDir)
-	output, err := cmd.CombinedOutput()
+	var output []byte
+	err := withStartupSlot(func() (err error) {
+		output, err = cmd.CombinedOutput()
+		return err
+	})
 	require.NoError(t, err, string(output))
 	match := regexp.MustCompile(`HANDLE (\{.*\})`).FindSubmatch(output)
 	require.NotNil(t, match, string(output))
@@ -236,7 +271,11 @@ func TestStagehandReattachAfterProcessExit(t *testing.T) {
 	require.NoError(t, browserhost.Probe(t.Context(), handle.CDPURL), "the browser outlives the process")
 
 	model := &shopModel{}
-	eng, err := stagehandLauncher{}.Reattach(t.Context(), handle, launchOptions{Generate: model.generate})
+	var eng engine
+	err = withStartupSlot(func() (err error) {
+		eng, err = stagehandLauncher{}.Reattach(t.Context(), handle, launchOptions{Generate: model.generate})
+		return err
+	})
 	require.NoError(t, err)
 	pageURL, err := eng.CurrentURL(t.Context())
 	require.NoError(t, err)
@@ -300,16 +339,7 @@ func TestStagehandWaitsForDownloads(t *testing.T) {
 	requireChrome(t)
 
 	downloads := t.TempDir()
-	eng, err := stagehandLauncher{}.Launch(t.Context(), launchOptions{
-		Executable:   chromePath(),
-		Headless:     true,
-		UserDataDir:  t.TempDir(),
-		DownloadsDir: downloads,
-		NoSandbox:    true,
-		Generate:     reportModel,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = eng.Close(context.WithoutCancel(t.Context())) })
+	eng := launchBrowser(t, launchOptions{DownloadsDir: downloads, Generate: reportModel})
 	require.NoError(t, eng.Goto(t.Context(), serveReport(t), time.Minute))
 
 	outcome, err := eng.Act(t.Context(), "Click the Download report link", nil, time.Minute)
@@ -386,6 +416,33 @@ func TestStagehandAcceptsDialogs(t *testing.T) {
 		{Type: "confirm", Message: "Continue?"},
 		{Type: "prompt", Message: "Name?"},
 	}, eng.TakeDialogs())
+}
+
+// blockedPage loads images and a script from hosts outside the allowed
+// domains. As a data: page it has no host of its own to block.
+const blockedPage = `<img src="http://cdn.blocked.test/logo.png">
+<img src="http://cdn.blocked.test/banner.png">
+<script src="http://sso.blocked.test/login.js"></script>`
+
+// Requests allowed_domains blocks are counted by host.
+func TestStagehandReportsBlockedRequests(t *testing.T) {
+	t.Parallel()
+
+	eng := launchBrowser(t, launchOptions{AllowedDomains: []string{"example.com"}, Generate: (&shopModel{}).generate})
+	require.NoError(t, eng.Goto(t.Context(), "data:text/html,"+url.PathEscape(blockedPage), 30*time.Second))
+
+	// The preload scanner can request a resource again, so counts are only
+	// bounded below.
+	blocked := map[string]int{}
+	require.Eventually(t, func() bool {
+		taken, err := eng.TakeBlockedRequests()
+		assert.NoError(t, err)
+		for host, count := range taken {
+			blocked[host] += count
+		}
+		return blocked["cdn.blocked.test"] >= 2 && blocked["sso.blocked.test"] >= 1
+	}, 10*time.Second, 100*time.Millisecond, "blocked so far: %v", blocked)
+	assert.Len(t, blocked, 2, "only blocked hosts are counted")
 }
 
 // A page whose script never yields fails a screenshot after the page call

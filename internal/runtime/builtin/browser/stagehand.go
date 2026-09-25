@@ -181,6 +181,11 @@ func startEngine(ctx context.Context, browser *stagehand.Browser, cdpURL string,
 		return nil, errors.Join(fmt.Errorf("watch dialogs: %w", err), eng.release(context.WithoutCancel(ctx)))
 	}
 	if len(opts.AllowedDomains) > 0 {
+		// Blocked requests leave a broken page and a later, unrelated
+		// failure, so they are reported by host.
+		if eng.blocked, err = browserhost.WatchBlockedRequests(ctx, cdpURL); err != nil {
+			return nil, errors.Join(fmt.Errorf("watch blocked requests: %w", err), eng.release(context.WithoutCancel(ctx)))
+		}
 		browserContext, err := browser.Context()
 		if err == nil {
 			err = browserContext.SetDomainPolicy(ctx, &stagehand.DomainPolicy{AllowedDomains: opts.AllowedDomains})
@@ -202,6 +207,9 @@ type stagehandEngine struct {
 	// downloads are refused.
 	downloads *browserhost.DownloadWatcher
 	dialogs   *browserhost.DialogWatcher
+	// blocked counts requests allowed_domains blocks; nil without
+	// allowed_domains.
+	blocked *browserhost.BlockedRequestWatcher
 	// pageCallTimeout bounds calls that take no timeout of their own.
 	pageCallTimeout time.Duration
 }
@@ -400,6 +408,13 @@ func (e *stagehandEngine) TakeDialogs() []dialog {
 	return dialogs
 }
 
+func (e *stagehandEngine) TakeBlockedRequests() (map[string]int, error) {
+	if e.blocked == nil {
+		return nil, nil
+	}
+	return e.blocked.Take()
+}
+
 func (e *stagehandEngine) Handle() browserHandle {
 	return e.handle
 }
@@ -464,6 +479,10 @@ func (e *stagehandEngine) release(ctx context.Context) error {
 	if e.dialogs != nil {
 		errs = append(errs, e.dialogs.Close())
 		e.dialogs = nil
+	}
+	if e.blocked != nil {
+		errs = append(errs, e.blocked.Close())
+		e.blocked = nil
 	}
 	// The runtime ends its session over the page connection, which an
 	// unresponsive page blocks; the client is released either way.

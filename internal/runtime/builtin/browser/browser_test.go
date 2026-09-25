@@ -8,10 +8,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	goruntime "runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -220,6 +222,38 @@ func TestAcceptedDialogsAreReported(t *testing.T) {
 	session := execution.exec.GetAgentSession()
 	assert.Equal(t, []string{"act:completed", "dialog:completed", "screenshot:completed"}, eventNames(session))
 	assert.Contains(t, execution.stderr.String(), `[1/2] dialog "Send *******?" → accepted confirm`)
+}
+
+// Requests allowed_domains blocked appear in the timeline after the operation
+// that made them, counted per host.
+func TestBlockedRequestsAreReported(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.engine.actBlocked = map[string]int{"cdn.example.net": 2, "sso.example.net": 1}
+	execution := run.execute(`{"do": [{"act": "Click the checkout button"}, {"screenshot": "after"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	session := execution.exec.GetAgentSession()
+	assert.Equal(t, []string{"act:completed", "allowed_domains:blocked", "screenshot:completed"}, eventNames(session))
+	assert.Contains(t, execution.stderr.String(),
+		"[1/2] allowed_domains blocked 3 requests: cdn.example.net (2), sso.example.net (1)\n")
+}
+
+// A step that fails after requests were blocked names the blocked hosts in
+// its error, since a broken page usually fails a later operation.
+func TestFailureNamesBlockedHosts(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.engine.actBlocked = map[string]int{"sso.example.net": 1}
+	execution := run.execute(`{"do": [
+		{"act": "Click the sign-in button"},
+		{"expect": {"text": "Signed in", "within": "1ms"}}
+	]}`, nil)
+
+	require.EqualError(t, execution.err, `browser: do[1] expect failed: expectation not met: the page text does not contain "Signed in"; `+
+		"browser.allowed_domains blocked 1 request: sso.example.net (1)")
 }
 
 // The browser sandbox stays on unless the host configuration turns it off.
@@ -528,6 +562,38 @@ func TestCheckAllowedDomain(t *testing.T) {
 		}
 	}
 	assert.NoError(t, checkAllowedDomain("https://anything.test/", nil))
+}
+
+// When blocked requests can no longer be counted, the step log says so once
+// and the step goes on.
+func TestLostBlockedRequestCountIsReported(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.engine.blockedErr = errors.New("connection closed")
+	execution := run.execute(`{"do": [{"act": "Click the checkout button"}, {"screenshot": "after"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	const warning = "warning: stopped counting requests blocked by allowed_domains: connection closed\n"
+	assert.Equal(t, 1, strings.Count(execution.stderr.String(), warning), execution.stderr.String())
+}
+
+// A blocked-request summary names the most blocked hosts first, ties by
+// name, and stops after maxBlockedHosts.
+func TestDescribeBlocked(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "1 request: sso.example.net (1)", describeBlocked(map[string]int{"sso.example.net": 1}))
+	assert.Equal(t, "4 requests: cdn.example.net (2), a.example.net (1), b.example.net (1)",
+		describeBlocked(map[string]int{"b.example.net": 1, "cdn.example.net": 2, "a.example.net": 1}))
+
+	many := map[string]int{}
+	for i := range maxBlockedHosts + 2 {
+		many[fmt.Sprintf("h%02d.example.net", i)] = 1
+	}
+	summary := describeBlocked(many)
+	assert.True(t, strings.HasPrefix(summary, "12 requests: h00.example.net (1), "), summary)
+	assert.True(t, strings.HasSuffix(summary, "h09.example.net (1), and 2 more hosts"), summary)
 }
 
 // An act can navigate away without a goto; the step fails once the page is

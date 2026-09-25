@@ -15,11 +15,11 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/dagucloud/dagu/v2/internal/browserhost"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 )
 
 const (
-	cacheDirName  = "cache"
 	cacheFileMode = 0o600
 	cacheDirMode  = 0o700
 )
@@ -35,7 +35,7 @@ type replayCache struct {
 
 func openReplayCache(browserDir, dagName, stepKey string) (*replayCache, error) {
 	cache := &replayCache{
-		path:    filepath.Join(browserDir, cacheDirName, fileutil.SafeName(dagName), fileutil.SafeName(stepKey)+".json"),
+		path:    browserhost.NewReplayCache(browserDir).Path(dagName, stepKey),
 		entries: map[string][]recordedAction{},
 	}
 	data, err := os.ReadFile(cache.path)

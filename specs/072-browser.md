@@ -138,6 +138,16 @@ fails before navigating, and after the start URL and after every operation the
 step fails when a redirect or an action left the allowed domains. Pages without a network
 host, such as `about:blank`, are not checked.
 
+Requests the runtime blocks are counted per host. When the start URL or an
+operation causes blocked requests, the timeline and the step log show a line
+after it such as `allowed_domains blocked 14 requests: cdn.example.com (12),
+sso.example.com (2)`, naming up to ten hosts, most blocked first. A failed
+step's error ends with the same summary of every request blocked during the
+attempt, since a page missing a script or a sign-in redirect usually fails a
+later operation. A request blocked after its operation returns is counted with
+the next one. When counting stops, for example because the browser's DevTools
+connection closes, the step log warns once.
+
 ### Artifacts
 
 A DAG with a browser action enables artifact storage unless it sets
@@ -183,6 +193,14 @@ operation.
 The cache covers `act` only. `extract` and model-judged conditions make model
 requests on every run. A replay that finds an element at the recorded location
 succeeds even if the page layout changed and a different element is now there.
+
+`dagu browser cache clear <dag>` removes the recorded actions of every step of
+the DAG, or of one step with `--step <id>`, and reports the steps it removed.
+`DELETE /dags/{fileName}/browser-cache[?step=<id>]` does the same and returns
+the removed steps. Removing all of a DAG's history with `dagu rm --history`
+also clears its cache; removing only older runs keeps it. Each clears the cache
+on its own host only. After a clear, the next run of the step makes a model
+request and records again.
 
 ### Profiles
 
