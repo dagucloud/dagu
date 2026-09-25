@@ -451,13 +451,16 @@ func TestStagehandBoundsUnresponsivePage(t *testing.T) {
 	t.Parallel()
 
 	eng := launchShop(t, &shopModel{})
-	const busyPage = `<p>busy</p><script>setTimeout(() => { for (;;) {} }, 200)</script>`
-	require.NoError(t, eng.Goto(t.Context(), "data:text/html,"+url.PathEscape(busyPage), 30*time.Second))
-	time.Sleep(time.Second)
+	require.NoError(t, eng.Goto(t.Context(), "data:text/html,"+url.PathEscape("<p>busy</p>"), 30*time.Second))
+	// The page starts spinning only once the navigation has returned, so a
+	// slow host cannot make the navigation itself wait on the busy page.
+	busy := eng.(*stagehandEngine)
+	_, err := busy.evaluate(t.Context(), "setTimeout(() => { for (;;) {} }, 0)")
+	require.NoError(t, err)
 
-	eng.(*stagehandEngine).pageCallTimeout = 2 * time.Second
+	busy.pageCallTimeout = 2 * time.Second
 	began := time.Now()
-	_, err := eng.Screenshot(t.Context())
+	_, err = eng.Screenshot(t.Context())
 	require.ErrorContains(t, err, "the browser did not respond within 2s")
 	assert.Less(t, time.Since(began), 10*time.Second)
 }
