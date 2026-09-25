@@ -6,6 +6,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
@@ -17,9 +18,12 @@ import (
 type selectedSteps struct {
 	steps       []string
 	outputsFrom string
+	// outputs are outputs of skipped steps, by step and then output name.
+	outputs map[string]map[string]string
 }
 
-// selectedStepsParams reads and validates --only and --outputs-from.
+// selectedStepsParams reads and validates --only, --outputs-from, and
+// --output.
 func selectedStepsParams(ctx *Context) (selectedSteps, error) {
 	steps, err := ctx.Command.Flags().GetStringArray(onlyFlag.name)
 	if err != nil {
@@ -29,9 +33,16 @@ func selectedStepsParams(ctx *Context) (selectedSteps, error) {
 	if err != nil {
 		return selectedSteps{}, fmt.Errorf("failed to get outputs-from: %w", err)
 	}
+	entries, err := ctx.Command.Flags().GetStringArray(outputFlag.name)
+	if err != nil {
+		return selectedSteps{}, fmt.Errorf("failed to get output: %w", err)
+	}
 	if len(steps) == 0 {
 		if outputsFrom != "" {
 			return selectedSteps{}, fmt.Errorf("--outputs-from requires --only")
+		}
+		if len(entries) > 0 {
+			return selectedSteps{}, fmt.Errorf("--output requires --only")
 		}
 		return selectedSteps{}, nil
 	}
@@ -43,7 +54,41 @@ func selectedStepsParams(ctx *Context) (selectedSteps, error) {
 			return selectedSteps{}, fmt.Errorf("invalid outputs-from: %w", err)
 		}
 	}
-	return selectedSteps{steps: steps, outputsFrom: outputsFrom}, nil
+	outputs, err := parseStepOutputs(entries)
+	if err != nil {
+		return selectedSteps{}, err
+	}
+	return selectedSteps{steps: steps, outputsFrom: outputsFrom, outputs: outputs}, nil
+}
+
+// parseStepOutputs parses --output entries of the form <step>.<name>=<value>.
+// Output names never contain a dot, so the step is everything before the last
+// one. Errors quote only the part before "=", since values may be secrets.
+func parseStepOutputs(entries []string) (map[string]map[string]string, error) {
+	if len(entries) == 0 {
+		return nil, nil
+	}
+	outputs := make(map[string]map[string]string)
+	for _, entry := range entries {
+		key, value, hasValue := strings.Cut(entry, "=")
+		dot := strings.LastIndex(key, ".")
+		if !hasValue || dot < 0 {
+			return nil, fmt.Errorf("invalid --output %q: expected <step>.<name>=<value>", key)
+		}
+		step := strings.TrimSpace(key[:dot])
+		name := strings.TrimSpace(key[dot+1:])
+		if step == "" || name == "" {
+			return nil, fmt.Errorf("invalid --output %q: expected <step>.<name>=<value>", key)
+		}
+		if _, exists := outputs[step][name]; exists {
+			return nil, fmt.Errorf("--output sets %q more than once", key)
+		}
+		if outputs[step] == nil {
+			outputs[step] = make(map[string]string)
+		}
+		outputs[step][name] = value
+	}
+	return outputs, nil
 }
 
 // runSelectedSteps starts a new run of dag in which only the selected steps
@@ -62,7 +107,7 @@ func runSelectedSteps(ctx *Context, dag *ir.DAG, dagRunID, params string, opts r
 			return fmt.Errorf("failed to read status for dag-run %s: %w", selection.outputsFrom, err)
 		}
 	}
-	nodes, err := intake.SelectedStepNodes(dag, selection.steps, source, nil)
+	nodes, err := intake.SelectedStepNodes(dag, selection.steps, source, selection.outputs)
 	if err != nil {
 		return err
 	}

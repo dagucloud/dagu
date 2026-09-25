@@ -190,6 +190,7 @@ func TestRemoteStartSendsSteps(t *testing.T) {
 	initFlags(command, startFlags...)
 	require.NoError(t, command.Flags().Set("only", "load"))
 	require.NoError(t, command.Flags().Set("outputs-from", "source"))
+	require.NoError(t, command.Flags().Set("output", "extract.rows=3"))
 	ctx := &Context{
 		Context: context.Background(),
 		Command: command,
@@ -203,6 +204,8 @@ func TestRemoteStartSendsSteps(t *testing.T) {
 	assert.Equal(t, []string{"load"}, *body.Steps)
 	require.NotNil(t, body.OutputsFromRunId)
 	assert.Equal(t, "source", *body.OutputsFromRunId)
+	require.NotNil(t, body.Outputs)
+	assert.Equal(t, map[string]map[string]string{"extract": {"rows": "3"}}, *body.Outputs)
 }
 
 func TestWaitForRemoteStopHonorsContextCancellation(t *testing.T) {

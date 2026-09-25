@@ -56,13 +56,15 @@ Flags can override default settings such as DAG-run ID, DAG name, or suppress ou
 Use --only to run just the named steps (by name or ID) in a new DAG-run of the
 current definition; every other step is recorded as skipped. Add --outputs-from
 to carry the step outputs and work directory of a finished run into the skipped
-steps, so the selected steps can reference them.
+steps, so the selected steps can reference them. Add --output to set an output
+of a skipped step directly; it takes precedence over --outputs-from.
 
 Examples:
   dagu start my_dag -- P1=foo P2=bar
   dagu start --name my_custom_name my_dag.yaml -- P1=foo P2=bar
   dagu start --only build my_dag
   dagu start --only test --only lint --outputs-from 20260101_120000 my_dag -- ENV=dev
+  dagu start --only fetch --output login.token=abc123 my_dag
 
 This command parses the DAG definition, resolves parameters, and initiates the DAG-run execution.
 `,
@@ -72,7 +74,7 @@ This command parses the DAG definition, resolves parameters, and initiates the D
 }
 
 // Command line flags for the start command
-var startFlags = []commandLineFlag{paramsFlag, nameFlag, dagRunIDFlag, fromRunIDFlag, parentDAGRunFlag, rootDAGRunFlag, labelsFlag, tagsFlag, defaultWorkingDirFlag, profileFlag, startWorkerIDFlag, attemptIDFlag, triggerTypeFlag, triggerActorFlag, scheduleTimeFlag, sourceFileFlag, noReuseFlag, onlyFlag, outputsFromFlag}
+var startFlags = []commandLineFlag{paramsFlag, nameFlag, dagRunIDFlag, fromRunIDFlag, parentDAGRunFlag, rootDAGRunFlag, labelsFlag, tagsFlag, defaultWorkingDirFlag, profileFlag, startWorkerIDFlag, attemptIDFlag, triggerTypeFlag, triggerActorFlag, scheduleTimeFlag, sourceFileFlag, noReuseFlag, onlyFlag, outputsFromFlag, outputFlag}
 
 var fromRunIDFlag = commandLineFlag{
 	name:  "from-run-id",
@@ -88,6 +90,12 @@ var onlyFlag = commandLineFlag{
 var outputsFromFlag = commandLineFlag{
 	name:  "outputs-from",
 	usage: "Finished dag-run ID whose step outputs and work directory feed the steps selected by --only",
+}
+
+var outputFlag = commandLineFlag{
+	name:          "output",
+	usage:         "Output of a step skipped by --only, as <step>.<name>=<value>; repeatable",
+	isStringArray: true,
 }
 
 // startWorkerIDFlag identifies which worker executes this DAG run (for distributed execution tracking)

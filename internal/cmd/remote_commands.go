@@ -275,6 +275,10 @@ func remoteRunStart(ctx *Context, args []string) error {
 	if len(selection.steps) > 0 {
 		steps = &selection.steps
 	}
+	var outputs *map[string]map[string]string
+	if len(selection.outputs) > 0 {
+		outputs = &selection.outputs
+	}
 	resp, err := ctx.Remote.startDAG(ctx, dag.FileName, api.ExecuteDAGJSONBody{
 		DagName:          stringPtrOrNil(nameOverride),
 		DagRunId:         stringPtrOrNil(runID),
@@ -283,6 +287,7 @@ func remoteRunStart(ctx *Context, args []string) error {
 		NoReuse:          &noReuse,
 		Steps:            steps,
 		OutputsFromRunId: stringPtrOrNil(selection.outputsFrom),
+		Outputs:          outputs,
 	})
 	if err != nil {
 		return err
