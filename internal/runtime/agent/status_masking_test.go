@@ -105,3 +105,22 @@ func TestMaskNodeSecretsKeepsHumanTaskOutputs(t *testing.T) {
 	require.NotNil(t, node.StepOutputsValue)
 	assert.Equal(t, `{"note":"very-secret-token"}`, *node.StepOutputsValue)
 }
+
+// A secret can match a JSON number, where plain replacement would leave the
+// stored outputs unreadable for a run that reuses them.
+func TestMaskNodeSecretsKeepsOutputsValidJSON(t *testing.T) {
+	t.Parallel()
+
+	masker := newStatusSecretMasker([]string{"PIN=4242"})
+	require.NotNil(t, masker)
+	outputs := `{"count":4242,"note":"pin 4242","region":"us"}`
+	node := &ir.Node{OutputsValue: &outputs, StepOutputsValue: &outputs}
+
+	maskNodeSecrets(masker, node)
+
+	const expected = `{"count":"*******","note":"pin *******","region":"us"}`
+	require.NotNil(t, node.OutputsValue)
+	assert.JSONEq(t, expected, *node.OutputsValue)
+	require.NotNil(t, node.StepOutputsValue)
+	assert.JSONEq(t, expected, *node.StepOutputsValue)
+}
