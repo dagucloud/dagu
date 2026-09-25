@@ -31,11 +31,39 @@ func (a *Agent) maskStatusSecrets(status *ir.DAGRunStatus) {
 	status.Error = a.secretMasker.MaskString(status.Error)
 }
 
+// newStatusSecretMasker returns a masker for run status. Stored outputs are
+// JSON text, so each secret is also masked in the escaped forms JSON encoding
+// gives it.
 func newStatusSecretMasker(secretEnvs []string) *masking.Masker {
 	if len(secretEnvs) == 0 {
 		return nil
 	}
-	return masking.NewMasker(masking.SourcedEnvVars{Secrets: secretEnvs})
+	secrets := make([]string, 0, len(secretEnvs))
+	for _, env := range secretEnvs {
+		secrets = append(secrets, env)
+		name, value, ok := strings.Cut(env, "=")
+		if !ok || value == "" {
+			continue
+		}
+		for _, escapeHTML := range []bool{true, false} {
+			if escaped := jsonStringBody(value, escapeHTML); escaped != value {
+				secrets = append(secrets, name+"="+escaped)
+			}
+		}
+	}
+	return masking.NewMasker(masking.SourcedEnvVars{Secrets: secrets})
+}
+
+// jsonStringBody returns value encoded as a JSON string, without the quotes.
+func jsonStringBody(value string, escapeHTML bool) string {
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
+	encoder.SetEscapeHTML(escapeHTML)
+	if err := encoder.Encode(value); err != nil {
+		return value
+	}
+	encoded := strings.TrimSuffix(buf.String(), "\n")
+	return encoded[1 : len(encoded)-1]
 }
 
 func maskNodeSecrets(masker *masking.Masker, node *ir.Node) {

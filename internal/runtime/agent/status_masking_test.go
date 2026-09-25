@@ -4,6 +4,9 @@
 package agent
 
 import (
+	"bytes"
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -123,4 +126,36 @@ func TestMaskNodeSecretsKeepsOutputsValidJSON(t *testing.T) {
 	assert.JSONEq(t, expected, *node.OutputsValue)
 	require.NotNil(t, node.StepOutputsValue)
 	assert.JSONEq(t, expected, *node.StepOutputsValue)
+}
+
+// Stored outputs are JSON text, written both with and without HTML escaping,
+// so a secret with a quote, a backslash, a control character, or <, >, and &
+// appears there only in escaped form.
+func TestMaskNodeSecretsMasksEscapedSecret(t *testing.T) {
+	t.Parallel()
+
+	const secret = "q\"b\\s\n\x01<a>& z"
+	masker := newStatusSecretMasker([]string{"API_TOKEN=" + secret})
+	require.NotNil(t, masker)
+
+	for name, escapeHTML := range map[string]bool{"HTMLEscaped": true, "Unescaped": false} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var buf bytes.Buffer
+			encoder := json.NewEncoder(&buf)
+			encoder.SetEscapeHTML(escapeHTML)
+			require.NoError(t, encoder.Encode(map[string]string{"token": "Bearer " + secret}))
+			stored := strings.TrimSuffix(buf.String(), "\n")
+			require.NotContains(t, stored, secret)
+			node := &ir.Node{OutputsValue: &stored, StepOutputsValue: &stored}
+
+			maskNodeSecrets(masker, node)
+
+			require.NotNil(t, node.OutputsValue)
+			assert.JSONEq(t, `{"token":"Bearer *******"}`, *node.OutputsValue)
+			require.NotNil(t, node.StepOutputsValue)
+			assert.JSONEq(t, `{"token":"Bearer *******"}`, *node.StepOutputsValue)
+		})
+	}
 }
