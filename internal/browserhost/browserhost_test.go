@@ -116,14 +116,9 @@ func (f *fakeBrowser) calls() []string {
 	return append([]string(nil), f.methods...)
 }
 
-// closedURL returns a DevTools URL nothing listens on.
-func closedURL(t *testing.T) string {
-	t.Helper()
-	server := httptest.NewServer(http.NotFoundHandler())
-	url := server.URL
-	server.Close()
-	return url
-}
+// unreachableURL is a DevTools URL nothing can listen on. A port freed by a
+// closed server is not used, since a concurrent test may bind it again.
+const unreachableURL = "http://127.0.0.1:0"
 
 func TestStoreRoundTrip(t *testing.T) {
 	t.Parallel()
@@ -193,13 +188,12 @@ func TestProbeAndClose(t *testing.T) {
 
 	fake := newFakeBrowser(t)
 	require.NoError(t, browserhost.Probe(context.Background(), fake.server.URL))
+	// CloseBrowser returns nil only after the browser stops accepting connections.
 	require.NoError(t, browserhost.CloseBrowser(context.Background(), fake.server.URL))
 	assert.Equal(t, []string{"Browser.close"}, fake.calls())
-	assert.ErrorIs(t, browserhost.Probe(context.Background(), fake.server.URL), browserhost.ErrUnreachable)
 
-	gone := closedURL(t)
-	assert.ErrorIs(t, browserhost.Probe(context.Background(), gone), browserhost.ErrUnreachable)
-	assert.NoError(t, browserhost.CloseBrowser(context.Background(), gone), "an unreachable browser is already closed")
+	assert.ErrorIs(t, browserhost.Probe(context.Background(), unreachableURL), browserhost.ErrUnreachable)
+	assert.NoError(t, browserhost.CloseBrowser(context.Background(), unreachableURL), "an unreachable browser is already closed")
 }
 
 // Sweep keeps sessions a step can still use and releases every other one.
