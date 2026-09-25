@@ -446,8 +446,18 @@ func TestWrite_InvalidPath(t *testing.T) {
 		Version: IndexVersion,
 		Entries: []*indexv1.DAGIndexEntry{{FilePath: "a.yaml", Name: "a"}},
 	}
-	err := Write("/nonexistent/dir/.dag.index", idx)
+	// A regular file in place of the index directory cannot be created over,
+	// on every platform and for every user.
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	require.NoError(t, os.WriteFile(blocker, nil, 0600))
+	err := Write(filepath.Join(blocker, "dir", ".dag.index"), idx)
 	require.Error(t, err)
+}
+
+func TestWrite_CreatesDirectory(t *testing.T) {
+	indexPath := filepath.Join(t.TempDir(), "cache", "dag-index", "x.index")
+	require.NoError(t, Write(indexPath, NewIndex(nil)))
+	assert.FileExists(t, indexPath)
 }
 
 func TestJoinErrors(t *testing.T) {
