@@ -1344,6 +1344,46 @@ steps:
 	require.Contains(t, outputs["response"], "*******", "masked placeholder expected")
 }
 
+// A later step of the same run reads a published output with the secret
+// intact, while stored run status keeps only the mask.
+func TestAgent_StepOutputSecretMasking(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fixture uses POSIX shell commands")
+	}
+	t.Parallel()
+	th := test.Setup(t)
+
+	secretValue := "step-output-secret-5b7e"
+	secretFile := th.TempFile(t, "secret.txt", []byte(secretValue))
+
+	dag := th.DAG(t, `type: graph
+secrets:
+  - name: API_TOKEN
+    provider: file
+    key: `+secretFile+`
+steps:
+  - id: login
+    run: printf 'token=%s\n' "$API_TOKEN" >> "$DAGU_OUTPUT_FILE"
+    outputs:
+      - name: token
+  - id: use
+    depends: [login]
+    run: test '${steps.login.outputs.token}' = "$API_TOKEN"
+`)
+	dag.Agent().RunSuccess(t)
+
+	latest, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
+	require.NoError(t, err)
+	login, err := latest.NodeByName("login")
+	require.NoError(t, err)
+	require.NotNil(t, login.StepOutputsValue)
+	require.JSONEq(t, `{"token":"*******"}`, *login.StepOutputsValue)
+
+	statusJSON, err := json.Marshal(latest)
+	require.NoError(t, err)
+	require.NotContains(t, string(statusJSON), secretValue)
+}
+
 func TestAgent_RegistryRefSecretResolution(t *testing.T) {
 	t.Parallel()
 	th := test.Setup(t)

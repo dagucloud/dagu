@@ -45,7 +45,18 @@ func maskNodeSecrets(masker *masking.Masker, node *ir.Node) {
 	node.OutputVariables = maskOutputVariables(masker, node.OutputVariables)
 	node.OutputValue = maskStringPointer(masker, node.OutputValue)
 	node.OutputsValue = maskStringPointer(masker, node.OutputsValue)
+	node.StepOutputsValue = maskStepOutputs(masker, node)
 	node.AgentSession = maskAgentSession(masker, node.AgentSession)
+}
+
+// maskStepOutputs masks the outputs a step published. Human-task outputs are
+// kept: they are operator input, stored as entered next to HumanTaskInput, and
+// a resumed run reads them back from status.
+func maskStepOutputs(masker *masking.Masker, node *ir.Node) *string {
+	if node.Step.HumanTask != nil {
+		return node.StepOutputsValue
+	}
+	return maskStringPointer(masker, node.StepOutputsValue)
 }
 
 // maskAgentSession masks the displayed text of an agent session. Answers are

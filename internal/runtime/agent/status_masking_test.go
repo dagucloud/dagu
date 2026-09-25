@@ -69,3 +69,39 @@ func TestMaskNodeSecretsMasksAgentSession(t *testing.T) {
 	assert.NotContains(t, node.AgentSession.Events[0].Content, "very-secret-token")
 	assert.Contains(t, session.Events[0].Content, "very-secret-token", "the live session is not modified")
 }
+
+// Outputs a step publishes, such as those written to DAGU_OUTPUT_FILE, are
+// stored as JSON text, so a secret reaches persisted status through them too.
+func TestMaskNodeSecretsMasksStepOutputs(t *testing.T) {
+	t.Parallel()
+
+	masker := newStatusSecretMasker([]string{"API_TOKEN=very-secret-token"})
+	require.NotNil(t, masker)
+	live := `{"header":"Bearer very-secret-token","region":"us"}`
+	node := &ir.Node{StepOutputsValue: &live}
+
+	maskNodeSecrets(masker, node)
+
+	require.NotNil(t, node.StepOutputsValue)
+	assert.JSONEq(t, `{"header":"Bearer *******","region":"us"}`, *node.StepOutputsValue)
+	assert.Equal(t, `{"header":"Bearer very-secret-token","region":"us"}`, live, "the live outputs are not modified")
+}
+
+// Human-task outputs are operator input, and a resumed run reads them back
+// from status, so they are stored as entered.
+func TestMaskNodeSecretsKeepsHumanTaskOutputs(t *testing.T) {
+	t.Parallel()
+
+	masker := newStatusSecretMasker([]string{"API_TOKEN=very-secret-token"})
+	require.NotNil(t, masker)
+	entered := `{"note":"very-secret-token"}`
+	node := &ir.Node{
+		Step:             ir.Step{HumanTask: &ir.HumanTaskConfig{Prompt: "Confirm"}},
+		StepOutputsValue: &entered,
+	}
+
+	maskNodeSecrets(masker, node)
+
+	require.NotNil(t, node.StepOutputsValue)
+	assert.Equal(t, `{"note":"very-secret-token"}`, *node.StepOutputsValue)
+}
