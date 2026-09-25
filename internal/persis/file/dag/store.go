@@ -324,9 +324,10 @@ func describeWorkspaceBaseConfigState(dir string) string {
 // Initialize ensures the storage is ready and creates example DAGs if needed
 func (store *Store) Initialize() error {
 	// An index left in the DAG directory by an earlier version is a stale
-	// cache; removal fails harmlessly when the directory is read-only.
+	// cache; removal fails harmlessly when the directory is read-only. It is
+	// not retried, since Windows retries on access denied would stall startup.
 	if legacyIndex := filepath.Join(store.baseDir, dagindex.IndexFileName); legacyIndex != store.indexPath {
-		_ = fileutil.Remove(legacyIndex)
+		_ = os.Remove(legacyIndex)
 	}
 	return store.ensureDirExist()
 }
