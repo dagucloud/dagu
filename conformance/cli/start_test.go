@@ -62,6 +62,35 @@ func TestStartOnlyKeepsReference(t *testing.T) {
 	dagu.ExpectFileContent("consume.out", "${steps.produce.outputs.value}\nmissing\n")
 }
 
+// TestStartOnlySetsOutput proves --output feeds a declared output to the
+// selected step with no earlier run, through a strict step-output reference.
+func TestStartOnlySetsOutput(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	result := dagu.RunWithEnv(sharedEnv(t), "start", "--only=consume", "--output=produce.value=given", "only_outputs.yaml")
+	result.ExpectExitCode(0)
+	dagu.ExpectFileContent("consume.out", "given\nmissing\n")
+}
+
+// TestStartOnlyOutputOverridesSource proves --output wins over the value
+// --outputs-from carries, while the source run's work directory is still
+// copied.
+func TestStartOnlyOutputOverridesSource(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	env := sharedEnv(t)
+
+	source := dagu.RunWithEnv(env, "start", "--run-id=cli-start-override-source", "only_outputs.yaml")
+	source.ExpectExitCode(0)
+	dagu.WriteFile("consume.out", "")
+
+	result := dagu.RunWithEnv(env, "start", "--only=consume", "--outputs-from=cli-start-override-source", "--output=produce.value=given", "only_outputs.yaml")
+	result.ExpectExitCode(0)
+	dagu.ExpectFileContent("consume.out", "given\nshared\n")
+}
+
 func TestStartOutputsFromNeedsOnly(t *testing.T) {
 	t.Parallel()
 
