@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -127,6 +128,39 @@ func TestNewDAGRepositoryWithoutLegacySuspendFlags(t *testing.T) {
 // earlier version is removed.
 func TestDAGIndexUnderDataDir(t *testing.T) {
 	t.Parallel()
+	cfg, legacyIndex := newDAGIndexTestConfig(t)
+
+	repo, err := persisfile.NewDAGRepository(cfg, persisfile.WithDAGSkipExamples(true))
+	require.NoError(t, err)
+	assert.NoFileExists(t, legacyIndex)
+	assertListUsesDataDirIndex(t, repo, cfg.Paths.DataDir)
+	assert.NoFileExists(t, legacyIndex)
+}
+
+// A read-only DAGs directory keeps its legacy index, which is neither an error
+// nor read back; listing still persists the index under the data directory.
+func TestDAGIndexReadOnlyDAGsDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("directory permissions do not prevent file removal on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory permissions")
+	}
+	t.Parallel()
+	cfg, legacyIndex := newDAGIndexTestConfig(t)
+	require.NoError(t, os.Chmod(cfg.Paths.DAGsDir, 0o555))
+	t.Cleanup(func() { _ = os.Chmod(cfg.Paths.DAGsDir, 0o750) })
+
+	repo, err := persisfile.NewDAGRepository(cfg, persisfile.WithDAGSkipExamples(true))
+	require.NoError(t, err)
+	assert.FileExists(t, legacyIndex)
+	assertListUsesDataDirIndex(t, repo, cfg.Paths.DataDir)
+}
+
+// newDAGIndexTestConfig returns a config whose DAGs directory holds one DAG
+// and a corrupt index left by an earlier version at the returned path.
+func newDAGIndexTestConfig(t *testing.T) (*config.Config, string) {
+	t.Helper()
 	home := t.TempDir()
 	data := filepath.Join(home, "data")
 	cfg := suspendFlagsTestConfig(home, data, filepath.Join(data, "suspend"), "")
@@ -134,18 +168,17 @@ func TestDAGIndexUnderDataDir(t *testing.T) {
 	require.NoError(t, os.MkdirAll(cfg.Paths.DAGsDir, 0o750))
 	require.NoError(t, os.WriteFile(filepath.Join(cfg.Paths.DAGsDir, "alpha.yaml"), []byte("steps: []\n"), 0o600))
 	require.NoError(t, os.WriteFile(legacyIndex, []byte("stale"), 0o600))
+	return cfg, legacyIndex
+}
 
-	repo, err := persisfile.NewDAGRepository(cfg, persisfile.WithDAGSkipExamples(true))
-	require.NoError(t, err)
-	assert.NoFileExists(t, legacyIndex)
+func assertListUsesDataDirIndex(t *testing.T, repo *persis.DAGRepository, dataDir string) {
+	t.Helper()
 	result, _, err := repo.List(context.Background(), persis.DAGListOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, 1, result.TotalCount)
-
-	indexes, err := filepath.Glob(filepath.Join(data, "cache", "dag-index", "*.index"))
+	indexes, err := filepath.Glob(filepath.Join(dataDir, "cache", "dag-index", "*.index"))
 	require.NoError(t, err)
 	assert.Len(t, indexes, 1)
-	assert.NoFileExists(t, legacyIndex)
 }
 
 func suspendFlagsTestConfig(homeDir, dataDir, flagsDir, legacyDir string) *config.Config {
