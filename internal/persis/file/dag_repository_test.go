@@ -123,17 +123,21 @@ func TestNewDAGRepositoryWithoutLegacySuspendFlags(t *testing.T) {
 }
 
 // The index is kept under the data directory so a read-only DAGs directory
-// still gets a persisted index.
+// still gets a persisted index. An index left in the DAGs directory by an
+// earlier version is removed.
 func TestDAGIndexUnderDataDir(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
 	data := filepath.Join(home, "data")
 	cfg := suspendFlagsTestConfig(home, data, filepath.Join(data, "suspend"), "")
+	legacyIndex := filepath.Join(cfg.Paths.DAGsDir, ".dag.index")
 	require.NoError(t, os.MkdirAll(cfg.Paths.DAGsDir, 0o750))
 	require.NoError(t, os.WriteFile(filepath.Join(cfg.Paths.DAGsDir, "alpha.yaml"), []byte("steps: []\n"), 0o600))
+	require.NoError(t, os.WriteFile(legacyIndex, []byte("stale"), 0o600))
 
 	repo, err := persisfile.NewDAGRepository(cfg, persisfile.WithDAGSkipExamples(true))
 	require.NoError(t, err)
+	assert.NoFileExists(t, legacyIndex)
 	result, _, err := repo.List(context.Background(), persis.DAGListOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, 1, result.TotalCount)
@@ -141,7 +145,7 @@ func TestDAGIndexUnderDataDir(t *testing.T) {
 	indexes, err := filepath.Glob(filepath.Join(data, "cache", "dag-index", "*.index"))
 	require.NoError(t, err)
 	assert.Len(t, indexes, 1)
-	assert.NoFileExists(t, filepath.Join(cfg.Paths.DAGsDir, ".dag.index"))
+	assert.NoFileExists(t, legacyIndex)
 }
 
 func suspendFlagsTestConfig(homeDir, dataDir, flagsDir, legacyDir string) *config.Config {
