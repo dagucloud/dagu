@@ -83,7 +83,7 @@ func (a *API) startSelectedSteps(ctx context.Context, dag *ir.DAG, req selectedS
 			return err
 		}
 	}
-	nodes, err := intake.SelectedStepNodes(dag, req.steps, source)
+	nodes, err := intake.SelectedStepNodes(dag, req.steps, source, nil)
 	if err != nil {
 		return badSelectedStepsRequest(err.Error())
 	}

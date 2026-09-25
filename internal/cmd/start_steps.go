@@ -62,7 +62,7 @@ func runSelectedSteps(ctx *Context, dag *ir.DAG, dagRunID, params string, opts r
 			return fmt.Errorf("failed to read status for dag-run %s: %w", selection.outputsFrom, err)
 		}
 	}
-	nodes, err := intake.SelectedStepNodes(dag, selection.steps, source)
+	nodes, err := intake.SelectedStepNodes(dag, selection.steps, source, nil)
 	if err != nil {
 		return err
 	}

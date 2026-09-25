@@ -81,7 +81,7 @@ func TestSelectedStepNodes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			nodes, err := intake.SelectedStepNodes(selectedStepsDAG(tt.dagType), tt.steps, tt.source)
+			nodes, err := intake.SelectedStepNodes(selectedStepsDAG(tt.dagType), tt.steps, tt.source, nil)
 			if tt.wantErr != "" {
 				require.ErrorContains(t, err, tt.wantErr)
 				return
@@ -102,7 +102,7 @@ func TestSelectedStepNodes(t *testing.T) {
 	t.Run("ReusesOutputs", func(t *testing.T) {
 		t.Parallel()
 
-		nodes, err := intake.SelectedStepNodes(selectedStepsDAG(""), []string{"report"}, finished)
+		nodes, err := intake.SelectedStepNodes(selectedStepsDAG(""), []string{"report"}, finished, nil)
 		require.NoError(t, err)
 		require.NotNil(t, nodes[0].State.StepOutputsValue)
 		require.JSONEq(t, output, *nodes[0].State.StepOutputsValue)
@@ -121,4 +121,131 @@ func selectedStepsDAG(dagType string) *ir.DAG {
 		},
 	}
 	return dag
+}
+
+func TestSelectedStepNodesOutputs(t *testing.T) {
+	t.Parallel()
+
+	carried := `{"token":"old","claims":"{}"}`
+	source := &ir.DAGRunStatus{
+		DAGRunID: "source",
+		Status:   ir.Succeeded,
+		Nodes: []*ir.Node{
+			{Step: ir.Step{Name: "Log in"}, Status: ir.NodeSucceeded, StepOutputsValue: &carried},
+		},
+	}
+
+	tests := []struct {
+		name    string
+		source  *ir.DAGRunStatus
+		outputs map[string]map[string]string
+		// wantOutputs maps a step name to the published outputs it is seeded
+		// with; wantVars maps a step name to its output variables.
+		wantOutputs map[string]string
+		wantVars    map[string]string
+		wantErr     string
+	}{
+		{
+			name:        "Declared",
+			outputs:     map[string]map[string]string{"login": {"token": "abc", "claims": `{"sub":"u1"}`}},
+			wantOutputs: map[string]string{"Log in": `{"token":"abc","claims":"{\"sub\":\"u1\"}"}`},
+		},
+		{
+			name:        "OverridesSource",
+			source:      source,
+			outputs:     map[string]map[string]string{"Log in": {"token": "new"}},
+			wantOutputs: map[string]string{"Log in": `{"token":"new","claims":"{}"}`},
+		},
+		{
+			name:        "AnyNameWithoutContract",
+			outputs:     map[string]map[string]string{"fetch": {"url": "https://example.com"}},
+			wantOutputs: map[string]string{"fetch": `{"url":"https://example.com"}`},
+		},
+		{
+			// A string-form output variable is not a named output, so it is
+			// set only as the variable.
+			name:     "OutputVariable",
+			outputs:  map[string]map[string]string{"fetch": {"RESULT": "body"}},
+			wantVars: map[string]string{"fetch": "RESULT=body"},
+		},
+		{
+			name:    "Undeclared",
+			outputs: map[string]map[string]string{"login": {"other": "x"}},
+			wantErr: `step "login": output "other" is not declared by the step`,
+		},
+		{
+			name:    "InvalidJSON",
+			outputs: map[string]map[string]string{"login": {"claims": "{"}},
+			wantErr: `output "claims" must be valid JSON`,
+		},
+		{
+			name:    "InvalidName",
+			outputs: map[string]map[string]string{"fetch": {"bad-name": "x"}},
+			wantErr: `invalid output name "bad-name"`,
+		},
+		{
+			name:    "NoID",
+			outputs: map[string]map[string]string{"label": {"text": "x"}},
+			wantErr: `output "text" cannot be referenced because the step has no id`,
+		},
+		{
+			name:    "SelectedStep",
+			outputs: map[string]map[string]string{"report": {"text": "x"}},
+			wantErr: `cannot set outputs of step "report": it is selected to run`,
+		},
+		{
+			name:    "UnknownStep",
+			outputs: map[string]map[string]string{"missing": {"text": "x"}},
+			wantErr: `unknown step "missing"`,
+		},
+		{
+			name:    "SetTwice",
+			outputs: map[string]map[string]string{"Log in": {"token": "a"}, "login": {"token": "b"}},
+			wantErr: `output "token" of step "Log in" is set by both "Log in" and "login"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			nodes, err := intake.SelectedStepNodes(outputsDAG(), []string{"report"}, tt.source, tt.outputs)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			for _, node := range nodes {
+				if want, ok := tt.wantOutputs[node.Step.Name]; ok {
+					require.NotNil(t, node.State.StepOutputsValue, node.Step.Name)
+					require.JSONEq(t, want, *node.State.StepOutputsValue, node.Step.Name)
+				}
+				if want, ok := tt.wantVars[node.Step.Name]; ok {
+					require.Nil(t, node.State.StepOutputsValue, node.Step.Name)
+					require.NotNil(t, node.State.OutputVariables, node.Step.Name)
+					got, ok := node.State.OutputVariables.Load("RESULT")
+					require.True(t, ok)
+					require.Equal(t, want, got)
+				}
+			}
+		})
+	}
+}
+
+// outputsDAG has a step with an outputs contract whose name differs from its
+// id, a step with only a string-form output variable, a step without an id,
+// and the selected step.
+func outputsDAG() *ir.DAG {
+	return &ir.DAG{
+		Name: "outputs",
+		Steps: []ir.Step{
+			{Name: "Log in", ID: "login", Outputs: []ir.StepOutputDeclaration{
+				{Name: "token", Type: ir.StepDeclaredOutputTypeString},
+				{Name: "claims", Type: ir.StepDeclaredOutputTypeJSON},
+			}},
+			{Name: "fetch", ID: "fetch", Output: "RESULT", Depends: []string{"Log in"}},
+			{Name: "label", Depends: []string{"fetch"}},
+			{Name: "report", ID: "report", Depends: []string{"label"}},
+		},
+	}
 }
