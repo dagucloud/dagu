@@ -268,7 +268,7 @@ jobs:
       # One shard saves the cache that every Go job restores; it compiles the
       # binary and nearly every package with the race detector and coverage.
       - name: Save Go caches
-        if: ${{ (github.ref == 'refs/heads/main' || github.event_name == 'pull_request') && matrix.suite == 'unit' && matrix.shard == 1 }}
+        if: ${{ github.ref == 'refs/heads/main' && matrix.suite == 'unit' && matrix.shard == 1 }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ steps.go.outputs.cache-paths }}
@@ -680,7 +680,7 @@ jobs:
           exit "${status}"
 
       - name: Save Go caches
-        if: ${{ (github.ref == 'refs/heads/main' || github.event_name == 'pull_request') && matrix.suite == 'unit' && matrix.shard == 1 }}
+        if: ${{ github.ref == 'refs/heads/main' && matrix.suite == 'unit' && matrix.shard == 1 }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ steps.go.outputs.cache-paths }}
