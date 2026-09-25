@@ -17,11 +17,13 @@ on:
       - "internal/**"
       - "Makefile"
       - "proto/**"
+      - "scripts/ci/**"
       - "scripts/e2e/**"
       - "scripts/installer.cmd"
       - "scripts/installer.iss"
       - "scripts/installer.ps1"
       - "ui/**"
+      - ".github/actions/setup-go-cache/**"
       - ".github/workflows/ci.yaml"
   pull_request:
     # Keep this workflow directly rerunnable from PR-only maintenance commits.
@@ -40,11 +42,13 @@ on:
       - "internal/**"
       - "Makefile"
       - "proto/**"
+      - "scripts/ci/**"
       - "scripts/e2e/**"
       - "scripts/installer.cmd"
       - "scripts/installer.iss"
       - "scripts/installer.ps1"
       - "ui/**"
+      - ".github/actions/setup-go-cache/**"
       - ".github/workflows/ci.yaml"
   workflow_dispatch:
 
@@ -110,7 +114,7 @@ jobs:
           windows_installer_changed=false
           while IFS= read -r file; do
             case "${file}" in
-              *.go|go.mod|go.sum|Makefile|.github/workflows/ci.yaml)
+              *.go|go.mod|go.sum|Makefile|scripts/ci/*|.github/actions/setup-go-cache/*|.github/workflows/ci.yaml)
                 go_changed=true
                 ;;
             esac
@@ -134,26 +138,34 @@ jobs:
 
   # Lint Go code
   golint:
-    name: Go Linter
+    name: Go Linter (${{ matrix.goos }})
     needs: changes
     if: needs.changes.outputs.go == 'true'
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Files behind //go:build windows are invisible to a linter running at
+        # the host GOOS, so they are linted in a job of their own.
+        goos: [linux, windows]
     steps:
       - name: Check out code
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        uses: ./.github/actions/setup-go-cache
         with:
           go-version: ${{ env.GO_VERSION }}
 
       - name: Check formatting (go fmt)
+        if: matrix.goos == 'linux'
         run: |
           go fmt ./...
           # Fail if formatting changed any files
           git diff --exit-code || (echo "Go files are not formatted. Please run 'make fmt'" && exit 1)
 
       - name: Check modernize (go fix)
+        if: matrix.goos == 'linux'
         run: |
           diff=$(go fix -embedlit=false -diff ./... 2>&1) || true
           if [ -n "$diff" ]; then
@@ -164,22 +176,14 @@ jobs:
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@82606bf257cbaff209d206a39f5134f0cfbfd2ee # v9.2.1
-        with:
-          version: v2.13.0
-          args: --timeout=10m
-
-      # Files behind //go:build windows are invisible to a linter running at the
-      # host GOOS, so lint them explicitly.
-      - name: Run golangci-lint (GOOS=windows)
-        uses: golangci/golangci-lint-action@82606bf257cbaff209d206a39f5134f0cfbfd2ee # v9.2.1
         env:
-          GOOS: windows
+          GOOS: ${{ matrix.goos }}
         with:
           version: v2.13.0
           args: --timeout=10m
 
   test-ubuntu:
-    name: Test on ubuntu-latest (${{ matrix.suite_index }}/${{ matrix.suite_total }})
+    name: Test on ubuntu-latest (${{ matrix.suite }} ${{ matrix.shard }}/${{ matrix.shards }})
     needs: changes
     if: needs.changes.outputs.go == 'true'
     runs-on: ubuntu-latest
@@ -188,20 +192,19 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - suite: unit
-            suite_index: 1
-            suite_total: 2
-            codecov_name: ubuntu-unit
-          - suite: intg
-            suite_index: 2
-            suite_total: 2
-            codecov_name: ubuntu-intg
+          - { suite: unit, shard: 1, shards: 3 }
+          - { suite: unit, shard: 2, shards: 3 }
+          - { suite: unit, shard: 3, shards: 3 }
+          - { suite: intg, shard: 1, shards: 3 }
+          - { suite: intg, shard: 2, shards: 3 }
+          - { suite: intg, shard: 3, shards: 3 }
     steps:
       - name: Check out code
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        id: go
+        uses: ./.github/actions/setup-go-cache
         with:
           go-version: ${{ env.GO_VERSION }}
 
@@ -236,38 +239,67 @@ jobs:
             done
           done
 
-      - name: Resolve test packages
-        id: test-packages
+      - name: Plan test shard
         shell: bash
-        run: |
-          suite="${{ matrix.suite }}"
-          module_path="$(go list -m)"
-          case "${suite}" in
-            unit)
-              packages="$(
-                go list ./... | awk -v intg_prefix="${module_path}/internal/intg" -v conformance="${module_path}/conformance" '$0 != conformance && index($0, conformance "/") != 1 && $0 != intg_prefix && index($0, intg_prefix "/") != 1' | xargs
-              )"
-              ;;
-            intg)
-              packages="$(go list ./internal/intg/... | xargs)"
-              ;;
-            *)
-              echo "unknown test suite: ${suite}" >&2
-              exit 1
-              ;;
-          esac
-          if [[ -z "${packages}" ]]; then
-            echo "failed to resolve packages for ${suite}" >&2
-            exit 1
-          fi
-          echo "packages=${packages}" >> "${GITHUB_OUTPUT}"
+        run: scripts/ci/go-test-suite.sh "${{ matrix.suite }}" "${{ matrix.shard }}" "${{ matrix.shards }}" > "${RUNNER_TEMP}/go-test-plan.tsv"
 
       - name: Build
         run: |
           make bin
 
+      - name: Test
+        shell: bash
+        run: |
+          go install gotest.tools/gotestsum
+          status=0
+          group=0
+          while IFS=$'\t' read -r -u 3 packages run; do
+            group=$((group + 1))
+            args=(-v -race -count=1 -coverpkg=./... -covermode=atomic -coverprofile="coverage-${group}.out")
+            if [[ -n "${run}" ]]; then
+              args+=(-run "${run}")
+            fi
+            # shellcheck disable=SC2086 # packages is a space-separated list.
+            gotestsum --format=standard-quiet -- "${args[@]}" ${packages} || status=1
+          done 3< "${RUNNER_TEMP}/go-test-plan.tsv"
+          { echo "mode: atomic"; tail -q -n +2 coverage-*.out; } > coverage.out
+          exit "${status}"
+
+      # One shard saves the cache that every Go job restores; it compiles the
+      # binary and nearly every package with the race detector and coverage.
+      - name: Save Go caches
+        if: ${{ github.ref == 'refs/heads/main' && matrix.suite == 'unit' && matrix.shard == 1 }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.go.outputs.cache-paths }}
+          key: ${{ steps.go.outputs.cache-key }}
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        with:
+          files: ./coverage.out
+          flags: ubuntu-${{ matrix.suite }}
+          name: ubuntu-${{ matrix.suite }}-${{ matrix.shard }}
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  # Checks that need a different toolchain setup than the test shards.
+  test-compat:
+    name: Test compatibility
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out code
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Set up Go
+        uses: ./.github/actions/setup-go-cache
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
       - name: Install tested OpenCode release
-        if: ${{ matrix.suite == 'unit' }}
         run: |
           npm ci --ignore-scripts --prefix .github/opencode
           mkdir -p .github/opencode/bin
@@ -276,51 +308,26 @@ jobs:
           echo "${GITHUB_WORKSPACE}/.github/opencode/bin" >> "${GITHUB_PATH}"
 
       - name: Test managed OpenCode capabilities
-        if: ${{ matrix.suite == 'unit' }}
         env:
           DAGU_TEST_OPENCODE_EXECUTABLE: opencode
           DAGU_TEST_OPENCODE_VERSION: 1.18.11
         run: go test ./internal/opencodehost -run '^TestRealOpenCodeCapabilities$' -count=1
 
-      - name: Test
-        run: |
-          make test-coverage TEST_TARGET="${{ steps.test-packages.outputs.packages }}"
-
       - name: Test with the legacy JSON backend
-        if: ${{ matrix.suite == 'unit' }}
         env:
           GOEXPERIMENT: nojsonv2
         run: go test ./internal/ir/... ./internal/persis/...
 
       - name: Test jq on 386
-        if: ${{ matrix.suite == 'unit' }}
         env:
           GOARCH: '386'
           CGO_ENABLED: '0'
         run: go test ./internal/runtime/builtin/jq
 
-      - name: Upload coverage
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
-        with:
-          files: ./coverage.out
-          flags: ${{ matrix.codecov_name }}
-          name: ${{ matrix.codecov_name }}
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-
   e2e:
     name: E2E (${{ matrix.shard }}/${{ matrix.shard_total }})
-    needs:
-      - changes
-      - golint
-      - test-ubuntu
-      - test-windows
-    if: >-
-      always() &&
-      needs.changes.outputs.e2e == 'true' &&
-      (needs.golint.result == 'success' || needs.golint.result == 'skipped') &&
-      (needs.test-ubuntu.result == 'success' || needs.test-ubuntu.result == 'skipped') &&
-      (needs.test-windows.result == 'success' || needs.test-windows.result == 'skipped')
+    needs: changes
+    if: needs.changes.outputs.e2e == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     strategy:
@@ -341,7 +348,7 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        uses: ./.github/actions/setup-go-cache
         with:
           go-version: ${{ env.GO_VERSION }}
 
@@ -622,7 +629,7 @@ jobs:
           if exist "%RUNNER_TEMP%\dagu-cmd-install\dagu.exe" exit /b 1
 
   test-windows:
-    name: Test on windows-latest (${{ matrix.suite_index }}/${{ matrix.suite_total }})
+    name: Test on windows-latest (${{ matrix.suite }} ${{ matrix.shard }}/${{ matrix.shards }})
     needs: changes
     if: needs.changes.outputs.go == 'true'
     runs-on: windows-latest
@@ -631,46 +638,26 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - suite: unit
-            suite_index: 1
-            suite_total: 2
-          - suite: intg
-            suite_index: 2
-            suite_total: 2
+          - { suite: unit, shard: 1, shards: 3 }
+          - { suite: unit, shard: 2, shards: 3 }
+          - { suite: unit, shard: 3, shards: 3 }
+          - { suite: intg, shard: 1, shards: 4 }
+          - { suite: intg, shard: 2, shards: 4 }
+          - { suite: intg, shard: 3, shards: 4 }
+          - { suite: intg, shard: 4, shards: 4 }
     steps:
       - name: Check out code
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        id: go
+        uses: ./.github/actions/setup-go-cache
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - name: Resolve test packages
-        id: test-packages
+      - name: Plan test shard
         shell: bash
-        run: |
-          suite="${{ matrix.suite }}"
-          module_path="$(go list -m)"
-          case "${suite}" in
-            unit)
-              packages="$(
-                go list ./... | awk -v intg_prefix="${module_path}/internal/intg" -v conformance="${module_path}/conformance" '$0 != conformance && index($0, conformance "/") != 1 && $0 != intg_prefix && index($0, intg_prefix "/") != 1' | xargs
-              )"
-              ;;
-            intg)
-              packages="$(go list ./internal/intg/... | xargs)"
-              ;;
-            *)
-              echo "unknown test suite: ${suite}" >&2
-              exit 1
-              ;;
-          esac
-          if [[ -z "${packages}" ]]; then
-            echo "failed to resolve packages for ${suite}" >&2
-            exit 1
-          fi
-          echo "packages=${packages}" >> "${GITHUB_OUTPUT}"
+        run: scripts/ci/go-test-suite.sh "${{ matrix.suite }}" "${{ matrix.shard }}" "${{ matrix.shards }}" > "${RUNNER_TEMP}/go-test-plan.tsv"
 
       - name: Build (Windows)
         shell: bash
@@ -681,6 +668,20 @@ jobs:
       - name: Test (Windows)
         shell: bash
         run: |
-          go test \
-            -timeout=20m \
-            ${{ steps.test-packages.outputs.packages }}
+          status=0
+          while IFS=$'\t' read -r -u 3 packages run; do
+            args=(-timeout=20m -count=1)
+            if [[ -n "${run}" ]]; then
+              args+=(-run "${run}")
+            fi
+            # shellcheck disable=SC2086 # packages is a space-separated list.
+            go test "${args[@]}" ${packages} || status=1
+          done 3< "${RUNNER_TEMP}/go-test-plan.tsv"
+          exit "${status}"
+
+      - name: Save Go caches
+        if: ${{ github.ref == 'refs/heads/main' && matrix.suite == 'unit' && matrix.shard == 1 }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.go.outputs.cache-paths }}
+          key: ${{ steps.go.outputs.cache-key }}
