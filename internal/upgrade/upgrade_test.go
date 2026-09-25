@@ -772,7 +772,13 @@ func TestCopyFileErrors(t *testing.T) {
 		if err := os.WriteFile(srcPath, []byte("content"), 0644); err != nil {
 			t.Fatalf("Failed to create source: %v", err)
 		}
-		if err := copyFile(srcPath, "/nonexistent/dir/file.txt"); err == nil {
+		// A regular file in place of the destination directory fails on every
+		// platform; an absolute path outside the sandbox may exist on the runner.
+		blocker := filepath.Join(tmpDir, "blocker")
+		if err := os.WriteFile(blocker, nil, 0600); err != nil {
+			t.Fatalf("Failed to create blocker: %v", err)
+		}
+		if err := copyFile(srcPath, filepath.Join(blocker, "file.txt")); err == nil {
 			t.Error("copyFile() should error for invalid destination path")
 		}
 	})
