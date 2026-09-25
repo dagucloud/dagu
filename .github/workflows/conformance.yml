@@ -5,6 +5,7 @@ on:
     branches:
       - main
     paths:
+      - ".github/actions/setup-go-cache/**"
       - ".github/workflows/conformance.yml"
       - "conformance/**"
       - "cmd/**"
@@ -12,6 +13,7 @@ on:
       - "go.sum"
       - "internal/**"
       - "Makefile"
+      - "scripts/ci/**"
       - "specs/**"
   pull_request:
     # Keep this workflow directly rerunnable from PR-only maintenance commits.
@@ -21,6 +23,7 @@ on:
       - synchronize
       - ready_for_review
     paths:
+      - ".github/actions/setup-go-cache/**"
       - ".github/workflows/conformance.yml"
       - "conformance/**"
       - "cmd/**"
@@ -28,6 +31,7 @@ on:
       - "go.sum"
       - "internal/**"
       - "Makefile"
+      - "scripts/ci/**"
       - "specs/**"
   workflow_dispatch:
 
@@ -39,12 +43,15 @@ env:
 
 jobs:
   conformance:
-    name: Conformance tests (${{ matrix.os }})
+    name: Conformance tests (${{ matrix.os }} ${{ matrix.shard }}/${{ matrix.shards }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, windows-latest]
+        shard: [1, 2]
+        shards: [2]
         include:
           - os: ubuntu-latest
             go_test_flags: "-v --race"
@@ -59,7 +66,7 @@ jobs:
           fetch-tags: true
 
       - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        uses: ./.github/actions/setup-go-cache
         with:
           go-version: ${{ env.GO_VERSION }}
 
@@ -80,6 +87,19 @@ jobs:
         shell: powershell
         run: Write-Output warmup
 
+      - name: Plan test shard
+        shell: bash
+        run: scripts/ci/go-test-suite.sh conformance "${{ matrix.shard }}" "${{ matrix.shards }}" > "${RUNNER_TEMP}/go-test-plan.tsv"
+
+      # The -run filter goes through GOFLAGS because make would expand the $ in
+      # the regexp; go commands other than go test ignore it.
       - name: Run conformance tests
         shell: bash
-        run: make conformance GO_TEST_FLAGS="${{ matrix.go_test_flags }}"
+        run: |
+          status=0
+          while IFS=$'\t' read -r -u 3 packages run; do
+            GOFLAGS="${run:+-run=${run}}" make conformance \
+              CONFORMANCE_TEST_TARGET="${packages}" \
+              GO_TEST_FLAGS="${{ matrix.go_test_flags }}" || status=1
+          done 3< "${RUNNER_TEMP}/go-test-plan.tsv"
+          exit "${status}"
