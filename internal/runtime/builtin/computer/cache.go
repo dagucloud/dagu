@@ -41,6 +41,8 @@ type recording struct {
 type recordedTurn struct {
 	Screen  desktop.Fingerprint `json:"screen"`
 	Actions []recordedAction    `json:"actions"`
+	// Confirmed marks a turn the model provider asked a person to confirm.
+	Confirmed bool `json:"confirmed,omitempty"`
 }
 
 // recordedAction is an action in display pixels. Typed text keeps its
@@ -81,10 +83,17 @@ func replayKey(index int, instruction string, size image.Point) string {
 
 // replay repeats a recording while every screen matches what the model saw
 // and returns how many turns it completed. It reports false, leaving the
-// desktop as it is, when a screen differs or an action fails; the model then
-// continues from there.
-func (r *run) replay(ctx context.Context, index int, entry recording) (completed int, ok bool, err error) {
+// desktop as it is, when a screen differs, an action fails, or the step's
+// settings would stop a model's turn: the turn needs more than budget
+// actions in all, or a confirmation on_confirmation does not allow. The
+// model then continues from there under the same settings.
+func (r *run) replay(ctx context.Context, index int, entry recording, budget int) (completed int, ok bool, err error) {
+	spent := 0
 	for _, turn := range entry.Turns {
+		spent += len(turn.Actions)
+		if spent > budget || (turn.Confirmed && r.cfg.OnConfirmation != confirmationAllow) {
+			return completed, false, nil
+		}
 		current, err := r.settle(ctx)
 		if err != nil {
 			return completed, false, err
@@ -105,6 +114,14 @@ func (r *run) replay(ctx context.Context, index int, entry recording) (completed
 		return completed, false, err
 	}
 	return completed, desktop.FingerprintOf(final).Distance(entry.Final) <= replayScreenDistance, nil
+}
+
+func countActions(turns []recordedTurn) int {
+	count := 0
+	for _, turn := range turns {
+		count += len(turn.Actions)
+	}
+	return count
 }
 
 // matches reports whether a screen looks like the one a recorded turn was

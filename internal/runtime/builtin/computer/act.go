@@ -52,7 +52,7 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 		}
 		key = replayKey(index, spec.Instruction, current.Bounds().Size())
 		if entry, ok := r.cache.Lookup(key); ok && len(entry.Turns) > 0 {
-			completed, ok, err := r.replay(ctx, index, entry)
+			completed, ok, err := r.replay(ctx, index, entry, r.cfg.maxActions(spec))
 			if err != nil {
 				return err
 			}
@@ -68,7 +68,7 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 		}
 	}
 
-	outcome, err := r.drive(ctx, index, spec)
+	outcome, err := r.drive(ctx, index, spec, countActions(replayed))
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) && ctx.Err() != nil {
 			return fmt.Errorf("act did not finish within %s", timeout)
@@ -88,12 +88,13 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 	return nil
 }
 
-// drive runs the task with the models in order. A later model takes over
-// only when an earlier one failed before touching the desktop.
-func (r *run) drive(ctx context.Context, index int, spec actSpec) (actOutcome, error) {
+// drive runs the task with the models in order, after spent actions a
+// replay performed. A later model takes over only when an earlier one failed
+// before touching the desktop.
+func (r *run) drive(ctx context.Context, index int, spec actSpec, spent int) (actOutcome, error) {
 	var errs []error
 	for _, m := range r.models {
-		outcome, touched, err := r.driveModel(ctx, index, spec, m)
+		outcome, touched, err := r.driveModel(ctx, index, spec, m, spent)
 		if err == nil {
 			return outcome, nil
 		}
@@ -107,7 +108,7 @@ func (r *run) drive(ctx context.Context, index int, spec actSpec) (actOutcome, e
 
 // driveModel runs the task with one model. touched reports whether any
 // action ran.
-func (r *run) driveModel(ctx context.Context, index int, spec actSpec, m model) (actOutcome, bool, error) {
+func (r *run) driveModel(ctx context.Context, index int, spec actSpec, m model, spent int) (actOutcome, bool, error) {
 	session, err := r.exec.newSession(m.providerType, m.provider, r.cfg.mode(), computeruse.Options{
 		Model:       m.cfg.Model,
 		Task:        spec.Instruction,
@@ -118,7 +119,7 @@ func (r *run) driveModel(ctx context.Context, index int, spec actSpec, m model) 
 	if err != nil {
 		return actOutcome{}, false, modelFailure{err}
 	}
-	loop := &actLoop{r: r, index: index, session: session, limit: session.ImageLimit(), budget: r.cfg.maxActions(spec)}
+	loop := &actLoop{r: r, index: index, session: session, limit: session.ImageLimit(), budget: r.cfg.maxActions(spec), spent: spent}
 	err = loop.run(ctx)
 	return loop.outcome, loop.touched, err
 }
@@ -130,6 +131,9 @@ type actLoop struct {
 	session computeruse.Session
 	limit   computeruse.ImageLimit
 	budget  int
+	// spent counts the actions a replay performed before the model took
+	// over, which count toward budget.
+	spent int
 	// seen is the screen the model last saw.
 	seen     screen
 	outcome  actOutcome
@@ -191,7 +195,7 @@ func (l *actLoop) admit(turn *computeruse.Turn) error {
 	if turn.Confirmation != "" && len(turn.Actions) > 0 && l.r.cfg.OnConfirmation != confirmationAllow {
 		return fmt.Errorf("the model provider asks a person to confirm the next actions (%s); add an ask operation before this act and set on_confirmation: allow", turn.Confirmation)
 	}
-	if l.outcome.actions+len(turn.Actions) > l.budget {
+	if l.spent+l.outcome.actions+len(turn.Actions) > l.budget {
 		return fmt.Errorf("the task needed more than max_actions (%d) actions", l.budget)
 	}
 	return nil
@@ -203,7 +207,11 @@ func (l *actLoop) apply(ctx context.Context, turn *computeruse.Turn) []computeru
 	l.touched = l.touched || len(turn.Actions) > 0
 	l.outcome.actions += len(turn.Actions)
 	if len(recorded) > 0 {
-		l.outcome.recording.Turns = append(l.outcome.recording.Turns, recordedTurn{Screen: desktop.FingerprintOf(l.seen.full), Actions: recorded})
+		l.outcome.recording.Turns = append(l.outcome.recording.Turns, recordedTurn{
+			Screen:    desktop.FingerprintOf(l.seen.full),
+			Actions:   recorded,
+			Confirmed: turn.Confirmation != "",
+		})
 	}
 	return results
 }

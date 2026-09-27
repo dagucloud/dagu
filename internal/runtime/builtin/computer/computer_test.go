@@ -354,6 +354,45 @@ func TestReplayAcrossAsk(t *testing.T) {
 	assert.Equal(t, []string{"act:cache-hit", "ask:waiting"}, eventNames(replayed.exec.GetAgentSession()))
 }
 
+// A replay applies the step's current max_actions and on_confirmation, so
+// tightening them sends the task back to the model instead of repeating the
+// recorded input.
+func TestReplayFollowsCurrentSettings(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		recorded string
+		turns    []*computeruse.Turn
+		replayed string
+	}{
+		{
+			name:     "max actions",
+			recorded: `{"do": [{"act": "Click twice"}]}`,
+			turns:    []*computeruse.Turn{actions(clickAt(1, 1), clickAt(2, 2)), done("Clicked")},
+			replayed: `{"max_actions": 1, "do": [{"act": "Click twice"}]}`,
+		},
+		{
+			name:     "confirmation",
+			recorded: `{"on_confirmation": "allow", "do": [{"act": "Pay"}]}`,
+			turns:    []*computeruse.Turn{{Actions: []computeruse.Action{clickAt(1, 1)}, Confirmation: "Submits a payment"}, done("Paid")},
+			replayed: `{"do": [{"act": "Pay"}]}`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			run := newTestRun(t)
+			run.sessions = []*scriptedSession{{turns: tc.turns}}
+			require.NoError(t, run.execute(tc.recorded, nil).err)
+			run.backend.events = nil
+
+			failed := run.execute(tc.replayed, nil)
+			require.ErrorContains(t, failed.err, "no scripted session left", "the model is asked instead")
+			assert.Empty(t, run.backend.inputs(), "no recorded input is repeated")
+		})
+	}
+}
+
 // A later model takes over only while the desktop is untouched.
 func TestModelFallback(t *testing.T) {
 	t.Parallel()

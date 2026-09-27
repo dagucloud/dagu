@@ -166,6 +166,11 @@ task from the current screen and the new actions are recorded; the timeline
 marks the operation `healed`. A full replay is marked `cache-hit`.
 `act.cache: false` disables the cache for one operation.
 
+A replay follows the step's current settings: it hands the task to the model
+before a recorded turn that would take the act past `max_actions`, or that
+the model provider asked a person to confirm while `on_confirmation` is not
+`allow`. Replayed actions count toward `max_actions`.
+
 When an operation fails after a replay, the step drops the recordings it
 replayed, so the next run asks the model again. A failure of a model request,
 the screen capture, a launch, or an `ask`, or a canceled run, leaves them.
