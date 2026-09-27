@@ -772,11 +772,12 @@ func notificationGroupDetail(group notificationGroup) string {
 	}
 }
 
-// ansiEscapePattern matches ANSI escape sequences.
-// Credit: https://github.com/chalk/ansi-regex/commit/02fa893d619d3da85411acc8fd4e2eea0e95a9d9 under MIT license
+// ansiEscapePattern matches ANSI escape sequences: OSC sequences such as
+// hyperlinks, ended by BEL, ESC \ or C1 ST, and CSI sequences such as colors.
+// Credit: https://github.com/chalk/ansi-regex/blob/79e112d67d2159cc999aab50398b712d370c2cf9/index.js under MIT license
 var ansiEscapePattern = regexp.MustCompile(
-	`[\x1b\x{9b}][[\]()#;?]*(?:(?:(?:(?:;[-a-zA-Z\d/#&.:=?%@~_]+)*|[a-zA-Z\d]+(?:;[-a-zA-Z\d/#&.:=?%@~_]*)*)?\x07)` +
-		`|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))`,
+	`(?:(?:\x1b\]|\x{9d})[^\x07\x1b\x{9c}\x{9d}]*(?:\x07|\x1b\\|\x{9c}))` +
+		`|[\x1b\x{9b}][[\]()#;?]*(?:\d{1,4}(?:[;:]\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]`,
 )
 
 // RunErrorText returns the error message for a DAG run: the run-level error

@@ -478,6 +478,18 @@ func TestRunErrorText(t *testing.T) {
 			want: "fetch: exit status 11\nrecent stderr (tail):\n1:42PM fatal\nload: exit status 2",
 		},
 		{
+			// OSC 8 hyperlinks may end with BEL, ESC \, or C1 ST.
+			name: "StripsHyperlinks",
+			status: &ir.DAGRunStatus{
+				Nodes: []*ir.Node{
+					failed("bel", "see \x1b]8;;https://example.com/a,b\x07docs\x1b]8;;\x07"),
+					failed("esc", "see \x1b]8;;https://example.com\x1b\\docs\x1b]8;;\x1b\\"),
+					failed("c1", "see \x1b]8;;https://example.com\u009cdocs\x1b]8;;\u009c"),
+				},
+			},
+			want: "bel: see docs\nesc: see docs\nc1: see docs",
+		},
+		{
 			name:   "NoErrors",
 			status: &ir.DAGRunStatus{Nodes: []*ir.Node{{Step: ir.Step{Name: "fetch"}, Status: ir.NodeSucceeded}}},
 			want:   "",
