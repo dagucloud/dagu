@@ -29,13 +29,22 @@ const ticketEmail = "From: Carol <carol@example.com>\r\n" +
 	"Third floor.\r\n"
 
 func accountContext(imapServer *mailtest.IMAP, smtpServer *mailtest.SMTP) context.Context {
+	return accountContextWithPassword(imapServer, smtpServer, imapServer.Password)
+}
+
+// accountContextWithPassword configures support@example.com against the test
+// servers with password as written in the account, which may be a reference
+// that options resolve.
+func accountContextWithPassword(
+	imapServer *mailtest.IMAP, smtpServer *mailtest.SMTP, password string, options ...runtime.ContextOption,
+) context.Context {
 	account := &ir.MailAccount{
 		Provider: ir.MailProviderIMAP,
 		IMAP: &ir.MailServer{
 			Host: imapServer.Host, Port: imapServer.Port, Security: ir.MailSecurityTLS, SkipTLSVerify: true,
 		},
 		Username: imapServer.Username,
-		Password: imapServer.Password,
+		Password: password,
 	}
 	if smtpServer != nil {
 		account.SMTP = &ir.MailServer{
@@ -44,7 +53,7 @@ func accountContext(imapServer *mailtest.IMAP, smtpServer *mailtest.SMTP) contex
 	}
 	return runtime.NewContext(context.Background(), &ir.DAG{
 		MailAccounts: ir.MailAccounts{"support@example.com": account},
-	}, "", "")
+	}, "", "", options...)
 }
 
 func operationStep(operation string, with map[string]any) ir.Step {
@@ -98,6 +107,20 @@ func TestSearchThenOrganizeEachEmail(t *testing.T) {
 	assert.Equal(t, 1, outputs["changed"])
 	assert.Equal(t, []string{}, outputs["missing"])
 	assert.True(t, imapServer.HasFlag(t, "INBOX", uid, imap.FlagSeen))
+}
+
+// An account credential written as a reference resolves at step start from
+// a global runtime profile secret, as an operator stores it outside the DAG.
+func TestSearchResolvesPasswordFromProfileSecret(t *testing.T) {
+	t.Parallel()
+
+	imapServer := mailtest.StartIMAP(t)
+	imapServer.Append(t, "INBOX", ticketEmail)
+	ctx := accountContextWithPassword(imapServer, nil, "${MAIL_PASSWORD}",
+		runtime.WithRuntimeProfileValues(nil, []string{"MAIL_PASSWORD=" + imapServer.Password}, nil, nil))
+
+	outputs := runStep(t, ctx, operationStep(opSearch, map[string]any{"mailbox": "support@example.com"}))
+	assert.Equal(t, 1, outputs["count"])
 }
 
 func TestOrganizeAcceptsAnAnswerList(t *testing.T) {
