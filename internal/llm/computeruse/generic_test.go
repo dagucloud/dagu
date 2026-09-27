@@ -199,3 +199,11 @@ func TestSplitKeys(t *testing.T) {
 		assert.Equal(t, want, computeruse.SplitKeys(combo), combo)
 	}
 }
+
+func TestPixelsToNotches(t *testing.T) {
+	t.Parallel()
+
+	for pixels, want := range map[int]int{0: 0, 10: 1, -10: -1, 149: 1, 150: 2, -300: -3} {
+		assert.Equal(t, want, computeruse.PixelsToNotches(pixels), pixels)
+	}
+}

@@ -265,6 +265,29 @@ func New(providerType llm.ProviderType, provider llm.Provider, mode Mode, opts O
 	return newGenericSession(provider, opts), nil
 }
 
+// pixelsPerNotch approximates how far one mouse wheel notch scrolls.
+const pixelsPerNotch = 100
+
+// PixelsToNotches converts a scroll distance in pixels to wheel notches,
+// keeping any nonzero distance at least one notch.
+func PixelsToNotches(pixels int) int {
+	notches := (abs(pixels) + pixelsPerNotch/2) / pixelsPerNotch
+	if notches == 0 && pixels != 0 {
+		notches = 1
+	}
+	if pixels < 0 {
+		return -notches
+	}
+	return notches
+}
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
+}
+
 // SplitKeys splits a key combination such as "ctrl+shift+t" into key
 // names. A trailing "+" is the plus key itself, as in "ctrl++".
 func SplitKeys(combo string) []string {
