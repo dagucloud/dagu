@@ -1451,7 +1451,7 @@ func TestSendRequireAttachments(t *testing.T) {
 
 	missing := filepath.Join(t.TempDir(), "missing.pdf")
 	err = client.Send(context.Background(), "from@example.com", []string{"to@example.com"}, "Subject", "Body", []string{missing})
-	require.ErrorContains(t, err, `attachment "`+missing+`"`)
+	require.ErrorContains(t, err, fmt.Sprintf("attachment %q", missing))
 	assert.Empty(t, server.RecordedRecipients(), "nothing is sent")
 
 	empty := filepath.Join(t.TempDir(), "empty.csv")

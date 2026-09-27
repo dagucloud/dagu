@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/base64"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -353,7 +354,7 @@ func TestMailRejectsUnreadableAttachment(t *testing.T) {
 			require.NoError(t, err)
 			exec.SetStdout(io.Discard)
 			exec.SetStderr(io.Discard)
-			require.ErrorContains(t, exec.Run(ctx), `attachment "`+path+`"`)
+			require.ErrorContains(t, exec.Run(ctx), fmt.Sprintf("attachment %q", path))
 		})
 	}
 }
