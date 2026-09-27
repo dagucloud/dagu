@@ -186,7 +186,11 @@ func (r *run) start(ctx context.Context) (int, error) {
 		})
 	}
 
-	lease, err := acquireDesktop(ctx, r.computerDir, r.timeline)
+	lockDir := r.exec.desktopLock
+	if lockDir == "" {
+		lockDir = filepath.Join(r.computerDir, desktopLockName)
+	}
+	lease, err := acquireDesktop(ctx, lockDir, r.timeline)
 	if err != nil {
 		return 0, err
 	}

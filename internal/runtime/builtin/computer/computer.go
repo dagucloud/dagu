@@ -43,6 +43,9 @@ type computerExecutor struct {
 	newProvider providerFactory
 	newSession  sessionFactory
 	settle      settleTiming
+	// desktopLock is the directory of the lock that gives one step at a
+	// time the desktop; empty uses the data directory.
+	desktopLock string
 	stdout      io.Writer
 	stderr      io.Writer
 
@@ -74,6 +77,7 @@ func newExecutor(_ context.Context, step ir.Step) (executor.Executor, error) {
 		newProvider: runtime.NewLLMProvider,
 		newSession:  computeruse.New,
 		settle:      defaultSettle,
+		desktopLock: userDesktopLock(),
 		stdout:      os.Stdout,
 		stderr:      os.Stderr,
 	}, nil

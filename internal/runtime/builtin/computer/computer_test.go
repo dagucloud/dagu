@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/computerhost"
 	"github.com/dagucloud/dagu/v2/internal/desktop"
@@ -133,7 +134,7 @@ func TestAskWaitsAndResumes(t *testing.T) {
 
 	// Another computer step can use the desktop while this one waits.
 	quiet := &agentstep.Timeline{Log: io.Discard, Masker: agentstep.NewMasker(nil, nil), Update: func(func(*ir.AgentSession)) {}}
-	lease, err := acquireDesktop(t.Context(), filepath.Join(run.dataDir, computerhost.DataDirName), quiet)
+	lease, err := acquireDesktop(t.Context(), run.desktopLock, quiet)
 	require.NoError(t, err)
 	lease.release()
 
@@ -410,6 +411,43 @@ func TestReplayCountsCutShortTurn(t *testing.T) {
 	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(typeText("acme")), done("Filled")}}}
 	failed := run.execute(steps, nil)
 	require.ErrorContains(t, failed.err, "more than max_actions (2)")
+}
+
+// Dagu processes with different data directories operate one desktop, so a
+// step waits while another one holds it.
+func TestDesktopSharedAcrossDataDirs(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"do": [{"act": "Click"}]}`
+	holding, release := make(chan struct{}), make(chan struct{})
+	first := newTestRun(t)
+	first.sessions = []*scriptedSession{{
+		turns:  []*computeruse.Turn{done("Clicked")},
+		onNext: func() { close(holding); <-release },
+	}}
+	started := make(chan struct{})
+	second := newTestRun(t)
+	second.desktopLock = first.desktopLock
+	second.sessions = []*scriptedSession{{
+		turns:  []*computeruse.Turn{done("Clicked")},
+		onNext: func() { close(started) },
+	}}
+
+	firstDone, secondDone := make(chan *stepExecution, 1), make(chan *stepExecution, 1)
+	go func() { firstDone <- first.execute(steps, nil) }()
+	<-holding
+	go func() { secondDone <- second.execute(steps, nil) }()
+	select {
+	case <-started:
+		t.Fatal("the second step operated the desktop while the first one held it")
+	case <-time.After(300 * time.Millisecond):
+	}
+	close(release)
+
+	require.NoError(t, (<-firstDone).err)
+	waited := <-secondDone
+	require.NoError(t, waited.err)
+	assert.Contains(t, lifecycleMessages(waited.exec.GetAgentSession()), "Waiting for another computer step to finish using the desktop")
 }
 
 // A later model takes over only while the desktop is untouched.

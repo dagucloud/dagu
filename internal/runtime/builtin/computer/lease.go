@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
+	"github.com/dagucloud/dagu/v2/internal/computerhost"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
 )
 
@@ -26,8 +27,19 @@ type desktopLease struct {
 	stop context.CancelFunc
 }
 
-func acquireDesktop(ctx context.Context, computerDir string, t *agentstep.Timeline) (*desktopLease, error) {
-	lockDir := filepath.Join(computerDir, desktopLockName)
+// userDesktopLock returns the lock shared by every Dagu process of the user,
+// whatever its data directory, since they all operate the same desktop. It
+// is empty when the user has no cache directory.
+func userDesktopLock() string {
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(dir, "dagu", computerhost.DataDirName, desktopLockName)
+}
+
+// acquireDesktop waits for the desktop lock in lockDir.
+func acquireDesktop(ctx context.Context, lockDir string, t *agentstep.Timeline) (*desktopLease, error) {
 	if err := os.MkdirAll(lockDir, desktopDirMode); err != nil {
 		return nil, fmt.Errorf("create desktop lock: %w", err)
 	}
