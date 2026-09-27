@@ -43,8 +43,9 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 	status := agentstep.StatusCompleted
 	key := ""
 	// replayed holds the recorded turns a partial replay completed, which
-	// the healed recording keeps.
+	// the healed recording keeps, and spent the actions it performed.
 	var replayed []recordedTurn
+	spent := 0
 	if useCache {
 		current, err := r.settle(ctx)
 		if err != nil {
@@ -52,11 +53,11 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 		}
 		key = replayKey(index, spec.Instruction, current.Bounds().Size())
 		if entry, ok := r.cache.Lookup(key); ok && len(entry.Turns) > 0 {
-			completed, ok, err := r.replay(ctx, index, entry, r.cfg.maxActions(spec))
+			replay, err := r.replay(ctx, index, entry, r.cfg.maxActions(spec))
 			if err != nil {
 				return err
 			}
-			if ok {
+			if replay.complete {
 				r.report(ctx, agentstep.Report{
 					Index: index, Kind: opAct, Subject: spec.Instruction, Status: agentstep.StatusCacheHit,
 					Detail: fmt.Sprintf("replayed %d turns", len(entry.Turns)), Duration: time.Since(began),
@@ -64,11 +65,11 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 				return nil
 			}
 			status = agentstep.StatusHealed
-			replayed = entry.Turns[:completed]
+			replayed, spent = entry.Turns[:replay.turns], replay.actions
 		}
 	}
 
-	outcome, err := r.drive(ctx, index, spec, countActions(replayed))
+	outcome, err := r.drive(ctx, index, spec, spent)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) && ctx.Err() != nil {
 			return fmt.Errorf("act did not finish within %s", timeout)

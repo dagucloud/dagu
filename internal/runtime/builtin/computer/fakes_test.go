@@ -36,6 +36,8 @@ type fakeBackend struct {
 	screen      *image.RGBA
 	afterClicks []*image.RGBA
 	events      []string
+	// typeErr fails typing when set.
+	typeErr error
 }
 
 func newFakeBackend(width, height int) *fakeBackend {
@@ -138,6 +140,12 @@ func (b *fakeBackend) Key(key desktop.Key, down bool) error {
 }
 
 func (b *fakeBackend) Type(text string) error {
+	b.mu.Lock()
+	err := b.typeErr
+	b.mu.Unlock()
+	if err != nil {
+		return err
+	}
 	b.record("type " + text)
 	return nil
 }

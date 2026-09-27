@@ -81,47 +81,51 @@ func replayKey(index int, instruction string, size image.Point) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// replay repeats a recording while every screen matches what the model saw
-// and returns how many turns it completed. It reports false, leaving the
-// desktop as it is, when a screen differs, an action fails, or the step's
-// settings would stop a model's turn: the turn needs more than budget
-// actions in all, or a confirmation on_confirmation does not allow. The
-// model then continues from there under the same settings.
-func (r *run) replay(ctx context.Context, index int, entry recording, budget int) (completed int, ok bool, err error) {
-	spent := 0
+// replayOutcome is how far a replay got.
+type replayOutcome struct {
+	// turns counts the recorded turns replayed in full.
+	turns int
+	// actions counts the actions performed, including those of a turn cut
+	// short by a failed action.
+	actions int
+	// complete reports that every turn replayed and the final screen
+	// matched.
+	complete bool
+}
+
+// replay repeats a recording while every screen matches what the model saw.
+// It stops, leaving the desktop as it is, when a screen differs, an action
+// fails, or the step's settings would stop a model's turn: the turn needs
+// more than budget actions in all, or a confirmation on_confirmation does
+// not allow. The model then continues from there under the same settings.
+func (r *run) replay(ctx context.Context, index int, entry recording, budget int) (replayOutcome, error) {
+	var outcome replayOutcome
 	for _, turn := range entry.Turns {
-		spent += len(turn.Actions)
-		if spent > budget || (turn.Confirmed && r.cfg.OnConfirmation != confirmationAllow) {
-			return completed, false, nil
+		if outcome.actions+len(turn.Actions) > budget || (turn.Confirmed && r.cfg.OnConfirmation != confirmationAllow) {
+			return outcome, nil
 		}
 		current, err := r.settle(ctx)
 		if err != nil {
-			return completed, false, err
+			return outcome, err
 		}
 		if !matches(current, entry, turn) {
-			return completed, false, nil
+			return outcome, nil
 		}
 		for _, recorded := range turn.Actions {
 			logAction(r.timeline, index, "replay "+describeAction(recorded.Action))
+			outcome.actions++
 			if result := r.runAction(ctx, recorded.Action, identity, nil, computeruse.ImageLimit{}); result.Failed() {
-				return completed, false, ctx.Err()
+				return outcome, ctx.Err()
 			}
 		}
-		completed++
+		outcome.turns++
 	}
 	final, err := r.settle(ctx)
 	if err != nil {
-		return completed, false, err
+		return outcome, err
 	}
-	return completed, desktop.FingerprintOf(final).Distance(entry.Final) <= replayScreenDistance, nil
-}
-
-func countActions(turns []recordedTurn) int {
-	count := 0
-	for _, turn := range turns {
-		count += len(turn.Actions)
-	}
-	return count
+	outcome.complete = desktop.FingerprintOf(final).Distance(entry.Final) <= replayScreenDistance
+	return outcome, nil
 }
 
 // matches reports whether a screen looks like the one a recorded turn was

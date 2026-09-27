@@ -393,6 +393,25 @@ func TestReplayFollowsCurrentSettings(t *testing.T) {
 	}
 }
 
+// Actions a replay ran before one failed count toward max_actions for the
+// model that continues.
+func TestReplayCountsCutShortTurn(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"max_actions": 2, "do": [{"act": "Fill the form"}]}`
+	typeText := func(text string) computeruse.Action {
+		return computeruse.Action{Kind: computeruse.KindType, Text: text}
+	}
+	run := newTestRun(t)
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(1, 1), typeText("acme")), done("Filled")}}}
+	require.NoError(t, run.execute(steps, nil).err)
+
+	run.backend.typeErr = errors.New("input blocked")
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(typeText("acme")), done("Filled")}}}
+	failed := run.execute(steps, nil)
+	require.ErrorContains(t, failed.err, "more than max_actions (2)")
+}
+
 // A later model takes over only while the desktop is untouched.
 func TestModelFallback(t *testing.T) {
 	t.Parallel()
