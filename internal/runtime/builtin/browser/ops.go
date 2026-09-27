@@ -484,9 +484,7 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 		return fmt.Errorf("act did not complete: %s", outcome.Message)
 	}
 	if useCache && len(outcome.Actions) > 0 {
-		if err := r.cache.store(key, outcome.Actions); err != nil {
-			return err
-		}
+		r.cache.stage(key, outcome.Actions)
 	}
 	r.report(ctx, operationReport{
 		index: index, kind: opAct, subject: spec.Instruction, status: status,
@@ -696,6 +694,11 @@ func (r *run) succeed(ctx context.Context) error {
 	if err := r.shutdown(ctx); err != nil {
 		_, _ = fmt.Fprintf(r.timeline.log, "warning: browser cleanup: %s\n", r.masker.MaskString(err.Error()))
 	}
+	if r.cache != nil {
+		if err := r.cache.commit(ctx); err != nil {
+			_, _ = fmt.Fprintf(r.timeline.log, "warning: keep replay recordings: %s\n", r.masker.MaskString(err.Error()))
+		}
+	}
 	usage := r.bridge.totals()
 	summary := fmt.Sprintf("Completed %d operations using %d tokens", len(r.cfg.Do), usage.total())
 	r.timeline.appendEvent(ir.AgentSessionEvent{Type: eventLifecycle, Status: statusCompleted, Content: summary, Files: files})
@@ -729,6 +732,7 @@ func (r *run) fail(ctx context.Context, index int, kind string, cause error) err
 		}
 	}
 	_ = r.shutdown(ctx)
+	r.forgetReplays(ctx, index, kind, cause)
 	message := r.masker.MaskString(cause.Error())
 	if index >= 0 {
 		message = fmt.Sprintf("do[%d] %s failed: %s", index, kind, message)
@@ -746,6 +750,25 @@ func (r *run) fail(ctx context.Context, index int, kind string, cause error) err
 		s.Usage = ir.AgentUsage{InputTokens: int64(usage.Input), OutputTokens: int64(usage.Output), TotalTokens: int64(usage.total())}
 	})
 	return errors.New("browser: " + message)
+}
+
+// forgetReplays settles the replay cache of a failed step. An operation that
+// failed on the page may have followed a replay that did the wrong thing, so
+// the recordings the step replayed are dropped. A failure of the model, the
+// browser, a download, an ask, or the run itself says nothing about them,
+// so they stay. What the step recorded is never kept.
+func (r *run) forgetReplays(ctx context.Context, index int, kind string, cause error) {
+	if r.cache == nil {
+		return
+	}
+	if index < 0 || ctx.Err() != nil || kind == opAsk || kind == kindDownload ||
+		errors.Is(cause, errBrowserUnresponsive) || r.bridge.failedRequest() {
+		r.cache.discard()
+		return
+	}
+	if err := r.cache.evict(ctx); err != nil {
+		_, _ = fmt.Fprintf(r.timeline.log, "warning: drop replay recordings: %s\n", r.masker.MaskString(err.Error()))
+	}
 }
 
 // shutdown closes the browser and removes everything it owned.

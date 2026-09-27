@@ -44,6 +44,8 @@ type modelBridge struct {
 	mu        sync.Mutex
 	usage     tokenUsage
 	lastModel string
+	// failed is set once a request got no answer from any model.
+	failed bool
 }
 
 // newModelBridge resolves every configured model against the step's
@@ -78,6 +80,23 @@ func (b *modelBridge) totals() tokenUsage {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.usage
+}
+
+// failedRequest reports whether a request in this attempt got no answer from
+// any model.
+func (b *modelBridge) failedRequest() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.failed
+}
+
+// resume counts the tokens an earlier part of the attempt used, before the
+// step waited for a person.
+func (b *modelBridge) resume(usage tokenUsage) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.usage.Input += usage.Input
+	b.usage.Output += usage.Output
 }
 
 // modelName returns the model that answered the latest request.
@@ -144,6 +163,9 @@ func (b *modelBridge) generate(ctx context.Context, req generateRequest) (genera
 		b.record(usage, model.Name)
 		return generateResponse{JSON: answer, Usage: usage}, nil
 	}
+	b.mu.Lock()
+	b.failed = true
+	b.mu.Unlock()
 	return generateResponse{}, fmt.Errorf("model request failed: %w", errors.Join(errs...))
 }
 

@@ -76,6 +76,11 @@ type Record struct {
 	Cursor int `json:"cursor"`
 	// Outputs holds values extracted before the step detached.
 	Outputs map[string]any `json:"outputs,omitempty"`
+	// ReplayPending and ReplayUsed carry the step's replay cache changes
+	// across the wait: the act operations it recorded, kept only if the
+	// step succeeds, and the recordings it replayed, as they were read.
+	ReplayPending map[string]json.RawMessage `json:"replayPending,omitempty"`
+	ReplayUsed    map[string]json.RawMessage `json:"replayUsed,omitempty"`
 }
 
 // RecordID returns the record identifier for a step of a DAG run.

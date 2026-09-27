@@ -351,6 +351,78 @@ func TestReplayCacheCanBeDisabled(t *testing.T) {
 	assert.Len(t, run.engine.acts, 2)
 }
 
+// A step's recordings are kept only when the step succeeds, and a replay the
+// page then contradicts is dropped, so the next run asks the model again.
+func TestReplayKeptOnlyWhenStepSucceeds(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"url": "https://shop.example.com/cart", "do": [
+		{"act": "Click the checkout button"},
+		{"expect": {"text": "Order placed", "within": "1ms"}}
+	]}`
+	run := newTestRun(t, pageModel(nil))
+
+	require.Error(t, run.execute(steps, nil).err)
+	run.engine.setPageText("Order placed")
+	recorded := run.execute(steps, nil)
+	require.NoError(t, recorded.err)
+	assert.Contains(t, eventNames(recorded.exec.GetAgentSession()), "act:completed", "a failed step recorded nothing")
+
+	run.engine.setPageText("Payment declined")
+	contradicted := run.execute(steps, nil)
+	require.Error(t, contradicted.err)
+	assert.Contains(t, eventNames(contradicted.exec.GetAgentSession()), "act:cache-hit")
+
+	run.engine.setPageText("Order placed")
+	again := run.execute(steps, nil)
+	require.NoError(t, again.err)
+	assert.Contains(t, eventNames(again.exec.GetAgentSession()), "act:completed", "the contradicted replay was dropped")
+	assert.Contains(t, eventNames(run.execute(steps, nil).exec.GetAgentSession()), "act:cache-hit")
+}
+
+// A model that fails says nothing about the page, so the replays before it
+// are kept.
+func TestReplayKeptWhenModelFails(t *testing.T) {
+	t.Parallel()
+
+	const act = `{"url": "https://shop.example.com/cart", "do": [{"act": "Click the checkout button"}]}`
+	const extract = `{"url": "https://shop.example.com/cart", "do": [
+		{"act": "Click the checkout button"},
+		{"extract": {"instruction": "The order number", "schema": {"type": "object", "properties": {"order": {"type": "string"}}}}}
+	]}`
+	run := newTestRun(t, pageModel(nil))
+	require.NoError(t, run.execute(act, nil).err)
+	failed := run.execute(extract, nil)
+	require.ErrorContains(t, failed.err, "model request failed")
+	assert.Contains(t, eventNames(failed.exec.GetAgentSession()), "act:cache-hit")
+	assert.Contains(t, eventNames(run.execute(act, nil).exec.GetAgentSession()), "act:cache-hit")
+}
+
+// A cache cleared while a step runs stays cleared: the step adds only what
+// it recorded.
+func TestReplayCommitKeepsClear(t *testing.T) {
+	t.Parallel()
+
+	const first = `{"url": "https://shop.example.com/cart", "do": [{"act": "Click the checkout button"}]}`
+	const both = `{"url": "https://shop.example.com/cart", "do": [{"act": "Click the checkout button"}, {"act": "Accept the terms"}]}`
+	run := newTestRun(t, pageModel(nil))
+	require.NoError(t, run.execute(first, nil).err)
+
+	cache := browserhost.NewReplayCache(filepath.Join(run.dataDir, browserhost.DataDirName))
+	run.engine.onAct = func() {
+		_, err := cache.Clear("orders", "shop")
+		require.NoError(t, err)
+	}
+	cleared := run.execute(both, nil)
+	require.NoError(t, cleared.err)
+	assert.Equal(t, []string{"goto:completed", "act:cache-hit", "act:completed"}, eventNames(cleared.exec.GetAgentSession()))
+
+	run.engine.onAct = nil
+	next := run.execute(both, nil)
+	require.NoError(t, next.err)
+	assert.Equal(t, []string{"goto:completed", "act:completed", "act:cache-hit"}, eventNames(next.exec.GetAgentSession()))
+}
+
 const loginSteps = `{
 	"do": [
 		{"act": "Sign in"},
@@ -467,6 +539,36 @@ func TestAskRejectionFailsStep(t *testing.T) {
 	require.ErrorContains(t, rejected.err, "the input request was rejected")
 	assert.Empty(t, run.launcher.reattaches)
 	assert.Empty(t, run.records(), "the waiting browser is released")
+}
+
+// A step that waits for a person keeps what it recorded and the tokens it
+// used before the wait, and a rejected answer says nothing against the
+// recordings it replayed.
+func TestReplayAcrossAsk(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(map[string]string{"The account name": `{"account":"acme"}`}))
+	answer := func(session *ir.AgentSession, status ir.AgentInteractionStatus) *ir.AgentSession {
+		session.Interactions[0].Status = status
+		session.Interactions[0].Answers = [][]string{{"123456"}}
+		return session
+	}
+	waiting := run.execute(loginSteps, nil)
+	require.NoError(t, waiting.err)
+	before := waiting.exec.GetAgentSession().Usage.TotalTokens
+	require.Positive(t, before)
+	resumed := run.execute(loginSteps, answer(waiting.exec.GetAgentSession(), ir.AgentInteractionAnswered))
+	require.NoError(t, resumed.err)
+	assert.Greater(t, resumed.exec.GetAgentSession().Usage.TotalTokens, before, "tokens used before the wait still count")
+
+	replayed := run.execute(loginSteps, nil)
+	require.NoError(t, replayed.err)
+	assert.Contains(t, eventNames(replayed.exec.GetAgentSession()), "act:cache-hit", "the act before the wait was kept")
+	require.Error(t, run.execute(loginSteps, answer(replayed.exec.GetAgentSession(), ir.AgentInteractionRejected)).err)
+
+	again := run.execute(loginSteps, nil)
+	require.NoError(t, again.err)
+	assert.Contains(t, eventNames(again.exec.GetAgentSession()), "act:cache-hit", "a rejected answer keeps the replay")
 }
 
 func TestAskAnswerAfterBrowserExpired(t *testing.T) {

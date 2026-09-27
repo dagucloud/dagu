@@ -55,6 +55,8 @@ type fakeEngine struct {
 	replayFails bool
 	// actNavigatesTo is the page an act leaves the browser on, if set.
 	actNavigatesTo string
+	// onAct runs while an act asks the model, for what happens meanwhile.
+	onAct func()
 	// actDialogs are the dialogs the next act opens and the browser accepts.
 	actDialogs []dialog
 	dialogs    []dialog
@@ -129,8 +131,11 @@ func (e *fakeEngine) Act(ctx context.Context, instruction string, variables map[
 	e.dialogs = append(e.dialogs, e.actDialogs...)
 	e.actDialogs = nil
 	e.blocked, e.actBlocked = e.actBlocked, nil
-	generate := e.generate
+	generate, onAct := e.generate, e.onAct
 	e.mu.Unlock()
+	if onAct != nil {
+		onAct()
+	}
 	resp, err := generate(ctx, generateRequest{
 		SchemaName: "Act",
 		Schema:     json.RawMessage(`{"type":"object","properties":{"elementId":{"type":"string"}}}`),
