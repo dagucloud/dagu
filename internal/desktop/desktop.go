@@ -148,13 +148,13 @@ func (d *Driver) Click(ctx context.Context, at *image.Point, button Button, coun
 	})
 }
 
-// Press presses a button at the pointer.
-func (d *Driver) Press(button Button) error {
+// PressButton presses a button at the pointer.
+func (d *Driver) PressButton(button Button) error {
 	return d.backend.Button(button, true, 1)
 }
 
-// Release releases a button at the pointer.
-func (d *Driver) Release(button Button) error {
+// ReleaseButton releases a button at the pointer.
+func (d *Driver) ReleaseButton(button Button) error {
 	return d.backend.Button(button, false, 1)
 }
 

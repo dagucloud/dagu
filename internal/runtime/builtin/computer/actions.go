@@ -83,9 +83,9 @@ func (r *run) runAction(ctx context.Context, action computeruse.Action, toFull p
 		var button desktop.Button
 		if button, err = desktop.ParseButton(action.Button); err == nil {
 			if action.Kind == computeruse.KindMouseDown {
-				err = r.driver.Press(button)
+				err = r.driver.PressButton(button)
 			} else {
-				err = r.driver.Release(button)
+				err = r.driver.ReleaseButton(button)
 			}
 		}
 	case computeruse.KindScroll:
