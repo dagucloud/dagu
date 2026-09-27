@@ -45,6 +45,7 @@ type run struct {
 	dagRunID    string
 	stepName    string
 	workerID    string
+	workingDir  string
 	computerDir string
 	store       *computerhost.Store
 	secrets     map[string]string
@@ -98,6 +99,7 @@ func newRun(ctx context.Context, e *computerExecutor) (*run, error) {
 		dagRunID:    env.DAGRunID,
 		stepName:    e.step.Name,
 		workerID:    env.WorkerID,
+		workingDir:  env.WorkingDir,
 		computerDir: computerDir,
 		store:       computerhost.NewStore(computerDir),
 		secrets:     secrets,
@@ -224,7 +226,7 @@ func (r *run) runOperation(ctx context.Context, index int, op operation) error {
 
 func (r *run) launch(ctx context.Context, index int, spec launchSpec) error {
 	began := time.Now()
-	if err := r.exec.launch(spec.Command, spec.Args); err != nil {
+	if err := r.exec.launch(r.workingDir, spec.Command, spec.Args); err != nil {
 		return err
 	}
 	subject := strings.Join(append([]string{spec.Command}, spec.Args...), " ")

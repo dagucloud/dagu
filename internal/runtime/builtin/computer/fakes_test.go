@@ -190,6 +190,7 @@ type testRun struct {
 	t         *testing.T
 	dataDir   string
 	artifacts string
+	workDir   string
 	backend   *fakeBackend
 	vision    *visionModel
 	secrets   map[string]string
@@ -207,6 +208,7 @@ func newTestRun(t *testing.T) *testRun {
 		t:         t,
 		dataDir:   t.TempDir(),
 		artifacts: t.TempDir(),
+		workDir:   t.TempDir(),
 		backend:   newFakeBackend(400, 200),
 		vision:    &visionModel{},
 		llm:       &ir.LLMConfig{Provider: "openai", Model: "test-model"},
@@ -235,8 +237,8 @@ func (r *testRun) execute(withJSON string, session *ir.AgentSession) *stepExecut
 	require.NoError(r.t, err)
 	execution := &stepExecution{exec: created.(*computerExecutor)}
 	execution.exec.openDesktop = func() (*desktop.Driver, error) { return desktop.New(r.backend), nil }
-	execution.exec.launch = func(command string, args []string) error {
-		r.launches = append(r.launches, append([]string{command}, args...))
+	execution.exec.launch = func(dir, command string, args []string) error {
+		r.launches = append(r.launches, append([]string{dir, command}, args...))
 		return nil
 	}
 	execution.exec.newProvider = func(context.Context, *ir.LLMConfig) (llmpkg.Provider, error) {
@@ -273,7 +275,8 @@ func (r *testRun) context() context.Context {
 			DAGRunID: "run-1",
 			WorkerID: "worker-a",
 		},
-		Scope: scope,
+		Scope:      scope,
+		WorkingDir: r.workDir,
 	})
 }
 

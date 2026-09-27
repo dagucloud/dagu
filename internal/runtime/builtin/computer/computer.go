@@ -39,7 +39,7 @@ type computerExecutor struct {
 	step        ir.Step
 	cfg         config
 	openDesktop func() (*desktop.Driver, error)
-	launch      func(command string, args []string) error
+	launch      func(dir, command string, args []string) error
 	newProvider providerFactory
 	newSession  sessionFactory
 	settle      settleTiming

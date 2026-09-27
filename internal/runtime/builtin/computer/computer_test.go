@@ -38,7 +38,7 @@ func TestActDrivesDesktop(t *testing.T) {
 	execution := run.execute(`{"do": [{"launch": {"command": "notepad.exe", "args": ["a.txt"]}}, {"act": "Save the document"}]}`, nil)
 	require.NoError(t, execution.err)
 
-	assert.Equal(t, [][]string{{"notepad.exe", "a.txt"}}, run.launches)
+	assert.Equal(t, [][]string{{run.workDir, "notepad.exe", "a.txt"}}, run.launches, "applications start in the step's working directory")
 	assert.Equal(t, []string{"move 20,40", "left down #1", "key ctrl", "key s"}, run.backend.inputs())
 	require.Len(t, session.observations, 2)
 	assert.Equal(t, 200, session.observations[0].Screen.Width, "the screenshot is scaled to the session limit")
