@@ -401,10 +401,3 @@ func sendInput(events ...input) error {
 	}
 	return nil
 }
-
-func pick[T any](cond bool, yes, no T) T {
-	if cond {
-		return yes
-	}
-	return no
-}
