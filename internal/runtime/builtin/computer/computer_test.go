@@ -126,7 +126,7 @@ func TestAskWaitsAndResumes(t *testing.T) {
 	assert.Equal(t, "Enter the one-time code", session.Interactions[0].Questions[0].Question)
 
 	store := computerhost.NewStore(filepath.Join(run.dataDir, computerhost.DataDirName))
-	record, err := store.Load(computerhost.RecordID("run-1", "post"))
+	record, err := store.Load("run-1", "post")
 	require.NoError(t, err)
 	assert.Equal(t, 2, record.Cursor)
 	assert.Equal(t, map[string]any{"account": "acme"}, record.Outputs)
@@ -150,7 +150,7 @@ func TestAskWaitsAndResumes(t *testing.T) {
 	assert.Equal(t, map[string]any{"account": "acme"}, resumed.exec.GetOutputs())
 	assert.NotContains(t, resumed.stderr.String(), "731902", "answers are masked")
 	assert.True(t, resumed.exec.GetAgentSession().Interactions[0].Applied)
-	_, err = store.Load(record.ID)
+	_, err = store.Load("run-1", "post")
 	assert.ErrorIs(t, err, os.ErrNotExist)
 }
 

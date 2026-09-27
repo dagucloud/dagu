@@ -274,7 +274,7 @@ func (a *API) requireLocalComputerSession(ctx context.Context, ref ir.DAGRunRef,
 // be resumed. An error means its state is unknown.
 func computerSessionWaiting(dataDir, dagRunID, stepName string, now time.Time) (bool, error) {
 	store := computerhost.NewStore(filepath.Join(dataDir, computerhost.DataDirName))
-	record, err := store.Load(computerhost.RecordID(dagRunID, stepName))
+	record, err := store.Load(dagRunID, stepName)
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}

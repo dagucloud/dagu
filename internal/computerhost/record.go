@@ -35,9 +35,8 @@ const (
 )
 
 // Record describes a computer step that paused for input. It exists only
-// while the step waits.
+// while the step waits. A DAG run holds one record per step.
 type Record struct {
-	ID       string `json:"id"`
 	DAGName  string `json:"dagName"`
 	DAGRunID string `json:"dagRunId"`
 	StepName string `json:"stepName"`
@@ -56,10 +55,11 @@ func (r Record) Waiting(now time.Time) bool {
 	return now.Before(r.Deadline)
 }
 
-// RecordID returns the record identifier for a step of a DAG run.
-func RecordID(dagRunID, stepName string) string {
+// recordFileName names the file of a step's record. Hashing the names keeps
+// the file inside the store whatever the DAG run ID and step name hold.
+func recordFileName(dagRunID, stepName string) string {
 	sum := sha256.Sum256([]byte(dagRunID + "\x00" + stepName))
-	return hex.EncodeToString(sum[:16])
+	return hex.EncodeToString(sum[:16]) + recordFileExt
 }
 
 // Store persists records as private files.
@@ -72,38 +72,44 @@ func NewStore(computerDataDir string) *Store {
 	return &Store{dir: filepath.Join(computerDataDir, recordsDirName)}
 }
 
-// Save writes the record, replacing any previous version, and removes
-// records whose deadline passed.
+// Save writes the record of its step, replacing any previous version, and
+// removes records whose deadline passed.
 func (s *Store) Save(record Record) error {
-	if record.ID == "" {
-		return errors.New("computer session record id is required")
+	if record.DAGRunID == "" || record.StepName == "" {
+		return errors.New("computer session record needs a DAG run ID and a step name")
 	}
 	if err := os.MkdirAll(s.dir, recordDirMode); err != nil {
 		return fmt.Errorf("create computer session directory: %w", err)
 	}
 	s.removeExpired(time.Now())
-	return fileutil.WriteJSONAtomic(s.path(record.ID), record, recordFileMode)
+	return fileutil.WriteJSONAtomic(s.path(record.DAGRunID, record.StepName), record, recordFileMode)
 }
 
-// Load returns the record with id. A missing record reports os.ErrNotExist.
-func (s *Store) Load(id string) (Record, error) {
-	data, err := os.ReadFile(s.path(id))
+// Load returns the record of a step of a DAG run. A missing record reports
+// os.ErrNotExist.
+func (s *Store) Load(dagRunID, stepName string) (Record, error) {
+	return s.load(s.path(dagRunID, stepName))
+}
+
+// Delete removes the record of a step of a DAG run. A missing record is not
+// an error.
+func (s *Store) Delete(dagRunID, stepName string) error {
+	if err := os.Remove(s.path(dagRunID, stepName)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+func (s *Store) load(path string) (Record, error) {
+	data, err := os.ReadFile(path) //nolint:gosec // the path is inside the store
 	if err != nil {
 		return Record{}, err
 	}
 	var record Record
 	if err := json.Unmarshal(data, &record); err != nil {
-		return Record{}, fmt.Errorf("decode computer session record %s: %w", id, err)
+		return Record{}, fmt.Errorf("decode computer session record %s: %w", filepath.Base(path), err)
 	}
 	return record, nil
-}
-
-// Delete removes the record with id. A missing record is not an error.
-func (s *Store) Delete(id string) error {
-	if err := os.Remove(s.path(id)); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return nil
 }
 
 // removeExpired deletes records no step can resume any more.
@@ -113,16 +119,16 @@ func (s *Store) removeExpired(now time.Time) {
 		return
 	}
 	for _, entry := range entries {
-		id, ok := strings.CutSuffix(entry.Name(), recordFileExt)
-		if entry.IsDir() || !ok {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), recordFileExt) {
 			continue
 		}
-		if record, err := s.Load(id); err == nil && !record.Waiting(now) {
-			_ = s.Delete(id)
+		path := filepath.Join(s.dir, entry.Name())
+		if record, err := s.load(path); err == nil && !record.Waiting(now) {
+			_ = os.Remove(path)
 		}
 	}
 }
 
-func (s *Store) path(id string) string {
-	return filepath.Join(s.dir, id+recordFileExt)
+func (s *Store) path(dagRunID, stepName string) string {
+	return filepath.Join(s.dir, recordFileName(dagRunID, stepName))
 }

@@ -23,7 +23,6 @@ func (r *run) waitForInput(_ context.Context, index int, spec askSpec) error {
 	generation := r.exec.GetAgentSession().Generation
 	deadline := time.Now().Add(spec.timeout())
 	record := computerhost.Record{
-		ID:         computerhost.RecordID(r.dagRunID, r.stepName),
 		DAGName:    r.dagName,
 		DAGRunID:   r.dagRunID,
 		StepName:   r.stepName,
@@ -50,17 +49,17 @@ func (r *run) waitForInput(_ context.Context, index int, spec askSpec) error {
 
 // resume applies the answer to a paused step and returns the operation
 // after the ask.
-func (r *run) resume(recordID string, session *ir.AgentSession, answer agentstep.AskAnswer) (int, error) {
+func (r *run) resume(session *ir.AgentSession, answer agentstep.AskAnswer) (int, error) {
 	r.exec.updateSession(func(s *ir.AgentSession) {
 		agentstep.MarkApplied(s, answer.InteractionID)
 		s.State = ir.AgentSessionRunning
 		s.OwnerWorkerID = r.workerID
 	})
-	record, err := r.store.Load(recordID)
+	record, err := r.store.Load(r.dagRunID, r.stepName)
 	if err != nil || record.Generation != session.Generation {
 		return 0, errors.New("the paused step can no longer be resumed; retry the step to start over")
 	}
-	if err := r.store.Delete(recordID); err != nil {
+	if err := r.store.Delete(r.dagRunID, r.stepName); err != nil {
 		return 0, err
 	}
 	if answer.Rejected {

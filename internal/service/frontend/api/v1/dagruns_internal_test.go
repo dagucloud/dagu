@@ -1446,7 +1446,7 @@ func TestComputerSessionWaiting(t *testing.T) {
 			t.Parallel()
 			dataDir := t.TempDir()
 			if test.deadline != nil {
-				record := computerhost.Record{ID: computerhost.RecordID("run-1", "post"), Deadline: *test.deadline}
+				record := computerhost.Record{DAGRunID: "run-1", StepName: "post", Deadline: *test.deadline}
 				require.NoError(t, computerhost.NewStore(filepath.Join(dataDir, computerhost.DataDirName)).Save(record))
 			}
 			waiting, err := computerSessionWaiting(dataDir, "run-1", "post", now)

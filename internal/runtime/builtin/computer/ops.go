@@ -156,17 +156,16 @@ func (r *run) execute(ctx context.Context) error {
 // start takes the desktop and returns the first operation to run.
 func (r *run) start(ctx context.Context) (int, error) {
 	session := r.exec.GetAgentSession()
-	recordID := computerhost.RecordID(r.dagRunID, r.stepName)
 	cursor := 0
 	if answer, answered := agentstep.PendingAnswer(session, providerName); answered {
 		var err error
-		if cursor, err = r.resume(recordID, session, answer); err != nil {
+		if cursor, err = r.resume(session, answer); err != nil {
 			return 0, err
 		}
 	} else {
 		// A record left by an earlier attempt belongs to a pause that can no
 		// longer be resumed.
-		if err := r.store.Delete(recordID); err != nil {
+		if err := r.store.Delete(r.dagRunID, r.stepName); err != nil {
 			return 0, err
 		}
 		r.exec.updateSession(func(s *ir.AgentSession) {

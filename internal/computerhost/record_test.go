@@ -18,7 +18,6 @@ func TestStoreRoundTrip(t *testing.T) {
 
 	store := computerhost.NewStore(t.TempDir())
 	record := computerhost.Record{
-		ID:         computerhost.RecordID("run-1", "post"),
 		DAGName:    "invoices",
 		DAGRunID:   "run-1",
 		StepName:   "post",
@@ -29,34 +28,52 @@ func TestStoreRoundTrip(t *testing.T) {
 	}
 	require.NoError(t, store.Save(record))
 
-	loaded, err := store.Load(record.ID)
+	loaded, err := store.Load("run-1", "post")
 	require.NoError(t, err)
 	assert.Equal(t, record, loaded)
 	assert.True(t, loaded.Waiting(time.Now()))
 
-	require.NoError(t, store.Delete(record.ID))
-	require.NoError(t, store.Delete(record.ID), "deleting twice is not an error")
-	_, err = store.Load(record.ID)
+	_, err = store.Load("run-1", "other")
+	require.ErrorIs(t, err, os.ErrNotExist, "each step has its own record")
+
+	require.NoError(t, store.Delete("run-1", "post"))
+	require.NoError(t, store.Delete("run-1", "post"), "deleting twice is not an error")
+	_, err = store.Load("run-1", "post")
 	assert.ErrorIs(t, err, os.ErrNotExist)
+}
+
+// Names are hashed into file names, so path separators in them cannot reach
+// outside the store.
+func TestStoreKeepsRecordsInside(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	store := computerhost.NewStore(dir)
+	require.NoError(t, store.Save(computerhost.Record{DAGRunID: "../../run", StepName: "../step", Deadline: time.Now().Add(time.Hour)}))
+
+	_, err := store.Load("../../run", "../step")
+	require.NoError(t, err)
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	assert.Len(t, entries, 1, "only the store's own directory")
 }
 
 func TestStoreRemovesExpiredRecords(t *testing.T) {
 	t.Parallel()
 
 	store := computerhost.NewStore(t.TempDir())
-	expired := computerhost.Record{ID: "expired", Deadline: time.Now().Add(-time.Minute)}
-	require.NoError(t, store.Save(expired))
-	require.NoError(t, store.Save(computerhost.Record{ID: "waiting", Deadline: time.Now().Add(time.Hour)}))
+	require.NoError(t, store.Save(computerhost.Record{DAGRunID: "run-1", StepName: "expired", Deadline: time.Now().Add(-time.Minute)}))
+	require.NoError(t, store.Save(computerhost.Record{DAGRunID: "run-1", StepName: "waiting", Deadline: time.Now().Add(time.Hour)}))
 
-	_, err := store.Load("expired")
+	_, err := store.Load("run-1", "expired")
 	assert.ErrorIs(t, err, os.ErrNotExist)
-	_, err = store.Load("waiting")
+	_, err = store.Load("run-1", "waiting")
 	assert.NoError(t, err)
 }
 
-func TestRecordIDIsStable(t *testing.T) {
+func TestStoreRequiresStep(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, computerhost.RecordID("run", "step"), computerhost.RecordID("run", "step"))
-	assert.NotEqual(t, computerhost.RecordID("run", "step"), computerhost.RecordID("run", "other"))
+	store := computerhost.NewStore(t.TempDir())
+	require.Error(t, store.Save(computerhost.Record{DAGRunID: "run-1"}))
 }
