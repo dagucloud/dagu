@@ -218,24 +218,7 @@ func providerRefresh(username string, cfg oauthconfig.Config) (refreshFunc, erro
 			return jwtConfig.TokenSource(tokenHTTPContext(ctx)).Token()
 		}, nil
 	case oauthconfig.ProviderGoogleRefresh:
-		oauthConfig := oauth2.Config{
-			ClientID:     cfg.ClientID,
-			ClientSecret: cfg.ClientSecret,
-			Endpoint: oauth2.Endpoint{
-				TokenURL: googleTokenURL,
-			},
-		}
-		return func(ctx context.Context, cached *oauth2.Token) (*oauth2.Token, error) {
-			seed := cached
-			if seed == nil {
-				seed = &oauth2.Token{RefreshToken: cfg.RefreshToken}
-			} else if seed.RefreshToken == "" {
-				copy := *seed
-				copy.RefreshToken = cfg.RefreshToken
-				seed = &copy
-			}
-			return oauthConfig.TokenSource(tokenHTTPContext(ctx), seed).Token()
-		}, nil
+		return refreshTokenGrant(cfg, googleTokenURL, nil), nil
 	default:
 		return nil, fmt.Errorf("unsupported SMTP OAuth provider %q", cfg.Provider)
 	}
@@ -300,7 +283,7 @@ func (s *tokenState) get(ctx context.Context, refresh refreshFunc) (*oauth2.Toke
 		return nil, err
 	}
 	if token == nil || strings.TrimSpace(token.AccessToken) == "" {
-		return nil, errors.New("SMTP OAuth provider returned an empty access token")
+		return nil, errors.New("OAuth provider returned an empty access token")
 	}
 	s.set(token)
 	return token, nil
