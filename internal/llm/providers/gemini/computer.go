@@ -77,6 +77,9 @@ type geminiCall struct {
 	name    string
 	confirm bool
 	err     error
+	// skipped marks a call not performed because an earlier one could not
+	// be.
+	skipped bool
 }
 
 func newComputerSession(provider llm.Provider, opts computeruse.Options) (computeruse.Session, error) {
@@ -172,6 +175,8 @@ func (s *computerSession) observationParts(obs computeruse.Observation) []any {
 		switch {
 		case call.err != nil:
 			response["error"] = call.err.Error()
+		case call.skipped:
+			response["error"] = computeruse.SkippedText
 		case failures[call.key] != "":
 			response["error"] = failures[call.key]
 		}
@@ -272,6 +277,8 @@ func (s *computerSession) turn(content json.RawMessage, screen computeruse.Scree
 				turn.Actions = append(turn.Actions, actions...)
 			}
 			halted = call.err != nil
+		default:
+			call.skipped = true
 		}
 		s.pending = append(s.pending, call)
 	}

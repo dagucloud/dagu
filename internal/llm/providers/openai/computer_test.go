@@ -168,3 +168,32 @@ func TestComputerSessionIncomplete(t *testing.T) {
 		require.ErrorContains(t, err, want)
 	}
 }
+
+// A computer call after one that cannot be performed is answered and
+// reported as not performed.
+func TestComputerSessionHaltsBatch(t *testing.T) {
+	t.Parallel()
+
+	server := responsesServer(
+		`{"id":"resp_1","status":"completed","output":[
+			{"type":"computer_call","call_id":"call_1","actions":[{"type":"click","button":"back","x":1,"y":2}]},
+			{"type":"computer_call","call_id":"call_2","actions":[{"type":"type","text":"x"}]}
+		]}`,
+		`{"id":"resp_2","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}]}`,
+	)
+	session, err := newComputerSession(t, llm.ProviderOpenAI, server)
+	require.NoError(t, err)
+
+	turn, err := session.Next(context.Background(), computeruse.Observation{Screen: testScreen("first")})
+	require.NoError(t, err)
+	assert.Empty(t, turn.Actions)
+
+	_, err = session.Next(context.Background(), computeruse.Observation{Screen: testScreen("second")})
+	require.NoError(t, err)
+	input := server.Requests()[1]["input"].([]any)
+	require.Len(t, input, 3, "both calls are answered, then a note")
+	note := input[2].(map[string]any)["content"].([]any)[0].(map[string]any)["text"]
+	assert.Contains(t, note, `The computer call could not be performed: unsupported mouse button "back"`)
+	assert.Contains(t, note, "The computer call was not performed: an earlier action failed.")
+}
+

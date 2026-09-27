@@ -163,15 +163,27 @@ func TestComputerSessionDesktopActions(t *testing.T) {
 func TestComputerSessionHaltsBatch(t *testing.T) {
 	t.Parallel()
 
-	server := generateServer(`{"candidates":[{"content":{"role":"model","parts":[
-		{"functionCall":{"id":"a","name":"click","args":{"x":1}}},
-		{"functionCall":{"id":"b","name":"type","args":{"text":"x"}}}
-	]}}]}`)
+	server := generateServer(
+		`{"candidates":[{"content":{"role":"model","parts":[
+			{"functionCall":{"id":"a","name":"click","args":{"x":1}}},
+			{"functionCall":{"id":"b","name":"type","args":{"text":"x"}}}
+		]}}]}`,
+		`{"candidates":[{"content":{"role":"model","parts":[{"text":"ok"}]}}]}`,
+	)
 	session := newComputerSession(t, server)
 
 	turn, err := session.Next(context.Background(), computeruse.Observation{Screen: testScreen("first")})
 	require.NoError(t, err)
 	assert.Empty(t, turn.Actions)
+
+	_, err = session.Next(context.Background(), computeruse.Observation{Screen: testScreen("second")})
+	require.NoError(t, err)
+	responses := server.Requests()[1]["contents"].([]any)[2].(map[string]any)["parts"].([]any)
+	response := func(i int) any {
+		return responses[i].(map[string]any)["functionResponse"].(map[string]any)["response"]
+	}
+	assert.Equal(t, map[string]any{"error": "click needs a position"}, response(0))
+	assert.Equal(t, map[string]any{"error": computeruse.SkippedText}, response(1), "the call after the halt is reported as skipped")
 }
 
 func TestComputerSessionStops(t *testing.T) {

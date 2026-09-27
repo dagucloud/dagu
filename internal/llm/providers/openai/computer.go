@@ -51,6 +51,9 @@ type computerCall struct {
 	callID string
 	err    error
 	checks []safetyCheck
+	// skipped marks a call not performed because an earlier action could
+	// not be.
+	skipped bool
 }
 
 type functionCall struct {
@@ -172,13 +175,19 @@ func (s *computerSession) input(obs computeruse.Observation) []any {
 		text.WriteString("Task: " + s.opts.Task + "\n\n")
 	}
 	for _, call := range s.computerCalls {
-		if call.err != nil {
+		switch {
+		case call.err != nil:
 			text.WriteString("The computer call could not be performed: " + call.err.Error() + "\n")
+		case call.skipped:
+			text.WriteString("The computer call was not performed: an earlier action failed.\n")
 		}
 	}
 	for i, result := range obs.Results {
-		if result.Error != "" {
+		switch {
+		case result.Error != "":
 			fmt.Fprintf(&text, "Action %d failed: %s\n", i+1, result.Error)
+		case result.Skipped:
+			fmt.Fprintf(&text, "Action %d was not performed: an earlier action failed.\n", i+1)
 		}
 	}
 	if obs.Note != "" {
@@ -232,6 +241,7 @@ func (s *computerSession) turn(resp responsesResponse) (*computeruse.Turn, error
 			if len(actions) == 0 && item.Action != nil {
 				actions = []responsesAction{*item.Action}
 			}
+			call.skipped = halted
 			for _, raw := range actions {
 				if halted {
 					break
