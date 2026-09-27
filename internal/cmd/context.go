@@ -518,19 +518,20 @@ func (c *Context) NewCoordinatorClient() (coordinator.Client, error) {
 func (c *Context) SubWorkflowRunnerFactory() func(context.Context) (runtimeexec.SubWorkflowRunner, error) {
 	stores := c.runtimeStores()
 	return coordinator.NewSubWorkflowRunnerFactory(coordinator.SubWorkflowRunnerConfig{
-		DAGRunMgr:         c.DAGRunMgr,
-		DAGRepository:     c.Persistence.DAGRepository,
-		DAGRunRepository:  c.Persistence.DAGRunRepository,
-		QueueStore:        c.Persistence.QueueStore,
-		StateStore:        c.Persistence.StateStore,
-		SecretStore:       stores.SecretStore,
-		ProfileStore:      stores.ProfileStore,
-		ServiceRegistry:   c.Persistence.ServiceRegistry,
-		PeerConfig:        c.Config.Core.Peer,
-		DefaultExecMode:   c.Config.DefaultExecMode,
-		WorkerID:          "local",
-		DAGRunLogDir:      c.Config.Paths.LogDir,
-		DAGRunArtifactDir: c.Config.Paths.ArtifactDir,
+		DAGRunMgr:          c.DAGRunMgr,
+		DAGRepository:      c.Persistence.DAGRepository,
+		DAGRunRepository:   c.Persistence.DAGRunRepository,
+		QueueStore:         c.Persistence.QueueStore,
+		StateStore:         c.Persistence.StateStore,
+		SecretStore:        stores.SecretStore,
+		ProfileStore:       stores.ProfileStore,
+		ServiceRegistry:    c.Persistence.ServiceRegistry,
+		PeerConfig:         c.Config.Core.Peer,
+		WorkspaceBundleDir: workspacebundle.StoreDir(c.Config.Paths.DataDir),
+		DefaultExecMode:    c.Config.DefaultExecMode,
+		WorkerID:           "local",
+		DAGRunLogDir:       c.Config.Paths.LogDir,
+		DAGRunArtifactDir:  c.Config.Paths.ArtifactDir,
 	})
 }
 

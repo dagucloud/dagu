@@ -40,6 +40,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	runtimepkg "github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
+	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
@@ -807,20 +808,21 @@ func (d *DAG) Agent(opts ...AgentOption) *Agent {
 	helper.opts.DAGRunArtifactDir = d.Config.Paths.ArtifactDir
 	if helper.opts.SubWorkflowRunnerFactory == nil {
 		helper.opts.SubWorkflowRunnerFactory = coordinator.NewSubWorkflowRunnerFactory(coordinator.SubWorkflowRunnerConfig{
-			DAGRunMgr:         d.DAGRunMgr,
-			DAGRepository:     d.DAGRepository,
-			DAGRunRepository:  d.DAGRunRepository,
-			RunStateStore:     helper.opts.RunStateStore,
-			QueueStore:        d.QueueStore,
-			StateStore:        d.StateStore,
-			SecretStore:       helper.opts.SecretStore,
-			ProfileStore:      helper.opts.ProfileStore,
-			ServiceRegistry:   d.ServiceRegistry,
-			PeerConfig:        d.Config.Core.Peer,
-			DefaultExecMode:   d.Config.DefaultExecMode,
-			WorkerID:          "local",
-			DAGRunLogDir:      d.Config.Paths.LogDir,
-			DAGRunArtifactDir: d.Config.Paths.ArtifactDir,
+			DAGRunMgr:          d.DAGRunMgr,
+			DAGRepository:      d.DAGRepository,
+			DAGRunRepository:   d.DAGRunRepository,
+			RunStateStore:      helper.opts.RunStateStore,
+			QueueStore:         d.QueueStore,
+			StateStore:         d.StateStore,
+			SecretStore:        helper.opts.SecretStore,
+			ProfileStore:       helper.opts.ProfileStore,
+			ServiceRegistry:    d.ServiceRegistry,
+			PeerConfig:         d.Config.Core.Peer,
+			WorkspaceBundleDir: workspacebundle.StoreDir(d.Config.Paths.DataDir),
+			DefaultExecMode:    d.Config.DefaultExecMode,
+			WorkerID:           "local",
+			DAGRunLogDir:       d.Config.Paths.LogDir,
+			DAGRunArtifactDir:  d.Config.Paths.ArtifactDir,
 		})
 	}
 

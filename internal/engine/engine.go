@@ -208,19 +208,20 @@ func (e *Engine) coordinatorClient(opts DistributedOptions) (coordinator.Client,
 
 func (e *Engine) subWorkflowRunnerFactory(stores RuntimeStores) func(context.Context) (runtimeexec.SubWorkflowRunner, error) {
 	return coordinator.NewSubWorkflowRunnerFactory(coordinator.SubWorkflowRunnerConfig{
-		DAGRunMgr:         e.dagRunMgr,
-		DAGRepository:     e.dagRepository,
-		DAGRunRepository:  e.dagRunRepository,
-		RunStateStore:     e.runStateStore,
-		StateStore:        e.stateStore,
-		SecretStore:       stores.SecretStore,
-		ProfileStore:      stores.ProfileStore,
-		ServiceRegistry:   e.serviceRegistry,
-		PeerConfig:        e.cfg.Core.Peer,
-		DefaultExecMode:   configExecutionMode(e.defaultMode),
-		WorkerID:          "local",
-		DAGRunLogDir:      e.cfg.Paths.LogDir,
-		DAGRunArtifactDir: e.cfg.Paths.ArtifactDir,
+		DAGRunMgr:          e.dagRunMgr,
+		DAGRepository:      e.dagRepository,
+		DAGRunRepository:   e.dagRunRepository,
+		RunStateStore:      e.runStateStore,
+		StateStore:         e.stateStore,
+		SecretStore:        stores.SecretStore,
+		ProfileStore:       stores.ProfileStore,
+		ServiceRegistry:    e.serviceRegistry,
+		PeerConfig:         e.cfg.Core.Peer,
+		WorkspaceBundleDir: workspacebundle.StoreDir(e.cfg.Paths.DataDir),
+		DefaultExecMode:    configExecutionMode(e.defaultMode),
+		WorkerID:           "local",
+		DAGRunLogDir:       e.cfg.Paths.LogDir,
+		DAGRunArtifactDir:  e.cfg.Paths.ArtifactDir,
 	})
 }
 

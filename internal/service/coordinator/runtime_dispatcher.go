@@ -12,12 +12,20 @@ import (
 )
 
 // NewRuntimeDispatcher creates a coordinator-backed dispatcher for runtime DAG execution.
-func NewRuntimeDispatcher(registry serviceregistry.ServiceRegistry, peerConfig config.Peer) (dispatch.Dispatcher, error) {
+// workspaceBundleDir must be set (typically workspacebundle.StoreDir(dataDir)) so child
+// DAGs with file dependencies can pack workspace bundles the same way as top-level
+// NewCoordinatorClient / Engine.coordinatorClient.
+func NewRuntimeDispatcher(
+	registry serviceregistry.ServiceRegistry,
+	peerConfig config.Peer,
+	workspaceBundleDir string,
+) (dispatch.Dispatcher, error) {
 	if registry == nil {
 		return nil, nil
 	}
 
 	cfg := ConfigFromPeer(peerConfig)
+	cfg.WorkspaceBundleDir = workspaceBundleDir
 	if peerConfig.MaxRetries <= 0 {
 		cfg.MaxRetries = 50
 	}
