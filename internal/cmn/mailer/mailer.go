@@ -92,6 +92,8 @@ var (
 	errFileEmpty = errors.New("file is empty")
 	mailTimeout  = 30 * time.Second
 	maxHeaderLen = 256
+	// maxReferences bounds the References header of a reply.
+	maxReferences = 10
 )
 
 const (
@@ -120,37 +122,52 @@ func (m *Client) SendWithRecipients(
 	subject, body string,
 	attachments []string,
 ) error {
+	return m.SendMessage(ctx, Message{
+		From: from, To: to, Cc: cc, Bcc: bcc, Subject: subject, Body: body, Attachments: attachments,
+	})
+}
+
+// Message is an email to send.
+type Message struct {
+	From        string
+	To          []string
+	Cc          []string
+	Bcc         []string
+	Subject     string
+	Body        string
+	Attachments []string
+	// InReplyTo and References thread the message as a reply. They hold
+	// Message-IDs without angle brackets; References lists the thread's
+	// earlier messages, oldest first.
+	InReplyTo  string
+	References []string
+}
+
+// SendMessage sends msg.
+func (m *Client) SendMessage(ctx context.Context, msg Message) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	ctx, cancel := context.WithTimeout(ctx, mailTimeout)
 	defer cancel()
 
-	logger.Info(ctx, "Sending email", slog.Any("to", to), tag.Subject(subject))
+	logger.Info(ctx, "Sending email", slog.Any("to", msg.To), tag.Subject(msg.Subject))
 	if m.username == "" && m.password == "" && m.token == nil {
-		return m.send(ctx, from, to, cc, bcc, subject, body, attachments, false)
+		return m.send(ctx, msg, false)
 	}
-	return m.send(ctx, from, to, cc, bcc, subject, body, attachments, true)
+	return m.send(ctx, msg, true)
 }
 
-func (m *Client) send(
-	ctx context.Context,
-	from string,
-	to []string,
-	cc []string,
-	bcc []string,
-	subject, body string,
-	attachments []string,
-	useAuth bool,
-) error {
+func (m *Client) send(ctx context.Context, msg Message, useAuth bool) error {
 	// The message is built before connecting, so attachments are read once and
 	// a problem with one stops the send before the server sees anything.
-	recipients := sanitizeAddresses(append(append(append([]string{}, to...), cc...), bcc...))
-	to = sanitizeAddresses(to)
-	cc = sanitizeAddresses(cc)
-	safeFrom := sanitizeHeaderField(from)
-	safeSubject := sanitizeHeaderField(subject)
-	payload, err := m.composeMail(to, cc, safeFrom, safeSubject, processEmailBody(body), attachments)
+	recipients := sanitizeAddresses(append(append(append([]string{}, msg.To...), msg.Cc...), msg.Bcc...))
+	to := sanitizeAddresses(msg.To)
+	cc := sanitizeAddresses(msg.Cc)
+	safeFrom := sanitizeHeaderField(msg.From)
+	safeSubject := sanitizeHeaderField(msg.Subject)
+	payload, err := m.composeMessage(to, cc, safeFrom, safeSubject, processEmailBody(msg.Body), msg.Attachments,
+		threadHeaders(msg.InReplyTo, msg.References))
 	if err != nil {
 		return fmt.Errorf("failed to compose email: %w", err)
 	}
@@ -377,7 +394,7 @@ func (a *loginAuth) Next(fromServer []byte, more bool) ([]byte, error) {
 }
 
 func (*Client) composeHeader(
-	to []string, cc []string, from string, subject string, contentType string,
+	to []string, cc []string, from string, subject string, contentType string, thread string,
 ) string {
 	to = sanitizeAddresses(to)
 	cc = sanitizeAddresses(cc)
@@ -392,6 +409,7 @@ func (*Client) composeHeader(
 		"Subject: " + subject + "\r\n" +
 		"Date: " + time.Now().Format(time.RFC1123Z) + "\r\n" +
 		"Message-ID: " + newMessageID(from) + "\r\n" +
+		thread +
 		"MIME-Version: 1.0\r\n" +
 		"Content-Type: " + contentType + "\r\n"
 }
@@ -402,14 +420,60 @@ func (m *Client) composeMail(
 	from, subject, body string,
 	attachments []string,
 ) ([]byte, error) {
+	return m.composeMessage(to, cc, from, subject, body, attachments, "")
+}
+
+// composeMessage builds the message; thread holds the reply headers, if any.
+func (m *Client) composeMessage(
+	to []string,
+	cc []string,
+	from, subject, body string,
+	attachments []string,
+	thread string,
+) ([]byte, error) {
 	loadedAttachments, err := loadAttachments(attachments, m.requireAttachments)
 	if err != nil {
 		return nil, err
 	}
 	if len(loadedAttachments) == 0 {
-		return m.composeSinglePartMail(to, cc, from, subject, body)
+		return m.composeSinglePartMail(to, cc, from, subject, body, thread)
 	}
-	return m.composeMultipartMail(to, cc, from, subject, body, loadedAttachments)
+	return m.composeMultipartMail(to, cc, from, subject, body, loadedAttachments, thread)
+}
+
+// threadHeaders returns the In-Reply-To and References lines of a reply to
+// the message inReplyTo. A Message-ID that could break the header is left
+// out, and long threads keep their first message and the newest ones.
+func threadHeaders(inReplyTo string, references []string) string {
+	if !safeMessageID(inReplyTo) {
+		return ""
+	}
+	ids := make([]string, 0, len(references)+1)
+	for _, id := range references {
+		if safeMessageID(id) && id != inReplyTo {
+			ids = append(ids, "<"+id+">")
+		}
+	}
+	ids = append(ids, "<"+inReplyTo+">")
+	if len(ids) > maxReferences {
+		ids = append(ids[:1], ids[len(ids)-maxReferences+1:]...)
+	}
+	return "In-Reply-To: <" + inReplyTo + ">\r\n" +
+		"References: " + strings.Join(ids, " ") + "\r\n"
+}
+
+// safeMessageID reports whether id, without angle brackets, can be written
+// into a header as it is.
+func safeMessageID(id string) bool {
+	if id == "" {
+		return false
+	}
+	for _, r := range id {
+		if r <= ' ' || r > '~' || r == '<' || r == '>' {
+			return false
+		}
+	}
+	return true
 }
 
 type attachment struct {
@@ -456,10 +520,11 @@ func (m *Client) composeSinglePartMail(
 	to []string,
 	cc []string,
 	from, subject, body string,
+	thread string,
 ) ([]byte, error) {
 	var buf bytes.Buffer
 	contentType := mime.FormatMediaType("text/html", map[string]string{"charset": "UTF-8"})
-	buf.WriteString(m.composeHeader(to, cc, from, subject, contentType))
+	buf.WriteString(m.composeHeader(to, cc, from, subject, contentType, thread))
 	buf.WriteString("Content-Transfer-Encoding: base64\r\n\r\n")
 	if err := writeBase64(&buf, []byte(body)); err != nil {
 		return nil, err
@@ -473,6 +538,7 @@ func (m *Client) composeMultipartMail(
 	cc []string,
 	from, subject, body string,
 	attachments []attachment,
+	thread string,
 ) ([]byte, error) {
 	var content bytes.Buffer
 	writer := multipart.NewWriter(&content)
@@ -510,7 +576,7 @@ func (m *Client) composeMultipartMail(
 
 	contentType := mime.FormatMediaType("multipart/mixed", map[string]string{"boundary": writer.Boundary()})
 	var message bytes.Buffer
-	message.WriteString(m.composeHeader(to, cc, from, subject, contentType))
+	message.WriteString(m.composeHeader(to, cc, from, subject, contentType, thread))
 	message.WriteString("\r\n")
 	message.Write(content.Bytes())
 	return message.Bytes(), nil

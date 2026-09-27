@@ -78,6 +78,11 @@ steps:
       to: team@example.com
       subject: Filed
       message: done
+  - action: mail.send
+    with:
+      mailbox: ops@example.com
+      in_reply_to: ${steps.find.outputs.messages}
+      message: Thanks, we are on it.
 `
 	resolved := mustResolveDAGSchema(t)
 	require.NoError(t, resolved.Validate(mustParseYAMLDocument(t, source)))
@@ -89,6 +94,8 @@ steps:
 		{"unknown mark", "mark: read", "mark: starred"},
 		{"unknown move", "move: folder", "move: delete"},
 		{"send without mailbox or from", "      mailbox: ops@example.com\n      to: team", "      to: team"},
+		{"reply without mailbox", "      mailbox: ops@example.com\n      in_reply_to", "      from: a@example.com\n      in_reply_to"},
+		{"send without to or reply", "      to: team@example.com\n", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			doc := mustParseYAMLDocument(t, strings.Replace(source, tc.from, tc.to, 1))

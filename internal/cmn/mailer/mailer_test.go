@@ -1079,7 +1079,7 @@ func (m *Client) sendWithNoAuth(
 ) error {
 	ctx, cancel := context.WithTimeout(context.Background(), mailTimeout)
 	defer cancel()
-	return m.send(ctx, from, to, nil, nil, subject, body, attachments, false)
+	return m.send(ctx, Message{From: from, To: to, Subject: subject, Body: body, Attachments: attachments}, false)
 }
 
 func (m *Client) sendWithAuth(
@@ -1090,7 +1090,7 @@ func (m *Client) sendWithAuth(
 ) error {
 	ctx, cancel := context.WithTimeout(context.Background(), mailTimeout)
 	defer cancel()
-	return m.send(ctx, from, to, nil, nil, subject, body, attachments, true)
+	return m.send(ctx, Message{From: from, To: to, Subject: subject, Body: body, Attachments: attachments}, true)
 }
 
 // mockSMTPServer creates a mock SMTP server for testing
@@ -1461,4 +1461,51 @@ func TestSendRequireAttachments(t *testing.T) {
 	bodies := server.RecordedDataBodies()
 	require.Len(t, bodies, 1)
 	assert.Contains(t, bodies[0], `filename=empty.csv`)
+}
+
+func TestSendMessageThreadsReply(t *testing.T) {
+	t.Parallel()
+
+	server, err := newSMTPRecordingServer()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = server.Close() })
+	go server.Serve()
+	host, port, err := net.SplitHostPort(server.Address())
+	require.NoError(t, err)
+
+	err = New(Config{Host: host, Port: port}).SendMessage(context.Background(), Message{
+		From:       "support@example.com",
+		To:         []string{"carol@example.com"},
+		Subject:    "Re: Printer is down",
+		Body:       "On it.",
+		InReplyTo:  "question-2@example.com",
+		References: []string{"question-0@example.com", "question-1@example.com"},
+	})
+	require.NoError(t, err)
+
+	bodies := server.RecordedDataBodies()
+	require.Len(t, bodies, 1)
+	message, err := mail.ReadMessage(strings.NewReader(bodies[0]))
+	require.NoError(t, err)
+	assert.Equal(t, "<question-2@example.com>", message.Header.Get("In-Reply-To"))
+	assert.Equal(t, "<question-0@example.com> <question-1@example.com> <question-2@example.com>",
+		message.Header.Get("References"))
+}
+
+func TestThreadHeaders(t *testing.T) {
+	t.Parallel()
+
+	assert.Empty(t, threadHeaders("", []string{"a@example.com"}), "no reply without the answered Message-ID")
+	assert.Empty(t, threadHeaders("bad\r\nBcc: x@example.com", nil), "an ID that could break the header is dropped")
+	assert.Equal(t, "In-Reply-To: <b@example.com>\r\nReferences: <a@example.com> <b@example.com>\r\n",
+		threadHeaders("b@example.com", []string{"a@example.com", "bad id", "b@example.com"}))
+
+	// Long threads keep the first reference and the newest ones.
+	var references []string
+	for i := range 15 {
+		references = append(references, fmt.Sprintf("r%d@example.com", i))
+	}
+	header := threadHeaders("new@example.com", references)
+	assert.Contains(t, header, "References: <r0@example.com> <r7@example.com>")
+	assert.Equal(t, maxReferences, strings.Count(header, "<")-1, "In-Reply-To plus the kept references")
 }

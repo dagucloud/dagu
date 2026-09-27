@@ -366,3 +366,47 @@ func TestFitDropsNewestMessagesWhenHeadersAloneAreTooLarge(t *testing.T) {
 	require.NoError(t, err)
 	assert.LessOrEqual(t, len(encoded), budget)
 }
+
+const threadedQuestion = "From: Carol <carol@example.com>\r\n" +
+	"Reply-To: Help Desk <help@example.com>\r\n" +
+	"To: support@example.com\r\n" +
+	"Subject: Re: Printer is down\r\n" +
+	"Message-ID: <question-2@example.com>\r\n" +
+	"References: <question-0@example.com> <question-1@example.com>\r\n" +
+	"Content-Type: text/plain\r\n" +
+	"\r\n" +
+	"Still down.\r\n"
+
+func TestReplyInfo(t *testing.T) {
+	t.Parallel()
+
+	server := mailtest.StartIMAP(t)
+	server.Append(t, "INBOX", threadedQuestion)
+	server.Append(t, "INBOX", plainInvoice)
+	client := dial(t, server, mailbox.SecurityTLS)
+	messages, err := client.Search(mailbox.SearchOptions{Limit: 20})
+	require.NoError(t, err)
+	require.Len(t, messages, 2)
+
+	info, err := client.ReplyInfo(messages[0].ID)
+	require.NoError(t, err)
+	assert.Equal(t, &mailbox.ReplyInfo{
+		MessageID:  "question-2@example.com",
+		References: []string{"question-0@example.com", "question-1@example.com"},
+		Subject:    "Re: Printer is down",
+		ReplyTo:    "help@example.com",
+	}, info, "Reply-To wins over From")
+
+	info, err = client.ReplyInfo(messages[1].ID)
+	require.NoError(t, err)
+	assert.Equal(t, "alice@example.com", info.ReplyTo, "From when there is no Reply-To")
+	assert.Equal(t, "invoice-1@example.com", info.MessageID)
+	assert.Empty(t, info.References)
+
+	_, err = client.Organize(mailbox.OrganizeOptions{
+		Items: []mailbox.Item{{ID: messages[1].ID}}, Move: mailbox.MoveFolder, Folder: "Done",
+	})
+	require.NoError(t, err)
+	_, err = client.ReplyInfo(messages[1].ID)
+	require.ErrorIs(t, err, mailbox.ErrEmailGone)
+}

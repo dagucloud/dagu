@@ -175,6 +175,21 @@ authentication instead of the DAG-level `smtp` configuration. `from` is optional
 and defaults to the mailbox address. Every other field and behavior follows
 [Spec 044](044-mail-send.md).
 
+`with.in_reply_to` makes the message a reply to one email of that mailbox. It
+takes an email ID or an email object with an `id`, as `mail.organize` items do,
+and requires `with.mailbox`. Before sending, the action reads the email over
+IMAP without changing it:
+
+- `to` defaults to the email's Reply-To address, or its sender when it has none.
+- `subject` defaults to `Re: ` followed by the email's subject, unless that
+  subject already starts with `Re:`, compared case-insensitively.
+- The message carries `In-Reply-To` with the email's Message-ID and `References`
+  with the email's References followed by its Message-ID, so mail clients show
+  it in the same thread. An email without a Message-ID gets a reply without
+  these headers.
+
+Explicit `to` and `subject` values replace the defaults.
+
 ### Email IDs
 
 An email ID is an opaque string. It stays valid for the same account while the
@@ -208,6 +223,8 @@ At step start, before connecting:
 - `mailbox` names no configured account:
   `mail account "<address>" is not configured`.
 - `mail.send` through an `imap` account without `smtp.host`.
+- `in_reply_to` without `mailbox`: `in_reply_to requires mailbox`.
+- `in_reply_to` with a malformed email ID, or naming more than one email.
 - `move: folder` with no `with.folder` while an item has no `move_to`.
 - A malformed email ID.
 
@@ -216,6 +233,9 @@ At run time:
 - An authentication failure fails the step with an error naming the account and
   the server's or token endpoint's reason, for example
   `mail account "<address>": sign-in is no longer valid (invalid_grant)`.
+- `in_reply_to` naming an email that is no longer in its folder fails the step
+  before sending, with an error containing
+  `in_reply_to: the email is no longer in its folder`.
 - A connection failure or timeout fails the step. An IMAP connection that
   transfers nothing for two minutes counts as failed. Changes that
   `mail.organize` already applied stay applied.
