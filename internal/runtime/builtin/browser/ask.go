@@ -59,6 +59,8 @@ func (r *run) waitForInput(ctx context.Context, index int, spec askSpec) error {
 // returns the operation after that ask. An answer whose record cannot be
 // read for now stays pending, so a retry can still reattach.
 func (r *run) resumeSession(ctx context.Context, recordID string, session *ir.AgentSession, answer agentstep.AskAnswer) (int, error) {
+	// The attempt used these tokens before it waited.
+	r.bridge.resume(tokenUsage{Input: int(session.Usage.InputTokens), Output: int(session.Usage.OutputTokens)})
 	record, err := r.store.Load(recordID)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return 0, fmt.Errorf("read the waiting browser's record: %w", err)
@@ -115,7 +117,6 @@ func (r *run) resumeSession(ctx context.Context, recordID string, session *ir.Ag
 	if r.cache != nil {
 		r.cache.Hold(record.ReplayPending, record.ReplayUsed)
 	}
-	r.bridge.resume(tokenUsage{Input: int(session.Usage.InputTokens), Output: int(session.Usage.OutputTokens)})
 	r.timeline.Lifecycle(agentstep.StatusRunning, "Resumed browser after input")
 	return record.Cursor, nil
 }

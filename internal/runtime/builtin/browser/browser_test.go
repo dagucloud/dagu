@@ -566,12 +566,15 @@ func TestAskRejectionFailsStep(t *testing.T) {
 	require.NoError(t, waiting.err)
 
 	session := waiting.exec.GetAgentSession()
+	used := session.Usage.TotalTokens
+	require.Positive(t, used)
 	session.Interactions[0].Status = ir.AgentInteractionRejected
 	rejected := run.execute(loginSteps, session)
 
 	require.ErrorContains(t, rejected.err, "the input request was rejected")
 	assert.Empty(t, run.launcher.reattaches)
 	assert.Empty(t, run.records(), "the waiting browser is released")
+	assert.Equal(t, used, rejected.exec.GetAgentSession().Usage.TotalTokens, "tokens used before the wait still count")
 }
 
 // A step that waits for a person keeps what it recorded and the tokens it
