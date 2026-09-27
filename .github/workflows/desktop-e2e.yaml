@@ -1,8 +1,8 @@
 name: Desktop E2E
 
 # Operates the interactive desktop of a hosted Windows runner: the desktop
-# driver moves the pointer and types, and a computer step saves a file in
-# Notepad through a scripted model.
+# driver moves the pointer and types, and a computer step types into a test
+# window through a scripted model that reads the screenshots.
 on:
   pull_request:
     types:
@@ -69,4 +69,14 @@ jobs:
 
       - name: Test a computer step
         shell: bash
-        run: DAGU_BIN="$PWD/.local/bin/dagu.exe" go test -count=1 -run TestComputerNotepad -v ./conformance/spec073_computer/
+        env:
+          DESKTOP_E2E_ARTIFACTS: ${{ runner.temp }}/desktop-artifacts
+        run: DAGU_BIN="$PWD/.local/bin/dagu.exe" go test -count=1 -run TestComputerTypesIntoWindow -v ./conformance/spec073_computer/
+
+      - name: Upload screenshots
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: desktop-e2e-screenshots
+          path: ${{ runner.temp }}/desktop-artifacts
+          if-no-files-found: ignore

@@ -7,8 +7,14 @@
 package spec073_computer_test
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -69,69 +75,159 @@ func TestComputerUnsupportedPlatform(t *testing.T) {
 	result.ExpectStderrContains("desktop automation is supported on macOS and Windows only")
 }
 
+// magenta is the color of the test window's text box, which the scripted
+// model looks for in each screenshot.
+var magenta = color.RGBA{R: 255, G: 0, B: 255, A: 255}
+
+// minWindowPixels is how many magenta pixels count as the window being
+// shown.
+const minWindowPixels = 500
+
 // scriptedModel answers generic-mode computer requests in the OpenAI chat
-// format: the first act round types the greeting and saves it to the target
-// path, the next reports the task done, and extract requests return the
-// greeting.
+// format by reading the screenshot it is sent: it waits until the magenta
+// text box appears, clicks it and types the greeting, then reports the task
+// done. Extract requests return the greeting.
 type scriptedModel struct {
-	target string
-	mu     sync.Mutex
-	images int
+	mu        sync.Mutex
+	sawWindow bool
 }
 
-func (m *scriptedModel) serve(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Messages []struct {
-			Role    string          `json:"role"`
-			Content json.RawMessage `json:"content"`
-		} `json:"messages"`
-		Tools []struct {
+type chatRequest struct {
+	Messages []struct {
+		Role      string          `json:"role"`
+		Content   json.RawMessage `json:"content"`
+		ToolCalls []struct {
 			Function struct {
 				Name string `json:"name"`
 			} `json:"function"`
-		} `json:"tools"`
-	}
+		} `json:"tool_calls"`
+	} `json:"messages"`
+	Tools []struct {
+		Function struct {
+			Name string `json:"name"`
+		} `json:"function"`
+	} `json:"tools"`
+}
+
+func (m *scriptedModel) serve(w http.ResponseWriter, r *http.Request) {
+	var req chatRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Tools) == 0 {
 		http.Error(w, "expected a tool request", http.StatusBadRequest)
 		return
-	}
-	rounds := 0
-	for _, message := range req.Messages {
-		if message.Role == "assistant" {
-			rounds++
-		}
-		if strings.Contains(string(message.Content), `"image_url"`) {
-			m.mu.Lock()
-			m.images++
-			m.mu.Unlock()
-		}
-	}
-
-	type toolCall struct {
-		name      string
-		arguments map[string]any
 	}
 	var calls []toolCall
 	switch {
 	case req.Tools[0].Function.Name == "respond":
 		calls = []toolCall{{"respond", map[string]any{"text": greeting}}}
-	case rounds == 0:
-		calls = []toolCall{
-			{"type", map[string]any{"text": greeting}},
-			{"key", map[string]any{"keys": "ctrl+s"}},
-			{"wait", map[string]any{"seconds": 2}},
-			{"type", map[string]any{"text": m.target}},
-			{"key", map[string]any{"keys": "Return"}},
-			{"wait", map[string]any{"seconds": 2}},
-		}
+	case req.typed():
+		calls = []toolCall{{"done", map[string]any{"success": true, "summary": "Typed the greeting"}}}
 	default:
-		calls = []toolCall{{"done", map[string]any{"success": true, "summary": "Saved the greeting"}}}
+		center, found, err := req.findWindow()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if !found {
+			calls = []toolCall{{"wait", map[string]any{"seconds": 1}}}
+			break
+		}
+		m.mu.Lock()
+		m.sawWindow = true
+		m.mu.Unlock()
+		calls = []toolCall{
+			{"click", map[string]any{"x": center.X, "y": center.Y}},
+			{"type", map[string]any{"text": greeting}},
+		}
 	}
+	writeToolCalls(w, calls)
+}
+
+// typed reports whether an earlier turn typed the greeting.
+func (req chatRequest) typed() bool {
+	for _, message := range req.Messages {
+		for _, call := range message.ToolCalls {
+			if call.Function.Name == "type" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// findWindow returns the center of the magenta text box in the latest
+// screenshot, in its pixels.
+func (req chatRequest) findWindow() (image.Point, bool, error) {
+	var dataURL string
+	for _, message := range req.Messages {
+		var parts []struct {
+			Type     string `json:"type"`
+			ImageURL struct {
+				URL string `json:"url"`
+			} `json:"image_url"`
+		}
+		if json.Unmarshal(message.Content, &parts) != nil {
+			continue
+		}
+		for _, part := range parts {
+			if part.Type == "image_url" {
+				dataURL = part.ImageURL.URL
+			}
+		}
+	}
+	_, encoded, ok := strings.Cut(dataURL, ";base64,")
+	if !ok {
+		return image.Point{}, false, errors.New("no screenshot in the request")
+	}
+	data, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return image.Point{}, false, err
+	}
+	screen, err := png.Decode(bytes.NewReader(data))
+	if err != nil {
+		return image.Point{}, false, err
+	}
+	var sum image.Point
+	count := 0
+	bounds := screen.Bounds()
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			if near(screen.At(x, y), magenta) {
+				sum = sum.Add(image.Pt(x, y))
+				count++
+			}
+		}
+	}
+	if count < minWindowPixels {
+		return image.Point{}, false, nil
+	}
+	return sum.Div(count), true, nil
+}
+
+// near reports whether a color is within a small distance of target,
+// allowing for scaling that blends edge pixels.
+func near(c color.Color, target color.RGBA) bool {
+	r, g, b, _ := c.RGBA()
+	return absDiff(r>>8, uint32(target.R)) < 40 && absDiff(g>>8, uint32(target.G)) < 40 && absDiff(b>>8, uint32(target.B)) < 40
+}
+
+func absDiff(a, b uint32) uint32 {
+	if a > b {
+		return a - b
+	}
+	return b - a
+}
+
+type toolCall struct {
+	name      string
+	arguments map[string]any
+}
+
+func writeToolCalls(w http.ResponseWriter, calls []toolCall) {
 	encoded := make([]map[string]any, 0, len(calls))
 	for i, c := range calls {
 		arguments, _ := json.Marshal(c.arguments)
 		encoded = append(encoded, map[string]any{
-			"id":       fmt.Sprintf("call_%d_%d", rounds, i),
+			"id":       fmt.Sprintf("call_%d", i),
 			"type":     "function",
 			"function": map[string]any{"name": c.name, "arguments": string(arguments)},
 		})
@@ -146,24 +242,38 @@ func (m *scriptedModel) serve(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// The step launches Notepad, types into it and saves the file through the
-// model's actions, then reads the window into an output.
-func TestComputerNotepad(t *testing.T) {
+// The step launches a window, waits until the scripted model sees it,
+// clicks it and types into it, then reads it into an output. The window
+// writes its text to a file, which shows what reached it.
+func TestComputerTypesIntoWindow(t *testing.T) {
 	if runtime.GOOS != "windows" || os.Getenv("DAGU_DESKTOP_E2E") != "1" {
 		t.Skip("set DAGU_DESKTOP_E2E=1 on an interactive Windows desktop to run")
 	}
-	t.Cleanup(func() { _ = exec.Command("taskkill", "/IM", "notepad.exe", "/F").Run() })
+	t.Cleanup(func() {
+		_ = exec.Command("taskkill", "/F", "/FI", "WINDOWTITLE eq Dagu desktop test").Run()
+	})
 
 	dagu := harness.NewRunner(t).WithCommandTimeout(desktopCommandTimeout)
-	model := &scriptedModel{target: dagu.ProjectPath("greeting.txt")}
+	// CI uploads the screenshots from this directory when the test fails.
+	artifacts := os.Getenv("DESKTOP_E2E_ARTIFACTS")
+	if artifacts == "" {
+		artifacts = dagu.ProjectPath("artifacts")
+	}
+	model := &scriptedModel{}
 	server := httptest.NewServer(http.HandlerFunc(model.serve))
 	t.Cleanup(server.Close)
 
-	dagu.RunWithEnv([]string{"LLM_BASE_URL=" + server.URL}, "start", "notepad.yaml").ExpectExitCode(0)
+	result := dagu.RunWithEnv([]string{"LLM_BASE_URL=" + server.URL, "DESKTOP_ARTIFACTS=" + artifacts}, "start", "textbox.yaml")
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("stdout:\n%s\nstderr:\n%s", result.Stdout(), result.Stderr())
+		}
+	})
+	result.ExpectExitCode(0)
 
 	dagu.ExpectTextFileContent("greeting.txt", greeting)
 	dagu.ExpectTextFileContent("extracted.out", greeting+"\n")
 	model.mu.Lock()
 	defer model.mu.Unlock()
-	require.Positive(t, model.images, "the model is shown screenshots")
+	require.True(t, model.sawWindow, "the model found the window in a screenshot")
 }

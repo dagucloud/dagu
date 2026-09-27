@@ -5,8 +5,8 @@
 Partially implemented.
 
 Conformance covers validation, the secret check, the unsupported-platform
-error, and, on an interactive Windows desktop, a run that types into Notepad
-and saves a file through a scripted model. Model loops, replay, human input,
+error, and, on an interactive Windows desktop, a run that finds a test window
+in screenshots, clicks it and types into it through a scripted model. Model loops, replay, human input,
 and the desktop lease are covered by executor tests.
 
 ## Scope

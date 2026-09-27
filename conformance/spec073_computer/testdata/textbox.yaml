@@ -1,6 +1,8 @@
 working_dir: .
 env:
   - LLM_BASE_URL: ${LLM_BASE_URL}
+artifacts:
+  dir: ${DESKTOP_ARTIFACTS}
 llm:
   provider: local
   model: test-model
@@ -10,13 +12,14 @@ steps:
     action: computer.run
     with:
       cache: false
-      screenshots: final
+      screenshots: each
       do:
-        - launch: notepad.exe
-        - wait: 3s
-        - act: Type the greeting and save it to the file the task names
+        - launch:
+            command: powershell.exe
+            args: [-NoProfile, -ExecutionPolicy, Bypass, -File, textbox.ps1, -Out, greeting.txt]
+        - act: Type the greeting into the magenta text box
         - extract:
-            instruction: The text in the Notepad window
+            instruction: The text in the magenta text box
             schema:
               type: object
               properties:
