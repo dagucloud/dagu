@@ -5,7 +5,7 @@
 Partially implemented.
 
 Conformance covers mail account configuration errors, `mail.search`,
-`mail.organize`, attachments, and `mail.send` through password accounts against
+`mail.organize`, attachments, and `mail.send` and replies through password accounts against
 in-process TLS servers. OAuth token exchange with Google and Microsoft token
 endpoints belongs in unit tests.
 
