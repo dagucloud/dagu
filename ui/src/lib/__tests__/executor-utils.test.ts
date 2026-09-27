@@ -64,4 +64,16 @@ describe('getExecutorCommand', () => {
 
     expect(getExecutorCommand(step)).toBe('browser: https://shop.example.com');
   });
+
+  it('shows the mailbox of a mail search or organize step', () => {
+    const step = {
+      name: 'find',
+      executorConfig: {
+        type: 'mail',
+        config: { mailbox: 'support@example.com', unread: true },
+      },
+    } as components['schemas']['Step'];
+
+    expect(getExecutorCommand(step)).toBe('mail: support@example.com');
+  });
 });

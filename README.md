@@ -612,6 +612,8 @@ Dagu includes built-in actions that run within the Dagu process or on the select
 | `wait.duration` / `wait.until` / `wait.file` / `wait.http` | Wait for time, file state, or HTTP readiness |
 | `human.task` | Wait for acknowledgement or typed operator input before downstream steps continue |
 | `mail.send` | Send email via SMTP |
+| `mail.search` | Find email in an IMAP mailbox |
+| `mail.organize` | Mark, move, archive, or trash email |
 | `template.render` | Text generation with template rendering |
 | `router.route` | Conditional step routing based on values and patterns |
 | `dag.run` | Invoke another DAG as a sub-workflow with params and dependencies |

@@ -707,7 +707,63 @@ steps:
       message: "The build finished successfully."
 ```
 
-SMTP server settings come from global configuration.
+SMTP server settings come from global configuration. With `mailbox`, the message
+goes through that entry of `mail_accounts` instead, and `from` defaults to its
+address.
+
+## mail.search / mail.organize
+
+Read and organize a mailbox over IMAP. Accounts live in the DAG-level (or base
+config) `mail_accounts` map, keyed by email address. `provider: google` or
+`provider: microsoft` fills in the servers; any other server sets `imap.host`.
+Authenticate with `password` or with `oauth` (`google_refresh` or
+`microsoft_refresh` and a refresh token).
+
+```yaml
+mail_accounts:
+  support@example.com:
+    provider: microsoft
+    oauth:
+      provider: microsoft_refresh
+      client_id: ${MS_CLIENT_ID}
+      refresh_token: ${SUPPORT_TOKEN}
+
+steps:
+  - id: find
+    action: mail.search
+    with:
+      mailbox: support@example.com
+      unread: true
+  - id: each
+    depends: find
+    foreach:
+      items: ${steps.find.outputs.messages}
+      as: email
+      steps:
+        - id: ticket
+          run: ./create-ticket.sh "${foreach.email.subject}"
+        - id: done
+          depends: ticket
+          action: mail.organize
+          with:
+            mailbox: support@example.com
+            emails: ${foreach.email.id}
+            mark: read
+```
+
+`mail.search` `with` fields: `mailbox`, `folder` (default `INBOX`), `unread`,
+`from`, `subject`, `within` (such as `24h` or `7d`), `has_attachments`,
+`save_attachments`, `limit` (1-50, default 20). It publishes `messages` (oldest
+first, each with `id`, `folder`, `from_name`, `from_address`, `to`, `cc`,
+`subject`, `date`, `unread`, `flagged`, `text`, `attachments`), `count`, and
+`truncated`. Searching never marks email read.
+
+`mail.organize` `with` fields: `mailbox`, `emails` (an ID, an email from
+`mail.search`, an `{id, move_to}` object, or a list), `mark` (`read`, `unread`,
+`flagged`, `unflagged`), `move` (`folder`, `archive`, `trash`), `folder`,
+`dry_run`. It publishes `changed` and `missing`. To process each email once,
+mark it read inside the loop right after its work, so a failed email stays
+unread for the next run.
 
 ## archive.create / archive.extract / archive.list
 

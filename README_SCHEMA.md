@@ -207,6 +207,8 @@ Current builtin actions:
 | `template.render` | Text/template rendering | Exactly one of `template` or `template_ref`, optional data/config |
 | `log.write` | Log messages | `message` |
 | `mail.send` | Email sending | mail executor config |
+| `mail.search` | Email search over IMAP | `mailbox` and search filters |
+| `mail.organize` | Email marking and moving | `mailbox`, `emails`, `mark` or `move` |
 | `archive.create`, `archive.extract`, `archive.list` | Archive operations | archive config |
 | `file.stat`, `file.read`, `file.write`, `file.copy`, `file.move`, `file.delete`, `file.mkdir`, `file.list` | File operations | path/source/destination/content config |
 | `git.checkout` | Git repository checkout | `repository`, `path`, optional `ref`, `depth`, auth config |

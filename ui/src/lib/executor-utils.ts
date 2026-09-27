@@ -44,7 +44,8 @@ export function getExecutorCommand(
     case 'http':
       return config.url ? `${config.method || 'GET'} ${config.url}` : null;
     case 'mail':
-      return config.to ? `Mail to ${config.to}` : null;
+      if (config.to) return `Mail to ${config.to}`;
+      return config.mailbox ? `mail: ${config.mailbox}` : null;
     case 'jq':
       return config.expression ? `jq: ${config.expression}` : null;
     case 'docker':
