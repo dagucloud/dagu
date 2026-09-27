@@ -71,7 +71,7 @@ func StartIMAP(t testing.TB, options ...IMAPOption) *IMAP {
 		t.Fatalf("create INBOX: %v", err)
 	}
 
-	tlsConfig := selfSignedTLSConfig(t)
+	tlsConfig := ServerTLSConfig(t)
 	serverOptions := &imapserver.Options{
 		NewSession: func(*imapserver.Conn) (imapserver.Session, *imapserver.GreetingData, error) {
 			return &specialUseSession{UserSession: imapmemserver.NewUserSession(s.user), server: s}, nil, nil

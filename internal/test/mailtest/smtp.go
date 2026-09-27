@@ -35,7 +35,7 @@ type Delivery struct {
 // StartSMTP starts a server that stops when the test ends.
 func StartSMTP(t testing.TB) *SMTP {
 	t.Helper()
-	listener, err := tls.Listen("tcp", "127.0.0.1:0", selfSignedTLSConfig(t))
+	listener, err := tls.Listen("tcp", "127.0.0.1:0", ServerTLSConfig(t))
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}

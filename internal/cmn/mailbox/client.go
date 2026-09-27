@@ -24,7 +24,10 @@ const (
 	SecurityStartTLS = "starttls"
 )
 
-const dialTimeout = 30 * time.Second
+const (
+	dialTimeout   = 30 * time.Second
+	logoutTimeout = 5 * time.Second
+)
 
 // Account is a mail account whose values are already resolved.
 type Account struct {
@@ -48,6 +51,8 @@ type Client struct {
 	imap       *imapclient.Client
 	stop       func() bool
 	specialUse map[imap.MailboxAttr]string
+	// logoutTimeout bounds how long Close waits for the server's LOGOUT reply.
+	logoutTimeout time.Duration
 }
 
 // Dial connects to the account's IMAP server and signs in. Canceling ctx
@@ -87,8 +92,9 @@ func Dial(ctx context.Context, account Account) (*Client, error) {
 	}
 
 	c := &Client{
-		imap: client,
-		stop: context.AfterFunc(ctx, func() { _ = client.Close() }),
+		imap:          client,
+		stop:          context.AfterFunc(ctx, func() { _ = client.Close() }),
+		logoutTimeout: logoutTimeout,
 	}
 	if err := c.authenticate(ctx, account); err != nil {
 		c.stop()
@@ -98,10 +104,20 @@ func Dial(ctx context.Context, account Account) (*Client, error) {
 	return c, nil
 }
 
-// Close signs out and closes the connection.
+// Close signs out and closes the connection. It waits a bounded time for the
+// server to acknowledge the sign-out.
 func (c *Client) Close() error {
 	c.stop()
-	_ = c.imap.Logout().Wait()
+	loggedOut := make(chan struct{})
+	go func() {
+		// Closing the connection below also ends this wait.
+		_ = c.imap.Logout().Wait()
+		close(loggedOut)
+	}()
+	select {
+	case <-loggedOut:
+	case <-time.After(c.logoutTimeout):
+	}
 	return c.imap.Close()
 }
 

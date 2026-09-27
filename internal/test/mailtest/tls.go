@@ -18,7 +18,9 @@ import (
 	"time"
 )
 
-func selfSignedTLSConfig(t testing.TB) *tls.Config {
+// ServerTLSConfig returns a TLS configuration with a fresh self-signed
+// certificate for 127.0.0.1 and localhost.
+func ServerTLSConfig(t testing.TB) *tls.Config {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
