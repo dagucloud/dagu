@@ -7,6 +7,7 @@ package llm
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"time"
 )
@@ -88,6 +89,27 @@ type Message struct {
 	// ToolCalls contains tool calls made by the assistant.
 	// Only set when Role is "assistant" and the model requests tool calls.
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+	// Images are sent with a user message ahead of its text. Other roles
+	// do not carry images.
+	Images []Image `json:"images,omitempty"`
+}
+
+// Image is an encoded image attached to a message.
+type Image struct {
+	// MediaType is the image's IANA media type, such as "image/png".
+	MediaType string `json:"media_type"`
+	// Data holds the encoded image bytes.
+	Data []byte `json:"data"`
+}
+
+// Base64 returns the image data in standard base64 encoding.
+func (i Image) Base64() string {
+	return base64.StdEncoding.EncodeToString(i.Data)
+}
+
+// DataURL returns the image as a data URL.
+func (i Image) DataURL() string {
+	return "data:" + i.MediaType + ";base64," + i.Base64()
 }
 
 // Tool represents a function/tool available to the LLM.

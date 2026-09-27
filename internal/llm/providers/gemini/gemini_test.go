@@ -244,3 +244,28 @@ func TestBuildRequestBody_ThinkingTokens(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildRequestBody_Images(t *testing.T) {
+	t.Parallel()
+
+	provider := &Provider{config: llm.Config{APIKey: "test-key"}}
+	body, err := provider.buildRequestBody(&llm.ChatRequest{
+		Model: "gemini-3.5-flash",
+		Messages: []llm.Message{
+			{Role: llm.RoleUser, Content: "describe", Images: []llm.Image{{MediaType: "image/png", Data: []byte{1, 2}}}},
+		},
+	})
+	require.NoError(t, err)
+
+	var parsed struct {
+		Contents []struct {
+			Parts json.RawMessage `json:"parts"`
+		} `json:"contents"`
+	}
+	require.NoError(t, json.Unmarshal(body, &parsed))
+	require.Len(t, parsed.Contents, 1)
+	assert.JSONEq(t, `[
+		{"inlineData":{"mimeType":"image/png","data":"AQI="}},
+		{"text":"describe"}
+	]`, string(parsed.Contents[0].Parts))
+}

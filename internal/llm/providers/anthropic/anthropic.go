@@ -261,7 +261,7 @@ func (p *Provider) processMessages(reqMessages []llm.Message) (string, []message
 		case llm.RoleUser:
 			messages = append(messages, message{
 				Role:    string(m.Role),
-				Content: m.Content,
+				Content: userContent(m),
 			})
 		case llm.RoleAssistant:
 			// Check if this assistant message has tool calls
@@ -315,6 +315,33 @@ func (p *Provider) processMessages(reqMessages []llm.Message) (string, []message
 		}
 	}
 	return systemContent, messages
+}
+
+// userContent returns the text as a string, or content blocks with the
+// images ahead of the text when the message has images.
+func userContent(m llm.Message) any {
+	if len(m.Images) == 0 {
+		return m.Content
+	}
+	blocks := make([]any, 0, len(m.Images)+1)
+	for _, image := range m.Images {
+		blocks = append(blocks, imageBlock(image))
+	}
+	if m.Content != "" {
+		blocks = append(blocks, map[string]any{"type": "text", "text": m.Content})
+	}
+	return blocks
+}
+
+func imageBlock(image llm.Image) map[string]any {
+	return map[string]any{
+		"type": "image",
+		"source": map[string]any{
+			"type":       "base64",
+			"media_type": image.MediaType,
+			"data":       image.Base64(),
+		},
+	}
 }
 
 func (p *Provider) convertTools(tools []llm.Tool) []any {

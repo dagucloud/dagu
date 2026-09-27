@@ -201,9 +201,16 @@ func (p *Provider) processMessages(reqMessages []llm.Message) (*systemInstructio
 			sysInstr.Parts = append(sysInstr.Parts, part{Text: m.Content})
 
 		case llm.RoleUser:
+			parts := make([]part, 0, len(m.Images)+1)
+			for _, image := range m.Images {
+				parts = append(parts, part{InlineData: &inlineData{MimeType: image.MediaType, Data: image.Data}})
+			}
+			if m.Content != "" || len(parts) == 0 {
+				parts = append(parts, part{Text: m.Content})
+			}
 			contents = append(contents, content{
 				Role:  "user",
-				Parts: []part{{Text: m.Content}},
+				Parts: parts,
 			})
 
 		case llm.RoleAssistant:
@@ -449,8 +456,15 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, event
 
 type part struct {
 	Text             string                `json:"text,omitempty"`
+	InlineData       *inlineData           `json:"inlineData,omitempty"`
 	FunctionCall     *functionCallPart     `json:"functionCall,omitempty"`
 	FunctionResponse *functionResponsePart `json:"functionResponse,omitempty"`
+}
+
+// inlineData carries encoded media; Data marshals as base64.
+type inlineData struct {
+	MimeType string `json:"mimeType"`
+	Data     []byte `json:"data"`
 }
 
 // Function calling types

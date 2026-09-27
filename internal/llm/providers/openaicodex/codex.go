@@ -360,12 +360,22 @@ func convertMessages(messages []llm.Message) (instructions string, input []any) 
 				systemParts = append(systemParts, msg.Content)
 			}
 		case llm.RoleUser:
-			input = append(input, map[string]any{
-				"role": "user",
-				"content": []map[string]any{{
+			content := make([]map[string]any, 0, len(msg.Images)+1)
+			for _, image := range msg.Images {
+				content = append(content, map[string]any{
+					"type":      "input_image",
+					"image_url": image.DataURL(),
+				})
+			}
+			if msg.Content != "" || len(content) == 0 {
+				content = append(content, map[string]any{
 					"type": "input_text",
 					"text": msg.Content,
-				}},
+				})
+			}
+			input = append(input, map[string]any{
+				"role":    "user",
+				"content": content,
 			})
 		case llm.RoleAssistant:
 			if strings.TrimSpace(msg.Content) != "" {

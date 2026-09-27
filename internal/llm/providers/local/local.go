@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/llm"
+	"github.com/dagucloud/dagu/v2/internal/llm/providers/chatcontent"
 )
 
 const (
@@ -129,7 +130,7 @@ func (p *Provider) buildRequestBody(req *llm.ChatRequest, stream bool) ([]byte, 
 	for i, m := range req.Messages {
 		messages[i] = message{
 			Role:    string(m.Role),
-			Content: m.Content,
+			Content: chatcontent.Content(m.Content, m.Images),
 		}
 		if m.Name != "" {
 			messages[i].Name = m.Name
@@ -278,7 +279,7 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, event
 
 type message struct {
 	Role       string     `json:"role"`
-	Content    string     `json:"content"`
+	Content    any        `json:"content"`
 	Name       string     `json:"name,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 	ToolCalls  []toolCall `json:"tool_calls,omitempty"`

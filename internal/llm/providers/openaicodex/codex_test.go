@@ -51,6 +51,22 @@ func TestConvertMessages(t *testing.T) {
 	assert.Equal(t, "function_call_output", input[3].(map[string]any)["type"])
 }
 
+func TestConvertMessages_Images(t *testing.T) {
+	t.Parallel()
+
+	_, input := convertMessages([]llm.Message{{
+		Role:    llm.RoleUser,
+		Content: "describe",
+		Images:  []llm.Image{{MediaType: "image/png", Data: []byte{1, 2}}},
+	}})
+
+	require.Len(t, input, 1)
+	assert.Equal(t, []map[string]any{
+		{"type": "input_image", "image_url": "data:image/png;base64,AQI="},
+		{"type": "input_text", "text": "describe"},
+	}, input[0].(map[string]any)["content"])
+}
+
 func TestConvertMessages_OmitsEmptyFunctionCallItemID(t *testing.T) {
 	t.Parallel()
 

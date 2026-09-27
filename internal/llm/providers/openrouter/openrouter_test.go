@@ -198,3 +198,30 @@ func TestBuildRequestBody_ReasoningTokens(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildRequestBody_Images(t *testing.T) {
+	t.Parallel()
+
+	provider := &Provider{config: llm.Config{APIKey: "test-key"}}
+	body, err := provider.buildRequestBody(&llm.ChatRequest{
+		Model: "anthropic/claude-sonnet-4",
+		Messages: []llm.Message{
+			{Role: llm.RoleUser, Content: "plain"},
+			{Role: llm.RoleUser, Content: "describe", Images: []llm.Image{{MediaType: "image/png", Data: []byte{1, 2}}}},
+		},
+	}, false)
+	require.NoError(t, err)
+
+	var parsed struct {
+		Messages []struct {
+			Content json.RawMessage `json:"content"`
+		} `json:"messages"`
+	}
+	require.NoError(t, json.Unmarshal(body, &parsed))
+	require.Len(t, parsed.Messages, 2)
+	assert.JSONEq(t, `"plain"`, string(parsed.Messages[0].Content))
+	assert.JSONEq(t, `[
+		{"type":"image_url","image_url":{"url":"data:image/png;base64,AQI="}},
+		{"type":"text","text":"describe"}
+	]`, string(parsed.Messages[1].Content))
+}
