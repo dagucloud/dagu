@@ -56,7 +56,7 @@ func TestComputerSession(t *testing.T) {
 		`{"content":[{"type":"tool_use","id":"t5","name":"done","input":{"success":true,"summary":"Saved"}}],"stop_reason":"tool_use","usage":{"input_tokens":1,"output_tokens":1}}`,
 	)
 	session := newComputerSession(t, server)
-	assert.Equal(t, 2576, session.ImageLimit().LongEdge)
+	assert.Equal(t, 2000, session.ImageLimit().LongEdge)
 
 	turn, err := session.Next(context.Background(), computeruse.Observation{Screen: testScreen("first")})
 	require.NoError(t, err)
@@ -111,7 +111,7 @@ func TestComputerSession(t *testing.T) {
 		"type": "tool_result", "tool_use_id": "t2", "toolset_name": "computer", "is_error": true,
 		"content": []any{map[string]any{"type": "text", "text": "Error: unknown key"}},
 	}, results[1])
-	assert.Equal(t, computeruse.SkippedText, results[3].(map[string]any)["content"].([]any)[0].(map[string]any)["text"])
+	assert.Equal(t, "Not executed: an earlier computer action in this turn failed.", results[3].(map[string]any)["content"].([]any)[0].(map[string]any)["text"])
 }
 
 func TestComputerSessionScreenshotResult(t *testing.T) {
@@ -176,4 +176,77 @@ func TestComputerSessionRefusal(t *testing.T) {
 
 	_, err := session.Next(context.Background(), computeruse.Observation{Screen: testScreen("first")})
 	require.ErrorContains(t, err, "not allowed")
+}
+
+// A member call that cannot be performed stops the batch; the calls after it
+// are not run and are answered as skipped.
+func TestComputerSessionHaltsBatch(t *testing.T) {
+	t.Parallel()
+
+	server := messagesServer(
+		`{"content":[
+			{"type":"tool_use","id":"t1","name":"left_click","toolset_name":"computer","input":{"coordinate":[1,2]}},
+			{"type":"tool_use","id":"t2","name":"left_click","toolset_name":"computer","input":{"coordinate":[1]}},
+			{"type":"tool_use","id":"t3","name":"type","toolset_name":"computer","input":{"text":"x"}}
+		],"stop_reason":"tool_use"}`,
+		`{"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn"}`,
+	)
+	session := newComputerSession(t, server)
+
+	turn, err := session.Next(context.Background(), computeruse.Observation{Screen: testScreen("first")})
+	require.NoError(t, err)
+	require.Len(t, turn.Actions, 1, "only the call before the invalid one runs")
+
+	_, err = session.Next(context.Background(), computeruse.Observation{
+		Screen:  testScreen("second"),
+		Results: []computeruse.Result{{CallID: "t1"}},
+	})
+	require.NoError(t, err)
+	results := server.Requests()[1]["messages"].([]any)[2].(map[string]any)["content"].([]any)
+	text := func(i int) any {
+		return results[i].(map[string]any)["content"].([]any)[0].(map[string]any)["text"]
+	}
+	assert.Equal(t, "OK", text(0))
+	assert.Equal(t, "Error: coordinate must be [x, y]", text(1))
+	assert.Equal(t, "Not executed: an earlier computer action in this turn failed.", text(2))
+}
+
+// A tool_use cut off by max_tokens is not run.
+func TestComputerSessionTruncated(t *testing.T) {
+	t.Parallel()
+
+	server := messagesServer(`{"content":[{"type":"tool_use","id":"t1","name":"type","toolset_name":"computer","input":{"text":"hel"}}],"stop_reason":"max_tokens"}`)
+	session := newComputerSession(t, server)
+
+	_, err := session.Next(context.Background(), computeruse.Observation{Screen: testScreen("first")})
+	require.ErrorContains(t, err, "cut off (max_tokens)")
+}
+
+// Models before the computer toolset use the generic session in auto mode.
+func TestComputerSessionModelSupport(t *testing.T) {
+	t.Parallel()
+
+	for model, native := range map[string]bool{
+		"claude-opus-5-5":            true,
+		"claude-fable-5-1":           true,
+		"claude-sonnet-5":            true,
+		"claude-opus-4-8":            true,
+		"anthropic.claude-opus-5":    true,
+		"my-deployment":              true,
+		"claude-opus-4-7":            false,
+		"claude-sonnet-4-6":          false,
+		"claude-sonnet-4-5-20250929": false,
+		"claude-opus-4-5@20251101":   false,
+		"claude-haiku-4-5":           false,
+		"claude-3-7-sonnet-20250219": false,
+	} {
+		provider, err := llm.NewProvider(llm.ProviderAnthropic, llm.Config{APIKey: "test-key"})
+		require.NoError(t, err)
+		_, err = computeruse.New(llm.ProviderAnthropic, provider, computeruse.ModeNative, computeruse.Options{Model: model})
+		if native {
+			assert.NoError(t, err, model)
+		} else {
+			assert.ErrorIs(t, err, computeruse.ErrModelNotSupported, model)
+		}
+	}
 }

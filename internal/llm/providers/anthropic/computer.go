@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
+	"strconv"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/llm"
@@ -19,11 +21,51 @@ const (
 	computerToolsetName      = "computer"
 	defaultComputerMaxTokens = 16000
 	stopReasonRefusal        = "refusal"
+	// computerSkippedText is the exact result the toolset expects for a
+	// batched action not run because an earlier one failed.
+	computerSkippedText = "Not executed: an earlier computer action in this turn failed."
 )
 
-// computerImageLimit is the largest screenshot the computer toolset models
-// accept without the API rejecting it.
-var computerImageLimit = computeruse.ImageLimit{LongEdge: 2576, MaxPixels: 3_750_000}
+// Stop reasons that can cut a tool_use block short.
+var truncatingStopReasons = map[string]bool{"max_tokens": true, "model_context_window_exceeded": true}
+
+// computerImageLimit keeps screenshots within the per-image budget of 4784
+// visual tokens and within 2000 pixels per side, the limit once a request
+// carries more than 20 images. The conversation is append-only, so old
+// screenshots are never removed.
+var computerImageLimit = computeruse.ImageLimit{LongEdge: 2000, MaxPixels: 3_600_000}
+
+// claudeModelPattern reads the family and version from a model ID such as
+// claude-opus-4-8, anthropic.claude-sonnet-5 or claude-opus-4-5@20251101.
+var claudeModelPattern = regexp.MustCompile(`claude-(opus|sonnet|haiku|fable|mythos)-(\d+)(?:-(\d+))?`)
+
+// legacyClaudePattern matches model IDs of the claude-3 generation.
+var legacyClaudePattern = regexp.MustCompile(`claude-\d`)
+
+// toolsetSupported reports whether a model takes the computer toolset.
+// Earlier models only take the computer_20251124 tool and older versions.
+// Unrecognized IDs, such as custom deployments, are assumed to support it.
+func toolsetSupported(model string) bool {
+	if legacyClaudePattern.MatchString(model) {
+		return false
+	}
+	match := claudeModelPattern.FindStringSubmatch(model)
+	if match == nil {
+		return true
+	}
+	family := match[1]
+	major, _ := strconv.Atoi(match[2])
+	minor, _ := strconv.Atoi(match[3])
+	switch {
+	case family == "fable" || family == "mythos" || major >= 5:
+		return true
+	case family == "opus" && major == 4:
+		// A date suffix such as 20250929 is not a minor version.
+		return minor >= 8 && minor < 100
+	default:
+		return false
+	}
+}
 
 const computerSystemPrompt = `You operate a computer with the computer tools. Coordinates are pixels in the screenshots you receive, measured from the top-left corner. Take a screenshot whenever you need to see the result of your actions.
 `
@@ -62,6 +104,9 @@ func newComputerSession(provider llm.Provider, opts computeruse.Options) (comput
 	if !ok {
 		return nil, fmt.Errorf("%s: computer use needs an Anthropic provider, got %T", providerName, provider)
 	}
+	if !toolsetSupported(opts.Model) {
+		return nil, fmt.Errorf("%s: %s: %w", providerName, opts.Model, computeruse.ErrModelNotSupported)
+	}
 	return &computerSession{provider: p, opts: opts}, nil
 }
 
@@ -88,6 +133,9 @@ func (s *computerSession) Next(ctx context.Context, obs computeruse.Observation)
 	}
 	if resp.StopReason == stopReasonRefusal {
 		return nil, fmt.Errorf("%s: the model declined the request: %s", providerName, resp.StopDetails.describe())
+	}
+	if truncatingStopReasons[resp.StopReason] && endsWithToolUse(resp.Content) {
+		return nil, fmt.Errorf("%s: the model's answer was cut off (%s) in the middle of an action; raise max_tokens", providerName, resp.StopReason)
 	}
 	s.messages = append(s.messages, computerMessage{Role: "assistant", Content: resp.Content})
 	return s.turn(resp)
@@ -139,10 +187,14 @@ func (s *computerSession) observationContent(obs computeruse.Observation) []any 
 		case !ok && call.toolset != "":
 			result = computeruse.Result{Skipped: true}
 		}
+		text := result.Text()
+		if result.Skipped {
+			text = computerSkippedText
+		}
 		if result.Image != nil && !result.Failed() {
 			block["content"] = []any{imageBlock(*result.Image)}
 		} else {
-			block["content"] = []any{map[string]any{"type": "text", "text": result.Text()}}
+			block["content"] = []any{map[string]any{"type": "text", "text": text}}
 		}
 		if result.Failed() {
 			block["is_error"] = true
@@ -173,6 +225,9 @@ func (s *computerSession) turn(resp computerResponse) (*computeruse.Turn, error)
 		TotalTokens:      resp.Usage.InputTokens + resp.Usage.OutputTokens,
 	}}
 	s.pending = s.pending[:0]
+	// Actions after a call that cannot be performed are not run, as the
+	// toolset's batch rules require; they are answered as skipped.
+	halted := false
 	for _, raw := range resp.Content {
 		var block computerBlock
 		if err := json.Unmarshal(raw, &block); err != nil {
@@ -184,11 +239,13 @@ func (s *computerSession) turn(resp computerResponse) (*computeruse.Turn, error)
 		case "tool_use":
 			call := computerCall{id: block.ID, toolset: block.ToolsetName}
 			switch {
+			case block.ToolsetName == computerToolsetName && halted:
 			case block.ToolsetName == computerToolsetName:
 				var action computeruse.Action
-				action, call.err = computerAction(block)
-				if call.err == nil {
+				if action, call.err = computerAction(block); call.err == nil {
 					turn.Actions = append(turn.Actions, action)
+				} else {
+					halted = true
 				}
 			case block.Name == computeruse.DoneToolName:
 				turn.Done, call.err = computeruse.ParseDone(block.Input)
@@ -199,6 +256,17 @@ func (s *computerSession) turn(resp computerResponse) (*computeruse.Turn, error)
 		}
 	}
 	return turn, nil
+}
+
+// endsWithToolUse reports whether the last content block is a tool_use.
+func endsWithToolUse(content []json.RawMessage) bool {
+	if len(content) == 0 {
+		return false
+	}
+	var block struct {
+		Type string `json:"type"`
+	}
+	return json.Unmarshal(content[len(content)-1], &block) == nil && block.Type == "tool_use"
 }
 
 type computerResponse struct {
