@@ -79,10 +79,6 @@ func newSend(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	if err := decodeConfig(step.ExecutorConfig.Config, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to decode mail config: %w", err)
 	}
-	if err := checkAttachments(cfg.Attachments); err != nil {
-		return nil, err
-	}
-
 	env := runtime.NewEnv(ctx, step)
 
 	exec := &mail{cfg: &cfg}
@@ -99,6 +95,7 @@ func newSend(ctx context.Context, step ir.Step) (executor.Executor, error) {
 		if cfg.From == "" {
 			cfg.From = exec.address
 		}
+		mailerConfig.RequireAttachments = true
 		exec.mailer = mailer.New(mailerConfig)
 		return exec, nil
 	}
@@ -108,6 +105,9 @@ func newSend(ctx context.Context, step ir.Step) (executor.Executor, error) {
 		return nil, fmt.Errorf("failed to substitute string fields: %w", err)
 	}
 
+	// The workflow names these attachments, so a missing one must not be
+	// dropped silently.
+	mailerConfig.RequireAttachments = true
 	exec.mailer = mailer.New(mailerConfig)
 
 	return exec, nil
@@ -176,27 +176,6 @@ func (e *mail) Run(ctx context.Context) error {
 		_, _ = e.stdout.Write([]byte("sending email succeed."))
 	}
 	return err
-}
-
-// checkAttachments fails on a listed attachment that cannot be read. The
-// mailer skips such files, which suits notification logs but would send a
-// requested attachment's message without it.
-func checkAttachments(paths []string) error {
-	for _, path := range paths {
-		file, err := os.Open(path) //nolint:gosec // the workflow names its attachments
-		if err != nil {
-			return fmt.Errorf("attachment %q: %w", path, err)
-		}
-		info, err := file.Stat()
-		_ = file.Close()
-		if err != nil {
-			return fmt.Errorf("attachment %q: %w", path, err)
-		}
-		if info.IsDir() {
-			return fmt.Errorf("attachment %q: is a directory", path)
-		}
-	}
-	return nil
 }
 
 func decodeConfig(dat map[string]any, cfg any) error {

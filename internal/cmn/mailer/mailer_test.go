@@ -1435,3 +1435,30 @@ func TestSendWithRequiredSTARTTLSRefusesPlainServer(t *testing.T) {
 	require.ErrorContains(t, err, "SMTP server does not offer STARTTLS")
 	assert.Empty(t, server.RecordedRecipients())
 }
+
+// With RequireAttachments, a listed file that cannot be read fails the send
+// before the server sees anything, and an empty file is attached as it is.
+func TestSendRequireAttachments(t *testing.T) {
+	t.Parallel()
+
+	server, err := newSMTPRecordingServer()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = server.Close() })
+	go server.Serve()
+	host, port, err := net.SplitHostPort(server.Address())
+	require.NoError(t, err)
+	client := New(Config{Host: host, Port: port, RequireAttachments: true})
+
+	missing := filepath.Join(t.TempDir(), "missing.pdf")
+	err = client.Send(context.Background(), "from@example.com", []string{"to@example.com"}, "Subject", "Body", []string{missing})
+	require.ErrorContains(t, err, `attachment "`+missing+`"`)
+	assert.Empty(t, server.RecordedRecipients(), "nothing is sent")
+
+	empty := filepath.Join(t.TempDir(), "empty.csv")
+	require.NoError(t, os.WriteFile(empty, nil, 0600))
+	err = client.Send(context.Background(), "from@example.com", []string{"to@example.com"}, "Subject", "Body", []string{empty})
+	require.NoError(t, err)
+	bodies := server.RecordedDataBodies()
+	require.Len(t, bodies, 1)
+	assert.Contains(t, bodies[0], `filename=empty.csv`)
+}

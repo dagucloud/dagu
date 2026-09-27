@@ -42,6 +42,8 @@ type Client struct {
 	token         func(context.Context) (*oauth2.Token, error)
 	security      string
 	skipTLSVerify bool
+	// requireAttachments makes every listed attachment mandatory.
+	requireAttachments bool
 }
 
 // Security modes for Config.Security.
@@ -64,17 +66,22 @@ type Config struct {
 	Security string
 	// SkipTLSVerify accepts any server certificate.
 	SkipTLSVerify bool
+	// RequireAttachments fails a send whose listed attachment cannot be read,
+	// and attaches empty files as they are. Without it, such files are skipped,
+	// which suits optional attachments such as step logs.
+	RequireAttachments bool
 }
 
 func New(cfg Config) *Client {
 	return &Client{
-		host:          cfg.Host,
-		port:          cfg.Port,
-		username:      cfg.Username,
-		password:      cfg.Password,
-		token:         cfg.Token,
-		security:      cfg.Security,
-		skipTLSVerify: cfg.SkipTLSVerify,
+		host:               cfg.Host,
+		port:               cfg.Port,
+		username:           cfg.Username,
+		password:           cfg.Password,
+		token:              cfg.Token,
+		security:           cfg.Security,
+		skipTLSVerify:      cfg.SkipTLSVerify,
+		requireAttachments: cfg.RequireAttachments,
 	}
 }
 
@@ -136,12 +143,23 @@ func (m *Client) send(
 	attachments []string,
 	useAuth bool,
 ) error {
+	// The message is built before connecting, so attachments are read once and
+	// a problem with one stops the send before the server sees anything.
+	recipients := sanitizeAddresses(append(append(append([]string{}, to...), cc...), bcc...))
+	to = sanitizeAddresses(to)
+	cc = sanitizeAddresses(cc)
+	safeFrom := sanitizeHeaderField(from)
+	safeSubject := sanitizeHeaderField(subject)
+	payload, err := m.composeMail(to, cc, safeFrom, safeSubject, processEmailBody(body), attachments)
+	if err != nil {
+		return fmt.Errorf("failed to compose email: %w", err)
+	}
+
 	dialer := &net.Dialer{
 		Timeout: mailTimeout,
 	}
 	address := net.JoinHostPort(m.host, m.port)
 	var conn net.Conn
-	var err error
 	if m.security == SecurityTLS {
 		conn, err = (&tls.Dialer{NetDialer: dialer, Config: m.tlsConfig()}).DialContext(ctx, "tcp", address)
 	} else {
@@ -174,11 +192,6 @@ func (m *Client) send(
 		}
 	}
 
-	recipients := sanitizeAddresses(append(append(append([]string{}, to...), cc...), bcc...))
-	to = sanitizeAddresses(to)
-	cc = sanitizeAddresses(cc)
-	safeFrom := sanitizeHeaderField(from)
-	safeSubject := sanitizeHeaderField(subject)
 	if err := c.Mail(safeFrom); err != nil {
 		return fmt.Errorf("MAIL FROM failed: %w", err)
 	}
@@ -191,11 +204,6 @@ func (m *Client) send(
 	wc, err := c.Data()
 	if err != nil {
 		return fmt.Errorf("DATA command failed: %w", err)
-	}
-
-	payload, err := m.composeMail(to, cc, safeFrom, safeSubject, processEmailBody(body), attachments)
-	if err != nil {
-		return fmt.Errorf("failed to compose email: %w", err)
 	}
 	_, err = wc.Write(payload)
 	if err != nil {
@@ -394,7 +402,10 @@ func (m *Client) composeMail(
 	from, subject, body string,
 	attachments []string,
 ) ([]byte, error) {
-	loadedAttachments := loadAttachments(attachments)
+	loadedAttachments, err := loadAttachments(attachments, m.requireAttachments)
+	if err != nil {
+		return nil, err
+	}
 	if len(loadedAttachments) == 0 {
 		return m.composeSinglePartMail(to, cc, from, subject, body)
 	}
@@ -407,11 +418,19 @@ type attachment struct {
 	data        []byte
 }
 
-func loadAttachments(fileNames []string) []attachment {
+// loadAttachments reads the listed files. Unless require is set, files that
+// are unreadable or empty are skipped.
+func loadAttachments(fileNames []string, require bool) ([]attachment, error) {
 	attachments := make([]attachment, 0, len(fileNames))
 	for _, fileName := range fileNames {
 		data, err := readFile(fileName)
-		if err != nil {
+		switch {
+		case err == nil:
+		case require && errors.Is(err, errFileEmpty):
+			data = []byte{}
+		case require:
+			return nil, fmt.Errorf("attachment %q: %w", fileName, err)
+		default:
 			continue
 		}
 		name := filepath.Base(fileName)
@@ -421,7 +440,7 @@ func loadAttachments(fileNames []string) []attachment {
 			data:        data,
 		})
 	}
-	return attachments
+	return attachments, nil
 }
 
 // attachmentContentType takes the type from the file name, or from the

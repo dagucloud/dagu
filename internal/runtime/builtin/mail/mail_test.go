@@ -326,8 +326,9 @@ func runFakeSMTP(conn net.Conn, dataCh chan<- string) error {
 	}
 }
 
-// A listed attachment that cannot be read fails the step before any mail is
-// sent, instead of the message going out without it.
+// A listed attachment that cannot be read fails the step before connecting,
+// instead of the message going out without it. The SMTP address is closed, so
+// only an attachment error can come first.
 func TestMailRejectsUnreadableAttachment(t *testing.T) {
 	t.Parallel()
 
@@ -342,14 +343,17 @@ func TestMailRejectsUnreadableAttachment(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			_, err := newMail(ctx, ir.Step{ExecutorConfig: ir.ExecutorConfig{Config: map[string]any{
+			exec, err := newMail(ctx, ir.Step{ExecutorConfig: ir.ExecutorConfig{Config: map[string]any{
 				"from":        "sender@example.com",
 				"to":          "rcpt@example.com",
 				"subject":     "Report",
 				"message":     "Attached",
 				"attachments": []string{path},
 			}}})
-			require.ErrorContains(t, err, `attachment "`+path+`"`)
+			require.NoError(t, err)
+			exec.SetStdout(io.Discard)
+			exec.SetStderr(io.Discard)
+			require.ErrorContains(t, exec.Run(ctx), `attachment "`+path+`"`)
 		})
 	}
 }
