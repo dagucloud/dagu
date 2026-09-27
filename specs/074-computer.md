@@ -64,7 +64,8 @@ The process must run in a logged-in user session: on Windows not as a service
 in session 0, and with the screen unlocked; on macOS with Screen Recording and
 Accessibility granted to the application that starts Dagu, or to the `dagu`
 binary itself. Otherwise the step fails before any action, naming the missing
-condition. `dagu computer check` reports the same conditions for the current
+condition. A screen that locks, or another user's session taking the display,
+while a step runs fails the operation that next reads the screen. `dagu computer check` reports the same conditions for the current
 session, prints the display size, and exits nonzero when the desktop cannot be
 automated.
 

@@ -47,6 +47,13 @@ const (
 	mouseButtonRight  = 1
 	mouseButtonCenter = 2
 
+	// cfStringEncodingUTF8 is kCFStringEncodingUTF8.
+	cfStringEncodingUTF8 = 0x08000100
+	// Keys of the login session dictionary. The lock key is present only
+	// while the screen is locked.
+	sessionOnConsoleKey    = "kCGSSessionOnConsoleKey"
+	sessionScreenLockedKey = "CGSSessionScreenIsLocked"
+
 	mouseEventClickState = 1
 	scrollUnitLine       = 1
 	// maxUnicodeChunk is how many UTF-16 units one keyboard event carries.
@@ -96,6 +103,9 @@ var (
 	cgRequestScreenCaptureAccess    func() bool
 	cgSessionCopyCurrentDictionary  func() uintptr
 	cfRelease                       func(ref uintptr)
+	cfStringCreateWithCString       func(alloc uintptr, text string, encoding uint32) uintptr
+	cfDictionaryGetValue            func(dict, key uintptr) uintptr
+	cfBooleanGetValue               func(boolean uintptr) bool
 	axIsProcessTrusted              func() bool
 )
 
@@ -139,6 +149,9 @@ func load() error {
 		purego.RegisterLibFunc(&cgRequestScreenCaptureAccess, cg, "CGRequestScreenCaptureAccess")
 		purego.RegisterLibFunc(&cgSessionCopyCurrentDictionary, cg, "CGSessionCopyCurrentDictionary")
 		purego.RegisterLibFunc(&cfRelease, cf, "CFRelease")
+		purego.RegisterLibFunc(&cfStringCreateWithCString, cf, "CFStringCreateWithCString")
+		purego.RegisterLibFunc(&cfDictionaryGetValue, cf, "CFDictionaryGetValue")
+		purego.RegisterLibFunc(&cfBooleanGetValue, cf, "CFBooleanGetValue")
 		purego.RegisterLibFunc(&axIsProcessTrusted, as, "AXIsProcessTrusted")
 	})
 	return errLoad
@@ -163,12 +176,10 @@ func Check() Diagnostics {
 		diag.Problems = append(diag.Problems, err.Error())
 		return diag
 	}
-	session := cgSessionCopyCurrentDictionary()
-	if session == 0 {
-		diag.Problems = append(diag.Problems, "no graphical login session; run the worker in a logged-in user session")
+	if problem := sessionProblem(); problem != "" {
+		diag.Problems = append(diag.Problems, problem)
 		return diag
 	}
-	cfRelease(session)
 	if display, err := mainDisplay(); err == nil {
 		diag.Width, diag.Height = display.pixelWidth, display.pixelHeight
 	}
@@ -219,6 +230,39 @@ func mainDisplay() (display, error) {
 	}, nil
 }
 
+// sessionProblem reports why the login session cannot be operated: there
+// is none, another user's session has the display, or the screen is locked.
+// It returns an empty string when the session can be operated.
+func sessionProblem() string {
+	session := cgSessionCopyCurrentDictionary()
+	if session == 0 {
+		return "no graphical login session; run the worker in a logged-in user session"
+	}
+	defer cfRelease(session)
+	if onConsole, ok := sessionFlag(session, sessionOnConsoleKey); ok && !onConsole {
+		return "another user's session has the display; switch back to this user"
+	}
+	if locked, ok := sessionFlag(session, sessionScreenLockedKey); ok && locked {
+		return "the screen is locked; unlock it and keep it unlocked while computer steps run"
+	}
+	return ""
+}
+
+// sessionFlag reads a boolean of the session dictionary. ok is false when
+// the session does not report it.
+func sessionFlag(session uintptr, key string) (value, ok bool) {
+	cfKey := cfStringCreateWithCString(0, key, cfStringEncodingUTF8)
+	if cfKey == 0 {
+		return false, false
+	}
+	defer cfRelease(cfKey)
+	ref := cfDictionaryGetValue(session, cfKey)
+	if ref == 0 {
+		return false, false
+	}
+	return cfBooleanGetValue(ref), true
+}
+
 // darwinBackend drives the desktop through Quartz events. Positions are
 // screenshot pixels, which Quartz measures in points.
 type darwinBackend struct {
@@ -240,6 +284,10 @@ func newDarwinBackend() (*darwinBackend, error) {
 // Capture uses the screencapture tool, which keeps working across macOS
 // releases that retire the Quartz capture functions.
 func (b *darwinBackend) Capture() (*image.RGBA, error) {
+	// A locked screen captures without error but shows the lock screen.
+	if problem := sessionProblem(); problem != "" {
+		return nil, errors.New(problem)
+	}
 	dir, err := os.MkdirTemp("", "dagu-screen-")
 	if err != nil {
 		return nil, err

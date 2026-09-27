@@ -38,6 +38,24 @@ func TestKeyCode(t *testing.T) {
 	}
 }
 
+// A logged-in session reports whether it has the display, which checks the
+// Core Foundation lookups behind the locked-screen check.
+func TestSessionFlag(t *testing.T) {
+	t.Parallel()
+	require.NoError(t, load())
+	session := cgSessionCopyCurrentDictionary()
+	if session == 0 {
+		t.Skip("no graphical login session")
+	}
+	t.Cleanup(func() { cfRelease(session) })
+
+	onConsole, ok := sessionFlag(session, sessionOnConsoleKey)
+	require.True(t, ok)
+	assert.True(t, onConsole)
+	_, ok = sessionFlag(session, "DaguNoSuchSessionKey")
+	assert.False(t, ok)
+}
+
 // TestDarwinDesktop moves the pointer, so it runs only when asked to with
 // DAGU_DESKTOP_E2E=1 on a desktop with the required permissions.
 func TestDarwinDesktop(t *testing.T) {

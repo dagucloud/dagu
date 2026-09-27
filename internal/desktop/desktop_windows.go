@@ -200,12 +200,23 @@ func Check() Diagnostics {
 		diag.Problems = append(diag.Problems, "the process runs in session 0, which has no desktop; run the worker in a logged-in user session instead of as a service")
 		return diag
 	}
-	if name, err := inputDesktopName(); err != nil {
-		diag.Problems = append(diag.Problems, "the input desktop is not accessible; the screen may be locked")
-	} else if name != defaultDesk {
-		diag.Problems = append(diag.Problems, fmt.Sprintf("the %q desktop is active; the screen is locked or a secure prompt is shown", name))
+	if problem := inputDesktopProblem(); problem != "" {
+		diag.Problems = append(diag.Problems, problem)
 	}
 	return diag
+}
+
+// inputDesktopProblem reports why the desktop that receives input is not the
+// user's, such as a locked screen, or returns an empty string.
+func inputDesktopProblem() string {
+	name, err := inputDesktopName()
+	switch {
+	case err != nil:
+		return "the input desktop is not accessible; the screen may be locked"
+	case name != defaultDesk:
+		return fmt.Sprintf("the %q desktop is active; the screen is locked or a secure prompt is shown", name)
+	}
+	return ""
 }
 
 // RequestPermissions does nothing on Windows, which needs no permission to
@@ -248,7 +259,12 @@ func inputDesktopName() (string, error) {
 // windowsBackend drives the desktop through Win32 input and GDI capture.
 type windowsBackend struct{}
 
+// Capture fails while another desktop has the input, since the user's
+// desktop then captures without error but shows nothing current.
 func (windowsBackend) Capture() (*image.RGBA, error) {
+	if problem := inputDesktopProblem(); problem != "" {
+		return nil, errors.New(problem)
+	}
 	width, height := screenSize()
 	if width <= 0 || height <= 0 {
 		return nil, errors.New("screen size is unavailable")
