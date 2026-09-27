@@ -54,6 +54,36 @@ jobs:
         env:
           GITHUB_TOKEN: ${{secrets.DAGU_GITHUB_TOKEN}}
 
+  # The packslip is this release's signed inventory: every archive's digest and
+  # the executable inside it, plus the completions and the dagu skill that match
+  # this version, signed with this workflow's identity rather than a key. It
+  # lets installers such as mise verify a download against dagucloud/dagu.
+  # The 386 archives are left out because packslip cannot yet read their
+  # architecture from the file name. See https://packslip.dev.
+  packslip:
+    name: Publish packslip
+    needs: goreleaser
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: jdx/packslip@4920350c39c234c7a969f9775040bd02829f1923 # v1.3.0
+        with:
+          download: >-
+            dagu_*_darwin_*.tar.gz
+            dagu_*_linux_amd64.tar.gz
+            dagu_*_linux_arm*.tar.gz
+            dagu_*_linux_ppc64le.tar.gz
+            dagu_*_linux_s390x.tar.gz
+            dagu_*_windows_amd64.tar.gz
+            dagu_*_windows_arm64.tar.gz
+          bin: dagu
+          resources: |
+            completion/bash,zsh,fish,powershell=exec:dagu completion {shell}
+            skill/dagu=repo:skills/dagu
+
   # The Inno Setup compiler is Windows-only, so the installer cannot be produced
   # in the GoReleaser job. It wraps the amd64 binary that job already published,
   # so the installer and the archive ship identical bytes.
