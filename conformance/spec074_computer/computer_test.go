@@ -1,10 +1,10 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package spec073_computer holds black-box conformance tests for the computer
+// Package spec074_computer holds black-box conformance tests for the computer
 // actions. Tests that operate a real desktop run only on Windows with
 // DAGU_DESKTOP_E2E=1, since they type into the session they run in.
-package spec073_computer_test
+package spec074_computer_test
 
 import (
 	"bytes"

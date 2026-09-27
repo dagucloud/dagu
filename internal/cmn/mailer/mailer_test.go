@@ -1325,3 +1325,66 @@ func TestMailerTimeout(t *testing.T) {
 		assert.Error(t, err)
 	})
 }
+
+func newTLSRecordingServer(t *testing.T) *smtpRecordingServer {
+	t.Helper()
+	server, err := newSMTPRecordingServer()
+	require.NoError(t, err)
+	server.listener = tls.NewListener(server.listener, &tls.Config{
+		Certificates: []tls.Certificate{newTestTLSCertificate(t)},
+		MinVersion:   tls.VersionTLS12,
+	})
+	t.Cleanup(func() { _ = server.Close() })
+	go server.Serve()
+	return server
+}
+
+func TestSendWithImplicitTLS(t *testing.T) {
+	t.Parallel()
+
+	server := newTLSRecordingServer(t)
+	host, port, err := net.SplitHostPort(server.Address())
+	require.NoError(t, err)
+	client := New(Config{
+		Host: host, Port: port, Username: "sender@example.com", Password: "secret",
+		Security: SecurityTLS, SkipTLSVerify: true,
+	})
+
+	err = client.Send(context.Background(), "sender@example.com", []string{"to@example.com"}, "Subject", "Body", nil)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"to@example.com"}, server.RecordedRecipients())
+}
+
+func TestSendWithImplicitTLSVerifiesCertificate(t *testing.T) {
+	t.Parallel()
+
+	server := newTLSRecordingServer(t)
+	host, port, err := net.SplitHostPort(server.Address())
+	require.NoError(t, err)
+	client := New(Config{
+		Host: host, Port: port, Username: "sender@example.com", Password: "secret", Security: SecurityTLS,
+	})
+
+	err = client.Send(context.Background(), "sender@example.com", []string{"to@example.com"}, "Subject", "Body", nil)
+	var certErr *tls.CertificateVerificationError
+	require.ErrorAs(t, err, &certErr)
+	assert.Empty(t, server.RecordedRecipients())
+}
+
+func TestSendWithRequiredSTARTTLSRefusesPlainServer(t *testing.T) {
+	t.Parallel()
+
+	server, err := newSMTPRecordingServer()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = server.Close() })
+	go server.Serve()
+	host, port, err := net.SplitHostPort(server.Address())
+	require.NoError(t, err)
+	client := New(Config{
+		Host: host, Port: port, Username: "sender@example.com", Password: "secret", Security: SecurityStartTLS,
+	})
+
+	err = client.Send(context.Background(), "sender@example.com", []string{"to@example.com"}, "Subject", "Body", nil)
+	require.ErrorContains(t, err, "SMTP server does not offer STARTTLS")
+	assert.Empty(t, server.RecordedRecipients())
+}

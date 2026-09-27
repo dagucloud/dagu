@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -25,10 +26,13 @@ import (
 const (
 	microsoftScope  = "https://outlook.office365.com/.default"
 	googleMailScope = "https://mail.google.com/"
-	googleTokenURL  = "https://oauth2.googleapis.com/token" //nolint:gosec // Fixed provider endpoint, not a credential.
+	// microsoftMailScope covers the IMAP and SMTP permissions a person granted.
+	microsoftMailScope = "https://outlook.office.com/.default"
+	googleTokenURL     = "https://oauth2.googleapis.com/token" //nolint:gosec // Fixed provider endpoint, not a credential.
 
 	maxCacheEntries     = 32
 	tokenRequestTimeout = 15 * time.Second
+	maxTokenResponse    = 1 << 20
 )
 
 var tokenHTTPClient = &http.Client{Timeout: tokenRequestTimeout}
@@ -59,6 +63,123 @@ func NewTokenFunc(username string, cfg *oauthconfig.Config) (TokenFunc, error) {
 		return nil, err
 	}
 	return cachedTokenFunc(key, refresh), nil
+}
+
+// NewRefreshTokenFunc validates a mail account's resolved OAuth credentials and
+// returns a process-cached token function. A refresh token the provider returns
+// replaces the configured one for the life of the process only.
+func NewRefreshTokenFunc(username string, cfg *oauthconfig.Config) (TokenFunc, error) {
+	if cfg == nil {
+		return nil, errors.New("OAuth configuration is required")
+	}
+	cfgCopy := normalizedConfig(*cfg)
+	if err := oauthconfig.ValidateMailAccount(&cfgCopy); err != nil {
+		return nil, err
+	}
+
+	var refresh refreshFunc
+	switch cfgCopy.Provider {
+	case oauthconfig.ProviderGoogleRefresh:
+		refresh = refreshTokenGrant(cfgCopy, googleTokenURL, nil)
+	case oauthconfig.ProviderMicrosoftRefresh:
+		refresh = refreshTokenGrant(cfgCopy, microsoftTokenURL(cfgCopy.TenantID), []string{microsoftMailScope, "offline_access"})
+	}
+	key, err := cacheKey(strings.TrimSpace(username), cfgCopy)
+	if err != nil {
+		return nil, err
+	}
+	return cachedTokenFunc(key, refresh), nil
+}
+
+// TokenError is an OAuth error response from a token endpoint, such as
+// invalid_grant for a revoked or expired refresh token.
+type TokenError struct {
+	Code        string
+	Description string
+}
+
+func (e *TokenError) Error() string {
+	if e.Description == "" {
+		return "token endpoint returned " + e.Code
+	}
+	return fmt.Sprintf("token endpoint returned %s: %s", e.Code, e.Description)
+}
+
+func microsoftTokenURL(tenant string) string {
+	if tenant == "" {
+		tenant = "common"
+	}
+	return "https://login.microsoftonline.com/" + url.PathEscape(tenant) + "/oauth2/v2.0/token"
+}
+
+// refreshTokenGrant exchanges a refresh token for an access token. It sends
+// the scope explicitly because Microsoft requires it on refresh requests.
+func refreshTokenGrant(cfg oauthconfig.Config, tokenURL string, scopes []string) refreshFunc {
+	return func(ctx context.Context, cached *oauth2.Token) (*oauth2.Token, error) {
+		refreshToken := cfg.RefreshToken
+		if cached != nil && cached.RefreshToken != "" {
+			refreshToken = cached.RefreshToken
+		}
+		form := url.Values{
+			"grant_type":    {"refresh_token"},
+			"refresh_token": {refreshToken},
+			"client_id":     {cfg.ClientID},
+		}
+		if cfg.ClientSecret != "" {
+			form.Set("client_secret", cfg.ClientSecret)
+		}
+		if len(scopes) > 0 {
+			form.Set("scope", strings.Join(scopes, " "))
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("Accept", "application/json")
+
+		resp, err := tokenHTTPClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("token request failed: %w", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		data, err := io.ReadAll(io.LimitReader(resp.Body, maxTokenResponse))
+		if err != nil {
+			return nil, fmt.Errorf("read token response: %w", err)
+		}
+
+		var body struct {
+			AccessToken      string `json:"access_token"`
+			RefreshToken     string `json:"refresh_token"`
+			TokenType        string `json:"token_type"`
+			ExpiresIn        int64  `json:"expires_in"`
+			Error            string `json:"error"`
+			ErrorDescription string `json:"error_description"`
+		}
+		if err := json.Unmarshal(data, &body); err != nil {
+			return nil, fmt.Errorf("token endpoint returned status %d", resp.StatusCode)
+		}
+		if body.Error != "" {
+			description, _, _ := strings.Cut(strings.TrimSpace(body.ErrorDescription), "\n")
+			return nil, &TokenError{Code: body.Error, Description: strings.TrimSpace(description)}
+		}
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("token endpoint returned status %d", resp.StatusCode)
+		}
+
+		token := &oauth2.Token{
+			AccessToken:  body.AccessToken,
+			TokenType:    body.TokenType,
+			RefreshToken: body.RefreshToken,
+		}
+		if token.RefreshToken == "" {
+			token.RefreshToken = refreshToken
+		}
+		if body.ExpiresIn > 0 {
+			token.Expiry = time.Now().Add(time.Duration(body.ExpiresIn) * time.Second)
+		}
+		return token, nil
+	}
 }
 
 func normalizedConfig(cfg oauthconfig.Config) oauthconfig.Config {
@@ -97,24 +218,7 @@ func providerRefresh(username string, cfg oauthconfig.Config) (refreshFunc, erro
 			return jwtConfig.TokenSource(tokenHTTPContext(ctx)).Token()
 		}, nil
 	case oauthconfig.ProviderGoogleRefresh:
-		oauthConfig := oauth2.Config{
-			ClientID:     cfg.ClientID,
-			ClientSecret: cfg.ClientSecret,
-			Endpoint: oauth2.Endpoint{
-				TokenURL: googleTokenURL,
-			},
-		}
-		return func(ctx context.Context, cached *oauth2.Token) (*oauth2.Token, error) {
-			seed := cached
-			if seed == nil {
-				seed = &oauth2.Token{RefreshToken: cfg.RefreshToken}
-			} else if seed.RefreshToken == "" {
-				copy := *seed
-				copy.RefreshToken = cfg.RefreshToken
-				seed = &copy
-			}
-			return oauthConfig.TokenSource(tokenHTTPContext(ctx), seed).Token()
-		}, nil
+		return refreshTokenGrant(cfg, googleTokenURL, nil), nil
 	default:
 		return nil, fmt.Errorf("unsupported SMTP OAuth provider %q", cfg.Provider)
 	}
@@ -179,7 +283,7 @@ func (s *tokenState) get(ctx context.Context, refresh refreshFunc) (*oauth2.Toke
 		return nil, err
 	}
 	if token == nil || strings.TrimSpace(token.AccessToken) == "" {
-		return nil, errors.New("SMTP OAuth provider returned an empty access token")
+		return nil, errors.New("OAuth provider returned an empty access token")
 	}
 	s.set(token)
 	return token, nil

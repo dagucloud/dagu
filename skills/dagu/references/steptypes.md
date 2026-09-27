@@ -707,7 +707,63 @@ steps:
       message: "The build finished successfully."
 ```
 
-SMTP server settings come from global configuration.
+SMTP server settings come from global configuration. With `mailbox`, the message
+goes through that entry of `mail_accounts` instead, and `from` defaults to its
+address.
+
+## mail.search / mail.organize
+
+Read and organize a mailbox over IMAP. Accounts live in the DAG-level (or base
+config) `mail_accounts` map, keyed by email address. `provider: google` or
+`provider: microsoft` fills in the servers; any other server sets `imap.host`.
+Authenticate with `password` or with `oauth` (`google_refresh` or
+`microsoft_refresh` and a refresh token).
+
+```yaml
+mail_accounts:
+  support@example.com:
+    provider: microsoft
+    oauth:
+      provider: microsoft_refresh
+      client_id: ${MS_CLIENT_ID}
+      refresh_token: ${SUPPORT_TOKEN}
+
+steps:
+  - id: find
+    action: mail.search
+    with:
+      mailbox: support@example.com
+      unread: true
+  - id: each
+    depends: find
+    foreach:
+      items: ${steps.find.outputs.messages}
+      as: email
+      steps:
+        - id: ticket
+          run: ./create-ticket.sh "${foreach.email.subject}"
+        - id: done
+          depends: ticket
+          action: mail.organize
+          with:
+            mailbox: support@example.com
+            emails: ${foreach.email.id}
+            mark: read
+```
+
+`mail.search` `with` fields: `mailbox`, `folder` (default `INBOX`), `unread`,
+`from`, `subject`, `within` (such as `24h` or `7d`), `has_attachments`,
+`save_attachments`, `limit` (1-50, default 20). It publishes `messages` (oldest
+first, each with `id`, `folder`, `from_name`, `from_address`, `to`, `cc`,
+`subject`, `date`, `unread`, `flagged`, `text`, `attachments`), `count`, and
+`truncated`. Searching never marks email read.
+
+`mail.organize` `with` fields: `mailbox`, `emails` (an ID, an email from
+`mail.search`, an `{id, move_to}` object, or a list), `mark` (`read`, `unread`,
+`flagged`, `unflagged`), `move` (`folder`, `archive`, `trash`), `folder`,
+`dry_run`. It publishes `changed` and `missing`. To process each email once,
+mark it read inside the loop right after its work, so a failed email stays
+unread for the next run.
 
 ## archive.create / archive.extract / archive.list
 
@@ -833,7 +889,7 @@ Browser behavior:
 - Model requests carry the instruction, the page's elements and visible text, and the extract schema; never variable values, typed field text, or screenshots. Declared secrets shown on the page are masked; plain variables are not.
 - "the model (...) answered that no element on the page matches the instruction" means the model chose no element. If the failure screenshot shows the element, the model answers that way for every request (for example `google/gemini-2.5-flash` via OpenRouter); switch models. Otherwise fix the instruction.
 - The top-level properties of each `extract` schema become `${steps.<id>.outputs.<name>}`. The same property in two extracts is a validation error.
-- Successful `act` operations are replayed on later runs on the same host without a model call; `extract` and model-judged conditions still call the model. A replay can hit a different element after a layout change, so follow important acts with an `expect`.
+- The `act` operations of a step that succeeded are replayed on later runs on the same host without a model call; `extract` and model-judged conditions still call the model. A replay can hit a different element after a layout change, so follow important acts with an `expect`: when a later operation fails on the page, the step's replays are dropped and the next run asks the model again.
 - The browser runtime applies `allowed_domains` to the page's HTTP(S) requests, so list CDN and sign-in hosts too; WebSockets are not covered. `example.com` matches only that host; `*.example.com` matches its subdomains. Dagu also fails the step when the page URL leaves the list. Blocked requests are counted per host in the timeline and appended to a failed step's error, so a missing CDN or sign-in host shows up there.
 - `ask: {prompt, as}` puts the step in Waiting until someone answers in the Web UI; the answer becomes `%<as>%`. Not supported on Windows. Answers are stored in run history, so use it for short-lived codes.
 - Downloads started by an act or goto are saved under `browser/<step id>/downloads/` in the run artifacts and awaited, up to the longest act or goto timeout, before the step ends. Screenshots are saved on failure by default (`screenshots: final` also keeps one of a successful end). Artifacts are not masked.

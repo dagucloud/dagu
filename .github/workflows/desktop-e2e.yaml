@@ -14,7 +14,7 @@ on:
       - internal/desktop/**
       - internal/llm/computeruse/**
       - internal/runtime/builtin/computer/**
-      - conformance/spec073_computer/**
+      - conformance/spec074_computer/**
       - .github/workflows/desktop-e2e.yaml
   push:
     branches:
@@ -23,7 +23,7 @@ on:
       - internal/desktop/**
       - internal/llm/computeruse/**
       - internal/runtime/builtin/computer/**
-      - conformance/spec073_computer/**
+      - conformance/spec074_computer/**
       - .github/workflows/desktop-e2e.yaml
   workflow_dispatch:
 
@@ -71,7 +71,7 @@ jobs:
         shell: bash
         env:
           DESKTOP_E2E_ARTIFACTS: ${{ runner.temp }}/desktop-artifacts
-        run: DAGU_BIN="$PWD/.local/bin/dagu.exe" go test -count=1 -run TestComputerTypesIntoWindow -v ./conformance/spec073_computer/
+        run: DAGU_BIN="$PWD/.local/bin/dagu.exe" go test -count=1 -run TestComputerTypesIntoWindow -v ./conformance/spec074_computer/
 
       - name: Upload screenshots
         if: failure()

@@ -494,6 +494,9 @@ func (e *stagehandEngine) release(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
+// errBrowserUnresponsive reports a browser that did not answer in time.
+var errBrowserUnresponsive = errors.New("the browser did not respond")
+
 // boundCall runs call with a deadline of limit and reports when the browser
 // did not answer in time, so an unresponsive page cannot hang the step.
 func boundCall[T any](ctx context.Context, limit time.Duration, call func(context.Context) (T, error)) (T, error) {
@@ -501,7 +504,7 @@ func boundCall[T any](ctx context.Context, limit time.Duration, call func(contex
 	defer cancel()
 	result, err := call(callCtx)
 	if err != nil && ctx.Err() == nil && errors.Is(callCtx.Err(), context.DeadlineExceeded) {
-		return result, fmt.Errorf("the browser did not respond within %s: %w", limit, err)
+		return result, fmt.Errorf("%w within %s: %w", errBrowserUnresponsive, limit, err)
 	}
 	return result, err
 }

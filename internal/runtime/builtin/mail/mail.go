@@ -20,14 +20,24 @@ import (
 
 var _ executor.Executor = (*mail)(nil)
 
+// Operations of the mail executor. A step without an operation sends.
+const (
+	opSend     = "send"
+	opSearch   = "search"
+	opOrganize = "organize"
+)
+
 type mail struct {
 	stdout io.Writer
 	stderr io.Writer
 	mailer *mailer.Client
 	cfg    *mailConfig
+	// address is the mail account sending the message, if any.
+	address string
 }
 
 type mailConfig struct {
+	Mailbox     string   `mapstructure:"mailbox"`
 	From        string   `mapstructure:"from"`
 	To          any      `mapstructure:"to"`
 	Subject     string   `mapstructure:"subject"`
@@ -36,14 +46,60 @@ type mailConfig struct {
 }
 
 func newMail(ctx context.Context, step ir.Step) (executor.Executor, error) {
+	switch operation := stepOperation(step); operation {
+	case "", opSend:
+		return newSend(ctx, step)
+	case opSearch:
+		return newSearch(ctx, step)
+	case opOrganize:
+		return newOrganize(ctx, step)
+	default:
+		return nil, fmt.Errorf("unsupported mail operation %q", operation)
+	}
+}
+
+func stepOperation(step ir.Step) string {
+	if len(step.Commands) == 0 {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(step.Commands[0].Command))
+}
+
+func validateStep(step ir.Step) error {
+	switch operation := stepOperation(step); operation {
+	case "", opSend, opSearch, opOrganize:
+		return nil
+	default:
+		return fmt.Errorf("unsupported mail operation %q", operation)
+	}
+}
+
+func newSend(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	var cfg mailConfig
-	if err := decodeMailConfig(step.ExecutorConfig.Config, &cfg); err != nil {
+	if err := decodeConfig(step.ExecutorConfig.Config, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to decode mail config: %w", err)
 	}
 
 	env := runtime.NewEnv(ctx, step)
 
 	exec := &mail{cfg: &cfg}
+	if cfg.Mailbox != "" {
+		exec.address = accountAddress(cfg.Mailbox)
+		account, err := env.MailAccount(ctx, exec.address)
+		if err != nil {
+			return nil, err
+		}
+		mailerConfig, err := smtpConfig(exec.address, account)
+		if err != nil {
+			return nil, err
+		}
+		if cfg.From == "" {
+			cfg.From = exec.address
+		}
+		exec.mailer = mailer.New(mailerConfig)
+		return exec, nil
+	}
+
 	mailerConfig, err := env.MailerConfig(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to substitute string fields: %w", err)
@@ -110,13 +166,16 @@ func (e *mail) Run(ctx context.Context) error {
 	)
 	if err != nil {
 		_, _ = e.stderr.Write([]byte("error occurred."))
+		if e.address != "" {
+			return accountError(e.address, err)
+		}
 	} else {
 		_, _ = e.stdout.Write([]byte("sending email succeed."))
 	}
 	return err
 }
 
-func decodeMailConfig(dat map[string]any, cfg *mailConfig) error {
+func decodeConfig(dat map[string]any, cfg any) error {
 	md, _ := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
 		WeaklyTypedInput: true,
 		ErrorUnused:      false,
@@ -126,5 +185,5 @@ func decodeMailConfig(dat map[string]any, cfg *mailConfig) error {
 }
 
 func init() {
-	executor.RegisterExecutor("mail", newMail, nil, registry.ExecutorCapabilities{})
+	executor.RegisterExecutor("mail", newMail, validateStep, registry.ExecutorCapabilities{Command: true})
 }

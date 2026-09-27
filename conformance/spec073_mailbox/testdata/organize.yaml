@@ -1,0 +1,35 @@
+working_dir: .
+env:
+  - IMAP_HOST: ${IMAP_HOST}
+  - IMAP_PORT: ${IMAP_PORT}
+  - MAIL_PASSWORD: ${MAIL_PASSWORD}
+mail_accounts:
+  user@example.com:
+    imap: {host: $IMAP_HOST, port: $IMAP_PORT, skip_tls_verify: true}
+    password: $MAIL_PASSWORD
+steps:
+  - id: find
+    action: mail.search
+    with:
+      mailbox: user@example.com
+  - id: file
+    depends: find
+    action: mail.organize
+    with:
+      mailbox: user@example.com
+      emails: ${steps.find.outputs.messages}
+      move: folder
+      folder: Processed
+  - id: again
+    depends: file
+    action: mail.organize
+    with:
+      mailbox: user@example.com
+      emails: ${steps.find.outputs.messages}
+      mark: read
+  - id: capture
+    depends: again
+    env:
+      MISSING: ${steps.again.outputs.missing}
+    run: printf 'changed=%s again=%s\n%s' '${steps.file.outputs.changed}' '${steps.again.outputs.changed}' "$MISSING"
+    stdout: organize.out

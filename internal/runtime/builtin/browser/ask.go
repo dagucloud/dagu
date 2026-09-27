@@ -30,6 +30,10 @@ func (r *run) waitForInput(ctx context.Context, index int, spec askSpec) error {
 	r.record.Deadline = time.Now().Add(spec.timeout())
 	r.record.Cursor = index + 1
 	r.record.Outputs = r.outputs
+	if r.cache != nil {
+		pending, used := r.cache.held()
+		r.record.ReplayPending, r.record.ReplayUsed = encodeRecordings(pending), encodeRecordings(used)
+	}
 	r.record.OwnerPID = 0
 	r.record.OwnerStartedAt = 0
 	if err := r.store.Save(r.record); err != nil {
@@ -41,8 +45,11 @@ func (r *run) waitForInput(ctx context.Context, index int, spec askSpec) error {
 
 	prompt := r.masker.MaskString(spec.Prompt)
 	r.timeline.Operation(agentstep.Report{Index: index, Kind: opAsk, Subject: prompt, Status: agentstep.StatusWaiting})
+	usage := r.bridge.totals()
 	r.exec.updateSession(func(s *ir.AgentSession) {
 		s.State = ir.AgentSessionWaiting
+		// The step resumes in a new process, which counts on from here.
+		s.Usage = ir.AgentUsage{InputTokens: int64(usage.Input), OutputTokens: int64(usage.Output), TotalTokens: int64(usage.total())}
 		s.Interactions = append(s.Interactions, agentstep.AskInteraction(index, generation, askQuestionHeader, prompt, r.record.Deadline))
 	})
 	r.exec.setNodeStatus(ir.NodeWaiting)
@@ -106,6 +113,10 @@ func (r *run) resumeSession(ctx context.Context, recordID string, session *ir.Ag
 		return 0, err
 	}
 	maps.Copy(r.outputs, record.Outputs)
+	if r.cache != nil {
+		r.cache.hold(decodeRecordings(record.ReplayPending), decodeRecordings(record.ReplayUsed))
+	}
+	r.bridge.resume(tokenUsage{Input: int(session.Usage.InputTokens), Output: int(session.Usage.OutputTokens)})
 	r.timeline.Lifecycle(agentstep.StatusRunning, "Resumed browser after input")
 	return record.Cursor, nil
 }

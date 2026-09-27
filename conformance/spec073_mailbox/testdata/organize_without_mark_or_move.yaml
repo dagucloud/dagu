@@ -1,0 +1,5 @@
+steps:
+  - action: mail.organize
+    with:
+      mailbox: user@example.com
+      emails: some-id

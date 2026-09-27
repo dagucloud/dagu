@@ -1,0 +1,5 @@
+mail_accounts:
+  user@example.com:
+    password: secret
+steps:
+  - run: "true"

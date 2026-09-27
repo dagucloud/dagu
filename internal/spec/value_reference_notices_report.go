@@ -298,10 +298,40 @@ func newStepOutputNoticeContext(dag *ir.DAG) *stepOutputNoticeContext {
 }
 
 func fixedActionOutputs(step ir.Step) []ir.StepOutputDeclaration {
-	if step.ExecutorConfig.Type != "git" || len(step.Commands) == 0 {
+	if len(step.Commands) == 0 {
 		return nil
 	}
-	switch strings.TrimSpace(step.Commands[0].Command) {
+	operation := strings.TrimSpace(step.Commands[0].Command)
+	switch step.ExecutorConfig.Type {
+	case "git":
+		return gitActionOutputs(operation)
+	case "mail":
+		return mailActionOutputs(operation)
+	default:
+		return nil
+	}
+}
+
+func mailActionOutputs(operation string) []ir.StepOutputDeclaration {
+	switch operation {
+	case "search":
+		return []ir.StepOutputDeclaration{
+			{Name: "messages", Type: ir.StepDeclaredOutputTypeJSON},
+			{Name: "count", Type: ir.StepDeclaredOutputTypeJSON},
+			{Name: "truncated", Type: ir.StepDeclaredOutputTypeJSON},
+		}
+	case "organize":
+		return []ir.StepOutputDeclaration{
+			{Name: "changed", Type: ir.StepDeclaredOutputTypeJSON},
+			{Name: "missing", Type: ir.StepDeclaredOutputTypeJSON},
+		}
+	default:
+		return nil
+	}
+}
+
+func gitActionOutputs(operation string) []ir.StepOutputDeclaration {
+	switch operation {
 	case "worktree.add":
 		return []ir.StepOutputDeclaration{
 			{Name: "path", Type: ir.StepDeclaredOutputTypeString},

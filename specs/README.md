@@ -72,7 +72,8 @@ It must not be treated as product behavior until implementation catches up.
 | [070: Runtime Profiles](070-runtime-profiles.md) | Partially implemented |
 | [071: Decision Evaluation Action](071-decision-evaluate.md) | Implemented |
 | [072: Browser Actions](072-browser.md) | Partially implemented |
-| [073: Computer Actions](073-computer.md) | Partially implemented |
+| [073: Mailbox Actions](073-mailbox-actions.md) | Partially implemented |
+| [074: Computer Actions](074-computer.md) | Partially implemented |
 
 **Writing guidelines:**
 

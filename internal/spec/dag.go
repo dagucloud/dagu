@@ -108,6 +108,8 @@ type dag struct {
 	Steps any `yaml:"steps,omitempty"` // []step or map[string]step
 	// SMTP is the SMTP configuration.
 	SMTP smtpConfig `yaml:"smtp,omitempty"`
+	// MailAccounts maps email addresses to the accounts mail actions use.
+	MailAccounts map[string]any `yaml:"mail_accounts,omitempty"`
 	// MailOn is the mail configuration.
 	MailOn *mailOn `yaml:"mail_on,omitempty"`
 	// ErrorMail is the mail configuration for error.
@@ -601,6 +603,7 @@ var fullExecutionDefaultsStage = transformStage{
 	dagField("registry_auths", buildRegistryAuths, func(out *ir.DAG, v map[string]*ir.AuthConfig) { out.RegistryAuths = v }),
 	dagField("ssh", buildSSH, func(out *ir.DAG, v *ir.SSHConfig) { out.SSH = v }),
 	dagField("s3", buildS3, func(out *ir.DAG, v *ir.S3Config) { out.S3 = v }),
+	dagField("mail_accounts", buildMailAccounts, func(out *ir.DAG, v ir.MailAccounts) { out.MailAccounts = v }),
 	dagField("llm", buildLLM, func(out *ir.DAG, v *ir.LLMConfig) { out.LLM = v }),
 	dagField("redis", buildRedis, func(out *ir.DAG, v *ir.RedisConfig) { out.Redis = v }),
 	dagField("harnesses", buildHarnesses, func(out *ir.DAG, v ir.HarnessDefinitions) { out.Harnesses = v }),
@@ -1187,10 +1190,12 @@ func buildLogDir(_ buildContext, d *dag) (string, error) {
 func buildArtifacts(_ buildContext, d *dag) (*ir.ArtifactsConfig, error) {
 	usesArtifactAction := dagUsesBuiltinArtifactAction(d)
 	usesArtifactOutput := dagUsesArtifactOutput(d)
-	// Browser and computer actions store screenshots as artifacts but still
-	// run, without them, when artifacts are disabled explicitly.
+	// Browser and computer actions store screenshots, and browser downloads,
+	// as artifacts but still run, without them, when artifacts are disabled
+	// explicitly.
 	usesScreenAction := dagUsesBuiltinAction(d, browserActionPrefix) || dagUsesBuiltinAction(d, computerActionPrefix)
-	autoEnable := dagReferencesRunArtifactsDir(d) || usesArtifactAction || usesArtifactOutput || usesScreenAction
+	autoEnable := dagReferencesRunArtifactsDir(d) || usesArtifactAction || usesArtifactOutput || usesScreenAction ||
+		dagSavesMailAttachments(d)
 
 	if usesArtifactAction && d.Artifacts != nil && d.Artifacts.Enabled != nil && !*d.Artifacts.Enabled {
 		return nil, ir.NewValidationError(
@@ -1248,19 +1253,45 @@ func dagUsesBuiltinArtifactAction(d *dag) bool {
 // dagUsesBuiltinAction reports whether the spec declares a builtin action
 // whose name starts with prefix.
 func dagUsesBuiltinAction(d *dag, prefix string) bool {
+	return dagDeclaresAction(d, func(action string, _ reflect.Value) bool {
+		return strings.HasPrefix(action, prefix)
+	})
+}
+
+// dagSavesMailAttachments reports whether a mail.search step writes
+// save_attachments: true literally.
+func dagSavesMailAttachments(d *dag) bool {
+	return dagDeclaresAction(d, func(action string, with reflect.Value) bool {
+		if action != "mail.search" {
+			return false
+		}
+		with, ok := derefForSearch(with)
+		if !ok || with.Kind() != reflect.Map {
+			return false
+		}
+		save, ok := derefForSearch(with.MapIndex(reflect.ValueOf("save_attachments")))
+		return ok && save.Kind() == reflect.Bool && save.Bool()
+	})
+}
+
+// actionMatcher reports whether a step declaring action, with its with
+// block, is the step being searched for.
+type actionMatcher func(action string, with reflect.Value) bool
+
+func dagDeclaresAction(d *dag, match actionMatcher) bool {
 	if d == nil {
 		return false
 	}
-	return actionInStepContainer(reflect.ValueOf(d.Steps), prefix) ||
-		actionInStepContainer(reflect.ValueOf(d.HandlerOn), prefix) ||
-		customStepSpecsUseBuiltinAction(d.StepTypes, prefix) ||
-		customStepSpecsUseBuiltinAction(d.Actions, prefix)
+	return actionInStepContainer(reflect.ValueOf(d.Steps), match) ||
+		actionInStepContainer(reflect.ValueOf(d.HandlerOn), match) ||
+		customStepSpecsUseBuiltinAction(d.StepTypes, match) ||
+		customStepSpecsUseBuiltinAction(d.Actions, match)
 }
 
-func customStepSpecsUseBuiltinAction(specs map[string]customStepTypeSpec, prefix string) bool {
+func customStepSpecsUseBuiltinAction(specs map[string]customStepTypeSpec, match actionMatcher) bool {
 	for _, spec := range specs {
 		// A template is a single step declaration.
-		if actionInStep(reflect.ValueOf(spec.Template), prefix) {
+		if actionInStep(reflect.ValueOf(spec.Template), match) {
 			return true
 		}
 	}
@@ -1270,7 +1301,7 @@ func customStepSpecsUseBuiltinAction(specs map[string]customStepTypeSpec, prefix
 // actionInStepContainer searches a value holding step declarations. In
 // map form the keys name the steps, so they are not field names and carry no
 // meaning for this search.
-func actionInStepContainer(v reflect.Value, prefix string) bool {
+func actionInStepContainer(v reflect.Value, match actionMatcher) bool {
 	v, ok := derefForSearch(v)
 	if !ok {
 		return false
@@ -1279,7 +1310,7 @@ func actionInStepContainer(v reflect.Value, prefix string) bool {
 	if v.Kind() == reflect.Map {
 		iter := v.MapRange()
 		for iter.Next() {
-			if actionInStep(iter.Value(), prefix) {
+			if actionInStep(iter.Value(), match) {
 				return true
 			}
 		}
@@ -1294,12 +1325,12 @@ func actionInStepContainer(v reflect.Value, prefix string) bool {
 			}
 			// A nested list declares steps that run at one position.
 			if item.Kind() == reflect.Slice || item.Kind() == reflect.Array {
-				if actionInStepContainer(item, prefix) {
+				if actionInStepContainer(item, match) {
 					return true
 				}
 				continue
 			}
-			if actionInStep(item, prefix) {
+			if actionInStep(item, match) {
 				return true
 			}
 		}
@@ -1313,7 +1344,7 @@ func actionInStepContainer(v reflect.Value, prefix string) bool {
 			if t.Field(i).PkgPath != "" {
 				continue
 			}
-			if actionInStep(v.Field(i), prefix) {
+			if actionInStep(v.Field(i), match) {
 				return true
 			}
 		}
@@ -1325,7 +1356,7 @@ func actionInStepContainer(v reflect.Value, prefix string) bool {
 // actionInStep searches one step declaration. Within a step every
 // params entry is a payload handed to a child DAG rather than step syntax,
 // and a steps entry opens a nested container whose keys name steps again.
-func actionInStep(v reflect.Value, prefix string) bool {
+func actionInStep(v reflect.Value, match actionMatcher) bool {
 	v, ok := derefForSearch(v)
 	if !ok {
 		return false
@@ -1336,7 +1367,7 @@ func actionInStep(v reflect.Value, prefix string) bool {
 		for iter.Next() {
 			key, value := iter.Key(), iter.Value()
 			if key.Kind() != reflect.String {
-				if actionInStep(value, prefix) {
+				if actionInStep(value, match) {
 					return true
 				}
 				continue
@@ -1345,16 +1376,16 @@ func actionInStep(v reflect.Value, prefix string) bool {
 			case "params":
 				continue
 			case "steps":
-				if actionInStepContainer(value, prefix) {
+				if actionInStepContainer(value, match) {
 					return true
 				}
 				continue
 			case "action":
-				if action, ok := reflectString(value); ok && strings.HasPrefix(action, prefix) {
+				if action, ok := reflectString(value); ok && match(action, v.MapIndex(reflect.ValueOf("with"))) {
 					return true
 				}
 			}
-			if actionInStep(value, prefix) {
+			if actionInStep(value, match) {
 				return true
 			}
 		}
@@ -1363,7 +1394,7 @@ func actionInStep(v reflect.Value, prefix string) bool {
 
 	if v.Kind() == reflect.Slice || v.Kind() == reflect.Array {
 		for i := range v.Len() {
-			if actionInStep(v.Index(i), prefix) {
+			if actionInStep(v.Index(i), match) {
 				return true
 			}
 		}
@@ -1382,16 +1413,16 @@ func actionInStep(v reflect.Value, prefix string) bool {
 			case "Params":
 				continue
 			case "Steps":
-				if actionInStepContainer(field, prefix) {
+				if actionInStepContainer(field, match) {
 					return true
 				}
 				continue
 			case "Action":
-				if action, ok := reflectString(field); ok && strings.HasPrefix(action, prefix) {
+				if action, ok := reflectString(field); ok && match(action, v.FieldByName("With")) {
 					return true
 				}
 			}
-			if actionInStep(field, prefix) {
+			if actionInStep(field, match) {
 				return true
 			}
 		}

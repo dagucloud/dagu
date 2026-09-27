@@ -787,6 +787,10 @@ func mergeDefinitionMaps(base, override map[string]any) (map[string]any, error) 
 			merged[key] = cloneAny(overrideValue)
 			continue
 		}
+		if key == "mail_accounts" && ok && baseIsMap && overrideIsMap {
+			merged[key] = mergeMailAccountMaps(baseMap, overrideMap)
+			continue
+		}
 		if ok && baseIsMap && overrideIsMap {
 			mergedNested, err := mergeDefinitionMaps(baseMap, overrideMap)
 			if err != nil {
@@ -798,6 +802,25 @@ func mergeDefinitionMaps(base, override map[string]any) (map[string]any, error) 
 		merged[key] = cloneAny(overrideValue)
 	}
 	return merged, nil
+}
+
+// mergeMailAccountMaps replaces each base account whose address matches an
+// override entry, comparing addresses case-insensitively.
+func mergeMailAccountMaps(base, override map[string]any) map[string]any {
+	merged := cloneMap(base)
+	for overrideKey, account := range override {
+		for baseKey := range merged {
+			if mailAccountKey(baseKey) == mailAccountKey(overrideKey) {
+				delete(merged, baseKey)
+			}
+		}
+		merged[overrideKey] = cloneAny(account)
+	}
+	return merged
+}
+
+func mailAccountKey(address string) string {
+	return strings.ToLower(strings.TrimSpace(address))
 }
 
 func smtpMapUsesOAuth(value map[string]any) bool {
@@ -1089,6 +1112,23 @@ func (*mergeTransformer) Transformer(
 
 			merged := mergeKubernetesConfigMaps(dstCfg, map[string]any(srcCfg))
 			dst.Set(reflect.ValueOf(ir.KubernetesConfig(merged)))
+			return nil
+		}
+	}
+
+	if typ == reflect.TypeFor[ir.MailAccounts]() {
+		return func(dst, src reflect.Value) error {
+			if !dst.CanSet() || !src.IsValid() || src.IsNil() {
+				return nil
+			}
+			merged := ir.MailAccounts{}
+			if !dst.IsNil() {
+				merged = dst.Interface().(ir.MailAccounts).Clone()
+			}
+			for address, account := range src.Interface().(ir.MailAccounts) {
+				merged[address] = account.Clone()
+			}
+			dst.Set(reflect.ValueOf(merged))
 			return nil
 		}
 	}

@@ -552,6 +552,26 @@ func (e Env) MailerConfig(ctx context.Context) (mailer.Config, error) {
 	return mailer.BuildConfig(config.Host, config.Port, config.Username, config.Password, config.OAuth)
 }
 
+// MailAccount returns the mail account configured for address, with variables
+// evaluated. Only that account is resolved.
+func (e Env) MailAccount(ctx context.Context, address string) (*ir.MailAccount, error) {
+	key := strings.ToLower(strings.TrimSpace(address))
+	account := e.DAG.MailAccounts[key]
+	if account == nil {
+		return nil, fmt.Errorf("mail account %q is not configured", address)
+	}
+	resolver := resolverFromEnv(ctx, e)
+	got, err := resolver.Object(ctx, *account, cmnvalue.HostConfigObjectField("mail_accounts."+key))
+	if err != nil {
+		return nil, fmt.Errorf("mail account %q: %w", key, err)
+	}
+	resolved, ok := got.(ir.MailAccount)
+	if !ok {
+		return nil, fmt.Errorf("type assertion failed: expected ir.MailAccount, got %T", got)
+	}
+	return &resolved, nil
+}
+
 // EvalBool evaluates the given value with the variables within the execution context
 func (e Env) EvalBool(ctx context.Context, value any) (bool, error) {
 	switch v := value.(type) {

@@ -31,7 +31,10 @@ func TestDAGJSONSecuritySensitiveFieldsExcluded(t *testing.T) {
 				Password: "docker_secret_password",
 			},
 		},
-		SMTP:     &SMTPConfig{Password: "smtp_secret"},
+		SMTP: &SMTPConfig{Password: "smtp_secret"},
+		MailAccounts: MailAccounts{
+			"ops@example.com": {Password: "mail_secret_password"},
+		},
 		SSH:      &SSHConfig{Password: "ssh_secret"},
 		YamlData: []byte("name: test-dag"),
 	}
@@ -48,6 +51,7 @@ func TestDAGJSONSecuritySensitiveFieldsExcluded(t *testing.T) {
 		"ParamsJSON":    `"password"`,
 		"RegistryAuths": "docker_secret_password",
 		"SMTP":          "smtp_secret",
+		"MailAccounts":  "mail_secret_password",
 		"SSH":           "ssh_secret",
 	}
 

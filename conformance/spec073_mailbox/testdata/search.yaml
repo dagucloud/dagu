@@ -1,0 +1,21 @@
+working_dir: .
+env:
+  - IMAP_HOST: ${IMAP_HOST}
+  - IMAP_PORT: ${IMAP_PORT}
+  - MAIL_PASSWORD: ${MAIL_PASSWORD}
+mail_accounts:
+  user@example.com:
+    imap: {host: $IMAP_HOST, port: $IMAP_PORT, skip_tls_verify: true}
+    password: $MAIL_PASSWORD
+steps:
+  - id: find
+    action: mail.search
+    with:
+      mailbox: user@example.com
+      unread: true
+  - id: capture
+    depends: find
+    env:
+      MESSAGES: ${steps.find.outputs.messages}
+    run: printf 'count=%s truncated=%s\n%s' '${steps.find.outputs.count}' '${steps.find.outputs.truncated}' "$MESSAGES"
+    stdout: search.out
