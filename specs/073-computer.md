@@ -89,8 +89,11 @@ entirely. A step with no model configuration fails validation.
 `with.mode` chooses how `act` talks to the model:
 
 - `auto` (default): the provider's native computer-use tool for `anthropic`,
-  `openai`, and `gemini`; plain function tools for other providers.
-- `native`: the native tool; a provider without one fails validation.
+  `openai`, and `gemini` models that support it; plain function tools for
+  other providers and for models released before their provider's tool, such
+  as Claude Opus 4.7 or Gemini 2.5.
+- `native`: the native tool; a provider without one fails validation, and a
+  model without one fails the step.
 - `generic`: plain function tools, which work with any tool-calling model that
   accepts images.
 
