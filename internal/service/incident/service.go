@@ -1187,8 +1187,9 @@ func incidentTemplateValues(event chatbridge.NotificationEvent, publicURL string
 	values["dagRunId"] = status.DAGRunID
 	values["run.status"] = status.Status.String()
 	values["status"] = status.Status.String()
-	values["run.error"] = status.Error
-	values["error"] = status.Error
+	runError := chatbridge.RunErrorText(status)
+	values["run.error"] = runError
+	values["error"] = runError
 	values["run.startedAt"] = incidentTemplateTime(status.StartedAt)
 	values["run.finishedAt"] = incidentTemplateTime(status.FinishedAt)
 	values["run.attemptId"] = status.AttemptID
@@ -1285,8 +1286,8 @@ func incidentCustomDetails(event chatbridge.NotificationEvent, publicURL string)
 		"runPath":    runPath,
 		"observedAt": event.ObservedAt.Format(time.RFC3339Nano),
 	}
-	if event.Status.Error != "" {
-		details["error"] = event.Status.Error
+	if runError := chatbridge.RunErrorText(event.Status); runError != "" {
+		details["error"] = runError
 	}
 	if runURL := incidentRunURL(publicURL, runPath); runURL != "" {
 		details["runUrl"] = runURL

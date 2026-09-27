@@ -469,6 +469,24 @@ func TestServiceSolarWindsTriggerAndResolvePayloads(t *testing.T) {
 	assert.NotContains(t, requests[1], "description")
 }
 
+// A step failure leaves the run-level error empty; incident text and details
+// must fall back to the failed step's error instead of rendering blank.
+func TestIncidentRunErrorFromFailedStep(t *testing.T) {
+	t.Parallel()
+
+	event := failedEvent("daily", "run-1")
+	event.Status.Error = ""
+	event.Status.Nodes = []*ir.Node{{
+		Step:   ir.Step{Name: "fetch"},
+		Status: ir.NodeFailed,
+		Error:  "exit status 11",
+	}}
+
+	description := renderIncidentTemplate(incidentmodel.DefaultDescriptionTemplate, event, "")
+	assert.Equal(t, "Run run-1 finished with status failed.\n\nfetch: exit status 11", description)
+	assert.Equal(t, "fetch: exit status 11", incidentCustomDetails(event, "")["error"])
+}
+
 func failedEvent(dagName, runID string) chatbridge.NotificationEvent {
 	now := time.Now().UTC()
 	return chatbridge.NotificationEvent{

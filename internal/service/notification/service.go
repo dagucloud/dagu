@@ -1687,8 +1687,8 @@ func bodyForEvents(events []chatbridge.NotificationEvent, publicURL string) stri
 		if finishedAt, err := stringutil.ParseTime(status.FinishedAt); err == nil && !finishedAt.IsZero() {
 			fmt.Fprintf(&b, "Finished: %s\n", finishedAt.Format(time.RFC3339))
 		}
-		if status.Error != "" {
-			fmt.Fprintf(&b, "Error: %s\n", status.Error)
+		if runError := chatbridge.RunErrorText(status); runError != "" {
+			fmt.Fprintf(&b, "Error: %s\n", runError)
 		}
 		if runLink := notificationRunLink(status, publicURL); runLink != "" {
 			fmt.Fprintf(&b, "%s\n", runLink)
@@ -1774,8 +1774,9 @@ func notificationTemplateValues(event chatbridge.NotificationEvent, publicURL st
 	values["dagRunId"] = status.DAGRunID
 	values["run.status"] = status.Status.String()
 	values["status"] = status.Status.String()
-	values["run.error"] = status.Error
-	values["error"] = status.Error
+	runError := chatbridge.RunErrorText(status)
+	values["run.error"] = runError
+	values["error"] = runError
 	maps.Copy(values, notificationStepStatusValues(status))
 	values["run.startedAt"] = notificationTemplateTime(status.StartedAt)
 	values["run.finishedAt"] = notificationTemplateTime(status.FinishedAt)
@@ -1944,7 +1945,7 @@ func webhookPayloadForEvents(events []chatbridge.NotificationEvent, publicURL st
 			"dagRunId":   event.Status.DAGRunID,
 			"runPath":    runPath,
 			"status":     event.Status.Status.String(),
-			"error":      event.Status.Error,
+			"error":      chatbridge.RunErrorText(event.Status),
 			"observedAt": event.ObservedAt.Format(time.RFC3339Nano),
 		}
 		if runURL := notificationRunURL(publicURL, runPath); runURL != "" {

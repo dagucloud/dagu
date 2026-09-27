@@ -1019,6 +1019,42 @@ func TestNotificationTemplateRunPathSupportsSubDAGRun(t *testing.T) {
 	assert.Contains(t, rendered, "Run: https://dagu.example.com/workflows/dag-runs/root%20dag/root%20run?")
 }
 
+// A step failure leaves the run-level error empty; every error output must
+// fall back to the failed step's error instead of rendering blank.
+func TestNotificationRunErrorFromFailedStep(t *testing.T) {
+	t.Parallel()
+
+	event := chatbridge.NotificationEvent{
+		Type: eventstore.TypeDAGRunFailed,
+		Status: &ir.DAGRunStatus{
+			Name:     "daily-report",
+			DAGRunID: "run-1",
+			Status:   ir.Failed,
+			Nodes: []*ir.Node{{
+				Step:   ir.Step{Name: "fetch"},
+				Status: ir.NodeFailed,
+				Error:  "exit status 11\nrecent stderr (tail):\n\x1b[31mfatal: no such file\x1b[0m",
+			}},
+		},
+	}
+	const wantError = "fetch: exit status 11\nrecent stderr (tail):\nfatal: no such file"
+
+	rendered := renderNotificationTemplate(
+		"Error: {{run.error}}\n{{error}}\nFailed steps: {{run.failed_steps}}",
+		event,
+		"",
+	)
+	assert.Equal(t, "Error: "+wantError+"\n"+wantError+"\nFailed steps: fetch", rendered)
+
+	assert.Contains(t, bodyForEvents([]chatbridge.NotificationEvent{event}, ""), "Error: "+wantError+"\n")
+
+	payload := webhookPayloadForEvents([]chatbridge.NotificationEvent{event}, "")
+	items, ok := payload["events"].([]map[string]any)
+	require.True(t, ok)
+	require.Len(t, items, 1)
+	assert.Equal(t, wantError, items[0]["error"])
+}
+
 func TestNotificationTemplateIncludesStepStatusLists(t *testing.T) {
 	t.Parallel()
 
