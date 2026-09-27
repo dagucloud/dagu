@@ -204,6 +204,7 @@ Current builtin actions:
 | `chat.completion` | LLM chat completion | `prompt` or `messages`, model config |
 | `harness.run` | CLI coding-agent harnesses | `prompt`, provider config, optional `stdin` |
 | `browser.extract`, `browser.run` | Browser automation in a local Chrome | `url`, `instruction` and `schema`; or `do` operations; `llm` from the DAG or `with.llm` |
+| `computer.extract`, `computer.run` | Desktop automation on macOS and Windows workers | `instruction` and `schema`; or `do` operations; `llm` from the DAG or `with.llm` |
 | `template.render` | Text/template rendering | Exactly one of `template` or `template_ref`, optional data/config |
 | `log.write` | Log messages | `message` |
 | `mail.send` | Email sending | mail executor config |

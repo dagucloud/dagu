@@ -145,9 +145,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Files behind //go:build windows are invisible to a linter running at
-        # the host GOOS, so they are linted in a job of their own.
-        goos: [linux, windows]
+        # Files behind //go:build windows or darwin are invisible to a linter
+        # running at the host GOOS, so each is linted in a job of its own.
+        goos: [linux, windows, darwin]
     steps:
       - name: Check out code
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3

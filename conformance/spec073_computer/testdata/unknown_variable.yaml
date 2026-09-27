@@ -1,0 +1,9 @@
+llm:
+  provider: anthropic
+  model: claude-opus-5
+steps:
+  - id: post
+    action: computer.run
+    with:
+      do:
+        - act: Type %password% into the password field

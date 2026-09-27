@@ -842,6 +842,60 @@ Browser behavior:
 - Profiles and the replay cache live on the host that runs the step. Pin such steps with `worker_selector` in distributed mode.
 - After a site redesign, clear recorded acts with `dagu browser cache clear <dag> [--step <id>]` on that host instead of editing the instruction or setting `cache: false`.
 
+## computer.extract / computer.run
+
+Automate desktop applications, such as an ERP client or a legacy Windows program, on the desktop of a macOS or Windows worker. The model looks at screenshots and clicks and types; it comes from the DAG-level `llm` block, or `with.llm`, which replaces it entirely. `anthropic`, `openai`, and `gemini` use their native computer-use tools; other providers, or `mode: generic`, use plain function tools with any tool-calling vision model.
+
+The Dagu process that runs the step must run in a logged-in user session: on Windows not as a service, with the screen unlocked; on macOS with Screen Recording and Accessibility granted to the app that starts Dagu. Run `dagu computer check` on the host to verify. Route computer DAGs to such workers with a DAG-level `worker_selector`; other systems fail the step.
+
+```yaml
+secrets:
+  - name: ERP_PASSWORD
+    provider: env
+    key: ERP_PASSWORD
+
+llm:
+  provider: anthropic
+  model: claude-opus-5
+
+worker_selector:
+  desktop: finance
+
+steps:
+  - id: post
+    action: computer.run
+    with:
+      variables:
+        password: ${ERP_PASSWORD}
+      do:
+        - launch: C:\Program Files\ERP\client.exe
+        - act: Log in as clerk with password %password%
+        - act: Open the invoice entry form and post invoice ${INVOICE_ID}
+        - expect: {statement: A document number is shown, within: 30s}
+        - extract:
+            instruction: The document number in the status bar
+            schema:
+              type: object
+              properties:
+                document_number: {type: string}
+
+  - id: record
+    depends: post
+    run: echo "${steps.post.outputs.document_number}"
+```
+
+Computer behavior:
+
+- Each `do` item sets exactly one of `launch` (a command, or `{command, args}`; on macOS use `{command: open, args: [-a, TextEdit]}`), `act`, `extract`, `expect`, `wait` (a duration), `screenshot`, or `ask`, plus optional `when` and `timeout` (default 5m).
+- An `act` is a whole task: the model acts until it reports the task done, up to `max_actions` actions (default 50). It fails when the model reports it cannot finish.
+- `expect` and `when` are statements the model judges against a screenshot; `{statement, within: 30s}` rechecks a false statement until it holds.
+- Declare secrets under `secrets:`, pass them in `variables`, and reference them as `%name%`. The model sees only the placeholder, which is replaced when typed. Typed values can appear in later screenshots sent to the model and saved as artifacts. An instruction containing a declared secret value (4+ characters) fails the step.
+- The top-level properties of each `extract` schema become `${steps.<id>.outputs.<name>}`.
+- Successful acts are replayed on later runs on the same host without a model while every screen still matches what the model saw; when a screen differs, the model continues from there. Clear recordings with `dagu computer cache clear <dag> [--step <id>]`.
+- When a model provider asks for confirmation before sensitive actions, the step fails unless `on_confirmation: allow`. Put an `ask` before such an act instead.
+- `ask: {prompt, as}` puts the step in Waiting and leaves the desktop as it is; the answer becomes `%<as>%` and the step resumes at the next operation.
+- One computer step at a time uses a host's desktop; others wait. Screenshots are saved under `computer/<step id>/` in the run artifacts on failure by default and are not masked.
+
 ## router.route
 
 Conditional routing based on expression value. Routes reference existing step IDs.

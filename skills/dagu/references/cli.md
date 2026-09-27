@@ -191,7 +191,7 @@ Flags:
 
 ### dagu rm
 
-Remove DAG run history and/or the DAG YAML definition. At least one of `--history` or `--definition` is required. Active runs are never deleted from history; definition deletion is refused while the DAG has alive processes. With `--definition`, identify the DAG by filename, stem, or configured path. Deleting all history (no `--older-than`) also clears the browser replay cache of the DAG on this host.
+Remove DAG run history and/or the DAG YAML definition. At least one of `--history` or `--definition` is required. Active runs are never deleted from history; definition deletion is refused while the DAG has alive processes. With `--definition`, identify the DAG by filename, stem, or configured path. Deleting all history (no `--older-than`) also clears the browser and computer replay caches of the DAG on this host.
 
 ```sh
 dagu rm [--history|-H] [--definition|-d] [-t <duration>] [-f] [--dry-run] <dag>
@@ -211,6 +211,22 @@ Clear the recorded `act` operations that browser steps replay, so the next run a
 
 ```sh
 dagu browser cache clear <dag> [--step <id>]
+```
+
+### dagu computer check
+
+Check that computer steps can capture the screen and send input in the current session. Run it as the user and in the session of the worker that runs computer steps. On macOS it also asks macOS to show the Screen Recording prompt. Exits nonzero and lists the problems when the desktop cannot be automated.
+
+```sh
+dagu computer check
+```
+
+### dagu computer cache clear
+
+Clear the recorded `act` operations that computer steps replay, so the next run asks the model again. Without `--step`, every step of the DAG is cleared. The cache lives on the host that ran the step; in distributed mode, run it on the worker.
+
+```sh
+dagu computer cache clear <dag> [--step <id>]
 ```
 
 ### dagu ps

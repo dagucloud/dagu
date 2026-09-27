@@ -1,0 +1,72 @@
+name: Desktop E2E
+
+# Operates the interactive desktop of a hosted Windows runner: the desktop
+# driver moves the pointer and types, and a computer step saves a file in
+# Notepad through a scripted model.
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+    paths:
+      - internal/desktop/**
+      - internal/llm/computeruse/**
+      - internal/runtime/builtin/computer/**
+      - conformance/spec073_computer/**
+      - .github/workflows/desktop-e2e.yaml
+  push:
+    branches:
+      - main
+    paths:
+      - internal/desktop/**
+      - internal/llm/computeruse/**
+      - internal/runtime/builtin/computer/**
+      - conformance/spec073_computer/**
+      - .github/workflows/desktop-e2e.yaml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-e2e-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: "1.27.0"
+
+jobs:
+  windows-desktop:
+    name: Desktop on windows-latest
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      DAGU_DESKTOP_E2E: "1"
+    steps:
+      - name: Check out code
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Set up Go
+        uses: ./.github/actions/setup-go-cache
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Build
+        shell: bash
+        run: |
+          mkdir -p ./.local/bin
+          go build -o ./.local/bin/dagu.exe ./cmd
+
+      - name: Check the desktop
+        shell: bash
+        run: ./.local/bin/dagu.exe computer check
+
+      - name: Test the desktop driver
+        shell: bash
+        run: go test -count=1 -run 'TestWindowsDesktop|TestInputMatchesWin32Layout' ./internal/desktop/
+
+      - name: Test a computer step
+        shell: bash
+        run: DAGU_BIN="$PWD/.local/bin/dagu.exe" go test -count=1 -run TestComputerNotepad -v ./conformance/spec073_computer/
