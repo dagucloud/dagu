@@ -101,8 +101,8 @@ func TestGenericSessionRunsTask(t *testing.T) {
 	assert.Equal(t, []byte("second"), messages[5].Images[0].Data)
 }
 
-// Every tool call must be answered, including calls whose arguments could
-// not be parsed and calls the caller did not report.
+// Every tool call must be answered. A call whose arguments cannot be parsed
+// stops the turn, so the calls after it are answered as skipped.
 func TestGenericSessionAnswersEveryCall(t *testing.T) {
 	t.Parallel()
 
@@ -118,17 +118,14 @@ func TestGenericSessionAnswersEveryCall(t *testing.T) {
 
 	turn, err := session.Next(context.Background(), computeruse.Observation{Screen: screen("a")})
 	require.NoError(t, err)
-	require.Len(t, turn.Actions, 2, "the call without y is not an action")
+	assert.Empty(t, turn.Actions, "the call without y stops the turn")
 
-	_, err = session.Next(context.Background(), computeruse.Observation{
-		Screen:  screen("b"),
-		Results: []computeruse.Result{{CallID: "ok"}},
-	})
+	_, err = session.Next(context.Background(), computeruse.Observation{Screen: screen("b")})
 	require.NoError(t, err)
 
 	messages := provider.requests[1].Messages
 	assert.Equal(t, "Error: x and y are required", messages[3].Content)
-	assert.Equal(t, "OK", messages[4].Content)
+	assert.Equal(t, computeruse.SkippedText, messages[4].Content)
 	assert.Equal(t, computeruse.SkippedText, messages[5].Content)
 }
 
@@ -153,6 +150,24 @@ func TestGenericSessionKeepsLatestScreenshots(t *testing.T) {
 		}
 	}
 	assert.Equal(t, []string{"3", "4", "5"}, images)
+}
+
+// A model the native tool does not support uses the generic session in auto
+// mode and fails in native mode.
+func TestNewFallsBackForUnsupportedModel(t *testing.T) {
+	t.Parallel()
+
+	const providerType llm.ProviderType = "test-unsupported"
+	computeruse.RegisterNative(providerType, func(llm.Provider, computeruse.Options) (computeruse.Session, error) {
+		return nil, computeruse.ErrModelNotSupported
+	})
+
+	session, err := computeruse.New(providerType, &scriptedProvider{}, computeruse.ModeAuto, computeruse.Options{})
+	require.NoError(t, err)
+	assert.NotNil(t, session)
+
+	_, err = computeruse.New(providerType, &scriptedProvider{}, computeruse.ModeNative, computeruse.Options{})
+	require.ErrorIs(t, err, computeruse.ErrModelNotSupported)
 }
 
 func TestNewSelectsNativeSession(t *testing.T) {

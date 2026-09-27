@@ -95,20 +95,21 @@ func (s *genericSession) Next(ctx context.Context, obs Observation) (*Turn, erro
 
 	turn := &Turn{Text: resp.Content, Usage: resp.Usage}
 	s.pending = s.pending[:0]
+	// Actions after a call that cannot be performed are skipped, as when an
+	// action fails.
+	halted := false
 	for _, call := range resp.ToolCalls {
 		pending := pendingCall{id: call.ID, name: call.Function.Name}
-		if call.Function.Name == DoneToolName {
-			done, err := ParseDone([]byte(call.Function.Arguments))
-			if err == nil {
-				turn.Done = done
-			}
-			pending.err = err
-		} else {
-			action, err := parseGenericAction(call)
-			if err == nil {
+		switch {
+		case call.Function.Name == DoneToolName:
+			turn.Done, pending.err = ParseDone([]byte(call.Function.Arguments))
+		case !halted:
+			var action Action
+			if action, pending.err = parseGenericAction(call); pending.err == nil {
 				turn.Actions = append(turn.Actions, action)
+			} else {
+				halted = true
 			}
-			pending.err = err
 		}
 		s.pending = append(s.pending, pending)
 	}

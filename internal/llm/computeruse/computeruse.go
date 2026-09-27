@@ -21,6 +21,7 @@ package computeruse
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -224,6 +225,11 @@ const (
 	ModeGeneric Mode = "generic"
 )
 
+// ErrModelNotSupported reports a model that the provider's native
+// computer-use tool does not support. In ModeAuto, New then uses the
+// generic session.
+var ErrModelNotSupported = errors.New("the model does not support the provider's native computer use")
+
 // NativeFactory starts a session with a provider's native computer-use
 // tool. provider is the value llm.NewProvider returned for the type the
 // factory was registered for.
@@ -256,9 +262,11 @@ func New(providerType llm.ProviderType, provider llm.Provider, mode Mode, opts O
 		factory, ok := nativeFactories[providerType]
 		nativeMu.RUnlock()
 		if ok {
-			return factory(provider, opts)
-		}
-		if mode == ModeNative {
+			session, err := factory(provider, opts)
+			if !errors.Is(err, ErrModelNotSupported) || mode == ModeNative {
+				return session, err
+			}
+		} else if mode == ModeNative {
 			return nil, fmt.Errorf("provider %q has no native computer use; use mode %q", providerType, ModeGeneric)
 		}
 	}
