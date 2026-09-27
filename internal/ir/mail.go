@@ -18,6 +18,23 @@ const (
 	MailSecurityStartTLS = "starttls"
 )
 
+// mail.search returns between MailSearchMinLimit and MailSearchMaxLimit emails.
+const (
+	MailSearchDefaultLimit = 20
+	MailSearchMinLimit     = 1
+	MailSearchMaxLimit     = 50
+)
+
+// MailMarks returns the flag changes mail.organize accepts.
+func MailMarks() []string {
+	return []string{"read", "unread", "flagged", "unflagged"}
+}
+
+// MailMoves returns the destinations mail.organize accepts.
+func MailMoves() []string {
+	return []string{"folder", "archive", "trash"}
+}
+
 // MailAccounts maps lowercase email addresses to the accounts mail actions use.
 type MailAccounts map[string]*MailAccount
 

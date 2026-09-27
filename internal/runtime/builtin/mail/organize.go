@@ -24,9 +24,6 @@ import (
 var (
 	_ executor.Executor                = (*organizeExecutor)(nil)
 	_ executor.DeclaredOutputsProvider = (*organizeExecutor)(nil)
-
-	organizeMarks = []string{mailbox.MarkRead, mailbox.MarkUnread, mailbox.MarkFlagged, mailbox.MarkUnflagged}
-	organizeMoves = []string{mailbox.MoveFolder, mailbox.MoveArchive, mailbox.MoveTrash}
 )
 
 type organizeConfig struct {
@@ -57,11 +54,11 @@ func newOrganize(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	if cfg.Mark == "" && cfg.Move == "" {
 		return nil, errors.New("mail.organize requires with.mark or with.move")
 	}
-	if cfg.Mark != "" && !slices.Contains(organizeMarks, cfg.Mark) {
-		return nil, fmt.Errorf("with.mark must be one of %s", strings.Join(organizeMarks, ", "))
+	if marks := ir.MailMarks(); cfg.Mark != "" && !slices.Contains(marks, cfg.Mark) {
+		return nil, fmt.Errorf("with.mark must be one of %s", strings.Join(marks, ", "))
 	}
-	if cfg.Move != "" && !slices.Contains(organizeMoves, cfg.Move) {
-		return nil, fmt.Errorf("with.move must be one of %s", strings.Join(organizeMoves, ", "))
+	if moves := ir.MailMoves(); cfg.Move != "" && !slices.Contains(moves, cfg.Move) {
+		return nil, fmt.Errorf("with.move must be one of %s", strings.Join(moves, ", "))
 	}
 	items, err := parseEmails(cfg.Emails)
 	if err != nil {

@@ -12,12 +12,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
-// Mailbox action limits on the number of emails one search returns.
-const (
-	mailSearchMinLimit = 1
-	mailSearchMaxLimit = 50
-)
-
 type mailFieldKind uint8
 
 const (
@@ -50,8 +44,6 @@ var (
 		"folder":  mailString,
 		"dry_run": mailBool,
 	}
-	mailMarks = []string{"read", "unread", "flagged", "unflagged"}
-	mailMoves = []string{"folder", "archive", "trash"}
 )
 
 func normalizeMailSearchAction(normalized map[string]any, with map[string]any) error {
@@ -115,8 +107,8 @@ func validateMailField(name string, kind mailFieldKind, value any) error {
 		}
 	case mailLimit:
 		limit, ok := mailInt(value)
-		if !ok || limit < mailSearchMinLimit || limit > mailSearchMaxLimit {
-			return fmt.Errorf("with.%s must be an integer from %d to %d", name, mailSearchMinLimit, mailSearchMaxLimit)
+		if !ok || limit < ir.MailSearchMinLimit || limit > ir.MailSearchMaxLimit {
+			return fmt.Errorf("with.%s must be an integer from %d to %d", name, ir.MailSearchMinLimit, ir.MailSearchMaxLimit)
 		}
 	case mailDuration:
 		if !isString {
@@ -126,12 +118,12 @@ func validateMailField(name string, kind mailFieldKind, value any) error {
 			return fmt.Errorf("with.%s must be a duration such as 24h or 7d", name)
 		}
 	case mailMark:
-		if !isString || !slices.Contains(mailMarks, text) {
-			return fmt.Errorf("with.%s must be one of %s", name, strings.Join(mailMarks, ", "))
+		if marks := ir.MailMarks(); !isString || !slices.Contains(marks, text) {
+			return fmt.Errorf("with.%s must be one of %s", name, strings.Join(marks, ", "))
 		}
 	case mailMove:
-		if !isString || !slices.Contains(mailMoves, text) {
-			return fmt.Errorf("with.%s must be one of %s", name, strings.Join(mailMoves, ", "))
+		if moves := ir.MailMoves(); !isString || !slices.Contains(moves, text) {
+			return fmt.Errorf("with.%s must be one of %s", name, strings.Join(moves, ", "))
 		}
 	case mailEmails:
 		if value == nil || (isString && strings.TrimSpace(text) == "") {
@@ -149,7 +141,7 @@ func mailInt(value any) (int, bool) {
 	case int64:
 		return int(v), true
 	case uint64:
-		return int(min(v, uint64(mailSearchMaxLimit+1))), true
+		return int(min(v, uint64(ir.MailSearchMaxLimit+1))), true
 	case float64:
 		if v == float64(int(v)) {
 			return int(v), true

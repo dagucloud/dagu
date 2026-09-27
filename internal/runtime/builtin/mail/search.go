@@ -23,9 +23,6 @@ import (
 )
 
 const (
-	defaultSearchLimit = 20
-	minSearchLimit     = 1
-	maxSearchLimit     = 50
 	// Output budget: 900 KiB, or the DAG's max_output_size less this margin.
 	outputBudget = 900 << 10
 	outputMargin = 64 << 10
@@ -61,12 +58,12 @@ type searchExecutor struct {
 }
 
 func newSearch(ctx context.Context, step ir.Step) (executor.Executor, error) {
-	cfg := searchConfig{Limit: defaultSearchLimit}
+	cfg := searchConfig{Limit: ir.MailSearchDefaultLimit}
 	if err := decodeConfig(step.ExecutorConfig.Config, &cfg); err != nil {
 		return nil, err
 	}
-	if cfg.Limit < minSearchLimit || cfg.Limit > maxSearchLimit {
-		return nil, fmt.Errorf("with.limit must be an integer from %d to %d", minSearchLimit, maxSearchLimit)
+	if cfg.Limit < ir.MailSearchMinLimit || cfg.Limit > ir.MailSearchMaxLimit {
+		return nil, fmt.Errorf("with.limit must be an integer from %d to %d", ir.MailSearchMinLimit, ir.MailSearchMaxLimit)
 	}
 	options := mailbox.SearchOptions{
 		Folder:         cfg.Folder,

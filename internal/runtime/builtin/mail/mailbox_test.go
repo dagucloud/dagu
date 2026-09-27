@@ -147,7 +147,10 @@ func TestMailboxStepErrors(t *testing.T) {
 	t.Parallel()
 
 	imapServer := mailtest.StartIMAP(t)
+	imapServer.Append(t, "INBOX", ticketEmail)
 	ctx := accountContext(imapServer, nil)
+	found := runStep(t, ctx, operationStep(opSearch, map[string]any{"mailbox": "support@example.com"}))
+	id := found["messages"].([]mailbox.Message)[0].ID
 
 	tests := []struct {
 		name    string
@@ -177,7 +180,7 @@ func TestMailboxStepErrors(t *testing.T) {
 		{
 			name: "MoveWithoutFolder",
 			step: operationStep(opOrganize, map[string]any{
-				"mailbox": "support@example.com", "emails": `{"id": "` + validID(t) + `"}`, "move": "folder",
+				"mailbox": "support@example.com", "emails": `{"id": "` + id + `"}`, "move": "folder",
 			}),
 			wantErr: "move: folder needs with.folder or a move_to on every email",
 		},
@@ -211,13 +214,4 @@ func TestSearchReportsWrongPasswordWithAccount(t *testing.T) {
 	err = exec.Run(ctx)
 	require.Error(t, err)
 	assert.True(t, strings.HasPrefix(err.Error(), `mail account "support@example.com": authentication failed`), err.Error())
-}
-
-// validID returns a well-formed ID by finding an email on a scratch server.
-func validID(t *testing.T) string {
-	t.Helper()
-	server := mailtest.StartIMAP(t)
-	server.Append(t, "INBOX", ticketEmail)
-	outputs := runStep(t, accountContext(server, nil), operationStep(opSearch, map[string]any{"mailbox": "support@example.com"}))
-	return outputs["messages"].([]mailbox.Message)[0].ID
 }
