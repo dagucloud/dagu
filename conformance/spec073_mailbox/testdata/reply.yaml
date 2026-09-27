@@ -1,0 +1,30 @@
+working_dir: .
+env:
+  - IMAP_HOST: ${IMAP_HOST}
+  - IMAP_PORT: ${IMAP_PORT}
+  - SMTP_HOST: ${SMTP_HOST}
+  - SMTP_PORT: ${SMTP_PORT}
+  - MAIL_PASSWORD: ${MAIL_PASSWORD}
+mail_accounts:
+  user@example.com:
+    imap: {host: $IMAP_HOST, port: $IMAP_PORT, skip_tls_verify: true}
+    smtp: {host: $SMTP_HOST, port: $SMTP_PORT, skip_tls_verify: true}
+    password: $MAIL_PASSWORD
+steps:
+  - id: find
+    action: mail.search
+    with:
+      mailbox: user@example.com
+      unread: true
+  - id: each
+    depends: find
+    foreach:
+      items: ${steps.find.outputs.messages}
+      as: email
+      steps:
+        - id: acknowledge
+          action: mail.send
+          with:
+            mailbox: user@example.com
+            in_reply_to: ${foreach.email.id}
+            message: Thanks, we are on it.

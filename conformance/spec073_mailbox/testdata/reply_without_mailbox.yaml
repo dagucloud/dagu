@@ -1,0 +1,9 @@
+smtp:
+  host: 127.0.0.1
+  port: 1
+steps:
+  - action: mail.send
+    with:
+      from: sender@example.com
+      in_reply_to: some-id
+      message: Thanks.

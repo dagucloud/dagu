@@ -1,0 +1,11 @@
+mail_accounts:
+  user@example.com:
+    provider: google
+    oauth:
+      provider: google_refresh
+      client_id: client
+      client_secret: secret
+      refresh_token: token
+      scopes: [https://mail.google.com/]
+steps:
+  - run: "true"
