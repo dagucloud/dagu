@@ -207,8 +207,9 @@ At run time:
 - An authentication failure fails the step with an error naming the account and
   the server's or token endpoint's reason, for example
   `mail account "<address>": sign-in is no longer valid (invalid_grant)`.
-- A connection failure or timeout fails the step. Changes that `mail.organize`
-  already applied stay applied.
+- A connection failure or timeout fails the step. An IMAP connection that
+  transfers nothing for two minutes counts as failed. Changes that
+  `mail.organize` already applied stay applied.
 - `mail.search` with `save_attachments` while artifact storage is off:
   `save_attachments requires artifact storage`.
 

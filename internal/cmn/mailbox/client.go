@@ -27,6 +27,7 @@ const (
 const (
 	dialTimeout   = 30 * time.Second
 	logoutTimeout = 5 * time.Second
+	ioIdleTimeout = 2 * time.Minute
 )
 
 // Account is a mail account whose values are already resolved.
@@ -58,6 +59,10 @@ type Client struct {
 // Dial connects to the account's IMAP server and signs in. Canceling ctx
 // closes the connection.
 func Dial(ctx context.Context, account Account) (*Client, error) {
+	return dial(ctx, account, ioIdleTimeout)
+}
+
+func dial(ctx context.Context, account Account, idle time.Duration) (*Client, error) {
 	server := account.Server
 	address := net.JoinHostPort(server.Host, server.Port)
 	tlsConfig := &tls.Config{
@@ -66,29 +71,32 @@ func Dial(ctx context.Context, account Account) (*Client, error) {
 		// Operators opt in per server, for self-signed certificates.
 		InsecureSkipVerify: server.SkipTLSVerify, //nolint:gosec
 	}
-	dialer := &net.Dialer{Timeout: dialTimeout}
-	options := &imapclient.Options{TLSConfig: tlsConfig, Dialer: dialer}
+	if server.Security != SecurityTLS && server.Security != SecurityStartTLS {
+		return nil, fmt.Errorf("unsupported IMAP security %q", server.Security)
+	}
+	raw, err := (&net.Dialer{Timeout: dialTimeout}).DialContext(ctx, "tcp", address)
+	if err != nil {
+		return nil, err
+	}
+	// Both modes run TLS over this connection, so its bound covers every read
+	// and write, including those of STARTTLS after the upgrade.
+	conn := &idleConn{Conn: raw, timeout: idle}
+	options := &imapclient.Options{TLSConfig: tlsConfig}
 
 	var client *imapclient.Client
-	switch server.Security {
-	case SecurityTLS:
-		conn, err := (&tls.Dialer{NetDialer: dialer, Config: tlsConfig}).DialContext(ctx, "tcp", address)
-		if err != nil {
+	if server.Security == SecurityTLS {
+		tlsConn := tls.Client(conn, tlsConfig)
+		if err := tlsConn.HandshakeContext(ctx); err != nil {
+			_ = conn.Close()
 			return nil, err
 		}
-		client = imapclient.New(conn, options)
-	case SecurityStartTLS:
-		conn, err := dialer.DialContext(ctx, "tcp", address)
-		if err != nil {
-			return nil, err
-		}
+		client = imapclient.New(tlsConn, options)
+	} else {
 		client, err = imapclient.NewStartTLS(conn, options)
 		if err != nil {
 			_ = conn.Close()
 			return nil, fmt.Errorf("STARTTLS failed: %w", err)
 		}
-	default:
-		return nil, fmt.Errorf("unsupported IMAP security %q", server.Security)
 	}
 
 	c := &Client{
@@ -145,6 +153,30 @@ func (c *Client) authenticate(ctx context.Context, account Account) error {
 		return fmt.Errorf("authentication failed: %w", err)
 	}
 	return nil
+}
+
+// idleConn fails a read or write that makes no progress within timeout. The
+// IMAP client sets no deadline while waiting for a response to begin, so
+// without this a server that stops answering would hold the step forever.
+// The bound restarts on every read and write, so a slow but steady transfer
+// of a large attachment still completes.
+type idleConn struct {
+	net.Conn
+	timeout time.Duration
+}
+
+func (c *idleConn) Read(b []byte) (int, error) {
+	if err := c.SetReadDeadline(time.Now().Add(c.timeout)); err != nil {
+		return 0, err
+	}
+	return c.Conn.Read(b)
+}
+
+func (c *idleConn) Write(b []byte) (int, error) {
+	if err := c.SetWriteDeadline(time.Now().Add(c.timeout)); err != nil {
+		return 0, err
+	}
+	return c.Conn.Write(b)
 }
 
 // xoauth2Client implements the SASL XOAUTH2 mechanism.

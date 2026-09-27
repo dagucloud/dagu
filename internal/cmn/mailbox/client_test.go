@@ -17,9 +17,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/test/mailtest"
 )
 
-// startSilentLogoutServer accepts one IMAP session that answers every
-// command except LOGOUT, which it leaves waiting forever.
-func startSilentLogoutServer(t *testing.T) (host, port string) {
+// startStallingServer accepts one IMAP session that answers every command
+// except stalled, which it leaves waiting forever.
+func startStallingServer(t *testing.T, stalled string) (host, port string) {
 	t.Helper()
 	listener, err := tls.Listen("tcp", "127.0.0.1:0", mailtest.ServerTLSConfig(t))
 	require.NoError(t, err)
@@ -42,7 +42,7 @@ func startSilentLogoutServer(t *testing.T) (host, port string) {
 				continue
 			}
 			tag, command := fields[0], strings.ToUpper(fields[1])
-			if command == "LOGOUT" {
+			if command == stalled {
 				continue
 			}
 			if command == "CAPABILITY" {
@@ -59,7 +59,7 @@ func startSilentLogoutServer(t *testing.T) (host, port string) {
 func TestCloseDoesNotWaitForeverForLogout(t *testing.T) {
 	t.Parallel()
 
-	host, port := startSilentLogoutServer(t)
+	host, port := startStallingServer(t, "LOGOUT")
 	client, err := Dial(context.Background(), Account{
 		Server:   Server{Host: host, Port: port, Security: SecurityTLS, SkipTLSVerify: true},
 		Username: "user",
@@ -77,5 +77,32 @@ func TestCloseDoesNotWaitForeverForLogout(t *testing.T) {
 	case <-closed:
 	case <-time.After(2 * time.Second):
 		t.Fatal("Close waited for a LOGOUT reply that never came")
+	}
+}
+
+// A server that stops answering fails the operation instead of holding the
+// step until someone kills it.
+func TestSearchFailsWhenServerStopsAnswering(t *testing.T) {
+	t.Parallel()
+
+	host, port := startStallingServer(t, "EXAMINE")
+	client, err := dial(context.Background(), Account{
+		Server:   Server{Host: host, Port: port, Security: SecurityTLS, SkipTLSVerify: true},
+		Username: "user",
+		Password: "password",
+	}, 200*time.Millisecond)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = client.Close() })
+
+	failed := make(chan error, 1)
+	go func() {
+		_, err := client.Search(SearchOptions{Limit: 1})
+		failed <- err
+	}()
+	select {
+	case err := <-failed:
+		require.Error(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Search waited forever for a server that stopped answering")
 	}
 }
