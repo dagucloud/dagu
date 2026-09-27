@@ -28,6 +28,8 @@ require (
 	github.com/containerd/platforms v1.0.0-rc.5
 	github.com/coreos/go-oidc v2.3.0+incompatible
 	github.com/creack/pty v1.1.24
+	github.com/emersion/go-imap/v2 v2.0.0-beta.8
+	github.com/emersion/go-message v0.18.2
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/getkin/kin-openapi v0.144.0
 	github.com/go-chi/chi/v5 v5.3.2
@@ -79,6 +81,7 @@ require (
 	go.opentelemetry.io/otel/sdk v1.46.0
 	go.opentelemetry.io/otel/trace v1.46.0
 	golang.org/x/crypto v0.56.0
+	golang.org/x/net v0.58.0
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/sync v0.22.0
 	golang.org/x/sys v0.47.0
@@ -226,6 +229,7 @@ require (
 	github.com/dsnet/compress v0.0.2-0.20230904184137-39efe44ab707 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/ebitengine/purego v0.10.2 // indirect
+	github.com/emersion/go-sasl v0.0.0-20241020182733-b788ff22d5a6 // indirect
 	github.com/emicklei/go-restful/v3 v3.12.2 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/ettle/strcase v0.2.0 // indirect
@@ -518,7 +522,6 @@ require (
 	golang.org/x/exp v0.0.0-20260410095643-746e56fc9e2f // indirect
 	golang.org/x/exp/typeparams v0.0.0-20260811152304-ee035b5b010f // indirect
 	golang.org/x/mod v0.40.0 // indirect
-	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	golang.org/x/tools v0.49.0 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
