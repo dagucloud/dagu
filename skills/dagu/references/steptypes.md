@@ -950,7 +950,7 @@ Computer behavior:
 - `expect` and `when` are statements the model judges against a screenshot; `{statement, within: 30s}` rechecks a false statement until it holds.
 - Declare secrets under `secrets:`, pass them in `variables`, and reference them as `%name%`. The model sees only the placeholder, which is replaced when typed. Typed values can appear in later screenshots sent to the model and saved as artifacts. An instruction containing a declared secret value (4+ characters) fails the step.
 - The top-level properties of each `extract` schema become `${steps.<id>.outputs.<name>}`.
-- Successful acts are replayed on later runs on the same host without a model while every screen still matches what the model saw; when a screen differs, the model continues from there. Clear recordings with `dagu computer cache clear <dag> [--step <id>]`.
+- The acts of a step that succeeded are replayed on later runs on the same host without a model while every screen still matches what the model saw; when a screen differs, the model continues from there. When a later operation fails, the step's replays are dropped and the next run asks the model again. Clear recordings with `dagu computer cache clear <dag> [--step <id>]`.
 - When a model provider asks for confirmation before sensitive actions, the step fails unless `on_confirmation: allow`. Put an `ask` before such an act instead.
 - `ask: {prompt, as}` puts the step in Waiting and leaves the desktop as it is; the answer becomes `%<as>%` and the step resumes at the next operation.
 - One computer step at a time uses a host's desktop; others wait. Screenshots are saved under `computer/<step id>/` in the run artifacts on failure by default and are not masked.

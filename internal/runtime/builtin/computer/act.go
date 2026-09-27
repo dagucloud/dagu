@@ -51,7 +51,7 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 			return err
 		}
 		key = replayKey(index, spec.Instruction, current.Bounds().Size())
-		if entry, ok := r.cache.lookup(key); ok {
+		if entry, ok := r.cache.Lookup(key); ok && len(entry.Turns) > 0 {
 			completed, ok, err := r.replay(ctx, index, entry)
 			if err != nil {
 				return err
@@ -77,9 +77,7 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 	}
 	outcome.recording.Turns = append(slices.Clone(replayed), outcome.recording.Turns...)
 	if useCache && len(outcome.recording.Turns) > 0 {
-		if err := r.cache.store(key, outcome.recording); err != nil {
-			return err
-		}
+		r.cache.Stage(key, outcome.recording)
 	}
 	r.report(ctx, agentstep.Report{
 		Index: index, Kind: opAct, Subject: spec.Instruction, Status: status,
@@ -118,7 +116,7 @@ func (r *run) driveModel(ctx context.Context, index int, spec actSpec, m model) 
 		Temperature: m.cfg.Temperature,
 	})
 	if err != nil {
-		return actOutcome{}, false, err
+		return actOutcome{}, false, modelFailure{err}
 	}
 	loop := &actLoop{r: r, index: index, session: session, limit: session.ImageLimit(), budget: r.cfg.maxActions(spec)}
 	err = loop.run(ctx)
@@ -151,7 +149,10 @@ func (l *actLoop) run(ctx context.Context) error {
 	for {
 		turn, err := l.session.Next(ctx, obs)
 		if err != nil {
-			return err
+			if ctx.Err() != nil {
+				return err
+			}
+			return modelFailure{err}
 		}
 		l.r.usage.add(turn.Usage)
 		if turn.Text != "" {

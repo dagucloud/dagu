@@ -150,6 +150,7 @@ func TestAskWaitsAndResumes(t *testing.T) {
 	assert.Equal(t, map[string]any{"account": "acme"}, resumed.exec.GetOutputs())
 	assert.NotContains(t, resumed.stderr.String(), "731902", "answers are masked")
 	assert.True(t, resumed.exec.GetAgentSession().Interactions[0].Applied)
+	assert.Equal(t, int64(30), resumed.exec.GetAgentSession().Usage.TotalTokens, "tokens used before the pause still count")
 	_, err = store.Load("run-1", "post")
 	assert.ErrorIs(t, err, os.ErrNotExist)
 }
@@ -275,6 +276,82 @@ func TestReplayCacheKeepsReplayedTurns(t *testing.T) {
 	require.NoError(t, replayed.err, "no session is left, so a model call would fail")
 	assert.Equal(t, []string{"act:cache-hit"}, eventNames(replayed.exec.GetAgentSession()))
 	assert.Equal(t, []string{"move 10,10", "left down #1", "move 30,30", "left down #1"}, run.backend.inputs())
+}
+
+// An act's recording is kept only when the whole step succeeds, and a step
+// that fails on the screen after a replay drops the recording, so an act
+// that did the wrong thing is not repeated.
+func TestReplayKeptOnlyWhenStepSucceeds(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"do": [{"act": "Open the report"}, {"expect": "The report is shown"}]}`
+	shown := map[string]bool{"The report is shown": true}
+	opens := func() []*scriptedSession {
+		return []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(30, 40)), done("Opened")}}}
+	}
+	run := newTestRun(t)
+
+	run.sessions = opens()
+	require.ErrorContains(t, run.execute(steps, nil).err, "expectation not met")
+
+	run.vision.truths = shown
+	run.sessions = opens()
+	recorded := run.execute(steps, nil)
+	require.NoError(t, recorded.err)
+	assert.Equal(t, []string{"act:completed", "expect:completed"}, eventNames(recorded.exec.GetAgentSession()), "the failed step left no recording")
+
+	run.vision.truths = nil
+	failed := run.execute(steps, nil)
+	require.ErrorContains(t, failed.err, "expectation not met")
+	assert.Equal(t, []string{"act:cache-hit"}, eventNames(failed.exec.GetAgentSession()))
+
+	run.vision.truths = shown
+	uncached := run.execute(steps, nil)
+	require.ErrorContains(t, uncached.err, "no scripted session left", "the replayed recording was dropped")
+}
+
+// A step that fails because a model did not answer keeps the recordings it
+// replayed, so an outage does not wipe the cache.
+func TestReplayKeptWhenModelFails(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"do": [{"act": "Open the report"}, {"act": {"instruction": "Print it", "cache": false}}]}`
+	run := newTestRun(t)
+	run.sessions = []*scriptedSession{
+		{turns: []*computeruse.Turn{actions(clickAt(30, 40)), done("Opened")}},
+		{turns: []*computeruse.Turn{done("Printed")}},
+	}
+	require.NoError(t, run.execute(steps, nil).err)
+
+	run.sessions = []*scriptedSession{{err: errors.New("overloaded")}}
+	failed := run.execute(steps, nil)
+	require.ErrorContains(t, failed.err, "overloaded")
+	assert.Equal(t, []string{"act:cache-hit"}, eventNames(failed.exec.GetAgentSession()))
+
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{done("Printed")}}}
+	replayed := run.execute(steps, nil)
+	require.NoError(t, replayed.err)
+	assert.Equal(t, []string{"act:cache-hit", "act:completed"}, eventNames(replayed.exec.GetAgentSession()))
+}
+
+// What a step recorded before an ask is kept when the resumed step
+// succeeds.
+func TestReplayAcrossAsk(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"do": [{"act": "Open the report"}, {"ask": {"prompt": "Continue?", "as": "ok"}}, {"wait": "1ms"}]}`
+	run := newTestRun(t)
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(30, 40)), done("Opened")}}}
+	waiting := run.execute(steps, nil)
+	require.NoError(t, waiting.err)
+	session := waiting.exec.GetAgentSession()
+	session.Interactions[0].Status = ir.AgentInteractionAnswered
+	session.Interactions[0].Answers = [][]string{{"yes"}}
+	require.NoError(t, run.execute(steps, session).err)
+
+	replayed := run.execute(steps, nil)
+	require.NoError(t, replayed.err, "no session is left, so a model call would fail")
+	assert.Equal(t, []string{"act:cache-hit", "ask:waiting"}, eventNames(replayed.exec.GetAgentSession()))
 }
 
 // A later model takes over only while the desktop is untouched.

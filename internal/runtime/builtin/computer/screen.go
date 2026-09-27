@@ -5,6 +5,8 @@ package computer
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"image"
 	"time"
 
@@ -14,6 +16,10 @@ import (
 )
 
 const pngMediaType = "image/png"
+
+// errCapture marks a failure to read the screen, which says nothing about
+// what the screen shows.
+var errCapture = errors.New("capture the screen")
 
 // settleTiming controls how long the step waits for the screen to stop
 // changing after input.
@@ -89,7 +95,7 @@ func (r *run) settle(ctx context.Context) (*image.RGBA, error) {
 	}
 	previous, err := r.driver.Screenshot()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", errCapture, err)
 	}
 	deadline := time.Now().Add(timing.timeout)
 	for time.Now().Before(deadline) {
@@ -98,7 +104,7 @@ func (r *run) settle(ctx context.Context) (*image.RGBA, error) {
 		}
 		current, err := r.driver.Screenshot()
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%w: %w", errCapture, err)
 		}
 		if desktop.FingerprintOf(current).Distance(desktop.FingerprintOf(previous)) <= stableDistance {
 			return current, nil

@@ -375,6 +375,11 @@ func (r *run) succeed(ctx context.Context) error {
 		}
 	}
 	r.shutdown()
+	if r.cache != nil {
+		if err := r.cache.Commit(ctx); err != nil {
+			_, _ = fmt.Fprintf(r.timeline.Log, "warning: keep replay recordings: %s\n", r.masker.MaskString(err.Error()))
+		}
+	}
 	summary := fmt.Sprintf("Completed %d operations using %d tokens", len(r.cfg.Do), r.usage.total())
 	r.timeline.AppendEvent(ir.AgentSessionEvent{Type: agentstep.EventLifecycle, Status: agentstep.StatusCompleted, Content: summary, Files: files})
 	_, _ = fmt.Fprintln(r.timeline.Log, summary)
@@ -406,6 +411,7 @@ func (r *run) fail(ctx context.Context, index int, kind string, cause error) err
 		}
 	}
 	r.shutdown()
+	r.forgetReplays(ctx, index, kind, cause)
 	message := r.masker.MaskString(cause.Error())
 	if index >= 0 {
 		message = fmt.Sprintf("do[%d] %s failed: %s", index, kind, message)
@@ -417,6 +423,25 @@ func (r *run) fail(ctx context.Context, index int, kind string, cause error) err
 		s.Usage = r.agentUsage()
 	})
 	return errors.New("computer: " + message)
+}
+
+// forgetReplays settles the replay cache of a failed step. An operation that
+// failed on the screen may have followed a replay that did the wrong thing,
+// so the recordings the step replayed are dropped. A failure of the model,
+// the screen capture, a launch, an ask, or the run itself says nothing about
+// them, so they stay. What the step recorded is never kept.
+func (r *run) forgetReplays(ctx context.Context, index int, kind string, cause error) {
+	if r.cache == nil {
+		return
+	}
+	if index < 0 || ctx.Err() != nil || kind == opAsk || kind == opLaunch ||
+		errors.Is(cause, errCapture) || errors.As(cause, new(modelFailure)) {
+		r.cache.Discard()
+		return
+	}
+	if err := r.cache.Evict(ctx); err != nil {
+		_, _ = fmt.Fprintf(r.timeline.Log, "warning: drop replay recordings: %s\n", r.masker.MaskString(err.Error()))
+	}
 }
 
 // shutdown closes the desktop and lets other steps use it.

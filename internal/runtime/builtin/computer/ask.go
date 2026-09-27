@@ -33,6 +33,9 @@ func (r *run) waitForInput(_ context.Context, index int, spec askSpec) error {
 		Cursor:     index + 1,
 		Outputs:    r.outputs,
 	}
+	if r.cache != nil {
+		record.ReplayPending, record.ReplayUsed = r.cache.Held()
+	}
 	if err := r.store.Save(record); err != nil {
 		return r.fail(context.Background(), index, opAsk, err)
 	}
@@ -54,6 +57,8 @@ func (r *run) waitForInput(_ context.Context, index int, spec askSpec) error {
 // pending, so a retry can still resume; one that can never be used is
 // marked applied, so a retry starts the step over.
 func (r *run) resume(session *ir.AgentSession, answer agentstep.AskAnswer) (int, error) {
+	// The attempt used these tokens before it paused.
+	r.usage = tokenUsage{Input: int(session.Usage.InputTokens), Output: int(session.Usage.OutputTokens)}
 	record, err := r.store.Load(r.dagRunID, r.stepName)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return 0, fmt.Errorf("read the paused step's record: %w", err)
@@ -87,6 +92,9 @@ func (r *run) resume(session *ir.AgentSession, answer agentstep.AskAnswer) (int,
 	}
 	r.refreshMasker()
 	maps.Copy(r.outputs, record.Outputs)
+	if r.cache != nil {
+		r.cache.Hold(record.ReplayPending, record.ReplayUsed)
+	}
 	return record.Cursor, nil
 }
 

@@ -7,24 +7,15 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
-	"errors"
-	"fmt"
 	"image"
-	"os"
-	"path/filepath"
 	"strconv"
-	"sync"
 
-	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/replaycache"
 	"github.com/dagucloud/dagu/v2/internal/desktop"
 	"github.com/dagucloud/dagu/v2/internal/llm/computeruse"
 )
 
 const (
-	cacheFileMode = 0o600
-	cacheDirMode  = 0o700
 	// replayScreenDistance is how far a screen's fingerprint may drift from
 	// the recorded one, such as for a clock, and still replay.
 	replayScreenDistance = 8
@@ -76,46 +67,10 @@ func targetRadius(full *image.RGBA) int {
 // replayCache stores the recordings of act operations. Entries are keyed by
 // operation position, instruction and screen size, so an edited
 // instruction or a different display misses.
-type replayCache struct {
-	path    string
-	mu      sync.Mutex
-	entries map[string]recording
-}
+type replayCache = replaycache.Recordings[recording]
 
 func openReplayCache(computerDir, dagName, stepKey string) (*replayCache, error) {
-	cache := &replayCache{
-		path:    replaycache.New(computerDir).Path(dagName, stepKey),
-		entries: map[string]recording{},
-	}
-	data, err := os.ReadFile(cache.path)
-	if errors.Is(err, os.ErrNotExist) {
-		return cache, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("read replay cache: %w", err)
-	}
-	if err := json.Unmarshal(data, &cache.entries); err != nil {
-		// A corrupt cache only costs model calls; start over.
-		cache.entries = map[string]recording{}
-	}
-	return cache, nil
-}
-
-func (c *replayCache) lookup(key string) (recording, bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	entry, ok := c.entries[key]
-	return entry, ok && len(entry.Turns) > 0
-}
-
-func (c *replayCache) store(key string, entry recording) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.entries[key] = entry
-	if err := os.MkdirAll(filepath.Dir(c.path), cacheDirMode); err != nil {
-		return fmt.Errorf("create replay cache directory: %w", err)
-	}
-	return fileutil.WriteJSONAtomic(c.path, c.entries, cacheFileMode)
+	return replaycache.Open[recording](replaycache.New(computerDir).Path(dagName, stepKey))
 }
 
 // replayKey identifies an act operation on a display size.

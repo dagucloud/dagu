@@ -88,6 +88,13 @@ func (u *tokenUsage) add(usage llmpkg.Usage) {
 	u.Output += usage.CompletionTokens
 }
 
+// modelFailure marks an error of a model request, as opposed to an answer
+// the step could not use.
+type modelFailure struct{ err error }
+
+func (f modelFailure) Error() string { return f.err.Error() }
+func (f modelFailure) Unwrap() error { return f.err }
+
 // query sends a screenshot and an instruction to the models in order and
 // returns the first answer that matches schema.
 func (r *run) query(ctx context.Context, instruction string, schema map[string]any, screenshot llmpkg.Image) (json.RawMessage, error) {
@@ -128,7 +135,7 @@ func (r *run) query(ctx context.Context, instruction string, schema map[string]a
 		}
 		return answer, nil
 	}
-	return nil, fmt.Errorf("model request failed: %w", errors.Join(errs...))
+	return nil, modelFailure{fmt.Errorf("model request failed: %w", errors.Join(errs...))}
 }
 
 // judge asks the models whether a statement holds for the screen.

@@ -7592,7 +7592,7 @@
         "cache": {
           "type": "boolean",
           "default": true,
-          "description": "Record successful act operations and replay them on later runs without a model call while the screens match."
+          "description": "Record the act operations of a step that succeeds and replay them on later runs without a model call while the screens match."
         },
         "max_actions": {
           "type": "integer",

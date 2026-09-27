@@ -155,15 +155,20 @@ or `never`. With artifacts disabled, a `screenshot` operation fails.
 
 ### Replay cache
 
-With `with.cache` true (the default), a successful model-driven `act` records
-each screen the model saw and the actions it chose on it. A later run of the
-same step on the same host replays them without a model request when the
-operation position, instruction, and display size match and each screen, and
-the area around each pointer action, still looks as recorded. The screen after
-the last action must also match. When a screen differs or an action fails, the
-model continues the task from the current screen and the new actions are
-recorded; the timeline marks the operation `healed`. A full replay is marked
-`cache-hit`. `act.cache: false` disables the cache for one operation.
+With `with.cache` true (the default), a model-driven `act` records each
+screen the model saw and the actions it chose on it, and the recordings are
+kept when the step succeeds. A later run of the same step on the same host
+replays them without a model request when the operation position,
+instruction, and display size match and each screen, and the area around each
+pointer action, still looks as recorded. The screen after the last action must
+also match. When a screen differs or an action fails, the model continues the
+task from the current screen and the new actions are recorded; the timeline
+marks the operation `healed`. A full replay is marked `cache-hit`.
+`act.cache: false` disables the cache for one operation.
+
+When an operation fails after a replay, the step drops the recordings it
+replayed, so the next run asks the model again. A failure of a model request,
+the screen capture, a launch, or an `ask`, or a canceled run, leaves them.
 
 Typed text is recorded with its `%name%` placeholders, never the values.
 
