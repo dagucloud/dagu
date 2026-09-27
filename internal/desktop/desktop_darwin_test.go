@@ -7,6 +7,7 @@ package desktop
 
 import (
 	"os"
+	"os/exec"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -54,6 +55,24 @@ func TestSessionFlag(t *testing.T) {
 	assert.True(t, onConsole)
 	_, ok = sessionFlag(session, "DaguNoSuchSessionKey")
 	assert.False(t, ok)
+}
+
+// While held, the power assertions are listed by pmset under the reason
+// Dagu gives; releasing them removes them.
+func TestKeepAwake(t *testing.T) {
+	require.NoError(t, load())
+	release, err := keepAwake()
+	require.NoError(t, err)
+	assert.Contains(t, powerAssertions(t), awakeReason)
+	release()
+	assert.NotContains(t, powerAssertions(t), awakeReason)
+}
+
+func powerAssertions(t *testing.T) string {
+	t.Helper()
+	out, err := exec.Command("/usr/bin/pmset", "-g", "assertions").Output()
+	require.NoError(t, err)
+	return string(out)
 }
 
 // TestDarwinDesktop moves the pointer, so it runs only when asked to with

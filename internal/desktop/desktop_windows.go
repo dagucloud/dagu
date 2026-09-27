@@ -20,6 +20,7 @@ import (
 var (
 	user32 = windows.NewLazySystemDLL("user32.dll")
 	gdi32  = windows.NewLazySystemDLL("gdi32.dll")
+	kernel = windows.NewLazySystemDLL("kernel32.dll")
 
 	procSetProcessDpiAwarenessContext = user32.NewProc("SetProcessDpiAwarenessContext")
 	procSetProcessDPIAware            = user32.NewProc("SetProcessDPIAware")
@@ -42,6 +43,10 @@ var (
 	procGetDIBits              = gdi32.NewProc("GetDIBits")
 	procDeleteObject           = gdi32.NewProc("DeleteObject")
 	procDeleteDC               = gdi32.NewProc("DeleteDC")
+
+	procPowerCreateRequest = kernel.NewProc("PowerCreateRequest")
+	procPowerSetRequest    = kernel.NewProc("PowerSetRequest")
+	procPowerClearRequest  = kernel.NewProc("PowerClearRequest")
 )
 
 // Win32 constants.
@@ -65,6 +70,11 @@ const (
 	inputMouse    = 0
 	inputKeyboard = 1
 	wheelDelta    = 120
+
+	powerRequestContextVersion      = 0
+	powerRequestContextSimpleString = 0x1
+	powerRequestDisplayRequired     = 0
+	powerRequestSystemRequired      = 1
 )
 
 // Input event flags.
@@ -159,6 +169,18 @@ func keyboardEvent(vk, scan uint16, flags uint32) input {
 	return in
 }
 
+// reasonContext is REASON_CONTEXT with a simple reason string. The padding
+// fills the union to the size of its detailed form: 24 bytes on 64-bit
+// Windows, 16 on 32-bit.
+type reasonContext struct {
+	Version uint32
+	Flags   uint32
+	Reason  *uint16
+	_       uint32
+	_       uint32
+	_       uintptr
+}
+
 type point struct {
 	X int32
 	Y int32
@@ -186,7 +208,10 @@ func Open() (*Driver, error) {
 	if err := Check().Err(); err != nil {
 		return nil, err
 	}
-	return New(windowsBackend{}), nil
+	// A display that turns off shows nothing to capture; staying awake is
+	// best effort.
+	wake, _ := keepAwake()
+	return New(windowsBackend{wake: wake}), nil
 }
 
 // Check reports whether the desktop of the current session can be automated.
@@ -256,8 +281,41 @@ func inputDesktopName() (string, error) {
 	return windows.UTF16ToString(buf[:]), nil
 }
 
+// keepAwake keeps the display and the system awake until release is
+// called. An error means the power settings apply as usual.
+func keepAwake() (release func(), err error) {
+	reason, err := windows.UTF16PtrFromString(awakeReason)
+	if err != nil {
+		return func() {}, err
+	}
+	context := reasonContext{Version: powerRequestContextVersion, Flags: powerRequestContextSimpleString, Reason: reason}
+	request, _, err := procPowerCreateRequest.Call(uintptr(unsafe.Pointer(&context))) //nolint:gosec // Win32 takes the struct address as uintptr
+	runtime.KeepAlive(reason)
+	if windows.Handle(request) == windows.InvalidHandle || request == 0 {
+		return func() {}, fmt.Errorf("PowerCreateRequest: %w", err)
+	}
+	var set []uintptr
+	var errs []error
+	for _, kind := range []uintptr{powerRequestDisplayRequired, powerRequestSystemRequired} {
+		if ok, _, err := procPowerSetRequest.Call(request, kind); ok == 0 {
+			errs = append(errs, fmt.Errorf("PowerSetRequest: %w", err))
+			continue
+		}
+		set = append(set, kind)
+	}
+	return func() {
+		for _, kind := range set {
+			_, _, _ = procPowerClearRequest.Call(request, kind)
+		}
+		_ = windows.CloseHandle(windows.Handle(request))
+	}, errors.Join(errs...)
+}
+
 // windowsBackend drives the desktop through Win32 input and GDI capture.
-type windowsBackend struct{}
+type windowsBackend struct {
+	// wake releases the power requests held while the backend is open.
+	wake func()
+}
 
 // Capture fails while another desktop has the input, since the user's
 // desktop then captures without error but shows nothing current.
@@ -405,7 +463,8 @@ func (windowsBackend) Type(text string) error {
 	return sendInput(events...)
 }
 
-func (windowsBackend) Close() error {
+func (b windowsBackend) Close() error {
+	b.wake()
 	return nil
 }
 

@@ -25,6 +25,7 @@ const (
 	coreGraphicsPath        = "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics"
 	coreFoundationPath      = "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation"
 	applicationServicesPath = "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices"
+	ioKitPath               = "/System/Library/Frameworks/IOKit.framework/IOKit"
 	screencapturePath       = "/usr/sbin/screencapture"
 )
 
@@ -53,6 +54,12 @@ const (
 	// while the screen is locked.
 	sessionOnConsoleKey    = "kCGSSessionOnConsoleKey"
 	sessionScreenLockedKey = "CGSSessionScreenIsLocked"
+
+	// Power assertions that keep the display and the system awake, at
+	// kIOPMAssertionLevelOn.
+	assertionDisplayAwake = "PreventUserIdleDisplaySleep"
+	assertionSystemAwake  = "PreventUserIdleSystemSleep"
+	assertionLevelOn      = 255
 
 	mouseEventClickState = 1
 	scrollUnitLine       = 1
@@ -107,6 +114,8 @@ var (
 	cfDictionaryGetValue            func(dict, key uintptr) uintptr
 	cfBooleanGetValue               func(boolean uintptr) bool
 	axIsProcessTrusted              func() bool
+	ioPMAssertionCreateWithName     func(kind uintptr, level uint32, name uintptr, id *uint32) int32
+	ioPMAssertionRelease            func(id uint32) int32
 )
 
 var (
@@ -153,6 +162,13 @@ func load() error {
 		purego.RegisterLibFunc(&cfDictionaryGetValue, cf, "CFDictionaryGetValue")
 		purego.RegisterLibFunc(&cfBooleanGetValue, cf, "CFBooleanGetValue")
 		purego.RegisterLibFunc(&axIsProcessTrusted, as, "AXIsProcessTrusted")
+		iokit, err := purego.Dlopen(ioKitPath, purego.RTLD_NOW|purego.RTLD_GLOBAL)
+		if err != nil {
+			errLoad = fmt.Errorf("load IOKit: %w", err)
+			return
+		}
+		purego.RegisterLibFunc(&ioPMAssertionCreateWithName, iokit, "IOPMAssertionCreateWithName")
+		purego.RegisterLibFunc(&ioPMAssertionRelease, iokit, "IOPMAssertionRelease")
 	})
 	return errLoad
 }
@@ -251,7 +267,7 @@ func sessionProblem() string {
 // sessionFlag reads a boolean of the session dictionary. ok is false when
 // the session does not report it.
 func sessionFlag(session uintptr, key string) (value, ok bool) {
-	cfKey := cfStringCreateWithCString(0, key, cfStringEncodingUTF8)
+	cfKey := cfString(key)
 	if cfKey == 0 {
 		return false, false
 	}
@@ -263,6 +279,38 @@ func sessionFlag(session uintptr, key string) (value, ok bool) {
 	return cfBooleanGetValue(ref), true
 }
 
+// cfString returns a Core Foundation string the caller releases, or 0.
+func cfString(text string) uintptr {
+	return cfStringCreateWithCString(0, text, cfStringEncodingUTF8)
+}
+
+// keepAwake keeps the display and the system awake until release is
+// called. An error means the power settings apply as usual.
+func keepAwake() (release func(), err error) {
+	name := cfString(awakeReason)
+	if name == 0 {
+		return func() {}, errors.New("create the power assertion name")
+	}
+	defer cfRelease(name)
+	var ids []uint32
+	var errs []error
+	for _, kind := range []string{assertionDisplayAwake, assertionSystemAwake} {
+		kindRef := cfString(kind)
+		var id uint32
+		if code := ioPMAssertionCreateWithName(kindRef, assertionLevelOn, name, &id); code != 0 {
+			errs = append(errs, fmt.Errorf("create %s assertion: IOReturn 0x%x", kind, uint32(code))) //nolint:gosec // IOReturn codes are reported as unsigned hex
+		} else {
+			ids = append(ids, id)
+		}
+		cfRelease(kindRef)
+	}
+	return func() {
+		for _, id := range ids {
+			_ = ioPMAssertionRelease(id)
+		}
+	}, errors.Join(errs...)
+}
+
 // darwinBackend drives the desktop through Quartz events. Positions are
 // screenshot pixels, which Quartz measures in points.
 type darwinBackend struct {
@@ -271,6 +319,8 @@ type darwinBackend struct {
 	// drags and every event carries the held modifiers.
 	buttons map[Button]bool
 	flags   uint64
+	// wake releases the power assertions held while the backend is open.
+	wake func()
 }
 
 func newDarwinBackend() (*darwinBackend, error) {
@@ -278,7 +328,10 @@ func newDarwinBackend() (*darwinBackend, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &darwinBackend{display: display, buttons: map[Button]bool{}}, nil
+	// A display that sleeps shows nothing to capture; staying awake is best
+	// effort.
+	wake, _ := keepAwake()
+	return &darwinBackend{display: display, buttons: map[Button]bool{}, wake: wake}, nil
 }
 
 // Capture uses the screencapture tool, which keeps working across macOS
@@ -418,6 +471,7 @@ func (b *darwinBackend) Type(text string) error {
 }
 
 func (b *darwinBackend) Close() error {
+	b.wake()
 	return nil
 }
 

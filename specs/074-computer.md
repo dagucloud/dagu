@@ -74,7 +74,8 @@ Computer DAGs are routed to such hosts with a DAG-level `worker_selector`.
 One computer step at a time operates a user's desktop, across every Dagu
 process that user runs on the host, whatever their data directories. A step
 that finds the desktop in use waits for it and logs that it is waiting. A step
-paused by `ask` does not hold the desktop.
+paused by `ask` does not hold the desktop. While a step holds the desktop, the
+display and the system stay awake, as far as the operating system allows.
 
 ### Conditions
 

@@ -39,6 +39,14 @@ func e2eDesktop(t *testing.T) *Driver {
 	return driver
 }
 
+// Windows accepts the power requests that keep the display awake, which
+// needs no interactive desktop.
+func TestKeepAwake(t *testing.T) {
+	release, err := keepAwake()
+	require.NoError(t, err)
+	release()
+}
+
 func TestWindowsDesktop(t *testing.T) {
 	driver := e2eDesktop(t)
 
