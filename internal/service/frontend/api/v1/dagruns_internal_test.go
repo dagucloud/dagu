@@ -21,6 +21,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/browserhost"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
+	"github.com/dagucloud/dagu/v2/internal/computerhost"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -1406,6 +1407,51 @@ func TestBrowserSessionWaiting(t *testing.T) {
 			waiting, err := browserSessionWaiting(t.Context(), dataDir, "run-1", "login", now)
 			assert.Equal(t, test.want, waiting)
 			assert.Equal(t, test.wantErr, err != nil, "error: %v", err)
+		})
+	}
+}
+
+func TestApplyAgentSessionRestartComputer(t *testing.T) {
+	t.Parallel()
+
+	node := &ir.Node{
+		Status: ir.NodeWaiting,
+		AgentSession: &ir.AgentSession{
+			Provider: computerhost.AgentProvider, Generation: 1, State: ir.AgentSessionUnavailable,
+			Interactions: []ir.AgentInteraction{{ID: "ask-1-1"}},
+		},
+	}
+
+	require.NoError(t, applyAgentSessionRestart(node))
+	assert.Equal(t, ir.NodeNotStarted, node.Status)
+	assert.Equal(t, 2, node.AgentSession.Generation)
+	assert.Empty(t, node.AgentSession.Interactions)
+}
+
+// A paused computer step can be answered until its ask deadline.
+func TestComputerSessionWaiting(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	for _, test := range []struct {
+		name     string
+		deadline *time.Time
+		want     bool
+	}{
+		{name: "waiting", deadline: new(now.Add(time.Hour)), want: true},
+		{name: "no record"},
+		{name: "expired", deadline: new(now.Add(-time.Minute))},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			dataDir := t.TempDir()
+			if test.deadline != nil {
+				record := computerhost.Record{ID: computerhost.RecordID("run-1", "post"), Deadline: *test.deadline}
+				require.NoError(t, computerhost.NewStore(filepath.Join(dataDir, computerhost.DataDirName)).Save(record))
+			}
+			waiting, err := computerSessionWaiting(dataDir, "run-1", "post", now)
+			require.NoError(t, err)
+			assert.Equal(t, test.want, waiting)
 		})
 	}
 }

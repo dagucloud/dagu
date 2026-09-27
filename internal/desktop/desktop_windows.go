@@ -208,6 +208,10 @@ func Check() Diagnostics {
 	return diag
 }
 
+// RequestPermissions does nothing on Windows, which needs no permission to
+// capture the screen or send input.
+func RequestPermissions() {}
+
 // makeDPIAware makes positions physical pixels on scaled displays.
 func makeDPIAware() {
 	dpiOnce.Do(func() {

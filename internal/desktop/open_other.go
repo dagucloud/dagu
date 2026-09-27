@@ -16,3 +16,6 @@ func Open() (*Driver, error) {
 func Check() Diagnostics {
 	return Diagnostics{OS: runtime.GOOS, Problems: []string{ErrUnsupported.Error()}}
 }
+
+// RequestPermissions does nothing where desktop automation is unsupported.
+func RequestPermissions() {}

@@ -64,6 +64,7 @@ func init() {
 	rootCmd.AddCommand(cmd.HumanTask())
 	rootCmd.AddCommand(cmd.Secret())
 	rootCmd.AddCommand(cmd.Browser())
+	rootCmd.AddCommand(cmd.Computer())
 
 	config.Version = version
 }
