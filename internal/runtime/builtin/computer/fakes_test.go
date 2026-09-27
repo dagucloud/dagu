@@ -27,12 +27,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// fakeBackend is a desktop that records input and shows a fixed screen.
+// fakeBackend is a desktop that records input and shows a screen. Each
+// left click moves on to the next of afterClicks, if any remain.
 type fakeBackend struct {
-	mu     sync.Mutex
-	screen *image.RGBA
-	events []string
-	typed  []string
+	mu          sync.Mutex
+	screen      *image.RGBA
+	afterClicks []*image.RGBA
+	events      []string
 }
 
 func newFakeBackend(width, height int) *fakeBackend {
@@ -87,10 +88,39 @@ func (b *fakeBackend) MoveTo(x, y int) error {
 func (b *fakeBackend) Position() (int, int, error) { return 0, 0, nil }
 
 func (b *fakeBackend) Button(button desktop.Button, down bool, clicks int) error {
-	if down {
-		b.record(fmt.Sprintf("%s down #%d", button, clicks))
+	if !down {
+		return nil
+	}
+	b.record(fmt.Sprintf("%s down #%d", button, clicks))
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if button == desktop.ButtonLeft && len(b.afterClicks) > 0 {
+		b.screen, b.afterClicks = b.afterClicks[0], b.afterClicks[1:]
 	}
 	return nil
+}
+
+// script shows screen now and next after each later left click.
+func (b *fakeBackend) script(screen *image.RGBA, next ...*image.RGBA) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.screen, b.afterClicks, b.events = screen, next, nil
+}
+
+// stripes draws n vertical black and white stripes, whose fingerprints
+// differ clearly for different n.
+func stripes(width, height, n int) *image.RGBA {
+	img := image.NewRGBA(image.Rect(0, 0, width, height))
+	for y := range height {
+		for x := range width {
+			v := uint8(0)
+			if (x*n/width)%2 == 1 {
+				v = 255
+			}
+			img.Set(x, y, color.RGBA{R: v, G: v, B: v, A: 255})
+		}
+	}
+	return img
 }
 
 func (b *fakeBackend) Wheel(dx, dy int) error {

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"slices"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/desktop"
@@ -41,6 +42,9 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 	useCache := r.cache != nil && (spec.Cache == nil || *spec.Cache)
 	status := agentstep.StatusCompleted
 	key := ""
+	// replayed holds the recorded turns a partial replay completed, which
+	// the healed recording keeps.
+	var replayed []recordedTurn
 	if useCache {
 		current, err := r.settle(ctx)
 		if err != nil {
@@ -48,11 +52,11 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 		}
 		key = replayKey(index, spec.Instruction, current.Bounds().Size())
 		if entry, ok := r.cache.lookup(key); ok {
-			replayed, err := r.replay(ctx, index, entry)
+			completed, ok, err := r.replay(ctx, index, entry)
 			if err != nil {
 				return err
 			}
-			if replayed {
+			if ok {
 				r.report(ctx, agentstep.Report{
 					Index: index, Kind: opAct, Subject: spec.Instruction, Status: agentstep.StatusCacheHit,
 					Detail: fmt.Sprintf("replayed %d turns", len(entry.Turns)), Duration: time.Since(began),
@@ -60,6 +64,7 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 				return nil
 			}
 			status = agentstep.StatusHealed
+			replayed = entry.Turns[:completed]
 		}
 	}
 
@@ -70,6 +75,7 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 		}
 		return err
 	}
+	outcome.recording.Turns = append(slices.Clone(replayed), outcome.recording.Turns...)
 	if useCache && len(outcome.recording.Turns) > 0 {
 		if err := r.cache.store(key, outcome.recording); err != nil {
 			return err

@@ -195,6 +195,35 @@ func TestReplayCache(t *testing.T) {
 	require.ErrorContains(t, uncached.err, "no scripted session left")
 }
 
+// When a replay diverges partway, the model continues from there, and the
+// stored recording keeps the turns that replayed, so the next run replays
+// the whole act again.
+func TestReplayCacheKeepsReplayedTurns(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"do": [{"act": "Post the invoice"}]}`
+	start, form, changedForm, posted := stripes(400, 200, 2), stripes(400, 200, 6), stripes(400, 200, 12), stripes(400, 200, 30)
+	run := newTestRun(t)
+
+	run.backend.script(start, form, posted)
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(10, 10)), actions(clickAt(20, 20)), done("Posted")}}}
+	require.NoError(t, run.execute(steps, nil).err)
+
+	// The form changed, so the second recorded turn no longer matches.
+	run.backend.script(start, changedForm, posted)
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(30, 30)), done("Posted")}}}
+	healed := run.execute(steps, nil)
+	require.NoError(t, healed.err)
+	assert.Equal(t, []string{"act:healed"}, eventNames(healed.exec.GetAgentSession()))
+	assert.Equal(t, []string{"move 10,10", "left down #1", "move 30,30", "left down #1"}, run.backend.inputs())
+
+	run.backend.script(start, changedForm, posted)
+	replayed := run.execute(steps, nil)
+	require.NoError(t, replayed.err, "no session is left, so a model call would fail")
+	assert.Equal(t, []string{"act:cache-hit"}, eventNames(replayed.exec.GetAgentSession()))
+	assert.Equal(t, []string{"move 10,10", "left down #1", "move 30,30", "left down #1"}, run.backend.inputs())
+}
+
 // A later model takes over only while the desktop is untouched.
 func TestModelFallback(t *testing.T) {
 	t.Parallel()

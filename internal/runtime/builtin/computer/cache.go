@@ -124,30 +124,32 @@ func replayKey(index int, instruction string, size image.Point) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// replay repeats a recording while every screen matches what the model saw.
-// It reports false, leaving the desktop as it is, when a screen differs or
-// an action fails; the model then continues from there.
-func (r *run) replay(ctx context.Context, index int, entry recording) (bool, error) {
+// replay repeats a recording while every screen matches what the model saw
+// and returns how many turns it completed. It reports false, leaving the
+// desktop as it is, when a screen differs or an action fails; the model then
+// continues from there.
+func (r *run) replay(ctx context.Context, index int, entry recording) (completed int, ok bool, err error) {
 	for _, turn := range entry.Turns {
 		current, err := r.settle(ctx)
 		if err != nil {
-			return false, err
+			return completed, false, err
 		}
 		if !matches(current, entry, turn) {
-			return false, nil
+			return completed, false, nil
 		}
 		for _, recorded := range turn.Actions {
 			logAction(r.timeline, index, "replay "+describeAction(recorded.Action))
 			if result := r.runAction(ctx, recorded.Action, identity, nil, computeruse.ImageLimit{}); result.Failed() {
-				return false, ctx.Err()
+				return completed, false, ctx.Err()
 			}
 		}
+		completed++
 	}
 	final, err := r.settle(ctx)
 	if err != nil {
-		return false, err
+		return completed, false, err
 	}
-	return desktop.FingerprintOf(final).Distance(entry.Final) <= replayScreenDistance, nil
+	return completed, desktop.FingerprintOf(final).Distance(entry.Final) <= replayScreenDistance, nil
 }
 
 // matches reports whether a screen looks like the one a recorded turn was
