@@ -244,7 +244,7 @@ func (r *run) extract(ctx context.Context, index int, spec extractSpec, timeout 
 	if err != nil {
 		return err
 	}
-	data, err := r.ask(ctx, spec.Instruction, spec.Schema, shot.image())
+	data, err := r.query(ctx, spec.Instruction, spec.Schema, shot.image())
 	if err != nil {
 		return err
 	}

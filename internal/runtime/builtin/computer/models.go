@@ -88,9 +88,9 @@ func (u *tokenUsage) add(usage llmpkg.Usage) {
 	u.Output += usage.CompletionTokens
 }
 
-// ask sends a screenshot and an instruction to the models in order and
+// query sends a screenshot and an instruction to the models in order and
 // returns the first answer that matches schema.
-func (r *run) ask(ctx context.Context, instruction string, schema map[string]any, screenshot llmpkg.Image) (json.RawMessage, error) {
+func (r *run) query(ctx context.Context, instruction string, schema map[string]any, screenshot llmpkg.Image) (json.RawMessage, error) {
 	parameters := agentstep.ToolParameters(schema)
 	messages := []llmpkg.Message{
 		{Role: llmpkg.RoleSystem, Content: "You read screenshots of a computer screen. Answer by calling the " + agentstep.RespondToolName + " tool."},
@@ -134,7 +134,7 @@ func (r *run) ask(ctx context.Context, instruction string, schema map[string]any
 // judge asks the models whether a statement holds for the screen.
 func (r *run) judge(ctx context.Context, statement string, screenshot llmpkg.Image) (bool, string, error) {
 	instruction := fmt.Sprintf("Decide whether this statement is true for the screen: %q. Set answer to true or false and give a one-sentence reason.", statement)
-	data, err := r.ask(ctx, instruction, statementSchema, screenshot)
+	data, err := r.query(ctx, instruction, statementSchema, screenshot)
 	if err != nil {
 		return false, "", err
 	}
