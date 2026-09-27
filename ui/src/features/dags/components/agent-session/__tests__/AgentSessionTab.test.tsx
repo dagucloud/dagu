@@ -303,6 +303,67 @@ describe('AgentSessionTab', () => {
     ).toBeInTheDocument();
   });
 
+  it('shows a computer question with screenshot thumbnails', async () => {
+    const GET = vi.fn().mockResolvedValue({
+      data: new Blob(['png'], { type: 'image/png' }),
+      response: new Response(),
+    });
+    useClientMock.mockReturnValue({ GET, POST: vi.fn() } as never);
+    Object.assign(URL, {
+      createObjectURL: vi.fn(() => 'blob:screen'),
+      revokeObjectURL: vi.fn(),
+    });
+
+    const post = {
+      step: { name: 'post' },
+      status: NodeStatus.Waiting,
+      agentSession: {
+        provider: 'computer',
+        state: AgentSessionState.waiting,
+        events: [
+          {
+            sequence: 1,
+            id: 'computer-1-1',
+            type: 'tool',
+            name: 'act',
+            content: 'Open the invoice',
+            files: ['computer/post/01-act.png'],
+          },
+        ],
+        interactions: [
+          {
+            id: 'ask-1-1',
+            kind: 'question',
+            status: 'pending',
+            questions: [
+              {
+                header: 'Computer input',
+                question: 'Approve posting?',
+                custom: true,
+              },
+            ],
+          },
+        ],
+      },
+    };
+    renderAgentSessions([post as never]);
+
+    expect(
+      screen.getByText('The computer step needs an answer')
+    ).toBeInTheDocument();
+    expect(screen.getByText('Computer session')).toBeInTheDocument();
+    expect(
+      await screen.findByRole('img', { name: '01-act.png' })
+    ).toHaveAttribute('src', 'blob:screen');
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /Start clean session/ })
+    );
+    expect(
+      screen.getByText('Start this computer step over?')
+    ).toBeInTheDocument();
+  });
+
   it('does not offer a restart for providers that cannot restart', () => {
     const other = agentNode(
       'review',

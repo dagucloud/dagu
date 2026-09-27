@@ -53,9 +53,34 @@ export function getExecutorCommand(
       return config.value ? `route: ${config.value}` : 'router';
     case 'browser':
       return config.url ? `browser: ${config.url}` : 'browser';
+    case 'computer': {
+      const launch = computerLaunchCommand(config.do);
+      return launch ? `computer: ${launch}` : 'computer';
+    }
     default:
       return null;
   }
+}
+
+// computerLaunchCommand returns the application a computer step launches
+// first, if any.
+function computerLaunchCommand(operations: unknown): string | null {
+  if (!Array.isArray(operations)) {
+    return null;
+  }
+  for (const operation of operations) {
+    const launch = (operation as Record<string, unknown> | null)?.launch;
+    if (typeof launch === 'string') {
+      return launch;
+    }
+    if (launch && typeof launch === 'object') {
+      const command = (launch as Record<string, unknown>).command;
+      if (typeof command === 'string') {
+        return command;
+      }
+    }
+  }
+  return null;
 }
 
 export function getLogStepMessage(

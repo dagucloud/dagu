@@ -64,4 +64,26 @@ describe('getExecutorCommand', () => {
 
     expect(getExecutorCommand(step)).toBe('browser: https://shop.example.com');
   });
+
+  it('shows the first application a computer step launches', () => {
+    const step = (config: Record<string, unknown>) =>
+      ({
+        name: 'post',
+        executorConfig: { type: 'computer', config },
+      }) as components['schemas']['Step'];
+
+    expect(
+      getExecutorCommand(
+        step({
+          do: [{ act: 'Log in' }, { launch: { command: 'saplogon.exe' } }],
+        })
+      )
+    ).toBe('computer: saplogon.exe');
+    expect(getExecutorCommand(step({ do: [{ launch: 'notepad.exe' }] }))).toBe(
+      'computer: notepad.exe'
+    );
+    expect(getExecutorCommand(step({ do: [{ act: 'Log in' }] }))).toBe(
+      'computer'
+    );
+  });
 });
