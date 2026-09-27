@@ -1,0 +1,6 @@
+mail_accounts:
+  user@example.com:
+    imap: {host: imap.example.com, security: none}
+    password: secret
+steps:
+  - run: "true"

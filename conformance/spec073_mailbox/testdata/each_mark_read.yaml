@@ -1,0 +1,30 @@
+working_dir: .
+env:
+  - IMAP_HOST: ${IMAP_HOST}
+  - IMAP_PORT: ${IMAP_PORT}
+  - MAIL_PASSWORD: ${MAIL_PASSWORD}
+mail_accounts:
+  user@example.com:
+    imap: {host: $IMAP_HOST, port: $IMAP_PORT, skip_tls_verify: true}
+    password: $MAIL_PASSWORD
+steps:
+  - id: find
+    action: mail.search
+    with:
+      mailbox: user@example.com
+      unread: true
+  - id: each
+    depends: find
+    foreach:
+      items: ${steps.find.outputs.messages}
+      as: email
+      steps:
+        - id: work
+          run: test '${foreach.email.subject}' != 'Broken'
+        - id: done
+          depends: work
+          action: mail.organize
+          with:
+            mailbox: user@example.com
+            emails: ${foreach.email}
+            mark: read

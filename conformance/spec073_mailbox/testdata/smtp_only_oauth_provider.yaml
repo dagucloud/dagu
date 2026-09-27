@@ -1,0 +1,6 @@
+mail_accounts:
+  user@example.com:
+    provider: microsoft
+    oauth: {provider: microsoft, tenant_id: tenant, client_id: client, client_secret: secret}
+steps:
+  - run: "true"

@@ -1,0 +1,5 @@
+steps:
+  - action: mail.search
+    with:
+      mailbox: user@example.com
+      within: soon

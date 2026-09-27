@@ -1,0 +1,19 @@
+working_dir: .
+env:
+  - IMAP_HOST: ${IMAP_HOST}
+  - IMAP_PORT: ${IMAP_PORT}
+  - SMTP_HOST: ${SMTP_HOST}
+  - SMTP_PORT: ${SMTP_PORT}
+  - MAIL_PASSWORD: ${MAIL_PASSWORD}
+mail_accounts:
+  user@example.com:
+    imap: {host: $IMAP_HOST, port: $IMAP_PORT, skip_tls_verify: true}
+    smtp: {host: $SMTP_HOST, port: $SMTP_PORT, skip_tls_verify: true}
+    password: $MAIL_PASSWORD
+steps:
+  - action: mail.send
+    with:
+      mailbox: user@example.com
+      to: team@example.com
+      subject: Tickets filed
+      message: 2 tickets

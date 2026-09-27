@@ -1,0 +1,19 @@
+working_dir: .
+env:
+  - IMAP_HOST: ${IMAP_HOST}
+  - IMAP_PORT: ${IMAP_PORT}
+  - MAIL_PASSWORD: ${MAIL_PASSWORD}
+mail_accounts:
+  user@example.com:
+    imap: {host: $IMAP_HOST, port: $IMAP_PORT, skip_tls_verify: true}
+    password: $MAIL_PASSWORD
+steps:
+  - id: find
+    action: mail.search
+    with:
+      mailbox: user@example.com
+      save_attachments: true
+  - id: list
+    depends: find
+    run: ls '${context.paths.artifacts_dir}/mail/find'
+    stdout: attachments.out
