@@ -15,6 +15,13 @@ jobs:
   # Build release binaries
   goreleaser:
     runs-on: ubuntu-latest
+    # id-token, attestations, and artifact-metadata let the attest step below
+    # record build provenance for the archives this job produces.
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     steps:
       - name: Check out code
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -54,6 +61,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{secrets.DAGU_GITHUB_TOKEN}}
 
+      # Attest the archives here, from the bytes GoReleaser just built, so the
+      # packslip job below links this provenance instead of attesting copies it
+      # downloads back from the release.
+      - name: Attest release archives
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-checksums: dist/checksums.txt
+
   # The packslip is this release's signed inventory: every archive's digest and
   # the executable inside it, plus the completions and the dagu skill that match
   # this version, signed with this workflow's identity rather than a key. It
@@ -67,7 +82,6 @@ jobs:
     permissions:
       contents: write
       id-token: write
-      attestations: write
     steps:
       - uses: jdx/packslip@4920350c39c234c7a969f9775040bd02829f1923 # v1.3.0
         with:
@@ -80,6 +94,7 @@ jobs:
             dagu_*_windows_amd64.tar.gz
             dagu_*_windows_arm64.tar.gz
           bin: dagu
+          attest: link
           resources: |
             completion/bash,zsh,fish,powershell=exec:dagu completion {shell}
             skill/dagu=repo:skills/dagu
