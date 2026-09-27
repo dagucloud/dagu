@@ -22,6 +22,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
 )
 
 const (
@@ -441,7 +442,7 @@ func (r *run) gotoURL(ctx context.Context, index int, target string, timeout tim
 func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Duration) error {
 	// Validation guarantees every reference names a variable or an earlier
 	// ask, so a missing value means that ask was skipped.
-	for _, name := range variableReferences(spec.Instruction) {
+	for _, name := range agentstep.VariableReferences(spec.Instruction) {
 		if _, ok := r.variables[name]; !ok {
 			return fmt.Errorf("the instruction uses %%%s%%, but the ask that sets it did not run", name)
 		}

@@ -23,6 +23,7 @@ import (
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/llm/computeruse"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
 	"github.com/stretchr/testify/require"
 )
 
@@ -172,7 +173,7 @@ func (m *visionModel) Chat(_ context.Context, req *llmpkg.ChatRequest) (*llmpkg.
 		arguments = fmt.Sprintf(`{"answer":%t,"reason":"checked"}`, holds)
 	}
 	return &llmpkg.ChatResponse{
-		ToolCalls: []llmpkg.ToolCall{{ID: "r", Type: "function", Function: llmpkg.ToolCallFunction{Name: respondToolName, Arguments: arguments}}},
+		ToolCalls: []llmpkg.ToolCall{{ID: "r", Type: "function", Function: llmpkg.ToolCallFunction{Name: agentstep.RespondToolName, Arguments: arguments}}},
 		Usage:     llmpkg.Usage{PromptTokens: 5, CompletionTokens: 1},
 	}, nil
 }

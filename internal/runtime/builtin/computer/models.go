@@ -8,27 +8,20 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
-	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
 	_ "github.com/dagucloud/dagu/v2/internal/llm/allproviders"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
 )
 
 const (
-	respondToolName        = "respond"
-	respondToolDescription = "Return the answer as arguments that match the parameter schema exactly."
 	// visionLimitLongEdge and visionLimitPixels fit screenshots sent for
 	// extract and expect within common vision model limits.
 	visionLimitLongEdge = 1568
 	visionLimitPixels   = 1_150_000
 )
-
-// schemaKeysToStrip are schema annotations some providers reject in tool
-// parameters.
-var schemaKeysToStrip = []string{"$schema", "$id"}
 
 // statementSchema is the answer schema used to judge when and expect
 // statements.
@@ -98,12 +91,9 @@ func (u *tokenUsage) add(usage llmpkg.Usage) {
 // ask sends a screenshot and an instruction to the models in order and
 // returns the first answer that matches schema.
 func (r *run) ask(ctx context.Context, instruction string, schema map[string]any, screenshot llmpkg.Image) (json.RawMessage, error) {
-	parameters := maps.Clone(schema)
-	for _, key := range schemaKeysToStrip {
-		delete(parameters, key)
-	}
+	parameters := agentstep.ToolParameters(schema)
 	messages := []llmpkg.Message{
-		{Role: llmpkg.RoleSystem, Content: "You read screenshots of a computer screen. Answer by calling the " + respondToolName + " tool."},
+		{Role: llmpkg.RoleSystem, Content: "You read screenshots of a computer screen. Answer by calling the " + agentstep.RespondToolName + " tool."},
 		{Role: llmpkg.RoleUser, Content: r.masker.MaskString(instruction), Images: []llmpkg.Image{screenshot}},
 	}
 	var errs []error
@@ -117,8 +107,8 @@ func (r *run) ask(ctx context.Context, instruction string, schema map[string]any
 			Tools: []llmpkg.Tool{{
 				Type: "function",
 				Function: llmpkg.ToolFunction{
-					Name:        respondToolName,
-					Description: respondToolDescription,
+					Name:        agentstep.RespondToolName,
+					Description: agentstep.RespondToolDescription,
 					Parameters:  parameters,
 				},
 			}},
@@ -131,7 +121,7 @@ func (r *run) ask(ctx context.Context, instruction string, schema map[string]any
 			continue
 		}
 		r.usage.add(resp.Usage)
-		answer, err := structuredAnswer(resp)
+		answer, err := agentstep.StructuredAnswer(resp)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", m.label(), err))
 			continue
@@ -139,25 +129,6 @@ func (r *run) ask(ctx context.Context, instruction string, schema map[string]any
 		return answer, nil
 	}
 	return nil, fmt.Errorf("model request failed: %w", errors.Join(errs...))
-}
-
-// structuredAnswer returns the JSON the model produced, preferring the
-// respond tool call and falling back to JSON in the text content.
-func structuredAnswer(resp *llmpkg.ChatResponse) (json.RawMessage, error) {
-	for _, call := range resp.ToolCalls {
-		if call.Function.Name == respondToolName && json.Valid([]byte(call.Function.Arguments)) {
-			return json.RawMessage(call.Function.Arguments), nil
-		}
-	}
-	text := strings.TrimSpace(resp.Content)
-	text = strings.TrimPrefix(text, "```json")
-	text = strings.TrimPrefix(text, "```")
-	text = strings.TrimSuffix(text, "```")
-	text = strings.TrimSpace(text)
-	if text != "" && json.Valid([]byte(text)) {
-		return json.RawMessage(text), nil
-	}
-	return nil, errors.New("model did not return structured output")
 }
 
 // judge asks the models whether a statement holds for the screen.

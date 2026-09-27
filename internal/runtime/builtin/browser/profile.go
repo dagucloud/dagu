@@ -8,19 +8,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/browserhost"
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
 )
 
 const (
 	profilesDirName   = "profiles"
 	profileLockSuffix = ".lock"
 	profileDirMode    = 0o700
-	// profileHeartbeatInterval keeps the lock well inside dirlock's
-	// staleness threshold.
-	profileHeartbeatInterval = 10 * time.Second
 )
 
 // profileLease holds exclusive use of a persistent browser profile. Chrome
@@ -59,8 +56,7 @@ func acquireProfile(ctx context.Context, browserDir, name string, store *browser
 			return nil, fmt.Errorf("browser profile %q is held by DAG run %s, which is waiting for input", name, record.DAGRunID)
 		}
 	}
-	heartbeatCtx, stop := context.WithCancel(context.WithoutCancel(ctx))
-	go heartbeat(heartbeatCtx, lock)
+	stop := agentstep.KeepLockAlive(ctx, lock)
 	return &profileLease{dir: dir, lock: lock, stop: stop}, nil
 }
 
@@ -70,17 +66,4 @@ func (l *profileLease) release() {
 	}
 	l.stop()
 	_ = l.lock.Unlock()
-}
-
-func heartbeat(ctx context.Context, lock dirlock.DirLock) {
-	ticker := time.NewTicker(profileHeartbeatInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			_ = lock.Heartbeat(ctx)
-		}
-	}
 }

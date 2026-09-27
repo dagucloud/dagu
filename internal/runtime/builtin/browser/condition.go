@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
 )
 
 // condition is the value of expect or when: a statement the model judges,
@@ -52,7 +54,7 @@ func (c condition) validate() error {
 	if set != 1 {
 		return errors.New("a condition is a statement, or an object with exactly one of text, selector, or url")
 	}
-	return validateDuration("within", c.Within)
+	return agentstep.ValidateDuration("within", c.Within)
 }
 
 // window returns how long a fixed check keeps reading the page, or fallback

@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/desktop"
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/llm/computeruse"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
 )
 
 // maxActionPause caps the waits and key holds a model asks for, so one
@@ -166,12 +167,7 @@ func (r *run) snapshot(ctx context.Context, limit computeruse.ImageLimit, region
 // substitute replaces %name% placeholders with variable values. Unknown
 // names stay as written.
 func (r *run) substitute(text string) string {
-	return variableReferencePattern.ReplaceAllStringFunc(text, func(match string) string {
-		if value, ok := r.variables[match[1:len(match)-1]]; ok {
-			return value
-		}
-		return match
-	})
+	return agentstep.SubstituteVariables(text, r.variables)
 }
 
 // toDisplay returns a completed action in display pixels, or false for

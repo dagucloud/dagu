@@ -526,17 +526,6 @@ func TestModelBridgeFallsBackAndMasks(t *testing.T) {
 	assert.Equal(t, "tree contains *******", lastUserText(request))
 }
 
-func TestStructuredAnswerFromText(t *testing.T) {
-	t.Parallel()
-
-	answer, err := structuredAnswer(&llmpkg.ChatResponse{Content: "```json\n{\"ok\":true}\n```"})
-	require.NoError(t, err)
-	assert.JSONEq(t, `{"ok":true}`, string(answer))
-
-	_, err = structuredAnswer(&llmpkg.ChatResponse{Content: "I cannot help"})
-	assert.Error(t, err)
-}
-
 func TestCheckAllowedDomain(t *testing.T) {
 	t.Parallel()
 

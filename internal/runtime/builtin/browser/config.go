@@ -7,12 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/google/jsonschema-go/jsonschema"
 )
@@ -45,23 +45,6 @@ const (
 	defaultOperationTimeout = 2 * time.Minute
 	defaultAskTimeout       = time.Hour
 )
-
-var (
-	identifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
-	fileNamePattern   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
-	// variableReferencePattern finds %name% references in act instructions.
-	variableReferencePattern = regexp.MustCompile(`%([A-Za-z_][A-Za-z0-9_]*)%`)
-)
-
-// variableReferences returns the names an instruction references as %name%.
-func variableReferences(instruction string) []string {
-	matches := variableReferencePattern.FindAllStringSubmatch(instruction, -1)
-	names := make([]string, 0, len(matches))
-	for _, match := range matches {
-		names = append(names, match[1])
-	}
-	return names
-}
 
 func init() {
 	registry.RegisterExecutorConfigSchema(executorType, configSchema)
@@ -255,8 +238,8 @@ func (c config) validate() error {
 		return errors.New("browser: with.do must list at least one operation")
 	}
 	for name := range c.Variables {
-		if !identifierPattern.MatchString(name) {
-			return fmt.Errorf("browser: variable name %q must match %s", name, identifierPattern)
+		if !agentstep.IdentifierPattern.MatchString(name) {
+			return fmt.Errorf("browser: variable name %q must match %s", name, agentstep.IdentifierPattern)
 		}
 	}
 	for _, pattern := range c.Browser.AllowedDomains {
@@ -268,8 +251,8 @@ func (c config) validate() error {
 			return fmt.Errorf("browser: %w", err)
 		}
 	}
-	if profile := c.Browser.Profile; profile != "" && !fileNamePattern.MatchString(profile) {
-		return fmt.Errorf("browser: profile %q must match %s", profile, fileNamePattern)
+	if profile := c.Browser.Profile; profile != "" && !agentstep.FileNamePattern.MatchString(profile) {
+		return fmt.Errorf("browser: profile %q must match %s", profile, agentstep.FileNamePattern)
 	}
 	outputs := make(map[string]int)
 	asks := make(map[string]int)
@@ -278,7 +261,7 @@ func (c config) validate() error {
 			return fmt.Errorf("browser: do[%d]: %w", i, err)
 		}
 		if op.Act != nil {
-			for _, name := range variableReferences(op.Act.Instruction) {
+			for _, name := range agentstep.VariableReferences(op.Act.Instruction) {
 				_, isVariable := c.Variables[name]
 				_, isEarlierAsk := asks[name]
 				if !isVariable && !isEarlierAsk {
@@ -312,7 +295,7 @@ func (o operation) validate() error {
 	if o.kind() == "" {
 		return errors.New("operation must set one of goto, act, extract, expect, wait, screenshot, or ask")
 	}
-	if err := validateDuration("timeout", o.Timeout); err != nil {
+	if err := agentstep.ValidateDuration("timeout", o.Timeout); err != nil {
 		return err
 	}
 	if o.When != nil {
@@ -340,65 +323,40 @@ func (o operation) validate() error {
 		if (o.Wait.Selector == "") == (o.Wait.Duration == "") {
 			return errors.New("wait must set exactly one of selector or duration")
 		}
-		if err := validateDuration("wait.duration", o.Wait.Duration); err != nil {
+		if err := agentstep.ValidateDuration("wait.duration", o.Wait.Duration); err != nil {
 			return err
 		}
 	case o.Screenshot != "":
-		if !fileNamePattern.MatchString(o.Screenshot) {
-			return fmt.Errorf("screenshot name %q must match %s", o.Screenshot, fileNamePattern)
+		if !agentstep.FileNamePattern.MatchString(o.Screenshot) {
+			return fmt.Errorf("screenshot name %q must match %s", o.Screenshot, agentstep.FileNamePattern)
 		}
 	case o.Ask != nil:
 		if strings.TrimSpace(o.Ask.Prompt) == "" {
 			return errors.New("ask prompt must not be empty")
 		}
-		if !identifierPattern.MatchString(o.Ask.As) {
-			return fmt.Errorf("ask.as %q must match %s", o.Ask.As, identifierPattern)
+		if !agentstep.IdentifierPattern.MatchString(o.Ask.As) {
+			return fmt.Errorf("ask.as %q must match %s", o.Ask.As, agentstep.IdentifierPattern)
 		}
-		if err := validateDuration("ask.timeout", o.Ask.Timeout); err != nil {
+		if err := agentstep.ValidateDuration("ask.timeout", o.Ask.Timeout); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-// validateDuration checks literal durations; references resolve at run time.
-func validateDuration(field, value string) error {
-	if value == "" || strings.Contains(value, "$") {
-		return nil
-	}
-	if d, err := time.ParseDuration(value); err != nil || d <= 0 {
-		return fmt.Errorf("%s %q must be a positive duration such as 30s", field, value)
-	}
-	return nil
-}
-
-// The schema library requires every node to be a distinct value, so shared
-// shapes are built by functions.
-func noExtraProperties() *jsonschema.Schema {
-	return &jsonschema.Schema{Not: &jsonschema.Schema{}}
-}
-
-func stringSchema() *jsonschema.Schema {
-	return &jsonschema.Schema{Type: "string"}
-}
-
-func nonEmptyString() *jsonschema.Schema {
-	return &jsonschema.Schema{Type: "string", MinLength: new(1)}
 }
 
 // conditionSchema accepts a statement or an object with exactly one fixed
 // check.
 func conditionSchema() *jsonschema.Schema {
 	return &jsonschema.Schema{AnyOf: []*jsonschema.Schema{
-		nonEmptyString(),
+		agentstep.NonEmptyString(),
 		{
 			Type:                 "object",
-			AdditionalProperties: noExtraProperties(),
+			AdditionalProperties: agentstep.NoExtraProperties(),
 			Properties: map[string]*jsonschema.Schema{
-				"text":     nonEmptyString(),
-				"selector": nonEmptyString(),
-				"url":      nonEmptyString(),
-				"within":   stringSchema(),
+				"text":     agentstep.NonEmptyString(),
+				"selector": agentstep.NonEmptyString(),
+				"url":      agentstep.NonEmptyString(),
+				"within":   agentstep.StringSchema(),
 			},
 			OneOf: []*jsonschema.Schema{
 				{Required: []string{"text"}},
@@ -411,50 +369,50 @@ func conditionSchema() *jsonschema.Schema {
 
 var operationSchema = &jsonschema.Schema{
 	Type:                 "object",
-	AdditionalProperties: noExtraProperties(),
+	AdditionalProperties: agentstep.NoExtraProperties(),
 	Properties: map[string]*jsonschema.Schema{
-		opGoto: nonEmptyString(),
+		opGoto: agentstep.NonEmptyString(),
 		opAct: {
 			Types:                []string{"string", "object"},
 			MinLength:            new(1),
-			AdditionalProperties: noExtraProperties(),
+			AdditionalProperties: agentstep.NoExtraProperties(),
 			Required:             []string{"instruction"},
 			Properties: map[string]*jsonschema.Schema{
-				"instruction": nonEmptyString(),
+				"instruction": agentstep.NonEmptyString(),
 				"cache":       {Type: "boolean"},
 			},
 		},
 		opExtract: {
 			Type:                 "object",
-			AdditionalProperties: noExtraProperties(),
+			AdditionalProperties: agentstep.NoExtraProperties(),
 			Required:             []string{"instruction", "schema"},
 			Properties: map[string]*jsonschema.Schema{
-				"instruction": nonEmptyString(),
+				"instruction": agentstep.NonEmptyString(),
 				"schema":      {Type: "object"},
 			},
 		},
 		opExpect: conditionSchema(),
 		opWait: {
 			Type:                 "object",
-			AdditionalProperties: noExtraProperties(),
+			AdditionalProperties: agentstep.NoExtraProperties(),
 			Properties: map[string]*jsonschema.Schema{
-				"selector": nonEmptyString(),
-				"duration": nonEmptyString(),
+				"selector": agentstep.NonEmptyString(),
+				"duration": agentstep.NonEmptyString(),
 			},
 		},
-		opScreenshot: nonEmptyString(),
+		opScreenshot: agentstep.NonEmptyString(),
 		opAsk: {
 			Type:                 "object",
-			AdditionalProperties: noExtraProperties(),
+			AdditionalProperties: agentstep.NoExtraProperties(),
 			Required:             []string{"prompt", "as"},
 			Properties: map[string]*jsonschema.Schema{
-				"prompt":  nonEmptyString(),
-				"as":      nonEmptyString(),
-				"timeout": stringSchema(),
+				"prompt":  agentstep.NonEmptyString(),
+				"as":      agentstep.NonEmptyString(),
+				"timeout": agentstep.StringSchema(),
 			},
 		},
 		"when":    conditionSchema(),
-		"timeout": stringSchema(),
+		"timeout": agentstep.StringSchema(),
 	},
 	OneOf: []*jsonschema.Schema{
 		{Required: []string{opGoto}},
@@ -469,32 +427,32 @@ var operationSchema = &jsonschema.Schema{
 
 var configSchema = &jsonschema.Schema{
 	Type:                 "object",
-	AdditionalProperties: noExtraProperties(),
+	AdditionalProperties: agentstep.NoExtraProperties(),
 	Required:             []string{"do"},
 	Properties: map[string]*jsonschema.Schema{
-		"url": nonEmptyString(),
+		"url": agentstep.NonEmptyString(),
 		"browser": {
 			Type:                 "object",
-			AdditionalProperties: noExtraProperties(),
+			AdditionalProperties: agentstep.NoExtraProperties(),
 			Properties: map[string]*jsonschema.Schema{
 				"headless":   {Type: "boolean"},
-				"executable": nonEmptyString(),
+				"executable": agentstep.NonEmptyString(),
 				"viewport": {
 					Type:                 "object",
-					AdditionalProperties: noExtraProperties(),
+					AdditionalProperties: agentstep.NoExtraProperties(),
 					Required:             []string{"width", "height"},
 					Properties: map[string]*jsonschema.Schema{
 						"width":  {Type: "integer", Minimum: new(1.0)},
 						"height": {Type: "integer", Minimum: new(1.0)},
 					},
 				},
-				"proxy":           nonEmptyString(),
-				"allowed_domains": {Type: "array", Items: nonEmptyString()},
+				"proxy":           agentstep.NonEmptyString(),
+				"allowed_domains": {Type: "array", Items: agentstep.NonEmptyString()},
 				"screenshots":     {Type: "string", Enum: []any{screenshotsOnFailure, screenshotsFinal, screenshotsEach, screenshotsNever}},
-				"profile":         nonEmptyString(),
+				"profile":         agentstep.NonEmptyString(),
 			},
 		},
-		"variables": {Type: "object", AdditionalProperties: stringSchema()},
+		"variables": {Type: "object", AdditionalProperties: agentstep.StringSchema()},
 		"cache":     {Type: "boolean"},
 		"do":        {Type: "array", MinItems: new(1), Items: operationSchema},
 	},

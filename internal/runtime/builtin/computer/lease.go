@@ -8,17 +8,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
 )
 
 const (
 	desktopLockName = "desktop.lock"
 	desktopDirMode  = 0o700
-	// leaseHeartbeatInterval keeps the lock well inside dirlock's staleness
-	// threshold.
-	leaseHeartbeatInterval = 10 * time.Second
 )
 
 // desktopLease holds exclusive use of the desktop. Two steps typing and
@@ -40,8 +37,7 @@ func acquireDesktop(ctx context.Context, computerDir string, t *timeline) (*desk
 	if err := lock.Lock(ctx); err != nil {
 		return nil, fmt.Errorf("lock the desktop: %w", err)
 	}
-	heartbeatCtx, stop := context.WithCancel(context.WithoutCancel(ctx))
-	go heartbeat(heartbeatCtx, lock)
+	stop := agentstep.KeepLockAlive(ctx, lock)
 	return &desktopLease{lock: lock, stop: stop}, nil
 }
 
@@ -51,17 +47,4 @@ func (l *desktopLease) release() {
 	}
 	l.stop()
 	_ = l.lock.Unlock()
-}
-
-func heartbeat(ctx context.Context, lock dirlock.DirLock) {
-	ticker := time.NewTicker(leaseHeartbeatInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			_ = lock.Heartbeat(ctx)
-		}
-	}
 }

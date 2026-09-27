@@ -18,6 +18,7 @@ import (
 
 	"github.com/coder/websocket"
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
 )
 
 // fakeLauncher hands out one shared fakeEngine so a test can observe a
@@ -261,7 +262,7 @@ func (p *scriptedProvider) Chat(_ context.Context, req *llmpkg.ChatRequest) (*ll
 	return &llmpkg.ChatResponse{
 		ToolCalls: []llmpkg.ToolCall{{
 			ID: "call-1", Type: "function",
-			Function: llmpkg.ToolCallFunction{Name: respondToolName, Arguments: arguments},
+			Function: llmpkg.ToolCallFunction{Name: agentstep.RespondToolName, Arguments: arguments},
 		}},
 		Usage: llmpkg.Usage{PromptTokens: 10, CompletionTokens: 2, TotalTokens: 12},
 	}, nil

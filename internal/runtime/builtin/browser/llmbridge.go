@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
@@ -16,17 +15,10 @@ import (
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
 	_ "github.com/dagucloud/dagu/v2/internal/llm/allproviders"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
 )
 
-const (
-	respondToolName        = "respond"
-	respondToolDescription = "Return the answer as arguments that match the parameter schema exactly."
-	toolChoiceRequired     = "required"
-)
-
-// schemaKeysToStrip are schema annotations some providers reject in tool
-// parameters.
-var schemaKeysToStrip = []string{"$schema", "$id"}
+const toolChoiceRequired = "required"
 
 // providerFactory builds a provider for one resolved model configuration.
 type providerFactory func(ctx context.Context, cfg *ir.LLMConfig) (llmpkg.Provider, error)
@@ -117,8 +109,8 @@ func (b *modelBridge) generate(ctx context.Context, req generateRequest) (genera
 			Tools: []llmpkg.Tool{{
 				Type: "function",
 				Function: llmpkg.ToolFunction{
-					Name:        respondToolName,
-					Description: respondToolDescription,
+					Name:        agentstep.RespondToolName,
+					Description: agentstep.RespondToolDescription,
 					Parameters:  parameters,
 				},
 			}},
@@ -135,7 +127,7 @@ func (b *modelBridge) generate(ctx context.Context, req generateRequest) (genera
 			errs = append(errs, fmt.Errorf("%s/%s: %w", model.Provider, model.Name, err))
 			continue
 		}
-		answer, err := structuredAnswer(resp)
+		answer, err := agentstep.StructuredAnswer(resp)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s/%s: %w", model.Provider, model.Name, err))
 			continue
@@ -161,27 +153,5 @@ func toolParameters(schema json.RawMessage) (map[string]any, error) {
 	if err := json.Unmarshal(schema, &parameters); err != nil {
 		return nil, fmt.Errorf("decode response schema: %w", err)
 	}
-	for _, key := range schemaKeysToStrip {
-		delete(parameters, key)
-	}
-	return parameters, nil
-}
-
-// structuredAnswer returns the JSON the model produced, preferring the
-// respond tool call and falling back to JSON in the text content.
-func structuredAnswer(resp *llmpkg.ChatResponse) (json.RawMessage, error) {
-	for _, call := range resp.ToolCalls {
-		if call.Function.Name == respondToolName && json.Valid([]byte(call.Function.Arguments)) {
-			return json.RawMessage(call.Function.Arguments), nil
-		}
-	}
-	text := strings.TrimSpace(resp.Content)
-	text = strings.TrimPrefix(text, "```json")
-	text = strings.TrimPrefix(text, "```")
-	text = strings.TrimSuffix(text, "```")
-	text = strings.TrimSpace(text)
-	if text != "" && json.Valid([]byte(text)) {
-		return json.RawMessage(text), nil
-	}
-	return nil, errors.New("model did not return structured output")
+	return agentstep.ToolParameters(parameters), nil
 }

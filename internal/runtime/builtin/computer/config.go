@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 
@@ -15,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/llm/computeruse"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/google/jsonschema-go/jsonschema"
 )
@@ -54,23 +54,6 @@ const (
 	defaultAskTimeout       = time.Hour
 	defaultMaxActions       = 50
 )
-
-var (
-	identifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
-	fileNamePattern   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
-	// variableReferencePattern finds %name% references in act instructions.
-	variableReferencePattern = regexp.MustCompile(`%([A-Za-z_][A-Za-z0-9_]*)%`)
-)
-
-// variableReferences returns the names a text references as %name%.
-func variableReferences(text string) []string {
-	matches := variableReferencePattern.FindAllStringSubmatch(text, -1)
-	names := make([]string, 0, len(matches))
-	for _, match := range matches {
-		names = append(names, match[1])
-	}
-	return names
-}
 
 func init() {
 	registry.RegisterExecutorConfigSchema(executorType, configSchema)
@@ -317,8 +300,8 @@ func (c config) validate() error {
 		return errors.New("computer: with.do must list at least one operation")
 	}
 	for name := range c.Variables {
-		if !identifierPattern.MatchString(name) {
-			return fmt.Errorf("computer: variable name %q must match %s", name, identifierPattern)
+		if !agentstep.IdentifierPattern.MatchString(name) {
+			return fmt.Errorf("computer: variable name %q must match %s", name, agentstep.IdentifierPattern)
 		}
 	}
 	outputs := make(map[string]int)
@@ -328,7 +311,7 @@ func (c config) validate() error {
 			return fmt.Errorf("computer: do[%d]: %w", i, err)
 		}
 		if op.Act != nil {
-			for _, name := range variableReferences(op.Act.Instruction) {
+			for _, name := range agentstep.VariableReferences(op.Act.Instruction) {
 				_, isVariable := c.Variables[name]
 				_, isEarlierAsk := asks[name]
 				if !isVariable && !isEarlierAsk {
@@ -362,7 +345,7 @@ func (o operation) validate() error {
 	if o.kind() == "" {
 		return errors.New("operation must set one of launch, act, extract, expect, wait, screenshot, or ask")
 	}
-	if err := validateDuration("timeout", o.Timeout); err != nil {
+	if err := agentstep.ValidateDuration("timeout", o.Timeout); err != nil {
 		return err
 	}
 	if o.When != nil {
@@ -391,21 +374,21 @@ func (o operation) validate() error {
 			return fmt.Errorf("expect: %w", err)
 		}
 	case o.Wait != "":
-		if err := validateDuration("wait", o.Wait); err != nil {
+		if err := agentstep.ValidateDuration("wait", o.Wait); err != nil {
 			return err
 		}
 	case o.Screenshot != "":
-		if !fileNamePattern.MatchString(o.Screenshot) {
-			return fmt.Errorf("screenshot name %q must match %s", o.Screenshot, fileNamePattern)
+		if !agentstep.FileNamePattern.MatchString(o.Screenshot) {
+			return fmt.Errorf("screenshot name %q must match %s", o.Screenshot, agentstep.FileNamePattern)
 		}
 	case o.Ask != nil:
 		if strings.TrimSpace(o.Ask.Prompt) == "" {
 			return errors.New("ask prompt must not be empty")
 		}
-		if !identifierPattern.MatchString(o.Ask.As) {
-			return fmt.Errorf("ask.as %q must match %s", o.Ask.As, identifierPattern)
+		if !agentstep.IdentifierPattern.MatchString(o.Ask.As) {
+			return fmt.Errorf("ask.as %q must match %s", o.Ask.As, agentstep.IdentifierPattern)
 		}
-		if err := validateDuration("ask.timeout", o.Ask.Timeout); err != nil {
+		if err := agentstep.ValidateDuration("ask.timeout", o.Ask.Timeout); err != nil {
 			return err
 		}
 	}
@@ -416,32 +399,7 @@ func (c condition) validate() error {
 	if strings.TrimSpace(c.Statement) == "" {
 		return errors.New("statement must not be empty")
 	}
-	return validateDuration("within", c.Within)
-}
-
-// validateDuration checks literal durations; references resolve at run time.
-func validateDuration(field, value string) error {
-	if value == "" || strings.Contains(value, "$") {
-		return nil
-	}
-	if d, err := time.ParseDuration(value); err != nil || d <= 0 {
-		return fmt.Errorf("%s %q must be a positive duration such as 30s", field, value)
-	}
-	return nil
-}
-
-// The schema library requires every node to be a distinct value, so shared
-// shapes are built by functions.
-func noExtraProperties() *jsonschema.Schema {
-	return &jsonschema.Schema{Not: &jsonschema.Schema{}}
-}
-
-func stringSchema() *jsonschema.Schema {
-	return &jsonschema.Schema{Type: "string"}
-}
-
-func nonEmptyString() *jsonschema.Schema {
-	return &jsonschema.Schema{Type: "string", MinLength: new(1)}
+	return agentstep.ValidateDuration("within", c.Within)
 }
 
 func positiveInteger() *jsonschema.Schema {
@@ -453,64 +411,64 @@ func conditionSchema() *jsonschema.Schema {
 	return &jsonschema.Schema{
 		Types:                []string{"string", "object"},
 		MinLength:            new(1),
-		AdditionalProperties: noExtraProperties(),
+		AdditionalProperties: agentstep.NoExtraProperties(),
 		Required:             []string{"statement"},
 		Properties: map[string]*jsonschema.Schema{
-			"statement": nonEmptyString(),
-			"within":    stringSchema(),
+			"statement": agentstep.NonEmptyString(),
+			"within":    agentstep.StringSchema(),
 		},
 	}
 }
 
 var operationSchema = &jsonschema.Schema{
 	Type:                 "object",
-	AdditionalProperties: noExtraProperties(),
+	AdditionalProperties: agentstep.NoExtraProperties(),
 	Properties: map[string]*jsonschema.Schema{
 		opLaunch: {
 			Types:                []string{"string", "object"},
 			MinLength:            new(1),
-			AdditionalProperties: noExtraProperties(),
+			AdditionalProperties: agentstep.NoExtraProperties(),
 			Required:             []string{"command"},
 			Properties: map[string]*jsonschema.Schema{
-				"command": nonEmptyString(),
-				"args":    {Type: "array", Items: stringSchema()},
+				"command": agentstep.NonEmptyString(),
+				"args":    {Type: "array", Items: agentstep.StringSchema()},
 			},
 		},
 		opAct: {
 			Types:                []string{"string", "object"},
 			MinLength:            new(1),
-			AdditionalProperties: noExtraProperties(),
+			AdditionalProperties: agentstep.NoExtraProperties(),
 			Required:             []string{"instruction"},
 			Properties: map[string]*jsonschema.Schema{
-				"instruction": nonEmptyString(),
+				"instruction": agentstep.NonEmptyString(),
 				"cache":       {Type: "boolean"},
 				"max_actions": positiveInteger(),
 			},
 		},
 		opExtract: {
 			Type:                 "object",
-			AdditionalProperties: noExtraProperties(),
+			AdditionalProperties: agentstep.NoExtraProperties(),
 			Required:             []string{"instruction", "schema"},
 			Properties: map[string]*jsonschema.Schema{
-				"instruction": nonEmptyString(),
+				"instruction": agentstep.NonEmptyString(),
 				"schema":      {Type: "object"},
 			},
 		},
 		opExpect:     conditionSchema(),
-		opWait:       nonEmptyString(),
-		opScreenshot: nonEmptyString(),
+		opWait:       agentstep.NonEmptyString(),
+		opScreenshot: agentstep.NonEmptyString(),
 		opAsk: {
 			Type:                 "object",
-			AdditionalProperties: noExtraProperties(),
+			AdditionalProperties: agentstep.NoExtraProperties(),
 			Required:             []string{"prompt", "as"},
 			Properties: map[string]*jsonschema.Schema{
-				"prompt":  nonEmptyString(),
-				"as":      nonEmptyString(),
-				"timeout": stringSchema(),
+				"prompt":  agentstep.NonEmptyString(),
+				"as":      agentstep.NonEmptyString(),
+				"timeout": agentstep.StringSchema(),
 			},
 		},
 		"when":    conditionSchema(),
-		"timeout": stringSchema(),
+		"timeout": agentstep.StringSchema(),
 	},
 	OneOf: []*jsonschema.Schema{
 		{Required: []string{opLaunch}},
@@ -525,11 +483,11 @@ var operationSchema = &jsonschema.Schema{
 
 var configSchema = &jsonschema.Schema{
 	Type:                 "object",
-	AdditionalProperties: noExtraProperties(),
+	AdditionalProperties: agentstep.NoExtraProperties(),
 	Required:             []string{"do"},
 	Properties: map[string]*jsonschema.Schema{
 		"mode":            {Type: "string", Enum: []any{string(computeruse.ModeAuto), string(computeruse.ModeNative), string(computeruse.ModeGeneric)}},
-		"variables":       {Type: "object", AdditionalProperties: stringSchema()},
+		"variables":       {Type: "object", AdditionalProperties: agentstep.StringSchema()},
 		"screenshots":     {Type: "string", Enum: []any{screenshotsOnFailure, screenshotsFinal, screenshotsEach, screenshotsNever}},
 		"cache":           {Type: "boolean"},
 		"max_actions":     positiveInteger(),
