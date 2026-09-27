@@ -17,6 +17,7 @@ import (
 	"mime"
 	"mime/multipart"
 	"net"
+	"net/http"
 	"net/mail"
 	"net/smtp"
 	"net/textproto"
@@ -401,8 +402,9 @@ func (m *Client) composeMail(
 }
 
 type attachment struct {
-	name string
-	data []byte
+	name        string
+	contentType string
+	data        []byte
 }
 
 func loadAttachments(fileNames []string) []attachment {
@@ -412,12 +414,23 @@ func loadAttachments(fileNames []string) []attachment {
 		if err != nil {
 			continue
 		}
+		name := filepath.Base(fileName)
 		attachments = append(attachments, attachment{
-			name: filepath.Base(fileName),
-			data: data,
+			name:        name,
+			contentType: attachmentContentType(name, data),
+			data:        data,
 		})
 	}
 	return attachments
+}
+
+// attachmentContentType takes the type from the file name, or from the
+// content when the name implies none.
+func attachmentContentType(name string, data []byte) string {
+	if contentType := mime.TypeByExtension(filepath.Ext(name)); contentType != "" {
+		return contentType
+	}
+	return http.DetectContentType(data)
 }
 
 func (m *Client) composeSinglePartMail(
@@ -458,7 +471,7 @@ func (m *Client) composeMultipartMail(
 
 	for _, attachment := range attachments {
 		attachmentHeader := make(textproto.MIMEHeader)
-		attachmentHeader.Set("Content-Type", "text/plain")
+		attachmentHeader.Set("Content-Type", attachment.contentType)
 		attachmentHeader.Set("Content-Transfer-Encoding", "base64")
 		attachmentHeader.Set(
 			"Content-Disposition",

@@ -14,6 +14,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -732,6 +733,52 @@ func TestComposeMultipartMailEndsWithClosingBoundary(t *testing.T) {
 
 	require.True(t, strings.HasSuffix(string(payload), "--"+boundary+"--\r\n"))
 	require.NotContains(t, string(payload), "--"+boundary+"--\r\n\r\n")
+}
+
+// Attachments carry the type their name implies, or their content when the
+// name implies none, so a PDF report is not delivered as plain text.
+func TestComposeMultipartMailTypesAttachments(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	files := map[string][]byte{
+		"report.pdf":           []byte("%PDF-1.7 report"),
+		"chart.png":            []byte("\x89PNG\r\n\x1a\nchart"),
+		"step-output.dagu-log": []byte("step finished\n"),
+	}
+	var paths []string
+	for name, data := range files {
+		path := filepath.Join(dir, name)
+		require.NoError(t, os.WriteFile(path, data, 0600))
+		paths = append(paths, path)
+	}
+
+	payload, err := New(Config{}).composeMail(
+		[]string{"to@example.com"}, nil, "from@example.com", "subject", "body", paths,
+	)
+	require.NoError(t, err)
+
+	message, err := mail.ReadMessage(bytes.NewReader(payload))
+	require.NoError(t, err)
+	_, params, err := mime.ParseMediaType(message.Header.Get("Content-Type"))
+	require.NoError(t, err)
+	reader := multipart.NewReader(message.Body, params["boundary"])
+	types := map[string]string{}
+	for {
+		part, err := reader.NextPart()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		require.NoError(t, err)
+		if name := part.FileName(); name != "" {
+			types[name] = part.Header.Get("Content-Type")
+		}
+	}
+	assert.Equal(t, map[string]string{
+		"report.pdf":           "application/pdf",
+		"chart.png":            "image/png",
+		"step-output.dagu-log": "text/plain; charset=utf-8",
+	}, types)
 }
 
 func TestSendWithoutAuthSkipsStartTLS(t *testing.T) {
