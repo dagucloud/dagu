@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package oauthconfig defines SMTP OAuth configuration.
+// Package oauthconfig defines OAuth configuration for SMTP and mail accounts.
 package oauthconfig
 
 import (
@@ -16,13 +16,16 @@ const (
 	ProviderMicrosoft            Provider = "microsoft"
 	ProviderGoogleServiceAccount Provider = "google_service_account"
 	ProviderGoogleRefresh        Provider = "google_refresh"
+	// ProviderMicrosoftRefresh uses a delegated refresh token. Only mail
+	// accounts accept it.
+	ProviderMicrosoftRefresh Provider = "microsoft_refresh"
 
 	microsoftSMTPHost = "smtp.office365.com"
 	googleSMTPHost    = "smtp.gmail.com"
 	smtpPort          = "587"
 )
 
-// Config contains the provider credentials needed to acquire SMTP access tokens.
+// Config contains the provider credentials needed to acquire access tokens.
 type Config struct {
 	Provider           Provider `json:"provider,omitempty" yaml:"provider,omitempty"`
 	TenantID           string   `json:"tenantId,omitempty" yaml:"tenant_id,omitempty"`
@@ -119,5 +122,54 @@ func ValidateStructure(cfg *Config) error {
 		)
 	default:
 		return errors.New("SMTP OAuth provider is required")
+	}
+}
+
+// ValidateMailAccount validates the OAuth credentials of a mail account, which
+// accepts only refresh-token providers.
+func ValidateMailAccount(cfg *Config) error {
+	if cfg == nil {
+		return nil
+	}
+	require := func(fields ...configField) error {
+		for _, field := range fields {
+			if strings.TrimSpace(field.value) == "" {
+				return fmt.Errorf("oauth.%s is required", field.name)
+			}
+		}
+		return nil
+	}
+	reject := func(provider Provider, fields ...configField) error {
+		for _, field := range fields {
+			if strings.TrimSpace(field.value) != "" {
+				return fmt.Errorf("oauth.%s is not valid for provider %q", field.name, provider)
+			}
+		}
+		return nil
+	}
+
+	switch provider := strings.TrimSpace(cfg.Provider); provider {
+	case ProviderGoogleRefresh:
+		if err := require(
+			configField{"client_id", cfg.ClientID},
+			configField{"client_secret", cfg.ClientSecret},
+			configField{"refresh_token", cfg.RefreshToken},
+		); err != nil {
+			return err
+		}
+		return reject(provider,
+			configField{"tenant_id", cfg.TenantID},
+			configField{"service_account_json", cfg.ServiceAccountJSON},
+		)
+	case ProviderMicrosoftRefresh:
+		if err := require(
+			configField{"client_id", cfg.ClientID},
+			configField{"refresh_token", cfg.RefreshToken},
+		); err != nil {
+			return err
+		}
+		return reject(provider, configField{"service_account_json", cfg.ServiceAccountJSON})
+	default:
+		return fmt.Errorf("oauth.provider must be %s or %s", ProviderGoogleRefresh, ProviderMicrosoftRefresh)
 	}
 }

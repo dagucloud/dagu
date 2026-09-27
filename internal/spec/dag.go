@@ -108,6 +108,8 @@ type dag struct {
 	Steps any `yaml:"steps,omitempty"` // []step or map[string]step
 	// SMTP is the SMTP configuration.
 	SMTP smtpConfig `yaml:"smtp,omitempty"`
+	// MailAccounts maps email addresses to the accounts mail actions use.
+	MailAccounts map[string]any `yaml:"mail_accounts,omitempty"`
 	// MailOn is the mail configuration.
 	MailOn *mailOn `yaml:"mail_on,omitempty"`
 	// ErrorMail is the mail configuration for error.
@@ -601,6 +603,7 @@ var fullExecutionDefaultsStage = transformStage{
 	dagField("registry_auths", buildRegistryAuths, func(out *ir.DAG, v map[string]*ir.AuthConfig) { out.RegistryAuths = v }),
 	dagField("ssh", buildSSH, func(out *ir.DAG, v *ir.SSHConfig) { out.SSH = v }),
 	dagField("s3", buildS3, func(out *ir.DAG, v *ir.S3Config) { out.S3 = v }),
+	dagField("mail_accounts", buildMailAccounts, func(out *ir.DAG, v ir.MailAccounts) { out.MailAccounts = v }),
 	dagField("llm", buildLLM, func(out *ir.DAG, v *ir.LLMConfig) { out.LLM = v }),
 	dagField("redis", buildRedis, func(out *ir.DAG, v *ir.RedisConfig) { out.Redis = v }),
 	dagField("harnesses", buildHarnesses, func(out *ir.DAG, v ir.HarnessDefinitions) { out.Harnesses = v }),

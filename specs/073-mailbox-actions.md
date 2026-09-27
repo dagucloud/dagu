@@ -46,6 +46,11 @@ Provider defaults:
 | `google` | `imap.gmail.com:993`, `tls` | `smtp.gmail.com:465`, `tls` |
 | `microsoft` | `outlook.office365.com:993`, `tls` | `smtp.office365.com:587`, `starttls` |
 
+A server block overrides the provider default field by field. `security`
+defaults to `tls`. `port` defaults to the standard port for the protocol and
+security mode: 993 for IMAP or 465 for SMTP with `tls`, and 143 or 587 with
+`starttls`; a block that keeps the provider's security mode keeps its port.
+
 Account fields resolve at run start like other DAG fields. Values that come from
 secrets or profile secrets are masked as [Spec 069](069-secrets-providers.md) and
 [Spec 070](070-runtime-profiles.md) define.

@@ -166,6 +166,9 @@ type DAG struct {
 	// SMTP contains the SMTP configuration.
 	// Excluded from JSON: may contain password.
 	SMTP *SMTPConfig `json:"-"`
+	// MailAccounts contains the mail accounts used by mail actions.
+	// Excluded from JSON: may contain passwords and tokens.
+	MailAccounts MailAccounts `json:"-"`
 	// ErrorMail contains the mail configuration for errors.
 	ErrorMail *MailConfig `json:"errorMail,omitempty"`
 	// InfoMail contains the mail configuration for informational messages.
@@ -371,6 +374,9 @@ func (d *DAG) Clone() *DAG {
 			smtpCopy.OAuth = &oauthCopy
 		}
 		clone.SMTP = &smtpCopy
+	}
+	if d.MailAccounts != nil {
+		clone.MailAccounts = d.MailAccounts.Clone()
 	}
 	if d.Resources != nil {
 		clone.Resources = d.Resources.Clone()

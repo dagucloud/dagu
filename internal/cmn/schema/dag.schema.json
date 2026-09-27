@@ -533,6 +533,13 @@
       },
       "description": "SMTP server configuration for sending email notifications."
     },
+    "mail_accounts": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/mailAccount"
+      },
+      "description": "Mail accounts keyed by email address. mail.search, mail.organize, and mail.send with mailbox use them. A base config may define accounts; a DAG entry replaces the base entry with the same address."
+    },
     "mail_on": {
       "type": "object",
       "properties": {
@@ -3945,6 +3952,93 @@
         }
       },
       "description": "Docker executor configuration for running commands in containers."
+    },
+    "mailAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "type": "string",
+          "enum": ["google", "microsoft", "imap"],
+          "description": "Sets the default IMAP and SMTP servers. Defaults to imap, which requires imap.host."
+        },
+        "imap": {
+          "$ref": "#/definitions/mailServer",
+          "description": "IMAP server. Fields left out keep the provider default."
+        },
+        "smtp": {
+          "$ref": "#/definitions/mailServer",
+          "description": "SMTP server for mail.send with mailbox. Fields left out keep the provider default."
+        },
+        "username": {
+          "type": "string",
+          "description": "Login name for password authentication and the XOAUTH2 user. Defaults to the address."
+        },
+        "password": {
+          "type": "string",
+          "description": "Password or app password. Set exactly one of password or oauth."
+        },
+        "oauth": {
+          "$ref": "#/definitions/mailAccountOAuth"
+        }
+      },
+      "oneOf": [
+        { "required": ["password"] },
+        { "required": ["oauth"] }
+      ],
+      "description": "A mailbox that mail actions read from and send through."
+    },
+    "mailServer": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Server hostname."
+        },
+        "port": {
+          "oneOf": [{ "type": "string" }, { "type": "integer" }],
+          "description": "Server port. Defaults to the standard port for the protocol and security mode."
+        },
+        "security": {
+          "type": "string",
+          "enum": ["tls", "starttls"],
+          "description": "tls connects with TLS; starttls upgrades the connection and fails without STARTTLS. Defaults to tls."
+        },
+        "skip_tls_verify": {
+          "type": "boolean",
+          "description": "Accept any server certificate, such as a self-signed one."
+        }
+      }
+    },
+    "mailAccountOAuth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "client_id", "refresh_token"],
+      "properties": {
+        "provider": {
+          "type": "string",
+          "enum": ["google_refresh", "microsoft_refresh"],
+          "description": "Refresh-token provider."
+        },
+        "tenant_id": {
+          "type": "string",
+          "description": "Microsoft tenant. Defaults to common."
+        },
+        "client_id": {
+          "type": "string",
+          "description": "OAuth client ID."
+        },
+        "client_secret": {
+          "type": "string",
+          "description": "OAuth client secret. Required for google_refresh."
+        },
+        "refresh_token": {
+          "type": "string",
+          "description": "Refresh token exchanged for an access token before each connection."
+        }
+      },
+      "description": "OAuth refresh-token credentials."
     },
     "mailExecutorConfig": {
       "type": "object",

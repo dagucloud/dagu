@@ -23,6 +23,7 @@ var restoredFields = map[string]bool{
 	"Params":             true,
 	"ParamsJSON":         true,
 	"SMTP":               true,
+	"MailAccounts":       true,
 	"SSH":                true,
 	"S3":                 true,
 	"Redis":              true,
