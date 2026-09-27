@@ -44,3 +44,53 @@ steps:
 		})
 	}
 }
+
+func TestDAGSchemaMailActions(t *testing.T) {
+	t.Parallel()
+	const source = `
+steps:
+  - id: find
+    action: mail.search
+    with:
+      mailbox: ops@example.com
+      folder: INBOX
+      unread: true
+      from: billing@
+      subject: invoice
+      within: 24h
+      has_attachments: true
+      save_attachments: true
+      limit: 20
+  - id: file
+    action: mail.organize
+    with:
+      mailbox: ops@example.com
+      emails: ${steps.find.outputs.messages}
+      mark: read
+      move: folder
+      folder: Invoices
+      dry_run: false
+  - action: mail.send
+    with:
+      mailbox: ops@example.com
+      to: team@example.com
+      subject: Filed
+      message: done
+`
+	resolved := mustResolveDAGSchema(t)
+	require.NoError(t, resolved.Validate(mustParseYAMLDocument(t, source)))
+	for _, tc := range []struct{ name, from, to string }{
+		{"search without mailbox", "      mailbox: ops@example.com\n      folder: INBOX", "      folder: INBOX"},
+		{"limit above 50", "limit: 20", "limit: 80"},
+		{"unknown search field", "      limit: 20", "      label: x"},
+		{"organize without mark or move", "      mark: read\n      move: folder\n", ""},
+		{"unknown mark", "mark: read", "mark: starred"},
+		{"unknown move", "move: folder", "move: delete"},
+		{"send without mailbox or from", "      mailbox: ops@example.com\n      to: team", "      to: team"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := mustParseYAMLDocument(t, strings.Replace(source, tc.from, tc.to, 1))
+			require.Error(t, resolved.Validate(doc))
+		})
+	}
+}

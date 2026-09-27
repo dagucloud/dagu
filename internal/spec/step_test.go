@@ -73,8 +73,8 @@ func TestMain(m *testing.M) {
 			SubDAG: true, WorkerSelector: true,
 		})
 	}
-	// mail: no command support
-	registry.RegisterExecutorCapabilities("mail", registry.ExecutorCapabilities{})
+	// mail: search and organize operations
+	registry.RegisterExecutorCapabilities("mail", registry.ExecutorCapabilities{Command: true})
 	// log: no command support
 	registry.RegisterExecutorCapabilities("log", registry.ExecutorCapabilities{})
 	// outputs: supports write command
@@ -2853,10 +2853,11 @@ func TestValidateCommand(t *testing.T) {
 			wantErr:      true,
 		},
 		{
+			// The command carries the mail operation, such as search.
 			name:         "CommandWithMailExecutor",
 			executorType: "mail",
-			commands:     []ir.CommandEntry{{Command: "send"}},
-			wantErr:      true,
+			commands:     []ir.CommandEntry{{Command: "search"}},
+			wantErr:      false,
 		},
 		// Empty commands - should always pass
 		{

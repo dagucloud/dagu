@@ -79,6 +79,8 @@ var builtinActionNormalizers = map[string]actionNormalizer{
 	"k8s.run":             optionalCommandAction("k8s", "command"),
 	"kubernetes.run":      optionalCommandAction("kubernetes", "command"),
 	"log.write":           normalizeLogAction,
+	"mail.organize":       normalizeMailOrganizeAction,
+	"mail.search":         normalizeMailSearchAction,
 	"mail.send":           typedAction("mail"),
 	"noop":                normalizeNoopAction,
 	"outputs.write":       operationAction("outputs", "write"),
@@ -711,16 +713,23 @@ func validateGitWorktreeFields(with map[string]any, allowed map[string]gitWorktr
 }
 
 func validateGitWorktreeOutputOverrides(normalized map[string]any) error {
+	return validateFixedOutputs(normalized, "git worktree")
+}
+
+// validateFixedOutputs rejects output declarations on actions whose outputs
+// are fixed.
+func validateFixedOutputs(normalized map[string]any, action string) error {
+	err := fmt.Errorf("%s actions have fixed outputs", action)
 	if _, ok := normalized["output"]; ok {
-		return ir.NewValidationError("output", normalized["output"], fmt.Errorf("git worktree actions have fixed outputs"))
+		return ir.NewValidationError("output", normalized["output"], err)
 	}
 	if _, ok := normalized["outputs"]; ok {
-		return ir.NewValidationError("outputs", normalized["outputs"], fmt.Errorf("git worktree actions have fixed outputs"))
+		return ir.NewValidationError("outputs", normalized["outputs"], err)
 	}
 	stdout, ok := normalized["stdout"].(map[string]any)
 	if ok {
 		if _, hasOutputs := stdout["outputs"]; hasOutputs {
-			return ir.NewValidationError("stdout.outputs", stdout["outputs"], fmt.Errorf("git worktree actions have fixed outputs"))
+			return ir.NewValidationError("stdout.outputs", stdout["outputs"], err)
 		}
 	}
 	return nil

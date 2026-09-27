@@ -54,3 +54,9 @@ func parseID(id string) (emailRef, error) {
 	}
 	return emailRef{folder: parts[3], uidValidity: uint32(uidValidity), uid: imap.UID(uid)}, nil
 }
+
+// ValidID reports whether id is a well-formed email ID.
+func ValidID(id string) bool {
+	_, err := parseID(id)
+	return err == nil
+}

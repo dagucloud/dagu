@@ -2703,6 +2703,30 @@
         },
         {
           "if": {
+            "properties": { "action": { "const": "mail.search" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/mailSearchConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "mail.organize" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/mailOrganizeConfig" }
+            }
+          }
+        },
+        {
+          "if": {
             "properties": { "action": { "pattern": "^redis\\.[A-Za-z][A-Za-z0-9_-]*$" } },
             "required": ["action"]
           },
@@ -4040,14 +4064,55 @@
       },
       "description": "OAuth refresh-token credentials."
     },
+    "mailSearchConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mailbox"],
+      "properties": {
+        "mailbox": { "type": "string", "description": "Address of a mail account from mail_accounts." },
+        "folder": { "type": "string", "description": "Folder to search. Defaults to INBOX." },
+        "unread": { "oneOf": [{ "type": "boolean" }, { "type": "string" }], "description": "Return only unread email." },
+        "from": { "type": "string", "description": "Substring of the sender, matched case-insensitively." },
+        "subject": { "type": "string", "description": "Substring of the subject, matched case-insensitively." },
+        "within": { "type": "string", "description": "Return email received within this duration, such as 30m, 24h, or 7d." },
+        "has_attachments": { "oneOf": [{ "type": "boolean" }, { "type": "string" }], "description": "Return only email with at least one attachment." },
+        "save_attachments": { "oneOf": [{ "type": "boolean" }, { "type": "string" }], "description": "Save attachments under mail/<step name>/ in the run's artifacts." },
+        "limit": {
+          "oneOf": [{ "type": "integer", "minimum": 1, "maximum": 50 }, { "type": "string" }],
+          "description": "Most emails to return, oldest first. 1 to 50; defaults to 20."
+        }
+      },
+      "description": "Finds email in a mail account. Publishes messages, count, and truncated. Never marks email read."
+    },
+    "mailOrganizeConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mailbox", "emails"],
+      "anyOf": [{ "required": ["mark"] }, { "required": ["move"] }],
+      "properties": {
+        "mailbox": { "type": "string", "description": "Address of a mail account from mail_accounts." },
+        "emails": { "description": "An email ID, an email from mail.search, an {id, folder} object, or a list of them." },
+        "mark": { "type": "string", "enum": ["read", "unread", "flagged", "unflagged"], "description": "Flag change to apply first." },
+        "move": { "type": "string", "enum": ["folder", "archive", "trash"], "description": "Where to move each email. Nothing is deleted permanently." },
+        "folder": { "type": "string", "description": "Destination for move: folder, created when missing. An email's own folder overrides it." },
+        "dry_run": { "oneOf": [{ "type": "boolean" }, { "type": "string" }], "description": "Report what would change without changing anything." }
+      },
+      "description": "Marks and moves email found by mail.search. Publishes changed and missing."
+    },
     "mailExecutorConfig": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["from", "to", "subject", "message"],
+      "required": ["to", "subject", "message"],
+      "if": { "not": { "required": ["mailbox"] } },
+      "then": { "required": ["from"] },
       "properties": {
+        "mailbox": {
+          "type": "string",
+          "description": "Send through this mail account from mail_accounts instead of the DAG-level smtp configuration."
+        },
         "from": {
           "type": "string",
-          "description": "Sender email address. Required."
+          "description": "Sender email address. Required unless mailbox is set; defaults to the mailbox address."
         },
         "to": {
           "oneOf": [
@@ -6401,6 +6466,8 @@
             "k8s.run",
             "kubernetes.run",
             "log.write",
+            "mail.organize",
+            "mail.search",
             "mail.send",
             "noop",
             "outputs.write",
