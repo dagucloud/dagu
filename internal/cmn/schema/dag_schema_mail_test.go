@@ -20,6 +20,7 @@ mail_accounts:
       provider: microsoft_refresh
       client_id: client
       refresh_token: ${SUPPORT_TOKEN}
+      scopes: [https://outlook.office.com/IMAP.AccessAsUser.All]
   billing@example.com:
     imap: {host: imap.example.com, port: 993, security: tls, skip_tls_verify: true}
     smtp: {host: smtp.example.com, port: "587", security: starttls}
@@ -37,6 +38,7 @@ steps:
 		{"unknown security", "security: tls", "security: none"},
 		{"SMTP-only OAuth provider", "provider: microsoft_refresh", "provider: microsoft"},
 		{"unknown server field", "skip_tls_verify: true", "verify: false"},
+		{"scopes not a list", "scopes: [https://outlook.office.com/IMAP.AccessAsUser.All]", "scopes: imap"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			doc := mustParseYAMLDocument(t, strings.Replace(source, tc.from, tc.to, 1))

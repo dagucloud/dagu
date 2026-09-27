@@ -27,6 +27,7 @@ mail_accounts:
       provider: microsoft_refresh
       client_id: client
       refresh_token: ${SUPPORT_TOKEN}
+      scopes: [https://outlook.office.com/IMAP.AccessAsUser.All]
   team@gmail.com:
     provider: google
     smtp: {security: starttls}
@@ -49,6 +50,7 @@ steps:
 			Username: "support@example.com",
 			OAuth: &oauthconfig.Config{
 				Provider: oauthconfig.ProviderMicrosoftRefresh, ClientID: "client", RefreshToken: "${SUPPORT_TOKEN}",
+				Scopes: []string{"https://outlook.office.com/IMAP.AccessAsUser.All"},
 			},
 		},
 		"team@gmail.com": {
@@ -117,6 +119,11 @@ func TestMailAccountsErrors(t *testing.T) {
 			name:    "ReferencedSecurityWithoutPort",
 			account: "{imap: {host: h, security: '${IMAP_SECURITY}'}, password: p}",
 			wantErr: `mail account "ops@example.com": imap.port is required when imap.security is a value reference`,
+		},
+		{
+			name:    "ScopesOnGoogleRefresh",
+			account: "{provider: google, oauth: {provider: google_refresh, client_id: c, client_secret: s, refresh_token: r, scopes: [x]}}",
+			wantErr: `mail account "ops@example.com": oauth.scopes is not valid for provider "google_refresh"`,
 		},
 		{
 			name:    "UnknownField",

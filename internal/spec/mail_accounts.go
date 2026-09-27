@@ -34,7 +34,7 @@ type mailServerConfig struct {
 var (
 	mailAccountKeys = []string{"provider", "imap", "smtp", "username", "password", "oauth"}
 	mailServerKeys  = []string{"host", "port", "security", "skip_tls_verify"}
-	mailOAuthKeys   = []string{"provider", "tenant_id", "client_id", "client_secret", "service_account_json", "refresh_token"}
+	mailOAuthKeys   = []string{"provider", "tenant_id", "client_id", "client_secret", "service_account_json", "refresh_token", "scopes"}
 )
 
 // mailProviderServers holds the servers each provider preset supplies.

@@ -74,7 +74,12 @@ which accepts any certificate, such as a self-signed one.
 | `oauth.provider` | Fields |
 | --- | --- |
 | `google_refresh` | `client_id`, `client_secret`, `refresh_token` |
-| `microsoft_refresh` | `client_id`, `refresh_token`; optional `tenant_id` (default `common`) and `client_secret` |
+| `microsoft_refresh` | `client_id`, `refresh_token`; optional `tenant_id` (default `common`), `client_secret`, and `scopes` |
+
+`microsoft_refresh` refreshes for `https://outlook.office.com/.default`, the mail
+permissions the person granted, unless `scopes` lists the scopes to request
+instead; `offline_access` is always requested. `google_refresh` does not accept
+`scopes`.
 
 Before each IMAP or SMTP connection, the action exchanges the refresh token for an
 access token and authenticates with SASL `XOAUTH2`. Access tokens never appear in

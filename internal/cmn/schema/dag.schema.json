@@ -4060,6 +4060,11 @@
         "refresh_token": {
           "type": "string",
           "description": "Refresh token exchanged for an access token before each connection."
+        },
+        "scopes": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "microsoft_refresh only: scopes to refresh for, replacing https://outlook.office.com/.default. offline_access is always requested."
         }
       },
       "description": "OAuth refresh-token credentials."
