@@ -94,6 +94,16 @@ func TestMailActionErrors(t *testing.T) {
 			wantErr: "with.move must be one of folder, archive, trash",
 		},
 		{
+			name:    "EmailsNotAnEmail",
+			step:    "action: mail.organize\n    with: {mailbox: ops@example.com, emails: 42, mark: read}",
+			wantErr: "with.emails must be an email ID, an email object, or a non-empty list of them",
+		},
+		{
+			name:    "EmailsEmptyList",
+			step:    "action: mail.organize\n    with: {mailbox: ops@example.com, emails: [], mark: read}",
+			wantErr: "with.emails must be an email ID, an email object, or a non-empty list of them",
+		},
+		{
 			name:    "OutputOverride",
 			step:    "action: mail.search\n    output: EMAILS\n    with: {mailbox: ops@example.com}",
 			wantErr: "mail.search actions have fixed outputs",

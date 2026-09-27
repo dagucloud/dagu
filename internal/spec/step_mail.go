@@ -126,9 +126,19 @@ func validateMailField(name string, kind mailFieldKind, value any) error {
 			return fmt.Errorf("with.%s must be one of %s", name, strings.Join(moves, ", "))
 		}
 	case mailEmails:
-		if value == nil || (isString && strings.TrimSpace(text) == "") {
-			return fmt.Errorf("with.%s must name at least one email", name)
+		switch v := value.(type) {
+		case string:
+			if strings.TrimSpace(v) != "" {
+				return nil
+			}
+		case map[string]any:
+			return nil
+		case []any:
+			if len(v) > 0 {
+				return nil
+			}
 		}
+		return fmt.Errorf("with.%s must be an email ID, an email object, or a non-empty list of them", name)
 	}
 	return nil
 }
