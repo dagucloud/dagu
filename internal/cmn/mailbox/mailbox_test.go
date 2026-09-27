@@ -217,11 +217,11 @@ func TestOrganize(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, messages, 3)
 
-	// The second email names its own folder, as an AI step's answer would.
+	// The second email names its own destination, as an AI step's answer would.
 	result, err := client.Organize(mailbox.OrganizeOptions{
 		Items: []mailbox.Item{
 			{ID: messages[0].ID},
-			{ID: messages[1].ID, Folder: "Receipts"},
+			{ID: messages[1].ID, MoveTo: "Receipts"},
 		},
 		Mark:   mailbox.MarkRead,
 		Move:   mailbox.MoveFolder,

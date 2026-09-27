@@ -4091,10 +4091,10 @@
       "anyOf": [{ "required": ["mark"] }, { "required": ["move"] }],
       "properties": {
         "mailbox": { "type": "string", "description": "Address of a mail account from mail_accounts." },
-        "emails": { "description": "An email ID, an email from mail.search, an {id, folder} object, or a list of them." },
+        "emails": { "description": "An email ID, an email from mail.search, an {id, move_to} object, or a list of them." },
         "mark": { "type": "string", "enum": ["read", "unread", "flagged", "unflagged"], "description": "Flag change to apply first." },
         "move": { "type": "string", "enum": ["folder", "archive", "trash"], "description": "Where to move each email. Nothing is deleted permanently." },
-        "folder": { "type": "string", "description": "Destination for move: folder, created when missing. An email's own folder overrides it." },
+        "folder": { "type": "string", "description": "Destination for move: folder, created when missing. An email's move_to overrides it." },
         "dry_run": { "oneOf": [{ "type": "boolean" }, { "type": "string" }], "description": "Report what would change without changing anything." }
       },
       "description": "Marks and moves email found by mail.search. Publishes changed and missing."

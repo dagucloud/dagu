@@ -128,12 +128,13 @@ artifact storage is off fails with `save_attachments requires artifact storage`.
 | `emails` | Yes | One item or an array of items |
 | `mark` | One of `mark` or `move` | `read`, `unread`, `flagged`, or `unflagged` |
 | `move` | One of `mark` or `move` | `folder`, `archive`, or `trash` |
-| `folder` | For `move: folder`, unless every item names a folder | Destination folder |
+| `folder` | For `move: folder`, unless every item has `move_to` | Destination folder |
 | `dry_run` | No | `true` changes nothing |
 
 An item is an email ID string, or an object with an `id` field, such as an element
-of `mail.search`'s `messages`. An item object may also have a `folder` field, which
-overrides `with.folder` for that email when `move` is `folder`. A string value of
+of `mail.search`'s `messages`. An item object may also have a `move_to` field, which
+overrides `with.folder` for that email when `move` is `folder`. An element of
+`messages` carries `folder`, which names where the email is, not where to move it. A string value of
 `emails` that parses as a JSON object or array is decoded, so a whole
 `${foreach.<as>}` item can be passed; any other string is one ID.
 
@@ -188,7 +189,7 @@ At step start, before connecting:
 - `mailbox` names no configured account:
   `mail account "<address>" is not configured`.
 - `mail.send` through an `imap` account without `smtp.host`.
-- `move: folder` with no `with.folder` while an item has no `folder` of its own.
+- `move: folder` with no `with.folder` while an item has no `move_to`.
 - A malformed email ID.
 
 At run time:

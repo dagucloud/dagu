@@ -108,7 +108,7 @@ func TestOrganizeAcceptsAnAnswerList(t *testing.T) {
 	ctx := accountContext(imapServer, nil)
 	messages := runStep(t, ctx, operationStep(opSearch, map[string]any{"mailbox": "support@example.com"}))["messages"].([]mailbox.Message)
 
-	answer := `[{"id": "` + messages[0].ID + `", "folder": "Hardware"}]`
+	answer := `[{"id": "` + messages[0].ID + `", "move_to": "Hardware"}]`
 	outputs := runStep(t, ctx, operationStep(opOrganize, map[string]any{
 		"mailbox": "support@example.com",
 		"emails":  answer,
@@ -179,7 +179,7 @@ func TestMailboxStepErrors(t *testing.T) {
 			step: operationStep(opOrganize, map[string]any{
 				"mailbox": "support@example.com", "emails": `{"id": "` + validID(t) + `"}`, "move": "folder",
 			}),
-			wantErr: "move: folder needs with.folder or a folder on every email",
+			wantErr: "move: folder needs with.folder or a move_to on every email",
 		},
 		{
 			name: "SendWithoutSMTPServer",

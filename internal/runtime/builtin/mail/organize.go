@@ -71,8 +71,8 @@ func newOrganize(ctx context.Context, step ir.Step) (executor.Executor, error) {
 		if !mailbox.ValidID(item.ID) {
 			return nil, fmt.Errorf("with.emails: malformed email ID %q", item.ID)
 		}
-		if cfg.Move == mailbox.MoveFolder && cfg.Folder == "" && item.Folder == "" {
-			return nil, errors.New("move: folder needs with.folder or a folder on every email")
+		if cfg.Move == mailbox.MoveFolder && cfg.Folder == "" && item.MoveTo == "" {
+			return nil, errors.New("move: folder needs with.folder or a move_to on every email")
 		}
 	}
 
@@ -100,8 +100,9 @@ func newOrganize(ctx context.Context, step ir.Step) (executor.Executor, error) {
 }
 
 // parseEmails reads one item or a list. An item is an ID, or an object with
-// an id and an optional folder. A string holding JSON, as a loop item or a
-// step output arrives, is decoded first.
+// an id and an optional move_to. An email from mail.search is such an object;
+// its folder field says where it is, not where to move it. A string holding
+// JSON, as a loop item or a step output arrives, is decoded first.
 func parseEmails(value any) ([]mailbox.Item, error) {
 	if text, ok := value.(string); ok {
 		text = strings.TrimSpace(text)
@@ -130,8 +131,8 @@ func parseEmails(value any) ([]mailbox.Item, error) {
 			if strings.TrimSpace(id) == "" {
 				return nil, fmt.Errorf("with.emails[%d] has no id", i)
 			}
-			folder, _ := v["folder"].(string)
-			items = append(items, mailbox.Item{ID: strings.TrimSpace(id), Folder: strings.TrimSpace(folder)})
+			moveTo, _ := v["move_to"].(string)
+			items = append(items, mailbox.Item{ID: strings.TrimSpace(id), MoveTo: strings.TrimSpace(moveTo)})
 		default:
 			return nil, fmt.Errorf("with.emails[%d] must be an ID or an object with an id", i)
 		}

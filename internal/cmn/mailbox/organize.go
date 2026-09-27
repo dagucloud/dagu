@@ -26,11 +26,11 @@ const (
 	MoveTrash   = "trash"
 )
 
-// Item names an email to organize. Folder overrides OrganizeOptions.Folder
+// Item names an email to organize. MoveTo overrides OrganizeOptions.Folder
 // when moving to a folder.
 type Item struct {
 	ID     string
-	Folder string
+	MoveTo string
 }
 
 // OrganizeOptions describes what to do with each item: mark, then move.
@@ -71,7 +71,7 @@ func (c *Client) Organize(opts OrganizeOptions) (*OrganizeResult, error) {
 		}
 		dest := ""
 		if opts.Move == MoveFolder {
-			dest = item.Folder
+			dest = item.MoveTo
 			if dest == "" {
 				dest = opts.Folder
 			}
