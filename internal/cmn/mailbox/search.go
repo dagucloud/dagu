@@ -250,8 +250,8 @@ func addresses(list []imap.Address) []string {
 func parseBody(raw []byte, msg *Message, saver *attachmentSaver) error {
 	reader, err := gomail.CreateReader(bytes.NewReader(raw))
 	if err != nil && !message.IsUnknownCharset(err) {
-		// Not MIME: treat the whole body as text.
-		msg.Text = limitText(string(raw))
+		// Unparsable headers: the text is whatever follows the first blank line.
+		msg.Text = limitText(strings.ReplaceAll(string(bodyAfterHeaders(raw)), "\r\n", "\n"))
 		return nil
 	}
 	var plain, htmlText string
@@ -288,6 +288,21 @@ func parseBody(raw []byte, msg *Message, saver *attachmentSaver) error {
 	}
 	msg.Text = limitText(plain)
 	return nil
+}
+
+// bodyAfterHeaders returns what follows the first blank line, in either line
+// ending, or raw when there is none.
+func bodyAfterHeaders(raw []byte) []byte {
+	end := -1
+	for _, separator := range [][]byte{[]byte("\r\n\r\n"), []byte("\n\n")} {
+		if i := bytes.Index(raw, separator); i >= 0 && (end < 0 || i+len(separator) <= end) {
+			end = i + len(separator)
+		}
+	}
+	if end < 0 {
+		return raw
+	}
+	return raw[end:]
 }
 
 func readText(r io.Reader) string {
