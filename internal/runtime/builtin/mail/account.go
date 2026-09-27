@@ -73,8 +73,7 @@ func tokenSource(address string, account *ir.MailAccount) (func(context.Context)
 // accountError names the account and states a revoked or expired sign-in
 // plainly.
 func accountError(address string, err error) error {
-	var tokenErr *oauth.TokenError
-	if errors.As(err, &tokenErr) {
+	if tokenErr, ok := errors.AsType[*oauth.TokenError](err); ok {
 		if tokenErr.Code == "invalid_grant" {
 			return fmt.Errorf("mail account %q: sign-in is no longer valid (invalid_grant)", address)
 		}

@@ -44,6 +44,7 @@ func htmlToText(r io.Reader) string {
 			case "td", "th":
 				b.WriteString(" ")
 			}
+		case html.CommentToken, html.DoctypeToken:
 		case html.EndTagToken:
 			name, _ := tokenizer.TagName()
 			switch tag := string(name); tag {
