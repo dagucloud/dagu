@@ -8,6 +8,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/computerhost"
@@ -17,12 +20,17 @@ import (
 const (
 	desktopLockName = "desktop.lock"
 	desktopDirMode  = 0o700
+	// lastInputFile holds when the step that last held the desktop sent
+	// input, so the next step does not take that input for a person's.
+	lastInputFile     = "last-input"
+	lastInputFileMode = 0o600
 )
 
 // desktopLease holds exclusive use of the desktop. Two steps typing and
 // clicking at once would interfere, so computer steps on one host take
 // turns.
 type desktopLease struct {
+	dir  string
 	lock dirlock.DirLock
 	stop context.CancelFunc
 }
@@ -52,7 +60,29 @@ func acquireDesktop(ctx context.Context, lockDir string, t *agentstep.Timeline) 
 		return nil, fmt.Errorf("lock the desktop: %w", err)
 	}
 	stop := agentstep.KeepLockAlive(ctx, lock)
-	return &desktopLease{lock: lock, stop: stop}, nil
+	return &desktopLease{dir: lockDir, lock: lock, stop: stop}, nil
+}
+
+// lastInput returns when the previous holder of the desktop last sent input,
+// or the zero time.
+func (l *desktopLease) lastInput() time.Time {
+	data, err := os.ReadFile(filepath.Join(l.dir, lastInputFile)) //nolint:gosec // the lock directory is Dagu's own
+	if err != nil {
+		return time.Time{}
+	}
+	nanos, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
+	if err != nil {
+		return time.Time{}
+	}
+	return time.Unix(0, nanos)
+}
+
+// recordInput notes when this holder last sent input, for the next one.
+func (l *desktopLease) recordInput(at time.Time) {
+	if at.IsZero() {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(l.dir, lastInputFile), []byte(strconv.FormatInt(at.UnixNano(), 10)), lastInputFileMode)
 }
 
 func (l *desktopLease) release() {

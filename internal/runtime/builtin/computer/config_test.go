@@ -46,6 +46,9 @@ func TestValidateStep(t *testing.T) {
 		{name: "bad within", with: `{"do": [{"expect": {"statement": "Saved", "within": "later"}}]}`, llm: model, want: "within"},
 		{name: "bad screenshot name", with: `{"do": [{"screenshot": "../x"}]}`, llm: model, want: "screenshot name"},
 		{name: "unknown mode", with: `{"mode": "fast", "do": [{"act": "x"}]}`, llm: model, want: "mode"},
+		{name: "no idle wait", with: `{"idle": "0", "do": [{"act": "x"}]}`, llm: model},
+		{name: "bad idle", with: `{"idle": "soon", "do": [{"act": "x"}]}`, llm: model, want: `idle "soon" must be a duration`},
+		{name: "negative idle", with: `{"idle": "-1s", "do": [{"act": "x"}]}`, llm: model, want: `idle "-1s" must be a duration`},
 		{name: "native without native provider", with: `{"mode": "native", "do": [{"act": "x"}]}`, llm: &ir.LLMConfig{Provider: "openrouter", Model: "m"}, want: `provider "openrouter" has no native computer use`},
 		{name: "native with referenced provider", with: `{"mode": "native", "do": [{"act": "x"}]}`, llm: &ir.LLMConfig{Provider: "${PROVIDER}", Model: "m"}},
 	} {

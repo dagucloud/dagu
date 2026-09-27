@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"image"
 	"testing"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/desktop"
 	"github.com/stretchr/testify/assert"
@@ -19,6 +20,8 @@ import (
 type recordingBackend struct {
 	events  []string
 	failKey desktop.Key
+	// personInputAt is the last input the desktop received from a person.
+	personInputAt time.Time
 }
 
 func (b *recordingBackend) Capture() (*image.RGBA, error) {
@@ -54,6 +57,8 @@ func (b *recordingBackend) Type(text string) error {
 	b.events = append(b.events, "type "+text)
 	return nil
 }
+
+func (b *recordingBackend) LastInput() time.Time { return b.personInputAt }
 
 func (b *recordingBackend) Close() error { return nil }
 
@@ -155,4 +160,46 @@ func TestDriverMoveHoldingModifiers(t *testing.T) {
 	require.NoError(t, driver.MoveHolding(context.Background(), image.Pt(3, 4), []desktop.Key{desktop.KeyAlt}))
 
 	assert.Equal(t, []string{"key alt down", "move 3,4", "key alt up"}, backend.events)
+}
+
+// Input reaches the desktop from a person or from the driver; only a
+// person's counts, including when the desktop reports the driver's own input
+// as its latest.
+func TestDriverPersonInput(t *testing.T) {
+	t.Parallel()
+
+	backend := &recordingBackend{}
+	driver := desktop.New(backend)
+	start := time.Now()
+	assert.False(t, driver.PersonInputSince(start), "no input yet")
+
+	backend.personInputAt = time.Now()
+	assert.True(t, driver.PersonInputSince(start))
+	assert.False(t, driver.PersonInputSince(time.Now()))
+
+	require.NoError(t, driver.Move(context.Background(), image.Pt(1, 1)))
+	backend.personInputAt = time.Now()
+	assert.False(t, driver.PersonInputSince(start), "the desktop echoes the driver's move")
+}
+
+func TestDriverWaitForIdle(t *testing.T) {
+	t.Parallel()
+
+	const idle, poll = 100 * time.Millisecond, 5 * time.Millisecond
+	backend := &recordingBackend{personInputAt: time.Now()}
+	driver := desktop.New(backend)
+	waits := 0
+	onWait := func() { waits++ }
+
+	require.NoError(t, driver.WaitForIdle(context.Background(), idle, poll, onWait))
+	assert.Equal(t, 1, waits)
+	assert.GreaterOrEqual(t, time.Since(backend.personInputAt), idle)
+
+	require.NoError(t, driver.WaitForIdle(context.Background(), idle, poll, onWait))
+	assert.Equal(t, 1, waits, "an idle desktop needs no wait")
+
+	backend.personInputAt = time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	assert.ErrorIs(t, driver.WaitForIdle(ctx, time.Hour, poll, onWait), context.DeadlineExceeded)
 }

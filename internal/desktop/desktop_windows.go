@@ -11,6 +11,7 @@ import (
 	"image"
 	"runtime"
 	"sync"
+	"time"
 	"unicode/utf16"
 	"unsafe"
 
@@ -35,6 +36,7 @@ var (
 	procOpenInputDesktop              = user32.NewProc("OpenInputDesktop")
 	procCloseDesktop                  = user32.NewProc("CloseDesktop")
 	procGetUserObjectInformationW     = user32.NewProc("GetUserObjectInformationW")
+	procGetLastInputInfo              = user32.NewProc("GetLastInputInfo")
 
 	procCreateCompatibleDC     = gdi32.NewProc("CreateCompatibleDC")
 	procCreateCompatibleBitmap = gdi32.NewProc("CreateCompatibleBitmap")
@@ -47,6 +49,7 @@ var (
 	procPowerCreateRequest = kernel.NewProc("PowerCreateRequest")
 	procPowerSetRequest    = kernel.NewProc("PowerSetRequest")
 	procPowerClearRequest  = kernel.NewProc("PowerClearRequest")
+	procGetTickCount       = kernel.NewProc("GetTickCount")
 )
 
 // Win32 constants.
@@ -179,6 +182,12 @@ type reasonContext struct {
 	_       uint32
 	_       uint32
 	_       uintptr
+}
+
+// lastInputInfo is LASTINPUTINFO.
+type lastInputInfo struct {
+	Size uint32
+	Time uint32
 }
 
 type point struct {
@@ -461,6 +470,17 @@ func (windowsBackend) Type(text string) error {
 		events = append(events, keyboardEvent(0, unit, keyUnicode), keyboardEvent(0, unit, keyUnicode|keyUp))
 	}
 	return sendInput(events...)
+}
+
+func (windowsBackend) LastInput() time.Time {
+	info := lastInputInfo{Size: uint32(unsafe.Sizeof(lastInputInfo{}))}
+	if ok, _, _ := procGetLastInputInfo.Call(uintptr(unsafe.Pointer(&info))); ok == 0 { //nolint:gosec // Win32 takes the struct address as uintptr
+		return time.Time{}
+	}
+	// Both are 32-bit tick counts, so the difference wraps correctly.
+	ticks, _, _ := procGetTickCount.Call()
+	idle := uint32(ticks) - info.Time //nolint:gosec // GetTickCount returns a 32-bit DWORD
+	return time.Now().Add(-time.Duration(idle) * time.Millisecond)
 }
 
 func (b windowsBackend) Close() error {

@@ -53,6 +53,7 @@ const (
 	defaultOperationTimeout = 5 * time.Minute
 	defaultAskTimeout       = time.Hour
 	defaultMaxActions       = 50
+	defaultIdle             = 15 * time.Second
 )
 
 func init() {
@@ -68,6 +69,7 @@ type config struct {
 	Cache          *bool             `json:"cache,omitempty"`
 	MaxActions     int               `json:"max_actions,omitempty"`
 	OnConfirmation string            `json:"on_confirmation,omitempty"`
+	Idle           string            `json:"idle,omitempty"`
 	Do             []operation       `json:"do"`
 }
 
@@ -230,6 +232,16 @@ func (c config) cacheEnabled() bool {
 	return c.Cache == nil || *c.Cache
 }
 
+// idle returns how long nobody may have used the desktop before the step
+// sends input; zero turns the wait off.
+func (c config) idle() time.Duration {
+	if c.Idle == "" {
+		return defaultIdle
+	}
+	d, _ := time.ParseDuration(c.Idle)
+	return d
+}
+
 // maxActions returns the action budget of an act.
 func (c config) maxActions(spec actSpec) int {
 	switch {
@@ -307,6 +319,11 @@ func (c config) validateModels(models []ir.ModelEntry) error {
 func (c config) validate() error {
 	if len(c.Do) == 0 {
 		return errors.New("computer: with.do must list at least one operation")
+	}
+	if c.Idle != "" && !strings.Contains(c.Idle, "$") {
+		if d, err := time.ParseDuration(c.Idle); err != nil || d < 0 {
+			return fmt.Errorf("computer: idle %q must be a duration such as 15s, or 0 to not wait", c.Idle)
+		}
 	}
 	for name := range c.Variables {
 		if !agentstep.IdentifierPattern.MatchString(name) {
@@ -501,6 +518,7 @@ var configSchema = &jsonschema.Schema{
 		"cache":           {Type: "boolean"},
 		"max_actions":     positiveInteger(),
 		"on_confirmation": {Type: "string", Enum: []any{confirmationFail, confirmationAllow}},
+		"idle":            agentstep.StringSchema(),
 		"do":              {Type: "array", MinItems: new(1), Items: operationSchema},
 	},
 }

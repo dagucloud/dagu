@@ -7624,6 +7624,11 @@
           "default": "fail",
           "description": "What to do when the model provider asks a person to confirm actions: fail the step, or allow them."
         },
+        "idle": {
+          "type": "string",
+          "default": "15s",
+          "description": "How long nobody may have used the desktop before the step sends input or launches an application, such as 30s. Actions the model chose on a screen a person has since used are not run. 0 turns this off."
+        },
         "llm": {
           "$ref": "#/definitions/standardLLMConfig",
           "description": "Model for this step. Replaces the DAG-level llm block entirely."

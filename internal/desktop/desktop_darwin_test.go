@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -69,6 +70,16 @@ func TestAccessibilityPromptOptions(t *testing.T) {
 	prompt, ok := dictionaryFlag(options, axTrustedCheckOptionPrompt)
 	require.True(t, ok)
 	assert.True(t, prompt)
+}
+
+// The window server reports when it last received input, which lies in the
+// past.
+func TestLastInput(t *testing.T) {
+	t.Parallel()
+	require.NoError(t, load())
+	last := (&darwinBackend{}).LastInput()
+	assert.False(t, last.IsZero())
+	assert.False(t, last.After(time.Now()))
 }
 
 // While held, the power assertions are listed by pmset under the reason

@@ -44,6 +44,8 @@ type screen struct {
 	full   *image.RGBA
 	scaled *image.RGBA
 	png    []byte
+	// capturedAt is when the display was captured.
+	capturedAt time.Time
 }
 
 // newScreen scales a capture to fit a model's image limit.
@@ -120,7 +122,10 @@ func (r *run) observe(ctx context.Context, limit computeruse.ImageLimit) (screen
 	if err != nil {
 		return screen{}, err
 	}
-	return newScreen(full, limit)
+	capturedAt := time.Now()
+	shot, err := newScreen(full, limit)
+	shot.capturedAt = capturedAt
+	return shot, err
 }
 
 func sleep(ctx context.Context, d time.Duration) error {

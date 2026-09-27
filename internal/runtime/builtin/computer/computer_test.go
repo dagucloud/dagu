@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -448,6 +449,118 @@ func TestDesktopSharedAcrossDataDirs(t *testing.T) {
 	waited := <-secondDone
 	require.NoError(t, waited.err)
 	assert.Contains(t, lifecycleMessages(waited.exec.GetAgentSession()), "Waiting for another computer step to finish using the desktop")
+}
+
+// A step waits until nobody has used the desktop for the idle period before
+// it launches, acts, or replays.
+func TestWaitsForIdleDesktop(t *testing.T) {
+	t.Parallel()
+
+	const with = `{"idle": "100ms", "do": [{"act": "Click"}]}`
+	clicks := func() []*scriptedSession {
+		return []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(1, 1)), done("Clicked")}}}
+	}
+	for _, tc := range []struct {
+		name    string
+		with    string
+		prepare func(t *testing.T, run *testRun)
+		want    []string
+	}{
+		{
+			name: "launch",
+			with: `{"idle": "100ms", "do": [{"launch": "notepad.exe"}]}`,
+			want: []string{"launch:completed"},
+		},
+		{
+			name:    "act",
+			with:    with,
+			prepare: func(_ *testing.T, run *testRun) { run.sessions = clicks() },
+			want:    []string{"act:completed"},
+		},
+		{
+			name: "replay",
+			with: with,
+			// Another desktop records the act, so this one has sent no input.
+			prepare: func(t *testing.T, run *testRun) {
+				recorder := newTestRun(t)
+				recorder.dataDir = run.dataDir
+				recorder.sessions = clicks()
+				require.NoError(t, recorder.execute(with, nil).err)
+			},
+			want: []string{"act:cache-hit"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			run := newTestRun(t)
+			if tc.prepare != nil {
+				tc.prepare(t, run)
+			}
+			run.backend.personUses()
+			execution := run.execute(tc.with, nil)
+			require.NoError(t, execution.err)
+			session := execution.exec.GetAgentSession()
+			assert.Equal(t, tc.want, eventNames(session))
+			assert.Contains(t, lifecycleMessages(session), "Waiting until nobody has used the desktop for 100ms")
+		})
+	}
+}
+
+// Actions the model chose on a screen a person has since used are not run;
+// the model sees the new screen and why.
+func TestPersonInputSkipsStaleTurn(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	used := false
+	session := &scriptedSession{
+		turns: []*computeruse.Turn{actions(clickAt(10, 10)), actions(clickAt(20, 20)), done("Clicked")},
+		onNext: func() {
+			if !used {
+				used = true
+				run.backend.personUses()
+			}
+		},
+	}
+	run.sessions = []*scriptedSession{session}
+	execution := run.execute(`{"idle": "100ms", "do": [{"act": "Click the button"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	assert.Equal(t, []string{"move 20,20", "left down #1"}, run.backend.inputs())
+	require.Len(t, session.observations, 3)
+	assert.Equal(t, []computeruse.Result{{CallID: "c", Skipped: true}}, session.observations[1].Results)
+	assert.Equal(t, personNote, session.observations[1].Note)
+	assert.Contains(t, execution.stderr.String(), "Clicked (1 actions)")
+}
+
+// The step that last held the desktop leaves when it sent input, so the next
+// step does not take that input for a person's and wait for it.
+func TestNextStepIgnoresEarlierInput(t *testing.T) {
+	t.Parallel()
+
+	const with = `{"idle": "1h", "cache": false, "do": [{"act": "Click", "timeout": "2s"}]}`
+	run := newTestRun(t)
+	for range 2 {
+		run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(1, 1)), done("Clicked")}}}
+		require.NoError(t, run.execute(with, nil).err)
+	}
+}
+
+// With idle 0, the step neither waits for nor skips around a person.
+func TestIdleZeroIgnoresPerson(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	run.backend.personUses()
+	run.sessions = []*scriptedSession{{
+		turns:  []*computeruse.Turn{actions(clickAt(10, 10)), done("Clicked")},
+		onNext: run.backend.personUses,
+	}}
+	execution := run.execute(`{"idle": "0", "do": [{"act": "Click the button"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	assert.Equal(t, []string{"move 10,10", "left down #1"}, run.backend.inputs())
+	assert.NotContains(t, strings.Join(lifecycleMessages(execution.exec.GetAgentSession()), "\n"), "Waiting until nobody")
 }
 
 // A later model takes over only while the desktop is untouched.

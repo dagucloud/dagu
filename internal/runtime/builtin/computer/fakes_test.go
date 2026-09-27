@@ -38,6 +38,10 @@ type fakeBackend struct {
 	events      []string
 	// typeErr fails typing when set.
 	typeErr error
+	// lastEvent and personInputAt are when the desktop last received input
+	// from the step and from a person.
+	lastEvent     time.Time
+	personInputAt time.Time
 }
 
 func newFakeBackend(width, height int) *fakeBackend {
@@ -70,6 +74,23 @@ func (b *fakeBackend) record(event string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.events = append(b.events, event)
+	b.lastEvent = time.Now()
+}
+
+// personUses records input from a person now.
+func (b *fakeBackend) personUses() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.personInputAt = time.Now()
+}
+
+func (b *fakeBackend) LastInput() time.Time {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.personInputAt.After(b.lastEvent) {
+		return b.personInputAt
+	}
+	return b.lastEvent
 }
 
 func (b *fakeBackend) inputs() []string {
@@ -306,6 +327,7 @@ func (r *testRun) execute(withJSON string, session *ir.AgentSession) *stepExecut
 	}
 	execution.exec.settle = settleTiming{timeout: time.Millisecond}
 	execution.exec.desktopLock = r.desktopLock
+	execution.exec.idlePoll = time.Millisecond
 	execution.exec.SetStdout(&execution.stdout)
 	execution.exec.SetStderr(&execution.stderr)
 	execution.exec.SetAgentSession(session)

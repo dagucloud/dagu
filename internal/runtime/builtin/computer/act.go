@@ -20,6 +20,9 @@ import (
 // task properly.
 const continueNote = "Continue the task. " + computeruse.DoneInstruction
 
+// personNote tells a model why its actions were not run.
+const personNote = "A person used the computer after your last screenshot, so your last actions were not run. Continue the task from the current screen."
+
 // actOutcome is what a model-driven act did.
 type actOutcome struct {
 	summary   string
@@ -145,6 +148,9 @@ type actLoop struct {
 // run loops between the model and the desktop until the model reports the
 // task done.
 func (l *actLoop) run(ctx context.Context) error {
+	if err := l.r.awaitPerson(ctx); err != nil {
+		return err
+	}
 	var err error
 	if l.seen, err = l.r.observe(ctx, l.limit); err != nil {
 		return err
@@ -166,18 +172,31 @@ func (l *actLoop) run(ctx context.Context) error {
 		if err := l.admit(turn); err != nil {
 			return err
 		}
-		results := l.apply(ctx, turn)
+		stale, err := l.stale(ctx, turn)
+		if err != nil {
+			return err
+		}
+		var results []computeruse.Result
+		if stale {
+			logAction(l.r.timeline, l.index, "a person used the desktop; the model's actions were not run")
+			results = skippedResults(turn.Actions)
+		} else {
+			results = l.apply(ctx, turn)
+		}
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 		// A model that finishes in the same turn as a failed action has not
 		// seen the failure yet, so it is shown the result first.
-		if turn.Done != nil && !anyFailed(results) {
+		if turn.Done != nil && !stale && !anyFailed(results) {
 			return l.finish(ctx, turn)
 		}
 		note, err := l.reminder(turn)
 		if err != nil {
 			return err
+		}
+		if stale {
+			note = personNote
 		}
 		if l.seen, err = l.r.observe(ctx, l.limit); err != nil {
 			return err
@@ -189,6 +208,19 @@ func (l *actLoop) run(ctx context.Context) error {
 			Note:         note,
 		}
 	}
+}
+
+// stale waits until nobody has used the desktop for the idle period and
+// reports whether a person used it after the screenshot the model saw, in
+// which case the turn's actions may no longer fit the screen.
+func (l *actLoop) stale(ctx context.Context, turn *computeruse.Turn) (bool, error) {
+	if len(turn.Actions) == 0 || l.r.cfg.idle() <= 0 {
+		return false, nil
+	}
+	if err := l.r.awaitPerson(ctx); err != nil {
+		return false, err
+	}
+	return l.r.driver.PersonInputSince(l.seen.capturedAt), nil
 }
 
 // admit rejects a turn whose actions the step may not run.
@@ -246,6 +278,14 @@ func (l *actLoop) reminder(turn *computeruse.Turn) (string, error) {
 	}
 	l.reminded = true
 	return continueNote, nil
+}
+
+func skippedResults(actions []computeruse.Action) []computeruse.Result {
+	results := make([]computeruse.Result, len(actions))
+	for i, action := range actions {
+		results[i] = computeruse.Result{CallID: action.CallID, Skipped: true}
+	}
+	return results
 }
 
 func anyFailed(results []computeruse.Result) bool {

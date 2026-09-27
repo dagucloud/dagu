@@ -63,6 +63,10 @@ type Backend interface {
 	Key(key Key, down bool) error
 	// Type types text at the keyboard focus.
 	Type(text string) error
+	// LastInput reports when the desktop last received pointer or keyboard
+	// input from any source, the driver included, or the zero time when it
+	// cannot tell.
+	LastInput() time.Time
 	// Close releases the backend.
 	Close() error
 }
@@ -91,16 +95,58 @@ const (
 	inputDelay     = 30 * time.Millisecond
 	dragStepPixels = 20
 	maxDragSteps   = 50
+	// inputEcho is how long after the driver's own input the desktop may
+	// still report that input as the latest one.
+	inputEcho = time.Second
 )
 
 // Driver performs desktop actions on a Backend.
 type Driver struct {
 	backend Backend
+	// lastInput is when the driver last sent input.
+	lastInput time.Time
 }
 
 // New returns a driver for a backend.
 func New(backend Backend) *Driver {
-	return &Driver{backend: backend}
+	d := &Driver{}
+	d.backend = inputClock{Backend: backend, last: &d.lastInput}
+	return d
+}
+
+// InputSentAt reports when the driver last sent input.
+func (d *Driver) InputSentAt() time.Time {
+	return d.lastInput
+}
+
+// AssumeInputSent records that input was sent at, such as by an earlier
+// driver on the same desktop, so the desktop reporting it is not taken for a
+// person's.
+func (d *Driver) AssumeInputSent(at time.Time) {
+	if at.After(d.lastInput) {
+		d.lastInput = at
+	}
+}
+
+// PersonInputSince reports whether input the driver did not send, such as a
+// person's, reached the desktop after since.
+func (d *Driver) PersonInputSince(since time.Time) bool {
+	last := d.backend.LastInput()
+	return last.After(since) && last.After(d.lastInput.Add(inputEcho))
+}
+
+// WaitForIdle returns once nobody but the driver has used the desktop for
+// idle, checking every poll. onWait runs once if the driver has to wait.
+func (d *Driver) WaitForIdle(ctx context.Context, idle, poll time.Duration, onWait func()) error {
+	for waited := false; d.PersonInputSince(time.Now().Add(-idle)); waited = true {
+		if !waited {
+			onWait()
+		}
+		if err := pause(ctx, poll); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Close releases the driver.
@@ -284,6 +330,41 @@ func (d *Driver) withKeys(ctx context.Context, keys []Key, fn func() error) (err
 		}
 	}
 	return fn()
+}
+
+// inputClock notes when input was last sent through a backend.
+type inputClock struct {
+	Backend
+	last *time.Time
+}
+
+func (c inputClock) MoveTo(x, y int) error {
+	defer c.sent()
+	return c.Backend.MoveTo(x, y)
+}
+
+func (c inputClock) Button(button Button, down bool, clicks int) error {
+	defer c.sent()
+	return c.Backend.Button(button, down, clicks)
+}
+
+func (c inputClock) Wheel(dx, dy int) error {
+	defer c.sent()
+	return c.Backend.Wheel(dx, dy)
+}
+
+func (c inputClock) Key(key Key, down bool) error {
+	defer c.sent()
+	return c.Backend.Key(key, down)
+}
+
+func (c inputClock) Type(text string) error {
+	defer c.sent()
+	return c.Backend.Type(text)
+}
+
+func (c inputClock) sent() {
+	*c.last = time.Now()
 }
 
 func pause(ctx context.Context, d time.Duration) error {

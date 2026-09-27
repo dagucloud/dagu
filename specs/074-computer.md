@@ -125,6 +125,20 @@ The act ends when the model reports the task done. It fails when:
 
 The step log lists each action; the timeline records one event per operation.
 
+### A person using the desktop
+
+Before it launches an application, replays a recorded turn, or asks the model
+for its first actions, a step waits until nobody has used the desktop's
+pointer or keyboard for `with.idle` (default `15s`), and logs that it is
+waiting. Input the step itself sent does not count, including input sent by
+the step that held the desktop before it. When a person uses the desktop
+after the screenshot the model answered, the model's actions are not run: the
+step waits for the idle period again and sends the new screenshot with a note
+saying why. Skipped actions do not count toward `max_actions`. The waiting
+counts toward the operation timeout; an operation whose timeout passes while
+a person keeps using the desktop fails. `idle: 0` turns the waiting and the
+skipping off.
+
 ### Variables and secrets
 
 `with.variables` maps names to values. An `act` instruction references them as

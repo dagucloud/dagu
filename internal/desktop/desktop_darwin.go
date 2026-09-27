@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"time"
 	"unicode/utf16"
 	"unsafe"
 
@@ -65,6 +66,11 @@ const (
 	// axTrustedCheckOptionPrompt is kAXTrustedCheckOptionPrompt.
 	axTrustedCheckOptionPrompt = "AXTrustedCheckOptionPrompt"
 
+	// Arguments that make CGEventSourceSecondsSinceLastEventType report
+	// any input the window server received.
+	eventSourceStateHIDSystem = 1
+	anyInputEventType         = 0xFFFFFFFF
+
 	mouseEventClickState = 1
 	scrollUnitLine       = 1
 	// maxUnicodeChunk is how many UTF-16 units one keyboard event carries.
@@ -110,6 +116,7 @@ var (
 	cgEventSetIntegerValueField     func(event uintptr, field uint32, value int64)
 	cgEventSetFlags                 func(event uintptr, flags uint64)
 	cgEventPost                     func(tap uint32, event uintptr)
+	cgEventSourceSecondsSinceLast   func(state int32, eventType uint32) float64
 	cgPreflightScreenCaptureAccess  func() bool
 	cgRequestScreenCaptureAccess    func() bool
 	cgSessionCopyCurrentDictionary  func() uintptr
@@ -167,6 +174,7 @@ func load() error {
 		purego.RegisterLibFunc(&cgEventSetIntegerValueField, cg, "CGEventSetIntegerValueField")
 		purego.RegisterLibFunc(&cgEventSetFlags, cg, "CGEventSetFlags")
 		purego.RegisterLibFunc(&cgEventPost, cg, "CGEventPost")
+		purego.RegisterLibFunc(&cgEventSourceSecondsSinceLast, cg, "CGEventSourceSecondsSinceLastEventType")
 		purego.RegisterLibFunc(&cgPreflightScreenCaptureAccess, cg, "CGPreflightScreenCaptureAccess")
 		purego.RegisterLibFunc(&cgRequestScreenCaptureAccess, cg, "CGRequestScreenCaptureAccess")
 		purego.RegisterLibFunc(&cgSessionCopyCurrentDictionary, cg, "CGSessionCopyCurrentDictionary")
@@ -526,6 +534,11 @@ func (b *darwinBackend) Type(text string) error {
 		}
 	}
 	return nil
+}
+
+func (b *darwinBackend) LastInput() time.Time {
+	seconds := cgEventSourceSecondsSinceLast(eventSourceStateHIDSystem, anyInputEventType)
+	return time.Now().Add(-time.Duration(seconds * float64(time.Second)))
 }
 
 func (b *darwinBackend) Close() error {

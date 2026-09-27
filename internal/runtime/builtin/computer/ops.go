@@ -27,6 +27,8 @@ import (
 const (
 	// conditionPollInterval spaces the checks of a statement with within.
 	conditionPollInterval = 2 * time.Second
+	// defaultIdlePoll spaces the checks for a person using the desktop.
+	defaultIdlePoll = 500 * time.Millisecond
 	// artifactLongEdge keeps saved screenshots readable at a modest size.
 	artifactLongEdge = 1920
 	finalShotLabel   = "final"
@@ -200,6 +202,7 @@ func (r *run) start(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("open the desktop: %w", err)
 	}
 	r.driver = driver
+	r.driver.AssumeInputSent(r.lease.lastInput())
 	if cursor > 0 {
 		r.timeline.Lifecycle(agentstep.StatusRunning, "Resumed after input")
 	} else {
@@ -212,7 +215,7 @@ func (r *run) runOperation(ctx context.Context, index int, op operation) error {
 	timeout := op.timeout()
 	switch {
 	case op.Launch != nil:
-		return r.launch(ctx, index, *op.Launch)
+		return r.launch(ctx, index, *op.Launch, timeout)
 	case op.Act != nil:
 		return r.act(ctx, index, *op.Act, timeout)
 	case op.Extract != nil:
@@ -227,8 +230,14 @@ func (r *run) runOperation(ctx context.Context, index int, op operation) error {
 	return fmt.Errorf("unsupported operation %q", op.kind())
 }
 
-func (r *run) launch(ctx context.Context, index int, spec launchSpec) error {
+func (r *run) launch(ctx context.Context, index int, spec launchSpec, timeout time.Duration) error {
 	began := time.Now()
+	// A new window takes the keyboard focus from a person who is typing.
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	if err := r.awaitPerson(waitCtx); err != nil {
+		return err
+	}
 	if err := r.exec.launch(r.workingDir, spec.Command, spec.Args); err != nil {
 		return err
 	}
@@ -429,17 +438,38 @@ func (r *run) fail(ctx context.Context, index int, kind string, cause error) err
 	return errors.New("computer: " + message)
 }
 
+// errDesktopInUse reports a person who kept using the desktop until the
+// operation timed out.
+var errDesktopInUse = errors.New("a person kept using the desktop until the operation timed out")
+
+// awaitPerson waits until nobody has used the desktop for the idle period,
+// so the step's input does not collide with a person's.
+func (r *run) awaitPerson(ctx context.Context) error {
+	idle := r.cfg.idle()
+	if idle <= 0 {
+		return nil
+	}
+	err := r.driver.WaitForIdle(ctx, idle, r.exec.idlePoll, func() {
+		r.timeline.Lifecycle(agentstep.StatusWaiting, fmt.Sprintf("Waiting until nobody has used the desktop for %s", idle))
+	})
+	if errors.Is(err, context.DeadlineExceeded) {
+		return errDesktopInUse
+	}
+	return err
+}
+
 // forgetReplays settles the replay cache of a failed step. An operation that
 // failed on the screen may have followed a replay that did the wrong thing,
 // so the recordings the step replayed are dropped. A failure of the model,
-// the screen capture, a launch, an ask, or the run itself says nothing about
-// them, so they stay. What the step recorded is never kept.
+// the screen capture, a launch, an ask, a person using the desktop, or the
+// run itself says nothing about them, so they stay. What the step recorded
+// is never kept.
 func (r *run) forgetReplays(ctx context.Context, index int, kind string, cause error) {
 	if r.cache == nil {
 		return
 	}
 	if index < 0 || ctx.Err() != nil || kind == opAsk || kind == opLaunch ||
-		errors.Is(cause, errCapture) || errors.As(cause, new(modelFailure)) {
+		errors.Is(cause, errCapture) || errors.Is(cause, errDesktopInUse) || errors.As(cause, new(modelFailure)) {
 		r.cache.Discard()
 		return
 	}
@@ -451,6 +481,7 @@ func (r *run) forgetReplays(ctx context.Context, index int, kind string, cause e
 // shutdown closes the desktop and lets other steps use it.
 func (r *run) shutdown() {
 	if r.driver != nil {
+		r.lease.recordInput(r.driver.InputSentAt())
 		_ = r.driver.Close()
 		r.driver = nil
 	}

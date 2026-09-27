@@ -104,6 +104,9 @@ func (r *run) replay(ctx context.Context, index int, entry recording, budget int
 		if outcome.actions+len(turn.Actions) > budget || (turn.Confirmed && r.cfg.OnConfirmation != confirmationAllow) {
 			return outcome, nil
 		}
+		if err := r.awaitPerson(ctx); err != nil {
+			return outcome, err
+		}
 		current, err := r.settle(ctx)
 		if err != nil {
 			return outcome, err
