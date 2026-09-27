@@ -8,9 +8,11 @@ import (
 	"unicode/utf8"
 )
 
-// FitText shortens message text until the JSON encoding of messages fits in
-// budget bytes. It reports whether any text was shortened.
-func FitText(messages []Message, budget int) bool {
+// Fit makes the JSON encoding of messages fit in budget bytes. It shortens
+// text first, then drops the newest messages when headers alone are too large,
+// so the oldest emails are kept for processing. It reports whether anything
+// was shortened or dropped.
+func Fit(messages []Message, budget int) ([]Message, bool) {
 	truncated := false
 	for limit := TextLimit / 2; encodedSize(messages) > budget; limit /= 2 {
 		for i := range messages {
@@ -23,7 +25,11 @@ func FitText(messages []Message, budget int) bool {
 			break
 		}
 	}
-	return truncated
+	for len(messages) > 0 && encodedSize(messages) > budget {
+		messages = messages[:len(messages)-1]
+		truncated = true
+	}
+	return messages, truncated
 }
 
 func encodedSize(messages []Message) int {

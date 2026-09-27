@@ -108,13 +108,15 @@ Published outputs, following [Spec 012](012-step-outputs.md):
   `flagged`, `text`, and `attachments` (array of `{name, content_type, size,
   path}`).
 - `count`: the number of elements in `messages`.
-- `truncated`: `true` when any `text` was shortened to fit the output limit.
+- `truncated`: `true` when any `text` was shortened, or any email left out, to fit
+  the output limit.
 
 `text` is the plain-text body, or the HTML body converted to text when the email
 has no plain-text part, at most 10,000 characters. When the encoded outputs would
 exceed the output budget, `text` values are shortened further and `truncated` is
-`true`. The budget is 900 KiB, or the DAG's `max_output_size` less 64 KiB when that
-is smaller.
+`true`. If the outputs still exceed it, the newest emails are left out of
+`messages`, so the oldest stay first in line. The budget is 900 KiB, or the DAG's
+`max_output_size` less 64 KiB when that is smaller.
 
 A `mail.search` step whose `save_attachments` is written as `true` enables
 artifact storage for the run, as a reference to `context.paths.artifacts_dir`

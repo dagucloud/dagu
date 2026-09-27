@@ -145,7 +145,7 @@ func (e *searchExecutor) Run(ctx context.Context) error {
 	if err != nil {
 		return accountError(e.address, err)
 	}
-	truncated := mailbox.FitText(messages, e.budget)
+	messages, truncated := mailbox.Fit(messages, e.budget)
 
 	e.mu.Lock()
 	e.outputs = map[string]any{"messages": messages, "count": len(messages), "truncated": truncated}

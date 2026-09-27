@@ -5,6 +5,7 @@ package mailbox_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -319,17 +320,46 @@ func TestOrganizeRejectsBadInput(t *testing.T) {
 	require.ErrorContains(t, err, "needs a folder for every email")
 }
 
-func TestFitText(t *testing.T) {
+func TestFit(t *testing.T) {
 	t.Parallel()
 
 	messages := []mailbox.Message{
 		{Subject: "a", Text: strings.Repeat("x", mailbox.TextLimit)},
 		{Subject: "b", Text: "short"},
 	}
-	assert.False(t, mailbox.FitText(messages, 1<<20))
-	assert.Len(t, messages[0].Text, mailbox.TextLimit)
+	fitted, truncated := mailbox.Fit(messages, 1<<20)
+	assert.False(t, truncated)
+	assert.Len(t, fitted[0].Text, mailbox.TextLimit)
 
-	assert.True(t, mailbox.FitText(messages, 2000))
-	assert.Less(t, len(messages[0].Text), 2000)
-	assert.Equal(t, "short", messages[1].Text)
+	fitted, truncated = mailbox.Fit(messages, 2000)
+	assert.True(t, truncated)
+	require.Len(t, fitted, 2)
+	assert.Less(t, len(fitted[0].Text), 2000)
+	assert.Equal(t, "short", fitted[1].Text)
+}
+
+// Headers can exceed the budget even without text; the newest messages go so
+// the oldest are kept for processing.
+func TestFitDropsNewestMessagesWhenHeadersAloneAreTooLarge(t *testing.T) {
+	t.Parallel()
+
+	recipients := make([]string, 200)
+	for i := range recipients {
+		recipients[i] = "someone-with-a-long-address@example.com"
+	}
+	messages := []mailbox.Message{
+		{Subject: "oldest", To: recipients},
+		{Subject: "middle", To: recipients},
+		{Subject: "newest", To: recipients},
+	}
+	budget := 20000
+
+	fitted, truncated := mailbox.Fit(messages, budget)
+	assert.True(t, truncated)
+	require.NotEmpty(t, fitted)
+	assert.Less(t, len(fitted), 3)
+	assert.Equal(t, "oldest", fitted[0].Subject)
+	encoded, err := json.Marshal(fitted)
+	require.NoError(t, err)
+	assert.LessOrEqual(t, len(encoded), budget)
 }
