@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/browserhost"
@@ -49,14 +50,18 @@ func (r *run) waitForInput(ctx context.Context, index int, spec askSpec) error {
 }
 
 // resumeSession reattaches to the browser an ask operation left running and
-// returns the operation after that ask.
+// returns the operation after that ask. An answer whose record cannot be
+// read for now stays pending, so a retry can still reattach.
 func (r *run) resumeSession(ctx context.Context, recordID string, session *ir.AgentSession, answer agentstep.AskAnswer) (int, error) {
+	record, err := r.store.Load(recordID)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return 0, fmt.Errorf("read the waiting browser's record: %w", err)
+	}
 	r.exec.updateSession(func(s *ir.AgentSession) {
 		agentstep.MarkApplied(s, answer.InteractionID)
 		s.State = ir.AgentSessionRunning
 		s.OwnerWorkerID = r.workerID
 	})
-	record, err := r.store.Load(recordID)
 	if err != nil || record.State != browserhost.StateDetached || record.Generation != session.Generation {
 		return 0, errors.New("the browser waiting for input is no longer running; retry the step to start over")
 	}
