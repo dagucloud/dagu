@@ -113,6 +113,12 @@ func TestMailAccountsErrors(t *testing.T) {
 			wantErr: `mail account "ops@example.com": oauth.client_secret is required`,
 		},
 		{
+			// Without a port there is nothing to derive the standard port from.
+			name:    "ReferencedSecurityWithoutPort",
+			account: "{imap: {host: h, security: '${IMAP_SECURITY}'}, password: p}",
+			wantErr: `mail account "ops@example.com": imap.port is required when imap.security is a value reference`,
+		},
+		{
 			name:    "UnknownField",
 			account: "{imap: {host: h, tls: true}, password: p}",
 			wantErr: `mail account "ops@example.com": unknown field "imap.tls"`,
@@ -130,6 +136,22 @@ steps:
 			require.ErrorContains(t, err, tt.wantErr)
 		})
 	}
+}
+
+func TestMailAccountsReferencedSecurity(t *testing.T) {
+	t.Parallel()
+
+	dag, err := spec.LoadYAML(context.Background(), []byte(`
+mail_accounts:
+  ops@example.com:
+    imap: {host: imap.example.com, port: 993, security: '${IMAP_SECURITY}'}
+    password: p
+steps:
+  - run: "true"
+`))
+	require.NoError(t, err)
+	assert.Equal(t, &ir.MailServer{Host: "imap.example.com", Port: "993", Security: "${IMAP_SECURITY}"},
+		dag.MailAccounts["ops@example.com"].IMAP)
 }
 
 func TestMailAccountsKeyErrors(t *testing.T) {

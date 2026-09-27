@@ -93,7 +93,7 @@ func validateMailFields(action string, with map[string]any, allowed map[string]m
 
 func validateMailField(name string, kind mailFieldKind, value any) error {
 	text, isString := value.(string)
-	if isString && (cmnvalue.IsWholeReference(strings.TrimSpace(text)) || cmnvalue.HasValueReference(text)) {
+	if isString && isValueReference(text) {
 		return nil
 	}
 	switch kind {
@@ -131,6 +131,12 @@ func validateMailField(name string, kind mailFieldKind, value any) error {
 		}
 	}
 	return nil
+}
+
+// isValueReference reports whether text holds a value reference, including
+// the bare ${NAME} environment form, so it resolves only at run time.
+func isValueReference(text string) bool {
+	return cmnvalue.IsWholeReference(strings.TrimSpace(text)) || cmnvalue.HasValueReference(text)
 }
 
 // mailInt accepts the integer types YAML decoding produces.

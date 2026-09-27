@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauthconfig"
-	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/go-viper/mapstructure/v2"
 )
@@ -176,21 +175,26 @@ func buildMailServer(protocol string, preset ir.MailServer, block *mailServerCon
 		server.Host = host
 	}
 	security := strings.TrimSpace(block.Security)
+	referenced := security != "" && isValueReference(security)
 	switch {
 	case security == "":
 		if server.Security == "" {
 			server.Security = ir.MailSecurityTLS
 		}
-	case security == ir.MailSecurityTLS, security == ir.MailSecurityStartTLS:
-		server.Security = security
-	case cmnvalue.HasValueReference(security):
+	case security == ir.MailSecurityTLS, security == ir.MailSecurityStartTLS, referenced:
 		server.Security = security
 	default:
 		return nil, fmt.Errorf("%s.security must be %s or %s", protocol, ir.MailSecurityTLS, ir.MailSecurityStartTLS)
 	}
-	if port := strings.TrimSpace(block.Port); port != "" {
+
+	switch port := strings.TrimSpace(block.Port); {
+	case port != "":
 		server.Port = port
-	} else if block.Security != "" || preset.Port == "" {
+	case referenced:
+		// The standard port depends on a mode known only at run time.
+		return nil, fmt.Errorf("%s.port is required when %s.security is a value reference", protocol, protocol)
+	case security != "", server.Port == "":
+		// A changed mode, or a server with no preset, takes the mode's standard port.
 		server.Port = mailDefaultPorts[protocol][server.Security]
 	}
 	server.SkipTLSVerify = block.SkipTLSVerify

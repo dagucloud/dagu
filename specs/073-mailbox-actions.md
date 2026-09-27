@@ -185,6 +185,9 @@ fail the step when it starts, before connecting:
 - An `oauth.provider` other than `google_refresh` or `microsoft_refresh`, or a
   missing OAuth field: the error names the account and the field.
 - `security` other than `tls` or `starttls`.
+- `security` given as a value reference without `port`:
+  `mail account "<address>": imap.port is required when imap.security is a value reference`
+  (or `smtp.` for the SMTP block).
 - `limit` outside 1 to 50, `within` that is not a duration, or an unknown `mark` or
   `move` value: the error names the field.
 - `mail.organize` with neither `mark` nor `move`.
