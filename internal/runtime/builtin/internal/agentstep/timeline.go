@@ -8,6 +8,7 @@ import (
 	"io"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -103,9 +104,7 @@ func (t *Timeline) Position(index int) string {
 // AppendEvent adds an event to the agent session, keeping the latest
 // events when there are too many.
 func (t *Timeline) AppendEvent(event ir.AgentSessionEvent) {
-	if len(event.Content) > maxEventContentBytes {
-		event.Content = event.Content[:maxEventContentBytes]
-	}
+	event.Content = truncate(event.Content, maxEventContentBytes)
 	event.Timestamp = time.Now().UTC().Format(time.RFC3339Nano)
 	t.Update(func(session *ir.AgentSession) {
 		sequence := int64(1)
@@ -119,6 +118,18 @@ func (t *Timeline) AppendEvent(event ir.AgentSessionEvent) {
 			session.Events = append([]ir.AgentSessionEvent(nil), session.Events[overflow:]...)
 		}
 	})
+}
+
+// truncate cuts text to at most limit bytes without splitting a character.
+func truncate(text string, limit int) string {
+	if len(text) <= limit {
+		return text
+	}
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(text[cut]) {
+		cut--
+	}
+	return text[:cut]
 }
 
 // QuoteShort quotes text on one line, cut to a readable length.

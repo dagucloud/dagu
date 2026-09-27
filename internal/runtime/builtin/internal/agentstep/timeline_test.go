@@ -5,8 +5,11 @@ package agentstep_test
 
 import (
 	"bytes"
+	"io"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
@@ -56,4 +59,21 @@ func TestArtifactStoreScreenshots(t *testing.T) {
 
 	_, err = agentstep.NewArtifactStore("", "computer", "post").WriteScreenshot("act", nil)
 	require.ErrorIs(t, err, agentstep.ErrNoArtifactStorage)
+}
+
+// Long event content is cut to the event size limit on a character
+// boundary, so the stored text stays valid UTF-8.
+func TestTimelineTruncatesOnCharacterBoundary(t *testing.T) {
+	t.Parallel()
+
+	session := &ir.AgentSession{}
+	timeline := &agentstep.Timeline{Log: io.Discard, Masker: agentstep.NewMasker(nil, nil), Update: func(fn func(*ir.AgentSession)) { fn(session) }}
+	// 4095 ASCII bytes followed by a three-byte character straddle the
+	// 4096-byte limit.
+	content := strings.Repeat("a", 4095) + "日本"
+	timeline.AppendEvent(ir.AgentSessionEvent{Content: content})
+
+	stored := session.Events[0].Content
+	assert.True(t, utf8.ValidString(stored))
+	assert.Equal(t, strings.Repeat("a", 4095), stored)
 }
