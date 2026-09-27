@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -318,4 +320,23 @@ func eventNames(session *ir.AgentSession) []string {
 		}
 	}
 	return names
+}
+
+// blockRead makes the only file in dir unreadable until the returned
+// function restores it. A directory stands in for the file, which no
+// process can read as a file whatever its privileges.
+func blockRead(t *testing.T, dir string) (restore func()) {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	path := filepath.Join(dir, entries[0].Name())
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.NoError(t, os.Remove(path))
+	require.NoError(t, os.Mkdir(path, 0o700))
+	return func() {
+		require.NoError(t, os.Remove(path))
+		require.NoError(t, os.WriteFile(path, data, 0o600))
+	}
 }

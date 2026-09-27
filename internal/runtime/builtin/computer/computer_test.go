@@ -9,7 +9,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/computerhost"
@@ -159,9 +158,6 @@ func TestAskWaitsAndResumes(t *testing.T) {
 // a retry resumes the step once the record is readable again.
 func TestAskResumeAfterUnreadableRecord(t *testing.T) {
 	t.Parallel()
-	if runtime.GOOS == "windows" {
-		t.Skip("directory permissions do not block reads on Windows")
-	}
 
 	const steps = `{"do": [{"ask": {"prompt": "Code?", "as": "otp"}}, {"act": "Type %otp%"}]}`
 	run := newTestRun(t)
@@ -171,10 +167,9 @@ func TestAskResumeAfterUnreadableRecord(t *testing.T) {
 	session.Interactions[0].Status = ir.AgentInteractionAnswered
 	session.Interactions[0].Answers = [][]string{{"731902"}}
 
-	sessions := filepath.Join(run.dataDir, computerhost.DataDirName, "sessions")
-	require.NoError(t, os.Chmod(sessions, 0))
+	restore := blockRead(t, filepath.Join(run.dataDir, computerhost.DataDirName, "sessions"))
 	failed := run.execute(steps, session)
-	require.NoError(t, os.Chmod(sessions, 0o700))
+	restore()
 	require.ErrorContains(t, failed.err, "read the paused step's record")
 	retry := failed.exec.GetAgentSession()
 	assert.False(t, retry.Interactions[0].Applied, "the answer stays pending")

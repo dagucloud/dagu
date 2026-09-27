@@ -410,9 +410,6 @@ func TestAskWaitsAndResumesSameBrowser(t *testing.T) {
 // retry reattaches to the same browser once the record is readable again.
 func TestAskResumeAfterUnreadableRecord(t *testing.T) {
 	t.Parallel()
-	if goruntime.GOOS == "windows" {
-		t.Skip("directory permissions do not block reads on Windows")
-	}
 
 	run := newTestRun(t, pageModel(map[string]string{"The account name": `{"account":"acme"}`}))
 	waiting := run.execute(loginSteps, nil)
@@ -421,10 +418,16 @@ func TestAskResumeAfterUnreadableRecord(t *testing.T) {
 	session.Interactions[0].Status = ir.AgentInteractionAnswered
 	session.Interactions[0].Answers = [][]string{{"123456"}}
 
-	sessions := filepath.Join(run.dataDir, browserhost.DataDirName, "sessions")
-	require.NoError(t, os.Chmod(sessions, 0))
+	// A directory in place of the record cannot be read as a file by any
+	// process, whatever its privileges.
+	record := filepath.Join(run.dataDir, browserhost.DataDirName, "sessions", browserhost.RecordID("run-1", "shop")+".json")
+	data, err := os.ReadFile(record)
+	require.NoError(t, err)
+	require.NoError(t, os.Remove(record))
+	require.NoError(t, os.Mkdir(record, 0o700))
 	failed := run.execute(loginSteps, session)
-	require.NoError(t, os.Chmod(sessions, 0o700))
+	require.NoError(t, os.Remove(record))
+	require.NoError(t, os.WriteFile(record, data, 0o600))
 	require.ErrorContains(t, failed.err, "read the waiting browser's record")
 	retry := failed.exec.GetAgentSession()
 	assert.False(t, retry.Interactions[0].Applied, "the answer stays pending")
