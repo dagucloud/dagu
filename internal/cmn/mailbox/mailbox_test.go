@@ -21,6 +21,7 @@ import (
 )
 
 const plainInvoice = "From: Alice <alice@example.com>\r\n" +
+	"Message-ID: <invoice-1@example.com>\r\n" +
 	"To: billing@example.com\r\n" +
 	"Cc: audit@example.com\r\n" +
 	"Subject: Invoice 1\r\n" +
@@ -83,6 +84,7 @@ func TestSearch(t *testing.T) {
 
 	invoice := messages[0]
 	assert.NotEmpty(t, invoice.ID)
+	assert.Equal(t, "invoice-1@example.com", invoice.MessageID, "without angle brackets")
 	assert.Equal(t, "INBOX", invoice.Folder)
 	assert.Equal(t, "Alice", invoice.FromName)
 	assert.Equal(t, "alice@example.com", invoice.FromAddress)
@@ -96,6 +98,7 @@ func TestSearch(t *testing.T) {
 	assert.Empty(t, invoice.Attachments)
 
 	html := messages[1]
+	assert.Empty(t, html.MessageID, "an email without Message-ID has none")
 	assert.Equal(t, "Invoice 2", html.Subject)
 	assert.Equal(t, "Total: 200 & tax\n\n- Item A", html.Text)
 	assert.Equal(t, []mailbox.Attachment{{Name: "invoice 2.pdf", ContentType: "application/pdf", Size: 9}}, html.Attachments)

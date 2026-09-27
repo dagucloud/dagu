@@ -108,7 +108,7 @@ read.
 Published outputs, following [Spec 012](012-step-outputs.md):
 
 - `messages`: a JSON array in result order. Each element is an object with these
-  top-level fields: `id`, `folder`, `from_name`, `from_address`, `to` (array of
+  top-level fields: `id`, `message_id`, `folder`, `from_name`, `from_address`, `to` (array of
   addresses), `cc` (array of addresses), `subject`, `date` (RFC 3339), `unread`,
   `flagged`, `text`, and `attachments` (array of `{name, content_type, size,
   path}`).
@@ -179,6 +179,10 @@ and defaults to the mailbox address. Every other field and behavior follows
 
 An email ID is an opaque string. It stays valid for the same account while the
 email stays in its folder and the folder's UIDVALIDITY is unchanged.
+
+`message_id` is the email's Message-ID header without angle brackets, or empty
+when the email has none. It does not change when the email moves, so a workflow
+can use it to recognize an email it already handled.
 
 ## Errors
 
