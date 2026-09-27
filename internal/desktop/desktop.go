@@ -132,7 +132,12 @@ func (d *Driver) AssumeInputSent(at time.Time) {
 // person's, reached the desktop after since.
 func (d *Driver) PersonInputSince(since time.Time) bool {
 	last := d.backend.LastInput()
-	return last.After(since) && last.After(d.lastInput.Add(inputEcho))
+	if !last.After(since) {
+		return false
+	}
+	// The desktop may report the driver's own input a moment late, but
+	// input the driver sent before since cannot arrive after it.
+	return d.lastInput.Before(since) || last.After(d.lastInput.Add(inputEcho))
 }
 
 // WaitForIdle returns once nobody but the driver has used the desktop for
