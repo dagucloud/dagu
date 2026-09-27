@@ -854,6 +854,9 @@ secrets:
     provider: env
     key: ERP_PASSWORD
 
+params:
+  INVOICE_ID: INV-0001
+
 llm:
   provider: anthropic
   model: claude-opus-5
@@ -870,7 +873,7 @@ steps:
       do:
         - launch: C:\Program Files\ERP\client.exe
         - act: Log in as clerk with password %password%
-        - act: Open the invoice entry form and post invoice ${INVOICE_ID}
+        - act: Open the invoice entry form and post invoice ${params.INVOICE_ID}
         - expect: {statement: A document number is shown, within: 30s}
         - extract:
             instruction: The document number in the status bar
