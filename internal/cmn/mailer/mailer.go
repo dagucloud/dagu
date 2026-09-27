@@ -34,12 +34,22 @@ import (
 
 // Client is a mailer that sends emails.
 type Client struct {
-	host     string
-	port     string
-	username string
-	password string
-	token    func(context.Context) (*oauth2.Token, error)
+	host          string
+	port          string
+	username      string
+	password      string
+	token         func(context.Context) (*oauth2.Token, error)
+	security      string
+	skipTLSVerify bool
 }
+
+// Security modes for Config.Security.
+const (
+	// SecurityTLS connects with TLS from the first byte.
+	SecurityTLS = "tls"
+	// SecurityStartTLS upgrades a plain connection and fails without STARTTLS.
+	SecurityStartTLS = "starttls"
+)
 
 // Config is a config for SMTP mailer.
 type Config struct {
@@ -48,15 +58,22 @@ type Config struct {
 	Username string
 	Password string
 	Token    func(context.Context) (*oauth2.Token, error)
+	// Security is SecurityTLS, SecurityStartTLS, or empty to use STARTTLS
+	// whenever an authenticated session's server offers it.
+	Security string
+	// SkipTLSVerify accepts any server certificate.
+	SkipTLSVerify bool
 }
 
 func New(cfg Config) *Client {
 	return &Client{
-		host:     cfg.Host,
-		port:     cfg.Port,
-		username: cfg.Username,
-		password: cfg.Password,
-		token:    cfg.Token,
+		host:          cfg.Host,
+		port:          cfg.Port,
+		username:      cfg.Username,
+		password:      cfg.Password,
+		token:         cfg.Token,
+		security:      cfg.Security,
+		skipTLSVerify: cfg.SkipTLSVerify,
 	}
 }
 
@@ -121,7 +138,14 @@ func (m *Client) send(
 	dialer := &net.Dialer{
 		Timeout: mailTimeout,
 	}
-	conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(m.host, m.port))
+	address := net.JoinHostPort(m.host, m.port)
+	var conn net.Conn
+	var err error
+	if m.security == SecurityTLS {
+		conn, err = (&tls.Dialer{NetDialer: dialer, Config: m.tlsConfig()}).DialContext(ctx, "tcp", address)
+	} else {
+		conn, err = dialer.DialContext(ctx, "tcp", address)
+	}
 	if err != nil {
 		return err
 	}
@@ -220,22 +244,31 @@ func (m *Client) prepareSession(ctx context.Context, c *smtp.Client) error {
 		return fmt.Errorf("HELO failed: %w", err)
 	}
 
-	if ok, _ := c.Extension("STARTTLS"); ok {
-		tlsConfig := &tls.Config{
-			ServerName: m.host,
-			MinVersion: tls.VersionTLS12,
+	if m.security != SecurityTLS {
+		if ok, _ := c.Extension("STARTTLS"); ok {
+			if err := c.StartTLS(m.tlsConfig()); err != nil {
+				return fmt.Errorf("STARTTLS failed: %w", err)
+			}
+		} else if m.security == SecurityStartTLS {
+			return errors.New("SMTP server does not offer STARTTLS")
+		} else if m.token != nil {
+			return errors.New("SMTP OAuth requires STARTTLS")
 		}
-		if err := c.StartTLS(tlsConfig); err != nil {
-			return fmt.Errorf("STARTTLS failed: %w", err)
-		}
-	} else if m.token != nil {
-		return errors.New("SMTP OAuth requires STARTTLS")
 	}
 
 	if err := m.authenticate(ctx, c); err != nil {
 		return fmt.Errorf("authentication failed: %w", err)
 	}
 	return nil
+}
+
+func (m *Client) tlsConfig() *tls.Config {
+	return &tls.Config{
+		ServerName: m.host,
+		MinVersion: tls.VersionTLS12,
+		// Operators opt in per server, for self-signed certificates.
+		InsecureSkipVerify: m.skipTLSVerify, //nolint:gosec
+	}
 }
 
 // authenticate tries LOGIN auth first, then falls back to PLAIN auth.
