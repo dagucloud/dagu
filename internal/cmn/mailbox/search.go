@@ -50,7 +50,10 @@ type SearchOptions struct {
 // Message is a found email. Every field sits at the top level so a loop can
 // reach it.
 type Message struct {
-	ID          string       `json:"id"`
+	ID string `json:"id"`
+	// MessageID is the Message-ID header without angle brackets. Unlike ID, it
+	// stays the same when the email moves.
+	MessageID   string       `json:"message_id"`
 	Folder      string       `json:"folder"`
 	FromName    string       `json:"from_name"`
 	FromAddress string       `json:"from_address"`
@@ -219,6 +222,7 @@ func (h *fetchedHeader) message(ref emailRef) Message {
 	}
 	date := h.internalDate
 	if env := h.envelope; env != nil {
+		msg.MessageID = env.MessageID
 		msg.Subject = env.Subject
 		if len(env.From) > 0 {
 			msg.FromName = env.From[0].Name

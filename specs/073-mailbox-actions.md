@@ -5,7 +5,7 @@
 Partially implemented.
 
 Conformance covers mail account configuration errors, `mail.search`,
-`mail.organize`, attachments, and `mail.send` through password accounts against
+`mail.organize`, attachments, and `mail.send` and replies through password accounts against
 in-process TLS servers. OAuth token exchange with Google and Microsoft token
 endpoints belongs in unit tests.
 
@@ -74,7 +74,12 @@ which accepts any certificate, such as a self-signed one.
 | `oauth.provider` | Fields |
 | --- | --- |
 | `google_refresh` | `client_id`, `client_secret`, `refresh_token` |
-| `microsoft_refresh` | `client_id`, `refresh_token`; optional `tenant_id` (default `common`) and `client_secret` |
+| `microsoft_refresh` | `client_id`, `refresh_token`; optional `tenant_id` (default `common`), `client_secret`, and `scopes` |
+
+`microsoft_refresh` refreshes for `https://outlook.office.com/.default`, the mail
+permissions the person granted, unless `scopes` lists the scopes to request
+instead; `offline_access` is always requested. `google_refresh` does not accept
+`scopes`.
 
 Before each IMAP or SMTP connection, the action exchanges the refresh token for an
 access token and authenticates with SASL `XOAUTH2`. Access tokens never appear in
@@ -103,7 +108,7 @@ read.
 Published outputs, following [Spec 012](012-step-outputs.md):
 
 - `messages`: a JSON array in result order. Each element is an object with these
-  top-level fields: `id`, `folder`, `from_name`, `from_address`, `to` (array of
+  top-level fields: `id`, `message_id`, `folder`, `from_name`, `from_address`, `to` (array of
   addresses), `cc` (array of addresses), `subject`, `date` (RFC 3339), `unread`,
   `flagged`, `text`, and `attachments` (array of `{name, content_type, size,
   path}`).
@@ -154,8 +159,10 @@ For each item, the action applies `mark`, then `move`:
 - `trash` moves the email to the folder with special-use `\Trash`.
 
 No action deletes email permanently. An item whose email is no longer in its folder
-(moved, deleted, or the folder's UIDVALIDITY changed) is skipped and listed in
-`missing`; it does not fail the step.
+(moved, deleted, the folder deleted, or the folder's UIDVALIDITY changed) is skipped
+and listed in `missing`; it does not fail the step. A folder counts as deleted only
+when the server says it does not exist (`NONEXISTENT`); any other refusal to open
+it fails the step with the server's reason.
 
 Published outputs:
 
@@ -170,10 +177,29 @@ authentication instead of the DAG-level `smtp` configuration. `from` is optional
 and defaults to the mailbox address. Every other field and behavior follows
 [Spec 044](044-mail-send.md).
 
+`with.in_reply_to` makes the message a reply to one email of that mailbox. It
+takes an email ID or an email object with an `id`, as `mail.organize` items do,
+and requires `with.mailbox`. Before sending, the action reads the email over
+IMAP without changing it:
+
+- `to` defaults to the email's Reply-To address, or its sender when it has none.
+- `subject` defaults to `Re: ` followed by the email's subject, unless that
+  subject already starts with `Re:`, compared case-insensitively.
+- The message carries `In-Reply-To` with the email's Message-ID and `References`
+  with the email's References followed by its Message-ID, so mail clients show
+  it in the same thread. An email without a Message-ID gets a reply without
+  these headers.
+
+Explicit `to` and `subject` values replace the defaults.
+
 ### Email IDs
 
 An email ID is an opaque string. It stays valid for the same account while the
 email stays in its folder and the folder's UIDVALIDITY is unchanged.
+
+`message_id` is the email's Message-ID header without angle brackets, or empty
+when the email has none. It does not change when the email moves, so a workflow
+can use it to recognize an email it already handled.
 
 ## Errors
 
@@ -199,6 +225,8 @@ At step start, before connecting:
 - `mailbox` names no configured account:
   `mail account "<address>" is not configured`.
 - `mail.send` through an `imap` account without `smtp.host`.
+- `in_reply_to` without `mailbox`: `in_reply_to requires mailbox`.
+- `in_reply_to` with a malformed email ID, or naming more than one email.
 - `move: folder` with no `with.folder` while an item has no `move_to`.
 - A malformed email ID.
 
@@ -207,6 +235,9 @@ At run time:
 - An authentication failure fails the step with an error naming the account and
   the server's or token endpoint's reason, for example
   `mail account "<address>": sign-in is no longer valid (invalid_grant)`.
+- `in_reply_to` naming an email that is no longer in its folder fails the step
+  before sending, with an error containing
+  `in_reply_to: the email is no longer in its folder`.
 - A connection failure or timeout fails the step. An IMAP connection that
   transfers nothing for two minutes counts as failed. Changes that
   `mail.organize` already applied stay applied.

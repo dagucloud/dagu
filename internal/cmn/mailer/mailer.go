@@ -17,6 +17,7 @@ import (
 	"mime"
 	"mime/multipart"
 	"net"
+	"net/http"
 	"net/mail"
 	"net/smtp"
 	"net/textproto"
@@ -41,6 +42,8 @@ type Client struct {
 	token         func(context.Context) (*oauth2.Token, error)
 	security      string
 	skipTLSVerify bool
+	// requireAttachments makes every listed attachment mandatory.
+	requireAttachments bool
 }
 
 // Security modes for Config.Security.
@@ -63,17 +66,22 @@ type Config struct {
 	Security string
 	// SkipTLSVerify accepts any server certificate.
 	SkipTLSVerify bool
+	// RequireAttachments fails a send whose listed attachment cannot be read,
+	// and attaches empty files as they are. Without it, such files are skipped,
+	// which suits optional attachments such as step logs.
+	RequireAttachments bool
 }
 
 func New(cfg Config) *Client {
 	return &Client{
-		host:          cfg.Host,
-		port:          cfg.Port,
-		username:      cfg.Username,
-		password:      cfg.Password,
-		token:         cfg.Token,
-		security:      cfg.Security,
-		skipTLSVerify: cfg.SkipTLSVerify,
+		host:               cfg.Host,
+		port:               cfg.Port,
+		username:           cfg.Username,
+		password:           cfg.Password,
+		token:              cfg.Token,
+		security:           cfg.Security,
+		skipTLSVerify:      cfg.SkipTLSVerify,
+		requireAttachments: cfg.RequireAttachments,
 	}
 }
 
@@ -84,6 +92,8 @@ var (
 	errFileEmpty = errors.New("file is empty")
 	mailTimeout  = 30 * time.Second
 	maxHeaderLen = 256
+	// maxReferences bounds the References header of a reply.
+	maxReferences = 10
 )
 
 const (
@@ -112,35 +122,61 @@ func (m *Client) SendWithRecipients(
 	subject, body string,
 	attachments []string,
 ) error {
+	return m.SendMessage(ctx, Message{
+		From: from, To: to, Cc: cc, Bcc: bcc, Subject: subject, Body: body, Attachments: attachments,
+	})
+}
+
+// Message is an email to send.
+type Message struct {
+	From        string
+	To          []string
+	Cc          []string
+	Bcc         []string
+	Subject     string
+	Body        string
+	Attachments []string
+	// InReplyTo and References thread the message as a reply. They hold
+	// Message-IDs without angle brackets; References lists the thread's
+	// earlier messages, oldest first.
+	InReplyTo  string
+	References []string
+}
+
+// SendMessage sends msg.
+func (m *Client) SendMessage(ctx context.Context, msg Message) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	ctx, cancel := context.WithTimeout(ctx, mailTimeout)
 	defer cancel()
 
-	logger.Info(ctx, "Sending email", slog.Any("to", to), tag.Subject(subject))
+	logger.Info(ctx, "Sending email", slog.Any("to", msg.To), tag.Subject(msg.Subject))
 	if m.username == "" && m.password == "" && m.token == nil {
-		return m.send(ctx, from, to, cc, bcc, subject, body, attachments, false)
+		return m.send(ctx, msg, false)
 	}
-	return m.send(ctx, from, to, cc, bcc, subject, body, attachments, true)
+	return m.send(ctx, msg, true)
 }
 
-func (m *Client) send(
-	ctx context.Context,
-	from string,
-	to []string,
-	cc []string,
-	bcc []string,
-	subject, body string,
-	attachments []string,
-	useAuth bool,
-) error {
+func (m *Client) send(ctx context.Context, msg Message, useAuth bool) error {
+	// The message is built before connecting, so attachments are read once and
+	// a problem with one stops the send before the server sees anything.
+	recipients := sanitizeAddresses(append(append(append([]string{}, msg.To...), msg.Cc...), msg.Bcc...))
+	to := sanitizeAddresses(msg.To)
+	cc := sanitizeAddresses(msg.Cc)
+	safeFrom := sanitizeHeaderField(msg.From)
+	safeSubject := sanitizeHeaderField(msg.Subject)
+	payload, err := m.composeMessage(to, cc, safeFrom, safeSubject, processEmailBody(msg.Body), msg.Attachments,
+		threadHeaders(msg.InReplyTo, msg.References))
+	if err != nil {
+		return fmt.Errorf("failed to compose email: %w", err)
+	}
+
 	dialer := &net.Dialer{
 		Timeout: mailTimeout,
 	}
 	address := net.JoinHostPort(m.host, m.port)
 	var conn net.Conn
-	var err error
 	if m.security == SecurityTLS {
 		conn, err = (&tls.Dialer{NetDialer: dialer, Config: m.tlsConfig()}).DialContext(ctx, "tcp", address)
 	} else {
@@ -173,11 +209,6 @@ func (m *Client) send(
 		}
 	}
 
-	recipients := sanitizeAddresses(append(append(append([]string{}, to...), cc...), bcc...))
-	to = sanitizeAddresses(to)
-	cc = sanitizeAddresses(cc)
-	safeFrom := sanitizeHeaderField(from)
-	safeSubject := sanitizeHeaderField(subject)
 	if err := c.Mail(safeFrom); err != nil {
 		return fmt.Errorf("MAIL FROM failed: %w", err)
 	}
@@ -190,11 +221,6 @@ func (m *Client) send(
 	wc, err := c.Data()
 	if err != nil {
 		return fmt.Errorf("DATA command failed: %w", err)
-	}
-
-	payload, err := m.composeMail(to, cc, safeFrom, safeSubject, processEmailBody(body), attachments)
-	if err != nil {
-		return fmt.Errorf("failed to compose email: %w", err)
 	}
 	_, err = wc.Write(payload)
 	if err != nil {
@@ -368,7 +394,7 @@ func (a *loginAuth) Next(fromServer []byte, more bool) ([]byte, error) {
 }
 
 func (*Client) composeHeader(
-	to []string, cc []string, from string, subject string, contentType string,
+	to []string, cc []string, from string, subject string, contentType string, thread string,
 ) string {
 	to = sanitizeAddresses(to)
 	cc = sanitizeAddresses(cc)
@@ -383,6 +409,7 @@ func (*Client) composeHeader(
 		"Subject: " + subject + "\r\n" +
 		"Date: " + time.Now().Format(time.RFC1123Z) + "\r\n" +
 		"Message-ID: " + newMessageID(from) + "\r\n" +
+		thread +
 		"MIME-Version: 1.0\r\n" +
 		"Content-Type: " + contentType + "\r\n"
 }
@@ -393,41 +420,111 @@ func (m *Client) composeMail(
 	from, subject, body string,
 	attachments []string,
 ) ([]byte, error) {
-	loadedAttachments := loadAttachments(attachments)
-	if len(loadedAttachments) == 0 {
-		return m.composeSinglePartMail(to, cc, from, subject, body)
+	return m.composeMessage(to, cc, from, subject, body, attachments, "")
+}
+
+// composeMessage builds the message; thread holds the reply headers, if any.
+func (m *Client) composeMessage(
+	to []string,
+	cc []string,
+	from, subject, body string,
+	attachments []string,
+	thread string,
+) ([]byte, error) {
+	loadedAttachments, err := loadAttachments(attachments, m.requireAttachments)
+	if err != nil {
+		return nil, err
 	}
-	return m.composeMultipartMail(to, cc, from, subject, body, loadedAttachments)
+	if len(loadedAttachments) == 0 {
+		return m.composeSinglePartMail(to, cc, from, subject, body, thread)
+	}
+	return m.composeMultipartMail(to, cc, from, subject, body, loadedAttachments, thread)
+}
+
+// threadHeaders returns the In-Reply-To and References lines of a reply to
+// the message inReplyTo. A Message-ID that could break the header is left
+// out, and long threads keep their first message and the newest ones.
+func threadHeaders(inReplyTo string, references []string) string {
+	if !safeMessageID(inReplyTo) {
+		return ""
+	}
+	ids := make([]string, 0, len(references)+1)
+	for _, id := range references {
+		if safeMessageID(id) && id != inReplyTo {
+			ids = append(ids, "<"+id+">")
+		}
+	}
+	ids = append(ids, "<"+inReplyTo+">")
+	if len(ids) > maxReferences {
+		ids = append(ids[:1], ids[len(ids)-maxReferences+1:]...)
+	}
+	return "In-Reply-To: <" + inReplyTo + ">\r\n" +
+		"References: " + strings.Join(ids, " ") + "\r\n"
+}
+
+// safeMessageID reports whether id, without angle brackets, can be written
+// into a header as it is.
+func safeMessageID(id string) bool {
+	if id == "" {
+		return false
+	}
+	for _, r := range id {
+		if r <= ' ' || r > '~' || r == '<' || r == '>' {
+			return false
+		}
+	}
+	return true
 }
 
 type attachment struct {
-	name string
-	data []byte
+	name        string
+	contentType string
+	data        []byte
 }
 
-func loadAttachments(fileNames []string) []attachment {
+// loadAttachments reads the listed files. Unless require is set, files that
+// are unreadable or empty are skipped.
+func loadAttachments(fileNames []string, require bool) ([]attachment, error) {
 	attachments := make([]attachment, 0, len(fileNames))
 	for _, fileName := range fileNames {
 		data, err := readFile(fileName)
-		if err != nil {
+		switch {
+		case err == nil:
+		case require && errors.Is(err, errFileEmpty):
+			data = []byte{}
+		case require:
+			return nil, fmt.Errorf("attachment %q: %w", fileName, err)
+		default:
 			continue
 		}
+		name := filepath.Base(fileName)
 		attachments = append(attachments, attachment{
-			name: filepath.Base(fileName),
-			data: data,
+			name:        name,
+			contentType: attachmentContentType(name, data),
+			data:        data,
 		})
 	}
-	return attachments
+	return attachments, nil
+}
+
+// attachmentContentType takes the type from the file name, or from the
+// content when the name implies none.
+func attachmentContentType(name string, data []byte) string {
+	if contentType := mime.TypeByExtension(filepath.Ext(name)); contentType != "" {
+		return contentType
+	}
+	return http.DetectContentType(data)
 }
 
 func (m *Client) composeSinglePartMail(
 	to []string,
 	cc []string,
 	from, subject, body string,
+	thread string,
 ) ([]byte, error) {
 	var buf bytes.Buffer
 	contentType := mime.FormatMediaType("text/html", map[string]string{"charset": "UTF-8"})
-	buf.WriteString(m.composeHeader(to, cc, from, subject, contentType))
+	buf.WriteString(m.composeHeader(to, cc, from, subject, contentType, thread))
 	buf.WriteString("Content-Transfer-Encoding: base64\r\n\r\n")
 	if err := writeBase64(&buf, []byte(body)); err != nil {
 		return nil, err
@@ -441,6 +538,7 @@ func (m *Client) composeMultipartMail(
 	cc []string,
 	from, subject, body string,
 	attachments []attachment,
+	thread string,
 ) ([]byte, error) {
 	var content bytes.Buffer
 	writer := multipart.NewWriter(&content)
@@ -458,7 +556,7 @@ func (m *Client) composeMultipartMail(
 
 	for _, attachment := range attachments {
 		attachmentHeader := make(textproto.MIMEHeader)
-		attachmentHeader.Set("Content-Type", "text/plain")
+		attachmentHeader.Set("Content-Type", attachment.contentType)
 		attachmentHeader.Set("Content-Transfer-Encoding", "base64")
 		attachmentHeader.Set(
 			"Content-Disposition",
@@ -478,7 +576,7 @@ func (m *Client) composeMultipartMail(
 
 	contentType := mime.FormatMediaType("multipart/mixed", map[string]string{"boundary": writer.Boundary()})
 	var message bytes.Buffer
-	message.WriteString(m.composeHeader(to, cc, from, subject, contentType))
+	message.WriteString(m.composeHeader(to, cc, from, subject, contentType, thread))
 	message.WriteString("\r\n")
 	message.Write(content.Bytes())
 	return message.Bytes(), nil

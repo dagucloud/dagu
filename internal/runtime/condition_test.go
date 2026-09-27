@@ -319,6 +319,30 @@ func TestEvalConditionsClearsErrorsWhenReevaluationSucceeds(t *testing.T) {
 	require.Empty(t, results[1].Error)
 }
 
+// Passing siblings are back-filled with a message matching the deciding
+// failure: an evaluation error fails the owner, so the back-fill must not
+// claim another condition was not met.
+func TestEvalConditions_SiblingErrorWording(t *testing.T) {
+	ctx := newTestContext()
+
+	results, err := runtime.EvaluateConditions(ctx, nil, []*ir.Condition{
+		{Condition: "ok", Expected: "ok"},
+		{Condition: "abc", Expected: "num:>=0.8"},
+	})
+	require.Error(t, err)
+	require.NotErrorIs(t, err, runtime.ErrConditionNotMet)
+	require.Equal(t, runtime.ErrMsgOtherConditionFailed, results[0].Error)
+	require.NotEmpty(t, results[1].Error)
+
+	results, err = runtime.EvaluateConditions(ctx, nil, []*ir.Condition{
+		{Condition: "ok", Expected: "ok"},
+		{Condition: "x", Expected: "y"},
+	})
+	require.ErrorIs(t, err, runtime.ErrConditionNotMet)
+	require.Equal(t, runtime.ErrMsgOtherConditionNotMet, results[0].Error)
+	require.NotEmpty(t, results[1].Error)
+}
+
 func TestEvalConditions_ValueMatchEvalRunsCommandSubstitution(t *testing.T) {
 	ctx := newTestContext()
 	err := evalConditions(ctx, []string{"sh"}, []*ir.Condition{

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
+	"github.com/dagucloud/dagu/v2/internal/cmn/jsonutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -505,7 +506,7 @@ func outputValueToString(value any) string {
 	case string:
 		return v
 	default:
-		data, err := marshalCaptured(v)
+		data, err := jsonutil.MarshalUnescaped(v)
 		if err != nil {
 			return fmt.Sprint(v)
 		}

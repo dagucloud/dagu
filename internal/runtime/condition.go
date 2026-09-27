@@ -21,8 +21,13 @@ var (
 	ErrConditionNotMet = fmt.Errorf("condition was not met")
 )
 
-// Error message for when not all conditions are met
-const ErrMsgOtherConditionNotMet = "other condition was not met"
+// Back-fill messages for conditions that passed while a sibling decided the
+// outcome. The wording mirrors how the owner is reported: a not-met condition
+// skips it, while an evaluation error fails it.
+const (
+	ErrMsgOtherConditionNotMet = "other condition was not met"
+	ErrMsgOtherConditionFailed = "other condition failed to evaluate"
+)
 
 // EvaluateConditions evaluates conditions and returns their runtime results.
 func EvaluateConditions(ctx context.Context, shell []string, conditions []*ir.Condition) ([]ir.ConditionResult, error) {
@@ -40,11 +45,15 @@ func EvaluateConditions(ctx context.Context, shell []string, conditions []*ir.Co
 	}
 
 	if lastErr != nil {
+		siblingErr := ErrMsgOtherConditionNotMet
+		if evalErr != nil {
+			siblingErr = ErrMsgOtherConditionFailed
+		}
 		for i := range results {
 			if results[i].Error != "" {
 				continue
 			}
-			results[i].Error = ErrMsgOtherConditionNotMet
+			results[i].Error = siblingErr
 		}
 	}
 

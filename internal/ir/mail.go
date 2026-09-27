@@ -3,7 +3,11 @@
 
 package ir
 
-import "github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauthconfig"
+import (
+	"slices"
+
+	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauthconfig"
+)
 
 // Mail account providers select default IMAP and SMTP servers.
 const (
@@ -79,6 +83,7 @@ func (a *MailAccount) Clone() *MailAccount {
 	cloned.SMTP = a.SMTP.clone()
 	if a.OAuth != nil {
 		oauth := *a.OAuth
+		oauth.Scopes = slices.Clone(a.OAuth.Scopes)
 		cloned.OAuth = &oauth
 	}
 	return &cloned

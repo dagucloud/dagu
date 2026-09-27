@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/dagucloud/dagu/v2/internal/cmn/jsonutil"
 )
 
 var (
@@ -521,7 +523,7 @@ func foreachObjectField(value any, field string) (any, bool) {
 func formatForeachItemValue(value any) any {
 	switch value.(type) {
 	case map[string]any, map[string]string, []any, []string:
-		data, err := marshalUnescaped(value)
+		data, err := jsonutil.MarshalUnescaped(value)
 		if err != nil {
 			return value
 		}

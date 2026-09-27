@@ -112,3 +112,18 @@ func TestNewRefreshTokenFuncRejectsSMTPOnlyProvider(t *testing.T) {
 	})
 	require.EqualError(t, err, "oauth.provider must be google_refresh or microsoft_refresh")
 }
+
+func TestMicrosoftScopes(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, []string{"https://outlook.office.com/.default", "offline_access"},
+		microsoftScopes(oauthconfig.Config{}))
+	assert.Equal(t,
+		[]string{"https://outlook.office.com/IMAP.AccessAsUser.All", "https://outlook.office.com/SMTP.Send", "offline_access"},
+		microsoftScopes(oauthconfig.Config{Scopes: []string{
+			"https://outlook.office.com/IMAP.AccessAsUser.All", "https://outlook.office.com/SMTP.Send",
+		}}))
+	assert.Equal(t, []string{"offline_access", "https://outlook.office.com/IMAP.AccessAsUser.All"},
+		microsoftScopes(oauthconfig.Config{Scopes: []string{"offline_access", "https://outlook.office.com/IMAP.AccessAsUser.All"}}),
+		"offline_access is not added twice")
+}

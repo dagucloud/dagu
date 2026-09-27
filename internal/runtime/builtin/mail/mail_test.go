@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/base64"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -323,5 +324,37 @@ func runFakeSMTP(conn net.Conn, dataCh chan<- string) error {
 				return err
 			}
 		}
+	}
+}
+
+// A listed attachment that cannot be read fails the step before connecting,
+// instead of the message going out without it. The SMTP address is closed, so
+// only an attachment error can come first.
+func TestMailRejectsUnreadableAttachment(t *testing.T) {
+	t.Parallel()
+
+	ctx := runtime.NewContext(context.Background(), &ir.DAG{
+		SMTP: &ir.SMTPConfig{Host: "127.0.0.1", Port: "1"},
+	}, "", "")
+	dir := t.TempDir()
+
+	for name, path := range map[string]string{
+		"Missing":   filepath.Join(dir, "missing.pdf"),
+		"Directory": dir,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			exec, err := newMail(ctx, ir.Step{ExecutorConfig: ir.ExecutorConfig{Config: map[string]any{
+				"from":        "sender@example.com",
+				"to":          "rcpt@example.com",
+				"subject":     "Report",
+				"message":     "Attached",
+				"attachments": []string{path},
+			}}})
+			require.NoError(t, err)
+			exec.SetStdout(io.Discard)
+			exec.SetStderr(io.Discard)
+			require.ErrorContains(t, exec.Run(ctx), fmt.Sprintf("attachment %q", path))
+		})
 	}
 }

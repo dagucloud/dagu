@@ -711,13 +711,26 @@ SMTP server settings come from global configuration. With `mailbox`, the message
 goes through that entry of `mail_accounts` instead, and `from` defaults to its
 address.
 
+With `mailbox`, `in_reply_to` answers one found email (its `id`, or the email
+from `mail.search`): `to` defaults to its Reply-To or sender, `subject` to
+`Re: <subject>`, and the reply is threaded under it.
+
+```yaml
+- action: mail.send
+  with:
+    mailbox: support@example.com
+    in_reply_to: ${foreach.email.id}
+    message: Thanks, we are on it.
+```
+
 ## mail.search / mail.organize
 
 Read and organize a mailbox over IMAP. Accounts live in the DAG-level (or base
 config) `mail_accounts` map, keyed by email address. `provider: google` or
 `provider: microsoft` fills in the servers; any other server sets `imap.host`.
 Authenticate with `password` or with `oauth` (`google_refresh` or
-`microsoft_refresh` and a refresh token).
+`microsoft_refresh` and a refresh token). `microsoft_refresh` accepts optional
+`scopes` to request instead of `https://outlook.office.com/.default`.
 
 ```yaml
 mail_accounts:
@@ -754,7 +767,7 @@ steps:
 `mail.search` `with` fields: `mailbox`, `folder` (default `INBOX`), `unread`,
 `from`, `subject`, `within` (such as `24h` or `7d`), `has_attachments`,
 `save_attachments`, `limit` (1-50, default 20). It publishes `messages` (oldest
-first, each with `id`, `folder`, `from_name`, `from_address`, `to`, `cc`,
+first, each with `id`, `message_id`, `folder`, `from_name`, `from_address`, `to`, `cc`,
 `subject`, `date`, `unread`, `flagged`, `text`, `attachments`), `count`, and
 `truncated`. Searching never marks email read.
 

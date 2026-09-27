@@ -1,0 +1,12 @@
+smtp:
+  host: 127.0.0.1
+  port: 1
+steps:
+  - action: mail.send
+    with:
+      from: sender@example.com
+      to: recipient@example.com
+      subject: Report
+      message: See attached.
+      attachments:
+        - missing.pdf

@@ -4,7 +4,6 @@
 package value
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -14,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/datapath"
+	"github.com/dagucloud/dagu/v2/internal/cmn/jsonutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 )
@@ -82,25 +82,13 @@ func NormalizeJSONNumbers(v any) any {
 	}
 }
 
-// marshalUnescaped serializes a value as JSON, leaving <, > and & as the
-// characters the value holds rather than as escape sequences.
-func marshalUnescaped(value any) ([]byte, error) {
-	var buf bytes.Buffer
-	encoder := json.NewEncoder(&buf)
-	encoder.SetEscapeHTML(false)
-	if err := encoder.Encode(value); err != nil {
-		return nil, err
-	}
-	return bytes.TrimRight(buf.Bytes(), "\n"), nil
-}
-
 func stringifyResolvedValue(value any) string {
 	if value == nil {
 		return fmt.Sprintf("%v", value)
 	}
 	switch value.(type) {
 	case map[string]any, []any:
-		if data, err := marshalUnescaped(value); err == nil {
+		if data, err := jsonutil.MarshalUnescaped(value); err == nil {
 			return string(data)
 		}
 	}
@@ -108,7 +96,7 @@ func stringifyResolvedValue(value any) string {
 	//nolint:exhaustive // Only collection kinds need JSON stringification; primitives fall through to fmt.
 	switch rv.Kind() {
 	case reflect.Map, reflect.Slice, reflect.Array:
-		if data, err := marshalUnescaped(value); err == nil {
+		if data, err := jsonutil.MarshalUnescaped(value); err == nil {
 			return string(data)
 		}
 	}

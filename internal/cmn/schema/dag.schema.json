@@ -4084,6 +4084,11 @@
         "refresh_token": {
           "type": "string",
           "description": "Refresh token exchanged for an access token before each connection."
+        },
+        "scopes": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "microsoft_refresh only: scopes to refresh for, replacing https://outlook.office.com/.default. offline_access is always requested."
         }
       },
       "description": "OAuth refresh-token credentials."
@@ -4126,13 +4131,26 @@
     "mailExecutorConfig": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["to", "subject", "message"],
-      "if": { "not": { "required": ["mailbox"] } },
-      "then": { "required": ["from"] },
+      "required": ["message"],
+      "allOf": [
+        {
+          "if": { "not": { "required": ["mailbox"] } },
+          "then": { "required": ["from"] }
+        },
+        {
+          "if": { "not": { "required": ["in_reply_to"] } },
+          "then": { "required": ["to", "subject"] }
+        }
+      ],
+      "dependencies": { "in_reply_to": ["mailbox"] },
       "properties": {
         "mailbox": {
           "type": "string",
           "description": "Send through this mail account from mail_accounts instead of the DAG-level smtp configuration."
+        },
+        "in_reply_to": {
+          "oneOf": [{ "type": "string" }, { "type": "object" }],
+          "description": "Reply to this email: an ID or an email from mail.search. Requires mailbox. to defaults to the email's Reply-To or sender, subject to Re: and its subject, and the reply is threaded under it."
         },
         "from": {
           "type": "string",
