@@ -485,7 +485,7 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 		return fmt.Errorf("act did not complete: %s", outcome.Message)
 	}
 	if useCache && len(outcome.Actions) > 0 {
-		r.cache.stage(key, outcome.Actions)
+		r.cache.Stage(key, outcome.Actions)
 	}
 	r.report(ctx, agentstep.Report{
 		Index: index, Kind: opAct, Subject: spec.Instruction, Status: status,
@@ -499,7 +499,8 @@ func (r *run) lookupCache(key string) ([]recordedAction, bool) {
 	if key == "" {
 		return nil, false
 	}
-	return r.cache.lookup(key)
+	actions, ok := r.cache.Lookup(key)
+	return actions, ok && len(actions) > 0
 }
 
 func (r *run) extract(ctx context.Context, index int, spec extractSpec, timeout time.Duration) error {
@@ -696,7 +697,7 @@ func (r *run) succeed(ctx context.Context) error {
 		_, _ = fmt.Fprintf(r.timeline.Log, "warning: browser cleanup: %s\n", r.masker.MaskString(err.Error()))
 	}
 	if r.cache != nil {
-		if err := r.cache.commit(ctx); err != nil {
+		if err := r.cache.Commit(ctx); err != nil {
 			_, _ = fmt.Fprintf(r.timeline.Log, "warning: keep replay recordings: %s\n", r.masker.MaskString(err.Error()))
 		}
 	}
@@ -764,10 +765,10 @@ func (r *run) forgetReplays(ctx context.Context, index int, kind string, cause e
 	}
 	if index < 0 || ctx.Err() != nil || kind == opAsk || kind == kindDownload ||
 		errors.Is(cause, errBrowserUnresponsive) || r.bridge.failedRequest() {
-		r.cache.discard()
+		r.cache.Discard()
 		return
 	}
-	if err := r.cache.evict(ctx); err != nil {
+	if err := r.cache.Evict(ctx); err != nil {
 		_, _ = fmt.Fprintf(r.timeline.Log, "warning: drop replay recordings: %s\n", r.masker.MaskString(err.Error()))
 	}
 }
