@@ -1,0 +1,204 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package anthropic_test
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/dagucloud/dagu/v2/internal/llm"
+	"github.com/dagucloud/dagu/v2/internal/llm/computeruse"
+	_ "github.com/dagucloud/dagu/v2/internal/llm/providers/anthropic"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// messagesServer answers each Messages API request with the next scripted
+// response body and records the request bodies.
+type messagesServer struct {
+	mu        sync.Mutex
+	responses []string
+	requests  []map[string]any
+}
+
+func (s *messagesServer) start(t *testing.T) string {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/v1/messages", r.URL.Path)
+		assert.Equal(t, "test-key", r.Header.Get("x-api-key"))
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		var request map[string]any
+		require.NoError(t, json.Unmarshal(body, &request))
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.requests = append(s.requests, request)
+		response := s.responses[0]
+		s.responses = s.responses[1:]
+		_, _ = w.Write([]byte(response))
+	}))
+	t.Cleanup(server.Close)
+	return server.URL
+}
+
+func newComputerSession(t *testing.T, server *messagesServer) computeruse.Session {
+	t.Helper()
+	provider, err := llm.NewProvider(llm.ProviderAnthropic, llm.Config{APIKey: "test-key", BaseURL: server.start(t)})
+	require.NoError(t, err)
+	session, err := computeruse.New(llm.ProviderAnthropic, provider, computeruse.ModeAuto, computeruse.Options{
+		Model:  "claude-opus-5",
+		Task:   "Save the document",
+		System: "The computer runs macOS.",
+	})
+	require.NoError(t, err)
+	return session
+}
+
+func testScreen(label string) computeruse.Screen {
+	return computeruse.Screen{Image: llm.Image{MediaType: "image/png", Data: []byte(label)}, Width: 1280, Height: 800}
+}
+
+func TestComputerSession(t *testing.T) {
+	t.Parallel()
+
+	assistant := `[
+		{"type":"thinking","thinking":"","signature":"sig-1"},
+		{"type":"text","text":"Saving."},
+		{"type":"tool_use","id":"t1","name":"left_click","toolset_name":"computer","input":{"coordinate":[10,20],"text":"shift"}},
+		{"type":"tool_use","id":"t2","name":"key","toolset_name":"computer","input":{"text":"cmd+s","repeat":2}},
+		{"type":"tool_use","id":"t3","name":"scroll","toolset_name":"computer","input":{"scroll_direction":"up","scroll_amount":5}},
+		{"type":"tool_use","id":"t4","name":"screenshot","toolset_name":"computer","input":{}}
+	]`
+	server := &messagesServer{responses: []string{
+		`{"content":` + assistant + `,"stop_reason":"tool_use","usage":{"input_tokens":100,"output_tokens":20}}`,
+		`{"content":[{"type":"tool_use","id":"t5","name":"done","input":{"success":true,"summary":"Saved"}}],"stop_reason":"tool_use","usage":{"input_tokens":1,"output_tokens":1}}`,
+	}}
+	session := newComputerSession(t, server)
+	assert.Equal(t, 2576, session.ImageLimit().LongEdge)
+
+	turn, err := session.Next(context.Background(), computeruse.Observation{Screen: testScreen("first")})
+	require.NoError(t, err)
+	assert.Equal(t, "Saving.", turn.Text)
+	assert.Equal(t, llm.Usage{PromptTokens: 100, CompletionTokens: 20, TotalTokens: 120}, turn.Usage)
+	assert.Equal(t, []computeruse.Action{
+		{CallID: "t1", Kind: computeruse.KindClick, Point: &computeruse.Point{X: 10, Y: 20}, Button: computeruse.ButtonLeft, Count: 1, Modifiers: []string{"shift"}},
+		{CallID: "t2", Kind: computeruse.KindKey, Keys: []string{"cmd", "s"}, Repeat: 2},
+		{CallID: "t3", Kind: computeruse.KindScroll, ScrollY: -5},
+		{CallID: "t4", Kind: computeruse.KindScreenshot},
+	}, turn.Actions)
+
+	first := server.requests[0]
+	assert.Equal(t, "claude-opus-5", first["model"])
+	assert.NotContains(t, first, "temperature")
+	assert.NotContains(t, first, "thinking")
+	assert.Equal(t, map[string]any{"type": "auto"}, first["tool_choice"])
+	assert.Contains(t, first["system"], "The computer runs macOS.")
+	tools := first["tools"].([]any)
+	assert.Equal(t, map[string]any{"type": "computer_toolset_20260801"}, tools[0])
+	assert.Equal(t, "done", tools[1].(map[string]any)["name"])
+	firstContent := first["messages"].([]any)[0].(map[string]any)["content"].([]any)
+	assert.Contains(t, firstContent[0].(map[string]any)["text"], "Task: Save the document")
+	assert.Equal(t, "image", firstContent[1].(map[string]any)["type"])
+
+	turn, err = session.Next(context.Background(), computeruse.Observation{
+		Screen: testScreen("second"),
+		Results: []computeruse.Result{
+			{CallID: "t1"},
+			{CallID: "t2", Error: "unknown key"},
+			{CallID: "t3", Skipped: true},
+			{CallID: "t4", Skipped: true},
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, &computeruse.Done{Success: true, Summary: "Saved"}, turn.Done)
+
+	messages := server.requests[1]["messages"].([]any)
+	require.Len(t, messages, 3)
+	var echoed, sent any
+	require.NoError(t, json.Unmarshal([]byte(assistant), &sent))
+	echoed = messages[1].(map[string]any)["content"]
+	assert.Equal(t, sent, echoed, "the assistant turn is sent back unchanged")
+
+	results := messages[2].(map[string]any)["content"].([]any)
+	require.Len(t, results, 4)
+	assert.Equal(t, map[string]any{
+		"type": "tool_result", "tool_use_id": "t1", "toolset_name": "computer",
+		"content": []any{map[string]any{"type": "text", "text": "OK"}},
+	}, results[0])
+	assert.Equal(t, map[string]any{
+		"type": "tool_result", "tool_use_id": "t2", "toolset_name": "computer", "is_error": true,
+		"content": []any{map[string]any{"type": "text", "text": "Error: unknown key"}},
+	}, results[1])
+	assert.Equal(t, computeruse.SkippedText, results[3].(map[string]any)["content"].([]any)[0].(map[string]any)["text"])
+}
+
+func TestComputerSessionScreenshotResult(t *testing.T) {
+	t.Parallel()
+
+	server := &messagesServer{responses: []string{
+		`{"content":[{"type":"tool_use","id":"t1","name":"zoom","toolset_name":"computer","input":{"region":[0,0,100,50]}}],"stop_reason":"tool_use"}`,
+		`{"content":[{"type":"text","text":"Looks saved."}],"stop_reason":"end_turn"}`,
+	}}
+	session := newComputerSession(t, server)
+
+	turn, err := session.Next(context.Background(), computeruse.Observation{Screen: testScreen("first")})
+	require.NoError(t, err)
+	assert.Equal(t, &computeruse.Rect{Max: computeruse.Point{X: 100, Y: 50}}, turn.Actions[0].Region)
+
+	zoomed := llm.Image{MediaType: "image/png", Data: []byte{1, 2}}
+	turn, err = session.Next(context.Background(), computeruse.Observation{
+		Screen:  testScreen("second"),
+		Results: []computeruse.Result{{CallID: "t1", Image: &zoomed}},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, turn.Actions)
+	assert.Nil(t, turn.Done)
+
+	result := server.requests[1]["messages"].([]any)[2].(map[string]any)["content"].([]any)[0].(map[string]any)
+	assert.Equal(t, []any{map[string]any{
+		"type":   "image",
+		"source": map[string]any{"type": "base64", "media_type": "image/png", "data": "AQI="},
+	}}, result["content"])
+}
+
+// A turn with no tool call is followed by the screen itself.
+func TestComputerSessionNoteAfterText(t *testing.T) {
+	t.Parallel()
+
+	server := &messagesServer{responses: []string{
+		`{"content":[{"type":"text","text":"Done, I think."}],"stop_reason":"end_turn"}`,
+		`{"content":[{"type":"tool_use","id":"t1","name":"wait","toolset_name":"computer","input":{"duration":1.5}}],"stop_reason":"tool_use"}`,
+	}}
+	session := newComputerSession(t, server)
+
+	_, err := session.Next(context.Background(), computeruse.Observation{Screen: testScreen("first")})
+	require.NoError(t, err)
+	turn, err := session.Next(context.Background(), computeruse.Observation{Screen: testScreen("second"), Note: "Call done to finish."})
+	require.NoError(t, err)
+	assert.Equal(t, 1500*time.Millisecond, turn.Actions[0].Duration)
+
+	content := server.requests[1]["messages"].([]any)[2].(map[string]any)["content"].([]any)
+	require.Len(t, content, 2)
+	assert.Contains(t, content[0].(map[string]any)["text"], "Call done to finish.")
+	assert.NotContains(t, content[0].(map[string]any)["text"], "Task:")
+	assert.Equal(t, "image", content[1].(map[string]any)["type"])
+}
+
+func TestComputerSessionRefusal(t *testing.T) {
+	t.Parallel()
+
+	server := &messagesServer{responses: []string{
+		`{"content":[],"stop_reason":"refusal","stop_details":{"type":"refusal","category":"cyber","explanation":"not allowed"}}`,
+	}}
+	session := newComputerSession(t, server)
+
+	_, err := session.Next(context.Background(), computeruse.Observation{Screen: testScreen("first")})
+	require.ErrorContains(t, err, "not allowed")
+}

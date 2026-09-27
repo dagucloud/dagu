@@ -22,15 +22,21 @@ const (
 	genericType   = "type"
 	genericKey    = "key"
 	genericWait   = "wait"
-	// DoneToolName is the tool a model calls to report the task finished.
-	DoneToolName = "done"
+)
+
+// The done tool is how a model reports the task finished, in every mode.
+const (
+	DoneToolName        = "done"
+	DoneToolDescription = "Report that the task is finished or cannot be finished."
+	// DoneInstruction tells the model how to end a task.
+	DoneInstruction = "When the task is complete, or cannot be completed, call done with success set accordingly and a short summary."
 )
 
 const (
 	defaultScrollNotches = 3
 	// keptScreenshots is how many of the latest screenshots stay in the
 	// conversation; older ones are replaced with a note to bound its size.
-	keptScreenshots = 3
+	keptScreenshots   = 3
 	omittedScreenshot = "(An earlier screenshot was removed from the conversation.)"
 )
 
@@ -39,7 +45,7 @@ var genericImageLimit = ImageLimit{LongEdge: 1568, MaxPixels: 1_150_000}
 
 const genericSystemPrompt = `You operate a computer by calling tools. After each round of tool calls you receive a screenshot of the screen. Coordinates are pixels in that screenshot, measured from its top-left corner.
 Work in small steps and check each new screenshot before continuing. Key names follow common spelling, such as "Return", "Tab", "ctrl+c" or "cmd+space".
-When the task is complete, or cannot be completed, call done with success set accordingly and a short summary.`
+` + DoneInstruction
 
 // genericSession drives a model through plain function tools.
 type genericSession struct {
@@ -92,7 +98,7 @@ func (s *genericSession) Next(ctx context.Context, obs Observation) (*Turn, erro
 	for _, call := range resp.ToolCalls {
 		pending := pendingCall{id: call.ID, name: call.Function.Name}
 		if call.Function.Name == DoneToolName {
-			done, err := parseDone(call.Function.Arguments)
+			done, err := ParseDone([]byte(call.Function.Arguments))
 			if err == nil {
 				turn.Done = done
 			}
@@ -174,12 +180,25 @@ func (s *genericSession) dropOldScreenshots() {
 	}
 }
 
-func parseDone(arguments string) (*Done, error) {
+// ParseDone decodes the arguments of a done tool call.
+func ParseDone(arguments []byte) (*Done, error) {
 	var done Done
-	if err := json.Unmarshal([]byte(defaultArguments(arguments)), &done); err != nil {
+	if err := json.Unmarshal([]byte(defaultArguments(string(arguments))), &done); err != nil {
 		return nil, fmt.Errorf("invalid arguments: %w", err)
 	}
 	return &done, nil
+}
+
+// DoneParameters returns the JSON schema of the done tool's arguments.
+func DoneParameters() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"success": map[string]any{"type": "boolean", "description": "Whether the task was completed."},
+			"summary": map[string]any{"type": "string", "description": "What was done, or why the task could not be completed."},
+		},
+		"required": []string{"success", "summary"},
+	}
 }
 
 // genericArgs holds the arguments of every generic tool.
@@ -333,10 +352,7 @@ var genericTools = []llm.Tool{
 	genericTool(genericWait, "Wait before looking at the screen again.", map[string]any{
 		"seconds": map[string]any{"type": "number", "minimum": 0, "maximum": 60},
 	}, "seconds"),
-	genericTool(DoneToolName, "Report that the task is finished or cannot be finished.", map[string]any{
-		"success": map[string]any{"type": "boolean", "description": "Whether the task was completed."},
-		"summary": map[string]any{"type": "string", "description": "What was done, or why the task could not be completed."},
-	}, "success", "summary"),
+	{Type: "function", Function: llm.ToolFunction{Name: DoneToolName, Description: DoneToolDescription, Parameters: DoneParameters()}},
 }
 
 func genericTool(name, description string, properties map[string]any, required ...string) llm.Tool {

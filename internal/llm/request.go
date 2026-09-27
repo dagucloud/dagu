@@ -79,6 +79,15 @@ type normalizedProvider struct {
 	Provider
 }
 
+// Unwrap returns the concrete provider behind a provider NewProvider
+// returned, so a provider package can reach its own implementation.
+func Unwrap(provider Provider) Provider {
+	if normalized, ok := provider.(normalizedProvider); ok {
+		return normalized.Provider
+	}
+	return provider
+}
+
 // Chat normalizes each request before delegating to the concrete provider.
 func (p normalizedProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
 	return p.Provider.Chat(ctx, NormalizeChatRequest(req))
