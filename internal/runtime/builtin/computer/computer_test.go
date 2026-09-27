@@ -496,7 +496,7 @@ func TestWaitsForIdleDesktop(t *testing.T) {
 			if tc.prepare != nil {
 				tc.prepare(t, run)
 			}
-			run.backend.personUses()
+			run.backend.personKeepsUsing(2)
 			execution := run.execute(tc.with, nil)
 			require.NoError(t, execution.err)
 			session := execution.exec.GetAgentSession()

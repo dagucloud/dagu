@@ -42,6 +42,9 @@ type fakeBackend struct {
 	// from the step and from a person.
 	lastEvent     time.Time
 	personInputAt time.Time
+	// personChecks is how many more checks find a person using the desktop
+	// at that moment.
+	personChecks int
 }
 
 func newFakeBackend(width, height int) *fakeBackend {
@@ -77,16 +80,29 @@ func (b *fakeBackend) record(event string) {
 	b.lastEvent = time.Now()
 }
 
-// personUses records input from a person now.
+// personUses records input from a person now. The time is a moment ahead,
+// so it follows every earlier reading of a clock as coarse as Windows'.
 func (b *fakeBackend) personUses() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.personInputAt = time.Now()
+	b.personInputAt = time.Now().Add(time.Millisecond)
+}
+
+// personKeepsUsing makes the next checks find a person using the desktop,
+// however long the step takes to make them.
+func (b *fakeBackend) personKeepsUsing(checks int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.personChecks = checks
 }
 
 func (b *fakeBackend) LastInput() time.Time {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.personChecks > 0 {
+		b.personChecks--
+		b.personInputAt = time.Now()
+	}
 	if b.personInputAt.After(b.lastEvent) {
 		return b.personInputAt
 	}

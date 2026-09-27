@@ -173,13 +173,17 @@ func TestDriverPersonInput(t *testing.T) {
 	start := time.Now()
 	assert.False(t, driver.PersonInputSince(start), "no input yet")
 
-	backend.personInputAt = time.Now()
+	// Times are set explicitly, since consecutive clock readings can be
+	// equal on Windows.
+	backend.personInputAt = start.Add(time.Millisecond)
 	assert.True(t, driver.PersonInputSince(start))
-	assert.False(t, driver.PersonInputSince(time.Now()))
+	assert.False(t, driver.PersonInputSince(start.Add(time.Second)))
 
 	require.NoError(t, driver.Move(context.Background(), image.Pt(1, 1)))
-	backend.personInputAt = time.Now()
+	sent := driver.InputSentAt()
+	backend.personInputAt = sent.Add(time.Millisecond)
 	assert.False(t, driver.PersonInputSince(start), "the desktop echoes the driver's move")
+	assert.True(t, driver.PersonInputSince(sent.Add(time.Microsecond)), "input after a screenshot taken after the move is a person's")
 }
 
 func TestDriverWaitForIdle(t *testing.T) {
