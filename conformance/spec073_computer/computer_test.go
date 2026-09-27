@@ -249,11 +249,11 @@ func TestComputerTypesIntoWindow(t *testing.T) {
 	if runtime.GOOS != "windows" || os.Getenv("DAGU_DESKTOP_E2E") != "1" {
 		t.Skip("set DAGU_DESKTOP_E2E=1 on an interactive Windows desktop to run")
 	}
-	t.Cleanup(func() {
-		_ = exec.Command("taskkill", "/F", "/FI", "WINDOWTITLE eq Dagu desktop test").Run()
-	})
 
 	dagu := harness.NewRunner(t).WithCommandTimeout(desktopCommandTimeout)
+	// Registered after the runner's project directory, so the window is
+	// closed before that directory is removed.
+	t.Cleanup(func() { closeTestWindow(t) })
 	// CI uploads the screenshots from this directory when the test fails.
 	artifacts := os.Getenv("DESKTOP_E2E_ARTIFACTS")
 	if artifacts == "" {
@@ -276,4 +276,16 @@ func TestComputerTypesIntoWindow(t *testing.T) {
 	model.mu.Lock()
 	defer model.mu.Unlock()
 	require.True(t, model.sawWindow, "the model found the window in a screenshot")
+}
+
+const testWindowFilter = "WINDOWTITLE eq Dagu desktop test"
+
+// closeTestWindow ends the test window and waits for its process to exit.
+func closeTestWindow(t *testing.T) {
+	t.Helper()
+	_ = exec.Command("taskkill", "/F", "/FI", testWindowFilter).Run()
+	require.Eventually(t, func() bool {
+		out, err := exec.Command("tasklist", "/FI", testWindowFilter, "/NH").Output()
+		return err == nil && !strings.Contains(strings.ToLower(string(out)), "powershell")
+	}, 30*time.Second, 200*time.Millisecond, "the test window did not exit")
 }

@@ -4,6 +4,8 @@ param([Parameter(Mandatory = $true)][string]$Out)
 
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 $Out = [System.IO.Path]::GetFullPath($Out)
+# Leave the launch directory so the window does not hold it open.
+[System.Environment]::CurrentDirectory = [System.IO.Path]::GetTempPath()
 
 $form = New-Object System.Windows.Forms.Form
 $form.Text = 'Dagu desktop test'
