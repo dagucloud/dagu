@@ -7127,7 +7127,7 @@
           "description": "What to extract, in natural language. Its text is sent to the model; pass secrets through variables."
         },
         "schema": {
-          "$ref": "#/definitions/browserExtractSchema"
+          "$ref": "#/definitions/extractSchema"
         },
         "timeout": {
           "type": "string",
@@ -7226,7 +7226,7 @@
       "additionalProperties": { "type": "string" },
       "description": "Values referenced as %name% in act instructions. The browser receives the values; the model sees only the names."
     },
-    "browserExtractSchema": {
+    "extractSchema": {
       "type": "object",
       "required": ["type"],
       "properties": {
@@ -7316,7 +7316,7 @@
           "required": ["instruction", "schema"],
           "properties": {
             "instruction": { "type": "string", "minLength": 1 },
-            "schema": { "$ref": "#/definitions/browserExtractSchema" }
+            "schema": { "$ref": "#/definitions/extractSchema" }
           },
           "description": "Extract structured data from the page into step outputs."
         },
@@ -7394,7 +7394,7 @@
           "description": "What to read from the screen, in natural language. Its text is sent to the model."
         },
         "schema": {
-          "$ref": "#/definitions/browserExtractSchema"
+          "$ref": "#/definitions/extractSchema"
         },
         "timeout": {
           "type": "string",
@@ -7546,7 +7546,7 @@
           "required": ["instruction", "schema"],
           "properties": {
             "instruction": { "type": "string", "minLength": 1 },
-            "schema": { "$ref": "#/definitions/browserExtractSchema" }
+            "schema": { "$ref": "#/definitions/extractSchema" }
           },
           "description": "Read structured data from the screen into step outputs."
         },
