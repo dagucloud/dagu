@@ -197,3 +197,31 @@ func TestComputerSessionHaltsBatch(t *testing.T) {
 	assert.Contains(t, note, "The computer call was not performed: an earlier action failed.")
 }
 
+// Models without the computer tool use the generic session in auto mode.
+func TestComputerSessionModelSupport(t *testing.T) {
+	t.Parallel()
+
+	for model, native := range map[string]bool{
+		"gpt-5.4":                   true,
+		"gpt-5.4-mini":              true,
+		"gpt-5.6-sol":               true,
+		"gpt-6-astra":               true,
+		"ft:gpt-5.6-sol:acme::abc1": true,
+		"my-azure-deployment":       true,
+		"gpt-5.4-nano":              false,
+		"gpt-5":                     false,
+		"gpt-4.1":                   false,
+		"o3":                        false,
+		"o4-mini":                   false,
+		"computer-use-preview":      false,
+	} {
+		provider, err := llm.NewProvider(llm.ProviderOpenAI, llm.Config{APIKey: "test-key"})
+		require.NoError(t, err)
+		_, err = computeruse.New(llm.ProviderOpenAI, provider, computeruse.ModeNative, computeruse.Options{Model: model})
+		if native {
+			assert.NoError(t, err, model)
+		} else {
+			assert.ErrorIs(t, err, computeruse.ErrModelNotSupported, model)
+		}
+	}
+}

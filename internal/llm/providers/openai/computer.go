@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,6 +34,33 @@ const computerInstructions = `You operate a computer with the computer tool. Coo
 
 func init() {
 	computeruse.RegisterNative(llm.ProviderOpenAI, newComputerSession)
+}
+
+// gptVersionPattern reads the version from a model ID such as gpt-5.4-mini
+// or ft:gpt-5.6-sol:org::id.
+var gptVersionPattern = regexp.MustCompile(`gpt-(\d+)(?:\.(\d+))?`)
+
+// reasoningModelPattern matches o-series model IDs such as o3 or o4-mini.
+var reasoningModelPattern = regexp.MustCompile(`^o\d`)
+
+// computerToolSupported reports whether a model takes the computer tool,
+// which OpenAI offers from GPT-5.4 on, except for nano models. The older
+// computer-use-preview model takes only the preview tool. Unrecognized IDs,
+// such as custom deployments, are assumed to support it.
+func computerToolSupported(model string) bool {
+	switch {
+	case model == "computer-use-preview", reasoningModelPattern.MatchString(model):
+		return false
+	case strings.Contains(model, "nano"):
+		return false
+	}
+	match := gptVersionPattern.FindStringSubmatch(model)
+	if match == nil {
+		return true
+	}
+	major, _ := strconv.Atoi(match[1])
+	minor, _ := strconv.Atoi(match[2])
+	return major > 5 || (major == 5 && minor >= 4)
 }
 
 // computerSession drives a model through the Responses API computer tool.
@@ -71,6 +100,9 @@ func newComputerSession(provider llm.Provider, opts computeruse.Options) (comput
 	p, ok := llm.Unwrap(provider).(*Provider)
 	if !ok {
 		return nil, fmt.Errorf("%s: computer use needs an OpenAI provider, got %T", providerName, provider)
+	}
+	if !computerToolSupported(opts.Model) {
+		return nil, fmt.Errorf("%s: %s: %w", providerName, opts.Model, computeruse.ErrModelNotSupported)
 	}
 	return &computerSession{provider: p, opts: opts}, nil
 }
