@@ -1345,12 +1345,17 @@ func TestClientTreatsDiscoveredEndpointsAsDistinctOwners(t *testing.T) {
 	assert.Zero(t, newReports.Load())
 }
 
+// failoverHeartbeatTimeout bounds heartbeats in failover tests. A stalled
+// first attempt uses half of it, and the other half must cover a new
+// connection, a health check, and the heartbeat on a loaded CI host.
+const failoverHeartbeatTimeout = 4 * time.Second
+
 func TestClientHeartbeatFailsOverWithinConfiguredTimeout(t *testing.T) {
 	t.Parallel()
 
 	config := coordinator.DefaultConfig()
 	config.MaxRetries = 0
-	config.HeartbeatTimeout = time.Second
+	config.HeartbeatTimeout = failoverHeartbeatTimeout
 
 	var heartbeatCalls atomic.Int32
 	heartbeatFunc := func(ctx context.Context, _ *coordinatorv1.HeartbeatRequest) (*coordinatorv1.HeartbeatResponse, error) {
@@ -1624,7 +1629,7 @@ func TestClientHeartbeatFailsOverAfterHealthCheckStalls(t *testing.T) {
 
 	config := coordinator.DefaultConfig()
 	config.MaxRetries = 0
-	config.HeartbeatTimeout = time.Second
+	config.HeartbeatTimeout = failoverHeartbeatTimeout
 
 	healthServer := &stallFirstHealthCheckServer{}
 	var heartbeatCalls atomic.Int32
