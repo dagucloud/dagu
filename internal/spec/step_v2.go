@@ -457,24 +457,9 @@ func normalizeComputerRunAction(normalized map[string]any, with map[string]any) 
 // normalizeComputerExtractAction rewrites computer.extract into computer.run
 // with a single extract operation.
 func normalizeComputerExtractAction(normalized map[string]any, with map[string]any) error {
-	instruction, err := requireActionStringField(with, "instruction")
-	if err != nil {
+	if err := singleExtractOperation(with); err != nil {
 		return err
 	}
-	schema, ok := with["schema"].(map[string]any)
-	if !ok {
-		return ir.NewValidationError("with", with, fmt.Errorf("with.schema must be an object schema"))
-	}
-	extract := map[string]any{
-		"extract": map[string]any{"instruction": instruction, "schema": schema},
-	}
-	if timeout, ok := with["timeout"]; ok {
-		extract["timeout"] = timeout
-		delete(with, "timeout")
-	}
-	delete(with, "instruction")
-	delete(with, "schema")
-	with["do"] = []any{extract}
 	return normalizeComputerRunAction(normalized, with)
 }
 
@@ -484,6 +469,15 @@ func normalizeBrowserExtractAction(normalized map[string]any, with map[string]an
 	if _, err := requireActionStringField(with, "url"); err != nil {
 		return err
 	}
+	if err := singleExtractOperation(with); err != nil {
+		return err
+	}
+	return normalizeBrowserRunAction(normalized, with)
+}
+
+// singleExtractOperation replaces with.instruction, with.schema, and
+// with.timeout by a with.do holding one extract operation.
+func singleExtractOperation(with map[string]any) error {
 	instruction, err := requireActionStringField(with, "instruction")
 	if err != nil {
 		return err
@@ -502,7 +496,7 @@ func normalizeBrowserExtractAction(normalized map[string]any, with map[string]an
 	delete(with, "instruction")
 	delete(with, "schema")
 	with["do"] = []any{extract}
-	return normalizeBrowserRunAction(normalized, with)
+	return nil
 }
 
 func normalizeHTTPRequestAction(normalized map[string]any, with map[string]any) error {
