@@ -544,6 +544,9 @@ const (
 
 	// ExecutorTypeBrowser is the executor type for browser automation steps.
 	ExecutorTypeBrowser = "browser"
+
+	// ExecutorTypeComputer is the executor type for desktop automation steps.
+	ExecutorTypeComputer = "computer"
 )
 
 // RouterConfig contains routing configuration for router-type steps.

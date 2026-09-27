@@ -11,6 +11,7 @@ import (
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/browser"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/chat"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/command"
+	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/computer"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/dag"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/data"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/decision"

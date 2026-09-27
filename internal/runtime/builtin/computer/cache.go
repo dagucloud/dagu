@@ -1,0 +1,172 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package computer
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"image"
+	"os"
+	"path/filepath"
+	"strconv"
+	"sync"
+
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/replaycache"
+	"github.com/dagucloud/dagu/v2/internal/desktop"
+	"github.com/dagucloud/dagu/v2/internal/llm/computeruse"
+)
+
+const (
+	cacheFileMode = 0o600
+	cacheDirMode  = 0o700
+	// replayScreenDistance is how far a screen's fingerprint may drift from
+	// the recorded one, such as for a clock, and still replay.
+	replayScreenDistance = 8
+	// replayTargetDistance is the same bound for the area an action lands
+	// on, which must match more closely.
+	replayTargetDistance = 6
+	// minTargetRadius is the smallest half-width of the area compared
+	// around an action's position; larger screens compare a wider area.
+	minTargetRadius     = 32
+	targetRadiusDivisor = 40
+)
+
+// recording is what an act did, so a later run can repeat it without a
+// model when the screens match.
+type recording struct {
+	Width  int                 `json:"width"`
+	Height int                 `json:"height"`
+	Turns  []recordedTurn      `json:"turns"`
+	Final  desktop.Fingerprint `json:"final"`
+}
+
+// recordedTurn is a screen the model saw and the actions it chose.
+type recordedTurn struct {
+	Screen  desktop.Fingerprint `json:"screen"`
+	Actions []recordedAction    `json:"actions"`
+}
+
+// recordedAction is an action in display pixels. Typed text keeps its
+// %name% placeholders, so secrets are never stored.
+type recordedAction struct {
+	Action computeruse.Action `json:"action"`
+	// Target fingerprints the area the action lands on.
+	Target *desktop.Fingerprint `json:"target,omitempty"`
+}
+
+func recordAction(action computeruse.Action, full *image.RGBA) recordedAction {
+	recorded := recordedAction{Action: action}
+	if at, ok := target(action); ok {
+		fingerprint := desktop.FingerprintAround(full, at, targetRadius(full))
+		recorded.Target = &fingerprint
+	}
+	return recorded
+}
+
+func targetRadius(full *image.RGBA) int {
+	return max(minTargetRadius, full.Bounds().Dx()/targetRadiusDivisor)
+}
+
+// replayCache stores the recordings of act operations. Entries are keyed by
+// operation position, instruction and screen size, so an edited
+// instruction or a different display misses.
+type replayCache struct {
+	path    string
+	mu      sync.Mutex
+	entries map[string]recording
+}
+
+func openReplayCache(computerDir, dagName, stepKey string) (*replayCache, error) {
+	cache := &replayCache{
+		path:    replaycache.New(computerDir).Path(dagName, stepKey),
+		entries: map[string]recording{},
+	}
+	data, err := os.ReadFile(cache.path)
+	if errors.Is(err, os.ErrNotExist) {
+		return cache, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read replay cache: %w", err)
+	}
+	if err := json.Unmarshal(data, &cache.entries); err != nil {
+		// A corrupt cache only costs model calls; start over.
+		cache.entries = map[string]recording{}
+	}
+	return cache, nil
+}
+
+func (c *replayCache) lookup(key string) (recording, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	entry, ok := c.entries[key]
+	return entry, ok && len(entry.Turns) > 0
+}
+
+func (c *replayCache) store(key string, entry recording) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.entries[key] = entry
+	if err := os.MkdirAll(filepath.Dir(c.path), cacheDirMode); err != nil {
+		return fmt.Errorf("create replay cache directory: %w", err)
+	}
+	return fileutil.WriteJSONAtomic(c.path, c.entries, cacheFileMode)
+}
+
+// replayKey identifies an act operation on a display size.
+func replayKey(index int, instruction string, size image.Point) string {
+	sum := sha256.Sum256([]byte(strconv.Itoa(index) + "\x00" + instruction + "\x00" + size.String()))
+	return hex.EncodeToString(sum[:])
+}
+
+// replay repeats a recording while every screen matches what the model saw.
+// It reports false, leaving the desktop as it is, when a screen differs or
+// an action fails; the model then continues from there.
+func (r *run) replay(ctx context.Context, index int, entry recording) (bool, error) {
+	for _, turn := range entry.Turns {
+		current, err := r.settle(ctx)
+		if err != nil {
+			return false, err
+		}
+		if !matches(current, entry, turn) {
+			return false, nil
+		}
+		for _, recorded := range turn.Actions {
+			r.timeline.action(index, "replay "+describeAction(recorded.Action))
+			if result := r.runAction(ctx, recorded.Action, identity, nil, computeruse.ImageLimit{}); result.Failed() {
+				return false, ctx.Err()
+			}
+		}
+	}
+	final, err := r.settle(ctx)
+	if err != nil {
+		return false, err
+	}
+	return desktop.FingerprintOf(final).Distance(entry.Final) <= replayScreenDistance, nil
+}
+
+// matches reports whether a screen looks like the one a recorded turn was
+// chosen on, overall and where each action lands.
+func matches(current *image.RGBA, entry recording, turn recordedTurn) bool {
+	if current.Bounds().Dx() != entry.Width || current.Bounds().Dy() != entry.Height {
+		return false
+	}
+	if desktop.FingerprintOf(current).Distance(turn.Screen) > replayScreenDistance {
+		return false
+	}
+	for _, recorded := range turn.Actions {
+		if recorded.Target == nil {
+			continue
+		}
+		at, _ := target(recorded.Action)
+		if desktop.FingerprintAround(current, at, targetRadius(current)).Distance(*recorded.Target) > replayTargetDistance {
+			return false
+		}
+	}
+	return true
+}

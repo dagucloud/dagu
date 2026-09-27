@@ -79,15 +79,16 @@ func capturedOutputs(step *ir.Step) capturedOutputContract {
 			return capturedOutputContract{dynamic: true}
 		}
 		return capturedOutputContract{declarations: capturedNames(sortedKeys(values))}
-	case step.ExecutorConfig.Type == ir.ExecutorTypeBrowser:
-		return browserExtractOutputs(step.ExecutorConfig.Config["do"])
+	case step.ExecutorConfig.Type == ir.ExecutorTypeBrowser, step.ExecutorConfig.Type == ir.ExecutorTypeComputer:
+		return extractOperationOutputs(step.ExecutorConfig.Config["do"])
 	}
 	return capturedOutputContract{}
 }
 
-// browserExtractOutputs lists the fields a browser step extracts. Each
-// extract operation publishes the top-level properties its schema lists.
-func browserExtractOutputs(operations any) capturedOutputContract {
+// extractOperationOutputs lists the fields a browser or computer step
+// extracts. Each extract operation publishes the top-level properties its
+// schema lists.
+func extractOperationOutputs(operations any) capturedOutputContract {
 	items, ok := operations.([]any)
 	if !ok {
 		return capturedOutputContract{}

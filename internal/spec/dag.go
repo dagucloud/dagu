@@ -1187,10 +1187,10 @@ func buildLogDir(_ buildContext, d *dag) (string, error) {
 func buildArtifacts(_ buildContext, d *dag) (*ir.ArtifactsConfig, error) {
 	usesArtifactAction := dagUsesBuiltinArtifactAction(d)
 	usesArtifactOutput := dagUsesArtifactOutput(d)
-	// Browser actions store screenshots and downloads as artifacts but still
+	// Browser and computer actions store screenshots as artifacts but still
 	// run, without them, when artifacts are disabled explicitly.
-	usesBrowserAction := dagUsesBuiltinAction(d, browserActionPrefix)
-	autoEnable := dagReferencesRunArtifactsDir(d) || usesArtifactAction || usesArtifactOutput || usesBrowserAction
+	usesScreenAction := dagUsesBuiltinAction(d, browserActionPrefix) || dagUsesBuiltinAction(d, computerActionPrefix)
+	autoEnable := dagReferencesRunArtifactsDir(d) || usesArtifactAction || usesArtifactOutput || usesScreenAction
 
 	if usesArtifactAction && d.Artifacts != nil && d.Artifacts.Enabled != nil && !*d.Artifacts.Enabled {
 		return nil, ir.NewValidationError(

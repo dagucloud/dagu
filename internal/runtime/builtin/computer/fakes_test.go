@@ -1,0 +1,287 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package computer
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"image"
+	"image/color"
+	"sync"
+	"testing"
+	"time"
+
+	cmnconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
+	"github.com/dagucloud/dagu/v2/internal/cmn/value"
+	"github.com/dagucloud/dagu/v2/internal/desktop"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
+	"github.com/dagucloud/dagu/v2/internal/llm/computeruse"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/stretchr/testify/require"
+)
+
+// fakeBackend is a desktop that records input and shows a fixed screen.
+type fakeBackend struct {
+	mu     sync.Mutex
+	screen *image.RGBA
+	events []string
+	typed  []string
+}
+
+func newFakeBackend(width, height int) *fakeBackend {
+	return &fakeBackend{screen: pattern(width, height, 0)}
+}
+
+// pattern draws a screen whose brightness ramps across; shift moves the
+// ramp, which changes the screen's fingerprint.
+func pattern(width, height, shift int) *image.RGBA {
+	img := image.NewRGBA(image.Rect(0, 0, width, height))
+	for y := range height {
+		for x := range width {
+			v := uint8((x + shift) * 255 / (width + shift))
+			if shift != 0 && x < width/2 {
+				v = 255 - v
+			}
+			img.Set(x, y, color.RGBA{R: v, G: v, B: v, A: 255})
+		}
+	}
+	return img
+}
+
+func (b *fakeBackend) show(screen *image.RGBA) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.screen = screen
+}
+
+func (b *fakeBackend) record(event string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.events = append(b.events, event)
+}
+
+func (b *fakeBackend) inputs() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]string(nil), b.events...)
+}
+
+func (b *fakeBackend) Capture() (*image.RGBA, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.screen, nil
+}
+
+func (b *fakeBackend) MoveTo(x, y int) error {
+	b.record(fmt.Sprintf("move %d,%d", x, y))
+	return nil
+}
+
+func (b *fakeBackend) Position() (int, int, error) { return 0, 0, nil }
+
+func (b *fakeBackend) Button(button desktop.Button, down bool, clicks int) error {
+	if down {
+		b.record(fmt.Sprintf("%s down #%d", button, clicks))
+	}
+	return nil
+}
+
+func (b *fakeBackend) Wheel(dx, dy int) error {
+	b.record(fmt.Sprintf("wheel %d,%d", dx, dy))
+	return nil
+}
+
+func (b *fakeBackend) Key(key desktop.Key, down bool) error {
+	if down {
+		b.record("key " + string(key))
+	}
+	return nil
+}
+
+func (b *fakeBackend) Type(text string) error {
+	b.record("type " + text)
+	return nil
+}
+
+func (b *fakeBackend) Close() error { return nil }
+
+// scriptedSession answers each observation with the next scripted turn and
+// records the observations.
+type scriptedSession struct {
+	limit        computeruse.ImageLimit
+	turns        []*computeruse.Turn
+	err          error
+	observations []computeruse.Observation
+}
+
+func (s *scriptedSession) ImageLimit() computeruse.ImageLimit { return s.limit }
+
+func (s *scriptedSession) Next(_ context.Context, obs computeruse.Observation) (*computeruse.Turn, error) {
+	s.observations = append(s.observations, obs)
+	if s.err != nil {
+		return nil, s.err
+	}
+	if len(s.turns) == 0 {
+		return nil, errors.New("no scripted turn left")
+	}
+	turn := s.turns[0]
+	s.turns = s.turns[1:]
+	return turn, nil
+}
+
+func done(summary string) *computeruse.Turn {
+	return &computeruse.Turn{Done: &computeruse.Done{Success: true, Summary: summary}, Usage: llmpkg.Usage{PromptTokens: 10, CompletionTokens: 2}}
+}
+
+func actions(list ...computeruse.Action) *computeruse.Turn {
+	return &computeruse.Turn{Actions: list, Usage: llmpkg.Usage{PromptTokens: 10, CompletionTokens: 2}}
+}
+
+func clickAt(x, y int) computeruse.Action {
+	return computeruse.Action{CallID: "c", Kind: computeruse.KindClick, Point: &computeruse.Point{X: x, Y: y}}
+}
+
+// visionModel answers extract and judge requests with a respond tool call.
+// Requests are told apart by the schema: judge requests ask for answer.
+type visionModel struct {
+	mu       sync.Mutex
+	extract  string
+	truths   map[string]bool
+	requests []*llmpkg.ChatRequest
+}
+
+func (m *visionModel) Chat(_ context.Context, req *llmpkg.ChatRequest) (*llmpkg.ChatResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.requests = append(m.requests, req)
+	arguments := m.extract
+	properties, _ := req.Tools[0].Function.Parameters["properties"].(map[string]any)
+	if _, judge := properties["answer"]; judge {
+		holds := false
+		for statement, truth := range m.truths {
+			if bytes.Contains([]byte(req.Messages[1].Content), []byte(statement)) {
+				holds = truth
+			}
+		}
+		arguments = fmt.Sprintf(`{"answer":%t,"reason":"checked"}`, holds)
+	}
+	return &llmpkg.ChatResponse{
+		ToolCalls: []llmpkg.ToolCall{{ID: "r", Type: "function", Function: llmpkg.ToolCallFunction{Name: respondToolName, Arguments: arguments}}},
+		Usage:     llmpkg.Usage{PromptTokens: 5, CompletionTokens: 1},
+	}, nil
+}
+
+func (m *visionModel) ChatStream(context.Context, *llmpkg.ChatRequest) (<-chan llmpkg.StreamEvent, error) {
+	return nil, errors.New("not used")
+}
+
+func (m *visionModel) Name() string { return "vision" }
+
+// testRun is one DAG run whose computer step executions share a data
+// directory and a desktop.
+type testRun struct {
+	t         *testing.T
+	dataDir   string
+	artifacts string
+	backend   *fakeBackend
+	vision    *visionModel
+	secrets   map[string]string
+	llm       *ir.LLMConfig
+	// sessions supplies the session for each act, in order.
+	sessions []*scriptedSession
+	// sessionErrors fails session creation for the named models.
+	sessionErrors map[string]error
+	launches      [][]string
+}
+
+func newTestRun(t *testing.T) *testRun {
+	t.Helper()
+	return &testRun{
+		t:         t,
+		dataDir:   t.TempDir(),
+		artifacts: t.TempDir(),
+		backend:   newFakeBackend(400, 200),
+		vision:    &visionModel{},
+		llm:       &ir.LLMConfig{Provider: "openai", Model: "test-model"},
+	}
+}
+
+// stepExecution is one execution of the computer step.
+type stepExecution struct {
+	exec   *computerExecutor
+	stdout bytes.Buffer
+	stderr bytes.Buffer
+	err    error
+}
+
+func (r *testRun) execute(withJSON string, session *ir.AgentSession) *stepExecution {
+	r.t.Helper()
+	var with map[string]any
+	require.NoError(r.t, json.Unmarshal([]byte(withJSON), &with))
+	step := ir.Step{
+		ID:             "post",
+		Name:           "post",
+		ExecutorConfig: ir.ExecutorConfig{Type: executorType, Config: with},
+		LLM:            r.llm,
+	}
+	created, err := newExecutor(r.t.Context(), step)
+	require.NoError(r.t, err)
+	execution := &stepExecution{exec: created.(*computerExecutor)}
+	execution.exec.openDesktop = func() (*desktop.Driver, error) { return desktop.New(r.backend), nil }
+	execution.exec.launch = func(command string, args []string) error {
+		r.launches = append(r.launches, append([]string{command}, args...))
+		return nil
+	}
+	execution.exec.newProvider = func(context.Context, *ir.LLMConfig) (llmpkg.Provider, error) {
+		return r.vision, nil
+	}
+	execution.exec.newSession = func(_ llmpkg.ProviderType, _ llmpkg.Provider, _ computeruse.Mode, opts computeruse.Options) (computeruse.Session, error) {
+		if err := r.sessionErrors[opts.Model]; err != nil {
+			return nil, err
+		}
+		if len(r.sessions) == 0 {
+			return nil, errors.New("no scripted session left")
+		}
+		session := r.sessions[0]
+		r.sessions = r.sessions[1:]
+		return session, nil
+	}
+	execution.exec.settle = settleTiming{timeout: time.Millisecond}
+	execution.exec.SetStdout(&execution.stdout)
+	execution.exec.SetStderr(&execution.stderr)
+	execution.exec.SetAgentSession(session)
+	execution.err = execution.exec.Run(r.context())
+	return execution
+}
+
+func (r *testRun) context() context.Context {
+	scope := value.NewEnvScope(nil, false).WithEntry(runenv.EnvKeyDAGRunArtifactsDir, r.artifacts, value.EnvSourceDAGEnv)
+	for name, secret := range r.secrets {
+		scope = scope.WithEntry(name, secret, value.EnvSourceSecret)
+	}
+	ctx := cmnconfig.WithConfig(r.t.Context(), &cmnconfig.Config{Paths: cmnconfig.PathsConfig{DataDir: r.dataDir}})
+	return runtime.WithEnv(ctx, runtime.Env{
+		Context: runtime.Context{
+			DAG:      &ir.DAG{Name: "invoices"},
+			DAGRunID: "run-1",
+			WorkerID: "worker-a",
+		},
+		Scope: scope,
+	})
+}
+
+func eventNames(session *ir.AgentSession) []string {
+	names := make([]string, 0, len(session.Events))
+	for _, event := range session.Events {
+		if event.Type == eventOperation {
+			names = append(names, event.Name+":"+event.Status)
+		}
+	}
+	return names
+}

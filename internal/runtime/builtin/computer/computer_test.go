@@ -1,0 +1,330 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package computer
+
+import (
+	"context"
+	"errors"
+	"io"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/dagucloud/dagu/v2/internal/computerhost"
+	"github.com/dagucloud/dagu/v2/internal/desktop"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
+	"github.com/dagucloud/dagu/v2/internal/llm/computeruse"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// The model sees a screenshot scaled to its limit; its positions are
+// mapped back to display pixels.
+func TestActDrivesDesktop(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	session := &scriptedSession{
+		limit: computeruse.ImageLimit{LongEdge: 200},
+		turns: []*computeruse.Turn{
+			actions(clickAt(10, 20), computeruse.Action{Kind: computeruse.KindKey, Keys: []string{"ctrl", "s"}}),
+			done("Saved the document"),
+		},
+	}
+	run.sessions = []*scriptedSession{session}
+	execution := run.execute(`{"do": [{"launch": {"command": "notepad.exe", "args": ["a.txt"]}}, {"act": "Save the document"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	assert.Equal(t, [][]string{{"notepad.exe", "a.txt"}}, run.launches)
+	assert.Equal(t, []string{"move 20,40", "left down #1", "key ctrl", "key s"}, run.backend.inputs())
+	require.Len(t, session.observations, 2)
+	assert.Equal(t, 200, session.observations[0].Screen.Width, "the screenshot is scaled to the session limit")
+	assert.Equal(t, 100, session.observations[0].Screen.Height)
+	assert.Equal(t, []computeruse.Result{{CallID: "c"}, {}}, session.observations[1].Results)
+
+	result := execution.exec.GetAgentSession()
+	assert.Equal(t, ir.AgentSessionSucceeded, result.State)
+	assert.Equal(t, []string{"launch:completed", "act:completed"}, eventNames(result))
+	assert.Equal(t, int64(24), result.Usage.TotalTokens)
+	assert.Contains(t, execution.stderr.String(), "Saved the document (2 actions)")
+}
+
+// Variables reach the desktop only when typed; the model and the log see
+// the placeholder.
+func TestActTypesVariables(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	run.secrets = map[string]string{"SAP_PASSWORD": "hunter2-secret"}
+	session := &scriptedSession{turns: []*computeruse.Turn{
+		actions(computeruse.Action{Kind: computeruse.KindType, Text: "%password%\n"}),
+		done("Logged in"),
+	}}
+	run.sessions = []*scriptedSession{session}
+	execution := run.execute(`{"variables": {"password": "hunter2-secret"}, "do": [{"act": "Log in with %password%"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	assert.Equal(t, []string{"type hunter2-secret", "key enter"}, run.backend.inputs())
+	assert.NotContains(t, execution.stderr.String(), "hunter2-secret")
+	assert.Contains(t, execution.stderr.String(), "%password%")
+}
+
+func TestExtractPublishesOutputs(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	run.vision.extract = `{"total": 42.5, "extra": "ignored"}`
+	execution := run.execute(`{"do": [{"extract": {"instruction": "The invoice total", "schema": {"type": "object", "properties": {"total": {"type": "number"}}}}}]}`, nil)
+	require.NoError(t, execution.err)
+
+	assert.Equal(t, map[string]any{"total": 42.5}, execution.exec.GetOutputs())
+	assert.JSONEq(t, `{"total": 42.5}`, execution.stdout.String())
+	require.Len(t, run.vision.requests, 1)
+	assert.Len(t, run.vision.requests[0].Messages[1].Images, 1, "the model reads a screenshot")
+}
+
+func TestExpectAndWhen(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	run.vision.truths = map[string]bool{"Invoice posted": true, "An error dialog": false}
+	execution := run.execute(`{"do": [
+		{"expect": "Invoice posted"},
+		{"screenshot": "posted", "when": "An error dialog is shown"}
+	]}`, nil)
+	require.NoError(t, execution.err)
+	assert.Equal(t, []string{"expect:completed", "screenshot:skipped"}, eventNames(execution.exec.GetAgentSession()))
+
+	failed := run.execute(`{"do": [{"expect": "An error dialog is shown"}]}`, nil)
+	require.ErrorContains(t, failed.err, "do[0] expect failed: expectation not met")
+}
+
+// An ask pauses the step and frees the desktop; the answer resumes at the
+// next operation with the answer as a variable.
+func TestAskWaitsAndResumes(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"do": [
+		{"extract": {"instruction": "The account", "schema": {"type": "object", "properties": {"account": {"type": "string"}}}}},
+		{"ask": {"prompt": "Enter the one-time code", "as": "otp"}},
+		{"act": "Type %otp% into the code field"}
+	]}`
+	run := newTestRun(t)
+	run.vision.extract = `{"account": "acme"}`
+	waiting := run.execute(steps, nil)
+	require.NoError(t, waiting.err)
+
+	status, err := waiting.exec.DetermineNodeStatus()
+	require.NoError(t, err)
+	assert.Equal(t, ir.NodeWaiting, status)
+	session := waiting.exec.GetAgentSession()
+	assert.Equal(t, ir.AgentSessionWaiting, session.State)
+	require.Len(t, session.Interactions, 1)
+	assert.Equal(t, "Enter the one-time code", session.Interactions[0].Questions[0].Question)
+
+	store := computerhost.NewStore(filepath.Join(run.dataDir, computerhost.DataDirName))
+	record, err := store.Load(computerhost.RecordID("run-1", "post"))
+	require.NoError(t, err)
+	assert.Equal(t, 2, record.Cursor)
+	assert.Equal(t, map[string]any{"account": "acme"}, record.Outputs)
+
+	// Another computer step can use the desktop while this one waits.
+	quiet := &timeline{log: io.Discard, masker: newMasker(nil, nil), update: func(func(*ir.AgentSession)) {}}
+	lease, err := acquireDesktop(t.Context(), filepath.Join(run.dataDir, computerhost.DataDirName), quiet)
+	require.NoError(t, err)
+	lease.release()
+
+	session.Interactions[0].Status = ir.AgentInteractionAnswered
+	session.Interactions[0].Answers = [][]string{{"731902"}}
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{
+		actions(computeruse.Action{Kind: computeruse.KindType, Text: "%otp%"}),
+		done("Entered the code"),
+	}}}
+	resumed := run.execute(steps, session)
+	require.NoError(t, resumed.err)
+
+	assert.Equal(t, []string{"type 731902"}, run.backend.inputs())
+	assert.Equal(t, map[string]any{"account": "acme"}, resumed.exec.GetOutputs())
+	assert.NotContains(t, resumed.stderr.String(), "731902", "answers are masked")
+	assert.True(t, resumed.exec.GetAgentSession().Interactions[0].Applied)
+	_, err = store.Load(record.ID)
+	assert.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestAskRejected(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"do": [{"ask": {"prompt": "Continue?", "as": "ok"}}, {"wait": "1ms"}]}`
+	run := newTestRun(t)
+	waiting := run.execute(steps, nil)
+	require.NoError(t, waiting.err)
+	session := waiting.exec.GetAgentSession()
+	session.Interactions[0].Status = ir.AgentInteractionRejected
+
+	rejected := run.execute(steps, session)
+	require.ErrorContains(t, rejected.err, "the input request was rejected")
+}
+
+// A successful act is recorded and replayed without a model while the
+// screens match; a changed screen hands the task back to the model.
+func TestReplayCache(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"do": [{"act": "Open the report"}]}`
+	run := newTestRun(t)
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(30, 40)), done("Opened")}}}
+	require.NoError(t, run.execute(steps, nil).err)
+	recorded := run.backend.inputs()
+
+	run.backend.events = nil
+	replayed := run.execute(steps, nil)
+	require.NoError(t, replayed.err, "no session is left, so a model call would fail")
+	assert.Equal(t, recorded, run.backend.inputs())
+	assert.Equal(t, []string{"act:cache-hit"}, eventNames(replayed.exec.GetAgentSession()))
+
+	run.backend.show(pattern(400, 200, 150))
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(50, 60)), done("Opened")}}}
+	healed := run.execute(steps, nil)
+	require.NoError(t, healed.err)
+	assert.Equal(t, []string{"act:healed"}, eventNames(healed.exec.GetAgentSession()))
+
+	uncached := run.execute(`{"cache": false, "do": [{"act": "Open the report"}]}`, nil)
+	require.ErrorContains(t, uncached.err, "no scripted session left")
+}
+
+// A later model takes over only while the desktop is untouched.
+func TestModelFallback(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	run.llm = &ir.LLMConfig{Models: []ir.ModelEntry{
+		{Provider: "anthropic", Name: "first"},
+		{Provider: "openai", Name: "second"},
+	}}
+	run.sessionErrors = map[string]error{"first": errors.New("overloaded")}
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(1, 1)), done("ok")}}}
+	require.NoError(t, run.execute(`{"do": [{"act": "Click"}]}`, nil).err)
+
+	run.sessionErrors = nil
+	run.sessions = []*scriptedSession{
+		{turns: []*computeruse.Turn{actions(clickAt(1, 1))}},
+		{turns: []*computeruse.Turn{done("should not run")}},
+	}
+	failed := run.execute(`{"cache": false, "do": [{"act": "Click"}]}`, nil)
+	require.ErrorContains(t, failed.err, "no scripted turn left")
+}
+
+func TestActLimits(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name  string
+		with  string
+		turns []*computeruse.Turn
+		want  string
+	}{
+		{
+			name:  "max actions",
+			with:  `{"max_actions": 2, "cache": false, "do": [{"act": "Click around"}]}`,
+			turns: []*computeruse.Turn{actions(clickAt(1, 1), clickAt(2, 2)), actions(clickAt(3, 3))},
+			want:  "more than max_actions (2)",
+		},
+		{
+			name:  "model gives up",
+			with:  `{"do": [{"act": "Open the file"}]}`,
+			turns: []*computeruse.Turn{{Done: &computeruse.Done{Success: false, Summary: "The file is missing"}}},
+			want:  "the model could not complete the task: The file is missing",
+		},
+		{
+			name:  "model stops without done",
+			with:  `{"do": [{"act": "Open the file"}]}`,
+			turns: []*computeruse.Turn{{Text: "I think it is open."}, {Text: "Still open."}},
+			want:  "the model stopped without reporting the task done",
+		},
+		{
+			name:  "confirmation",
+			with:  `{"do": [{"act": "Submit the form"}]}`,
+			turns: []*computeruse.Turn{{Actions: []computeruse.Action{clickAt(1, 1)}, Confirmation: "Submits a payment"}},
+			want:  "asks a person to confirm the next actions (Submits a payment)",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			run := newTestRun(t)
+			run.sessions = []*scriptedSession{{turns: tc.turns}}
+			execution := run.execute(tc.with, nil)
+			require.ErrorContains(t, execution.err, tc.want)
+			assert.Equal(t, ir.AgentSessionFailed, execution.exec.GetAgentSession().State)
+		})
+	}
+}
+
+// A model provider's confirmation request is approved with
+// on_confirmation: allow, and the approval is sent with the next screen.
+func TestConfirmationAllowed(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	session := &scriptedSession{turns: []*computeruse.Turn{
+		{Actions: []computeruse.Action{clickAt(1, 1)}, Confirmation: "Submits a payment"},
+		done("Paid"),
+	}}
+	run.sessions = []*scriptedSession{session}
+	require.NoError(t, run.execute(`{"on_confirmation": "allow", "do": [{"act": "Pay"}]}`, nil).err)
+	assert.True(t, session.observations[1].Acknowledged)
+}
+
+// A failed action skips the rest of the turn, and the model sees why
+// before it may finish.
+func TestFailedActionIsReported(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	session := &scriptedSession{turns: []*computeruse.Turn{
+		{Actions: []computeruse.Action{
+			{CallID: "a", Kind: computeruse.KindKey, Keys: []string{"hyper"}},
+			{CallID: "b", Kind: computeruse.KindType, Text: "x"},
+		}, Done: &computeruse.Done{Success: true, Summary: "early"}},
+		done("Done"),
+	}}
+	run.sessions = []*scriptedSession{session}
+	require.NoError(t, run.execute(`{"do": [{"act": "Press a key"}]}`, nil).err)
+
+	require.Len(t, session.observations, 2)
+	assert.Equal(t, []computeruse.Result{
+		{CallID: "a", Error: `unknown key "hyper"`},
+		{CallID: "b", Skipped: true},
+	}, session.observations[1].Results)
+	assert.Empty(t, run.backend.inputs())
+}
+
+func TestFailureScreenshot(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	execution := run.execute(`{"do": [{"act": "Do something"}]}`, nil)
+	require.Error(t, execution.err)
+
+	session := execution.exec.GetAgentSession()
+	last := session.Events[len(session.Events)-1]
+	assert.Equal(t, statusFailed, last.Status)
+	require.Len(t, last.Files, 1)
+	assert.FileExists(t, filepath.Join(run.artifacts, filepath.FromSlash(last.Files[0])))
+}
+
+func TestOpenDesktopFailure(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	step := ir.Step{Name: "post", ExecutorConfig: ir.ExecutorConfig{Type: executorType, Config: map[string]any{"do": []any{map[string]any{"wait": "1ms"}}}}, LLM: run.llm}
+	created, err := newExecutor(t.Context(), step)
+	require.NoError(t, err)
+	exec := created.(*computerExecutor)
+	exec.openDesktop = func() (*desktop.Driver, error) { return nil, errors.New("Screen Recording permission is missing") }
+	exec.newProvider = func(context.Context, *ir.LLMConfig) (llmpkg.Provider, error) { return run.vision, nil }
+	exec.SetStderr(io.Discard)
+	err = exec.Run(run.context())
+	require.ErrorContains(t, err, "open the desktop: Screen Recording permission is missing")
+}
