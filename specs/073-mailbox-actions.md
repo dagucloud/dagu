@@ -33,7 +33,7 @@ case-insensitively; other base entries remain.
 | Field | Required | Meaning |
 | --- | --- | --- |
 | `provider` | No | `google`, `microsoft`, or `imap` (default). Sets the default servers. |
-| `imap` | For an `imap` account | `host`, `port`, and `security` (`tls` or `starttls`). Overrides the provider default. |
+| `imap` | For an `imap` account | `host`, `port`, `security` (`tls` or `starttls`), and `skip_tls_verify`. Overrides the provider default. |
 | `smtp` | For `mail.send` through an `imap` account | Same fields as `imap`. |
 | `username` | No | Login name for password authentication and the user in `XOAUTH2`. Defaults to the address. |
 | `password` | Exactly one of `password` or `oauth` | Password or app password. |
@@ -51,7 +51,9 @@ secrets or profile secrets are masked as [Spec 069](069-secrets-providers.md) an
 [Spec 070](070-runtime-profiles.md) define.
 
 Every connection uses TLS. `tls` connects with TLS; `starttls` upgrades the
-connection and fails when the server does not offer STARTTLS.
+connection and fails when the server does not offer STARTTLS. The server
+certificate is verified unless the server block sets `skip_tls_verify: true`,
+which accepts any certificate, such as a self-signed one.
 
 ### Authentication
 
@@ -100,14 +102,18 @@ Published outputs, following [Spec 012](012-step-outputs.md):
 
 `text` is the plain-text body, or the HTML body converted to text when the email
 has no plain-text part, at most 10,000 characters. When the encoded outputs would
-exceed 900 KiB, `text` values are shortened further and `truncated` is `true`.
+exceed the output budget, `text` values are shortened further and `truncated` is
+`true`. The budget is 900 KiB, or the DAG's `max_output_size` less 64 KiB when that
+is smaller.
 
-With `save_attachments: true`, the step enables artifact storage for the run, as a
-reference to `context.paths.artifacts_dir` does ([Spec 017](017-built-in-run-context.md)),
-and writes each attachment under `mail/<step name>/` in the run's artifact
+A `mail.search` step whose `save_attachments` is written as `true` enables
+artifact storage for the run, as a reference to `context.paths.artifacts_dir`
+does ([Spec 017](017-built-in-run-context.md)). With `save_attachments: true`, the
+step writes each attachment under `mail/<step name>/` in the run's artifact
 directory. File names are made safe for the filesystem and prefixed with a number
 that keeps them unique within the step. `path` is the file's absolute path.
-Without `save_attachments`, `path` is absent.
+Without `save_attachments`, `path` is absent. A step that saves attachments while
+artifact storage is off fails with `save_attachments requires artifact storage`.
 
 ### `mail.organize`
 
@@ -147,8 +153,8 @@ Published outputs:
 ### Sending through a mail account
 
 `mail.send` with `with.mailbox` sends through that account's SMTP server and
-authentication instead of the DAG-level `smtp` configuration. `from` defaults to
-the mailbox address. Every other field and behavior follows
+authentication instead of the DAG-level `smtp` configuration. `from` is optional
+and defaults to the mailbox address. Every other field and behavior follows
 [Spec 044](044-mail-send.md).
 
 ### Email IDs
@@ -187,6 +193,8 @@ At run time:
   `mail account "<address>": sign-in is no longer valid (invalid_grant)`.
 - A connection failure or timeout fails the step. Changes that `mail.organize`
   already applied stay applied.
+- `mail.search` with `save_attachments` while artifact storage is off:
+  `save_attachments requires artifact storage`.
 
 ## Examples
 
