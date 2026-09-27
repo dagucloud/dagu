@@ -76,7 +76,7 @@ func TestComputerSession(t *testing.T) {
 	tools := first["tools"].([]any)
 	assert.Equal(t, map[string]any{"computerUse": map[string]any{
 		"environment":                 "ENVIRONMENT_DESKTOP",
-		"excludedPredefinedFunctions": []any{"navigate", "go_back", "go_forward", "search", "open_web_browser"},
+		"excludedPredefinedFunctions": []any{"key_down", "key_up"},
 	}}, tools[0])
 	parts := first["contents"].([]any)[0].(map[string]any)["parts"].([]any)
 	assert.Contains(t, parts[0].(map[string]any)["text"], "Task: Fill in the form")
@@ -126,4 +126,88 @@ func TestComputerSessionWaitAndBlocked(t *testing.T) {
 
 	_, err = session.Next(context.Background(), computeruse.Observation{Screen: testScreen("second")})
 	require.ErrorContains(t, err, "blocked: SAFETY")
+}
+
+func TestComputerSessionDesktopActions(t *testing.T) {
+	t.Parallel()
+
+	model := `{"role":"model","parts":[
+		{"functionCall":{"id":"a","name":"move","args":{"x":100,"y":200}}},
+		{"functionCall":{"id":"b","name":"triple_click","args":{"x":0,"y":0}}},
+		{"functionCall":{"id":"c","name":"middle_click","args":{"x":0,"y":0}}},
+		{"functionCall":{"id":"d","name":"mouse_down","args":{"x":500,"y":500}}},
+		{"functionCall":{"id":"e","name":"mouse_up","args":{}}},
+		{"functionCall":{"id":"f","name":"wait","args":{}}},
+		{"functionCall":{"id":"g","name":"type_text_at","args":{"x":0,"y":0,"text":"new"}}}
+	]}`
+	server := generateServer(`{"candidates":[{"content":` + model + `}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":3,"thoughtsTokenCount":7,"totalTokenCount":20}}`)
+	session := newComputerSession(t, server)
+
+	turn, err := session.Next(context.Background(), computeruse.Observation{Screen: testScreen("first")})
+	require.NoError(t, err)
+	assert.Equal(t, 10, turn.Usage.CompletionTokens, "thinking tokens count as output")
+	kinds := make([]string, 0, len(turn.Actions))
+	for _, action := range turn.Actions {
+		kinds = append(kinds, string(action.Kind))
+	}
+	assert.Equal(t, []string{"move", "click", "click", "move", "mouse_down", "mouse_up", "wait", "click", "type"}, kinds)
+	assert.Equal(t, &computeruse.Point{X: 100, Y: 100}, turn.Actions[0].Point)
+	assert.Equal(t, 3, turn.Actions[1].Count)
+	assert.Equal(t, computeruse.ButtonMiddle, turn.Actions[2].Button)
+	assert.Equal(t, &computeruse.Point{X: 500, Y: 250}, turn.Actions[3].Point, "mouse_down moves to its position first")
+	assert.Equal(t, time.Second, turn.Actions[6].Duration, "wait defaults to one second")
+	assert.Equal(t, 3, turn.Actions[7].Count, "type_text_at clears the field by default")
+}
+
+// A call that cannot be performed stops the batch.
+func TestComputerSessionHaltsBatch(t *testing.T) {
+	t.Parallel()
+
+	server := generateServer(`{"candidates":[{"content":{"role":"model","parts":[
+		{"functionCall":{"id":"a","name":"click","args":{"x":1}}},
+		{"functionCall":{"id":"b","name":"type","args":{"text":"x"}}}
+	]}}]}`)
+	session := newComputerSession(t, server)
+
+	turn, err := session.Next(context.Background(), computeruse.Observation{Screen: testScreen("first")})
+	require.NoError(t, err)
+	assert.Empty(t, turn.Actions)
+}
+
+func TestComputerSessionStops(t *testing.T) {
+	t.Parallel()
+
+	for body, want := range map[string]string{
+		`{"candidates":[{"content":{"role":"model","parts":[{"functionCall":{"name":"click","args":{"x":1,"y":1,"safety_decision":{"decision":"blocked","explanation":"Payment"}}}}]}}]}`: "stopped the action (blocked): Payment",
+		`{"candidates":[{"finishReason":"MALFORMED_FUNCTION_CALL"}]}`:         "no content (finish reason MALFORMED_FUNCTION_CALL)",
+		`{"candidates":[{"content":{"role":"model"},"finishReason":"STOP"}]}`: "no content (finish reason STOP)",
+	} {
+		session := newComputerSession(t, generateServer(body))
+		_, err := session.Next(context.Background(), computeruse.Observation{Screen: testScreen("first")})
+		require.ErrorContains(t, err, want)
+	}
+}
+
+// Models before 3.5 have no desktop environment and use the generic session
+// in auto mode.
+func TestComputerSessionModelSupport(t *testing.T) {
+	t.Parallel()
+
+	for model, native := range map[string]bool{
+		"gemini-3.8-flash":                        true,
+		"gemini-3.5-flash-lite":                   true,
+		"models/gemini-4-pro":                     true,
+		"tuned-desktop-model":                     true,
+		"gemini-3-flash-preview":                  false,
+		"gemini-2.5-computer-use-preview-10-2025": false,
+	} {
+		provider, err := llm.NewProvider(llm.ProviderGemini, llm.Config{APIKey: "test-key"})
+		require.NoError(t, err)
+		_, err = computeruse.New(llm.ProviderGemini, provider, computeruse.ModeNative, computeruse.Options{Model: model})
+		if native {
+			assert.NoError(t, err, model)
+		} else {
+			assert.ErrorIs(t, err, computeruse.ErrModelNotSupported, model)
+		}
+	}
 }

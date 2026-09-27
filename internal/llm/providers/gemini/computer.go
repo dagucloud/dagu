@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -22,15 +23,34 @@ const (
 	// reports positions on, regardless of the screenshot size.
 	normalizedScale      = 1000
 	requireConfirmation  = "require_confirmation"
-	defaultWaitDuration  = 5 * time.Second
+	defaultWaitDuration  = time.Second
+	legacyWaitDuration   = 5 * time.Second
 	defaultScrollNotches = 3
 )
 
 // computerImageLimit is the screen size Gemini computer use is tuned for.
 var computerImageLimit = computeruse.ImageLimit{LongEdge: 1440, MaxPixels: 1440 * 900}
 
-// browserOnlyFunctions have no meaning on a desktop.
-var browserOnlyFunctions = []string{"navigate", "go_back", "go_forward", "search", "open_web_browser"}
+// geminiVersionPattern reads the version from a model ID such as
+// gemini-3.5-flash or models/gemini-3.8-flash.
+var geminiVersionPattern = regexp.MustCompile(`gemini-(\d+)(?:\.(\d+))?`)
+
+// desktopSupported reports whether a model takes the desktop environment,
+// which Gemini documents from version 3.5. Unrecognized IDs are assumed to
+// support it.
+func desktopSupported(model string) bool {
+	match := geminiVersionPattern.FindStringSubmatch(model)
+	if match == nil {
+		return true
+	}
+	major, _ := strconv.Atoi(match[1])
+	minor, _ := strconv.Atoi(match[2])
+	return major > 3 || (major == 3 && minor >= 5)
+}
+
+// unsupportedFunctions hold a key down across calls, which the step does not
+// track, so the model is not offered them.
+var unsupportedFunctions = []string{"key_down", "key_up"}
 
 const computerInstructions = `You operate a computer with the computer use tool.
 `
@@ -64,6 +84,9 @@ func newComputerSession(provider llm.Provider, opts computeruse.Options) (comput
 	if !ok {
 		return nil, fmt.Errorf("%s: computer use needs a Gemini provider, got %T", providerName, provider)
 	}
+	if !desktopSupported(opts.Model) {
+		return nil, fmt.Errorf("%s: %s: %w", providerName, opts.Model, computeruse.ErrModelNotSupported)
+	}
 	return &computerSession{provider: p, opts: opts}, nil
 }
 
@@ -96,6 +119,9 @@ func (s *computerSession) Next(ctx context.Context, obs computeruse.Observation)
 		return nil, llm.WrapError(providerName, errors.New(reason))
 	}
 	candidate := resp.Candidates[0]
+	if !hasParts(candidate.Content) {
+		return nil, llm.WrapError(providerName, fmt.Errorf("the model returned no content (finish reason %s)", candidate.FinishReason))
+	}
 	s.contents = append(s.contents, candidate.Content)
 	return s.turn(candidate.Content, obs.Screen, resp.UsageMetadata)
 }
@@ -111,7 +137,7 @@ func (s *computerSession) request() map[string]any {
 		"tools": []any{
 			map[string]any{"computerUse": map[string]any{
 				"environment":                 desktopEnvironment,
-				"excludedPredefinedFunctions": browserOnlyFunctions,
+				"excludedPredefinedFunctions": unsupportedFunctions,
 			}},
 			map[string]any{"functionDeclarations": []any{map[string]any{
 				"name":        computeruse.DoneToolName,
@@ -202,12 +228,15 @@ func (s *computerSession) turn(content json.RawMessage, screen computeruse.Scree
 	if usage != nil {
 		turn.Usage = llm.Usage{
 			PromptTokens:     usage.PromptTokenCount,
-			CompletionTokens: usage.CandidatesTokenCount,
+			CompletionTokens: usage.CandidatesTokenCount + usage.ThoughtsTokenCount,
 			TotalTokens:      usage.TotalTokenCount,
 		}
 	}
 	s.pending = s.pending[:0]
 	var confirmations []string
+	// Actions after a call that cannot be performed are not run, as when an
+	// action fails.
+	halted := false
 	for i, part := range parsed.Parts {
 		if part.FunctionCall == nil {
 			if !part.Thought {
@@ -219,22 +248,30 @@ func (s *computerSession) turn(content json.RawMessage, screen computeruse.Scree
 		if call.key == "" {
 			call.key = "call-" + strconv.Itoa(i)
 		}
-		if call.name == computeruse.DoneToolName {
+		switch {
+		case call.name == computeruse.DoneToolName:
 			turn.Done, call.err = computeruse.ParseDone(part.FunctionCall.Args)
-		} else {
+		case !halted:
 			var args geminiArgs
 			if len(part.FunctionCall.Args) > 0 {
 				call.err = json.Unmarshal(part.FunctionCall.Args, &args)
+			}
+			if decision := args.SafetyDecision; decision != nil {
+				switch decision.Decision {
+				case requireConfirmation:
+					call.confirm = true
+					confirmations = append(confirmations, decision.Explanation)
+				case "":
+				default:
+					return nil, fmt.Errorf("%s: the model provider stopped the action (%s): %s", providerName, decision.Decision, decision.Explanation)
+				}
 			}
 			if call.err == nil {
 				var actions []computeruse.Action
 				actions, call.err = computerActions(call.key, call.name, args, screen)
 				turn.Actions = append(turn.Actions, actions...)
 			}
-			if args.SafetyDecision != nil && args.SafetyDecision.Decision == requireConfirmation {
-				call.confirm = true
-				confirmations = append(confirmations, args.SafetyDecision.Explanation)
-			}
+			halted = call.err != nil
 		}
 		s.pending = append(s.pending, call)
 	}
@@ -242,9 +279,18 @@ func (s *computerSession) turn(content json.RawMessage, screen computeruse.Scree
 	return turn, nil
 }
 
+// hasParts reports whether model content holds at least one part.
+func hasParts(content json.RawMessage) bool {
+	var parsed struct {
+		Parts []json.RawMessage `json:"parts"`
+	}
+	return json.Unmarshal(content, &parsed) == nil && len(parsed.Parts) > 0
+}
+
 type computerResponse struct {
 	Candidates []struct {
-		Content json.RawMessage `json:"content"`
+		Content      json.RawMessage `json:"content"`
+		FinishReason string          `json:"finishReason"`
 	} `json:"candidates"`
 	PromptFeedback *struct {
 		BlockReason string `json:"blockReason"`
@@ -255,6 +301,7 @@ type computerResponse struct {
 type usageMetadata struct {
 	PromptTokenCount     int `json:"promptTokenCount"`
 	CandidatesTokenCount int `json:"candidatesTokenCount"`
+	ThoughtsTokenCount   int `json:"thoughtsTokenCount"`
 	TotalTokenCount      int `json:"totalTokenCount"`
 }
 
@@ -271,7 +318,7 @@ type geminiArgs struct {
 	DestinationY      *int     `json:"destination_y"`
 	Text              string   `json:"text"`
 	PressEnter        bool     `json:"press_enter"`
-	ClearBeforeTyping bool     `json:"clear_before_typing"`
+	ClearBeforeTyping *bool    `json:"clear_before_typing"`
 	Direction         string   `json:"direction"`
 	Magnitude         int      `json:"magnitude"`
 	MagnitudeInPixels int      `json:"magnitude_in_pixels"`
@@ -314,17 +361,23 @@ func computerActions(callID, name string, args geminiArgs, screen computeruse.Sc
 	action := computeruse.Action{CallID: callID}
 	var err error
 	switch name {
-	case "click", "click_at", "double_click", "right_click":
+	case "click", "click_at", "double_click", "triple_click", "right_click", "middle_click":
 		action.Kind = computeruse.KindClick
 		action.Button, action.Count = computeruse.ButtonLeft, 1
 		switch name {
 		case "double_click":
 			action.Count = 2
+		case "triple_click":
+			action.Count = 3
 		case "right_click":
 			action.Button = computeruse.ButtonRight
+		case "middle_click":
+			action.Button = computeruse.ButtonMiddle
 		}
 		action.Point, err = point(args.X, args.Y)
-	case "hover_at":
+	case "mouse_down", "mouse_up":
+		return pressActions(callID, name, args, point)
+	case "move", "hover_at":
 		action.Kind = computeruse.KindMove
 		action.Point, err = point(args.X, args.Y)
 	case "type", "type_text_at":
@@ -370,6 +423,9 @@ func computerActions(callID, name string, args geminiArgs, screen computeruse.Sc
 	case "wait", "wait_5_seconds":
 		action.Kind = computeruse.KindWait
 		action.Duration = defaultWaitDuration
+		if name == "wait_5_seconds" {
+			action.Duration = legacyWaitDuration
+		}
 		if args.Seconds != nil {
 			action.Duration = time.Duration(*args.Seconds * float64(time.Second))
 		}
@@ -396,8 +452,9 @@ func typeActions(callID string, args geminiArgs, point func(x, y *int) (*compute
 		if err != nil {
 			return nil, err
 		}
+		// Clearing the field first is the documented default.
 		clicks := 1
-		if args.ClearBeforeTyping {
+		if args.ClearBeforeTyping == nil || *args.ClearBeforeTyping {
 			clicks = 3
 		}
 		actions = append(actions, computeruse.Action{CallID: callID, Kind: computeruse.KindClick, Point: at, Button: computeruse.ButtonLeft, Count: clicks})
@@ -407,4 +464,22 @@ func typeActions(callID string, args geminiArgs, point func(x, y *int) (*compute
 		actions = append(actions, computeruse.Action{CallID: callID, Kind: computeruse.KindKey, Keys: []string{"Return"}})
 	}
 	return actions, nil
+}
+
+// pressActions presses or releases the left button, moving to the given
+// position first when there is one.
+func pressActions(callID, name string, args geminiArgs, point func(x, y *int) (*computeruse.Point, error)) ([]computeruse.Action, error) {
+	var actions []computeruse.Action
+	if args.X != nil || args.Y != nil {
+		at, err := point(args.X, args.Y)
+		if err != nil {
+			return nil, err
+		}
+		actions = append(actions, computeruse.Action{CallID: callID, Kind: computeruse.KindMove, Point: at})
+	}
+	kind := computeruse.KindMouseDown
+	if name == "mouse_up" {
+		kind = computeruse.KindMouseUp
+	}
+	return append(actions, computeruse.Action{CallID: callID, Kind: kind, Button: computeruse.ButtonLeft}), nil
 }
