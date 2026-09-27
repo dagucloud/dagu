@@ -101,9 +101,9 @@ func (r *run) drive(ctx context.Context, index int, spec actSpec) (actOutcome, e
 	return actOutcome{}, fmt.Errorf("model request failed: %w", errors.Join(errs...))
 }
 
-// driveModel loops between the model and the desktop until the model
-// reports the task done. touched reports whether any action ran.
-func (r *run) driveModel(ctx context.Context, index int, spec actSpec, m model) (outcome actOutcome, touched bool, err error) {
+// driveModel runs the task with one model. touched reports whether any
+// action ran.
+func (r *run) driveModel(ctx context.Context, index int, spec actSpec, m model) (actOutcome, bool, error) {
 	session, err := r.exec.newSession(m.providerType, m.provider, r.cfg.mode(), computeruse.Options{
 		Model:       m.cfg.Model,
 		Task:        spec.Instruction,
@@ -114,78 +114,122 @@ func (r *run) driveModel(ctx context.Context, index int, spec actSpec, m model) 
 	if err != nil {
 		return actOutcome{}, false, err
 	}
-	limit := session.ImageLimit()
-	seen, err := r.observe(ctx, limit)
-	if err != nil {
-		return actOutcome{}, false, err
+	loop := &actLoop{r: r, index: index, session: session, limit: session.ImageLimit(), budget: r.cfg.maxActions(spec)}
+	err = loop.run(ctx)
+	return loop.outcome, loop.touched, err
+}
+
+// actLoop is one model's attempt at an act.
+type actLoop struct {
+	r       *run
+	index   int
+	session computeruse.Session
+	limit   computeruse.ImageLimit
+	budget  int
+	// seen is the screen the model last saw.
+	seen     screen
+	outcome  actOutcome
+	touched  bool
+	reminded bool
+}
+
+// run loops between the model and the desktop until the model reports the
+// task done.
+func (l *actLoop) run(ctx context.Context) error {
+	var err error
+	if l.seen, err = l.r.observe(ctx, l.limit); err != nil {
+		return err
 	}
-	budget := r.cfg.maxActions(spec)
-	outcome.recording.Width, outcome.recording.Height = seen.full.Bounds().Dx(), seen.full.Bounds().Dy()
-	obs := computeruse.Observation{Screen: seen.forModel()}
-	reminded := false
+	l.outcome.recording.Width, l.outcome.recording.Height = l.seen.full.Bounds().Dx(), l.seen.full.Bounds().Dy()
+	obs := computeruse.Observation{Screen: l.seen.forModel()}
 	for {
-		turn, err := session.Next(ctx, obs)
+		turn, err := l.session.Next(ctx, obs)
 		if err != nil {
-			return outcome, touched, err
+			return err
 		}
-		r.usage.add(turn.Usage)
+		l.r.usage.add(turn.Usage)
 		if turn.Text != "" {
-			logAction(r.timeline, index, "model: "+agentstep.QuoteShort(turn.Text))
+			logAction(l.r.timeline, l.index, "model: "+agentstep.QuoteShort(turn.Text))
 		}
-		if turn.Confirmation != "" && len(turn.Actions) > 0 && r.cfg.OnConfirmation != confirmationAllow {
-			return outcome, touched, fmt.Errorf("the model provider asks a person to confirm the next actions (%s); add an ask operation before this act and set on_confirmation: allow", turn.Confirmation)
+		if err := l.admit(turn); err != nil {
+			return err
 		}
-		if outcome.actions+len(turn.Actions) > budget {
-			return outcome, touched, fmt.Errorf("the task needed more than max_actions (%d) actions", budget)
-		}
-
-		results, recorded := r.perform(ctx, index, turn.Actions, seen, limit)
-		touched = touched || len(turn.Actions) > 0
-		outcome.actions += len(turn.Actions)
-		if len(recorded) > 0 {
-			outcome.recording.Turns = append(outcome.recording.Turns, recordedTurn{Screen: desktop.FingerprintOf(seen.full), Actions: recorded})
-		}
+		results := l.apply(ctx, turn)
 		if ctx.Err() != nil {
-			return outcome, touched, ctx.Err()
+			return ctx.Err()
 		}
-
 		// A model that finishes in the same turn as a failed action has not
 		// seen the failure yet, so it is shown the result first.
 		if turn.Done != nil && !anyFailed(results) {
-			if !turn.Done.Success {
-				return outcome, touched, fmt.Errorf("the model could not complete the task: %s", turn.Done.Summary)
-			}
-			final := seen.full
-			if len(turn.Actions) > 0 {
-				if final, err = r.settle(ctx); err != nil {
-					return outcome, touched, err
-				}
-			}
-			outcome.recording.Final = desktop.FingerprintOf(final)
-			outcome.summary = turn.Done.Summary
-			return outcome, touched, nil
+			return l.finish(ctx, turn)
 		}
-
-		note := ""
-		if len(turn.Actions) == 0 {
-			if reminded {
-				return outcome, touched, fmt.Errorf("the model stopped without reporting the task done: %s", agentstep.QuoteShort(turn.Text))
-			}
-			reminded = true
-			note = continueNote
-		} else {
-			reminded = false
+		note, err := l.reminder(turn)
+		if err != nil {
+			return err
 		}
-		if seen, err = r.observe(ctx, limit); err != nil {
-			return outcome, touched, err
+		if l.seen, err = l.r.observe(ctx, l.limit); err != nil {
+			return err
 		}
 		obs = computeruse.Observation{
-			Screen:       seen.forModel(),
+			Screen:       l.seen.forModel(),
 			Results:      results,
 			Acknowledged: turn.Confirmation != "",
 			Note:         note,
 		}
 	}
+}
+
+// admit rejects a turn whose actions the step may not run.
+func (l *actLoop) admit(turn *computeruse.Turn) error {
+	if turn.Confirmation != "" && len(turn.Actions) > 0 && l.r.cfg.OnConfirmation != confirmationAllow {
+		return fmt.Errorf("the model provider asks a person to confirm the next actions (%s); add an ask operation before this act and set on_confirmation: allow", turn.Confirmation)
+	}
+	if l.outcome.actions+len(turn.Actions) > l.budget {
+		return fmt.Errorf("the task needed more than max_actions (%d) actions", l.budget)
+	}
+	return nil
+}
+
+// apply performs a turn's actions and records the ones that completed.
+func (l *actLoop) apply(ctx context.Context, turn *computeruse.Turn) []computeruse.Result {
+	results, recorded := l.r.perform(ctx, l.index, turn.Actions, l.seen, l.limit)
+	l.touched = l.touched || len(turn.Actions) > 0
+	l.outcome.actions += len(turn.Actions)
+	if len(recorded) > 0 {
+		l.outcome.recording.Turns = append(l.outcome.recording.Turns, recordedTurn{Screen: desktop.FingerprintOf(l.seen.full), Actions: recorded})
+	}
+	return results
+}
+
+// finish ends the act with the model's report.
+func (l *actLoop) finish(ctx context.Context, turn *computeruse.Turn) error {
+	if !turn.Done.Success {
+		return fmt.Errorf("the model could not complete the task: %s", turn.Done.Summary)
+	}
+	final := l.seen.full
+	if len(turn.Actions) > 0 {
+		var err error
+		if final, err = l.r.settle(ctx); err != nil {
+			return err
+		}
+	}
+	l.outcome.recording.Final = desktop.FingerprintOf(final)
+	l.outcome.summary = turn.Done.Summary
+	return nil
+}
+
+// reminder returns the note sent with the next screen. A model that twice
+// answers without acting or reporting the task done is stuck.
+func (l *actLoop) reminder(turn *computeruse.Turn) (string, error) {
+	if len(turn.Actions) > 0 {
+		l.reminded = false
+		return "", nil
+	}
+	if l.reminded {
+		return "", fmt.Errorf("the model stopped without reporting the task done: %s", agentstep.QuoteShort(turn.Text))
+	}
+	l.reminded = true
+	return continueNote, nil
 }
 
 func anyFailed(results []computeruse.Result) bool {
