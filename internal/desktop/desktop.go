@@ -127,6 +127,14 @@ func (d *Driver) Move(ctx context.Context, at image.Point) error {
 	return pause(ctx, inputDelay)
 }
 
+// MoveHolding moves the pointer while holding modifiers, as when hovering
+// with a key pressed.
+func (d *Driver) MoveHolding(ctx context.Context, at image.Point, modifiers []Key) error {
+	return d.withKeys(ctx, modifiers, func() error {
+		return d.Move(ctx, at)
+	})
+}
+
 // Click clicks a button count times at a position, or at the pointer when
 // at is nil, while holding modifiers.
 func (d *Driver) Click(ctx context.Context, at *image.Point, button Button, count int, modifiers []Key) error {

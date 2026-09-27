@@ -127,3 +127,44 @@ func TestComputerSessionNotNativeForOpenCode(t *testing.T) {
 	_, err := newComputerSession(t, llm.ProviderOpenCode, responsesServer())
 	require.ErrorContains(t, err, "no native computer use")
 }
+
+// A safety check without a message still requires confirmation, and only
+// the call that raised it acknowledges it.
+func TestComputerSessionSafetyChecks(t *testing.T) {
+	t.Parallel()
+
+	server := responsesServer(
+		`{"id":"resp_1","status":"completed","output":[
+			{"type":"computer_call","call_id":"call_1","actions":[{"type":"move","x":1,"y":2,"keys":["SHIFT"]}],"pending_safety_checks":[{"id":"sc_1","code":"malicious_instructions","message":null}]},
+			{"type":"computer_call","call_id":"call_2","actions":[{"type":"screenshot"}]}
+		]}`,
+		`{"id":"resp_2","status":"completed","output":[{"type":"function_call","call_id":"f1","name":"done","arguments":"{\"success\":true,\"summary\":\"ok\"}"}]}`,
+	)
+	session, err := newComputerSession(t, llm.ProviderOpenAI, server)
+	require.NoError(t, err)
+
+	turn, err := session.Next(context.Background(), computeruse.Observation{Screen: testScreen("first")})
+	require.NoError(t, err)
+	assert.Equal(t, "malicious_instructions", turn.Confirmation)
+	assert.Equal(t, []string{"SHIFT"}, turn.Actions[0].Modifiers, "keys held while moving")
+
+	_, err = session.Next(context.Background(), computeruse.Observation{Screen: testScreen("second"), Acknowledged: true})
+	require.NoError(t, err)
+	input := server.Requests()[1]["input"].([]any)
+	assert.Equal(t, []any{map[string]any{"id": "sc_1", "code": "malicious_instructions"}}, input[0].(map[string]any)["acknowledged_safety_checks"])
+	assert.NotContains(t, input[1], "acknowledged_safety_checks")
+}
+
+func TestComputerSessionIncomplete(t *testing.T) {
+	t.Parallel()
+
+	for body, want := range map[string]string{
+		`{"id":"r","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[]}`: "incomplete (max_output_tokens)",
+		`{"id":"r","status":"failed","error":null,"output":[]}`:                                            "the response failed",
+	} {
+		session, err := newComputerSession(t, llm.ProviderOpenAI, responsesServer(body))
+		require.NoError(t, err)
+		_, err = session.Next(context.Background(), computeruse.Observation{Screen: testScreen("first")})
+		require.ErrorContains(t, err, want)
+	}
+}

@@ -20,6 +20,7 @@ const (
 	computerToolType    = "computer"
 	defaultWaitDuration = 2 * time.Second
 	responseFailed      = "failed"
+	responseIncomplete  = "incomplete"
 )
 
 // computerImageLimit keeps screenshots at a display size computer-use
@@ -36,18 +37,20 @@ func init() {
 // computerSession drives a model through the Responses API computer tool.
 // Each request continues the previous response on the server.
 type computerSession struct {
-	provider       *Provider
-	opts           computeruse.Options
-	previousID     string
-	started        bool
-	computerCalls  []computerCall
-	functionCalls  []functionCall
-	acknowledgable []safetyCheck
+	provider      *Provider
+	opts          computeruse.Options
+	previousID    string
+	started       bool
+	computerCalls []computerCall
+	functionCalls []functionCall
 }
 
+// computerCall is a computer_call awaiting its output. checks are the
+// safety checks it raised, which the output acknowledges once approved.
 type computerCall struct {
 	callID string
 	err    error
+	checks []safetyCheck
 }
 
 type functionCall struct {
@@ -88,8 +91,19 @@ func (s *computerSession) Next(ctx context.Context, obs computeruse.Observation)
 	if err := json.NewDecoder(respBody).Decode(&resp); err != nil {
 		return nil, llm.WrapError(providerName, fmt.Errorf("failed to decode response: %w", err))
 	}
-	if resp.Status == responseFailed && resp.Error != nil {
-		return nil, llm.WrapError(providerName, errors.New(resp.Error.Message))
+	switch resp.Status {
+	case responseFailed:
+		message := "the response failed"
+		if resp.Error != nil && resp.Error.Message != "" {
+			message = resp.Error.Message
+		}
+		return nil, llm.WrapError(providerName, errors.New(message))
+	case responseIncomplete:
+		reason := "no reason given"
+		if resp.IncompleteDetails != nil && resp.IncompleteDetails.Reason != "" {
+			reason = resp.IncompleteDetails.Reason
+		}
+		return nil, fmt.Errorf("%s: the response is incomplete (%s); raise max_tokens if the model ran out of output tokens", providerName, reason)
 	}
 	s.previousID = resp.ID
 	return s.turn(resp)
@@ -140,8 +154,8 @@ func (s *computerSession) input(obs computeruse.Observation) []any {
 			"call_id": call.callID,
 			"output":  screenshot,
 		}
-		if obs.Acknowledged && len(s.acknowledgable) > 0 {
-			output["acknowledged_safety_checks"] = s.acknowledgable
+		if obs.Acknowledged && len(call.checks) > 0 {
+			output["acknowledged_safety_checks"] = call.checks
 		}
 		input = append(input, output)
 	}
@@ -196,9 +210,11 @@ func (s *computerSession) turn(resp responsesResponse) (*computeruse.Turn, error
 	}}
 	s.computerCalls = s.computerCalls[:0]
 	s.functionCalls = s.functionCalls[:0]
-	s.acknowledgable = nil
 
 	var confirmations []string
+	// Actions after one that cannot be performed are not run, as when an
+	// action fails.
+	halted := false
 	for _, item := range resp.Output {
 		switch item.Type {
 		case "message":
@@ -217,18 +233,22 @@ func (s *computerSession) turn(resp responsesResponse) (*computeruse.Turn, error
 				actions = []responsesAction{*item.Action}
 			}
 			for _, raw := range actions {
+				if halted {
+					break
+				}
 				action, err := computerAction(item.CallID, raw)
 				if err != nil {
 					call.err = err
+					halted = true
 					break
 				}
 				turn.Actions = append(turn.Actions, action)
 			}
-			s.computerCalls = append(s.computerCalls, call)
+			call.checks = item.PendingSafetyChecks
 			for _, check := range item.PendingSafetyChecks {
-				confirmations = append(confirmations, check.Message)
-				s.acknowledgable = append(s.acknowledgable, check)
+				confirmations = append(confirmations, check.describe())
 			}
+			s.computerCalls = append(s.computerCalls, call)
 		case "function_call":
 			call := functionCall{callID: item.CallID}
 			if item.Name == computeruse.DoneToolName {
@@ -243,12 +263,28 @@ func (s *computerSession) turn(resp responsesResponse) (*computeruse.Turn, error
 	return turn, nil
 }
 
+// describe names a safety check for the person asked to confirm it. The
+// message may be absent, so the code or ID stands in.
+func (c safetyCheck) describe() string {
+	switch {
+	case c.Message != "":
+		return c.Message
+	case c.Code != "":
+		return c.Code
+	default:
+		return "safety check " + c.ID
+	}
+}
+
 type responsesResponse struct {
 	ID     string `json:"id"`
 	Status string `json:"status"`
 	Error  *struct {
 		Message string `json:"message"`
 	} `json:"error"`
+	IncompleteDetails *struct {
+		Reason string `json:"reason"`
+	} `json:"incomplete_details"`
 	Output []responsesItem `json:"output"`
 	Usage  struct {
 		InputTokens  int `json:"input_tokens"`
@@ -329,6 +365,7 @@ func computerAction(callID string, raw responsesAction) (computeruse.Action, err
 		}
 		action.Kind = computeruse.KindMove
 		action.Point = point
+		action.Modifiers = raw.Keys
 	case "scroll":
 		action.Kind = computeruse.KindScroll
 		action.Point = point

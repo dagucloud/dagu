@@ -69,7 +69,10 @@ func (r *run) runAction(ctx context.Context, action computeruse.Action, toFull p
 			err = errors.New("move needs a position")
 			break
 		}
-		err = r.driver.Move(ctx, *at)
+		var modifiers []desktop.Key
+		if modifiers, err = desktop.ParseKeys(action.Modifiers); err == nil {
+			err = r.driver.MoveHolding(ctx, *at, modifiers)
+		}
 	case computeruse.KindDrag:
 		path := make([]image.Point, 0, len(action.Path))
 		for _, p := range action.Path {

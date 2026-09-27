@@ -146,3 +146,13 @@ func TestParseButton(t *testing.T) {
 	_, err := desktop.ParseButton("back")
 	require.Error(t, err)
 }
+
+func TestDriverMoveHoldingModifiers(t *testing.T) {
+	t.Parallel()
+
+	backend := &recordingBackend{}
+	driver := desktop.New(backend)
+	require.NoError(t, driver.MoveHolding(context.Background(), image.Pt(3, 4), []desktop.Key{desktop.KeyAlt}))
+
+	assert.Equal(t, []string{"key alt down", "move 3,4", "key alt up"}, backend.events)
+}
