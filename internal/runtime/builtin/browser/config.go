@@ -143,6 +143,15 @@ func (o operation) kind() string {
 	}
 }
 
+// operationTexts returns the text of each operation that reaches the model.
+func (c config) operationTexts() []agentstep.OperationTexts {
+	texts := make([]agentstep.OperationTexts, 0, len(c.Do))
+	for _, op := range c.Do {
+		texts = append(texts, agentstep.OperationTexts{Kind: op.kind(), Texts: op.promptTexts()})
+	}
+	return texts
+}
+
 // promptTexts returns the operation texts that reach the model.
 func (o operation) promptTexts() []string {
 	texts := make([]string, 0, 2)

@@ -24,6 +24,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -507,7 +508,7 @@ func TestModelBridgeFallsBackAndMasks(t *testing.T) {
 		return working, nil
 	}
 	ctx := runtime.WithEnv(t.Context(), runtime.Env{Scope: value.NewEnvScope(nil, false)})
-	bridge, err := newModelBridge(ctx, cfg, newMasker(map[string]string{"TOKEN": "s3cr3t-token"}, nil), factory)
+	bridge, err := newModelBridge(ctx, cfg, agentstep.NewMasker(map[string]string{"TOKEN": "s3cr3t-token"}, nil), factory)
 	require.NoError(t, err)
 
 	resp, err := bridge.generate(ctx, generateRequest{
@@ -636,7 +637,7 @@ func TestUnfinishedDownloadFailsStep(t *testing.T) {
 func TestMaskerHidesSecretsAndAnswers(t *testing.T) {
 	t.Parallel()
 
-	masker := newMasker(
+	masker := agentstep.NewMasker(
 		map[string]string{"TOKEN": "s3cr3t-token", "PIN": "12", "SHORT": "éé", "WORD": "パスワード"},
 		map[string]string{"otp": "424242", "choice": "2"},
 	)

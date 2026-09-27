@@ -21,6 +21,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/llm/computeruse"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
 )
 
 const (
@@ -73,7 +74,7 @@ func newRun(ctx context.Context, e *computerExecutor) (*run, error) {
 		secrets = env.Scope.AllSecrets()
 		artifactsDir, _ = env.Scope.Get(runenv.EnvKeyDAGRunArtifactsDir)
 	}
-	if err := checkSecrets(e.cfg, secrets); err != nil {
+	if err := agentstep.CheckSecrets(executorType, e.cfg.operationTexts(), secrets); err != nil {
 		return nil, err
 	}
 	dagName := ""
@@ -88,7 +89,7 @@ func newRun(ctx context.Context, e *computerExecutor) (*run, error) {
 	if err != nil {
 		return nil, err
 	}
-	masker := newMasker(secrets, nil)
+	masker := agentstep.NewMasker(secrets, nil)
 	computerDir := filepath.Join(dataDir, computerhost.DataDirName)
 	r := &run{
 		exec:        e,
@@ -155,7 +156,7 @@ func (r *run) start(ctx context.Context) (int, error) {
 	session := r.exec.GetAgentSession()
 	recordID := computerhost.RecordID(r.dagRunID, r.stepName)
 	cursor := 0
-	if answer, answered := pendingAnswer(session); answered {
+	if answer, answered := agentstep.PendingAnswer(session, providerName); answered {
 		var err error
 		if cursor, err = r.resume(recordID, session, answer); err != nil {
 			return 0, err

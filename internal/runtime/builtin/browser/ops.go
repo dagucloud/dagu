@@ -96,7 +96,7 @@ func newRun(ctx context.Context, e *browserExecutor) (*run, error) {
 		secrets = env.Scope.AllSecrets()
 		artifactsDir, _ = env.Scope.Get(runenv.EnvKeyDAGRunArtifactsDir)
 	}
-	if err := checkSecrets(e.cfg, secrets); err != nil {
+	if err := agentstep.CheckSecrets(executorType, e.cfg.operationTexts(), secrets); err != nil {
 		return nil, err
 	}
 	dagName := ""
@@ -107,7 +107,7 @@ func newRun(ctx context.Context, e *browserExecutor) (*run, error) {
 	if stepKey == "" {
 		stepKey = e.step.Name
 	}
-	masker := newMasker(secrets, nil)
+	masker := agentstep.NewMasker(secrets, nil)
 	bridge, err := newModelBridge(ctx, e.step.LLM, masker, e.newProvider)
 	if err != nil {
 		return nil, err
@@ -284,7 +284,7 @@ func (r *run) settleDownloads(ctx context.Context, index int, final bool) error 
 func (r *run) startSession(ctx context.Context) (int, error) {
 	session := r.exec.GetAgentSession()
 	recordID := browserhost.RecordID(r.dagRunID, r.stepName)
-	answer, answered := pendingAnswer(session)
+	answer, answered := agentstep.PendingAnswer(session, providerName)
 	if answered {
 		return r.resumeSession(ctx, recordID, session, answer)
 	}

@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/llm/computeruse"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -131,7 +132,7 @@ func TestAskWaitsAndResumes(t *testing.T) {
 	assert.Equal(t, map[string]any{"account": "acme"}, record.Outputs)
 
 	// Another computer step can use the desktop while this one waits.
-	quiet := &timeline{log: io.Discard, masker: newMasker(nil, nil), update: func(func(*ir.AgentSession)) {}}
+	quiet := &timeline{log: io.Discard, masker: agentstep.NewMasker(nil, nil), update: func(func(*ir.AgentSession)) {}}
 	lease, err := acquireDesktop(t.Context(), filepath.Join(run.dataDir, computerhost.DataDirName), quiet)
 	require.NoError(t, err)
 	lease.release()
