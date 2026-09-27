@@ -325,3 +325,31 @@ func runFakeSMTP(conn net.Conn, dataCh chan<- string) error {
 		}
 	}
 }
+
+// A listed attachment that cannot be read fails the step before any mail is
+// sent, instead of the message going out without it.
+func TestMailRejectsUnreadableAttachment(t *testing.T) {
+	t.Parallel()
+
+	ctx := runtime.NewContext(context.Background(), &ir.DAG{
+		SMTP: &ir.SMTPConfig{Host: "127.0.0.1", Port: "1"},
+	}, "", "")
+	dir := t.TempDir()
+
+	for name, path := range map[string]string{
+		"Missing":   filepath.Join(dir, "missing.pdf"),
+		"Directory": dir,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			_, err := newMail(ctx, ir.Step{ExecutorConfig: ir.ExecutorConfig{Config: map[string]any{
+				"from":        "sender@example.com",
+				"to":          "rcpt@example.com",
+				"subject":     "Report",
+				"message":     "Attached",
+				"attachments": []string{path},
+			}}})
+			require.ErrorContains(t, err, `attachment "`+path+`"`)
+		})
+	}
+}

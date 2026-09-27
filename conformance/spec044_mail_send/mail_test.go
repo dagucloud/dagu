@@ -39,6 +39,7 @@ func TestMailConfig(t *testing.T) {
 		wantError string
 	}{
 		{"no_recipients.yaml", "start", "no valid recipients specified"},
+		{"missing_attachment.yaml", "start", `attachment "missing.pdf"`},
 		{"oauth_password_conflict.yaml", "validate", "mutually exclusive"},
 		{"oauth_missing_username.yaml", "validate", "username is required with oauth"},
 	} {
