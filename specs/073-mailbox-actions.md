@@ -159,8 +159,10 @@ For each item, the action applies `mark`, then `move`:
 - `trash` moves the email to the folder with special-use `\Trash`.
 
 No action deletes email permanently. An item whose email is no longer in its folder
-(moved, deleted, or the folder's UIDVALIDITY changed) is skipped and listed in
-`missing`; it does not fail the step.
+(moved, deleted, the folder deleted, or the folder's UIDVALIDITY changed) is skipped
+and listed in `missing`; it does not fail the step. A folder counts as deleted only
+when the server says it does not exist (`NONEXISTENT`); any other refusal to open
+it fails the step with the server's reason.
 
 Published outputs:
 

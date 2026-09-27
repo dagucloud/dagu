@@ -37,8 +37,7 @@ func (c *Client) ReplyInfo(id string) (*ReplyInfo, error) {
 	}
 	selected, err := c.imap.Select(ref.folder, &imap.SelectOptions{ReadOnly: true}).Wait()
 	if err != nil {
-		var imapErr *imap.Error
-		if errors.As(err, &imapErr) && imapErr.Type == imap.StatusResponseTypeNo {
+		if folderMissing(err) {
 			return nil, ErrEmailGone
 		}
 		return nil, fmt.Errorf("open folder %q: %w", ref.folder, err)
