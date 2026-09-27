@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package computer
+package agentstep
 
 import (
 	"errors"
@@ -17,17 +17,17 @@ import (
 )
 
 const (
-	artifactsSubdir  = "computer"
 	artifactDirMode  = 0o755
 	artifactFileMode = 0o644
 	screenshotExt    = ".png"
 )
 
-var errNoArtifactStorage = errors.New("computer: screenshots need artifact storage, which is disabled for this DAG")
+// ErrNoArtifactStorage reports a screenshot in a DAG with artifacts
+// disabled.
+var ErrNoArtifactStorage = errors.New("screenshots need artifact storage, which is disabled for this DAG")
 
-// artifactStore writes a step's screenshots under the run's artifacts
-// directory.
-type artifactStore struct {
+// ArtifactStore writes a step's files under the run's artifacts directory.
+type ArtifactStore struct {
 	// root is the run artifacts directory; empty when storage is disabled.
 	root string
 	// rel is the step directory relative to root, using forward slashes.
@@ -35,22 +35,37 @@ type artifactStore struct {
 	sequence int
 }
 
-func newArtifactStore(root, stepKey string) *artifactStore {
-	return &artifactStore{root: root, rel: path.Join(artifactsSubdir, fileutil.SafeName(stepKey))}
+// NewArtifactStore returns the store of a step, whose files go under
+// subdir/<step key> in the run artifacts directory root. An empty root
+// means storage is disabled.
+func NewArtifactStore(root, subdir, stepKey string) *ArtifactStore {
+	return &ArtifactStore{root: root, rel: path.Join(subdir, fileutil.SafeName(stepKey))}
 }
 
-func (s *artifactStore) enabled() bool {
+// Enabled reports whether the DAG stores artifacts.
+func (s *ArtifactStore) Enabled() bool {
 	return s.root != ""
 }
 
-// writeScreenshot stores a PNG and returns its path relative to the run
+// Dir returns the step's directory on disk.
+func (s *ArtifactStore) Dir() string {
+	return filepath.Join(s.root, filepath.FromSlash(s.rel))
+}
+
+// RelPath returns a path under the step's directory, relative to the run
+// artifacts directory.
+func (s *ArtifactStore) RelPath(elem ...string) string {
+	return path.Join(append([]string{s.rel}, elem...)...)
+}
+
+// WriteScreenshot stores a PNG and returns its path relative to the run
 // artifacts directory. Screenshots from earlier executions of the step, such
 // as a retry or the part before an ask, are kept.
-func (s *artifactStore) writeScreenshot(label string, data []byte) (string, error) {
-	if !s.enabled() {
-		return "", errNoArtifactStorage
+func (s *ArtifactStore) WriteScreenshot(label string, data []byte) (string, error) {
+	if !s.Enabled() {
+		return "", ErrNoArtifactStorage
 	}
-	dir := filepath.Join(s.root, filepath.FromSlash(s.rel))
+	dir := s.Dir()
 	if err := os.MkdirAll(dir, artifactDirMode); err != nil {
 		return "", fmt.Errorf("create screenshot directory: %w", err)
 	}

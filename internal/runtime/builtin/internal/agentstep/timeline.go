@@ -1,0 +1,131 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package agentstep
+
+import (
+	"fmt"
+	"io"
+	"strings"
+	"time"
+
+	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+)
+
+// Timeline event types and statuses shown in a step's agent session.
+const (
+	EventLifecycle = "lifecycle"
+	EventOperation = "tool"
+
+	StatusRunning   = "running"
+	StatusCompleted = "completed"
+	StatusFailed    = "failed"
+	StatusSkipped   = "skipped"
+	StatusWaiting   = "waiting"
+	StatusCacheHit  = "cache-hit"
+	StatusHealed    = "healed"
+)
+
+const (
+	maxEventContentBytes = 4 << 10
+	maxSessionEvents     = 1000
+	maxLogTextRunes      = 80
+)
+
+// Timeline reports operation progress to the step log and the agent
+// session.
+type Timeline struct {
+	Log    io.Writer
+	Masker *masking.Masker
+	// Total is the number of operations in with.do.
+	Total int
+	// Update applies a change to the agent session.
+	Update func(func(*ir.AgentSession))
+	// Provider prefixes event IDs.
+	Provider string
+}
+
+// Report summarizes one finished operation.
+type Report struct {
+	// Index is the position in with.do, or -1 for work before the first
+	// operation.
+	Index    int
+	Kind     string
+	Subject  string
+	Status   string
+	Detail   string
+	Tokens   int
+	Duration time.Duration
+	Files    []string
+}
+
+// Lifecycle logs a step-level event.
+func (t *Timeline) Lifecycle(status, content string) {
+	content = t.Masker.MaskString(content)
+	_, _ = fmt.Fprintf(t.Log, "%s\n", content)
+	t.AppendEvent(ir.AgentSessionEvent{Type: EventLifecycle, Status: status, Content: content})
+}
+
+// Operation logs a finished operation.
+func (t *Timeline) Operation(report Report) {
+	subject := t.Masker.MaskString(report.Subject)
+	detail := t.Masker.MaskString(report.Detail)
+	line := fmt.Sprintf("%s %s %s", t.Position(report.Index), report.Kind, QuoteShort(subject))
+	if detail != "" {
+		line += " → " + detail
+	}
+	line += fmt.Sprintf(" (%s, %d tokens, %s)", report.Status, report.Tokens, report.Duration.Round(100*time.Millisecond))
+	_, _ = fmt.Fprintln(t.Log, line)
+
+	content := subject
+	if detail != "" {
+		content += "\n" + detail
+	}
+	t.AppendEvent(ir.AgentSessionEvent{
+		Type:    EventOperation,
+		Name:    report.Kind,
+		Status:  report.Status,
+		Content: content,
+		Files:   report.Files,
+	})
+}
+
+// Position labels the operation at index, or the work before the first
+// operation when index is -1.
+func (t *Timeline) Position(index int) string {
+	if index < 0 {
+		return "[start]"
+	}
+	return fmt.Sprintf("[%d/%d]", index+1, t.Total)
+}
+
+// AppendEvent adds an event to the agent session, keeping the latest
+// events when there are too many.
+func (t *Timeline) AppendEvent(event ir.AgentSessionEvent) {
+	if len(event.Content) > maxEventContentBytes {
+		event.Content = event.Content[:maxEventContentBytes]
+	}
+	event.Timestamp = time.Now().UTC().Format(time.RFC3339Nano)
+	t.Update(func(session *ir.AgentSession) {
+		sequence := int64(1)
+		if count := len(session.Events); count > 0 {
+			sequence = session.Events[count-1].Sequence + 1
+		}
+		event.Sequence = sequence
+		event.ID = fmt.Sprintf("%s-%d-%d", t.Provider, session.Generation, sequence)
+		session.Events = append(session.Events, event)
+		if overflow := len(session.Events) - maxSessionEvents; overflow > 0 {
+			session.Events = append([]ir.AgentSessionEvent(nil), session.Events[overflow:]...)
+		}
+	})
+}
+
+// QuoteShort quotes text on one line, cut to a readable length.
+func QuoteShort(text string) string {
+	text = strings.Join(strings.Fields(text), " ")
+	if runes := []rune(text); len(runes) > maxLogTextRunes {
+		text = string(runes[:maxLogTextRunes]) + "…"
+	}
+	return fmt.Sprintf("%q", text)
+}

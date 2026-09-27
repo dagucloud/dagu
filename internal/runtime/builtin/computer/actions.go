@@ -36,12 +36,12 @@ func (r *run) perform(ctx context.Context, index int, actions []computeruse.Acti
 			results = append(results, computeruse.Result{CallID: action.CallID, Skipped: true})
 			continue
 		}
-		r.timeline.action(index, describeAction(action))
+		logAction(r.timeline, index, describeAction(action))
 		result := r.runAction(ctx, action, seen.toFull, &seen, limit)
 		results = append(results, result)
 		if result.Failed() {
 			failed = true
-			r.timeline.action(index, "  failed: "+result.Error)
+			logAction(r.timeline, index, "  failed: "+result.Error)
 			continue
 		}
 		if display, ok := toDisplay(action, seen); ok {

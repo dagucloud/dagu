@@ -39,7 +39,7 @@ func (r *run) waitForInput(ctx context.Context, index int, spec askSpec) error {
 	r.profile = nil
 
 	prompt := r.masker.MaskString(spec.Prompt)
-	r.timeline.operation(operationReport{index: index, kind: opAsk, subject: prompt, status: statusWaiting})
+	r.timeline.Operation(agentstep.Report{Index: index, Kind: opAsk, Subject: prompt, Status: agentstep.StatusWaiting})
 	r.exec.updateSession(func(s *ir.AgentSession) {
 		s.State = ir.AgentSessionWaiting
 		s.Interactions = append(s.Interactions, agentstep.AskInteraction(index, generation, askQuestionHeader, prompt, r.record.Deadline))
@@ -101,7 +101,7 @@ func (r *run) resumeSession(ctx context.Context, recordID string, session *ir.Ag
 		return 0, err
 	}
 	maps.Copy(r.outputs, record.Outputs)
-	r.timeline.lifecycle(statusRunning, "Resumed browser after input")
+	r.timeline.Lifecycle(agentstep.StatusRunning, "Resumed browser after input")
 	return record.Cursor, nil
 }
 
@@ -111,5 +111,5 @@ func (r *run) refreshMasker() {
 	masker := agentstep.NewMasker(r.secrets, r.answers)
 	r.masker = masker
 	r.bridge.masker = masker
-	r.timeline.masker = masker
+	r.timeline.Masker = masker
 }

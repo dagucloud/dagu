@@ -52,8 +52,8 @@ type run struct {
 	models      []model
 	usage       tokenUsage
 	cache       *replayCache
-	artifacts   *artifactStore
-	timeline    *timeline
+	artifacts   *agentstep.ArtifactStore
+	timeline    *agentstep.Timeline
 	driver      *desktop.Driver
 	lease       *desktopLease
 	variables   map[string]string
@@ -103,7 +103,7 @@ func newRun(ctx context.Context, e *computerExecutor) (*run, error) {
 		secrets:     secrets,
 		masker:      masker,
 		models:      models,
-		artifacts:   newArtifactStore(artifactsDir, stepKey),
+		artifacts:   agentstep.NewArtifactStore(artifactsDir, artifactsSubdir, stepKey),
 		variables:   maps.Clone(e.cfg.Variables),
 		answers:     map[string]string{},
 		outputs:     map[string]any{},
@@ -116,7 +116,7 @@ func newRun(ctx context.Context, e *computerExecutor) (*run, error) {
 			return nil, err
 		}
 	}
-	r.timeline = &timeline{log: e.stderr, masker: masker, total: len(e.cfg.Do), update: e.updateSession}
+	r.timeline = &agentstep.Timeline{Log: e.stderr, Masker: masker, Total: len(e.cfg.Do), Update: e.updateSession, Provider: providerName}
 	return r, nil
 }
 
@@ -134,9 +134,9 @@ func (r *run) execute(ctx context.Context) error {
 				return r.fail(ctx, i, op.kind(), fmt.Errorf("evaluate when: %w", err))
 			}
 			if !holds {
-				r.timeline.operation(operationReport{
-					index: i, kind: op.kind(), subject: op.When.Statement, status: statusSkipped, detail: reason,
-					tokens: r.usage.sub(before).total(), duration: time.Since(began),
+				r.timeline.Operation(agentstep.Report{
+					Index: i, Kind: op.kind(), Subject: op.When.Statement, Status: agentstep.StatusSkipped, Detail: reason,
+					Tokens: r.usage.sub(before).total(), Duration: time.Since(began),
 				})
 				continue
 			}
@@ -196,9 +196,9 @@ func (r *run) start(ctx context.Context) (int, error) {
 	}
 	r.driver = driver
 	if cursor > 0 {
-		r.timeline.lifecycle(statusRunning, "Resumed after input")
+		r.timeline.Lifecycle(agentstep.StatusRunning, "Resumed after input")
 	} else {
-		r.timeline.lifecycle(statusRunning, "Started on the desktop")
+		r.timeline.Lifecycle(agentstep.StatusRunning, "Started on the desktop")
 	}
 	return cursor, nil
 }
@@ -228,7 +228,7 @@ func (r *run) launch(ctx context.Context, index int, spec launchSpec) error {
 		return err
 	}
 	subject := strings.Join(append([]string{spec.Command}, spec.Args...), " ")
-	r.report(ctx, operationReport{index: index, kind: opLaunch, subject: subject, status: statusCompleted, duration: time.Since(began)})
+	r.report(ctx, agentstep.Report{Index: index, Kind: opLaunch, Subject: subject, Status: agentstep.StatusCompleted, Duration: time.Since(began)})
 	return nil
 }
 
@@ -261,9 +261,9 @@ func (r *run) extract(ctx context.Context, index int, spec extractSpec, timeout 
 		}
 		r.outputs[name] = value
 	}
-	r.report(ctx, operationReport{
-		index: index, kind: opExtract, subject: spec.Instruction, status: statusCompleted,
-		detail: string(data), tokens: r.usage.sub(before).total(), duration: time.Since(began),
+	r.report(ctx, agentstep.Report{
+		Index: index, Kind: opExtract, Subject: spec.Instruction, Status: agentstep.StatusCompleted,
+		Detail: string(data), Tokens: r.usage.sub(before).total(), Duration: time.Since(began),
 	})
 	return nil
 }
@@ -278,9 +278,9 @@ func (r *run) expect(ctx context.Context, index int, c condition, timeout time.D
 	if !holds {
 		return fmt.Errorf("expectation not met: %s", reason)
 	}
-	r.report(ctx, operationReport{
-		index: index, kind: opExpect, subject: c.Statement, status: statusCompleted, detail: reason,
-		tokens: r.usage.sub(before).total(), duration: time.Since(began),
+	r.report(ctx, agentstep.Report{
+		Index: index, Kind: opExpect, Subject: c.Statement, Status: agentstep.StatusCompleted, Detail: reason,
+		Tokens: r.usage.sub(before).total(), Duration: time.Since(began),
 	})
 	return nil
 }
@@ -319,7 +319,7 @@ func (r *run) wait(ctx context.Context, index int, value string) error {
 	if err := sleep(ctx, duration); err != nil {
 		return err
 	}
-	r.report(ctx, operationReport{index: index, kind: opWait, subject: value, status: statusCompleted, duration: time.Since(began)})
+	r.report(ctx, agentstep.Report{Index: index, Kind: opWait, Subject: value, Status: agentstep.StatusCompleted, Duration: time.Since(began)})
 	return nil
 }
 
@@ -329,22 +329,22 @@ func (r *run) screenshot(ctx context.Context, index int, name string) error {
 	if err != nil {
 		return err
 	}
-	r.timeline.operation(operationReport{
-		index: index, kind: opScreenshot, subject: name, status: statusCompleted,
-		detail: rel, duration: time.Since(began), files: []string{rel},
+	r.timeline.Operation(agentstep.Report{
+		Index: index, Kind: opScreenshot, Subject: name, Status: agentstep.StatusCompleted,
+		Detail: rel, Duration: time.Since(began), Files: []string{rel},
 	})
 	return nil
 }
 
 // report records a finished operation, attaching a screenshot when every
 // operation is captured.
-func (r *run) report(ctx context.Context, report operationReport) {
-	if r.cfg.screenshotPolicy() == screenshotsEach && r.artifacts.enabled() {
-		if rel, err := r.capture(ctx, report.kind); err == nil {
-			report.files = append(report.files, rel)
+func (r *run) report(ctx context.Context, report agentstep.Report) {
+	if r.cfg.screenshotPolicy() == screenshotsEach && r.artifacts.Enabled() {
+		if rel, err := r.capture(ctx, report.Kind); err == nil {
+			report.Files = append(report.Files, rel)
 		}
 	}
-	r.timeline.operation(report)
+	r.timeline.Operation(report)
 }
 
 // capture saves the current screen as an artifact.
@@ -352,8 +352,8 @@ func (r *run) capture(ctx context.Context, label string) (string, error) {
 	if r.driver == nil {
 		return "", errors.New("the desktop is not open")
 	}
-	if !r.artifacts.enabled() {
-		return "", errNoArtifactStorage
+	if !r.artifacts.Enabled() {
+		return "", agentstep.ErrNoArtifactStorage
 	}
 	full, err := r.settle(ctx)
 	if err != nil {
@@ -363,20 +363,20 @@ func (r *run) capture(ctx context.Context, label string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return r.artifacts.writeScreenshot(label, shot.png)
+	return r.artifacts.WriteScreenshot(label, shot.png)
 }
 
 func (r *run) succeed(ctx context.Context) error {
 	var files []string
-	if r.cfg.capturesFinalScreenshot() && r.artifacts.enabled() {
+	if r.cfg.capturesFinalScreenshot() && r.artifacts.Enabled() {
 		if rel, err := r.capture(ctx, finalShotLabel); err == nil {
 			files = append(files, rel)
 		}
 	}
 	r.shutdown()
 	summary := fmt.Sprintf("Completed %d operations using %d tokens", len(r.cfg.Do), r.usage.total())
-	r.timeline.appendEvent(ir.AgentSessionEvent{Type: eventLifecycle, Status: statusCompleted, Content: summary, Files: files})
-	_, _ = fmt.Fprintln(r.timeline.log, summary)
+	r.timeline.AppendEvent(ir.AgentSessionEvent{Type: agentstep.EventLifecycle, Status: agentstep.StatusCompleted, Content: summary, Files: files})
+	_, _ = fmt.Fprintln(r.timeline.Log, summary)
 	r.exec.updateSession(func(s *ir.AgentSession) {
 		s.State = ir.AgentSessionSucceeded
 		s.Usage = r.agentUsage()
@@ -399,7 +399,7 @@ func (r *run) fail(ctx context.Context, index int, kind string, cause error) err
 		cause = ctx.Err()
 	}
 	var files []string
-	if r.cfg.screenshotPolicy() != screenshotsNever && r.artifacts.enabled() && r.driver != nil {
+	if r.cfg.screenshotPolicy() != screenshotsNever && r.artifacts.Enabled() && r.driver != nil {
 		if rel, err := r.capture(context.WithoutCancel(ctx), failureShotLabel); err == nil {
 			files = append(files, rel)
 		}
@@ -409,7 +409,7 @@ func (r *run) fail(ctx context.Context, index int, kind string, cause error) err
 	if index >= 0 {
 		message = fmt.Sprintf("do[%d] %s failed: %s", index, kind, message)
 	}
-	r.timeline.appendEvent(ir.AgentSessionEvent{Type: eventLifecycle, Status: statusFailed, Content: message, Files: files})
+	r.timeline.AppendEvent(ir.AgentSessionEvent{Type: agentstep.EventLifecycle, Status: agentstep.StatusFailed, Content: message, Files: files})
 	r.exec.updateSession(func(s *ir.AgentSession) {
 		s.State = ir.AgentSessionFailed
 		s.LastError = message

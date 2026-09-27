@@ -26,13 +26,15 @@ type desktopLease struct {
 	stop context.CancelFunc
 }
 
-func acquireDesktop(ctx context.Context, computerDir string, t *timeline) (*desktopLease, error) {
+func acquireDesktop(ctx context.Context, computerDir string, t *agentstep.Timeline) (*desktopLease, error) {
 	lockDir := filepath.Join(computerDir, desktopLockName)
 	if err := os.MkdirAll(lockDir, desktopDirMode); err != nil {
 		return nil, fmt.Errorf("create desktop lock: %w", err)
 	}
 	lock := dirlock.New(lockDir, &dirlock.LockOptions{
-		OnWait: func() { t.lifecycle(statusWaiting, "Waiting for another computer step to finish using the desktop") },
+		OnWait: func() {
+			t.Lifecycle(agentstep.StatusWaiting, "Waiting for another computer step to finish using the desktop")
+		},
 	})
 	if err := lock.Lock(ctx); err != nil {
 		return nil, fmt.Errorf("lock the desktop: %w", err)

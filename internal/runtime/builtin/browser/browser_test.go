@@ -118,7 +118,7 @@ func (r *testRun) records() []browserhost.Record {
 func eventNames(session *ir.AgentSession) []string {
 	names := make([]string, 0, len(session.Events))
 	for _, event := range session.Events {
-		if event.Type == eventOperation {
+		if event.Type == agentstep.EventOperation {
 			names = append(names, event.Name+":"+event.Status)
 		}
 	}

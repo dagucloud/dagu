@@ -38,7 +38,7 @@ func (r *run) waitForInput(_ context.Context, index int, spec askSpec) error {
 	r.shutdown()
 
 	prompt := r.masker.MaskString(spec.Prompt)
-	r.timeline.operation(operationReport{index: index, kind: opAsk, subject: prompt, status: statusWaiting})
+	r.timeline.Operation(agentstep.Report{Index: index, Kind: opAsk, Subject: prompt, Status: agentstep.StatusWaiting})
 	r.exec.updateSession(func(s *ir.AgentSession) {
 		s.State = ir.AgentSessionWaiting
 		s.Usage = r.agentUsage()
@@ -86,5 +86,5 @@ func (r *run) resume(recordID string, session *ir.AgentSession, answer agentstep
 func (r *run) refreshMasker() {
 	masker := agentstep.NewMasker(r.secrets, r.answers)
 	r.masker = masker
-	r.timeline.masker = masker
+	r.timeline.Masker = masker
 }

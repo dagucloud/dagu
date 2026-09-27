@@ -137,7 +137,7 @@ func (r *run) replay(ctx context.Context, index int, entry recording) (bool, err
 			return false, nil
 		}
 		for _, recorded := range turn.Actions {
-			r.timeline.action(index, "replay "+describeAction(recorded.Action))
+			logAction(r.timeline, index, "replay "+describeAction(recorded.Action))
 			if result := r.runAction(ctx, recorded.Action, identity, nil, computeruse.ImageLimit{}); result.Failed() {
 				return false, ctx.Err()
 			}

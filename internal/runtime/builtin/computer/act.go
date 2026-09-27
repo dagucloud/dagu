@@ -39,7 +39,7 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 	began, before := time.Now(), r.usage
 
 	useCache := r.cache != nil && (spec.Cache == nil || *spec.Cache)
-	status := statusCompleted
+	status := agentstep.StatusCompleted
 	key := ""
 	if useCache {
 		current, err := r.settle(ctx)
@@ -53,13 +53,13 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 				return err
 			}
 			if replayed {
-				r.report(ctx, operationReport{
-					index: index, kind: opAct, subject: spec.Instruction, status: statusCacheHit,
-					detail: fmt.Sprintf("replayed %d turns", len(entry.Turns)), duration: time.Since(began),
+				r.report(ctx, agentstep.Report{
+					Index: index, Kind: opAct, Subject: spec.Instruction, Status: agentstep.StatusCacheHit,
+					Detail: fmt.Sprintf("replayed %d turns", len(entry.Turns)), Duration: time.Since(began),
 				})
 				return nil
 			}
-			status = statusHealed
+			status = agentstep.StatusHealed
 		}
 	}
 
@@ -75,11 +75,11 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 			return err
 		}
 	}
-	r.report(ctx, operationReport{
-		index: index, kind: opAct, subject: spec.Instruction, status: status,
-		detail:   fmt.Sprintf("%s (%d actions)", outcome.summary, outcome.actions),
-		tokens:   r.usage.sub(before).total(),
-		duration: time.Since(began),
+	r.report(ctx, agentstep.Report{
+		Index: index, Kind: opAct, Subject: spec.Instruction, Status: status,
+		Detail:   fmt.Sprintf("%s (%d actions)", outcome.summary, outcome.actions),
+		Tokens:   r.usage.sub(before).total(),
+		Duration: time.Since(began),
 	})
 	return nil
 }
@@ -130,7 +130,7 @@ func (r *run) driveModel(ctx context.Context, index int, spec actSpec, m model) 
 		}
 		r.usage.add(turn.Usage)
 		if turn.Text != "" {
-			r.timeline.action(index, "model: "+quoteShort(turn.Text))
+			logAction(r.timeline, index, "model: "+agentstep.QuoteShort(turn.Text))
 		}
 		if turn.Confirmation != "" && len(turn.Actions) > 0 && r.cfg.OnConfirmation != confirmationAllow {
 			return outcome, touched, fmt.Errorf("the model provider asks a person to confirm the next actions (%s); add an ask operation before this act and set on_confirmation: allow", turn.Confirmation)
@@ -169,7 +169,7 @@ func (r *run) driveModel(ctx context.Context, index int, spec actSpec, m model) 
 		note := ""
 		if len(turn.Actions) == 0 {
 			if reminded {
-				return outcome, touched, fmt.Errorf("the model stopped without reporting the task done: %s", quoteShort(turn.Text))
+				return outcome, touched, fmt.Errorf("the model stopped without reporting the task done: %s", agentstep.QuoteShort(turn.Text))
 			}
 			reminded = true
 			note = continueNote

@@ -132,7 +132,7 @@ func TestAskWaitsAndResumes(t *testing.T) {
 	assert.Equal(t, map[string]any{"account": "acme"}, record.Outputs)
 
 	// Another computer step can use the desktop while this one waits.
-	quiet := &timeline{log: io.Discard, masker: agentstep.NewMasker(nil, nil), update: func(func(*ir.AgentSession)) {}}
+	quiet := &agentstep.Timeline{Log: io.Discard, Masker: agentstep.NewMasker(nil, nil), Update: func(func(*ir.AgentSession)) {}}
 	lease, err := acquireDesktop(t.Context(), filepath.Join(run.dataDir, computerhost.DataDirName), quiet)
 	require.NoError(t, err)
 	lease.release()
@@ -310,7 +310,7 @@ func TestFailureScreenshot(t *testing.T) {
 
 	session := execution.exec.GetAgentSession()
 	last := session.Events[len(session.Events)-1]
-	assert.Equal(t, statusFailed, last.Status)
+	assert.Equal(t, agentstep.StatusFailed, last.Status)
 	require.Len(t, last.Files, 1)
 	assert.FileExists(t, filepath.Join(run.artifacts, filepath.FromSlash(last.Files[0])))
 }
