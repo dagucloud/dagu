@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/computerhost"
@@ -152,6 +153,63 @@ func TestAskWaitsAndResumes(t *testing.T) {
 	assert.True(t, resumed.exec.GetAgentSession().Interactions[0].Applied)
 	_, err = store.Load("run-1", "post")
 	assert.ErrorIs(t, err, os.ErrNotExist)
+}
+
+// An answer whose waiting record cannot be read for now stays pending, so
+// a retry resumes the step once the record is readable again.
+func TestAskResumeAfterUnreadableRecord(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("directory permissions do not block reads on Windows")
+	}
+
+	const steps = `{"do": [{"ask": {"prompt": "Code?", "as": "otp"}}, {"act": "Type %otp%"}]}`
+	run := newTestRun(t)
+	waiting := run.execute(steps, nil)
+	require.NoError(t, waiting.err)
+	session := waiting.exec.GetAgentSession()
+	session.Interactions[0].Status = ir.AgentInteractionAnswered
+	session.Interactions[0].Answers = [][]string{{"731902"}}
+
+	sessions := filepath.Join(run.dataDir, computerhost.DataDirName, "sessions")
+	require.NoError(t, os.Chmod(sessions, 0))
+	failed := run.execute(steps, session)
+	require.NoError(t, os.Chmod(sessions, 0o700))
+	require.ErrorContains(t, failed.err, "read the paused step's record")
+	retry := failed.exec.GetAgentSession()
+	assert.False(t, retry.Interactions[0].Applied, "the answer stays pending")
+
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{
+		actions(computeruse.Action{Kind: computeruse.KindType, Text: "%otp%"}),
+		done("Entered the code"),
+	}}}
+	require.NoError(t, run.execute(steps, retry).err)
+	assert.Equal(t, []string{"type 731902"}, run.backend.inputs())
+}
+
+// A paused step whose record is gone cannot resume; its answer is used up,
+// so the next attempt starts the step over.
+func TestAskResumeWithoutRecord(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"do": [{"ask": {"prompt": "Code?", "as": "otp"}}, {"wait": "1ms"}]}`
+	run := newTestRun(t)
+	waiting := run.execute(steps, nil)
+	require.NoError(t, waiting.err)
+	session := waiting.exec.GetAgentSession()
+	session.Interactions[0].Status = ir.AgentInteractionAnswered
+	session.Interactions[0].Answers = [][]string{{"731902"}}
+	require.NoError(t, computerhost.NewStore(filepath.Join(run.dataDir, computerhost.DataDirName)).Delete("run-1", "post"))
+
+	failed := run.execute(steps, session)
+	require.ErrorContains(t, failed.err, "can no longer be resumed")
+	assert.True(t, failed.exec.GetAgentSession().Interactions[0].Applied)
+
+	again := run.execute(steps, failed.exec.GetAgentSession())
+	require.NoError(t, again.err)
+	status, err := again.exec.DetermineNodeStatus()
+	require.NoError(t, err)
+	assert.Equal(t, ir.NodeWaiting, status, "the step started over and asks again")
 }
 
 func TestAskRejected(t *testing.T) {

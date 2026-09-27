@@ -6,7 +6,9 @@ package computer
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
+	"os"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/computerhost"
@@ -48,19 +50,27 @@ func (r *run) waitForInput(_ context.Context, index int, spec askSpec) error {
 }
 
 // resume applies the answer to a paused step and returns the operation
-// after the ask.
+// after the ask. An answer that cannot be read back or cleared for now stays
+// pending, so a retry can still resume; one that can never be used is
+// marked applied, so a retry starts the step over.
 func (r *run) resume(session *ir.AgentSession, answer agentstep.AskAnswer) (int, error) {
+	record, err := r.store.Load(r.dagRunID, r.stepName)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return 0, fmt.Errorf("read the paused step's record: %w", err)
+	}
+	resumable := err == nil && record.Generation == session.Generation
+	if resumable {
+		if err := r.store.Delete(r.dagRunID, r.stepName); err != nil {
+			return 0, fmt.Errorf("clear the paused step's record: %w", err)
+		}
+	}
 	r.exec.updateSession(func(s *ir.AgentSession) {
 		agentstep.MarkApplied(s, answer.InteractionID)
 		s.State = ir.AgentSessionRunning
 		s.OwnerWorkerID = r.workerID
 	})
-	record, err := r.store.Load(r.dagRunID, r.stepName)
-	if err != nil || record.Generation != session.Generation {
+	if !resumable {
 		return 0, errors.New("the paused step can no longer be resumed; retry the step to start over")
-	}
-	if err := r.store.Delete(r.dagRunID, r.stepName); err != nil {
-		return 0, err
 	}
 	if answer.Rejected {
 		return 0, agentstep.ErrAskRejected
