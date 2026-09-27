@@ -41,7 +41,7 @@ func TestKeyCode(t *testing.T) {
 
 // A logged-in session reports whether it has the display, which checks the
 // Core Foundation lookups behind the locked-screen check.
-func TestSessionFlag(t *testing.T) {
+func TestDictionaryFlag(t *testing.T) {
 	t.Parallel()
 	require.NoError(t, load())
 	session := cgSessionCopyCurrentDictionary()
@@ -50,11 +50,25 @@ func TestSessionFlag(t *testing.T) {
 	}
 	t.Cleanup(func() { cfRelease(session) })
 
-	onConsole, ok := sessionFlag(session, sessionOnConsoleKey)
+	onConsole, ok := dictionaryFlag(session, sessionOnConsoleKey)
 	require.True(t, ok)
 	assert.True(t, onConsole)
-	_, ok = sessionFlag(session, "DaguNoSuchSessionKey")
+	_, ok = dictionaryFlag(session, "DaguNoSuchSessionKey")
 	assert.False(t, ok)
+}
+
+// The trust check's prompt option is set to true, which is what makes macOS
+// show the Accessibility prompt.
+func TestAccessibilityPromptOptions(t *testing.T) {
+	t.Parallel()
+	require.NoError(t, load())
+	options := accessibilityPromptOptions()
+	require.NotZero(t, options)
+	t.Cleanup(func() { cfRelease(options) })
+
+	prompt, ok := dictionaryFlag(options, axTrustedCheckOptionPrompt)
+	require.True(t, ok)
+	assert.True(t, prompt)
 }
 
 // While held, the power assertions are listed by pmset under the reason

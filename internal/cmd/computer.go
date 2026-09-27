@@ -36,9 +36,10 @@ func computerCheckCommand() *cobra.Command {
 host. Run it in the same session and as the same user as the worker that
 runs computer steps.
 
-On macOS, the command also asks macOS to show its Screen Recording prompt.
-Grant Screen Recording and Accessibility to the application that starts
-Dagu, such as Terminal, or to the dagu binary when it runs on its own.
+On macOS, the command also asks macOS to show its Screen Recording and
+Accessibility prompts for the permissions that are missing. Grant them to the
+application that starts Dagu, such as Terminal, or to the dagu binary when it
+runs on its own.
 
 On Windows, the worker must run in a logged-in user session, not as a
 service, and the screen must stay unlocked.

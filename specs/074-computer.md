@@ -67,7 +67,8 @@ binary itself. Otherwise the step fails before any action, naming the missing
 condition. A screen that locks, or another user's session taking the display,
 while a step runs fails the operation that next reads the screen. `dagu computer check` reports the same conditions for the current
 session, prints the display size, and exits nonzero when the desktop cannot be
-automated.
+automated. On macOS it also asks the system to show the Screen Recording and
+Accessibility prompts for the permissions that are missing.
 
 Computer DAGs are routed to such hosts with a DAG-level `worker_selector`.
 
