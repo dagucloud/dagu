@@ -13,6 +13,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/audit"
 	"github.com/dagucloud/dagu/v2/internal/browserhost"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/replaycache"
 )
 
 func (a *API) ClearDAGBrowserCache(ctx context.Context, request api.ClearDAGBrowserCacheRequestObject) (api.ClearDAGBrowserCacheResponseObject, error) {
@@ -34,7 +35,7 @@ func (a *API) ClearDAGBrowserCache(ctx context.Context, request api.ClearDAGBrow
 	// Browser steps key their cache by the DAG name, which can differ from
 	// the file name.
 	step := valueOf(request.Params.Step)
-	cache := browserhost.NewReplayCache(filepath.Join(a.config.Paths.DataDir, browserhost.DataDirName))
+	cache := replaycache.New(filepath.Join(a.config.Paths.DataDir, browserhost.DataDirName))
 	steps, err := cache.Clear(dag.Name, step)
 	if err != nil {
 		return nil, fmt.Errorf("failed to clear browser replay cache: %w", err)

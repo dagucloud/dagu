@@ -1,19 +1,19 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package browserhost_test
+package replaycache_test
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/browserhost"
+	"github.com/dagucloud/dagu/v2/internal/cmn/replaycache"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func seedReplayCache(t *testing.T, cache *browserhost.ReplayCache, dagName string, steps ...string) {
+func seedReplayCache(t *testing.T, cache *replaycache.Store, dagName string, steps ...string) {
 	t.Helper()
 	for _, step := range steps {
 		path := cache.Path(dagName, step)
@@ -25,7 +25,7 @@ func seedReplayCache(t *testing.T, cache *browserhost.ReplayCache, dagName strin
 func TestReplayCacheClearDAG(t *testing.T) {
 	t.Parallel()
 
-	cache := browserhost.NewReplayCache(t.TempDir())
+	cache := replaycache.New(t.TempDir())
 	seedReplayCache(t, cache, "billing", "login", "download")
 	seedReplayCache(t, cache, "other", "login")
 
@@ -45,7 +45,7 @@ func TestReplayCacheClearDAG(t *testing.T) {
 func TestReplayCacheClearStep(t *testing.T) {
 	t.Parallel()
 
-	cache := browserhost.NewReplayCache(t.TempDir())
+	cache := replaycache.New(t.TempDir())
 	seedReplayCache(t, cache, "billing", "login", "download")
 
 	removed, err := cache.Clear("billing", "login")
@@ -62,7 +62,7 @@ func TestReplayCacheClearStep(t *testing.T) {
 func TestReplayCacheClearStepByName(t *testing.T) {
 	t.Parallel()
 
-	cache := browserhost.NewReplayCache(t.TempDir())
+	cache := replaycache.New(t.TempDir())
 	seedReplayCache(t, cache, "billing", "Log in")
 
 	removed, err := cache.Clear("billing", "Log in")
@@ -79,7 +79,7 @@ func TestReplayCacheKeepsDAGsApart(t *testing.T) {
 		{"etl.daily", "etl_daily"},
 		{"x..._...__...x", "x..._._._..._x"},
 	} {
-		cache := browserhost.NewReplayCache(t.TempDir())
+		cache := replaycache.New(t.TempDir())
 		seedReplayCache(t, cache, pair[0], "login")
 		seedReplayCache(t, cache, pair[1], "login")
 
@@ -96,7 +96,7 @@ func TestReplayCacheKeepsDAGsApart(t *testing.T) {
 func TestReplayCacheClearMissing(t *testing.T) {
 	t.Parallel()
 
-	cache := browserhost.NewReplayCache(t.TempDir())
+	cache := replaycache.New(t.TempDir())
 	seedReplayCache(t, cache, "billing", "login")
 
 	removed, err := cache.Clear("unknown", "")
@@ -112,7 +112,7 @@ func TestReplayCacheClearMissing(t *testing.T) {
 func TestReplayCacheClearRequiresDAGName(t *testing.T) {
 	t.Parallel()
 
-	cache := browserhost.NewReplayCache(t.TempDir())
+	cache := replaycache.New(t.TempDir())
 	seedReplayCache(t, cache, "billing", "login")
 
 	_, err := cache.Clear("", "")

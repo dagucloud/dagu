@@ -10,6 +10,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/browserhost"
 	"github.com/dagucloud/dagu/v2/internal/cmd"
+	"github.com/dagucloud/dagu/v2/internal/cmn/replaycache"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -77,8 +78,8 @@ func runBrowserCacheClear(th test.Command, args ...string) (string, error) {
 	return runCommand(th, cmd.Browser(), append([]string{"browser", "cache", "clear"}, args...)...)
 }
 
-func browserReplayCache(th test.Command) *browserhost.ReplayCache {
-	return browserhost.NewReplayCache(filepath.Join(th.Config.Paths.DataDir, browserhost.DataDirName))
+func browserReplayCache(th test.Command) *replaycache.Store {
+	return replaycache.New(filepath.Join(th.Config.Paths.DataDir, browserhost.DataDirName))
 }
 
 func seedBrowserReplayCache(t *testing.T, th test.Command, dagName string, steps ...string) {

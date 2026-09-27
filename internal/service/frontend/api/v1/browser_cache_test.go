@@ -13,6 +13,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/browserhost"
+	"github.com/dagucloud/dagu/v2/internal/cmn/replaycache"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -75,7 +76,7 @@ steps:
 
 func seedBrowserReplayCache(t *testing.T, server test.Server, dagName string, steps ...string) {
 	t.Helper()
-	cache := browserhost.NewReplayCache(filepath.Join(server.Config.Paths.DataDir, browserhost.DataDirName))
+	cache := replaycache.New(filepath.Join(server.Config.Paths.DataDir, browserhost.DataDirName))
 	for _, step := range steps {
 		path := cache.Path(dagName, step)
 		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))

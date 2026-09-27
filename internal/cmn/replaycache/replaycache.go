@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package browserhost
+package replaycache
 
 import (
 	"crypto/sha256"
@@ -20,27 +20,26 @@ const (
 	replayCacheFileExt = ".json"
 )
 
-// ReplayCache locates the recorded act operations that browser steps replay
-// on later runs. Records are kept per DAG name and step key (the step ID, or
-// the step name when the step has no ID).
-type ReplayCache struct {
+// Store locates the recorded operations that steps replay on later runs.
+// Records are kept per DAG name and step key (the step ID, or the step name
+// when the step has no ID).
+type Store struct {
 	dir string
 }
 
-// NewReplayCache returns a replay cache rooted under the browser data
-// directory.
-func NewReplayCache(browserDataDir string) *ReplayCache {
-	return &ReplayCache{dir: filepath.Join(browserDataDir, replayCacheDirName)}
+// New returns a store rooted under a step type's data directory.
+func New(dataDir string) *Store {
+	return &Store{dir: filepath.Join(dataDir, replayCacheDirName)}
 }
 
 // Path returns the file that holds the records of a step.
-func (c *ReplayCache) Path(dagName, stepKey string) string {
+func (c *Store) Path(dagName, stepKey string) string {
 	return filepath.Join(c.dagDir(dagName), fileutil.SafeName(stepKey)+replayCacheFileExt)
 }
 
 // Steps returns the sorted keys of the DAG's steps that have records. A step
 // name is returned in the file-safe form its records are stored under.
-func (c *ReplayCache) Steps(dagName string) ([]string, error) {
+func (c *Store) Steps(dagName string) ([]string, error) {
 	entries, err := os.ReadDir(c.dagDir(dagName))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -63,7 +62,7 @@ func (c *ReplayCache) Steps(dagName string) ([]string, error) {
 // Clear removes the records of one step, or of every step of the DAG when
 // stepKey is empty, and returns the keys of the steps it removed: stepKey
 // itself, or the keys Steps reports. Missing records are not an error.
-func (c *ReplayCache) Clear(dagName, stepKey string) ([]string, error) {
+func (c *Store) Clear(dagName, stepKey string) ([]string, error) {
 	if dagName == "" {
 		// An empty name maps to the cache root, which holds every DAG.
 		return nil, errors.New("dag name is required")
@@ -91,7 +90,7 @@ func (c *ReplayCache) Clear(dagName, stepKey string) ([]string, error) {
 // dagDir keeps DAGs whose names differ only in characters SafeName replaces,
 // such as "etl.daily" and "etl_daily", in separate directories. The 128-bit
 // suffix keeps crafted names from sharing one.
-func (c *ReplayCache) dagDir(dagName string) string {
+func (c *Store) dagDir(dagName string) string {
 	name := fileutil.SafeName(dagName)
 	if name != dagName {
 		sum := sha256.Sum256([]byte(dagName))

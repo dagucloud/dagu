@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/dagucloud/dagu/v2/internal/browserhost"
+	"github.com/dagucloud/dagu/v2/internal/cmn/replaycache"
 	"github.com/spf13/cobra"
 )
 
@@ -98,6 +99,6 @@ func runBrowserCacheClear(ctx *Context, args []string) error {
 	return nil
 }
 
-func browserReplayCache(ctx *Context) *browserhost.ReplayCache {
-	return browserhost.NewReplayCache(filepath.Join(ctx.Config.Paths.DataDir, browserhost.DataDirName))
+func browserReplayCache(ctx *Context) *replaycache.Store {
+	return replaycache.New(filepath.Join(ctx.Config.Paths.DataDir, browserhost.DataDirName))
 }
