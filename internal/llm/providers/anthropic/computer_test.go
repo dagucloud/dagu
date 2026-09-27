@@ -6,51 +6,26 @@ package anthropic_test
 import (
 	"context"
 	"encoding/json"
-	"io"
-	"net/http"
-	"net/http/httptest"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/llm/computeruse"
+	"github.com/dagucloud/dagu/v2/internal/llm/llmtest"
 	_ "github.com/dagucloud/dagu/v2/internal/llm/providers/anthropic"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// messagesServer answers each Messages API request with the next scripted
-// response body and records the request bodies.
-type messagesServer struct {
-	mu        sync.Mutex
-	responses []string
-	requests  []map[string]any
+// messagesServer returns a Messages API server that answers with the scripted
+// response bodies.
+func messagesServer(responses ...string) *llmtest.Server {
+	return &llmtest.Server{Path: "/v1/messages", Headers: map[string]string{"x-api-key": "test-key"}, Responses: responses}
 }
 
-func (s *messagesServer) start(t *testing.T) string {
+func newComputerSession(t *testing.T, server *llmtest.Server) computeruse.Session {
 	t.Helper()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/v1/messages", r.URL.Path)
-		assert.Equal(t, "test-key", r.Header.Get("x-api-key"))
-		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
-		var request map[string]any
-		require.NoError(t, json.Unmarshal(body, &request))
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		s.requests = append(s.requests, request)
-		response := s.responses[0]
-		s.responses = s.responses[1:]
-		_, _ = w.Write([]byte(response))
-	}))
-	t.Cleanup(server.Close)
-	return server.URL
-}
-
-func newComputerSession(t *testing.T, server *messagesServer) computeruse.Session {
-	t.Helper()
-	provider, err := llm.NewProvider(llm.ProviderAnthropic, llm.Config{APIKey: "test-key", BaseURL: server.start(t)})
+	provider, err := llm.NewProvider(llm.ProviderAnthropic, llm.Config{APIKey: "test-key", BaseURL: server.Start(t)})
 	require.NoError(t, err)
 	session, err := computeruse.New(llm.ProviderAnthropic, provider, computeruse.ModeAuto, computeruse.Options{
 		Model:  "claude-opus-5",
@@ -76,10 +51,10 @@ func TestComputerSession(t *testing.T) {
 		{"type":"tool_use","id":"t3","name":"scroll","toolset_name":"computer","input":{"scroll_direction":"up","scroll_amount":5}},
 		{"type":"tool_use","id":"t4","name":"screenshot","toolset_name":"computer","input":{}}
 	]`
-	server := &messagesServer{responses: []string{
-		`{"content":` + assistant + `,"stop_reason":"tool_use","usage":{"input_tokens":100,"output_tokens":20}}`,
+	server := messagesServer(
+		`{"content":`+assistant+`,"stop_reason":"tool_use","usage":{"input_tokens":100,"output_tokens":20}}`,
 		`{"content":[{"type":"tool_use","id":"t5","name":"done","input":{"success":true,"summary":"Saved"}}],"stop_reason":"tool_use","usage":{"input_tokens":1,"output_tokens":1}}`,
-	}}
+	)
 	session := newComputerSession(t, server)
 	assert.Equal(t, 2576, session.ImageLimit().LongEdge)
 
@@ -94,7 +69,7 @@ func TestComputerSession(t *testing.T) {
 		{CallID: "t4", Kind: computeruse.KindScreenshot},
 	}, turn.Actions)
 
-	first := server.requests[0]
+	first := server.Requests()[0]
 	assert.Equal(t, "claude-opus-5", first["model"])
 	assert.NotContains(t, first, "temperature")
 	assert.NotContains(t, first, "thinking")
@@ -119,7 +94,7 @@ func TestComputerSession(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, &computeruse.Done{Success: true, Summary: "Saved"}, turn.Done)
 
-	messages := server.requests[1]["messages"].([]any)
+	messages := server.Requests()[1]["messages"].([]any)
 	require.Len(t, messages, 3)
 	var echoed, sent any
 	require.NoError(t, json.Unmarshal([]byte(assistant), &sent))
@@ -142,10 +117,10 @@ func TestComputerSession(t *testing.T) {
 func TestComputerSessionScreenshotResult(t *testing.T) {
 	t.Parallel()
 
-	server := &messagesServer{responses: []string{
+	server := messagesServer(
 		`{"content":[{"type":"tool_use","id":"t1","name":"zoom","toolset_name":"computer","input":{"region":[0,0,100,50]}}],"stop_reason":"tool_use"}`,
 		`{"content":[{"type":"text","text":"Looks saved."}],"stop_reason":"end_turn"}`,
-	}}
+	)
 	session := newComputerSession(t, server)
 
 	turn, err := session.Next(context.Background(), computeruse.Observation{Screen: testScreen("first")})
@@ -161,7 +136,7 @@ func TestComputerSessionScreenshotResult(t *testing.T) {
 	assert.Empty(t, turn.Actions)
 	assert.Nil(t, turn.Done)
 
-	result := server.requests[1]["messages"].([]any)[2].(map[string]any)["content"].([]any)[0].(map[string]any)
+	result := server.Requests()[1]["messages"].([]any)[2].(map[string]any)["content"].([]any)[0].(map[string]any)
 	assert.Equal(t, []any{map[string]any{
 		"type":   "image",
 		"source": map[string]any{"type": "base64", "media_type": "image/png", "data": "AQI="},
@@ -172,10 +147,10 @@ func TestComputerSessionScreenshotResult(t *testing.T) {
 func TestComputerSessionNoteAfterText(t *testing.T) {
 	t.Parallel()
 
-	server := &messagesServer{responses: []string{
+	server := messagesServer(
 		`{"content":[{"type":"text","text":"Done, I think."}],"stop_reason":"end_turn"}`,
 		`{"content":[{"type":"tool_use","id":"t1","name":"wait","toolset_name":"computer","input":{"duration":1.5}}],"stop_reason":"tool_use"}`,
-	}}
+	)
 	session := newComputerSession(t, server)
 
 	_, err := session.Next(context.Background(), computeruse.Observation{Screen: testScreen("first")})
@@ -184,7 +159,7 @@ func TestComputerSessionNoteAfterText(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1500*time.Millisecond, turn.Actions[0].Duration)
 
-	content := server.requests[1]["messages"].([]any)[2].(map[string]any)["content"].([]any)
+	content := server.Requests()[1]["messages"].([]any)[2].(map[string]any)["content"].([]any)
 	require.Len(t, content, 2)
 	assert.Contains(t, content[0].(map[string]any)["text"], "Call done to finish.")
 	assert.NotContains(t, content[0].(map[string]any)["text"], "Task:")
@@ -194,9 +169,9 @@ func TestComputerSessionNoteAfterText(t *testing.T) {
 func TestComputerSessionRefusal(t *testing.T) {
 	t.Parallel()
 
-	server := &messagesServer{responses: []string{
+	server := messagesServer(
 		`{"content":[],"stop_reason":"refusal","stop_details":{"type":"refusal","category":"cyber","explanation":"not allowed"}}`,
-	}}
+	)
 	session := newComputerSession(t, server)
 
 	_, err := session.Next(context.Background(), computeruse.Observation{Screen: testScreen("first")})

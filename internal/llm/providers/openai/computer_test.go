@@ -5,51 +5,25 @@ package openai_test
 
 import (
 	"context"
-	"encoding/json"
-	"io"
-	"net/http"
-	"net/http/httptest"
-	"sync"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/llm/computeruse"
+	"github.com/dagucloud/dagu/v2/internal/llm/llmtest"
 	_ "github.com/dagucloud/dagu/v2/internal/llm/providers/openai"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// responsesServer answers each Responses API request with the next scripted
-// response body and records the request bodies.
-type responsesServer struct {
-	mu        sync.Mutex
-	responses []string
-	requests  []map[string]any
+// responsesServer returns a Responses API server that answers with the scripted
+// response bodies.
+func responsesServer(responses ...string) *llmtest.Server {
+	return &llmtest.Server{Path: "/responses", Headers: map[string]string{"Authorization": "Bearer test-key"}, Responses: responses}
 }
 
-func (s *responsesServer) start(t *testing.T) string {
+func newComputerSession(t *testing.T, providerType llm.ProviderType, server *llmtest.Server) (computeruse.Session, error) {
 	t.Helper()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/responses", r.URL.Path)
-		assert.Equal(t, "Bearer test-key", r.Header.Get("Authorization"))
-		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
-		var request map[string]any
-		require.NoError(t, json.Unmarshal(body, &request))
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		s.requests = append(s.requests, request)
-		response := s.responses[0]
-		s.responses = s.responses[1:]
-		_, _ = w.Write([]byte(response))
-	}))
-	t.Cleanup(server.Close)
-	return server.URL
-}
-
-func newComputerSession(t *testing.T, providerType llm.ProviderType, server *responsesServer) (computeruse.Session, error) {
-	t.Helper()
-	provider, err := llm.NewProvider(providerType, llm.Config{APIKey: "test-key", BaseURL: server.start(t)})
+	provider, err := llm.NewProvider(providerType, llm.Config{APIKey: "test-key", BaseURL: server.Start(t)})
 	require.NoError(t, err)
 	return computeruse.New(providerType, provider, computeruse.ModeNative, computeruse.Options{
 		Model:  "gpt-5.6-sol",
@@ -65,7 +39,7 @@ func testScreen(label string) computeruse.Screen {
 func TestComputerSession(t *testing.T) {
 	t.Parallel()
 
-	server := &responsesServer{responses: []string{
+	server := responsesServer(
 		`{"id":"resp_1","status":"completed","output":[
 			{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Opening the file."}]},
 			{"type":"computer_call","call_id":"call_1","actions":[
@@ -82,7 +56,7 @@ func TestComputerSession(t *testing.T) {
 		`{"id":"resp_2","status":"completed","output":[
 			{"type":"function_call","call_id":"call_2","name":"done","arguments":"{\"success\":true,\"summary\":\"Renamed\"}"}
 		]}`,
-	}}
+	)
 	session, err := newComputerSession(t, llm.ProviderOpenAI, server)
 	require.NoError(t, err)
 
@@ -99,7 +73,7 @@ func TestComputerSession(t *testing.T) {
 	assert.Equal(t, []string{"CTRL", "S"}, turn.Actions[4].Keys)
 	assert.Equal(t, computeruse.KindScreenshot, turn.Actions[7].Kind)
 
-	first := server.requests[0]
+	first := server.Requests()[0]
 	assert.Equal(t, "gpt-5.6-sol", first["model"])
 	assert.NotContains(t, first, "previous_response_id")
 	assert.Contains(t, first["instructions"], "The computer runs Windows.")
@@ -116,7 +90,7 @@ func TestComputerSession(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, &computeruse.Done{Success: true, Summary: "Renamed"}, turn.Done)
 
-	second := server.requests[1]
+	second := server.Requests()[1]
 	assert.Equal(t, "resp_1", second["previous_response_id"])
 	input := second["input"].([]any)
 	require.Len(t, input, 2)
@@ -136,9 +110,9 @@ func TestComputerSession(t *testing.T) {
 func TestComputerSessionRefusal(t *testing.T) {
 	t.Parallel()
 
-	server := &responsesServer{responses: []string{
+	server := responsesServer(
 		`{"id":"resp_1","status":"completed","output":[{"type":"message","content":[{"type":"refusal","refusal":"I can't help with that."}]}]}`,
-	}}
+	)
 	session, err := newComputerSession(t, llm.ProviderOpenAI, server)
 	require.NoError(t, err)
 
@@ -150,6 +124,6 @@ func TestComputerSessionRefusal(t *testing.T) {
 func TestComputerSessionNotNativeForOpenCode(t *testing.T) {
 	t.Parallel()
 
-	_, err := newComputerSession(t, llm.ProviderOpenCode, &responsesServer{})
+	_, err := newComputerSession(t, llm.ProviderOpenCode, responsesServer())
 	require.ErrorContains(t, err, "no native computer use")
 }

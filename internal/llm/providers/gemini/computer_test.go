@@ -6,51 +6,26 @@ package gemini_test
 import (
 	"context"
 	"encoding/json"
-	"io"
-	"net/http"
-	"net/http/httptest"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/llm/computeruse"
+	"github.com/dagucloud/dagu/v2/internal/llm/llmtest"
 	_ "github.com/dagucloud/dagu/v2/internal/llm/providers/gemini"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// generateServer answers each generateContent request with the next
-// scripted response body and records the request bodies.
-type generateServer struct {
-	mu        sync.Mutex
-	responses []string
-	requests  []map[string]any
+// generateServer returns a generateContent server that answers with the scripted
+// response bodies.
+func generateServer(responses ...string) *llmtest.Server {
+	return &llmtest.Server{Path: "/models/gemini-3.8-flash:generateContent", Headers: map[string]string{"x-goog-api-key": "test-key"}, Responses: responses}
 }
 
-func (s *generateServer) start(t *testing.T) string {
+func newComputerSession(t *testing.T, server *llmtest.Server) computeruse.Session {
 	t.Helper()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/models/gemini-3.8-flash:generateContent", r.URL.Path)
-		assert.Equal(t, "test-key", r.Header.Get("x-goog-api-key"))
-		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
-		var request map[string]any
-		require.NoError(t, json.Unmarshal(body, &request))
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		s.requests = append(s.requests, request)
-		response := s.responses[0]
-		s.responses = s.responses[1:]
-		_, _ = w.Write([]byte(response))
-	}))
-	t.Cleanup(server.Close)
-	return server.URL
-}
-
-func newComputerSession(t *testing.T, server *generateServer) computeruse.Session {
-	t.Helper()
-	provider, err := llm.NewProvider(llm.ProviderGemini, llm.Config{APIKey: "test-key", BaseURL: server.start(t)})
+	provider, err := llm.NewProvider(llm.ProviderGemini, llm.Config{APIKey: "test-key", BaseURL: server.Start(t)})
 	require.NoError(t, err)
 	session, err := computeruse.New(llm.ProviderGemini, provider, computeruse.ModeAuto, computeruse.Options{
 		Model:  "gemini-3.8-flash",
@@ -76,10 +51,10 @@ func TestComputerSession(t *testing.T) {
 		{"functionCall":{"name":"hotkey","args":{"keys":["control","s"]}}},
 		{"functionCall":{"name":"scroll","args":{"x":0,"y":0,"direction":"down","magnitude_in_pixels":400}}}
 	]}`
-	server := &generateServer{responses: []string{
-		`{"candidates":[{"content":` + model + `}],"usageMetadata":{"promptTokenCount":30,"candidatesTokenCount":5,"totalTokenCount":35}}`,
+	server := generateServer(
+		`{"candidates":[{"content":`+model+`}],"usageMetadata":{"promptTokenCount":30,"candidatesTokenCount":5,"totalTokenCount":35}}`,
 		`{"candidates":[{"content":{"role":"model","parts":[{"functionCall":{"id":"f5","name":"done","args":{"success":false,"summary":"Form locked"}}}]}}]}`,
-	}}
+	)
 	session := newComputerSession(t, server)
 	assert.Equal(t, 1440, session.ImageLimit().LongEdge)
 
@@ -97,7 +72,7 @@ func TestComputerSession(t *testing.T) {
 		{CallID: "call-5", Kind: computeruse.KindScroll, Point: &computeruse.Point{}, ScrollY: 4},
 	}, turn.Actions)
 
-	first := server.requests[0]
+	first := server.Requests()[0]
 	tools := first["tools"].([]any)
 	assert.Equal(t, map[string]any{"computerUse": map[string]any{
 		"environment":                 "ENVIRONMENT_DESKTOP",
@@ -118,7 +93,7 @@ func TestComputerSession(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, &computeruse.Done{Success: false, Summary: "Form locked"}, turn.Done)
 
-	contents := server.requests[1]["contents"].([]any)
+	contents := server.Requests()[1]["contents"].([]any)
 	require.Len(t, contents, 3)
 	var sent any
 	require.NoError(t, json.Unmarshal([]byte(model), &sent))
@@ -139,10 +114,10 @@ func TestComputerSession(t *testing.T) {
 func TestComputerSessionWaitAndBlocked(t *testing.T) {
 	t.Parallel()
 
-	server := &generateServer{responses: []string{
+	server := generateServer(
 		`{"candidates":[{"content":{"role":"model","parts":[{"functionCall":{"name":"wait","args":{"seconds":1.5}}}]}}]}`,
 		`{"promptFeedback":{"blockReason":"SAFETY"}}`,
-	}}
+	)
 	session := newComputerSession(t, server)
 
 	turn, err := session.Next(context.Background(), computeruse.Observation{Screen: testScreen("first")})
