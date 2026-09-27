@@ -362,6 +362,10 @@ func keepAwake() (release func(), err error) {
 	var errs []error
 	for _, kind := range []string{assertionDisplayAwake, assertionSystemAwake} {
 		kindRef := cfString(kind)
+		if kindRef == 0 {
+			errs = append(errs, fmt.Errorf("create the %s assertion type", kind))
+			continue
+		}
 		var id uint32
 		if code := ioPMAssertionCreateWithName(kindRef, assertionLevelOn, name, &id); code != 0 {
 			errs = append(errs, fmt.Errorf("create %s assertion: IOReturn 0x%x", kind, uint32(code))) //nolint:gosec // IOReturn codes are reported as unsigned hex
