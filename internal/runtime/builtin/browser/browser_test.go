@@ -285,6 +285,51 @@ func TestActWithNoMatchingElementNamesTheModel(t *testing.T) {
 	require.ErrorContains(t, execution.err, "try another model")
 }
 
+// A click that loads a new document can detach the page before the act
+// reports back. The new document shows the click went through, so the step
+// goes on without clicking again, which could submit a form twice.
+func TestActLosingPageToNewDocumentCompletes(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.engine.actNavigatesTo = "https://shop.example.com/orders"
+	run.engine.actLosesPage = 1
+	execution := run.execute(`{"url": "https://shop.example.com/login", "do": [
+		{"act": "Click the sign-in button"},
+		{"expect": {"url": "/orders"}}
+	]}`, nil)
+	require.NoError(t, execution.err)
+
+	assert.Equal(t, []string{"Click the sign-in button"}, run.engine.actInstructions())
+	assert.Equal(t, []string{"goto:completed", "act:completed", "expect:completed"}, eventNames(execution.exec.GetAgentSession()))
+}
+
+// An act that lost the page while the page kept its document did not take
+// effect, so it runs once more; losing the page again fails the step.
+func TestActLosingPageKeepingDocumentRunsAgain(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		losses  int
+		wantErr string
+	}{
+		{losses: 1},
+		{losses: 2, wantErr: "do[0] act failed: the browser lost its connection to the page"},
+	} {
+		run := newTestRun(t, pageModel(nil))
+		run.engine.actLosesPage = tc.losses
+		execution := run.execute(`{"url": "https://shop.example.com/login", "do": [{"act": "Click the sign-in button"}]}`, nil)
+
+		assert.Len(t, run.engine.actInstructions(), 2, "losses: %d", tc.losses)
+		if tc.wantErr != "" {
+			require.ErrorContains(t, execution.err, tc.wantErr)
+			continue
+		}
+		require.NoError(t, execution.err)
+		assert.Contains(t, execution.stderr.String(), "running it again")
+	}
+}
+
 func TestSecretInInstructionIsRejected(t *testing.T) {
 	t.Parallel()
 
@@ -423,6 +468,26 @@ func TestReplayCommitKeepsClear(t *testing.T) {
 	next := run.execute(both, nil)
 	require.NoError(t, next.err)
 	assert.Equal(t, []string{"goto:completed", "act:completed", "act:cache-hit"}, eventNames(next.exec.GetAgentSession()))
+}
+
+// A replayed click that loads a new document can lose the page too. The new
+// document shows the replay took effect, so the model does not act again.
+func TestReplayLosingPageToNewDocumentIsHit(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"url": "https://shop.example.com/login", "do": [{"act": "Click the sign-in button"}]}`
+	run := newTestRun(t, pageModel(nil))
+	require.NoError(t, run.execute(steps, nil).err)
+	modelCalls := run.provider.callCount()
+
+	run.engine.actNavigatesTo = "https://shop.example.com/orders"
+	run.engine.replayLosesPage = true
+	replayed := run.execute(steps, nil)
+	require.NoError(t, replayed.err)
+
+	assert.Equal(t, modelCalls, run.provider.callCount(), "no model call")
+	assert.Len(t, run.engine.actInstructions(), 1, "no act after the replay")
+	assert.Equal(t, []string{"goto:completed", "act:cache-hit"}, eventNames(replayed.exec.GetAgentSession()))
 }
 
 const loginSteps = `{

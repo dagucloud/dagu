@@ -376,6 +376,26 @@ func TestStagehandPageChecks(t *testing.T) {
 	assert.True(t, visible)
 }
 
+// A document keeps its ID while it stays loaded, and loading the same URL
+// again gives a new ID, as a form that posts back to its own page does.
+func TestStagehandDocumentID(t *testing.T) {
+	t.Parallel()
+
+	eng := launchShop(t, &shopModel{})
+	first, err := eng.DocumentID(t.Context())
+	require.NoError(t, err)
+	again, err := eng.DocumentID(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, first, again)
+
+	pageURL, err := eng.CurrentURL(t.Context())
+	require.NoError(t, err)
+	require.NoError(t, eng.Goto(t.Context(), pageURL, time.Minute))
+	reloaded, err := eng.DocumentID(t.Context())
+	require.NoError(t, err)
+	assert.NotEqual(t, first, reloaded)
+}
+
 // The process ID a launched browser reports is the browser itself: ending it
 // closes the browser.
 func TestStagehandReportsBrowserProcess(t *testing.T) {

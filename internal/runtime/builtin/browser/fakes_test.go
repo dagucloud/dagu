@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -54,8 +55,15 @@ type fakeEngine struct {
 	handle browserHandle
 	// replayFails makes recorded actions fail, as if the page changed.
 	replayFails bool
-	// actNavigatesTo is the page an act leaves the browser on, if set.
+	// actNavigatesTo is the page an act or a replay leaves the browser on,
+	// if set.
 	actNavigatesTo string
+	// actLosesPage is how many of the next acts lose the connection to the
+	// page after their click lands.
+	actLosesPage int
+	// replayLosesPage makes replays lose the connection to the page after
+	// their clicks land.
+	replayLosesPage bool
 	// onAct runs while an act asks the model, for what happens meanwhile.
 	onAct func()
 	// actDialogs are the dialogs the next act opens and the browser accepts.
@@ -78,10 +86,12 @@ type fakeEngine struct {
 	mu            sync.Mutex
 	generate      generateFunc
 	url           string
-	acts          []fakeAct
-	replays       [][]recordedAction
-	detached      bool
-	closed        bool
+	// loads counts the documents the page has loaded.
+	loads    int
+	acts     []fakeAct
+	replays  [][]recordedAction
+	detached bool
+	closed   bool
 }
 
 type fakeAct struct {
@@ -119,20 +129,34 @@ func (e *fakeEngine) TakeBlockedRequests() (map[string]int, error) {
 func (e *fakeEngine) Goto(_ context.Context, url string, _ time.Duration) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.url = url
+	e.load(url)
 	return nil
 }
+
+// load makes the page load a new document at url. The caller holds e.mu.
+func (e *fakeEngine) load(url string) {
+	e.url = url
+	e.loads++
+}
+
+// errFakeSessionLost is how the browser runtime reports an operation whose
+// page session was detached.
+var errFakeSessionLost = fmt.Errorf("%w: Failed to perform act: -32001 Session with given id not found.", errPageSessionLost)
 
 func (e *fakeEngine) Act(ctx context.Context, instruction string, variables map[string]string, _ time.Duration) (actOutcome, error) {
 	e.mu.Lock()
 	e.acts = append(e.acts, fakeAct{instruction: instruction, variables: maps.Clone(variables)})
 	if e.actNavigatesTo != "" {
-		e.url = e.actNavigatesTo
+		e.load(e.actNavigatesTo)
 	}
 	e.dialogs = append(e.dialogs, e.actDialogs...)
 	e.actDialogs = nil
 	e.blocked, e.actBlocked = e.actBlocked, nil
 	generate, onAct := e.generate, e.onAct
+	losesPage := e.actLosesPage > 0
+	if losesPage {
+		e.actLosesPage--
+	}
 	e.mu.Unlock()
 	if onAct != nil {
 		onAct()
@@ -152,6 +176,9 @@ func (e *fakeEngine) Act(ctx context.Context, instruction string, variables map[
 		// The browser runtime reports a model that chose no element this way.
 		return actOutcome{Message: "Failed to perform act: No action found"}, nil
 	}
+	if losesPage {
+		return actOutcome{}, errFakeSessionLost
+	}
 	return actOutcome{
 		Success: true,
 		Actions: []recordedAction{{Selector: "xpath=" + choice.ElementID, Method: "click"}},
@@ -162,7 +189,19 @@ func (e *fakeEngine) Replay(_ context.Context, actions []recordedAction, _ map[s
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.replays = append(e.replays, actions)
+	if e.actNavigatesTo != "" {
+		e.load(e.actNavigatesTo)
+	}
+	if e.replayLosesPage {
+		return false, errFakeSessionLost
+	}
 	return !e.replayFails, nil
+}
+
+func (e *fakeEngine) DocumentID(context.Context) (string, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return fmt.Sprint(e.loads), nil
 }
 
 func (e *fakeEngine) Extract(ctx context.Context, instruction string, schema json.RawMessage, _ time.Duration) (json.RawMessage, error) {

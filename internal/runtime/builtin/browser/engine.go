@@ -6,8 +6,13 @@ package browser
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 )
+
+// errPageSessionLost reports an operation whose connection to the page went
+// away before it reported back, as when a click loads a new document.
+var errPageSessionLost = errors.New("the browser lost its connection to the page")
 
 // launcher starts or reattaches browser sessions.
 type launcher interface {
@@ -20,10 +25,18 @@ type launcher interface {
 // engine drives one browser session.
 type engine interface {
 	Goto(ctx context.Context, url string, timeout time.Duration) error
+	// Act performs one action described in natural language. Its error wraps
+	// errPageSessionLost when the connection to the page went away before
+	// the act reported back; the act may or may not have taken effect.
 	Act(ctx context.Context, instruction string, variables map[string]string, timeout time.Duration) (actOutcome, error)
 	// Replay performs recorded actions without a model call and reports
-	// whether every action succeeded.
+	// whether every action succeeded. Its error wraps errPageSessionLost
+	// when the connection to the page went away before an action reported
+	// back; that action may or may not have taken effect.
 	Replay(ctx context.Context, actions []recordedAction, variables map[string]string, timeout time.Duration) (bool, error)
+	// DocumentID identifies the document the active page shows. It changes
+	// whenever the page loads a new document.
+	DocumentID(ctx context.Context) (string, error)
 	Extract(ctx context.Context, instruction string, schema json.RawMessage, timeout time.Duration) (json.RawMessage, error)
 	WaitForSelector(ctx context.Context, selector string, timeout time.Duration) error
 	Screenshot(ctx context.Context) ([]byte, error)

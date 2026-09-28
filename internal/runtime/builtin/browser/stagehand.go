@@ -41,6 +41,19 @@ const (
 // pageTextExpression reads the text a person sees on the page.
 const pageTextExpression = `document.body ? document.body.innerText : ""`
 
+// documentExpression reads the time the page's document began loading, which
+// differs for every document the page loads.
+const documentExpression = `String(performance.timeOrigin)`
+
+// sessionLostMarkers are the texts by which the browser runtime reports a
+// command whose page session was detached: the browser's answer to a command
+// sent after the detach, and the runtime's own rejection of a command still
+// in flight.
+var sessionLostMarkers = []string{
+	"Session with given id not found",
+	"target closed before CDP",
+}
+
 // selectorVisibleExpression reports whether the selector, a JSON string
 // literal substituted for %s, matches any rendered, visible element.
 const selectorVisibleExpression = `Array.from(document.querySelectorAll(%s)).some((element) => {
@@ -255,6 +268,9 @@ func (e *stagehandEngine) Act(ctx context.Context, instruction string, variables
 	if err != nil {
 		return actOutcome{}, err
 	}
+	if err := sessionLost(result); err != nil {
+		return actOutcome{}, err
+	}
 	outcome := actOutcome{Message: result.Data.Message, Success: result.Data.Success}
 	for _, action := range result.Data.Actions {
 		recorded := recordedAction{
@@ -289,11 +305,42 @@ func (e *stagehandEngine) Replay(ctx context.Context, actions []recordedAction, 
 			}
 			return false, nil
 		}
+		if err := sessionLost(result); err != nil {
+			return false, err
+		}
 		if !result.Data.Success {
 			return false, nil
 		}
 	}
 	return true, nil
+}
+
+// sessionLost returns an error wrapping errPageSessionLost when result
+// failed because the page's session was detached.
+func sessionLost(result stagehand.ActResult) error {
+	if result.Data.Success {
+		return nil
+	}
+	for _, marker := range sessionLostMarkers {
+		if strings.Contains(result.Data.Message, marker) {
+			return fmt.Errorf("%w: %s", errPageSessionLost, result.Data.Message)
+		}
+	}
+	return nil
+}
+
+func (e *stagehandEngine) DocumentID(ctx context.Context) (string, error) {
+	return boundCall(ctx, e.pageCallTimeout, func(ctx context.Context) (string, error) {
+		page, err := e.page(ctx)
+		if err != nil {
+			return "", err
+		}
+		origin, err := page.Evaluate(ctx, documentExpression)
+		if err != nil {
+			return "", err
+		}
+		return page.PageID() + ":" + string(origin), nil
+	})
 }
 
 func (e *stagehandEngine) Extract(ctx context.Context, instruction string, schema json.RawMessage, timeout time.Duration) (json.RawMessage, error) {
