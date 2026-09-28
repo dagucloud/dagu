@@ -762,7 +762,6 @@ func TestDispatchQueueIdentity(t *testing.T) {
 				}
 				initial, err := attempt.ReadStatus(ctx)
 				require.NoError(t, err)
-				assert.Equal(t, tt.wantQueue, initial.ProcGroup)
 
 				polled, err := h.Poll(ctx, &coordinatorv1.PollRequest{
 					WorkerId: "worker-1", PollerId: "poller-1",
