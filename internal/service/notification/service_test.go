@@ -23,6 +23,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf16"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
@@ -1053,6 +1054,24 @@ func TestNotificationRunErrorFromFailedStep(t *testing.T) {
 	require.True(t, ok)
 	require.Len(t, items, 1)
 	assert.Equal(t, wantError, items[0]["error"])
+}
+
+func TestTruncateTelegramText(t *testing.T) {
+	t.Parallel()
+
+	atLimit := strings.Repeat("a", telegramMaxMessageLength)
+	assert.Equal(t, "short", truncateTelegramText("short"))
+	assert.Equal(t, atLimit, truncateTelegramText(atLimit))
+	assert.Equal(t,
+		strings.Repeat("a", telegramMaxMessageLength-1)+"…",
+		truncateTelegramText(atLimit+"b"),
+	)
+
+	// An emoji is two UTF-16 units; the cut must not split it.
+	emoji := strings.Repeat("a", telegramMaxMessageLength-2) + "😀b"
+	got := truncateTelegramText(emoji)
+	assert.Equal(t, strings.Repeat("a", telegramMaxMessageLength-2)+"…", got)
+	assert.LessOrEqual(t, len(utf16.Encode([]rune(got))), telegramMaxMessageLength)
 }
 
 func TestNotificationTemplateIncludesStepStatusLists(t *testing.T) {

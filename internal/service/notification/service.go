@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf16"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailer"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
@@ -1455,7 +1456,7 @@ func (s *Service) sendTelegram(ctx context.Context, target notificationmodel.Tar
 	}
 	payload := map[string]any{
 		"chat_id": target.Telegram.ChatID,
-		"text":    messageForEvents(target.Telegram.MessageTemplate, events, s.publicURL()),
+		"text":    truncateTelegramText(messageForEvents(target.Telegram.MessageTemplate, events, s.publicURL())),
 	}
 	if target.Telegram.TopicID != "" {
 		if topicID, err := strconv.Atoi(target.Telegram.TopicID); err == nil {
@@ -1473,6 +1474,26 @@ func (s *Service) sendTelegram(ctx context.Context, target notificationmodel.Tar
 	}
 	req.Header.Set("Content-Type", "application/json")
 	return s.doWebhookRequest(req)
+}
+
+// telegramMaxMessageLength is the Bot API limit for message text, counted in
+// UTF-16 code units. Longer messages are rejected, not truncated.
+const telegramMaxMessageLength = 4096
+
+// truncateTelegramText shortens text to telegramMaxMessageLength, marking the
+// cut with an ellipsis.
+func truncateTelegramText(text string) string {
+	units, cut := 0, -1
+	for i, r := range text {
+		units += utf16.RuneLen(r)
+		if cut < 0 && units > telegramMaxMessageLength-1 {
+			cut = i
+		}
+		if units > telegramMaxMessageLength {
+			return text[:cut] + "…"
+		}
+	}
+	return text
 }
 
 func (s *Service) doWebhookRequest(req *http.Request) error {
