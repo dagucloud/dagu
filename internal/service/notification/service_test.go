@@ -840,9 +840,10 @@ func TestMarshalTeamsPayloadFitsLimit(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, want, got)
 
-	// "<" encodes to six JSON bytes and "é" is two UTF-8 bytes, so the cut
-	// must account for encoding growth and stay on a rune boundary.
-	long := map[string]any{"title": "daily-report failed", "text": strings.Repeat("<é", teamsMaxPayloadBytes)}
+	// "é" is two UTF-8 bytes. The leading "a" makes the byte cut land inside
+	// a rune, so the cut must move back to a rune boundary and leave room for
+	// the ellipsis.
+	long := map[string]any{"title": "daily-report failed", "text": "a" + strings.Repeat("é", teamsMaxPayloadBytes)}
 	body, err := marshalTeamsPayload(long)
 	require.NoError(t, err)
 	assert.LessOrEqual(t, len(body), teamsMaxPayloadBytes)
@@ -850,7 +851,8 @@ func TestMarshalTeamsPayloadFitsLimit(t *testing.T) {
 		Text string `json:"text"`
 	}
 	require.NoError(t, json.Unmarshal(body, &decoded))
-	assert.True(t, utf8.ValidString(decoded.Text))
+	// JSON encoding replaces a split rune with U+FFFD.
+	assert.NotContains(t, decoded.Text, string(utf8.RuneError))
 	assert.True(t, strings.HasSuffix(decoded.Text, "…"))
 }
 
