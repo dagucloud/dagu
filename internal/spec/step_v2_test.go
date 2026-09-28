@@ -409,6 +409,29 @@ steps:
 	assert.JSONEq(t, `{"name":"Alice"}`, step.Script)
 }
 
+func TestStepSchemaV2_ActionJQFilterMultilineFilter(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: late
+    action: jq.filter
+    with:
+      filter: |
+        map(select(.answered != .original))
+        | length
+      data:
+        - {original: "10/10", answered: "10/17"}
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 1)
+
+	step := dag.Steps[0]
+	require.Len(t, step.Commands, 1)
+	assert.Equal(t, "map(select(.answered != .original))\n| length\n", step.Commands[0].CmdWithArgs)
+	assert.JSONEq(t, `[{"original":"10/10","answered":"10/17"}]`, step.Script)
+}
+
 func TestStepSchemaV2_ActionJQFilterRejectsDataAndInput(t *testing.T) {
 	t.Parallel()
 

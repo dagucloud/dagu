@@ -1783,9 +1783,10 @@ func buildSingleCommand(val string, result *ir.Step) error {
 		return nil
 	}
 
-	// Harness uses command as a prompt, so preserve multiline text as a single
-	// command entry instead of reclassifying it as an inline script.
-	if strings.Contains(raw, "\n") && result.ExecutorConfig.Type == "harness" {
+	// Harness uses command as a prompt and jq as its filter, so preserve
+	// multiline text as a single command entry instead of reclassifying it as
+	// an inline script, which jq reads as its input.
+	if strings.Contains(raw, "\n") && (result.ExecutorConfig.Type == "harness" || result.ExecutorConfig.Type == "jq") {
 		result.Commands = []ir.CommandEntry{
 			{
 				CmdWithArgs: raw,
