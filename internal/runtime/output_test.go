@@ -243,6 +243,32 @@ func TestNode_OutputCaptureDeadlock(t *testing.T) {
 	assert.Len(t, output, 64*1024+1, "output should be exactly 64KB + 1 byte")
 }
 
+// With secrets declared, a final line without a newline reaches the step log
+// once the attempt ends. The log is read before teardown because continue_on
+// output patterns are checked then.
+func TestNode_MaskedLogFinalLine(t *testing.T) {
+	executorType := registerOutputTestExecutor(t, func(_ context.Context, exec *outputTestExecutor) error {
+		_, err := io.WriteString(exec.stdout, "first\nlast s3cr3t")
+		return err
+	})
+	step := ir.Step{
+		Name:           "masked-log",
+		ExecutorConfig: ir.ExecutorConfig{Type: executorType},
+	}
+
+	node := NewNode(step, NodeState{})
+	ctx := NewContext(context.Background(), &ir.DAG{Name: "test"}, "masked-log", "test.log",
+		runctx.WithSecrets([]string{"TOKEN=s3cr3t"}))
+	require.NoError(t, node.Prepare(ctx, t.TempDir(), "masked-log"))
+	t.Cleanup(func() { require.NoError(t, node.Teardown()) })
+
+	require.NoError(t, node.Execute(ctx))
+
+	content, err := os.ReadFile(node.StdoutFile())
+	require.NoError(t, err)
+	assert.Equal(t, "first\nlast *******", string(content))
+}
+
 func TestNode_OutputExceedsLimit(t *testing.T) {
 	executorType := registerOutputTestExecutor(t, func(ctx context.Context, exec *outputTestExecutor) error {
 		return writeRepeatedX(ctx, exec.stdout, 2*1024*1024)

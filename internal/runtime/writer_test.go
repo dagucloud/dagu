@@ -10,6 +10,7 @@ import (
 	"io"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -243,6 +244,24 @@ func TestFlushableMultiWriter_Integration(t *testing.T) {
 		// Verify captured data
 		assert.Equal(t, data, captured.String())
 	})
+}
+
+// A periodic flush must not write a partial line, or a secret split across
+// writes reaches the log unmasked. Flush ends the attempt and writes it all.
+func TestSafeBufferedWriter_MaskedPartialLine(t *testing.T) {
+	var out bytes.Buffer
+	masker := masking.NewMasker(masking.SourcedEnvVars{Secrets: []string{"TOKEN=s3cr3t"}})
+	w := newSafeBufferedWriter(masking.NewMaskingWriter(&out, masker))
+
+	_, err := w.Write([]byte("s3c"))
+	require.NoError(t, err)
+	require.NoError(t, w.FlushIfDue())
+	assert.Empty(t, out.String())
+
+	_, err = w.Write([]byte("r3t"))
+	require.NoError(t, err)
+	require.NoError(t, w.Flush())
+	assert.Equal(t, "*******", out.String())
 }
 
 // Helper types for testing
