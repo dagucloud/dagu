@@ -63,8 +63,10 @@ jobs:
 
       # Attest the archives here, from the bytes GoReleaser just built, so the
       # packslip job below links this provenance instead of attesting copies it
-      # downloads back from the release.
+      # downloads back from the release. The release is already public here, so
+      # a Sigstore outage must not skip the jobs that need this one.
       - name: Attest release archives
+        continue-on-error: true
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-checksums: dist/checksums.txt
