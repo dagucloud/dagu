@@ -805,9 +805,6 @@ func (h *Handler) createAttemptForTask(ctx context.Context, task *coordinatorv1.
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse DAG definition: %w", err)
 	}
-	if task.QueueName == "" {
-		task.QueueName = dag.ProcGroup()
-	}
 	dag.SourceFile = task.SourceFile
 	// An unlabeled legacy child still needs its parent's provenance; named workspaces are already known.
 	if task.BaseConfigWorkspace != nil || (dag.BaseConfigWorkspace != nil && *dag.BaseConfigWorkspace == "") {
@@ -863,6 +860,14 @@ func (h *Handler) createAttemptForTask(ctx context.Context, task *coordinatorv1.
 				statusLabel = existingStatus.Status.String()
 			}
 			return nil, staleQueueDispatchError("latest attempt is " + statusLabel)
+		}
+	}
+	// A fresh start has no queue identity; an existing run keeps the queue it
+	// was enqueued into, which may be an override absent from the YAML.
+	if task.QueueName == "" {
+		task.QueueName = dag.ProcGroup()
+		if existingStatus != nil && existingStatus.ProcGroup != "" {
+			task.QueueName = existingStatus.ProcGroup
 		}
 	}
 	if existingStatus != nil && existingStatus.Status == ir.Queued {

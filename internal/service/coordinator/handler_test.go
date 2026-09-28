@@ -697,6 +697,8 @@ func TestCreateAttemptForTaskCarriesDAGLabels(t *testing.T) {
 }
 
 // Fresh starts have no previous status from which to copy the queue identity.
+// A run that is already queued keeps its queue, which may be an enqueue-time
+// override absent from the YAML.
 func TestDispatchQueueIdentity(t *testing.T) {
 	registerCommandExecutorCapsForCoordinatorTest()
 
@@ -705,11 +707,13 @@ func TestDispatchQueueIdentity(t *testing.T) {
 		definition string
 		baseConfig string
 		queueName  string
+		queued     string
 		wantQueue  string
 	}{
 		{name: "Global", definition: "queue: normal\n", wantQueue: "normal"},
 		{name: "Inherited", baseConfig: "queue: normal\n", wantQueue: "normal"},
 		{name: "Pinned", definition: "queue: normal\n", queueName: "original", wantQueue: "original"},
+		{name: "Queued", definition: "queue: normal\n", queued: "high", wantQueue: "high"},
 		{name: "Local", wantQueue: "test-dag"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -731,9 +735,16 @@ func TestDispatchQueueIdentity(t *testing.T) {
 			t.Cleanup(func() { h.Close(context.Background()) })
 
 			for i := range 2 {
+				runID := fmt.Sprintf("run-%d", i)
+				if tt.queued != "" {
+					runs.addAttempt(ir.DAGRunRef{Name: "test-dag", ID: runID}, &ir.DAGRunStatus{
+						Name: "test-dag", DAGRunID: runID, AttemptID: "queued-" + runID,
+						Status: ir.Queued, ProcGroup: tt.queued,
+					}).SetDAG(&ir.DAG{Name: "test-dag", Queue: "normal"})
+				}
 				task := &coordinatorv1.Task{
 					Operation:  coordinatorv1.Operation_OPERATION_START,
-					DagRunId:   fmt.Sprintf("run-%d", i),
+					DagRunId:   runID,
 					Target:     "test-dag",
 					Definition: tt.definition + "steps:\n  - name: wait\n    run: sleep 2\n",
 					BaseConfig: tt.baseConfig,
@@ -744,11 +755,9 @@ func TestDispatchQueueIdentity(t *testing.T) {
 
 				attempt := runs.attempts[task.DagRunId]
 				require.NotNil(t, attempt)
+				// The worker reports the queue parsed from the YAML.
 				dag, err := attempt.ReadDAG(ctx)
 				require.NoError(t, err)
-				if tt.queueName == "" {
-					assert.Equal(t, tt.wantQueue, dag.ProcGroup())
-				}
 				initial, err := attempt.ReadStatus(ctx)
 				require.NoError(t, err)
 
