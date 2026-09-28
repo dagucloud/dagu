@@ -1,0 +1,4 @@
+schedule: "CRON_TZ=Asia/Tokyo 0 9 * * 1-5"
+steps:
+  - id: noop
+    run: "true"

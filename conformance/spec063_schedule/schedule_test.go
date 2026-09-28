@@ -52,6 +52,19 @@ func TestScheduleDescriptors(t *testing.T) {
 	}
 }
 
+// Named time zones must resolve on a host without a time zone database, such
+// as Windows without Go installed. Pointing GOROOT at an empty directory
+// removes the fallback to the build machine's Go installation.
+func TestNamedTimeZone(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	env := []string{"GOROOT=" + t.TempDir(), "ZONEINFO="}
+	result := dagu.RunWithEnv(env, "validate", "valid_named_timezone.yaml")
+	result.ExpectExitCode(0)
+	result.ExpectStderr("")
+}
+
 func TestHourlyMatchesCron(t *testing.T) {
 	t.Parallel()
 
