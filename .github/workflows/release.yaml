@@ -15,13 +15,12 @@ jobs:
   # Build release binaries
   goreleaser:
     runs-on: ubuntu-latest
-    # id-token, attestations, and artifact-metadata let the attest step below
-    # record build provenance for the archives this job produces.
+    # id-token and attestations let the attest step below record build
+    # provenance for the archives this job produces.
     permissions:
       contents: write
       id-token: write
       attestations: write
-      artifact-metadata: write
     steps:
       - name: Check out code
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
