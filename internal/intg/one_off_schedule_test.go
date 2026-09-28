@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -181,6 +182,85 @@ steps:
 	require.Equal(t, ir.Succeeded, status.Status)
 	require.Equal(t, ir.TriggerTypeScheduler, status.TriggerType)
 	require.Equal(t, masking.DefaultMaskString+"|", test.StatusOutputValue(t, &status, "RESULT"))
+
+	probe.Stop(context.Background(), cancel, 5*time.Second)
+}
+
+// Scheduled runs load dotenv files the same way manual runs do (#2934),
+// including a working_dir resolved from base-config env (#2140).
+func TestOneOffScheduleLoadsDotenv(t *testing.T) {
+	tmpDir := t.TempDir()
+	dagsDir := filepath.Join(tmpDir, "dags")
+	appDir := filepath.Join(tmpDir, "app")
+	signalDir := filepath.Join(tmpDir, "signals")
+	for _, dir := range []string{dagsDir, appDir, signalDir} {
+		require.NoError(t, os.MkdirAll(dir, 0750))
+	}
+
+	absEnv := filepath.Join(tmpDir, "abs.env")
+	require.NoError(t, os.WriteFile(absEnv, []byte("ABS_VALUE=from-abs\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(appDir, "app.env"), []byte("REL_VALUE=from-rel\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(signalDir, ".env"), []byte("SIGNAL_VALUE=right\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dagsDir, ".env"), []byte("DAG_DIR_VALUE=from-dag-dir\nSIGNAL_VALUE=wrong-from-dag-dir\n"), 0600))
+
+	baseConfigPath := filepath.Join(tmpDir, "base.yaml")
+	require.NoError(t, os.WriteFile(baseConfigPath, fmt.Appendf(nil, "env:\n  - SIGNAL_DIR: %q\n", filepath.ToSlash(signalDir)), 0600))
+
+	scheduledAt := time.Date(2026, 3, 29, 2, 20, 0, 0, time.UTC)
+	writeDAG := func(name, fields, variable string) {
+		content := fmt.Sprintf(`name: %s
+schedule:
+  start:
+    - at: "%s"
+%ssteps:
+  - name: capture
+    run: printf '%%s' "$%s"
+    output: RESULT
+`, name, scheduledAt.Format(time.RFC3339), fields, variable)
+		require.NoError(t, os.WriteFile(filepath.Join(dagsDir, name+".yaml"), []byte(content), 0600))
+	}
+	writeDAG("dotenv-abs", fmt.Sprintf("dotenv:\n  - %q\n", filepath.ToSlash(absEnv)), "ABS_VALUE")
+	writeDAG("dotenv-rel", fmt.Sprintf("working_dir: %q\ndotenv: app.env\n", filepath.ToSlash(appDir)), "REL_VALUE")
+	writeDAG("dotenv-dag-dir", "", "DAG_DIR_VALUE")
+	writeDAG("dotenv-base-env-dir", "working_dir: ${SIGNAL_DIR}\n", "SIGNAL_VALUE")
+	want := map[string]string{
+		"dotenv-abs":          "from-abs",
+		"dotenv-rel":          "from-rel",
+		"dotenv-dag-dir":      "from-dag-dir",
+		"dotenv-base-env-dir": "right",
+	}
+
+	th := test.SetupScheduler(t, test.WithBuiltExecutable(), test.WithDAGsDir(dagsDir), test.WithConfigMutator(func(cfg *config.Config) {
+		cfg.Paths.BaseConfig = baseConfigPath
+	}))
+
+	sc, err := th.NewSchedulerInstance(t)
+	require.NoError(t, err)
+	sc.SetClock(func() time.Time { return scheduledAt })
+
+	ctx, cancel := context.WithCancel(th.Context)
+	defer cancel()
+
+	h := intgharness.New(t, th.Helper)
+	probe := h.StartScheduler(ctx, sc, th.EntryReader)
+
+	probe.RequireEventually("expected scheduled dotenv runs to succeed", 30*time.Second, func() bool {
+		for name := range want {
+			statuses, err := th.DAGRunRepository.RecentStatuses(th.Context, name, 1)
+			if err != nil || len(statuses) == 0 || statuses[0].Status != ir.Succeeded {
+				return false
+			}
+		}
+		return true
+	})
+
+	for name, value := range want {
+		statuses, err := th.DAGRunRepository.RecentStatuses(th.Context, name, 1)
+		require.NoError(t, err)
+		require.Len(t, statuses, 1)
+		require.Equal(t, ir.TriggerTypeScheduler, statuses[0].TriggerType, name)
+		require.Equal(t, value, test.StatusOutputValue(t, &statuses[0], "RESULT"), name)
+	}
 
 	probe.Stop(context.Background(), cancel, 5*time.Second)
 }

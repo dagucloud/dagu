@@ -468,7 +468,9 @@ func (e *DAGExecutor) prepareDAGForSubprocess(ctx context.Context, dag *ir.DAG, 
 
 	prepared := dag.Clone()
 	prepared.Env = result.Env
-	prepared.RuntimeResolved = true
+	// Planner entries are metadata-only and carry no dotenv list, so no dotenv
+	// was loaded here; the subprocess loads it from the full definition.
+	prepared.RuntimeResolved = dag.RuntimeResolved || len(dag.Dotenv) > 0
 	return prepared, nil
 }
 
