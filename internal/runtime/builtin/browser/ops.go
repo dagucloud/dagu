@@ -462,12 +462,7 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 	}
 	status := agentstep.StatusCompleted
 	if actions, ok := r.lookupCache(key); ok {
-		replayed, err := r.eng.Replay(ctx, actions, r.variables, timeout)
-		if errors.Is(err, errPageSessionLost) {
-			// On the same document the replay did not take effect, and the
-			// model acts on the page as it is.
-			replayed, err = r.loadedNewDocument(ctx, document, err)
-		}
+		replayed, err := r.replay(ctx, actions, document, timeout)
 		if err != nil {
 			return err
 		}
@@ -506,6 +501,27 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 		Duration: time.Since(began),
 	})
 	return nil
+}
+
+// replay performs recorded actions in order and reports whether every one
+// succeeded. document identifies the page's document before the first. An
+// action that lost the page is judged by the document it started on: a new
+// document means it took effect, and the next action runs there; the same
+// document means it did not, and the replay ends so the model acts instead.
+func (r *run) replay(ctx context.Context, actions []recordedAction, document string, timeout time.Duration) (bool, error) {
+	for i, action := range actions {
+		if i > 0 {
+			document, _ = r.eng.DocumentID(ctx)
+		}
+		replayed, err := r.eng.Replay(ctx, action, r.variables, timeout)
+		if errors.Is(err, errPageSessionLost) {
+			replayed, err = r.loadedNewDocument(ctx, document, err)
+		}
+		if err != nil || !replayed {
+			return false, err
+		}
+	}
+	return true, nil
 }
 
 // performAct runs an act and judges one that lost the page by the page's

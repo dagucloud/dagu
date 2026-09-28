@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	stagehand "github.com/browserbase/stagehand/packages/sdk-go/v4"
 	"github.com/dagucloud/dagu/v2/internal/browserhost"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -214,10 +215,40 @@ func TestStagehandActRecordsReplayableActions(t *testing.T) {
 	require.NotEmpty(t, outcome.Actions)
 
 	requests := model.requestCount()
-	replayed, err := eng.Replay(t.Context(), outcome.Actions, nil, time.Minute)
-	require.NoError(t, err)
-	assert.True(t, replayed)
+	for _, action := range outcome.Actions {
+		replayed, err := eng.Replay(t.Context(), action, nil, time.Minute)
+		require.NoError(t, err)
+		assert.True(t, replayed)
+	}
 	assert.Equal(t, requests, model.requestCount(), "replay makes no model call")
+}
+
+// The runtime reports a detached page session in a failed act result when
+// the action failed, and as an RPC error when the work around it did. Other
+// failures, including the SDK's own connection errors, are not a lost page.
+func TestSessionLost(t *testing.T) {
+	t.Parallel()
+
+	failed := func(message string) stagehand.ActResult {
+		return stagehand.ActResult{Data: stagehand.ActResultData{Message: message}}
+	}
+	for name, tc := range map[string]struct {
+		result stagehand.ActResult
+		err    error
+		lost   bool
+	}{
+		"failed action": {result: failed("Failed to perform act: -32001 Session with given id not found."), lost: true},
+		"rpc error": {
+			err:  fmt.Errorf("act: %w", &stagehand.RPCError{Code: -32603, Message: "No Page found for target closed before CDP response (sessionId=s1, targetId=t1)"}),
+			lost: true,
+		},
+		"no element":      {result: failed("Failed to perform act: No action found")},
+		"other rpc error": {err: &stagehand.RPCError{Code: -32603, Message: "Element not visible (no box model)"}},
+		"sdk error":       {err: errors.New("-32001 Session with given id not found.")},
+	} {
+		lost := sessionLost(tc.result, tc.err)
+		assert.Equal(t, tc.lost, errors.Is(lost, errPageSessionLost), name)
+	}
 }
 
 // TestStagehandDetachHelper runs in a child process: it opens a page, leaves

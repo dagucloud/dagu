@@ -265,10 +265,10 @@ func (e *stagehandEngine) Act(ctx context.Context, instruction string, variables
 	result, err := boundCall(ctx, timeout+callTimeoutSlack, func(ctx context.Context) (stagehand.ActResult, error) {
 		return e.client.Act(ctx, stagehand.ActInstruction(instruction), actOptions(variables, timeout))
 	})
-	if err != nil {
-		return actOutcome{}, err
+	if lost := sessionLost(result, err); lost != nil {
+		return actOutcome{}, lost
 	}
-	if err := sessionLost(result); err != nil {
+	if err != nil {
 		return actOutcome{}, err
 	}
 	outcome := actOutcome{Message: result.Data.Message, Success: result.Data.Success}
@@ -286,44 +286,47 @@ func (e *stagehandEngine) Act(ctx context.Context, instruction string, variables
 	return outcome, nil
 }
 
-func (e *stagehandEngine) Replay(ctx context.Context, actions []recordedAction, variables map[string]string, timeout time.Duration) (bool, error) {
-	for _, recorded := range actions {
-		action := stagehand.Action{
-			Selector:    recorded.Selector,
-			Description: recorded.Description,
-			Arguments:   recorded.Arguments,
-		}
-		if recorded.Method != "" {
-			action.Method = new(recorded.Method)
-		}
-		result, err := boundCall(ctx, timeout+callTimeoutSlack, func(ctx context.Context) (stagehand.ActResult, error) {
-			return e.client.Act(ctx, stagehand.ObservedAction(action), actOptions(variables, timeout))
-		})
-		if err != nil {
-			if ctx.Err() != nil {
-				return false, ctx.Err()
-			}
-			return false, nil
-		}
-		if err := sessionLost(result); err != nil {
-			return false, err
-		}
-		if !result.Data.Success {
-			return false, nil
-		}
+func (e *stagehandEngine) Replay(ctx context.Context, recorded recordedAction, variables map[string]string, timeout time.Duration) (bool, error) {
+	action := stagehand.Action{
+		Selector:    recorded.Selector,
+		Description: recorded.Description,
+		Arguments:   recorded.Arguments,
 	}
-	return true, nil
+	if recorded.Method != "" {
+		action.Method = new(recorded.Method)
+	}
+	result, err := boundCall(ctx, timeout+callTimeoutSlack, func(ctx context.Context) (stagehand.ActResult, error) {
+		return e.client.Act(ctx, stagehand.ObservedAction(action), actOptions(variables, timeout))
+	})
+	if lost := sessionLost(result, err); lost != nil {
+		return false, lost
+	}
+	if err != nil {
+		if ctx.Err() != nil {
+			return false, ctx.Err()
+		}
+		return false, nil
+	}
+	return result.Data.Success, nil
 }
 
-// sessionLost returns an error wrapping errPageSessionLost when result
-// failed because the page's session was detached.
-func sessionLost(result stagehand.ActResult) error {
-	if result.Data.Success {
+// sessionLost returns an error wrapping errPageSessionLost when an act call
+// that returned result and err failed because the page's session was
+// detached, or nil. The runtime reports that detach in a failed result when
+// the action itself failed, and as an RPC error when the work around the
+// action did.
+func sessionLost(result stagehand.ActResult, err error) error {
+	message := result.Data.Message
+	var rpcErr *stagehand.RPCError
+	switch {
+	case errors.As(err, &rpcErr):
+		message = rpcErr.Message
+	case err != nil || result.Data.Success:
 		return nil
 	}
 	for _, marker := range sessionLostMarkers {
-		if strings.Contains(result.Data.Message, marker) {
-			return fmt.Errorf("%w: %s", errPageSessionLost, result.Data.Message)
+		if strings.Contains(message, marker) {
+			return fmt.Errorf("%w: %s", errPageSessionLost, message)
 		}
 	}
 	return nil

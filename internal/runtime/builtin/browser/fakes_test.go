@@ -58,12 +58,14 @@ type fakeEngine struct {
 	// actNavigatesTo is the page an act or a replay leaves the browser on,
 	// if set.
 	actNavigatesTo string
+	// twoStepAct makes acts perform two actions, as a two-step act does.
+	twoStepAct bool
 	// actLosesPage is how many of the next acts lose the connection to the
 	// page after their click lands.
 	actLosesPage int
-	// replayLosesPage makes replays lose the connection to the page after
-	// their clicks land.
-	replayLosesPage bool
+	// replayLosesPage is how many of the next replayed actions lose the
+	// connection to the page after their click lands.
+	replayLosesPage int
 	// onAct runs while an act asks the model, for what happens meanwhile.
 	onAct func()
 	// actDialogs are the dialogs the next act opens and the browser accepts.
@@ -89,7 +91,7 @@ type fakeEngine struct {
 	// loads counts the documents the page has loaded.
 	loads    int
 	acts     []fakeAct
-	replays  [][]recordedAction
+	replays  []recordedAction
 	detached bool
 	closed   bool
 }
@@ -152,7 +154,7 @@ func (e *fakeEngine) Act(ctx context.Context, instruction string, variables map[
 	e.dialogs = append(e.dialogs, e.actDialogs...)
 	e.actDialogs = nil
 	e.blocked, e.actBlocked = e.actBlocked, nil
-	generate, onAct := e.generate, e.onAct
+	generate, onAct, twoStep := e.generate, e.onAct, e.twoStepAct
 	losesPage := e.actLosesPage > 0
 	if losesPage {
 		e.actLosesPage--
@@ -179,20 +181,22 @@ func (e *fakeEngine) Act(ctx context.Context, instruction string, variables map[
 	if losesPage {
 		return actOutcome{}, errFakeSessionLost
 	}
-	return actOutcome{
-		Success: true,
-		Actions: []recordedAction{{Selector: "xpath=" + choice.ElementID, Method: "click"}},
-	}, nil
+	actions := []recordedAction{{Selector: "xpath=" + choice.ElementID, Method: "click"}}
+	if twoStep {
+		actions = append(actions, recordedAction{Selector: "xpath=" + choice.ElementID + "/next", Method: "click"})
+	}
+	return actOutcome{Success: true, Actions: actions}, nil
 }
 
-func (e *fakeEngine) Replay(_ context.Context, actions []recordedAction, _ map[string]string, _ time.Duration) (bool, error) {
+func (e *fakeEngine) Replay(_ context.Context, action recordedAction, _ map[string]string, _ time.Duration) (bool, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.replays = append(e.replays, actions)
+	e.replays = append(e.replays, action)
 	if e.actNavigatesTo != "" {
 		e.load(e.actNavigatesTo)
 	}
-	if e.replayLosesPage {
+	if e.replayLosesPage > 0 {
+		e.replayLosesPage--
 		return false, errFakeSessionLost
 	}
 	return !e.replayFails, nil

@@ -471,23 +471,43 @@ func TestReplayCommitKeepsClear(t *testing.T) {
 }
 
 // A replayed click that loads a new document can lose the page too. The new
-// document shows the replay took effect, so the model does not act again.
-func TestReplayLosingPageToNewDocumentIsHit(t *testing.T) {
+// document shows the click took effect, so the model does not act again, and
+// the action recorded after it runs on the new document.
+func TestReplayLosingPageToNewDocumentGoesOn(t *testing.T) {
 	t.Parallel()
 
 	const steps = `{"url": "https://shop.example.com/login", "do": [{"act": "Click the sign-in button"}]}`
 	run := newTestRun(t, pageModel(nil))
+	run.engine.twoStepAct = true
 	require.NoError(t, run.execute(steps, nil).err)
 	modelCalls := run.provider.callCount()
 
 	run.engine.actNavigatesTo = "https://shop.example.com/orders"
-	run.engine.replayLosesPage = true
+	run.engine.replayLosesPage = 1
 	replayed := run.execute(steps, nil)
 	require.NoError(t, replayed.err)
 
 	assert.Equal(t, modelCalls, run.provider.callCount(), "no model call")
 	assert.Len(t, run.engine.actInstructions(), 1, "no act after the replay")
+	assert.Len(t, run.engine.replays, 2, "both recorded actions run")
 	assert.Equal(t, []string{"goto:completed", "act:cache-hit"}, eventNames(replayed.exec.GetAgentSession()))
+}
+
+// A replayed action that lost the page while the page kept its document did
+// not take effect, so the model acts on the page as it is.
+func TestReplayLosingPageKeepingDocumentAsksModel(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"url": "https://shop.example.com/login", "do": [{"act": "Click the sign-in button"}]}`
+	run := newTestRun(t, pageModel(nil))
+	require.NoError(t, run.execute(steps, nil).err)
+
+	run.engine.replayLosesPage = 1
+	replayed := run.execute(steps, nil)
+	require.NoError(t, replayed.err)
+
+	assert.Len(t, run.engine.actInstructions(), 2, "the model acts once more")
+	assert.Equal(t, []string{"goto:completed", "act:healed"}, eventNames(replayed.exec.GetAgentSession()))
 }
 
 const loginSteps = `{
