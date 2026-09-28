@@ -780,8 +780,17 @@ func TestDispatchQueueIdentity(t *testing.T) {
 				// A later worker status must keep the queue assigned at claim time.
 				running := *initial
 				running.Status = ir.Running
+				running.AttemptID = task.AttemptId
+				running.AttemptKey = task.AttemptKey
+				running.WorkerID = "worker-1"
 				running.ProcGroup = dag.ProcGroup()
-				h.attemptOwnership().syncFromStatus(ctx, "worker-1", &running, task.AttemptId)
+				protoStatus, err := convert.DAGRunStatusToProto(&running)
+				require.NoError(t, err)
+				report, err := h.ReportStatus(ctx, &coordinatorv1.ReportStatusRequest{
+					Status: protoStatus, WorkerId: "worker-1",
+				})
+				require.NoError(t, err)
+				require.True(t, report.Accepted, report.Error)
 				lease, err = leaseStore.Get(ctx, task.AttemptKey)
 				require.NoError(t, err)
 				assert.Equal(t, tt.wantQueue, lease.QueueName)
