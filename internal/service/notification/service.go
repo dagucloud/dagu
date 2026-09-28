@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailer"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
@@ -1429,7 +1430,7 @@ func (s *Service) sendTeams(ctx context.Context, target notificationmodel.Target
 	if err := validateOutboundURL(ctx, target.Teams.WebhookURL, false, false); err != nil {
 		return err
 	}
-	body, err := json.Marshal(teamsPayloadForEvents(target.Teams.MessageTemplate, events, s.publicURL()))
+	body, err := marshalTeamsPayload(teamsPayloadForEvents(target.Teams.MessageTemplate, events, s.publicURL()))
 	if err != nil {
 		return err
 	}
@@ -1966,6 +1967,30 @@ func teamsPayloadForEvents(template string, events []chatbridge.NotificationEven
 		"title":    title,
 		"text":     messageForEvents(template, events, publicURL, nil),
 	}
+}
+
+// teamsMaxPayloadBytes is the request body limit of Teams incoming webhooks,
+// which reject larger messages instead of truncating them. Kept below the
+// documented 28 KB.
+const teamsMaxPayloadBytes = 28_000
+
+// marshalTeamsPayload encodes payload, cutting its text with an ellipsis so the
+// body fits teamsMaxPayloadBytes.
+func marshalTeamsPayload(payload map[string]any) ([]byte, error) {
+	body, err := json.Marshal(payload)
+	if err != nil || len(body) <= teamsMaxPayloadBytes {
+		return body, err
+	}
+	const ellipsis = "…"
+	text, _ := payload["text"].(string)
+	// Every text byte encodes to at least one JSON byte, so dropping the
+	// overflow plus the ellipsis length from the raw text always fits.
+	keep := max(len(text)-(len(body)-teamsMaxPayloadBytes)-len(ellipsis), 0)
+	for keep > 0 && !utf8.RuneStart(text[keep]) {
+		keep--
+	}
+	payload["text"] = text[:keep] + ellipsis
+	return json.Marshal(payload)
 }
 
 // emailBodyForEvents renders an email body. The body is sent as HTML, so token

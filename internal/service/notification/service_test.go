@@ -24,6 +24,7 @@ import (
 	"testing"
 	"time"
 	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
@@ -827,6 +828,30 @@ func TestTeamsPayloadForEventsSummarizesBatch(t *testing.T) {
 
 	assert.Equal(t, "daily-report: 2 notifications", payload["summary"])
 	assert.Equal(t, "daily-report: 2 notifications", payload["title"])
+}
+
+func TestMarshalTeamsPayloadFitsLimit(t *testing.T) {
+	t.Parallel()
+
+	short := map[string]any{"title": "daily-report failed", "text": "fetch: exit status 1"}
+	want, err := json.Marshal(short)
+	require.NoError(t, err)
+	got, err := marshalTeamsPayload(short)
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
+
+	// "<" encodes to six JSON bytes and "é" is two UTF-8 bytes, so the cut
+	// must account for encoding growth and stay on a rune boundary.
+	long := map[string]any{"title": "daily-report failed", "text": strings.Repeat("<é", teamsMaxPayloadBytes)}
+	body, err := marshalTeamsPayload(long)
+	require.NoError(t, err)
+	assert.LessOrEqual(t, len(body), teamsMaxPayloadBytes)
+	var decoded struct {
+		Text string `json:"text"`
+	}
+	require.NoError(t, json.Unmarshal(body, &decoded))
+	assert.True(t, utf8.ValidString(decoded.Text))
+	assert.True(t, strings.HasSuffix(decoded.Text, "…"))
 }
 
 func TestService_SendTestWebhookIncludesRunLinks(t *testing.T) {
