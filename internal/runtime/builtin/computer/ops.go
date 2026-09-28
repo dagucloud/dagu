@@ -450,7 +450,7 @@ func (r *run) awaitPerson(ctx context.Context) error {
 		return nil
 	}
 	err := r.driver.WaitForIdle(ctx, idle, r.exec.idlePoll, func() {
-		r.timeline.Lifecycle(agentstep.StatusWaiting, fmt.Sprintf("Waiting until nobody has used the desktop for %s", idle))
+		r.timeline.Waiting(waitReasonPerson, fmt.Sprintf("Waiting until nobody has used the desktop for %s", idle))
 	})
 	if errors.Is(err, context.DeadlineExceeded) {
 		return errDesktopInUse

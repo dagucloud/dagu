@@ -378,6 +378,17 @@ func eventNames(session *ir.AgentSession) []string {
 	return names
 }
 
+// waitReasons lists the reasons of the step's waiting events, in order.
+func waitReasons(session *ir.AgentSession) []string {
+	var reasons []string
+	for _, event := range session.Events {
+		if event.Type == agentstep.EventLifecycle && event.Status == agentstep.StatusWaiting {
+			reasons = append(reasons, event.Name)
+		}
+	}
+	return reasons
+}
+
 func lifecycleMessages(session *ir.AgentSession) []string {
 	var messages []string
 	for _, event := range session.Events {

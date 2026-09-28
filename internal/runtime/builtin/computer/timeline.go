@@ -16,6 +16,11 @@ const (
 	// artifactsSubdir holds the screenshots of computer steps in the run
 	// artifacts directory.
 	artifactsSubdir = "computer"
+
+	// Reasons a computer step waits, which name its waiting timeline events:
+	// another step holds the desktop, or a person is using it.
+	waitReasonDesktop = "desktop"
+	waitReasonPerson  = "person"
 )
 
 // logAction logs one desktop action of the operation at index.

@@ -449,6 +449,7 @@ func TestDesktopSharedAcrossDataDirs(t *testing.T) {
 	waited := <-secondDone
 	require.NoError(t, waited.err)
 	assert.Contains(t, lifecycleMessages(waited.exec.GetAgentSession()), "Waiting for another computer step to finish using the desktop")
+	assert.Equal(t, []string{waitReasonDesktop}, waitReasons(waited.exec.GetAgentSession()))
 }
 
 // A step waits until nobody has used the desktop for the idle period before
@@ -502,6 +503,7 @@ func TestWaitsForIdleDesktop(t *testing.T) {
 			session := execution.exec.GetAgentSession()
 			assert.Equal(t, tc.want, eventNames(session))
 			assert.Contains(t, lifecycleMessages(session), "Waiting until nobody has used the desktop for 100ms")
+			assert.Equal(t, []string{waitReasonPerson}, waitReasons(session))
 		})
 	}
 }

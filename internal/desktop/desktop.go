@@ -78,15 +78,40 @@ type Diagnostics struct {
 	Height int
 	// Problems are the reasons automation cannot work, such as a missing
 	// permission; empty when the desktop is usable.
-	Problems []string
+	Problems []Problem
 }
+
+// Problem is one reason the desktop cannot be automated.
+type Problem struct {
+	// Code identifies the kind of problem, such as screen_locked, for
+	// programs that act on it.
+	Code string `json:"code"`
+	// Message explains the problem and how to fix it.
+	Message string `json:"message"`
+}
+
+// Problem codes.
+const (
+	problemUnsupported     = "unsupported"
+	problemLoadFailed      = "load_failed"
+	problemNoSession       = "no_session"
+	problemOtherSession    = "other_session"
+	problemScreenLocked    = "screen_locked"
+	problemScreenRecording = "screen_recording"
+	problemAccessibility   = "accessibility"
+	problemServiceSession  = "service_session"
+)
 
 // Err summarizes the problems as one error, or returns nil.
 func (d Diagnostics) Err() error {
 	if len(d.Problems) == 0 {
 		return nil
 	}
-	return errors.New(strings.Join(d.Problems, "; "))
+	messages := make([]string, len(d.Problems))
+	for i, problem := range d.Problems {
+		messages[i] = problem.Message
+	}
+	return errors.New(strings.Join(messages, "; "))
 }
 
 // Timing of composite input. Applications miss events that arrive

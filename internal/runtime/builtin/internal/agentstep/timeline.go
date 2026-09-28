@@ -63,9 +63,19 @@ type Report struct {
 
 // Lifecycle logs a step-level event.
 func (t *Timeline) Lifecycle(status, content string) {
+	t.lifecycle("", status, content)
+}
+
+// Waiting logs that the step waits, naming the reason so programs can tell
+// waits apart without reading the content.
+func (t *Timeline) Waiting(reason, content string) {
+	t.lifecycle(reason, StatusWaiting, content)
+}
+
+func (t *Timeline) lifecycle(name, status, content string) {
 	content = t.Masker.MaskString(content)
 	_, _ = fmt.Fprintf(t.Log, "%s\n", content)
-	t.AppendEvent(ir.AgentSessionEvent{Type: EventLifecycle, Status: status, Content: content})
+	t.AppendEvent(ir.AgentSessionEvent{Type: EventLifecycle, Name: name, Status: status, Content: content})
 }
 
 // Operation logs a finished operation.

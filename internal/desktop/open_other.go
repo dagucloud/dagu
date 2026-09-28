@@ -14,7 +14,7 @@ func Open() (*Driver, error) {
 
 // Check reports whether the desktop of the current session can be automated.
 func Check() Diagnostics {
-	return Diagnostics{OS: runtime.GOOS, Problems: []string{ErrUnsupported.Error()}}
+	return Diagnostics{OS: runtime.GOOS, Problems: []Problem{{Code: problemUnsupported, Message: ErrUnsupported.Error()}}}
 }
 
 // RequestPermissions does nothing where desktop automation is unsupported.

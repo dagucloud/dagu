@@ -233,10 +233,10 @@ func Open() (*Driver, error) {
 func Check() Diagnostics {
 	diag := Diagnostics{OS: runtime.GOOS}
 	if err := load(); err != nil {
-		diag.Problems = append(diag.Problems, err.Error())
+		diag.Problems = append(diag.Problems, Problem{Code: problemLoadFailed, Message: err.Error()})
 		return diag
 	}
-	if problem := sessionProblem(); problem != "" {
+	if problem, ok := sessionProblem(); ok {
 		diag.Problems = append(diag.Problems, problem)
 		return diag
 	}
@@ -244,10 +244,10 @@ func Check() Diagnostics {
 		diag.Width, diag.Height = display.pixelWidth, display.pixelHeight
 	}
 	if !cgPreflightScreenCaptureAccess() {
-		diag.Problems = append(diag.Problems, "Screen Recording permission is missing; grant it in System Settings > Privacy & Security > Screen Recording")
+		diag.Problems = append(diag.Problems, Problem{Code: problemScreenRecording, Message: "Screen Recording permission is missing; grant it in System Settings > Privacy & Security > Screen Recording"})
 	}
 	if !axIsProcessTrusted() {
-		diag.Problems = append(diag.Problems, "Accessibility permission is missing; grant it in System Settings > Privacy & Security > Accessibility")
+		diag.Problems = append(diag.Problems, Problem{Code: problemAccessibility, Message: "Accessibility permission is missing; grant it in System Settings > Privacy & Security > Accessibility"})
 	}
 	return diag
 }
@@ -314,20 +314,20 @@ func mainDisplay() (display, error) {
 
 // sessionProblem reports why the login session cannot be operated: there
 // is none, another user's session has the display, or the screen is locked.
-// It returns an empty string when the session can be operated.
-func sessionProblem() string {
+// ok is false when the session can be operated.
+func sessionProblem() (problem Problem, ok bool) {
 	session := cgSessionCopyCurrentDictionary()
 	if session == 0 {
-		return "no graphical login session; run the worker in a logged-in user session"
+		return Problem{Code: problemNoSession, Message: "no graphical login session; run the worker in a logged-in user session"}, true
 	}
 	defer cfRelease(session)
-	if onConsole, ok := dictionaryFlag(session, sessionOnConsoleKey); ok && !onConsole {
-		return "another user's session has the display; switch back to this user"
+	if onConsole, found := dictionaryFlag(session, sessionOnConsoleKey); found && !onConsole {
+		return Problem{Code: problemOtherSession, Message: "another user's session has the display; switch back to this user"}, true
 	}
-	if locked, ok := dictionaryFlag(session, sessionScreenLockedKey); ok && locked {
-		return "the screen is locked; unlock it and keep it unlocked while computer steps run"
+	if locked, found := dictionaryFlag(session, sessionScreenLockedKey); found && locked {
+		return Problem{Code: problemScreenLocked, Message: "the screen is locked; unlock it and keep it unlocked while computer steps run"}, true
 	}
-	return ""
+	return Problem{}, false
 }
 
 // dictionaryFlag reads a boolean of a Core Foundation dictionary. ok is
@@ -408,8 +408,8 @@ func newDarwinBackend() (*darwinBackend, error) {
 // releases that retire the Quartz capture functions.
 func (b *darwinBackend) Capture() (*image.RGBA, error) {
 	// A locked screen captures without error but shows the lock screen.
-	if problem := sessionProblem(); problem != "" {
-		return nil, errors.New(problem)
+	if problem, ok := sessionProblem(); ok {
+		return nil, errors.New(problem.Message)
 	}
 	dir, err := os.MkdirTemp("", "dagu-screen-")
 	if err != nil {

@@ -231,26 +231,26 @@ func Check() Diagnostics {
 
 	var session uint32
 	if err := windows.ProcessIdToSessionId(windows.GetCurrentProcessId(), &session); err == nil && session == 0 {
-		diag.Problems = append(diag.Problems, "the process runs in session 0, which has no desktop; run the worker in a logged-in user session instead of as a service")
+		diag.Problems = append(diag.Problems, Problem{Code: problemServiceSession, Message: "the process runs in session 0, which has no desktop; run the worker in a logged-in user session instead of as a service"})
 		return diag
 	}
-	if problem := inputDesktopProblem(); problem != "" {
+	if problem, ok := inputDesktopProblem(); ok {
 		diag.Problems = append(diag.Problems, problem)
 	}
 	return diag
 }
 
 // inputDesktopProblem reports why the desktop that receives input is not the
-// user's, such as a locked screen, or returns an empty string.
-func inputDesktopProblem() string {
+// user's, such as a locked screen. ok is false when it is the user's.
+func inputDesktopProblem() (problem Problem, ok bool) {
 	name, err := inputDesktopName()
 	switch {
 	case err != nil:
-		return "the input desktop is not accessible; the screen may be locked"
+		return Problem{Code: problemScreenLocked, Message: "the input desktop is not accessible; the screen may be locked"}, true
 	case name != defaultDesk:
-		return fmt.Sprintf("the %q desktop is active; the screen is locked or a secure prompt is shown", name)
+		return Problem{Code: problemScreenLocked, Message: fmt.Sprintf("the %q desktop is active; the screen is locked or a secure prompt is shown", name)}, true
 	}
-	return ""
+	return Problem{}, false
 }
 
 // RequestPermissions does nothing on Windows, which needs no permission to
@@ -329,8 +329,8 @@ type windowsBackend struct {
 // Capture fails while another desktop has the input, since the user's
 // desktop then captures without error but shows nothing current.
 func (windowsBackend) Capture() (*image.RGBA, error) {
-	if problem := inputDesktopProblem(); problem != "" {
-		return nil, errors.New(problem)
+	if problem, ok := inputDesktopProblem(); ok {
+		return nil, errors.New(problem.Message)
 	}
 	width, height := screenSize()
 	if width <= 0 || height <= 0 {

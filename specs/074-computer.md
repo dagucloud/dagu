@@ -65,16 +65,23 @@ in session 0, and with the screen unlocked; on macOS with Screen Recording and
 Accessibility granted to the application that starts Dagu, or to the `dagu`
 binary itself. Otherwise the step fails before any action, naming the missing
 condition. A screen that locks, or another user's session taking the display,
-while a step runs fails the operation that next reads the screen. `dagu computer check` reports the same conditions for the current
-session, prints the display size, and exits nonzero when the desktop cannot be
+while a step runs fails the operation that next reads the screen.
+
+`dagu computer check` reports the same conditions for the current session,
+prints the display size, and exits nonzero when the desktop cannot be
 automated. On macOS it also asks the system to show the Screen Recording and
-Accessibility prompts for the permissions that are missing.
+Accessibility prompts for the permissions that are missing. With
+`--format json` it prints one object with `os`, `width`, `height`, `ready`, and
+`problems`, each problem with a `message` and one of these `code`s:
+`unsupported`, `load_failed`, `no_session`, `other_session`, `screen_locked`,
+`screen_recording`, `accessibility`, or `service_session`.
 
 Computer DAGs are routed to such hosts with a DAG-level `worker_selector`.
 
 One computer step at a time operates a user's desktop, across every Dagu
 process that user runs on the host, whatever their data directories. A step
-that finds the desktop in use waits for it and logs that it is waiting. A step
+that finds the desktop in use waits for it and logs that it is waiting; the
+waiting event on the timeline is named `desktop`. A step
 paused by `ask` does not hold the desktop. While a step holds the desktop, the
 display and the system stay awake, as far as the operating system allows.
 
@@ -130,7 +137,7 @@ The step log lists each action; the timeline records one event per operation.
 Before it launches an application, replays a recorded turn, or asks the model
 for its first actions, a step waits until nobody has used the desktop's
 pointer or keyboard for `with.idle` (default `15s`), and logs that it is
-waiting. Input the step itself sent does not count, including input sent by
+waiting in an event named `person`. Input the step itself sent does not count, including input sent by
 the step that held the desktop before it. When a person uses the desktop
 after the screenshot the model answered, the model's actions are not run: the
 step waits for the idle period again and sends the new screenshot with a note

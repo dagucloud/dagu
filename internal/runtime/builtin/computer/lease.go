@@ -53,7 +53,7 @@ func acquireDesktop(ctx context.Context, lockDir string, t *agentstep.Timeline) 
 	}
 	lock := dirlock.New(lockDir, &dirlock.LockOptions{
 		OnWait: func() {
-			t.Lifecycle(agentstep.StatusWaiting, "Waiting for another computer step to finish using the desktop")
+			t.Waiting(waitReasonDesktop, "Waiting for another computer step to finish using the desktop")
 		},
 	})
 	if err := lock.Lock(ctx); err != nil {

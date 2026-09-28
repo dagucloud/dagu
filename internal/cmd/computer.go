@@ -4,6 +4,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -45,15 +46,56 @@ On Windows, the worker must run in a logged-in user session, not as a
 service, and the screen must stay unlocked.
 
 Computer steps are not supported on other systems.
+
+With --format json, the result is one JSON object: os, width, height, ready,
+and problems, each with a code and a message.
 `,
 		Args: cobra.NoArgs,
-	}, nil, runComputerCheck)
+	}, []commandLineFlag{computerCheckFormatFlag}, runComputerCheck)
+}
+
+var computerCheckFormatFlag = commandLineFlag{
+	name:         "format",
+	shorthand:    "f",
+	defaultValue: "text",
+	usage:        "Output format: text or json (default: text)",
+}
+
+// computerCheckResult is the JSON output of dagu computer check.
+type computerCheckResult struct {
+	OS       string            `json:"os"`
+	Width    int               `json:"width,omitempty"`
+	Height   int               `json:"height,omitempty"`
+	Ready    bool              `json:"ready"`
+	Problems []desktop.Problem `json:"problems"`
 }
 
 func runComputerCheck(ctx *Context, _ []string) error {
+	format, err := ctx.StringParam("format")
+	if err != nil {
+		return fmt.Errorf("failed to get format: %w", err)
+	}
+	if format != "text" && format != "json" {
+		return fmt.Errorf("invalid format %q: use text or json", format)
+	}
 	desktop.RequestPermissions()
 	diag := desktop.Check()
 	out := ctx.Command.OutOrStdout()
+	if format == "json" {
+		result := computerCheckResult{OS: diag.OS, Width: diag.Width, Height: diag.Height, Ready: len(diag.Problems) == 0, Problems: diag.Problems}
+		if result.Problems == nil {
+			result.Problems = []desktop.Problem{}
+		}
+		encoder := json.NewEncoder(out)
+		encoder.SetIndent("", "  ")
+		if err := encoder.Encode(result); err != nil {
+			return err
+		}
+		if result.Ready {
+			return nil
+		}
+		return errors.New("computer steps cannot operate this desktop")
+	}
 	_, _ = fmt.Fprintf(out, "System:  %s\n", diag.OS)
 	if diag.Width > 0 {
 		_, _ = fmt.Fprintf(out, "Display: %dx%d pixels\n", diag.Width, diag.Height)
@@ -63,7 +105,7 @@ func runComputerCheck(ctx *Context, _ []string) error {
 		return err
 	}
 	for _, problem := range diag.Problems {
-		_, _ = fmt.Fprintf(out, "Problem: %s\n", problem)
+		_, _ = fmt.Fprintf(out, "Problem: %s\n", problem.Message)
 	}
 	return errors.New("computer steps cannot operate this desktop")
 }
