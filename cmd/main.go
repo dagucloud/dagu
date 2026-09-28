@@ -5,6 +5,7 @@ package main
 
 import (
 	"os"
+	_ "time/tzdata" // Resolve named time zones on hosts without zoneinfo, such as Windows
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
