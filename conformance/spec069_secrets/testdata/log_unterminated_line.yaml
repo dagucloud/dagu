@@ -1,0 +1,15 @@
+working_dir: .
+secrets:
+  - name: MY_SECRET
+    provider: env
+    key: SOURCE_SECRET_VALUE
+steps:
+  - id: render
+    action: template.render
+    with:
+      data: {name: world}
+      template: "hello {{ .name }}"
+
+  - id: tail
+    run: printf 'tail %s' "$MY_SECRET"
+    stdout: tail.out
