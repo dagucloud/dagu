@@ -449,3 +449,83 @@ func TestRetryAgentOwnerWorkerIDIncludesCompletedSessionsForStepRetry(t *testing
 	assert.Empty(t, ir.RetryAgentOwnerWorkerID(status, false))
 	assert.Equal(t, "worker-1", ir.RetryAgentOwnerWorkerID(status, true))
 }
+
+func TestDAGRunStatusErrorText(t *testing.T) {
+	t.Parallel()
+
+	failed := func(name, err string) *ir.Node {
+		return &ir.Node{Step: ir.Step{Name: name}, Status: ir.NodeFailed, Error: err}
+	}
+
+	tests := []struct {
+		name   string
+		status *ir.DAGRunStatus
+		want   string
+	}{
+		{
+			name: "NilStatus",
+			want: "",
+		},
+		{
+			name: "RunErrorTakesPrecedence",
+			status: &ir.DAGRunStatus{
+				Error: "snapshot failed",
+				Nodes: []*ir.Node{failed("fetch", "exit status 1")},
+			},
+			want: "snapshot failed",
+		},
+		{
+			name: "FailedStepsInRunOrder",
+			status: &ir.DAGRunStatus{
+				Nodes: []*ir.Node{
+					failed("fetch", "exit status 1"),
+					{Step: ir.Step{Name: "prepare"}, Status: ir.NodeSucceeded},
+					failed("load", "exit status 2"),
+				},
+			},
+			want: "fetch: exit status 1\nload: exit status 2",
+		},
+		{
+			// Downstream steps carry a sentinel error that hides the real cause.
+			name: "SkipsUpstreamFailedSentinel",
+			status: &ir.DAGRunStatus{
+				Nodes: []*ir.Node{
+					failed("fetch", "exit status 1"),
+					{Step: ir.Step{Name: "load"}, Status: ir.NodeAborted, Error: "upstream failed"},
+				},
+			},
+			want: "fetch: exit status 1",
+		},
+		{
+			name: "IncludesFailedHandlers",
+			status: &ir.DAGRunStatus{
+				OnInit:    failed("onInit", "init failed"),
+				Nodes:     []*ir.Node{failed("fetch", "exit status 1")},
+				OnFailure: failed("onFailure", "alert failed"),
+			},
+			want: "onInit: init failed\nfetch: exit status 1\nonFailure: alert failed",
+		},
+		{
+			name: "StripsANSIAndTrailingNewline",
+			status: &ir.DAGRunStatus{
+				Nodes: []*ir.Node{
+					failed("fetch", "exit status 11\nrecent stderr (tail):\n\x1b[90m1:42PM\x1b[0m \x1b[31mfatal\x1b[0m\n"),
+					failed("load", "exit status 2"),
+				},
+			},
+			want: "fetch: exit status 11\nrecent stderr (tail):\n1:42PM fatal\nload: exit status 2",
+		},
+		{
+			name:   "NoErrors",
+			status: &ir.DAGRunStatus{Nodes: []*ir.Node{{Step: ir.Step{Name: "fetch"}, Status: ir.NodeSucceeded}}},
+			want:   "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, tt.status.ErrorText())
+		})
+	}
+}

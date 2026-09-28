@@ -6,7 +6,6 @@ package chatbridge
 import (
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -770,37 +769,6 @@ func notificationGroupDetail(group notificationGroup) string {
 	default:
 		return ""
 	}
-}
-
-// ansiEscapePattern matches ANSI escape sequences: OSC sequences such as
-// hyperlinks, ended by BEL, ESC \ or C1 ST, and CSI sequences such as colors.
-// Credit: https://github.com/chalk/ansi-regex/blob/79e112d67d2159cc999aab50398b712d370c2cf9/index.js under MIT license
-var ansiEscapePattern = regexp.MustCompile(
-	`(?:(?:\x1b\]|\x{9d})[^\x07\x1b\x{9c}\x{9d}]*(?:\x07|\x1b\\|\x{9c}))` +
-		`|[\x1b\x{9b}][[\]()#;?]*(?:\d{1,4}(?:[;:]\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]`,
-)
-
-// RunErrorText returns the error message for a DAG run: the run-level error
-// when present, otherwise the errors of failed steps and lifecycle handlers as
-// "step: message" lines in run order. ANSI escape sequences are removed.
-func RunErrorText(status *ir.DAGRunStatus) string {
-	if status == nil {
-		return ""
-	}
-	text := status.Error
-	if strings.TrimSpace(text) == "" {
-		var stepErrors []string
-		for _, node := range status.NodesInRunOrder() {
-			if node == nil || node.Status != ir.NodeFailed {
-				continue
-			}
-			if message := strings.TrimSpace(node.Error); message != "" {
-				stepErrors = append(stepErrors, node.Step.Name+": "+message)
-			}
-		}
-		text = strings.Join(stepErrors, "\n")
-	}
-	return ansiEscapePattern.ReplaceAllString(text, "")
 }
 
 func failureNotificationDetail(status *ir.DAGRunStatus) string {

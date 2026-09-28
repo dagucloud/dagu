@@ -284,6 +284,29 @@ func (st *DAGRunStatus) Errors() []error {
 	return errs
 }
 
+// ErrorText returns the error message for the run: the run-level error when
+// present, otherwise the errors of failed steps and lifecycle handlers as
+// "step: message" lines in run order. ANSI escape sequences are removed.
+func (st *DAGRunStatus) ErrorText() string {
+	if st == nil {
+		return ""
+	}
+	text := st.Error
+	if strings.TrimSpace(text) == "" {
+		var stepErrors []string
+		for _, node := range st.NodesInRunOrder() {
+			if node == nil || node.Status != NodeFailed {
+				continue
+			}
+			if message := strings.TrimSpace(node.Error); message != "" {
+				stepErrors = append(stepErrors, node.Step.Name+": "+message)
+			}
+		}
+		text = strings.Join(stepErrors, "\n")
+	}
+	return stringutil.StripANSI(text)
+}
+
 // pendingStepRetriesFromNodes extracts pending parent-managed step retries from
 // a DAG status snapshot.
 func pendingStepRetriesFromNodes(nodes []*Node) []PendingStepRetry {
