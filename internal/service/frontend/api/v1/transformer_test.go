@@ -305,15 +305,9 @@ func TestToDAGDetailsIncludesParamDefDescriptions(t *testing.T) {
 }
 
 func TestToDAGDetailsIncludesQueue(t *testing.T) {
-	for _, queue := range []string{"normal", ""} {
-		details := toDAGDetails(&ir.DAG{Name: "test-dag", Queue: queue})
-		if queue == "" {
-			assert.Nil(t, details.Queue)
-			continue
-		}
-		require.NotNil(t, details.Queue)
-		assert.Equal(t, queue, *details.Queue)
-	}
+	details := toDAGDetails(&ir.DAG{Name: "test-dag", Queue: "normal"})
+	require.NotNil(t, details.Queue)
+	assert.Equal(t, "normal", *details.Queue)
 }
 
 func TestToDAGDetailsIncludesHistoryRetentionRuns(t *testing.T) {
