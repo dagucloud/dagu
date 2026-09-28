@@ -1056,6 +1056,41 @@ func TestNotificationRunErrorFromFailedStep(t *testing.T) {
 	assert.Equal(t, wantError, items[0]["error"])
 }
 
+// Step errors carry stderr, which email reads as HTML and Slack reads as
+// mentions and links. Token values must show as written, while markup in the
+// template itself is kept.
+func TestMarkupMessagesEscapeTokenValues(t *testing.T) {
+	t.Parallel()
+
+	event := notificationEventForRun(t, "run-1")
+	event.Status.Nodes = []*ir.Node{{
+		Step:   ir.Step{Name: "fetch"},
+		Status: ir.NodeFailed,
+		Error:  "in <module> & <!channel>",
+	}}
+	events := []chatbridge.NotificationEvent{event}
+	const escapedError = "fetch: in &lt;module&gt; &amp; &lt;!channel&gt;"
+
+	tests := []struct {
+		name     string
+		render   func(template string, events []chatbridge.NotificationEvent, publicURL string) string
+		template string
+		want     string
+	}{
+		{name: "EmailTemplate", render: emailBodyForEvents, template: "<b>{{dag.name}}</b> {{run.error}}", want: "<b>daily-report</b> " + escapedError},
+		{name: "EmailDefaultBody", render: emailBodyForEvents, want: "Error: " + escapedError + "\n"},
+		{name: "SlackTemplate", render: slackTextForEvents, template: "<!here> {{run.error}}", want: "<!here> " + escapedError},
+		{name: "SlackDefaultBody", render: slackTextForEvents, want: "Error: " + escapedError + "\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Contains(t, tt.render(tt.template, events, ""), tt.want)
+		})
+	}
+}
+
 func TestTruncateTelegramText(t *testing.T) {
 	t.Parallel()
 

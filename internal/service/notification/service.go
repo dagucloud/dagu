@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"log/slog"
 	"maps"
@@ -1290,7 +1291,7 @@ func (s *Service) sendEmail(ctx context.Context, target notificationmodel.Target
 		target.Email.Cc,
 		target.Email.Bcc,
 		subject,
-		messageForEvents(target.Email.BodyTemplate, events, s.publicURL()),
+		emailBodyForEvents(target.Email.BodyTemplate, events, s.publicURL()),
 		attachments,
 	)
 	return err
@@ -1343,7 +1344,7 @@ func (s *Service) sendWebhook(ctx context.Context, target notificationmodel.Targ
 		return s.sendWebhookBodyTemplate(ctx, target, events, publicURL)
 	}
 	payload := webhookPayloadForEvents(events, publicURL)
-	payload["message"] = messageForEvents(target.Webhook.MessageTemplate, events, publicURL)
+	payload["message"] = messageForEvents(target.Webhook.MessageTemplate, events, publicURL, nil)
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -1367,7 +1368,7 @@ func (s *Service) sendWebhookBodyTemplate(
 			continue
 		}
 		single := []chatbridge.NotificationEvent{event}
-		message := messageForEvents(target.Webhook.MessageTemplate, single, publicURL)
+		message := messageForEvents(target.Webhook.MessageTemplate, single, publicURL, nil)
 		body := []byte(renderWebhookBodyTemplate(target.Webhook.BodyTemplate, event, message, publicURL))
 		if !json.Valid(body) {
 			return errors.New("webhook body template did not render valid JSON")
@@ -1408,7 +1409,7 @@ func (s *Service) sendSlack(ctx context.Context, target notificationmodel.Target
 		return err
 	}
 	body, err := json.Marshal(map[string]string{
-		"text": messageForEvents(target.Slack.MessageTemplate, events, s.publicURL()),
+		"text": slackTextForEvents(target.Slack.MessageTemplate, events, s.publicURL()),
 	})
 	if err != nil {
 		return err
@@ -1456,7 +1457,7 @@ func (s *Service) sendTelegram(ctx context.Context, target notificationmodel.Tar
 	}
 	payload := map[string]any{
 		"chat_id": target.Telegram.ChatID,
-		"text":    truncateTelegramText(messageForEvents(target.Telegram.MessageTemplate, events, s.publicURL())),
+		"text":    truncateTelegramText(messageForEvents(target.Telegram.MessageTemplate, events, s.publicURL(), nil)),
 	}
 	if target.Telegram.TopicID != "" {
 		if topicID, err := strconv.Atoi(target.Telegram.TopicID); err == nil {
@@ -1718,16 +1719,30 @@ func bodyForEvents(events []chatbridge.NotificationEvent, publicURL string) stri
 	return b.String()
 }
 
-func messageForEvents(template string, events []chatbridge.NotificationEvent, publicURL string) string {
+// messageForEvents renders template once per event, or the default body when
+// template is blank. A non-nil escape is applied to every token value and to
+// the default body, never to text written in the template.
+func messageForEvents(
+	template string,
+	events []chatbridge.NotificationEvent,
+	publicURL string,
+	escape func(string) string,
+) string {
 	if strings.TrimSpace(template) == "" {
-		return bodyForEvents(events, publicURL)
+		body := bodyForEvents(events, publicURL)
+		if escape != nil {
+			// The default body has only fixed plain-text labels around the
+			// values, so escaping it whole equals escaping each value.
+			return escape(body)
+		}
+		return body
 	}
 	parts := make([]string, 0, len(events))
 	for _, event := range events {
 		if event.Status == nil {
 			continue
 		}
-		rendered := strings.TrimSpace(renderNotificationTemplate(template, event, publicURL))
+		rendered := strings.TrimSpace(renderTemplateTokens(template, notificationTemplateValues(event, publicURL), escape))
 		if rendered != "" {
 			parts = append(parts, rendered)
 		}
@@ -1949,8 +1964,24 @@ func teamsPayloadForEvents(template string, events []chatbridge.NotificationEven
 		"@context": "http://schema.org/extensions",
 		"summary":  title,
 		"title":    title,
-		"text":     messageForEvents(template, events, publicURL),
+		"text":     messageForEvents(template, events, publicURL, nil),
 	}
+}
+
+// emailBodyForEvents renders an email body. The body is sent as HTML, so token
+// values are HTML-escaped to show as written.
+func emailBodyForEvents(template string, events []chatbridge.NotificationEvent, publicURL string) string {
+	return messageForEvents(template, events, publicURL, html.EscapeString)
+}
+
+// slackTextEscaper escapes the characters Slack reads as the start or end of
+// a mention or link.
+var slackTextEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
+
+// slackTextForEvents renders Slack message text. Token values are escaped so
+// that they cannot form Slack mentions or links.
+func slackTextForEvents(template string, events []chatbridge.NotificationEvent, publicURL string) string {
+	return messageForEvents(template, events, publicURL, slackTextEscaper.Replace)
 }
 
 func webhookPayloadForEvents(events []chatbridge.NotificationEvent, publicURL string) map[string]any {
