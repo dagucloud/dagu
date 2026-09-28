@@ -243,7 +243,7 @@ func runStatusToPublic(status *ir.DAGRunStatus) (*Status, error) {
 		Status:      status.Status.String(),
 		StartedAt:   startedAt,
 		FinishedAt:  finishedAt,
-		Error:       status.Error,
+		Error:       status.ErrorText(),
 		LogFile:     status.Log,
 		ArchiveDir:  status.ArchiveDir,
 		WorkerID:    status.WorkerID,

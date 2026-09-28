@@ -592,7 +592,7 @@ func renderHistoryJSON(statuses []*ir.DAGRunStatus) error {
 			Params:     status.Params,
 			Labels:     status.Labels,
 			WorkerID:   status.WorkerID,
-			Error:      status.Error,
+			Error:      status.ErrorText(),
 		}
 		entries = append(entries, entry)
 	}
