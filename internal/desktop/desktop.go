@@ -96,6 +96,7 @@ const (
 	problemLoadFailed      = "load_failed"
 	problemNoSession       = "no_session"
 	problemOtherSession    = "other_session"
+	problemNoDisplay       = "no_display"
 	problemScreenLocked    = "screen_locked"
 	problemScreenRecording = "screen_recording"
 	problemAccessibility   = "accessibility"

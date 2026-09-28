@@ -237,6 +237,9 @@ func Check() Diagnostics {
 	if problem, ok := inputDesktopProblem(); ok {
 		diag.Problems = append(diag.Problems, problem)
 	}
+	if diag.Width <= 0 || diag.Height <= 0 {
+		diag.Problems = append(diag.Problems, Problem{Code: problemNoDisplay, Message: "screen size is unavailable"})
+	}
 	return diag
 }
 

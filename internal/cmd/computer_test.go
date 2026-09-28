@@ -53,6 +53,10 @@ func TestComputerCheckJSON(t *testing.T) {
 		} `json:"problems"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(out), &result))
+	var shape map[string]any
+	require.NoError(t, json.Unmarshal([]byte(out), &shape))
+	assert.Contains(t, shape, "width", "the result has the same keys when the display is unknown")
+	assert.Contains(t, shape, "height")
 	assert.Equal(t, goruntime.GOOS, result.OS)
 	assert.False(t, result.Ready)
 	require.Len(t, result.Problems, 1)

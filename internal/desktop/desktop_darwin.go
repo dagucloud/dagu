@@ -240,7 +240,9 @@ func Check() Diagnostics {
 		diag.Problems = append(diag.Problems, problem)
 		return diag
 	}
-	if display, err := mainDisplay(); err == nil {
+	if display, err := mainDisplay(); err != nil {
+		diag.Problems = append(diag.Problems, Problem{Code: problemNoDisplay, Message: err.Error()})
+	} else {
 		diag.Width, diag.Height = display.pixelWidth, display.pixelHeight
 	}
 	if !cgPreflightScreenCaptureAccess() {

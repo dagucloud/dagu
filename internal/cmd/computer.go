@@ -64,8 +64,8 @@ var computerCheckFormatFlag = commandLineFlag{
 // computerCheckResult is the JSON output of dagu computer check.
 type computerCheckResult struct {
 	OS       string            `json:"os"`
-	Width    int               `json:"width,omitempty"`
-	Height   int               `json:"height,omitempty"`
+	Width    int               `json:"width"`
+	Height   int               `json:"height"`
 	Ready    bool              `json:"ready"`
 	Problems []desktop.Problem `json:"problems"`
 }

@@ -73,8 +73,9 @@ automated. On macOS it also asks the system to show the Screen Recording and
 Accessibility prompts for the permissions that are missing. With
 `--format json` it prints one object with `os`, `width`, `height`, `ready`, and
 `problems`, each problem with a `message` and one of these `code`s:
-`unsupported`, `load_failed`, `no_session`, `other_session`, `screen_locked`,
-`screen_recording`, `accessibility`, or `service_session`.
+`unsupported`, `load_failed`, `no_session`, `other_session`, `no_display`,
+`screen_locked`, `screen_recording`, `accessibility`, or `service_session`.
+`width` and `height` are 0 when the display size is unknown.
 
 Computer DAGs are routed to such hosts with a DAG-level `worker_selector`.
 
