@@ -34,6 +34,19 @@ func TestConfigShowsResolvedPaths(t *testing.T) {
 	requireLineContains(t, result.Stdout(), "Data directory:", filepath.Join(home, "data"))
 }
 
+// TestConfigLoadsNamedTimeZone proves the tz setting accepts an IANA name on a
+// host without a time zone database, such as Windows without Go installed.
+// Pointing GOROOT at an empty directory removes the fallback to the build
+// machine's Go installation.
+func TestConfigLoadsNamedTimeZone(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	env := []string{"DAGU_TZ=Asia/Tokyo", "GOROOT=" + t.TempDir(), "ZONEINFO="}
+
+	dagu.RunWithEnv(env, "config").ExpectExitCode(0)
+}
+
 // requireLineContains fails the test unless some line starts with label and
 // its remainder, trimmed, equals value exactly. Matching the resolved path
 // by exact equality (rather than substring) rejects a path that merely
