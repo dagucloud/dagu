@@ -82,8 +82,25 @@ jobs:
       contents: write
       id-token: write
     steps:
+      # The action checks the packslip binary only against jdx/packslip as a
+      # whole, and release assets can be replaced, so pin the bytes here.
+      # Bump PACKSLIP_VERSION and PACKSLIP_SHA256 with the action pin.
+      - name: Install packslip
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKSLIP_VERSION: 1.4.0
+          PACKSLIP_SHA256: a3b0038562695545109d697642035c0fe23ab3aeed28c5142136468d24020177
+        run: |
+          dir="${RUNNER_TEMP}/packslip-pinned"
+          asset="packslip-v${PACKSLIP_VERSION}-linux-x64.tar.xz"
+          gh release download "v${PACKSLIP_VERSION}" --repo jdx/packslip \
+            --pattern "$asset" --dir "$dir"
+          echo "${PACKSLIP_SHA256}  ${dir}/${asset}" | sha256sum --check -
+          tar -xJf "${dir}/${asset}" -C "$dir" --strip-components=1
+
       - uses: jdx/packslip@87479dfc6443253dff69601cace5fc6ea07e6df5 # v1.4.0
         with:
+          packslip-path: ${{ runner.temp }}/packslip-pinned/packslip
           download: dagu_*.tar.gz
           bin: dagu
           attest: link
