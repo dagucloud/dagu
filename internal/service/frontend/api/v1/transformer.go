@@ -732,6 +732,7 @@ func toDAGDetails(dag *ir.DAG) *api.DAGDetails {
 		Params:            ptrOf(dag.Params),
 		ParamDefs:         paramDefs,
 		ParamSchema:       paramSchema,
+		Queue:             ptrOf(dag.Queue),
 		Preconditions:     ptrOf(preconditions),
 		Resources:         toDAGResources(dag.Resources),
 		Schedule:          ptrOf(schedules),

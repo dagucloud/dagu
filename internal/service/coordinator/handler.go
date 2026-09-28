@@ -805,6 +805,9 @@ func (h *Handler) createAttemptForTask(ctx context.Context, task *coordinatorv1.
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse DAG definition: %w", err)
 	}
+	if task.QueueName == "" {
+		task.QueueName = dag.ProcGroup()
+	}
 	dag.SourceFile = task.SourceFile
 	// An unlabeled legacy child still needs its parent's provenance; named workspaces are already known.
 	if task.BaseConfigWorkspace != nil || (dag.BaseConfigWorkspace != nil && *dag.BaseConfigWorkspace == "") {
@@ -968,6 +971,9 @@ func (h *Handler) createSubAttemptForTask(ctx context.Context, task *coordinator
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse DAG definition: %w", err)
 	}
+	if task.QueueName == "" {
+		task.QueueName = dag.ProcGroup()
+	}
 	dag.SourceFile = task.SourceFile
 	if task.BaseConfigWorkspace != nil || (dag.BaseConfigWorkspace != nil && *dag.BaseConfigWorkspace == "") {
 		dag.BaseConfigWorkspace = task.BaseConfigWorkspace
@@ -1020,6 +1026,7 @@ func (h *Handler) writeInitialStatus(ctx context.Context, attempt dagrun.Attempt
 		AttemptID:    attempt.ID(),
 		AttemptKey:   task.AttemptKey,
 		Status:       ir.NotStarted,
+		ProcGroup:    task.QueueName,
 		StartedAt:    time.Now().UTC().Format(time.RFC3339),
 		Root:         root,
 		Labels:       labels,
