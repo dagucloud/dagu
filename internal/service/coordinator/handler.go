@@ -971,9 +971,6 @@ func (h *Handler) createSubAttemptForTask(ctx context.Context, task *coordinator
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse DAG definition: %w", err)
 	}
-	if task.QueueName == "" {
-		task.QueueName = dag.ProcGroup()
-	}
 	dag.SourceFile = task.SourceFile
 	if task.BaseConfigWorkspace != nil || (dag.BaseConfigWorkspace != nil && *dag.BaseConfigWorkspace == "") {
 		dag.BaseConfigWorkspace = task.BaseConfigWorkspace

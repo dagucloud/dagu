@@ -706,11 +706,9 @@ func TestDispatchQueueIdentity(t *testing.T) {
 		baseConfig string
 		queueName  string
 		wantQueue  string
-		child      bool
 	}{
 		{name: "Global", definition: "queue: normal\n", wantQueue: "normal"},
 		{name: "Inherited", baseConfig: "queue: normal\n", wantQueue: "normal"},
-		{name: "Child", definition: "queue: normal\n", wantQueue: "normal", child: true},
 		{name: "Pinned", definition: "queue: normal\n", queueName: "original", wantQueue: "original"},
 		{name: "Local", wantQueue: "test-dag"},
 	} {
@@ -741,19 +739,10 @@ func TestDispatchQueueIdentity(t *testing.T) {
 					BaseConfig: tt.baseConfig,
 					QueueName:  tt.queueName,
 				}
-				if tt.child {
-					task.RootDagRunName = "parent"
-					task.RootDagRunId = "parent-run"
-					task.ParentDagRunName = "parent"
-					task.ParentDagRunId = "parent-run"
-				}
 				_, err := h.Dispatch(ctx, &coordinatorv1.DispatchRequest{Task: task})
 				require.NoError(t, err)
 
 				attempt := runs.attempts[task.DagRunId]
-				if tt.child {
-					attempt = runs.subAttempts[task.RootDagRunId+":"+task.DagRunId]
-				}
 				require.NotNil(t, attempt)
 				dag, err := attempt.ReadDAG(ctx)
 				require.NoError(t, err)
