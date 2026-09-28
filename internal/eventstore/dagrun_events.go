@@ -128,7 +128,10 @@ type DAGRunStatusSnapshot struct {
 	AutoRetryCount int                  `json:"auto_retry_count,omitempty"`
 	AutoRetryLimit int                  `json:"auto_retry_limit,omitempty"`
 	Nodes          []DAGRunNodeSnapshot `json:"nodes,omitempty"`
+	OnInit         *DAGRunNodeSnapshot  `json:"on_init,omitempty"`
+	OnSuccess      *DAGRunNodeSnapshot  `json:"on_success,omitempty"`
 	OnFailure      *DAGRunNodeSnapshot  `json:"on_failure,omitempty"`
+	OnAbort        *DAGRunNodeSnapshot  `json:"on_abort,omitempty"`
 	OnExit         *DAGRunNodeSnapshot  `json:"on_exit,omitempty"`
 	OnWait         *DAGRunNodeSnapshot  `json:"on_wait,omitempty"`
 }
@@ -186,7 +189,10 @@ func newDAGRunStatusSnapshot(status *ir.DAGRunStatus, dagFile string) *DAGRunSta
 		AutoRetryCount: status.AutoRetryCount,
 		AutoRetryLimit: status.AutoRetryLimit,
 		Nodes:          nodes,
+		OnInit:         newDAGRunNodeSnapshot(status.OnInit),
+		OnSuccess:      newDAGRunNodeSnapshot(status.OnSuccess),
 		OnFailure:      newDAGRunNodeSnapshot(status.OnFailure),
+		OnAbort:        newDAGRunNodeSnapshot(status.OnAbort),
 		OnExit:         newDAGRunNodeSnapshot(status.OnExit),
 		OnWait:         newDAGRunNodeSnapshot(status.OnWait),
 	}
@@ -219,7 +225,10 @@ func (s *DAGRunStatusSnapshot) DAGRunStatus() *ir.DAGRunStatus {
 		AutoRetryCount: s.AutoRetryCount,
 		AutoRetryLimit: s.AutoRetryLimit,
 		Nodes:          nodes,
+		OnInit:         s.OnInit.Node(),
+		OnSuccess:      s.OnSuccess.Node(),
 		OnFailure:      s.OnFailure.Node(),
+		OnAbort:        s.OnAbort.Node(),
 		OnExit:         s.OnExit.Node(),
 		OnWait:         s.OnWait.Node(),
 	}

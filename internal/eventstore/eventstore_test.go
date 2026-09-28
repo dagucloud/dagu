@@ -113,10 +113,13 @@ func TestNewDAGRunEventEmbedsDAGRunSnapshot(t *testing.T) {
 				},
 			},
 		},
+		OnInit:    &ir.Node{Step: ir.Step{Name: "onInit"}, Error: "init boom"},
+		OnSuccess: &ir.Node{Step: ir.Step{Name: "onSuccess"}, Error: "success boom"},
 		OnFailure: &ir.Node{
 			Step:  ir.Step{Name: "notify"},
 			Error: "handler boom",
 		},
+		OnAbort: &ir.Node{Step: ir.Step{Name: "onAbort"}, Error: "abort boom"},
 	}
 
 	event := NewDAGRunEvent(Source{Service: SourceServiceServer, Instance: "test"}, TypeDAGRunFailed, status, map[string]any{
@@ -161,6 +164,15 @@ func TestNewDAGRunEventEmbedsDAGRunSnapshot(t *testing.T) {
 	require.NotNil(t, restored.OnFailure)
 	assert.Equal(t, "notify", restored.OnFailure.Step.Name)
 	assert.Equal(t, "handler boom", restored.OnFailure.Error)
+	for _, handler := range []struct{ want, got *ir.Node }{
+		{status.OnInit, restored.OnInit},
+		{status.OnSuccess, restored.OnSuccess},
+		{status.OnAbort, restored.OnAbort},
+	} {
+		require.NotNil(t, handler.got, handler.want.Step.Name)
+		assert.Equal(t, handler.want.Step.Name, handler.got.Step.Name)
+		assert.Equal(t, handler.want.Error, handler.got.Error)
+	}
 }
 
 func TestDAGRunSnapshotFromEventBackfillsLegacyDAGFile(t *testing.T) {
