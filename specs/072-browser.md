@@ -235,6 +235,13 @@ allowed domains, the browser stops responding, or the browser cannot be
 started. When an `act` fails because its model chose no element, the error
 names the model, since some models give that answer for every request.
 
+The browser can lose its connection to the page before an `act` or a replay
+reports back, as when a click loads a new page. The step then checks the page
+instead of acting blindly, which could submit a form twice: a new document
+means the action took effect, and the step goes on; the same document means it
+did not, and the act runs once more. Losing the page again, or a page that
+cannot be read, fails the step.
+
 ## Examples
 
 ```yaml
