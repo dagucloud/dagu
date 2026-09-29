@@ -206,6 +206,8 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
 
   // Live server-side validation of the edited buffer. Cleared whenever the
   // buffer stops being dirty (save or discard), which also clears the markers.
+  // Kept while the next check is pending so the preview above the editor does
+  // not flip back to the saved spec on every keystroke.
   const [liveValidation, setLiveValidation] = React.useState<{
     errors: string[];
     warnings: string[];
@@ -224,7 +226,6 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
     }
 
     const seq = ++validateSeqRef.current;
-    setLiveValidation(null);
     setIsValidating(true);
     const timer = window.setTimeout(() => {
       void client

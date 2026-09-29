@@ -223,33 +223,57 @@ describe('DAGSpec live validation', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
-  it('hides stale warnings while the edited buffer awaits validation', async () => {
+  // Swapping the preview back to the saved spec between keystrokes resizes
+  // everything above the editor and makes the page jump while typing.
+  it('keeps the last validation result while revalidating', async () => {
     vi.useFakeTimers();
     const warning = 'Harness step review has no explicit working_dir';
+    const error = 'step "load" depends on missing step "transform"';
     mocks.useQuery.mockReturnValue(specData({ warnings: [warning] }));
     mocks.post.mockResolvedValueOnce({
-      data: { valid: true, errors: [], warnings: [warning] },
+      data: {
+        valid: false,
+        errors: [error],
+        warnings: [warning],
+        dag: {
+          name: 'example',
+          steps: [{ name: 'extract' }, { name: 'load' }],
+        },
+      },
     });
     renderSpec();
     const editor = screen.getByLabelText('DAG spec');
     expect(screen.getByRole('status')).toHaveTextContent(warning);
 
     fireEvent.change(editor, { target: { value: savedSpec + '# edited' } });
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(600);
     });
     expect(screen.getByRole('status')).toHaveTextContent(warning);
+    expect(screen.getByText(error)).toBeInTheDocument();
+    expect(screen.getByTestId('preview-graph')).toHaveTextContent(
+      'extract,load'
+    );
+
+    fireEvent.change(editor, {
+      target: { value: savedSpec + '# edited again' },
+    });
+    expect(screen.getByText('Validating...')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(warning);
+    expect(screen.getByText(error)).toBeInTheDocument();
+    expect(screen.getByTestId('preview-graph')).toHaveTextContent(
+      'extract,load'
+    );
 
     mocks.post.mockResolvedValueOnce({ error: { message: 'unavailable' } });
     fireEvent.change(editor, {
       target: { value: 'working_dir: ./repo\n' + savedSpec },
     });
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(600);
     });
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.queryByText(error)).not.toBeInTheDocument();
 
     fireEvent.change(editor, { target: { value: savedSpec } });
     expect(screen.getByRole('status')).toHaveTextContent(warning);
