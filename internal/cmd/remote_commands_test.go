@@ -9,8 +9,10 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	api "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -251,4 +253,68 @@ func TestEnrichRemoteHistoryStatusPopulatesErrorAndMetadata(t *testing.T) {
 	assert.Equal(t, []string{"env=prod"}, status.Labels)
 	assert.Equal(t, "worker-a", status.WorkerID)
 	assert.Contains(t, status.Error, "boom")
+}
+
+func TestRemoteClientDecodesAPIErrorMessage(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"message":"boom"}`))
+	}))
+	defer server.Close()
+
+	client := &remoteClient{baseURL: server.URL, client: server.Client()}
+	_, err := client.getCurrentUser(context.Background())
+	require.Error(t, err)
+
+	var rerr *remoteError
+	require.ErrorAs(t, err, &rerr)
+	assert.Equal(t, http.StatusBadRequest, rerr.StatusCode)
+	assert.Equal(t, "boom", rerr.Message)
+}
+
+func TestRemoteClientCapsErrorResponseBody(t *testing.T) {
+	t.Parallel()
+
+	// Multibyte content makes the byte cap land mid-rune; the surfaced
+	// message must stay bounded and valid UTF-8.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(strings.Repeat("界", maxRemoteErrorBodyBytes)))
+	}))
+	defer server.Close()
+
+	client := &remoteClient{baseURL: server.URL, client: server.Client()}
+	_, err := client.getCurrentUser(context.Background())
+	require.Error(t, err)
+
+	var rerr *remoteError
+	require.ErrorAs(t, err, &rerr)
+	assert.Equal(t, http.StatusInternalServerError, rerr.StatusCode)
+	assert.LessOrEqual(t, len(rerr.Message), maxRemoteErrorBodyBytes)
+	assert.True(t, utf8.ValidString(rerr.Message))
+	assert.True(t, strings.HasSuffix(rerr.Message, "…"))
+}
+
+func TestRemoteClientPreservesExactLimitErrorResponseBody(t *testing.T) {
+	t.Parallel()
+
+	// A body at exactly the limit must pass through unmodified, without the
+	// truncation ellipsis.
+	body := strings.Repeat("x", maxRemoteErrorBodyBytes)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(body))
+	}))
+	defer server.Close()
+
+	client := &remoteClient{baseURL: server.URL, client: server.Client()}
+	_, err := client.getCurrentUser(context.Background())
+	require.Error(t, err)
+
+	var rerr *remoteError
+	require.ErrorAs(t, err, &rerr)
+	assert.Equal(t, body, rerr.Message)
 }

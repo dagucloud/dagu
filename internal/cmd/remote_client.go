@@ -18,9 +18,14 @@ import (
 	"time"
 
 	api "github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 )
 
 const defaultRemoteTimeout = 30 * time.Second
+
+// maxRemoteErrorBodyBytes bounds the error body read from a remote server so a
+// misbehaving server cannot force an arbitrary allocation.
+const maxRemoteErrorBodyBytes = 64 * 1024
 
 type remoteClient struct {
 	baseURL string
@@ -297,7 +302,7 @@ func (c *remoteClient) doWithQueryValues(ctx context.Context, method, path strin
 }
 
 func decodeRemoteError(resp *http.Response) error {
-	data, _ := io.ReadAll(resp.Body)
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, maxRemoteErrorBodyBytes+1))
 	if len(data) == 0 {
 		return &remoteError{StatusCode: resp.StatusCode, Message: resp.Status}
 	}
@@ -305,5 +310,11 @@ func decodeRemoteError(resp *http.Response) error {
 	if err := json.Unmarshal(data, &apiErr); err == nil && apiErr.Message != "" {
 		return &remoteError{StatusCode: resp.StatusCode, Message: apiErr.Message}
 	}
-	return &remoteError{StatusCode: resp.StatusCode, Message: strings.TrimSpace(string(data))}
+	msg := strings.TrimSpace(string(data))
+	if len(data) > maxRemoteErrorBodyBytes {
+		// The cap can split a UTF-8 codepoint; cut on a rune boundary and
+		// mark the message as truncated.
+		msg = stringutil.TruncUTF8Bytes(msg, maxRemoteErrorBodyBytes-len("…")) + "…"
+	}
+	return &remoteError{StatusCode: resp.StatusCode, Message: msg}
 }
