@@ -889,6 +889,142 @@ func (m *mockAttempt) WasClosed() bool {
 	return m.closed
 }
 
+// Worker presence survives while all pollers are busy or between Poll requests.
+func TestDispatchWorkerAvailability(t *testing.T) {
+	t.Parallel()
+
+	for _, shared := range []bool{false, true} {
+		for _, tt := range []struct {
+			name     string
+			selector map[string]string
+			target   string
+			worker   string
+			age      time.Duration
+			want     error
+		}{
+			{name: "BusySelector", selector: map[string]string{"type": "gpu"}, worker: "worker-1", want: errNoAvailableWorkers},
+			{name: "BusyTarget", target: "worker-1", worker: "worker-1", want: errNoAvailableWorkers},
+			{name: "BusySelectorAndTarget", selector: map[string]string{"type": "gpu"}, target: "worker-1", worker: "worker-1", want: errNoAvailableWorkers},
+			{name: "WrongSelector", selector: map[string]string{"type": "cpu"}, worker: "worker-1", want: errNoMatchingWorkers},
+			{name: "WrongTarget", target: "worker-2", worker: "worker-1", want: errNoMatchingWorkers},
+			{name: "TargetWithWrongSelector", selector: map[string]string{"type": "cpu"}, target: "worker-1", worker: "worker-1", want: errNoMatchingWorkers},
+			{name: "NoWorker", selector: map[string]string{"type": "gpu"}, want: errNoMatchingWorkers},
+			{name: "MissingTarget", target: "worker-1", want: errNoMatchingWorkers},
+			{name: "StaleWorker", selector: map[string]string{"type": "gpu"}, worker: "worker-1", age: 2 * time.Hour, want: errNoMatchingWorkers},
+			{name: "ConfiguredFreshness", selector: map[string]string{"type": "gpu"}, worker: "worker-1", age: 30 * time.Minute, want: errNoAvailableWorkers},
+		} {
+			t.Run(fmt.Sprintf("%s/Shared=%t", tt.name, shared), func(t *testing.T) {
+				t.Parallel()
+				ctx := t.Context()
+				h := NewHandler(HandlerConfig{StaleHeartbeatThreshold: time.Hour})
+				if shared {
+					h.workerHeartbeatStore = newTestWorkerHeartbeatStore(t.TempDir())
+				}
+				if tt.worker != "" {
+					record := dispatch.WorkerHeartbeatRecord{
+						WorkerID:        tt.worker,
+						Labels:          map[string]string{"type": "gpu"},
+						Stats:           &dispatch.WorkerStats{TotalPollers: 1, BusyPollers: 1},
+						LastHeartbeatAt: time.Now().Add(-tt.age).UnixMilli(),
+					}
+					if shared {
+						require.NoError(t, h.workerHeartbeatStore.Upsert(ctx, record))
+					} else {
+						h.heartbeats[tt.worker] = &heartbeatInfo{
+							workerID: tt.worker, labels: record.Labels,
+							stats:           &coordinatorv1.WorkerStats{TotalPollers: 1, BusyPollers: 1},
+							lastHeartbeatAt: time.UnixMilli(record.LastHeartbeatAt),
+						}
+					}
+				}
+				task := &coordinatorv1.Task{
+					DagRunId: "waiting-run", Target: "test-dag",
+					Definition:     "steps:\n  - name: test\n    command: echo hello\n",
+					WorkerSelector: tt.selector, TargetWorkerId: tt.target,
+				}
+				_, err := h.Dispatch(ctx, &coordinatorv1.DispatchRequest{Task: task})
+				require.Equal(t, dispatchErrorCode(tt.want), status.Code(err))
+				require.Equal(t, tt.want.Error(), status.Convert(err).Message())
+				// The final handoff must use the same classification if the
+				// last matching poller disappears after the availability check.
+				require.ErrorIs(t, h.dispatchToWaitingPoller(ctx, task), tt.want)
+			})
+		}
+	}
+}
+
+func TestDispatchPollerCapacity(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	h := NewHandler(HandlerConfig{})
+	_, err := h.Heartbeat(ctx, &coordinatorv1.HeartbeatRequest{
+		WorkerId: "gpu-worker", Labels: map[string]string{"type": "gpu"},
+	})
+	require.NoError(t, err)
+	task := &coordinatorv1.Task{WorkerSelector: map[string]string{"type": "gpu"}, TargetWorkerId: "gpu-worker"}
+	other := make(chan *coordinatorv1.Task, 1)
+	h.waitingPollers["cpu-poller"] = &workerInfo{
+		workerID: "cpu-worker", labels: map[string]string{"type": "cpu"}, taskChan: other,
+	}
+	require.ErrorIs(t, h.dispatchToWaitingPoller(ctx, task), errNoAvailableWorkers)
+	require.Empty(t, other, "a busy match must not send the task to an unrelated worker")
+
+	busy := make(chan *coordinatorv1.Task, 1)
+	busy <- &coordinatorv1.Task{}
+	h.waitingPollers["gpu-poller"] = &workerInfo{
+		workerID: "gpu-worker", labels: map[string]string{"type": "gpu"}, taskChan: busy,
+	}
+	require.NoError(t, h.ensureWaitingWorkerAvailability(ctx, task.WorkerSelector, task.TargetWorkerId))
+	require.ErrorIs(t, h.dispatchToWaitingPoller(ctx, task), errNoAvailableWorkers)
+	require.Empty(t, other)
+}
+
+type unavailableHeartbeatStore struct {
+	dispatch.WorkerHeartbeatStore
+}
+
+func (unavailableHeartbeatStore) List(context.Context) ([]dispatch.WorkerHeartbeatRecord, error) {
+	return nil, errors.New("heartbeat store unavailable")
+}
+
+func TestDispatchWorkerRegistryFailure(t *testing.T) {
+	t.Parallel()
+
+	h := NewHandler(HandlerConfig{WorkerHeartbeatStore: unavailableHeartbeatStore{}})
+	task := &coordinatorv1.Task{
+		DagRunId: "waiting-run", Definition: "steps:\n  - command: echo hello\n",
+		WorkerSelector: map[string]string{"type": "gpu"},
+	}
+	_, err := h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: task})
+	require.Equal(t, codes.Internal, status.Code(err))
+	require.Contains(t, status.Convert(err).Message(), "failed to list workers")
+	err = h.dispatchToWaitingPoller(t.Context(), task)
+	require.Equal(t, codes.Internal, dispatchErrorCode(err))
+}
+
+func TestDispatchMissingSelectedWorker(t *testing.T) {
+	t.Parallel()
+
+	for _, target := range []string{"", "worker-1"} {
+		t.Run("Target="+target, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			h := NewHandler(HandlerConfig{
+				DAGRunRepository:     newMockDAGRunStore().repository,
+				DispatchTaskStore:    newTestDispatchTaskStore(dir),
+				WorkerHeartbeatStore: newTestWorkerHeartbeatStore(dir),
+			})
+			_, err := h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: &coordinatorv1.Task{
+				DagRunId: "waiting-run", Definition: "steps:\n  - command: echo hello\n",
+				WorkerSelector: map[string]string{"type": "gpu"}, TargetWorkerId: target,
+			}})
+			require.Equal(t, codes.FailedPrecondition, status.Code(err))
+			require.Equal(t, errNoMatchingWorkers.Error(), status.Convert(err).Message())
+		})
+	}
+}
+
 func TestHandler_Poll(t *testing.T) {
 	t.Parallel()
 

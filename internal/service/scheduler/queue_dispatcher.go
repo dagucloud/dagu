@@ -1439,7 +1439,7 @@ func workerAvailableInSnapshot(
 			return true, nil
 		}
 	}
-	if healthyWorkers == 0 {
+	if healthyWorkers == 0 && len(dag.WorkerSelector) == 0 && targetWorkerID == "" {
 		return false, noAvailableWorkerConditionDefs
 	}
 	return false, noMatchingWorkerConditionDefs

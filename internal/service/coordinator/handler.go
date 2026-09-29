@@ -513,7 +513,7 @@ func (h *Handler) Dispatch(ctx context.Context, req *coordinatorv1.DispatchReque
 		if admissionToken != "" {
 			return nil, status.Error(codes.FailedPrecondition, "admission reservation requires dispatch task storage")
 		}
-		if err := h.ensureWaitingWorkerAvailability(req.Task.WorkerSelector, req.Task.TargetWorkerId); err != nil {
+		if err := h.ensureWaitingWorkerAvailability(ctx, req.Task.WorkerSelector, req.Task.TargetWorkerId); err != nil {
 			return nil, status.Error(dispatchErrorCode(err), err.Error())
 		}
 		if err := h.prepareDispatchTaskWorkspace(ctx, req.Task); err != nil {
@@ -531,7 +531,7 @@ func (h *Handler) Dispatch(ctx context.Context, req *coordinatorv1.DispatchReque
 			h.ensureTaskAttemptMetadata(req.Task)
 		}
 
-		if err := h.dispatchToWaitingPoller(req.Task); err != nil {
+		if err := h.dispatchToWaitingPoller(ctx, req.Task); err != nil {
 			h.markPreparedAttemptDispatchFailed(ctx, req.Task, prepared, err)
 			return nil, status.Error(dispatchErrorCode(err), err.Error())
 		}
@@ -548,7 +548,7 @@ func (h *Handler) Dispatch(ctx context.Context, req *coordinatorv1.DispatchReque
 	if err != nil {
 		return nil, status.Error(codes.Internal, "failed to list workers: "+err.Error())
 	}
-	if len(healthyWorkers) == 0 {
+	if len(healthyWorkers) == 0 && len(req.Task.WorkerSelector) == 0 && req.Task.TargetWorkerId == "" {
 		return nil, status.Error(codes.Unavailable, errNoAvailableWorkers.Error())
 	}
 	if !anyWorkerMatches(healthyWorkers, req.Task.WorkerSelector, req.Task.TargetWorkerId) {
@@ -1088,11 +1088,8 @@ func (h *Handler) prepareAttemptForDispatch(ctx context.Context, task *coordinat
 	return nil, nil
 }
 
-func (h *Handler) ensureWaitingWorkerAvailability(selector map[string]string, targetWorkerID string) error {
+func (h *Handler) ensureWaitingWorkerAvailability(ctx context.Context, selector map[string]string, targetWorkerID string) error {
 	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	matched := false
 	for _, worker := range h.waitingPollers {
 		if targetWorkerID != "" && worker.workerID != targetWorkerID {
 			continue
@@ -1100,21 +1097,31 @@ func (h *Handler) ensureWaitingWorkerAvailability(selector map[string]string, ta
 		if !matchesSelector(worker.labels, selector) {
 			continue
 		}
-		matched = true
-		break
-	}
-	if matched {
+		h.mu.Unlock()
 		return nil
 	}
-	if len(selector) > 0 || targetWorkerID != "" {
-		return errNoMatchingWorkers
-	}
-	return errNoAvailableWorkers
+	h.mu.Unlock()
+	return h.waitingWorkerUnavailable(ctx, selector, targetWorkerID)
 }
 
-func (h *Handler) dispatchToWaitingPoller(task *coordinatorv1.Task) error {
+// Waiting pollers describe immediate capacity, not worker presence. Consult
+// fresh heartbeats before diagnosing a selector or target mismatch.
+func (h *Handler) waitingWorkerUnavailable(ctx context.Context, selector map[string]string, targetWorkerID string) error {
+	if len(selector) == 0 && targetWorkerID == "" {
+		return errNoAvailableWorkers
+	}
+	healthyWorkers, err := h.listHealthyWorkers(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to list workers: %w", err)
+	}
+	if anyWorkerMatches(healthyWorkers, selector, targetWorkerID) {
+		return errNoAvailableWorkers
+	}
+	return errNoMatchingWorkers
+}
+
+func (h *Handler) dispatchToWaitingPoller(ctx context.Context, task *coordinatorv1.Task) error {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 
 	matched := false
 	for pollerID, worker := range h.waitingPollers {
@@ -1128,15 +1135,17 @@ func (h *Handler) dispatchToWaitingPoller(task *coordinatorv1.Task) error {
 		select {
 		case worker.taskChan <- task:
 			delete(h.waitingPollers, pollerID)
+			h.mu.Unlock()
 			return nil
 		default:
 			delete(h.waitingPollers, pollerID)
 		}
 	}
-	if (len(task.WorkerSelector) > 0 || task.TargetWorkerId != "") && !matched {
-		return errNoMatchingWorkers
+	h.mu.Unlock()
+	if matched {
+		return errNoAvailableWorkers
 	}
-	return errNoAvailableWorkers
+	return h.waitingWorkerUnavailable(ctx, task.WorkerSelector, task.TargetWorkerId)
 }
 
 func dispatchErrorCode(err error) codes.Code {
@@ -1146,8 +1155,10 @@ func dispatchErrorCode(err error) codes.Code {
 		return codes.FailedPrecondition
 	case errors.As(err, &staleErr):
 		return codes.FailedPrecondition
-	default:
+	case errors.Is(err, errNoAvailableWorkers):
 		return codes.Unavailable
+	default:
+		return codes.Internal
 	}
 }
 
@@ -1653,13 +1664,23 @@ func restoreStaleLeaseFailure(status *ir.DAGRunStatus, lease *dispatch.DAGRunLea
 }
 
 func (h *Handler) listHealthyWorkers(ctx context.Context) ([]dispatch.WorkerHeartbeatRecord, error) {
+	var records []dispatch.WorkerHeartbeatRecord
 	if h.workerHeartbeatStore == nil {
-		return nil, nil
-	}
-
-	records, err := h.workerHeartbeatStore.List(ctx)
-	if err != nil {
-		return nil, err
+		h.mu.Lock()
+		for _, hb := range h.heartbeats {
+			records = append(records, dispatch.WorkerHeartbeatRecord{
+				WorkerID:        hb.workerID,
+				Labels:          hb.labels,
+				LastHeartbeatAt: hb.lastHeartbeatAt.UnixMilli(),
+			})
+		}
+		h.mu.Unlock()
+	} else {
+		var err error
+		records, err = h.workerHeartbeatStore.List(ctx)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	now := time.Now().UTC()
