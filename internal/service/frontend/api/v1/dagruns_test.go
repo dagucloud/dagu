@@ -23,6 +23,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -1075,10 +1076,7 @@ func TestCompleteHumanTask(t *testing.T) {
 
 // A push-back through the API validates feedback, honors the expected
 // iteration, resets the rewind target with the feedback, and queues the run.
-func TestPushBackHumanTask(t *testing.T) {
-	server := test.SetupServer(t)
-
-	dagSpec := `steps:
+const humanTaskPushBackSpec = `steps:
   - id: implement
     run: echo "implement ${feedback}"
   - id: review
@@ -1098,6 +1096,10 @@ func TestPushBackHumanTask(t *testing.T) {
     depends: review
     run: echo publish`
 
+func TestPushBackHumanTask(t *testing.T) {
+	server := test.SetupServer(t)
+
+	dagSpec := humanTaskPushBackSpec
 	server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
 		Name: "human_task_push_back_api_test",
 		Spec: &dagSpec,
@@ -1149,6 +1151,65 @@ func TestPushBackHumanTask(t *testing.T) {
 	require.Equal(t, map[string]string{"feedback": "add tests"}, implement.PushBackInputs)
 
 	server.Client().Post(pushBackPath, map[string]any{"feedback": "again"}).ExpectStatus(http.StatusConflict).Send(t)
+}
+
+// A push-back resume of a run owned by a remote worker stays queued when the
+// run is read before any worker claims the resumed attempt.
+func TestPushBackRemoteResumeStaysQueued(t *testing.T) {
+	server := test.SetupServer(t)
+
+	const dagName = "human_task_push_back_remote_test"
+	dagSpec := humanTaskPushBackSpec
+	server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
+		Name: dagName,
+		Spec: &dagSpec,
+	}).ExpectStatus(http.StatusCreated).Send(t)
+
+	startResp := server.Client().Post("/api/v1/dags/"+dagName+"/start", api.ExecuteDAGJSONRequestBody{}).
+		ExpectStatus(http.StatusOK).Send(t)
+	var startBody api.ExecuteDAG200JSONResponse
+	startResp.Unmarshal(t, &startBody)
+
+	waiting := waitForStoredDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *ir.DAGRunStatus) bool {
+		return status.Status == ir.Waiting && status.FinishedAt != "" && hasNodeWithStatus(status, "review", ir.NodeWaiting)
+	})
+
+	// The wait was reported by a remote worker that stays alive but idle.
+	const workerID = "worker-1"
+	_, swapped, err := server.DAGRunRepository.CompareAndSwapLatestAttemptStatus(
+		server.Context,
+		waiting.DAGRun(),
+		waiting.AttemptID,
+		ir.Waiting,
+		func(latest *ir.DAGRunStatus) error {
+			latest.WorkerID = workerID
+			return nil
+		},
+		persis.DAGRunCompareAndSwapOptions{},
+	)
+	require.NoError(t, err)
+	require.True(t, swapped)
+	require.NoError(t, server.WorkerHeartbeatStore.Upsert(server.Context, dispatch.WorkerHeartbeatRecord{
+		WorkerID:        workerID,
+		LastHeartbeatAt: time.Now().UTC().UnixMilli(),
+		Stats:           &dispatch.WorkerStats{RunningTasks: []*dispatch.RunningTask{}},
+	}))
+
+	pushBackPath := fmt.Sprintf("/api/v1/dag-runs/%s/%s/human-tasks/review/push-back", dagName, startBody.DagRunId)
+	pushBackResp := server.Client().Post(pushBackPath, map[string]any{"feedback": "add tests"}).
+		ExpectStatus(http.StatusOK).Send(t)
+	var pushBackBody api.PushBackHumanTask200JSONResponse
+	pushBackResp.Unmarshal(t, &pushBackBody)
+	require.True(t, pushBackBody.Queued)
+
+	detailsResp := server.Client().Get(fmt.Sprintf("/api/v1/dag-runs/%s/%s", dagName, startBody.DagRunId)).
+		ExpectStatus(http.StatusOK).Send(t)
+	var details api.GetDAGRunDetails200JSONResponse
+	detailsResp.Unmarshal(t, &details)
+	require.Equal(t, api.Status(ir.Queued), details.DagRunDetails.Status)
+
+	stored := test.ReadRunStatus(server.Context, t, server.DAGRunRepository, waiting.DAGRun())
+	require.Equal(t, ir.Queued, stored.Status)
 }
 
 // Approving the last dependency of a step that waits on a completed human task

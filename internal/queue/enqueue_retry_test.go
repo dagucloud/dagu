@@ -66,6 +66,10 @@ func TestEnqueueRetry(t *testing.T) {
 					WorkingDir:     "/tmp/test-dag/run-1",
 					ProfileName:    "old-profile",
 					TriggerActor:   "bob",
+					WorkerID:       "worker-1",
+					PID:            1234,
+					PIDStartedAt:   5678,
+					LeaseAt:        9012,
 					ProfileResolvedAt: time.Date(
 						2026, 3, 14, 14, 30, 0, 0, time.UTC,
 					).Format(time.RFC3339),
@@ -87,6 +91,10 @@ func TestEnqueueRetry(t *testing.T) {
 				assert.Equal(t, "/tmp/test-dag/run-1.log", backend.status.Log)
 				assert.Equal(t, "/tmp/test-dag/run-1", backend.status.WorkingDir)
 				assert.NotEmpty(t, backend.status.ProfileResolvedAt)
+				assert.Empty(t, backend.status.WorkerID)
+				assert.Zero(t, backend.status.PID)
+				assert.Zero(t, backend.status.PIDStartedAt)
+				assert.Zero(t, backend.status.LeaseAt)
 			},
 			wantQueued: true,
 		},
@@ -247,6 +255,10 @@ func TestEnqueueRetry(t *testing.T) {
 					Status:         ir.Failed,
 					AutoRetryCount: 1,
 					TriggerActor:   "bob",
+					WorkerID:       "worker-1",
+					PID:            1234,
+					PIDStartedAt:   5678,
+					LeaseAt:        9012,
 				},
 			},
 			opts: queue.EnqueueRetryOptions{AutoRetry: true, TriggerActor: &triggerActor},
@@ -261,6 +273,10 @@ func TestEnqueueRetry(t *testing.T) {
 				assert.Equal(t, ir.TriggerTypeUnknown, backend.status.TriggerType)
 				assert.Equal(t, 1, backend.status.AutoRetryCount)
 				assert.Equal(t, "bob", backend.status.TriggerActor)
+				assert.Equal(t, "worker-1", backend.status.WorkerID)
+				assert.Equal(t, ir.PID(1234), backend.status.PID)
+				assert.Equal(t, int64(5678), backend.status.PIDStartedAt)
+				assert.Equal(t, int64(9012), backend.status.LeaseAt)
 			},
 			wantErr: "enqueue retry",
 		},

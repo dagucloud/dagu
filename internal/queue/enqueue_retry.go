@@ -140,6 +140,12 @@ func EnqueueRetry(
 			latest.Status = ir.Queued
 			latest.QueuedAt = nextRetryQueuedAt(latest.QueuedAt, now)
 			latest.Conditions = nil
+			// The queued attempt belongs to no process or worker until the next
+			// execution claims it; a stale owner would make it look abandoned.
+			latest.WorkerID = ""
+			latest.PID = 0
+			latest.PIDStartedAt = 0
+			latest.LeaseAt = 0
 			latest.TriggerType = ir.TriggerTypeRetry
 			if opts.TriggerActor != nil {
 				latest.TriggerActor = *opts.TriggerActor
@@ -210,6 +216,10 @@ func rollbackQueuedRetry(
 			latest.Status = original.Status
 			latest.QueuedAt = original.QueuedAt
 			latest.Conditions = original.Conditions
+			latest.WorkerID = original.WorkerID
+			latest.PID = original.PID
+			latest.PIDStartedAt = original.PIDStartedAt
+			latest.LeaseAt = original.LeaseAt
 			latest.TriggerType = original.TriggerType
 			latest.TriggerActor = original.TriggerActor
 			latest.AutoRetryCount = original.AutoRetryCount
