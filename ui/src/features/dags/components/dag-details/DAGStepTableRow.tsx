@@ -52,7 +52,9 @@ function DAGStepTableRow({ step, index }: Props) {
     >
       <span className="font-medium text-foreground/90">{c.condition}</span>
       <span className="text-muted-foreground">=&gt;</span>
-      <span className="text-foreground/90">{c.expected}</span>
+      <span className="text-foreground/90">
+        {c.expectedAny?.join(' | ') ?? c.expected}
+      </span>
     </div>
   ));
 

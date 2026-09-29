@@ -249,9 +249,10 @@ func toStep(obj ir.Step) api.Step {
 
 func toPrecondition(obj *ir.Condition) api.Condition {
 	condition := api.Condition{
-		Expected: ptrOf(obj.Expected),
-		Negate:   ptrOf(obj.Negate),
-		Error:    ptrOf(""),
+		Expected:    ptrOf(obj.Expected),
+		ExpectedAny: ptrOf(obj.ExpectedAny),
+		Negate:      ptrOf(obj.Negate),
+		Error:       ptrOf(""),
 	}
 	if obj.Condition != "" {
 		condition.Condition = ptrOf(obj.Condition)

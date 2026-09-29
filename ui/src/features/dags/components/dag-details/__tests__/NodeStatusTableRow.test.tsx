@@ -201,6 +201,53 @@ describe('NodeStatusTableRow', () => {
     expect(screen.getByText('stdout')).toBeInTheDocument();
   });
 
+  it('shows every alternative of an unmet any-of precondition', () => {
+    const node = {
+      step: {
+        name: 'process',
+        preconditions: [
+          {
+            condition: '${MODE}',
+            expectedAny: ['full', 'minimal'],
+            error: 'condition was not met',
+          },
+        ],
+      },
+      status: NodeStatus.Skipped,
+      statusLabel: NodeStatusLabel.skipped,
+      stdout: '',
+      stderr: '',
+      startedAt: '',
+      finishedAt: '',
+      retryCount: 0,
+      doneCount: 0,
+    } as components['schemas']['Node'];
+
+    render(
+      <MemoryRouter>
+        <AppBarContext.Provider value={appBarValue}>
+          <DAGContext.Provider
+            value={{
+              refresh: vi.fn(),
+              name: 'example',
+              fileName: 'example.yaml',
+            }}
+          >
+            <NodeStatusTableRow
+              rownum={1}
+              node={node}
+              name="example.yaml"
+              dagRun={dagRun}
+              view="mobile"
+            />
+          </DAGContext.Provider>
+        </AppBarContext.Provider>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText(/full \| minimal/)).toBeInTheDocument();
+  });
+
   it('falls back to the configured log message when stdout cannot be loaded', () => {
     mockedUseQuery.mockImplementation((path, init) => ({
       data: undefined,

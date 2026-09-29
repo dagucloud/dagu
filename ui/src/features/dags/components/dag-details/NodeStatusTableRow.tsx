@@ -1473,7 +1473,8 @@ function NodeStatusTableRow({
                       <I18nText text={'Condition:'} /> {cond.condition}
                     </div>
                     <div>
-                      <I18nText text={'Expected:'} /> {cond.expected}
+                      <I18nText text={'Expected:'} />{' '}
+                      {cond.expectedAny?.join(' | ') ?? cond.expected}
                     </div>
                     <div>
                       <I18nText text={'Error:'} /> {cond.error}
