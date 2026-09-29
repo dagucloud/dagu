@@ -19,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
@@ -358,6 +359,126 @@ func TestClientDispatch(t *testing.T) {
 		require.ErrorAs(t, err, &staleErr)
 		require.Equal(t, "queued attempt was superseded", staleErr.Reason)
 	})
+}
+
+// Worker registration can complete after the first availability snapshot.
+// Direct and child dispatches must retain their configured retry budget.
+func TestClientDispatchWorkerRegistration(t *testing.T) {
+	const workerID = "gpu-worker"
+	labels := map[string]string{"type": "gpu"}
+	for _, tt := range []struct {
+		name      string
+		selector  map[string]string
+		target    string
+		stale     bool
+		child     bool
+		mismatch  bool
+		register  bool
+		wantCode  codes.Code
+		wantCalls int32
+	}{
+		{name: "Selector", selector: labels, register: true, wantCalls: 2},
+		{name: "Target", target: workerID, register: true, wantCalls: 2},
+		{name: "SelectorAndTarget", selector: labels, target: workerID, register: true, wantCalls: 2},
+		{name: "ExpiredHeartbeat", selector: labels, stale: true, register: true, wantCalls: 2},
+		{name: "Child", selector: labels, child: true, register: true, wantCalls: 2},
+		{name: "MissingWorker", selector: labels, wantCode: codes.Unavailable, wantCalls: 3},
+		{name: "WrongSelector", selector: labels, mismatch: true, wantCode: codes.FailedPrecondition, wantCalls: 1},
+		{name: "WrongTarget", target: "other-worker", mismatch: true, wantCode: codes.FailedPrecondition, wantCalls: 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			helper := test.Setup(t)
+			t.Cleanup(helper.Cleanup)
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			h := coordinator.NewHandler(coordinator.HandlerConfig{
+				DAGRunRepository:     helper.DAGRunRepository,
+				DispatchTaskStore:    helper.DispatchTaskStore,
+				WorkerHeartbeatStore: helper.WorkerHeartbeatStore,
+			})
+			t.Cleanup(func() { h.Close(context.Background()) })
+			if tt.stale || tt.mismatch {
+				record := dispatch.WorkerHeartbeatRecord{
+					WorkerID: workerID, Labels: labels, LastHeartbeatAt: time.Now().UnixMilli(),
+				}
+				if tt.stale {
+					record.LastHeartbeatAt = time.Now().Add(-time.Hour).UnixMilli()
+				}
+				if tt.mismatch {
+					record.Labels = map[string]string{"type": "cpu"}
+				}
+				require.NoError(t, helper.WorkerHeartbeatStore.Upsert(ctx, record))
+			}
+
+			var calls atomic.Int32
+			server, addr := startMockServer(t, &mockCoordinatorService{
+				dispatchFunc: func(ctx context.Context, req *coordinatorv1.DispatchRequest) (*coordinatorv1.DispatchResponse, error) {
+					call := calls.Add(1)
+					response, err := h.Dispatch(ctx, req)
+					if call == 1 && tt.register {
+						_, heartbeatErr := h.Heartbeat(ctx, &coordinatorv1.HeartbeatRequest{
+							WorkerId: workerID, Labels: labels,
+						})
+						if heartbeatErr != nil {
+							return nil, heartbeatErr
+						}
+					}
+					return response, err
+				},
+			})
+			t.Cleanup(server.Stop)
+			host, port := parseHostPort(addr)
+			config := coordinator.DefaultConfig()
+			config.MaxRetries = 2
+			config.RetryInterval = time.Millisecond
+			client := coordinator.New(&mockServiceMonitor{members: []serviceregistry.HostInfo{{
+				ID: "coord-1", Host: host, Port: port, Status: serviceregistry.ServiceStatusActive,
+			}}}, config)
+			t.Cleanup(func() { require.NoError(t, client.Cleanup(context.Background())) })
+			task := &dispatch.DispatchTask{
+				Operation: dispatch.DispatchOperationStart,
+				DAGRunID:  "registration-gap", Target: "registration-gap",
+				Definition:     "name: registration-gap\nsteps:\n  - name: work\n    action: noop\n",
+				WorkerSelector: tt.selector, TargetWorkerID: tt.target,
+			}
+			if tt.child {
+				task.RootDAGRunName, task.ParentDAGRunName = "parent", "parent"
+				task.RootDAGRunID, task.ParentDAGRunID = "parent-run", "parent-run"
+				parent, err := helper.DAGRunRepository.CreateAttempt(ctx, &ir.DAG{Name: "parent"}, time.Now(), task.RootDAGRunID, persis.DAGRunCreateAttemptOptions{})
+				require.NoError(t, err)
+				require.NoError(t, parent.Open(ctx))
+				require.NoError(t, parent.Write(ctx, ir.DAGRunStatus{
+					Name: "parent", DAGRunID: task.RootDAGRunID, AttemptID: parent.ID(), Status: ir.Running,
+				}))
+				require.NoError(t, parent.Close(ctx))
+			}
+
+			err := client.Dispatch(ctx, dispatch.DispatchRequest{Task: task})
+			require.Equal(t, tt.wantCalls, calls.Load())
+			require.Equal(t, tt.wantCode, status.Code(err))
+			if tt.wantCode != codes.OK {
+				if tt.wantCode == codes.FailedPrecondition {
+					require.ErrorIs(t, err, backoff.ErrPermanent)
+				} else {
+					require.NotErrorIs(t, err, backoff.ErrPermanent)
+				}
+				return
+			}
+			require.NoError(t, err)
+			polled, err := h.Poll(ctx, &coordinatorv1.PollRequest{
+				WorkerId: workerID, PollerId: "poller-1", Labels: labels,
+			})
+			require.NoError(t, err)
+			require.Equal(t, task.DAGRunID, polled.Task.DagRunId)
+			require.Equal(t, task.RootDAGRunID, polled.Task.RootDagRunId)
+			require.Equal(t, workerID, polled.Task.WorkerId)
+			duplicate, err := helper.DispatchTaskStore.ClaimNext(ctx, dispatch.DispatchTaskClaim{
+				WorkerID: workerID, PollerID: "poller-2", Labels: labels, ClaimTimeout: time.Minute,
+			})
+			require.NoError(t, err)
+			require.Nil(t, duplicate, "dispatch retries must not enqueue a second task")
+		})
+	}
 }
 
 func TestClientDispatchRejectsFileDependenciesWithoutWorkspaceBundleDir(t *testing.T) {

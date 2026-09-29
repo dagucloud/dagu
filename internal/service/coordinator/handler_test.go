@@ -1006,8 +1006,17 @@ func TestDispatchWorkerRegistryFailure(t *testing.T) {
 func TestDispatchMissingSelectedWorker(t *testing.T) {
 	t.Parallel()
 
-	for _, target := range []string{"", "worker-1"} {
-		t.Run("Target="+target, func(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		target string
+		stale  bool
+	}{
+		{name: "Selector"},
+		{name: "Target", target: "worker-1"},
+		{name: "ExpiredSelector", stale: true},
+		{name: "ExpiredTarget", target: "worker-1", stale: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			dir := t.TempDir()
 			h := NewHandler(HandlerConfig{
@@ -1015,12 +1024,18 @@ func TestDispatchMissingSelectedWorker(t *testing.T) {
 				DispatchTaskStore:    newTestDispatchTaskStore(dir),
 				WorkerHeartbeatStore: newTestWorkerHeartbeatStore(dir),
 			})
+			if tt.stale {
+				require.NoError(t, h.workerHeartbeatStore.Upsert(t.Context(), dispatch.WorkerHeartbeatRecord{
+					WorkerID: "worker-1", Labels: map[string]string{"type": "gpu"},
+					LastHeartbeatAt: time.Now().Add(-time.Hour).UnixMilli(),
+				}))
+			}
 			_, err := h.Dispatch(t.Context(), &coordinatorv1.DispatchRequest{Task: &coordinatorv1.Task{
 				DagRunId: "waiting-run", Definition: "steps:\n  - command: echo hello\n",
-				WorkerSelector: map[string]string{"type": "gpu"}, TargetWorkerId: target,
+				WorkerSelector: map[string]string{"type": "gpu"}, TargetWorkerId: tt.target,
 			}})
-			require.Equal(t, codes.FailedPrecondition, status.Code(err))
-			require.Equal(t, errNoMatchingWorkers.Error(), status.Convert(err).Message())
+			require.Equal(t, codes.Unavailable, status.Code(err))
+			require.Equal(t, errNoAvailableWorkers.Error(), status.Convert(err).Message())
 		})
 	}
 }

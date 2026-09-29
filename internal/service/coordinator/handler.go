@@ -548,7 +548,7 @@ func (h *Handler) Dispatch(ctx context.Context, req *coordinatorv1.DispatchReque
 	if err != nil {
 		return nil, status.Error(codes.Internal, "failed to list workers: "+err.Error())
 	}
-	if len(healthyWorkers) == 0 && len(req.Task.WorkerSelector) == 0 && req.Task.TargetWorkerId == "" {
+	if len(healthyWorkers) == 0 {
 		return nil, status.Error(codes.Unavailable, errNoAvailableWorkers.Error())
 	}
 	if !anyWorkerMatches(healthyWorkers, req.Task.WorkerSelector, req.Task.TargetWorkerId) {
