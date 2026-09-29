@@ -999,7 +999,7 @@ steps:
 	f.waitForQueued()
 	f.startScheduler(30 * time.Second)
 	f.requireEventuallyNoSchedulerError(
-		"DAG should remain queued while no worker is available",
+		"DAG should remain queued while no matching worker is registered",
 		executionStatusTimeout(),
 		100*time.Millisecond,
 		func() bool {
@@ -1008,7 +1008,7 @@ steps:
 				return false
 			}
 			for _, condition := range status.Conditions {
-				if condition.Type == "WorkerReady" && condition.Status == "False" && condition.Reason == "NoAvailableWorker" {
+				if condition.Type == "WorkerReady" && condition.Status == "False" && condition.Reason == "NoMatchingWorker" {
 					return true
 				}
 			}
