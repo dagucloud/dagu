@@ -284,7 +284,7 @@ function Graph({
 
       // Add indicator for sub dagRun nodes in the label only
       // Escape any special characters in the label to prevent Mermaid parsing errors
-      let label = step.id || step.name;
+      let label = step.name;
       if (isSubDAGRun && subDAGName) {
         if (hasParallelExecutions && subRuns.length > 0) {
           // Show parallel execution count in the label - avoid brackets in stadium nodes
@@ -623,7 +623,7 @@ function getStepLabel(
   const hasParallelExecutions = !!step.parallel;
 
   if (!subDAGName) {
-    return step.id || step.name;
+    return step.name;
   }
   if (hasParallelExecutions && subRuns.length > 0) {
     return `${step.name} -> ${subDAGName} x${subRuns.length}`;

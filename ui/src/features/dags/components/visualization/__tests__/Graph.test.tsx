@@ -143,6 +143,44 @@ describe('Graph', () => {
     expect(runningNode).toHaveAttribute('stroke-width', '2.5px');
   });
 
+  it('labels a step with its name when it also has an id', async () => {
+    mermaidRenderMock.mockResolvedValueOnce({
+      svg: '<svg></svg>',
+      bindFunctions: vi.fn(),
+    });
+
+    render(
+      <Graph
+        type="config"
+        steps={[
+          { name: 'Get Date', id: 'date' },
+          { name: 'Use Date', depends: ['Get Date'] },
+        ]}
+      />
+    );
+
+    await waitFor(() => {
+      expect(mermaidRenderMock).toHaveBeenCalled();
+    });
+
+    const firstCall = mermaidRenderMock.mock.calls[0];
+    if (!firstCall) {
+      throw new Error('Expected mermaid.render to be called');
+    }
+    const definition = firstCall[1] as string;
+    expect(definition).toContain('["Get Date"]');
+    expect(definition).not.toContain('["date"]');
+  });
+
+  it('labels a fallback step with its name when it also has an id', async () => {
+    mermaidRenderMock.mockRejectedValueOnce(new TypeError('render exploded'));
+
+    render(<Graph type="config" steps={[{ name: 'Get Date', id: 'date' }]} />);
+
+    const fallback = await screen.findByTestId('graph-fallback');
+    expect(fallback).toHaveTextContent('Get Date');
+  });
+
   it('renders an interactive fallback when Mermaid rendering fails', async () => {
     mermaidRenderMock.mockRejectedValueOnce(new TypeError('render exploded'));
     const onClickNode = vi.fn();
