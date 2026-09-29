@@ -1002,3 +1002,4 @@ steps:
 ```
 
 Routes are evaluated in priority order: exact matches first, then regex, then catch-all.
+A step listed under several routes runs once when any of their patterns matches.

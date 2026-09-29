@@ -128,7 +128,7 @@ func (w *referenceFieldWalker) walkStep(path string, step ir.Step) {
 	if step.RepeatPolicy.Condition != nil {
 		fieldPath := path + ".repeat_policy.condition"
 		w.add(base.withPathValue(fieldPath, step.RepeatPolicy.Condition.Condition).withField(cmnvalue.ConditionValueField(fieldPath)))
-		w.addNumericExpected(path+".repeat_policy.expected", step.RepeatPolicy.Condition, base)
+		w.addNumericExpected(path+".repeat_policy.expected", step.RepeatPolicy.Condition.Expected, base)
 	}
 	w.walkSubDAG(path+".child_dag", step.SubDAG, base)
 	if step.Parallel != nil {
@@ -247,7 +247,10 @@ func (w *referenceFieldWalker) walkConditions(path string, conditions []*ir.Cond
 		w.add(base.withPathValue(fieldPath, condition.Condition).withField(cmnvalue.ConditionValueField(fieldPath)))
 		evalPath := fmt.Sprintf("%s[%d].eval", path, i)
 		w.add(base.withPathValue(evalPath, condition.Eval).withField(cmnvalue.ConditionEvalField(evalPath)))
-		w.addNumericExpected(fmt.Sprintf("%s[%d].expected", path, i), condition, base)
+		w.addNumericExpected(fmt.Sprintf("%s[%d].expected", path, i), condition.Expected, base)
+		for j, expected := range condition.ExpectedAny {
+			w.addNumericExpected(fmt.Sprintf("%s[%d].expected_any[%d]", path, i, j), expected, base)
+		}
 	}
 }
 
@@ -255,11 +258,11 @@ func (w *referenceFieldWalker) walkConditions(path string, conditions []*ir.Cond
 // which is the one form that resolves a value reference. A literal or regex
 // pattern stays literal, so reporting it here would describe a resolution that
 // never happens.
-func (w *referenceFieldWalker) addNumericExpected(fieldPath string, condition *ir.Condition, base ReferenceField) {
-	if !stringutil.HasNumericPrefix(condition.Expected) {
+func (w *referenceFieldWalker) addNumericExpected(fieldPath, expected string, base ReferenceField) {
+	if !stringutil.HasNumericPrefix(expected) {
 		return
 	}
-	w.add(base.withPathValue(fieldPath, condition.Expected).withField(cmnvalue.ConditionValueField(fieldPath)))
+	w.add(base.withPathValue(fieldPath, expected).withField(cmnvalue.ConditionValueField(fieldPath)))
 }
 
 func (w *referenceFieldWalker) walkEnvWith(path string, env []string, base ReferenceField, fieldForPath func(string) cmnvalue.Field) {

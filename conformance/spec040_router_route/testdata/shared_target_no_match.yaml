@@ -1,0 +1,13 @@
+working_dir: .
+steps:
+  - name: pick
+    action: router.route
+    with:
+      value: "none"
+      routes:
+        full: [shared, extra]
+        minimal: [shared]
+  - name: shared
+    run: echo shared > shared.out
+  - name: extra
+    run: echo extra > extra.out

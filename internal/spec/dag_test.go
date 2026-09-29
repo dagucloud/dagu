@@ -3815,6 +3815,54 @@ func TestRouterNotAllowedInChainType(t *testing.T) {
 	}
 }
 
+// A step listed under several routes of one router runs when any of them
+// matches, so those patterns share one precondition. Another router targeting
+// the same step adds its own precondition, which must also pass.
+func TestRouterSharedTarget(t *testing.T) {
+	t.Parallel()
+
+	built, err := (&dag{
+		Type: "graph",
+		Steps: []any{
+			map[string]any{
+				"name":  "router",
+				"type":  "router",
+				"value": "${MODE}",
+				"routes": map[string]any{
+					"full":    []string{"shared", "single"},
+					"minimal": []string{"shared"},
+					"re:^m":   []string{"shared"},
+					"x":       []string{"repeated", "repeated"},
+				},
+			},
+			map[string]any{
+				"name":  "router2",
+				"type":  "router",
+				"value": "${REGION}",
+				"routes": map[string]any{
+					"eu": []string{"shared"},
+				},
+			},
+			map[string]any{"name": "shared", "command": "echo shared"},
+			map[string]any{"name": "single", "command": "echo single"},
+			map[string]any{"name": "repeated", "command": "echo repeated"},
+		},
+	}).build(testBuildContext())
+	require.NoError(t, err)
+
+	steps := make(map[string]ir.Step, len(built.Steps))
+	for _, step := range built.Steps {
+		steps[step.Name] = step
+	}
+	assert.Equal(t, []*ir.Condition{
+		{Condition: "${MODE}", ExpectedAny: []string{"full", "minimal", "re:^m"}},
+		{Condition: "${REGION}", Expected: "eu"},
+	}, steps["shared"].Preconditions)
+	assert.Equal(t, []string{"router", "router2"}, steps["shared"].Depends)
+	assert.Equal(t, []*ir.Condition{{Condition: "${MODE}", Expected: "full"}}, steps["single"].Preconditions)
+	assert.Equal(t, []*ir.Condition{{Condition: "${MODE}", Expected: "x"}}, steps["repeated"].Preconditions)
+}
+
 func TestRouterNumericRoutePattern(t *testing.T) {
 	t.Parallel()
 

@@ -1,0 +1,16 @@
+working_dir: .
+steps:
+  - name: pick_mode
+    action: router.route
+    with:
+      value: "full"
+      routes:
+        full: [shared]
+  - name: pick_region
+    action: router.route
+    with:
+      value: "us"
+      routes:
+        eu: [shared]
+  - name: shared
+    run: echo shared > shared.out

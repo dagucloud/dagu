@@ -1,0 +1,11 @@
+working_dir: .
+steps:
+  - name: pick
+    action: router.route
+    with:
+      value: "0.95"
+      routes:
+        "num:<0.1": [review]
+        "num:>0.9": [review]
+  - name: review
+    run: echo review > review.out

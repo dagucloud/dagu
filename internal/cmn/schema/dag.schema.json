@@ -7147,7 +7147,7 @@
               "minLength": 1
             }
           },
-          "description": "Map of patterns to target step names. A pattern is an exact string, a regex with 're:' prefix, or a numeric comparison with 'num:' prefix (e.g., 'num:>=0.8')."
+          "description": "Map of patterns to target step names. A pattern is an exact string, a regex with 're:' prefix, or a numeric comparison with 'num:' prefix (e.g., 'num:>=0.8'). A step listed under several patterns runs once when any of them matches."
         }
       },
       "description": "Configuration for action: router.route."

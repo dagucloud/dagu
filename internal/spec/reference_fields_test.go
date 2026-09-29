@@ -301,6 +301,7 @@ func TestReferenceFieldsIncludesOnlyNumericExpected(t *testing.T) {
 					{Condition: "0.9", Expected: "num:>=${params.threshold}"},
 					{Condition: "x", Expected: "${params.literal}"},
 					{Condition: "y", Expected: "re:${params.pattern}"},
+					{Condition: "0.5", ExpectedAny: []string{"num:<${params.low}", "${params.literal}"}},
 				},
 			},
 		},
@@ -314,4 +315,6 @@ func TestReferenceFieldsIncludesOnlyNumericExpected(t *testing.T) {
 	assert.Equal(t, "num:>=${params.threshold}", paths["steps[0].preconditions[0].expected"])
 	assert.NotContains(t, paths, "steps[0].preconditions[1].expected")
 	assert.NotContains(t, paths, "steps[0].preconditions[2].expected")
+	assert.Equal(t, "num:<${params.low}", paths["steps[0].preconditions[3].expected_any[0]"])
+	assert.NotContains(t, paths, "steps[0].preconditions[3].expected_any[1]")
 }

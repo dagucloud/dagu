@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
@@ -291,7 +292,7 @@ func validateNoAttemptOutputCondition(errs *ir.ErrorList, field string, conditio
 	}
 	if containsAttemptOutputReference(condition.Condition) ||
 		containsAttemptOutputReference(condition.Eval) ||
-		containsAttemptOutputReference(condition.Expected) {
+		slices.ContainsFunc(condition.ExpectedPatterns(), containsAttemptOutputReference) {
 		*errs = append(*errs, ir.NewValidationError(field, condition,
 			fmt.Errorf("path output references are available only during executor attempts")))
 	}

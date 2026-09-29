@@ -18,8 +18,8 @@ This spec covers:
 - the `with.value` and `with.routes` fields
 - matching targets run after the router step completes
 - that route matching is independent per target, not first-match-wins
-- fan-out: multiple targets under one pattern, and multiple patterns
-  matching the same value at once
+- fan-out: multiple targets under one pattern, multiple patterns
+  matching the same value at once, and one target under several patterns
 - behavior when no pattern matches
 - the router step's own diagnostic output
 - validation errors, and the one runtime error router.route defines of its
@@ -61,8 +61,10 @@ runs; see [Spec 023: Preconditions](023-preconditions.md).
 
 ### Target execution
 
-Each target runs after the router when its pattern matches the resolved value
-and its own preconditions pass. Matching is independent for every target.
+Each target runs after the router when a pattern listing it matches the
+resolved value and its own preconditions pass. Matching is independent for every
+target. A step targeted by more than one router step runs only when, for each
+of those routers, a pattern listing it matches.
 Steps depending on a skipped target may still run; authors do not need to add
 `continue_on: skipped` to routed targets.
 
@@ -74,6 +76,8 @@ Because each target's match is independent:
   pattern matches.
 - More than one pattern may match the same value at once; every matching
   pattern's targets run. Router route is not first-match-wins.
+- A target may be listed under more than one pattern; it runs once when any of
+  those patterns matches, and is skipped when none does.
 - If no pattern matches the value, every target is skipped and the DAG-run
   still succeeds; a router with no matching route is not itself an error.
 
@@ -115,8 +119,6 @@ the quoted wording below (exact surrounding phrasing may vary):
   not a valid Go regexp pattern: `"regexp is empty"` or `"regexp is invalid"`.
 - A route lists no targets: `"has no targets"`.
 - A route lists an empty target name: `"has empty target"`.
-- The same step name appears as a target of more than one route:
-  `"is targeted by multiple routes"`.
 - A route names a target step that does not exist in the DAG:
   `"references non-existent step"`.
 - A `router.route` step is used in a DAG with `type: chain`; router steps
@@ -148,9 +150,10 @@ that silently stops gating is worse than a loud failure. Rules:
   matches the value, and a `re:.*` catch-all. A routing decision that cannot be
   evaluated is not partially carried out.
 - A `re:.*` catch-all therefore does not act as a fallback for non-numeric
-  input. There is also no single route pattern for a middle band such as
-  `0.1 < x < 0.9`, because a route carries one pattern. A step covering either
-  case states its own bounds as preconditions, which are combined with AND (see
+  input. There is also no route for a middle band such as `0.1 < x < 0.9`,
+  because a route carries one pattern and routes listing the same step combine
+  with OR. A step covering either case states its own bounds as preconditions,
+  which are combined with AND (see
   [Spec 023: Preconditions](023-preconditions.md)).
 - Routing is unaffected when the value is a number: every route, numeric or
   not, matches independently as usual.
@@ -211,6 +214,22 @@ steps:
         "num:<0.9": [human_review]
   - name: auto_approve
     run: echo approve
+  - name: human_review
+    run: echo review
+```
+
+Send one step either end of a range by listing it under two numeric routes. The
+step runs once when either pattern matches:
+
+```yaml
+steps:
+  - name: pick
+    action: router.route
+    with:
+      value: "${CONFIDENCE}"
+      routes:
+        "num:<0.1": [human_review]
+        "num:>0.9": [human_review]
   - name: human_review
     run: echo review
 ```

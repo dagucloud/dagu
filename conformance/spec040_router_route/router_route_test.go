@@ -58,6 +58,32 @@ func TestRouteRuntime(t *testing.T) {
 			want: []routeFile{{"matched.out", "matched\n"}, {"route.txt", "Router evaluating: $DAGU_CONFORMANCE_UNDEFINED_ROUTE\n  re:.* -> [matched]\n"}},
 		},
 		{
+			// A step listed under several patterns runs when any of them
+			// matches; the other target of the unmatched pattern stays skipped.
+			name:   "a step listed under several patterns runs when one matches",
+			file:   "shared_target.yaml",
+			want:   []routeFile{{"shared.out", "shared\n"}},
+			absent: []string{"extra.out"},
+		},
+		{
+			name:   "a step listed under several patterns is skipped when none match",
+			file:   "shared_target_no_match.yaml",
+			absent: []string{"shared.out", "extra.out"},
+		},
+		{
+			// pick_mode matches but pick_region does not, so the step each
+			// router targets is skipped.
+			name:   "a step targeted by two routers needs a match from each",
+			file:   "shared_target_two_routers.yaml",
+			absent: []string{"shared.out"},
+		},
+		{
+			// Two num: routes to one step express an outer band.
+			name: "num: routes to one step combine as either band",
+			file: "shared_target_numeric_band.yaml",
+			want: []routeFile{{"review.out", "review\n"}},
+		},
+		{
 			name:   "no matching pattern skips every target and still succeeds",
 			file:   "no_route_matches.yaml",
 			absent: []string{"a.out"},
@@ -126,11 +152,6 @@ func TestRouteValidation(t *testing.T) {
 			name:        "empty routes",
 			file:        "empty_routes.yaml",
 			stderrParts: []string{"requires at least one route"},
-		},
-		{
-			name:        "same step targeted by more than one route",
-			file:        "duplicate_target.yaml",
-			stderrParts: []string{"is targeted by multiple routes"},
 		},
 		{
 			name:        "route targets a step that does not exist",
