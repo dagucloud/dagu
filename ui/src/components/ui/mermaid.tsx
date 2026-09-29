@@ -301,6 +301,15 @@ function Mermaid({
       return;
     }
 
+    // Hold the current height while the old SVG is gone and the new one is
+    // not ready, so content below the graph does not collapse and jump.
+    const releaseHeight = () => {
+      if (mermaidRef.current) {
+        mermaidRef.current.style.minHeight = String(mStyle.minHeight ?? '');
+      }
+    };
+    mermaidRef.current.style.minHeight = `${mermaidRef.current.offsetHeight}px`;
+
     try {
       setRenderError(null);
       // Reinitialize Mermaid to pick up current theme
@@ -320,6 +329,7 @@ function Mermaid({
       }
 
       mermaidRef.current.innerHTML = svg;
+      releaseHeight();
       onRender?.(mermaidRef.current);
       applyNodeInteractionStyles(
         mermaidRef.current,
@@ -374,6 +384,7 @@ function Mermaid({
       }
       console.error('Mermaid render error:', error);
       setRenderError(String(error));
+      releaseHeight();
       if (mermaidRef.current) {
         mermaidRef.current.innerHTML = '';
       }

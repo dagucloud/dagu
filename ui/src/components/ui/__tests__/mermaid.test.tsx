@@ -51,6 +51,7 @@ describe('Mermaid', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it('ignores stale render results after a newer definition renders', async () => {
@@ -109,6 +110,31 @@ describe('Mermaid', () => {
     });
 
     expect(screen.queryByText('Fallback graph')).not.toBeInTheDocument();
+  });
+
+  // Re-rendering removes the old SVG before the new one is ready. Content
+  // below the graph must not collapse and jump in the meantime. jsdom has no
+  // layout engine, so the rendered height is stubbed.
+  it('keeps its height while a new definition renders', async () => {
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(240);
+    const { container, rerender } = render(
+      <Mermaid def="graph TD; A-->B;" scale={1} />
+    );
+    await waitFor(() => expect(pendingRenders).toHaveLength(1));
+    await act(async () => {
+      pendingRenderAt(0).resolve({ svg: '<svg data-def="first"></svg>' });
+    });
+    const graph = container.querySelector<HTMLElement>('.mermaid');
+    const restingMinHeight = graph?.style.minHeight;
+
+    rerender(<Mermaid def="graph TD; C-->D;" scale={1} />);
+    await waitFor(() => expect(pendingRenders).toHaveLength(2));
+    expect(graph?.style.minHeight).toBe('240px');
+
+    await act(async () => {
+      pendingRenderAt(1).resolve({ svg: '<svg data-def="second"></svg>' });
+    });
+    expect(graph?.style.minHeight).toBe(restingMinHeight);
   });
 
   it('resolves Mermaid 11.15 prefixed node ids before firing graph callbacks', async () => {
