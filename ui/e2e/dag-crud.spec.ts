@@ -103,6 +103,85 @@ steps:
     await expect(warning).toHaveCount(0);
   });
 
+  // Live validation redraws the graph, step table and errors above the
+  // editor. None of that may move the editor while the user types.
+  test('keeps the spec editor in place while the preview updates', async ({ page, request }) => {
+    const stack = await loadStack();
+    const token = await loginViaAPI(
+      request,
+      stack.auth.adminUsername,
+      stack.auth.adminPassword
+    );
+    const dagName = uniqueName('e2e-spec-anchor');
+    const definition = `name: ${dagName}
+steps:
+  - name: first
+    run: echo first
+`;
+    const fileName = await writeLocalDAG(dagName, definition);
+    await waitForDAGAvailable(request, token, fileName);
+    await page.goto(`/dags/${encodeURIComponent(fileName)}/spec`);
+
+    const graph = page.locator('.mermaid svg');
+    const monaco = page.locator('.monaco-editor').first();
+    await expect(graph.getByText('first', { exact: true })).toBeVisible();
+    await expect(monaco).toBeVisible();
+    // Leave the bottom of the preview in view, where browser scroll
+    // anchoring alone would pin the preview rather than the editor.
+    await page
+      .getByRole('heading', { name: 'YAML', exact: true })
+      .evaluate((heading) => {
+        heading.scrollIntoView({ block: 'start' });
+        let scroller = heading.parentElement;
+        while (scroller && getComputedStyle(scroller).overflowY !== 'auto') {
+          scroller = scroller.parentElement;
+        }
+        scroller?.scrollBy(0, -150);
+      });
+    const editorTop = async () => (await monaco.boundingBox())?.y ?? NaN;
+    const initialTop = await editorTop();
+    // Scroll positions snap to whole pixels while preview heights do not.
+    const expectEditorInPlace = async () =>
+      expect(Math.abs((await editorTop()) - initialTop)).toBeLessThan(2);
+
+    // Single-line flow YAML sidesteps Monaco's auto-indent on typed newlines.
+    // Brackets Monaco auto-closes and does not overtype end up after the
+    // cursor, so the rest of the line is dropped. Select-all right after
+    // focusing is occasionally lost, so the replacement is retried until the
+    // buffer is that single line.
+    const replaceSpec = async (spec: string) => {
+      await expect(async () => {
+        await page.keyboard.press('ControlOrMeta+A');
+        await page.keyboard.insertText(spec);
+        await page.keyboard.press('Shift+End');
+        await page.keyboard.press('Delete');
+        await expect(monaco.locator('.view-line')).toHaveCount(1, {
+          timeout: 500,
+        });
+      }).toPass();
+    };
+    const step = (name: string, extra = '') =>
+      `{name: ${name}, run: echo ${name}${extra}}`;
+    await page.locator('.monaco-editor textarea').first().focus();
+    await expect(monaco).toHaveClass(/\bfocused\b/);
+
+    await replaceSpec('steps: []');
+    await expect(page.getByText('No steps to render')).toBeVisible();
+    await expectEditorInPlace();
+
+    await replaceSpec(`steps: [${step('first')}, ${step('second')}, ${step('third')}]`);
+    await expect(page.getByText('Valid', { exact: true })).toBeVisible();
+    await expect(graph.getByText('third', { exact: true })).toBeVisible();
+    await expectEditorInPlace();
+
+    await replaceSpec(
+      `steps: [${step('first')}, ${step('second')}, ` +
+        `${step('third', ', depends: [missing]')}]`
+    );
+    await expect(page.getByText(/^\d+ issues?$/)).toBeVisible();
+    await expectEditorInPlace();
+  });
+
   test('renames a DAG from the UI', async ({ page, request }) => {
     const stack = await loadStack();
     const token = await loginViaAPI(

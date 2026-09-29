@@ -64,6 +64,7 @@ import DAGEditorWithDocs from './DAGEditorWithDocs';
 import { parseValidationMarkers } from './validationMarkers';
 import { AgentSpecOverview } from './AgentSpecOverview';
 import ExternalChangeDialog from './ExternalChangeDialog';
+import { useEditorScrollAnchor } from './useEditorScrollAnchor';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -120,6 +121,10 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
 
   // Reference to the main container div
   const containerRef = React.useRef<HTMLDivElement>(null);
+
+  // Keeps the YAML editor still while the live preview above it resizes
+  const { anchorRef: editorSectionRef, contentRef: previewRef } =
+    useEditorScrollAnchor();
 
   // Reference to save function and refresh callback for keyboard shortcut
   const saveHandlerRef = React.useRef<(() => Promise<void>) | null>(null);
@@ -761,90 +766,95 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
                 className="flex min-h-0 flex-1 flex-col space-y-6 pb-8"
                 ref={containerRef}
               >
-                {warnings.length > 0 && (
-                  <div
-                    role="status"
-                    className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-800 dark:text-amber-200"
-                  >
-                    <div className="mb-2 flex items-center gap-2 font-medium">
-                      <AlertTriangle className="h-4 w-4" aria-hidden="true" />
-                      <I18nText text={'Warnings'} />
+                <div ref={previewRef} className="flex-shrink-0 space-y-6">
+                  {warnings.length > 0 && (
+                    <div
+                      role="status"
+                      className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-800 dark:text-amber-200"
+                    >
+                      <div className="mb-2 flex items-center gap-2 font-medium">
+                        <AlertTriangle className="h-4 w-4" aria-hidden="true" />
+                        <I18nText text={'Warnings'} />
+                      </div>
+                      <ul className="list-disc space-y-1 pl-5">
+                        {warnings.map((warning) => (
+                          <li
+                            key={warning}
+                            className="whitespace-normal break-words"
+                          >
+                            {warning}
+                          </li>
+                        ))}
+                      </ul>
                     </div>
-                    <ul className="list-disc space-y-1 pl-5">
-                      {warnings.map((warning) => (
-                        <li
-                          key={warning}
-                          className="whitespace-normal break-words"
-                        >
-                          {warning}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                {hasLocalDags && (
-                  <div className="flex-shrink-0">
-                    <div className="overflow-x-auto -mx-2 px-2 scrollbar-thin scrollbar-thumb-gray-300">
-                      <Tabs className="w-max min-w-full">
-                        <Tab
-                          isActive={activeTab === 'parent'}
-                          onClick={() => handleActiveTabChange('parent')}
-                          className="cursor-pointer whitespace-nowrap"
-                        >
-                          {data?.dag?.name} <I18nText text={'(Parent)'} />
-                        </Tab>
-                        {localDags?.map(
-                          (localDag: components['schemas']['LocalDag']) => (
-                            <Tab
-                              key={localDag.name}
-                              isActive={activeTab === localDag.name}
-                              onClick={() =>
-                                handleActiveTabChange(localDag.name)
-                              }
-                              className="cursor-pointer whitespace-nowrap"
-                            >
-                              {localDag.name}
-                            </Tab>
-                          )
-                        )}
-                      </Tabs>
+                  )}
+                  {hasLocalDags && (
+                    <div className="flex-shrink-0">
+                      <div className="overflow-x-auto -mx-2 px-2 scrollbar-thin scrollbar-thumb-gray-300">
+                        <Tabs className="w-max min-w-full">
+                          <Tab
+                            isActive={activeTab === 'parent'}
+                            onClick={() => handleActiveTabChange('parent')}
+                            className="cursor-pointer whitespace-nowrap"
+                          >
+                            {data?.dag?.name} <I18nText text={'(Parent)'} />
+                          </Tab>
+                          {localDags?.map(
+                            (localDag: components['schemas']['LocalDag']) => (
+                              <Tab
+                                key={localDag.name}
+                                isActive={activeTab === localDag.name}
+                                onClick={() =>
+                                  handleActiveTabChange(localDag.name)
+                                }
+                                className="cursor-pointer whitespace-nowrap"
+                              >
+                                {localDag.name}
+                              </Tab>
+                            )
+                          )}
+                        </Tabs>
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
 
-                {(() => {
-                  if (activeTab === 'parent') {
-                    // While the buffer is dirty, preview the live validation
-                    // result instead of the saved spec.
-                    const previewDag = liveValidation?.dag ?? data?.dag;
-                    const previewErrors = liveValidation
-                      ? liveValidation.errors
-                      : data?.errors;
+                  {(() => {
+                    if (activeTab === 'parent') {
+                      // While the buffer is dirty, preview the live validation
+                      // result instead of the saved spec.
+                      const previewDag = liveValidation?.dag ?? data?.dag;
+                      const previewErrors = liveValidation
+                        ? liveValidation.errors
+                        : data?.errors;
+                      return (
+                        previewDag && (
+                          <div className="flex-shrink-0">
+                            {renderDAGContent(previewDag, previewErrors)}
+                          </div>
+                        )
+                      );
+                    }
+                    const selectedLocalDag = localDags?.find(
+                      (ld: components['schemas']['LocalDag']) =>
+                        ld.name === activeTab
+                    );
                     return (
-                      previewDag && (
+                      selectedLocalDag?.dag && (
                         <div className="flex-shrink-0">
-                          {renderDAGContent(previewDag, previewErrors)}
+                          {renderDAGContent(
+                            selectedLocalDag.dag,
+                            selectedLocalDag.errors
+                          )}
                         </div>
                       )
                     );
-                  }
-                  const selectedLocalDag = localDags?.find(
-                    (ld: components['schemas']['LocalDag']) =>
-                      ld.name === activeTab
-                  );
-                  return (
-                    selectedLocalDag?.dag && (
-                      <div className="flex-shrink-0">
-                        {renderDAGContent(
-                          selectedLocalDag.dag,
-                          selectedLocalDag.errors
-                        )}
-                      </div>
-                    )
-                  );
-                })()}
+                  })()}
+                </div>
 
-                <section className="flex-shrink-0 space-y-3">
+                <section
+                  ref={editorSectionRef}
+                  className="flex-shrink-0 space-y-3"
+                >
                   <h2 className="text-lg font-semibold text-foreground">
                     <I18nText text={'YAML'} />
                   </h2>
