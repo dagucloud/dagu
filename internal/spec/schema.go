@@ -21,6 +21,10 @@ import (
 
 const schemaHTTPTimeout = 30 * time.Second
 
+// schemaMaxResponseBytes bounds a downloaded schema. JSON schemas are small
+// documents, so a generous cap still prevents unbounded memory use.
+const schemaMaxResponseBytes = 10 << 20 // 10 MiB
+
 // resolveSchemaFromParams extracts a schema declaration from params and resolves it.
 // Returns (nil, nil) if no schema is declared.
 func resolveSchemaFromParams(params any, workingDir, dagLocation string) (*jsonschema.Resolved, error) {
@@ -130,8 +134,14 @@ func loadSchemaFromURL(schemaURL string) (data []byte, err error) {
 		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
 	}
 
-	data, err = io.ReadAll(resp.Body)
-	return data, err
+	data, err = io.ReadAll(io.LimitReader(resp.Body, schemaMaxResponseBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > schemaMaxResponseBytes {
+		return nil, fmt.Errorf("schema exceeds the %d MiB size limit", schemaMaxResponseBytes/(1<<20))
+	}
+	return data, nil
 }
 
 func newSchemaHTTPClient() *http.Client {

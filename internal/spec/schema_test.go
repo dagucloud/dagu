@@ -178,6 +178,21 @@ func TestLoadSchemaFromURL(t *testing.T) {
 		_, err := loadSchemaFromURL("http://127.0.0.1:59999/schema.json")
 		require.Error(t, err)
 	})
+
+	t.Run("ExceedsSizeLimit", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(make([]byte, schemaMaxResponseBytes+1))
+		}))
+		defer server.Close()
+
+		_, err := loadSchemaFromURL(server.URL + "/schema.json")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "10 MiB")
+	})
 }
 
 func TestLoadSchemaFromURLUsesIsolatedHTTPClient(t *testing.T) {
