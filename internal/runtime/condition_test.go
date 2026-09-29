@@ -257,6 +257,50 @@ func TestEvalConditions(t *testing.T) {
 			wantErr:            true,
 			notConditionNotMet: true,
 		},
+
+		// Any-of tests: one matching pattern satisfies the condition.
+		{
+			name:       "ExpectedAnyExactMatch",
+			conditions: []*ir.Condition{{Condition: "minimal", ExpectedAny: []string{"full", "minimal"}}},
+		},
+		{
+			name:       "ExpectedAnyRegexMatch",
+			conditions: []*ir.Condition{{Condition: "apple_pie", ExpectedAny: []string{"banana", "re:^apple"}}},
+		},
+		{
+			name:                "ExpectedAnyNoMatch",
+			conditions:          []*ir.Condition{{Condition: "other", ExpectedAny: []string{"full", "re:^min"}}},
+			wantErr:             true,
+			wantConditionNotMet: true,
+		},
+		{
+			name:       "ExpectedAnyNumericLowBand",
+			conditions: []*ir.Condition{{Condition: "0.05", ExpectedAny: []string{"num:<0.1", "num:>0.9"}}},
+		},
+		{
+			name:       "ExpectedAnyNumericHighBand",
+			conditions: []*ir.Condition{{Condition: "0.95", ExpectedAny: []string{"num:<0.1", "num:>0.9"}}},
+		},
+		{
+			name:                "ExpectedAnyNumericBetweenBands",
+			conditions:          []*ir.Condition{{Condition: "0.5", ExpectedAny: []string{"num:<0.1", "num:>0.9"}}},
+			wantErr:             true,
+			wantConditionNotMet: true,
+		},
+		{
+			// A numeric pattern that cannot be evaluated fails the check even
+			// when another pattern matches, so the gate never half-applies.
+			name:               "ExpectedAnyNumericValueNotANumber",
+			conditions:         []*ir.Condition{{Condition: "abc", ExpectedAny: []string{"num:>0.9", "abc"}}},
+			wantErr:            true,
+			notConditionNotMet: true,
+		},
+		{
+			name:                "ExpectedAnyNegated",
+			conditions:          []*ir.Condition{{Condition: "minimal", ExpectedAny: []string{"full", "minimal"}, Negate: true}},
+			wantErr:             true,
+			wantConditionNotMet: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -587,4 +631,22 @@ func TestResolveNumericComparisonHidesResolvedThreshold(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "did not resolve")
 	require.NotContains(t, err.Error(), "not a number")
+}
+
+// A not-met any-of condition names every pattern as authored, never with a
+// resolved threshold, since the message is persisted with the run.
+func TestEvalConditionsExpectedAnyNotMetMessage(t *testing.T) {
+	ctx := newTestContext()
+	env := runtime.GetEnv(ctx)
+	env.Scope = env.Scope.WithEntry("SECRET_THRESHOLD", "0.8", cmnvalue.EnvSourceDAGEnv)
+	ctx = runtime.WithEnv(ctx, env)
+
+	err := evalConditions(ctx, nil, []*ir.Condition{{
+		Condition:   "0.5",
+		ExpectedAny: []string{"num:>=${env.SECRET_THRESHOLD}", "done"},
+	}})
+	require.ErrorIs(t, err, runtime.ErrConditionNotMet)
+	require.Contains(t, err.Error(), `"num:>=${env.SECRET_THRESHOLD}"`)
+	require.Contains(t, err.Error(), `"done"`)
+	require.NotContains(t, err.Error(), "0.8")
 }

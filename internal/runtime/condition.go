@@ -99,7 +99,7 @@ func conditionResults(conditions []*ir.Condition) []ir.ConditionResult {
 func EvalCondition(ctx context.Context, shell []string, c *ir.Condition) error {
 	var err error
 	switch {
-	case c.Expected != "" && (c.Condition != "" || c.Eval != ""):
+	case len(c.ExpectedPatterns()) > 0 && (c.Condition != "" || c.Eval != ""):
 		err = matchCondition(ctx, shell, c)
 	case c.Eval != "":
 		err = fmt.Errorf("expected is required when eval is set")
@@ -124,8 +124,8 @@ func EvalCondition(ctx context.Context, shell []string, c *ir.Condition) error {
 	return err
 }
 
-// matchCondition evaluates the condition and checks if it matches the expected value.
-// It returns an error if the condition was not met.
+// matchCondition evaluates the condition and checks if it matches any of the
+// expected patterns. It returns an error if the condition was not met.
 func matchCondition(ctx context.Context, shell []string, c *ir.Condition) error {
 	raw := c.Condition
 	field := cmnvalue.ConditionRuntimeValueField("condition")
@@ -140,26 +140,50 @@ func matchCondition(ctx context.Context, shell []string, c *ir.Condition) error 
 		return fmt.Errorf("failed to evaluate the value: Error=%v", err)
 	}
 
-	if stringutil.HasNumericPrefix(c.Expected) {
-		return matchNumericCondition(ctx, c.Expected, evaluatedVal)
+	patterns := c.ExpectedPatterns()
+	var textPatterns []string
+	numericMatched := false
+	for _, pattern := range patterns {
+		if !stringutil.HasNumericPrefix(pattern) {
+			textPatterns = append(textPatterns, pattern)
+			continue
+		}
+		// Every numeric pattern is evaluated even after one matches, so a
+		// pattern that cannot be evaluated fails the check regardless of order.
+		err := matchNumericCondition(ctx, pattern, evaluatedVal)
+		switch {
+		case err == nil:
+			numericMatched = true
+		case !errors.Is(err, ErrConditionNotMet):
+			return err
+		}
 	}
-
-	// Get maxOutputSize from DAG configuration
-	var maxOutputSize = defaultMaxOutputSizeBytes
-	if rCtx := GetDAGContext(ctx); rCtx.DAG != nil && rCtx.DAG.MaxOutputSize > 0 {
-		maxOutputSize = rCtx.DAG.MaxOutputSize
-	}
-
-	matchOpts := []stringutil.MatchOption{
-		stringutil.WithExactMatch(),
-		stringutil.WithMaxBufferSize(maxOutputSize),
-	}
-
-	if stringutil.MatchPattern(ctx, evaluatedVal, []string{c.Expected}, matchOpts...) {
+	if numericMatched {
 		return nil
 	}
+
+	if len(textPatterns) > 0 {
+		// Get maxOutputSize from DAG configuration
+		var maxOutputSize = defaultMaxOutputSizeBytes
+		if rCtx := GetDAGContext(ctx); rCtx.DAG != nil && rCtx.DAG.MaxOutputSize > 0 {
+			maxOutputSize = rCtx.DAG.MaxOutputSize
+		}
+
+		matchOpts := []stringutil.MatchOption{
+			stringutil.WithExactMatch(),
+			stringutil.WithMaxBufferSize(maxOutputSize),
+		}
+
+		if stringutil.MatchPattern(ctx, evaluatedVal, textPatterns, matchOpts...) {
+			return nil
+		}
+	}
+
 	// Return an helpful error message if the condition is not met
-	return fmt.Errorf("%w: expected %q, got %q", ErrConditionNotMet, c.Expected, evaluatedVal)
+	if len(patterns) == 1 {
+		return fmt.Errorf("%w: expected %q, got %q", ErrConditionNotMet, patterns[0], evaluatedVal)
+	}
+	return fmt.Errorf("%w: expected one of %q, got %q", ErrConditionNotMet, patterns, evaluatedVal)
 }
 
 // matchNumericCondition compares an actual value against a numeric-comparison
