@@ -54,25 +54,29 @@ export function useQueuedItemsFeed({
   const [isLoading, setIsLoading] = React.useState(false);
   const [isLoadingMore, setIsLoadingMore] = React.useState(false);
   const requestIDRef = React.useRef(0);
+  // The refs mirror state synchronously so loadMore guards see a value as
+  // soon as it is set, before any re-render or effect.
   const nextCursorRef = React.useRef<string | null>(null);
   const loadingMoreRef = React.useRef(false);
 
-  React.useEffect(() => {
-    nextCursorRef.current = nextCursor;
-  }, [nextCursor]);
+  const updateNextCursor = React.useCallback((cursor: string | null) => {
+    nextCursorRef.current = cursor;
+    setNextCursor(cursor);
+  }, []);
 
-  React.useEffect(() => {
-    loadingMoreRef.current = isLoadingMore;
-  }, [isLoadingMore]);
+  const updateLoadingMore = React.useCallback((loadingMore: boolean) => {
+    loadingMoreRef.current = loadingMore;
+    setIsLoadingMore(loadingMore);
+  }, []);
 
   const loadPage = React.useCallback(
     async (reset: boolean) => {
       if (!enabled) {
         setItems([]);
-        setNextCursor(null);
+        updateNextCursor(null);
         setError(null);
         setIsLoading(false);
-        setIsLoadingMore(false);
+        updateLoadingMore(false);
         return;
       }
 
@@ -80,10 +84,10 @@ export function useQueuedItemsFeed({
         if (loadingMoreRef.current || !nextCursorRef.current) {
           return;
         }
-        setIsLoadingMore(true);
+        updateLoadingMore(true);
       } else {
         setIsLoading(true);
-        setIsLoadingMore(false);
+        updateLoadingMore(false);
         setError(null);
       }
 
@@ -111,7 +115,7 @@ export function useQueuedItemsFeed({
           if (reset) {
             setIsLoading(false);
           } else {
-            setIsLoadingMore(false);
+            updateLoadingMore(false);
           }
           return;
         }
@@ -120,10 +124,10 @@ export function useQueuedItemsFeed({
         setItems((previous) =>
           reset ? pageItems : mergeQueuedItems(previous, pageItems)
         );
-        setNextCursor(data?.nextCursor ?? null);
+        updateNextCursor(data?.nextCursor ?? null);
         setError(null);
         setIsLoading(false);
-        setIsLoadingMore(false);
+        updateLoadingMore(false);
       } catch (error) {
         if (requestIDRef.current !== requestID) {
           return;
@@ -140,25 +144,32 @@ export function useQueuedItemsFeed({
               : 'Failed to load queued items.';
         setError(message);
         setIsLoading(false);
-        setIsLoadingMore(false);
+        updateLoadingMore(false);
       }
     },
-    [client, enabled, queueName, remoteNode]
+    [
+      client,
+      enabled,
+      queueName,
+      remoteNode,
+      updateLoadingMore,
+      updateNextCursor,
+    ]
   );
 
   React.useEffect(() => {
     if (!enabled) {
       requestIDRef.current += 1;
       setItems([]);
-      setNextCursor(null);
+      updateNextCursor(null);
       setError(null);
       setIsLoading(false);
-      setIsLoadingMore(false);
+      updateLoadingMore(false);
       return;
     }
 
     void loadPage(true);
-  }, [enabled, loadPage, refreshToken]);
+  }, [enabled, loadPage, refreshToken, updateLoadingMore, updateNextCursor]);
 
   const loadMore = React.useCallback(() => loadPage(false), [loadPage]);
 
