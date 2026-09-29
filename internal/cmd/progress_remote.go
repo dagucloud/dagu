@@ -36,6 +36,10 @@ type RemoteProgressDisplay struct {
 	stopped                 bool
 	stopCh                  chan struct{}
 	wg                      sync.WaitGroup
+
+	// subRunResolver resolves sub-run status for inline tree expansion in
+	// PrintSummary. Nil renders bare "subdag:" reference lines.
+	subRunResolver output.SubRunResolver
 }
 
 // NewRemoteProgressDisplay creates a new remote progress display.
@@ -142,6 +146,12 @@ func (p *RemoteProgressDisplay) Stop() {
 	p.printFinal(status)
 }
 
+// SetSubRunResolver enables inline expansion of sub-run step trees in the
+// final summary.
+func (p *RemoteProgressDisplay) SetSubRunResolver(resolver output.SubRunResolver) {
+	p.subRunResolver = resolver
+}
+
 // GetLastStatus returns the last known status.
 func (p *RemoteProgressDisplay) GetLastStatus() *ir.DAGRunStatus {
 	p.mu.Lock()
@@ -173,6 +183,7 @@ func (p *RemoteProgressDisplay) PrintSummary() {
 	config := output.DefaultConfig()
 	config.ColorEnabled = term.IsTerminal(int(os.Stdout.Fd()))
 	config.MaxOutputLines = 10
+	config.SubRunResolver = p.subRunResolver
 
 	renderer := output.NewRenderer(config)
 	summary := renderer.RenderDAGStatus(dag, status)

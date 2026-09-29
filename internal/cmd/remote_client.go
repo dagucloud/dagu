@@ -198,6 +198,17 @@ func (c *remoteClient) getDAGRunDetails(ctx context.Context, name, dagRunID stri
 	return &out, nil
 }
 
+func (c *remoteClient) getSubDAGRunDetails(ctx context.Context, name, dagRunID, subDAGRunID string) (*api.DAGRunDetails, error) {
+	var out struct {
+		DagRunDetails api.DAGRunDetails `json:"dagRunDetails"`
+	}
+	path := dagRunPath(name, dagRunID) + "/sub-dag-runs/" + url.PathEscape(subDAGRunID)
+	if err := c.do(ctx, http.MethodGet, path, nil, &out, nil); err != nil {
+		return nil, err
+	}
+	return &out.DagRunDetails, nil
+}
+
 func (c *remoteClient) stopAllDAGRuns(ctx context.Context, fileName string) error {
 	return c.do(ctx, http.MethodPost, "/dags/"+url.PathEscape(fileName)+"/stop-all", nil, nil, nil)
 }

@@ -238,6 +238,8 @@ type Agent struct {
 	extraEnvs []string
 	// inheritedEnvs are env entries inherited from the parent run scope.
 	inheritedEnvs []cmnvalue.EnvEntry
+	// expandSubRuns makes PrintSummary render sub-run step trees inline.
+	expandSubRuns bool
 	// profileName is the selected runtime profile name for this run.
 	profileName string
 
@@ -310,6 +312,9 @@ type Options struct {
 	// ProgressDisplay indicates if the progress display should be shown.
 	// This is typically enabled for CLI execution in a TTY environment.
 	ProgressDisplay bool
+	// ExpandSubRuns makes PrintSummary resolve each sub-DAG run and render its
+	// step tree inline instead of a bare "subdag:" reference line.
+	ExpandSubRuns bool
 	// ExtraEnvs are additional execution-scoped env vars injected into the DAG run context.
 	ExtraEnvs []string
 	// InheritedEnvs are env entries an in-process child run inherits from the
@@ -439,6 +444,7 @@ func New(
 		registry:                 opts.ServiceRegistry,
 		extraEnvs:                append([]string{}, opts.ExtraEnvs...),
 		inheritedEnvs:            append([]cmnvalue.EnvEntry{}, opts.InheritedEnvs...),
+		expandSubRuns:            opts.ExpandSubRuns,
 		workDir:                  opts.WorkDir,
 		workspaceSeed:            opts.WorkspaceSeed,
 		profileName:              opts.ProfileName,
@@ -1421,6 +1427,9 @@ func (a *Agent) PrintSummary(ctx context.Context) {
 	// Enable colors if stdout is a terminal
 	config := output.DefaultConfig()
 	config.ColorEnabled = term.IsTerminal(int(os.Stdout.Fd()))
+	if a.expandSubRuns {
+		config.SubRunResolver = a.subRunResolver(ctx)
+	}
 
 	renderer := output.NewRenderer(config)
 	summary := renderer.RenderDAGStatus(dag, &status)
@@ -1429,6 +1438,18 @@ func (a *Agent) PrintSummary(ctx context.Context) {
 	_, _ = os.Stdout.WriteString(summary)
 	_, _ = os.Stdout.WriteString("\n")
 	_ = os.Stdout.Sync()
+}
+
+// subRunResolver resolves sub-run status under this run's root so PrintSummary
+// can render child step trees inline.
+func (a *Agent) subRunResolver(ctx context.Context) output.SubRunResolver {
+	root := a.rootDAGRun
+	if root.ID == "" {
+		root = ir.NewDAGRunRef(a.dag.Name, a.dagRunID)
+	}
+	return func(sub ir.SubDAGRun) (*ir.DAGRunStatus, error) {
+		return a.dagRunMgr.FindSubDAGRunStatus(ctx, root, sub.DAGRunID)
+	}
 }
 
 // Status collects the current running status of the DAG and returns it.

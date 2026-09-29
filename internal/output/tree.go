@@ -26,15 +26,25 @@ const (
 	DefaultMaxOutputLines = 50
 	// DefaultMaxWidth is the maximum line width before wrapping.
 	DefaultMaxWidth = 80
+	// DefaultMaxSubRunDepth is the default nesting limit when expanding sub-DAG runs.
+	DefaultMaxSubRunDepth = 5
+	// maxExpandedSubRuns caps the total number of sub-run trees rendered so runs
+	// with many children cannot produce unbounded output.
+	maxExpandedSubRuns = 100
 )
+
+// SubRunResolver loads the status of a sub-DAG run for tree expansion.
+type SubRunResolver func(sub ir.SubDAGRun) (*ir.DAGRunStatus, error)
 
 // Config holds configuration for tree rendering.
 type Config struct {
-	ColorEnabled   bool // Enable colored output using ANSI escape codes.
-	ShowStdout     bool // Display stdout content in the tree.
-	ShowStderr     bool // Display stderr content in the tree.
-	MaxOutputLines int  // Limit stdout/stderr to last N lines (0 = unlimited).
-	MaxWidth       int  // Maximum line width before wrapping (0 = no wrapping).
+	ColorEnabled   bool           // Enable colored output using ANSI escape codes.
+	ShowStdout     bool           // Display stdout content in the tree.
+	ShowStderr     bool           // Display stderr content in the tree.
+	MaxOutputLines int            // Limit stdout/stderr to last N lines (0 = unlimited).
+	MaxWidth       int            // Maximum line width before wrapping (0 = no wrapping).
+	MaxSubRunDepth int            // Nesting limit for expanded sub-run trees (0 = no expansion).
+	SubRunResolver SubRunResolver // Loads sub-run status for expansion; nil disables expansion.
 }
 
 // DefaultConfig returns the default configuration with sensible defaults.
@@ -45,12 +55,14 @@ func DefaultConfig() Config {
 		ShowStderr:     true,
 		MaxOutputLines: DefaultMaxOutputLines,
 		MaxWidth:       DefaultMaxWidth,
+		MaxSubRunDepth: DefaultMaxSubRunDepth,
 	}
 }
 
 // Renderer renders DAG execution status as a tree structure.
 type Renderer struct {
-	config Config
+	config          Config
+	expandedSubRuns int
 }
 
 // text applies a soft light blue color (ANSI 256 color 110) for visual distinction.
@@ -92,6 +104,7 @@ func NewRenderer(config Config) *Renderer {
 
 // RenderDAGStatus renders the complete DAG status as a tree structure.
 func (r *Renderer) RenderDAGStatus(dag *ir.DAG, status *ir.DAGRunStatus) string {
+	r.expandedSubRuns = 0
 	var buf strings.Builder
 
 	buf.WriteString(r.renderHeader(status))
@@ -110,7 +123,7 @@ func (r *Renderer) RenderDAGStatus(dag *ir.DAG, status *ir.DAGRunStatus) string 
 	}
 
 	for i, node := range nodes {
-		buf.WriteString(r.renderStep(node, i == len(nodes)-1, ""))
+		buf.WriteString(r.renderStep(node, i == len(nodes)-1, "", 0))
 	}
 
 	buf.WriteString(r.renderFinalStatus(status))
@@ -137,7 +150,7 @@ func (r *Renderer) renderDAGLine(dag *ir.DAG, status *ir.DAGRunStatus) string {
 }
 
 // renderStep renders a single step with its commands and output content.
-func (r *Renderer) renderStep(node *ir.Node, isLast bool, prefix string) string {
+func (r *Renderer) renderStep(node *ir.Node, isLast bool, prefix string, depth int) string {
 	var buf strings.Builder
 
 	buf.WriteString(r.renderStepHeader(node, isLast, prefix))
@@ -155,7 +168,7 @@ func (r *Renderer) renderStep(node *ir.Node, isLast bool, prefix string) string 
 		return buf.String()
 	}
 
-	buf.WriteString(r.renderStepContent(node, isLast, prefix))
+	buf.WriteString(r.renderStepContent(node, isLast, prefix, depth))
 
 	if !isLast {
 		buf.WriteString(prefix + TreePipe + "\n")
@@ -182,7 +195,7 @@ func (r *Renderer) renderStepHeader(node *ir.Node, isLast bool, prefix string) s
 }
 
 // renderStepContent renders commands, outputs, sub-runs, and errors for a step.
-func (r *Renderer) renderStepContent(node *ir.Node, isLast bool, prefix string) string {
+func (r *Renderer) renderStepContent(node *ir.Node, isLast bool, prefix string, depth int) string {
 	var buf strings.Builder
 	cPrefix := childPrefix(prefix, isLast)
 
@@ -223,7 +236,7 @@ func (r *Renderer) renderStepContent(node *ir.Node, isLast bool, prefix string) 
 
 	if hasSubRuns {
 		r.addFieldSpacing(&buf, wroteField, cPrefix)
-		buf.WriteString(r.renderSubRuns(node.SubRuns, !hasError, cPrefix))
+		buf.WriteString(r.renderSubRuns(node.SubRuns, !hasError, cPrefix, depth))
 		wroteField = true
 	}
 
@@ -555,8 +568,10 @@ func (r *Renderer) writeContentLine(buf *strings.Builder, line string, contPrefi
 	}
 }
 
-// renderSubRuns renders references to sub-DAG runs.
-func (r *Renderer) renderSubRuns(subRuns []ir.SubDAGRun, isLastSection bool, prefix string) string {
+// renderSubRuns renders references to sub-DAG runs. When a SubRunResolver is
+// configured, each resolved run's steps render as a nested tree under its
+// subdag line, bounded by MaxSubRunDepth and maxExpandedSubRuns.
+func (r *Renderer) renderSubRuns(subRuns []ir.SubDAGRun, isLastSection bool, prefix string, depth int) string {
 	var buf strings.Builder
 
 	for i, sub := range subRuns {
@@ -566,9 +581,36 @@ func (r *Renderer) renderSubRuns(subRuns []ir.SubDAGRun, isLastSection bool, pre
 			subInfo += fmt.Sprintf(" [%s]", sub.Params)
 		}
 		buf.WriteString(prefix + branchChar(isLastItem) + r.text(subInfo) + "\n")
+
+		status := r.resolveSubRun(sub, depth)
+		if status == nil {
+			continue
+		}
+		r.expandedSubRuns++
+		subPrefix := childPrefix(prefix, isLastItem)
+		nodes := status.NodesInRunOrder()
+		for j, subNode := range nodes {
+			buf.WriteString(r.renderStep(subNode, j == len(nodes)-1, subPrefix, depth+1))
+		}
 	}
 
 	return buf.String()
+}
+
+// resolveSubRun loads a sub-run's status, honoring the depth and expansion
+// limits. It returns nil when expansion is disabled, capped, or the status
+// cannot be loaded.
+func (r *Renderer) resolveSubRun(sub ir.SubDAGRun, depth int) *ir.DAGRunStatus {
+	if r.config.SubRunResolver == nil ||
+		depth+1 > r.config.MaxSubRunDepth ||
+		r.expandedSubRuns >= maxExpandedSubRuns {
+		return nil
+	}
+	status, err := r.config.SubRunResolver(sub)
+	if err != nil || status == nil {
+		return nil
+	}
+	return status
 }
 
 // renderError renders an error message with wrapping.

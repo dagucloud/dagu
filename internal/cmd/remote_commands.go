@@ -364,7 +364,7 @@ func remoteRunStatus(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	displayTreeStatus(coreDAG, status)
+	displayTreeStatus(ctx, coreDAG, status, dag.Dag.Name, runID)
 	return nil
 }
 

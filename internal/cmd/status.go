@@ -46,6 +46,7 @@ Example:
 var statusFlags = []commandLineFlag{
 	dagRunIDFlagStatus,
 	subDAGRunIDFlagStatus,
+	recursiveOutputFlag,
 }
 
 func runStatus(ctx *Context, args []string) error {
@@ -103,17 +104,50 @@ func runStatus(ctx *Context, args []string) error {
 		}
 	}
 
-	displayTreeStatus(dag, dagStatus)
+	displayTreeStatus(ctx, dag, dagStatus, name, dagRunID)
 
 	return nil
 }
 
-func displayTreeStatus(dag *ir.DAG, dagStatus *ir.DAGRunStatus) {
+func displayTreeStatus(ctx *Context, dag *ir.DAG, dagStatus *ir.DAGRunStatus, dagName, dagRunID string) {
 	config := output.DefaultConfig()
 	config.ColorEnabled = term.IsTerminal(int(os.Stdout.Fd()))
 
+	if recursive, _ := ctx.Command.Flags().GetBool("recursive-output"); recursive {
+		config.SubRunResolver = subRunStatusResolver(ctx, dagStatus, dagName, dagRunID)
+	}
+
 	renderer := output.NewRenderer(config)
 	fmt.Print(renderer.RenderDAGStatus(dag, dagStatus))
+}
+
+// subRunStatusResolver resolves sub-run status under the displayed run's root,
+// locally via the run store or remotely via the server's sub-run endpoint.
+func subRunStatusResolver(ctx *Context, dagStatus *ir.DAGRunStatus, dagName, dagRunID string) output.SubRunResolver {
+	if ctx.IsRemote() {
+		// The sub-run endpoint treats a literal "latest" or empty run ID as a
+		// root ID, so resolve it to the displayed run's recorded ID first.
+		rootName, rootID := dagName, dagRunID
+		if rootID == "" || rootID == "latest" {
+			rootName, rootID = dagStatus.Name, dagStatus.DAGRunID
+		}
+		return func(sub ir.SubDAGRun) (*ir.DAGRunStatus, error) {
+			detail, err := ctx.Remote.getSubDAGRunDetails(ctx, rootName, rootID, sub.DAGRunID)
+			if err != nil {
+				return nil, err
+			}
+			return toExecStatus(detail)
+		}
+	}
+	// The displayed run may be the latest; its recorded ID is the root under
+	// which all descendants are stored.
+	root := ir.NewDAGRunRef(dagName, dagRunID)
+	if dagRunID == "" || dagRunID == "latest" {
+		root = ir.NewDAGRunRef(dagStatus.Name, dagStatus.DAGRunID)
+	}
+	return func(sub ir.SubDAGRun) (*ir.DAGRunStatus, error) {
+		return ctx.DAGRunMgr.FindSubDAGRunStatus(ctx, root, sub.DAGRunID)
+	}
 }
 
 // extractAttemptForStatus returns the appropriate Attempt based on the provided IDs.

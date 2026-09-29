@@ -467,6 +467,121 @@ func TestRenderDAGStatus_WithSubRunsNoParams(t *testing.T) {
 	require.Contains(t, output, "sub-run-456")
 }
 
+func TestRenderDAGStatus_SubRunExpansion(t *testing.T) {
+	t.Parallel()
+	dag := &ir.DAG{Name: "parent-dag"}
+	status := &ir.DAGRunStatus{
+		Status: ir.Succeeded,
+		Nodes: []*ir.Node{
+			{
+				Step:   ir.Step{Name: "call-child"},
+				Status: ir.NodeSucceeded,
+				SubRuns: []ir.SubDAGRun{
+					{DAGRunID: "sub-run-1", DAGName: "child-dag"},
+				},
+			},
+		},
+	}
+	childStatus := &ir.DAGRunStatus{
+		Name:   "child-dag",
+		Status: ir.Succeeded,
+		Nodes: []*ir.Node{
+			{
+				Step:   ir.Step{Name: "child-step"},
+				Status: ir.NodeSucceeded,
+				SubRuns: []ir.SubDAGRun{
+					{DAGRunID: "grand-run-1", DAGName: "grand-dag"},
+				},
+			},
+		},
+	}
+	grandStatus := &ir.DAGRunStatus{
+		Name:   "grand-dag",
+		Status: ir.Succeeded,
+		Nodes: []*ir.Node{
+			{Step: ir.Step{Name: "grand-step"}, Status: ir.NodeSucceeded},
+		},
+	}
+	resolver := func(sub ir.SubDAGRun) (*ir.DAGRunStatus, error) {
+		switch sub.DAGRunID {
+		case "sub-run-1":
+			return childStatus, nil
+		case "grand-run-1":
+			return grandStatus, nil
+		}
+		return nil, fmt.Errorf("unknown sub-run")
+	}
+
+	output := newTestRendererWithConfig(func(c *Config) {
+		c.SubRunResolver = resolver
+	}).RenderDAGStatus(dag, status)
+
+	require.Contains(t, output, "subdag: sub-run-1")
+	require.Contains(t, output, "child-step")
+	require.Contains(t, output, "subdag: grand-run-1")
+	require.Contains(t, output, "grand-step")
+}
+
+func TestRenderDAGStatus_SubRunExpansionDepthCap(t *testing.T) {
+	t.Parallel()
+	dag := &ir.DAG{Name: "parent-dag"}
+	status := &ir.DAGRunStatus{
+		Status: ir.Succeeded,
+		Nodes: []*ir.Node{
+			{
+				Step:   ir.Step{Name: "call-child"},
+				Status: ir.NodeSucceeded,
+				SubRuns: []ir.SubDAGRun{
+					{DAGRunID: "sub-run-1", DAGName: "child-dag"},
+				},
+			},
+		},
+	}
+	childStatus := &ir.DAGRunStatus{
+		Name:   "child-dag",
+		Status: ir.Succeeded,
+		Nodes: []*ir.Node{
+			{Step: ir.Step{Name: "child-step"}, Status: ir.NodeSucceeded},
+		},
+	}
+
+	output := newTestRendererWithConfig(func(c *Config) {
+		c.MaxSubRunDepth = 0
+		c.SubRunResolver = func(ir.SubDAGRun) (*ir.DAGRunStatus, error) {
+			return childStatus, nil
+		}
+	}).RenderDAGStatus(dag, status)
+
+	require.Contains(t, output, "subdag: sub-run-1")
+	require.NotContains(t, output, "child-step")
+}
+
+func TestRenderDAGStatus_SubRunExpansionResolverError(t *testing.T) {
+	t.Parallel()
+	dag := &ir.DAG{Name: "parent-dag"}
+	status := &ir.DAGRunStatus{
+		Status: ir.Succeeded,
+		Nodes: []*ir.Node{
+			{
+				Step:   ir.Step{Name: "call-child"},
+				Status: ir.NodeSucceeded,
+				SubRuns: []ir.SubDAGRun{
+					{DAGRunID: "sub-run-1", DAGName: "child-dag"},
+				},
+			},
+		},
+	}
+
+	output := newTestRendererWithConfig(func(c *Config) {
+		c.SubRunResolver = func(ir.SubDAGRun) (*ir.DAGRunStatus, error) {
+			return nil, fmt.Errorf("no stored status")
+		}
+	}).RenderDAGStatus(dag, status)
+
+	// The bare reference line stays when the sub-run cannot be resolved.
+	require.Contains(t, output, "subdag: sub-run-1")
+}
+
 func TestRenderDAGStatus_DisabledOutputs(t *testing.T) {
 	t.Parallel()
 	dag := &ir.DAG{Name: "test-dag"}
