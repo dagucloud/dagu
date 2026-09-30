@@ -1382,7 +1382,7 @@ func (r *Runner) runEventHandler(ctx context.Context, plan *Plan, node *Node, ex
 	}
 
 	if r.dry {
-		warnDryRunStep(ctx, node)
+		warnDryRunStep(logger.WithValues(ctx, tag.Step(node.Name())), node)
 		node.SetStatus(ir.NodeSucceeded)
 		return nil
 	}

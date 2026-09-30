@@ -25,10 +25,7 @@ import (
 // step may create or install the executable first.
 func warnDryRunStep(ctx context.Context, node *Node) {
 	if err := checkDryRunStep(ctx, node.Step()); err != nil {
-		logger.Warn(ctx, "Dry run: step may fail on this host",
-			tag.Step(node.Name()),
-			tag.Error(err),
-		)
+		logger.Warn(ctx, "Dry run: step may fail on this host", tag.Error(err))
 	}
 }
 
