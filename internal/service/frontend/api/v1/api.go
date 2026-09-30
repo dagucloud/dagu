@@ -495,6 +495,7 @@ func (a *API) ConfigureRoutes(ctx context.Context, r chi.Router, writeTimeout ti
 			resetSyncWriteDeadline(writeTimeout),
 		}
 		options := api.StrictHTTPServerOptions{
+			RequestErrorHandlerFunc:  a.handleError,
 			ResponseErrorHandlerFunc: a.handleError,
 		}
 		handler := api.NewStrictHandlerWithOptions(a, middlewares, options)
