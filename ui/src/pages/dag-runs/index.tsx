@@ -507,21 +507,21 @@ function DAGRuns() {
           const date = dayjs(value);
           return {
             from: date.startOf('day').format('YYYY-MM-DDTHH:mm'),
-            to: date.endOf('day').format('YYYY-MM-DDTHH:mm'),
+            to: date.startOf('day').add(1, 'day').format('YYYY-MM-DDTHH:mm'),
           };
         }
         case 'month': {
           const date = dayjs(value);
           return {
             from: date.startOf('month').format('YYYY-MM-DDTHH:mm'),
-            to: date.endOf('month').format('YYYY-MM-DDTHH:mm'),
+            to: date.startOf('month').add(1, 'month').format('YYYY-MM-DDTHH:mm'),
           };
         }
         case 'year': {
           const date = dayjs(value);
           return {
             from: date.startOf('year').format('YYYY-MM-DDTHH:mm'),
-            to: date.endOf('year').format('YYYY-MM-DDTHH:mm'),
+            to: date.startOf('year').add(1, 'year').format('YYYY-MM-DDTHH:mm'),
           };
         }
       }

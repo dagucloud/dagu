@@ -911,7 +911,7 @@ describe('DAGRuns page', () => {
 
     await waitFor(() => {
       expect(lastRunQuery()['fromDate']).toBe(dayjs('2026-09-15T00:00').unix());
-      expect(lastRunQuery()['toDate']).toBe(dayjs('2026-09-15T23:59').unix());
+      expect(lastRunQuery()['toDate']).toBe(dayjs('2026-09-16T00:00').unix());
     });
   });
 
