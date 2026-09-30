@@ -215,9 +215,13 @@ func waitForBrowserStep(t *testing.T, server test.Server, dagName, runID string,
 	for time.Now().Before(deadline) {
 		status, err := server.DAGRunMgr.GetSavedStatus(server.Context, ir.NewDAGRunRef(dagName, runID))
 		if err == nil && status != nil {
-			for _, node := range status.Nodes {
-				if node.Step.Name == "login" && ready(node) {
-					return
+			// The step reports Waiting before the run finishes settling, and the
+			// respond API rejects answers until the run itself is Waiting.
+			if status.Status == ir.Waiting {
+				for _, node := range status.Nodes {
+					if node.Step.Name == "login" && ready(node) {
+						return
+					}
 				}
 			}
 			require.NotEqual(t, ir.Failed, status.Status, "run failed before waiting for input")
