@@ -2,42 +2,58 @@
 
 ## Status
 
-Not implemented. This proposed contract requires executor-aware dry-run
-validation before its conformance tests can pass.
+Implemented.
 
 ## Scope
 
-This proposed contract covers direct command steps. Other executors and shell
-language constructs are outside this suite.
+This specification covers the executable-access checks `dagu dry` performs for
+local command steps. It does not define checks for executors that run off the
+host, such as containers, SSH, or remote jobs. It does not define name
+resolution inside shells that are not Unix-like, checks for names containing
+shell syntax or run-time references, or shell syntax validation.
 
 ## Goal
 
-Find inaccessible commands and shells without executing a workflow.
+Surface inaccessible commands and shells without executing a workflow, without
+blocking a run whose executables exist only where it actually runs.
 
 ## Behavior
 
-For a command step, `dagu dry` should:
+For a local command step, `dagu dry` emits a warning when:
 
-- Accept a resolvable command and shell without executing the step or creating
-  its output files.
-- Reject an unresolved command or shell and identify it in the diagnostic.
-- On systems with executable permission bits, reject a non-executable script
-  invoked directly as a command.
+- The step's shell does not resolve on the host.
+- A command name run directly or through a Unix-like shell does not resolve on
+  `PATH` and is not a shell builtin.
+- A path-form command does not exist or, on systems with executable permission
+  bits, is not executable.
 
-## Errors
+A warning never fails the dry run. `dagu dry` exits with status 0, reports the
+step as succeeded, starts no step process, and creates no step output files.
+The real run may execute on another host, and an upstream step may create or
+install the executable first.
 
-Access failures must identify the command or shell and return a nonzero exit
-status. Timeout, abort, and cleanup during execution are outside dry validation.
+A step that passes these checks produces no warning.
+
+## Diagnostics
+
+Each warning is written to stderr, contains
+`Dry run: step may fail on this host`, and names the unresolved command, shell,
+or script.
 
 ## Examples
 
 ```yaml
 steps:
-  - run: missing-command
+  - run: missing-command --flag
 ```
+
+`dagu dry` exits with status 0. Stderr contains
+`Dry run: step may fail on this host` and `missing-command`.
 
 ## Conformance
 
-`conformance/spec064_dry_run_step_checks/` contains the proposed acceptance
-checks. The negative checks remain feature-dependent. This suite does not
-establish validation rules for other executors or shell language constructs.
+`conformance/spec064_dry_run_step_checks/` covers a missing command, a missing
+step-level shell, and a non-executable script invoked by path, each producing a
+warning with exit status 0 and no step output. It also covers a resolvable
+command, shell, and executable script producing no warning. The execute
+permission checks are skipped on Windows.

@@ -66,6 +66,7 @@ It must not be treated as product behavior until implementation catches up.
 | [061: Python Script Action](061-python-script.md) | Partially implemented |
 | [062: dbt Action](062-dbt.md) | Partially implemented |
 | [063: Schedule Descriptors](063-schedule.md) | Implemented |
+| [064: Dry-Run Step Checks](064-dry-run-step-checks.md) | Implemented |
 | [067: Harness Executor](067-harness.md) | Partially implemented |
 | [068: State Executor](068-state.md) | Implemented |
 | [069: Secrets Providers](069-secrets-providers.md) | Partially implemented |
