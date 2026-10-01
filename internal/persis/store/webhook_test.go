@@ -5,6 +5,7 @@ package store_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -148,6 +149,53 @@ func TestWebhookUpdate_DAGNameChange(t *testing.T) {
 	got, err := s.GetByDAGName(ctx, "new-dag")
 	require.NoError(t, err)
 	assert.Equal(t, wh.ID, got.ID)
+}
+
+func TestWebhookUpdateByDAGName(t *testing.T) {
+	ctx := context.Background()
+	s := newWebhookStore(t)
+	wh := newWebhook("dag-mutate")
+	require.NoError(t, s.Create(ctx, wh))
+	require.NoError(t, s.UpdateLastUsed(ctx, wh.ID, ""))
+
+	updated, err := s.UpdateByDAGName(ctx, "dag-mutate", func(w *auth.Webhook) error {
+		w.Enabled = false
+		return nil
+	})
+	require.NoError(t, err)
+	assert.False(t, updated.Enabled)
+
+	got, err := s.GetByID(ctx, wh.ID)
+	require.NoError(t, err)
+	assert.False(t, got.Enabled)
+	// The mutation starts from the stored webhook, so fields written by
+	// other calls since the caller last read it are kept.
+	assert.NotNil(t, got.LastUsedAt)
+}
+
+func TestWebhookUpdateByDAGName_MutateErrorAbortsWrite(t *testing.T) {
+	ctx := context.Background()
+	s := newWebhookStore(t)
+	wh := newWebhook("dag-mutate-error")
+	require.NoError(t, s.Create(ctx, wh))
+
+	errRejected := errors.New("rejected")
+	_, err := s.UpdateByDAGName(ctx, "dag-mutate-error", func(w *auth.Webhook) error {
+		w.Enabled = false
+		return errRejected
+	})
+	assert.ErrorIs(t, err, errRejected)
+
+	got, err := s.GetByID(ctx, wh.ID)
+	require.NoError(t, err)
+	assert.True(t, got.Enabled)
+}
+
+func TestWebhookUpdateByDAGName_NotFound(t *testing.T) {
+	s := newWebhookStore(t)
+
+	_, err := s.UpdateByDAGName(context.Background(), "missing", func(*auth.Webhook) error { return nil })
+	assert.ErrorIs(t, err, auth.ErrWebhookNotFound)
 }
 
 func TestWebhookDelete(t *testing.T) {

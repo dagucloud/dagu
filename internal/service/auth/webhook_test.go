@@ -9,7 +9,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -471,6 +473,34 @@ func TestService_CreateWebhookProfileToken(t *testing.T) {
 
 		_, err := service.CreateWebhookProfileToken(context.Background(), "missing-dag", "a", "customer-a", "admin")
 		assert.ErrorIs(t, err, auth.ErrWebhookNotFound)
+	})
+
+	// Each create must build on the latest stored webhook; writing back a
+	// stale copy would drop tokens created concurrently.
+	t.Run("ConcurrentCreatesKeepAllTokens", func(t *testing.T) {
+		t.Parallel()
+		service, _ := setupWebhookTestService(t)
+		ctx := context.Background()
+
+		_, err := service.CreateWebhook(ctx, "concurrent-token-dag", "admin")
+		require.NoError(t, err)
+
+		const callers = 10
+		errs := make([]error, callers)
+		var wg sync.WaitGroup
+		for i := range callers {
+			wg.Go(func() {
+				_, errs[i] = service.CreateWebhookProfileToken(ctx, "concurrent-token-dag", fmt.Sprintf("caller-%d", i), "customer-a", "admin")
+			})
+		}
+		wg.Wait()
+		for _, err := range errs {
+			require.NoError(t, err)
+		}
+
+		stored, err := service.GetWebhookByDAGName(ctx, "concurrent-token-dag")
+		require.NoError(t, err)
+		assert.Len(t, stored.ProfileTokens, callers)
 	})
 }
 

@@ -174,26 +174,12 @@ func (s *WebhookStore) Update(ctx context.Context, webhook *auth.Webhook) error 
 		return fmt.Errorf("webhook store: decode existing: %w", err)
 	}
 
-	stored, err := s.toStorage(webhook)
-	if err != nil {
-		return err
-	}
-	data, err := persis.Encode(stored)
-	if err != nil {
-		return err
-	}
-
 	if existingStored.DAGName != webhook.DAGName {
 		if id, taken := s.byDAGName[webhook.DAGName]; taken && id != webhook.ID {
 			return auth.ErrWebhookAlreadyExists
 		}
 	}
-	if err := s.col.Put(ctx, &persis.Record{
-		ID:        webhook.ID,
-		Data:      data,
-		CreatedAt: existingRec.CreatedAt,
-		UpdatedAt: time.Now().UTC(),
-	}); err != nil {
+	if err := s.put(ctx, webhook, existingRec.CreatedAt); err != nil {
 		return err
 	}
 	if existingStored.DAGName != webhook.DAGName {
@@ -201,6 +187,50 @@ func (s *WebhookStore) Update(ctx context.Context, webhook *auth.Webhook) error 
 		s.byDAGName[webhook.DAGName] = webhook.ID
 	}
 	return nil
+}
+
+// UpdateByDAGName applies mutate to the current webhook for dagName and stores
+// the result. Updates through this store are serialized, so concurrent
+// updates never overwrite each other. An error from mutate aborts the update
+// and is returned unchanged.
+// Returns [auth.ErrWebhookNotFound] if no webhook exists for the DAG.
+func (s *WebhookStore) UpdateByDAGName(
+	ctx context.Context,
+	dagName string,
+	mutate func(*auth.Webhook) error,
+) (*auth.Webhook, error) {
+	if dagName == "" {
+		return nil, auth.ErrInvalidWebhookDAGName
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	id, ok := s.byDAGName[dagName]
+	if !ok {
+		return nil, auth.ErrWebhookNotFound
+	}
+	rec, err := s.col.Get(ctx, id)
+	if err != nil {
+		if errors.Is(err, persis.ErrNotFound) {
+			return nil, auth.ErrWebhookNotFound
+		}
+		return nil, err
+	}
+	webhook, err := s.fromRecord(rec)
+	if err != nil {
+		return nil, err
+	}
+	if err := mutate(webhook); err != nil {
+		return nil, err
+	}
+	if webhook.ID != id || webhook.DAGName != dagName {
+		return nil, errors.New("webhook store: update cannot change the webhook ID or DAG name")
+	}
+	if err := s.put(ctx, webhook, rec.CreatedAt); err != nil {
+		return nil, err
+	}
+	return webhook, nil
 }
 
 // Delete removes a webhook by its ID.
@@ -286,6 +316,24 @@ func (s *WebhookStore) UpdateLastUsed(ctx context.Context, id, profileTokenID st
 }
 
 // ─── encoding helpers ─────────────────────────────────────────────────────────
+
+// put writes webhook over its existing record. Callers must hold s.mu.
+func (s *WebhookStore) put(ctx context.Context, webhook *auth.Webhook, createdAt time.Time) error {
+	stored, err := s.toStorage(webhook)
+	if err != nil {
+		return err
+	}
+	data, err := persis.Encode(stored)
+	if err != nil {
+		return err
+	}
+	return s.col.Put(ctx, &persis.Record{
+		ID:        webhook.ID,
+		Data:      data,
+		CreatedAt: createdAt,
+		UpdatedAt: time.Now().UTC(),
+	})
+}
 
 func (s *WebhookStore) toStorage(wh *auth.Webhook) (*auth.WebhookForStorage, error) {
 	stored := wh.ToStorage()

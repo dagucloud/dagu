@@ -209,6 +209,13 @@ type WebhookStore interface {
 	// Returns ErrWebhookNotFound if the webhook does not exist.
 	Update(ctx context.Context, webhook *Webhook) error
 
+	// UpdateByDAGName applies mutate to the current webhook for a DAG and
+	// stores the result atomically with respect to other writes, so
+	// concurrent updates never overwrite each other. An error from mutate
+	// aborts the update and is returned unchanged.
+	// Returns ErrWebhookNotFound if no webhook exists for the DAG.
+	UpdateByDAGName(ctx context.Context, dagName string, mutate func(*Webhook) error) (*Webhook, error)
+
 	// Delete removes a webhook by its ID.
 	// Returns ErrWebhookNotFound if the webhook does not exist.
 	Delete(ctx context.Context, id string) error

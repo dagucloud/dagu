@@ -967,6 +967,22 @@ func mapWebhookHMACCapabilityError(err error) error {
 	return err
 }
 
+// updateWebhook applies mutate to the stored webhook for dagName as one atomic
+// store update, so concurrent changes are never overwritten by a stale copy.
+func (s *Service) updateWebhook(ctx context.Context, dagName string, mutate func(*auth.Webhook) error) (*auth.Webhook, error) {
+	webhook, err := s.webhookStore.UpdateByDAGName(ctx, dagName, func(webhook *auth.Webhook) error {
+		if err := mutate(webhook); err != nil {
+			return err
+		}
+		webhook.UpdatedAt = time.Now().UTC()
+		return nil
+	})
+	if err != nil {
+		return nil, mapWebhookHMACCapabilityError(err)
+	}
+	return webhook, nil
+}
+
 // GetWebhookByDAGName retrieves the webhook for a specific DAG.
 func (s *Service) GetWebhookByDAGName(ctx context.Context, dagName string) (*auth.Webhook, error) {
 	if s.webhookStore == nil {
@@ -1002,23 +1018,17 @@ func (s *Service) RegenerateWebhookToken(ctx context.Context, dagName string) (*
 		return nil, ErrWebhookNotConfigured
 	}
 
-	webhook, err := s.GetWebhookByDAGName(ctx, dagName)
-	if err != nil {
-		return nil, err
-	}
-
-	// Generate new token
 	tokenParts, err := generateWebhookToken(s.config.BcryptCost)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate webhook token: %w", err)
 	}
 
-	// Update webhook with new token
-	webhook.TokenHash = tokenParts.tokenHash
-	webhook.TokenPrefix = tokenParts.tokenPrefix
-	webhook.UpdatedAt = time.Now().UTC()
-
-	if err := s.webhookStore.Update(ctx, webhook); err != nil {
+	webhook, err := s.updateWebhook(ctx, dagName, func(webhook *auth.Webhook) error {
+		webhook.TokenHash = tokenParts.tokenHash
+		webhook.TokenPrefix = tokenParts.tokenPrefix
+		return nil
+	})
+	if err != nil {
 		return nil, err
 	}
 
@@ -1034,19 +1044,10 @@ func (s *Service) ToggleWebhook(ctx context.Context, dagName string, enabled boo
 		return nil, ErrWebhookNotConfigured
 	}
 
-	webhook, err := s.GetWebhookByDAGName(ctx, dagName)
-	if err != nil {
-		return nil, err
-	}
-
-	webhook.Enabled = enabled
-	webhook.UpdatedAt = time.Now().UTC()
-
-	if err := s.webhookStore.Update(ctx, webhook); err != nil {
-		return nil, err
-	}
-
-	return webhook, nil
+	return s.updateWebhook(ctx, dagName, func(webhook *auth.Webhook) error {
+		webhook.Enabled = enabled
+		return nil
+	})
 }
 
 // ConfigureWebhookProfiles replaces the runtime profiles that webhook callers
@@ -1056,19 +1057,10 @@ func (s *Service) ConfigureWebhookProfiles(ctx context.Context, dagName string, 
 		return nil, ErrWebhookNotConfigured
 	}
 
-	webhook, err := s.GetWebhookByDAGName(ctx, dagName)
-	if err != nil {
-		return nil, err
-	}
-
-	webhook.AllowedProfiles = append([]string(nil), allowedProfiles...)
-	webhook.UpdatedAt = time.Now().UTC()
-
-	if err := s.webhookStore.Update(ctx, webhook); err != nil {
-		return nil, err
-	}
-
-	return webhook, nil
+	return s.updateWebhook(ctx, dagName, func(webhook *auth.Webhook) error {
+		webhook.AllowedProfiles = append([]string(nil), allowedProfiles...)
+		return nil
+	})
 }
 
 // CreateWebhookProfileToken adds a token bound to one runtime profile and
@@ -1082,28 +1074,24 @@ func (s *Service) CreateWebhookProfileToken(ctx context.Context, dagName, name, 
 		return nil, ErrInvalidCreatorID
 	}
 
-	webhook, err := s.GetWebhookByDAGName(ctx, dagName)
-	if err != nil {
-		return nil, err
-	}
-	if webhook.EffectiveAuthMode() == auth.WebhookAuthModeHMACOnly {
-		return nil, ErrWebhookProfileTokenRequiresToken
-	}
-	if len(webhook.ProfileTokens) >= maxWebhookProfileTokens {
-		return nil, ErrWebhookProfileTokenLimit
-	}
-
 	tokenParts, err := generateWebhookToken(s.config.BcryptCost)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate webhook token: %w", err)
 	}
 
-	webhook.ProfileTokens = append(webhook.ProfileTokens, auth.NewWebhookProfileToken(
-		name, profile, tokenParts.tokenHash, tokenParts.tokenPrefix, creatorID,
-	))
-	webhook.UpdatedAt = time.Now().UTC()
-
-	if err := s.webhookStore.Update(ctx, webhook); err != nil {
+	webhook, err := s.updateWebhook(ctx, dagName, func(webhook *auth.Webhook) error {
+		if webhook.EffectiveAuthMode() == auth.WebhookAuthModeHMACOnly {
+			return ErrWebhookProfileTokenRequiresToken
+		}
+		if len(webhook.ProfileTokens) >= maxWebhookProfileTokens {
+			return ErrWebhookProfileTokenLimit
+		}
+		webhook.ProfileTokens = append(webhook.ProfileTokens, auth.NewWebhookProfileToken(
+			name, profile, tokenParts.tokenHash, tokenParts.tokenPrefix, creatorID,
+		))
+		return nil
+	})
+	if err != nil {
 		return nil, err
 	}
 
@@ -1120,25 +1108,16 @@ func (s *Service) RevokeWebhookProfileToken(ctx context.Context, dagName, tokenI
 		return nil, ErrWebhookNotConfigured
 	}
 
-	webhook, err := s.GetWebhookByDAGName(ctx, dagName)
-	if err != nil {
-		return nil, err
-	}
-
-	idx := slices.IndexFunc(webhook.ProfileTokens, func(t auth.WebhookProfileToken) bool {
-		return t.ID == tokenID
+	return s.updateWebhook(ctx, dagName, func(webhook *auth.Webhook) error {
+		idx := slices.IndexFunc(webhook.ProfileTokens, func(t auth.WebhookProfileToken) bool {
+			return t.ID == tokenID
+		})
+		if idx < 0 {
+			return ErrWebhookProfileTokenNotFound
+		}
+		webhook.ProfileTokens = slices.Delete(webhook.ProfileTokens, idx, idx+1)
+		return nil
 	})
-	if idx < 0 {
-		return nil, ErrWebhookProfileTokenNotFound
-	}
-	webhook.ProfileTokens = slices.Delete(webhook.ProfileTokens, idx, idx+1)
-	webhook.UpdatedAt = time.Now().UTC()
-
-	if err := s.webhookStore.Update(ctx, webhook); err != nil {
-		return nil, err
-	}
-
-	return webhook, nil
 }
 
 // EnableWebhookHMAC configures HMAC auth for an existing webhook and returns
@@ -1161,27 +1140,20 @@ func (s *Service) EnableWebhookHMAC(
 		return nil, err
 	}
 
-	webhook, err := s.GetWebhookByDAGName(ctx, dagName)
-	if err != nil {
-		return nil, err
-	}
-
 	fullSecret, err := generateWebhookHMACSecret()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate webhook HMAC secret: %w", err)
 	}
 
-	now := time.Now().UTC()
-	webhook.AuthMode = authMode
-	webhook.HMACEnforcementMode = enforcementMode
-	webhook.HMACSecret = fullSecret
-	webhook.HMACSecretGeneratedAt = &now
-	webhook.UpdatedAt = now
-
-	if err := s.webhookStore.Update(ctx, webhook); err != nil {
-		if errors.Is(err, auth.ErrWebhookHMACEncryptorRequired) {
-			return nil, ErrWebhookHMACNotSupported
-		}
+	webhook, err := s.updateWebhook(ctx, dagName, func(webhook *auth.Webhook) error {
+		now := time.Now().UTC()
+		webhook.AuthMode = authMode
+		webhook.HMACEnforcementMode = enforcementMode
+		webhook.HMACSecret = fullSecret
+		webhook.HMACSecretGeneratedAt = &now
+		return nil
+	})
+	if err != nil {
 		return nil, err
 	}
 
@@ -1205,31 +1177,18 @@ func (s *Service) ConfigureWebhookHMAC(
 		return nil, ErrInvalidWebhookAuthMode
 	}
 
-	webhook, err := s.GetWebhookByDAGName(ctx, dagName)
-	if err != nil {
-		return nil, err
-	}
-	if webhook.HMACSecret == "" {
-		return nil, ErrWebhookHMACNotConfigured
-	}
-
-	enforcementMode, err = normalizeWebhookHMACModeForConfigure(webhook, authMode, enforcementMode)
-	if err != nil {
-		return nil, err
-	}
-
-	webhook.AuthMode = authMode
-	webhook.HMACEnforcementMode = enforcementMode
-	webhook.UpdatedAt = time.Now().UTC()
-
-	if err := s.webhookStore.Update(ctx, webhook); err != nil {
-		if errors.Is(err, auth.ErrWebhookHMACEncryptorRequired) {
-			return nil, ErrWebhookHMACNotSupported
+	return s.updateWebhook(ctx, dagName, func(webhook *auth.Webhook) error {
+		if webhook.HMACSecret == "" {
+			return ErrWebhookHMACNotConfigured
 		}
-		return nil, err
-	}
-
-	return webhook, nil
+		mode, err := normalizeWebhookHMACModeForConfigure(webhook, authMode, enforcementMode)
+		if err != nil {
+			return err
+		}
+		webhook.AuthMode = authMode
+		webhook.HMACEnforcementMode = mode
+		return nil
+	})
 }
 
 // DisableWebhookHMAC removes HMAC auth from the webhook and returns it to token-only mode.
@@ -1238,22 +1197,13 @@ func (s *Service) DisableWebhookHMAC(ctx context.Context, dagName string) (*auth
 		return nil, ErrWebhookNotConfigured
 	}
 
-	webhook, err := s.GetWebhookByDAGName(ctx, dagName)
-	if err != nil {
-		return nil, err
-	}
-
-	webhook.AuthMode = auth.WebhookAuthModeTokenOnly
-	webhook.HMACEnforcementMode = ""
-	webhook.HMACSecret = ""
-	webhook.HMACSecretGeneratedAt = nil
-	webhook.UpdatedAt = time.Now().UTC()
-
-	if err := s.webhookStore.Update(ctx, webhook); err != nil {
-		return nil, err
-	}
-
-	return webhook, nil
+	return s.updateWebhook(ctx, dagName, func(webhook *auth.Webhook) error {
+		webhook.AuthMode = auth.WebhookAuthModeTokenOnly
+		webhook.HMACEnforcementMode = ""
+		webhook.HMACSecret = ""
+		webhook.HMACSecretGeneratedAt = nil
+		return nil
+	})
 }
 
 // RegenerateWebhookHMACSecret rotates the HMAC secret immediately and returns the
@@ -1263,28 +1213,21 @@ func (s *Service) RegenerateWebhookHMACSecret(ctx context.Context, dagName strin
 		return nil, ErrWebhookNotConfigured
 	}
 
-	webhook, err := s.GetWebhookByDAGName(ctx, dagName)
-	if err != nil {
-		return nil, err
-	}
-	if !webhook.HMACEnabled() {
-		return nil, ErrWebhookHMACNotConfigured
-	}
-
 	fullSecret, err := generateWebhookHMACSecret()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate webhook HMAC secret: %w", err)
 	}
 
-	now := time.Now().UTC()
-	webhook.HMACSecret = fullSecret
-	webhook.HMACSecretGeneratedAt = &now
-	webhook.UpdatedAt = now
-
-	if err := s.webhookStore.Update(ctx, webhook); err != nil {
-		if errors.Is(err, auth.ErrWebhookHMACEncryptorRequired) {
-			return nil, ErrWebhookHMACNotSupported
+	webhook, err := s.updateWebhook(ctx, dagName, func(webhook *auth.Webhook) error {
+		if !webhook.HMACEnabled() {
+			return ErrWebhookHMACNotConfigured
 		}
+		now := time.Now().UTC()
+		webhook.HMACSecret = fullSecret
+		webhook.HMACSecretGeneratedAt = &now
+		return nil
+	})
+	if err != nil {
 		return nil, err
 	}
 
@@ -1393,11 +1336,7 @@ func (s *Service) AuthorizeWebhookRequest(ctx context.Context, input AuthorizeWe
 		return nil, ErrInvalidWebhookAuthMode
 	}
 
-	var profileTokenID string
-	if profileToken != nil {
-		profileTokenID = profileToken.ID
-	}
-	if err := s.webhookStore.UpdateLastUsed(ctx, webhook.ID, profileTokenID); err != nil {
+	if err := s.webhookStore.UpdateLastUsed(ctx, webhook.ID, webhookProfileTokenID(profileToken)); err != nil {
 		slog.Error("failed to update webhook last used timestamp", "webhookID", webhook.ID, "error", err)
 	}
 
@@ -1475,6 +1414,13 @@ func matchWebhookToken(webhook *auth.Webhook, token string) (*auth.WebhookProfil
 		}
 	}
 	return nil, ErrInvalidWebhookToken
+}
+
+func webhookProfileTokenID(token *auth.WebhookProfileToken) string {
+	if token == nil {
+		return ""
+	}
+	return token.ID
 }
 
 func tokenMatchesHash(hash, token string) bool {
