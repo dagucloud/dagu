@@ -36,6 +36,9 @@ const (
 	callTimeoutSlack = 5 * time.Second
 	// exitPollInterval spaces the checks for a closing browser's exit.
 	exitPollInterval = 100 * time.Millisecond
+	// unstartedCloseTimeout bounds ending a browser whose runtime failed to
+	// start.
+	unstartedCloseTimeout = 10 * time.Second
 )
 
 // pageTextExpression reads the text a person sees on the page.
@@ -108,9 +111,7 @@ func (stagehandLauncher) Launch(ctx context.Context, opts launchOptions) (engine
 		Headless:       opts.Headless,
 		Port:           port,
 		UserDataDir:    opts.UserDataDir,
-		// KeepAlive stays off: with it, a browser whose runtime fails to start
-		// keeps running with no handle left to end it. It only affects such
-		// failures; a started browser ends only on Close, so Detach keeps it.
+		KeepAlive:      true,
 	}
 	launch.ChromiumSandbox = new(!opts.NoSandbox)
 	if opts.Viewport != nil {
@@ -119,14 +120,15 @@ func (stagehandLauncher) Launch(ctx context.Context, opts launchOptions) (engine
 	if opts.Proxy != "" {
 		launch.Proxy = &stagehand.LocalProxyConfig{Server: opts.Proxy}
 	}
+	cdpURL := fmt.Sprintf("http://127.0.0.1:%d", port)
 	browser, err := stagehand.LaunchLocalBrowser(ctx, launch)
 	if err != nil {
-		return nil, fmt.Errorf("launch browser: %w%s", err, sandboxHint(opts.NoSandbox))
+		launchErr := fmt.Errorf("launch browser: %w%s", err, sandboxHint(opts.NoSandbox))
+		return nil, errors.Join(launchErr, endUnstartedBrowser(ctx, nil, cdpURL))
 	}
-	cdpURL := fmt.Sprintf("http://127.0.0.1:%d", port)
 	eng, err := startEngine(ctx, browser, cdpURL, opts)
 	if err != nil {
-		return nil, errors.Join(err, browser.Close(context.WithoutCancel(ctx)))
+		return nil, errors.Join(err, endUnstartedBrowser(ctx, browser, cdpURL))
 	}
 	extension, err := browserhost.StagehandExtension(ctx, cdpURL)
 	if err != nil {
@@ -160,6 +162,20 @@ func (stagehandLauncher) Reattach(ctx context.Context, handle browserHandle, opt
 		return nil, errors.Join(err, eng.Close(context.WithoutCancel(ctx)))
 	}
 	return eng, nil
+}
+
+// endUnstartedBrowser ends the browser at cdpURL whose runtime failed to
+// start. The SDK leaves a kept-alive browser running when its runtime fails
+// to start, and browser, when known, may no longer reach it, so the browser
+// is asked to exit over DevTools.
+func endUnstartedBrowser(ctx context.Context, browser *stagehand.Browser, cdpURL string) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), unstartedCloseTimeout)
+	defer cancel()
+	err := browserhost.CloseBrowser(ctx, cdpURL)
+	if browser != nil {
+		err = errors.Join(err, browser.Close(ctx))
+	}
+	return err
 }
 
 func startEngine(ctx context.Context, browser *stagehand.Browser, cdpURL string, opts launchOptions) (*stagehandEngine, error) {

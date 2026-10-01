@@ -574,15 +574,19 @@ func TestStagehandFailedLaunchEndsBrowser(t *testing.T) {
 	// The wrapper records the browser's arguments and disables extensions,
 	// so the runtime extension never starts.
 	wrapper := filepath.Join(t.TempDir(), "chrome")
-	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$@\" > \"$0.args\"\nexec %q \"$@\" --disable-extensions\n", chromePath())
+	chrome := "'" + strings.ReplaceAll(chromePath(), "'", `'\''`) + "'"
+	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$@\" > \"$0.args\"\nexec %s \"$@\" --disable-extensions\n", chrome)
 	require.NoError(t, os.WriteFile(wrapper, []byte(script), 0o700))
 
-	_, err := stagehandLauncher{}.Launch(t.Context(), launchOptions{
-		Executable:  wrapper,
-		Headless:    true,
-		UserDataDir: browserProfileDir(t),
-		NoSandbox:   true,
-		Generate:    (&shopModel{}).generate,
+	err := withStartupSlot(func() error {
+		_, err := stagehandLauncher{}.Launch(t.Context(), launchOptions{
+			Executable:  wrapper,
+			Headless:    true,
+			UserDataDir: browserProfileDir(t),
+			NoSandbox:   true,
+			Generate:    (&shopModel{}).generate,
+		})
+		return err
 	})
 	require.Error(t, err)
 
