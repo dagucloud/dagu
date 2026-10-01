@@ -17,6 +17,10 @@ import (
 
 var _ auth.WebhookStore = (*WebhookStore)(nil)
 
+// webhookLastUsedWriteInterval limits how often a busy webhook rewrites its
+// record just to record use.
+const webhookLastUsedWriteInterval = time.Minute
+
 // WebhookStore implements [auth.WebhookStore].
 // DAG-name lookups use an in-memory index (byDAGName) rebuilt from the
 // collection on startup; all writes keep it in sync under mu.
@@ -250,9 +254,9 @@ func (s *WebhookStore) DeleteByDAGName(ctx context.Context, dagName string) erro
 	return s.Delete(ctx, id)
 }
 
-// UpdateLastUsed updates the LastUsedAt timestamp for a webhook and, when
-// profileTokenID is not empty, for that profile token. It never restores a
-// profile token removed by a concurrent update.
+// UpdateLastUsed records recent use of a webhook and, when profileTokenID is
+// not empty, of that profile token, persisting each timestamp at most once per
+// minute. It never restores a profile token removed by a concurrent update.
 func (s *WebhookStore) UpdateLastUsed(ctx context.Context, id, profileTokenID string) error {
 	if id == "" {
 		return auth.ErrInvalidWebhookID
@@ -267,11 +271,20 @@ func (s *WebhookStore) UpdateLastUsed(ctx context.Context, id, profileTokenID st
 			return fmt.Errorf("webhook store: decode for UpdateLastUsed: %w", err)
 		}
 		now := time.Now().UTC()
-		stored.LastUsedAt = &now
+		changed := false
+		if lastUsedStale(stored.LastUsedAt, now) {
+			stored.LastUsedAt = &now
+			changed = true
+		}
 		for i := range stored.ProfileTokens {
-			if stored.ProfileTokens[i].ID == profileTokenID {
-				stored.ProfileTokens[i].LastUsedAt = &now
+			token := &stored.ProfileTokens[i]
+			if token.ID == profileTokenID && lastUsedStale(token.LastUsedAt, now) {
+				token.LastUsedAt = &now
+				changed = true
 			}
+		}
+		if !changed {
+			return nil
 		}
 		data, err := persis.Encode(stored)
 		if err != nil {
@@ -283,6 +296,10 @@ func (s *WebhookStore) UpdateLastUsed(ctx context.Context, id, profileTokenID st
 		return auth.ErrWebhookNotFound
 	}
 	return err
+}
+
+func lastUsedStale(lastUsed *time.Time, now time.Time) bool {
+	return lastUsed == nil || now.Sub(*lastUsed) >= webhookLastUsedWriteInterval
 }
 
 // ─── encoding helpers ─────────────────────────────────────────────────────────

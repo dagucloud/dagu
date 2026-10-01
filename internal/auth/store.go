@@ -222,8 +222,8 @@ type WebhookStore interface {
 	// Returns ErrWebhookNotFound if no webhook exists for the DAG.
 	DeleteByDAGName(ctx context.Context, dagName string) error
 
-	// UpdateLastUsed updates the LastUsedAt timestamp for a webhook and, when
-	// profileTokenID is not empty, for that profile token.
-	// This is called when the webhook is triggered.
+	// UpdateLastUsed records recent use of a webhook and, when profileTokenID
+	// is not empty, of that profile token, persisting each timestamp at most
+	// once per minute. This is called when the webhook is triggered.
 	UpdateLastUsed(ctx context.Context, id, profileTokenID string) error
 }

@@ -317,6 +317,29 @@ func TestWebhookUpdateLastUsed_KeepsConcurrentRevoke(t *testing.T) {
 	assert.NotNil(t, got.LastUsedAt)
 }
 
+// Use within a minute of the recorded use is not written again, so a busy
+// webhook does not rewrite its record on every request. A profile token's
+// first use is still recorded.
+func TestWebhookUpdateLastUsed_Throttled(t *testing.T) {
+	ctx := context.Background()
+	s := newWebhookStore(t)
+	wh := newWebhook("dag-lu-throttle")
+	token := auth.NewWebhookProfileToken("a", "profile-a", "hash-a", "tok-a", "admin")
+	wh.ProfileTokens = []auth.WebhookProfileToken{token}
+	require.NoError(t, s.Create(ctx, wh))
+
+	require.NoError(t, s.UpdateLastUsed(ctx, wh.ID, ""))
+	first, err := s.GetByID(ctx, wh.ID)
+	require.NoError(t, err)
+	require.NotNil(t, first.LastUsedAt)
+
+	require.NoError(t, s.UpdateLastUsed(ctx, wh.ID, token.ID))
+	got, err := s.GetByID(ctx, wh.ID)
+	require.NoError(t, err)
+	assert.Equal(t, first.LastUsedAt, got.LastUsedAt)
+	assert.NotNil(t, got.ProfileTokens[0].LastUsedAt)
+}
+
 func TestWebhookUpdateLastUsed_NotFound(t *testing.T) {
 	ctx := context.Background()
 	s := newWebhookStore(t)
