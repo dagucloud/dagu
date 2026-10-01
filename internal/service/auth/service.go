@@ -1248,7 +1248,7 @@ func (s *Service) ValidateWebhookToken(ctx context.Context, dagName, token strin
 	}
 
 	// Update last used timestamp
-	if err := s.webhookStore.UpdateLastUsed(ctx, webhook.ID); err != nil {
+	if err := s.webhookStore.UpdateLastUsed(ctx, webhook.ID, ""); err != nil {
 		slog.Error("failed to update webhook last used timestamp", "webhookID", webhook.ID, "error", err)
 	}
 
@@ -1308,7 +1308,7 @@ func (s *Service) AuthorizeWebhookRequest(ctx context.Context, input AuthorizeWe
 		return nil, ErrInvalidWebhookAuthMode
 	}
 
-	if err := s.webhookStore.UpdateLastUsed(ctx, webhook.ID); err != nil {
+	if err := s.webhookStore.UpdateLastUsed(ctx, webhook.ID, ""); err != nil {
 		slog.Error("failed to update webhook last used timestamp", "webhookID", webhook.ID, "error", err)
 	}
 

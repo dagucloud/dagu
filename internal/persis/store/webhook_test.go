@@ -201,7 +201,7 @@ func TestWebhookUpdateLastUsed(t *testing.T) {
 	require.NoError(t, s.Create(ctx, wh))
 
 	before := time.Now().UTC()
-	require.NoError(t, s.UpdateLastUsed(ctx, wh.ID))
+	require.NoError(t, s.UpdateLastUsed(ctx, wh.ID, ""))
 
 	got, err := s.GetByID(ctx, wh.ID)
 	require.NoError(t, err)
@@ -209,11 +209,31 @@ func TestWebhookUpdateLastUsed(t *testing.T) {
 	assert.True(t, got.LastUsedAt.After(before) || got.LastUsedAt.Equal(before))
 }
 
+func TestWebhookUpdateLastUsed_ProfileToken(t *testing.T) {
+	ctx := context.Background()
+	s := newWebhookStore(t)
+	wh := newWebhook("dag-lu-token")
+	used := auth.NewWebhookProfileToken("a", "profile-a", "hash-a", "tok-a", "admin")
+	unused := auth.NewWebhookProfileToken("b", "profile-b", "hash-b", "tok-b", "admin")
+	wh.ProfileTokens = []auth.WebhookProfileToken{used, unused}
+	require.NoError(t, s.Create(ctx, wh))
+
+	require.NoError(t, s.UpdateLastUsed(ctx, wh.ID, used.ID))
+
+	got, err := s.GetByID(ctx, wh.ID)
+	require.NoError(t, err)
+	require.NotNil(t, got.LastUsedAt)
+	require.Len(t, got.ProfileTokens, 2)
+	assert.Equal(t, got.LastUsedAt, got.ProfileTokens[0].LastUsedAt)
+	assert.Nil(t, got.ProfileTokens[1].LastUsedAt)
+	assert.Equal(t, "hash-a", got.ProfileTokens[0].TokenHash)
+}
+
 func TestWebhookUpdateLastUsed_NotFound(t *testing.T) {
 	ctx := context.Background()
 	s := newWebhookStore(t)
 
-	err := s.UpdateLastUsed(ctx, "nonexistent")
+	err := s.UpdateLastUsed(ctx, "nonexistent", "")
 	assert.ErrorIs(t, err, auth.ErrWebhookNotFound)
 }
 

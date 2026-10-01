@@ -247,8 +247,9 @@ func (s *WebhookStore) DeleteByDAGName(ctx context.Context, dagName string) erro
 	return s.Delete(ctx, id)
 }
 
-// UpdateLastUsed updates the LastUsedAt timestamp for a webhook.
-func (s *WebhookStore) UpdateLastUsed(ctx context.Context, id string) error {
+// UpdateLastUsed updates the LastUsedAt timestamp for a webhook and, when
+// profileTokenID is not empty, for that profile token.
+func (s *WebhookStore) UpdateLastUsed(ctx context.Context, id, profileTokenID string) error {
 	if id == "" {
 		return auth.ErrInvalidWebhookID
 	}
@@ -267,6 +268,11 @@ func (s *WebhookStore) UpdateLastUsed(ctx context.Context, id string) error {
 	}
 	now := time.Now().UTC()
 	stored.LastUsedAt = &now
+	for i := range stored.ProfileTokens {
+		if stored.ProfileTokens[i].ID == profileTokenID {
+			stored.ProfileTokens[i].LastUsedAt = &now
+		}
+	}
 	data, err := persis.Encode(stored)
 	if err != nil {
 		return err
