@@ -6,6 +6,7 @@ package runtime_test
 import (
 	"context"
 	"fmt"
+	"os"
 	"path"
 	"syscall"
 	"testing"
@@ -538,6 +539,21 @@ func waitForNodeRepeatScheduled(plan *runtime.Plan, name string, timeout time.Du
 	deadline := time.After(timeout)
 	for {
 		if node := plan.GetNodeByName(name); node != nil && node.State().DoneCount >= 1 && node.State().Repeated {
+			return true
+		}
+		select {
+		case <-deadline:
+			return false
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+}
+
+// waitForFile reports whether path exists before the timeout expires.
+func waitForFile(path string, timeout time.Duration) bool {
+	deadline := time.After(timeout)
+	for {
+		if _, err := os.Stat(path); err == nil {
 			return true
 		}
 		select {

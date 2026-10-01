@@ -685,13 +685,21 @@ ExecRepeat: // repeat execution
 		break ExecRepeat
 	}
 
-	// Determine final status for nodes still in running state. A canceled
-	// run aborts the node, except a repeating step whose attempt was running
-	// when the stop arrived; a stop after the attempt aborts the pending
-	// repetition.
+	// A stop after a repeating step's attempt finished aborts its pending
+	// repetition, even when the executor already reported the attempt's
+	// success. An attempt that was running when the stop arrived keeps its
+	// outcome.
+	isRepetitive := node.Step().RepeatPolicy.RepeatMode != ""
+	if isRepetitive && r.isCanceled() && !stoppedDuringAttempt {
+		status := node.State().Status
+		if status == ir.NodeRunning || status == ir.NodeSucceeded || status == ir.NodePartiallySucceeded {
+			node.SetStatus(ir.NodeAborted)
+		}
+	}
+
+	// Determine final status for nodes still in running state.
 	if node.State().Status == ir.NodeRunning {
-		isRepetitive := node.Step().RepeatPolicy.RepeatMode != ""
-		if r.isCanceled() && (!isRepetitive || !stoppedDuringAttempt) {
+		if !isRepetitive && r.isCanceled() {
 			node.SetStatus(ir.NodeAborted)
 		} else if node.Step().Approval != nil {
 			// Step has approval config — enter waiting state for human review.

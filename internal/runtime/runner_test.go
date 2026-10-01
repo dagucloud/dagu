@@ -96,6 +96,43 @@ func registerStoppedStatusExecutor(t *testing.T) (string, <-chan *stoppedStatusE
 	return executorType, execCh
 }
 
+// reportedStatusExecutor finishes at once and reports its own node status,
+// as executors such as dag.run do.
+type reportedStatusExecutor struct {
+	status ir.NodeStatus
+}
+
+func (reportedStatusExecutor) SetStdout(io.Writer) {}
+
+func (reportedStatusExecutor) SetStderr(io.Writer) {}
+
+func (reportedStatusExecutor) Run(context.Context) error { return nil }
+
+func (reportedStatusExecutor) Kill(os.Signal) error { return nil }
+
+func (e reportedStatusExecutor) DetermineNodeStatus() (ir.NodeStatus, error) {
+	return e.status, nil
+}
+
+func registerReportedStatusExecutor(t *testing.T, status ir.NodeStatus) string {
+	t.Helper()
+
+	executorType := "test-reported-status-" + uuid.Must(uuid.NewV7()).String()
+	runtimeexec.RegisterExecutor(
+		executorType,
+		func(context.Context, ir.Step) (runtimeexec.Executor, error) {
+			return reportedStatusExecutor{status: status}, nil
+		},
+		nil,
+		registry.ExecutorCapabilities{},
+	)
+	t.Cleanup(func() {
+		runtimeexec.UnregisterExecutor(executorType)
+	})
+
+	return executorType
+}
+
 func shellTestPath(path string) string {
 	return filepath.ToSlash(path)
 }
@@ -2970,37 +3007,52 @@ func TestRunner_RepeatPolicyWithCancel(t *testing.T) {
 	assert.Equal(t, 1, node.State().DoneCount)
 }
 
-// A stop that arrives after a repeating step's attempt finished aborts the
-// pending repetition instead of completing the step with that attempt's
-// outcome. The repeat condition blocks so the stop always lands during the
-// check, before the step can repeat.
+// A stop that arrives while a repeating step checks its repeat condition
+// aborts the pending repetition instead of completing the step with the
+// finished attempt's outcome, also when the executor reports that outcome.
 func TestRunner_RepeatStopDuringCheck(t *testing.T) {
-	release := filepath.Join(t.TempDir(), "release")
-	gate := test.ForOS(
-		fmt.Sprintf("while [ ! -f %s ]; do sleep 0.05; done", test.PosixQuote(release)),
-		fmt.Sprintf("while (-not (Test-Path %s)) { Start-Sleep -Milliseconds 50 }", test.PowerShellQuote(release)),
-	)
-	r := setupRunner(t)
-	plan := r.newPlan(t, newStep("1", withCommand(test.Output("tick")), func(step *ir.Step) {
-		step.RepeatPolicy.RepeatMode = ir.RepeatModeWhile
-		step.RepeatPolicy.Condition = &ir.Condition{Condition: gate}
-	}))
+	tests := []struct {
+		name   string
+		action func(t *testing.T) stepOption
+	}{
+		{
+			name:   "Command",
+			action: func(*testing.T) stepOption { return withCommand(test.Output("tick")) },
+		},
+		{
+			name: "ReportedStatus",
+			action: func(t *testing.T) stepOption {
+				return withExecutorType(registerReportedStatusExecutor(t, ir.NodeSucceeded))
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			started, release := filepath.Join(dir, "started"), filepath.Join(dir, "release")
+			gate := createEmptyFileCommand(started) + "; " + test.ForOS(
+				fmt.Sprintf("while [ ! -f %s ]; do sleep 0.05; done", test.PosixQuote(release)),
+				fmt.Sprintf("while (-not (Test-Path %s)) { Start-Sleep -Milliseconds 50 }", test.PowerShellQuote(release)),
+			)
+			r := setupRunner(t)
+			plan := r.newPlan(t, newStep("1", tt.action(t), func(step *ir.Step) {
+				step.RepeatPolicy.RepeatMode = ir.RepeatModeWhile
+				step.RepeatPolicy.Condition = &ir.Condition{Condition: gate}
+			}))
 
-	attempted := make(chan bool, 1)
-	go func() {
-		deadline := time.Now().Add(platformTestDuration(5*time.Second, 30*time.Second))
-		for plan.GetNodeByName("1").State().DoneCount < 1 && time.Now().Before(deadline) {
-			time.Sleep(5 * time.Millisecond)
-		}
-		attempted <- plan.GetNodeByName("1").State().DoneCount >= 1
-		r.runner.Signal(r.Context, plan.Plan, syscall.SIGTERM, nil, false)
-		_ = os.WriteFile(release, nil, 0600)
-	}()
+			checking := make(chan bool, 1)
+			go func() {
+				checking <- waitForFile(started, platformTestDuration(5*time.Second, 30*time.Second))
+				r.runner.Signal(r.Context, plan.Plan, syscall.SIGTERM, nil, false)
+				_ = os.WriteFile(release, nil, 0600)
+			}()
 
-	result := plan.assertRun(t, ir.Aborted)
-	require.True(t, <-attempted, "first attempt did not finish")
-	result.assertNodeStatus(t, "1", ir.NodeAborted)
-	require.Equal(t, 1, result.nodeByName(t, "1").State().DoneCount)
+			result := plan.assertRun(t, ir.Aborted)
+			require.True(t, <-checking, "repeat condition did not start")
+			result.assertNodeStatus(t, "1", ir.NodeAborted)
+			require.Equal(t, 1, result.nodeByName(t, "1").State().DoneCount)
+		})
+	}
 }
 
 func TestRunner_RepeatPolicyWithLimit(t *testing.T) {
