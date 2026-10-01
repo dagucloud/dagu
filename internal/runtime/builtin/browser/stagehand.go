@@ -36,8 +36,8 @@ const (
 	callTimeoutSlack = 5 * time.Second
 	// exitPollInterval spaces the checks for a closing browser's exit.
 	exitPollInterval = 100 * time.Millisecond
-	// unstartedCloseTimeout bounds ending a browser whose runtime failed to
-	// start.
+	// unstartedCloseTimeout bounds the DevTools requests that end a browser
+	// whose runtime failed to start.
 	unstartedCloseTimeout = 10 * time.Second
 )
 
@@ -124,11 +124,11 @@ func (stagehandLauncher) Launch(ctx context.Context, opts launchOptions) (engine
 	browser, err := stagehand.LaunchLocalBrowser(ctx, launch)
 	if err != nil {
 		launchErr := fmt.Errorf("launch browser: %w%s", err, sandboxHint(opts.NoSandbox))
-		return nil, errors.Join(launchErr, endUnstartedBrowser(ctx, nil, cdpURL))
+		return nil, errors.Join(launchErr, endUnstartedBrowser(ctx, nil, cdpURL, opts.UserDataDir))
 	}
 	eng, err := startEngine(ctx, browser, cdpURL, opts)
 	if err != nil {
-		return nil, errors.Join(err, endUnstartedBrowser(ctx, browser, cdpURL))
+		return nil, errors.Join(err, endUnstartedBrowser(ctx, browser, cdpURL, opts.UserDataDir))
 	}
 	extension, err := browserhost.StagehandExtension(ctx, cdpURL)
 	if err != nil {
@@ -164,14 +164,25 @@ func (stagehandLauncher) Reattach(ctx context.Context, handle browserHandle, opt
 	return eng, nil
 }
 
-// endUnstartedBrowser ends the browser at cdpURL whose runtime failed to
-// start. The SDK leaves a kept-alive browser running when its runtime fails
-// to start, and browser, when known, may no longer reach it, so the browser
-// is asked to exit over DevTools.
-func endUnstartedBrowser(ctx context.Context, browser *stagehand.Browser, cdpURL string) error {
+// endUnstartedBrowser ends the browser launched with profileDir at cdpURL
+// after its runtime failed to start. The SDK leaves a kept-alive browser
+// running then, and browser, when known, may no longer reach it, so the
+// browser is asked to exit over DevTools. The debugging port was only free
+// when chosen, so the browser is closed only when it uses profileDir.
+func endUnstartedBrowser(ctx context.Context, browser *stagehand.Browser, cdpURL, profileDir string) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), unstartedCloseTimeout)
 	defer cancel()
-	err := browserhost.CloseBrowser(ctx, cdpURL)
+	var err error
+	if profileDir != "" {
+		owned, ownErr := browserhost.UsesProfile(ctx, cdpURL, profileDir)
+		switch {
+		case errors.Is(ownErr, browserhost.ErrUnreachable):
+		case ownErr != nil:
+			err = fmt.Errorf("identify browser: %w", ownErr)
+		case owned:
+			err = browserhost.CloseBrowser(ctx, cdpURL)
+		}
+	}
 	if browser != nil {
 		err = errors.Join(err, browser.Close(ctx))
 	}

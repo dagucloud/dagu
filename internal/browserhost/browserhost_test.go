@@ -48,11 +48,12 @@ func TestMain(m *testing.M) {
 // Like Chrome, it stops accepting connections after Browser.close unless it
 // is hung.
 type fakeBrowser struct {
-	server     *httptest.Server
-	extensions []browserhost.Extension
-	hung       bool
-	mu         sync.Mutex
-	methods    []string
+	server      *httptest.Server
+	extensions  []browserhost.Extension
+	commandLine string
+	hung        bool
+	mu          sync.Mutex
+	methods     []string
 }
 
 func newFakeBrowser(t *testing.T, extensions ...browserhost.Extension) *fakeBrowser {
@@ -99,8 +100,11 @@ func (f *fakeBrowser) serve(w http.ResponseWriter, r *http.Request) {
 	f.methods = append(f.methods, request.Method)
 	f.mu.Unlock()
 	result := map[string]any{}
-	if request.Method == "Extensions.getExtensions" {
+	switch request.Method {
+	case "Extensions.getExtensions":
 		result["extensions"] = f.extensions
+	case "SystemInfo.getInfo":
+		result["commandLine"] = f.commandLine
 	}
 	response, _ := json.Marshal(map[string]any{"id": request.ID, "result": result})
 	_ = conn.Write(r.Context(), websocket.MessageText, response)
@@ -194,6 +198,26 @@ func TestProbeAndClose(t *testing.T) {
 
 	assert.ErrorIs(t, browserhost.Probe(context.Background(), unreachableURL), browserhost.ErrUnreachable)
 	assert.NoError(t, browserhost.CloseBrowser(context.Background(), unreachableURL), "an unreachable browser is already closed")
+}
+
+func TestUsesProfile(t *testing.T) {
+	t.Parallel()
+
+	fake := newFakeBrowser(t)
+	fake.commandLine = `chrome --remote-debugging-port=9222 --user-data-dir=/tmp/profile-1 about:blank "--user-data-dir=C:\Temp\my profile"`
+	for dir, want := range map[string]bool{
+		"/tmp/profile-1":     true,
+		`C:\Temp\my profile`: true,
+		"/tmp/profile":       false,
+		"/tmp/profile-2":     false,
+	} {
+		got, err := browserhost.UsesProfile(context.Background(), fake.server.URL, dir)
+		require.NoError(t, err)
+		assert.Equal(t, want, got, dir)
+	}
+
+	_, err := browserhost.UsesProfile(context.Background(), unreachableURL, "/tmp/profile-1")
+	assert.ErrorIs(t, err, browserhost.ErrUnreachable)
 }
 
 // Sweep keeps sessions a step can still use and releases every other one.

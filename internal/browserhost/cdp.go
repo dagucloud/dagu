@@ -86,6 +86,31 @@ func BrowserProcessID(ctx context.Context, cdpURL string) (int, error) {
 	return 0, errors.New("browser process not reported")
 }
 
+// UsesProfile reports whether the browser at cdpURL was started with dir as
+// its user data directory. Each launch uses its own directory, so a match
+// identifies the browser that launch started.
+func UsesProfile(ctx context.Context, cdpURL, dir string) (bool, error) {
+	var info struct {
+		CommandLine string `json:"commandLine"`
+	}
+	if err := call(ctx, cdpURL, "SystemInfo.getInfo", map[string]any{}, &info); err != nil {
+		return false, err
+	}
+	flag := "--user-data-dir=" + dir
+	rest := info.CommandLine
+	for {
+		i := strings.Index(rest, flag)
+		if i < 0 {
+			return false, nil
+		}
+		rest = rest[i+len(flag):]
+		// A longer path that starts with dir names another directory.
+		if rest == "" || rest[0] == ' ' || rest[0] == '"' {
+			return true, nil
+		}
+	}
+}
+
 // CloseBrowser asks the browser at cdpURL to exit. A browser that no longer
 // answers is treated as already closed.
 func CloseBrowser(ctx context.Context, cdpURL string) error {
