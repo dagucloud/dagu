@@ -108,7 +108,9 @@ func (stagehandLauncher) Launch(ctx context.Context, opts launchOptions) (engine
 		Headless:       opts.Headless,
 		Port:           port,
 		UserDataDir:    opts.UserDataDir,
-		KeepAlive:      true,
+		// KeepAlive stays off: with it, a browser whose runtime fails to start
+		// keeps running with no handle left to end it. It only affects such
+		// failures; a started browser ends only on Close, so Detach keeps it.
 	}
 	launch.ChromiumSandbox = new(!opts.NoSandbox)
 	if opts.Viewport != nil {

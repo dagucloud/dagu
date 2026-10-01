@@ -558,3 +558,39 @@ func TestLaunchRefusesSilentSandboxOff(t *testing.T) {
 	require.ErrorContains(t, err, "because CI is set")
 	require.ErrorContains(t, err, "DAGU_BROWSER_SANDBOX=false")
 }
+
+// A browser that starts but whose runtime cannot start in it is ended by the
+// failed launch, so it does not keep running with its profile open. On
+// Windows, removing a profile that a running browser holds stalls cleanup.
+func TestStagehandFailedLaunchEndsBrowser(t *testing.T) {
+	t.Parallel()
+	requireChrome(t)
+	if runtime.GOOS == "windows" {
+		t.Skip("the browser wrapper is a shell script")
+	}
+	if testing.Short() {
+		t.Skip("waits out the runtime's fixed startup minute")
+	}
+	// The wrapper records the browser's arguments and disables extensions,
+	// so the runtime extension never starts.
+	wrapper := filepath.Join(t.TempDir(), "chrome")
+	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$@\" > \"$0.args\"\nexec %q \"$@\" --disable-extensions\n", chromePath())
+	require.NoError(t, os.WriteFile(wrapper, []byte(script), 0o700))
+
+	_, err := stagehandLauncher{}.Launch(t.Context(), launchOptions{
+		Executable:  wrapper,
+		Headless:    true,
+		UserDataDir: browserProfileDir(t),
+		NoSandbox:   true,
+		Generate:    (&shopModel{}).generate,
+	})
+	require.Error(t, err)
+
+	args, err := os.ReadFile(wrapper + ".args")
+	require.NoError(t, err, "the browser started")
+	port := regexp.MustCompile(`--remote-debugging-port=(\d+)`).FindSubmatch(args)
+	require.NotNil(t, port, string(args))
+	require.Eventually(t, func() bool {
+		return errors.Is(browserhost.Probe(context.Background(), "http://127.0.0.1:"+string(port[1])), browserhost.ErrUnreachable)
+	}, 10*time.Second, 200*time.Millisecond, "the failed launch ends the browser")
+}
