@@ -240,10 +240,14 @@ func previewRm(ctx *Context, opts rmOptions) error {
 	return nil
 }
 
-// removesReplayCaches reports whether rm deletes all of the DAG's history,
-// which also clears the replay caches of its browser and computer steps.
+// removesReplayCaches reports whether the command deletes all of the DAG's
+// history, which also clears the replay caches of its browser and computer
+// steps. A nil retention (rm) and a retention of zero days (cleanup's
+// default) both mean all history. A positive retention or an older-than
+// filter keeps the caches.
 func removesReplayCaches(opts rmOptions) bool {
-	return opts.deleteHist && opts.retentionDays == nil && opts.olderThan == ""
+	allHistory := opts.retentionDays == nil || *opts.retentionDays == 0
+	return opts.deleteHist && opts.olderThan == "" && allHistory
 }
 
 func removeHistory(ctx *Context, opts rmOptions) ([]string, error) {
