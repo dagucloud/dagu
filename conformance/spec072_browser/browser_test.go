@@ -56,6 +56,11 @@ const reportBody = "id,total\n1,10\n2,20\n"
 // one takes tens of seconds when the conformance job loads the runner.
 const browserCommandTimeout = 2 * time.Minute
 
+// browserSlot lets one test run browsers at a time. The browser runtime gives
+// its extension a fixed minute to start, which overlapping browser startups
+// on a loaded CI runner can exceed together.
+var browserSlot = make(chan struct{}, 1)
+
 // Model request kinds, told apart by the response schema the browser
 // runtime asks for.
 const (
@@ -248,6 +253,8 @@ type browserEnv struct {
 func newBrowserEnv(t *testing.T) *browserEnv {
 	t.Helper()
 	requireChrome(t)
+	browserSlot <- struct{}{}
+	t.Cleanup(func() { <-browserSlot })
 	model, modelURL := startModel(t)
 	// The harness sets CI, where the browser runtime turns off the sandbox,
 	// so the tests turn it off explicitly instead of being refused.
