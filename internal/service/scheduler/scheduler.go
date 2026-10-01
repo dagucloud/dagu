@@ -847,7 +847,7 @@ func (s *Scheduler) waitForTick(ctx context.Context, sig chan os.Signal, timer *
 		<-launcher.PropagateSignal(ctx, received)
 		return false
 	case received := <-sig:
-		signalctx.AbsorbRepeatedTerminate()
+		signalctx.AbsorbRepeatedTerminate(ctx)
 		signal.Stop(sig)
 		runsDone := launcher.PropagateSignal(ctx, received)
 		s.Stop(ctx)

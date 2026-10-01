@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/signalctx"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	"github.com/stretchr/testify/require"
@@ -118,8 +119,10 @@ func TestWaitForTickSignalStopsScheduler(t *testing.T) {
 	timer := time.NewTimer(time.Hour)
 	defer timer.Stop()
 
+	// The signal is sent on the channel, not by the OS.
+	ctx := signalctx.WithOSSignalsDisabled(context.Background())
 	sig <- syscall.SIGTERM
-	require.False(t, sc.waitForTick(context.Background(), sig, timer))
+	require.False(t, sc.waitForTick(ctx, sig, timer))
 
 	select {
 	case <-sc.quit:

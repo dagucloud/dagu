@@ -45,7 +45,7 @@ func notifyShutdownContext(parent context.Context, signals ...os.Signal) (contex
 	go func() {
 		select {
 		case sig := <-quit:
-			signalctx.AbsorbRepeatedTerminate()
+			signalctx.AbsorbRepeatedTerminate(parent)
 			signal.Stop(quit)
 			cancel(shutdownSignalError{signal: sig})
 		case <-ctx.Done():
