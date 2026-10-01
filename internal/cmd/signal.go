@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"syscall"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/signalctx"
 )
@@ -29,6 +30,22 @@ func (e shutdownSignalError) As(target any) bool {
 		*sig = e.signal
 	}
 	return ok
+}
+
+// absorbRepeatedTerminate keeps SIGTERM handled until the returned function
+// runs, so a repeated SIGTERM cannot kill a supervisor during graceful
+// shutdown. Process managers can deliver SIGTERM more than once, for example to
+// a whole process group and again through a relay such as sudo, and they
+// escalate with SIGKILL when shutdown takes too long. A second SIGINT still
+// forces an interactive exit.
+func absorbRepeatedTerminate(ctx context.Context) func() {
+	if signalctx.OSSignalsDisabled(ctx) {
+		return func() {}
+	}
+	// Signals beyond the buffer are dropped, which is all absorbing needs.
+	absorbed := make(chan os.Signal, 1)
+	signal.Notify(absorbed, syscall.SIGTERM)
+	return func() { signal.Stop(absorbed) }
 }
 
 // notifyShutdownContext preserves the received signal as the cancellation

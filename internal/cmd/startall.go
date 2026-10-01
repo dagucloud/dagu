@@ -107,6 +107,8 @@ func runStartAll(ctx *Context, _ []string) error {
 		defer ctx.LicenseManager.Stop()
 	}
 
+	defer absorbRepeatedTerminate(ctx.Context)()
+
 	// Create a context that will be cancelled on interrupt signal.
 	// This must be created BEFORE server initialization so auth provider init can be cancelled.
 	signalCtx, stop := notifyShutdownContext(ctx.Context, ctx.Config.SignalHandling.EnablePropagation, syscall.SIGINT, syscall.SIGTERM)
@@ -272,7 +274,7 @@ func runStartAll(ctx *Context, _ []string) error {
 	_ = errors.As(context.Cause(signalCtx), &received)
 	// Capture the signal before scheduler.Stop cancels its service context.
 	runsDone := launcher.PropagateSignal(serviceCtx, received)
-	stop() // Restore default signal handling while graceful shutdown runs.
+	stop() // Let a second SIGINT end graceful shutdown; SIGTERM stays absorbed.
 
 	// Stop all services gracefully
 	logger.Info(ctx, "Stopping all services")

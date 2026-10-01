@@ -310,6 +310,27 @@ func TestSecondSignalDuringRunCleanup(t *testing.T) {
 	}
 }
 
+// Container runtimes and service managers can deliver SIGTERM more than once,
+// for example to a whole process group and again through a relay such as
+// sudo. Unlike a second SIGINT, a repeated SIGTERM must not cut runner
+// cleanup short.
+func TestRepeatedTerminateDuringRunCleanup(t *testing.T) {
+	for _, commandName := range []string{"server", "scheduler", "start-all"} {
+		t.Run(commandName, func(t *testing.T) {
+			run := startSignalRun(t, commandName, 10)
+			require.NoError(t, run.command.Process.Signal(syscall.SIGTERM))
+			run.waitForFile(t, run.stopped)
+			require.NoError(t, run.command.Process.Signal(syscall.SIGTERM))
+			run.assertAlive(t, 200*time.Millisecond)
+			releaseHoldFile(t, run.release)
+			require.NoError(t, run.wait(t))
+			_, err := os.Stat(run.cleaned)
+			require.NoError(t, err, "supervisor exited before step cleanup")
+			run.assertStatus(t, ir.Aborted)
+		})
+	}
+}
+
 func TestSchedulerUnsupportedSignal(t *testing.T) {
 	for _, shutdownSignal := range []os.Signal{syscall.SIGHUP, syscall.SIGQUIT} {
 		t.Run(shutdownSignal.String(), func(t *testing.T) {
