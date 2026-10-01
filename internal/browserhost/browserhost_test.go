@@ -203,8 +203,10 @@ func TestProbeAndClose(t *testing.T) {
 func TestUsesProfile(t *testing.T) {
 	t.Parallel()
 
-	fake := newFakeBrowser(t)
-	fake.commandLine = `chrome --remote-debugging-port=9222 --user-data-dir=/tmp/profile-1 about:blank "--user-data-dir=C:\Temp\my profile"`
+	// The command line is set before the server starts serving it.
+	fake := &fakeBrowser{commandLine: `chrome --remote-debugging-port=9222 --user-data-dir=/tmp/profile-1 about:blank "--user-data-dir=C:\Temp\my profile"`}
+	fake.start()
+	t.Cleanup(fake.server.Close)
 	for dir, want := range map[string]bool{
 		"/tmp/profile-1":     true,
 		`C:\Temp\my profile`: true,

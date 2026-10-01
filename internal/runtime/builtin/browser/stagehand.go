@@ -36,9 +36,10 @@ const (
 	callTimeoutSlack = 5 * time.Second
 	// exitPollInterval spaces the checks for a closing browser's exit.
 	exitPollInterval = 100 * time.Millisecond
-	// unstartedCloseTimeout bounds the DevTools requests that end a browser
-	// whose runtime failed to start.
-	unstartedCloseTimeout = 10 * time.Second
+	// unstartedCallTimeout bounds each request that ends a browser whose
+	// runtime failed to start, so a slow request cannot use up the next one's
+	// time.
+	unstartedCallTimeout = 5 * time.Second
 )
 
 // pageTextExpression reads the text a person sees on the page.
@@ -170,21 +171,27 @@ func (stagehandLauncher) Reattach(ctx context.Context, handle browserHandle, opt
 // browser is asked to exit over DevTools. The debugging port was only free
 // when chosen, so the browser is closed only when it uses profileDir.
 func endUnstartedBrowser(ctx context.Context, browser *stagehand.Browser, cdpURL, profileDir string) error {
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), unstartedCloseTimeout)
-	defer cancel()
+	ctx = context.WithoutCancel(ctx)
 	var err error
 	if profileDir != "" {
-		owned, ownErr := browserhost.UsesProfile(ctx, cdpURL, profileDir)
+		owned, ownErr := boundCall(ctx, unstartedCallTimeout, func(ctx context.Context) (bool, error) {
+			return browserhost.UsesProfile(ctx, cdpURL, profileDir)
+		})
 		switch {
 		case errors.Is(ownErr, browserhost.ErrUnreachable):
 		case ownErr != nil:
 			err = fmt.Errorf("identify browser: %w", ownErr)
 		case owned:
-			err = browserhost.CloseBrowser(ctx, cdpURL)
+			_, err = boundCall(ctx, unstartedCallTimeout, func(ctx context.Context) (struct{}, error) {
+				return struct{}{}, browserhost.CloseBrowser(ctx, cdpURL)
+			})
 		}
 	}
 	if browser != nil {
-		err = errors.Join(err, browser.Close(ctx))
+		_, closeErr := boundCall(ctx, unstartedCallTimeout, func(ctx context.Context) (struct{}, error) {
+			return struct{}{}, browser.Close(ctx)
+		})
+		err = errors.Join(err, closeErr)
 	}
 	return err
 }
