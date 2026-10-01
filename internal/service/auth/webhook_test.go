@@ -470,13 +470,15 @@ func TestService_CreateWebhookProfileToken(t *testing.T) {
 		service, _ := setupWebhookTestService(t)
 		ctx := context.Background()
 
-		created, err := service.CreateWebhook(ctx, "token-limit-dag", "admin")
+		_, err := service.CreateWebhook(ctx, "token-limit-dag", "admin")
 		require.NoError(t, err)
-		webhook := created.Webhook
-		for range maxWebhookProfileTokens {
-			webhook.ProfileTokens = append(webhook.ProfileTokens, auth.NewWebhookProfileToken("a", "a", "hash", "dagu_wh_", "admin"))
-		}
-		require.NoError(t, service.webhookStore.Update(ctx, webhook))
+		_, err = service.webhookStore.UpdateByDAGName(ctx, "token-limit-dag", func(webhook *auth.Webhook) error {
+			for range maxWebhookProfileTokens {
+				webhook.ProfileTokens = append(webhook.ProfileTokens, auth.NewWebhookProfileToken("a", "a", "hash", "dagu_wh_", "admin"))
+			}
+			return nil
+		})
+		require.NoError(t, err)
 
 		_, err = service.CreateWebhookProfileToken(ctx, "token-limit-dag", "a", "customer-a", "admin")
 		assert.ErrorIs(t, err, ErrWebhookProfileTokenLimit)

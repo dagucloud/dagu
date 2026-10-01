@@ -6,6 +6,7 @@ package store_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/v2/internal/auth"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 )
@@ -23,6 +25,42 @@ func newWebhookStore(t *testing.T) *store.WebhookStore {
 	s, err := store.NewWebhookStore(col, nil)
 	require.NoError(t, err)
 	return s
+}
+
+// conflictingCollection runs write once, right after the first Get, to
+// simulate another process changing a record between a store's read and write.
+type conflictingCollection struct {
+	persis.Collection
+	once  sync.Once
+	write func()
+}
+
+func (c *conflictingCollection) Get(ctx context.Context, id string) (*persis.Record, error) {
+	rec, err := c.Collection.Get(ctx, id)
+	c.once.Do(c.write)
+	return rec, err
+}
+
+// newConflictingWebhookStores creates wh through one store and returns it with
+// a second store over the same collection. The second store's first read is
+// followed by otherWrite, run through the first store.
+func newConflictingWebhookStores(
+	t *testing.T,
+	wh *auth.Webhook,
+	otherWrite func(other *store.WebhookStore),
+) (s, other *store.WebhookStore) {
+	t.Helper()
+	col := testutil.NewMemoryBackend().Collection("webhooks")
+	other, err := store.NewWebhookStore(col, nil)
+	require.NoError(t, err)
+	require.NoError(t, other.Create(context.Background(), wh))
+
+	s, err = store.NewWebhookStore(&conflictingCollection{
+		Collection: col,
+		write:      func() { otherWrite(other) },
+	}, nil)
+	require.NoError(t, err)
+	return s, other
 }
 
 func newWebhook(dagName string) *auth.Webhook {
@@ -106,51 +144,6 @@ func TestWebhookList(t *testing.T) {
 	assert.Len(t, list, 3)
 }
 
-func TestWebhookUpdate(t *testing.T) {
-	ctx := context.Background()
-	s := newWebhookStore(t)
-	wh := newWebhook("dag-u")
-	require.NoError(t, s.Create(ctx, wh))
-
-	wh.Enabled = false
-	wh.TokenPrefix = "tok2"
-	wh.AllowedProfiles = []string{"prod", "staging"}
-	require.NoError(t, s.Update(ctx, wh))
-
-	got, err := s.GetByID(ctx, wh.ID)
-	require.NoError(t, err)
-	assert.False(t, got.Enabled)
-	assert.Equal(t, "tok2", got.TokenPrefix)
-	assert.Equal(t, []string{"prod", "staging"}, got.AllowedProfiles)
-}
-
-func TestWebhookUpdate_NotFound(t *testing.T) {
-	ctx := context.Background()
-	s := newWebhookStore(t)
-
-	err := s.Update(ctx, newWebhook("ghost"))
-	assert.ErrorIs(t, err, auth.ErrWebhookNotFound)
-}
-
-func TestWebhookUpdate_DAGNameChange(t *testing.T) {
-	ctx := context.Background()
-	s := newWebhookStore(t)
-	wh := newWebhook("old-dag")
-	require.NoError(t, s.Create(ctx, wh))
-
-	wh.DAGName = "new-dag"
-	require.NoError(t, s.Update(ctx, wh))
-
-	// old name no longer resolves
-	_, err := s.GetByDAGName(ctx, "old-dag")
-	assert.ErrorIs(t, err, auth.ErrWebhookNotFound)
-
-	// new name resolves
-	got, err := s.GetByDAGName(ctx, "new-dag")
-	require.NoError(t, err)
-	assert.Equal(t, wh.ID, got.ID)
-}
-
 func TestWebhookUpdateByDAGName(t *testing.T) {
 	ctx := context.Background()
 	s := newWebhookStore(t)
@@ -189,6 +182,29 @@ func TestWebhookUpdateByDAGName_MutateErrorAbortsWrite(t *testing.T) {
 	got, err := s.GetByID(ctx, wh.ID)
 	require.NoError(t, err)
 	assert.True(t, got.Enabled)
+}
+
+func TestWebhookUpdateByDAGName_KeepsConcurrentWrite(t *testing.T) {
+	ctx := context.Background()
+	wh := newWebhook("dag-mutate-conflict")
+	s, other := newConflictingWebhookStores(t, wh, func(other *store.WebhookStore) {
+		_, err := other.UpdateByDAGName(ctx, wh.DAGName, func(w *auth.Webhook) error {
+			w.AllowedProfiles = []string{"prod"}
+			return nil
+		})
+		require.NoError(t, err)
+	})
+
+	_, err := s.UpdateByDAGName(ctx, wh.DAGName, func(w *auth.Webhook) error {
+		w.Enabled = false
+		return nil
+	})
+	require.NoError(t, err)
+
+	got, err := other.GetByID(ctx, wh.ID)
+	require.NoError(t, err)
+	assert.False(t, got.Enabled)
+	assert.Equal(t, []string{"prod"}, got.AllowedProfiles)
 }
 
 func TestWebhookUpdateByDAGName_NotFound(t *testing.T) {
@@ -276,6 +292,29 @@ func TestWebhookUpdateLastUsed_ProfileToken(t *testing.T) {
 	assert.Equal(t, used.ID, got.ProfileTokens[1].ID)
 	assert.Equal(t, got.LastUsedAt, got.ProfileTokens[1].LastUsedAt)
 	assert.Equal(t, "hash-a", got.ProfileTokens[1].TokenHash)
+}
+
+// A last-used update must not restore a profile token that another process
+// revoked after the update read the webhook.
+func TestWebhookUpdateLastUsed_KeepsConcurrentRevoke(t *testing.T) {
+	ctx := context.Background()
+	wh := newWebhook("dag-lu-revoke")
+	token := auth.NewWebhookProfileToken("a", "profile-a", "hash-a", "tok-a", "admin")
+	wh.ProfileTokens = []auth.WebhookProfileToken{token}
+	s, other := newConflictingWebhookStores(t, wh, func(other *store.WebhookStore) {
+		_, err := other.UpdateByDAGName(ctx, wh.DAGName, func(w *auth.Webhook) error {
+			w.ProfileTokens = nil
+			return nil
+		})
+		require.NoError(t, err)
+	})
+
+	require.NoError(t, s.UpdateLastUsed(ctx, wh.ID, token.ID))
+
+	got, err := other.GetByID(ctx, wh.ID)
+	require.NoError(t, err)
+	assert.Empty(t, got.ProfileTokens)
+	assert.NotNil(t, got.LastUsedAt)
 }
 
 func TestWebhookUpdateLastUsed_NotFound(t *testing.T) {
