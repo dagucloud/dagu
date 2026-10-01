@@ -172,6 +172,14 @@ func fileMissingCommand(path string) string {
 	return fmt.Sprintf("test ! -f %s", test.PosixQuote(path))
 }
 
+// gatedCommand creates started and then waits until release exists.
+func gatedCommand(started, release string) string {
+	return createEmptyFileCommand(started) + "; " + test.ForOS(
+		fmt.Sprintf("while [ ! -f %s ]; do sleep 0.05; done", test.PosixQuote(release)),
+		fmt.Sprintf("while (-not (Test-Path %s)) { Start-Sleep -Milliseconds 50 }", test.PowerShellQuote(release)),
+	)
+}
+
 func repeatExpectedCondition(counterFile, expected string) *ir.Condition {
 	return &ir.Condition{Condition: repeatCounterEqualsCommand(counterFile, expected)}
 }
@@ -1229,25 +1237,29 @@ func TestRunner(t *testing.T) {
 		node := result.nodeByName(t, "1")
 		require.Equal(t, 1, node.State().DoneCount)
 	})
+	// The attempt blocks until released so the stop is certain to arrive while
+	// it runs; a running node may not have started its first attempt yet.
 	t.Run("StopRepetitiveTaskGracefully", func(t *testing.T) {
+		dir := t.TempDir()
+		started, release := filepath.Join(dir, "started"), filepath.Join(dir, "release")
 		r := setupRunner(t)
 
 		plan := r.newPlan(t,
 			newStep("1",
-				withCommand("sleep 0.1"),
+				withCommand(gatedCommand(started, release)),
 				withRepeatPolicy(true, time.Millisecond*50),
 			),
 		)
 
-		done := make(chan struct{})
+		running := make(chan bool, 1)
 		go func() {
-			waitForNodeStatus(plan.Plan, "1", ir.NodeRunning, 5*time.Second)
+			running <- waitForFile(started, platformTestDuration(5*time.Second, 30*time.Second))
 			plan.signal(syscall.SIGTERM)
-			close(done)
+			_ = os.WriteFile(release, nil, 0600)
 		}()
 
 		result := plan.assertRun(t, ir.Succeeded)
-		<-done
+		require.True(t, <-running, "attempt did not start")
 
 		result.assertNodeStatus(t, "1", ir.NodeSucceeded)
 	})
@@ -3030,14 +3042,10 @@ func TestRunner_RepeatStopDuringCheck(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
 			started, release := filepath.Join(dir, "started"), filepath.Join(dir, "release")
-			gate := createEmptyFileCommand(started) + "; " + test.ForOS(
-				fmt.Sprintf("while [ ! -f %s ]; do sleep 0.05; done", test.PosixQuote(release)),
-				fmt.Sprintf("while (-not (Test-Path %s)) { Start-Sleep -Milliseconds 50 }", test.PowerShellQuote(release)),
-			)
 			r := setupRunner(t)
 			plan := r.newPlan(t, newStep("1", tt.action(t), func(step *ir.Step) {
 				step.RepeatPolicy.RepeatMode = ir.RepeatModeWhile
-				step.RepeatPolicy.Condition = &ir.Condition{Condition: gate}
+				step.RepeatPolicy.Condition = &ir.Condition{Condition: gatedCommand(started, release)}
 			}))
 
 			checking := make(chan bool, 1)
