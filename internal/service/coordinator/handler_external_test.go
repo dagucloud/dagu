@@ -63,7 +63,32 @@ func TestHandlerPollDistributedAdaptiveWaitBacksOff(t *testing.T) {
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	assert.Nil(t, resp)
 	assert.LessOrEqual(t, store.ClaimCalls(), int64(8), "idle pollers should back off instead of polling at the initial interval forever")
-	assert.GreaterOrEqual(t, store.ClaimCalls(), int64(3), "pollers should continue using the fallback timer")
+}
+
+// A poller that has backed off to the maximum wait must keep claiming on the
+// fallback timer. The check waits for progress instead of counting claims in a
+// fixed window, because coarse timers and slow runners delay each retry.
+func TestHandlerPollDistributedKeepsPollingAfterBackoff(t *testing.T) {
+	t.Parallel()
+
+	store := &pollingDispatchStore{}
+	handler := coord.NewHandler(coord.HandlerConfig{DispatchTaskStore: store})
+	coord.SetDispatchPollWaitForTest(t, handler, time.Millisecond, 2*time.Millisecond)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errs := make(chan error, 1)
+	go func() {
+		_, err := handler.Poll(ctx, &coordinatorv1.PollRequest{
+			WorkerId: "worker-backoff",
+			PollerId: "poller-backoff",
+		})
+		errs <- err
+	}()
+
+	// From the third claim on, each claim follows a wait at the maximum.
+	store.WaitForClaimCalls(t, 5)
+	cancel()
+	require.ErrorIs(t, <-errs, context.Canceled)
 }
 
 func TestHandlerPollDistributedWakeClaimsWithoutTimer(t *testing.T) {
