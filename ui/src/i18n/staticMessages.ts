@@ -2265,6 +2265,19 @@ const english = {
   '(unchanged)': '(unchanged)',
   'Next run': 'Next run',
   'Copy MCP setup prompt': 'Copy MCP setup prompt',
+  'Profile tokens': 'Profile tokens',
+  "Give each caller its own token. Requests with a profile token always run with that token's profile, and an {header} header naming another profile is rejected.":
+    "Give each caller its own token. Requests with a profile token always run with that token's profile, and an {header} header naming another profile is rejected.",
+  'No profile tokens.': 'No profile tokens.',
+  'Token name': 'Token name',
+  'Runtime profile': 'Runtime profile',
+  'Create token': 'Create token',
+  'Last used:': 'Last used:',
+  'Profile tokens are ignored while authentication is HMAC only.':
+    'Profile tokens are ignored while authentication is HMAC only.',
+  'Revoke Profile Token': 'Revoke Profile Token',
+  'Applications using this token will immediately lose access.':
+    'Applications using this token will immediately lose access.',
 } as const;
 
 export type StaticMessage = keyof typeof english;
@@ -4473,6 +4486,19 @@ const chinese = {
   '(unchanged)': '（不变）',
   'Next run': '下次运行',
   'Copy MCP setup prompt': '复制 MCP 配置提示词',
+  'Profile tokens': '配置文件令牌',
+  "Give each caller its own token. Requests with a profile token always run with that token's profile, and an {header} header naming another profile is rejected.":
+    '为每个调用方提供独立的令牌。使用配置文件令牌的请求始终以该令牌的配置文件运行，指定其他配置文件的 {header} 标头会被拒绝。',
+  'No profile tokens.': '没有配置文件令牌。',
+  'Token name': '令牌名称',
+  'Runtime profile': '运行时配置文件',
+  'Create token': '创建令牌',
+  'Last used:': '最后使用:',
+  'Profile tokens are ignored while authentication is HMAC only.':
+    '认证方式为仅 HMAC 时，配置文件令牌会被忽略。',
+  'Revoke Profile Token': '撤销配置文件令牌',
+  'Applications using this token will immediately lose access.':
+    '使用此令牌的应用将立即失去访问权限。',
 } as const satisfies Record<StaticMessage, string>;
 
 const japanese = {
@@ -6762,6 +6788,19 @@ const japanese = {
   '(unchanged)': '（変更なし）',
   'Next run': '次の実行',
   'Copy MCP setup prompt': 'MCP セットアップ用プロンプトをコピー',
+  'Profile tokens': 'プロファイルトークン',
+  "Give each caller its own token. Requests with a profile token always run with that token's profile, and an {header} header naming another profile is rejected.":
+    '呼び出し元ごとに専用のトークンを発行します。プロファイルトークンを使うリクエストは常にそのトークンのプロファイルで実行され、別のプロファイルを指定する {header} ヘッダーは拒否されます。',
+  'No profile tokens.': 'プロファイルトークンはありません。',
+  'Token name': 'トークン名',
+  'Runtime profile': 'ランタイムプロファイル',
+  'Create token': 'トークンを作成',
+  'Last used:': '最終使用:',
+  'Profile tokens are ignored while authentication is HMAC only.':
+    '認証方式が HMAC のみの間、プロファイルトークンは無視されます。',
+  'Revoke Profile Token': 'プロファイルトークンを失効',
+  'Applications using this token will immediately lose access.':
+    'このトークンを使っているアプリケーションは直ちにアクセスできなくなります。',
 } as const satisfies Record<StaticMessage, string>;
 
 export const staticMessages = {

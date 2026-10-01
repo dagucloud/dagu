@@ -49,6 +49,7 @@ import { useClient } from '../../../../hooks/api';
 import dayjs from '../../../../lib/dayjs';
 import ConfirmModal from '@/components/ui/confirm-dialog';
 import WebhookProfileSelectionCard from './WebhookProfileSelectionCard';
+import WebhookProfileTokensCard from './WebhookProfileTokensCard';
 import {
   buildWebhookExamples,
   findActiveAllowedProfile,
@@ -939,6 +940,18 @@ function WebhookTab({ fileName }: WebhookTabProps) {
         webhook={webhook}
         onActiveProfileNamesChange={setActiveProfileNames}
         onWebhookChange={setWebhook}
+      />
+
+      <WebhookProfileTokensCard
+        fileName={fileName}
+        isAdmin={isAdmin}
+        remoteNode={remoteNode}
+        webhook={webhook}
+        activeProfileNames={activeProfileNames}
+        onWebhookChange={setWebhook}
+        onTokenCreated={(token) =>
+          setSecretReveal({ kind: 'token', value: token })
+        }
       />
 
       {isHMACEnabled && (
