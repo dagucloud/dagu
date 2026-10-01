@@ -63,7 +63,8 @@ function WebhookProfileTokensCard({
   const [pendingRevoke, setPendingRevoke] =
     useState<WebhookProfileToken | null>(null);
 
-  const tokens = webhook.profileTokens;
+  // Remote nodes running an older version omit profileTokens.
+  const tokens = webhook.profileTokens ?? [];
   const isHMACOnly = webhook.authMode === WebhookAuthModeValue.hmac_only;
 
   const handleCreate = async () => {

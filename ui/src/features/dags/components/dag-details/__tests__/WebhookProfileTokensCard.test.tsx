@@ -138,6 +138,13 @@ describe('WebhookProfileTokensCard', () => {
     expect(screen.queryByRole('button', { name: 'Create token' })).toBeNull();
   });
 
+  // Remote nodes running an older version omit profileTokens.
+  it('renders an empty list when profileTokens is missing', () => {
+    renderCard({ profileTokens: undefined });
+
+    expect(screen.getByText('No profile tokens.')).toBeVisible();
+  });
+
   it('hides token creation while authentication is HMAC only', () => {
     renderCard({ authMode: WebhookAuthMode.hmac_only });
 
