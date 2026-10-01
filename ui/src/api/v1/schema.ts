@@ -4146,8 +4146,8 @@ export interface components {
             authMode: components["schemas"]["WebhookAuthMode"];
             hmac: components["schemas"]["WebhookHMACDetails"];
             profileSelection: components["schemas"]["WebhookProfileSelectionDetails"];
-            /** @description Additional tokens, each bound to one runtime profile */
-            profileTokens: components["schemas"]["WebhookProfileToken"][];
+            /** @description Additional tokens, each bound to one runtime profile. Remote nodes running versions without profile tokens omit the field. */
+            profileTokens?: components["schemas"]["WebhookProfileToken"][];
             /**
              * Format: date-time
              * @description When the webhook was created

@@ -129,7 +129,9 @@ func TestWebhookProfileToken(t *testing.T) {
 		WithBearerToken(adminToken).ExpectStatus(http.StatusCreated).Send(t)
 	var tokenCreate api.WebhookCreateResponse
 	createTokenResp.Unmarshal(t, &tokenCreate)
-	require.Len(t, tokenCreate.Webhook.ProfileTokens, 1)
+	require.NotNil(t, tokenCreate.Webhook.ProfileTokens)
+	require.Len(t, *tokenCreate.Webhook.ProfileTokens, 1)
+	profileTokenID := (*tokenCreate.Webhook.ProfileTokens)[0].Id
 
 	triggerResp := server.Client().Post("/api/v1/webhooks/"+dagName, api.WebhookRequest{}).
 		WithBearerToken(tokenCreate.Token).
@@ -152,7 +154,7 @@ func TestWebhookProfileToken(t *testing.T) {
 		WithHeader("X-Dagu-Profile", "otherprof").
 		ExpectStatus(http.StatusForbidden).Send(t)
 
-	server.Client().Delete("/api/v1/dags/" + dagName + "/webhook/profile-tokens/" + tokenCreate.Webhook.ProfileTokens[0].Id).
+	server.Client().Delete("/api/v1/dags/" + dagName + "/webhook/profile-tokens/" + profileTokenID).
 		WithBearerToken(adminToken).ExpectStatus(http.StatusOK).Send(t)
 	server.Client().Post("/api/v1/webhooks/"+dagName, api.WebhookRequest{}).
 		WithBearerToken(tokenCreate.Token).

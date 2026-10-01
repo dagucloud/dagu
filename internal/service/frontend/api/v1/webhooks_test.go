@@ -768,8 +768,9 @@ func TestWebhooks_TriggerUsesProfileToken(t *testing.T) {
 	}).WithBearerToken(token).ExpectStatus(http.StatusCreated).Send(t)
 	var created api.WebhookCreateResponse
 	createResp.Unmarshal(t, &created)
-	require.Len(t, created.Webhook.ProfileTokens, 1)
-	profileToken := created.Webhook.ProfileTokens[0]
+	require.NotNil(t, created.Webhook.ProfileTokens)
+	require.Len(t, *created.Webhook.ProfileTokens, 1)
+	profileToken := (*created.Webhook.ProfileTokens)[0]
 	assert.Equal(t, "customer-a", profileToken.Name)
 	assert.Equal(t, api.RuntimeProfileName("staging"), profileToken.Profile)
 	assert.True(t, strings.HasPrefix(created.Token, profileToken.TokenPrefix))
@@ -793,7 +794,8 @@ func TestWebhooks_TriggerUsesProfileToken(t *testing.T) {
 		WithBearerToken(token).ExpectStatus(http.StatusOK).Send(t)
 	var revoked api.WebhookDetails
 	revokeResp.Unmarshal(t, &revoked)
-	assert.Empty(t, revoked.ProfileTokens)
+	require.NotNil(t, revoked.ProfileTokens)
+	assert.Empty(t, *revoked.ProfileTokens)
 
 	server.Client().Post("/api/v1/webhooks/"+dagName, api.WebhookRequest{}).
 		WithBearerToken(created.Token).ExpectStatus(http.StatusUnauthorized).Send(t)

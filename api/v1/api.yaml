@@ -11530,7 +11530,6 @@ components:
         - authMode
         - hmac
         - profileSelection
-        - profileTokens
         - createdAt
         - updatedAt
       properties:
@@ -11555,7 +11554,7 @@ components:
           $ref: "#/components/schemas/WebhookProfileSelectionDetails"
         profileTokens:
           type: array
-          description: "Additional tokens, each bound to one runtime profile"
+          description: "Additional tokens, each bound to one runtime profile. Remote nodes running versions without profile tokens omit the field."
           items:
             $ref: "#/components/schemas/WebhookProfileToken"
         createdAt:

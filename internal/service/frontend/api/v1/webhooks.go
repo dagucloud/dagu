@@ -961,7 +961,7 @@ func toWebhookDetails(wh *auth.Webhook) api.WebhookDetails {
 		ProfileSelection: api.WebhookProfileSelectionDetails{
 			AllowedProfiles: toRuntimeProfileNames(wh.AllowedProfiles),
 		},
-		ProfileTokens: toWebhookProfileTokens(wh.ProfileTokens),
+		ProfileTokens: ptrOf(toWebhookProfileTokens(wh.ProfileTokens)),
 		CreatedAt:     wh.CreatedAt,
 		UpdatedAt:     wh.UpdatedAt,
 		CreatedBy:     ptrOf(wh.CreatedBy),
