@@ -35,6 +35,7 @@ const webhook: WebhookDetails = {
   profileSelection: {
     allowedProfiles: [],
   },
+  profileTokens: [],
   createdAt: '2026-08-07T00:00:00Z',
   updatedAt: '2026-08-07T00:00:00Z',
 };

@@ -29,6 +29,8 @@ import (
 
 const maxWebhookAllowedProfiles = 100
 
+const maxWebhookProfileTokenNameLength = 100
+
 // ListWebhooks returns all webhooks across all DAGs.
 // Requires developer role or above.
 func (a *API) ListWebhooks(ctx context.Context, _ api.ListWebhooksRequestObject) (api.ListWebhooksResponseObject, error) {
@@ -311,6 +313,123 @@ func (a *API) ConfigureDAGWebhookProfileSelection(
 	})
 
 	return api.ConfigureDAGWebhookProfileSelection200JSONResponse(toWebhookDetails(webhook)), nil
+}
+
+// CreateDAGWebhookProfileToken creates a webhook token bound to one runtime profile.
+func (a *API) CreateDAGWebhookProfileToken(
+	ctx context.Context,
+	request api.CreateDAGWebhookProfileTokenRequestObject,
+) (api.CreateDAGWebhookProfileTokenResponseObject, error) {
+	if err := a.requireWebhookManagement(ctx); err != nil {
+		return nil, err
+	}
+	if err := a.requireAdmin(ctx); err != nil {
+		return nil, err
+	}
+	if request.Body == nil {
+		return api.CreateDAGWebhookProfileToken400JSONResponse{
+			Code:    api.ErrorCodeBadRequest,
+			Message: "request body is required",
+		}, nil
+	}
+
+	name := strings.TrimSpace(request.Body.Name)
+	if name == "" || len(name) > maxWebhookProfileTokenNameLength {
+		return api.CreateDAGWebhookProfileToken400JSONResponse{
+			Code:    api.ErrorCodeBadRequest,
+			Message: fmt.Sprintf("name must be 1 to %d characters", maxWebhookProfileTokenNameLength),
+		}, nil
+	}
+	requestedProfile := strings.TrimSpace(string(request.Body.Profile))
+	if err := profilepkg.ValidateName(requestedProfile); err != nil {
+		return api.CreateDAGWebhookProfileToken400JSONResponse(
+			runtimeProfileBadRequest(err.Error()),
+		), nil
+	}
+	profileName, err := a.ensureRunnableRuntimeProfile(ctx, requestedProfile)
+	if err != nil {
+		return nil, err
+	}
+
+	result, err := a.authService.CreateWebhookProfileToken(ctx, request.FileName, name, profileName, getCreatorID(ctx))
+	if err != nil {
+		switch {
+		case errors.Is(err, auth.ErrWebhookNotFound):
+			return api.CreateDAGWebhookProfileToken404JSONResponse{
+				Code:    api.ErrorCodeNotFound,
+				Message: fmt.Sprintf("no webhook configured for DAG %s", request.FileName),
+			}, nil
+		case errors.Is(err, authservice.ErrWebhookProfileTokenRequiresToken),
+			errors.Is(err, authservice.ErrWebhookProfileTokenLimit):
+			return api.CreateDAGWebhookProfileToken400JSONResponse{
+				Code:    api.ErrorCodeBadRequest,
+				Message: err.Error(),
+			}, nil
+		}
+		logger.Error(ctx, "Failed to create webhook profile token", tag.Name(request.FileName), tag.Error(err))
+		return nil, &Error{
+			HTTPStatus: http.StatusInternalServerError,
+			Code:       api.ErrorCodeInternalError,
+			Message:    "failed to create webhook profile token",
+		}
+	}
+
+	token := result.Webhook.ProfileTokens[len(result.Webhook.ProfileTokens)-1]
+	a.logAudit(ctx, audit.CategoryWebhook, "webhook_profile_token_create", map[string]any{
+		"dag_name":   request.FileName,
+		"webhook_id": result.Webhook.ID,
+		"token_id":   token.ID,
+		"name":       token.Name,
+		"profile":    token.Profile,
+	})
+
+	return api.CreateDAGWebhookProfileToken201JSONResponse{
+		Webhook: toWebhookDetails(result.Webhook),
+		Token:   result.FullToken,
+	}, nil
+}
+
+// RevokeDAGWebhookProfileToken revokes a webhook profile token.
+func (a *API) RevokeDAGWebhookProfileToken(
+	ctx context.Context,
+	request api.RevokeDAGWebhookProfileTokenRequestObject,
+) (api.RevokeDAGWebhookProfileTokenResponseObject, error) {
+	if err := a.requireWebhookManagement(ctx); err != nil {
+		return nil, err
+	}
+	if err := a.requireAdmin(ctx); err != nil {
+		return nil, err
+	}
+
+	webhook, err := a.authService.RevokeWebhookProfileToken(ctx, request.FileName, request.TokenId)
+	if err != nil {
+		switch {
+		case errors.Is(err, auth.ErrWebhookNotFound):
+			return api.RevokeDAGWebhookProfileToken404JSONResponse{
+				Code:    api.ErrorCodeNotFound,
+				Message: fmt.Sprintf("no webhook configured for DAG %s", request.FileName),
+			}, nil
+		case errors.Is(err, authservice.ErrWebhookProfileTokenNotFound):
+			return api.RevokeDAGWebhookProfileToken404JSONResponse{
+				Code:    api.ErrorCodeNotFound,
+				Message: err.Error(),
+			}, nil
+		}
+		logger.Error(ctx, "Failed to revoke webhook profile token", tag.Name(request.FileName), tag.Error(err))
+		return nil, &Error{
+			HTTPStatus: http.StatusInternalServerError,
+			Code:       api.ErrorCodeInternalError,
+			Message:    "failed to revoke webhook profile token",
+		}
+	}
+
+	a.logAudit(ctx, audit.CategoryWebhook, "webhook_profile_token_revoke", map[string]any{
+		"dag_name":   request.FileName,
+		"webhook_id": webhook.ID,
+		"token_id":   request.TokenId,
+	})
+
+	return api.RevokeDAGWebhookProfileToken200JSONResponse(toWebhookDetails(webhook)), nil
 }
 
 func mapWebhookHMACError(err error, dagName string) (int, api.Error, bool) {
@@ -841,11 +960,28 @@ func toWebhookDetails(wh *auth.Webhook) api.WebhookDetails {
 		ProfileSelection: api.WebhookProfileSelectionDetails{
 			AllowedProfiles: toRuntimeProfileNames(wh.AllowedProfiles),
 		},
-		CreatedAt:  wh.CreatedAt,
-		UpdatedAt:  wh.UpdatedAt,
-		CreatedBy:  ptrOf(wh.CreatedBy),
-		LastUsedAt: wh.LastUsedAt,
+		ProfileTokens: toWebhookProfileTokens(wh.ProfileTokens),
+		CreatedAt:     wh.CreatedAt,
+		UpdatedAt:     wh.UpdatedAt,
+		CreatedBy:     ptrOf(wh.CreatedBy),
+		LastUsedAt:    wh.LastUsedAt,
 	}
+}
+
+func toWebhookProfileTokens(tokens []auth.WebhookProfileToken) []api.WebhookProfileToken {
+	result := make([]api.WebhookProfileToken, 0, len(tokens))
+	for _, t := range tokens {
+		result = append(result, api.WebhookProfileToken{
+			Id:          t.ID,
+			Name:        t.Name,
+			TokenPrefix: t.TokenPrefix,
+			Profile:     api.RuntimeProfileName(t.Profile),
+			CreatedAt:   t.CreatedAt,
+			CreatedBy:   ptrOf(t.CreatedBy),
+			LastUsedAt:  t.LastUsedAt,
+		})
+	}
+	return result
 }
 
 func toRuntimeProfileNames(names []string) []api.RuntimeProfileName {

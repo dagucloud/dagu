@@ -4877,7 +4877,7 @@ paths:
           required: false
           schema:
             type: string
-          description: "Bearer token for webhook authentication (e.g., 'Bearer dagu_wh_...'). Required only when the webhook auth mode includes token authentication."
+          description: "Bearer token for webhook authentication (e.g., 'Bearer dagu_wh_...'). Accepts the webhook's default token or one of its profile tokens. Required only when the webhook auth mode includes token authentication."
         - name: X-Dagu-Signature
           in: header
           required: false
@@ -4896,7 +4896,7 @@ paths:
           required: false
           schema:
             $ref: "#/components/schemas/RuntimeProfileName"
-          description: "Runtime profile selected for this DAG run. The profile must be allowed by the webhook profile-selection policy. Omit the header to use the DAG's default profile resolution."
+          description: "Runtime profile selected for this DAG run. With the default token, the profile must be allowed by the webhook profile-selection policy; omit the header to use the DAG's default profile resolution. With a profile token, the run always uses the token's profile; the header may be omitted or must name that profile."
       requestBody:
         required: false
         content:
@@ -4923,7 +4923,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "403":
-          description: "Forbidden - webhook disabled or not configured"
+          description: "Forbidden - webhook disabled or not configured, or the requested runtime profile is not allowed for the token"
           content:
             application/json:
               schema:
@@ -6064,6 +6064,97 @@ paths:
                 $ref: "#/components/schemas/Error"
         "404":
           description: "No webhook or runtime profile found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dags/{fileName}/webhook/profile-tokens:
+    post:
+      summary: "Create webhook profile token"
+      description: |
+        Creates an additional webhook token bound to one runtime profile.
+        Requests authenticated with it always run with that profile.
+        Returns the new token, which is only shown once. Not available when
+        the webhook auth mode is `hmac_only`. Admin only.
+      operationId: "createDAGWebhookProfileToken"
+      tags:
+        - "webhooks"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGFileName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebhookProfileTokenCreateRequest"
+      responses:
+        "201":
+          description: "Profile token created successfully"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookCreateResponse"
+        "400":
+          description: "Invalid name, unavailable runtime profile, unsupported auth mode, or token limit reached"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Insufficient permissions"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "No webhook or runtime profile found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dags/{fileName}/webhook/profile-tokens/{tokenId}:
+    delete:
+      summary: "Revoke webhook profile token"
+      description: |
+        Revokes a webhook profile token. The token becomes invalid
+        immediately. Admin only.
+      operationId: "revokeDAGWebhookProfileToken"
+      tags:
+        - "webhooks"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGFileName"
+        - $ref: "#/components/parameters/WebhookProfileTokenId"
+      responses:
+        "200":
+          description: "Profile token revoked successfully"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDetails"
+        "403":
+          description: "Insufficient permissions"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "No webhook or profile token found"
           content:
             application/json:
               schema:
@@ -10303,6 +10394,15 @@ components:
         type: string
         minLength: 1
 
+    WebhookProfileTokenId:
+      name: tokenId
+      in: path
+      description: unique identifier of the webhook profile token
+      required: true
+      schema:
+        type: string
+        minLength: 1
+
     PerPage:
       name: perPage
       in: query
@@ -11430,6 +11530,7 @@ components:
         - authMode
         - hmac
         - profileSelection
+        - profileTokens
         - createdAt
         - updatedAt
       properties:
@@ -11452,6 +11553,11 @@ components:
           $ref: "#/components/schemas/WebhookHMACDetails"
         profileSelection:
           $ref: "#/components/schemas/WebhookProfileSelectionDetails"
+        profileTokens:
+          type: array
+          description: "Additional tokens, each bound to one runtime profile"
+          items:
+            $ref: "#/components/schemas/WebhookProfileToken"
         createdAt:
           type: string
           format: date-time
@@ -11513,6 +11619,54 @@ components:
           description: "Runtime profile names accepted through X-Dagu-Profile. An empty list disables caller selection."
           items:
             $ref: "#/components/schemas/RuntimeProfileName"
+
+    WebhookProfileToken:
+      type: object
+      description: "Webhook token bound to one runtime profile (token not included)"
+      required:
+        - id
+        - name
+        - tokenPrefix
+        - profile
+        - createdAt
+      properties:
+        id:
+          type: string
+          description: "Unique identifier for the profile token"
+        name:
+          type: string
+          description: "Label identifying the caller that holds the token"
+        tokenPrefix:
+          type: string
+          description: "Leading characters of the token for identification"
+        profile:
+          $ref: "#/components/schemas/RuntimeProfileName"
+        createdAt:
+          type: string
+          format: date-time
+          description: "When the profile token was created"
+        createdBy:
+          type: string
+          description: "User ID who created the profile token"
+        lastUsedAt:
+          type: string
+          format: date-time
+          description: "When the profile token last authorized a request"
+
+    WebhookProfileTokenCreateRequest:
+      type: object
+      description: "Request to create a webhook profile token"
+      required:
+        - name
+        - profile
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: "Label identifying the caller that will hold the token"
+        profile:
+          $ref: "#/components/schemas/RuntimeProfileName"
 
     WebhookProfileSelectionRequest:
       type: object

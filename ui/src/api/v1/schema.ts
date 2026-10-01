@@ -2352,6 +2352,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dags/{fileName}/webhook/profile-tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create webhook profile token
+         * @description Creates an additional webhook token bound to one runtime profile.
+         *     Requests authenticated with it always run with that profile.
+         *     Returns the new token, which is only shown once. Not available when
+         *     the webhook auth mode is `hmac_only`. Admin only.
+         *
+         */
+        post: operations["createDAGWebhookProfileToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dags/{fileName}/webhook/profile-tokens/{tokenId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke webhook profile token
+         * @description Revokes a webhook profile token. The token becomes invalid
+         *     immediately. Admin only.
+         *
+         */
+        delete: operations["revokeDAGWebhookProfileToken"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dags/{fileName}/webhook/toggle": {
         parameters: {
             query?: never;
@@ -4100,6 +4146,8 @@ export interface components {
             authMode: components["schemas"]["WebhookAuthMode"];
             hmac: components["schemas"]["WebhookHMACDetails"];
             profileSelection: components["schemas"]["WebhookProfileSelectionDetails"];
+            /** @description Additional tokens, each bound to one runtime profile */
+            profileTokens: components["schemas"]["WebhookProfileToken"][];
             /**
              * Format: date-time
              * @description When the webhook was created
@@ -4137,6 +4185,34 @@ export interface components {
         WebhookProfileSelectionDetails: {
             /** @description Runtime profile names accepted through X-Dagu-Profile. An empty list disables caller selection. */
             allowedProfiles: components["schemas"]["RuntimeProfileName"][];
+        };
+        /** @description Webhook token bound to one runtime profile (token not included) */
+        WebhookProfileToken: {
+            /** @description Unique identifier for the profile token */
+            id: string;
+            /** @description Label identifying the caller that holds the token */
+            name: string;
+            /** @description Leading characters of the token for identification */
+            tokenPrefix: string;
+            profile: components["schemas"]["RuntimeProfileName"];
+            /**
+             * Format: date-time
+             * @description When the profile token was created
+             */
+            createdAt: string;
+            /** @description User ID who created the profile token */
+            createdBy?: string;
+            /**
+             * Format: date-time
+             * @description When the profile token last authorized a request
+             */
+            lastUsedAt?: string;
+        };
+        /** @description Request to create a webhook profile token */
+        WebhookProfileTokenCreateRequest: {
+            /** @description Label identifying the caller that will hold the token */
+            name: string;
+            profile: components["schemas"]["RuntimeProfileName"];
         };
         /** @description Replacement runtime-profile allowlist for a webhook */
         WebhookProfileSelectionRequest: {
@@ -7012,6 +7088,8 @@ export interface components {
         UserId: string;
         /** @description unique identifier of the API key */
         APIKeyId: string;
+        /** @description unique identifier of the webhook profile token */
+        WebhookProfileTokenId: string;
         /** @description number of items per page (default is 30, max is 100) */
         PerPage: number;
         /** @description Number of Wiki page entries per page (default 50, max 200) */
@@ -12880,7 +12958,7 @@ export interface operations {
                 remoteNode?: components["parameters"]["RemoteNode"];
             };
             header?: {
-                /** @description Bearer token for webhook authentication (e.g., 'Bearer dagu_wh_...'). Required only when the webhook auth mode includes token authentication. */
+                /** @description Bearer token for webhook authentication (e.g., 'Bearer dagu_wh_...'). Accepts the webhook's default token or one of its profile tokens. Required only when the webhook auth mode includes token authentication. */
                 Authorization?: string;
                 /** @description HMAC webhook signature in the format `sha256=<hex>`. Required only
                  *     when the webhook auth mode includes HMAC authentication with strict
@@ -12889,7 +12967,7 @@ export interface operations {
                  *     `x-dagu-profile:<profile>\n<raw-request-body>`.
                  *      */
                 "X-Dagu-Signature"?: string;
-                /** @description Runtime profile selected for this DAG run. The profile must be allowed by the webhook profile-selection policy. Omit the header to use the DAG's default profile resolution. */
+                /** @description Runtime profile selected for this DAG run. With the default token, the profile must be allowed by the webhook profile-selection policy; omit the header to use the DAG's default profile resolution. With a profile token, the run always uses the token's profile; the header may be omitted or must name that profile. */
                 "X-Dagu-Profile"?: components["schemas"]["RuntimeProfileName"];
             };
             path: {
@@ -12931,7 +13009,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Forbidden - webhook disabled or not configured */
+            /** @description Forbidden - webhook disabled or not configured, or the requested runtime profile is not allowed for the token */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -14460,6 +14538,127 @@ export interface operations {
                 };
             };
             /** @description No webhook or runtime profile found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    createDAGWebhookProfileToken: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description the name of the DAG file */
+                fileName: components["parameters"]["DAGFileName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WebhookProfileTokenCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Profile token created successfully */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookCreateResponse"];
+                };
+            };
+            /** @description Invalid name, unavailable runtime profile, unsupported auth mode, or token limit reached */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No webhook or runtime profile found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    revokeDAGWebhookProfileToken: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description the name of the DAG file */
+                fileName: components["parameters"]["DAGFileName"];
+                /** @description unique identifier of the webhook profile token */
+                tokenId: components["parameters"]["WebhookProfileTokenId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Profile token revoked successfully */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookDetails"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No webhook or profile token found */
             404: {
                 headers: {
                     [name: string]: unknown;
