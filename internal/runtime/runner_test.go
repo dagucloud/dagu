@@ -2970,6 +2970,39 @@ func TestRunner_RepeatPolicyWithCancel(t *testing.T) {
 	assert.Equal(t, 1, node.State().DoneCount)
 }
 
+// A stop that arrives after a repeating step's attempt finished aborts the
+// pending repetition instead of completing the step with that attempt's
+// outcome. The repeat condition blocks so the stop always lands during the
+// check, before the step can repeat.
+func TestRunner_RepeatStopDuringCheck(t *testing.T) {
+	release := filepath.Join(t.TempDir(), "release")
+	gate := test.ForOS(
+		fmt.Sprintf("while [ ! -f %s ]; do sleep 0.05; done", test.PosixQuote(release)),
+		fmt.Sprintf("while (-not (Test-Path %s)) { Start-Sleep -Milliseconds 50 }", test.PowerShellQuote(release)),
+	)
+	r := setupRunner(t)
+	plan := r.newPlan(t, newStep("1", withCommand(test.Output("tick")), func(step *ir.Step) {
+		step.RepeatPolicy.RepeatMode = ir.RepeatModeWhile
+		step.RepeatPolicy.Condition = &ir.Condition{Condition: gate}
+	}))
+
+	attempted := make(chan bool, 1)
+	go func() {
+		deadline := time.Now().Add(platformTestDuration(5*time.Second, 30*time.Second))
+		for plan.GetNodeByName("1").State().DoneCount < 1 && time.Now().Before(deadline) {
+			time.Sleep(5 * time.Millisecond)
+		}
+		attempted <- plan.GetNodeByName("1").State().DoneCount >= 1
+		r.runner.Signal(r.Context, plan.Plan, syscall.SIGTERM, nil, false)
+		_ = os.WriteFile(release, nil, 0600)
+	}()
+
+	result := plan.assertRun(t, ir.Aborted)
+	require.True(t, <-attempted, "first attempt did not finish")
+	result.assertNodeStatus(t, "1", ir.NodeAborted)
+	require.Equal(t, 1, result.nodeByName(t, "1").State().DoneCount)
+}
+
 func TestRunner_RepeatPolicyWithLimit(t *testing.T) {
 	r := setupRunner(t)
 
