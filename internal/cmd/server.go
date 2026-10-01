@@ -90,11 +90,9 @@ func newServer(ctx *Context, rs *resource.Service, stores frontend.Stores, opts 
 // constructs the server with that resource service, and then begins serving.
 // It returns an error if the resource service fails to start, the server fails to initialize, or serving fails.
 func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) error {
-	defer absorbRepeatedTerminate(ctx.Context)()
-
 	// Create a context that will be cancelled on interrupt signal.
 	// This must be created BEFORE server initialization so auth provider init can be cancelled.
-	signalCtx, stop := notifyShutdownContext(ctx.Context, ctx.Config.SignalHandling.EnablePropagation, syscall.SIGINT, syscall.SIGTERM)
+	signalCtx, stop := notifyShutdownContext(ctx.Context, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	// Create a signal-aware context for services

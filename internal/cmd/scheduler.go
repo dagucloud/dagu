@@ -106,7 +106,6 @@ func runScheduler(ctx *Context, _ []string) error {
 		return fmt.Errorf("failed to initialize scheduler: %w", err)
 	}
 
-	defer absorbRepeatedTerminate(ctx.Context)()
 	defer scheduler.Stop(schedulerCtx)
 
 	if err := scheduler.Start(schedulerCtx); err != nil {

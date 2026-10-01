@@ -20,6 +20,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/cmn/signalctx"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
@@ -846,6 +847,7 @@ func (s *Scheduler) waitForTick(ctx context.Context, sig chan os.Signal, timer *
 		<-launcher.PropagateSignal(ctx, received)
 		return false
 	case received := <-sig:
+		signalctx.AbsorbRepeatedTerminate()
 		signal.Stop(sig)
 		runsDone := launcher.PropagateSignal(ctx, received)
 		s.Stop(ctx)
