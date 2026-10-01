@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -407,6 +408,109 @@ func TestService_ConfigureWebhookProfiles(t *testing.T) {
 	assert.Equal(t, []string{"prod", "staging"}, stored.AllowedProfiles)
 }
 
+func TestService_CreateWebhookProfileToken(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Success", func(t *testing.T) {
+		t.Parallel()
+		service, _ := setupWebhookTestService(t)
+		ctx := context.Background()
+
+		_, err := service.CreateWebhook(ctx, "profile-token-dag", "admin")
+		require.NoError(t, err)
+
+		result, err := service.CreateWebhookProfileToken(ctx, "profile-token-dag", "Customer A", "customer-a", "admin")
+		require.NoError(t, err)
+		assert.True(t, strings.HasPrefix(result.FullToken, webhookTokenPrefix))
+		require.Len(t, result.Webhook.ProfileTokens, 1)
+
+		stored, err := service.GetWebhookByDAGName(ctx, "profile-token-dag")
+		require.NoError(t, err)
+		require.Len(t, stored.ProfileTokens, 1)
+		token := stored.ProfileTokens[0]
+		assert.Equal(t, "Customer A", token.Name)
+		assert.Equal(t, "customer-a", token.Profile)
+		assert.Equal(t, "admin", token.CreatedBy)
+		assert.True(t, strings.HasPrefix(result.FullToken, token.TokenPrefix))
+	})
+
+	t.Run("RejectsHMACOnly", func(t *testing.T) {
+		t.Parallel()
+		service, _ := setupWebhookTestServiceWithEncryptedStore(t)
+		ctx := context.Background()
+
+		_, err := service.CreateWebhook(ctx, "hmac-only-token-dag", "admin")
+		require.NoError(t, err)
+		_, err = service.EnableWebhookHMAC(ctx, "hmac-only-token-dag", auth.WebhookAuthModeHMACOnly, "")
+		require.NoError(t, err)
+
+		_, err = service.CreateWebhookProfileToken(ctx, "hmac-only-token-dag", "a", "customer-a", "admin")
+		assert.ErrorIs(t, err, ErrWebhookProfileTokenRequiresToken)
+	})
+
+	t.Run("Limit", func(t *testing.T) {
+		t.Parallel()
+		service, _ := setupWebhookTestService(t)
+		ctx := context.Background()
+
+		created, err := service.CreateWebhook(ctx, "token-limit-dag", "admin")
+		require.NoError(t, err)
+		webhook := created.Webhook
+		for range maxWebhookProfileTokens {
+			webhook.ProfileTokens = append(webhook.ProfileTokens, auth.NewWebhookProfileToken("a", "a", "hash", "dagu_wh_", "admin"))
+		}
+		require.NoError(t, service.webhookStore.Update(ctx, webhook))
+
+		_, err = service.CreateWebhookProfileToken(ctx, "token-limit-dag", "a", "customer-a", "admin")
+		assert.ErrorIs(t, err, ErrWebhookProfileTokenLimit)
+	})
+
+	t.Run("NotFound", func(t *testing.T) {
+		t.Parallel()
+		service, _ := setupWebhookTestService(t)
+
+		_, err := service.CreateWebhookProfileToken(context.Background(), "missing-dag", "a", "customer-a", "admin")
+		assert.ErrorIs(t, err, auth.ErrWebhookNotFound)
+	})
+}
+
+func TestService_RevokeWebhookProfileToken(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Success", func(t *testing.T) {
+		t.Parallel()
+		service, _ := setupWebhookTestService(t)
+		ctx := context.Background()
+
+		_, err := service.CreateWebhook(ctx, "revoke-token-dag", "admin")
+		require.NoError(t, err)
+		result, err := service.CreateWebhookProfileToken(ctx, "revoke-token-dag", "a", "customer-a", "admin")
+		require.NoError(t, err)
+
+		webhook, err := service.RevokeWebhookProfileToken(ctx, "revoke-token-dag", result.Webhook.ProfileTokens[0].ID)
+		require.NoError(t, err)
+		assert.Empty(t, webhook.ProfileTokens)
+
+		_, err = service.AuthorizeWebhookRequest(ctx, AuthorizeWebhookRequestInput{
+			DAGName: "revoke-token-dag",
+			Token:   result.FullToken,
+		})
+		assert.ErrorIs(t, err, ErrInvalidWebhookToken)
+	})
+
+	t.Run("UnknownToken", func(t *testing.T) {
+		t.Parallel()
+		service, _ := setupWebhookTestService(t)
+		ctx := context.Background()
+
+		_, err := service.CreateWebhook(ctx, "revoke-unknown-dag", "admin")
+		require.NoError(t, err)
+
+		_, err = service.RevokeWebhookProfileToken(ctx, "revoke-unknown-dag", "missing")
+		assert.ErrorIs(t, err, ErrWebhookProfileTokenNotFound)
+	})
+}
+
 func TestService_DeleteWebhook(t *testing.T) {
 	t.Parallel()
 
@@ -669,14 +773,14 @@ func TestService_AuthorizeWebhookRequest(t *testing.T) {
 		})
 		assert.ErrorIs(t, err, ErrMissingWebhookHMACSignature)
 
-		webhook, err := service.AuthorizeWebhookRequest(ctx, AuthorizeWebhookRequestInput{
+		authz, err := service.AuthorizeWebhookRequest(ctx, AuthorizeWebhookRequestInput{
 			DAGName:   "strict-auth-dag",
 			Token:     created.FullToken,
 			Signature: signature,
 			Body:      body,
 		})
 		require.NoError(t, err)
-		assert.Equal(t, "strict-auth-dag", webhook.DAGName)
+		assert.Equal(t, "strict-auth-dag", authz.Webhook.DAGName)
 	})
 
 	t.Run("TokenAndHMACObserveAllowsMissingSignature", func(t *testing.T) {
@@ -696,13 +800,13 @@ func TestService_AuthorizeWebhookRequest(t *testing.T) {
 		require.NoError(t, err)
 
 		body := []byte(`{"payload":{"event":"push"}}`)
-		webhook, err := service.AuthorizeWebhookRequest(ctx, AuthorizeWebhookRequestInput{
+		authz, err := service.AuthorizeWebhookRequest(ctx, AuthorizeWebhookRequestInput{
 			DAGName: "observe-auth-dag",
 			Token:   created.FullToken,
 			Body:    body,
 		})
 		require.NoError(t, err)
-		assert.Equal(t, "observe-auth-dag", webhook.DAGName)
+		assert.Equal(t, "observe-auth-dag", authz.Webhook.DAGName)
 	})
 
 	t.Run("HMACOnlyAllowsSignedRequestWithoutToken", func(t *testing.T) {
@@ -724,13 +828,13 @@ func TestService_AuthorizeWebhookRequest(t *testing.T) {
 		body := []byte(`{"payload":{"event":"push"}}`)
 		signature := signWebhookBody(hmacResult.FullSecret, body)
 
-		webhook, err := service.AuthorizeWebhookRequest(ctx, AuthorizeWebhookRequestInput{
+		authz, err := service.AuthorizeWebhookRequest(ctx, AuthorizeWebhookRequestInput{
 			DAGName:   "hmac-only-dag",
 			Signature: signature,
 			Body:      body,
 		})
 		require.NoError(t, err)
-		assert.Equal(t, "hmac-only-dag", webhook.DAGName)
+		assert.Equal(t, "hmac-only-dag", authz.Webhook.DAGName)
 	})
 
 	t.Run("ProfileHeaderIsBoundToSignature", func(t *testing.T) {
@@ -769,6 +873,65 @@ func TestService_AuthorizeWebhookRequest(t *testing.T) {
 			Body:        body,
 		})
 		require.NoError(t, err)
+	})
+}
+
+func TestService_AuthorizeWebhookProfileToken(t *testing.T) {
+	t.Parallel()
+
+	t.Run("ReturnsMatchedProfileToken", func(t *testing.T) {
+		t.Parallel()
+		service, _ := setupWebhookTestService(t)
+		ctx := context.Background()
+
+		created, err := service.CreateWebhook(ctx, "match-token-dag", "admin")
+		require.NoError(t, err)
+		tokenA, err := service.CreateWebhookProfileToken(ctx, "match-token-dag", "a", "customer-a", "admin")
+		require.NoError(t, err)
+		tokenB, err := service.CreateWebhookProfileToken(ctx, "match-token-dag", "b", "customer-b", "admin")
+		require.NoError(t, err)
+
+		authz, err := service.AuthorizeWebhookRequest(ctx, AuthorizeWebhookRequestInput{
+			DAGName: "match-token-dag",
+			Token:   tokenB.FullToken,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, authz.ProfileToken)
+		assert.Equal(t, "customer-b", authz.ProfileToken.Profile)
+
+		authz, err = service.AuthorizeWebhookRequest(ctx, AuthorizeWebhookRequestInput{
+			DAGName: "match-token-dag",
+			Token:   created.FullToken,
+		})
+		require.NoError(t, err)
+		assert.Nil(t, authz.ProfileToken)
+
+		stored, err := service.GetWebhookByDAGName(ctx, "match-token-dag")
+		require.NoError(t, err)
+		require.Len(t, stored.ProfileTokens, 2)
+		assert.Equal(t, tokenA.Webhook.ProfileTokens[0].ID, stored.ProfileTokens[0].ID)
+		assert.Nil(t, stored.ProfileTokens[0].LastUsedAt)
+		assert.NotNil(t, stored.ProfileTokens[1].LastUsedAt)
+	})
+
+	// HMAC-only webhooks ignore every token, including profile tokens.
+	t.Run("IgnoredInHMACOnly", func(t *testing.T) {
+		t.Parallel()
+		service, _ := setupWebhookTestServiceWithEncryptedStore(t)
+		ctx := context.Background()
+
+		_, err := service.CreateWebhook(ctx, "hmac-only-profile-dag", "admin")
+		require.NoError(t, err)
+		token, err := service.CreateWebhookProfileToken(ctx, "hmac-only-profile-dag", "a", "customer-a", "admin")
+		require.NoError(t, err)
+		_, err = service.EnableWebhookHMAC(ctx, "hmac-only-profile-dag", auth.WebhookAuthModeHMACOnly, "")
+		require.NoError(t, err)
+
+		_, err = service.AuthorizeWebhookRequest(ctx, AuthorizeWebhookRequestInput{
+			DAGName: "hmac-only-profile-dag",
+			Token:   token.FullToken,
+		})
+		assert.ErrorIs(t, err, ErrMissingWebhookHMACSignature)
 	})
 }
 

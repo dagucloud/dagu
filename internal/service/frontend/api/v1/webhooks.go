@@ -554,7 +554,7 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 		}
 	}
 
-	webhook, err := a.authService.AuthorizeWebhookRequest(
+	authz, err := a.authService.AuthorizeWebhookRequest(
 		ctx,
 		authservice.AuthorizeWebhookRequestInput{
 			DAGName:     request.FileName,
@@ -619,7 +619,7 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 		}
 	}
 
-	profileName, err := a.webhookRunProfile(ctx, webhook, request.FileName, dagWorkspaceName(dag), requestedProfile)
+	profileName, err := a.webhookRunProfile(ctx, authz, request.FileName, dagWorkspaceName(dag), requestedProfile)
 	if err != nil {
 		return nil, err
 	}
@@ -675,7 +675,8 @@ func (a *API) TriggerWebhook(ctx context.Context, request api.TriggerWebhookRequ
 	logger.Info(ctx, "Webhook: DAG run enqueued",
 		tag.DAG(dag.Name),
 		tag.RunID(dagRunID),
-		tag.Key("webhookID"), tag.Value(webhook.ID),
+		tag.Key("webhookID"), tag.Value(authz.Webhook.ID),
+		tag.Key("profileTokenID"), tag.Value(webhookProfileTokenID(authz)),
 		tag.Key("profile"), tag.Value(profileName),
 	)
 
@@ -711,15 +712,25 @@ func invalidWebhookProfileHeader() *Error {
 
 func (a *API) webhookRunProfile(
 	ctx context.Context,
-	webhook *auth.Webhook,
+	authz *authservice.WebhookAuthorization,
 	dagName string,
 	workspaceName string,
 	requestedProfile string,
 ) (string, error) {
+	if token := authz.ProfileToken; token != nil {
+		if requestedProfile != "" && requestedProfile != token.Profile {
+			return "", &Error{
+				HTTPStatus: http.StatusForbidden,
+				Code:       api.ErrorCodeForbidden,
+				Message:    "runtime profile selection is not allowed for this webhook token",
+			}
+		}
+		return a.ensureRunnableRuntimeProfileAvailable(ctx, token.Profile)
+	}
 	if requestedProfile == "" {
 		return a.defaultRunProfileName(ctx, dagName, workspaceName)
 	}
-	if !slices.Contains(webhook.AllowedProfiles, requestedProfile) {
+	if !slices.Contains(authz.Webhook.AllowedProfiles, requestedProfile) {
 		return "", &Error{
 			HTTPStatus: http.StatusForbidden,
 			Code:       api.ErrorCodeForbidden,
@@ -727,6 +738,13 @@ func (a *API) webhookRunProfile(
 		}
 	}
 	return a.ensureRunnableRuntimeProfileAvailable(ctx, requestedProfile)
+}
+
+func webhookProfileTokenID(authz *authservice.WebhookAuthorization) string {
+	if authz.ProfileToken == nil {
+		return ""
+	}
+	return authz.ProfileToken.ID
 }
 
 func buildWebhookRequestRuntimeParams(
