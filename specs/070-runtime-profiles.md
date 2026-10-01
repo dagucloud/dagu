@@ -7,8 +7,8 @@ Partially implemented.
 Conformance covers CRUD, enable/disable, and basic variable application at
 the CLI level (`conformance/cli/profile_test.go`). This spec adds the layered
 defaults precedence (global, workspace, and selected profile), webhook-header
-profile selection, and how a selected profile's entries interact with a
-DAG's own `env:` and `secrets:` fields.
+profile selection, webhook profile tokens, and how a selected profile's
+entries interact with a DAG's own `env:` and `secrets:` fields.
 
 ## Scope
 
@@ -20,7 +20,7 @@ into a DAG-run's environment, across three layers:
   carries a matching `workspace` label.
 - The explicitly selected profile, named by `--profile`, the `profile` field
   on `POST /dag-runs`, or (for a webhook-triggered run) the `X-Dagu-Profile`
-  header.
+  header or the profile bound to the webhook token.
 
 It also covers precedence against a DAG's own `env:` and `secrets:` fields,
 and masking of profile secret values.
@@ -57,10 +57,17 @@ profile overrides the DAG's own `env:` field. Global and workspace defaults
 are managed only through the HTTP API (`/profiles/_global/...` and
 `/profiles/_workspaces/{name}/...`); no CLI command reaches them.
 
-A webhook-triggered run selects a profile with the `X-Dagu-Profile` request
-header, restricted to the profiles an admin allow-listed for that webhook
-(`PUT /dags/{fileName}/webhook/profile-selection`). A run with no explicit
-profile selection uses the webhook's configured default profile, if any.
+A webhook-triggered run authenticated with the webhook's default token
+selects a profile with the `X-Dagu-Profile` request header, restricted to
+the profiles an admin allow-listed for that webhook
+(`PUT /dags/{fileName}/webhook/profile-selection`). Without the header, the
+DAG's default profile resolution applies.
+
+An admin can also create profile tokens for a webhook
+(`POST /dags/{fileName}/webhook/profile-tokens`), each bound to one
+profile. A run triggered with a profile token always uses that token's
+profile; the allow-list does not apply. Profile tokens are ignored while the
+webhook authenticates with HMAC only.
 
 A resolved profile secret is masked in run output exactly like a DAG-level
 secret: the literal value is replaced with `*******` in the step's stdout
@@ -69,8 +76,11 @@ and stderr log files, the rendered status tree, and stored run status.
 ## Errors
 
 A webhook request naming a profile outside its configured allow-list is
-rejected with `403` and does not create a DAG-run. An unresolvable selected
-profile (unknown name, or disabled) fails the run before any step starts.
+rejected with `403` and does not create a DAG-run. A webhook request
+authenticated with a profile token whose `X-Dagu-Profile` header names a
+different profile is rejected the same way. A revoked profile token is
+rejected with `401`. An unresolvable selected profile (unknown name, or
+disabled) fails the run before any step starts.
 
 ## Examples
 
