@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { components, WebhookAuthMode } from '../../../../../api/v1/schema';
@@ -115,7 +115,8 @@ describe('WebhookProfileTokensCard', () => {
 
     expect(screen.getByText('customer-a-profile')).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Revoke' }));
-    await user.click(await screen.findByRole('button', { name: 'Revoke' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Revoke' }));
 
     await waitFor(() => expect(onWebhookChange).toHaveBeenCalledWith(webhook));
     expect(deleteMock).toHaveBeenCalledWith(

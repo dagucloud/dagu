@@ -163,6 +163,21 @@ func TestService_ValidateWebhookToken(t *testing.T) {
 		assert.Equal(t, "valid-token-dag", webhook.DAGName)
 	})
 
+	t.Run("ProfileToken", func(t *testing.T) {
+		t.Parallel()
+		service, _ := setupWebhookTestService(t)
+		ctx := context.Background()
+
+		_, err := service.CreateWebhook(ctx, "valid-profile-token-dag", "admin")
+		require.NoError(t, err)
+		result, err := service.CreateWebhookProfileToken(ctx, "valid-profile-token-dag", "a", "customer-a", "admin")
+		require.NoError(t, err)
+
+		webhook, err := service.ValidateWebhookToken(ctx, "valid-profile-token-dag", result.FullToken)
+		require.NoError(t, err)
+		assert.Equal(t, result.Webhook.ID, webhook.ID)
+	})
+
 	t.Run("InvalidTokenPrefix", func(t *testing.T) {
 		t.Parallel()
 		service, _ := setupWebhookTestService(t)
@@ -944,7 +959,6 @@ func TestService_AuthorizeWebhookProfileToken(t *testing.T) {
 		assert.NotNil(t, stored.ProfileTokens[1].LastUsedAt)
 	})
 
-	// HMAC-only webhooks ignore every token, including profile tokens.
 	t.Run("IgnoredInHMACOnly", func(t *testing.T) {
 		t.Parallel()
 		service, _ := setupWebhookTestServiceWithEncryptedStore(t)

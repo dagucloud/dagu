@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/audit"
@@ -334,7 +335,7 @@ func (a *API) CreateDAGWebhookProfileToken(
 	}
 
 	name := strings.TrimSpace(request.Body.Name)
-	if name == "" || len(name) > maxWebhookProfileTokenNameLength {
+	if name == "" || utf8.RuneCountInString(name) > maxWebhookProfileTokenNameLength {
 		return api.CreateDAGWebhookProfileToken400JSONResponse{
 			Code:    api.ErrorCodeBadRequest,
 			Message: fmt.Sprintf("name must be 1 to %d characters", maxWebhookProfileTokenNameLength),

@@ -1237,7 +1237,8 @@ func (s *Service) RegenerateWebhookHMACSecret(ctx context.Context, dagName strin
 	}, nil
 }
 
-// ValidateWebhookToken validates a webhook token for a specific DAG.
+// ValidateWebhookToken validates a webhook token for a specific DAG. Both the
+// default token and profile tokens are accepted.
 // Returns the webhook if valid and enabled.
 func (s *Service) ValidateWebhookToken(ctx context.Context, dagName, token string) (*auth.Webhook, error) {
 	if s.webhookStore == nil {
@@ -1257,8 +1258,9 @@ func (s *Service) ValidateWebhookToken(ctx context.Context, dagName, token strin
 		return nil, err
 	}
 
-	if err := validateWebhookTokenAgainst(webhook, token); err != nil {
-		return nil, ErrInvalidWebhookToken
+	profileToken, err := matchWebhookToken(webhook, token)
+	if err != nil {
+		return nil, err
 	}
 
 	// Check if webhook is enabled
@@ -1267,7 +1269,7 @@ func (s *Service) ValidateWebhookToken(ctx context.Context, dagName, token strin
 	}
 
 	// Update last used timestamp
-	if err := s.webhookStore.UpdateLastUsed(ctx, webhook.ID, ""); err != nil {
+	if err := s.webhookStore.UpdateLastUsed(ctx, webhook.ID, webhookProfileTokenID(profileToken)); err != nil {
 		slog.Error("failed to update webhook last used timestamp", "webhookID", webhook.ID, "error", err)
 	}
 
@@ -1385,16 +1387,6 @@ func normalizeWebhookHMACModeForConfigure(
 		current = auth.WebhookHMACEnforcementModeStrict
 	}
 	return validateWebhookHMACMode(authMode, current)
-}
-
-func validateWebhookTokenAgainst(webhook *auth.Webhook, token string) error {
-	if !strings.HasPrefix(token, webhookTokenPrefix) {
-		return ErrInvalidWebhookToken
-	}
-	if err := bcrypt.CompareHashAndPassword([]byte(webhook.TokenHash), []byte(token)); err != nil {
-		return ErrInvalidWebhookToken
-	}
-	return nil
 }
 
 // matchWebhookToken returns the profile token that token matches, or nil when
