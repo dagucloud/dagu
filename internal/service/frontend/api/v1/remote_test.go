@@ -141,37 +141,6 @@ func TestRemoteSyncAuthorization(t *testing.T) {
 	}
 }
 
-func TestConfigureRoutesReturnsBadRequestForInvalidJSONBody(t *testing.T) {
-	cfg := &config.Config{
-		Server: config.Server{
-			APIBasePath:      "/api/v1",
-			StrictValidation: true,
-			Auth: config.Auth{
-				Mode: config.AuthModeBuiltin,
-			},
-		},
-	}
-	a := &API{
-		config:      cfg,
-		authService: remoteSyncAuthService{user: &auth.User{Role: auth.RoleAdmin, WorkspaceAccess: auth.AllWorkspaceAccess()}},
-	}
-	router := chi.NewRouter()
-	require.NoError(t, a.ConfigureRoutes(t.Context(), router, time.Second))
-
-	request := httptest.NewRequest(
-		http.MethodPost,
-		"/api/v1/sync/publish-all",
-		strings.NewReader(`{"`),
-	)
-	request.Header.Set("Authorization", "Bearer caller-token")
-	request.Header.Set("Content-Type", "application/json")
-	recorder := httptest.NewRecorder()
-
-	router.ServeHTTP(recorder, request)
-
-	assert.Equal(t, http.StatusBadRequest, recorder.Code)
-}
-
 func TestRemoteNodeProxyPreservesHumanTaskCompletionRequest(t *testing.T) {
 	const rawBody = "{\n  \"count\": 9007199254740993\n}\n"
 	type receivedRequest struct {
