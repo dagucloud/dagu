@@ -17,3 +17,7 @@ Commercial embedding rights are not granted by this repository, this document, o
 Under the public GPL license, users may use, modify, and distribute Dagu under the GPL terms. The GPL permits commercial activity, including selling copies or services, but distribution must comply with GPL obligations.
 
 Using the Dagu CLI or server as a separate program is different from importing the embedded Go API into another distributed binary. Projects embedding Dagu should review their distribution model and license obligations.
+
+## Dependencies
+
+Third-party libraries linked into Dagu binaries must be available under a permissive license compatible with `GPL-3.0-or-later`, such as BSD, MIT, or Apache-2.0, so the combined work can also be offered under the separate embedding license above. Copyleft dependencies (GPL, LGPL, AGPL) are not accepted. The spreadsheet engine `github.com/xuri/excelize/v2` (BSD-3-Clause) follows this rule.

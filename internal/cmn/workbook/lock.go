@@ -1,0 +1,107 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package workbook
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	goruntime "runtime"
+	"time"
+)
+
+// LockOptions says how long to wait for a workbook another program holds.
+type LockOptions struct {
+	// WaitFor is how long to retry a locked workbook; zero fails at once.
+	WaitFor time.Duration
+	// Log receives one line per retry; nil discards them.
+	Log func(string)
+
+	// sleep and now are replaced in tests.
+	sleep func(context.Context, time.Duration) error
+	now   func() time.Time
+}
+
+const (
+	lockRetryInitial = 2 * time.Second
+	lockRetryMax     = time.Minute
+)
+
+// lockFilePath is the ~$name.xlsx file Excel writes beside an open workbook.
+func lockFilePath(path string) string {
+	return filepath.Join(filepath.Dir(path), "~$"+filepath.Base(path))
+}
+
+// checkLockFile looks for Excel's lock file. On Windows the workbook is then
+// held and the result is a LockedError; elsewhere the file may be stale, so
+// the result is a warning.
+func checkLockFile(path string) (warning string, err error) {
+	if _, statErr := os.Stat(lockFilePath(path)); statErr != nil {
+		return "", nil
+	}
+	if goruntime.GOOS == "windows" {
+		return "", &LockedError{Path: path}
+	}
+	return fmt.Sprintf("%s exists; the workbook may be open in another program", filepath.Base(lockFilePath(path))), nil
+}
+
+// classifyError turns a sharing violation into a LockedError and leaves
+// every other error alone.
+func classifyError(path string, err error) error {
+	if err == nil {
+		return nil
+	}
+	if isSharingViolation(err) {
+		return &LockedError{Path: path}
+	}
+	return err
+}
+
+// withLockRetry runs attempt, retrying while it reports a LockedError and
+// opts.WaitFor allows, with delays from two seconds doubling to one minute.
+func withLockRetry(ctx context.Context, path string, opts LockOptions, attempt func() error) error {
+	sleep := opts.sleep
+	if sleep == nil {
+		sleep = sleepContext
+	}
+	now := opts.now
+	if now == nil {
+		now = time.Now
+	}
+	deadline := now().Add(opts.WaitFor)
+	delay := lockRetryInitial
+	for {
+		err := attempt()
+		var locked *LockedError
+		if err == nil || !errors.As(err, &locked) || opts.WaitFor <= 0 {
+			return err
+		}
+		remaining := deadline.Sub(now())
+		if remaining <= 0 {
+			return err
+		}
+		wait := min(delay, remaining)
+		if opts.Log != nil {
+			opts.Log(fmt.Sprintf("%s is open in another program; retrying in %s (%s left)",
+				filepath.Base(path), wait.Round(time.Second), remaining.Round(time.Second)))
+		}
+		if err := sleep(ctx, wait); err != nil {
+			return err
+		}
+		delay = min(delay*2, lockRetryMax)
+	}
+}
+
+func sleepContext(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
