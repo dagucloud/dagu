@@ -269,11 +269,11 @@ func (w *file) clearSheet(name string) error {
 	}
 	// The stored dimension, when Excel kept it, also covers cells that hold
 	// only a style; it is swept when the rectangle stays within budget.
-	if dim, ok := w.storedDimension(name); ok && dim.R2*dim.C2 <= clearCellBudget {
+	if dim, ok := w.storedDimension(name); ok && withinClearBudget(dim) {
 		used.R2 = max(used.R2, dim.R2)
 		used.C2 = max(used.C2, dim.C2)
 	}
-	if used.R2*used.C2 <= clearCellBudget {
+	if withinClearBudget(used) {
 		for r := 1; r <= used.R2; r++ {
 			for c := 1; c <= used.C2; c++ {
 				if err := w.clearCell(name, c, r); err != nil {
@@ -292,6 +292,13 @@ func (w *file) clearSheet(name string) error {
 	}
 	w.forget(name)
 	return nil
+}
+
+// withinClearBudget reports whether a rectangle from A1 to the region's
+// end has at most clearCellBudget cells, without multiplying, since a
+// whole-sheet rectangle overflows a 32-bit int.
+func withinClearBudget(reg region) bool {
+	return reg.C2 > 0 && reg.R2 <= clearCellBudget/reg.C2
 }
 
 // clearCell empties one cell: value and formula, style, and hyperlink. A

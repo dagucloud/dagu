@@ -317,13 +317,8 @@ func isForeachAggregate(obj map[string]any) bool {
 		return false
 	}
 	summary, ok := obj["summary"].(map[string]any)
-	if !ok {
+	if !ok || !isForeachSummary(summary) {
 		return false
-	}
-	for _, field := range []string{"total", "succeeded", "failed"} {
-		if _, isNumber := toFloatStrict(summary[field]); !isNumber {
-			return false
-		}
 	}
 	if _, ok := obj["items"].([]any); !ok {
 		return false
@@ -332,20 +327,51 @@ func isForeachAggregate(obj map[string]any) bool {
 	return ok
 }
 
+// isForeachSummary reports whether summary has the numeric total,
+// succeeded, and failed counts of a foreach aggregate.
+func isForeachSummary(summary map[string]any) bool {
+	for _, field := range []string{"total", "succeeded", "failed"} {
+		if _, isNumber := toFloatStrict(summary[field]); !isNumber {
+			return false
+		}
+	}
+	return true
+}
+
 // foreachOutputsJSON returns the text of the outputs list when text is a
-// foreach aggregate, so the collected objects keep their key order. The
-// envelope is read as a map keyed by the exact field names, so a field
-// that differs only in case cannot stand in for outputs.
+// foreach aggregate, so the collected objects keep their key order. Only
+// an object whose text mentions all three aggregate fields is decoded, so
+// ordinary rows do not pay for the attempt, and the envelope is read once
+// as a map keyed by the exact field names, so a field that differs only
+// in case cannot stand in for outputs.
 func foreachOutputsJSON(text string) (string, bool) {
+	if !strings.HasPrefix(text, "{") {
+		return "", false
+	}
+	for _, field := range []string{`"summary"`, `"items"`, `"outputs"`} {
+		if !strings.Contains(text, field) {
+			return "", false
+		}
+	}
 	var envelope map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(text), &envelope); err != nil || len(envelope["outputs"]) == 0 {
+	if err := json.Unmarshal([]byte(text), &envelope); err != nil || len(envelope) != 3 {
 		return "", false
 	}
-	var decoded map[string]any
-	if err := json.Unmarshal([]byte(text), &decoded); err != nil || !isForeachAggregate(decoded) {
+	var summary map[string]any
+	if err := json.Unmarshal(envelope["summary"], &summary); err != nil {
 		return "", false
 	}
-	return string(envelope["outputs"]), true
+	items, outputs := envelope["items"], envelope["outputs"]
+	if !isForeachSummary(summary) || !startsWithList(items) || !startsWithList(outputs) {
+		return "", false
+	}
+	return string(outputs), true
+}
+
+// startsWithList reports whether a JSON value is an array.
+func startsWithList(raw json.RawMessage) bool {
+	trimmed := strings.TrimSpace(string(raw))
+	return strings.HasPrefix(trimmed, "[")
 }
 
 // normalizeScalar maps every integer and float kind a YAML or JSON decoder
