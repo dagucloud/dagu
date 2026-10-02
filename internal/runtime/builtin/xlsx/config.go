@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/cmn/workbook"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/spec"
@@ -54,19 +55,39 @@ type config struct {
 	set     map[string]workbook.SetValue
 	wait    time.Duration
 	present map[string]bool
+	// deferred lists fields whose value is still a reference at build time.
+	deferred map[string]bool
+}
+
+// provided reports whether a field has a usable value now: it is present
+// and not deferred to the run.
+func (cfg config) provided(field string) bool {
+	return cfg.present[field] && !cfg.deferred[field]
 }
 
 func defaultConfig() config {
 	return config{Atomic: true}
 }
 
-func decodeConfig(raw map[string]any, cfg *config) error {
+// decodeConfig fills cfg from a with map. At DAG build time, deferReferences
+// is true and a field whose whole value is still a value reference such as
+// ${params.DRY_RUN} is left for the run, when it has been resolved; it is
+// recorded in deferred so validation skips it. Unknown fields are rejected
+// either way.
+func decodeConfig(raw map[string]any, cfg *config, deferReferences bool) error {
 	if raw == nil {
 		raw = map[string]any{}
 	}
 	cfg.present = make(map[string]bool, len(raw))
-	for key := range raw {
+	cfg.deferred = map[string]bool{}
+	input := make(map[string]any, len(raw))
+	for key, v := range raw {
 		cfg.present[key] = true
+		if text, ok := v.(string); ok && deferReferences && value.HasValueReference(text) {
+			cfg.deferred[key] = true
+			continue
+		}
+		input[key] = v
 	}
 	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
 		Result:           cfg,
@@ -77,7 +98,7 @@ func decodeConfig(raw map[string]any, cfg *config) error {
 	if err != nil {
 		return err
 	}
-	if err := decoder.Decode(raw); err != nil {
+	if err := decoder.Decode(input); err != nil {
 		return fmt.Errorf("%w: %v", errConfig, err)
 	}
 	return nil
@@ -114,7 +135,7 @@ func validateConfig(operation string, cfg *config) error {
 	if err := rejectForeignFields(operation, cfg.present, allowed); err != nil {
 		return err
 	}
-	if strings.TrimSpace(cfg.Path) == "" {
+	if strings.TrimSpace(cfg.Path) == "" && !cfg.deferred["path"] {
 		return fmt.Errorf("%w: path is required for %s", errConfig, operation)
 	}
 	var err error
@@ -136,18 +157,18 @@ func validateConfig(operation string, cfg *config) error {
 	}
 	// YAML parses an unquoted null as nil, so a present but empty value is
 	// the null spelling of warn.
-	if cfg.present["on_type_error"] && cfg.OnTypeError == "" {
+	if cfg.provided("on_type_error") && cfg.OnTypeError == "" {
 		cfg.OnTypeError = string(workbook.TypeErrorWarn)
 	}
 	switch cfg.OnTypeError {
 	case "", string(workbook.TypeErrorFail), string(workbook.TypeErrorWarn), string(workbook.TypeErrorNull):
 	default:
-		return fmt.Errorf("%w: on_type_error must be fail or warn", errConfig)
+		return fmt.Errorf("%w: on_type_error must be fail, warn, or null", errConfig)
 	}
 	if cfg.MaxRows < 0 {
 		return fmt.Errorf("%w: max_rows must be >= 1", errConfig)
 	}
-	if cfg.present["max_rows"] && cfg.MaxRows == 0 {
+	if cfg.provided("max_rows") && cfg.MaxRows == 0 {
 		return fmt.Errorf("%w: max_rows must be >= 1", errConfig)
 	}
 	if len(cfg.Types) > 0 {
@@ -172,16 +193,21 @@ func validateConfig(operation string, cfg *config) error {
 func validateWriterConfig(operation string, cfg *config) error {
 	if operation == opWrite || operation == opAppend {
 		hasRows := cfg.present["rows"]
-		hasInput := strings.TrimSpace(cfg.Input) != ""
+		hasInput := strings.TrimSpace(cfg.Input) != "" || cfg.deferred["input"]
 		switch {
 		case !hasRows && !hasInput:
 			return fmt.Errorf("%w: %s requires with.rows or with.input", errConfig, operation)
 		case hasRows && hasInput:
 			return fmt.Errorf("%w: %s accepts with.rows or with.input, not both", errConfig, operation)
 		}
+		// Writers take header: true or false; a row-number header is a
+		// read concept and would be silently coerced otherwise.
+		if cfg.header.Mode == workbook.HeaderRows {
+			return fmt.Errorf("%w: header must be true or false for %s", errConfig, operation)
+		}
 	}
 	if operation == opUpdateRows {
-		if strings.TrimSpace(cfg.Key) == "" {
+		if strings.TrimSpace(cfg.Key) == "" && !cfg.deferred["key"] {
 			return fmt.Errorf("%w: key is required for update_rows", errConfig)
 		}
 		if !cfg.present["rows"] {

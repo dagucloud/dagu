@@ -43,7 +43,8 @@ func init() {
 }
 
 func newExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {
-	cfg, op, err := loadConfig(step)
+	// At run time every reference has been resolved, so nothing is deferred.
+	cfg, op, err := loadConfig(step, false)
 	if err != nil {
 		return nil, err
 	}
@@ -66,13 +67,15 @@ func validateStep(step ir.Step) error {
 	if step.ExecutorConfig.Type != executorType {
 		return nil
 	}
-	_, _, err := loadConfig(step)
+	// At build time a value such as ${params.DRY_RUN} is still a reference;
+	// its type is checked when the step runs.
+	_, _, err := loadConfig(step, true)
 	return err
 }
 
-func loadConfig(step ir.Step) (config, string, error) {
+func loadConfig(step ir.Step, deferReferences bool) (config, string, error) {
 	cfg := defaultConfig()
-	if err := decodeConfig(step.ExecutorConfig.Config, &cfg); err != nil {
+	if err := decodeConfig(step.ExecutorConfig.Config, &cfg, deferReferences); err != nil {
 		return cfg, "", err
 	}
 	op := stepOperation(step)
@@ -89,11 +92,17 @@ func stepOperation(step ir.Step) string {
 	return strings.ToLower(strings.TrimSpace(step.Commands[0].Command))
 }
 
-// budgetFor is the byte budget for rows published as outputs.
+// budgetFor is the byte budget for rows published as outputs. It stays
+// positive for a small max_output_size, because a budget of zero would
+// mean no limit to FitRows and the step would then exceed the DAG's size.
 func budgetFor(env runtime.Env) int {
 	limit := ir.DefaultMaxOutputSize
 	if env.DAG != nil && env.DAG.MaxOutputSize > 0 {
 		limit = env.DAG.MaxOutputSize
 	}
-	return max(min(outputBudget, limit-outputMargin), 0)
+	budget := limit - outputMargin
+	if budget <= 0 {
+		budget = limit / 2
+	}
+	return max(min(outputBudget, budget), 1)
 }

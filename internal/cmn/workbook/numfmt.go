@@ -20,15 +20,17 @@ const (
 )
 
 // builtinDateFormats maps the built-in number format IDs that render dates
-// or times. 14-17 and 27-36 are dates, 18-21 and 45-47 are times, 22 is a
-// date with a time, and 50-58 are the East Asian locale dates.
+// or times. 14-17 and 27-36 are dates, 18-21, 45, and 47 are times, 22 is
+// a date with a time, and 50-58 are the East Asian locale dates.
 var builtinDateFormats = map[int]cellKind{
 	14: kindDate, 15: kindDate, 16: kindDate, 17: kindDate,
 	18: kindTime, 19: kindTime, 20: kindTime, 21: kindTime,
 	22: kindDateTime,
 	27: kindDate, 28: kindDate, 29: kindDate, 30: kindDate, 31: kindDate,
 	32: kindTime, 33: kindTime, 34: kindTime, 35: kindTime, 36: kindDate,
-	45: kindTime, 46: kindTime, 47: kindTime,
+	// 46 is [h]:mm:ss, an elapsed time that may exceed a day, so it stays
+	// a number of days like the custom elapsed formats.
+	45: kindTime, 46: kindNumber, 47: kindTime,
 	50: kindDate, 51: kindDate, 52: kindDate, 53: kindDate, 54: kindDate,
 	55: kindDate, 56: kindDate, 57: kindDate, 58: kindDate,
 }

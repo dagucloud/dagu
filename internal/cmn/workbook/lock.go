@@ -7,9 +7,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
-	goruntime "runtime"
 	"time"
 )
 
@@ -35,17 +35,23 @@ func lockFilePath(path string) string {
 	return filepath.Join(filepath.Dir(path), "~$"+filepath.Base(path))
 }
 
-// checkLockFile looks for Excel's lock file. On Windows the workbook is then
-// held and the result is a LockedError; elsewhere the file may be stale, so
-// the result is a warning.
+// checkLockFile looks for Excel's lock file. A lock file that another
+// process still holds open means the workbook is in use and the result is a
+// LockedError. A lock file nobody holds is a leftover of a crash, so the
+// result is a warning and the write goes ahead; a workbook that really is
+// open fails later with a sharing violation on save.
 func checkLockFile(path string) (warning string, err error) {
-	if _, statErr := os.Stat(lockFilePath(path)); statErr != nil {
-		return "", nil
+	lock := lockFilePath(path)
+	if _, statErr := os.Stat(lock); statErr != nil {
+		if errors.Is(statErr, fs.ErrNotExist) {
+			return "", nil
+		}
+		return "", statErr
 	}
-	if goruntime.GOOS == "windows" {
+	if lockFileHeld(lock) {
 		return "", &LockedError{Path: path}
 	}
-	return fmt.Sprintf("%s exists; the workbook may be open in another program", filepath.Base(lockFilePath(path))), nil
+	return fmt.Sprintf("%s exists but no program holds it; the workbook may have been closed without cleanup", filepath.Base(lock)), nil
 }
 
 // classifyError turns a sharing violation into a LockedError and leaves

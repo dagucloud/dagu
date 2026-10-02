@@ -1277,8 +1277,11 @@ func dagSavesMailAttachments(d *dag) bool {
 	})
 }
 
-// dagKeepsXlsxArtifact reports whether an xlsx writer step writes
-// artifact: true literally.
+// dagKeepsXlsxArtifact reports whether an xlsx writer step may keep its
+// workbook as an artifact: artifact is literally true, or a value
+// reference such as ${params.KEEP} that is only known at run time. Storage
+// is enabled for the reference case so a value that resolves to true does
+// not fail the step.
 func dagKeepsXlsxArtifact(d *dag) bool {
 	return dagDeclaresAction(d, func(action string, with reflect.Value) bool {
 		if !strings.HasPrefix(action, "xlsx.") {
@@ -1289,7 +1292,17 @@ func dagKeepsXlsxArtifact(d *dag) bool {
 			return false
 		}
 		keep, ok := derefForSearch(with.MapIndex(reflect.ValueOf("artifact")))
-		return ok && keep.Kind() == reflect.Bool && keep.Bool()
+		if !ok {
+			return false
+		}
+		if keep.Kind() == reflect.Bool {
+			return keep.Bool()
+		}
+		if keep.Kind() == reflect.String {
+			text := keep.String()
+			return cmnvalue.HasValueReference(text) || strings.EqualFold(strings.TrimSpace(text), "true")
+		}
+		return false
 	})
 }
 

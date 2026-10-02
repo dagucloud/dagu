@@ -58,6 +58,10 @@ const (
 	maxExactInt    = 1 << 53
 )
 
+// rawValues asks excelize for stored values rather than text rendered
+// through the cell's number format, so an evaluated formula stays a number.
+var rawValues = excelize.Options{RawCellValue: true}
+
 var excelErrors = map[string]bool{
 	"#N/A": true, "#DIV/0!": true, "#VALUE!": true, "#REF!": true,
 	"#NAME?": true, "#NUM!": true, "#NULL!": true, "#SPILL!": true,
@@ -68,7 +72,7 @@ var excelErrors = map[string]bool{
 func (w *file) cellValue(sheet string, col, row int, raw string, opts ReadOptions, warn func(string)) (any, error) {
 	cell := cellName(col, row)
 	formula := ""
-	if opts.Formulas == FormulaText || raw == "" {
+	if opts.Formulas == FormulaText || opts.Formulas == FormulaCalculate || raw == "" {
 		formula, _ = w.f.GetCellFormula(sheet, cell)
 	}
 	if formula != "" && opts.Formulas == FormulaText {
@@ -78,7 +82,7 @@ func (w *file) cellValue(sheet string, col, row int, raw string, opts ReadOption
 		if formula == "" {
 			return nil, nil
 		}
-		calculated, err := w.f.CalcCellValue(sheet, cell)
+		calculated, err := w.f.CalcCellValue(sheet, cell, rawValues)
 		if err != nil {
 			warn(fmt.Sprintf("%s!%s: formula %s could not be evaluated: %v", sheet, cell, formula, err))
 			return nil, nil
@@ -97,7 +101,7 @@ func (w *file) cellValue(sheet string, col, row int, raw string, opts ReadOption
 		return w.text(calculated, opts), nil
 	}
 	if opts.Formulas == FormulaCalculate && formula != "" {
-		if calculated, err := w.f.CalcCellValue(sheet, cell); err == nil {
+		if calculated, err := w.f.CalcCellValue(sheet, cell, rawValues); err == nil {
 			raw = calculated
 		}
 	}
@@ -186,8 +190,9 @@ func trimSpace(s string) string {
 	return strings.TrimFunc(s, unicode.IsSpace)
 }
 
-// coerce applies a pinned column type to a typed cell value.
-func coerce(v any, t ColumnType) (any, error) {
+// coerce applies a pinned column type to a typed cell value. date1904 says
+// which epoch a numeric date serial counts from.
+func coerce(v any, t ColumnType, date1904 bool) (any, error) {
 	if v == nil {
 		return nil, nil
 	}
@@ -196,13 +201,13 @@ func coerce(v any, t ColumnType) (any, error) {
 		return valueString(v), nil
 	case TypeNumber:
 		f, ok := toFloat(v)
-		if !ok {
+		if !ok || math.IsNaN(f) || math.IsInf(f, 0) {
 			return nil, fmt.Errorf("expected number, found %s", describe(v))
 		}
 		return numberValue(f), nil
 	case TypeInteger:
 		f, ok := toFloat(v)
-		if !ok || f != math.Trunc(f) {
+		if !ok || f != math.Trunc(f) || f < -math.Exp2(63) || f >= math.Exp2(63) {
 			return nil, fmt.Errorf("expected integer, found %s", describe(v))
 		}
 		return int64(f), nil
@@ -228,7 +233,7 @@ func coerce(v any, t ColumnType) (any, error) {
 		}
 		return nil, fmt.Errorf("expected boolean, found %s", describe(v))
 	case TypeDate, TypeDateTime:
-		tm, ok := toTime(v)
+		tm, ok := toTime(v, date1904)
 		if !ok {
 			return nil, fmt.Errorf("expected %s, found %s", t, describe(v))
 		}
@@ -286,7 +291,9 @@ var timeLayouts = []string{
 	dateLayout, "2006/01/02", "2006/1/2", "2006-1-2",
 }
 
-func toTime(v any) (time.Time, bool) {
+// toTime reads a time from a time, an ISO or slash-separated date string,
+// or a date serial counted from the 1900 or 1904 epoch.
+func toTime(v any, date1904 bool) (time.Time, bool) {
 	switch x := v.(type) {
 	case time.Time:
 		return x, true
@@ -300,7 +307,7 @@ func toTime(v any) (time.Time, bool) {
 		return time.Time{}, false
 	case int64, float64, int:
 		f, _ := toFloat(v)
-		t, err := excelize.ExcelDateToTime(f, false)
+		t, err := excelize.ExcelDateToTime(f, date1904)
 		return t, err == nil
 	default:
 		return time.Time{}, false

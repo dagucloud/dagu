@@ -8,6 +8,7 @@ package workbook
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"syscall"
 	"testing"
@@ -43,6 +44,28 @@ func TestSharingViolationBecomesLockedError(t *testing.T) {
 	assert.Equal(t, "held.xlsx is open in another program; close it and retry", err.Error())
 	assert.True(t, isSharingViolation(errorSharingViolation))
 	assert.False(t, isSharingViolation(errors.New("other")))
+}
+
+func TestHeldLockFileBlocksTheWrite(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "held.xlsx")
+	_, err := Write(context.Background(), path, orders(), WriteOptions{Header: true})
+	require.NoError(t, err)
+	lock := lockFilePath(path)
+	require.NoError(t, os.WriteFile(lock, []byte("owner"), 0o600))
+
+	// Held the way Excel holds its ~$ file: no sharing at all.
+	release := holdExclusive(t, lock)
+	_, err = Write(context.Background(), path, orders(), WriteOptions{Header: true})
+	var locked *LockedError
+	require.ErrorAs(t, err, &locked)
+	release()
+
+	// Once released, the leftover file is only a warning.
+	result, err := Write(context.Background(), path, orders(), WriteOptions{Header: true})
+	require.NoError(t, err)
+	require.Len(t, result.Warnings, 1)
+	assert.Contains(t, result.Warnings[0], "no program holds it")
 }
 
 func TestWaitForUnlockSucceedsOnceReleased(t *testing.T) {

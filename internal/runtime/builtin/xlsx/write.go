@@ -115,8 +115,13 @@ func (e *writeExecutor) Run(ctx context.Context) error {
 
 	result, line, err := e.run(ctx)
 	if err == nil && !result.DryRun {
-		var artifact string
-		if artifact, err = e.keepArtifact(); err == nil && artifact != "" {
+		// The workbook is already saved at this point. A failed copy must
+		// not fail the step, or a retry would append the same rows again;
+		// it is reported as a warning instead.
+		switch artifact, copyErr := e.keepArtifact(); {
+		case copyErr != nil:
+			result.Warnings = append(result.Warnings, "workbook saved but not kept as an artifact: "+copyErr.Error())
+		case artifact != "":
 			result.Artifact = artifact
 		}
 	}

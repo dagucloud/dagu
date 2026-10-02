@@ -59,7 +59,11 @@ func (w *file) parseRange(sheet, ref string) (region, error) {
 		target = resolved
 		body = strings.TrimSpace(ref[i+1:])
 	}
-	if m := cellRangePattern.FindStringSubmatch(body); m != nil {
+	// A short word with no row number, such as Tax, is a valid defined name
+	// or table name as well as a bare column, so names win for that form.
+	m := cellRangePattern.FindStringSubmatch(body)
+	bareColumn := m != nil && m[2] == "" && m[3] == ""
+	if m != nil && !bareColumn {
 		return w.cellRegion(target, m)
 	}
 	if reg, ok, err := w.definedNameRegion(target, body); ok || err != nil {
@@ -67,6 +71,9 @@ func (w *file) parseRange(sheet, ref string) (region, error) {
 	}
 	if reg, ok, err := w.tableRegion(body); ok || err != nil {
 		return reg, err
+	}
+	if bareColumn {
+		return w.cellRegion(target, m)
 	}
 	return region{}, fmt.Errorf("%s: range %q is not a cell range, named range, or table", w.base, ref)
 }
@@ -78,16 +85,19 @@ func (w *file) cellRegion(sheet string, m []string) (region, error) {
 	}
 	reg := region{Sheet: sheet, C1: c1, R1: 1}
 	if m[2] != "" {
-		reg.R1, _ = strconv.Atoi(m[2])
+		if reg.R1, err = rowNumber(m[2]); err != nil {
+			return region{}, fmt.Errorf("%s: invalid range %q: %w", w.base, m[0], err)
+		}
 	}
 	if m[3] == "" {
-		// A single cell.
 		reg.C2 = c1
-		reg.R2 = reg.R1
 		if m[2] == "" {
-			// A bare column such as C: the whole column.
+			// A bare column such as C: the whole column, closed by the
+			// used range.
 			return w.closeRegion(reg)
 		}
+		// A single cell.
+		reg.R2 = reg.R1
 		return reg, nil
 	}
 	c2, err := excelize.ColumnNameToNumber(strings.ToUpper(m[3]))
@@ -96,7 +106,9 @@ func (w *file) cellRegion(sheet string, m []string) (region, error) {
 	}
 	reg.C2 = c2
 	if m[4] != "" {
-		reg.R2, _ = strconv.Atoi(m[4])
+		if reg.R2, err = rowNumber(m[4]); err != nil {
+			return region{}, fmt.Errorf("%s: invalid range %q: %w", w.base, m[0], err)
+		}
 	}
 	if reg.C2 < reg.C1 {
 		reg.C1, reg.C2 = reg.C2, reg.C1
@@ -104,10 +116,16 @@ func (w *file) cellRegion(sheet string, m []string) (region, error) {
 	if reg.R2 != 0 && reg.R2 < reg.R1 {
 		reg.R1, reg.R2 = reg.R2, reg.R1
 	}
-	if reg.R1 < 1 {
-		return region{}, fmt.Errorf("%s: invalid range %q", w.base, m[0])
-	}
 	return w.closeRegion(reg)
+}
+
+// rowNumber parses a 1-based row number; zero is not a row.
+func rowNumber(s string) (int, error) {
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 1 {
+		return 0, fmt.Errorf("row %s is not a row number", s)
+	}
+	return n, nil
 }
 
 // closeRegion resolves an open end row from the sheet's used range.
@@ -127,8 +145,10 @@ func (w *file) closeRegion(reg region) (region, error) {
 }
 
 // usedRange returns A1 to the last cell that holds anything, or A1:A1 for
-// an empty sheet. It is computed from the cells rather than the stored
-// dimension, which a workbook written by another program may leave stale.
+// an empty sheet. It is computed from the cells, because a workbook written
+// by another program may leave the stored dimension stale, and widened to
+// the stored dimension, because a formula without a cached value has no
+// text yet still occupies its cell.
 func (w *file) usedRange(sheet string) (region, error) {
 	grid, err := w.grid(sheet)
 	if err != nil {
@@ -141,6 +161,16 @@ func (w *file) usedRange(sheet string) (region, error) {
 				reg.R2 = max(reg.R2, r)
 				reg.C2 = max(reg.C2, c)
 				break
+			}
+		}
+	}
+	if dim, err := w.f.GetSheetDimension(sheet); err == nil {
+		if m := cellRangePattern.FindStringSubmatch(strings.TrimSpace(dim)); m != nil && m[3] != "" && m[4] != "" {
+			if c2, err := excelize.ColumnNameToNumber(strings.ToUpper(m[3])); err == nil {
+				reg.C2 = max(reg.C2, c2)
+			}
+			if r2, err := rowNumber(m[4]); err == nil {
+				reg.R2 = max(reg.R2, r2)
 			}
 		}
 	}

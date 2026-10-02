@@ -87,9 +87,9 @@ func Inspect(ctx context.Context, path string, opts InspectOptions) (*Info, erro
 			info.Warnings = append(info.Warnings, msg)
 		})
 		if err != nil {
+			// Keep what was computed before the failure, such as the used
+			// range and tables, and report the rest as a warning.
 			info.Warnings = append(info.Warnings, sheet+": "+err.Error())
-			info.Sheets = append(info.Sheets, SheetInfo{Name: sheet, Headers: []string{}, Types: map[string]string{}, Tables: []TableInfo{}})
-			continue
 		}
 		info.Sheets = append(info.Sheets, si)
 	}
@@ -122,14 +122,12 @@ func (w *file) inspectSheet(ctx context.Context, sheet string, sampleRows int, w
 	si.RowCount = max(reg.rows()-1, 0)
 
 	limit := max(typeSampleRows, sampleRows)
-	result, err := w.read(ctx, ReadOptions{Sheet: sheet, Range: reg.String(), MaxRows: limit})
+	result, err := w.read(ctx, ReadOptions{Sheet: sheet, Range: reg.String(), MaxRows: limit, quietLimit: true})
 	if err != nil {
 		return si, err
 	}
 	for _, msg := range result.Warnings {
-		if msg != "" && !isLimitWarning(msg) {
-			warn(sheet + ": " + msg)
-		}
+		warn(sheet + ": " + msg)
 	}
 	si.Headers = result.Headers
 	si.Types = detectTypes(result.Headers, result.Rows)
@@ -137,10 +135,6 @@ func (w *file) inspectSheet(ctx context.Context, sheet string, sampleRows int, w
 		si.Sample = result.Rows[:min(sampleRows, len(result.Rows))]
 	}
 	return si, nil
-}
-
-func isLimitWarning(msg string) bool {
-	return len(msg) > 13 && msg[:13] == "stopped after"
 }
 
 // detectTypes picks the dominant non-empty kind of each column.

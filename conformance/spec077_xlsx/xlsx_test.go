@@ -9,7 +9,6 @@ package spec077_xlsx_test
 import (
 	"encoding/json"
 	"os"
-	"runtime"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
@@ -282,21 +281,18 @@ func TestXlsxUnsupportedFormat(t *testing.T) {
 	dagu := harness.NewRunner(t)
 	result := dagu.Run("start", "unsupported_format.yaml")
 	result.ExpectNonZeroExitCode()
-	result.ExpectStderrContains("only .xlsx workbooks are supported; save as .xlsx")
+	result.ExpectStderrContains("only .xlsx and .xlsm workbooks are supported; save as .xlsx")
 }
 
-func TestXlsxLockFile(t *testing.T) {
+func TestXlsxLockFileNobodyHolds(t *testing.T) {
 	t.Parallel()
+	// A ~$ lock file left behind by a crash does not block the write on any
+	// platform; one that Excel still holds is covered by the Windows unit
+	// tests of the workbook package.
 	dagu := harness.NewRunner(t)
 	dagu.Run("start", "write_only.yaml").ExpectExitCode(0)
 	dagu.WriteFile("~$held.xlsx", "held")
-	result := dagu.Run("start", "append_only.yaml")
-	if runtime.GOOS == "windows" {
-		result.ExpectNonZeroExitCode()
-		result.ExpectStderrContains("held.xlsx is open in another program; close it and retry")
-		return
-	}
-	result.ExpectExitCode(0)
+	dagu.Run("start", "append_only.yaml").ExpectExitCode(0)
 }
 
 func TestXlsxValidation(t *testing.T) {

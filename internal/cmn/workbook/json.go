@@ -6,7 +6,9 @@ package workbook
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"strings"
 )
 
@@ -17,7 +19,10 @@ func decodeJSON(text string) (any, error) {
 	if err := dec.Decode(&v); err != nil {
 		return nil, fmt.Errorf("invalid JSON: %w", err)
 	}
-	if dec.More() {
+	// More only looks for another element of the current array or object,
+	// so trailing text such as "[]]" needs a second decode to be seen.
+	var trailing any
+	if err := dec.Decode(&trailing); !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("invalid JSON: expected one value")
 	}
 	return v, nil

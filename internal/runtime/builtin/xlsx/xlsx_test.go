@@ -174,7 +174,7 @@ func TestValidation(t *testing.T) {
 		{"foreign field", opInfo, map[string]any{"path": "a.xlsx", "range": "A1:B2"}, "with.range is not valid for xlsx.info"},
 		{"bad merged", opRead, map[string]any{"path": "a.xlsx", "merged": "middle"}, "merged must be fill or first"},
 		{"bad formulas", opRead, map[string]any{"path": "a.xlsx", "formulas": "eval"}, "formulas must be cached, text, or calculate"},
-		{"bad on_type_error", opRead, map[string]any{"path": "a.xlsx", "on_type_error": "ignore"}, "on_type_error must be fail or warn"},
+		{"bad on_type_error", opRead, map[string]any{"path": "a.xlsx", "on_type_error": "ignore"}, "on_type_error must be fail, warn, or null"},
 		{"bad header", opRead, map[string]any{"path": "a.xlsx", "header": "yes"}, "header must be true, false, a row number"},
 		{"bad columns", opRead, map[string]any{"path": "a.xlsx", "columns": map[string]any{"a": "b"}}, "columns must be a list"},
 		{"bad type", opRead, map[string]any{"path": "a.xlsx", "types": map[string]any{"a": "money"}}, `types.a: unknown column type "money"`},
@@ -193,6 +193,58 @@ func TestValidation(t *testing.T) {
 		})
 	}
 	require.NoError(t, validateStep(ir.Step{ExecutorConfig: ir.ExecutorConfig{Type: "file"}}))
+}
+
+func TestValidationDefersValueReferences(t *testing.T) {
+	t.Parallel()
+	// At build time typed fields may still hold references; they are
+	// checked at run time, when they have been resolved.
+	step := ir.Step{
+		Commands: []ir.CommandEntry{{Command: opRead}},
+		ExecutorConfig: ir.ExecutorConfig{Type: executorType, Config: map[string]any{
+			"path":          "${params.BOOK}",
+			"max_rows":      "${params.LIMIT}",
+			"trim":          "${params.TRIM}",
+			"on_type_error": "${params.MODE}",
+			"header":        "${params.HEADER}",
+		}},
+	}
+	require.NoError(t, validateStep(step))
+
+	write := ir.Step{
+		Commands: []ir.CommandEntry{{Command: opWrite}},
+		ExecutorConfig: ir.ExecutorConfig{Type: executorType, Config: map[string]any{
+			"path":  "out.xlsx",
+			"input": "${params.INPUT}",
+		}},
+	}
+	require.NoError(t, validateStep(write))
+
+	// Unknown fields are still rejected at build time.
+	step.ExecutorConfig.Config["strip"] = "${params.X}"
+	require.ErrorContains(t, validateStep(step), "with.strip is not valid for xlsx.read")
+
+	// A literal value that is wrong is still rejected at build time.
+	step.ExecutorConfig.Config = map[string]any{"path": "${params.BOOK}", "max_rows": "soon"}
+	require.Error(t, validateStep(step))
+}
+
+func TestOutputBudgetStaysPositive(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		limit int
+		want  int
+	}{
+		{0, outputBudget},
+		{ir.DefaultMaxOutputSize, outputBudget},
+		{outputMargin + 100, 100},
+		{outputMargin, outputMargin / 2},
+		{32 << 10, 16 << 10},
+		{1, 1},
+	} {
+		dag := &ir.DAG{MaxOutputSize: tc.limit}
+		assert.Equal(t, tc.want, budgetFor(runtime.Env{DAG: dag}), "limit %d", tc.limit)
+	}
 }
 
 func TestConfigSchemaRejectsUnknownKeys(t *testing.T) {

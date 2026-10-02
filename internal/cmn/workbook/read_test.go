@@ -9,7 +9,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	goruntime "runtime"
 	"strings"
 	"testing"
 	"time"
@@ -472,30 +471,30 @@ func TestCustomFormatKind(t *testing.T) {
 
 func TestCoerce(t *testing.T) {
 	t.Parallel()
-	v, err := coerce("1,234.5", TypeNumber)
+	v, err := coerce("1,234.5", TypeNumber, false)
 	require.NoError(t, err)
 	assert.Equal(t, 1234.5, v)
-	v, err = coerce(float64(3), TypeInteger)
+	v, err = coerce(float64(3), TypeInteger, false)
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), v)
-	_, err = coerce(3.5, TypeInteger)
+	_, err = coerce(3.5, TypeInteger, false)
 	require.ErrorContains(t, err, "expected integer, found 3.5")
-	v, err = coerce("yes", TypeBoolean)
+	v, err = coerce("yes", TypeBoolean, false)
 	require.NoError(t, err)
 	assert.Equal(t, true, v)
-	v, err = coerce("2026/10/01", TypeDate)
+	v, err = coerce("2026/10/01", TypeDate, false)
 	require.NoError(t, err)
 	assert.Equal(t, "2026-10-01", v)
-	v, err = coerce(int64(46296), TypeDate)
+	v, err = coerce(int64(46296), TypeDate, false)
 	require.NoError(t, err)
 	assert.Equal(t, "2026-10-01", v)
-	v, err = coerce("2026-10-01", TypeDateTime)
+	v, err = coerce("2026-10-01", TypeDateTime, false)
 	require.NoError(t, err)
 	assert.Equal(t, "2026-10-01T00:00:00", v)
-	v, err = coerce(int64(7), TypeString)
+	v, err = coerce(int64(7), TypeString, false)
 	require.NoError(t, err)
 	assert.Equal(t, "7", v)
-	_, err = coerce("soon", TypeDate)
+	_, err = coerce("soon", TypeDate, false)
 	require.ErrorContains(t, err, `expected date, found "soon"`)
 }
 
@@ -543,7 +542,7 @@ func TestOpenErrors(t *testing.T) {
 	dir := t.TempDir()
 	_, err := Read(context.Background(), filepath.Join(dir, "book.xls"), ReadOptions{})
 	require.ErrorIs(t, err, ErrUnsupportedFormat)
-	assert.Equal(t, "book.xls: only .xlsx workbooks are supported; save as .xlsx", err.Error())
+	assert.Equal(t, "book.xls: only .xlsx and .xlsm workbooks are supported; save as .xlsx", err.Error())
 
 	_, err = Read(context.Background(), filepath.Join(dir, "missing.xlsx"), ReadOptions{})
 	require.ErrorIs(t, err, os.ErrNotExist)
@@ -562,16 +561,11 @@ func TestLockFile(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, warning)
 
+	// A lock file nobody holds is a leftover, not a lock, on every platform.
 	require.NoError(t, os.WriteFile(lockFilePath(path), []byte("x"), 0o600))
 	warning, err = checkLockFile(path)
-	if goruntime.GOOS == "windows" {
-		var locked *LockedError
-		require.ErrorAs(t, err, &locked)
-		assert.Equal(t, "locked.xlsx is open in another program; close it and retry", err.Error())
-	} else {
-		require.NoError(t, err)
-		assert.Equal(t, "~$locked.xlsx exists; the workbook may be open in another program", warning)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "~$locked.xlsx exists but no program holds it; the workbook may have been closed without cleanup", warning)
 }
 
 func TestWithLockRetry(t *testing.T) {

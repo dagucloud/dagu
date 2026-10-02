@@ -7,7 +7,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	goruntime "runtime"
 	"strings"
 	"testing"
 	"time"
@@ -251,14 +250,9 @@ func TestWriteUnsupportedAndLocked(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "held.xlsx")
 	require.NoError(t, os.WriteFile(lockFilePath(path), []byte("x"), 0o600))
 	result, err := Write(context.Background(), path, orders(), WriteOptions{Header: true})
-	if goruntime.GOOS == "windows" {
-		var locked *LockedError
-		require.ErrorAs(t, err, &locked)
-		return
-	}
-	require.NoError(t, err)
+	require.NoError(t, err, "a lock file nobody holds does not block the write")
 	require.Len(t, result.Warnings, 1)
-	assert.Contains(t, result.Warnings[0], "may be open in another program")
+	assert.Contains(t, result.Warnings[0], "no program holds it")
 }
 
 func TestDecodeRowsAndLoadTable(t *testing.T) {

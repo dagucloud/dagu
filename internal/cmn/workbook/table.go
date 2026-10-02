@@ -46,6 +46,7 @@ func DecodeRows(value any, columns any) (Table, error) {
 		jsonOrder = jsonKeyOrder(trimmed)
 		value = decoded
 	}
+	value = unwrapForeachOutput(value)
 	list, ok := value.([]any)
 	if !ok {
 		if value == nil {
@@ -84,19 +85,47 @@ func RowsToTable(rows []Row, headers []string, columns []string) Table {
 	return table
 }
 
+// columnOrder reads a writer's columns option. Writers only select and
+// order columns, so list and JSON items are taken verbatim: a header such
+// as "Time: start" is a name, not a rename. Only the comma-separated string
+// form goes through the reader's name:alias syntax. The reserved _row field
+// is never written.
 func columnOrder(columns any) ([]string, error) {
 	if columns == nil {
 		return nil, nil
 	}
-	selects, err := ParseColumns(columns)
-	if err != nil {
-		return nil, err
+	if text, ok := columns.(string); ok && looksLikeJSON(text) {
+		decoded, err := decodeJSON(strings.TrimSpace(text))
+		if err != nil {
+			return nil, fmt.Errorf("columns: %w", err)
+		}
+		columns = decoded
 	}
-	names := make([]string, 0, len(selects))
-	for _, s := range selects {
-		names = append(names, s.Source)
+	var names []string
+	if list, ok := columns.([]any); ok {
+		for i, item := range list {
+			name, ok := item.(string)
+			if !ok || strings.TrimSpace(name) == "" {
+				return nil, fmt.Errorf("columns[%d] must be a non-empty column name", i)
+			}
+			names = append(names, strings.TrimSpace(name))
+		}
+	} else {
+		selects, err := ParseColumns(columns)
+		if err != nil {
+			return nil, err
+		}
+		for _, s := range selects {
+			names = append(names, s.Source)
+		}
 	}
-	return names, nil
+	kept := names[:0]
+	for _, name := range names {
+		if name != RowNumberKey {
+			kept = append(kept, name)
+		}
+	}
+	return kept, nil
 }
 
 func objectsToTable(list []any, order, jsonOrder []string) (Table, error) {
@@ -189,24 +218,25 @@ func LoadTable(path, format string, columns any) (Table, error) {
 	case "json":
 		return DecodeRows(string(data), columns)
 	case "jsonl", "ndjson":
-		var list []any
+		// Each line is one object; the lines are joined into one JSON array
+		// so DecodeRows keeps their key order the way it does for JSON text.
+		var objects []string
 		scanner := bufio.NewScanner(strings.NewReader(string(data)))
 		scanner.Buffer(make([]byte, 1<<20), 64<<20)
-		for scanner.Scan() {
+		for lineNo := 1; scanner.Scan(); lineNo++ {
 			line := strings.TrimSpace(scanner.Text())
 			if line == "" {
 				continue
 			}
-			var v any
-			if err := json.Unmarshal([]byte(line), &v); err != nil {
-				return Table{}, fmt.Errorf("input: line %d: %w", len(list)+1, err)
+			if !json.Valid([]byte(line)) {
+				return Table{}, fmt.Errorf("input: line %d is not valid JSON", lineNo)
 			}
-			list = append(list, v)
+			objects = append(objects, line)
 		}
-		if len(list) == 0 {
-			return DecodeRows("[]", columns)
+		if err := scanner.Err(); err != nil {
+			return Table{}, fmt.Errorf("input: %w", err)
 		}
-		return DecodeRows(list, columns)
+		return DecodeRows("["+strings.Join(objects, ",")+"]", columns)
 	case "csv":
 		return csvToTable(strings.NewReader(string(data)), columns)
 	default:
@@ -226,6 +256,13 @@ func csvToTable(r io.Reader, columns any) (Table, error) {
 		return DecodeRows("[]", columns)
 	}
 	headers := records[0]
+	seen := make(map[string]int, len(headers))
+	for i, h := range headers {
+		if first, dup := seen[h]; dup {
+			return Table{}, fmt.Errorf("input: duplicate header %q in columns %d and %d", h, first+1, i+1)
+		}
+		seen[h] = i
+	}
 	list := make([]any, 0, len(records)-1)
 	for _, rec := range records[1:] {
 		obj := make(map[string]any, len(headers))
@@ -251,6 +288,27 @@ func csvToTable(r io.Reader, columns any) (Table, error) {
 // says so.
 func csvValue(s string) any {
 	return s
+}
+
+// unwrapForeachOutput lets rows be the aggregate output of a foreach step,
+// an object with summary, items, and outputs, by taking its outputs list:
+// the collect maps of the item bodies that succeeded, in item order.
+func unwrapForeachOutput(value any) any {
+	obj, ok := value.(map[string]any)
+	if !ok {
+		return value
+	}
+	outputs, ok := obj["outputs"].([]any)
+	if !ok {
+		return value
+	}
+	if _, hasSummary := obj["summary"]; !hasSummary {
+		return value
+	}
+	if _, hasItems := obj["items"]; !hasItems {
+		return value
+	}
+	return outputs
 }
 
 // normalizeScalar maps every integer and float kind a YAML or JSON decoder

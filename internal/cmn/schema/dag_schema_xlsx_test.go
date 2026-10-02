@@ -93,6 +93,9 @@ steps:
 		{"set value not a field or literal", "Reviewed: {value: \"yes\"}", "Reviewed: 3"},
 		{"set literal with extra keys", "Reviewed: {value: \"yes\"}", "Reviewed: {value: \"yes\", other: 1}"},
 		{"empty key", "key: Invoice No", "key: \"\""},
+		{"update_rows without key", "      key: Invoice No\n", ""},
+		{"update_rows without rows", "      rows: ${steps.each.outputs.results}\n", ""},
+		{"append without rows or input", "      input: rows.csv\n      format: csv\n", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			require.Contains(t, source, tc.from)
@@ -100,4 +103,21 @@ steps:
 			require.Error(t, resolved.Validate(doc))
 		})
 	}
+}
+
+func TestDAGSchemaXlsxLegacyType(t *testing.T) {
+	t.Parallel()
+	const source = `
+steps:
+  - id: read
+    type: xlsx
+    command: read
+    with:
+      path: orders.xlsx
+      sheet: Orders
+`
+	resolved := mustResolveDAGSchema(t)
+	require.NoError(t, resolved.Validate(mustParseYAMLDocument(t, source)))
+	doc := mustParseYAMLDocument(t, strings.Replace(source, "sheet: Orders", "strip: true", 1))
+	require.Error(t, resolved.Validate(doc), "type: xlsx rejects unknown with fields like the action form")
 }

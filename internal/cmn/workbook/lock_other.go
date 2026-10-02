@@ -7,3 +7,7 @@ package workbook
 
 // isSharingViolation is always false where files have no mandatory locks.
 func isSharingViolation(error) bool { return false }
+
+// lockFileHeld is always false where no process can hold a file against
+// others; a ~$ lock file there is only a hint.
+func lockFileHeld(string) bool { return false }

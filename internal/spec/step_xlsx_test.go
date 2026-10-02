@@ -98,6 +98,22 @@ steps:
 `))
 	require.NoError(t, err)
 	assert.Nil(t, plain.Artifacts)
+
+	// A value only known at run time may resolve to true, so storage is
+	// enabled rather than failing the step later.
+	referenced, err := spec.LoadYAML(context.Background(), []byte(`
+params:
+  - KEEP: "false"
+steps:
+  - action: xlsx.write
+    with:
+      path: report.xlsx
+      rows: "[]"
+      artifact: ${params.KEEP}
+`))
+	require.NoError(t, err)
+	require.NotNil(t, referenced.Artifacts)
+	assert.True(t, referenced.Artifacts.Enabled)
 }
 
 func TestXlsxReadActionsRejectInvalidConfig(t *testing.T) {

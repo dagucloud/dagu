@@ -57,15 +57,14 @@ type WriteOptions struct {
 }
 
 const (
-	headerFill   = "DDEBF7"
-	minColWidth  = 8.0
-	maxColWidth  = 60.0
-	fmtInteger   = 1
-	fmtText      = 49
-	fmtNumber    = "#,##0.00"
-	fmtDate      = "yyyy-mm-dd"
-	fmtDateTime  = "yyyy-mm-dd hh:mm:ss"
-	tmpSheetName = "__dagu_replace__"
+	headerFill  = "DDEBF7"
+	minColWidth = 8.0
+	maxColWidth = 60.0
+	fmtInteger  = 1
+	fmtText     = 49
+	fmtNumber   = "#,##0.00"
+	fmtDate     = "yyyy-mm-dd"
+	fmtDateTime = "yyyy-mm-dd hh:mm:ss"
 )
 
 // Write creates a workbook or writes a sheet from a table. With
@@ -130,7 +129,7 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 		case opts.Mode == WriteAppend:
 			fresh = true
 		case !empty:
-			if err := w.replaceSheet(sheet); err != nil {
+			if err := w.clearSheet(sheet, used); err != nil {
 				return nil, err
 			}
 			fresh = true
@@ -168,7 +167,7 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 			}
 			// Only a pinned type converts values; the detected kind picks
 			// the column's number format and leaves mixed columns alone.
-			v, err := outValue(value, opts.Types[table.Columns[c]])
+			v, err := outValue(value, opts.Types[table.Columns[c]], w.date1904)
 			if err != nil {
 				return nil, w.cellError(sheet, c+1, r, err.Error())
 			}
@@ -231,32 +230,35 @@ func (w *file) targetSheet(name string, created bool) (string, error) {
 	return name, nil
 }
 
-// replaceSheet empties a sheet while keeping its name and position: a
-// temporary sheet is created, the old one deleted, and the new one renamed
-// and moved back, because the last sheet of a workbook cannot be deleted.
-func (w *file) replaceSheet(name string) error {
-	list := w.f.GetSheetList()
-	index := -1
-	for i, s := range list {
-		if s == name {
-			index = i
+// clearSheet empties a sheet in place: its merged regions and tables are
+// removed and every used cell is emptied, while the sheet itself, its
+// position, the defined names scoped to it, and formulas on other sheets
+// that refer to it by name all stay valid. Deleting and recreating the
+// sheet would lose those.
+func (w *file) clearSheet(name string, used region) error {
+	merges, err := w.f.GetMergeCells(name, true)
+	if err != nil {
+		return fmt.Errorf("%s %s: %w", w.base, name, err)
+	}
+	for _, mc := range merges {
+		if err := w.f.UnmergeCell(name, mc.GetStartAxis(), mc.GetEndAxis()); err != nil {
+			return fmt.Errorf("%s %s: %w", w.base, name, err)
 		}
 	}
-	if _, err := w.f.NewSheet(tmpSheetName); err != nil {
-		return fmt.Errorf("%s: %w", w.base, err)
-	}
-	if err := w.f.DeleteSheet(name); err != nil {
-		return fmt.Errorf("%s: %w", w.base, err)
-	}
-	if err := w.f.SetSheetName(tmpSheetName, name); err != nil {
-		return fmt.Errorf("%s: %w", w.base, err)
-	}
-	if index >= 0 && index < len(list)-1 {
-		if err := w.f.MoveSheet(name, list[index+1]); err != nil {
-			return fmt.Errorf("%s: %w", w.base, err)
+	if tables, err := w.f.GetTables(name); err == nil {
+		for _, t := range tables {
+			if err := w.f.DeleteTable(t.Name); err != nil {
+				return fmt.Errorf("%s %s: %w", w.base, name, err)
+			}
 		}
 	}
-	w.sheets = w.f.GetSheetList()
+	for r := used.R1; r <= used.R2; r++ {
+		for c := used.C1; c <= used.C2; c++ {
+			if err := w.f.SetCellDefault(name, cellName(c, r), ""); err != nil {
+				return w.cellError(name, c, r, err.Error())
+			}
+		}
+	}
 	w.forget(name)
 	return nil
 }
@@ -308,8 +310,9 @@ func columnKinds(table Table, types map[string]ColumnType) []ColumnType {
 
 // outValue converts a table value into what the cell receives. Pinned
 // types convert strings; otherwise ISO date and datetime strings become
-// dates and everything else is written as it is.
-func outValue(v any, kind ColumnType) (any, error) {
+// dates and everything else is written as it is. date1904 says which epoch
+// a numeric date serial counts from.
+func outValue(v any, kind ColumnType, date1904 bool) (any, error) {
 	if v == nil {
 		return nil, nil
 	}
@@ -317,11 +320,16 @@ func outValue(v any, kind ColumnType) (any, error) {
 	case TypeString:
 		return valueString(v), nil
 	case TypeNumber, TypeInteger, TypeBoolean:
-		return coerce(v, kind)
+		return coerce(v, kind, date1904)
 	case TypeDate, TypeDateTime:
-		t, ok := toTime(v)
+		t, ok := toTime(v, date1904)
 		if !ok {
 			return nil, fmt.Errorf("expected %s, found %s", kind, describe(v))
+		}
+		if kind == TypeDate {
+			// A date column stores whole days; a time of day would hide
+			// behind the format and surprise a later comparison.
+			t = time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
 		}
 		return t, nil
 	}
@@ -443,8 +451,9 @@ func kindStyle(kind ColumnType) *excelize.Style {
 }
 
 // copyStylesFromAbove gives appended cells the style of the cell above
-// them, so a date column stays a date column, and applies a date style
-// when a time lands under a cell that is not one.
+// them, so a date column stays a date column. A time that lands under a
+// cell without a date format keeps that cell's borders, fill, and alignment
+// and only gains a date number format.
 func (w *file) copyStylesFromAbove(sheet string, startRow, lastRow, columns int, table Table, kinds []ColumnType) {
 	for c := 1; c <= columns; c++ {
 		above, err := w.f.GetCellStyle(sheet, cellName(c, startRow-1))
@@ -455,23 +464,24 @@ func (w *file) copyStylesFromAbove(sheet string, startRow, lastRow, columns int,
 		if above != 0 {
 			kind = w.styleKind(above)
 		}
+		dated := 0 // the above style with a date format, created on demand
 		for r := startRow; r <= lastRow; r++ {
 			i := r - startRow
-			if opts := table.Rows; i >= len(opts) || c-1 >= len(opts[i]) || opts[i][c-1] == nil {
+			if i >= len(table.Rows) || c-1 >= len(table.Rows[i]) || table.Rows[i][c-1] == nil {
 				continue
 			}
+			value := table.Rows[i][c-1]
 			isTime := kinds[c-1] == TypeDate || kinds[c-1] == TypeDateTime
 			if !isTime {
-				if _, ok := outValueIsTime(table.Rows[i][c-1]); ok {
-					isTime = true
-				}
+				_, isTime = w.outValueIsTime(value)
 			}
 			switch {
 			case isTime && kind == kindNumber:
-				if style := kindStyle(kindFor(table.Rows[i][c-1], kinds[c-1])); style != nil {
-					if id, err := w.f.NewStyle(style); err == nil {
-						_ = w.f.SetCellStyle(sheet, cellName(c, r), cellName(c, r), id)
-					}
+				if dated == 0 {
+					dated = w.datedStyle(above, kindFor(value, kinds[c-1]))
+				}
+				if dated != 0 {
+					_ = w.f.SetCellStyle(sheet, cellName(c, r), cellName(c, r), dated)
 				}
 			case above != 0:
 				_ = w.f.SetCellStyle(sheet, cellName(c, r), cellName(c, r), above)
@@ -480,8 +490,30 @@ func (w *file) copyStylesFromAbove(sheet string, startRow, lastRow, columns int,
 	}
 }
 
-func outValueIsTime(v any) (time.Time, bool) {
-	out, err := outValue(v, "")
+// datedStyle returns a style like base with the number format of kind, so a
+// date written into a plain cell keeps the cell's other formatting. Zero
+// means no style could be made.
+func (w *file) datedStyle(base int, kind ColumnType) int {
+	style := kindStyle(kind)
+	if style == nil {
+		return 0
+	}
+	if base != 0 {
+		if existing, err := w.f.GetStyle(base); err == nil && existing != nil {
+			existing.NumFmt = style.NumFmt
+			existing.CustomNumFmt = style.CustomNumFmt
+			style = existing
+		}
+	}
+	id, err := w.f.NewStyle(style)
+	if err != nil {
+		return 0
+	}
+	return id
+}
+
+func (w *file) outValueIsTime(v any) (time.Time, bool) {
+	out, err := outValue(v, "", w.date1904)
 	if err != nil {
 		return time.Time{}, false
 	}

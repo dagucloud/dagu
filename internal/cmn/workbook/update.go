@@ -103,6 +103,7 @@ func DecodeUpdateRows(value any) ([]Row, error) {
 		}
 		value = decoded
 	}
+	value = unwrapForeachOutput(value)
 	list, ok := value.([]any)
 	if !ok {
 		if obj, ok := value.(map[string]any); ok {
@@ -154,8 +155,7 @@ type updatePlan struct {
 	reg       region
 	layout    headerLayout
 	headers   []string
-	colOf     map[string]int // header -> column number
-	keyCol    int            // 0 when Key is _row
+	keyCol    int // 0 when Key is _row
 	set       []setColumn
 	grid      [][]string
 	merges    mergeFill
@@ -207,7 +207,6 @@ func updateOnce(ctx context.Context, path string, opts UpdateOptions) (*WriteRes
 		}
 		plan.reg.C2++
 		plan.set[i].column = plan.reg.C2
-		plan.colOf[plan.set[i].name] = plan.reg.C2
 		if err := w.f.SetCellStr(plan.sheet, cellName(plan.reg.C2, plan.headerRow), plan.set[i].name); err != nil {
 			return nil, w.cellError(plan.sheet, plan.reg.C2, plan.headerRow, err.Error())
 		}
@@ -284,10 +283,7 @@ func (w *file) planUpdate(opts UpdateOptions, warn func(string)) (*updatePlan, e
 	headers := headerNames(reg, layout, grid, merges, warn)
 	plan := &updatePlan{
 		sheet: sheet, reg: reg, layout: layout, headers: headers, grid: grid, merges: merges,
-		colOf: make(map[string]int, len(headers)), headerRow: layout.rows[len(layout.rows)-1],
-	}
-	for i, h := range headers {
-		plan.colOf[h] = reg.C1 + i
+		headerRow: layout.rows[len(layout.rows)-1],
 	}
 	headerRow := layout.rows[0]
 	if opts.Key != RowNumberKey {
@@ -365,6 +361,7 @@ func sortedSetColumns(set map[string]SetValue) []string {
 }
 
 type rowTarget struct {
+	index int // position in the input rows
 	row   int
 	input Row
 }
@@ -406,7 +403,7 @@ func (w *file) locateRows(plan *updatePlan, opts UpdateOptions, warn func(string
 						fmt.Sprintf("expected key %q, found %q; the sheet changed since it was read", want, found))
 				}
 			}
-			targets = append(targets, rowTarget{row: rowNum, input: input})
+			targets = append(targets, rowTarget{index: i, row: rowNum, input: input})
 		case opts.Key == RowNumberKey:
 			return nil, nil, fmt.Errorf("%s %s: rows[%d] has no _row to address with key _row", w.base, plan.sheet, i)
 		case want == "":
@@ -417,7 +414,7 @@ func (w *file) locateRows(plan *updatePlan, opts UpdateOptions, warn func(string
 			case len(matches) > 1:
 				return nil, nil, w.sheetError(plan.sheet, fmt.Sprintf("key %q appears at rows %s", want, joinInts(matches)))
 			case len(matches) == 1:
-				targets = append(targets, rowTarget{row: matches[0], input: input})
+				targets = append(targets, rowTarget{index: i, row: matches[0], input: input})
 			default:
 				switch opts.Missing {
 				case MissingSkip:
@@ -431,6 +428,15 @@ func (w *file) locateRows(plan *updatePlan, opts UpdateOptions, warn func(string
 				}
 			}
 		}
+	}
+	// Two inputs for one sheet row would race on the same cells, and the
+	// change check compares against the sheet as it was read.
+	seenRows := make(map[int]int, len(targets))
+	for _, target := range targets {
+		if first, dup := seenRows[target.row]; dup {
+			return nil, nil, w.sheetError(plan.sheet, fmt.Sprintf("rows[%d] and rows[%d] both address row %d", first, target.index, target.row))
+		}
+		seenRows[target.row] = target.index
 	}
 	return targets, appends, nil
 }
@@ -450,6 +456,32 @@ func keyText(v any) string {
 	return trimSpace(valueString(v))
 }
 
+// sameValue reports whether writing value would leave a cell as it is. The
+// comparison is type-aware: the number 7 and the text "7" differ, so a
+// requested change of cell type is written, while 7 and 7.0 or two equal
+// dates do not count as a change.
+func sameValue(existing, value any) bool {
+	if existing == nil || value == nil {
+		return existing == nil && value == nil
+	}
+	existingKind, valueKind := detectKind(normalizeScalar(existing)), detectKind(normalizeScalar(value))
+	if existingKind == string(TypeInteger) || existingKind == string(TypeNumber) {
+		existingKind = string(TypeNumber)
+	}
+	if valueKind == string(TypeInteger) || valueKind == string(TypeNumber) {
+		valueKind = string(TypeNumber)
+	}
+	if existingKind != valueKind {
+		return false
+	}
+	if existingKind == string(TypeNumber) {
+		a, _ := toFloat(existing)
+		b, _ := toFloat(value)
+		return a == b
+	}
+	return keyText(existing) == keyText(value)
+}
+
 // applyRow writes the set columns of one input row into a sheet row and
 // reports how many cells changed.
 func (w *file) applyRow(plan *updatePlan, row int, input Row, appended bool) (int, error) {
@@ -459,7 +491,13 @@ func (w *file) applyRow(plan *updatePlan, row int, input Row, appended bool) (in
 		if sc.value.IsLiteral {
 			value = sc.value.Literal
 		} else {
-			value = input[sc.value.Field]
+			field, present := input[sc.value.Field]
+			if !present {
+				// A row that does not carry the field leaves the cell as it
+				// is; only an explicit null clears it.
+				continue
+			}
+			value = field
 		}
 		if !appended {
 			oc, or := plan.merges.origin(sc.column, row)
@@ -467,7 +505,7 @@ func (w *file) applyRow(plan *updatePlan, row int, input Row, appended bool) (in
 			if err != nil {
 				return 0, err
 			}
-			if keyText(existing) == keyText(value) {
+			if sameValue(existing, value) {
 				continue
 			}
 		}
@@ -481,7 +519,7 @@ func (w *file) applyRow(plan *updatePlan, row int, input Row, appended bool) (in
 			}
 			continue
 		}
-		out, err := outValue(value, "")
+		out, err := outValue(value, "", w.date1904)
 		if err != nil {
 			return 0, w.cellError(plan.sheet, sc.column, row, err.Error())
 		}

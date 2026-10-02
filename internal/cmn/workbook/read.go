@@ -43,6 +43,10 @@ type ReadOptions struct {
 	Where         map[string]any
 	// MaxRows caps the rows returned; zero means DefaultMaxRows.
 	MaxRows int
+
+	// quietLimit drops the warning a hit MaxRows adds; Inspect samples a
+	// few rows on purpose and reports the row count separately.
+	quietLimit bool
 }
 
 // ReadResult is what a read publishes.
@@ -104,33 +108,43 @@ func (w *file) read(ctx context.Context, opts ReadOptions) (*ReadResult, error) 
 		maxRows = DefaultMaxRows
 	}
 
-	lastNonEmpty := 0
+	// Empty rows are held back until a later row proves they are not
+	// trailing, so they do not survive at the end unless keep_empty_rows
+	// asks for them, and they never count toward max_rows: the cap counts
+	// rows that hold a value. Blank detection uses the resolved row, after
+	// merged cells and formulas, not the raw text.
+	var pending []Row
+	counted := 0
 	for r := layout.dataStart; r <= reg.R2; r++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
-		}
-		if opts.StopAtBlank && rowIsEmpty(grid, r, reg.C1, reg.C2) {
-			break
-		}
-		if len(result.Rows) >= maxRows {
-			result.Truncated = true
-			warn(fmt.Sprintf("stopped after %d rows; set max_rows to read more", maxRows))
-			break
 		}
 		full, empty, err := w.readRow(sheet, reg, r, grid, merges, headers, plan.types, opts, warn)
 		if err != nil {
 			return nil, err
 		}
+		if empty && opts.StopAtBlank {
+			break
+		}
 		if !where.match(full) {
 			continue
 		}
-		result.Rows = append(result.Rows, plan.project(full))
-		if !empty {
-			lastNonEmpty = len(result.Rows)
+		row := plan.project(full)
+		if empty && !opts.KeepEmptyRows {
+			pending = append(pending, row)
+			continue
 		}
-	}
-	if !opts.KeepEmptyRows && lastNonEmpty < len(result.Rows) {
-		result.Rows = result.Rows[:lastNonEmpty]
+		if counted >= maxRows {
+			result.Truncated = true
+			if !opts.quietLimit {
+				warn(fmt.Sprintf("stopped after %d rows; set max_rows to read more", maxRows))
+			}
+			break
+		}
+		result.Rows = append(result.Rows, pending...)
+		result.Rows = append(result.Rows, row)
+		pending = nil
+		counted++
 	}
 	result.Count = len(result.Rows)
 	result.Headers = plan.names()
@@ -206,7 +220,7 @@ func (w *file) readRow(sheet string, reg region, r int, grid [][]string, merges 
 		}
 		name := headers[i]
 		if t, ok := types[name]; ok && value != nil {
-			coerced, cerr := coerce(value, t)
+			coerced, cerr := coerce(value, t, w.date1904)
 			if cerr != nil {
 				if opts.OnTypeError.warns() {
 					warn(fmt.Sprintf("%s!%s: %v", sheet, cellName(c, r), cerr))

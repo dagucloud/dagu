@@ -239,7 +239,7 @@ dagu xlsx inspect <path> [--sheet <name>] [--rows <n>] [--format json]
 
 ### dagu xlsx read
 
-Print the typed rows of a sheet the way `xlsx.read` publishes them: numbers stay numbers, dates become ISO 8601 text, text keeps its leading zeros, and each row carries `_row`. The flags mirror the action's fields: `--sheet`, `--range`, `--header` (`true`, `false`, a row number, or `3,4`), `--columns` (comma-separated, with `name:alias` renames), and `--max-rows`. The text format is tab-separated; `--format json` prints `rows`, `count`, `headers`, `sheet`, `range`, `warnings`, and `truncated`.
+Print the typed rows of a sheet the way `xlsx.read` publishes them: numbers stay numbers, dates become ISO 8601 text, text keeps its leading zeros, and each row carries `_row`. The flags mirror the action's fields: `--sheet`, `--range`, `--header` (`true`, `false`, a row number, or `3,4`), `--columns` (comma-separated, with `name:alias` renames), and `--max-rows`. The text format is tab-separated, with tabs, line breaks, and backslashes inside a cell escaped as `\t`, `\n`, `\r`, and `\\` so one cell stays in one column; `--format json` prints `rows`, `count`, `headers`, `sheet`, `range`, `warnings`, and `truncated`.
 
 ```sh
 dagu xlsx read <path> [--sheet <name>] [--range A2:F] [--header false] [--columns "a,b:c"] [--max-rows <n>] [--format json]

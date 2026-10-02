@@ -153,6 +153,15 @@ func ParseColumns(v any) ([]ColumnSelect, error) {
 			return nil, fmt.Errorf("columns[%d] must be a column name or {name: alias}", i)
 		}
 	}
+	// Projected rows are keyed by alias, so two columns with one alias
+	// would silently drop a value.
+	seen := make(map[string]struct{}, len(out))
+	for _, column := range out {
+		if _, dup := seen[column.As]; dup {
+			return nil, fmt.Errorf("columns: duplicate output name %q", column.As)
+		}
+		seen[column.As] = struct{}{}
+	}
 	return out, nil
 }
 
@@ -167,16 +176,18 @@ const (
 	MergedFirst MergedMode = "first"
 )
 
-// mergeFill maps every cell covered by a merge region, other than its
-// top-left cell, to the coordinates of that top-left cell.
-type mergeFill map[[2]int][2]int
+// mergeFill lists the merge regions of a sheet so a covered cell can be
+// resolved to the region's top-left cell on demand. Regions are kept as
+// rectangles rather than expanded per cell, because one merge can cover a
+// whole column.
+type mergeFill []region
 
 func (w *file) mergeMap(sheet string) (mergeFill, error) {
 	cells, err := w.f.GetMergeCells(sheet, true)
 	if err != nil {
 		return nil, fmt.Errorf("%s %s: %w", w.base, sheet, err)
 	}
-	fill := mergeFill{}
+	fill := make(mergeFill, 0, len(cells))
 	for _, mc := range cells {
 		c1, r1, err := excelize.CellNameToCoordinates(mc.GetStartAxis())
 		if err != nil {
@@ -186,14 +197,7 @@ func (w *file) mergeMap(sheet string) (mergeFill, error) {
 		if err != nil {
 			continue
 		}
-		for r := r1; r <= r2; r++ {
-			for c := c1; c <= c2; c++ {
-				if r == r1 && c == c1 {
-					continue
-				}
-				fill[[2]int{c, r}] = [2]int{c1, r1}
-			}
-		}
+		fill = append(fill, region{Sheet: sheet, C1: min(c1, c2), R1: min(r1, r2), C2: max(c1, c2), R2: max(r1, r2)})
 	}
 	return fill, nil
 }
@@ -201,11 +205,10 @@ func (w *file) mergeMap(sheet string) (mergeFill, error) {
 // origin returns the coordinates whose value a cell shows: its own, or the
 // top-left cell of the merge region covering it.
 func (m mergeFill) origin(col, row int) (int, int) {
-	if m == nil {
-		return col, row
-	}
-	if o, ok := m[[2]int{col, row}]; ok {
-		return o[0], o[1]
+	for _, reg := range m {
+		if col >= reg.C1 && col <= reg.C2 && row >= reg.R1 && row <= reg.R2 {
+			return reg.C1, reg.R1
+		}
 	}
 	return col, row
 }
@@ -224,7 +227,7 @@ func layoutHeader(reg region, spec HeaderSpec) (headerLayout, error) {
 		rows := append([]int(nil), spec.Rows...)
 		sort.Ints(rows)
 		for _, r := range rows {
-			if r < reg.R1 || r > reg.R2+1 {
+			if r < reg.R1 || r > reg.R2 {
 				return headerLayout{}, fmt.Errorf("header row %d is outside %s", r, reg.String())
 			}
 		}
@@ -241,7 +244,9 @@ func layoutHeader(reg region, spec HeaderSpec) (headerLayout, error) {
 // the column letter, and duplicates get a numeric suffix.
 func headerNames(reg region, layout headerLayout, grid [][]string, merges mergeFill, warn func(string)) []string {
 	names := make([]string, 0, reg.C2-reg.C1+1)
-	seen := map[string]int{}
+	// _row is reserved for the row number, so a header spelled that way is
+	// renamed like a duplicate.
+	seen := map[string]int{RowNumberKey: 1}
 	for c := reg.C1; c <= reg.C2; c++ {
 		letter, _ := excelize.ColumnNumberToName(c)
 		name := ""
@@ -263,13 +268,21 @@ func headerNames(reg region, layout headerLayout, grid [][]string, merges mergeF
 			name = letter
 		}
 		if n := seen[name]; n > 0 {
-			seen[name] = n + 1
-			unique := fmt.Sprintf("%s_%d", name, n+1)
+			// Pick the first suffix no header uses yet, and record it so a
+			// later header cannot collide with the generated name either.
+			unique := ""
+			for {
+				n++
+				unique = fmt.Sprintf("%s_%d", name, n)
+				if seen[unique] == 0 {
+					break
+				}
+			}
+			seen[name] = n
 			warn(fmt.Sprintf("%s: duplicate header %q renamed %s", reg.Sheet, name, unique))
 			name = unique
-		} else {
-			seen[name] = 1
 		}
+		seen[name] = max(seen[name], 1)
 		names = append(names, name)
 	}
 	return names

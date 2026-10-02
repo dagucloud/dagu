@@ -20,4 +20,4 @@ Using the Dagu CLI or server as a separate program is different from importing t
 
 ## Dependencies
 
-Third-party libraries linked into Dagu binaries must be available under a permissive license compatible with `GPL-3.0-or-later`, such as BSD, MIT, or Apache-2.0, so the combined work can also be offered under the separate embedding license above. Copyleft dependencies (GPL, LGPL, AGPL) are not accepted. The spreadsheet engine `github.com/xuri/excelize/v2` (BSD-3-Clause) follows this rule.
+Third-party libraries linked into Dagu binaries must be available under a license compatible with `GPL-3.0-or-later` that also permits the separate embedding license above: permissive licenses such as BSD, MIT, or Apache-2.0, or file-level copyleft licenses such as MPL-2.0, which some existing dependencies use. Strong copyleft dependencies (GPL, LGPL, AGPL) are not accepted. The spreadsheet engine `github.com/xuri/excelize/v2` (BSD-3-Clause) follows this rule.

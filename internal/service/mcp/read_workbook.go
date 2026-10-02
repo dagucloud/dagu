@@ -45,6 +45,8 @@ func classifyWorkbookError(input readInput, err error) *readToolError {
 	case errors.As(err, &locked), errors.Is(err, workbook.ErrNotWorkbook):
 		return &readToolError{Code: readErrorResourceUnavailable, Message: err.Error(), Target: input.Target}
 	default:
-		return &readToolError{Code: readErrorInternal, Message: err.Error(), Target: input.Target}
+		// A canceled or timed-out read is resource_unavailable like every
+		// other target; anything else is internal.
+		return classifyReadToolError(input, err)
 	}
 }

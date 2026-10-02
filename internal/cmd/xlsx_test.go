@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -96,12 +97,42 @@ func TestXlsxReadJSONAndText(t *testing.T) {
 	assert.Contains(t, text, "Warning: stopped after 1 rows")
 }
 
+func TestXlsxReadTextEscapesDelimiters(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "notes.xlsx")
+	table := workbook.Table{Columns: []string{"note"}, Rows: [][]any{{"line one\nline two\twith tab\\slash"}}}
+	_, err := workbook.Write(context.Background(), path, table, workbook.WriteOptions{Header: true})
+	require.NoError(t, err)
+
+	out, err := runXlsx(t, "read", path)
+	require.NoError(t, err)
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	require.Len(t, lines, 2, "one cell stays on one line")
+	assert.Equal(t, `2	line one\nline two\twith tab\\slash`, lines[1])
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("stdout closed") }
+
+func TestXlsxTextOutputReportsWriteErrors(t *testing.T) {
+	t.Parallel()
+	path := writeTestWorkbook(t)
+	for _, args := range [][]string{{"inspect", path}, {"read", path}} {
+		root := cmd.Xlsx()
+		root.SetOut(failingWriter{})
+		root.SetErr(&bytes.Buffer{})
+		root.SetArgs(args)
+		require.ErrorContains(t, root.ExecuteContext(context.Background()), "stdout closed", "%v", args)
+	}
+}
+
 func TestXlsxErrors(t *testing.T) {
 	t.Parallel()
 	_, err := runXlsx(t, "read", filepath.Join(t.TempDir(), "missing.xlsx"))
 	require.ErrorContains(t, err, "missing.xlsx: workbook not found")
 	_, err = runXlsx(t, "inspect", "book.xls")
-	require.ErrorContains(t, err, "only .xlsx workbooks are supported; save as .xlsx")
+	require.ErrorContains(t, err, "only .xlsx and .xlsm workbooks are supported; save as .xlsx")
 	_, err = runXlsx(t, "read", "book.xlsx", "--format", "xml")
 	require.ErrorContains(t, err, `invalid format "xml": use text or json`)
 	_, err = runXlsx(t, "read", "book.xlsx", "--header", "yes")

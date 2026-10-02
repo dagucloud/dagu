@@ -176,7 +176,6 @@ func TestUpdateRowsMissingModesAndDuplicates(t *testing.T) {
 	assert.Equal(t, "New", back.Rows[3]["Status"])
 	assert.Equal(t, "Seen", back.Rows[0]["Status"])
 
-	// A duplicate key in the sheet is ambiguous.
 	dup := Table{Columns: []string{"k", "v"}, Rows: [][]any{{"a", 1}, {"a", 2}}}
 	dupPath := filepath.Join(t.TempDir(), "dup.xlsx")
 	_, err = Write(context.Background(), dupPath, dup, WriteOptions{Header: true})

@@ -2655,6 +2655,30 @@
         },
         {
           "if": {
+            "properties": { "action": { "enum": ["xlsx.write", "xlsx.append"] } },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "with": {
+                "anyOf": [{ "required": ["rows"] }, { "required": ["input"] }]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "xlsx.update_rows" } },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "with": { "required": ["key", "rows"] }
+            }
+          }
+        },
+        {
+          "if": {
             "properties": { "action": { "enum": ["s3.upload", "s3.download", "s3.list", "s3.delete"] } },
             "required": ["action"]
           },
@@ -3025,6 +3049,19 @@
               "with": { "$ref": "#/definitions/fileActionConfig" },
               "config": {
                 "$ref": "#/definitions/fileActionConfig",
+                "deprecated": true,
+                "doNotSuggest": true
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "xlsx" } }, "required": ["type"] },
+          "then": {
+            "properties": {
+              "with": { "$ref": "#/definitions/xlsxActionConfig" },
+              "config": {
+                "$ref": "#/definitions/xlsxActionConfig",
                 "deprecated": true,
                 "doNotSuggest": true
               }
@@ -8811,6 +8848,14 @@
           "then": {
             "properties": {
               "config": { "$ref": "#/definitions/fileActionConfig" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "xlsx" } }, "required": ["type"] },
+          "then": {
+            "properties": {
+              "config": { "$ref": "#/definitions/xlsxActionConfig" }
             }
           }
         },

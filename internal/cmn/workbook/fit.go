@@ -5,27 +5,28 @@ package workbook
 
 import "encoding/json"
 
-// FitRows drops rows from the end until the JSON encoding of rows fits the
-// budget in bytes. It reports whether anything was dropped. A budget of zero
-// or less means no limit.
+// FitRows keeps the longest prefix of rows whose JSON encoding fits the
+// budget in bytes, and reports whether anything was dropped. A budget of
+// zero or less means no limit.
 func FitRows(rows []Row, budget int) ([]Row, bool) {
 	if budget <= 0 || len(rows) == 0 {
 		return rows, false
 	}
-	size := encodedSize(rows)
-	if size <= budget {
+	if encodedSize(rows) <= budget {
 		return rows, false
 	}
-	// Shrink proportionally first, then one row at a time.
-	keep := len(rows) * budget / size
-	if keep >= len(rows) {
-		keep = len(rows) - 1
+	// Encoded size grows with the prefix length, so the largest fitting
+	// prefix can be found by bisection instead of dropping rows one by one.
+	lo, hi := 0, len(rows)-1
+	for lo < hi {
+		mid := lo + (hi-lo+1)/2
+		if encodedSize(rows[:mid]) <= budget {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
 	}
-	rows = rows[:keep]
-	for len(rows) > 0 && encodedSize(rows) > budget {
-		rows = rows[:len(rows)-1]
-	}
-	return rows, true
+	return rows[:lo], true
 }
 
 func encodedSize(rows []Row) int {

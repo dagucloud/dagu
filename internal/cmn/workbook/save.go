@@ -62,27 +62,36 @@ func openOrCreate(path, password, sheet string) (w *file, created bool, err erro
 	return w, true, nil
 }
 
-// save writes the workbook to its path. Atomic saves go through a temporary
-// file in the same directory that is renamed over the target, so a crash
-// never leaves a half-written workbook. Sharing violations become
+// save writes the workbook to its path. Atomic saves go through a short
+// temporary name in the same directory that is renamed over the target, so
+// a crash never leaves a half-written workbook; the target's permission
+// bits are kept, and a symbolic link is followed so the workbook it points
+// to is replaced rather than the link. Sharing violations become
 // LockedError.
 func (w *file) save(inPlace bool) error {
 	if inPlace {
 		return classifyError(w.path, w.f.SaveAs(w.path))
+	}
+	target := w.path
+	if resolved, err := filepath.EvalSymlinks(w.path); err == nil {
+		target = resolved
 	}
 	var suffix [6]byte
 	if _, err := rand.Read(suffix[:]); err != nil {
 		return err
 	}
 	// excelize chooses the container format from the extension, so the
-	// temporary name keeps it.
-	ext := filepath.Ext(w.base)
-	tmp := filepath.Join(filepath.Dir(w.path), "."+w.base+".dagu-"+hex.EncodeToString(suffix[:])+ext)
+	// temporary name keeps it; the rest stays short so a long workbook name
+	// near the filesystem limit still gets a valid temporary name.
+	tmp := filepath.Join(filepath.Dir(target), ".dagu-"+hex.EncodeToString(suffix[:])+filepath.Ext(w.base))
 	if err := w.f.SaveAs(tmp); err != nil {
 		_ = os.Remove(tmp)
 		return classifyError(w.path, err)
 	}
-	if err := os.Rename(tmp, w.path); err != nil {
+	if info, err := os.Stat(target); err == nil {
+		_ = os.Chmod(tmp, info.Mode().Perm())
+	}
+	if err := os.Rename(tmp, target); err != nil {
 		_ = os.Remove(tmp)
 		return classifyError(w.path, err)
 	}

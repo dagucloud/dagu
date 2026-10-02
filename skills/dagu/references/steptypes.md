@@ -814,6 +814,11 @@ steps:
             method: POST
             url: https://erp.example.com/orders
             body: ${foreach.item}
+            format: json
+      collect:
+        order_id: ${foreach.item.order_id}
+        status: ${steps.submit.outputs.status_code}
+    output: RESULTS
   - id: mark
     depends: each
     action: xlsx.update_rows
@@ -821,10 +826,15 @@ steps:
       path: ~/Inbox/orders.xlsx
       sheet: Orders
       key: order_id
-      rows: ${steps.each.outputs.results}
-      set: {Status: status, Submitted at: finished_at}
+      rows: ${steps.each.outputs.RESULTS}
+      set: {Status: status}
       wait_for_unlock: 5m
 ```
+
+The loop's `collect` builds one object per row with the key and the result
+fields, and `rows` accepts the foreach aggregate directly: its `outputs` list,
+the collected objects of the item bodies that succeeded, is what gets written
+back.
 
 `xlsx.read` `with` fields: `path`, `password`, `sheet` (first sheet by default,
 matched case-insensitively), `range` (`A2:F`, `Sheet1!A2:F`, a named range, or a
@@ -840,9 +850,9 @@ keyed by header, each with `_row`), `count`, `headers`, `sheet`, `range`,
 numbers, dates become ISO 8601 text, text keeps leading zeros, and errors name
 the cell: `orders.xlsx Orders!D17: expected number, found "N/A"`.
 
-`xlsx.info` publishes `sheets` (each with `name`, `used_range`, `range`,
-`header_row`, `headers`, `types`, `row_count`, `tables`), `named_ranges`, and
-`date_system`; `xlsx.list_sheets` publishes `sheets` and `count`. Before writing
+`xlsx.info` publishes `path`, `sheets` (each with `name`, `used_range`, `range`,
+`header_row`, `headers`, `types`, `row_count`, `tables`), `named_ranges`,
+`date_system`, and `warnings`; `xlsx.list_sheets` publishes `sheets` and `count`. Before writing
 a workflow for a workbook, read it with `dagu xlsx inspect <path>` or the MCP
 `workbook` target to learn its sheets, headers, and types.
 
@@ -854,8 +864,10 @@ step output arrive with keys in alphabetical order, so pass
 `mode` (`replace` the sheet, the default, or `append`), `style` (`table`, the
 default: bold frozen header, fitted widths, number formats by column; or
 `none`), `types`, `atomic` (default `true`), `dry_run`, `wait_for_unlock`,
-`artifact`. Other sheets, widths, styles, and defined names are preserved. ISO
-date strings become real dates. `xlsx.append` adds rows below the last used row,
+`artifact`. A replaced sheet is cleared in place, so its position, the defined
+names scoped to it, and formulas elsewhere that refer to it stay valid; its
+merged regions and tables are removed. Other sheets, widths, styles, and
+defined names are untouched. ISO date strings become real dates. `xlsx.append` adds rows below the last used row,
 copying the style of the cell above, and writes a header only when the sheet is
 empty.
 
@@ -872,10 +884,13 @@ step with the file untouched.
 
 Every writer publishes `path`, `sheet`, `changes` (`{sheet, range, rows_updated,
 rows_appended, columns_added, cells_changed}`), `dry_run`, and `warnings`.
-Saves go through a temporary file renamed over the workbook. A workbook that
-Excel holds open on Windows fails with `is open in another program; close it
-and retry`; `wait_for_unlock: 5m` retries with backoff instead. `artifact: true`
-keeps a copy of the saved workbook with the run's artifacts.
+By default, saves go through a temporary file renamed over the workbook;
+`atomic: false` saves in place. A workbook that Excel holds open on Windows
+fails with `is open in another program; close it and retry`; a `~$` lock file
+nobody holds is only a warning; `wait_for_unlock: 5m` retries with backoff
+instead of failing. `artifact: true` keeps a copy of the saved workbook with
+the run's artifacts; a copy that fails after the save is a warning, not a
+failed step.
 
 ## archive.create / archive.extract / archive.list
 

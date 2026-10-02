@@ -134,8 +134,7 @@ func runXlsxInspect(cmd *cobra.Command, args []string) error {
 	if format == "json" {
 		return writeIndentedJSON(out, info)
 	}
-	renderInfo(out, info)
-	return nil
+	return renderInfo(out, info)
 }
 
 func keepSheet(info *workbook.Info, name string) error {
@@ -195,8 +194,7 @@ func runXlsxRead(cmd *cobra.Command, args []string) error {
 	if format == "json" {
 		return writeIndentedJSON(out, result)
 	}
-	renderRows(out, result)
-	return nil
+	return renderRows(out, result)
 }
 
 func writeIndentedJSON(out io.Writer, v any) error {
@@ -206,60 +204,85 @@ func writeIndentedJSON(out io.Writer, v any) error {
 	return encoder.Encode(v)
 }
 
-func renderInfo(out io.Writer, info *workbook.Info) {
-	_, _ = fmt.Fprintf(out, "%s: %d sheets, %s date system\n", workbook.Base(info.Path), len(info.Sheets), info.DateSystem)
+// lineWriter collects the first write error so a renderer can report a
+// failed stdout instead of exiting successfully with partial output.
+type lineWriter struct {
+	out io.Writer
+	err error
+}
+
+func (w *lineWriter) printf(format string, args ...any) {
+	if w.err != nil {
+		return
+	}
+	_, w.err = fmt.Fprintf(w.out, format, args...)
+}
+
+func renderInfo(out io.Writer, info *workbook.Info) error {
+	w := &lineWriter{out: out}
+	w.printf("%s: %d sheets, %s date system\n", workbook.Base(info.Path), len(info.Sheets), info.DateSystem)
 	for _, s := range info.Sheets {
 		if s.HeaderRow == 0 {
-			_, _ = fmt.Fprintf(out, "Sheet %q: empty\n", s.Name)
+			w.printf("Sheet %q: empty\n", s.Name)
 			continue
 		}
-		_, _ = fmt.Fprintf(out, "Sheet %q: used %s, table %s, header row %d, %d rows\n",
+		w.printf("Sheet %q: used %s, table %s, header row %d, %d rows\n",
 			s.Name, strings.TrimPrefix(s.UsedRange, s.Name+"!"), s.Range, s.HeaderRow, s.RowCount)
 		columns := make([]string, 0, len(s.Headers))
 		for _, h := range s.Headers {
 			columns = append(columns, fmt.Sprintf("%s (%s)", h, s.Types[h]))
 		}
-		_, _ = fmt.Fprintf(out, "  Columns: %s\n", strings.Join(columns, ", "))
+		w.printf("  Columns: %s\n", strings.Join(columns, ", "))
 		for _, t := range s.Tables {
-			_, _ = fmt.Fprintf(out, "  Table: %s %s\n", t.Name, t.Range)
+			w.printf("  Table: %s %s\n", t.Name, t.Range)
 		}
 		for _, row := range s.Sample {
 			parts := make([]string, 0, len(s.Headers))
 			for _, h := range s.Headers {
 				parts = append(parts, h+"="+displayValue(row[h]))
 			}
-			_, _ = fmt.Fprintf(out, "  Row %v: %s\n", row[workbook.RowNumberKey], strings.Join(parts, "  "))
+			w.printf("  Row %v: %s\n", row[workbook.RowNumberKey], strings.Join(parts, "  "))
 		}
 	}
 	for _, n := range info.NamedRanges {
-		_, _ = fmt.Fprintf(out, "Named range: %s = %s (%s)\n", n.Name, n.RefersTo, n.Scope)
+		w.printf("Named range: %s = %s (%s)\n", n.Name, n.RefersTo, n.Scope)
 	}
-	for _, w := range info.Warnings {
-		_, _ = fmt.Fprintf(out, "Warning: %s\n", w)
+	for _, msg := range info.Warnings {
+		w.printf("Warning: %s\n", msg)
 	}
+	return w.err
 }
 
-func renderRows(out io.Writer, result *workbook.ReadResult) {
-	_, _ = fmt.Fprintln(out, strings.Join(append([]string{workbook.RowNumberKey}, result.Headers...), "\t"))
+func renderRows(out io.Writer, result *workbook.ReadResult) error {
+	w := &lineWriter{out: out}
+	w.printf("%s\n", strings.Join(append([]string{workbook.RowNumberKey}, result.Headers...), "\t"))
 	for _, row := range result.Rows {
 		parts := make([]string, 0, len(result.Headers)+1)
 		parts = append(parts, displayValue(row[workbook.RowNumberKey]))
 		for _, h := range result.Headers {
 			parts = append(parts, displayValue(row[h]))
 		}
-		_, _ = fmt.Fprintln(out, strings.Join(parts, "\t"))
+		w.printf("%s\n", strings.Join(parts, "\t"))
 	}
-	for _, w := range result.Warnings {
-		_, _ = fmt.Fprintf(out, "Warning: %s\n", w)
+	for _, msg := range result.Warnings {
+		w.printf("Warning: %s\n", msg)
 	}
+	return w.err
 }
 
+// textEscaper keeps a cell on one line and in one column of the
+// tab-separated text output.
+var textEscaper = strings.NewReplacer("\\", `\\`, "\t", `\t`, "\n", `\n`, "\r", `\r`)
+
+// displayValue renders a typed value for the text output. Tabs, line
+// breaks, and backslashes inside text are escaped so a cell never spills
+// into another column or line.
 func displayValue(v any) string {
 	switch x := v.(type) {
 	case nil:
 		return ""
 	case string:
-		return x
+		return textEscaper.Replace(x)
 	case bool:
 		if x {
 			return "true"

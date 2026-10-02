@@ -105,8 +105,11 @@ cells, `{ne: v}` excludes a value, `{in: [a, b]}` matches a list. Numbers
 compare numerically and everything else as trimmed text. Keys may use the
 original header, a loose match, or a `columns` alias.
 
-`stop_at_blank: true` stops at the first fully empty row. `max_rows` (default
-5000) stops reading and sets `truncated` with a warning. Rows that exceed the
+`stop_at_blank: true` stops at the first row whose resolved values are all
+null. `max_rows` (default 5000) counts rows that hold a value; blank rows
+between them are kept as null rows without counting, unless
+`keep_empty_rows` is set, in which case every row counts. Reaching the cap
+stops reading and sets `truncated` with a warning. Rows that exceed the
 step output budget, 900 KiB or `max_output_size` less 64 KiB, are left out
 from the end and `truncated` is true with a warning.
 
@@ -120,10 +123,12 @@ file, or a `.csv` with a header line; `format` overrides the extension. A
 `_row` field is never written.
 
 A missing workbook is created. A `sheet` that does not exist is created; an
-existing sheet is replaced (`mode: replace`, the default) in place, keeping
-its name and position, or extended (`mode: append`). Other sheets, column
-widths, styles, and defined names are preserved; defined names scoped to a
-replaced sheet are lost.
+existing sheet is replaced (`mode: replace`, the default) or extended
+(`mode: append`). A replaced sheet is cleared in place: its merged regions
+and tables are removed and its used cells emptied, while the sheet itself,
+its position, the defined names scoped to it, and formulas on other sheets
+that refer to it stay valid. Other sheets, column widths, styles, and
+defined names are untouched.
 
 Values are written by type: numbers as numbers, booleans as booleans,
 `2026-10-01` and `2026-10-01T14:30:00` strings as dates, other strings as
@@ -166,10 +171,17 @@ error. A key not found does what `missing` says: `fail` (default), `skip`
 with a warning, or `append` below the last used row, copying the styles of
 the row above. With `key: _row`, `missing` must be `fail`.
 
-Only the columns in `set` change. A cell whose value already matches is not
-counted as changed; a null writes an empty cell. A date written into a date
-column keeps the column's format; a date written elsewhere gets a date
-format. The key column cannot be in `set`.
+`rows` may also be the aggregate output of a `foreach` step, an object with
+`summary`, `items`, and `outputs`; its `outputs` list, the collected objects
+of the item bodies that succeeded, is used. Two input rows that address the
+same sheet row are an error.
+
+Only the columns in `set` change. A row that does not carry a mapped field
+leaves that cell as it is; an explicit null empties it. A cell whose value
+already matches, compared with its type so the number 7 and the text `7`
+differ, is not counted as changed. A date written into a date column keeps
+the column's format; a date written elsewhere gets a date format. The key
+column cannot be in `set`.
 
 ### Shape checks
 
@@ -194,21 +206,27 @@ Every writer publishes `changes`:
 
 ### Atomic save and locks
 
-A save writes a temporary file beside the workbook and renames it over the
-target, so a crash never leaves a half-written workbook; `atomic: false`
-saves in place. Excel's `~$name.xlsx` lock file is detected before a write:
-on Windows the workbook is held and the step fails; elsewhere the file may
-be stale, so the step warns and continues. A Windows sharing violation on
-open, save, or rename fails the same way. `wait_for_unlock: 5m` retries a
-locked workbook, waiting two seconds and doubling to one minute, and logs
-each wait; the whole open-modify-save sequence runs again on each try.
+A save writes a short-named temporary file beside the workbook, gives it the
+target's permission bits, and renames it over the target, so a crash never
+leaves a half-written workbook; a symbolic link is followed so the workbook
+it points to is replaced. `atomic: false` saves in place. Excel's
+`~$name.xlsx` lock file is checked before a write: a lock file another
+process still holds open, which on Windows means Excel has the workbook,
+fails the step; a lock file nobody holds is a leftover of a crash, so the
+step warns and continues. A Windows sharing violation on open, save, or
+rename fails the same way. `wait_for_unlock: 5m` retries a locked workbook,
+waiting two seconds and doubling to one minute, and logs each wait; the
+whole open-modify-save sequence runs again on each try.
 
 ### Artifacts
 
 `artifact: true` on a writer copies the saved workbook under
 `xlsx/<step>/` in the run's artifacts directory and publishes its relative
-path as `artifact`. The option enables artifact storage for the DAG. A dry
-run copies nothing.
+path as `artifact`. The option enables artifact storage for the DAG, as
+does a value reference such as `${params.KEEP}` whose value is only known
+at run time. A dry run copies nothing. A copy that fails after the workbook
+was saved is reported as a warning, not as a failed step, so a retry does
+not repeat a write that already happened.
 
 ### CLI
 
@@ -252,7 +270,7 @@ Every one of these is rejected by `dagu validate`:
 ### Runtime
 
 - A path that is not `.xlsx` or `.xlsm`: an error containing
-  `only .xlsx workbooks are supported; save as .xlsx`.
+  `only .xlsx and .xlsm workbooks are supported; save as .xlsx`.
 - A missing workbook: `<name>: workbook not found`.
 - A missing sheet: `sheet "Order" not found; sheets present: Orders, Summary`.
 - A range that is none of the accepted forms:
@@ -311,6 +329,11 @@ steps:
             method: POST
             url: https://erp.example.com/orders
             body: ${foreach.item}
+            format: json
+      collect:
+        order_id: ${foreach.item.order_id}
+        status: ${steps.submit.outputs.status_code}
+    output: RESULTS
   - id: mark
     depends: each
     action: xlsx.update_rows
@@ -318,12 +341,15 @@ steps:
       path: ~/Inbox/orders.xlsx
       sheet: Orders
       key: order_id
-      rows: ${steps.each.outputs.results}
+      rows: ${steps.each.outputs.RESULTS}
       set:
         Status: status
-        Submitted at: finished_at
       wait_for_unlock: 5m
 ```
+
+`collect` gives each successful item one object with the key and the result
+fields, and `rows` takes the foreach aggregate directly, using its `outputs`
+list.
 
 Build a report from a query and keep it with the run:
 
@@ -332,12 +358,13 @@ steps:
   - id: totals
     action: postgres.query
     with:
-      sql: select customer, sum(amount) as total from orders group by customer
+      dsn: ${env.REPORTING_DSN}
+      query: select customer, sum(amount) as total from orders group by customer
   - id: report
     depends: totals
     action: xlsx.write
     with:
-      path: reports/${context.run.started_at}.xlsx
+      path: reports/${context.attempt.started_at}.xlsx
       sheet: Totals
       rows: ${steps.totals.outputs.rows}
       columns: [customer, total]

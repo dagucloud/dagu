@@ -78,7 +78,7 @@ func (e *NotFoundError) Error() string {
 func (*NotFoundError) Unwrap() error { return fs.ErrNotExist }
 
 // ErrUnsupportedFormat is wrapped into errors for files that are not .xlsx.
-var ErrUnsupportedFormat = errors.New("only .xlsx workbooks are supported; save as .xlsx")
+var ErrUnsupportedFormat = errors.New("only .xlsx and .xlsm workbooks are supported; save as .xlsx")
 
 // ErrNotWorkbook is wrapped into errors for files that cannot be parsed.
 var ErrNotWorkbook = errors.New("not a valid .xlsx workbook")
@@ -181,8 +181,10 @@ func (w *file) sheetError(sheet, msg string) *CellError {
 }
 
 // grid returns every cell of a sheet as raw strings indexed from row 1 and
-// column 1 (index 0 is unused), padded to a rectangle. Grids are cached per
-// sheet for the life of the open workbook; writers must invalidate them.
+// column 1 (index 0 is unused). Rows keep their own length, so a sparse
+// sheet with one far-right cell does not allocate a full rectangle; cellAt
+// treats a missing column as empty. Grids are cached per sheet for the life
+// of the open workbook; writers must invalidate them.
 func (w *file) grid(sheet string) ([][]string, error) {
 	if cached, ok := w.grids[sheet]; ok {
 		return cached, nil
@@ -191,16 +193,12 @@ func (w *file) grid(sheet string) ([][]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s %s: %w", w.base, sheet, err)
 	}
-	width := 0
-	for _, r := range rows {
-		width = max(width, len(r))
-	}
 	grid := make([][]string, len(rows)+1)
-	grid[0] = make([]string, width+1)
+	grid[0] = nil
 	for i, r := range rows {
-		padded := make([]string, width+1)
-		copy(padded[1:], r)
-		grid[i+1] = padded
+		shifted := make([]string, len(r)+1)
+		copy(shifted[1:], r)
+		grid[i+1] = shifted
 	}
 	w.grids[sheet] = grid
 	return grid, nil
