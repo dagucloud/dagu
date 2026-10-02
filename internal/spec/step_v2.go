@@ -113,6 +113,7 @@ var builtinActionNormalizers = map[string]actionNormalizer{
 	"xlsx.info":           xlsxAction("info", true),
 	"xlsx.list_sheets":    xlsxAction("list_sheets", true),
 	"xlsx.read":           xlsxAction("read", true),
+	"xlsx.update_rows":    xlsxAction("update_rows", true),
 	"xlsx.write":          xlsxAction("write", true),
 }
 

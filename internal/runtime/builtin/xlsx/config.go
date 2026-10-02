@@ -42,11 +42,15 @@ type config struct {
 	Atomic        bool              `mapstructure:"atomic"`
 	DryRun        bool              `mapstructure:"dry_run"`
 	WaitForUnlock string            `mapstructure:"wait_for_unlock"`
+	Key           string            `mapstructure:"key"`
+	Set           map[string]any    `mapstructure:"set"`
+	Missing       string            `mapstructure:"missing"`
 
 	// Parsed forms, filled by validateConfig.
 	header  workbook.HeaderSpec
 	columns []workbook.ColumnSelect
 	types   map[string]workbook.ColumnType
+	set     map[string]workbook.SetValue
 	wait    time.Duration
 	present map[string]bool
 }
@@ -87,6 +91,8 @@ var fieldsByOperation = map[string][]string{
 	opWrite: {"path", "password", "sheet", "rows", "input", "format", "columns", "header", "mode", "style",
 		"types", "atomic", "dry_run", "wait_for_unlock"},
 	opAppend: {"path", "password", "sheet", "rows", "input", "format", "columns", "types", "atomic",
+		"dry_run", "wait_for_unlock"},
+	opUpdateRows: {"path", "password", "sheet", "header", "rows", "key", "set", "missing", "atomic",
 		"dry_run", "wait_for_unlock"},
 }
 
@@ -173,6 +179,32 @@ func validateWriterConfig(operation string, cfg *config) error {
 			return fmt.Errorf("%w: %s accepts with.rows or with.input, not both", errConfig, operation)
 		}
 	}
+	if operation == opUpdateRows {
+		if strings.TrimSpace(cfg.Key) == "" {
+			return fmt.Errorf("%w: key is required for update_rows", errConfig)
+		}
+		if !cfg.present["rows"] {
+			return fmt.Errorf("%w: update_rows requires with.rows", errConfig)
+		}
+		if cfg.header.Mode == workbook.HeaderNone {
+			return fmt.Errorf("%w: update_rows needs a header row; header: false is not supported", errConfig)
+		}
+		switch cfg.Missing {
+		case "", string(workbook.MissingFail), string(workbook.MissingSkip), string(workbook.MissingAppend):
+		default:
+			return fmt.Errorf("%w: missing must be fail, skip, or append", errConfig)
+		}
+		if strings.TrimSpace(cfg.Key) == workbook.RowNumberKey && cfg.Missing != "" && cfg.Missing != string(workbook.MissingFail) {
+			return fmt.Errorf("%w: missing: %s needs a key column; with key: _row nothing else identifies a row", errConfig, cfg.Missing)
+		}
+		if cfg.present["set"] {
+			set, err := workbook.ParseSet(cfg.Set)
+			if err != nil {
+				return fmt.Errorf("%w: %v", errConfig, err)
+			}
+			cfg.set = set
+		}
+	}
 	switch cfg.Format {
 	case "", "json", "jsonl", "csv":
 	default:
@@ -256,6 +288,21 @@ func (cfg config) readOptions() workbook.ReadOptions {
 	}
 }
 
+func (cfg config) updateOptions(rows []workbook.Row, log func(string)) workbook.UpdateOptions {
+	return workbook.UpdateOptions{
+		Password: cfg.Password,
+		Sheet:    cfg.Sheet,
+		Header:   cfg.header,
+		Key:      strings.TrimSpace(cfg.Key),
+		Rows:     rows,
+		Set:      cfg.set,
+		Missing:  workbook.MissingMode(cfg.Missing),
+		InPlace:  !cfg.Atomic,
+		DryRun:   cfg.DryRun,
+		Lock:     cfg.lockOptions(log),
+	}
+}
+
 func boolOrRef(description string) *jsonschema.Schema {
 	return &jsonschema.Schema{Description: description}
 }
@@ -297,6 +344,13 @@ var configSchema = &jsonschema.Schema{
 		"dry_run": boolOrRef("Compute and report the changes without saving the workbook."),
 		"wait_for_unlock": {Type: "string", Description: "How long to retry a workbook that another program holds open, such as 5m. " +
 			"Retries start at two seconds and double to one minute. Without it a locked workbook fails at once."},
+		"key": {Type: "string", Description: "Column that identifies a row for xlsx.update_rows, or _row to address rows by the _row each row carries. " +
+			"A key column that is no longer in the header row fails the step before any cell changes."},
+		"set": {Type: "object", Description: "Columns to write for xlsx.update_rows: {Status: status} takes the status field of each row, " +
+			"{Reviewed: {value: yes}} writes one literal to every row. Omitted: every field other than the key and _row goes to the column of the same name. " +
+			"A column missing from the header is added at the right."},
+		"missing": {Type: "string", Enum: []any{"fail", "skip", "append"},
+			Description: "What xlsx.update_rows does with a row whose key is not in the sheet: fail (default), skip it with a warning, or append it below the last row."},
 	},
 }
 

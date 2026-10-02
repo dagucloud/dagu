@@ -60,6 +60,16 @@ steps:
       path: report.xlsx
       input: rows.csv
       format: csv
+  - id: mark
+    action: xlsx.update_rows
+    with:
+      path: orders.xlsx
+      sheet: Orders
+      key: Invoice No
+      rows: ${steps.each.outputs.results}
+      set: {Status: status, Reviewed: {value: "yes"}}
+      missing: skip
+      wait_for_unlock: 5m
 `
 	resolved := mustResolveDAGSchema(t)
 	require.NoError(t, resolved.Validate(mustParseYAMLDocument(t, source)))
@@ -78,6 +88,10 @@ steps:
 		{"bad style", "style: table", "style: fancy"},
 		{"bad format", "format: csv", "format: xml"},
 		{"rows not a list", "rows: ${steps.read.outputs.rows}", "rows: {a: 1}"},
+		{"bad missing", "missing: skip", "missing: ignore"},
+		{"set value not a field or literal", "Reviewed: {value: \"yes\"}", "Reviewed: 3"},
+		{"set literal with extra keys", "Reviewed: {value: \"yes\"}", "Reviewed: {value: \"yes\", other: 1}"},
+		{"empty key", "key: Invoice No", "key: \"\""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			require.Contains(t, source, tc.from)

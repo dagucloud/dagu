@@ -55,7 +55,7 @@ func newExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	switch op {
 	case opRead, opInfo, opListSheets:
 		return newReadExecutor(env, op, path, cfg), nil
-	case opWrite, opAppend:
+	case opWrite, opAppend, opUpdateRows:
 		return newWriteExecutor(env, op, path, cfg), nil
 	default:
 		return nil, fmt.Errorf("%w: unsupported operation %q", errConfig, op)

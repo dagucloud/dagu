@@ -144,6 +144,20 @@ func (e *writeExecutor) run(ctx context.Context) (*workbook.WriteResult, string,
 			verb = "Appended"
 		}
 		return result, summaryLine(verb, result), nil
+	case opUpdateRows:
+		rows, err := workbook.DecodeUpdateRows(e.cfg.Rows)
+		if err != nil {
+			return nil, "", fmt.Errorf("%w: %v", errConfig, err)
+		}
+		result, err := workbook.UpdateRows(ctx, e.path, e.cfg.updateOptions(rows, e.lockLog(ctx)))
+		if err != nil {
+			return nil, "", err
+		}
+		line := summaryLine("Updated", result)
+		if result.Changes.RowsAppended > 0 {
+			line += fmt.Sprintf(" (%d rows appended)", result.Changes.RowsAppended)
+		}
+		return result, line, nil
 	default:
 		return nil, "", fmt.Errorf("%w: unsupported operation %q", errConfig, e.op)
 	}

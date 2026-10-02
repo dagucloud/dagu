@@ -2643,7 +2643,7 @@
         },
         {
           "if": {
-            "properties": { "action": { "enum": ["xlsx.read", "xlsx.info", "xlsx.list_sheets", "xlsx.write", "xlsx.append"] } },
+            "properties": { "action": { "enum": ["xlsx.read", "xlsx.info", "xlsx.list_sheets", "xlsx.write", "xlsx.append", "xlsx.update_rows"] } },
             "required": ["action"]
           },
           "then": {
@@ -6570,6 +6570,7 @@
             "xlsx.info",
             "xlsx.list_sheets",
             "xlsx.read",
+            "xlsx.update_rows",
             "xlsx.write"
           ],
           "description": "Builtin action name."
@@ -7964,10 +7965,30 @@
         "wait_for_unlock": {
           "type": "string",
           "description": "How long to retry a workbook that another program holds open, such as 5m. Retries start at two seconds and double to one minute. Without it a locked workbook fails at once."
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Column that identifies a row for xlsx.update_rows, or _row to address rows by the _row each row carries. A key column that is no longer in the header row fails the step before any cell changes."
+        },
+        "set": {
+          "type": "object",
+          "additionalProperties": {
+            "oneOf": [
+              { "type": "string", "minLength": 1 },
+              { "type": "object", "properties": { "value": {} }, "required": ["value"], "additionalProperties": false }
+            ]
+          },
+          "description": "Columns to write for xlsx.update_rows: {Status: status} takes the status field of each row, {Reviewed: {value: yes}} writes one literal to every row. Omitted: every field other than the key and _row goes to the column of the same name. A column missing from the header is added at the right."
+        },
+        "missing": {
+          "type": "string",
+          "enum": ["fail", "skip", "append"],
+          "description": "What xlsx.update_rows does with a row whose key is not in the sheet: fail (default), skip it with a warning, or append it below the last row."
         }
       },
       "required": ["path"],
-      "description": "Configuration for action: xlsx.read, xlsx.info, xlsx.list_sheets, xlsx.write, and xlsx.append."
+      "description": "Configuration for action: xlsx.read, xlsx.info, xlsx.list_sheets, xlsx.write, xlsx.append, and xlsx.update_rows."
     },
     "fileActionConfig": {
       "type": "object",

@@ -49,11 +49,20 @@ steps:
     with:
       path: report.xlsx
       input: more.csv
+  - id: mark
+    action: xlsx.update_rows
+    with:
+      path: orders.xlsx
+      key: Invoice No
+      rows: ${steps.each.outputs.results}
+      set: {Status: status}
+      missing: skip
 `))
 	require.NoError(t, err)
-	require.Len(t, dag.Steps, 5)
+	require.Len(t, dag.Steps, 6)
 	assert.Equal(t, "write", dag.Steps[3].Commands[0].Command)
 	assert.Equal(t, "append", dag.Steps[4].Commands[0].Command)
+	assert.Equal(t, "update_rows", dag.Steps[5].Commands[0].Command)
 
 	read := dag.Steps[0]
 	assert.Equal(t, "xlsx", read.ExecutorConfig.Type)
