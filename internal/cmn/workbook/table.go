@@ -180,7 +180,7 @@ func LoadTable(path, format string, columns any) (Table, error) {
 	if format == "" {
 		format = strings.TrimPrefix(strings.ToLower(filepath.Ext(path)), ".")
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // the path is the input file the step names
 	if err != nil {
 		return Table{}, fmt.Errorf("input: %w", err)
 	}

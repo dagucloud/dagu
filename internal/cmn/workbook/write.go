@@ -181,10 +181,7 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 			cells++
 		}
 	}
-	lastRow := dataRow + len(table.Rows) - 1
-	if lastRow < startRow {
-		lastRow = startRow
-	}
+	lastRow := max(dataRow+len(table.Rows)-1, startRow)
 	if len(table.Columns) > 0 {
 		result.Changes.Range = region{Sheet: sheet, C1: 1, R1: startRow, C2: len(table.Columns), R2: lastRow}.String()
 	}
@@ -224,8 +221,7 @@ func (w *file) targetSheet(name string, created bool) (string, error) {
 	if err == nil {
 		return sheet, nil
 	}
-	var notFound *SheetNotFoundError
-	if !errors.As(err, &notFound) {
+	if _, ok := errors.AsType[*SheetNotFoundError](err); !ok {
 		return "", err
 	}
 	if _, err := w.f.NewSheet(name); err != nil {
@@ -439,6 +435,8 @@ func kindStyle(kind ColumnType) *excelize.Style {
 		return &excelize.Style{CustomNumFmt: &f}
 	case TypeString:
 		return &excelize.Style{NumFmt: fmtText}
+	case TypeBoolean:
+		return nil
 	default:
 		return nil
 	}

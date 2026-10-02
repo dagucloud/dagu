@@ -119,7 +119,7 @@ func (w *file) cellValue(sheet string, col, row int, raw string, opts ReadOption
 			return nil, nil
 		}
 		return w.text(raw, opts), nil
-	default:
+	case excelize.CellTypeNumber, excelize.CellTypeUnset:
 		if excelErrors[raw] {
 			warn(fmt.Sprintf("%s!%s: error cell %s", sheet, cell, raw))
 			return nil, nil
@@ -129,6 +129,8 @@ func (w *file) cellValue(sheet string, col, row int, raw string, opts ReadOption
 			return w.text(raw, opts), nil
 		}
 		return w.numericValue(sheet, cell, f), nil
+	default:
+		return w.text(raw, opts), nil
 	}
 }
 
@@ -146,6 +148,8 @@ func (w *file) numericValue(sheet, cell string, f float64) any {
 			return numberValue(f)
 		}
 		return formatTime(t, kind, f)
+	case kindNumber:
+		return numberValue(f)
 	default:
 		return numberValue(f)
 	}

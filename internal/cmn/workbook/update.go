@@ -222,7 +222,7 @@ func updateOnce(ctx context.Context, path string, opts UpdateOptions) (*WriteRes
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		changed, err := w.applyRow(plan, target.row, target.input, opts, false)
+		changed, err := w.applyRow(plan, target.row, target.input, false)
 		if err != nil {
 			return nil, err
 		}
@@ -240,7 +240,7 @@ func updateOnce(ctx context.Context, path string, opts UpdateOptions) (*WriteRes
 			w.copyStyleAbove(plan.sheet, plan.keyCol, lastRow)
 			result.Changes.CellsChanged++
 		}
-		changed, err := w.applyRow(plan, lastRow, input, opts, true)
+		changed, err := w.applyRow(plan, lastRow, input, true)
 		if err != nil {
 			return nil, err
 		}
@@ -262,11 +262,12 @@ func updateOnce(ctx context.Context, path string, opts UpdateOptions) (*WriteRes
 // planUpdate resolves the sheet, headers, key column, and set columns, and
 // runs the first shape check.
 func (w *file) planUpdate(opts UpdateOptions, warn func(string)) (*updatePlan, error) {
-	sheet, reg, grid, ok, err := w.locate(opts.Sheet, "", opts.Header)
+	loc, err := w.locate(opts.Sheet, "", opts.Header)
 	if err != nil {
 		return nil, err
 	}
-	if !ok {
+	sheet, reg, grid := loc.sheet, loc.reg, loc.grid
+	if !loc.ok {
 		return nil, w.sheetError(sheet, "sheet is empty; nothing to update")
 	}
 	layout, err := layoutHeader(reg, opts.Header)
@@ -374,7 +375,7 @@ func (w *file) locateRows(plan *updatePlan, opts UpdateOptions, warn func(string
 	byKey := map[string][]int{}
 	if plan.keyCol > 0 {
 		for r := plan.layout.dataStart; r <= plan.reg.R2; r++ {
-			k, err := w.keyAt(plan, r, opts)
+			k, err := w.keyAt(plan, r)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -396,7 +397,7 @@ func (w *file) locateRows(plan *updatePlan, opts UpdateOptions, warn func(string
 					fmt.Sprintf("row %d is outside the data rows %d to %d; the sheet changed since it was read", rowNum, plan.layout.dataStart, plan.reg.R2))
 			}
 			if plan.keyCol > 0 {
-				found, err := w.keyAt(plan, rowNum, opts)
+				found, err := w.keyAt(plan, rowNum)
 				if err != nil {
 					return nil, nil, err
 				}
@@ -423,8 +424,10 @@ func (w *file) locateRows(plan *updatePlan, opts UpdateOptions, warn func(string
 					warn(fmt.Sprintf("%s: key %q not found; row skipped", plan.sheet, want))
 				case MissingAppend:
 					appends = append(appends, input)
-				default:
+				case MissingFail:
 					return nil, nil, w.sheetError(plan.sheet, fmt.Sprintf("key %q not found", want))
+				default:
+					return nil, nil, w.sheetError(plan.sheet, fmt.Sprintf("unknown missing mode %q", opts.Missing))
 				}
 			}
 		}
@@ -432,7 +435,7 @@ func (w *file) locateRows(plan *updatePlan, opts UpdateOptions, warn func(string
 	return targets, appends, nil
 }
 
-func (w *file) keyAt(plan *updatePlan, row int, opts UpdateOptions) (string, error) {
+func (w *file) keyAt(plan *updatePlan, row int) (string, error) {
 	oc, or := plan.merges.origin(plan.keyCol, row)
 	value, err := w.cellValue(plan.sheet, oc, or, cellAt(plan.grid, oc, or), ReadOptions{}, func(string) {})
 	if err != nil {
@@ -449,7 +452,7 @@ func keyText(v any) string {
 
 // applyRow writes the set columns of one input row into a sheet row and
 // reports how many cells changed.
-func (w *file) applyRow(plan *updatePlan, row int, input Row, opts UpdateOptions, appended bool) (int, error) {
+func (w *file) applyRow(plan *updatePlan, row int, input Row, appended bool) (int, error) {
 	changed := 0
 	for _, sc := range plan.set {
 		var value any

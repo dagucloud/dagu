@@ -150,7 +150,6 @@ func (w *file) usedRange(sheet string) (region, error) {
 func (w *file) definedNameRegion(sheet, name string) (region, bool, error) {
 	var global, scoped *excelize.DefinedName
 	for _, dn := range w.f.GetDefinedName() {
-		dn := dn
 		if !strings.EqualFold(dn.Name, name) {
 			continue
 		}

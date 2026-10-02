@@ -51,7 +51,7 @@ func ParseHeader(v any) (HeaderSpec, error) {
 			return HeaderSpec{Mode: HeaderNone}, nil
 		}
 		var rows []int
-		for _, part := range strings.Split(s, ",") {
+		for part := range strings.SplitSeq(s, ",") {
 			n, err := strconv.Atoi(strings.TrimSpace(part))
 			if err != nil || n < 1 {
 				return HeaderSpec{}, fmt.Errorf("header must be true, false, a row number, or a list of row numbers")
@@ -115,7 +115,7 @@ func ParseColumns(v any) ([]ColumnSelect, error) {
 			v = decoded
 		} else {
 			var items []any
-			for _, part := range strings.Split(trimmed, ",") {
+			for part := range strings.SplitSeq(trimmed, ",") {
 				items = append(items, strings.TrimSpace(part))
 			}
 			v = items
@@ -229,8 +229,10 @@ func layoutHeader(reg region, spec HeaderSpec) (headerLayout, error) {
 			}
 		}
 		return headerLayout{rows: rows, dataStart: rows[len(rows)-1] + 1}, nil
-	default:
+	case HeaderFirstRow:
 		return headerLayout{rows: []int{reg.R1}, dataStart: reg.R1 + 1}, nil
+	default:
+		return headerLayout{}, fmt.Errorf("unknown header mode %d", spec.Mode)
 	}
 }
 

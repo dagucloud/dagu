@@ -70,12 +70,13 @@ func (w *file) read(ctx context.Context, opts ReadOptions) (*ReadResult, error) 
 	result := &ReadResult{Rows: []Row{}, Headers: []string{}, Warnings: []string{}}
 	warn := func(msg string) { result.Warnings = append(result.Warnings, msg) }
 
-	sheet, reg, grid, ok, err := w.locate(opts.Sheet, opts.Range, opts.Header)
+	loc, err := w.locate(opts.Sheet, opts.Range, opts.Header)
 	if err != nil {
 		return nil, err
 	}
+	sheet, reg, grid := loc.sheet, loc.reg, loc.grid
 	result.Sheet = sheet
-	if !ok {
+	if !loc.ok {
 		result.Range = region{Sheet: sheet, C1: 1, R1: 1, C2: 1, R2: 1}.String()
 		return result, nil
 	}
@@ -137,50 +138,58 @@ func (w *file) read(ctx context.Context, opts ReadOptions) (*ReadResult, error) 
 	return result, nil
 }
 
-// locate resolves the sheet and region a read covers. ok is false for an
+// location is the sheet and region a read covers. ok is false for an
 // empty sheet.
-func (w *file) locate(sheetName, rangeRef string, header HeaderSpec) (sheet string, reg region, grid [][]string, ok bool, err error) {
-	sheet, err = w.resolveSheet(sheetName)
+type location struct {
+	sheet string
+	reg   region
+	grid  [][]string
+	ok    bool
+}
+
+// locate resolves the sheet and region a read covers from the sheet name,
+// an optional range reference, and the header mode.
+func (w *file) locate(sheetName, rangeRef string, header HeaderSpec) (location, error) {
+	sheet, err := w.resolveSheet(sheetName)
 	if err != nil {
-		return "", region{}, nil, false, err
+		return location{}, err
 	}
 	if strings.TrimSpace(rangeRef) != "" {
-		reg, err = w.parseRange(sheet, rangeRef)
+		reg, err := w.parseRange(sheet, rangeRef)
 		if err != nil {
-			return "", region{}, nil, false, err
+			return location{}, err
 		}
-		sheet = reg.Sheet
-		grid, err = w.grid(sheet)
+		grid, err := w.grid(reg.Sheet)
 		if err != nil {
-			return "", region{}, nil, false, err
+			return location{}, err
 		}
-		return sheet, reg, grid, true, nil
+		return location{sheet: reg.Sheet, reg: reg, grid: grid, ok: true}, nil
 	}
-	grid, err = w.grid(sheet)
+	grid, err := w.grid(sheet)
 	if err != nil {
-		return "", region{}, nil, false, err
+		return location{}, err
 	}
+	loc := location{sheet: sheet, grid: grid, ok: len(grid) > 1}
 	switch header.Mode {
 	case HeaderNone:
-		reg, err = w.usedRange(sheet)
-		if err != nil {
-			return "", region{}, nil, false, err
-		}
-		return sheet, reg, grid, len(grid) > 1, nil
+		loc.reg, err = w.usedRange(sheet)
+		return loc, err
 	case HeaderRows:
-		reg, err = w.usedRange(sheet)
+		loc.reg, err = w.usedRange(sheet)
 		if err != nil {
-			return "", region{}, nil, false, err
+			return location{}, err
 		}
 		first := header.Rows[0]
 		for _, r := range header.Rows {
 			first = min(first, r)
 		}
-		reg.R1 = min(first, reg.R2+1)
-		return sheet, reg, grid, len(grid) > 1, nil
+		loc.reg.R1 = min(first, loc.reg.R2+1)
+		return loc, nil
+	case HeaderFirstRow:
+		loc.reg, loc.ok, err = w.detectTable(sheet, grid)
+		return loc, err
 	default:
-		reg, ok, err = w.detectTable(sheet, grid)
-		return sheet, reg, grid, ok, err
+		return location{}, fmt.Errorf("unknown header mode %d", header.Mode)
 	}
 }
 
@@ -291,7 +300,7 @@ func (w *file) planColumns(sheet string, headers []string, opts ReadOptions) (co
 	plan.selects = make([]ColumnSelect, 0, len(opts.Columns))
 	for _, sel := range opts.Columns {
 		i, near := findColumn(headers, sel.Source)
-		source := sel.Source
+		var source string
 		switch {
 		case i >= 0:
 			source = headers[i]
