@@ -1,0 +1,26 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: offset.xlsx
+      header: false
+      style: none
+      rows:
+        - ["Orders report", null, null, null]
+        - [null, null, null, null]
+        - [null, null, null, null]
+        - [null, null, "ID", "Qty"]
+        - [null, null, "a", 1]
+        - [null, null, "b", 2]
+  - id: read
+    depends: write
+    action: xlsx.read
+    with:
+      path: offset.xlsx
+  - id: out
+    depends: read
+    action: file.write
+    with:
+      path: out.json
+      content: '{"headers": ${steps.read.outputs.headers}, "range": "${steps.read.outputs.range}", "count": ${steps.read.outputs.count}, "rows": ${steps.read.outputs.rows}}'

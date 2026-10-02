@@ -1,0 +1,6 @@
+working_dir: .
+steps:
+  - id: read
+    action: xlsx.read
+    with:
+      path: book.xls

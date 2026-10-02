@@ -1,0 +1,21 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: amounts.xlsx
+      columns: [Amount]
+      rows: [{"Amount": "N/A"}, {"Amount": 7}]
+  - id: read
+    depends: write
+    action: xlsx.read
+    with:
+      path: amounts.xlsx
+      types: {Amount: number}
+      on_type_error: warn
+  - id: out
+    depends: read
+    action: file.write
+    with:
+      path: out.json
+      content: '{"rows": ${steps.read.outputs.rows}, "warnings": ${steps.read.outputs.warnings}}'

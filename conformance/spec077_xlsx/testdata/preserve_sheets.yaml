@@ -1,0 +1,48 @@
+working_dir: .
+steps:
+  - id: write_a
+    action: xlsx.write
+    with:
+      path: multi.xlsx
+      sheet: A
+      columns: [old]
+      rows: [{"old": 1}, {"old": 2}]
+  - id: write_b
+    depends: write_a
+    action: xlsx.write
+    with:
+      path: multi.xlsx
+      sheet: B
+      columns: [kept]
+      rows: [{"kept": "yes"}]
+  - id: replace_a
+    depends: write_b
+    action: xlsx.write
+    with:
+      path: multi.xlsx
+      sheet: A
+      columns: [new]
+      rows: [{"new": "v"}]
+  - id: sheets
+    depends: replace_a
+    action: xlsx.list_sheets
+    with:
+      path: multi.xlsx
+  - id: read_a
+    depends: replace_a
+    action: xlsx.read
+    with:
+      path: multi.xlsx
+      sheet: A
+  - id: read_b
+    depends: replace_a
+    action: xlsx.read
+    with:
+      path: multi.xlsx
+      sheet: B
+  - id: out
+    depends: [sheets, read_a, read_b]
+    action: file.write
+    with:
+      path: out.json
+      content: '{"sheets": ${steps.sheets.outputs.sheets}, "a_headers": ${steps.read_a.outputs.headers}, "a_count": ${steps.read_a.outputs.count}, "b_rows": ${steps.read_b.outputs.rows}}'

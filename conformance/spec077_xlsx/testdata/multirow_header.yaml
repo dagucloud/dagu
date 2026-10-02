@@ -1,0 +1,23 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: multi.xlsx
+      header: false
+      rows:
+        - ["Invoice No", "Amount", null]
+        - [null, "Net", "Tax"]
+        - ["INV-1", 100, 10]
+  - id: read
+    depends: write
+    action: xlsx.read
+    with:
+      path: multi.xlsx
+      header: [1, 2]
+  - id: out
+    depends: read
+    action: file.write
+    with:
+      path: out.json
+      content: '{"headers": ${steps.read.outputs.headers}, "rows": ${steps.read.outputs.rows}}'

@@ -1,0 +1,56 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: orders.xlsx
+      sheet: Orders
+      columns: [Invoice No, Amount, Due, Paid, Note]
+      rows:
+        - {"Invoice No": "INV-1", "Amount": 10, "Due": "2026-10-01", "Paid": true, "Note": "00123"}
+        - {"Invoice No": "INV-2", "Amount": 20.5, "Due": "2026-10-02T14:30:00", "Paid": false, "Note": null}
+  - id: changes
+    depends: write
+    action: file.write
+    with:
+      path: changes.json
+      content: ${steps.write.outputs.changes}
+  - id: read
+    depends: write
+    action: xlsx.read
+    with:
+      path: orders.xlsx
+  - id: rows
+    depends: read
+    action: file.write
+    with:
+      path: rows.json
+      content: ${steps.read.outputs.rows}
+  - id: meta
+    depends: read
+    action: file.write
+    with:
+      path: meta.json
+      content: '{"count": ${steps.read.outputs.count}, "headers": ${steps.read.outputs.headers}, "sheet": "${steps.read.outputs.sheet}", "range": "${steps.read.outputs.range}", "truncated": ${steps.read.outputs.truncated}}'
+  - id: info
+    depends: write
+    action: xlsx.info
+    with:
+      path: orders.xlsx
+  - id: info_out
+    depends: info
+    action: file.write
+    with:
+      path: info.json
+      content: ${steps.info.outputs.sheets}
+  - id: sheets
+    depends: write
+    action: xlsx.list_sheets
+    with:
+      path: orders.xlsx
+  - id: sheets_out
+    depends: sheets
+    action: file.write
+    with:
+      path: sheets.json
+      content: ${steps.sheets.outputs.sheets}

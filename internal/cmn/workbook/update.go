@@ -119,7 +119,7 @@ func DecodeUpdateRows(value any) ([]Row, error) {
 		}
 		row := make(Row, len(obj))
 		for k, v := range obj {
-			row[k] = v
+			row[k] = normalizeScalar(v)
 		}
 		if n, ok := row[RowNumberKey]; ok && n != nil {
 			r, ok := toRowNumber(n)

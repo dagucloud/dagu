@@ -166,7 +166,9 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 			if c >= len(table.Columns) {
 				break
 			}
-			v, err := outValue(value, kinds[c])
+			// Only a pinned type converts values; the detected kind picks
+			// the column's number format and leaves mixed columns alone.
+			v, err := outValue(value, opts.Types[table.Columns[c]])
 			if err != nil {
 				return nil, w.cellError(sheet, c+1, r, err.Error())
 			}

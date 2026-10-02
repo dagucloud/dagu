@@ -1,0 +1,4 @@
+steps:
+  - action: xlsx.write
+    with:
+      path: out.xlsx

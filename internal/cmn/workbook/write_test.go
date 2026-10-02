@@ -275,12 +275,19 @@ func TestDecodeRowsAndLoadTable(t *testing.T) {
 	table, err = DecodeRows([]any{map[string]any{"z": 1, "a": 2}}, "z, a")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"z", "a"}, table.Columns)
-	assert.Equal(t, [][]any{{1, 2}}, table.Rows)
+	assert.Equal(t, [][]any{{int64(1), int64(2)}}, table.Rows, "Go ints are normalized to int64")
+
+	// YAML decodes positive integers as uint64 and keeps float32 elsewhere.
+	table, err = DecodeRows([]any{map[string]any{"n": uint64(10), "f": float32(1.5)}, []any{}}, nil)
+	require.Error(t, err, "mixed row shapes are rejected")
+	table, err = DecodeRows([]any{map[string]any{"n": uint64(10), "f": float32(1.5)}}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, [][]any{{1.5, int64(10)}}, table.Rows)
 
 	table, err = DecodeRows([]any{[]any{1, 2, 3}, []any{4}}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"A", "B", "C"}, table.Columns)
-	assert.Equal(t, [][]any{{1, 2, 3}, {4, nil, nil}}, table.Rows)
+	assert.Equal(t, [][]any{{int64(1), int64(2), int64(3)}, {int64(4), nil, nil}}, table.Rows)
 
 	_, err = DecodeRows("not json", nil)
 	require.Error(t, err)

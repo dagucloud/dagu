@@ -1,0 +1,8 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: held.xlsx
+      columns: [a]
+      rows: [{"a": 1}]

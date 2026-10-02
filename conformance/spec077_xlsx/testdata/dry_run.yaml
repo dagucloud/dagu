@@ -1,0 +1,15 @@
+working_dir: .
+steps:
+  - id: preview
+    action: xlsx.write
+    with:
+      path: preview.xlsx
+      columns: [a]
+      rows: [{"a": 1}, {"a": 2}]
+      dry_run: true
+  - id: changes
+    depends: preview
+    action: file.write
+    with:
+      path: changes.json
+      content: '{"dry_run": ${steps.preview.outputs.dry_run}, "changes": ${steps.preview.outputs.changes}}'

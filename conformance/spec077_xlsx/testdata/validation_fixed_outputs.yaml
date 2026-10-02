@@ -1,0 +1,6 @@
+steps:
+  - id: read
+    action: xlsx.read
+    output: ROWS
+    with:
+      path: out.xlsx

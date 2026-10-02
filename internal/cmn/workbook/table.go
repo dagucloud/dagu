@@ -132,7 +132,7 @@ func objectsToTable(list []any, order, jsonOrder []string) (Table, error) {
 		}
 		values := make([]any, len(order))
 		for j, name := range order {
-			values[j] = obj[name]
+			values[j] = normalizeScalar(obj[name])
 		}
 		table.Rows = append(table.Rows, values)
 	}
@@ -148,7 +148,11 @@ func arraysToTable(list []any, order []string) (Table, error) {
 			return Table{}, fmt.Errorf("rows[%d] must be an array like the first row", i)
 		}
 		width = max(width, len(arr))
-		rows = append(rows, arr)
+		values := make([]any, len(arr))
+		for j, v := range arr {
+			values[j] = normalizeScalar(v)
+		}
+		rows = append(rows, values)
 	}
 	if len(order) == 0 {
 		for c := 1; c <= width; c++ {
@@ -247,4 +251,20 @@ func csvToTable(r io.Reader, columns any) (Table, error) {
 // says so.
 func csvValue(s string) any {
 	return s
+}
+
+// normalizeScalar maps every integer and float kind a YAML or JSON decoder
+// produces onto int64 and float64, the kinds the writers understand.
+func normalizeScalar(v any) any {
+	switch x := v.(type) {
+	case nil, string, bool, int64, float64:
+		return v
+	case int, int8, int16, int32, uint, uint8, uint16, uint32, uint64:
+		f, _ := toFloat(x)
+		return numberValue(f)
+	case float32:
+		return float64(x)
+	default:
+		return v
+	}
 }

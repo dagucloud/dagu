@@ -77,6 +77,7 @@ It must not be treated as product behavior until implementation catches up.
 | [074: Computer Actions](074-computer.md) | Partially implemented |
 | [075: Repeat Policy](075-repeat-policy.md) | Implemented |
 | [076: CLI Run Parameter Input](076-cli-run-params.md) | Implemented for local commands |
+| [077: XLSX Actions](077-xlsx.md) | Partially implemented |
 
 **Writing guidelines:**
 
