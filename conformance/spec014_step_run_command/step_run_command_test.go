@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
 )
@@ -218,19 +219,31 @@ exit 64
 }
 
 func TestCommandFormPowerShellWhenAvailable(t *testing.T) {
-	if _, err := exec.LookPath("pwsh"); err != nil {
+	pwsh, err := exec.LookPath("pwsh")
+	if err != nil {
 		t.Skip("pwsh is not available")
 	}
 
+	// The first pwsh launch on a machine pays .NET start-up and module
+	// import; on a loaded CI runner that has taken longer than the whole
+	// command budget while the next launch took a quarter of it. One
+	// warm-up launch keeps that cost out of the timed runs, and its
+	// duration sizes their budget so a slow runner still gets headroom.
+	started := time.Now()
+	if out, err := exec.Command(pwsh, "-NoProfile", "-NonInteractive", "-Command", "exit").CombinedOutput(); err != nil {
+		t.Fatalf("pwsh warm-up failed: %v\n%s", err, out)
+	}
+	budget := max(harness.WaitTimeout(t), 6*time.Since(started))
+
 	t.Run("UTF-8 output is stable", func(t *testing.T) {
-		dagu := harness.NewRunner(t)
+		dagu := harness.NewRunner(t).WithCommandTimeout(budget)
 		result := dagu.Run("start", "powershell_utf8.yaml")
 		result.ExpectExitCode(0)
 		dagu.ExpectFileContent("pwsh-utf8.txt", "東京")
 	})
 
 	t.Run("Write-Error fails command-form step", func(t *testing.T) {
-		dagu := harness.NewRunner(t)
+		dagu := harness.NewRunner(t).WithCommandTimeout(budget)
 		result := dagu.Run("start", "powershell_error_fails.yaml")
 		result.ExpectExitCode(1)
 		dagu.ExpectFileContent("pwsh-error.txt", "before")
