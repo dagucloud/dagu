@@ -79,7 +79,10 @@ Authoring rules:
 - Computer steps use the provider's native computer-use tool for anthropic, openai, and gemini, and plain function tools with any vision model for other providers or with mode: generic. Pass secrets through with.variables as %name%; the model sees only the placeholder, which is typed as the value. Typed values can still appear in later screenshots. Extract schema properties become ${steps.step_id.outputs.name}. Successful acts are replayed from a per-host cache while the screens match; dagu computer check verifies the desktop and permissions. Steps wait until nobody has touched the desktop for with.idle (default 15s; 0 turns it off) before sending input.
 - mail.search and mail.organize read and organize a mailbox over IMAP. The mailbox field names an entry of the DAG-level or base-config mail_accounts map, keyed by email address; provider google or microsoft fills in the servers, and credentials are password or oauth (google_refresh or microsoft_refresh with a refresh token; microsoft_refresh accepts optional scopes). mail.send with mailbox sends through that account; add in_reply_to (a found email's id) to reply: to defaults to the email's reply address, subject to Re: and its subject, and the reply is threaded under the email.
 - mail.search publishes messages (oldest first; each has id, message_id, folder, from_name, from_address, to, cc, subject, date, unread, flagged, text, attachments), count, and truncated; do not declare outputs on the step. Searching never marks email read.
-- mail.organize takes emails as an ID, an email from mail.search, an {id, move_to} object, or a list, with mark (read, unread, flagged, unflagged) and/or move (folder, archive, trash). To process each email once, loop over messages with foreach and mark each email read inside the loop after its work, so a failed email stays unread for the next run.`,
+- mail.organize takes emails as an ID, an email from mail.search, an {id, move_to} object, or a list, with mark (read, unread, flagged, unflagged) and/or move (folder, archive, trash). To process each email once, loop over messages with foreach and mark each email read inside the loop after its work, so a failed email stays unread for the next run.
+- xlsx.read reads an .xlsx sheet without a spreadsheet application: with.path, optional sheet, range (A2:F, Sheet!A2:F, a named range, or a table), header (true, false, a row number, or [3, 4] for two header rows), columns (names or {name: alias}), types ({amount: number, due: date}), where ({Status: ""} or {Status: {ne: Done}}), and max_rows. It publishes rows (objects keyed by header, each with _row), count, headers, sheet, range, warnings, and truncated; do not declare outputs on the step. Numbers stay numbers, dates become ISO text, and text keeps leading zeros. Read a workbook first with dagu_read target=workbook to learn its sheets, headers, and types.
+- xlsx.write and xlsx.append write rows (usually ${steps.<id>.outputs.rows}; pass columns such as ${steps.<id>.outputs.headers} to keep column order) or an input json, jsonl, or csv file to a sheet; xlsx.info and xlsx.list_sheets describe a workbook. Writers publish path, sheet, changes ({rows_updated, rows_appended, columns_added, cells_changed}), dry_run, and warnings; dry_run: true reports without saving, wait_for_unlock: 5m retries a workbook another program holds open, and artifact: true keeps a copy with the run.
+- xlsx.update_rows writes results back to the rows they came from: key names the column that identifies a row (or _row), rows carry the key and the fields to write, and set maps sheet columns to row fields ({Status: status}) or literals ({Reviewed: {value: yes}}); without set every field other than the key and _row goes to the column of the same name. missing is fail, skip, or append. The step refuses to write when the key column or a set column left the header row, or a row addressed by _row no longer holds its key, so a sheet that changed shape is never corrupted. For "do this for each row and mark it done", read with where: {Status: ""}, foreach over the rows, and update_rows with the loop's results.`,
 		},
 		{
 			topic:       "tools",
@@ -135,14 +138,14 @@ Addressing:
 
 Fields:
 
-- target: required in target mode. Values are references, reference, dags, dag, dag_spec, dag_profile, dag_search, wiki, wiki_page, wiki_search, runs, run, run_logs, and step_log.
+- target: required in target mode. Values are references, reference, dags, dag, dag_spec, dag_profile, dag_search, wiki, wiki_page, wiki_search, workbook, runs, run, run_logs, and step_log.
 - name: DAG name or reference topic name. Required for dag, dag_spec, dag_profile, run, run_logs, and step_log. Optional for reference; defaults to authoring. Forbidden for references, dags, and runs.
 - dagRunId: required for run, run_logs, and step_log. Forbidden for other targets.
 - subRunId: optional child DAG-run ID for run and step_log. The name and dagRunId fields identify its root run.
 - stepName: required for step_log. Forbidden for other targets.
 - query: URL query string without a leading question mark. Allowed for dags, wiki, runs, run_logs, and step_log.
 - workspace: all, default, or a workspace name. Optional for wiki, wiki_search, and dag_search; omitted means all accessible workspaces. Required for wiki_page, where all is not allowed.
-- path: Wiki page path without .md. Required for wiki_page.
+- path: Wiki page path without .md, required for wiki_page; or a workbook file path on the server, required for workbook.
 - search: search text. Required for wiki_search and dag_search.
 - prefix: Wiki page path prefix without .md. Optional for wiki and wiki_search.
 - cursor: opaque cursor returned by the same search target. Optional for wiki_search and dag_search.
@@ -161,6 +164,7 @@ Targets:
 - wiki lists the Wiki tree or a flat page list. In tree mode, page and perPage select direct children of the workspace or prefix, and each returned directory includes its descendants. In flat mode, they select individual pages.
 - wiki_page reads one Markdown Wiki page.
 - wiki_search searches accessible Wiki pages in stable path order. Continue with nextCursor while keeping search, workspace, and prefix unchanged.
+- workbook inspects an .xlsx file on the server: for each sheet its used range, detected data block, header row, headers, column types, row count, tables, and five typed sample rows; plus named ranges and the date system. The path is any file the server process can read and is recorded in the audit log. Use the result to write xlsx.read with the right sheet, range, columns, and types.
 - runs lists DAG-runs.
 - run reads one DAG-run. With subRunId, it reads the child run under the identified root run.
 - run_logs reads scheduler and step log metadata.

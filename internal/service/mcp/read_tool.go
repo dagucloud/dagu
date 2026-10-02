@@ -17,6 +17,7 @@ import (
 	daguapi "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/cmn/workbook"
 	frontendapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/wiki"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -33,6 +34,7 @@ const (
 	readTargetWiki       = "wiki"
 	readTargetWikiPage   = "wiki_page"
 	readTargetWikiSearch = "wiki_search"
+	readTargetWorkbook   = "workbook"
 
 	legacyReadTargetDocs      = "docs"
 	legacyReadTargetDoc       = "doc"
@@ -76,14 +78,14 @@ const (
 )
 
 type readInput struct {
-	Target    string `json:"target" jsonschema:"Read target: dags, dag, dag_spec, dag_profile, dag_search, wiki, wiki_page, wiki_search, runs, run, run_logs, step_log, or reference."`
+	Target    string `json:"target" jsonschema:"Read target: dags, dag, dag_spec, dag_profile, dag_search, wiki, wiki_page, wiki_search, workbook, runs, run, run_logs, step_log, or reference."`
 	Name      string `json:"name,omitempty" jsonschema:"DAG name for dag, dag_spec, dag_profile, run, run_logs, and step_log targets."`
 	DAGRunID  string `json:"dagRunId,omitempty" jsonschema:"DAG-run ID for run, run_logs, and step_log targets. The value latest is accepted where Dagu accepts it."`
 	SubRunID  string `json:"subRunId,omitempty" jsonschema:"Child DAG-run ID for run and step_log targets, addressed under the root run identified by name and dagRunId."`
 	StepName  string `json:"stepName,omitempty" jsonschema:"Step name for the step_log target."`
 	Query     string `json:"query,omitempty" jsonschema:"URL query string for list targets, for example page=1&perPage=100 or status=running."`
 	Workspace string `json:"workspace,omitempty" jsonschema:"Workspace: all, default, or a workspace name. Required for wiki_page and optional for wiki, wiki_search, and dag_search."`
-	Path      string `json:"path,omitempty" jsonschema:"Wiki page path without the .md extension. Required for wiki_page."`
+	Path      string `json:"path,omitempty" jsonschema:"Wiki page path without the .md extension (required for wiki_page), or a workbook file path the server can read (required for workbook)."`
 	Search    string `json:"search,omitempty" jsonschema:"Search text. Required for wiki_search and dag_search."`
 	Prefix    string `json:"prefix,omitempty" jsonschema:"Wiki page path prefix. Optional for wiki and wiki_search."`
 	Cursor    string `json:"cursor,omitempty" jsonschema:"Opaque cursor returned by wiki_search or dag_search."`
@@ -97,7 +99,7 @@ func readToolInputSchema() json.RawMessage {
 		"properties": {
 			"target": {
 				"type": "string",
-				"enum": ["references", "reference", "dags", "dag", "dag_spec", "dag_profile", "dag_search", "wiki", "wiki_page", "wiki_search", "runs", "run", "run_logs", "step_log"],
+				"enum": ["references", "reference", "dags", "dag", "dag_spec", "dag_profile", "dag_search", "wiki", "wiki_page", "wiki_search", "workbook", "runs", "run", "run_logs", "step_log"],
 				"description": "Read target."
 			},
 			"name": {
@@ -126,7 +128,7 @@ func readToolInputSchema() json.RawMessage {
 			},
 			"path": {
 				"type": "string",
-				"description": "Wiki page path without the .md extension. Required for wiki_page."
+				"description": "Wiki page path without the .md extension (required for wiki_page), or a workbook file path the server can read (required for workbook)."
 			},
 			"search": {
 				"type": "string",
@@ -258,6 +260,8 @@ func (svc *Service) readToolImpl(ctx context.Context, input readInput) (*mcpsdk.
 		if err = svc.requireAPI(); err == nil {
 			data, err = svc.searchWikiPages(ctx, input.Workspace, input.Search, input.Prefix, input.Cursor, input.Limit)
 		}
+	case readTargetWorkbook:
+		data, err = readWorkbook(ctx, input)
 	case readTargetRuns:
 		if err = svc.requireAPI(); err == nil {
 			var raw any
@@ -721,7 +725,7 @@ func validateTargetReadInput(input *readInput) *readToolError {
 	if input.Workspace != "" && !workspaceTarget {
 		return invalidTargetField(input.Target, readFieldWorkspace)
 	}
-	if input.Path != "" && input.Target != readTargetWikiPage {
+	if input.Path != "" && input.Target != readTargetWikiPage && input.Target != readTargetWorkbook {
 		return invalidTargetField(input.Target, readFieldPath)
 	}
 	if input.Search != "" && !searchTarget {
@@ -835,6 +839,22 @@ func validateTargetReadInput(input *readInput) *readToolError {
 			return err
 		}
 		input.URI = uriWithQuery(wikiCollectionURI(input.Workspace), input.Query)
+	case readTargetWorkbook:
+		if input.Name != "" {
+			return invalidTargetField(input.Target, readFieldName)
+		}
+		if input.DAGRunID != "" {
+			return invalidTargetField(input.Target, readFieldDAGRunID)
+		}
+		if input.Query != "" {
+			return invalidTargetField(input.Target, readFieldQuery)
+		}
+		if strings.TrimSpace(input.Path) == "" {
+			return missingTargetField(input.Target, readFieldPath)
+		}
+		if err := workbook.CheckExtension(input.Path); err != nil {
+			return invalidTargetValue(input.Target, readFieldPath, err.Error())
+		}
 	case readTargetWikiPage:
 		if input.Name != "" {
 			return invalidTargetField(input.Target, readFieldName)
