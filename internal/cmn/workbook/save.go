@@ -33,6 +33,9 @@ type WriteResult struct {
 	Changes  Changes  `json:"changes"`
 	DryRun   bool     `json:"dry_run"`
 	Warnings []string `json:"warnings"`
+	// Artifact is the copy kept with the run, relative to its artifacts
+	// directory, when the caller asked for one.
+	Artifact string `json:"artifact,omitempty"`
 }
 
 // openOrCreate opens an existing workbook or starts a new one whose first

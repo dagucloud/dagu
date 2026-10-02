@@ -7985,6 +7985,10 @@
           "type": "string",
           "enum": ["fail", "skip", "append"],
           "description": "What xlsx.update_rows does with a row whose key is not in the sheet: fail (default), skip it with a warning, or append it below the last row."
+        },
+        "artifact": {
+          "oneOf": [{ "type": "boolean" }, { "type": "string" }],
+          "description": "Keep a copy of the saved workbook with the run's artifacts, under xlsx/<step>/, so it is listed with the run. Enables artifact storage for the DAG."
         }
       },
       "required": ["path"],

@@ -74,6 +74,32 @@ steps:
 	assert.Equal(t, "list_sheets", dag.Steps[2].Commands[0].Command)
 }
 
+func TestXlsxArtifactEnablesArtifacts(t *testing.T) {
+	t.Parallel()
+
+	dag, err := spec.LoadYAML(context.Background(), []byte(`
+steps:
+  - action: xlsx.write
+    with:
+      path: report.xlsx
+      rows: "[]"
+      artifact: true
+`))
+	require.NoError(t, err)
+	require.NotNil(t, dag.Artifacts)
+	assert.True(t, dag.Artifacts.Enabled)
+
+	plain, err := spec.LoadYAML(context.Background(), []byte(`
+steps:
+  - action: xlsx.write
+    with:
+      path: report.xlsx
+      rows: "[]"
+`))
+	require.NoError(t, err)
+	assert.Nil(t, plain.Artifacts)
+}
+
 func TestXlsxReadActionsRejectInvalidConfig(t *testing.T) {
 	t.Parallel()
 

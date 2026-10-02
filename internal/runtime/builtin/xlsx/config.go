@@ -45,6 +45,7 @@ type config struct {
 	Key           string            `mapstructure:"key"`
 	Set           map[string]any    `mapstructure:"set"`
 	Missing       string            `mapstructure:"missing"`
+	Artifact      bool              `mapstructure:"artifact"`
 
 	// Parsed forms, filled by validateConfig.
 	header  workbook.HeaderSpec
@@ -89,11 +90,11 @@ var fieldsByOperation = map[string][]string{
 	opInfo:       {"path", "password"},
 	opListSheets: {"path", "password"},
 	opWrite: {"path", "password", "sheet", "rows", "input", "format", "columns", "header", "mode", "style",
-		"types", "atomic", "dry_run", "wait_for_unlock"},
+		"types", "atomic", "dry_run", "wait_for_unlock", "artifact"},
 	opAppend: {"path", "password", "sheet", "rows", "input", "format", "columns", "types", "atomic",
-		"dry_run", "wait_for_unlock"},
+		"dry_run", "wait_for_unlock", "artifact"},
 	opUpdateRows: {"path", "password", "sheet", "header", "rows", "key", "set", "missing", "atomic",
-		"dry_run", "wait_for_unlock"},
+		"dry_run", "wait_for_unlock", "artifact"},
 }
 
 func isWriter(operation string) bool {
@@ -351,6 +352,8 @@ var configSchema = &jsonschema.Schema{
 			"A column missing from the header is added at the right."},
 		"missing": {Type: "string", Enum: []any{"fail", "skip", "append"},
 			Description: "What xlsx.update_rows does with a row whose key is not in the sheet: fail (default), skip it with a warning, or append it below the last row."},
+		"artifact": boolOrRef("Keep a copy of the saved workbook with the run's artifacts, under xlsx/<step>/, so it is listed with the run. " +
+			"Enables artifact storage for the DAG."),
 	},
 }
 

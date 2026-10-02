@@ -1198,7 +1198,7 @@ func buildArtifacts(_ buildContext, d *dag) (*ir.ArtifactsConfig, error) {
 	// explicitly.
 	usesScreenAction := dagUsesBuiltinAction(d, browserActionPrefix) || dagUsesBuiltinAction(d, computerActionPrefix)
 	autoEnable := dagReferencesRunArtifactsDir(d) || usesArtifactAction || usesArtifactOutput || usesScreenAction ||
-		dagSavesMailAttachments(d)
+		dagSavesMailAttachments(d) || dagKeepsXlsxArtifact(d)
 
 	if usesArtifactAction && d.Artifacts != nil && d.Artifacts.Enabled != nil && !*d.Artifacts.Enabled {
 		return nil, ir.NewValidationError(
@@ -1274,6 +1274,22 @@ func dagSavesMailAttachments(d *dag) bool {
 		}
 		save, ok := derefForSearch(with.MapIndex(reflect.ValueOf("save_attachments")))
 		return ok && save.Kind() == reflect.Bool && save.Bool()
+	})
+}
+
+// dagKeepsXlsxArtifact reports whether an xlsx writer step writes
+// artifact: true literally.
+func dagKeepsXlsxArtifact(d *dag) bool {
+	return dagDeclaresAction(d, func(action string, with reflect.Value) bool {
+		if !strings.HasPrefix(action, "xlsx.") {
+			return false
+		}
+		with, ok := derefForSearch(with)
+		if !ok || with.Kind() != reflect.Map {
+			return false
+		}
+		keep, ok := derefForSearch(with.MapIndex(reflect.ValueOf("artifact")))
+		return ok && keep.Kind() == reflect.Bool && keep.Bool()
 	})
 }
 

@@ -5,15 +5,19 @@ package xlsx
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/workbook"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
 
@@ -31,6 +35,9 @@ type writeExecutor struct {
 	path    string
 	workDir string
 	cfg     config
+	// artifacts is the step's directory under the run artifacts directory
+	// when artifact: true; nil otherwise.
+	artifacts *agentstep.ArtifactStore
 
 	mu       sync.Mutex
 	cancel   context.CancelFunc
@@ -38,8 +45,8 @@ type writeExecutor struct {
 	exitCode int
 }
 
-func newWriteExecutor(env runtime.Env, op, path string, cfg config) *writeExecutor {
-	return &writeExecutor{
+func newWriteExecutor(env runtime.Env, op, path string, cfg config) (*writeExecutor, error) {
+	e := &writeExecutor{
 		stdout:  os.Stdout,
 		stderr:  os.Stderr,
 		op:      op,
@@ -47,6 +54,38 @@ func newWriteExecutor(env runtime.Env, op, path string, cfg config) *writeExecut
 		workDir: env.WorkingDir,
 		cfg:     cfg,
 	}
+	if cfg.Artifact {
+		dir := ""
+		if env.Scope != nil {
+			dir, _ = env.Scope.Get(runenv.EnvKeyDAGRunArtifactsDir)
+		}
+		if dir == "" {
+			return nil, errors.New("artifact requires artifact storage")
+		}
+		e.artifacts = agentstep.NewArtifactStore(dir, "xlsx", env.Step.Name)
+	}
+	return e, nil
+}
+
+// keepArtifact copies the saved workbook into the run's artifacts and
+// returns its path relative to the artifacts directory.
+func (e *writeExecutor) keepArtifact() (string, error) {
+	if e.artifacts == nil {
+		return "", nil
+	}
+	dir := e.artifacts.Dir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("create artifact directory: %w", err)
+	}
+	name := filepath.Base(e.path)
+	data, err := os.ReadFile(e.path)
+	if err != nil {
+		return "", fmt.Errorf("copy workbook to artifacts: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil { //nolint:gosec // artifacts are readable like other run files
+		return "", fmt.Errorf("copy workbook to artifacts: %w", err)
+	}
+	return e.artifacts.RelPath(name), nil
 }
 
 func (e *writeExecutor) SetStdout(out io.Writer) { e.stdout = out }
@@ -75,6 +114,12 @@ func (e *writeExecutor) Run(ctx context.Context) error {
 	e.mu.Unlock()
 
 	result, line, err := e.run(ctx)
+	if err == nil && !result.DryRun {
+		var artifact string
+		if artifact, err = e.keepArtifact(); err == nil && artifact != "" {
+			result.Artifact = artifact
+		}
+	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if err != nil {
@@ -87,6 +132,9 @@ func (e *writeExecutor) Run(ctx context.Context) error {
 		"changes":  result.Changes,
 		"dry_run":  result.DryRun,
 		"warnings": result.Warnings,
+	}
+	if result.Artifact != "" {
+		e.outputs["artifact"] = result.Artifact
 	}
 	for _, w := range result.Warnings {
 		_, _ = fmt.Fprintln(e.stderr, "warning: "+w)

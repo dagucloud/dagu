@@ -54,6 +54,7 @@ steps:
       atomic: true
       dry_run: false
       wait_for_unlock: 5m
+      artifact: true
   - id: append
     action: xlsx.append
     with:
