@@ -108,7 +108,7 @@ func TestForeachAggregateWithEscapedKeyKeepsOrder(t *testing.T) {
 	t.Parallel()
 	// JSON may spell a key with escapes; the decoded name is what counts,
 	// so the outputs key here is spelled with a \u escape.
-	aggregate := `{"summary": {"total": 1, "succeeded": 1, "failed": 0}, "items": [], "outputs": [{"z": 1, "a": 2}]}`
+	aggregate := `{"summary": {"total": 1, "succeeded": 1, "failed": 0}, "items": [], "out\u0070uts": [{"z": 1, "a": 2}]}`
 	table, err := DecodeRows(aggregate, nil)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"z", "a"}, table.Columns)

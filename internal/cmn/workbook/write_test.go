@@ -389,6 +389,7 @@ func TestReplaceKeepsSheetScopedNamesAndReferences(t *testing.T) {
 	require.Len(t, names, 1)
 	assert.Equal(t, "Local", names[0].Name)
 	assert.Equal(t, "Data", names[0].Scope)
+	assert.Equal(t, "Data!$A$2", names[0].RefersTo, "the name still points where it did")
 	formula, err := g.GetCellFormula("Summary", "A1")
 	require.NoError(t, err)
 	assert.Equal(t, "SUM(Data!A:A)", formula)
