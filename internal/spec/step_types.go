@@ -109,6 +109,7 @@ var builtinStepTypeNames = map[string]struct{}{
 	"subworkflow":   {},
 	"template":      {},
 	"wait":          {},
+	"xlsx":          {},
 }
 
 // IsValidExecutorTypeName reports whether name is valid for an executor type.

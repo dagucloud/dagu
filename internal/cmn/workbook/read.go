@@ -16,9 +16,15 @@ type TypeErrorMode string
 const (
 	// TypeErrorFail fails the read naming the cell.
 	TypeErrorFail TypeErrorMode = "fail"
-	// TypeErrorNull reads the cell as null and records a warning.
+	// TypeErrorWarn reads the cell as null and records a warning.
+	TypeErrorWarn TypeErrorMode = "warn"
+	// TypeErrorNull is accepted as a spelling of TypeErrorWarn.
 	TypeErrorNull TypeErrorMode = "null"
 )
+
+func (m TypeErrorMode) warns() bool {
+	return m == TypeErrorWarn || m == TypeErrorNull
+}
 
 // ReadOptions selects and types the rows of one sheet.
 type ReadOptions struct {
@@ -193,7 +199,7 @@ func (w *file) readRow(sheet string, reg region, r int, grid [][]string, merges 
 		if t, ok := types[name]; ok && value != nil {
 			coerced, cerr := coerce(value, t)
 			if cerr != nil {
-				if opts.OnTypeError == TypeErrorNull {
+				if opts.OnTypeError.warns() {
 					warn(fmt.Sprintf("%s!%s: %v", sheet, cellName(c, r), cerr))
 					coerced = nil
 				} else {
@@ -325,6 +331,17 @@ func (w *file) compileWhere(sheet string, headers []string, plan columnPlan, whe
 		filter = append(filter, clause)
 	}
 	return filter, nil
+}
+
+// ValidateWhere checks a where option without a workbook: every value must
+// be a scalar, a list, or an object with exactly one of eq, ne, or in.
+func ValidateWhere(where map[string]any) error {
+	for _, name := range sortedKeys(where) {
+		if _, err := parseWhereClause(name, where[name]); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func parseWhereClause(column string, v any) (whereClause, error) {

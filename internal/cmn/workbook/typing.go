@@ -243,6 +243,24 @@ func toFloat(v any) (float64, bool) {
 		return float64(x), true
 	case int:
 		return float64(x), true
+	case int8:
+		return float64(x), true
+	case int16:
+		return float64(x), true
+	case int32:
+		return float64(x), true
+	case uint:
+		return float64(x), true
+	case uint8:
+		return float64(x), true
+	case uint16:
+		return float64(x), true
+	case uint32:
+		return float64(x), true
+	case uint64:
+		return float64(x), true
+	case float32:
+		return float64(x), true
 	case float64:
 		return x, true
 	case bool:

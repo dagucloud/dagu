@@ -37,4 +37,5 @@ import (
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/state"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/template"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/wait"
+	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/xlsx"
 )

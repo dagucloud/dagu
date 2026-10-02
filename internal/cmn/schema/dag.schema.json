@@ -2643,6 +2643,18 @@
         },
         {
           "if": {
+            "properties": { "action": { "enum": ["xlsx.read", "xlsx.info", "xlsx.list_sheets"] } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/xlsxActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
             "properties": { "action": { "enum": ["s3.upload", "s3.download", "s3.list", "s3.delete"] } },
             "required": ["action"]
           },
@@ -6467,7 +6479,8 @@
         "action",
         "outputs",
         "sftp",
-        "template"
+        "template",
+        "xlsx"
       ],
       "description": "Type of executor to use for this step, including aliases such as k8s / kubernetes."
     },
@@ -6552,7 +6565,10 @@
             "wait.duration",
             "wait.file",
             "wait.http",
-            "wait.until"
+            "wait.until",
+            "xlsx.info",
+            "xlsx.list_sheets",
+            "xlsx.read"
           ],
           "description": "Builtin action name."
         },
@@ -7823,6 +7839,97 @@
         }
       },
       "description": "Configuration for action: template.render."
+    },
+    "xlsxActionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Workbook path (.xlsx). Relative paths resolve against the step working directory. Required."
+        },
+        "password": {
+          "type": "string",
+          "description": "Password of a protected workbook. Reference a secret or ${env.NAME} rather than writing it here."
+        },
+        "sheet": {
+          "type": "string",
+          "description": "Sheet name; the first sheet by default. Matched exactly, then case-insensitively."
+        },
+        "range": {
+          "type": "string",
+          "description": "Cell range such as A2:F or A2:F200, a Sheet!A2:F reference, a named range, or a table name. Without it the data block is detected: leading empty rows and columns are skipped."
+        },
+        "header": {
+          "oneOf": [
+            { "type": "boolean" },
+            { "type": "integer", "minimum": 1 },
+            { "type": "array", "items": { "type": "integer", "minimum": 1 }, "minItems": 1 },
+            { "type": "string" }
+          ],
+          "description": "true (default) takes the first row of the range as column names, false names columns A, B, C, a row number takes that sheet row, and a list such as [3, 4] joins two header rows with a space."
+        },
+        "columns": {
+          "oneOf": [
+            {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  { "type": "string" },
+                  { "type": "object", "additionalProperties": { "type": "string" }, "minProperties": 1, "maxProperties": 1 }
+                ]
+              }
+            },
+            { "type": "string" }
+          ],
+          "description": "Columns to keep, in order: names, or {name: alias} entries to rename, such as [Status, {Invoice No: invoice_no}]."
+        },
+        "merged": {
+          "type": "string",
+          "enum": ["fill", "first"],
+          "description": "How merged cells are read: fill (default) repeats the value into every covered cell; first keeps it in the top-left cell only."
+        },
+        "stop_at_blank": {
+          "oneOf": [{ "type": "boolean" }, { "type": "string" }],
+          "description": "Stop at the first fully empty row instead of reading to the end of the used range."
+        },
+        "keep_empty_rows": {
+          "oneOf": [{ "type": "boolean" }, { "type": "string" }],
+          "description": "Keep trailing empty rows as rows of nulls."
+        },
+        "trim": {
+          "oneOf": [{ "type": "boolean" }, { "type": "string" }],
+          "description": "Trim surrounding white space, including full-width spaces, from text cells."
+        },
+        "formulas": {
+          "type": "string",
+          "enum": ["cached", "text", "calculate"],
+          "description": "What formula cells yield: cached (default) the stored result, text the formula itself, calculate an evaluation."
+        },
+        "types": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "enum": ["string", "number", "integer", "boolean", "date", "datetime"]
+          },
+          "description": "Column types to enforce, such as {amount: number, due: date}. A cell that cannot convert fails the step naming the cell."
+        },
+        "on_type_error": {
+          "enum": ["fail", "warn", "null", null],
+          "description": "What a cell that fails its type does: fail (default) the step, or warn and read the cell as null."
+        },
+        "where": {
+          "type": "object",
+          "description": "Rows to keep: {Status: \"\"} matches empty cells, {Status: {ne: Done}} excludes a value, {Status: {in: [A, B]}} matches a list."
+        },
+        "max_rows": {
+          "oneOf": [{ "type": "integer", "minimum": 1 }, { "type": "string" }],
+          "description": "Most rows to read, 1 or more. Defaults to 5000; truncated is true when more rows exist."
+        }
+      },
+      "required": ["path"],
+      "description": "Configuration for action: xlsx.read, xlsx.info, and xlsx.list_sheets."
     },
     "fileActionConfig": {
       "type": "object",
