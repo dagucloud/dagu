@@ -66,6 +66,7 @@ func init() {
 	rootCmd.AddCommand(cmd.Secret())
 	rootCmd.AddCommand(cmd.Browser())
 	rootCmd.AddCommand(cmd.Computer())
+	rootCmd.AddCommand(cmd.Xlsx())
 
 	config.Version = version
 }

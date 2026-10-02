@@ -15,7 +15,7 @@ func scopeForCommand(name string) commandScope {
 	switch name {
 	case "start", "enqueue", "status", "history", "stop", "retry", "restart", "dequeue":
 		return commandScopeContextAware
-	case "version", "schema":
+	case "version", "schema", "xlsx":
 		return commandScopeStatic
 	case "context":
 		return commandScopeStatic
