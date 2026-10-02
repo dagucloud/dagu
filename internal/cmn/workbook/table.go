@@ -340,22 +340,22 @@ func isForeachSummary(summary map[string]any) bool {
 
 // foreachOutputsJSON returns the text of the outputs list when text is a
 // foreach aggregate, so the collected objects keep their key order. Only
-// an object whose text mentions all three aggregate fields is decoded, so
-// ordinary rows do not pay for the attempt, and the envelope is read once
-// as a map keyed by the exact field names, so a field that differs only
-// in case cannot stand in for outputs.
+// an object is decoded, so a rows array, the common case, does not pay
+// for the attempt. The envelope is read once as a map keyed by the decoded
+// field names, so an escaped spelling of a name still counts and a field
+// that differs only in case cannot stand in for outputs.
 func foreachOutputsJSON(text string) (string, bool) {
 	if !strings.HasPrefix(text, "{") {
 		return "", false
 	}
-	for _, field := range []string{`"summary"`, `"items"`, `"outputs"`} {
-		if !strings.Contains(text, field) {
-			return "", false
-		}
-	}
 	var envelope map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(text), &envelope); err != nil || len(envelope) != 3 {
 		return "", false
+	}
+	for _, field := range []string{"summary", "items", "outputs"} {
+		if _, ok := envelope[field]; !ok {
+			return "", false
+		}
 	}
 	var summary map[string]any
 	if err := json.Unmarshal(envelope["summary"], &summary); err != nil {

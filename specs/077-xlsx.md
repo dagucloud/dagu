@@ -132,7 +132,9 @@ emptied of its value, style, and hyperlink. Cells that carry only a style
 are cleared as well when the sheet's stored dimension spans at most 2^20
 cells; past that, a sweep of the whole rectangle is skipped so a large
 sparse sheet stays cheap to replace, and such style-only cells keep their
-style. The sheet itself, its position, the defined names scoped to it, and
+style. A hyperlink on a cell the clear does not visit, one that is empty
+and outside both the stored dimension and the cells holding values, is
+kept for the same reason. The sheet itself, its position, the defined names scoped to it, and
 formulas on other sheets that refer to it stay valid. Other sheets, column
 widths, styles, and defined names are untouched. An AutoFilter on the
 replaced sheet stays in place, as the underlying library offers no way to

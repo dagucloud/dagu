@@ -173,14 +173,21 @@ func (w *file) storedDimension(sheet string) (region, bool) {
 		return region{}, false
 	}
 	m := cellRangePattern.FindStringSubmatch(strings.TrimSpace(dim))
-	if m == nil || m[3] == "" || m[4] == "" {
+	if m == nil || m[2] == "" {
 		return region{}, false
 	}
-	c2, err := excelize.ColumnNameToNumber(strings.ToUpper(m[3]))
+	// A single cell such as C3 is a valid dimension: it is both ends.
+	endCol, endRow := m[3], m[4]
+	if endCol == "" {
+		endCol, endRow = m[1], m[2]
+	} else if endRow == "" {
+		return region{}, false
+	}
+	c2, err := excelize.ColumnNameToNumber(strings.ToUpper(endCol))
 	if err != nil {
 		return region{}, false
 	}
-	r2, err := rowNumber(m[4])
+	r2, err := rowNumber(endRow)
 	if err != nil {
 		return region{}, false
 	}

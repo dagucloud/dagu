@@ -486,3 +486,39 @@ func TestStaleDimensionDoesNotWidenTheUsedRange(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, result.Count)
 }
+
+func TestSingleCellDimensionIsClearedOnReplace(t *testing.T) {
+	t.Parallel()
+	f := excelize.NewFile()
+	bold := styleID(t, f, &excelize.Style{Font: &excelize.Font{Bold: true}})
+	// The only thing on the sheet is a styled empty cell, so Excel stores
+	// the single-cell dimension C3.
+	require.NoError(t, f.SetCellStyle("Sheet1", "C3", "C3", bold))
+	require.NoError(t, f.SetSheetDimension("Sheet1", "C3"))
+	path := saveBook(t, f, "lone.xlsx")
+
+	w, err := open(path, "")
+	require.NoError(t, err)
+	dim, ok := w.storedDimension("Sheet1")
+	w.close()
+	require.True(t, ok)
+	assert.Equal(t, "Sheet1!A1:C3", dim.String())
+
+	_, err = Write(context.Background(), path, Table{Columns: []string{"id"}, Rows: [][]any{{int64(1)}}}, WriteOptions{Header: true, Style: StyleNone})
+	require.NoError(t, err)
+	g, err := excelize.OpenFile(path)
+	require.NoError(t, err)
+	defer func() { _ = g.Close() }()
+	id, err := g.GetCellStyle("Sheet1", "C3")
+	require.NoError(t, err)
+	assert.Equal(t, 0, id, "the lone styled cell is cleared along with the sheet")
+}
+
+func TestForeachAggregateWithEscapedKeyKeepsOrder(t *testing.T) {
+	t.Parallel()
+	// JSON may spell a key with escapes; the decoded name is what counts.
+	aggregate := `{"summary": {"total": 1, "succeeded": 1, "failed": 0}, "items": [], "outputs": [{"z": 1, "a": 2}]}`
+	table, err := DecodeRows(aggregate, nil)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"z", "a"}, table.Columns)
+}
