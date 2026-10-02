@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"testing"
 	"time"
@@ -345,4 +346,218 @@ func mustFloat(t *testing.T, s string) float64 {
 	f, ok := toFloat(s)
 	require.True(t, ok, s)
 	return f
+}
+
+func TestPinnedDateDropsTimeOfDay(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "midnight.xlsx")
+	table := Table{Columns: []string{"when"}, Rows: [][]any{{"2026-10-01T14:30:00"}}}
+	_, err := Write(context.Background(), path, table, WriteOptions{Header: true, Types: map[string]ColumnType{"when": TypeDate}})
+	require.NoError(t, err)
+	f, err := excelize.OpenFile(path)
+	require.NoError(t, err)
+	defer func() { _ = f.Close() }()
+	raw, err := f.GetCellValue("Sheet1", "A2", excelize.Options{RawCellValue: true})
+	require.NoError(t, err)
+	serial, err := excelize.ExcelDateToTime(mustFloat(t, raw), false)
+	require.NoError(t, err)
+	assert.Equal(t, time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), serial)
+}
+
+func TestReplaceKeepsSheetScopedNamesAndReferences(t *testing.T) {
+	t.Parallel()
+	f := excelize.NewFile()
+	require.NoError(t, f.SetSheetName("Sheet1", "Data"))
+	setRow(t, f, "Data", "A1", "v")
+	setRow(t, f, "Data", "A2", 10)
+	require.NoError(t, f.MergeCell("Data", "A3", "B3"))
+	require.NoError(t, f.AddTable("Data", &excelize.Table{Range: "A1:A2", Name: "DataTable"}))
+	require.NoError(t, f.SetDefinedName(&excelize.DefinedName{Name: "Local", RefersTo: "Data!$A$2", Scope: "Data"}))
+	_, err := f.NewSheet("Summary")
+	require.NoError(t, err)
+	require.NoError(t, f.SetCellFormula("Summary", "A1", "SUM(Data!A:A)"))
+	path := saveBook(t, f, "refs.xlsx")
+
+	_, err = Write(context.Background(), path, Table{Columns: []string{"v"}, Rows: [][]any{{20}, {22}}}, WriteOptions{Sheet: "Data", Header: true})
+	require.NoError(t, err)
+
+	g, err := excelize.OpenFile(path)
+	require.NoError(t, err)
+	defer func() { _ = g.Close() }()
+	assert.Equal(t, []string{"Data", "Summary"}, g.GetSheetList())
+	names := g.GetDefinedName()
+	require.Len(t, names, 1)
+	assert.Equal(t, "Local", names[0].Name)
+	assert.Equal(t, "Data", names[0].Scope)
+	formula, err := g.GetCellFormula("Summary", "A1")
+	require.NoError(t, err)
+	assert.Equal(t, "SUM(Data!A:A)", formula)
+	total, err := g.CalcCellValue("Summary", "A1")
+	require.NoError(t, err)
+	assert.Equal(t, "42", total, "the formula sees the replaced data")
+	merges, err := g.GetMergeCells("Data")
+	require.NoError(t, err)
+	assert.Empty(t, merges)
+	tables, err := g.GetTables("Data")
+	require.NoError(t, err)
+	assert.Empty(t, tables)
+}
+
+func TestAppendedDateKeepsTheCellStyleAbove(t *testing.T) {
+	t.Parallel()
+	f := excelize.NewFile()
+	setRow(t, f, "Sheet1", "A1", "when")
+	bordered, err := f.NewStyle(&excelize.Style{Border: []excelize.Border{{Type: "left", Color: "000000", Style: 1}}})
+	require.NoError(t, err)
+	require.NoError(t, f.SetCellStr("Sheet1", "A2", "plain text"))
+	require.NoError(t, f.SetCellStyle("Sheet1", "A2", "A2", bordered))
+	path := saveBook(t, f, "border.xlsx")
+
+	_, err = Append(context.Background(), path, Table{Columns: []string{"when"}, Rows: [][]any{{"2026-10-01"}}}, WriteOptions{})
+	require.NoError(t, err)
+	g, err := excelize.OpenFile(path)
+	require.NoError(t, err)
+	defer func() { _ = g.Close() }()
+	id, err := g.GetCellStyle("Sheet1", "A3")
+	require.NoError(t, err)
+	style, err := g.GetStyle(id)
+	require.NoError(t, err)
+	require.Len(t, style.Border, 1, "the border of the cell above survives")
+	require.NotNil(t, style.CustomNumFmt)
+	assert.Equal(t, fmtDate, *style.CustomNumFmt)
+}
+
+func TestSaveUsesShortTempName(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, strings.Repeat("n", 230)+".xlsx")
+	_, err := Write(context.Background(), path, orders(), WriteOptions{Header: true})
+	require.NoError(t, err, "a name near the component limit still saves")
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	assert.Len(t, entries, 1)
+}
+
+func TestSaveKeepsPermissionBits(t *testing.T) {
+	t.Parallel()
+	if goruntime.GOOS == "windows" {
+		t.Skip("permission bits are not a Windows concept")
+	}
+	path := filepath.Join(t.TempDir(), "private.xlsx")
+	_, err := Write(context.Background(), path, orders(), WriteOptions{Header: true})
+	require.NoError(t, err)
+	require.NoError(t, os.Chmod(path, 0o600))
+
+	_, err = Append(context.Background(), path, Table{Columns: orders().Columns, Rows: [][]any{{"INV-3", 1, nil, nil, nil}}}, WriteOptions{})
+	require.NoError(t, err)
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "the rewritten workbook keeps its restrictive mode")
+}
+
+func TestClearedSheetDropsOldStyles(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "restyle.xlsx")
+	dates := Table{Columns: []string{"when"}, Rows: [][]any{{"2026-10-01"}, {"2026-10-02"}}}
+	_, err := Write(context.Background(), path, dates, WriteOptions{Header: true})
+	require.NoError(t, err)
+
+	numbers := Table{Columns: []string{"n"}, Rows: [][]any{{int64(7)}}}
+	_, err = Write(context.Background(), path, numbers, WriteOptions{Header: true, Style: StyleNone})
+	require.NoError(t, err)
+	back, err := Read(context.Background(), path, ReadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, int64(7), back.Rows[0]["n"], "a number written where a date column was is read as a number")
+	f, err := excelize.OpenFile(path)
+	require.NoError(t, err)
+	defer func() { _ = f.Close() }()
+	id, err := f.GetCellStyle("Sheet1", "A3")
+	require.NoError(t, err)
+	assert.Equal(t, 0, id, "cells outside the new block lose their old style too")
+}
+
+func TestClearedSheetDropsStyledEmptyCellsAndHyperlinks(t *testing.T) {
+	t.Parallel()
+	f := excelize.NewFile()
+	bold := styleID(t, f, &excelize.Style{Font: &excelize.Font{Bold: true}})
+	require.NoError(t, f.SetSheetRow("Sheet1", "A1", &[]any{"id"}))
+	require.NoError(t, f.SetSheetRow("Sheet1", "A2", &[]any{"one"}))
+	require.NoError(t, f.SetCellHyperLink("Sheet1", "A2", "https://example.com/one", "External"))
+	// B1 and C3 carry a style and no value, as Excel writes a formatted but
+	// empty cell, and the dimension Excel keeps covers them.
+	require.NoError(t, f.SetCellStyle("Sheet1", "B1", "B1", bold))
+	require.NoError(t, f.SetCellStyle("Sheet1", "C3", "C3", bold))
+	require.NoError(t, f.SetSheetDimension("Sheet1", "A1:C3"))
+	path := saveBook(t, f, "linked.xlsx")
+
+	numbers := Table{Columns: []string{"id", "n"}, Rows: [][]any{{"two", int64(2)}}}
+	_, err := Write(context.Background(), path, numbers, WriteOptions{Header: true, Style: StyleNone})
+	require.NoError(t, err)
+
+	g, err := excelize.OpenFile(path)
+	require.NoError(t, err)
+	defer func() { _ = g.Close() }()
+	for _, cell := range []string{"B1", "C3"} {
+		id, err := g.GetCellStyle("Sheet1", cell)
+		require.NoError(t, err)
+		assert.Equal(t, 0, id, "%s: a styled empty cell loses its style", cell)
+	}
+	linked, _, err := g.GetCellHyperLink("Sheet1", "A2")
+	require.NoError(t, err)
+	assert.False(t, linked, "the old hyperlink does not attach to the new text")
+	value, err := g.GetCellValue("Sheet1", "A2")
+	require.NoError(t, err)
+	assert.Equal(t, "two", value)
+}
+
+func TestSingleCellDimensionIsClearedOnReplace(t *testing.T) {
+	t.Parallel()
+	f := excelize.NewFile()
+	bold := styleID(t, f, &excelize.Style{Font: &excelize.Font{Bold: true}})
+	// The only thing on the sheet is a styled empty cell, so Excel stores
+	// the single-cell dimension C3.
+	require.NoError(t, f.SetCellStyle("Sheet1", "C3", "C3", bold))
+	require.NoError(t, f.SetSheetDimension("Sheet1", "C3"))
+	path := saveBook(t, f, "lone.xlsx")
+
+	w, err := open(path, "")
+	require.NoError(t, err)
+	dim, ok := w.storedDimension("Sheet1")
+	w.close()
+	require.True(t, ok)
+	assert.Equal(t, "Sheet1!A1:C3", dim.String())
+
+	_, err = Write(context.Background(), path, Table{Columns: []string{"id"}, Rows: [][]any{{int64(1)}}}, WriteOptions{Header: true, Style: StyleNone})
+	require.NoError(t, err)
+	g, err := excelize.OpenFile(path)
+	require.NoError(t, err)
+	defer func() { _ = g.Close() }()
+	id, err := g.GetCellStyle("Sheet1", "C3")
+	require.NoError(t, err)
+	assert.Equal(t, 0, id, "the lone styled cell is cleared along with the sheet")
+}
+
+func TestReplaceClearsAnA1OnlySheet(t *testing.T) {
+	t.Parallel()
+	f := excelize.NewFile()
+	bold := styleID(t, f, &excelize.Style{Font: &excelize.Font{Bold: true}})
+	// A1 holds a style and a hyperlink but no value, and the dimension is
+	// A1, so the sheet counts as empty for an append yet must still be
+	// cleared by a replace.
+	require.NoError(t, f.SetCellStyle("Sheet1", "A1", "A1", bold))
+	require.NoError(t, f.SetCellHyperLink("Sheet1", "A1", "https://example.com/old", "External"))
+	require.NoError(t, f.SetSheetDimension("Sheet1", "A1"))
+	path := saveBook(t, f, "a1only.xlsx")
+
+	_, err := Write(context.Background(), path, Table{Columns: []string{"id"}, Rows: [][]any{{int64(1)}}}, WriteOptions{Header: true, Style: StyleNone})
+	require.NoError(t, err)
+	g, err := excelize.OpenFile(path)
+	require.NoError(t, err)
+	defer func() { _ = g.Close() }()
+	id, err := g.GetCellStyle("Sheet1", "A1")
+	require.NoError(t, err)
+	assert.Equal(t, 0, id, "the old style does not survive the replace")
+	linked, _, err := g.GetCellHyperLink("Sheet1", "A1")
+	require.NoError(t, err)
+	assert.False(t, linked, "the old hyperlink does not attach to the new header")
 }

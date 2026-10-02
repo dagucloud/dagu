@@ -141,6 +141,15 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 	kinds := columnKinds(table, opts.Types)
 	dataRow := startRow
 	cells := 0
+	// Rows appended below existing ones take their styles from the row
+	// above the first of them, read once per column.
+	var bases []int
+	if !fresh {
+		bases = make([]int, len(table.Columns))
+		for c := range table.Columns {
+			bases[c] = w.styleAt(sheet, c+1, startRow-1)
+		}
+	}
 	// An append below existing rows never writes a header; an append that
 	// starts an empty sheet writes one so the first run creates a table.
 	writeHeader := opts.Header
@@ -177,6 +186,9 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 			if err := w.setCell(sheet, c+1, r, v); err != nil {
 				return nil, err
 			}
+			if !fresh {
+				w.styleWrittenCell(sheet, c+1, r, bases[c], v, opts.Types[table.Columns[c]])
+			}
 			cells++
 		}
 	}
@@ -187,13 +199,10 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 	result.Changes.RowsAppended = len(table.Rows)
 	result.Changes.CellsChanged = cells
 
-	switch {
-	case fresh && opts.Style == StyleTable && len(table.Columns) > 0:
+	if fresh && opts.Style == StyleTable && len(table.Columns) > 0 {
 		if err := w.styleTable(sheet, table, kinds, startRow, writeHeader, lastRow); err != nil {
 			return nil, err
 		}
-	case !fresh && len(table.Rows) > 0:
-		w.copyStylesFromAbove(sheet, startRow, lastRow, len(table.Columns), table, kinds)
 	}
 	w.forget(sheet)
 	if opts.DryRun {
@@ -504,80 +513,6 @@ func kindStyle(kind ColumnType) *excelize.Style {
 	}
 }
 
-// copyStylesFromAbove gives appended cells the style of the cell above
-// them, so a date column stays a date column. A time that lands under a
-// cell without a date format keeps that cell's borders, fill, and alignment
-// and only gains a date number format.
-func (w *file) copyStylesFromAbove(sheet string, startRow, lastRow, columns int, table Table, kinds []ColumnType) {
-	for c := 1; c <= columns; c++ {
-		above, err := w.f.GetCellStyle(sheet, cellName(c, startRow-1))
-		if err != nil {
-			continue
-		}
-		kind := kindNumber
-		if above != 0 {
-			kind = w.styleKind(above)
-		}
-		// The above style with a date or date-time format, created on demand
-		// per kind so a column mixing dates and date-times keeps both.
-		dated := map[ColumnType]int{}
-		for r := startRow; r <= lastRow; r++ {
-			i := r - startRow
-			if i >= len(table.Rows) || c-1 >= len(table.Rows[i]) || table.Rows[i][c-1] == nil {
-				continue
-			}
-			value := table.Rows[i][c-1]
-			isTime := kinds[c-1] == TypeDate || kinds[c-1] == TypeDateTime
-			if !isTime {
-				_, isTime = w.outValueIsTime(value)
-			}
-			switch {
-			case isTime && kind == kindNumber:
-				want := kindFor(value, kinds[c-1])
-				if _, ok := dated[want]; !ok {
-					dated[want] = w.datedStyle(above, want)
-				}
-				if id := dated[want]; id != 0 {
-					_ = w.f.SetCellStyle(sheet, cellName(c, r), cellName(c, r), id)
-				}
-			case above != 0:
-				_ = w.f.SetCellStyle(sheet, cellName(c, r), cellName(c, r), above)
-			}
-		}
-	}
-}
-
-// datedStyle returns a style like base with the number format of kind, so a
-// date written into a plain cell keeps the cell's other formatting. Zero
-// means no style could be made.
-func (w *file) datedStyle(base int, kind ColumnType) int {
-	style := kindStyle(kind)
-	if style == nil {
-		return 0
-	}
-	if base != 0 {
-		if existing, err := w.f.GetStyle(base); err == nil && existing != nil {
-			existing.NumFmt = style.NumFmt
-			existing.CustomNumFmt = style.CustomNumFmt
-			style = existing
-		}
-	}
-	id, err := w.f.NewStyle(style)
-	if err != nil {
-		return 0
-	}
-	return id
-}
-
-func (w *file) outValueIsTime(v any) (time.Time, bool) {
-	out, err := outValue(v, "", w.date1904)
-	if err != nil {
-		return time.Time{}, false
-	}
-	t, ok := out.(time.Time)
-	return t, ok
-}
-
 func kindFor(v any, pinned ColumnType) ColumnType {
 	if pinned == TypeDate || pinned == TypeDateTime {
 		return pinned
@@ -611,4 +546,71 @@ func displayWidth(s string) int {
 
 func isNarrow(r rune) bool {
 	return r >= 0xFF61 && r <= 0xFF9F // half-width katakana
+}
+
+// datedKey identifies a style derived from a base style for a date kind.
+type datedKey struct {
+	base int
+	kind ColumnType
+}
+
+// styleAt returns the style of a cell, or zero for a plain cell or a row
+// above the sheet.
+func (w *file) styleAt(sheet string, col, row int) int {
+	if row < 1 {
+		return 0
+	}
+	id, err := w.f.GetCellStyle(sheet, cellName(col, row))
+	if err != nil {
+		return 0
+	}
+	return id
+}
+
+// styleWrittenCell styles a cell written into an existing sheet, outside a
+// freshly styled table. base is the style the cell inherits: the cell
+// above for an appended row, its own style for an updated one. A time
+// under a base without a date format gets base with a date number format,
+// so the date shows as a date and keeps the base's borders and fill; any
+// other value takes base as it is. pinned is the column's pinned type, if
+// any, which decides between a date and a date-time format.
+func (w *file) styleWrittenCell(sheet string, col, row, base int, value any, pinned ColumnType) {
+	cell := cellName(col, row)
+	if t, ok := value.(time.Time); ok && (base == 0 || w.styleKind(base) == kindNumber) {
+		if id := w.datedStyle(base, kindFor(t, pinned)); id != 0 {
+			_ = w.f.SetCellStyle(sheet, cell, cell, id)
+		}
+		return
+	}
+	if base != 0 {
+		_ = w.f.SetCellStyle(sheet, cell, cell, base)
+	}
+}
+
+// datedStyle returns a style like base with the number format of kind,
+// made once per base and kind for the life of the open workbook. Zero
+// means no style could be made.
+func (w *file) datedStyle(base int, kind ColumnType) int {
+	key := datedKey{base: base, kind: kind}
+	if id, ok := w.dated[key]; ok {
+		return id
+	}
+	id := 0
+	if style := kindStyle(kind); style != nil {
+		if base != 0 {
+			if existing, err := w.f.GetStyle(base); err == nil && existing != nil {
+				existing.NumFmt = style.NumFmt
+				existing.CustomNumFmt = style.CustomNumFmt
+				style = existing
+			}
+		}
+		if made, err := w.f.NewStyle(style); err == nil {
+			id = made
+		}
+	}
+	if w.dated == nil {
+		w.dated = map[datedKey]int{}
+	}
+	w.dated[key] = id
+	return id
 }

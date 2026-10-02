@@ -632,3 +632,192 @@ func TestWithLockRetry(t *testing.T) {
 	})
 	require.True(t, errors.Is(err, context.Canceled))
 }
+
+func TestShortDefinedNameWinsOverBareColumn(t *testing.T) {
+	t.Parallel()
+	f := excelize.NewFile()
+	setRow(t, f, "Sheet1", "A1", "k", "v")
+	setRow(t, f, "Sheet1", "A2", "a", 1)
+	setRow(t, f, "Sheet1", "A3", "b", 2)
+	require.NoError(t, f.SetDefinedName(&excelize.DefinedName{Name: "Tax", RefersTo: "Sheet1!$A$1:$B$2"}))
+	path := saveBook(t, f, "names.xlsx")
+
+	named, err := Read(context.Background(), path, ReadOptions{Range: "Tax"})
+	require.NoError(t, err)
+	assert.Equal(t, "Sheet1!A1:B2", named.Range, "a short name is a defined name, not column TAX")
+	assert.Equal(t, 1, named.Count)
+
+	column, err := Read(context.Background(), path, ReadOptions{Range: "B"})
+	require.NoError(t, err)
+	assert.Equal(t, "Sheet1!B1:B3", column.Range, "a letter with no matching name is still a column")
+}
+
+func TestRangeRejectsRowZero(t *testing.T) {
+	t.Parallel()
+	path := saveBook(t, excelize.NewFile(), "zero.xlsx")
+	for _, ref := range []string{"A0", "A1:B0", "A0:B2"} {
+		_, err := Read(context.Background(), path, ReadOptions{Range: ref})
+		require.ErrorContains(t, err, "is not a row number", ref)
+	}
+}
+
+func TestDuplicateHeadersGetUnusedSuffixes(t *testing.T) {
+	t.Parallel()
+	f := excelize.NewFile()
+	setRow(t, f, "Sheet1", "A1", "Name", "Name", "Name_2", RowNumberKey)
+	setRow(t, f, "Sheet1", "A2", "a", "b", "c", "d")
+	path := saveBook(t, f, "dup.xlsx")
+
+	result, err := Read(context.Background(), path, ReadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Name", "Name_2", "Name_2_2", "_row_2"}, result.Headers)
+	assert.Equal(t, "a", result.Rows[0]["Name"])
+	assert.Equal(t, "b", result.Rows[0]["Name_2"])
+	assert.Equal(t, "c", result.Rows[0]["Name_2_2"])
+	assert.Equal(t, "d", result.Rows[0]["_row_2"], "a header spelled _row does not shadow the row number")
+	assert.Equal(t, 2, result.Rows[0][RowNumberKey])
+}
+
+func TestHeaderRowMustBeInsideTheRange(t *testing.T) {
+	t.Parallel()
+	f := excelize.NewFile()
+	setRow(t, f, "Sheet1", "A1", "h")
+	setRow(t, f, "Sheet1", "A2", 1)
+	path := saveBook(t, f, "range.xlsx")
+	_, err := Read(context.Background(), path, ReadOptions{Range: "A1:A2", Header: HeaderSpec{Mode: HeaderRows, Rows: []int{3}}})
+	require.ErrorContains(t, err, "header row 3 is outside Sheet1!A1:A2")
+}
+
+func TestDuplicateColumnAliasesAreRejected(t *testing.T) {
+	t.Parallel()
+	_, err := ParseColumns([]any{"a: x", "b: x"})
+	require.ErrorContains(t, err, `duplicate output name "x"`)
+}
+
+func TestFormulasCalculateRecomputesCachedCells(t *testing.T) {
+	t.Parallel()
+	// The cache says 5 but the formula is 1+2.
+	path := rawBook(t, `<sheetData><row r="1">`+inline("A1", "f")+`</row><row r="2"><c r="A2"><f>1+2</f><v>5</v></c></row></sheetData>`)
+	cached, err := Read(context.Background(), path, ReadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, int64(5), cached.Rows[0]["f"])
+	fresh, err := Read(context.Background(), path, ReadOptions{Formulas: FormulaCalculate})
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), fresh.Rows[0]["f"])
+}
+
+func TestCoerceRejectsNonFiniteAndOutOfRange(t *testing.T) {
+	t.Parallel()
+	for _, bad := range []string{"NaN", "Inf", "-Inf"} {
+		_, err := coerce(bad, TypeNumber, false)
+		require.Error(t, err, bad)
+	}
+	_, err := coerce("1e30", TypeInteger, false)
+	require.ErrorContains(t, err, "expected integer")
+	v, err := coerce("12", TypeInteger, false)
+	require.NoError(t, err)
+	assert.Equal(t, int64(12), v)
+}
+
+func TestPinnedDateHonorsThe1904Epoch(t *testing.T) {
+	t.Parallel()
+	f := excelize.NewFile()
+	yes := true
+	require.NoError(t, f.SetWorkbookProps(&excelize.WorkbookPropsOptions{Date1904: &yes}))
+	setRow(t, f, "Sheet1", "A1", "serial")
+	setRow(t, f, "Sheet1", "A2", 1)
+	path := saveBook(t, f, "serial1904.xlsx")
+	result, err := Read(context.Background(), path, ReadOptions{Types: map[string]ColumnType{"serial": TypeDate}})
+	require.NoError(t, err)
+	assert.Equal(t, "1904-01-02", result.Rows[0]["serial"])
+}
+
+func TestElapsedTimeFormat46StaysNumeric(t *testing.T) {
+	t.Parallel()
+	f := excelize.NewFile()
+	setRow(t, f, "Sheet1", "A1", "elapsed")
+	setStyled(t, f, "Sheet1", "A2", 1.5, &excelize.Style{NumFmt: 46})
+	path := saveBook(t, f, "elapsed.xlsx")
+	result, err := Read(context.Background(), path, ReadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, 1.5, result.Rows[0]["elapsed"], "36 hours is a day and a half, not 12:00:00")
+}
+
+func TestLeadingBlankRowsDoNotConsumeMaxRows(t *testing.T) {
+	t.Parallel()
+	f := excelize.NewFile()
+	setRow(t, f, "Sheet1", "A1", "n")
+	setRow(t, f, "Sheet1", "A4", 1)
+	setRow(t, f, "Sheet1", "A5", 2)
+	path := saveBook(t, f, "gaps.xlsx")
+
+	result, err := Read(context.Background(), path, ReadOptions{Range: "A1:A5", MaxRows: 2})
+	require.NoError(t, err)
+	assert.Equal(t, 4, result.Count, "the two blank rows before the data are kept as null rows and do not count")
+	assert.Nil(t, result.Rows[0]["n"])
+	assert.Equal(t, int64(2), result.Rows[3]["n"])
+	assert.False(t, result.Truncated)
+
+	kept, err := Read(context.Background(), path, ReadOptions{Range: "A1:A5", MaxRows: 2, KeepEmptyRows: true})
+	require.NoError(t, err)
+	assert.Equal(t, 2, kept.Count, "with keep_empty_rows the blanks are rows like any other")
+	assert.True(t, kept.Truncated)
+}
+
+func TestStopAtBlankUsesResolvedValues(t *testing.T) {
+	t.Parallel()
+	f := excelize.NewFile()
+	const s = "Sheet1"
+	setRow(t, f, s, "A1", "Customer", "Order")
+	setRow(t, f, s, "A2", "ACME", 1)
+	setRow(t, f, s, "A3", nil, 2)
+	require.NoError(t, f.MergeCell(s, "A2", "A3"))
+	setRow(t, f, s, "A5", "Other", 3)
+	path := saveBook(t, f, "merged-stop.xlsx")
+	result, err := Read(context.Background(), path, ReadOptions{StopAtBlank: true})
+	require.NoError(t, err)
+	assert.Equal(t, 2, result.Count, "row 3 is filled by the merge and row 4 is the first blank")
+}
+
+func TestFitRowsKeepsTheLongestFittingPrefix(t *testing.T) {
+	t.Parallel()
+	rows := []Row{{"a": "x"}, {"a": "y"}, {"a": strings.Repeat("z", 10_000)}}
+	kept, truncated := FitRows(rows, encodedSize(rows[:2])+1)
+	assert.True(t, truncated)
+	assert.Len(t, kept, 2, "two small rows fit even though the third is huge")
+}
+
+func TestStaleDimensionDoesNotWidenTheUsedRange(t *testing.T) {
+	t.Parallel()
+	f := excelize.NewFile()
+	require.NoError(t, f.SetSheetRow("Sheet1", "A1", &[]any{"id", "name"}))
+	require.NoError(t, f.SetSheetRow("Sheet1", "A2", &[]any{1, "a"}))
+	// A formula far below the text has no cached value but is a cell all
+	// the same, so the used range reaches it whatever the dimension says.
+	require.NoError(t, f.SetCellFormula("Sheet1", "A400", "A2*2"))
+	require.NoError(t, f.SetSheetDimension("Sheet1", "A1:A1"))
+	near := saveBook(t, f, "near.xlsx")
+	w, err := open(near, "")
+	require.NoError(t, err)
+	used, err := w.usedRange("Sheet1")
+	require.NoError(t, err)
+	w.close()
+	assert.Equal(t, "Sheet1!A1:B400", used.String())
+
+	// A dimension claiming the whole sheet is stale and ignored, so a read
+	// stays proportional to the data.
+	g := excelize.NewFile()
+	require.NoError(t, g.SetSheetRow("Sheet1", "A1", &[]any{"id", "name"}))
+	require.NoError(t, g.SetSheetRow("Sheet1", "A2", &[]any{1, "a"}))
+	require.NoError(t, g.SetSheetDimension("Sheet1", "A1:XFD1048576"))
+	stale := saveBook(t, g, "stale.xlsx")
+	w, err = open(stale, "")
+	require.NoError(t, err)
+	used, err = w.usedRange("Sheet1")
+	require.NoError(t, err)
+	w.close()
+	assert.Equal(t, "Sheet1!A1:B2", used.String())
+	result, err := Read(context.Background(), stale, ReadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.Count)
+}

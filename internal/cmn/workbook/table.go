@@ -33,38 +33,16 @@ func DecodeRows(value any, columns any) (Table, error) {
 	if err != nil {
 		return Table{}, err
 	}
-	var jsonOrder []string
-	if text, ok := value.(string); ok {
-		trimmed := strings.TrimSpace(text)
-		if !looksLikeJSON(trimmed) {
-			return Table{}, fmt.Errorf("rows must be a JSON array of objects or arrays")
-		}
-		// A foreach aggregate carries the rows in its outputs list; take
-		// that list's text so key order comes from the collected objects.
-		if outputs, ok := foreachOutputsJSON(trimmed); ok {
-			trimmed = outputs
-		}
-		decoded, err := decodeJSON(trimmed)
-		if err != nil {
-			return Table{}, fmt.Errorf("rows: %w", err)
-		}
-		jsonOrder = jsonKeyOrder(trimmed)
-		value = decoded
-	}
-	value = unwrapForeachOutput(value)
-	list, ok := value.([]any)
-	if !ok {
-		if value == nil {
-			return Table{}, fmt.Errorf("rows must be a list")
-		}
-		list = []any{value}
+	list, jsonText, err := rowList(value, "objects or arrays")
+	if err != nil {
+		return Table{}, err
 	}
 	if len(list) == 0 {
 		return Table{Columns: order, Rows: [][]any{}}, nil
 	}
 	switch list[0].(type) {
 	case map[string]any:
-		return objectsToTable(list, order, jsonOrder)
+		return objectsToTable(list, order, jsonKeyOrder(jsonText))
 	case []any:
 		return arraysToTable(list, order)
 	default:
@@ -293,85 +271,6 @@ func csvToTable(r io.Reader, columns any) (Table, error) {
 // says so.
 func csvValue(s string) any {
 	return s
-}
-
-// unwrapForeachOutput lets rows be the aggregate output of a foreach step
-// by taking its outputs list: the collect maps of the item bodies that
-// succeeded, in item order. Only the exact foreach shape is unwrapped, so
-// an ordinary row that happens to have fields named summary, items, and
-// outputs is left alone.
-func unwrapForeachOutput(value any) any {
-	obj, ok := value.(map[string]any)
-	if !ok || !isForeachAggregate(obj) {
-		return value
-	}
-	return obj["outputs"]
-}
-
-// isForeachAggregate recognizes the aggregate a foreach step publishes and
-// nothing else: exactly a summary object with numeric total, succeeded, and
-// failed, an items list, and an outputs list.
-func isForeachAggregate(obj map[string]any) bool {
-	// Exactly the three fields: a row carrying any other field is a row.
-	if len(obj) != 3 {
-		return false
-	}
-	summary, ok := obj["summary"].(map[string]any)
-	if !ok || !isForeachSummary(summary) {
-		return false
-	}
-	if _, ok := obj["items"].([]any); !ok {
-		return false
-	}
-	_, ok = obj["outputs"].([]any)
-	return ok
-}
-
-// isForeachSummary reports whether summary has the numeric total,
-// succeeded, and failed counts of a foreach aggregate.
-func isForeachSummary(summary map[string]any) bool {
-	for _, field := range []string{"total", "succeeded", "failed"} {
-		if _, isNumber := toFloatStrict(summary[field]); !isNumber {
-			return false
-		}
-	}
-	return true
-}
-
-// foreachOutputsJSON returns the text of the outputs list when text is a
-// foreach aggregate, so the collected objects keep their key order. Only
-// an object is decoded, so a rows array, the common case, does not pay
-// for the attempt. The envelope is read once as a map keyed by the decoded
-// field names, so an escaped spelling of a name still counts and a field
-// that differs only in case cannot stand in for outputs.
-func foreachOutputsJSON(text string) (string, bool) {
-	if !strings.HasPrefix(text, "{") {
-		return "", false
-	}
-	var envelope map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(text), &envelope); err != nil || len(envelope) != 3 {
-		return "", false
-	}
-	for _, field := range []string{"summary", "items", "outputs"} {
-		if _, ok := envelope[field]; !ok {
-			return "", false
-		}
-	}
-	var summary map[string]any
-	if err := json.Unmarshal(envelope["summary"], &summary); err != nil {
-		return "", false
-	}
-	items, outputs := envelope["items"], envelope["outputs"]
-	if !isForeachSummary(summary) || !startsWithList(items) || !startsWithList(outputs) {
-		return "", false
-	}
-	return string(outputs), true
-}
-
-// startsWithList reports whether a JSON value is an array.
-func startsWithList(raw json.RawMessage) bool {
-	trimmed := strings.TrimSpace(string(raw))
-	return strings.HasPrefix(trimmed, "[")
 }
 
 // normalizeScalar maps every integer and float kind a YAML or JSON decoder

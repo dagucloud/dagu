@@ -102,6 +102,8 @@ type file struct {
 	sheets   []string
 	kinds    map[int]cellKind
 	grids    map[string][][]string
+	// dated memoizes styles derived for dates written into plain cells.
+	dated map[datedKey]int
 }
 
 func open(path, password string) (*file, error) {

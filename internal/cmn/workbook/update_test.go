@@ -218,3 +218,31 @@ func TestParseSetAndDecodeUpdateRows(t *testing.T) {
 	_, err = DecodeUpdateRows("nope")
 	require.Error(t, err)
 }
+
+func TestUpdateRowsAbsentFieldLeavesCellAndNullClears(t *testing.T) {
+	t.Parallel()
+	path := ordersBook(t)
+	rows := []Row{
+		{"Invoice No": "INV-2", "Amount": nil},             // explicit null clears
+		{"Invoice No": "INV-3", "Status": "Checked"},       // Amount absent, left alone
+		{"Invoice No": "INV-1", "Amount": "10", "Due": ""}, // "10" differs from 10 by type
+	}
+	result, err := UpdateRows(context.Background(), path, UpdateOptions{Key: "Invoice No", Rows: rows})
+	require.NoError(t, err)
+	back, err := Read(context.Background(), path, ReadOptions{})
+	require.NoError(t, err)
+	assert.Nil(t, back.Rows[1]["Amount"])
+	assert.Equal(t, int64(30), back.Rows[2]["Amount"])
+	assert.Equal(t, "Checked", back.Rows[2]["Status"])
+	assert.Equal(t, "10", back.Rows[0]["Amount"], "a text 10 replaces the number 10")
+	assert.Nil(t, back.Rows[0]["Due"], "an empty string clears like null")
+	assert.Equal(t, 3, result.Changes.RowsUpdated)
+}
+
+func TestUpdateRowsRejectsTwoInputsForOneRow(t *testing.T) {
+	t.Parallel()
+	path := ordersBook(t)
+	rows := []Row{{"Invoice No": "INV-1", "Status": "a"}, {"Invoice No": "INV-1", "Status": "b"}}
+	_, err := UpdateRows(context.Background(), path, UpdateOptions{Key: "Invoice No", Rows: rows})
+	require.ErrorContains(t, err, "rows[0] and rows[1] both address row 2")
+}

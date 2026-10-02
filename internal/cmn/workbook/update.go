@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 )
 
 // SetValue says where an updated column's value comes from: a field of
@@ -92,25 +91,9 @@ func ParseSet(v any) (map[string]SetValue, error) {
 // objects, as a step output or a loop item arrives. A _row value becomes
 // an int.
 func DecodeUpdateRows(value any) ([]Row, error) {
-	if text, ok := value.(string); ok {
-		trimmed := strings.TrimSpace(text)
-		if !looksLikeJSON(trimmed) {
-			return nil, fmt.Errorf("rows must be a JSON array of objects")
-		}
-		decoded, err := decodeJSON(trimmed)
-		if err != nil {
-			return nil, fmt.Errorf("rows: %w", err)
-		}
-		value = decoded
-	}
-	value = unwrapForeachOutput(value)
-	list, ok := value.([]any)
-	if !ok {
-		if obj, ok := value.(map[string]any); ok {
-			list = []any{obj}
-		} else {
-			return nil, fmt.Errorf("rows must be a list of objects")
-		}
+	list, _, err := rowList(value, "objects")
+	if err != nil {
+		return nil, err
 	}
 	rows := make([]Row, 0, len(list))
 	for i, item := range list {
@@ -160,6 +143,16 @@ type updatePlan struct {
 	grid      [][]string
 	merges    mergeFill
 	headerRow int
+}
+
+// appendBase is the row whose styles appended rows inherit: the last data
+// row, or zero when the sheet has no data rows yet, so a header's bold
+// never spreads into new rows.
+func (p *updatePlan) appendBase() int {
+	if p.reg.R2 >= p.layout.dataStart {
+		return p.reg.R2
+	}
+	return 0
 }
 
 type setColumn struct {
@@ -236,7 +229,7 @@ func updateOnce(ctx context.Context, path string, opts UpdateOptions) (*WriteRes
 			if err := w.setCell(plan.sheet, plan.keyCol, lastRow, input[opts.Key]); err != nil {
 				return nil, err
 			}
-			w.copyStyleAbove(plan.sheet, plan.keyCol, lastRow)
+			w.styleWrittenCell(plan.sheet, plan.keyCol, lastRow, w.styleAt(plan.sheet, plan.keyCol, plan.appendBase()), input[opts.Key], "")
 			result.Changes.CellsChanged++
 		}
 		changed, err := w.applyRow(plan, lastRow, input, true)
@@ -526,42 +519,14 @@ func (w *file) applyRow(plan *updatePlan, row int, input Row, appended bool) (in
 		if err := w.setCell(plan.sheet, sc.column, row, out); err != nil {
 			return 0, err
 		}
+		base := w.styleAt(plan.sheet, sc.column, row)
 		if appended {
-			w.copyStyleAbove(plan.sheet, sc.column, row)
+			base = w.styleAt(plan.sheet, sc.column, plan.appendBase())
 		}
-		w.ensureDateStyle(plan.sheet, sc.column, row, out)
+		w.styleWrittenCell(plan.sheet, sc.column, row, base, out, "")
 		changed++
 	}
 	return changed, nil
-}
-
-func (w *file) copyStyleAbove(sheet string, col, row int) {
-	if row <= 1 {
-		return
-	}
-	if style, err := w.f.GetCellStyle(sheet, cellName(col, row-1)); err == nil && style != 0 {
-		_ = w.f.SetCellStyle(sheet, cellName(col, row), cellName(col, row), style)
-	}
-}
-
-// ensureDateStyle gives a cell that received a time a date format when its
-// current style is not one, so the date shows as a date rather than a
-// serial number.
-func (w *file) ensureDateStyle(sheet string, col, row int, value any) {
-	t, ok := value.(time.Time)
-	if !ok {
-		return
-	}
-	cell := cellName(col, row)
-	style, err := w.f.GetCellStyle(sheet, cell)
-	if err == nil && style != 0 && w.styleKind(style) != kindNumber {
-		return
-	}
-	if s := kindStyle(kindFor(t, "")); s != nil {
-		if id, err := w.f.NewStyle(s); err == nil {
-			_ = w.f.SetCellStyle(sheet, cell, cell, id)
-		}
-	}
 }
 
 func joinInts(values []int) string {
