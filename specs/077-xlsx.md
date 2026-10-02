@@ -127,10 +127,10 @@ file, or a `.csv` with a header line; `format` overrides the extension. A
 A missing workbook is created. A `sheet` that does not exist is created; an
 existing sheet is replaced (`mode: replace`, the default) or extended
 (`mode: append`). A replaced sheet is cleared in place: its merged regions
-and tables are removed and its used cells emptied of values and styles,
-while the sheet itself, its position, the defined names scoped to it, and
-formulas on other sheets that refer to it stay valid. Other sheets, column
-widths, styles, and defined names are untouched. An AutoFilter on the
+and tables are removed and its used cells emptied of values, styles, and
+hyperlinks, while the sheet itself, its position, the defined names scoped
+to it, and formulas on other sheets that refer to it stay valid. Other
+sheets, column widths, styles, and defined names are untouched. An AutoFilter on the
 replaced sheet stays in place, as the underlying library offers no way to
 remove one.
 

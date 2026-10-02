@@ -308,10 +308,14 @@ func unwrapForeachOutput(value any) any {
 	return obj["outputs"]
 }
 
-// isForeachAggregate recognizes the aggregate a foreach step publishes:
-// a summary object with numeric total, succeeded, and failed, an items
-// list, and an outputs list.
+// isForeachAggregate recognizes the aggregate a foreach step publishes and
+// nothing else: exactly a summary object with numeric total, succeeded, and
+// failed, an items list, and an outputs list.
 func isForeachAggregate(obj map[string]any) bool {
+	// Exactly the three fields: a row carrying any other field is a row.
+	if len(obj) != 3 {
+		return false
+	}
 	summary, ok := obj["summary"].(map[string]any)
 	if !ok {
 		return false
@@ -329,21 +333,19 @@ func isForeachAggregate(obj map[string]any) bool {
 }
 
 // foreachOutputsJSON returns the text of the outputs list when text is a
-// foreach aggregate, so the collected objects keep their key order.
+// foreach aggregate, so the collected objects keep their key order. The
+// envelope is read as a map keyed by the exact field names, so a field
+// that differs only in case cannot stand in for outputs.
 func foreachOutputsJSON(text string) (string, bool) {
-	var envelope struct {
-		Summary json.RawMessage `json:"summary"`
-		Items   json.RawMessage `json:"items"`
-		Outputs json.RawMessage `json:"outputs"`
-	}
-	if err := json.Unmarshal([]byte(text), &envelope); err != nil || len(envelope.Outputs) == 0 {
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(text), &envelope); err != nil || len(envelope["outputs"]) == 0 {
 		return "", false
 	}
 	var decoded map[string]any
 	if err := json.Unmarshal([]byte(text), &decoded); err != nil || !isForeachAggregate(decoded) {
 		return "", false
 	}
-	return string(envelope.Outputs), true
+	return string(envelope["outputs"]), true
 }
 
 // normalizeScalar maps every integer and float kind a YAML or JSON decoder

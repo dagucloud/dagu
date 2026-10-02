@@ -387,6 +387,40 @@ func TestClearedSheetDropsOldStyles(t *testing.T) {
 	assert.Equal(t, 0, id, "cells outside the new block lose their old style too")
 }
 
+func TestClearedSheetDropsStyledEmptyCellsAndHyperlinks(t *testing.T) {
+	t.Parallel()
+	f := excelize.NewFile()
+	bold := styleID(t, f, &excelize.Style{Font: &excelize.Font{Bold: true}})
+	require.NoError(t, f.SetSheetRow("Sheet1", "A1", &[]any{"id"}))
+	require.NoError(t, f.SetSheetRow("Sheet1", "A2", &[]any{"one"}))
+	require.NoError(t, f.SetCellHyperLink("Sheet1", "A2", "https://example.com/one", "External"))
+	// B1 and C3 carry a style and no value, as Excel writes a formatted but
+	// empty cell, and the dimension Excel keeps covers them.
+	require.NoError(t, f.SetCellStyle("Sheet1", "B1", "B1", bold))
+	require.NoError(t, f.SetCellStyle("Sheet1", "C3", "C3", bold))
+	require.NoError(t, f.SetSheetDimension("Sheet1", "A1:C3"))
+	path := saveBook(t, f, "linked.xlsx")
+
+	numbers := Table{Columns: []string{"id", "n"}, Rows: [][]any{{"two", int64(2)}}}
+	_, err := Write(context.Background(), path, numbers, WriteOptions{Header: true, Style: StyleNone})
+	require.NoError(t, err)
+
+	g, err := excelize.OpenFile(path)
+	require.NoError(t, err)
+	defer func() { _ = g.Close() }()
+	for _, cell := range []string{"B1", "C3"} {
+		id, err := g.GetCellStyle("Sheet1", cell)
+		require.NoError(t, err)
+		assert.Equal(t, 0, id, "%s: a styled empty cell loses its style", cell)
+	}
+	linked, _, err := g.GetCellHyperLink("Sheet1", "A2")
+	require.NoError(t, err)
+	assert.False(t, linked, "the old hyperlink does not attach to the new text")
+	value, err := g.GetCellValue("Sheet1", "A2")
+	require.NoError(t, err)
+	assert.Equal(t, "two", value)
+}
+
 func TestForeachAggregateKeepsKeyOrder(t *testing.T) {
 	t.Parallel()
 	aggregate := `{"summary": {"total": 1, "succeeded": 1, "failed": 0}, "items": [{"index": 0, "key": "a", "status": "succeeded"}], "outputs": [{"zeta": 1, "alpha": 2}]}`
@@ -401,6 +435,21 @@ func TestForeachAggregateKeepsKeyOrder(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	assert.Equal(t, "quarterly", rows[0]["summary"])
+
+	// A row with the exact foreach fields plus one of its own is a row too:
+	// the aggregate has nothing but those three fields.
+	extra := `{"order_id": 42, "summary": {"total": 1, "succeeded": 1, "failed": 0}, "items": [], "outputs": []}`
+	table, err = DecodeRows(extra, nil)
+	require.NoError(t, err)
+	require.Len(t, table.Rows, 1)
+	assert.ElementsMatch(t, []string{"order_id", "summary", "items", "outputs"}, table.Columns)
+
+	// A field differing only in case is another field, not the outputs.
+	cased := `{"summary": {"total": 1, "succeeded": 1, "failed": 0}, "items": [], "outputs": [{"a": 1}], "Outputs": [{"b": 2}]}`
+	table, err = DecodeRows(cased, nil)
+	require.NoError(t, err)
+	require.Len(t, table.Rows, 1, "four fields make it a row, not an aggregate")
+	assert.Contains(t, table.Columns, "Outputs")
 }
 
 func TestStaleDimensionDoesNotWidenTheUsedRange(t *testing.T) {
@@ -408,17 +457,17 @@ func TestStaleDimensionDoesNotWidenTheUsedRange(t *testing.T) {
 	f := excelize.NewFile()
 	require.NoError(t, f.SetSheetRow("Sheet1", "A1", &[]any{"id", "name"}))
 	require.NoError(t, f.SetSheetRow("Sheet1", "A2", &[]any{1, "a"}))
-	// A formula two rows down has no cached value but occupies its cell, so
-	// a dimension a little past the text is trusted.
-	require.NoError(t, f.SetCellFormula("Sheet1", "A4", "A2*2"))
-	require.NoError(t, f.SetSheetDimension("Sheet1", "A1:B4"))
+	// A formula far below the text has no cached value but is a cell all
+	// the same, so the used range reaches it whatever the dimension says.
+	require.NoError(t, f.SetCellFormula("Sheet1", "A400", "A2*2"))
+	require.NoError(t, f.SetSheetDimension("Sheet1", "A1:A1"))
 	near := saveBook(t, f, "near.xlsx")
 	w, err := open(near, "")
 	require.NoError(t, err)
 	used, err := w.usedRange("Sheet1")
 	require.NoError(t, err)
 	w.close()
-	assert.Equal(t, "Sheet1!A1:B4", used.String())
+	assert.Equal(t, "Sheet1!A1:B400", used.String())
 
 	// A dimension claiming the whole sheet is stale and ignored, so a read
 	// stays proportional to the data.

@@ -144,19 +144,11 @@ func (w *file) closeRegion(reg region) (region, error) {
 	return reg, nil
 }
 
-// A stored dimension may widen the used range by at most this many rows and
-// columns past the last cell with text. A formula without a cached value
-// has no text yet still occupies its cell, so a slightly larger dimension
-// is trusted; one claiming a whole sheet is stale and ignored.
-const (
-	dimensionRowSlack    = 256
-	dimensionColumnSlack = 64
-)
-
-// usedRange returns A1 to the last cell that holds anything, or A1:A1 for
-// an empty sheet. It is computed from the cells, because a workbook written
-// by another program may leave the stored dimension stale, and widened to
-// the stored dimension only when that is close to the data.
+// usedRange returns A1 to the last cell the sheet holds a value or formula
+// in, or A1:A1 for an empty sheet. It comes from the cells themselves, not
+// the stored dimension, which a workbook written by another program may
+// leave stale or claiming a whole sheet. A formula without a cached value
+// has no text but is a cell all the same, so it counts.
 func (w *file) usedRange(sheet string) (region, error) {
 	grid, err := w.grid(sheet)
 	if err != nil {
@@ -164,25 +156,35 @@ func (w *file) usedRange(sheet string) (region, error) {
 	}
 	reg := region{Sheet: sheet, C1: 1, R1: 1, C2: 1, R2: 1}
 	for r := 1; r < len(grid); r++ {
-		for c := len(grid[r]) - 1; c >= 1; c-- {
-			if grid[r][c] != "" {
-				reg.R2 = max(reg.R2, r)
-				reg.C2 = max(reg.C2, c)
-				break
-			}
-		}
-	}
-	if dim, err := w.f.GetSheetDimension(sheet); err == nil {
-		if m := cellRangePattern.FindStringSubmatch(strings.TrimSpace(dim)); m != nil && m[3] != "" && m[4] != "" {
-			if c2, err := excelize.ColumnNameToNumber(strings.ToUpper(m[3])); err == nil && c2 <= reg.C2+dimensionColumnSlack {
-				reg.C2 = max(reg.C2, c2)
-			}
-			if r2, err := rowNumber(m[4]); err == nil && r2 <= reg.R2+dimensionRowSlack {
-				reg.R2 = max(reg.R2, r2)
-			}
+		if cells := len(grid[r]) - 1; cells >= 1 {
+			reg.R2 = max(reg.R2, r)
+			reg.C2 = max(reg.C2, cells)
 		}
 	}
 	return reg, nil
+}
+
+// storedDimension returns the sheet's stored dimension when it names a
+// closed range, which Excel keeps up to date and which covers cells that
+// only carry a style.
+func (w *file) storedDimension(sheet string) (region, bool) {
+	dim, err := w.f.GetSheetDimension(sheet)
+	if err != nil {
+		return region{}, false
+	}
+	m := cellRangePattern.FindStringSubmatch(strings.TrimSpace(dim))
+	if m == nil || m[3] == "" || m[4] == "" {
+		return region{}, false
+	}
+	c2, err := excelize.ColumnNameToNumber(strings.ToUpper(m[3]))
+	if err != nil {
+		return region{}, false
+	}
+	r2, err := rowNumber(m[4])
+	if err != nil {
+		return region{}, false
+	}
+	return region{Sheet: sheet, C1: 1, R1: 1, C2: c2, R2: r2}, true
 }
 
 func (w *file) definedNameRegion(sheet, name string) (region, bool, error) {

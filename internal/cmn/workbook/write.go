@@ -230,11 +230,18 @@ func (w *file) targetSheet(name string, created bool) (string, error) {
 	return name, nil
 }
 
+// clearCellBudget caps the rectangle clearSheet sweeps. Within it every
+// cell of the stored dimension is cleared, which also catches cells that
+// only carry a style; beyond it only cells holding a value or formula are
+// cleared, so a sparse sheet with one far cell does not cost a sweep of
+// the whole grid.
+const clearCellBudget = 1 << 20
+
 // clearSheet empties a sheet in place: its merged regions and tables are
-// removed and every used cell is emptied, while the sheet itself, its
-// position, the defined names scoped to it, and formulas on other sheets
-// that refer to it by name all stay valid. Deleting and recreating the
-// sheet would lose those.
+// removed and every used cell loses its value, style, and hyperlink, while
+// the sheet itself, its position, the defined names scoped to it, and
+// formulas on other sheets that refer to it by name all stay valid.
+// Deleting and recreating the sheet would lose those.
 func (w *file) clearSheet(name string) error {
 	merges, err := w.f.GetMergeCells(name, true)
 	if err != nil {
@@ -252,26 +259,54 @@ func (w *file) clearSheet(name string) error {
 			}
 		}
 	}
-	// Only cells the sheet actually holds are touched, and each loses its
-	// value and its style, so a number written where a date column was is
-	// not shown as a date. The stored dimension may claim far more cells
-	// than exist; walking the grid keeps the clear proportional to the data.
 	grid, err := w.grid(name)
 	if err != nil {
 		return err
 	}
-	for r := 1; r < len(grid); r++ {
-		for c := 1; c < len(grid[r]); c++ {
-			cell := cellName(c, r)
-			if err := w.f.SetCellDefault(name, cell, ""); err != nil {
-				return w.cellError(name, c, r, err.Error())
+	used, err := w.usedRange(name)
+	if err != nil {
+		return err
+	}
+	// The stored dimension, when Excel kept it, also covers cells that hold
+	// only a style; it is swept when the rectangle stays within budget.
+	if dim, ok := w.storedDimension(name); ok && dim.R2*dim.C2 <= clearCellBudget {
+		used.R2 = max(used.R2, dim.R2)
+		used.C2 = max(used.C2, dim.C2)
+	}
+	if used.R2*used.C2 <= clearCellBudget {
+		for r := 1; r <= used.R2; r++ {
+			for c := 1; c <= used.C2; c++ {
+				if err := w.clearCell(name, c, r); err != nil {
+					return err
+				}
 			}
-			if err := w.f.SetCellStyle(name, cell, cell, 0); err != nil {
-				return w.cellError(name, c, r, err.Error())
+		}
+	} else {
+		for r := 1; r < len(grid); r++ {
+			for c := 1; c < len(grid[r]); c++ {
+				if err := w.clearCell(name, c, r); err != nil {
+					return err
+				}
 			}
 		}
 	}
 	w.forget(name)
+	return nil
+}
+
+// clearCell empties one cell: value and formula, style, and hyperlink. A
+// cell with none of those is left as it was and dropped on save.
+func (w *file) clearCell(name string, c, r int) error {
+	cell := cellName(c, r)
+	if err := w.f.SetCellDefault(name, cell, ""); err != nil {
+		return w.cellError(name, c, r, err.Error())
+	}
+	if err := w.f.SetCellStyle(name, cell, cell, 0); err != nil {
+		return w.cellError(name, c, r, err.Error())
+	}
+	if err := w.f.SetCellHyperLink(name, cell, "", "None"); err != nil {
+		return w.cellError(name, c, r, err.Error())
+	}
 	return nil
 }
 
