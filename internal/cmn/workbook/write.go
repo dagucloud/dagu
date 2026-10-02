@@ -123,23 +123,17 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 			return nil, err
 		}
 		empty := used.R2 == 1 && used.C2 == 1 && cellAt(mustGrid(w, sheet), 1, 1) == ""
-		// A sheet with no values may still hold styled cells, which the
-		// stored dimension reveals; a replace clears those too.
-		styledOnly := false
-		if dim, ok := w.storedDimension(sheet); ok && (dim.R2 > 1 || dim.C2 > 1) {
-			styledOnly = true
-		}
 		switch {
 		case opts.Mode == WriteAppend && !empty:
 			startRow = lastUsedRow(mustGrid(w, sheet), used) + 1
 		case opts.Mode == WriteAppend:
 			fresh = true
-		case !empty || styledOnly:
+		default:
+			// A replace clears every existing sheet, even one with no
+			// values: its cells may still carry styles or hyperlinks.
 			if err := w.clearSheet(sheet); err != nil {
 				return nil, err
 			}
-			fresh = true
-		default:
 			fresh = true
 		}
 	}

@@ -516,9 +516,35 @@ func TestSingleCellDimensionIsClearedOnReplace(t *testing.T) {
 
 func TestForeachAggregateWithEscapedKeyKeepsOrder(t *testing.T) {
 	t.Parallel()
-	// JSON may spell a key with escapes; the decoded name is what counts.
+	// JSON may spell a key with escapes; the decoded name is what counts,
+	// so the outputs key here is spelled with a \u escape.
 	aggregate := `{"summary": {"total": 1, "succeeded": 1, "failed": 0}, "items": [], "outputs": [{"z": 1, "a": 2}]}`
 	table, err := DecodeRows(aggregate, nil)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"z", "a"}, table.Columns)
+}
+
+func TestReplaceClearsAnA1OnlySheet(t *testing.T) {
+	t.Parallel()
+	f := excelize.NewFile()
+	bold := styleID(t, f, &excelize.Style{Font: &excelize.Font{Bold: true}})
+	// A1 holds a style and a hyperlink but no value, and the dimension is
+	// A1, so the sheet counts as empty for an append yet must still be
+	// cleared by a replace.
+	require.NoError(t, f.SetCellStyle("Sheet1", "A1", "A1", bold))
+	require.NoError(t, f.SetCellHyperLink("Sheet1", "A1", "https://example.com/old", "External"))
+	require.NoError(t, f.SetSheetDimension("Sheet1", "A1"))
+	path := saveBook(t, f, "a1only.xlsx")
+
+	_, err := Write(context.Background(), path, Table{Columns: []string{"id"}, Rows: [][]any{{int64(1)}}}, WriteOptions{Header: true, Style: StyleNone})
+	require.NoError(t, err)
+	g, err := excelize.OpenFile(path)
+	require.NoError(t, err)
+	defer func() { _ = g.Close() }()
+	id, err := g.GetCellStyle("Sheet1", "A1")
+	require.NoError(t, err)
+	assert.Equal(t, 0, id, "the old style does not survive the replace")
+	linked, _, err := g.GetCellHyperLink("Sheet1", "A1")
+	require.NoError(t, err)
+	assert.False(t, linked, "the old hyperlink does not attach to the new header")
 }
