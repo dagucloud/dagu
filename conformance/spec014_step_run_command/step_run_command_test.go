@@ -238,7 +238,11 @@ func TestCommandFormPowerShellWhenAvailable(t *testing.T) {
 	if out, err := exec.CommandContext(ctx, pwsh, "-NoProfile", "-NonInteractive", "-Command", "exit").CombinedOutput(); err != nil {
 		t.Fatalf("pwsh warm-up failed after %s: %v\n%s", time.Since(started).Round(time.Second), err, out)
 	}
-	budget := max(harness.WaitTimeout(t), 6*time.Since(started))
+	// The timed runs get the platform budget plus twice the warm-up, which
+	// a warm launch stays well inside, capped so a stalled dagu still fails
+	// within a few minutes.
+	wait := harness.WaitTimeout(t)
+	budget := min(wait+2*time.Since(started), 4*wait)
 
 	t.Run("UTF-8 output is stable", func(t *testing.T) {
 		dagu := harness.NewRunner(t).WithCommandTimeout(budget)
