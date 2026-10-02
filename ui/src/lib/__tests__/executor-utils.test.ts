@@ -98,4 +98,16 @@ describe('getExecutorCommand', () => {
 
     expect(getExecutorCommand(step)).toBe('mail: support@example.com');
   });
+
+  it('shows the workbook of an xlsx step', () => {
+    const step = {
+      name: 'read',
+      executorConfig: {
+        type: 'xlsx',
+        config: { path: 'orders.xlsx', sheet: 'Orders' },
+      },
+    } as components['schemas']['Step'];
+
+    expect(getExecutorCommand(step)).toBe('xlsx: orders.xlsx');
+  });
 });

@@ -210,6 +210,8 @@ Current builtin actions:
 | `mail.send` | Email sending | mail executor config |
 | `mail.search` | Email search over IMAP | `mailbox` and search filters |
 | `mail.organize` | Email marking and moving | `mailbox`, `emails`, `mark` or `move` |
+| `xlsx.read`, `xlsx.info`, `xlsx.list_sheets` | Workbook reading | `path`, optional `sheet`, `range`, `header`, `columns`, `types`, `where` |
+| `xlsx.write`, `xlsx.append`, `xlsx.update_rows` | Workbook writing | `path`, `rows` or `input`; `key` and `set` for update_rows |
 | `archive.create`, `archive.extract`, `archive.list` | Archive operations | archive config |
 | `file.stat`, `file.read`, `file.write`, `file.copy`, `file.move`, `file.delete`, `file.mkdir`, `file.list` | File operations | path/source/destination/content config |
 | `git.checkout` | Git repository checkout | `repository`, `path`, optional `ref`, `depth`, auth config |

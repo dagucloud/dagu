@@ -615,6 +615,8 @@ Dagu includes built-in actions that run within the Dagu process or on the select
 | `mail.send` | Send email via SMTP |
 | `mail.search` | Find email in an IMAP mailbox |
 | `mail.organize` | Mark, move, archive, or trash email |
+| `xlsx.read` / `xlsx.info` / `xlsx.list_sheets` | Read typed rows and describe `.xlsx` workbooks without a spreadsheet application |
+| `xlsx.write` / `xlsx.append` / `xlsx.update_rows` | Write reports, append rows, and write per-row results back into a workbook |
 | `template.render` | Text generation with template rendering |
 | `router.route` | Conditional step routing based on values and patterns |
 | `dag.run` | Invoke another DAG as a sub-workflow with params and dependencies |

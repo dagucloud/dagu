@@ -229,6 +229,22 @@ Clear the recorded `act` operations that computer steps replay, so the next run 
 dagu computer cache clear <dag> [--step <id>]
 ```
 
+### dagu xlsx inspect
+
+Describe every sheet of an `.xlsx` workbook: used range, detected data block, header row, column names and types, row count, tables, and a few typed sample rows, plus the workbook's named ranges and date system. It reads the file directly, needs no configuration or engine, and creates no run. `--sheet` limits the output to one sheet and `--rows` sets the sample size. `--format json` prints one object: `path`, `date_system`, `sheets` (each with `name`, `used_range`, `range`, `header_row`, `headers`, `types`, `row_count`, `tables`, `sample`), `named_ranges`, and `warnings`.
+
+```sh
+dagu xlsx inspect <path> [--sheet <name>] [--rows <n>] [--format json]
+```
+
+### dagu xlsx read
+
+Print the typed rows of a sheet the way `xlsx.read` publishes them: numbers stay numbers, dates become ISO 8601 text, text keeps its leading zeros, and each row carries `_row`. The flags mirror the action's fields: `--sheet`, `--range`, `--header` (`true`, `false`, a row number, or `3,4`), `--columns` (comma-separated, with `name:alias` renames), and `--max-rows`. The text format is tab-separated; `--format json` prints `rows`, `count`, `headers`, `sheet`, `range`, `warnings`, and `truncated`.
+
+```sh
+dagu xlsx read <path> [--sheet <name>] [--range A2:F] [--header false] [--columns "a,b:c"] [--max-rows <n>] [--format json]
+```
+
 ### dagu ps
 
 List running DAG processes.
