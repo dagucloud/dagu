@@ -4,6 +4,7 @@
 package spec014_step_run_command_test
 
 import (
+	"context"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -228,10 +229,14 @@ func TestCommandFormPowerShellWhenAvailable(t *testing.T) {
 	// import; on a loaded CI runner that has taken longer than the whole
 	// command budget while the next launch took a quarter of it. One
 	// warm-up launch keeps that cost out of the timed runs, and its
-	// duration sizes their budget so a slow runner still gets headroom.
+	// duration sizes their budget so a slow runner still gets headroom. The
+	// warm-up has a deadline of its own, so a stalled pwsh fails the test
+	// instead of hanging it.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*harness.WaitTimeout(t))
+	defer cancel()
 	started := time.Now()
-	if out, err := exec.Command(pwsh, "-NoProfile", "-NonInteractive", "-Command", "exit").CombinedOutput(); err != nil {
-		t.Fatalf("pwsh warm-up failed: %v\n%s", err, out)
+	if out, err := exec.CommandContext(ctx, pwsh, "-NoProfile", "-NonInteractive", "-Command", "exit").CombinedOutput(); err != nil {
+		t.Fatalf("pwsh warm-up failed after %s: %v\n%s", time.Since(started).Round(time.Second), err, out)
 	}
 	budget := max(harness.WaitTimeout(t), 6*time.Since(started))
 
