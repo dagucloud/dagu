@@ -129,7 +129,7 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 		case opts.Mode == WriteAppend:
 			fresh = true
 		case !empty:
-			if err := w.clearSheet(sheet, used); err != nil {
+			if err := w.clearSheet(sheet); err != nil {
 				return nil, err
 			}
 			fresh = true
@@ -235,7 +235,7 @@ func (w *file) targetSheet(name string, created bool) (string, error) {
 // position, the defined names scoped to it, and formulas on other sheets
 // that refer to it by name all stay valid. Deleting and recreating the
 // sheet would lose those.
-func (w *file) clearSheet(name string, used region) error {
+func (w *file) clearSheet(name string) error {
 	merges, err := w.f.GetMergeCells(name, true)
 	if err != nil {
 		return fmt.Errorf("%s %s: %w", w.base, name, err)
@@ -252,9 +252,21 @@ func (w *file) clearSheet(name string, used region) error {
 			}
 		}
 	}
-	for r := used.R1; r <= used.R2; r++ {
-		for c := used.C1; c <= used.C2; c++ {
-			if err := w.f.SetCellDefault(name, cellName(c, r), ""); err != nil {
+	// Only cells the sheet actually holds are touched, and each loses its
+	// value and its style, so a number written where a date column was is
+	// not shown as a date. The stored dimension may claim far more cells
+	// than exist; walking the grid keeps the clear proportional to the data.
+	grid, err := w.grid(name)
+	if err != nil {
+		return err
+	}
+	for r := 1; r < len(grid); r++ {
+		for c := 1; c < len(grid[r]); c++ {
+			cell := cellName(c, r)
+			if err := w.f.SetCellDefault(name, cell, ""); err != nil {
+				return w.cellError(name, c, r, err.Error())
+			}
+			if err := w.f.SetCellStyle(name, cell, cell, 0); err != nil {
 				return w.cellError(name, c, r, err.Error())
 			}
 		}
@@ -464,7 +476,9 @@ func (w *file) copyStylesFromAbove(sheet string, startRow, lastRow, columns int,
 		if above != 0 {
 			kind = w.styleKind(above)
 		}
-		dated := 0 // the above style with a date format, created on demand
+		// The above style with a date or date-time format, created on demand
+		// per kind so a column mixing dates and date-times keeps both.
+		dated := map[ColumnType]int{}
 		for r := startRow; r <= lastRow; r++ {
 			i := r - startRow
 			if i >= len(table.Rows) || c-1 >= len(table.Rows[i]) || table.Rows[i][c-1] == nil {
@@ -477,11 +491,12 @@ func (w *file) copyStylesFromAbove(sheet string, startRow, lastRow, columns int,
 			}
 			switch {
 			case isTime && kind == kindNumber:
-				if dated == 0 {
-					dated = w.datedStyle(above, kindFor(value, kinds[c-1]))
+				want := kindFor(value, kinds[c-1])
+				if _, ok := dated[want]; !ok {
+					dated[want] = w.datedStyle(above, want)
 				}
-				if dated != 0 {
-					_ = w.f.SetCellStyle(sheet, cellName(c, r), cellName(c, r), dated)
+				if id := dated[want]; id != 0 {
+					_ = w.f.SetCellStyle(sheet, cellName(c, r), cellName(c, r), id)
 				}
 			case above != 0:
 				_ = w.f.SetCellStyle(sheet, cellName(c, r), cellName(c, r), above)

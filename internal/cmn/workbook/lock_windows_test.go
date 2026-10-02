@@ -10,6 +10,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -19,14 +20,18 @@ import (
 )
 
 // holdExclusive opens a file the way Excel does, with no sharing, so a
-// rename over it fails with a sharing violation.
+// rename over it fails with a sharing violation. The returned release is
+// safe to call more than once and runs at cleanup if the test never did.
 func holdExclusive(t *testing.T, path string) func() {
 	t.Helper()
 	name, err := syscall.UTF16PtrFromString(path)
 	require.NoError(t, err)
 	handle, err := syscall.CreateFile(name, syscall.GENERIC_READ|syscall.GENERIC_WRITE, 0, nil, syscall.OPEN_EXISTING, syscall.FILE_ATTRIBUTE_NORMAL, 0)
 	require.NoError(t, err)
-	return func() { _ = syscall.CloseHandle(handle) }
+	var once sync.Once
+	release := func() { once.Do(func() { _ = syscall.CloseHandle(handle) }) }
+	t.Cleanup(release)
+	return release
 }
 
 func TestSharingViolationBecomesLockedError(t *testing.T) {
@@ -58,7 +63,7 @@ func TestHeldLockFileBlocksTheWrite(t *testing.T) {
 	release := holdExclusive(t, lock)
 	_, err = Write(context.Background(), path, orders(), WriteOptions{Header: true})
 	var locked *LockedError
-	require.ErrorAs(t, err, &locked)
+	assert.ErrorAs(t, err, &locked)
 	release()
 
 	// Once released, the leftover file is only a warning.

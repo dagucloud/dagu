@@ -17,6 +17,10 @@ const (
 	errorLockViolation    syscall.Errno = 33
 )
 
+// lockProbeSupported is true where a lock file can be opened to learn
+// whether another process holds it.
+const lockProbeSupported = true
+
 // isSharingViolation reports whether another process holds the file open in
 // a way that blocks the operation.
 func isSharingViolation(err error) bool {

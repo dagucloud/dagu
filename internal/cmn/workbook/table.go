@@ -39,6 +39,11 @@ func DecodeRows(value any, columns any) (Table, error) {
 		if !looksLikeJSON(trimmed) {
 			return Table{}, fmt.Errorf("rows must be a JSON array of objects or arrays")
 		}
+		// A foreach aggregate carries the rows in its outputs list; take
+		// that list's text so key order comes from the collected objects.
+		if outputs, ok := foreachOutputsJSON(trimmed); ok {
+			trimmed = outputs
+		}
 		decoded, err := decodeJSON(trimmed)
 		if err != nil {
 			return Table{}, fmt.Errorf("rows: %w", err)
@@ -290,25 +295,55 @@ func csvValue(s string) any {
 	return s
 }
 
-// unwrapForeachOutput lets rows be the aggregate output of a foreach step,
-// an object with summary, items, and outputs, by taking its outputs list:
-// the collect maps of the item bodies that succeeded, in item order.
+// unwrapForeachOutput lets rows be the aggregate output of a foreach step
+// by taking its outputs list: the collect maps of the item bodies that
+// succeeded, in item order. Only the exact foreach shape is unwrapped, so
+// an ordinary row that happens to have fields named summary, items, and
+// outputs is left alone.
 func unwrapForeachOutput(value any) any {
 	obj, ok := value.(map[string]any)
+	if !ok || !isForeachAggregate(obj) {
+		return value
+	}
+	return obj["outputs"]
+}
+
+// isForeachAggregate recognizes the aggregate a foreach step publishes:
+// a summary object with numeric total, succeeded, and failed, an items
+// list, and an outputs list.
+func isForeachAggregate(obj map[string]any) bool {
+	summary, ok := obj["summary"].(map[string]any)
 	if !ok {
-		return value
+		return false
 	}
-	outputs, ok := obj["outputs"].([]any)
-	if !ok {
-		return value
+	for _, field := range []string{"total", "succeeded", "failed"} {
+		if _, isNumber := toFloatStrict(summary[field]); !isNumber {
+			return false
+		}
 	}
-	if _, hasSummary := obj["summary"]; !hasSummary {
-		return value
+	if _, ok := obj["items"].([]any); !ok {
+		return false
 	}
-	if _, hasItems := obj["items"]; !hasItems {
-		return value
+	_, ok = obj["outputs"].([]any)
+	return ok
+}
+
+// foreachOutputsJSON returns the text of the outputs list when text is a
+// foreach aggregate, so the collected objects keep their key order.
+func foreachOutputsJSON(text string) (string, bool) {
+	var envelope struct {
+		Summary json.RawMessage `json:"summary"`
+		Items   json.RawMessage `json:"items"`
+		Outputs json.RawMessage `json:"outputs"`
 	}
-	return outputs
+	if err := json.Unmarshal([]byte(text), &envelope); err != nil || len(envelope.Outputs) == 0 {
+		return "", false
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(text), &decoded); err != nil || !isForeachAggregate(decoded) {
+		return "", false
+	}
+	return string(envelope.Outputs), true
 }
 
 // normalizeScalar maps every integer and float kind a YAML or JSON decoder

@@ -227,6 +227,20 @@ func TestValidationDefersValueReferences(t *testing.T) {
 	// A literal value that is wrong is still rejected at build time.
 	step.ExecutorConfig.Config = map[string]any{"path": "${params.BOOK}", "max_rows": "soon"}
 	require.Error(t, validateStep(step))
+
+	// A reference nested in a map or list field defers the whole field.
+	nested := ir.Step{
+		Commands: []ir.CommandEntry{{Command: opRead}},
+		ExecutorConfig: ir.ExecutorConfig{Type: executorType, Config: map[string]any{
+			"path":    "book.xlsx",
+			"types":   map[string]any{"amount": "${params.TYPE}"},
+			"where":   map[string]any{"status": map[string]any{"in": []any{"${params.STATUS}"}}},
+			"columns": []any{"${params.COLUMN}"},
+		}},
+	}
+	require.NoError(t, validateStep(nested))
+	nested.ExecutorConfig.Config["types"] = map[string]any{"amount": "money"}
+	require.ErrorContains(t, validateStep(nested), "types.amount")
 }
 
 func TestOutputBudgetStaysPositive(t *testing.T) {

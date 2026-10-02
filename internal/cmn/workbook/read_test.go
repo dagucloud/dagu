@@ -565,8 +565,18 @@ func TestLockFile(t *testing.T) {
 	require.NoError(t, os.WriteFile(lockFilePath(path), []byte("x"), 0o600))
 	warning, err = checkLockFile(path)
 	require.NoError(t, err)
-	assert.Equal(t, "~$locked.xlsx exists but no program holds it; the workbook may have been closed without cleanup", warning)
+	assert.Equal(t, "~$locked.xlsx "+leftoverLockWording, warning)
 }
+
+// leftoverLockWording is what a lock file nobody holds is reported as:
+// where the file can be probed the warning says so, elsewhere it can only
+// say the workbook may be open.
+var leftoverLockWording = func() string {
+	if lockProbeSupported {
+		return "exists but no program holds it; the workbook may have been closed without cleanup"
+	}
+	return "exists; the workbook may be open in another program, or the lock file may be a leftover"
+}()
 
 func TestWithLockRetry(t *testing.T) {
 	t.Parallel()

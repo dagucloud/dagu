@@ -5,6 +5,7 @@ package xlsx
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -83,7 +84,7 @@ func decodeConfig(raw map[string]any, cfg *config, deferReferences bool) error {
 	input := make(map[string]any, len(raw))
 	for key, v := range raw {
 		cfg.present[key] = true
-		if text, ok := v.(string); ok && deferReferences && value.HasValueReference(text) {
+		if deferReferences && holdsReference(v) {
 			cfg.deferred[key] = true
 			continue
 		}
@@ -102,6 +103,25 @@ func decodeConfig(raw map[string]any, cfg *config, deferReferences bool) error {
 		return fmt.Errorf("%w: %v", errConfig, err)
 	}
 	return nil
+}
+
+// holdsReference reports whether a with value, or any string nested in a
+// map or list value such as types or where, is still a value reference.
+// Such a field is checked at run time, once the reference has a value.
+func holdsReference(v any) bool {
+	switch x := v.(type) {
+	case string:
+		return value.HasValueReference(x)
+	case map[string]any:
+		for _, item := range x {
+			if holdsReference(item) {
+				return true
+			}
+		}
+	case []any:
+		return slices.ContainsFunc(x, holdsReference)
+	}
+	return false
 }
 
 // fieldsByOperation lists the with fields each operation accepts.

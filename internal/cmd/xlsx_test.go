@@ -111,6 +111,23 @@ func TestXlsxReadTextEscapesDelimiters(t *testing.T) {
 	assert.Equal(t, `2	line one\nline two\twith tab\\slash`, lines[1])
 }
 
+func TestXlsxReadTextEscapesHeaders(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "headers.xlsx")
+	// A sheet header keeps its backslashes, and a --columns alias may carry
+	// a tab; neither may shift the header line's columns.
+	table := workbook.Table{Columns: []string{`unit\price`, "qty"}, Rows: [][]any{{"a", "b"}}}
+	_, err := workbook.Write(context.Background(), path, table, workbook.WriteOptions{Header: true})
+	require.NoError(t, err)
+
+	out, err := runXlsx(t, "read", path, "--columns", "unit\\price,qty:count\tper box")
+	require.NoError(t, err)
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	require.Len(t, lines, 2)
+	assert.Equal(t, `_row	unit\\price	count\tper box`, lines[0])
+	assert.Equal(t, "2\ta\tb", lines[1])
+}
+
 type failingWriter struct{}
 
 func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("stdout closed") }

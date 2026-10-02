@@ -35,13 +35,19 @@ func lockFilePath(path string) string {
 	return filepath.Join(filepath.Dir(path), "~$"+filepath.Base(path))
 }
 
-// checkLockFile looks for Excel's lock file. A lock file that another
-// process still holds open means the workbook is in use and the result is a
-// LockedError. A lock file nobody holds is a leftover of a crash, so the
-// result is a warning and the write goes ahead; a workbook that really is
-// open fails later with a sharing violation on save.
+// checkLockFile looks for Excel's lock file beside the workbook, following
+// a symbolic link so the lock of the real file is the one checked. Where
+// the lock file can be probed, one that another process still holds open
+// means the workbook is in use and the result is a LockedError, and one
+// nobody holds is a leftover of a crash, so the result is a warning and the
+// write goes ahead. Where it cannot be probed, the file is only a hint and
+// the warning says so.
 func checkLockFile(path string) (warning string, err error) {
-	lock := lockFilePath(path)
+	target := path
+	if resolved, resolveErr := filepath.EvalSymlinks(path); resolveErr == nil {
+		target = resolved
+	}
+	lock := lockFilePath(target)
 	if _, statErr := os.Stat(lock); statErr != nil {
 		if errors.Is(statErr, fs.ErrNotExist) {
 			return "", nil
@@ -51,7 +57,10 @@ func checkLockFile(path string) (warning string, err error) {
 	if lockFileHeld(lock) {
 		return "", &LockedError{Path: path}
 	}
-	return fmt.Sprintf("%s exists but no program holds it; the workbook may have been closed without cleanup", filepath.Base(lock)), nil
+	if lockProbeSupported {
+		return fmt.Sprintf("%s exists but no program holds it; the workbook may have been closed without cleanup", filepath.Base(lock)), nil
+	}
+	return fmt.Sprintf("%s exists; the workbook may be open in another program, or the lock file may be a leftover", filepath.Base(lock)), nil
 }
 
 // classifyError turns a sharing violation into a LockedError and leaves

@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"testing"
 	"time"
@@ -337,7 +338,7 @@ func TestFitRowsKeepsTheLongestFittingPrefix(t *testing.T) {
 	assert.Len(t, kept, 2, "two small rows fit even though the third is huge")
 }
 
-func TestSaveUsesShortTempNameAndKeepsMode(t *testing.T) {
+func TestSaveUsesShortTempName(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, strings.Repeat("n", 230)+".xlsx")
@@ -346,4 +347,93 @@ func TestSaveUsesShortTempNameAndKeepsMode(t *testing.T) {
 	entries, err := os.ReadDir(dir)
 	require.NoError(t, err)
 	assert.Len(t, entries, 1)
+}
+
+func TestSaveKeepsPermissionBits(t *testing.T) {
+	t.Parallel()
+	if goruntime.GOOS == "windows" {
+		t.Skip("permission bits are not a Windows concept")
+	}
+	path := filepath.Join(t.TempDir(), "private.xlsx")
+	_, err := Write(context.Background(), path, orders(), WriteOptions{Header: true})
+	require.NoError(t, err)
+	require.NoError(t, os.Chmod(path, 0o600))
+
+	_, err = Append(context.Background(), path, Table{Columns: orders().Columns, Rows: [][]any{{"INV-3", 1, nil, nil, nil}}}, WriteOptions{})
+	require.NoError(t, err)
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "the rewritten workbook keeps its restrictive mode")
+}
+
+func TestClearedSheetDropsOldStyles(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "restyle.xlsx")
+	dates := Table{Columns: []string{"when"}, Rows: [][]any{{"2026-10-01"}, {"2026-10-02"}}}
+	_, err := Write(context.Background(), path, dates, WriteOptions{Header: true})
+	require.NoError(t, err)
+
+	numbers := Table{Columns: []string{"n"}, Rows: [][]any{{int64(7)}}}
+	_, err = Write(context.Background(), path, numbers, WriteOptions{Header: true, Style: StyleNone})
+	require.NoError(t, err)
+	back, err := Read(context.Background(), path, ReadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, int64(7), back.Rows[0]["n"], "a number written where a date column was is read as a number")
+	f, err := excelize.OpenFile(path)
+	require.NoError(t, err)
+	defer func() { _ = f.Close() }()
+	id, err := f.GetCellStyle("Sheet1", "A3")
+	require.NoError(t, err)
+	assert.Equal(t, 0, id, "cells outside the new block lose their old style too")
+}
+
+func TestForeachAggregateKeepsKeyOrder(t *testing.T) {
+	t.Parallel()
+	aggregate := `{"summary": {"total": 1, "succeeded": 1, "failed": 0}, "items": [{"index": 0, "key": "a", "status": "succeeded"}], "outputs": [{"zeta": 1, "alpha": 2}]}`
+	table, err := DecodeRows(aggregate, nil)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"zeta", "alpha"}, table.Columns, "the order of the collected object is kept")
+
+	// An ordinary row that happens to have these field names is not an
+	// aggregate: its summary is not the foreach shape.
+	plain := `{"summary": "quarterly", "items": 3, "outputs": [1, 2]}`
+	rows, err := DecodeUpdateRows(plain)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, "quarterly", rows[0]["summary"])
+}
+
+func TestStaleDimensionDoesNotWidenTheUsedRange(t *testing.T) {
+	t.Parallel()
+	f := excelize.NewFile()
+	require.NoError(t, f.SetSheetRow("Sheet1", "A1", &[]any{"id", "name"}))
+	require.NoError(t, f.SetSheetRow("Sheet1", "A2", &[]any{1, "a"}))
+	// A formula two rows down has no cached value but occupies its cell, so
+	// a dimension a little past the text is trusted.
+	require.NoError(t, f.SetCellFormula("Sheet1", "A4", "A2*2"))
+	require.NoError(t, f.SetSheetDimension("Sheet1", "A1:B4"))
+	near := saveBook(t, f, "near.xlsx")
+	w, err := open(near, "")
+	require.NoError(t, err)
+	used, err := w.usedRange("Sheet1")
+	require.NoError(t, err)
+	w.close()
+	assert.Equal(t, "Sheet1!A1:B4", used.String())
+
+	// A dimension claiming the whole sheet is stale and ignored, so a read
+	// stays proportional to the data.
+	g := excelize.NewFile()
+	require.NoError(t, g.SetSheetRow("Sheet1", "A1", &[]any{"id", "name"}))
+	require.NoError(t, g.SetSheetRow("Sheet1", "A2", &[]any{1, "a"}))
+	require.NoError(t, g.SetSheetDimension("Sheet1", "A1:XFD1048576"))
+	stale := saveBook(t, g, "stale.xlsx")
+	w, err = open(stale, "")
+	require.NoError(t, err)
+	used, err = w.usedRange("Sheet1")
+	require.NoError(t, err)
+	w.close()
+	assert.Equal(t, "Sheet1!A1:B2", used.String())
+	result, err := Read(context.Background(), stale, ReadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.Count)
 }

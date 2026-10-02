@@ -255,7 +255,14 @@ func renderInfo(out io.Writer, info *workbook.Info) error {
 
 func renderRows(out io.Writer, result *workbook.ReadResult) error {
 	w := &lineWriter{out: out}
-	w.printf("%s\n", strings.Join(append([]string{workbook.RowNumberKey}, result.Headers...), "\t"))
+	// Headers are escaped like cells: a header holding a tab or line break
+	// would otherwise shift every column after it.
+	headers := make([]string, 0, len(result.Headers)+1)
+	headers = append(headers, workbook.RowNumberKey)
+	for _, h := range result.Headers {
+		headers = append(headers, textEscaper.Replace(h))
+	}
+	w.printf("%s\n", strings.Join(headers, "\t"))
 	for _, row := range result.Rows {
 		parts := make([]string, 0, len(result.Headers)+1)
 		parts = append(parts, displayValue(row[workbook.RowNumberKey]))

@@ -109,9 +109,11 @@ original header, a loose match, or a `columns` alias.
 null. `max_rows` (default 5000) counts rows that hold a value; blank rows
 between them are kept as null rows without counting, unless
 `keep_empty_rows` is set, in which case every row counts. Reaching the cap
-stops reading and sets `truncated` with a warning. Rows that exceed the
-step output budget, 900 KiB or `max_output_size` less 64 KiB, are left out
-from the end and `truncated` is true with a warning.
+stops reading; `truncated` is set, with a warning, only when more countable
+rows remain below the cap, so a sheet holding exactly `max_rows` rows is not
+truncated. Rows that exceed the step output budget, 900 KiB or
+`max_output_size` less 64 KiB, are left out from the end and `truncated` is
+true with a warning.
 
 ### Writing
 
@@ -125,10 +127,12 @@ file, or a `.csv` with a header line; `format` overrides the extension. A
 A missing workbook is created. A `sheet` that does not exist is created; an
 existing sheet is replaced (`mode: replace`, the default) or extended
 (`mode: append`). A replaced sheet is cleared in place: its merged regions
-and tables are removed and its used cells emptied, while the sheet itself,
-its position, the defined names scoped to it, and formulas on other sheets
-that refer to it stay valid. Other sheets, column widths, styles, and
-defined names are untouched.
+and tables are removed and its used cells emptied of values and styles,
+while the sheet itself, its position, the defined names scoped to it, and
+formulas on other sheets that refer to it stay valid. Other sheets, column
+widths, styles, and defined names are untouched. An AutoFilter on the
+replaced sheet stays in place, as the underlying library offers no way to
+remove one.
 
 Values are written by type: numbers as numbers, booleans as booleans,
 `2026-10-01` and `2026-10-01T14:30:00` strings as dates, other strings as
@@ -334,6 +338,8 @@ steps:
         order_id: ${foreach.item.order_id}
         status: ${steps.submit.outputs.status_code}
     output: RESULTS
+    continue_on:
+      failure: true
   - id: mark
     depends: each
     action: xlsx.update_rows
@@ -349,7 +355,9 @@ steps:
 
 `collect` gives each successful item one object with the key and the result
 fields, and `rows` takes the foreach aggregate directly, using its `outputs`
-list.
+list. `continue_on.failure` on the loop lets the write-back run when some
+rows failed, so the rows that succeeded are marked rather than submitted
+again on the next run.
 
 Build a report from a query and keep it with the run:
 

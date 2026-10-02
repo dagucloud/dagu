@@ -5,6 +5,10 @@
 
 package workbook
 
+// lockProbeSupported is false where opening a file says nothing about
+// other processes holding it.
+const lockProbeSupported = false
+
 // isSharingViolation is always false where files have no mandatory locks.
 func isSharingViolation(error) bool { return false }
 

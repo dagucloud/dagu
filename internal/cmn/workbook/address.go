@@ -144,11 +144,19 @@ func (w *file) closeRegion(reg region) (region, error) {
 	return reg, nil
 }
 
+// A stored dimension may widen the used range by at most this many rows and
+// columns past the last cell with text. A formula without a cached value
+// has no text yet still occupies its cell, so a slightly larger dimension
+// is trusted; one claiming a whole sheet is stale and ignored.
+const (
+	dimensionRowSlack    = 256
+	dimensionColumnSlack = 64
+)
+
 // usedRange returns A1 to the last cell that holds anything, or A1:A1 for
 // an empty sheet. It is computed from the cells, because a workbook written
 // by another program may leave the stored dimension stale, and widened to
-// the stored dimension, because a formula without a cached value has no
-// text yet still occupies its cell.
+// the stored dimension only when that is close to the data.
 func (w *file) usedRange(sheet string) (region, error) {
 	grid, err := w.grid(sheet)
 	if err != nil {
@@ -166,10 +174,10 @@ func (w *file) usedRange(sheet string) (region, error) {
 	}
 	if dim, err := w.f.GetSheetDimension(sheet); err == nil {
 		if m := cellRangePattern.FindStringSubmatch(strings.TrimSpace(dim)); m != nil && m[3] != "" && m[4] != "" {
-			if c2, err := excelize.ColumnNameToNumber(strings.ToUpper(m[3])); err == nil {
+			if c2, err := excelize.ColumnNameToNumber(strings.ToUpper(m[3])); err == nil && c2 <= reg.C2+dimensionColumnSlack {
 				reg.C2 = max(reg.C2, c2)
 			}
-			if r2, err := rowNumber(m[4]); err == nil {
+			if r2, err := rowNumber(m[4]); err == nil && r2 <= reg.R2+dimensionRowSlack {
 				reg.R2 = max(reg.R2, r2)
 			}
 		}

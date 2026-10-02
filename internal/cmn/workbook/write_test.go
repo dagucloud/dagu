@@ -252,7 +252,7 @@ func TestWriteUnsupportedAndLocked(t *testing.T) {
 	result, err := Write(context.Background(), path, orders(), WriteOptions{Header: true})
 	require.NoError(t, err, "a lock file nobody holds does not block the write")
 	require.Len(t, result.Warnings, 1)
-	assert.Contains(t, result.Warnings[0], "no program holds it")
+	assert.Contains(t, result.Warnings[0], leftoverLockWording)
 }
 
 func TestDecodeRowsAndLoadTable(t *testing.T) {
