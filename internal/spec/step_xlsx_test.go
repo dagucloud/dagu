@@ -37,9 +37,23 @@ steps:
     action: xlsx.list_sheets
     with:
       path: ${params.BOOK}
+  - id: write
+    action: xlsx.write
+    with:
+      path: report.xlsx
+      rows: ${steps.read.outputs.rows}
+      columns: ${steps.read.outputs.headers}
+      wait_for_unlock: 5m
+  - id: append
+    action: xlsx.append
+    with:
+      path: report.xlsx
+      input: more.csv
 `))
 	require.NoError(t, err)
-	require.Len(t, dag.Steps, 3)
+	require.Len(t, dag.Steps, 5)
+	assert.Equal(t, "write", dag.Steps[3].Commands[0].Command)
+	assert.Equal(t, "append", dag.Steps[4].Commands[0].Command)
 
 	read := dag.Steps[0]
 	assert.Equal(t, "xlsx", read.ExecutorConfig.Type)

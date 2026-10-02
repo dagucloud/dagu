@@ -40,6 +40,26 @@ steps:
       on_type_error: null
       where: {Status: ""}
       max_rows: 100
+  - id: write
+    action: xlsx.write
+    with:
+      path: report.xlsx
+      sheet: Report
+      rows: ${steps.read.outputs.rows}
+      columns: ${steps.read.outputs.headers}
+      header: true
+      mode: replace
+      style: table
+      types: {Amount: number}
+      atomic: true
+      dry_run: false
+      wait_for_unlock: 5m
+  - id: append
+    action: xlsx.append
+    with:
+      path: report.xlsx
+      input: rows.csv
+      format: csv
 `
 	resolved := mustResolveDAGSchema(t)
 	require.NoError(t, resolved.Validate(mustParseYAMLDocument(t, source)))
@@ -54,6 +74,10 @@ steps:
 		{"where not an object", "where: {Status: \"\"}", "where: Status"},
 		{"columns alias not a string", "{Invoice No: invoice_no}", "{Invoice No: 3}"},
 		{"header zero", "header: [1, 2]", "header: 0"},
+		{"bad mode", "mode: replace", "mode: upsert"},
+		{"bad style", "style: table", "style: fancy"},
+		{"bad format", "format: csv", "format: xml"},
+		{"rows not a list", "rows: ${steps.read.outputs.rows}", "rows: {a: 1}"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			require.Contains(t, source, tc.from)

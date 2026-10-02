@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/workbook"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/google/jsonschema-go/jsonschema"
 )
@@ -32,16 +34,25 @@ type config struct {
 	OnTypeError   string            `mapstructure:"on_type_error"`
 	Where         map[string]any    `mapstructure:"where"`
 	MaxRows       int               `mapstructure:"max_rows"`
+	Rows          any               `mapstructure:"rows"`
+	Input         string            `mapstructure:"input"`
+	Format        string            `mapstructure:"format"`
+	Mode          string            `mapstructure:"mode"`
+	Style         string            `mapstructure:"style"`
+	Atomic        bool              `mapstructure:"atomic"`
+	DryRun        bool              `mapstructure:"dry_run"`
+	WaitForUnlock string            `mapstructure:"wait_for_unlock"`
 
 	// Parsed forms, filled by validateConfig.
 	header  workbook.HeaderSpec
 	columns []workbook.ColumnSelect
 	types   map[string]workbook.ColumnType
+	wait    time.Duration
 	present map[string]bool
 }
 
 func defaultConfig() config {
-	return config{}
+	return config{Atomic: true}
 }
 
 func decodeConfig(raw map[string]any, cfg *config) error {
@@ -73,6 +84,19 @@ var fieldsByOperation = map[string][]string{
 		"keep_empty_rows", "trim", "formulas", "types", "on_type_error", "where", "max_rows"},
 	opInfo:       {"path", "password"},
 	opListSheets: {"path", "password"},
+	opWrite: {"path", "password", "sheet", "rows", "input", "format", "columns", "header", "mode", "style",
+		"types", "atomic", "dry_run", "wait_for_unlock"},
+	opAppend: {"path", "password", "sheet", "rows", "input", "format", "columns", "types", "atomic",
+		"dry_run", "wait_for_unlock"},
+}
+
+func isWriter(operation string) bool {
+	switch operation {
+	case opWrite, opAppend, opUpdateRows:
+		return true
+	default:
+		return false
+	}
 }
 
 func validateConfig(operation string, cfg *config) error {
@@ -132,7 +156,67 @@ func validateConfig(operation string, cfg *config) error {
 	if err := workbook.ValidateWhere(cfg.Where); err != nil {
 		return fmt.Errorf("%w: where: %v", errConfig, err)
 	}
+	if isWriter(operation) {
+		return validateWriterConfig(operation, cfg)
+	}
 	return nil
+}
+
+func validateWriterConfig(operation string, cfg *config) error {
+	if operation == opWrite || operation == opAppend {
+		hasRows := cfg.present["rows"]
+		hasInput := strings.TrimSpace(cfg.Input) != ""
+		switch {
+		case !hasRows && !hasInput:
+			return fmt.Errorf("%w: %s requires with.rows or with.input", errConfig, operation)
+		case hasRows && hasInput:
+			return fmt.Errorf("%w: %s accepts with.rows or with.input, not both", errConfig, operation)
+		}
+	}
+	switch cfg.Format {
+	case "", "json", "jsonl", "csv":
+	default:
+		return fmt.Errorf("%w: format must be json, jsonl, or csv", errConfig)
+	}
+	switch cfg.Mode {
+	case "", string(workbook.WriteReplace), string(workbook.WriteAppend):
+	default:
+		return fmt.Errorf("%w: mode must be replace or append", errConfig)
+	}
+	switch cfg.Style {
+	case "", string(workbook.StyleTable), string(workbook.StyleNone):
+	default:
+		return fmt.Errorf("%w: style must be table or none", errConfig)
+	}
+	if strings.TrimSpace(cfg.WaitForUnlock) != "" {
+		wait, err := spec.ParseDuration(cfg.WaitForUnlock)
+		if err != nil || wait < 0 {
+			return fmt.Errorf("%w: wait_for_unlock must be a duration such as 30s or 5m", errConfig)
+		}
+		cfg.wait = wait
+	}
+	return nil
+}
+
+func (cfg config) lockOptions(log func(string)) workbook.LockOptions {
+	return workbook.LockOptions{WaitFor: cfg.wait, Log: log}
+}
+
+func (cfg config) writeOptions(log func(string)) workbook.WriteOptions {
+	// Writers take header: true or false only; a row-number header is a
+	// read concept.
+	header := cfg.header.Mode != workbook.HeaderNone
+	return workbook.WriteOptions{
+		Password: cfg.Password,
+		Sheet:    cfg.Sheet,
+		Mode:     workbook.WriteMode(cfg.Mode),
+		Header:   header,
+		Style:    workbook.StyleMode(cfg.Style),
+		Types:    cfg.types,
+		InPlace:  !cfg.Atomic,
+		DryRun:   cfg.DryRun,
+		Lock:     cfg.lockOptions(log),
+	}
 }
 
 func rejectForeignFields(operation string, present map[string]bool, allowed []string) error {
@@ -201,6 +285,18 @@ var configSchema = &jsonschema.Schema{
 			Description: "What a cell that fails its type does: fail (default) the step, or warn and read the cell as null."},
 		"where":    {Type: "object", Description: "Rows to keep: {Status: \"\"} matches empty cells, {Status: {ne: Done}} excludes a value, {Status: {in: [A, B]}} matches a list."},
 		"max_rows": {Description: "Most rows to read, 1 or more. Defaults to 5000; truncated is true when more rows exist."},
+		"rows": {Description: "Rows to write: a list of objects or arrays, usually ${steps.<id>.outputs.rows}. " +
+			"Rows from a step output arrive with keys in alphabetical order; set columns to choose the order, such as columns: ${steps.<id>.outputs.headers}."},
+		"input":  {Type: "string", Description: "File to write rows from instead of rows: .json (an array), .jsonl, or .csv with a header line."},
+		"format": {Type: "string", Enum: []any{"json", "jsonl", "csv"}, Description: "Format of input when its extension does not say."},
+		"mode": {Type: "string", Enum: []any{"replace", "append"},
+			Description: "What xlsx.write does to an existing sheet: replace (default) its contents, or append below its last row."},
+		"style": {Type: "string", Enum: []any{"table", "none"},
+			Description: "How a new sheet looks: table (default) has a bold frozen header, fitted widths, and number formats by column; none writes bare cells."},
+		"atomic":  boolOrRef("Save through a temporary file renamed over the workbook. Defaults to true."),
+		"dry_run": boolOrRef("Compute and report the changes without saving the workbook."),
+		"wait_for_unlock": {Type: "string", Description: "How long to retry a workbook that another program holds open, such as 5m. " +
+			"Retries start at two seconds and double to one minute. Without it a locked workbook fails at once."},
 	},
 }
 

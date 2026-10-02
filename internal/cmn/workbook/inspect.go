@@ -159,9 +159,13 @@ func detectTypes(headers []string, rows []Row) map[string]string {
 				best, bestCount = kind, counts[kind]
 			}
 		}
-		// A column mixing integers and decimals is a number column.
+		// A column mixing integers and decimals is a number column, and
+		// one mixing dates and datetimes keeps the time.
 		if best == string(TypeInteger) && counts[string(TypeNumber)] > 0 {
 			best = string(TypeNumber)
+		}
+		if best == string(TypeDate) && counts[string(TypeDateTime)] > 0 {
+			best = string(TypeDateTime)
 		}
 		types[h] = best
 	}

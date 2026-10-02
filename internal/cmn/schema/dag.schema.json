@@ -2643,7 +2643,7 @@
         },
         {
           "if": {
-            "properties": { "action": { "enum": ["xlsx.read", "xlsx.info", "xlsx.list_sheets"] } },
+            "properties": { "action": { "enum": ["xlsx.read", "xlsx.info", "xlsx.list_sheets", "xlsx.write", "xlsx.append"] } },
             "required": ["action"]
           },
           "then": {
@@ -6566,9 +6566,11 @@
             "wait.file",
             "wait.http",
             "wait.until",
+            "xlsx.append",
             "xlsx.info",
             "xlsx.list_sheets",
-            "xlsx.read"
+            "xlsx.read",
+            "xlsx.write"
           ],
           "description": "Builtin action name."
         },
@@ -7926,10 +7928,46 @@
         "max_rows": {
           "oneOf": [{ "type": "integer", "minimum": 1 }, { "type": "string" }],
           "description": "Most rows to read, 1 or more. Defaults to 5000; truncated is true when more rows exist."
+        },
+        "rows": {
+          "oneOf": [{ "type": "array" }, { "type": "string" }],
+          "description": "Rows to write: a list of objects or arrays, usually ${steps.<id>.outputs.rows}. Rows from a step output arrive with keys in alphabetical order; set columns to choose the order, such as columns: ${steps.<id>.outputs.headers}."
+        },
+        "input": {
+          "type": "string",
+          "minLength": 1,
+          "description": "File to write rows from instead of rows: .json (an array), .jsonl, or .csv with a header line."
+        },
+        "format": {
+          "type": "string",
+          "enum": ["json", "jsonl", "csv"],
+          "description": "Format of input when its extension does not say."
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["replace", "append"],
+          "description": "What xlsx.write does to an existing sheet: replace (default) its contents, or append below its last row."
+        },
+        "style": {
+          "type": "string",
+          "enum": ["table", "none"],
+          "description": "How a new sheet looks: table (default) has a bold frozen header, fitted widths, and number formats by column; none writes bare cells."
+        },
+        "atomic": {
+          "oneOf": [{ "type": "boolean" }, { "type": "string" }],
+          "description": "Save through a temporary file renamed over the workbook. Defaults to true."
+        },
+        "dry_run": {
+          "oneOf": [{ "type": "boolean" }, { "type": "string" }],
+          "description": "Compute and report the changes without saving the workbook."
+        },
+        "wait_for_unlock": {
+          "type": "string",
+          "description": "How long to retry a workbook that another program holds open, such as 5m. Retries start at two seconds and double to one minute. Without it a locked workbook fails at once."
         }
       },
       "required": ["path"],
-      "description": "Configuration for action: xlsx.read, xlsx.info, and xlsx.list_sheets."
+      "description": "Configuration for action: xlsx.read, xlsx.info, xlsx.list_sheets, xlsx.write, and xlsx.append."
     },
     "fileActionConfig": {
       "type": "object",
