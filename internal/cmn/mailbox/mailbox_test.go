@@ -78,7 +78,7 @@ func TestSearch(t *testing.T) {
 	server.Append(t, "INBOX", htmlInvoiceWithAttachment)
 	client := dial(t, server, mailbox.SecurityTLS)
 
-	messages, err := client.Search(mailbox.SearchOptions{Unread: true, Limit: 20})
+	messages, _, err := client.Search(mailbox.SearchOptions{Unread: true, Limit: 20})
 	require.NoError(t, err)
 	require.Len(t, messages, 2)
 
@@ -119,7 +119,7 @@ func TestSearchFilters(t *testing.T) {
 	subjects := func(opts mailbox.SearchOptions) []string {
 		t.Helper()
 		opts.Limit = max(opts.Limit, 1)
-		messages, err := client.Search(opts)
+		messages, _, err := client.Search(opts)
 		require.NoError(t, err)
 		out := []string{}
 		for _, msg := range messages {
@@ -143,7 +143,7 @@ func TestSearchWithin(t *testing.T) {
 	server.AppendAt(t, "INBOX", seenGreeting, time.Now().Add(-2*time.Hour))
 	client := dial(t, server, mailbox.SecurityTLS)
 
-	messages, err := client.Search(mailbox.SearchOptions{Within: 24 * time.Hour, Limit: 20})
+	messages, _, err := client.Search(mailbox.SearchOptions{Within: 24 * time.Hour, Limit: 20})
 	require.NoError(t, err)
 	require.Len(t, messages, 1)
 	assert.Equal(t, "Hello", messages[0].Subject)
@@ -157,7 +157,7 @@ func TestSearchSavesAttachments(t *testing.T) {
 	client := dial(t, server, mailbox.SecurityTLS)
 	dir := filepath.Join(t.TempDir(), "mail", "find")
 
-	messages, err := client.Search(mailbox.SearchOptions{AttachmentsDir: dir, Limit: 20})
+	messages, _, err := client.Search(mailbox.SearchOptions{AttachmentsDir: dir, Limit: 20})
 	require.NoError(t, err)
 	require.Len(t, messages, 1)
 	require.Len(t, messages[0].Attachments, 1)
@@ -168,7 +168,7 @@ func TestSearchSavesAttachments(t *testing.T) {
 	assert.Equal(t, "PDF bytes", string(data))
 
 	// A later search into the same directory, as in a loop, keeps both files.
-	messages, err = client.Search(mailbox.SearchOptions{AttachmentsDir: dir, Limit: 20})
+	messages, _, err = client.Search(mailbox.SearchOptions{AttachmentsDir: dir, Limit: 20})
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(dir, "02-invoice_2.pdf"), messages[0].Attachments[0].Path)
 }
@@ -180,7 +180,7 @@ func TestDialWithSTARTTLS(t *testing.T) {
 	server.Append(t, "INBOX", plainInvoice)
 	client := dial(t, server, mailbox.SecurityStartTLS)
 
-	messages, err := client.Search(mailbox.SearchOptions{Limit: 20})
+	messages, _, err := client.Search(mailbox.SearchOptions{Limit: 20})
 	require.NoError(t, err)
 	require.Len(t, messages, 1)
 }
@@ -217,7 +217,7 @@ func TestOrganize(t *testing.T) {
 	server.Append(t, "INBOX", htmlInvoiceWithAttachment)
 	server.Append(t, "INBOX", seenGreeting)
 	client := dial(t, server, mailbox.SecurityTLS)
-	messages, err := client.Search(mailbox.SearchOptions{Limit: 20})
+	messages, _, err := client.Search(mailbox.SearchOptions{Limit: 20})
 	require.NoError(t, err)
 	require.Len(t, messages, 3)
 
@@ -260,7 +260,7 @@ func TestOrganizeSpecialUseFolders(t *testing.T) {
 	server.Append(t, "INBOX", plainInvoice)
 	server.Append(t, "INBOX", seenGreeting)
 	client := dial(t, server, mailbox.SecurityTLS)
-	messages, err := client.Search(mailbox.SearchOptions{Limit: 20})
+	messages, _, err := client.Search(mailbox.SearchOptions{Limit: 20})
 	require.NoError(t, err)
 
 	_, err = client.Organize(mailbox.OrganizeOptions{Items: []mailbox.Item{{ID: messages[0].ID}}, Move: mailbox.MoveArchive})
@@ -279,7 +279,7 @@ func TestOrganizeDryRunChangesNothing(t *testing.T) {
 	server := mailtest.StartIMAP(t)
 	uid := server.Append(t, "INBOX", plainInvoice)
 	client := dial(t, server, mailbox.SecurityTLS)
-	messages, err := client.Search(mailbox.SearchOptions{Limit: 20})
+	messages, _, err := client.Search(mailbox.SearchOptions{Limit: 20})
 	require.NoError(t, err)
 
 	result, err := client.Organize(mailbox.OrganizeOptions{
@@ -297,7 +297,7 @@ func TestOrganizeRefusesUnsafeMove(t *testing.T) {
 	server := mailtest.StartIMAP(t, mailtest.WithoutMove())
 	server.Append(t, "INBOX", plainInvoice)
 	client := dial(t, server, mailbox.SecurityTLS)
-	messages, err := client.Search(mailbox.SearchOptions{Limit: 20})
+	messages, _, err := client.Search(mailbox.SearchOptions{Limit: 20})
 	require.NoError(t, err)
 
 	_, err = client.Organize(mailbox.OrganizeOptions{
@@ -313,7 +313,7 @@ func TestOrganizeRejectsBadInput(t *testing.T) {
 	server := mailtest.StartIMAP(t)
 	server.Append(t, "INBOX", plainInvoice)
 	client := dial(t, server, mailbox.SecurityTLS)
-	messages, err := client.Search(mailbox.SearchOptions{Limit: 20})
+	messages, _, err := client.Search(mailbox.SearchOptions{Limit: 20})
 	require.NoError(t, err)
 
 	_, err = client.Organize(mailbox.OrganizeOptions{Items: []mailbox.Item{{ID: "not-an-id"}}, Mark: mailbox.MarkRead})
@@ -384,7 +384,7 @@ func TestReplyInfo(t *testing.T) {
 	server.Append(t, "INBOX", threadedQuestion)
 	server.Append(t, "INBOX", plainInvoice)
 	client := dial(t, server, mailbox.SecurityTLS)
-	messages, err := client.Search(mailbox.SearchOptions{Limit: 20})
+	messages, _, err := client.Search(mailbox.SearchOptions{Limit: 20})
 	require.NoError(t, err)
 	require.Len(t, messages, 2)
 

@@ -8,7 +8,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -17,10 +19,6 @@ import (
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 )
-
-// gmailRequestTimeout bounds each Gmail API request, as the idle bound does an
-// IMAP connection.
-const gmailRequestTimeout = 2 * time.Minute
 
 // gmailUser names the signed-in account in Gmail API paths.
 const gmailUser = "me"
@@ -54,12 +52,16 @@ var gmailFolderPrefixes = []string{"[Gmail]/", "[Google Mail]/"}
 var ErrGmailScope = errors.New("the sign-in does not grant Gmail access " +
 	"(needs https://www.googleapis.com/auth/gmail.modify or https://mail.google.com/)")
 
-var errNoLabel = errors.New("no such label")
+var (
+	errNoLabel       = errors.New("no such label")
+	errReservedLabel = errors.New("the name is reserved for Gmail's own folders")
+)
 
 // Gmail is a mailbox reached through the Gmail API.
 type Gmail struct {
-	ctx   context.Context
-	users *gmail.UsersService
+	ctx       context.Context
+	users     *gmail.UsersService
+	transport *http.Transport
 	// labels maps label names to IDs once listed.
 	labels map[string]string
 }
@@ -67,10 +69,10 @@ type Gmail struct {
 // DialGmail signs in to the account's mailbox through the Gmail API with the
 // account's OAuth token. Canceling ctx ends any request.
 func DialGmail(ctx context.Context, account Account) (*Gmail, error) {
-	return dialGmail(ctx, account)
+	return dialGmail(ctx, account, ioIdleTimeout)
 }
 
-func dialGmail(ctx context.Context, account Account, options ...option.ClientOption) (*Gmail, error) {
+func dialGmail(ctx context.Context, account Account, idle time.Duration) (*Gmail, error) {
 	if account.Token == nil {
 		return nil, errors.New("the Gmail API needs an OAuth token source")
 	}
@@ -82,22 +84,41 @@ func dialGmail(ctx context.Context, account Account, options ...option.ClientOpt
 	if token == nil || strings.TrimSpace(token.AccessToken) == "" {
 		return nil, errors.New("OAuth provider returned an empty access token")
 	}
-	client := &http.Client{
-		Timeout: gmailRequestTimeout,
-		Transport: &oauth2.Transport{
-			Source: tokenSource{ctx: ctx, token: account.Token},
-			Base:   http.DefaultTransport,
+	// A request fails when its connection makes no progress for idle, as an
+	// IMAP connection does, so a large message on a slow link still arrives.
+	dialer := &net.Dialer{Timeout: dialTimeout}
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+			conn, err := dialer.DialContext(ctx, network, address)
+			if err != nil {
+				return nil, err
+			}
+			return &idleConn{Conn: conn, timeout: idle}, nil
 		},
+		ForceAttemptHTTP2:   true,
+		TLSHandshakeTimeout: dialTimeout,
+		IdleConnTimeout:     idle,
 	}
-	service, err := gmail.NewService(ctx, append([]option.ClientOption{option.WithHTTPClient(client)}, options...)...)
+	client := &http.Client{Transport: &oauth2.Transport{
+		Source: tokenSource{ctx: ctx, token: account.Token},
+		Base:   transport,
+	}}
+	options := []option.ClientOption{option.WithHTTPClient(client)}
+	if account.GmailEndpoint != "" {
+		options = append(options, option.WithEndpoint(account.GmailEndpoint))
+	}
+	service, err := gmail.NewService(ctx, options...)
 	if err != nil {
 		return nil, err
 	}
-	return &Gmail{ctx: ctx, users: service.Users}, nil
+	return &Gmail{ctx: ctx, users: service.Users, transport: transport}, nil
 }
 
-// Close ends nothing: the Gmail API keeps no session.
-func (*Gmail) Close() error {
+// Close releases the connections kept for later requests; the Gmail API keeps
+// no session.
+func (g *Gmail) Close() error {
+	g.transport.CloseIdleConnections()
 	return nil
 }
 
@@ -143,18 +164,45 @@ func (g *Gmail) labelID(folder string) (string, error) {
 	return "", errNoLabel
 }
 
-// folderLabel is labelID, creating the label when there is none yet.
+// folderLabel is labelID, creating the label when there is none yet. Gmail's
+// own folders are never created.
 func (g *Gmail) folderLabel(folder string) (string, error) {
 	id, err := g.labelID(folder)
 	if !errors.Is(err, errNoLabel) {
 		return id, err
 	}
+	for _, prefix := range gmailFolderPrefixes {
+		if strings.HasPrefix(folder, prefix) {
+			return "", fmt.Errorf("create folder %q: %w", folder, errReservedLabel)
+		}
+	}
 	label, err := g.users.Labels.Create(gmailUser, &gmail.Label{Name: folder}).Context(g.ctx).Do()
+	if gmailStatus(err) == http.StatusConflict {
+		// Another run created the label after this one listed the labels.
+		g.labels = nil
+		if id, listErr := g.labelID(folder); listErr == nil {
+			return id, nil
+		}
+	}
 	if err != nil {
 		return "", fmt.Errorf("create folder %q: %w", folder, gmailError(err))
 	}
 	g.labels[folder] = label.Id
 	return label.Id, nil
+}
+
+// present reports whether an email carrying labels is still where ref found
+// it: under ref's label, and in Spam or Trash only when found there.
+func (ref gmailRef) present(labels []string) bool {
+	if ref.label != "" && !slices.Contains(labels, ref.label) {
+		return false
+	}
+	for _, hidden := range []string{labelSpam, labelTrash} {
+		if ref.label != hidden && slices.Contains(labels, hidden) {
+			return false
+		}
+	}
+	return true
 }
 
 // tokenSource hands each request the account's current access token.
@@ -187,8 +235,11 @@ func gmailError(err error) error {
 	return fmt.Errorf("gmail: %s", apiErr.Message)
 }
 
-// gmailNotFound reports whether the API answered that an email does not exist.
-func gmailNotFound(err error) bool {
-	apiErr, ok := errors.AsType[*googleapi.Error](err)
-	return ok && apiErr.Code == http.StatusNotFound
+// gmailStatus returns the HTTP status of an API refusal, or 0 for any other
+// outcome.
+func gmailStatus(err error) int {
+	if apiErr, ok := errors.AsType[*googleapi.Error](err); ok {
+		return apiErr.Code
+	}
+	return 0
 }

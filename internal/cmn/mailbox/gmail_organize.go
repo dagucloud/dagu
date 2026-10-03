@@ -7,6 +7,7 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 
 	"google.golang.org/api/gmail/v1"
@@ -58,23 +59,20 @@ func (g *Gmail) Organize(opts OrganizeOptions) (*OrganizeResult, error) {
 	return result, nil
 }
 
-// presentItems keeps the items whose email still carries the label it was
-// found under, recording the rest as missing. Email in the trash counts as
-// gone unless it was found there.
+// presentItems keeps the items whose email is still where it was found,
+// recording the rest as missing.
 func (g *Gmail) presentItems(items []gmailItem, result *OrganizeResult) ([]gmailItem, error) {
 	var present []gmailItem
 	for _, item := range items {
 		found, err := g.users.Messages.Get(gmailUser, item.ref.message).Format("minimal").Context(g.ctx).Do()
-		if gmailNotFound(err) {
+		if gmailStatus(err) == http.StatusNotFound {
 			result.Missing = append(result.Missing, item.id)
 			continue
 		}
 		if err != nil {
 			return nil, fmt.Errorf("check emails: %w", gmailError(err))
 		}
-		moved := item.ref.label != "" && !slices.Contains(found.LabelIds, item.ref.label)
-		trashed := item.ref.label != labelTrash && slices.Contains(found.LabelIds, labelTrash)
-		if moved || trashed {
+		if !item.ref.present(found.LabelIds) {
 			result.Missing = append(result.Missing, item.id)
 			continue
 		}
@@ -172,7 +170,7 @@ func (g *Gmail) trash(items []gmailItem) error {
 			continue
 		}
 		_, err := g.users.Messages.Trash(gmailUser, item.ref.message).Context(g.ctx).Do()
-		if err != nil && !gmailNotFound(err) {
+		if err != nil && gmailStatus(err) != http.StatusNotFound {
 			return fmt.Errorf("move emails to the trash: %w", gmailError(err))
 		}
 	}

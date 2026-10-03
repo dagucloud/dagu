@@ -15,6 +15,7 @@ import (
 	"github.com/emersion/go-imap/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/oauth2"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailbox"
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauthconfig"
@@ -227,12 +228,10 @@ func TestMailboxStepErrors(t *testing.T) {
 	}
 }
 
-// A Google account signed in with OAuth reaches Gmail through its API, so its
-// steps start without IMAP or SMTP servers.
-func TestGmailAPIAccountNeedsNoServers(t *testing.T) {
-	t.Parallel()
-
-	ctx := runtime.NewContext(context.Background(), &ir.DAG{
+// gmailAccountContext configures me@gmail.com as a Google account signed in
+// with OAuth, which reaches Gmail through its API.
+func gmailAccountContext() context.Context {
+	return runtime.NewContext(context.Background(), &ir.DAG{
 		MailAccounts: ir.MailAccounts{"me@gmail.com": {
 			Provider: ir.MailProviderGoogle,
 			Username: "me@gmail.com",
@@ -241,14 +240,67 @@ func TestGmailAPIAccountNeedsNoServers(t *testing.T) {
 			},
 		}},
 	}, "", "")
+}
 
-	for _, step := range []ir.Step{
-		operationStep(opSearch, map[string]any{"mailbox": "me@gmail.com"}),
-		sendStep(map[string]any{"mailbox": "me@gmail.com", "to": "team@example.com", "subject": "s", "message": "m"}),
-	} {
-		_, err := newMail(ctx, step)
-		require.NoError(t, err)
+// runOnGmail runs step against server in place of Google's Gmail API and
+// token endpoint.
+func runOnGmail(t *testing.T, ctx context.Context, server *mailtest.Gmail, step ir.Step) executor.Executor {
+	t.Helper()
+	exec, err := newMail(ctx, step)
+	require.NoError(t, err)
+	var account *mailboxAccount
+	switch e := exec.(type) {
+	case *searchExecutor:
+		account = &e.account
+	case *organizeExecutor:
+		account = &e.account
+	case *mail:
+		account = &e.account
+	default:
+		t.Fatalf("unexpected executor %T", exec)
 	}
+	require.True(t, account.gmail)
+	account.account.GmailEndpoint = server.URL
+	account.account.Token = func(context.Context) (*oauth2.Token, error) {
+		return &oauth2.Token{AccessToken: server.Token}, nil
+	}
+	exec.SetStdout(io.Discard)
+	exec.SetStderr(io.Discard)
+	require.NoError(t, exec.Run(ctx))
+	return exec
+}
+
+// A Google account signed in with OAuth needs no IMAP or SMTP server: it
+// finds, answers, and marks email through the Gmail API.
+func TestGmailSearchReplyAndMarkRead(t *testing.T) {
+	t.Parallel()
+
+	server := mailtest.StartGmail(t)
+	id := server.Append(t, ticketEmail, "INBOX", "UNREAD")
+	ctx := gmailAccountContext()
+
+	search := runOnGmail(t, ctx, server, operationStep(opSearch, map[string]any{"mailbox": "me@gmail.com", "unread": true}))
+	outputs := search.(executor.DeclaredOutputsProvider).GetOutputs()
+	messages := outputs["messages"].([]mailbox.Message)
+	require.Len(t, messages, 1)
+	assert.Equal(t, false, outputs["truncated"])
+
+	runOnGmail(t, ctx, server, sendStep(map[string]any{
+		"mailbox": "me@gmail.com", "in_reply_to": messages[0].ID, "message": "On it.",
+	}))
+	sent := server.Sent()
+	require.Len(t, sent, 1)
+	assert.Equal(t, "t-"+id, sent[0].ThreadID, "in the conversation it answers")
+	reply, err := netmail.ReadMessage(strings.NewReader(sent[0].Raw))
+	require.NoError(t, err)
+	assert.Equal(t, "me@gmail.com", reply.Header.Get("From"))
+	assert.Equal(t, "carol@example.com", reply.Header.Get("To"))
+	assert.Equal(t, "Re: Printer is down", reply.Header.Get("Subject"))
+
+	runOnGmail(t, ctx, server, operationStep(opOrganize, map[string]any{
+		"mailbox": "me@gmail.com", "emails": messages[0].ID, "mark": "read",
+	}))
+	assert.Equal(t, []string{"INBOX"}, server.Labels(t, id))
 }
 
 // A sign-in without Gmail access fails every step the same way, whichever

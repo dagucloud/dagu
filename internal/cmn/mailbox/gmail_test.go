@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -22,11 +23,12 @@ import (
 
 func dialGmail(t *testing.T, server *mailtest.Gmail) *mailbox.Gmail {
 	t.Helper()
-	client, err := mailbox.DialGmailAt(context.Background(), mailbox.Account{
+	client, err := mailbox.DialGmail(context.Background(), mailbox.Account{
+		GmailEndpoint: server.URL,
 		Token: func(context.Context) (*oauth2.Token, error) {
 			return &oauth2.Token{AccessToken: server.Token}, nil
 		},
-	}, server.URL)
+	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Close() })
 	return client
@@ -35,7 +37,7 @@ func dialGmail(t *testing.T, server *mailtest.Gmail) *mailbox.Gmail {
 func gmailSubjects(t *testing.T, client *mailbox.Gmail, opts mailbox.SearchOptions) []string {
 	t.Helper()
 	opts.Limit = max(opts.Limit, 1)
-	messages, err := client.Search(opts)
+	messages, _, err := client.Search(opts)
 	require.NoError(t, err)
 	subjects := []string{}
 	for _, msg := range messages {
@@ -53,9 +55,10 @@ func TestGmailSearch(t *testing.T) {
 	server.Append(t, htmlInvoiceWithAttachment, "INBOX", "UNREAD", "STARRED")
 	client := dialGmail(t, server)
 
-	messages, err := client.Search(mailbox.SearchOptions{Unread: true, Limit: 20})
+	messages, partial, err := client.Search(mailbox.SearchOptions{Unread: true, Limit: 20})
 	require.NoError(t, err)
 	require.Len(t, messages, 2)
+	assert.False(t, partial)
 
 	invoice := messages[0]
 	assert.True(t, mailbox.ValidID(invoice.ID))
@@ -131,12 +134,30 @@ func TestGmailSearchFolders(t *testing.T) {
 	assert.Equal(t, []string{"Invoice 1", "Hello"}, gmailSubjects(t, client, mailbox.SearchOptions{Folder: "[Gmail]/All Mail", Limit: 20}))
 	assert.Equal(t, []string{"Invoice 2"}, gmailSubjects(t, client, mailbox.SearchOptions{Folder: "[Gmail]/Trash", Limit: 20}))
 
-	messages, err := client.Search(mailbox.SearchOptions{Folder: "Receipts", Limit: 20})
+	messages, _, err := client.Search(mailbox.SearchOptions{Folder: "Receipts", Limit: 20})
 	require.NoError(t, err)
 	assert.Equal(t, "Receipts", messages[0].Folder)
 
-	_, err = client.Search(mailbox.SearchOptions{Folder: "Nope", Limit: 20})
+	_, _, err = client.Search(mailbox.SearchOptions{Folder: "Nope", Limit: 20})
 	require.ErrorContains(t, err, `open folder "Nope": no such label`)
+}
+
+// Gmail lists the newest first, so a search examines the newest emails up to
+// a bound and reports when the folder held more.
+func TestGmailSearchExaminesTheNewest(t *testing.T) {
+	t.Parallel()
+
+	server := mailtest.StartGmail(t)
+	for i := range mailbox.GmailScanLimit + 1 {
+		server.Append(t, fmt.Sprintf("Subject: Email %d\r\n\r\nBody\r\n", i), "INBOX")
+	}
+	client := dialGmail(t, server)
+
+	messages, partial, err := client.Search(mailbox.SearchOptions{Limit: 1})
+	require.NoError(t, err)
+	assert.True(t, partial)
+	require.Len(t, messages, 1)
+	assert.Equal(t, "Email 1", messages[0].Subject, "the oldest of the newest examined")
 }
 
 func TestGmailSearchSavesAttachments(t *testing.T) {
@@ -147,7 +168,7 @@ func TestGmailSearchSavesAttachments(t *testing.T) {
 	client := dialGmail(t, server)
 	dir := filepath.Join(t.TempDir(), "mail", "find")
 
-	messages, err := client.Search(mailbox.SearchOptions{AttachmentsDir: dir, Limit: 20})
+	messages, _, err := client.Search(mailbox.SearchOptions{AttachmentsDir: dir, Limit: 20})
 	require.NoError(t, err)
 	require.Len(t, messages, 1)
 	require.Len(t, messages[0].Attachments, 1)
@@ -167,7 +188,7 @@ func TestGmailOrganize(t *testing.T) {
 	third := server.Append(t, seenGreeting, "INBOX")
 	server.CreateLabel(t, "Receipts")
 	client := dialGmail(t, server)
-	messages, err := client.Search(mailbox.SearchOptions{Limit: 20})
+	messages, _, err := client.Search(mailbox.SearchOptions{Limit: 20})
 	require.NoError(t, err)
 	require.Len(t, messages, 3)
 
@@ -207,7 +228,7 @@ func TestGmailOrganizeArchiveAndTrash(t *testing.T) {
 	server.Append(t, seenGreeting, "INBOX")
 	server.Append(t, htmlInvoiceWithAttachment, "INBOX")
 	client := dialGmail(t, server)
-	messages, err := client.Search(mailbox.SearchOptions{Limit: 20})
+	messages, _, err := client.Search(mailbox.SearchOptions{Limit: 20})
 	require.NoError(t, err)
 	require.Len(t, messages, 3)
 
@@ -230,13 +251,53 @@ func TestGmailOrganizeArchiveAndTrash(t *testing.T) {
 	assert.Equal(t, []string{messages[1].ID}, result.Missing)
 }
 
+// Email marked as spam after it was found is gone, even from All Mail, which
+// no label marks.
+func TestGmailOrganizeSkipsSpam(t *testing.T) {
+	t.Parallel()
+
+	server := mailtest.StartGmail(t)
+	id := server.Append(t, plainInvoice, "INBOX", "UNREAD")
+	client := dialGmail(t, server)
+	messages, _, err := client.Search(mailbox.SearchOptions{Folder: "[Gmail]/All Mail", Limit: 20})
+	require.NoError(t, err)
+	require.Len(t, messages, 1)
+
+	server.AddLabels(t, id, "SPAM")
+	result, err := client.Organize(mailbox.OrganizeOptions{Items: []mailbox.Item{{ID: messages[0].ID}}, Mark: mailbox.MarkRead})
+	require.NoError(t, err)
+	assert.Equal(t, 0, result.Changed)
+	assert.Equal(t, []string{messages[0].ID}, result.Missing)
+	assert.Contains(t, server.Labels(t, id), "UNREAD")
+}
+
+// A label another run created after this one listed the labels is used, not
+// created twice.
+func TestGmailOrganizeUsesLabelCreatedMeanwhile(t *testing.T) {
+	t.Parallel()
+
+	server := mailtest.StartGmail(t)
+	server.CreateLabel(t, "Receipts")
+	id := server.Append(t, plainInvoice, "Receipts")
+	client := dialGmail(t, server)
+	messages, _, err := client.Search(mailbox.SearchOptions{Folder: "Receipts", Limit: 20})
+	require.NoError(t, err)
+
+	server.CreateLabel(t, "Invoices")
+	_, err = client.Organize(mailbox.OrganizeOptions{
+		Items: []mailbox.Item{{ID: messages[0].ID}}, Move: mailbox.MoveFolder, Folder: "Invoices",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Invoices"}, server.Labels(t, id))
+}
+
 func TestGmailOrganizeDryRunChangesNothing(t *testing.T) {
 	t.Parallel()
 
 	server := mailtest.StartGmail(t)
 	id := server.Append(t, plainInvoice, "INBOX", "UNREAD")
 	client := dialGmail(t, server)
-	messages, err := client.Search(mailbox.SearchOptions{Limit: 20})
+	messages, _, err := client.Search(mailbox.SearchOptions{Limit: 20})
 	require.NoError(t, err)
 
 	result, err := client.Organize(mailbox.OrganizeOptions{
@@ -253,7 +314,7 @@ func TestGmailOrganizeRejectsBadInput(t *testing.T) {
 	server := mailtest.StartGmail(t)
 	server.Append(t, plainInvoice, "INBOX")
 	client := dialGmail(t, server)
-	messages, err := client.Search(mailbox.SearchOptions{Limit: 20})
+	messages, _, err := client.Search(mailbox.SearchOptions{Limit: 20})
 	require.NoError(t, err)
 
 	_, err = client.Organize(mailbox.OrganizeOptions{Items: []mailbox.Item{{ID: "not-an-id"}}, Mark: mailbox.MarkRead})
@@ -266,6 +327,13 @@ func TestGmailOrganizeRejectsBadInput(t *testing.T) {
 
 	_, err = client.Organize(mailbox.OrganizeOptions{Items: []mailbox.Item{{ID: messages[0].ID}}, Move: mailbox.MoveFolder})
 	require.ErrorContains(t, err, "needs a folder for every email")
+
+	// Gmail's own folders exist already; an unknown one is a mistake, not a
+	// label to create.
+	_, err = client.Organize(mailbox.OrganizeOptions{
+		Items: []mailbox.Item{{ID: messages[0].ID}}, Move: mailbox.MoveFolder, Folder: "[Gmail]/Junk",
+	})
+	require.ErrorContains(t, err, `create folder "[Gmail]/Junk": the name is reserved for Gmail's own folders`)
 }
 
 func TestGmailReplyInfo(t *testing.T) {
@@ -275,7 +343,7 @@ func TestGmailReplyInfo(t *testing.T) {
 	question := server.Append(t, threadedQuestion, "INBOX")
 	invoice := server.Append(t, plainInvoice, "INBOX")
 	client := dialGmail(t, server)
-	messages, err := client.Search(mailbox.SearchOptions{Limit: 20})
+	messages, _, err := client.Search(mailbox.SearchOptions{Limit: 20})
 	require.NoError(t, err)
 	require.Len(t, messages, 2)
 
@@ -293,6 +361,14 @@ func TestGmailReplyInfo(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "alice@example.com", info.ReplyTo, "From when there is no Reply-To")
 	assert.Empty(t, info.References)
+
+	// Like an ID, a reply needs the email where it was found.
+	_, err = client.Organize(mailbox.OrganizeOptions{
+		Items: []mailbox.Item{{ID: messages[0].ID}}, Move: mailbox.MoveFolder, Folder: "Done",
+	})
+	require.NoError(t, err)
+	_, err = client.ReplyInfo(messages[0].ID)
+	require.ErrorIs(t, err, mailbox.ErrEmailGone)
 
 	server.Delete(t, invoice)
 	_, err = client.ReplyInfo(messages[1].ID)
@@ -315,9 +391,10 @@ func TestGmailErrors(t *testing.T) {
 	t.Run("SignInFails", func(t *testing.T) {
 		t.Parallel()
 		revoked := errors.New("invalid_grant")
-		_, err := mailbox.DialGmailAt(context.Background(), mailbox.Account{
-			Token: func(context.Context) (*oauth2.Token, error) { return nil, revoked },
-		}, mailtest.StartGmail(t).URL)
+		_, err := mailbox.DialGmail(context.Background(), mailbox.Account{
+			GmailEndpoint: mailtest.StartGmail(t).URL,
+			Token:         func(context.Context) (*oauth2.Token, error) { return nil, revoked },
+		})
 		require.ErrorIs(t, err, revoked)
 	})
 
@@ -326,18 +403,19 @@ func TestGmailErrors(t *testing.T) {
 		server := mailtest.StartGmail(t)
 		client := dialGmail(t, server)
 		server.DenyScope()
-		_, err := client.Search(mailbox.SearchOptions{Limit: 20})
+		_, _, err := client.Search(mailbox.SearchOptions{Limit: 20})
 		require.ErrorIs(t, err, mailbox.ErrGmailScope)
 	})
 
 	t.Run("OtherRefusal", func(t *testing.T) {
 		t.Parallel()
 		server := mailtest.StartGmail(t)
-		client, err := mailbox.DialGmailAt(context.Background(), mailbox.Account{
-			Token: func(context.Context) (*oauth2.Token, error) { return &oauth2.Token{AccessToken: "stale"}, nil },
-		}, server.URL)
+		client, err := mailbox.DialGmail(context.Background(), mailbox.Account{
+			GmailEndpoint: server.URL,
+			Token:         func(context.Context) (*oauth2.Token, error) { return &oauth2.Token{AccessToken: "stale"}, nil },
+		})
 		require.NoError(t, err)
-		_, err = client.Search(mailbox.SearchOptions{Limit: 20})
+		_, _, err = client.Search(mailbox.SearchOptions{Limit: 20})
 		require.ErrorContains(t, err, "gmail: Request had invalid authentication credentials.", "Google's own message")
 	})
 }

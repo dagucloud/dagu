@@ -176,6 +176,27 @@ func (g *Gmail) Sent() []GmailSent {
 	return slices.Clone(g.sent)
 }
 
+// AddLabels puts labels, by name, on the email with id, as a person or a
+// filter in Gmail does.
+func (g *Gmail) AddLabels(t testing.TB, id string, labels ...string) {
+	t.Helper()
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	msg := g.message(id)
+	if msg == nil {
+		t.Fatalf("no email %q", id)
+	}
+	for _, name := range labels {
+		label := g.labelNamed(name)
+		if label == nil {
+			t.Fatalf("no label %q", name)
+		}
+		if !slices.Contains(msg.labels, label.Id) {
+			msg.labels = append(msg.labels, label.Id)
+		}
+	}
+}
+
 // Delete removes the email with id for good, as emptying the trash does.
 func (g *Gmail) Delete(t testing.TB, id string) {
 	t.Helper()

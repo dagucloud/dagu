@@ -6,6 +6,7 @@ package mailbox
 import (
 	"encoding/base64"
 	"fmt"
+	"net/http"
 	"slices"
 	"strconv"
 	"strings"
@@ -21,26 +22,33 @@ import (
 const (
 	// gmailPageSize is the most IDs one list call returns.
 	gmailPageSize = 500
-	// gmailParallelFetches bounds concurrent requests for email headers.
-	gmailParallelFetches = 10
+	// GmailScanLimit is the most emails one search of a Gmail API mailbox
+	// examines: the newest that pass the folder, unread, within, and
+	// has-attachments filters. Gmail lists the newest first and cannot start
+	// from the oldest, so a larger folder would cost one request per page.
+	GmailScanLimit = 2000
+	// gmailParallelFetches bounds concurrent requests for email headers, well
+	// under Gmail's per-user rate of 50 message reads a second.
+	gmailParallelFetches = 5
 )
 
-// Search returns the oldest matching emails, up to opts.Limit. Reading leaves
-// every email's labels as they were.
-func (g *Gmail) Search(opts SearchOptions) ([]Message, error) {
+// Search returns the oldest matching emails, up to opts.Limit, and whether
+// the folder held more emails than the search examined (GmailScanLimit).
+// Reading leaves every email's labels as they were.
+func (g *Gmail) Search(opts SearchOptions) ([]Message, bool, error) {
 	folder := opts.Folder
 	if folder == "" {
 		folder = labelInbox
 	}
 	label, err := g.labelID(folder)
 	if err != nil {
-		return nil, fmt.Errorf("open folder %q: %w", folder, err)
+		return nil, false, fmt.Errorf("open folder %q: %w", folder, err)
 	}
 
 	now := time.Now()
-	ids, err := g.listMessages(folder, label, opts, now)
+	ids, partial, err := g.listMessages(folder, label, opts, now)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	saver := &attachmentSaver{dir: opts.AttachmentsDir}
@@ -49,7 +57,7 @@ func (g *Gmail) Search(opts SearchOptions) ([]Message, error) {
 		batch := ids[start:min(start+fetchBatch, len(ids))]
 		if opts.From != "" || opts.Subject != "" {
 			if batch, err = g.matchHeaders(batch, opts.From, opts.Subject); err != nil {
-				return nil, err
+				return nil, false, err
 			}
 		}
 		for _, id := range batch {
@@ -57,18 +65,18 @@ func (g *Gmail) Search(opts SearchOptions) ([]Message, error) {
 				break
 			}
 			found, err := g.users.Messages.Get(gmailUser, id).Format("raw").Context(g.ctx).Do()
-			if gmailNotFound(err) {
+			if gmailStatus(err) == http.StatusNotFound {
 				continue
 			}
 			if err != nil {
-				return nil, fmt.Errorf("fetch email body: %w", gmailError(err))
+				return nil, false, fmt.Errorf("fetch email body: %w", gmailError(err))
 			}
 			if opts.Within > 0 && time.UnixMilli(found.InternalDate).Before(now.Add(-opts.Within)) {
 				continue
 			}
 			msg, err := gmailMessage(found, folder, label, saver)
 			if err != nil {
-				return nil, err
+				return nil, false, err
 			}
 			if opts.HasAttachments && len(msg.Attachments) == 0 {
 				continue
@@ -76,13 +84,14 @@ func (g *Gmail) Search(opts SearchOptions) ([]Message, error) {
 			messages = append(messages, msg)
 		}
 	}
-	return messages, nil
+	return messages, partial, nil
 }
 
-// listMessages returns the IDs of the emails under label that pass the
-// filters Gmail can apply exactly, oldest first.
-func (g *Gmail) listMessages(folder, label string, opts SearchOptions, now time.Time) ([]string, error) {
-	call := g.users.Messages.List(gmailUser).MaxResults(gmailPageSize)
+// listMessages returns the IDs of the newest emails under label, up to
+// GmailScanLimit, that pass the filters Gmail applies itself, oldest first. It
+// also reports whether more emails passed them.
+func (g *Gmail) listMessages(folder, label string, opts SearchOptions, now time.Time) ([]string, bool, error) {
+	call := g.users.Messages.List(gmailUser).MaxResults(min(gmailPageSize, GmailScanLimit)).Context(g.ctx)
 	var labels []string
 	if label != "" {
 		labels = append(labels, label)
@@ -95,8 +104,9 @@ func (g *Gmail) listMessages(folder, label string, opts SearchOptions, now time.
 	}
 	var query []string
 	if opts.Within > 0 {
-		// Whole seconds; the exact cutoff applies after fetching.
-		query = append(query, "after:"+strconv.FormatInt(now.Add(-opts.Within).Unix(), 10))
+		// Gmail compares whole seconds, so the query starts a second early to
+		// keep the cutoff's own second; the exact cutoff applies after fetching.
+		query = append(query, "after:"+strconv.FormatInt(now.Add(-opts.Within).Unix()-1, 10))
 	}
 	if opts.HasAttachments {
 		// Narrows the list; the attachments found when parsing decide.
@@ -110,18 +120,30 @@ func (g *Gmail) listMessages(folder, label string, opts SearchOptions, now time.
 	}
 
 	var ids []string
-	err := call.Pages(g.ctx, func(page *gmail.ListMessagesResponse) error {
+	partial := false
+	for {
+		page, err := call.Do()
+		if err != nil {
+			return nil, false, fmt.Errorf("search folder %q: %w", folder, gmailError(err))
+		}
 		for _, found := range page.Messages {
 			ids = append(ids, found.Id)
 		}
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("search folder %q: %w", folder, gmailError(err))
+		if page.NextPageToken == "" {
+			break
+		}
+		if len(ids) >= GmailScanLimit {
+			partial = true
+			break
+		}
+		call.PageToken(page.NextPageToken)
+	}
+	if len(ids) > GmailScanLimit {
+		ids, partial = ids[:GmailScanLimit], true
 	}
 	// Gmail lists the newest first.
 	slices.Reverse(ids)
-	return ids, nil
+	return ids, partial, nil
 }
 
 // matchHeaders keeps the emails whose From and Subject contain from and
@@ -138,7 +160,7 @@ func (g *Gmail) matchHeaders(ids []string, from, subject string) ([]string, erro
 				MetadataHeaders("From", "Subject").
 				Context(ctx).
 				Do()
-			if gmailNotFound(err) {
+			if gmailStatus(err) == http.StatusNotFound {
 				return nil
 			}
 			if err != nil {
@@ -166,7 +188,7 @@ func (g *Gmail) matchHeaders(ids []string, from, subject string) ([]string, erro
 }
 
 // ReplyInfo reads what a reply to the email with id needs, including its
-// Gmail conversation.
+// Gmail conversation. The email must still be where it was found.
 func (g *Gmail) ReplyInfo(id string) (*ReplyInfo, error) {
 	ref, err := parseGmailID(id)
 	if err != nil {
@@ -177,11 +199,14 @@ func (g *Gmail) ReplyInfo(id string) (*ReplyInfo, error) {
 		MetadataHeaders("Message-ID", "References", "Subject", "Reply-To", "From").
 		Context(g.ctx).
 		Do()
-	if gmailNotFound(err) {
+	if gmailStatus(err) == http.StatusNotFound {
 		return nil, ErrEmailGone
 	}
 	if err != nil {
 		return nil, fmt.Errorf("fetch email: %w", gmailError(err))
+	}
+	if !ref.present(found.LabelIds) {
+		return nil, ErrEmailGone
 	}
 
 	header := metadataHeader(found)

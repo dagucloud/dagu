@@ -78,15 +78,16 @@ type Attachment struct {
 }
 
 // Search returns the oldest matching emails, up to opts.Limit. It opens the
-// folder read-only, so no email's flags change.
-func (c *Client) Search(opts SearchOptions) ([]Message, error) {
+// folder read-only, so no email's flags change. It examines every email in the
+// folder, so its result is never partial.
+func (c *Client) Search(opts SearchOptions) ([]Message, bool, error) {
 	folder := opts.Folder
 	if folder == "" {
 		folder = "INBOX"
 	}
 	selected, err := c.imap.Select(folder, &imap.SelectOptions{ReadOnly: true}).Wait()
 	if err != nil {
-		return nil, fmt.Errorf("open folder %q: %w", folder, err)
+		return nil, false, fmt.Errorf("open folder %q: %w", folder, err)
 	}
 
 	now := time.Now()
@@ -106,7 +107,7 @@ func (c *Client) Search(opts SearchOptions) ([]Message, error) {
 	}
 	found, err := c.imap.UIDSearch(criteria, nil).Wait()
 	if err != nil {
-		return nil, fmt.Errorf("search folder %q: %w", folder, err)
+		return nil, false, fmt.Errorf("search folder %q: %w", folder, err)
 	}
 	uids := found.AllUIDs()
 	slices.Sort(uids)
@@ -116,7 +117,7 @@ func (c *Client) Search(opts SearchOptions) ([]Message, error) {
 		batch := uids[start:min(start+fetchBatch, len(uids))]
 		headers, err := c.fetchHeaders(batch)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		for _, h := range headers {
 			if opts.Within > 0 && h.internalDate.Before(now.Add(-opts.Within)) {
@@ -137,15 +138,15 @@ func (c *Client) Search(opts SearchOptions) ([]Message, error) {
 	for _, h := range picked {
 		raw, err := c.fetchBody(h.uid)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		msg := h.message(emailRef{folder: folder, uidValidity: selected.UIDValidity, uid: h.uid})
 		if err := parseBody(raw, &msg, saver); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		messages = append(messages, msg)
 	}
-	return messages, nil
+	return messages, false, nil
 }
 
 type fetchedHeader struct {

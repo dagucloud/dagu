@@ -8,12 +8,15 @@ import (
 	"context"
 	"crypto/tls"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/oauth2"
 
 	"github.com/dagucloud/dagu/v2/internal/test/mailtest"
 )
@@ -152,7 +155,7 @@ func TestSearchFailsWhenServerStopsAnswering(t *testing.T) {
 
 	failed := make(chan error, 1)
 	go func() {
-		_, err := client.Search(SearchOptions{Limit: 1})
+		_, _, err := client.Search(SearchOptions{Limit: 1})
 		failed <- err
 	}()
 	select {
@@ -161,4 +164,64 @@ func TestSearchFailsWhenServerStopsAnswering(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Search waited forever for a server that stopped answering")
 	}
+}
+
+// A Gmail API response bounds the time between bytes, not the whole transfer:
+// a server that stops sending fails the request, while one that keeps sending
+// slowly finishes it.
+func TestGmailIdleBound(t *testing.T) {
+	t.Parallel()
+
+	const idle = 500 * time.Millisecond
+	search := func(t *testing.T, handler http.HandlerFunc) error {
+		t.Helper()
+		server := httptest.NewServer(handler)
+		t.Cleanup(server.Close)
+		client, err := dialGmail(context.Background(), Account{
+			GmailEndpoint: server.URL + "/",
+			Token: func(context.Context) (*oauth2.Token, error) {
+				return &oauth2.Token{AccessToken: "token"}, nil
+			},
+		}, idle)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = client.Close() })
+
+		done := make(chan error, 1)
+		go func() {
+			_, _, err := client.Search(SearchOptions{Limit: 1})
+			done <- err
+		}()
+		select {
+		case err := <-done:
+			return err
+		case <-time.After(10 * time.Second):
+			t.Fatal("Search did not finish")
+			return nil
+		}
+	}
+
+	t.Run("Stalled", func(t *testing.T) {
+		t.Parallel()
+		err := search(t, func(_ http.ResponseWriter, r *http.Request) {
+			<-r.Context().Done()
+		})
+		require.Error(t, err)
+	})
+
+	t.Run("SlowButSteady", func(t *testing.T) {
+		t.Parallel()
+		err := search(t, func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			flusher, _ := w.(http.Flusher)
+			// Leading whitespace is valid JSON; the whole response takes twice
+			// the idle bound, a fifth of it between writes.
+			for range 10 {
+				_, _ = w.Write([]byte(" "))
+				flusher.Flush()
+				time.Sleep(idle / 5)
+			}
+			_, _ = w.Write([]byte(`{"messages": []}`))
+		})
+		require.NoError(t, err)
+	})
 }

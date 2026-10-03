@@ -141,14 +141,14 @@ func (e *searchExecutor) Run(ctx context.Context) error {
 	}
 	defer func() { _ = client.Close() }()
 
-	messages, err := client.Search(e.options)
+	messages, partial, err := client.Search(e.options)
 	if err != nil {
 		return accountError(e.address, err)
 	}
 	messages, truncated := mailbox.Fit(messages, e.budget)
 
 	e.mu.Lock()
-	e.outputs = map[string]any{"messages": messages, "count": len(messages), "truncated": truncated}
+	e.outputs = map[string]any{"messages": messages, "count": len(messages), "truncated": truncated || partial}
 	e.mu.Unlock()
 
 	folder := e.options.Folder

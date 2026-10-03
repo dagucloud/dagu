@@ -24,7 +24,7 @@ func accountAddress(mailbox string) string {
 
 // mailboxClient is a signed-in mailbox, over IMAP or the Gmail API.
 type mailboxClient interface {
-	Search(mailbox.SearchOptions) ([]mailbox.Message, error)
+	Search(mailbox.SearchOptions) ([]mailbox.Message, bool, error)
 	Organize(mailbox.OrganizeOptions) (*mailbox.OrganizeResult, error)
 	ReplyInfo(id string) (*mailbox.ReplyInfo, error)
 	Close() error
