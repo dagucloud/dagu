@@ -49,6 +49,17 @@ func dryRunCheck(ctx context.Context, step ir.Step) error {
 		return nil
 	case opInfo, opListSheets:
 		return workbook.Check(ctx, path, workbook.CheckOptions{Password: cfg.Password})
+	case opExtract:
+		// The workbook and the sheet can be checked; which cells hold the
+		// fields is for the model at run time.
+		opts := workbook.CheckOptions{Password: cfg.Password}
+		if !cfg.deferred["sheet"] {
+			opts.Sheet = cfg.Sheet
+		}
+		if !cfg.deferred["range"] {
+			opts.Range = cfg.Range
+		}
+		return workbook.Check(ctx, path, opts)
 	case opSheet:
 		// Whether a source sheet is needed depends on the operation and
 		// the missing mode; while either is still a reference, only the

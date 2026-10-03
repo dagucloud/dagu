@@ -547,6 +547,9 @@ const (
 
 	// ExecutorTypeComputer is the executor type for desktop automation steps.
 	ExecutorTypeComputer = "computer"
+
+	// ExecutorTypeXlsx is the executor type for workbook steps.
+	ExecutorTypeXlsx = "xlsx"
 )
 
 // RouterConfig contains routing configuration for router-type steps.

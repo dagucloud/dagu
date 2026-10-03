@@ -68,19 +68,32 @@ type config struct {
 	// csv files: input of write and append, output of convert
 	Encoding  string `mapstructure:"encoding"`
 	Delimiter string `mapstructure:"delimiter"`
+	// extract
+	Instruction string         `mapstructure:"instruction"`
+	Schema      map[string]any `mapstructure:"schema"`
+	SendValues  bool           `mapstructure:"send_values"`
+	Cache       bool           `mapstructure:"cache"`
+	// LLM is the model block xlsx.extract takes through with.llm; the spec
+	// layer moves it to the step before the executor sees it, so here it is
+	// only a key that is foreign to every other operation.
+	LLM any `mapstructure:"llm"`
 
 	// Parsed forms, filled by validateConfig.
-	header        workbook.HeaderSpec
-	columns       []workbook.ColumnSelect
-	types         map[string]workbook.ColumnType
-	set           map[string]workbook.SetValue
-	wait          time.Duration
-	allowed       map[string][]any
-	cells         map[string]workbook.CellValue
-	convertFormat workbook.ConvertFormat
-	encoding      workbook.Encoding
-	delimiter     rune
-	present       map[string]bool
+	// extractProperties lists the schema's properties in order and
+	// extractTypes the column type each one pins, when it pins one.
+	extractProperties []string
+	extractTypes      map[string]workbook.ColumnType
+	header            workbook.HeaderSpec
+	columns           []workbook.ColumnSelect
+	types             map[string]workbook.ColumnType
+	set               map[string]workbook.SetValue
+	wait              time.Duration
+	allowed           map[string][]any
+	cells             map[string]workbook.CellValue
+	convertFormat     workbook.ConvertFormat
+	encoding          workbook.Encoding
+	delimiter         rune
+	present           map[string]bool
 	// deferred lists fields whose value is still a reference at build time.
 	deferred map[string]bool
 }
@@ -92,7 +105,7 @@ func (cfg config) provided(field string) bool {
 }
 
 func defaultConfig() config {
-	return config{Atomic: true}
+	return config{Atomic: true, SendValues: true, Cache: true}
 }
 
 // decodeConfig fills cfg from a with map. At DAG build time, deferReferences
@@ -168,7 +181,12 @@ var fieldsByOperation = map[string][]string{
 		"dry_run", "wait_for_unlock", "artifact"},
 	opConvert: {"path", "password", "sheet", "range", "header", "columns", "types", "trim", "merged", "formulas",
 		"output", "format", "encoding", "delimiter", "atomic", "artifact"},
+	opExtract: {"path", "password", "sheet", "range", "instruction", "schema", "send_values", "cache", "trim", "formulas"},
 }
+
+// extractFixedOutputs are the outputs xlsx.extract publishes beside the
+// schema's properties, which a property may not be named after.
+var extractFixedOutputs = []string{"cells", "sheet", "warnings", "source"}
 
 func isWriter(operation string) bool {
 	switch operation {
@@ -241,6 +259,9 @@ func validateConfig(operation string, cfg *config) error {
 	}
 	if operation == opValidate {
 		return validateValidateConfig(cfg)
+	}
+	if operation == opExtract {
+		return validateExtractConfig(cfg)
 	}
 	if isWriter(operation) {
 		return validateWriterConfig(operation, cfg)
@@ -331,6 +352,72 @@ func validateValidateConfig(cfg *config) error {
 		}
 	}
 	return nil
+}
+
+// validateExtractConfig checks the instruction and the schema of
+// xlsx.extract, and reads which column type each property pins.
+func validateExtractConfig(cfg *config) error {
+	if strings.TrimSpace(cfg.Instruction) == "" && !cfg.deferred["instruction"] {
+		return fmt.Errorf("%w: extract requires with.instruction", errConfig)
+	}
+	if !cfg.present["schema"] {
+		return fmt.Errorf("%w: extract requires with.schema", errConfig)
+	}
+	if !cfg.provided("schema") {
+		return nil
+	}
+	if cfg.Schema["type"] != "object" {
+		return fmt.Errorf("%w: schema must have type: object", errConfig)
+	}
+	properties, _ := cfg.Schema["properties"].(map[string]any)
+	cfg.extractProperties = make([]string, 0, len(properties))
+	cfg.extractTypes = map[string]workbook.ColumnType{}
+	for _, name := range sortedNames(properties) {
+		if slices.Contains(extractFixedOutputs, name) {
+			return fmt.Errorf("%w: schema property %q collides with an output of xlsx.extract", errConfig, name)
+		}
+		cfg.extractProperties = append(cfg.extractProperties, name)
+		spec, _ := properties[name].(map[string]any)
+		t, ok, err := pinnedType(spec)
+		if err != nil {
+			return fmt.Errorf("%w: schema.properties.%s: %v", errConfig, name, err)
+		}
+		if ok {
+			cfg.extractTypes[name] = t
+		}
+	}
+	return nil
+}
+
+// pinnedType maps a property's JSON Schema type to the column type the
+// cell is read with: string (date or date-time by format), number,
+// integer, or boolean. A property without a type takes the cell's own
+// value.
+func pinnedType(spec map[string]any) (workbook.ColumnType, bool, error) {
+	raw, present := spec["type"]
+	if !present {
+		return "", false, nil
+	}
+	kind, _ := raw.(string)
+	switch kind {
+	case "string":
+		switch format, _ := spec["format"].(string); format {
+		case "date":
+			return workbook.TypeDate, true, nil
+		case "date-time":
+			return workbook.TypeDateTime, true, nil
+		default:
+			return workbook.TypeString, true, nil
+		}
+	case "number":
+		return workbook.TypeNumber, true, nil
+	case "integer":
+		return workbook.TypeInteger, true, nil
+	case "boolean":
+		return workbook.TypeBoolean, true, nil
+	default:
+		return "", false, fmt.Errorf("type must be string, number, integer, or boolean")
+	}
 }
 
 func validateWriterConfig(operation string, cfg *config) error {
@@ -698,6 +785,13 @@ var configSchema = &jsonschema.Schema{
 		"encoding": {Type: "string", Enum: []any{"utf-8", "utf-8-bom", "shift_jis", "cp932", "windows-31j", "sjis", "ms932"},
 			Description: "Encoding of a csv file: the input of xlsx.write and xlsx.append, or the output of xlsx.convert. utf-8 (default), utf-8-bom, or shift_jis (also cp932, windows-31j)."},
 		"delimiter": {Type: "string", Description: "Field separator of a csv file, one character; a comma by default."},
+		"instruction": {Type: "string", Description: "xlsx.extract: what to find on the sheet, such as 'A supplier quote; find the quote number, delivery date, and total'. " +
+			"Sent to the model with the sheet's cells; must not contain a secret."},
+		"schema": {Type: "object", Description: "xlsx.extract: a JSON Schema with type: object whose properties name the fields to find. " +
+			"Each property becomes an output holding the typed value of the cell the model names; a property's type (string, number, integer, boolean; string with format date or date-time) pins how the cell is read."},
+		"send_values": boolOrRef("xlsx.extract: list every cell's text for the model (default). false lists non-text cells by kind only, so amounts and dates stay on the host."),
+		"cache":       boolOrRef("xlsx.extract: keep the cells the model named by sheet layout, so a repeated layout needs no model call (default true)."),
+		"llm":         {Type: "object", Description: "xlsx.extract: the model to ask, replacing the DAG-level llm block; the same fields as that block."},
 	},
 }
 

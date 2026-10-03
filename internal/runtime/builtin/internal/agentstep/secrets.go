@@ -30,6 +30,32 @@ type OperationTexts struct {
 // value. Such values must travel as variables, which the model sees only as
 // %name%. step names the step type in the error.
 func CheckSecrets(step string, operations []OperationTexts, secrets map[string]string) error {
+	names := checkableSecrets(secrets)
+	for i, op := range operations {
+		for _, text := range op.Texts {
+			if name := secretIn(text, names, secrets); name != "" {
+				return fmt.Errorf(
+					"%s: do[%d].%s contains the value of secret %s, which would be sent to the model; pass it in with.variables and reference it as %%name%%",
+					step, i, op.Kind, name,
+				)
+			}
+		}
+	}
+	return nil
+}
+
+// CheckTextSecrets rejects one model-bound with field whose text contains a
+// secret value, for a step that has no variables to carry it instead. step
+// names the step type and field the with key in the error.
+func CheckTextSecrets(step, field, text string, secrets map[string]string) error {
+	if name := secretIn(text, checkableSecrets(secrets), secrets); name != "" {
+		return fmt.Errorf("%s: with.%s contains the value of secret %s, which would be sent to the model", step, field, name)
+	}
+	return nil
+}
+
+// checkableSecrets lists, in order, the secrets long enough to check.
+func checkableSecrets(secrets map[string]string) []string {
 	names := make([]string, 0, len(secrets))
 	for name, value := range secrets {
 		if longEnoughToCheck(value) {
@@ -37,19 +63,18 @@ func CheckSecrets(step string, operations []OperationTexts, secrets map[string]s
 		}
 	}
 	sort.Strings(names)
-	for i, op := range operations {
-		for _, text := range op.Texts {
-			for _, name := range names {
-				if strings.Contains(text, secrets[name]) {
-					return fmt.Errorf(
-						"%s: do[%d].%s contains the value of secret %s, which would be sent to the model; pass it in with.variables and reference it as %%name%%",
-						step, i, op.Kind, name,
-					)
-				}
-			}
+	return names
+}
+
+// secretIn returns the first secret, in name order, whose value appears in
+// text, or "" when none does.
+func secretIn(text string, names []string, secrets map[string]string) string {
+	for _, name := range names {
+		if strings.Contains(text, secrets[name]) {
+			return name
 		}
 	}
-	return nil
+	return ""
 }
 
 // NewMasker hides declared secrets and ask answers in logs, timeline events,

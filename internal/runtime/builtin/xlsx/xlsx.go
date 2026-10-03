@@ -31,6 +31,7 @@ const (
 	opWriteCells = "write_cells"
 	opSheet      = "sheet"
 	opConvert    = "convert"
+	opExtract    = "extract"
 )
 
 const (
@@ -43,7 +44,7 @@ const (
 var errConfig = errors.New("xlsx: configuration error")
 
 func init() {
-	executor.RegisterExecutor(executorType, newExecutor, validateStep, registry.ExecutorCapabilities{Command: true, DryRunCheck: dryRunCheck})
+	executor.RegisterExecutor(executorType, newExecutor, validateStep, registry.ExecutorCapabilities{Command: true, LLM: true, DryRunCheck: dryRunCheck})
 }
 
 func newExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {
@@ -62,6 +63,8 @@ func newExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {
 		return newReadExecutor(env, op, path, cfg), nil
 	case opWrite, opAppend, opUpdateRows, opWriteCells, opSheet, opConvert:
 		return newWriteExecutor(env, op, path, cfg)
+	case opExtract:
+		return newExtractExecutor(ctx, env, step, path, cfg)
 	default:
 		return nil, fmt.Errorf("%w: unsupported operation %q", errConfig, op)
 	}
@@ -73,8 +76,14 @@ func validateStep(step ir.Step) error {
 	}
 	// At build time a value such as ${params.DRY_RUN} is still a reference;
 	// its type is checked when the step runs.
-	_, _, err := loadConfig(step, true)
-	return err
+	_, op, err := loadConfig(step, true)
+	if err != nil {
+		return err
+	}
+	if op == opExtract && step.LLM == nil {
+		return errors.New(errMissingModel)
+	}
+	return nil
 }
 
 func loadConfig(step ir.Step, deferReferences bool) (config, string, error) {
