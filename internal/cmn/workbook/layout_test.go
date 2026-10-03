@@ -118,10 +118,10 @@ func TestLayoutSizeCapFails(t *testing.T) {
 	size := len(full.Listing)
 	require.Greater(t, size, 2*1024)
 
-	_, err = Layout(context.Background(), path, LayoutOptions{SendValues: true, MaxBytes: 1024})
+	_, err = Layout(context.Background(), path, LayoutOptions{SendValues: true, MaxKB: 1})
 	require.EqualError(t, err, fmt.Sprintf("notes.xlsx Sheet1: the listing of Sheet1!A1:B10 is %d KB, more than 1 KB; set range to the part of the sheet that holds the fields", (size+1023)/1024))
 
-	_, err = Layout(context.Background(), path, LayoutOptions{SendValues: true, MaxBytes: 1024, Range: "A1:B1"})
+	_, err = Layout(context.Background(), path, LayoutOptions{SendValues: true, MaxKB: 1, Range: "A1:B1"})
 	require.NoError(t, err, "a range that holds the fields fits")
 }
 

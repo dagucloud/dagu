@@ -22,9 +22,9 @@ const DataDirName = "xlsx"
 // DefaultMaxLayoutCells caps the cells a layout lists for a model.
 const DefaultMaxLayoutCells = 2000
 
-// DefaultMaxLayoutBytes caps the size of the listing sent to a model, so a
-// sheet that cannot fit a model context is refused before any request.
-const DefaultMaxLayoutBytes = 200 * 1024
+// DefaultMaxLayoutKB caps the size of the listing sent to a model, in KB, so
+// a sheet that cannot fit a model context is refused before any request.
+const DefaultMaxLayoutKB = 200
 
 // maxLayoutText is the longest cell text a layout line carries, in runes.
 const maxLayoutText = 200
@@ -46,8 +46,8 @@ type LayoutOptions struct {
 	Formulas   FormulaMode
 	// MaxCells caps the listed cells; zero means DefaultMaxLayoutCells.
 	MaxCells int
-	// MaxBytes caps the listing size; zero means DefaultMaxLayoutBytes.
-	MaxBytes int
+	// MaxKB caps the listing size in KB; zero means DefaultMaxLayoutKB.
+	MaxKB int
 }
 
 // SheetLayout describes the non-empty cells of a sheet for a model, and
@@ -116,9 +116,9 @@ func Layout(ctx context.Context, path string, opts LayoutOptions) (*SheetLayout,
 	if limit <= 0 {
 		limit = DefaultMaxLayoutCells
 	}
-	maxBytes := opts.MaxBytes
-	if maxBytes <= 0 {
-		maxBytes = DefaultMaxLayoutBytes
+	maxKB := opts.MaxKB
+	if maxKB <= 0 {
+		maxKB = DefaultMaxLayoutKB
 	}
 	readOpts := ReadOptions{Trim: opts.Trim, Formulas: opts.Formulas}
 	discard := func(string) {}
@@ -186,8 +186,8 @@ func Layout(ctx context.Context, path string, opts LayoutOptions) (*SheetLayout,
 		return nil, w.sheetError(sheet, fmt.Sprintf("%d cells in %s is more than %d; set range to the part of the sheet that holds the fields", layout.Cells, layout.Range, limit))
 	}
 	layout.Listing = strings.TrimSuffix(listing.String(), "\n")
-	if size := len(layout.Listing); size > maxBytes {
-		return nil, w.sheetError(sheet, fmt.Sprintf("the listing of %s is %d KB, more than %d KB; set range to the part of the sheet that holds the fields", layout.Range, (size+1023)/1024, maxBytes/1024))
+	if sizeKB := (len(layout.Listing) + 1023) / 1024; sizeKB > maxKB {
+		return nil, w.sheetError(sheet, fmt.Sprintf("the listing of %s is %d KB, more than %d KB; set range to the part of the sheet that holds the fields", layout.Range, sizeKB, maxKB))
 	}
 	layout.Key = hex.EncodeToString(shape.Sum(nil))
 	return layout, nil
