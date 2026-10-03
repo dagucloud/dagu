@@ -280,6 +280,29 @@ func TestReplayCacheKeepsReplayedTurns(t *testing.T) {
 	assert.Equal(t, []string{"move 10,10", "left down #1", "move 30,30", "left down #1"}, run.backend.inputs())
 }
 
+// A healed act can record nothing, as when the model finds the task already
+// done. The recording it healed no longer replays, so it is dropped, and the
+// next run asks the model instead of repeating it.
+func TestHealedActWithoutActionsDropsRecording(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"do": [{"act": "Open the report"}]}`
+	run := newTestRun(t)
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(30, 40)), done("Opened")}}}
+	require.NoError(t, run.execute(steps, nil).err)
+
+	run.backend.show(pattern(400, 200, 150))
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{done("Already open")}}}
+	healed := run.execute(steps, nil)
+	require.NoError(t, healed.err)
+	assert.Equal(t, []string{"act:healed"}, eventNames(healed.exec.GetAgentSession()))
+
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{done("Already open")}}}
+	next := run.execute(steps, nil)
+	require.NoError(t, next.err)
+	assert.Equal(t, []string{"act:completed"}, eventNames(next.exec.GetAgentSession()))
+}
+
 // An act's recording is kept only when the whole step succeeds, and a step
 // that fails on the screen after a replay drops the recording, so an act
 // that did the wrong thing is not repeated.

@@ -135,6 +135,36 @@ func TestRecordingsLookupSeesOtherRuns(t *testing.T) {
 	assert.Equal(t, "double click", entry, "a recording another run replaced is replayed as replaced")
 }
 
+// A recording that no longer replays is dropped once the run that healed it
+// is kept, unless the run recorded what it did instead or another run
+// replaced it.
+func TestRecordingsCommitDropsHealed(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "step.json")
+	for _, key := range []string{"a", "b", "c"} {
+		commitRecording(t, path, key, "click")
+	}
+	healed := openRecordings(path)
+	for _, key := range []string{"a", "b", "c"} {
+		_, ok := healed.Lookup(key)
+		require.True(t, ok, key)
+		healed.Drop(key)
+	}
+	healed.Stage("b", "double click")
+	commitRecording(t, path, "c", "type")
+	require.NoError(t, healed.Commit(context.Background()))
+
+	_, ok := lookup(path, "a")
+	assert.False(t, ok, "the dropped recording is removed")
+	entry, ok := lookup(path, "b")
+	require.True(t, ok)
+	assert.Equal(t, "double click", entry, "what the run recorded replaces the drop")
+	entry, ok = lookup(path, "c")
+	require.True(t, ok)
+	assert.Equal(t, "type", entry, "a recording another run replaced stays")
+}
+
 func TestRecordingsEvictLastEntryRemovesFile(t *testing.T) {
 	t.Parallel()
 
@@ -149,27 +179,32 @@ func TestRecordingsEvictLastEntryRemovesFile(t *testing.T) {
 }
 
 // A step paused for input resumes in a new process, which takes over what
-// the paused attempt recorded and replayed.
+// the paused attempt recorded, dropped, and replayed.
 func TestRecordingsHeldAcrossPause(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "step.json")
 	commitRecording(t, path, "a", "click")
+	commitRecording(t, path, "c", "scroll")
 	paused := openRecordings(path)
 	_, _ = paused.Lookup("a")
 	paused.Stage("b", "type")
+	_, _ = paused.Lookup("c")
+	paused.Drop("c")
 	pending, used := paused.Held()
 
 	resumed := openRecordings(path)
-	resumed.Hold(pending, used)
-	require.NoError(t, resumed.Evict(context.Background()))
-	_, ok := lookup(path, "a")
-	assert.False(t, ok, "the replay before the pause is dropped")
-
-	resumed = openRecordings(path)
 	resumed.Hold(pending, used)
 	require.NoError(t, resumed.Commit(context.Background()))
 	entry, ok := lookup(path, "b")
 	require.True(t, ok)
 	assert.Equal(t, "type", entry)
+	_, ok = lookup(path, "c")
+	assert.False(t, ok, "the drop before the pause is applied")
+
+	resumed = openRecordings(path)
+	resumed.Hold(pending, used)
+	require.NoError(t, resumed.Evict(context.Background()))
+	_, ok = lookup(path, "a")
+	assert.False(t, ok, "the replay before the pause is dropped")
 }

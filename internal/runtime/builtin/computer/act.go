@@ -68,6 +68,9 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 				return nil
 			}
 			status = agentstep.StatusHealed
+			// The recording is dropped unless the act that heals it records
+			// what it did.
+			r.cache.Drop(key)
 			replayed, spent = entry.Turns[:replay.turns], replay.actions
 		}
 	}

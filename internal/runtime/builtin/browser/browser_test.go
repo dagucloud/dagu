@@ -517,6 +517,30 @@ func TestReplaySeesOtherRuns(t *testing.T) {
 	assert.Len(t, run.engine.replays, 1, "the dropped recording is not replayed")
 }
 
+// A healed act can record nothing, as when its click loads a new document
+// before the act reports back. The recording it healed no longer replays, so
+// it is dropped, and the next run asks the model instead of repeating it.
+func TestHealedActWithoutActionsDropsRecording(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"url": "https://shop.example.com/login", "do": [{"act": "Click the sign-in button"}]}`
+	run := newTestRun(t, pageModel(nil))
+	require.NoError(t, run.execute(steps, nil).err)
+
+	run.engine.hidden = []string{"xpath=/html/body/button"}
+	run.engine.actNavigatesTo = "https://shop.example.com/orders"
+	run.engine.actLosesPage = 1
+	healed := run.execute(steps, nil)
+	require.NoError(t, healed.err)
+	assert.Equal(t, []string{"goto:completed", "act:healed"}, eventNames(healed.exec.GetAgentSession()))
+
+	run.engine.hidden = nil
+	run.engine.actNavigatesTo = ""
+	next := run.execute(steps, nil)
+	require.NoError(t, next.err)
+	assert.Equal(t, []string{"goto:completed", "act:completed"}, eventNames(next.exec.GetAgentSession()))
+}
+
 // A replayed click that loads a new document can lose the page too. The new
 // document shows the click took effect, so the model does not act again, and
 // the action recorded after it runs on the new document.

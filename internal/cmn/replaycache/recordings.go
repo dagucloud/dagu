@@ -38,15 +38,16 @@ const (
 type Recordings[T any] struct {
 	path string
 	mu   sync.Mutex
-	// pending holds what the attempt recorded, until it succeeds.
-	pending map[string]T
+	// pending holds what the attempt recorded, until it succeeds. A nil
+	// entry removes the recording for its key.
+	pending map[string]*T
 	// used holds the entries the attempt replayed, as they were read.
 	used map[string]T
 }
 
 // Open returns an attempt's view of the recordings in the file at path.
 func Open[T any](path string) *Recordings[T] {
-	return &Recordings[T]{path: path, pending: map[string]T{}, used: map[string]T{}}
+	return &Recordings[T]{path: path, pending: map[string]*T{}, used: map[string]T{}}
 }
 
 // Lookup returns the recording for key as the file holds it now and counts
@@ -67,16 +68,33 @@ func (r *Recordings[T]) Lookup(key string) (T, bool) {
 func (r *Recordings[T]) Stage(key string, entry T) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.pending[key] = entry
+	r.pending[key] = &entry
 }
 
-// Commit keeps what the attempt recorded.
+// Drop marks the recording the attempt looked up for key as one that no
+// longer replays, to be removed by Commit unless another run replaced it
+// since. A later Stage for key takes its place.
+func (r *Recordings[T]) Drop(key string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.pending[key] = nil
+}
+
+// Commit keeps what the attempt recorded and removes what it dropped.
 func (r *Recordings[T]) Commit(ctx context.Context) error {
-	pending, _ := r.take()
+	pending, used := r.take()
 	if len(pending) == 0 {
 		return nil
 	}
-	return r.update(ctx, func(entries map[string]T) { maps.Copy(entries, pending) })
+	return r.update(ctx, func(entries map[string]T) {
+		for key, entry := range pending {
+			if entry != nil {
+				entries[key] = *entry
+			} else if replayed, ok := used[key]; ok {
+				removeUnchanged(entries, key, replayed)
+			}
+		}
+	})
 }
 
 // Evict drops the recordings the attempt replayed, unless another run
@@ -87,10 +105,8 @@ func (r *Recordings[T]) Evict(ctx context.Context) error {
 		return nil
 	}
 	return r.update(ctx, func(entries map[string]T) {
-		for key, entry := range used {
-			if current, ok := entries[key]; ok && reflect.DeepEqual(current, entry) {
-				delete(entries, key)
-			}
+		for key, replayed := range used {
+			removeUnchanged(entries, key, replayed)
 		}
 	})
 }
@@ -101,8 +117,8 @@ func (r *Recordings[T]) Discard() {
 	_, _ = r.take()
 }
 
-// Held returns what the attempt recorded and replayed so far, encoded to be
-// carried across a pause for human input.
+// Held returns what the attempt recorded, dropped, and replayed so far,
+// encoded to be carried across a pause for human input.
 func (r *Recordings[T]) Held() (pending, used map[string]json.RawMessage) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -113,16 +129,24 @@ func (r *Recordings[T]) Held() (pending, used map[string]json.RawMessage) {
 func (r *Recordings[T]) Hold(pending, used map[string]json.RawMessage) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	maps.Copy(r.pending, decode[T](pending))
+	maps.Copy(r.pending, decode[*T](pending))
 	maps.Copy(r.used, decode[T](used))
 }
 
-func (r *Recordings[T]) take() (pending, used map[string]T) {
+func (r *Recordings[T]) take() (pending map[string]*T, used map[string]T) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	pending, used = r.pending, r.used
-	r.pending, r.used = map[string]T{}, map[string]T{}
+	r.pending, r.used = map[string]*T{}, map[string]T{}
 	return pending, used
+}
+
+// removeUnchanged removes the entry for key unless another run replaced it
+// after the attempt replayed it as replayed.
+func removeUnchanged[T any](entries map[string]T, key string, replayed T) {
+	if current, ok := entries[key]; ok && reflect.DeepEqual(current, replayed) {
+		delete(entries, key)
+	}
 }
 
 // update applies change to the file as it is now. An emptied file is
@@ -170,7 +194,7 @@ func read[T any](path string) (map[string]T, error) {
 	return entries, nil
 }
 
-func encode[T any](entries map[string]T) map[string]json.RawMessage {
+func encode[V any](entries map[string]V) map[string]json.RawMessage {
 	if len(entries) == 0 {
 		return nil
 	}
@@ -183,10 +207,10 @@ func encode[T any](entries map[string]T) map[string]json.RawMessage {
 	return raw
 }
 
-func decode[T any](raw map[string]json.RawMessage) map[string]T {
-	entries := make(map[string]T, len(raw))
+func decode[V any](raw map[string]json.RawMessage) map[string]V {
+	entries := make(map[string]V, len(raw))
 	for key, data := range raw {
-		var entry T
+		var entry V
 		if json.Unmarshal(data, &entry) == nil {
 			entries[key] = entry
 		}
