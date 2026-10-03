@@ -507,6 +507,10 @@ func TestExtractFallsBackOnAddressOutsideTheListing(t *testing.T) {
 			cfg:    map[string]any{"range": "A1:B7"},
 			fault:  `openai/first: xlsx: model answered field "delivery" with "B9", which is outside Sheet1!A1:B7`,
 		},
+		"outside the used range with no range configured": {
+			answer: map[string]any{"quote_no": "B3", "delivery": "Z100", "total": "B7"},
+			fault:  `openai/first: xlsx: model answered field "delivery" with "Z100", which is outside Sheet1!A1:B7`,
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()

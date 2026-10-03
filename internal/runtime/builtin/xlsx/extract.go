@@ -320,7 +320,9 @@ func (e *extractExecutor) readCells(ctx context.Context, layout *workbook.SheetL
 	return workbook.ReadCells(ctx, e.path, workbook.ReadCellsOptions{
 		Password: e.cfg.Password,
 		Sheet:    layout.Sheet,
-		Range:    e.cfg.Range,
+		// The listed range bounds the answers, whether it was configured
+		// or derived from the used range.
+		Range:    layout.Range,
 		Cells:    cells,
 		Types:    e.cfg.extractTypes,
 		Trim:     e.cfg.Trim,
