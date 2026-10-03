@@ -286,6 +286,12 @@ func (w *file) writeCell(sheet string, col, row int, cv CellValue) (bool, error)
 		if existingFormula == formula {
 			return false, nil
 		}
+		// A formula replaces the cell's value and its stored kind: a text
+		// cell that kept its shared-string type would read its string index
+		// back as the cached value. The style stays.
+		if err := w.f.SetCellDefault(sheet, cell, ""); err != nil {
+			return false, w.cellError(sheet, col, row, err.Error())
+		}
 		if err := w.f.SetCellFormula(sheet, cell, formula); err != nil {
 			return false, w.cellError(sheet, col, row, err.Error())
 		}

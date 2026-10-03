@@ -93,6 +93,13 @@ func TestWriteCellsFillsATemplate(t *testing.T) {
 	assert.Equal(t, "2026-10-01", rows.Rows[1]["B"], "an ISO string becomes a date")
 	assert.Equal(t, int64(3), rows.Rows[2]["B"])
 	assert.Equal(t, "=B3*B4", rows.Rows[4]["B"])
+	// The formula replaced a text cell: a default read evaluates it, since
+	// the formula has no cached value, rather than returning the index of
+	// the text the cell used to hold.
+	cached, err := Read(context.Background(), path, ReadOptions{Header: HeaderSpec{Mode: HeaderNone}})
+	require.NoError(t, err)
+	assert.Equal(t, int64(30), cached.Rows[4]["B"])
+	assert.Contains(t, cached.Warnings, "Sheet1!B5: formula had no cached value; evaluated")
 	other, err := Read(context.Background(), path, ReadOptions{Sheet: "My Sheet", Header: HeaderSpec{Mode: HeaderNone}})
 	require.NoError(t, err)
 	assert.Nil(t, other.Rows[0]["A"])
