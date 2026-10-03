@@ -48,7 +48,7 @@ type searchConfig struct {
 type searchExecutor struct {
 	stdout  io.Writer
 	address string
-	account mailbox.Account
+	account mailboxAccount
 	options mailbox.SearchOptions
 	budget  int
 
@@ -98,7 +98,7 @@ func newSearch(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	if err != nil {
 		return nil, err
 	}
-	account, err := imapAccount(address, resolved)
+	account, err := newMailboxAccount(address, resolved)
 	if err != nil {
 		return nil, err
 	}
@@ -135,7 +135,7 @@ func (e *searchExecutor) Run(ctx context.Context) error {
 	e.cancel = cancel
 	e.mu.Unlock()
 
-	client, err := mailbox.Dial(ctx, e.account)
+	client, err := e.account.open(ctx)
 	if err != nil {
 		return accountError(e.address, err)
 	}

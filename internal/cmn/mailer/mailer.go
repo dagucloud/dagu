@@ -158,16 +158,20 @@ func (m *Client) SendMessage(ctx context.Context, msg Message) error {
 	return m.send(ctx, msg, true)
 }
 
+// Compose returns msg as the RFC 5322 message SendMessage delivers. Bcc
+// recipients are not part of it.
+func (m *Client) Compose(msg Message) ([]byte, error) {
+	return m.composeMessage(sanitizeAddresses(msg.To), sanitizeAddresses(msg.Cc),
+		sanitizeHeaderField(msg.From), sanitizeHeaderField(msg.Subject), processEmailBody(msg.Body),
+		msg.Attachments, threadHeaders(msg.InReplyTo, msg.References))
+}
+
 func (m *Client) send(ctx context.Context, msg Message, useAuth bool) error {
 	// The message is built before connecting, so attachments are read once and
 	// a problem with one stops the send before the server sees anything.
 	recipients := sanitizeAddresses(append(append(append([]string{}, msg.To...), msg.Cc...), msg.Bcc...))
-	to := sanitizeAddresses(msg.To)
-	cc := sanitizeAddresses(msg.Cc)
 	safeFrom := sanitizeHeaderField(msg.From)
-	safeSubject := sanitizeHeaderField(msg.Subject)
-	payload, err := m.composeMessage(to, cc, safeFrom, safeSubject, processEmailBody(msg.Body), msg.Attachments,
-		threadHeaders(msg.InReplyTo, msg.References))
+	payload, err := m.Compose(msg)
 	if err != nil {
 		return fmt.Errorf("failed to compose email: %w", err)
 	}

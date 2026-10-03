@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailbox"
+	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauthconfig"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -222,6 +223,30 @@ func TestMailboxStepErrors(t *testing.T) {
 			_, err := newMail(ctx, tt.step)
 			require.ErrorContains(t, err, tt.wantErr)
 		})
+	}
+}
+
+// A Google account signed in with OAuth reaches Gmail through its API, so its
+// steps start without IMAP or SMTP servers.
+func TestGmailAPIAccountNeedsNoServers(t *testing.T) {
+	t.Parallel()
+
+	ctx := runtime.NewContext(context.Background(), &ir.DAG{
+		MailAccounts: ir.MailAccounts{"me@gmail.com": {
+			Provider: ir.MailProviderGoogle,
+			Username: "me@gmail.com",
+			OAuth: &oauthconfig.Config{
+				Provider: oauthconfig.ProviderGoogleRefresh, ClientID: "c", ClientSecret: "s", RefreshToken: "r",
+			},
+		}},
+	}, "", "")
+
+	for _, step := range []ir.Step{
+		operationStep(opSearch, map[string]any{"mailbox": "me@gmail.com"}),
+		sendStep(map[string]any{"mailbox": "me@gmail.com", "to": "team@example.com", "subject": "s", "message": "m"}),
+	} {
+		_, err := newMail(ctx, step)
+		require.NoError(t, err)
 	}
 }
 

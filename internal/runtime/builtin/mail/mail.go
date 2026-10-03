@@ -36,9 +36,11 @@ type mail struct {
 	cfg    *mailConfig
 	// address is the mail account sending the message, if any.
 	address string
-	// replyTo is the ID of the email this message answers, and imap reads it.
+	// replyTo is the ID of the email this message answers.
 	replyTo string
-	imap    mailbox.Account
+	// account is the mailbox the message is sent from, if any. It reads the
+	// answered email and, for a Gmail API account, sends the message.
+	account mailboxAccount
 }
 
 type mailConfig struct {
@@ -110,12 +112,13 @@ func newSend(ctx context.Context, step ir.Step) (executor.Executor, error) {
 		if err != nil {
 			return nil, err
 		}
-		mailerConfig, err := smtpConfig(exec.address, account)
-		if err != nil {
+		if exec.account, err = newMailboxAccount(exec.address, account); err != nil {
 			return nil, err
 		}
-		if exec.replyTo != "" {
-			if exec.imap, err = imapAccount(exec.address, account); err != nil {
+		// A Gmail API account sends through the API, so the mailer only composes.
+		var mailerConfig mailer.Config
+		if !exec.account.gmail {
+			if mailerConfig, err = smtpConfig(exec.address, account); err != nil {
 				return nil, err
 			}
 		}
@@ -189,6 +192,7 @@ func (e *mail) Run(ctx context.Context) error {
 		Body:        e.cfg.Message,
 		Attachments: e.cfg.Attachments,
 	}
+	var threadID string
 	if e.replyTo != "" {
 		info, err := e.replyInfo(ctx)
 		if err != nil {
@@ -201,6 +205,7 @@ func (e *mail) Run(ctx context.Context) error {
 			msg.Subject = replySubject(info.Subject)
 		}
 		msg.InReplyTo, msg.References = info.MessageID, info.References
+		threadID = info.ThreadID
 	}
 
 	if len(msg.To) == 0 {
@@ -208,7 +213,12 @@ func (e *mail) Run(ctx context.Context) error {
 	}
 
 	_, _ = fmt.Fprintf(e.stdout, mailLogTemplate, msg.From, strings.Join(msg.To, ", "), msg.Subject, msg.Body)
-	err := e.mailer.SendMessage(ctx, msg)
+	var err error
+	if e.account.gmail {
+		err = e.sendThroughGmail(ctx, msg, threadID)
+	} else {
+		err = e.mailer.SendMessage(ctx, msg)
+	}
 	if err != nil {
 		_, _ = e.stderr.Write([]byte("error occurred."))
 		if e.address != "" {
@@ -220,9 +230,24 @@ func (e *mail) Run(ctx context.Context) error {
 	return err
 }
 
-// replyInfo reads the answered email over IMAP.
+// sendThroughGmail sends msg with the Gmail API, in the conversation of the
+// answered email when there is one.
+func (e *mail) sendThroughGmail(ctx context.Context, msg mailer.Message, threadID string) error {
+	raw, err := e.mailer.Compose(msg)
+	if err != nil {
+		return fmt.Errorf("failed to compose email: %w", err)
+	}
+	client, err := mailbox.DialGmail(ctx, e.account.account)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = client.Close() }()
+	return client.Send(raw, threadID)
+}
+
+// replyInfo reads the answered email without changing it.
 func (e *mail) replyInfo(ctx context.Context) (*mailbox.ReplyInfo, error) {
-	client, err := mailbox.Dial(ctx, e.imap)
+	client, err := e.account.open(ctx)
 	if err != nil {
 		return nil, err
 	}

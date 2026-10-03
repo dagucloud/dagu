@@ -38,7 +38,7 @@ type organizeConfig struct {
 type organizeExecutor struct {
 	stdout  io.Writer
 	address string
-	account mailbox.Account
+	account mailboxAccount
 	options mailbox.OrganizeOptions
 
 	mu      sync.Mutex
@@ -78,7 +78,7 @@ func newOrganize(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	if err != nil {
 		return nil, err
 	}
-	account, err := imapAccount(address, resolved)
+	account, err := newMailboxAccount(address, resolved)
 	if err != nil {
 		return nil, err
 	}
@@ -156,7 +156,7 @@ func (e *organizeExecutor) Run(ctx context.Context) error {
 	e.cancel = cancel
 	e.mu.Unlock()
 
-	client, err := mailbox.Dial(ctx, e.account)
+	client, err := e.account.open(ctx)
 	if err != nil {
 		return accountError(e.address, err)
 	}
