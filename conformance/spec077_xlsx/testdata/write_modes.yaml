@@ -1,0 +1,82 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: log.xlsx
+      columns: [when, what]
+      rows: [{"when": "2026-10-01", "what": "start"}, {"when": "2026-10-02", "what": "work"}]
+  - id: append_mode
+    depends: write
+    action: xlsx.write
+    with:
+      path: log.xlsx
+      mode: append
+      columns: [when, what]
+      rows: [{"when": "2026-10-03", "what": "more"}]
+  - id: fresh_sheet
+    depends: append_mode
+    action: xlsx.write
+    with:
+      path: log.xlsx
+      sheet: Fresh
+      mode: append
+      columns: [when, what]
+      rows: [{"when": "2026-10-04", "what": "new"}]
+  - id: typed
+    action: xlsx.write
+    with:
+      path: typed.xlsx
+      rows: [{"code": "007", "amount": "12.5"}]
+      types: {code: string, amount: number}
+  - id: plain
+    action: xlsx.write
+    with:
+      path: plain.xlsx
+      style: none
+      rows: [{"a": 1}]
+  - id: in_place
+    action: xlsx.write
+    with:
+      path: in_place.xlsx
+      atomic: false
+      rows: [{"a": 1}, {"a": 2}]
+  - id: read_log
+    depends: fresh_sheet
+    action: xlsx.read
+    with:
+      path: log.xlsx
+  - id: read_fresh
+    depends: fresh_sheet
+    action: xlsx.read
+    with:
+      path: log.xlsx
+      sheet: Fresh
+  - id: read_typed
+    depends: typed
+    action: xlsx.read
+    with:
+      path: typed.xlsx
+  - id: read_plain
+    depends: plain
+    action: xlsx.read
+    with:
+      path: plain.xlsx
+  - id: read_in_place
+    depends: in_place
+    action: xlsx.read
+    with:
+      path: in_place.xlsx
+  - id: out
+    depends: [read_log, read_fresh, read_typed, read_plain, read_in_place]
+    action: file.write
+    with:
+      path: out.json
+      content: |
+        {"append_changes": ${steps.append_mode.outputs.changes},
+         "log": {"headers": ${steps.read_log.outputs.headers}, "count": ${steps.read_log.outputs.count}, "rows": ${steps.read_log.outputs.rows}},
+         "fresh_changes": ${steps.fresh_sheet.outputs.changes},
+         "fresh": {"headers": ${steps.read_fresh.outputs.headers}, "count": ${steps.read_fresh.outputs.count}, "rows": ${steps.read_fresh.outputs.rows}},
+         "typed": ${steps.read_typed.outputs.rows},
+         "plain_count": ${steps.read_plain.outputs.count},
+         "in_place_count": ${steps.read_in_place.outputs.count}}

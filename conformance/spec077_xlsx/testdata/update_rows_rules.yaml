@@ -1,0 +1,39 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: orders.xlsx
+      columns: [Invoice No, Amount, Note, Status]
+      types: {Amount: string}
+      rows:
+        - {"Invoice No": "INV-1", "Amount": "7", "Note": "n1", "Status": "Open"}
+        - {"Invoice No": "INV-2", "Amount": "8", "Note": "n2", "Status": "Open"}
+        - {"Invoice No": "INV-3", "Amount": "9", "Note": "n3", "Status": "Open"}
+  - id: update
+    depends: write
+    action: xlsx.update_rows
+    with:
+      path: orders.xlsx
+      key: Invoice No
+      missing: skip
+      rows:
+        - {"Invoice No": " INV-1 ", "status": null, "amount": 7, "note": "n1"}
+        - {"_row": 3, "Invoice No": "INV-2", "note": "2026-11-01"}
+        - {"Invoice No": "INV-99", "status": "lost"}
+      set:
+        Status: status
+        Amount: amount
+        Note: note
+        Reviewed: {value: "yes"}
+  - id: read
+    depends: update
+    action: xlsx.read
+    with:
+      path: orders.xlsx
+  - id: out
+    depends: read
+    action: file.write
+    with:
+      path: out.json
+      content: '{"changes": ${steps.update.outputs.changes}, "warnings": ${steps.update.outputs.warnings}, "headers": ${steps.read.outputs.headers}, "rows": ${steps.read.outputs.rows}}'

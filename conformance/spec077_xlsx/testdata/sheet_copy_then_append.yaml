@@ -1,0 +1,48 @@
+params:
+  - name: MONTH
+    default: "2026-10"
+working_dir: .
+steps:
+  - id: template
+    action: xlsx.write
+    with:
+      path: report.xlsx
+      sheet: Template
+      columns: [item, amount]
+      rows: []
+  - id: query
+    run: |
+      echo 'ROWS=[{"item": "rent", "amount": 1200}, {"item": "power", "amount": 80}]' >> "$DAGU_OUTPUT_FILE"
+    outputs:
+      - name: ROWS
+        type: json
+  - id: month
+    depends: template
+    action: xlsx.sheet
+    with:
+      path: report.xlsx
+      operation: copy
+      sheet: Template
+      to: ${params.MONTH}
+      if_exists: skip
+  - id: fill
+    depends: [query, month]
+    action: xlsx.write
+    with:
+      path: report.xlsx
+      sheet: ${params.MONTH}
+      mode: append
+      rows: ${steps.query.outputs.ROWS}
+  - id: read
+    depends: fill
+    action: xlsx.read
+    with:
+      path: report.xlsx
+      sheet: ${params.MONTH}
+  - id: out
+    depends: read
+    action: file.write
+    with:
+      path: out.json
+      overwrite: true
+      content: '{"sheets": ${steps.month.outputs.sheets}, "warnings": ${steps.month.outputs.warnings}, "count": ${steps.read.outputs.count}, "headers": ${steps.read.outputs.headers}}'
