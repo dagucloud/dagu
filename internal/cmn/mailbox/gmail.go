@@ -50,11 +50,11 @@ var gmailFolders = map[string]string{
 
 var gmailFolderPrefixes = []string{"[Gmail]/", "[Google Mail]/"}
 
-var (
-	errGmailScope = errors.New("the sign-in does not grant Gmail access " +
-		"(needs https://www.googleapis.com/auth/gmail.modify or https://mail.google.com/)")
-	errNoLabel = errors.New("no such label")
-)
+// ErrGmailScope means the account's sign-in does not grant access to Gmail.
+var ErrGmailScope = errors.New("the sign-in does not grant Gmail access " +
+	"(needs https://www.googleapis.com/auth/gmail.modify or https://mail.google.com/)")
+
+var errNoLabel = errors.New("no such label")
 
 // Gmail is a mailbox reached through the Gmail API.
 type Gmail struct {
@@ -177,7 +177,7 @@ func gmailError(err error) error {
 	if apiErr.Code == http.StatusForbidden {
 		for _, item := range apiErr.Errors {
 			if item.Reason == "insufficientPermissions" {
-				return errGmailScope
+				return ErrGmailScope
 			}
 		}
 	}

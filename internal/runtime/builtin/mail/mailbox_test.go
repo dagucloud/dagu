@@ -6,6 +6,7 @@ package mail
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	netmail "net/mail"
 	"strings"
@@ -248,6 +249,16 @@ func TestGmailAPIAccountNeedsNoServers(t *testing.T) {
 		_, err := newMail(ctx, step)
 		require.NoError(t, err)
 	}
+}
+
+// A sign-in without Gmail access fails every step the same way, whichever
+// request Gmail refused.
+func TestGmailScopeErrorNamesAccount(t *testing.T) {
+	t.Parallel()
+
+	err := accountError("me@gmail.com", fmt.Errorf("search folder %q: %w", "INBOX", mailbox.ErrGmailScope))
+	assert.EqualError(t, err, `mail account "me@gmail.com": `+mailbox.ErrGmailScope.Error())
+	assert.ErrorIs(t, err, mailbox.ErrGmailScope)
 }
 
 func TestSearchReportsWrongPasswordWithAccount(t *testing.T) {

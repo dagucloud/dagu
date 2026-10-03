@@ -102,14 +102,17 @@ func tokenSource(address string, account *ir.MailAccount) (func(context.Context)
 	return token, nil
 }
 
-// accountError names the account and states a revoked or expired sign-in
-// plainly.
+// accountError names the account and states a revoked or expired sign-in,
+// or one without Gmail access, plainly.
 func accountError(address string, err error) error {
 	if tokenErr, ok := errors.AsType[*oauth.TokenError](err); ok {
 		if tokenErr.Code == "invalid_grant" {
 			return fmt.Errorf("mail account %q: sign-in is no longer valid (invalid_grant)", address)
 		}
 		return fmt.Errorf("mail account %q: sign-in failed (%w)", address, tokenErr)
+	}
+	if errors.Is(err, mailbox.ErrGmailScope) {
+		return fmt.Errorf("mail account %q: %w", address, mailbox.ErrGmailScope)
 	}
 	return fmt.Errorf("mail account %q: %w", address, err)
 }

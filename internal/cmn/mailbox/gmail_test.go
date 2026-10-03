@@ -327,7 +327,7 @@ func TestGmailErrors(t *testing.T) {
 		client := dialGmail(t, server)
 		server.DenyScope()
 		_, err := client.Search(mailbox.SearchOptions{Limit: 20})
-		require.ErrorContains(t, err, "the sign-in does not grant Gmail access")
+		require.ErrorIs(t, err, mailbox.ErrGmailScope)
 	})
 
 	t.Run("OtherRefusal", func(t *testing.T) {
