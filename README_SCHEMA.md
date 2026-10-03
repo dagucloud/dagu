@@ -218,6 +218,7 @@ Current builtin actions:
 | `xlsx.write_cells` | Template filling | `path`, `cells`, optional `output`, `sheet` |
 | `xlsx.sheet` | Sheet management | `path`, `operation`, `sheet`, `to` for `copy` and `rename`, optional `if_exists`, `missing`, `position` |
 | `xlsx.convert` | Workbook export | `path`, `output`, optional `format`, `encoding`, `delimiter` |
+| `xlsx.extract` | Fields of a form-like sheet located by a model | `path`, `instruction`, `schema`, a model through `llm`; optional `sheet`, `range`, `send_values`, `cache` |
 | `archive.create`, `archive.extract`, `archive.list` | Archive operations | archive config |
 | `file.stat`, `file.read`, `file.write`, `file.copy`, `file.move`, `file.delete`, `file.mkdir`, `file.list` | File operations | path/source/destination/content config |
 | `git.checkout` | Git repository checkout | `repository`, `path`, optional `ref`, `depth`, auth config |

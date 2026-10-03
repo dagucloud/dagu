@@ -794,7 +794,7 @@ first, each with `id`, `message_id`, `folder`, `from_name`, `from_address`, `to`
 mark it read inside the loop right after its work, so a failed email stays
 unread for the next run.
 
-## xlsx.read / xlsx.info / xlsx.list_sheets / xlsx.write / xlsx.append / xlsx.update_rows / xlsx.validate / xlsx.write_cells / xlsx.sheet / xlsx.convert
+## xlsx.read / xlsx.info / xlsx.list_sheets / xlsx.write / xlsx.append / xlsx.update_rows / xlsx.validate / xlsx.write_cells / xlsx.sheet / xlsx.convert / xlsx.extract
 
 Read and write `.xlsx` workbooks without a spreadsheet application, on any
 platform. The pattern a per-row job needs is: read the rows still to do, act on
@@ -959,6 +959,42 @@ no cap; `_row` is not. It publishes `path`, `format`, `count`, `sheet`,
 `range`, `warnings`, and with `artifact: true` the file's copy. The reverse
 direction is `xlsx.write` with `input`, whose csv also takes `encoding` and
 `delimiter`.
+
+`xlsx.extract` reads fields out of a sheet laid out as a form rather than a
+table, such as a supplier's quote whose layout differs by sender. `path`,
+`instruction` (what to find), and `schema` (`type: object`, one property per
+field, each optionally `description`-ed in the sheet's own language and typed
+`string`, `number`, `integer`, `boolean`, or `string` with `format: date` or
+`date-time`), plus a model through the DAG-level `llm` block or `with.llm`.
+Optional `sheet`, `range`, `send_values` (default true; false shows non-text
+cells as their kind only), `cache` (default true), `trim`, `formulas`. A
+model is shown the sheet's non-empty cells as `B3 [text,bold]: 見積番号` and
+answers only the address of each field's cell, or null; the engine reads the
+typed value from that cell, so no value is invented. It publishes each
+property, `cells` (property to the `Sheet1!B7` it came from), `sheet`,
+`warnings`, and `source` (`model` or `cache`); do not declare outputs. The
+addresses are cached by the sheet's shape with the label beside each cell, so
+a repeated layout makes no model request; `dagu xlsx cache clear <dag>` drops
+the cache.
+
+```yaml
+llm:
+  provider: anthropic
+  model: claude-sonnet-5
+  api_key_name: ANTHROPIC_API_KEY
+steps:
+  - id: fields
+    action: xlsx.extract
+    with:
+      path: inbox/quote.xlsx
+      instruction: A supplier's quote. Find the quote number, the delivery date, and the total amount.
+      schema:
+        type: object
+        properties:
+          quote_no: {type: string, description: 見積番号}
+          delivery: {type: string, format: date, description: 納期}
+          total: {type: number, description: 合計金額}
+```
 
 `dagu dry` warns, without failing, when the workbook, sheet, or a column
 named by a reading, validating, converting, updating, cell-writing, or sheet
