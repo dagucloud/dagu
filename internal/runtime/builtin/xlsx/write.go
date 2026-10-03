@@ -243,6 +243,9 @@ func (e *writeExecutor) run(ctx context.Context) (outcome, error) {
 		}
 		n := result.Changes.CellsChanged
 		line := fmt.Sprintf("Wrote %d %s to %s %s", n, plural(n, "cell"), workbook.Base(result.Path), result.Sheet)
+		if m := result.Changes.Merged; m > 0 {
+			line += fmt.Sprintf(" (%d %s merged)", m, plural(m, "range"))
+		}
 		if result.DryRun {
 			line += " (dry run)"
 		}

@@ -25,6 +25,8 @@ type Changes struct {
 	RowsAppended int    `json:"rows_appended"`
 	ColumnsAdded int    `json:"columns_added"`
 	CellsChanged int    `json:"cells_changed"`
+	// Merged counts the ranges write_cells newly merged.
+	Merged int `json:"merged,omitempty"`
 }
 
 // WriteResult is what a writer publishes.

@@ -8185,6 +8185,13 @@
           },
           "description": "xlsx.write_cells: cell addresses to write, such as {B2: Acme, Sheet1!D7: 2026-10-01, Total: {formula: SUM(E2:E9)}}. A value writes the cell, null clears it, {value: v, type: t} pins its type, {formula: text} writes a formula. An address is a cell, Sheet!cell, or a defined name for one cell."
         },
+        "merge": {
+          "oneOf": [
+            { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 },
+            { "type": "string" }
+          ],
+          "description": "xlsx.write_cells: ranges to merge before the cells are written, such as [A1:D1]. A merged range keeps only its top-left value; a range covering a cell that holds something, or overlapping another merged region, fails the step."
+        },
         "output": {
           "type": "string",
           "minLength": 1,

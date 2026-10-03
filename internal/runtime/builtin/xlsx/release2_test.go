@@ -58,6 +58,12 @@ func TestWriteCellsFillsATemplateCopy(t *testing.T) {
 	require.NoError(t, dry.exec.Run(context.Background()))
 	assert.Equal(t, "Wrote 1 cell to template.xlsx Sheet1 (dry run)\n", dry.stdout.String())
 
+	merged, err := newTestWriter(t, dir, opWriteCells, map[string]any{"path": "template.xlsx", "cells": map[string]any{"A7": "Notes"}, "merge": []any{"A7:C7"}})
+	require.NoError(t, err)
+	require.NoError(t, merged.exec.Run(context.Background()))
+	assert.Equal(t, "Wrote 1 cell to template.xlsx Sheet1 (1 range merged)\n", merged.stdout.String())
+	assert.Equal(t, 1, merged.exec.GetOutputs()["changes"].(workbook.Changes).Merged)
+
 	missing, err := newTestWriter(t, dir, opWriteCells, map[string]any{"path": "none.xlsx", "cells": map[string]any{"B1": "x"}})
 	require.NoError(t, err)
 	err = missing.exec.Run(context.Background())

@@ -61,6 +61,8 @@ func TestDryRunCheckPerOperation(t *testing.T) {
 		"write_cells sheet":       {opWriteCells, map[string]any{"path": "orders.xlsx", "sheet": "Nope", "cells": map[string]any{"A1": 1}}, "field 'with.sheet'"},
 		"write_cells ok":          {opWriteCells, map[string]any{"path": "orders.xlsx", "cells": map[string]any{"Sheet1!A1": 1, "B2": 2}}, ""},
 		"write_cells address":     {opWriteCells, map[string]any{"path": "orders.xlsx", "cells": map[string]any{"Nope!A1": 1}}, `field 'with.sheet': orders.xlsx: sheet "Nope" not found`},
+		"write_cells merge sheet": {opWriteCells, map[string]any{"path": "orders.xlsx", "cells": map[string]any{"A1": 1}, "merge": []any{"Nope!A1:B1"}}, `field 'with.sheet': orders.xlsx: sheet "Nope" not found`},
+		"write_cells merge ok":    {opWriteCells, map[string]any{"path": "orders.xlsx", "cells": map[string]any{"A1": 1}, "merge": "Sheet1!A9:B9"}, ""},
 		"sheet copy source":       {opSheet, map[string]any{"path": "orders.xlsx", "operation": "copy", "sheet": "Nope", "to": "X"}, "field 'with.sheet'"},
 		"sheet copy missing skip": {opSheet, map[string]any{"path": "orders.xlsx", "operation": "copy", "sheet": "Nope", "to": "X", "missing": "skip"}, ""},
 		"sheet add":               {opSheet, map[string]any{"path": "orders.xlsx", "operation": "add", "sheet": "Nope"}, ""},

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -119,6 +120,9 @@ type WriteCellsOptions struct {
 	// as B2, Sheet!B2, or 'My Sheet'!B2, or a defined name that refers to
 	// one cell.
 	Cells map[string]CellValue
+	// Merge lists ranges to merge before the cells are written, such as
+	// A1:D1, so a title can span a filled template.
+	Merge []string
 	// Output, when set, receives the result while the workbook at path is
 	// left as it was, so a template can be filled many times.
 	Output  string
@@ -181,6 +185,10 @@ func writeCellsOnce(ctx context.Context, path string, opts WriteCellsOptions) (*
 	result.Sheet = sheet
 	result.Changes.Sheet = sheet
 
+	if result.Changes.Merged, err = w.mergeRanges(sheet, opts.Merge); err != nil {
+		return nil, err
+	}
+
 	targets, err := w.resolveCells(sheet, opts.Cells)
 	if err != nil {
 		return nil, err
@@ -242,6 +250,75 @@ func writeCellsOnce(ctx context.Context, path string, opts WriteCellsOptions) (*
 		return nil, err
 	}
 	return result, nil
+}
+
+// CheckMergeRange checks that a merge item names a range of more than one
+// cell with both corners, with or without a sheet: a single cell, an open
+// end such as A1:A, or a defined name is refused.
+func CheckMergeRange(ref string) error {
+	body := strings.TrimSpace(ref)
+	if i := strings.LastIndex(body, "!"); i >= 0 {
+		body = strings.TrimSpace(body[i+1:])
+	}
+	m := cellRangePattern.FindStringSubmatch(body)
+	if m == nil || m[2] == "" || m[3] == "" || m[4] == "" || (strings.EqualFold(m[1], m[3]) && m[2] == m[4]) {
+		return fmt.Errorf("%q is not a range", ref)
+	}
+	return nil
+}
+
+// mergeRanges merges the ranges a request names, before its cells are
+// resolved, so an address inside a new merged cell writes its top-left
+// cell. A range already merged exactly is left as it is; one overlapping
+// another merged region, or covering a cell other than its top-left that
+// holds a value or formula, is refused, since Excel keeps only the
+// top-left value of a merged cell.
+func (w *file) mergeRanges(sheet string, refs []string) (int, error) {
+	merged := 0
+	merges := map[string]mergeFill{}
+	for _, ref := range refs {
+		reg, err := w.parseRange(sheet, ref)
+		if err != nil {
+			return 0, err
+		}
+		fill, loaded := merges[reg.Sheet]
+		if !loaded {
+			if fill, err = w.mergeMap(reg.Sheet); err != nil {
+				return 0, err
+			}
+		}
+		if slices.Contains(fill, reg) {
+			merges[reg.Sheet] = fill
+			continue
+		}
+		for _, other := range fill {
+			if reg.C1 <= other.C2 && other.C1 <= reg.C2 && reg.R1 <= other.R2 && other.R1 <= reg.R2 {
+				return 0, fmt.Errorf("%s: merge %s overlaps merged cell %s", w.base, strings.TrimSpace(ref), other.String())
+			}
+		}
+		grid, err := w.grid(reg.Sheet)
+		if err != nil {
+			return 0, err
+		}
+		for row := reg.R1; row <= reg.R2; row++ {
+			for col := reg.C1; col <= reg.C2; col++ {
+				if col == reg.C1 && row == reg.R1 {
+					continue
+				}
+				formula, _ := w.f.GetCellFormula(reg.Sheet, cellName(col, row))
+				if cellAt(grid, col, row) != "" || formula != "" {
+					return 0, fmt.Errorf("%s: merge %s would discard the value of %s!%s; clear it first", w.base, strings.TrimSpace(ref), reg.Sheet, cellName(col, row))
+				}
+			}
+		}
+		if err := w.f.MergeCell(reg.Sheet, cellName(reg.C1, reg.R1), cellName(reg.C2, reg.R2)); err != nil {
+			return 0, fmt.Errorf("%s %s: %w", w.base, reg.Sheet, err)
+		}
+		w.forget(reg.Sheet)
+		merges[reg.Sheet] = append(fill, reg)
+		merged++
+	}
+	return merged, nil
 }
 
 // cellTarget is one address of a request and the cell it names.

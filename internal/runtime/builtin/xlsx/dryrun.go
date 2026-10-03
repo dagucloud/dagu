@@ -8,7 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 
@@ -76,7 +78,7 @@ func dryRunCheck(ctx context.Context, step ir.Step) error {
 		if !cfg.deferred["sheet"] {
 			problems = append(problems, workbook.Check(ctx, path, workbook.CheckOptions{Password: cfg.Password, Sheet: cfg.Sheet}))
 		}
-		for _, name := range addressedSheets(cfg.cells) {
+		for _, name := range addressedSheets(slices.Concat(slices.Collect(maps.Keys(cfg.cells)), cfg.Merge)) {
 			problems = append(problems, workbook.Check(ctx, path, workbook.CheckOptions{Password: cfg.Password, Sheet: name}))
 		}
 		if len(problems) == 0 {
@@ -144,10 +146,10 @@ func (cfg config) sourceOf(name string) string {
 
 // addressedSheets lists the sheets the cell addresses name, once each and
 // in order, so a dry run can check them the way the run would.
-func addressedSheets(cells map[string]workbook.CellValue) []string {
+func addressedSheets(addresses []string) []string {
 	seen := map[string]bool{}
 	var names []string
-	for addr := range cells {
+	for _, addr := range addresses {
 		i := strings.LastIndex(addr, "!")
 		if i < 0 {
 			continue

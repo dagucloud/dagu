@@ -59,6 +59,7 @@ type config struct {
 	MaxProblems int            `mapstructure:"max_problems"`
 	// write_cells and convert
 	Cells  map[string]any `mapstructure:"cells"`
+	Merge  []string       `mapstructure:"merge"`
 	Output string         `mapstructure:"output"`
 	// sheet
 	Operation string `mapstructure:"operation"`
@@ -176,7 +177,7 @@ var fieldsByOperation = map[string][]string{
 		"dry_run", "wait_for_unlock", "artifact"},
 	opValidate: {"path", "password", "sheet", "range", "header", "columns", "merged", "trim", "formulas",
 		"required", "not_blank", "unique", "types", "allowed", "on_problem", "max_problems"},
-	opWriteCells: {"path", "password", "sheet", "cells", "output", "atomic", "dry_run", "wait_for_unlock", "artifact"},
+	opWriteCells: {"path", "password", "sheet", "cells", "merge", "output", "atomic", "dry_run", "wait_for_unlock", "artifact"},
 	opSheet: {"path", "password", "operation", "sheet", "to", "if_exists", "missing", "position", "atomic",
 		"dry_run", "wait_for_unlock", "artifact"},
 	opConvert: {"path", "password", "sheet", "range", "header", "columns", "types", "trim", "merged", "formulas",
@@ -485,6 +486,16 @@ func validateWriterConfig(operation string, cfg *config) error {
 			}
 			cfg.cells = cells
 		}
+		if cfg.provided("merge") {
+			if len(cfg.Merge) == 0 {
+				return fmt.Errorf("%w: merge must not be empty", errConfig)
+			}
+			for _, ref := range cfg.Merge {
+				if err := workbook.CheckMergeRange(ref); err != nil {
+					return fmt.Errorf("%w: merge: %v", errConfig, err)
+				}
+			}
+		}
 		if cfg.provided("output") {
 			if err := workbook.CheckExtension(cfg.Output); err != nil {
 				return fmt.Errorf("%w: output: %v", errConfig, err)
@@ -669,6 +680,7 @@ func (cfg config) writeCellsOptions(output string, log func(string)) workbook.Wr
 		Password: cfg.Password,
 		Sheet:    cfg.Sheet,
 		Cells:    cfg.cells,
+		Merge:    cfg.Merge,
 		Output:   output,
 		InPlace:  !cfg.Atomic,
 		DryRun:   cfg.DryRun,
@@ -786,6 +798,8 @@ var configSchema = &jsonschema.Schema{
 		"cells": {Type: "object", Description: "xlsx.write_cells: cell addresses to write, such as {B2: Acme, Sheet1!D7: 2026-10-01, Total: {formula: SUM(E2:E9)}}. " +
 			"A value writes the cell, null clears it, {value: v, type: t} pins its type, {formula: text} writes a formula. " +
 			"An address is a cell, Sheet!cell, or a defined name for one cell."},
+		"merge": {Description: "xlsx.write_cells: ranges to merge before the cells are written, such as [A1:D1]. " +
+			"A merged range keeps only its top-left value; a range covering a cell that holds something, or overlapping another merged region, fails the step."},
 		"output": {Type: "string", Description: "xlsx.write_cells: workbook to write the result to, leaving path as it was, so a template can be filled many times. " +
 			"xlsx.convert: the csv, json, or jsonl file to write."},
 		"operation": {Type: "string", Enum: []any{"add", "copy", "rename", "delete"},

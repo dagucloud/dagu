@@ -5,6 +5,7 @@ package workbook
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -267,6 +268,70 @@ func TestWriteCellsDryRunAndErrors(t *testing.T) {
 	_, err = WriteCells(context.Background(), filepath.Join(t.TempDir(), "none.xlsx"), WriteCellsOptions{Cells: map[string]CellValue{"B1": {Value: 1}}})
 	var missing *NotFoundError
 	require.ErrorAs(t, err, &missing)
+}
+
+// merge joins ranges before the cells are written, so a title can span a
+// filled template, and an address inside a new merged cell writes its
+// top-left cell.
+func TestWriteCellsMerge(t *testing.T) {
+	t.Parallel()
+	path := templateBook(t)
+	result, err := WriteCells(context.Background(), path, WriteCellsOptions{
+		Merge: []string{"A1:C1", "Sheet1!A7:B8"},
+		Cells: map[string]CellValue{"B1": {Value: "Acme"}, "B8": {Value: "notes"}},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, Changes{Sheet: "Sheet1", Range: "Sheet1!A1:A7", RowsUpdated: 2, CellsChanged: 2, Merged: 2}, result.Changes)
+	f, err := excelize.OpenFile(path)
+	require.NoError(t, err)
+	merges, err := f.GetMergeCells("Sheet1")
+	require.NoError(t, err)
+	require.Len(t, merges, 2)
+	assert.Equal(t, "A1:C1", merges[0].GetStartAxis()+":"+merges[0].GetEndAxis())
+	title, err := f.GetCellValue("Sheet1", "A1")
+	require.NoError(t, err)
+	assert.Equal(t, "Acme", title, "an address inside the new merged cell writes its top-left cell")
+	notes, err := f.GetCellValue("Sheet1", "A7")
+	require.NoError(t, err)
+	assert.Equal(t, "notes", notes)
+	require.NoError(t, f.Close())
+
+	again, err := WriteCells(context.Background(), path, WriteCellsOptions{Merge: []string{"A1:C1"}, Cells: map[string]CellValue{"A1": {Value: "Acme"}}})
+	require.NoError(t, err)
+	assert.Equal(t, Changes{Sheet: "Sheet1"}, again.Changes, "a range already merged exactly is not a change")
+
+	before, err := os.ReadFile(path)
+	require.NoError(t, err)
+	dry, err := WriteCells(context.Background(), path, WriteCellsOptions{DryRun: true, Merge: []string{"A10:C10"}, Cells: map[string]CellValue{"A10": {Value: 1}}})
+	require.NoError(t, err)
+	assert.Equal(t, 1, dry.Changes.Merged)
+	after, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, before, after, "a dry run merges nothing")
+
+	_, err = WriteCells(context.Background(), path, WriteCellsOptions{Merge: []string{"B1:D1"}, Cells: map[string]CellValue{"A3": {Value: 1}}})
+	require.EqualError(t, err, "template.xlsx: merge B1:D1 overlaps merged cell Sheet1!A1:C1")
+	_, err = WriteCells(context.Background(), path, WriteCellsOptions{Merge: []string{"A3:B3"}, Cells: map[string]CellValue{"A4": {Value: 1}}})
+	require.EqualError(t, err, "template.xlsx: merge A3:B3 would discard the value of Sheet1!B3; clear it first")
+	_, err = WriteCells(context.Background(), path, WriteCellsOptions{Merge: []string{"Nope!A1:B1"}, Cells: map[string]CellValue{"A3": {Value: 1}}})
+	var missingSheet *SheetNotFoundError
+	require.ErrorAs(t, err, &missingSheet)
+	f, err = excelize.OpenFile(path)
+	require.NoError(t, err)
+	merges, err = f.GetMergeCells("Sheet1")
+	require.NoError(t, err)
+	assert.Len(t, merges, 2, "a refused request merges nothing")
+	require.NoError(t, f.Close())
+}
+
+func TestCheckMergeRange(t *testing.T) {
+	t.Parallel()
+	for _, ref := range []string{"A1:C1", "Sheet1!A5:B6", "'My Sheet'!$A$1:$C$1", " a1:c1 "} {
+		assert.NoError(t, CheckMergeRange(ref), ref)
+	}
+	for _, ref := range []string{"A1", "A1:A", "A:C", "Total", "", "Sheet1!B2", "A1:A1"} {
+		assert.EqualError(t, CheckMergeRange(ref), fmt.Sprintf("%q is not a range", ref), ref)
+	}
 }
 
 // mergedTemplate is a template whose total box spans B2:D2 and is named
