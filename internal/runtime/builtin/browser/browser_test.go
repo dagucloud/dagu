@@ -510,6 +510,29 @@ func TestReplayLosingPageKeepingDocumentAsksModel(t *testing.T) {
 	assert.Equal(t, []string{"goto:completed", "act:healed"}, eventNames(replayed.exec.GetAgentSession()))
 }
 
+// A replay can miss after an earlier recorded action loaded a new document.
+// The model's act is then judged by that document: judged by the one from
+// before the replay, an act that lost the page without taking effect would
+// count as done.
+func TestReplayMissAfterNewDocumentJudgesActByIt(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"url": "https://shop.example.com/login", "do": [{"act": "Click the sign-in button"}]}`
+	run := newTestRun(t, pageModel(nil))
+	run.engine.twoStepAct = true
+	require.NoError(t, run.execute(steps, nil).err)
+
+	run.engine.replayNavigatesTo = "https://shop.example.com/orders"
+	run.engine.hidden = []string{"xpath=/html/body/button/next"}
+	run.engine.actLosesPage = 1
+	replayed := run.execute(steps, nil)
+	require.NoError(t, replayed.err)
+
+	assert.Len(t, run.engine.replays, 2, "the replay stops at the hidden element")
+	assert.Len(t, run.engine.actInstructions(), 3, "the act that lost the page runs once more")
+	assert.Equal(t, []string{"goto:completed", "act:healed"}, eventNames(replayed.exec.GetAgentSession()))
+}
+
 const loginSteps = `{
 	"do": [
 		{"act": "Sign in"},

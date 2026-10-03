@@ -354,7 +354,8 @@ func (e *stagehandEngine) Replay(ctx context.Context, recorded recordedAction, v
 
 // targetVisible reports whether selector, resolved as a replayed action
 // resolves it, matches a visible element. It reports false when the page
-// cannot tell.
+// cannot tell, including when the page was lost: no action has run yet, so
+// a lost page is a miss, never an action that may have taken effect.
 func (e *stagehandEngine) targetVisible(ctx context.Context, selector string) bool {
 	visible, err := boundCall(ctx, e.pageCallTimeout, func(ctx context.Context) (bool, error) {
 		page, err := e.page(ctx)

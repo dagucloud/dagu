@@ -58,6 +58,12 @@ type fakeEngine struct {
 	// actNavigatesTo is the page an act or a replay leaves the browser on,
 	// if set.
 	actNavigatesTo string
+	// replayNavigatesTo is the page a performed replay leaves the browser
+	// on, if set, while acts stay on their page.
+	replayNavigatesTo string
+	// hidden lists the selectors of recorded actions whose element is on
+	// the page but hidden, so a replay does not perform them.
+	hidden []string
 	// twoStepAct makes acts perform two actions, as a two-step act does.
 	twoStepAct bool
 	// actLosesPage is how many of the next acts lose the connection to the
@@ -192,8 +198,14 @@ func (e *fakeEngine) Replay(_ context.Context, action recordedAction, _ map[stri
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.replays = append(e.replays, action)
+	if slices.Contains(e.hidden, action.Selector) {
+		return false, nil
+	}
 	if e.actNavigatesTo != "" {
 		e.load(e.actNavigatesTo)
+	}
+	if e.replayNavigatesTo != "" {
+		e.load(e.replayNavigatesTo)
 	}
 	if e.replayLosesPage > 0 {
 		e.replayLosesPage--

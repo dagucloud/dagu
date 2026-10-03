@@ -474,6 +474,8 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 			return nil
 		}
 		status = agentstep.StatusHealed
+		// A recorded action before the miss may have loaded a new document.
+		document, _ = r.eng.DocumentID(ctx)
 	}
 	outcome, err := r.performAct(ctx, index, spec.Instruction, document, timeout)
 	if err != nil {
