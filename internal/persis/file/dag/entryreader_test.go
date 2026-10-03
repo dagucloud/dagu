@@ -429,6 +429,50 @@ func TestRecursiveEntryReaderWatchesNewDirectories(t *testing.T) {
 	}
 }
 
+// TestEntryReaderWatchesMixedCaseYAML covers a DAG file with an upper-case
+// .YAML extension end to end: it is discovered through the watcher's
+// extension filter and reloaded after a write event.
+func TestEntryReaderWatchesMixedCaseYAML(t *testing.T) {
+	tmpDir := t.TempDir()
+	store := newRepository(
+		tmpDir,
+		WithSkipExamples(true),
+	)
+	events := make(chan persis.DAGChangeEvent, 10)
+	er := NewFileEntryReader(tmpDir, store, false, "", "")
+	er.events = events
+
+	ctx, cancel := context.WithCancel(context.Background())
+	require.NoError(t, er.Init(ctx))
+	go er.Start(ctx)
+	t.Cleanup(func() {
+		cancel()
+		er.Stop()
+	})
+
+	expect := func(kind persis.DAGChangeType, name string) {
+		t.Helper()
+		timeout := time.NewTimer(5 * time.Second)
+		defer timeout.Stop()
+		for {
+			select {
+			case event := <-events:
+				if event.Type == kind && event.DAG != nil && event.DAG.Name == name {
+					return
+				}
+			case <-timeout.C:
+				t.Fatalf("missing change %v for %q", kind, name)
+			}
+		}
+	}
+
+	writeDAGFile(t, tmpDir, "mixed.YAML", "mixed")
+	expect(persis.DAGChangeAdded, "mixed")
+
+	writeDAGFile(t, tmpDir, "mixed.YAML", "mixed")
+	expect(persis.DAGChangeUpdated, "mixed")
+}
+
 func TestBaseWatchLifecycle(t *testing.T) {
 	for _, scope := range []string{"global", "workspace"} {
 		t.Run(scope, func(t *testing.T) {

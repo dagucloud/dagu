@@ -125,26 +125,26 @@ const (
 var ValidYAMLExtensions = []string{yamlExtension, ymlExtension}
 
 // IsYAMLFile checks if a file has a valid YAML extension (.yaml or .yml).
-// Returns false for empty strings or files without extensions.
+// The extension match is case-insensitive. Returns false for empty strings
+// or files without extensions.
 func IsYAMLFile(filename string) bool {
 	if filename == "" {
 		return false
 	}
-	return slices.Contains(ValidYAMLExtensions, filepath.Ext(filename))
+	return slices.Contains(ValidYAMLExtensions, strings.ToLower(filepath.Ext(filename)))
 }
 
 // TrimYAMLFileExtension trims the .yml or .yaml extension from a filename.
+// The extension match is case-insensitive.
 func TrimYAMLFileExtension(filename string) string {
 	if filename == "" {
 		return ""
 	}
 
 	ext := filepath.Ext(filename)
-	switch ext {
-	case ymlExtension:
-		return strings.TrimSuffix(filename, ymlExtension)
-	case yamlExtension:
-		return strings.TrimSuffix(filename, yamlExtension)
+	switch strings.ToLower(ext) {
+	case ymlExtension, yamlExtension:
+		return strings.TrimSuffix(filename, ext)
 	default:
 		return filename
 	}
@@ -167,7 +167,7 @@ func EnsureYAMLExtension(filename string) string {
 	}
 
 	ext := filepath.Ext(filename)
-	switch ext {
+	switch strings.ToLower(ext) {
 	case ymlExtension, yamlExtension:
 		return filename
 
@@ -240,7 +240,7 @@ func CreateTempDAGFile(subDir, dagName string, yamlData []byte, extraDocs ...[]b
 	patternName := strings.TrimSpace(dagName)
 	if patternName != "" {
 		patternName = filepath.Base(patternName)
-		if ext := strings.ToLower(filepath.Ext(patternName)); ext == ".yaml" || ext == ".yml" {
+		if IsYAMLFile(patternName) {
 			patternName = strings.TrimSuffix(patternName, filepath.Ext(patternName))
 		}
 	}

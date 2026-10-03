@@ -669,12 +669,10 @@ func relativeToBase(baseDir, path string) (string, bool) {
 }
 
 func dagFileCandidates(name string) []string {
-	switch filepath.Ext(name) {
-	case ".yaml", ".yml":
+	if fileutil.IsYAMLFile(name) {
 		return []string{name}
-	default:
-		return []string{name + ".yaml", name + ".yml"}
 	}
+	return []string{name + ".yaml", name + ".yml"}
 }
 
 // fileExists checks if a file exists.

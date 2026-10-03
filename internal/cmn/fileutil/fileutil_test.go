@@ -436,3 +436,81 @@ func TestCreateTempDAGFile(t *testing.T) {
 		assert.NotContains(t, string(content), "---")
 	})
 }
+
+func TestIsYAMLFile(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		filename string
+		want     bool
+	}{
+		{"Yaml", "flow.yaml", true},
+		{"Yml", "flow.yml", true},
+		{"UpperYAML", "FLOW.YAML", true},
+		{"UpperYML", "FLOW.YML", true},
+		{"MixedYaml", "flow.Yaml", true},
+		{"NestedPath", filepath.Join("dir", "FLOW.YML"), true},
+		{"NoExt", "flow", false},
+		{"OtherExt", "flow.json", false},
+		{"TrailingDot", "flow.", false},
+		{"Empty", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, IsYAMLFile(tt.filename))
+		})
+	}
+}
+
+func TestTrimYAMLFileExtension(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		filename string
+		want     string
+	}{
+		{"Yaml", "flow.yaml", "flow"},
+		{"Yml", "flow.yml", "flow"},
+		{"UpperYAML", "FLOW.YAML", "FLOW"},
+		{"UpperYML", "FLOW.YML", "FLOW"},
+		{"MixedYaml", "flow.Yaml", "flow"},
+		{"NoExt", "flow", "flow"},
+		{"OtherExt", "flow.json", "flow.json"},
+		{"Empty", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, TrimYAMLFileExtension(tt.filename))
+		})
+	}
+}
+
+func TestEnsureYAMLExtension(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		filename string
+		want     string
+	}{
+		{"NoExt", "flow", "flow.yaml"},
+		{"Yaml", "flow.yaml", "flow.yaml"},
+		{"Yml", "flow.yml", "flow.yml"},
+		// Upper/mixed-case extensions already count; no double append.
+		{"UpperYAML", "FLOW.YAML", "FLOW.YAML"},
+		{"UpperYML", "FLOW.YML", "FLOW.YML"},
+		{"MixedYaml", "flow.Yaml", "flow.Yaml"},
+		{"OtherExt", "flow.json", "flow.json.yaml"},
+		{"Empty", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, EnsureYAMLExtension(tt.filename))
+		})
+	}
+}

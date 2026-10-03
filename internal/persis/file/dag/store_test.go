@@ -522,6 +522,22 @@ func TestGetSpecAllowsNestedPathsWithinConfiguredDirectories(t *testing.T) {
 	assert.Equal(t, dagContent, spec)
 }
 
+func TestGetSpecResolvesMixedCaseYAMLExtension(t *testing.T) {
+	baseDir := t.TempDir()
+
+	const dagContent = "name: mixed-dag\nsteps: []\n"
+	require.NoError(t, os.WriteFile(filepath.Join(baseDir, "MIXED.YAML"), []byte(dagContent), 0600))
+
+	store := newRepository(baseDir, WithSkipExamples(true))
+	spec, err := store.GetSpec(context.Background(), "MIXED.YAML")
+	require.NoError(t, err)
+	assert.Equal(t, dagContent, spec)
+
+	dag, err := store.GetMetadata(context.Background(), "MIXED.YAML")
+	require.NoError(t, err)
+	assert.Equal(t, "mixed-dag", dag.Name)
+}
+
 func TestGetSpecRejectsPathsOutsideConfiguredDirectories(t *testing.T) {
 	baseDir := t.TempDir()
 	outsideDir := t.TempDir()
