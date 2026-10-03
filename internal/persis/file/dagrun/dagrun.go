@@ -274,6 +274,12 @@ func (dr DAGRun) Remove(ctx context.Context) error {
 
 // removeLogFiles removes all log files associated with the dag-run and its sub dag-runs.
 func (dr DAGRun) removeLogFiles(ctx context.Context) error {
+	if dr.isChildRecord(ctx) {
+		// A child record mirrors status data owned by the canonical attempt
+		// nested under the root dag-run, so its log and artifact files stay
+		// with that record.
+		return nil
+	}
 	deleteFiles, err := dr.listLogFiles(ctx)
 	if err != nil {
 		logger.Error(ctx, "Failed to list log files to remove",
@@ -366,6 +372,24 @@ func (dr DAGRun) removeLogFiles(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// isChildRecord reports whether this run directory only records a child
+// dag-run whose files belong to the canonical attempt nested under the root
+// dag-run.
+func (dr DAGRun) isChildRecord(ctx context.Context) bool {
+	if isChildRecordDir(dr.baseDir) {
+		return true
+	}
+	attempt, err := dr.LatestAttempt(ctx, nil)
+	if err != nil {
+		return false
+	}
+	status, err := attempt.ReadStatus(ctx)
+	if err != nil || status == nil {
+		return false
+	}
+	return isChildStatus(*status)
 }
 
 // removeArtifactRecord deletes a run's entry from the artifact index so a

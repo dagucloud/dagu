@@ -66,6 +66,10 @@ type Attempt struct {
 	// artifactRoot is the configured global artifact directory, where this
 	// attempt records its run in the artifact index. Empty disables indexing.
 	artifactRoot string
+
+	// childRecord mirrors status writes into the child DAG's own run tree
+	// when this attempt's status file is nested under a parent dag-run.
+	childRecord childRecord
 }
 
 // AttemptOption configures an Attempt.
@@ -238,6 +242,10 @@ func (att *Attempt) Write(ctx context.Context, status ir.DAGRunStatus) error {
 		logger.Warn(ctx, "Failed to update DAG-run artifact index", tag.Error(err))
 	}
 
+	if err := att.writeChildRecordLocked(ctx, status); err != nil {
+		logger.Warn(ctx, "Failed to update child dag-run record", tag.Error(err))
+	}
+
 	return nil
 }
 
@@ -301,6 +309,8 @@ func (att *Attempt) Close(ctx context.Context) error {
 			tag.Error(compactErr))
 		// Continue with close even if compaction fails
 	}
+
+	att.closeChildRecordLocked(ctx)
 
 	// Invalidate the cache
 	if att.cache != nil {
@@ -657,6 +667,13 @@ func (att *Attempt) Hidden() bool {
 // Hide renames the attempt directory to hide it from normal operations.
 // It prefixes the directory name with a dot to make it hidden.
 func (att *Attempt) Hide(ctx context.Context) error {
+	// Resolve the child mirror while the canonical path still parses as an
+	// attempt dir; the dot prefix added below would make it opaque, and a
+	// disk-loaded attempt has no mirror cached yet.
+	if _, err := att.childRecordMirror(ctx); err != nil {
+		logger.Warn(ctx, "Failed to resolve child dag-run record", tag.Error(err))
+	}
+
 	att.mu.Lock()
 	defer att.mu.Unlock()
 
@@ -702,6 +719,8 @@ func (att *Attempt) Hide(ctx context.Context) error {
 		slog.String("from", currentDir),
 		slog.String("to", newDir))
 
+	att.hideChildRecordLocked(ctx)
+
 	return nil
 }
 
@@ -741,7 +760,7 @@ func readLineFrom(f *os.File, offset int64) ([]byte, int64, error) {
 
 // WriteOutputs writes the collected step outputs to outputs.json.
 // If outputs is nil or has no output entries, no file is created.
-func (att *Attempt) WriteOutputs(_ context.Context, outputs *ir.DAGRunOutputs) error {
+func (att *Attempt) WriteOutputs(ctx context.Context, outputs *ir.DAGRunOutputs) error {
 	if outputs == nil || len(outputs.Outputs) == 0 {
 		return nil
 	}
@@ -756,6 +775,14 @@ func (att *Attempt) WriteOutputs(_ context.Context, outputs *ir.DAGRunOutputs) e
 
 	if err := fileutil.WriteFileAtomic(outputsFile, data, 0600); err != nil {
 		return fmt.Errorf("failed to write outputs file: %w", err)
+	}
+
+	if mirror, err := att.childRecordMirror(ctx); err != nil {
+		logger.Warn(ctx, "Failed to resolve child dag-run record", tag.Error(err))
+	} else if mirror != nil {
+		if err := mirror.WriteOutputs(ctx, outputs); err != nil {
+			logger.Warn(ctx, "Failed to write child dag-run outputs", tag.Error(err))
+		}
 	}
 
 	return nil
@@ -790,7 +817,7 @@ func (att *Attempt) ReadOutputs(_ context.Context) (*ir.DAGRunOutputs, error) {
 
 // WriteStepMessages writes LLM messages for a single step.
 // Messages are stored at the dag-run level in a messages/ directory for retry persistence.
-func (att *Attempt) WriteStepMessages(_ context.Context, stepName string, messages []ir.LLMMessage) error {
+func (att *Attempt) WriteStepMessages(ctx context.Context, stepName string, messages []ir.LLMMessage) error {
 	if len(messages) == 0 {
 		return nil
 	}
@@ -810,6 +837,14 @@ func (att *Attempt) WriteStepMessages(_ context.Context, stepName string, messag
 
 	if err := fileutil.WriteFileAtomic(file, data, 0600); err != nil {
 		return fmt.Errorf("failed to write messages file: %w", err)
+	}
+
+	if mirror, err := att.childRecordMirror(ctx); err != nil {
+		logger.Warn(ctx, "Failed to resolve child dag-run record", tag.Error(err))
+	} else if mirror != nil {
+		if err := mirror.WriteStepMessages(ctx, stepName, messages); err != nil {
+			logger.Warn(ctx, "Failed to write child dag-run step messages", tag.Error(err))
+		}
 	}
 
 	return nil
