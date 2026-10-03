@@ -165,8 +165,8 @@ file, or a `.csv` with a header line whose cells are text unless `types`
 converts them; `format` overrides the extension. A `_row` field is never
 written. A replace, or a write that creates the sheet, writes the table's
 own order as the header; an append onto a sheet that already has rows
-matches each field to the header row by name (see below), so the rows' key
-order does not matter there.
+matches each field to the header row by name (see below), so a named row's
+key order does not matter there.
 
 A missing workbook is created in a directory that must exist; no writer
 creates directories. A `sheet` that does not exist is created; an
@@ -265,7 +265,7 @@ step with the workbook untouched. They cannot be turned off.
 
 1. The key column and every column in `set` that already exists must still be
    in the header row by exact name. A header that matches only
-   case-insensitively or after trimming is reported with the name found.
+   ignoring case or spacing is reported with the name found.
 2. Every row carrying `_row` must still hold its key at that row.
 
 ### Change summary
@@ -341,7 +341,7 @@ non-empty row against rules: `required` lists columns the header row must
 have, `not_blank` columns no row may leave empty, `unique` columns whose
 values may not repeat, `types` columns whose cells must convert, and
 `allowed` the values a column's cells may hold. Names in the rules match a
-header exactly, loosely (ignoring case and surrounding space), or through a
+header exactly, loosely (ignoring case and spacing), or through a
 `columns` alias. `unique` and `allowed` skip empty cells; `not_blank` is
 the rule for those. At least one rule is required.
 

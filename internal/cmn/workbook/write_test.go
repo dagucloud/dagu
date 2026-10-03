@@ -765,3 +765,14 @@ func TestAppendDuplicateTableColumnsFail(t *testing.T) {
 	_, err := Append(context.Background(), path, more, WriteOptions{Header: true})
 	require.ErrorContains(t, err, `column "when" is given twice; appended columns must have distinct names`)
 }
+
+func TestAppendInnerSpacingMismatchIsRefused(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "spaced.xlsx")
+	first := Table{Columns: []string{"First Name", "when"}, Rows: [][]any{{"Ann", "2026-10-01"}}}
+	_, err := Write(context.Background(), path, first, WriteOptions{Header: true})
+	require.NoError(t, err)
+	more := Table{Columns: []string{"First  Name", "when"}, Rows: [][]any{{"Bob", "2026-10-02"}}}
+	_, err = Append(context.Background(), path, more, WriteOptions{Header: true})
+	require.ErrorContains(t, err, `column "First  Name" not found in header row 1; did you mean "First Name"?`)
+}

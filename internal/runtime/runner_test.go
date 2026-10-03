@@ -548,6 +548,7 @@ func TestRunner(t *testing.T) {
 		)
 
 		result := plan.assertRun(t, ir.PartiallySucceeded)
+		require.Error(t, result.Error, "a failed step allowed to continue still reports the failure")
 
 		// 1, 2, 3 should be executed even though 2 failed
 		result.assertNodeStatus(t, "1", ir.NodeSucceeded)
@@ -595,6 +596,7 @@ func TestRunner(t *testing.T) {
 		)
 
 		result := plan.assertRun(t, ir.PartiallySucceeded)
+		require.Error(t, result.Error, "a failed step allowed to continue still reports the failure")
 
 		// 1, 2 should be executed even though 1 failed
 		result.assertNodeStatus(t, "1", ir.NodeFailed)
@@ -617,6 +619,7 @@ func TestRunner(t *testing.T) {
 		)
 
 		result := plan.assertRun(t, ir.PartiallySucceeded)
+		require.Error(t, result.Error, "a failed step allowed to continue still reports the failure")
 
 		// 1, 2 should be executed even though 1 failed
 		result.assertNodeStatus(t, "1", ir.NodeFailed)
@@ -644,6 +647,7 @@ func TestRunner(t *testing.T) {
 		)
 
 		result := plan.assertRun(t, ir.PartiallySucceeded)
+		require.Error(t, result.Error, "a failed step allowed to continue still reports the failure")
 
 		// Step 1 fails but matches continueOn output, allowing step 2 to run
 		result.assertNodeStatus(t, "1", ir.NodeFailed)
@@ -671,6 +675,7 @@ func TestRunner(t *testing.T) {
 		)
 
 		result := plan.assertRun(t, ir.PartiallySucceeded)
+		require.Error(t, result.Error, "a failed step allowed to continue still reports the failure")
 
 		// 1, 2 should be executed even though 1 failed
 		result.assertNodeStatus(t, "1", ir.NodeFailed)
@@ -3839,6 +3844,7 @@ func TestRunner_StepIDAccess(t *testing.T) {
 		)
 
 		result := plan.assertRun(t, ir.PartiallySucceeded)
+		require.Error(t, result.Error, "a failed step allowed to continue still reports the failure")
 		result.assertNodeStatus(t, "check", ir.NodeFailed)
 		result.assertNodeStatus(t, "verify", ir.NodeSucceeded)
 
@@ -4093,6 +4099,7 @@ func TestRunnerPartialSuccess(t *testing.T) {
 
 		// The overall DAG should complete with partial success
 		result := plan.assertRun(t, ir.PartiallySucceeded)
+		require.Error(t, result.Error, "a failed step allowed to continue still reports the failure")
 
 		// Verify individual node statuses
 		result.assertNodeStatus(t, "step1", ir.NodeSucceeded)
@@ -4152,6 +4159,7 @@ func TestRunnerPartialSuccess(t *testing.T) {
 
 		// The overall DAG should complete with partial success
 		result := plan.assertRun(t, ir.PartiallySucceeded)
+		require.Error(t, result.Error, "a failed step allowed to continue still reports the failure")
 
 		// Verify individual node statuses
 		result.assertNodeStatus(t, "step1", ir.NodeFailed)

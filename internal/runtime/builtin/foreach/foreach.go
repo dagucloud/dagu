@@ -6,6 +6,7 @@ package foreach
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -140,7 +141,8 @@ func summarize(results []itemResult, dispatchErr error) runOutcome {
 	}
 	switch {
 	case dispatchErr != nil:
-		outcome.cancelled = true
+		// A cancelled run is aborted; a run that hit its deadline failed.
+		outcome.cancelled = errors.Is(dispatchErr, context.Canceled)
 		outcome.err = dispatchErr
 	case outcome.total > 0 && outcome.failed == outcome.total:
 		outcome.err = fmt.Errorf("all %d item bodies failed; first error: %s", outcome.total, first)

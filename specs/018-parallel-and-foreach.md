@@ -689,8 +689,10 @@ Runtime execution must fail when:
 - item expansion produces more than `1000` items.
 - `foreach.key` resolves to an empty string.
 - two item slots resolve to the same item key.
-- an item body fails.
-- a collect expression fails to resolve after item body success.
+- every item body fails; a collect expression that fails to resolve after
+  its item body succeeded counts as that item's failure. When some item
+  bodies fail and others succeed, the step is `partially_succeeded`, as the
+  Behavior section states.
 
 ### Timeout and Abort
 

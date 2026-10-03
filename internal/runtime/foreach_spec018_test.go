@@ -83,6 +83,7 @@ func TestForeachRuntimePartialFailureIsPartiallySucceeded(t *testing.T) {
 	after := successStep("after", "each")
 
 	result := r.newPlan(t, parent, after).assertRun(t, ir.PartiallySucceeded)
+	require.NoError(t, result.Error, "a partially succeeded loop is not a failed run")
 	node := result.nodeByName(t, "each")
 	assert.Equal(t, ir.NodePartiallySucceeded, node.State().Status)
 	assert.Equal(t, ir.NodeSucceeded, result.nodeByName(t, "after").State().Status, "the dependent runs without continue_on")
