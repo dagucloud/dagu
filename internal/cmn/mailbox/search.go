@@ -4,6 +4,7 @@
 package mailbox
 
 import (
+	"bufio"
 	"bytes"
 	"cmp"
 	"errors"
@@ -21,6 +22,7 @@ import (
 	"github.com/emersion/go-message"
 	_ "github.com/emersion/go-message/charset" // decodes non-UTF-8 charsets
 	gomail "github.com/emersion/go-message/mail"
+	"github.com/emersion/go-message/textproto"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 )
@@ -245,6 +247,39 @@ func addresses(list []imap.Address) []string {
 	for _, address := range list {
 		if addr := address.Addr(); addr != "" {
 			out = append(out, addr)
+		}
+	}
+	return out
+}
+
+// readHeaders fills msg's header fields from the raw RFC 5322 message. The
+// time the mailbox received it stands in for a missing or unreadable Date.
+func readHeaders(raw []byte, msg *Message, received time.Time) {
+	date := received
+	if fields, err := textproto.ReadHeader(bufio.NewReader(bytes.NewReader(raw))); err == nil {
+		header := gomail.Header{Header: message.Header{Header: fields}}
+		msg.MessageID, _ = header.MessageID()
+		msg.Subject, _ = header.Subject()
+		if from, err := header.AddressList("From"); err == nil && len(from) > 0 {
+			msg.FromName, msg.FromAddress = from[0].Name, from[0].Address
+		}
+		msg.To = headerAddresses(header, "To")
+		msg.Cc = headerAddresses(header, "Cc")
+		if sent, err := header.Date(); err == nil && !sent.IsZero() {
+			date = sent
+		}
+	}
+	if !date.IsZero() {
+		msg.Date = date.UTC().Format(time.RFC3339)
+	}
+}
+
+func headerAddresses(header gomail.Header, key string) []string {
+	list, _ := header.AddressList(key)
+	out := make([]string, 0, len(list))
+	for _, address := range list {
+		if address.Address != "" {
+			out = append(out, address.Address)
 		}
 	}
 	return out

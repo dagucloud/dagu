@@ -55,8 +55,40 @@ func parseID(id string) (emailRef, error) {
 	return emailRef{folder: parts[3], uidValidity: uint32(uidValidity), uid: imap.UID(uid)}, nil
 }
 
-// ValidID reports whether id is a well-formed email ID.
+// gmailIDVersion prefixes the IDs of email found through the Gmail API.
+const gmailIDVersion = "g1"
+
+// gmailRef locates an email in a Gmail mailbox: its message ID, which never
+// changes, and the label it was found under, which a move takes away. The
+// empty label stands for All Mail.
+type gmailRef struct {
+	message string
+	label   string
+}
+
+func (r gmailRef) id() string {
+	raw := strings.Join([]string{gmailIDVersion, r.message, r.label}, "\x00")
+	return base64.RawURLEncoding.EncodeToString([]byte(raw))
+}
+
+func parseGmailID(id string) (gmailRef, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(id))
+	if err != nil {
+		return gmailRef{}, errMalformedID
+	}
+	parts := strings.SplitN(string(raw), "\x00", 3)
+	if len(parts) != 3 || parts[0] != gmailIDVersion || parts[1] == "" {
+		return gmailRef{}, errMalformedID
+	}
+	return gmailRef{message: parts[1], label: parts[2]}, nil
+}
+
+// ValidID reports whether id is a well-formed email ID of an IMAP or a Gmail
+// API mailbox. Each mailbox refuses the other kind as malformed.
 func ValidID(id string) bool {
-	_, err := parseID(id)
+	if _, err := parseID(id); err == nil {
+		return true
+	}
+	_, err := parseGmailID(id)
 	return err == nil
 }

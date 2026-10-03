@@ -26,6 +26,8 @@ type ReplyInfo struct {
 	Subject    string
 	// ReplyTo is the Reply-To address, or the sender when there is none.
 	ReplyTo string
+	// ThreadID is the Gmail conversation of the email; empty over IMAP.
+	ThreadID string
 }
 
 // ReplyInfo reads what a reply to the email with id needs. The folder is

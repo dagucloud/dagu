@@ -1,7 +1,8 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package mailbox reads and organizes email in an IMAP mailbox.
+// Package mailbox reads and organizes email in an IMAP mailbox or, through the
+// Gmail API, in a Gmail mailbox.
 package mailbox
 
 import (
