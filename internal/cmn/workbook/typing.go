@@ -6,6 +6,7 @@ package workbook
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -325,8 +326,7 @@ func toFloat(v any) (float64, bool) {
 		}
 		return 0, true
 	case string:
-		s := strings.ReplaceAll(strings.TrimSpace(x), ",", "")
-		f, err := strconv.ParseFloat(s, 64)
+		f, err := strconv.ParseFloat(numberText(x), 64)
 		return f, err == nil
 	default:
 		return 0, false
@@ -338,20 +338,20 @@ var timeLayouts = []string{
 	dateLayout, "2006/01/02", "2006/1/2", "2006-1-2",
 }
 
-// toTime reads a time from a time, an ISO or slash-separated date string,
-// or a date serial counted from the 1900 or 1904 epoch.
+// toTime reads a time from a time, an ISO, slash-separated, kanji, or era
+// date string, or a date serial counted from the 1900 or 1904 epoch.
 func toTime(v any, date1904 bool) (time.Time, bool) {
 	switch x := v.(type) {
 	case time.Time:
 		return x, true
 	case string:
-		s := strings.TrimSpace(x)
-		for _, layout := range timeLayouts {
+		s := foldWidth(x)
+		for _, layout := range slices.Concat(timeLayouts, japaneseLayouts) {
 			if t, err := time.Parse(layout, s); err == nil {
 				return t, true
 			}
 		}
-		return time.Time{}, false
+		return parseEraDate(s)
 	case int64, float64, int:
 		f, _ := toFloat(v)
 		t, err := excelize.ExcelDateToTime(f, date1904)

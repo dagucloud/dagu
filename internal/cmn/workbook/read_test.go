@@ -7,6 +7,7 @@ import (
 	"archive/zip"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -704,6 +705,71 @@ func TestFormulasCalculateRecomputesCachedCells(t *testing.T) {
 	fresh, err := Read(context.Background(), path, ReadOptions{Formulas: FormulaCalculate})
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), fresh.Rows[0]["f"])
+}
+
+// Japanese text under a pinned type: full-width digits and punctuation,
+// yen signs, kanji dates, and era dates, long and short.
+func TestCoerceJapaneseText(t *testing.T) {
+	t.Parallel()
+	numbers := map[string]any{
+		"１２３，４５６":  int64(123456),
+		"￥123,000": int64(123000),
+		"¥ 1,500":  int64(1500),
+		"123,000円": int64(123000),
+		"−5":       int64(-5),
+		"－１２．５":    -12.5,
+		"　42　":     int64(42),
+	}
+	for text, want := range numbers {
+		v, err := coerce(text, TypeNumber, false)
+		require.NoError(t, err, text)
+		assert.Equal(t, want, v, text)
+	}
+	v, err := coerce("１２３", TypeInteger, false)
+	require.NoError(t, err)
+	assert.Equal(t, int64(123), v)
+
+	dates := map[string]string{
+		"2026年10月3日":   "2026-10-03",
+		"２０２６年１０月３日":   "2026-10-03",
+		"２０２６／１０／０３":   "2026-10-03",
+		"2026.10.3":    "2026-10-03",
+		"令和8年10月3日":    "2026-10-03",
+		"令和元年5月1日":     "2019-05-01",
+		"平成31年4月30日":   "2019-04-30",
+		"R8.10.3":      "2026-10-03",
+		"Ｒ８．１０．３":      "2026-10-03",
+		"H31/4/30":     "2019-04-30",
+		"令6.4.1":       "2024-04-01",
+		"昭和64年1月7日":    "1989-01-07",
+		"大正15年12月25日":  "1926-12-25",
+		"明治元年1月1日":     "1868-01-01",
+		"令和8年10月3日（金）": "", // a weekday is not read
+		"令和8年2月30日":    "",
+		"令和0年1月1日":     "",
+		"2026年13月1日":   "",
+	}
+	for text, want := range dates {
+		v, err := coerce(text, TypeDate, false)
+		if want == "" {
+			require.ErrorContains(t, err, fmt.Sprintf("expected date, found %q", text), text)
+			continue
+		}
+		require.NoError(t, err, text)
+		assert.Equal(t, want, v, text)
+	}
+	v, err = coerce("令和8年10月3日 14:30", TypeDateTime, false)
+	require.NoError(t, err)
+	assert.Equal(t, "2026-10-03T14:30:00", v)
+	v, err = coerce("2026年10月3日 14:30:15", TypeDateTime, false)
+	require.NoError(t, err)
+	assert.Equal(t, "2026-10-03T14:30:15", v)
+
+	_, err = coerce("￥abc", TypeNumber, false)
+	require.EqualError(t, err, `expected number, found "￥abc"`)
+	v, err = coerce("１２３", TypeString, false)
+	require.NoError(t, err)
+	assert.Equal(t, "１２３", v, "a string type keeps the text as it is")
 }
 
 func TestCoerceRejectsNonFiniteAndOutOfRange(t *testing.T) {
