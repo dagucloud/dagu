@@ -491,7 +491,8 @@ func keyText(v any) string {
 // sameValue reports whether writing value would leave a cell as it is. The
 // comparison is type-aware: the number 7 and the text "7" differ, so a
 // requested change of cell type is written, while 7 and 7.0 or two equal
-// dates do not count as a change.
+// dates do not count as a change. Text compares exactly, surrounding space
+// included.
 func sameValue(existing, value any) bool {
 	if existing == nil || value == nil {
 		return existing == nil && value == nil
@@ -511,7 +512,7 @@ func sameValue(existing, value any) bool {
 		b, _ := toFloat(value)
 		return a == b
 	}
-	return keyText(existing) == keyText(value)
+	return valueString(existing) == valueString(value)
 }
 
 // applyRow writes the set columns of one input row into a sheet row and

@@ -407,3 +407,15 @@ func TestUpdateRowsMergedCellOutsideItsColumn(t *testing.T) {
 		})
 	}
 }
+
+func TestUpdateRowsComparesTextExactly(t *testing.T) {
+	t.Parallel()
+	path := ordersBook(t)
+	result, err := UpdateRows(context.Background(), path, UpdateOptions{Key: "Invoice No", Rows: []Row{{"Invoice No": "INV-2", "Status": "Done "}}})
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.Changes.CellsChanged, "surrounding space is part of the value")
+
+	merged := mergedBook(t)
+	_, err = UpdateRows(context.Background(), merged, UpdateOptions{Key: "ID", Rows: []Row{{"ID": 1, "Status": "Ready"}, {"ID": 2, "Status": "Ready "}}})
+	require.ErrorContains(t, err, "rows[0] and rows[1] write different values to merged cell Sheet1!C2:C3")
+}
