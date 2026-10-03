@@ -320,6 +320,95 @@ func TestRemoteStepLogDownloadAbort(t *testing.T) {
 	require.Equal(t, "partial", recorder.Body.String())
 }
 
+func TestRemoteLogDownloadStreams(t *testing.T) {
+	for _, suffix := range []string{
+		"/log/download",
+		"/steps/build/log/download",
+		"/sub-dag-runs/child/log/download",
+		"/sub-dag-runs/child/steps/build/log/download",
+	} {
+		t.Run(suffix, func(t *testing.T) {
+			first := bytes.Repeat([]byte("log bytes"), 4096)
+			release := make(chan struct{})
+			remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, "/api/v1/dag-runs/example/run"+suffix, r.URL.Path)
+				assert.Equal(t, "identity", r.Header.Get("Accept-Encoding"))
+				w.Header().Set("Content-Type", "text/plain")
+				w.Header().Set("Content-Disposition", `attachment; filename="remote.log"`)
+				_, _ = w.Write(first)
+				_ = http.NewResponseController(w).Flush()
+				select {
+				case <-release:
+					_, _ = w.Write([]byte("tail"))
+				case <-r.Context().Done():
+				}
+			}))
+			defer remote.Close()
+			defer close(release)
+			resolver := remotenode.NewResolver([]config.RemoteNode{{Name: "edge", APIBaseURL: remote.URL + "/api/v1"}}, nil)
+			handler := WithRemoteNode(resolver, "/dagu/api/v1")(http.NotFoundHandler())
+			proxy := httptest.NewUnstartedServer(logDownloadDeadline("/dagu/api/v1")(handler))
+			proxy.Config.WriteTimeout = 50 * time.Millisecond
+			proxy.Start()
+			defer proxy.Close()
+			client := proxy.Client()
+			client.Timeout = 5 * time.Second
+			resp, err := client.Get(proxy.URL + "/dagu/api/v1/dag-runs/example/run" + suffix + "?remoteNode=edge")
+			require.NoError(t, err)
+			defer func() { _ = resp.Body.Close() }()
+			require.Equal(t, "text/plain", resp.Header.Get("Content-Type"))
+			require.Equal(t, `attachment; filename="remote.log"`, resp.Header.Get("Content-Disposition"))
+			got := make([]byte, 4096)
+			_, err = io.ReadFull(resp.Body, got)
+			require.NoError(t, err)
+			require.Equal(t, first[:len(got)], got)
+			// Finish after the normal server write deadline, once streaming is observed.
+			time.Sleep(100 * time.Millisecond)
+			release <- struct{}{}
+			tail, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+			require.Equal(t, append(first[len(got):], []byte("tail")...), tail)
+		})
+	}
+}
+
+func TestRemoteLogDownloadAbort(t *testing.T) {
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.Header().Set("Content-Length", "100")
+		_, _ = w.Write([]byte("partial"))
+	}))
+	defer remote.Close()
+	resolver := remotenode.NewResolver([]config.RemoteNode{{Name: "edge", APIBaseURL: remote.URL + "/api/v1"}}, nil)
+	handler := WithRemoteNode(resolver, "/api/v1")(http.NotFoundHandler())
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/dag-runs/example/run/steps/build/log/download?remoteNode=edge", nil)
+	recorder := httptest.NewRecorder()
+	require.PanicsWithValue(t, http.ErrAbortHandler, func() { handler.ServeHTTP(recorder, request) })
+	require.Equal(t, "partial", recorder.Body.String())
+}
+
+func TestIsLogDownload(t *testing.T) {
+	for _, suffix := range []string{
+		"/log/download",
+		"/steps/build/log/download",
+		"/steps/log/download",
+		"/sub-dag-runs/child/log/download",
+		"/sub-dag-runs/child/steps/build/log/download",
+		"/sub-dag-runs/child/steps/log/download",
+	} {
+		request := httptest.NewRequest(http.MethodGet, "/api/v1/dag-runs/example/run"+suffix, nil)
+		assert.True(t, isLogDownload(request, "/api/v1"), suffix)
+	}
+	for _, path := range []string{
+		"/api/v1/dag-runs/example/run/log",
+		"/api/v1/dag-runs/example/run/steps/build/log",
+		"/api/v1/dags/example/log/download",
+	} {
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		assert.False(t, isLogDownload(request, "/api/v1"), path)
+	}
+}
+
 func TestRemoteStepLogForm(t *testing.T) {
 	for _, suffix := range []string{"/steps/log/download", "/sub-dag-runs/child/steps/log/download"} {
 		t.Run(suffix, func(t *testing.T) {

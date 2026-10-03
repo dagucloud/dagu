@@ -83,15 +83,19 @@ func WithRemoteNode(resolver *remotenode.Resolver, apiBasePath string) func(next
 				}
 			}()
 
-			if isStepLogDownload(r, apiBasePath) && resp.StatusCode == http.StatusOK && resp.Header.Get("Content-Type") == stepLogArchiveContentType {
-				w.Header().Set("Content-Type", stepLogArchiveContentType)
-				w.Header().Set("Content-Disposition", resp.Header.Get("Content-Disposition"))
+			if isLogDownload(r, apiBasePath) && resp.StatusCode == http.StatusOK {
+				if contentType := resp.Header.Get("Content-Type"); contentType != "" {
+					w.Header().Set("Content-Type", contentType)
+				}
+				if disposition := resp.Header.Get("Content-Disposition"); disposition != "" {
+					w.Header().Set("Content-Disposition", disposition)
+				}
 				if encoding := resp.Header.Get("Content-Encoding"); encoding != "" {
 					w.Header().Set("Content-Encoding", encoding)
 				}
 				w.WriteHeader(resp.StatusCode)
-				if _, err := io.Copy(w, resp.Body); err != nil {
-					logger.Error(r.Context(), "Failed to proxy step log archive", tag.Error(err))
+				if _, err := io.Copy(flushWriter{w}, resp.Body); err != nil {
+					logger.Error(r.Context(), "Failed to proxy log download", tag.Error(err))
 					panic(http.ErrAbortHandler)
 				}
 				return
@@ -292,8 +296,8 @@ func (h *remoteNodeProxy) doRequest(body io.Reader, r *http.Request) (*http.Resp
 		Timeout:   remoteProxyTimeout,
 	}
 
-	if isStepLogDownload(r, h.apiBasePath) {
-		// ZIP responses are already compressed and can be forwarded unchanged.
+	if isLogDownload(r, h.apiBasePath) {
+		// Log download bodies are forwarded unchanged; avoid transfer encodings.
 		req.Header.Set("Accept-Encoding", "identity")
 		// Log downloads have no total duration limit; connection setup remains bounded.
 		client.Timeout = 0
@@ -332,4 +336,18 @@ func buildRemoteNodeProxyURL(baseURL, requestPath, apiBasePath string, query url
 
 func doRemoteNodeProxyRequest(client *http.Client, req *http.Request) (*http.Response, error) {
 	return client.Do(req) //nolint:gosec // request URL is constrained by buildRemoteNodeProxyURL.
+}
+
+// flushWriter flushes after every write so a proxied log download reaches the
+// client while the remote transfer is still in progress.
+type flushWriter struct {
+	w http.ResponseWriter
+}
+
+func (f flushWriter) Write(p []byte) (int, error) {
+	n, err := f.w.Write(p)
+	if err == nil {
+		err = http.NewResponseController(f.w).Flush()
+	}
+	return n, err
 }
