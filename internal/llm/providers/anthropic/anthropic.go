@@ -75,8 +75,19 @@ func (p *Provider) Chat(ctx context.Context, req *llm.ChatRequest) (*llm.ChatRes
 	}
 	defer func() { _ = respBody.Close() }()
 
+	data, err := io.ReadAll(respBody)
+	if err != nil {
+		return nil, llm.WrapError(providerName, fmt.Errorf("failed to read response: %w", err))
+	}
 	var resp messagesResponse
-	if err := json.NewDecoder(respBody).Decode(&resp); err != nil {
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, llm.WrapError(providerName, fmt.Errorf("failed to decode response: %w", err))
+	}
+	// The raw content array is kept so the turn can be sent back unchanged.
+	var raw struct {
+		Content json.RawMessage `json:"content"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, llm.WrapError(providerName, fmt.Errorf("failed to decode response: %w", err))
 	}
 
@@ -113,6 +124,9 @@ func (p *Provider) Chat(ctx context.Context, req *llm.ChatRequest) (*llm.ChatRes
 			TotalTokens:      resp.Usage.InputTokens + resp.Usage.OutputTokens,
 		},
 		ToolCalls: toolCalls,
+	}
+	if len(resp.Content) > 0 {
+		result.ProviderState = &llm.ProviderState{Provider: llm.ProviderAnthropic, Data: raw.Content}
 	}
 
 	return result, nil
@@ -269,6 +283,12 @@ func (p *Provider) processMessages(reqMessages []llm.Message) (string, []message
 				Content: userContent(m),
 			})
 		case llm.RoleAssistant:
+			if state := m.ProviderState; state != nil && state.Provider == llm.ProviderAnthropic {
+				// The turn goes back as produced, keeping thinking blocks
+				// and their order intact.
+				messages = append(messages, message{Role: "assistant", Content: state.Data})
+				continue
+			}
 			// Check if this assistant message has tool calls
 			if len(m.ToolCalls) > 0 {
 				// Convert to content blocks with tool_use
