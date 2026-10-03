@@ -5,11 +5,13 @@ package spec_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 )
 
@@ -204,6 +206,100 @@ func TestXlsxReadActionsRejectInvalidConfig(t *testing.T) {
 			t.Parallel()
 			_, err := spec.LoadYAML(context.Background(), []byte(tc.yaml))
 			require.ErrorContains(t, err, tc.want)
+		})
+	}
+}
+
+func TestXlsxExtractAction(t *testing.T) {
+	t.Parallel()
+
+	dag, err := spec.LoadYAML(context.Background(), []byte(`
+llm:
+  provider: anthropic
+  model: claude-sonnet-5
+steps:
+  - id: fields
+    action: xlsx.extract
+    with:
+      path: inbox/quote.xlsx
+      sheet: Sheet1
+      instruction: Find the quote number and the total
+      schema:
+        type: object
+        properties:
+          quote_no: {type: string, description: 見積番号}
+          total: {type: number, description: 合計金額}
+      send_values: false
+  - id: own_model
+    action: xlsx.extract
+    with:
+      path: inbox/quote.xlsx
+      instruction: Find the total
+      schema:
+        type: object
+      llm:
+        provider: openai
+        model: gpt-5
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 2)
+
+	fields := dag.Steps[0]
+	assert.Equal(t, ir.ExecutorTypeXlsx, fields.ExecutorConfig.Type)
+	require.Len(t, fields.Commands, 1)
+	assert.Equal(t, "extract", fields.Commands[0].Command)
+	assert.Equal(t, "Find the quote number and the total", fields.ExecutorConfig.Config["instruction"])
+	assert.Equal(t, false, fields.ExecutorConfig.Config["send_values"])
+	assert.NotContains(t, fields.ExecutorConfig.Config, "llm")
+	require.NotNil(t, fields.LLM, "the DAG llm block is inherited")
+	assert.Equal(t, "claude-sonnet-5", fields.LLM.Model)
+	assert.ElementsMatch(t, []ir.StepOutputDeclaration{
+		{Name: "quote_no", Type: ir.StepDeclaredOutputTypeString, Source: ir.StepDeclaredOutputSourceCapture},
+		{Name: "total", Type: ir.StepDeclaredOutputTypeJSON, Source: ir.StepDeclaredOutputSourceCapture},
+		{Name: "cells", Type: ir.StepDeclaredOutputTypeJSON, Source: ir.StepDeclaredOutputSourceCapture},
+		{Name: "sheet", Type: ir.StepDeclaredOutputTypeString, Source: ir.StepDeclaredOutputSourceCapture},
+		{Name: "source", Type: ir.StepDeclaredOutputTypeString, Source: ir.StepDeclaredOutputSourceCapture},
+		{Name: "warnings", Type: ir.StepDeclaredOutputTypeJSON, Source: ir.StepDeclaredOutputSourceCapture},
+	}, fields.Outputs)
+
+	own := dag.Steps[1]
+	assert.NotContains(t, own.ExecutorConfig.Config, "llm", "with.llm moves to the step")
+	require.NotNil(t, own.LLM)
+	assert.Equal(t, "gpt-5", own.LLM.Model, "with.llm replaces the DAG llm block")
+	assert.ElementsMatch(t, []ir.StepOutputDeclaration{
+		{Name: "cells", Type: ir.StepDeclaredOutputTypeJSON, Source: ir.StepDeclaredOutputSourceCapture},
+		{Name: "sheet", Type: ir.StepDeclaredOutputTypeString, Source: ir.StepDeclaredOutputSourceCapture},
+		{Name: "source", Type: ir.StepDeclaredOutputTypeString, Source: ir.StepDeclaredOutputSourceCapture},
+		{Name: "warnings", Type: ir.StepDeclaredOutputTypeJSON, Source: ir.StepDeclaredOutputSourceCapture},
+	}, own.Outputs, "a schema without properties still declares the fixed outputs")
+}
+
+func TestXlsxExtractActionRejections(t *testing.T) {
+	t.Parallel()
+	const source = `
+llm:
+  provider: anthropic
+  model: claude-sonnet-5
+steps:
+  - id: fields
+    action: xlsx.extract
+    with:
+      path: inbox/quote.xlsx
+      instruction: Find the total
+      schema:
+        type: object
+        properties:
+          total: {type: number}
+`
+	for _, tc := range []struct{ name, from, to, message string }{
+		{"authored output", "    with:\n      path: inbox/quote.xlsx", "    output: FIELDS\n    with:\n      path: inbox/quote.xlsx", "xlsx actions have fixed outputs"},
+		{"property named like a fixed output", "total: {type: number}", "source: {type: string}", `schema property "source" collides with an output of xlsx.extract`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Contains(t, source, tc.from)
+			_, err := spec.LoadYAML(context.Background(), []byte(strings.Replace(source, tc.from, tc.to, 1)))
+			require.ErrorContains(t, err, tc.message)
 		})
 	}
 }

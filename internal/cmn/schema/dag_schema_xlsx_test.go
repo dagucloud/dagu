@@ -108,6 +108,22 @@ steps:
       format: csv
       encoding: shift_jis
       delimiter: ";"
+  - id: fields
+    action: xlsx.extract
+    with:
+      path: inbox/quote.xlsx
+      sheet: Sheet1
+      instruction: Find the quote number and the total
+      schema:
+        type: object
+        properties:
+          quote_no: {type: string, description: 見積番号}
+          total: {type: number}
+      send_values: false
+      cache: true
+      llm:
+        provider: anthropic
+        model: claude-sonnet-5
 `
 	resolved := mustResolveDAGSchema(t)
 	require.NoError(t, resolved.Validate(mustParseYAMLDocument(t, source)))
@@ -153,6 +169,10 @@ steps:
 		{"convert without output", "      output: orders.csv\n", ""},
 		{"bad encoding", "encoding: shift_jis", "encoding: latin1"},
 		{"delimiter too long", "delimiter: \";\"", "delimiter: \";;\""},
+		{"extract without instruction", "      instruction: Find the quote number and the total\n", ""},
+		{"extract without schema", "      schema:\n        type: object\n        properties:\n          quote_no: {type: string, description: 見積番号}\n          total: {type: number}\n", ""},
+		{"extract schema not an object", "schema:\n        type: object\n        properties:\n          quote_no: {type: string, description: 見積番号}\n          total: {type: number}", "schema: [a]"},
+		{"extract schema not type object", "        type: object\n        properties:\n          quote_no", "        type: array\n        properties:\n          quote_no"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			require.Contains(t, source, tc.from)

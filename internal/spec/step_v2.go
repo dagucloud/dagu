@@ -111,6 +111,7 @@ var builtinActionNormalizers = map[string]actionNormalizer{
 	"wait.until":          operationAction("wait", "until"),
 	"xlsx.append":         xlsxAction("append", true),
 	"xlsx.convert":        xlsxAction("convert", true),
+	"xlsx.extract":        xlsxExtractAction(),
 	"xlsx.info":           xlsxAction("info", true),
 	"xlsx.list_sheets":    xlsxAction("list_sheets", true),
 	"xlsx.read":           xlsxAction("read", true),

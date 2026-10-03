@@ -2643,7 +2643,7 @@
         },
         {
           "if": {
-            "properties": { "action": { "enum": ["xlsx.read", "xlsx.info", "xlsx.list_sheets", "xlsx.write", "xlsx.append", "xlsx.update_rows", "xlsx.validate", "xlsx.write_cells", "xlsx.sheet", "xlsx.convert"] } },
+            "properties": { "action": { "enum": ["xlsx.read", "xlsx.info", "xlsx.list_sheets", "xlsx.write", "xlsx.append", "xlsx.update_rows", "xlsx.validate", "xlsx.write_cells", "xlsx.sheet", "xlsx.convert", "xlsx.extract"] } },
             "required": ["action"]
           },
           "then": {
@@ -2743,6 +2743,17 @@
           "then": {
             "properties": {
               "with": { "required": ["output"] }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "xlsx.extract" } },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "with": { "required": ["instruction", "schema"] }
             }
           }
         },
@@ -6687,6 +6698,7 @@
             "wait.until",
             "xlsx.append",
             "xlsx.convert",
+            "xlsx.extract",
             "xlsx.info",
             "xlsx.list_sheets",
             "xlsx.read",
@@ -8207,10 +8219,38 @@
           "minLength": 1,
           "maxLength": 1,
           "description": "Field separator of a csv file, one character; a comma by default."
+        },
+        "instruction": {
+          "type": "string",
+          "minLength": 1,
+          "description": "xlsx.extract: what to find on the sheet, in plain words. A model answers with the cell that holds each schema property; the step reads the values from those cells. Required."
+        },
+        "schema": {
+          "type": "object",
+          "properties": {
+            "type": { "const": "object" },
+            "properties": { "type": "object" }
+          },
+          "required": ["type"],
+          "description": "xlsx.extract: a JSON Schema with type: object whose top-level properties name the fields to find; each becomes a step output holding the typed value of the cell the model named. A property type of number, integer, boolean, or string (with format date or date-time) pins how its cell is read. Required."
+        },
+        "send_values": {
+          "oneOf": [{ "type": "boolean" }, { "type": "string" }],
+          "default": true,
+          "description": "xlsx.extract: send the text of every listed cell to the model (default). false lists non-text cells by their kind only, so amounts and dates stay on the host."
+        },
+        "cache": {
+          "oneOf": [{ "type": "boolean" }, { "type": "string" }],
+          "default": true,
+          "description": "xlsx.extract: keep the cells the model named, by sheet layout, so a later run of the same layout reads them without a model call."
+        },
+        "llm": {
+          "$ref": "#/definitions/standardLLMConfig",
+          "description": "xlsx.extract: model for this step. Replaces the DAG-level llm block entirely."
         }
       },
       "required": ["path"],
-      "description": "Configuration for action: xlsx.read, xlsx.info, xlsx.list_sheets, xlsx.write, xlsx.append, xlsx.update_rows, xlsx.validate, xlsx.write_cells, xlsx.sheet, and xlsx.convert."
+      "description": "Configuration for action: xlsx.read, xlsx.info, xlsx.list_sheets, xlsx.write, xlsx.append, xlsx.update_rows, xlsx.validate, xlsx.write_cells, xlsx.sheet, xlsx.convert, and xlsx.extract."
     },
     "fileActionConfig": {
       "type": "object",

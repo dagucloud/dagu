@@ -81,8 +81,30 @@ func capturedOutputs(step *ir.Step) capturedOutputContract {
 		return capturedOutputContract{declarations: capturedNames(sortedKeys(values))}
 	case step.ExecutorConfig.Type == ir.ExecutorTypeBrowser, step.ExecutorConfig.Type == ir.ExecutorTypeComputer:
 		return extractOperationOutputs(step.ExecutorConfig.Config["do"])
+	case isXlsxExtractStep(step):
+		return xlsxExtractOutputs(step.ExecutorConfig.Config["schema"])
 	}
 	return capturedOutputContract{}
+}
+
+// xlsxExtractOutputs lists what an xlsx.extract step publishes: the
+// top-level properties of its schema, each holding the value read from the
+// cell the model named, and the fixed outputs beside them.
+func xlsxExtractOutputs(schema any) capturedOutputContract {
+	contract := capturedOutputContract{declarations: []ir.StepOutputDeclaration{
+		{Name: "cells", Type: ir.StepDeclaredOutputTypeJSON, Source: ir.StepDeclaredOutputSourceCapture},
+		{Name: "sheet", Type: ir.StepDeclaredOutputTypeString, Source: ir.StepDeclaredOutputSourceCapture},
+		{Name: "source", Type: ir.StepDeclaredOutputTypeString, Source: ir.StepDeclaredOutputSourceCapture},
+		{Name: "warnings", Type: ir.StepDeclaredOutputTypeJSON, Source: ir.StepDeclaredOutputSourceCapture},
+	}}
+	object, _ := schema.(map[string]any)
+	properties, ok := object["properties"].(map[string]any)
+	if !ok {
+		contract.dynamic = true
+		return contract
+	}
+	contract.declarations = append(outputSchemaDeclarations(properties), contract.declarations...)
+	return contract
 }
 
 // extractOperationOutputs lists the fields a browser or computer step
