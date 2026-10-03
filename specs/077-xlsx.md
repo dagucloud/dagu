@@ -21,8 +21,9 @@ operations with every mode and error, convert to csv, json, and jsonl
 with every encoding and error, every `dagu dry` check, every validation
 message in Errors, the `dagu xlsx` commands with their flags and text
 formats, and extract with a scripted model: the cells the model names are
-read with their types, including a merged region and Japanese text under
-a pinned type, a repeated layout with the same instruction and schema
+read with their types, including a merged region and Japanese amounts,
+dates, times, and yes/no marks under a pinned type, a repeated layout
+with the same instruction and schema
 makes no model request, a form of the same template with a box left
 blank is read from the cache, a changed layout, a changed schema, or a
 label renamed in place asks again, the cell cap and the listing size cap
@@ -138,7 +139,7 @@ working directory. A `password` opens a protected workbook.
 | Number | JSON number. Integral values within 2^53 are integers. |
 | Number with a date, time, or date-time format | ISO 8601 text: `2026-10-01`, `15:04:05`, or `2026-10-01T14:30:00`. A serial with a fraction under a date-only format is a date-time. Built-in formats 14 to 22, 27 to 36, 45 to 47, and 50 to 58 count, and so does a custom format with date or time tokens outside quotes, such as `yyyy"年"m"月"d"日"`. `[h]:mm` counts elapsed time and stays a number. The 1900 and 1904 date systems are honored. |
 | Text, including text-formatted numbers | String, so leading zeros survive. `trim: true` removes surrounding white space, including the full-width space U+3000. |
-| Text under a pinned `number`, `integer`, `date`, or `datetime` | Full-width digits and punctuation are read as their ASCII forms, so `１２３，４５６` is 123456 and `２０２６／１０／０３` is `2026-10-03`. A number may carry a thousands separator, a `¥` or `￥` before it, or `円` after it: `￥123,000` and `123,000円` are 123000. A date may be written `2026年10月3日`, `2026.10.3`, or in an era, long or short: `令和8年10月3日`, `令和元年5月1日`, `R8.10.3`, `H31/4/30`, with 明治 (M, 1868), 大正 (T, 1912), 昭和 (S, 1926), 平成 (H, 1989), and 令和 (R, 2019), each from the day it began, so `令和元年4月30日`, before 令和 began on 2019-05-01, is refused; a time of day may follow a kanji or era date, as `令和8年10月3日 14:30`. A weekday in parentheses, such as `（金）`, is not read. The failure message quotes the text as the cell holds it. |
+| Text under a pinned `number`, `integer`, `date`, `datetime`, or `boolean` | Japanese forms are read as the section below describes: full-width text, yen amounts, kanji numerals, kanji and era dates, times of day, and yes/no marks. The failure message quotes the text as the cell holds it. |
 | Boolean | `true` or `false`. |
 | Formula | Its cached value. `formulas: text` yields `=` and the formula; `formulas: calculate` evaluates it. A formula without a cached value is evaluated with the warning `Sheet!B2: formula had no cached value; evaluated`; one that cannot be evaluated is null with `Sheet!B3: formula NA() could not be evaluated: #N/A`. |
 | Error such as `#N/A` | Null, with the warning `Sheet!B3: error cell #N/A`. |
@@ -149,6 +150,82 @@ to `string`, `number`, `integer`, `boolean`, `date`, or `datetime`; a cell
 that cannot convert fails the step naming the cell, or with
 `on_type_error: warn` (also spelled `"null"`, quoted so YAML keeps the
 word) becomes null with a warning.
+
+#### Japanese text under a pinned type
+
+A text cell under a pinned type is first folded: full-width digits,
+letters, and punctuation read as their ASCII forms, the minus sign U+2212
+as a hyphen, and surrounding white space, the ideographic space included,
+is dropped. Then the forms below are read. A cell read without a pinned
+type keeps its text, and so does a `write_cells` or `update_rows` literal.
+`xlsx.read`, `xlsx.validate`, `xlsx.convert`, `xlsx.extract`, and the
+writers' `types` all read this way; `where` and header matching compare
+only the narrow forms, digits with a thousands separator, `¥`, and `円`, so
+a filter never matches `10%` as 10 on an unpinned column. A cell none of
+the forms fit fails the type with the text quoted as the cell holds it,
+`expected number, found "約1,000"`.
+
+Under `number` and `integer`:
+
+| Form | Examples | Value |
+| --- | --- | --- |
+| Thousands separators in groups of three, `,` or `、` | `１２３，４５６`, `1,234,567.89`, `1、000` | 123456, 1234567.89, 1000 |
+| Yen before or after, `JPY` either side | `¥1,500`, `￥123,000`, `JPY 1,000`, `123,000円`, `1,000 JPY` | 1500, 123000, 1000, 123000, 1000 |
+| Receipt wrapper | `金1,000円`, `金壱万円也`, `1,000円也` | 1000, 10000, 1000 |
+| Trailing dash after an amount | `¥123,000-`, `123,000円-`, `¥1,000ー` | 123000, 123000, 1000 |
+| Negative sign, before or after the yen sign | `-5`, `▲1,000`, `△1,000`, `-¥1,000`, `¥-1,000`, `¥▲1,000`, `▲1,000円` | -5, -1000, … |
+| Accounting parentheses | `(1,000)`, `（1,000）`, `(¥1,000)` | -1000 |
+| Percent, the number before the sign | `10%`, `１０％`, `-10%`, `10.5%` | 10, 10, -10, 10.5 |
+| Price tag before, or in parentheses at either end | `税込1,000`, `合計金額：￥123,000`, `1,000（税込）`, `¥1,000-（税抜）` | 1000, 123000, 1000, 1000 |
+| Kanji numerals, units and daiji | `千`, `百万`, `三千五百`, `一万二千`, `壱拾弐万参千`, `金壱拾弐萬参阡円也` | 1000, 1000000, 3500, 12000, 123000, 123000 |
+| Kanji digits in place, with no unit | `二〇二六`, `〇`, `零` | 2026, 0, 0 |
+| Arabic digits with units | `12万3,500円`, `1,200万`, `1.5億`, `12.5万円`, `1,200千円`, `3百万円`, `12万3千4` | 123500, 12000000, 150000000, 125000, 1200000, 3000000, 123004 |
+
+The tags are `消費税込`, `消費税抜`, `消費税別`, `消費税`, `税込`, `税抜`,
+`税別`, `内税`, `外税`, `本体価格`, `合計金額`, `合計`, `小計`, `総計`,
+`総額`, `金額`, `単価`, and `概算`, bare with an optional colon, or in
+parentheses; any other parenthetical, such as `1,000（千円）` or
+`1,000(USD)`, is not read, since it changes the amount or the currency.
+Units are `十` (`拾`), `百` (`佰`), `千` (`阡`, `仟`), `万` (`萬`), `億`, and
+`兆`; a unit with nothing before it is one unit; a trailing bare digit is
+the ones place, as in `二十六`; units must descend, so `3万2億` is not
+read. `▼` is not a sign. Among the earlier forms, `1,2,3` is no longer
+read: separators must group three digits.
+
+Under `date` and `datetime`, after the ISO and slash forms the Typing table
+lists:
+
+| Form | Examples | Value |
+| --- | --- | --- |
+| Kanji date, digits Arabic or kanji | `2026年10月3日`, `２０２６年１０月３日`, `二〇二六年十月三日`, `二千二十六年十月三日` | `2026-10-03` |
+| Numeric with one separator throughout | `2026/10/3`, `2026.10.3`, `2026-10-3` | `2026-10-03` |
+| Month only, the first of the month | `2026年10月`, `2026/10`, `2026.10`, `令和8年10月`, `R8.10` | `2026-10-01` |
+| Era, long or short | `令和8年10月3日`, `令和元年5月1日`, `令和八年十月三日`, `平成三十一年四月三十日`, `㋿8年10月3日`, `R8.10.3`, `r8/10/3`, `H31-4-30`, `令6.4.1` | the Gregorian date |
+| No year, the current year of the host | `10月3日`, `十月三日`, `10/3` | `2026-10-03` in 2026 |
+| A weekday mark, dropped | `2026年10月3日（金）`, `令和8年10月3日(金曜日)`, `2026/10/3 (Fri)`, `2026年10月3日 金曜日` | `2026-10-03` |
+| A time of day after any date | `2026/10/3 14:30`, `2026年10月3日14時`, `2026年10月3日 14時30分`, `令和8年10月3日 14時30分15秒` | `2026-10-03T14:30:00`, … |
+| 午前 and 午後 | `2026年10月3日 午後2時30分`, `午前9時`, `午後0時`, `午後12時`, `午前0時`, `午前12時` | 14:30, 09:00, 12:00, 12:00, 00:00, 00:00 |
+
+The eras are 明治 (M, 1868), 大正 (T, 1912), 昭和 (S, 1926), 平成 (H,
+1989), and 令和 (R, 2019), named in full, by initial, by their first
+kanji, or by the ligatures `㍾`, `㍽`, `㍼`, `㍻`, and `㋿`, each from the day
+it began, so `令和元年4月30日`, before 令和 began on 2019-05-01, is not a
+date. A day the month does not have, a 13th month, an hour past 23, or
+`24:00` is refused; time digits are Arabic only; `10.3` is a number, not
+a date; `2:30 PM` is not read. A weekday is dropped, not checked against
+the date. Under `date` a time of day is dropped. A date with no year reads
+differently in another year, which the extract cache does not notice.
+
+Under `boolean`, after folding and lowercasing:
+
+| Value | Text |
+| --- | --- |
+| `true` | `true`, `yes`, `y`, `on`, `ok`, `1`, `はい`, `有`, `有り`, `あり`, `済`, `済み`, `完了`, `完`, `了`, `可`, `要`, `必要`, `対象`, `該当`, `真`, `○`, `〇`, `◯`, `◎`, `●`, `✓`, `✔`, `✅`, `☑`, `レ` |
+| `false` | `false`, `no`, `n`, `off`, `ng`, `0`, `いいえ`, `無`, `無し`, `なし`, `未`, `未済`, `未了`, `未完`, `未完了`, `不可`, `否`, `不要`, `対象外`, `非該当`, `偽`, `×`, `✕`, `✗`, `✘`, `❌`, `☐`, `-`, `ー`, `―`, `—` |
+
+Nothing else is a boolean: `△`, `☒`, `未定`, `保留`, and `対応済み` fail
+with the text quoted, since a prefix such as `未` or a suffix such as `済`
+does not decide a word.
 
 ### Reading
 
@@ -493,8 +570,8 @@ would. A property's `type` pins the cell: `number`, `integer`, `boolean`,
 `string`, and `string` with `format: date` or `date-time`; a property
 without a type gets the cell's own typed value. A cell that fails its type
 fails the step with the usual `quote.xlsx Sheet1!B7: expected number,
-found "n/a"`; Japanese text such as `￥123,000` or `令和8年10月15日` is read
-as Typing describes. An empty cell or an absent field is null.
+found "n/a"`; Japanese text such as `￥123,000`, `12万3,500円`, `令和8年10月15日
+午後2時30分`, or `済` is read as Japanese text under a pinned type describes. An empty cell or an absent field is null.
 
 The step takes the DAG-level `llm` block, or `with.llm`, which replaces it,
 as browser steps do. Several models are tried in order, each set up when
