@@ -5,6 +5,7 @@ package workbook
 
 import (
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -39,14 +40,37 @@ var japaneseLayouts = []string{
 	"2006年1月2日 15:04:05", "2006年1月2日 15:04", "2006年1月2日", "2006.1.2",
 }
 
-// eraEpochs maps each era name and initial to the Gregorian year its
-// first year falls in.
-var eraEpochs = map[string]int{
-	"明治": 1868, "明": 1868, "M": 1868,
-	"大正": 1912, "大": 1912, "T": 1912,
-	"昭和": 1926, "昭": 1926, "S": 1926,
-	"平成": 1989, "平": 1989, "H": 1989,
-	"令和": 2019, "令": 2019, "R": 2019,
+// eras are the Japanese eras a date may name, each with its name, its
+// initial, the Gregorian year its first year falls in, and the day it
+// began; an era ends the day before the next begins.
+var eras = []era{
+	{names: []string{"明治", "明", "M"}, epoch: 1868, from: time.Date(1868, 1, 25, 0, 0, 0, 0, time.UTC)},
+	{names: []string{"大正", "大", "T"}, epoch: 1912, from: time.Date(1912, 7, 30, 0, 0, 0, 0, time.UTC)},
+	{names: []string{"昭和", "昭", "S"}, epoch: 1926, from: time.Date(1926, 12, 25, 0, 0, 0, 0, time.UTC)},
+	{names: []string{"平成", "平", "H"}, epoch: 1989, from: time.Date(1989, 1, 8, 0, 0, 0, 0, time.UTC)},
+	{names: []string{"令和", "令", "R"}, epoch: 2019, from: time.Date(2019, 5, 1, 0, 0, 0, 0, time.UTC)},
+}
+
+type era struct {
+	names []string
+	epoch int
+	from  time.Time
+}
+
+// eraNamed returns the era a name or initial denotes and the day the next
+// era began, which the named era's dates must stay before.
+func eraNamed(name string) (era, time.Time, bool) {
+	name = strings.ToUpper(name)
+	for i, e := range eras {
+		if slices.Contains(e.names, name) {
+			until := time.Time{}
+			if i+1 < len(eras) {
+				until = eras[i+1].from
+			}
+			return e, until, true
+		}
+	}
+	return era{}, time.Time{}, false
 }
 
 // eraDatePattern is a date in a Japanese era, long or short: 令和8年10月3日,
@@ -54,14 +78,15 @@ var eraEpochs = map[string]int{
 var eraDatePattern = regexp.MustCompile(`^(?i)(明治|大正|昭和|平成|令和|[MTSHR明大昭平令])\s*(元|\d{1,2})\s*[年./]\s*(\d{1,2})\s*[月./]\s*(\d{1,2})\s*日?(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$`)
 
 // parseEraDate reads a date written in a Japanese era. The first year of
-// an era is 元年 or year 1; year 0 is not a year, and a day the month does
-// not have is refused.
+// an era is 元年 or year 1; year 0 is not a year, a day the month does not
+// have is refused, and so is a day outside the era, such as 令和元年4月30日,
+// the day before 令和 began.
 func parseEraDate(s string) (time.Time, bool) {
 	m := eraDatePattern.FindStringSubmatch(s)
 	if m == nil {
 		return time.Time{}, false
 	}
-	epoch, ok := eraEpochs[strings.ToUpper(m[1])]
+	named, until, ok := eraNamed(m[1])
 	if !ok {
 		return time.Time{}, false
 	}
@@ -80,8 +105,8 @@ func parseEraDate(s string) (time.Time, bool) {
 	if year < 1 || month < 1 || month > 12 || day < 1 || hour > 23 || minute > 59 || second > 59 {
 		return time.Time{}, false
 	}
-	t := time.Date(epoch+year-1, time.Month(month), day, hour, minute, second, 0, time.UTC)
-	if t.Day() != day {
+	t := time.Date(named.epoch+year-1, time.Month(month), day, hour, minute, second, 0, time.UTC)
+	if t.Day() != day || t.Before(named.from) || (!until.IsZero() && !t.Before(until)) {
 		return time.Time{}, false
 	}
 	return t, true
