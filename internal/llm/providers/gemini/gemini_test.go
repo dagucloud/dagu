@@ -307,3 +307,45 @@ func TestBuildRequestBody_FunctionResponses(t *testing.T) {
 	]`, string(parsed.Contents[2].Parts))
 	assert.JSONEq(t, `[{"text":"thanks"}]`, string(parsed.Contents[3].Parts))
 }
+
+// Tool schemas are sent as JSON Schema, which keeps keywords such as
+// additionalProperties and $defs that the OpenAPI parameters field rejects.
+func TestBuildRequestBody_FunctionDeclarationSchema(t *testing.T) {
+	t.Parallel()
+
+	provider := &Provider{config: llm.Config{APIKey: "test-key"}}
+	parameters := map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"properties": map[string]any{
+			"category": map[string]any{"$ref": "#/$defs/category"},
+		},
+		"$defs": map[string]any{
+			"category": map[string]any{"type": "string", "enum": []any{"refund", "question"}},
+		},
+	}
+	body, err := provider.buildRequestBody(&llm.ChatRequest{
+		Model:    "gemini-2.5-flash",
+		Messages: []llm.Message{{Role: llm.RoleUser, Content: "Hello"}},
+		Tools: []llm.Tool{{
+			Type:     "function",
+			Function: llm.ToolFunction{Name: "respond", Description: "Answer", Parameters: parameters},
+		}},
+	})
+	require.NoError(t, err)
+
+	var parsed struct {
+		Tools []struct {
+			FunctionDeclarations []map[string]json.RawMessage `json:"functionDeclarations"`
+		} `json:"tools"`
+	}
+	require.NoError(t, json.Unmarshal(body, &parsed))
+	require.Len(t, parsed.Tools, 1)
+	require.Len(t, parsed.Tools[0].FunctionDeclarations, 1)
+	declaration := parsed.Tools[0].FunctionDeclarations[0]
+
+	expected, err := json.Marshal(parameters)
+	require.NoError(t, err)
+	assert.JSONEq(t, string(expected), string(declaration["parametersJsonSchema"]))
+	assert.NotContains(t, declaration, "parameters", "parameters and parametersJsonSchema are mutually exclusive")
+}

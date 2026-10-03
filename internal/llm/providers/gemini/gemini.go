@@ -283,9 +283,9 @@ func (p *Provider) convertTools(tools []llm.Tool) []geminiTool {
 	funcDecls := make([]functionDeclaration, len(tools))
 	for i, t := range tools {
 		funcDecls[i] = functionDeclaration{
-			Name:        t.Function.Name,
-			Description: t.Function.Description,
-			Parameters:  t.Function.Parameters,
+			Name:                 t.Function.Name,
+			Description:          t.Function.Description,
+			ParametersJSONSchema: t.Function.Parameters,
 		}
 	}
 	return []geminiTool{{FunctionDeclarations: funcDecls}}
@@ -485,10 +485,12 @@ type functionResponsePart struct {
 	Response any    `json:"response"`
 }
 
+// functionDeclaration sends parameters as JSON Schema; the OpenAPI-based
+// parameters field rejects keywords such as additionalProperties and $defs.
 type functionDeclaration struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description,omitempty"`
-	Parameters  map[string]any `json:"parameters,omitempty"`
+	Name                 string         `json:"name"`
+	Description          string         `json:"description,omitempty"`
+	ParametersJSONSchema map[string]any `json:"parametersJsonSchema,omitempty"`
 }
 
 type toolConfig struct {
