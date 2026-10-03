@@ -34,11 +34,15 @@ var _ executor.PushBackAware = (*Executor)(nil)
 var _ executor.SubRunProvider = (*Executor)(nil)
 var _ executor.ToolDefinitionProvider = (*Executor)(nil)
 
+// providerFactory builds a provider for one resolved model configuration.
+type providerFactory func(ctx context.Context, cfg *ir.LLMConfig) (llmpkg.Provider, error)
+
 // Executor implements the executor.Executor interface for chat steps.
 type Executor struct {
 	stdout            io.Writer
 	stderr            io.Writer
 	step              ir.Step
+	newProvider       providerFactory
 	providerType      llmpkg.ProviderType
 	apiKeyEnvVar      string
 	messages          []ir.LLMMessage
@@ -118,6 +122,7 @@ func newChatExecutor(ctx context.Context, step ir.Step) (executor.Executor, erro
 		stdout:       os.Stdout,
 		stderr:       os.Stderr,
 		step:         step,
+		newProvider:  runtime.NewLLMProvider,
 		providerType: providerType,
 		apiKeyEnvVar: apiKeyEnvVar,
 		messages:     messages,
@@ -422,7 +427,7 @@ func (e *Executor) buildEffectiveConfig(model ir.ModelEntry) *ir.LLMConfig {
 
 // createProviderForModel creates an LLM provider for a specific model.
 func (e *Executor) createProviderForModel(ctx context.Context, _ ir.ModelEntry, cfg *ir.LLMConfig) (llmpkg.Provider, error) {
-	return runtime.NewLLMProvider(ctx, cfg)
+	return e.newProvider(ctx, cfg)
 }
 
 // runSimpleForModel executes a chat request without tool calling, using the given config.
