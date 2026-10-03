@@ -107,15 +107,16 @@ The actions behave as they do over IMAP, with Gmail's labels as folders:
   `[Google Mail]/` works as the prefix, and `Bin` as the name of Trash.
 - Searching any folder other than Spam or Trash leaves out email in either.
 - Gmail lists the newest email first, so a search examines at most the newest
-  2,000 emails that pass the folder, `unread`, `within`, and `has_attachments`
-  filters, and returns the oldest matches among them. When more emails pass
-  those filters, `truncated` is `true`.
+  2,000 emails that Gmail's own search lists for the folder, `unread`, `within`,
+  and `has_attachments`, and returns the oldest matches among them. When Gmail
+  lists more, `truncated` is `true`, even if fewer than 2,000 of them match
+  exactly.
 - `unread` and `flagged` are the `UNREAD` and `STARRED` labels.
 - `move: folder` adds the destination label, creating it when it does not exist,
   and removes the label the email was found under. A folder under `[Gmail]/` or
-  `[Google Mail]/` that is none of Gmail's own is never created; the step fails. `archive` removes that label,
-  so email found in `INBOX` leaves the inbox. `trash` moves the email to Gmail's
-  trash.
+  `[Google Mail]/` that is none of Gmail's own is never created; the step
+  fails. `archive` removes the label the email was found under, so email found
+  in `INBOX` leaves the inbox. `trash` moves the email to Gmail's trash.
 - An email is missing when it no longer carries the label it was found under, is
   in Spam or Trash (unless it was found there), or no longer exists. The same
   holds for `in_reply_to`.

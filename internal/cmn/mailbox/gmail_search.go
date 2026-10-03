@@ -23,9 +23,10 @@ const (
 	// gmailPageSize is the most IDs one list call returns.
 	gmailPageSize = 500
 	// GmailScanLimit is the most emails one search of a Gmail API mailbox
-	// examines: the newest that pass the folder, unread, within, and
-	// has-attachments filters. Gmail lists the newest first and cannot start
-	// from the oldest, so a larger folder would cost one request per page.
+	// examines: the newest that Gmail's own search lists for the folder,
+	// unread, within, and has-attachments filters. Gmail lists the newest first
+	// and cannot start from the oldest, so a larger folder would cost one
+	// request per page.
 	GmailScanLimit = 2000
 	// gmailParallelFetches bounds concurrent requests for email headers, well
 	// under Gmail's per-user rate of 50 message reads a second.
