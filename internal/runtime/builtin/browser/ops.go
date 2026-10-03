@@ -135,9 +135,7 @@ func newRun(ctx context.Context, e *browserExecutor) (*run, error) {
 		r.variables = map[string]string{}
 	}
 	if e.cfg.cacheEnabled() {
-		if r.cache, err = openReplayCache(browserDir, dagName, stepKey); err != nil {
-			return nil, err
-		}
+		r.cache = openReplayCache(browserDir, dagName, stepKey)
 	}
 	r.timeline = &agentstep.Timeline{Log: e.stderr, Masker: masker, Total: len(e.cfg.Do), Update: e.updateSession, Provider: providerName}
 	return r, nil

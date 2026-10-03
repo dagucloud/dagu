@@ -14,45 +14,41 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func openRecordings(t *testing.T, path string) *replaycache.Recordings[string] {
-	t.Helper()
-	recordings, err := replaycache.Open[string](path)
-	require.NoError(t, err)
-	return recordings
+func openRecordings(path string) *replaycache.Recordings[string] {
+	return replaycache.Open[string](path)
 }
 
 // commitRecording writes one entry the way a successful run does.
 func commitRecording(t *testing.T, path, key, entry string) {
 	t.Helper()
-	recordings := openRecordings(t, path)
+	recordings := openRecordings(path)
 	recordings.Stage(key, entry)
 	require.NoError(t, recordings.Commit(context.Background()))
 }
 
-func lookup(t *testing.T, path, key string) (string, bool) {
-	t.Helper()
-	return openRecordings(t, path).Lookup(key)
+func lookup(path, key string) (string, bool) {
+	return openRecordings(path).Lookup(key)
 }
 
 func TestRecordingsKeepOnlyCommitted(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "step.json")
-	recordings := openRecordings(t, path)
+	recordings := openRecordings(path)
 	recordings.Stage("act", "click")
-	_, ok := lookup(t, path, "act")
+	_, ok := lookup(path, "act")
 	assert.False(t, ok, "a staged recording is not visible before commit")
 
 	require.NoError(t, recordings.Commit(context.Background()))
-	entry, ok := lookup(t, path, "act")
+	entry, ok := lookup(path, "act")
 	require.True(t, ok)
 	assert.Equal(t, "click", entry)
 
-	failed := openRecordings(t, path)
+	failed := openRecordings(path)
 	failed.Stage("other", "type")
 	failed.Discard()
 	require.NoError(t, failed.Commit(context.Background()))
-	_, ok = lookup(t, path, "other")
+	_, ok = lookup(path, "other")
 	assert.False(t, ok, "a discarded recording is never written")
 }
 
@@ -62,15 +58,15 @@ func TestRecordingsCommitMergesConcurrentRuns(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "step.json")
-	first := openRecordings(t, path)
-	second := openRecordings(t, path)
+	first := openRecordings(path)
+	second := openRecordings(path)
 	first.Stage("a", "click")
 	second.Stage("b", "type")
 	require.NoError(t, first.Commit(context.Background()))
 	require.NoError(t, second.Commit(context.Background()))
 
 	for key, want := range map[string]string{"a": "click", "b": "type"} {
-		entry, ok := lookup(t, path, key)
+		entry, ok := lookup(path, key)
 		require.True(t, ok, key)
 		assert.Equal(t, want, entry)
 	}
@@ -83,17 +79,17 @@ func TestRecordingsEvictReplayed(t *testing.T) {
 	commitRecording(t, path, "a", "click")
 	commitRecording(t, path, "b", "type")
 
-	failed := openRecordings(t, path)
+	failed := openRecordings(path)
 	_, ok := failed.Lookup("a")
 	require.True(t, ok)
 	failed.Stage("c", "scroll")
 	require.NoError(t, failed.Evict(context.Background()))
 
-	_, ok = lookup(t, path, "a")
+	_, ok = lookup(path, "a")
 	assert.False(t, ok, "the replayed recording is dropped")
-	_, ok = lookup(t, path, "b")
+	_, ok = lookup(path, "b")
 	assert.True(t, ok, "a recording the run did not replay stays")
-	_, ok = lookup(t, path, "c")
+	_, ok = lookup(path, "c")
 	assert.False(t, ok, "what the failed run recorded is not kept")
 }
 
@@ -104,15 +100,39 @@ func TestRecordingsEvictKeepsReplacedEntry(t *testing.T) {
 
 	path := filepath.Join(t.TempDir(), "step.json")
 	commitRecording(t, path, "a", "click")
-	failed := openRecordings(t, path)
+	failed := openRecordings(path)
 	_, ok := failed.Lookup("a")
 	require.True(t, ok)
 	commitRecording(t, path, "a", "double click")
 
 	require.NoError(t, failed.Evict(context.Background()))
-	entry, ok := lookup(t, path, "a")
+	entry, ok := lookup(path, "a")
 	require.True(t, ok)
 	assert.Equal(t, "double click", entry)
+}
+
+// Runs of a step can start together and act one after another, such as
+// foreach items that wait for one browser profile, so a lookup sees what
+// other runs dropped or replaced after this run began.
+func TestRecordingsLookupSeesOtherRuns(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "step.json")
+	commitRecording(t, path, "a", "click")
+	commitRecording(t, path, "b", "click")
+	waiting := openRecordings(path)
+
+	failed := openRecordings(path)
+	_, ok := failed.Lookup("a")
+	require.True(t, ok)
+	require.NoError(t, failed.Evict(context.Background()))
+	commitRecording(t, path, "b", "double click")
+
+	_, ok = waiting.Lookup("a")
+	assert.False(t, ok, "a recording another run dropped is not replayed")
+	entry, ok := waiting.Lookup("b")
+	require.True(t, ok)
+	assert.Equal(t, "double click", entry, "a recording another run replaced is replayed as replaced")
 }
 
 func TestRecordingsEvictLastEntryRemovesFile(t *testing.T) {
@@ -120,7 +140,7 @@ func TestRecordingsEvictLastEntryRemovesFile(t *testing.T) {
 
 	path := filepath.Join(t.TempDir(), "step.json")
 	commitRecording(t, path, "a", "click")
-	failed := openRecordings(t, path)
+	failed := openRecordings(path)
 	_, _ = failed.Lookup("a")
 	require.NoError(t, failed.Evict(context.Background()))
 
@@ -135,21 +155,21 @@ func TestRecordingsHeldAcrossPause(t *testing.T) {
 
 	path := filepath.Join(t.TempDir(), "step.json")
 	commitRecording(t, path, "a", "click")
-	paused := openRecordings(t, path)
+	paused := openRecordings(path)
 	_, _ = paused.Lookup("a")
 	paused.Stage("b", "type")
 	pending, used := paused.Held()
 
-	resumed := openRecordings(t, path)
+	resumed := openRecordings(path)
 	resumed.Hold(pending, used)
 	require.NoError(t, resumed.Evict(context.Background()))
-	_, ok := lookup(t, path, "a")
+	_, ok := lookup(path, "a")
 	assert.False(t, ok, "the replay before the pause is dropped")
 
-	resumed = openRecordings(t, path)
+	resumed = openRecordings(path)
 	resumed.Hold(pending, used)
 	require.NoError(t, resumed.Commit(context.Background()))
-	entry, ok := lookup(t, path, "b")
+	entry, ok := lookup(path, "b")
 	require.True(t, ok)
 	assert.Equal(t, "type", entry)
 }

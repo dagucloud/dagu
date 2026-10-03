@@ -32,35 +32,33 @@ const (
 //
 // What the attempt records is kept only once it succeeds, and what it
 // replayed can be dropped when it fails, so a recording that did the wrong
-// thing is not repeated. Every run of the DAG shares the file, so each
-// change is merged into the file as it is then, under a lock.
+// thing is not repeated. Every run of the DAG shares the file, and runs of a
+// step can start together and act one after another, so each lookup reads
+// the file as it is then, and each change is merged into it under a lock.
 type Recordings[T any] struct {
-	path    string
-	mu      sync.Mutex
-	entries map[string]T
+	path string
+	mu   sync.Mutex
 	// pending holds what the attempt recorded, until it succeeds.
 	pending map[string]T
 	// used holds the entries the attempt replayed, as they were read.
 	used map[string]T
 }
 
-// Open reads the recordings in the file at path. A missing or corrupt file
-// holds none, since a lost recording only costs model calls.
-func Open[T any](path string) (*Recordings[T], error) {
-	entries, err := read[T](path)
-	if err != nil {
-		return nil, err
-	}
-	return &Recordings[T]{path: path, entries: entries, pending: map[string]T{}, used: map[string]T{}}, nil
+// Open returns an attempt's view of the recordings in the file at path.
+func Open[T any](path string) *Recordings[T] {
+	return &Recordings[T]{path: path, pending: map[string]T{}, used: map[string]T{}}
 }
 
-// Lookup returns the recording for key and counts it as replayed.
+// Lookup returns the recording for key as the file holds it now and counts
+// it as replayed. A missing, corrupt, or unreadable file holds none, since a
+// lost recording only costs model calls.
 func (r *Recordings[T]) Lookup(key string) (T, bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	entry, ok := r.entries[key]
+	entries, _ := read[T](r.path)
+	entry, ok := entries[key]
 	if ok {
+		r.mu.Lock()
 		r.used[key] = entry
+		r.mu.Unlock()
 	}
 	return entry, ok
 }
@@ -159,7 +157,7 @@ func (r *Recordings[T]) update(ctx context.Context, change func(map[string]T)) e
 
 func read[T any](path string) (map[string]T, error) {
 	entries := map[string]T{}
-	data, err := os.ReadFile(path) //nolint:gosec // The path comes from Store.Path under the data directory.
+	data, err := fileutil.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return entries, nil
 	}

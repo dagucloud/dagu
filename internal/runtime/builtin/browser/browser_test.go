@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	goruntime "runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -468,6 +469,52 @@ func TestReplayCommitKeepsClear(t *testing.T) {
 	next := run.execute(both, nil)
 	require.NoError(t, next.err)
 	assert.Equal(t, []string{"goto:completed", "act:completed", "act:cache-hit"}, eventNames(next.exec.GetAgentSession()))
+}
+
+// Runs of a step can start together and act one after another, such as
+// foreach items that wait for one browser profile. An act replays its
+// recording as other runs left it by then: healed, it replays the healed
+// actions; dropped after a failure, it asks the model.
+func TestReplaySeesOtherRuns(t *testing.T) {
+	t.Parallel()
+
+	const (
+		pageURL     = "https://shop.example.com/home"
+		instruction = "Open the receivables screen from the main menu"
+	)
+	steps := fmt.Sprintf(`{"url": %q, "do": [{"act": {"instruction": "Accept the cookies", "cache": false}}, {"act": %q}]}`, pageURL, instruction)
+	run := newTestRun(t, pageModel(nil))
+	require.NoError(t, run.execute(steps, nil).err)
+
+	key := replayKey(1, instruction, pageURL)
+	// otherRun applies change once, as another run of the step that finishes
+	// while this run's first act asks the model.
+	otherRun := func(change func(*replayCache) error) func() {
+		var once sync.Once
+		return func() {
+			once.Do(func() {
+				other := openReplayCache(filepath.Join(run.dataDir, browserhost.DataDirName), "orders", "shop")
+				_, _ = other.Lookup(key)
+				require.NoError(t, change(other))
+			})
+		}
+	}
+
+	healed := []recordedAction{{Selector: "xpath=/html/body/nav/a[3]", Method: "click"}}
+	run.engine.onAct = otherRun(func(other *replayCache) error {
+		other.Stage(key, healed)
+		return other.Commit(t.Context())
+	})
+	replayed := run.execute(steps, nil)
+	require.NoError(t, replayed.err)
+	assert.Equal(t, []string{"goto:completed", "act:completed", "act:cache-hit"}, eventNames(replayed.exec.GetAgentSession()))
+	assert.Equal(t, healed, run.engine.replays)
+
+	run.engine.onAct = otherRun(func(other *replayCache) error { return other.Evict(t.Context()) })
+	dropped := run.execute(steps, nil)
+	require.NoError(t, dropped.err)
+	assert.Equal(t, []string{"goto:completed", "act:completed", "act:completed"}, eventNames(dropped.exec.GetAgentSession()))
+	assert.Len(t, run.engine.replays, 1, "the dropped recording is not replayed")
 }
 
 // A replayed click that loads a new document can lose the page too. The new

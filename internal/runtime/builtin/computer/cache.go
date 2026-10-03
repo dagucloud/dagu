@@ -71,7 +71,7 @@ func targetRadius(full *image.RGBA) int {
 // instruction or a different display misses.
 type replayCache = replaycache.Recordings[recording]
 
-func openReplayCache(computerDir, dagName, stepKey string) (*replayCache, error) {
+func openReplayCache(computerDir, dagName, stepKey string) *replayCache {
 	return replaycache.Open[recording](replaycache.New(computerDir).Path(dagName, stepKey))
 }
 

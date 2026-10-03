@@ -17,7 +17,7 @@ import (
 // instruction, and page, so an edited instruction or a different page misses.
 type replayCache = replaycache.Recordings[[]recordedAction]
 
-func openReplayCache(browserDir, dagName, stepKey string) (*replayCache, error) {
+func openReplayCache(browserDir, dagName, stepKey string) *replayCache {
 	return replaycache.Open[[]recordedAction](replaycache.New(browserDir).Path(dagName, stepKey))
 }
 

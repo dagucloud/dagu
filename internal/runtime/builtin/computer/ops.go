@@ -116,9 +116,7 @@ func newRun(ctx context.Context, e *computerExecutor) (*run, error) {
 		r.variables = map[string]string{}
 	}
 	if e.cfg.cacheEnabled() {
-		if r.cache, err = openReplayCache(computerDir, dagName, stepKey); err != nil {
-			return nil, err
-		}
+		r.cache = openReplayCache(computerDir, dagName, stepKey)
 	}
 	r.timeline = &agentstep.Timeline{Log: e.stderr, Masker: masker, Total: len(e.cfg.Do), Update: e.updateSession, Provider: providerName}
 	return r, nil
