@@ -463,8 +463,9 @@ fails the step with the usual `quote.xlsx Sheet1!B7: expected number,
 found "n/a"`. An empty cell or an absent field is null.
 
 The step takes the DAG-level `llm` block, or `with.llm`, which replaces it,
-as browser steps do. Several models are tried in order, and an unusable
-answer counts as a failed request. The outputs are
+as browser steps do. Several models are tried in order, each set up when
+its turn comes, and an unusable answer or a model that cannot be set up
+counts as a failed request. The outputs are
 each property, `cells` (property to the `Sheet1!B7` it was read from,
 empty when absent), `sheet`, `warnings`, and `source`, `model` or `cache`.
 The stdout line is `Extracted 4 fields from quote.xlsx Sheet1 (model, 1234
@@ -477,7 +478,7 @@ the merged regions, so two forms from one sender in the same template
 share it while their values differ. Each cached cell also keeps the label
 beside it, the nearest text cell to its left or above, which must still
 read the same. A later run whose layout, labels, instruction, and schema
-(the property names, types, and descriptions) match reads the cached cells
+(the property names, types, formats, and descriptions) match reads the cached cells
 without a model call (`source: cache`). A layout not seen before asks the
 model; an entry whose instruction or schema changed, whose label moved or
 was renamed, or whose address no longer names one cell is replaced after

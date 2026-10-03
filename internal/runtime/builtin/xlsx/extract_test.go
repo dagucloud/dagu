@@ -159,7 +159,8 @@ type extractRun struct {
 	secrets  map[string]string
 	provider *scriptedProvider
 	// providers, when set, are handed out in order to each configured
-	// model; otherwise every model gets provider.
+	// model, a nil entry standing for a provider that cannot be built;
+	// otherwise every model gets provider.
 	providers []*scriptedProvider
 	// providerErr, when set, makes building any provider fail.
 	providerErr error
@@ -204,6 +205,9 @@ func (r *extractRun) execute(cfg map[string]any, llm *ir.LLMConfig) *extractExec
 		if len(r.providers) > 0 {
 			p := r.providers[min(built, len(r.providers)-1)]
 			built++
+			if p == nil {
+				return nil, errors.New("api key OPENAI_API_KEY is not set")
+			}
 			return p, nil
 		}
 		return r.provider, nil
@@ -318,8 +322,8 @@ func TestExtractRejectsBadAnswers(t *testing.T) {
 		want   string
 	}{
 		"not an address": {answer: map[string]any{"quote_no": "B3", "delivery": "B5", "total": "123000"}, want: `model request failed: openai/test-model: xlsx: model answered field "total" with "123000", not a cell address`},
-		"other sheet":    {answer: map[string]any{"quote_no": "B3", "delivery": "B5", "total": "Other!B2"}, want: `xlsx: model answered field "total" with "Other!B2", which is not on sheet Sheet1`},
-		"outside range":  {answer: map[string]any{"quote_no": "B3", "delivery": "B5", "total": "B7"}, want: `xlsx: model answered field "total" with "B7", which is outside Sheet1!A1:B5`},
+		"other sheet":    {answer: map[string]any{"quote_no": "B3", "delivery": "B5", "total": "Other!B2"}, want: `model request failed: openai/test-model: xlsx: model answered field "total" with "Other!B2", which is not on sheet Sheet1`},
+		"outside range":  {answer: map[string]any{"quote_no": "B3", "delivery": "B5", "total": "B7"}, want: `model request failed: openai/test-model: xlsx: model answered field "total" with "B7", which is outside Sheet1!A1:B5`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -428,6 +432,19 @@ func TestExtractCacheHealsOnSchemaChange(t *testing.T) {
 	assert.Equal(t, map[string]string{"quote_no": "Sheet1!B3", "delivery": "Sheet1!B5", "total": "Sheet1!B7"}, fewer.exec.GetOutputs()["cells"])
 	_, hasPerson := fewer.exec.GetOutputs()["person"]
 	assert.False(t, hasPerson)
+
+	// The same names and descriptions, but a field's type changed: the
+	// type pins how the cell is read, so the recording is asked again.
+	retyped := map[string]any{"type": "object", "properties": map[string]any{
+		"quote_no": map[string]any{"type": "string", "description": "見積番号"},
+		"delivery": map[string]any{"type": "string", "format": "date", "description": "納期"},
+		"total":    map[string]any{"type": "integer", "description": "合計金額"},
+	}}
+	typed := r.execute(quoteConfig(map[string]any{"schema": retyped}), testModel)
+	require.NoError(t, typed.err)
+	assert.Equal(t, 5, r.provider.count(), "a changed type asks the model again")
+	assert.Equal(t, sourceModel, typed.exec.GetOutputs()["source"])
+	assert.Equal(t, int64(123000), typed.exec.GetOutputs()["total"])
 }
 
 func TestExtractCachedRunNeedsNoProvider(t *testing.T) {
@@ -472,6 +489,98 @@ func TestExtractFallsBackOnUnusableAnswer(t *testing.T) {
 	failed := r.execute(quoteConfig(map[string]any{"cache": false}), llm)
 	require.ErrorContains(t, failed.err, "model request failed: openai/first: xlsx: model answered field \"quote_no\" with \"123000\", not a cell address")
 	require.ErrorContains(t, failed.err, "openai/second: xlsx: model answered field")
+}
+
+func TestExtractFallsBackOnAddressOutsideTheListing(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		answer map[string]any
+		cfg    map[string]any
+		fault  string
+	}{
+		"other sheet": {
+			answer: map[string]any{"quote_no": "B3", "delivery": "B5", "total": "Other!B2"},
+			fault:  `openai/first: xlsx: model answered field "total" with "Other!B2", which is not on sheet Sheet1`,
+		},
+		"outside range": {
+			answer: map[string]any{"quote_no": "B3", "delivery": "B9", "total": "B7"},
+			cfg:    map[string]any{"range": "A1:B7"},
+			fault:  `openai/first: xlsx: model answered field "delivery" with "B9", which is outside Sheet1!A1:B7`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			r := newExtractRun(t)
+			path := quoteBook(t, r.dir, nil)
+			f, err := excelize.OpenFile(path)
+			require.NoError(t, err)
+			_, err = f.NewSheet("Other")
+			require.NoError(t, err)
+			require.NoError(t, f.Save())
+			require.NoError(t, f.Close())
+			first := &scriptedProvider{answer: func(*llmpkg.ChatRequest) map[string]any { return tc.answer }}
+			r.providers = []*scriptedProvider{first, r.provider}
+			llm := &ir.LLMConfig{Provider: "openai", Model: "first", Models: []ir.ModelEntry{{Provider: "openai", Name: "first"}, {Provider: "openai", Name: "second"}}}
+			run := r.execute(quoteConfig(tc.cfg), llm)
+			require.NoError(t, run.err)
+			assert.Equal(t, 1, first.count(), "the first model answered a cell outside the listing")
+			assert.Equal(t, 1, r.provider.count(), "the second model was asked")
+			assert.Equal(t, "Q-2026-001", run.exec.GetOutputs()["quote_no"])
+			assert.Equal(t, "2026-10-15", run.exec.GetOutputs()["delivery"])
+
+			// Every model answers outside the listing: the step fails naming each fault.
+			r.providers = []*scriptedProvider{first, first}
+			failed := r.execute(quoteConfig(mergeConfig(tc.cfg, map[string]any{"cache": false})), llm)
+			require.ErrorContains(t, failed.err, "model request failed: "+tc.fault)
+			require.ErrorContains(t, failed.err, "openai/second: xlsx: model answered field")
+		})
+	}
+}
+
+func TestExtractBuildsEachProviderInTurn(t *testing.T) {
+	t.Parallel()
+	llm := &ir.LLMConfig{Provider: "openai", Model: "first", Models: []ir.ModelEntry{{Provider: "openai", Name: "first"}, {Provider: "openai", Name: "second"}}}
+
+	t.Run("fallback cannot be built", func(t *testing.T) {
+		t.Parallel()
+		r := newExtractRun(t)
+		quoteBook(t, r.dir, nil)
+		r.providers = []*scriptedProvider{r.provider, nil}
+		run := r.execute(quoteConfig(nil), llm)
+		require.NoError(t, run.err, "a fallback that cannot be built does not stop the model before it")
+		assert.Equal(t, 1, r.provider.count())
+		assert.Equal(t, "Q-2026-001", run.exec.GetOutputs()["quote_no"])
+	})
+
+	t.Run("primary cannot be built", func(t *testing.T) {
+		t.Parallel()
+		r := newExtractRun(t)
+		quoteBook(t, r.dir, nil)
+		r.providers = []*scriptedProvider{nil, r.provider}
+		run := r.execute(quoteConfig(nil), llm)
+		require.NoError(t, run.err, "a primary that cannot be built is passed over for the fallback")
+		assert.Equal(t, 1, r.provider.count())
+		assert.Equal(t, "Q-2026-001", run.exec.GetOutputs()["quote_no"])
+	})
+
+	t.Run("none can be built", func(t *testing.T) {
+		t.Parallel()
+		r := newExtractRun(t)
+		quoteBook(t, r.dir, nil)
+		r.providers = []*scriptedProvider{nil, nil}
+		run := r.execute(quoteConfig(nil), llm)
+		require.ErrorContains(t, run.err, "model request failed: openai/first: api key OPENAI_API_KEY is not set")
+		require.ErrorContains(t, run.err, "openai/second: api key OPENAI_API_KEY is not set")
+		assert.Equal(t, 0, r.provider.count())
+	})
+}
+
+// mergeConfig returns extra laid over base, leaving both untouched.
+func mergeConfig(base, extra map[string]any) map[string]any {
+	merged := make(map[string]any, len(base)+len(extra))
+	maps.Copy(merged, base)
+	maps.Copy(merged, extra)
+	return merged
 }
 
 func TestExtractRejectsNullAnswer(t *testing.T) {

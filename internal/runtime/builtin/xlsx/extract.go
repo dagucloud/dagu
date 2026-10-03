@@ -58,11 +58,12 @@ var cellAddressPattern = regexp.MustCompile(`^(?:'(?:[^']|'')+'!|[^!'\s]+!)?\$?[
 // providerFactory builds a provider for one resolved model configuration.
 type providerFactory func(ctx context.Context, cfg *ir.LLMConfig) (llmpkg.Provider, error)
 
-// model is one configured model and its provider.
+// model is one configured model; its provider is built when its turn
+// comes, so a model that cannot be built is passed over like one that
+// fails to answer.
 type model struct {
 	cfg          *ir.LLMConfig
 	providerType llmpkg.ProviderType
-	provider     llmpkg.Provider
 }
 
 func (m model) label() string {
@@ -96,8 +97,10 @@ type extractExecutor struct {
 	dagName string
 	secrets map[string]string
 	masker  *masking.Masker
-	// models are built on the first model request, so a run answered from
-	// the cache never touches a provider.
+	// models are resolved on the first model request and each provider is
+	// built when its model's turn comes, so a run answered from the cache
+	// never touches a provider and a fallback that cannot be built does
+	// not stop the models before it.
 	models []model
 	cache  *extractCache
 	// parameters is the respond tool's schema, and schemaDigest identifies
@@ -145,7 +148,10 @@ func newExtractExecutor(ctx context.Context, env runtime.Env, step ir.Step, path
 		dagName = env.DAG.Name
 	}
 	parameters := agentstep.ToolParameters(responseSchema(cfg.Schema, cfg.extractProperties))
-	canonical, err := json.Marshal(parameters)
+	// The digest covers what the model is asked and how each answer is
+	// read: the tool parameters carry names and descriptions, the request
+	// schema's properties carry the types and formats that pin the cells.
+	canonical, err := json.Marshal(map[string]any{"parameters": parameters, "properties": properties})
 	if err != nil {
 		return nil, fmt.Errorf("xlsx: encode the response schema: %w", err)
 	}
@@ -294,15 +300,8 @@ func (e *extractExecutor) locate(ctx context.Context, layout *workbook.SheetLayo
 			e.cache.Drop(layout.Key)
 		}
 	}
-	cells, err := e.query(ctx, layout)
+	result, err := e.query(ctx, layout)
 	if err != nil {
-		return nil, "", err
-	}
-	result, err := e.readCells(ctx, layout, cells)
-	if err != nil {
-		if bad, ok := errors.AsType[*workbook.AddressError](err); ok {
-			return nil, "", fmt.Errorf("xlsx: model answered field %q with %q, which %s", bad.Field, bad.Address, bad.Msg)
-		}
 		return nil, "", err
 	}
 	if e.cache != nil {
@@ -329,13 +328,19 @@ func (e *extractExecutor) readCells(ctx context.Context, layout *workbook.SheetL
 	})
 }
 
-// query asks the models, in order, which cell holds each field, and
-// returns the first usable answer as a map from field to address. A model
-// whose request fails or whose answer is not addresses is passed over for
-// the next one.
-func (e *extractExecutor) query(ctx context.Context, layout *workbook.SheetLayout) (map[string]string, error) {
+// query asks the models, in order, which cell holds each field, reads the
+// cells the first usable answer names, and returns what they hold. A model
+// that cannot be built, whose request fails, or whose answer is not
+// addresses within the listed sheet and range is passed over for the next
+// one; a cell that fails its pinned type fails the step, since another
+// model would read the same cell.
+func (e *extractExecutor) query(ctx context.Context, layout *workbook.SheetLayout) (*workbook.ReadCellsResult, error) {
 	if err := e.ensureModels(ctx); err != nil {
 		return nil, err
+	}
+	factory := e.newProvider
+	if factory == nil {
+		factory = runtime.NewLLMProvider
 	}
 	user := e.cfg.Instruction + "\n\nSheet: " + layout.Sheet + " (" + layout.Range + ", " +
 		fmt.Sprintf("%d %s", layout.Cells, plural(layout.Cells, "cell")) + ")\n" + layout.Listing
@@ -345,7 +350,12 @@ func (e *extractExecutor) query(ctx context.Context, layout *workbook.SheetLayou
 	}
 	var errs []error
 	for _, m := range e.models {
-		resp, err := llmpkg.ChatWithRetry(ctx, m.provider, &llmpkg.ChatRequest{
+		provider, err := factory(ctx, m.cfg)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", m.label(), err))
+			continue
+		}
+		resp, err := llmpkg.ChatWithRetry(ctx, provider, &llmpkg.ChatRequest{
 			Model:       m.cfg.Model,
 			Messages:    messages,
 			Temperature: m.cfg.Temperature,
@@ -379,22 +389,26 @@ func (e *extractExecutor) query(ctx context.Context, layout *workbook.SheetLayou
 			errs = append(errs, fmt.Errorf("%s: %w", m.label(), err))
 			continue
 		}
-		return cells, nil
+		result, err := e.readCells(ctx, layout, cells)
+		if err != nil {
+			if bad, ok := errors.AsType[*workbook.AddressError](err); ok {
+				errs = append(errs, fmt.Errorf("%s: xlsx: model answered field %q with %q, which %s", m.label(), bad.Field, bad.Address, bad.Msg))
+				continue
+			}
+			return nil, err
+		}
+		return result, nil
 	}
 	return nil, fmt.Errorf("model request failed: %w", errors.Join(errs...))
 }
 
-// ensureModels builds the providers on the first request, so a run that
-// reads its cells from the cache needs no provider and no key.
+// ensureModels resolves the configured models on the first request, so a
+// run that reads its cells from the cache needs no provider and no key.
 func (e *extractExecutor) ensureModels(ctx context.Context) error {
 	if e.models != nil {
 		return nil
 	}
-	factory := e.newProvider
-	if factory == nil {
-		factory = runtime.NewLLMProvider
-	}
-	models, err := newModels(ctx, e.step.LLM, factory)
+	models, err := resolveModels(ctx, e.step.LLM)
 	if err != nil {
 		return err
 	}
@@ -402,25 +416,20 @@ func (e *extractExecutor) ensureModels(ctx context.Context) error {
 	return nil
 }
 
-// newModels builds a provider for every configured model, in fallback
-// order.
-func newModels(ctx context.Context, cfg *ir.LLMConfig, factory providerFactory) ([]model, error) {
+// resolveModels lists the configured models in fallback order, without
+// building their providers.
+func resolveModels(ctx context.Context, cfg *ir.LLMConfig) ([]model, error) {
 	entries, err := runtime.ResolveModels(ctx, cfg.GetModels())
 	if err != nil {
 		return nil, err
 	}
 	models := make([]model, 0, len(entries))
 	for _, entry := range entries {
-		effective := runtime.EffectiveLLMConfig(cfg, entry)
 		providerType, err := llmpkg.ParseProviderType(entry.Provider)
 		if err != nil {
 			return nil, err
 		}
-		provider, err := factory(ctx, effective)
-		if err != nil {
-			return nil, fmt.Errorf("%s/%s: %w", entry.Provider, entry.Name, err)
-		}
-		models = append(models, model{cfg: effective, providerType: providerType, provider: provider})
+		models = append(models, model{cfg: runtime.EffectiveLLMConfig(cfg, entry), providerType: providerType})
 	}
 	return models, nil
 }
