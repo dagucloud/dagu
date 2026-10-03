@@ -197,10 +197,27 @@ func TestParseSetAndDecodeUpdateRows(t *testing.T) {
 	set, err := ParseSet(map[string]any{"Status": "status", "Note": map[string]any{"value": 3}})
 	require.NoError(t, err)
 	assert.Equal(t, map[string]SetValue{"Status": {Field: "status"}, "Note": {Literal: 3, IsLiteral: true}}, set)
-	for _, bad := range []any{"status", map[string]any{}, map[string]any{"a": 1}, map[string]any{"a": map[string]any{"x": 1}}, map[string]any{"": "f"}} {
+	// A literal that is a canonical number in text, the form a reference
+	// arrives in, becomes a number unless a type pins it.
+	literals, err := ParseSet(map[string]any{
+		"Amount": map[string]any{"value": "100"},
+		"Code":   map[string]any{"value": "007", "type": "string"},
+		"Rate":   map[string]any{"value": "1,234.5", "type": "number"},
+		"Memo":   map[string]any{"value": "007"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, SetValue{Literal: int64(100), IsLiteral: true}, literals["Amount"])
+	assert.Equal(t, SetValue{Literal: "007", IsLiteral: true, Type: TypeString}, literals["Code"])
+	assert.Equal(t, SetValue{Literal: "1,234.5", IsLiteral: true, Type: TypeNumber}, literals["Rate"])
+	assert.Equal(t, SetValue{Literal: "007", IsLiteral: true}, literals["Memo"], "leading zeros stay text")
+	for _, bad := range []any{"status", map[string]any{}, map[string]any{"a": 1}, map[string]any{"a": map[string]any{"x": 1}}, map[string]any{"": "f"},
+		map[string]any{"a": map[string]any{"value": 1, "type": "money"}}, map[string]any{"a": map[string]any{"value": 1, "bold": true}},
+		map[string]any{"a": map[string]any{"value": 1, "type": 2}}} {
 		_, err := ParseSet(bad)
 		require.Error(t, err, "%v", bad)
 	}
+	_, err = ParseSet(map[string]any{"a": map[string]any{"value": 1, "type": "money"}})
+	require.ErrorContains(t, err, `set.a: type: unknown column type "money"`)
 	nilSet, err := ParseSet(nil)
 	require.NoError(t, err)
 	assert.Nil(t, nilSet)
@@ -217,6 +234,24 @@ func TestParseSetAndDecodeUpdateRows(t *testing.T) {
 	require.Error(t, err)
 	_, err = DecodeUpdateRows("nope")
 	require.Error(t, err)
+}
+
+func TestUpdateRowsLiteralNumericText(t *testing.T) {
+	t.Parallel()
+	path := ordersBook(t)
+	set, err := ParseSet(map[string]any{
+		"Amount": map[string]any{"value": "100"},
+		"Code":   map[string]any{"value": "007", "type": "string"},
+		"Rate":   map[string]any{"value": "1,234.5", "type": "number"},
+	})
+	require.NoError(t, err)
+	_, err = UpdateRows(context.Background(), path, UpdateOptions{Key: "Invoice No", Rows: []Row{{"Invoice No": "INV-1"}}, Set: set})
+	require.NoError(t, err)
+	back, err := Read(context.Background(), path, ReadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, int64(100), back.Rows[0]["Amount"], "a canonical numeric literal is a number")
+	assert.Equal(t, "007", back.Rows[0]["Code"], "a pinned string keeps its zeros")
+	assert.Equal(t, 1234.5, back.Rows[0]["Rate"], "a pinned number converts the way a column type does")
 }
 
 func TestUpdateRowsAbsentFieldLeavesCellAndNullClears(t *testing.T) {

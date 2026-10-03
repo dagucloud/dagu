@@ -68,7 +68,7 @@ steps:
       sheet: Orders
       key: Invoice No
       rows: ${steps.each.outputs.results}
-      set: {Status: status, Reviewed: {value: "yes"}}
+      set: {Status: status, Reviewed: {value: "yes"}, Code: {value: "007", type: string}}
       missing: skip
       wait_for_unlock: 5m
   - id: check
@@ -129,6 +129,7 @@ steps:
 		{"bad missing", "missing: skip", "missing: ignore"},
 		{"set value not a field or literal", "Reviewed: {value: \"yes\"}", "Reviewed: 3"},
 		{"set literal with extra keys", "Reviewed: {value: \"yes\"}", "Reviewed: {value: \"yes\", other: 1}"},
+		{"set literal with a bad type", "Code: {value: \"007\", type: string}", "Code: {value: \"007\", type: money}"},
 		{"empty key", "key: Invoice No", "key: \"\""},
 		{"update_rows without key", "      key: Invoice No\n", ""},
 		{"update_rows without rows", "      rows: ${steps.each.outputs.results}\n", ""},

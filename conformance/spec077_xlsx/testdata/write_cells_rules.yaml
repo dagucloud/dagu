@@ -5,7 +5,7 @@ steps:
     with:
       path: template.xlsx
       header: false
-      rows: [["Code", ""], ["Date", ""], ["Total", ""]]
+      rows: [["Code", ""], ["Date", ""], ["Total", ""], ["Qty", ""], ["Ref", ""]]
   - id: first
     depends: template
     action: xlsx.write_cells
@@ -38,8 +38,16 @@ steps:
       path: template.xlsx
       cells:
         B3: {formula: "=LEN(B1)"}
-  - id: read
+  - id: numbers
     depends: formula
+    action: xlsx.write_cells
+    with:
+      path: template.xlsx
+      cells:
+        B4: "100"
+        B5: "007"
+  - id: read
+    depends: numbers
     action: xlsx.read
     with:
       path: template.xlsx

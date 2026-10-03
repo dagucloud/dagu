@@ -69,6 +69,8 @@ func TestXlsxWriteCellsRules(t *testing.T) {
 	require.Equal(t, "2026-10-01", out.Rows[1]["B"])
 	require.Equal(t, float64(3), out.Rows[2]["B"], "a formula replaces the text the cell held and a read evaluates it")
 	require.Contains(t, out.Warnings, "Sheet1!B3: formula had no cached value; evaluated")
+	require.Equal(t, float64(100), out.Rows[3]["B"], "a canonical number in text is written as a number")
+	require.Equal(t, "007", out.Rows[4]["B"], "leading zeros stay text")
 }
 
 // Spec 077 "Sheets": if_exists: replace, missing: skip, and renames that

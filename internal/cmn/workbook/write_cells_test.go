@@ -52,6 +52,27 @@ func TestParseCells(t *testing.T) {
 	assert.Equal(t, CellValue{Value: "2026-10-01", Type: TypeString}, cells["F1"])
 	assert.Equal(t, CellValue{Clear: true}, cells["G1"])
 
+	// A canonical number in text, the form a reference arrives in, is a
+	// number; anything else stays text unless a type pins it.
+	numbers, err := ParseCells(map[string]any{
+		"A1": "100", "B1": "-12.5", "C1": "0",
+		"D1": map[string]any{"value": "100", "type": "string"},
+		"E1": map[string]any{"value": "100", "type": "number"},
+		"F1": map[string]any{"value": "250"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, CellValue{Value: int64(100)}, numbers["A1"])
+	assert.Equal(t, CellValue{Value: -12.5}, numbers["B1"])
+	assert.Equal(t, CellValue{Value: int64(0)}, numbers["C1"])
+	assert.Equal(t, CellValue{Value: "100", Type: TypeString}, numbers["D1"])
+	assert.Equal(t, CellValue{Value: "100", Type: TypeNumber}, numbers["E1"], "a pinned value is converted when written")
+	assert.Equal(t, CellValue{Value: int64(250)}, numbers["F1"])
+	for _, text := range []string{"007", "1,234", "1e3", " 7", "+7", "１２３", "7.", ".5", "-", "2026-10-01"} {
+		kept, err := ParseCells(map[string]any{"A1": text})
+		require.NoError(t, err)
+		assert.Equal(t, CellValue{Value: text}, kept["A1"], text)
+	}
+
 	for name, bad := range map[string]any{
 		"list":          []any{1},
 		"formula empty": map[string]any{"formula": ""},

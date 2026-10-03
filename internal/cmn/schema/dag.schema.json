@@ -8099,10 +8099,18 @@
           "additionalProperties": {
             "oneOf": [
               { "type": "string", "minLength": 1 },
-              { "type": "object", "properties": { "value": {} }, "required": ["value"], "additionalProperties": false }
+              {
+                "type": "object",
+                "properties": {
+                  "value": {},
+                  "type": { "type": "string", "enum": ["string", "number", "integer", "boolean", "date", "datetime"] }
+                },
+                "required": ["value"],
+                "additionalProperties": false
+              }
             ]
           },
-          "description": "Columns to write for xlsx.update_rows: {Status: status} takes the status field of each row, {Reviewed: {value: yes}} writes one literal to every row. Omitted: every field other than the key and _row goes to the column of the same name. A column missing from the header is added at the right."
+          "description": "Columns to write for xlsx.update_rows: {Status: status} takes the status field of each row, {Reviewed: {value: yes}} writes one literal to every row; a literal that is text in the canonical form of a number is written as a number unless type: string pins it. Omitted: every field other than the key and _row goes to the column of the same name. A column missing from the header is added at the right."
         },
         "missing": {
           "type": "string",

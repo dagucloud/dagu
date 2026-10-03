@@ -190,6 +190,53 @@ func trimSpace(s string) string {
 	return strings.TrimFunc(s, unicode.IsSpace)
 }
 
+// numericText returns the number a string denotes when it is written the
+// canonical way: an optional leading minus, digits with no leading zero
+// unless the integer part is 0, and an optional fraction of one or more
+// digits. A value interpolated from a reference arrives as text, and this
+// is how such a number comes back. Anything else, a plus sign, an
+// exponent, a comma, white space, full-width digits, or leading zeros
+// such as 007, is returned as it is, so codes stay text.
+func numericText(s string) any {
+	i := 0
+	if i < len(s) && s[i] == '-' {
+		i++
+	}
+	start := i
+	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+		i++
+	}
+	integer := s[start:i]
+	if integer == "" || (len(integer) > 1 && integer[0] == '0') {
+		return s
+	}
+	fraction := false
+	if i < len(s) && s[i] == '.' {
+		i++
+		digits := i
+		for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+			i++
+		}
+		if i == digits {
+			return s
+		}
+		fraction = true
+	}
+	if i != len(s) {
+		return s
+	}
+	if !fraction {
+		if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+			return n
+		}
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return s
+	}
+	return f
+}
+
 // coerce applies a pinned column type to a typed cell value. date1904 says
 // which epoch a numeric date serial counts from.
 func coerce(v any, t ColumnType, date1904 bool) (any, error) {

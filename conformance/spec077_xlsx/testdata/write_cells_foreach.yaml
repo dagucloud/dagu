@@ -41,9 +41,7 @@ steps:
             output: out/invoice-${foreach.item.invoice}.xlsx
             cells:
               B1: ${foreach.item.customer}
-              B2:
-                value: ${foreach.item.amount}
-                type: number
+              B2: ${foreach.item.amount}
               B3: {formula: "=B2*1.1"}
             artifact: true
       collect:

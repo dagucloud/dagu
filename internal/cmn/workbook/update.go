@@ -16,6 +16,9 @@ type SetValue struct {
 	Field     string
 	Literal   any
 	IsLiteral bool
+	// Type pins the literal the way a column type does; empty writes it by
+	// its own kind, with a canonical numeric string as a number.
+	Type ColumnType
 }
 
 // MissingMode says what happens to an input row whose key is not in the
@@ -76,10 +79,31 @@ func ParseSet(v any) (map[string]SetValue, error) {
 			out[column] = SetValue{Field: strings.TrimSpace(x)}
 		case map[string]any:
 			literal, ok := x["value"]
-			if !ok || len(x) != 1 {
+			if !ok || len(x) > 2 {
 				return nil, fmt.Errorf("set.%s: use a field name or {value: literal}", column)
 			}
-			out[column] = SetValue{Literal: literal, IsLiteral: true}
+			sv := SetValue{Literal: literal, IsLiteral: true}
+			if typeSpec, hasType := x["type"]; hasType {
+				text, isText := typeSpec.(string)
+				if !isText {
+					return nil, fmt.Errorf("set.%s: type must be a column type", column)
+				}
+				t, err := ParseColumnType(text)
+				if err != nil {
+					return nil, fmt.Errorf("set.%s: type: %v", column, err)
+				}
+				sv.Type = t
+			} else {
+				if len(x) != 1 {
+					return nil, fmt.Errorf("set.%s: use a field name or {value: literal}", column)
+				}
+				// A reference interpolated into the literal arrives as text;
+				// a canonical number in it is written as a number.
+				if s, isText := literal.(string); isText {
+					sv.Literal = numericText(s)
+				}
+			}
+			out[column] = sv
 		default:
 			return nil, fmt.Errorf("set.%s: use a field name or {value: literal}", column)
 		}
@@ -512,7 +536,11 @@ func (w *file) applyRow(plan *updatePlan, row int, input Row, appended bool) (in
 			}
 			continue
 		}
-		out, err := outValue(value, "", w.date1904)
+		var kind ColumnType
+		if sc.value.IsLiteral {
+			kind = sc.value.Type
+		}
+		out, err := outValue(value, kind, w.date1904)
 		if err != nil {
 			return 0, w.cellError(plan.sheet, sc.column, row, err.Error())
 		}

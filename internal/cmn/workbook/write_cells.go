@@ -57,7 +57,11 @@ func parseCellValue(spec any) (CellValue, error) {
 	switch x := spec.(type) {
 	case nil:
 		return CellValue{Clear: true}, nil
-	case string, bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+	case string:
+		// A reference interpolated into the address's value arrives as
+		// text; a canonical number in it is written as a number.
+		return CellValue{Value: numericText(x)}, nil
+	case bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
 		return CellValue{Value: normalizeScalar(x)}, nil
 	case time.Time:
 		// YAML reads an unquoted date such as 2026-10-01 as a time.
@@ -82,7 +86,11 @@ func parseCellValue(spec any) (CellValue, error) {
 			return CellValue{}, fmt.Errorf("value must be a scalar or null")
 		}
 		cv := CellValue{Value: normalizeScalar(value), Clear: value == nil}
-		if typeSpec, hasType := x["type"]; hasType {
+		typeSpec, hasType := x["type"]
+		if s, isText := value.(string); isText && !hasType {
+			cv.Value = numericText(s)
+		}
+		if hasType {
 			text, isText := typeSpec.(string)
 			if !isText {
 				return CellValue{}, fmt.Errorf("type must be a column type")
