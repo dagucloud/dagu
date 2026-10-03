@@ -498,6 +498,19 @@ func TestManagedOpenCodeAttachmentLimit(t *testing.T) {
 	assert.Contains(t, err.Error(), "10 MiB")
 }
 
+func TestManagedFilePartsCaseInsensitiveExtension(t *testing.T) {
+	t.Parallel()
+
+	// mime.TypeByExtension only knows lowercase extensions, so an
+	// uppercase attachment extension must still resolve a media type.
+	path := filepath.Join(t.TempDir(), "IMAGE.PNG")
+	require.NoError(t, os.WriteFile(path, []byte("png-data"), 0o600))
+	parts, err := managedFileParts("", path)
+	require.NoError(t, err)
+	require.Len(t, parts, 1)
+	assert.Equal(t, "image/png", parts[0]["mime"])
+}
+
 func TestOpenCodeWildcardMatch(t *testing.T) {
 	t.Parallel()
 

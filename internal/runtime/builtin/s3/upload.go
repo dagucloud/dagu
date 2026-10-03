@@ -110,7 +110,7 @@ func (e *executorImpl) resolveContentType() string {
 	if e.cfg.ContentType != "" {
 		return e.cfg.ContentType
 	}
-	if ext := filepath.Ext(e.cfg.Source); ext != "" {
+	if ext := strings.ToLower(filepath.Ext(e.cfg.Source)); ext != "" {
 		if ct := mime.TypeByExtension(ext); ct != "" {
 			return ct
 		}

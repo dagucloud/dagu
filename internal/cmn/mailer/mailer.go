@@ -510,7 +510,7 @@ func loadAttachments(fileNames []string, require bool) ([]attachment, error) {
 // attachmentContentType takes the type from the file name, or from the
 // content when the name implies none.
 func attachmentContentType(name string, data []byte) string {
-	if contentType := mime.TypeByExtension(filepath.Ext(name)); contentType != "" {
+	if contentType := mime.TypeByExtension(strings.ToLower(filepath.Ext(name))); contentType != "" {
 		return contentType
 	}
 	return http.DetectContentType(data)

@@ -1492,6 +1492,15 @@ func TestSendMessageThreadsReply(t *testing.T) {
 		message.Header.Get("References"))
 }
 
+func TestAttachmentContentTypeCaseInsensitiveExtension(t *testing.T) {
+	t.Parallel()
+
+	// mime.TypeByExtension only knows lowercase extensions, so an
+	// uppercase attachment name must still resolve a content type.
+	assert.Equal(t, "application/json", attachmentContentType("report.JSON", []byte(`{"a":1}`)))
+	assert.Equal(t, "image/png", attachmentContentType("image.PNG", []byte("png-data")))
+}
+
 func TestThreadHeaders(t *testing.T) {
 	t.Parallel()
 
