@@ -18,8 +18,14 @@ validate with every problem kind, `max_problems`, the stderr lines, and
 with its value forms, into a copy, in a foreach, and every error, sheet
 operations with every mode and error, convert to csv, json, and jsonl
 with every encoding and error, every `dagu dry` check, every validation
-message in Errors, and the `dagu xlsx` commands with their flags and text
-formats. Every workflow in Examples has a fixture.
+message in Errors, the `dagu xlsx` commands with their flags and text
+formats, and extract with a scripted model: the cells the model names are
+read with their types, a repeated layout makes no model request, a
+changed layout or a schema with a new field asks again, `send_values:
+false` keeps values out of the request, a secret in the instruction stops
+the step before any request, and `dagu xlsx cache clear` and `dagu rm
+--history` drop the cached cells. Every workflow in Examples has a
+fixture.
 
 Conformance exceptions, behavior that a black-box run cannot observe or
 set up and that unit tests of `internal/cmn/workbook` cover instead:
@@ -32,19 +38,24 @@ atomic save and symbolic links; a lock file another process holds,
 `wait_for_unlock` timing, and Windows sharing violations; the consequences
 of a rename or delete for formulas and defined names and what a copy
 leaves behind (library behavior); the dry check leaving an unopenable
-workbook to the run; `.xls` and `.ods` beyond the extension check. The
-MCP `workbook` target is covered by the Spec 021 suite.
+workbook to the run; `.xls` and `.ods` beyond the extension check; merged
+regions in the extract listing and the extract cell cap (no fixture can
+merge cells or write thousands of cells cheaply). Which cell a real model
+names is not a conformance matter: the scripted model answers
+deterministically, and the suite proves what the engine does with an
+answer. The MCP `workbook` target is covered by the Spec 021 suite.
 
 ## Scope
 
 This spec defines the `xlsx.read`, `xlsx.info`, `xlsx.list_sheets`,
 `xlsx.write`, `xlsx.append`, `xlsx.update_rows`, `xlsx.validate`,
-`xlsx.write_cells`, `xlsx.sheet`, and `xlsx.convert` actions, the
-`dagu xlsx inspect` and `dagu xlsx read` commands, the MCP `workbook` read
-target, and the checks `dagu dry` runs for xlsx steps. It covers
-configuration, validation, how cells become values, how values become
-cells, published outputs, change summaries, atomic saves, and locked
-workbooks.
+`xlsx.write_cells`, `xlsx.sheet`, `xlsx.convert`, and `xlsx.extract`
+actions, the `dagu xlsx inspect`, `dagu xlsx read`, and `dagu xlsx cache
+clear` commands, the MCP `workbook` read target, and the checks `dagu dry`
+runs for xlsx steps. It covers configuration, validation, how cells become
+values, how values become cells, published outputs, change summaries,
+atomic saves, locked workbooks, and what a model is shown and asked when a
+step locates fields on a form.
 
 Out of scope: driving a spreadsheet application, the `.xls` and `.ods`
 formats, macros, charts, images, pivot tables, conditional formatting, the
@@ -75,6 +86,7 @@ changed shape under the workflow is refused rather than written to.
 | `xlsx.write_cells` | Fill named cells of a workbook or of a copy. | Same as `xlsx.write` |
 | `xlsx.sheet` | Add, copy, rename, or delete a sheet. | Same as `xlsx.write`, plus `sheets` |
 | `xlsx.convert` | Export a sheet to csv, json, or jsonl. | `path`, `format`, `count`, `sheet`, `range`, `warnings`, `artifact` |
+| `xlsx.extract` | Fields of a form-like sheet, located by a model and read from the cells it names. | One output per schema property, plus `cells`, `sheet`, `warnings`, `source` |
 
 Outputs are fixed: declaring `output`, `outputs`, or `stdout.outputs` on an
 xlsx step is rejected at validation. The executor writes one line to stdout
@@ -326,6 +338,14 @@ followed by the columns with their kinds and the sample rows; the `text`
 format of `read` prints a tab-separated header line starting with `_row`
 and one line per row.
 
+`dagu xlsx cache clear <DAG> [--step ID]` removes the cached cell
+addresses of a DAG's `xlsx.extract` steps on this host, printing `Removed
+xlsx replay cache for step "fields" of DAG "quotes"` for each step removed
+or `No xlsx replay cache for DAG "quotes"`; `dagu rm --history` removes
+them together with the run history. A `dagu xlsx extract` command that
+runs one extraction outside a run needs a model configured outside a DAG
+and is a later addition.
+
 ### MCP
 
 The `dagu_read` target `workbook` takes `path`, any workbook the server
@@ -401,6 +421,63 @@ let the rest of the workflow continue past a skipped task:
 With no problems the task is skipped and the run goes on; with problems
 the run waits for the task to be completed (Spec 031) and continues from
 there.
+
+### Extracting fields from a form
+
+`xlsx.extract` reads a sheet laid out as a form rather than a table: a
+quote, an order, or an application whose layout differs by sender.
+`instruction` says what to find, and `schema` (`type: object`) names the
+fields as properties. A model is asked which cell holds each field; the
+step then reads the typed value from that cell. The model never returns a
+value, so every output has a cell behind it and no number is invented.
+
+The model is sent the sheet's non-empty cells in its used range, or in
+`range`, one per line as `B3 [text,bold]: 見積番号`: the address, the kind
+the cell's type and number format give (`text`, `number`, `date`,
+`datetime`, `time`, `bool`), `bold` and `fill` when the cell has them, and
+the text with line breaks as spaces, cut to 200 characters; a merged
+region is listed once as `A1:D1 [text,bold]: 御見積書`. `send_values:
+false` lists a non-text cell as its kind only, `B7 [number]`, so amounts
+and dates stay on the host. More than 2000 listed cells fails with
+`quote.xlsx Sheet1: 2415 cells in Sheet1!A1:H600 is more than 2000; set
+range to the part of the sheet that holds the fields`. Nothing else is
+sent: no variables and no screenshots. An `instruction` that holds the
+value of a declared secret of four or more characters fails before any
+model call, and secret values are masked in the text sent.
+
+The model answers through one `respond` tool whose parameters list each
+property as an A1 address, with or without a sheet, or `null` for a field
+the sheet lacks. An answer that is not one cell of the listed sheet and
+range fails the step. `trim` and `formulas` read the cell as `xlsx.read`
+would. A property's `type` pins the cell: `number`, `integer`, `boolean`,
+`string`, and `string` with `format: date` or `date-time`; a property
+without a type gets the cell's own typed value. A cell that fails its type
+fails the step with the usual `quote.xlsx Sheet1!B7: expected number,
+found "n/a"`. An empty cell or an absent field is null.
+
+The step takes the DAG-level `llm` block, or `with.llm`, which replaces it,
+as browser steps do. Several models are tried in order. The outputs are
+each property, `cells` (property to the `Sheet1!B7` it was read from,
+empty when absent), `sheet`, `warnings`, and `source`, `model` or `cache`.
+The stdout line is `Extracted 4 fields from quote.xlsx Sheet1 (model, 1234
+tokens)` or `Extracted 4 fields from quote.xlsx Sheet1 (cache)`.
+
+With `cache: true`, the default, the answered addresses are kept by sheet
+layout under `<data dir>/xlsx/cache/<dag>/<step>.json`. The layout is the
+sheet's shape: which cells hold something, their kinds and emphasis, and
+the merged regions, so two forms from one sender in the same template
+share it while their values differ. Each cached cell also keeps the label
+beside it, the nearest text cell to its left or above, which must still
+read the same. A later run whose layout, labels, instruction, and fields
+match reads the cached cells without a model call (`source: cache`). A
+layout not seen before asks the model; an entry whose instruction changed,
+that lacks a field the schema now has, whose label moved or was renamed,
+or whose address no longer names one cell is replaced after the model
+answers. An entry is kept only when the step succeeds; a failed step
+changes nothing. `cache: false` asks the model every run.
+
+`dagu dry` checks that the workbook and the sheet exist, nothing about the
+model.
 
 ### Writing cells
 
@@ -586,6 +663,15 @@ Every one of these is rejected by `dagu validate`:
   character`; `encoding` or `delimiter` on `xlsx.write` or `xlsx.append`
   without `input`: `encoding requires with.input`, `delimiter requires
   with.input`.
+- `xlsx.extract` without `instruction`: `extract requires
+  with.instruction`; without `schema`: `extract requires with.schema`; a
+  schema that is not an object schema: `schema must have type: object`; a
+  property of another type: `schema.properties.items: type must be string,
+  number, integer, or boolean`; a property named like a fixed output:
+  `schema property "sheet" collides with an output of xlsx.extract`;
+  without a model: `xlsx.extract needs a model: set llm at the DAG level
+  or with.llm on the step`; `llm` on another xlsx action: `with.llm is not
+  valid for xlsx.read`.
 
 ### Runtime
 
@@ -639,6 +725,15 @@ Every one of these is rejected by `dagu validate`:
   `sheet "Nope" not found; sheets present: Template`.
 - A `convert` output that cannot be written, such as into a directory that
   does not exist: `out.csv: <system error>`.
+- An `xlsx.extract` instruction holding a secret: `xlsx: with.instruction
+  contains the value of secret SHOP_TOKEN, which would be sent to the
+  model`; a sheet past the cell cap: `quote.xlsx Sheet1: 2415 cells in
+  Sheet1!A1:H600 is more than 2000; set range to the part of the sheet that
+  holds the fields`; a model answer that is not a cell: `xlsx: model
+  answered field "total" with "123000", not a cell address`; one off the
+  sheet or range: `xlsx: model answered field "total" with "H40", which is
+  outside Sheet1!A1:D20`; no model answered: `model request failed:
+  <provider errors>`.
 
 Errors that concern a cell name the workbook, sheet, and cell as
 `<workbook> <sheet>!<cell>: <message>`.
@@ -813,3 +908,37 @@ steps:
       encoding: shift_jis
       columns: [品名, 数量, 金額]
 ```
+
+Read a supplier's quote, whatever its layout, into a list of quotes:
+
+```yaml
+llm:
+  provider: anthropic
+  model: claude-sonnet-5
+  api_key_name: ANTHROPIC_API_KEY
+params:
+  - FILE: quote.xlsx
+steps:
+  - id: fields
+    action: xlsx.extract
+    with:
+      path: inbox/${params.FILE}
+      instruction: A supplier's quote. Find the quote number, the delivery date, and the total amount.
+      schema:
+        type: object
+        properties:
+          quote_no: {type: string, description: 見積番号}
+          delivery: {type: string, format: date, description: 納期}
+          total: {type: number, description: 合計金額}
+  - id: record
+    depends: fields
+    action: xlsx.append
+    with:
+      path: quotes.xlsx
+      sheet: Quotes
+      rows: '[{"quote_no": "${steps.fields.outputs.quote_no}", "delivery": "${steps.fields.outputs.delivery}", "total": ${steps.fields.outputs.total}, "file": "${params.FILE}"}]'
+```
+
+A second quote from the same supplier shares the layout, so its fields are
+read from the cached cells without a model call, and the typed values go
+into the list the same way.
