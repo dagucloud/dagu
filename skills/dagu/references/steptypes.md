@@ -740,7 +740,11 @@ config) `mail_accounts` map, keyed by email address. `provider: google` or
 `provider: microsoft` fills in the servers; any other server sets `imap.host`.
 Authenticate with `password` or with `oauth` (`google_refresh` or
 `microsoft_refresh` and a refresh token). `microsoft_refresh` accepts optional
-`scopes` to request instead of `https://outlook.office.com/.default`.
+`scopes` to request instead of `https://outlook.office.com/.default`. A
+`provider: google` account with `oauth` uses the Gmail API instead of IMAP and
+SMTP: it takes no `imap`, `smtp`, or `username`, folders are Gmail labels, and
+its grant needs `https://www.googleapis.com/auth/gmail.modify` or
+`https://mail.google.com/`.
 
 ```yaml
 mail_accounts:

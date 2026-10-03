@@ -613,7 +613,7 @@ Dagu includes built-in actions that run within the Dagu process or on the select
 | `wait.duration` / `wait.until` / `wait.file` / `wait.http` | Wait for time, file state, or HTTP readiness |
 | `human.task` | Wait for acknowledgement or typed operator input before downstream steps continue |
 | `mail.send` | Send email via SMTP |
-| `mail.search` | Find email in an IMAP mailbox |
+| `mail.search` | Find email in an IMAP or Gmail mailbox |
 | `mail.organize` | Mark, move, archive, or trash email |
 | `xlsx.read` / `xlsx.info` / `xlsx.list_sheets` | Read typed rows and describe `.xlsx` workbooks without a spreadsheet application |
 | `xlsx.write` / `xlsx.append` / `xlsx.update_rows` | Write reports, append rows, and write per-row results back into a workbook |

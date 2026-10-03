@@ -194,6 +194,7 @@ func TestMailboxErrors(t *testing.T) {
 		{"not_configured.yaml", "start", `mail account "missing@example.com" is not configured`},
 		{"reply_without_mailbox.yaml", "start", "in_reply_to requires mailbox"},
 		{"scopes_on_google_refresh.yaml", "validate", `oauth.scopes is not valid for provider "google_refresh"`},
+		{"server_on_gmail_api_account.yaml", "validate", `mail account "user@example.com": imap is not used by a google account with oauth, which uses the Gmail API`},
 	} {
 		t.Run(tc.file, func(t *testing.T) {
 			t.Parallel()

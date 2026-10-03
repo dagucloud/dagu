@@ -4073,7 +4073,7 @@
         "provider": {
           "type": "string",
           "enum": ["google", "microsoft", "imap"],
-          "description": "Sets the default IMAP and SMTP servers. Defaults to imap, which requires imap.host."
+          "description": "Sets the default IMAP and SMTP servers. Defaults to imap, which requires imap.host. A google account with oauth uses the Gmail API instead and takes no imap, smtp, or username."
         },
         "imap": {
           "$ref": "#/definitions/mailServer",
@@ -4132,7 +4132,7 @@
         "provider": {
           "type": "string",
           "enum": ["google_refresh", "microsoft_refresh"],
-          "description": "Refresh-token provider."
+          "description": "Refresh-token provider. A google_refresh grant needs https://www.googleapis.com/auth/gmail.modify or https://mail.google.com/, with the Gmail API enabled in the client's Google Cloud project."
         },
         "tenant_id": {
           "type": "string",

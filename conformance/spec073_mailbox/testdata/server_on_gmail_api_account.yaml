@@ -1,0 +1,11 @@
+mail_accounts:
+  user@example.com:
+    provider: google
+    imap: {host: imap.gmail.com}
+    oauth:
+      provider: google_refresh
+      client_id: client
+      client_secret: secret
+      refresh_token: token
+steps:
+  - run: "true"

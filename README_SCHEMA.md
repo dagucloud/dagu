@@ -208,7 +208,7 @@ Current builtin actions:
 | `template.render` | Text/template rendering | Exactly one of `template` or `template_ref`, optional data/config |
 | `log.write` | Log messages | `message` |
 | `mail.send` | Email sending | mail executor config |
-| `mail.search` | Email search over IMAP | `mailbox` and search filters |
+| `mail.search` | Email search over IMAP or the Gmail API | `mailbox` and search filters |
 | `mail.organize` | Email marking and moving | `mailbox`, `emails`, `mark` or `move` |
 | `xlsx.read` | Workbook reading | `path`, optional `password`, `sheet`, `range`, `header`, `columns`, `types`, `where` |
 | `xlsx.info`, `xlsx.list_sheets` | Workbook metadata | `path`, optional `password` |
