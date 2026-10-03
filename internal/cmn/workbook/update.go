@@ -543,14 +543,18 @@ func (w *file) applyRow(plan *updatePlan, row int, input Row, appended bool) (in
 			}
 			continue
 		}
-		if err := w.setCell(plan.sheet, sc.column, row, out); err != nil {
-			return 0, err
-		}
+		// The style the cell had is read before the value lands, since the
+		// library gives a time value a date format of its own when the cell
+		// has none; the kind the value or the literal's type calls for is
+		// applied over the cell's own style instead.
 		base := w.styleAt(plan.sheet, sc.column, row)
 		if appended {
 			base = w.styleAt(plan.sheet, sc.column, plan.appendBase())
 		}
-		w.styleWrittenCell(plan.sheet, sc.column, row, base, out, "")
+		if err := w.setCell(plan.sheet, sc.column, row, out); err != nil {
+			return 0, err
+		}
+		w.styleWrittenCell(plan.sheet, sc.column, row, base, out, kind)
 		changed++
 	}
 	return changed, nil

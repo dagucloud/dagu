@@ -298,3 +298,17 @@ func TestUpdateRowsTypedLiteralReplacesTextThatReadsTheSame(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(100), back.Rows[0]["Amount"])
 }
+
+func TestUpdateRowsDatetimeLiteralKeepsItsFormatAtMidnight(t *testing.T) {
+	t.Parallel()
+	path := ordersBook(t)
+	// Amount is a number column, so the literal brings its own format, as a
+	// date written into a plain cell does; a date column would keep its own.
+	set, err := ParseSet(map[string]any{"Amount": map[string]any{"value": "2026-10-01T00:00:00", "type": "datetime"}})
+	require.NoError(t, err)
+	_, err = UpdateRows(context.Background(), path, UpdateOptions{Key: "Invoice No", Rows: []Row{{"Invoice No": "INV-1"}}, Set: set})
+	require.NoError(t, err)
+	back, err := Read(context.Background(), path, ReadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, "2026-10-01T00:00:00", back.Rows[0]["Amount"], "a literal pinned to datetime keeps a date-time format even at midnight")
+}
