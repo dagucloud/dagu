@@ -260,13 +260,13 @@ func coerce(v any, t ColumnType, date1904 bool) (any, error) {
 	case TypeString:
 		return valueString(v), nil
 	case TypeNumber:
-		f, ok := toFloat(v)
+		f, ok := toNumber(v)
 		if !ok || math.IsNaN(f) || math.IsInf(f, 0) {
 			return nil, fmt.Errorf("expected number, found %s", describe(v))
 		}
 		return numberValue(f), nil
 	case TypeInteger:
-		f, ok := toFloat(v)
+		f, ok := toNumber(v)
 		if !ok || f != math.Trunc(f) || f < -math.Exp2(63) || f >= math.Exp2(63) {
 			return nil, fmt.Errorf("expected integer, found %s", describe(v))
 		}
@@ -348,6 +348,15 @@ func toFloat(v any) (float64, bool) {
 var timeLayouts = []string{
 	dateTimeLayout, time.RFC3339, "2006-01-02 15:04:05", "2006-01-02T15:04", "2006-01-02 15:04",
 	dateLayout, "2006/01/02", "2006/1/2", "2006-1-2",
+}
+
+// toNumber reads a pinned number: a text cell the way a form writes it,
+// as parseNumberText reads it, and anything else as toFloat does.
+func toNumber(v any) (float64, bool) {
+	if s, ok := v.(string); ok {
+		return parseNumberText(s)
+	}
+	return toFloat(v)
 }
 
 // toTime reads a time from a time, an ISO, slash-separated, kanji, or era
