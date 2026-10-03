@@ -4946,6 +4946,11 @@ func (a *API) dagRunListOptionsFromQueryString(ctx context.Context, queryString 
 			tag.Error(err),
 			slog.String("queryString", queryString),
 		)
+		return dagRunListOptions{}, &Error{
+			HTTPStatus: http.StatusBadRequest,
+			Code:       api.ErrorCodeBadRequest,
+			Message:    fmt.Sprintf("invalid query parameters: %s", err),
+		}
 	}
 
 	var (
@@ -4974,18 +4979,28 @@ func (a *API) dagRunListOptionsFromQueryString(ctx context.Context, queryString 
 		statusValues = &parsed
 	}
 	if rawFromDate := params.Get("fromDate"); rawFromDate != "" {
-		if ts, convErr := strconv.ParseInt(rawFromDate, 10, 64); convErr == nil {
-			fromDate = &ts
-		} else {
+		ts, convErr := strconv.ParseInt(rawFromDate, 10, 64)
+		if convErr != nil {
 			logger.Warn(ctx, "Invalid fromDate parameter", slog.String("fromDate", rawFromDate), tag.Error(convErr))
+			return dagRunListOptions{}, &Error{
+				HTTPStatus: http.StatusBadRequest,
+				Code:       api.ErrorCodeBadRequest,
+				Message:    fmt.Sprintf("invalid fromDate parameter: %s", rawFromDate),
+			}
 		}
+		fromDate = &ts
 	}
 	if rawToDate := params.Get("toDate"); rawToDate != "" {
-		if ts, convErr := strconv.ParseInt(rawToDate, 10, 64); convErr == nil {
-			toDate = &ts
-		} else {
+		ts, convErr := strconv.ParseInt(rawToDate, 10, 64)
+		if convErr != nil {
 			logger.Warn(ctx, "Invalid toDate parameter", slog.String("toDate", rawToDate), tag.Error(convErr))
+			return dagRunListOptions{}, &Error{
+				HTTPStatus: http.StatusBadRequest,
+				Code:       api.ErrorCodeBadRequest,
+				Message:    fmt.Sprintf("invalid toDate parameter: %s", rawToDate),
+			}
 		}
+		toDate = &ts
 	}
 	if rawName := params.Get("name"); rawName != "" {
 		name = &rawName
@@ -5007,11 +5022,16 @@ func (a *API) dagRunListOptionsFromQueryString(ctx context.Context, queryString 
 		labels = &rawTags
 	}
 	if rawLimit := params.Get("limit"); rawLimit != "" {
-		if parsed, convErr := strconv.Atoi(rawLimit); convErr == nil {
-			limit = &parsed
-		} else {
+		parsed, convErr := strconv.Atoi(rawLimit)
+		if convErr != nil {
 			logger.Warn(ctx, "Invalid limit parameter", slog.String("limit", rawLimit), tag.Error(convErr))
+			return dagRunListOptions{}, &Error{
+				HTTPStatus: http.StatusBadRequest,
+				Code:       api.ErrorCodeBadRequest,
+				Message:    fmt.Sprintf("invalid limit parameter: %s", rawLimit),
+			}
 		}
+		limit = &parsed
 	}
 	if rawCursor := params.Get("cursor"); rawCursor != "" {
 		cursor = &rawCursor

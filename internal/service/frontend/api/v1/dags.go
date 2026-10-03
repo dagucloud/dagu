@@ -2038,6 +2038,11 @@ func (a *API) buildDAGListOptions(ctx context.Context, queryString string) (pers
 			tag.Error(err),
 			slog.String("queryString", queryString),
 		)
+		return persis.DAGListOptions{}, &Error{
+			HTTPStatus: http.StatusBadRequest,
+			Code:       api.ErrorCodeBadRequest,
+			Message:    fmt.Sprintf("invalid query parameters: %s", err),
+		}
 	}
 
 	page := parseIntParam(params.Get("page"), 1)
