@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
@@ -72,8 +73,22 @@ fi
 `, test.PosixQuote(counterFile), test.PosixQuote(counterFile), test.PosixQuote(counterFile), test.PosixQuote(counterFile), successAfter, removeBlock)
 }
 
+// repeatLiteralCommandSubstitution reads value back through a command
+// substitution. echo prints it the same way in cmd, PowerShell, and POSIX
+// shells.
 func repeatLiteralCommandSubstitution(value string) string {
-	return "`" + test.Output(value) + "`"
+	return "`echo " + value + "`"
+}
+
+// withRepeatLiteralShell runs command substitutions in cmd on Windows. The
+// tests using it only read a literal back, and a cold PowerShell start on a
+// busy runner can outlast the 30-second substitution timeout.
+func withRepeatLiteralShell() test.HelperOption {
+	return test.WithConfigMutator(func(cfg *config.Config) {
+		if runtime.GOOS == "windows" {
+			cfg.Core.DefaultShell = "cmd.exe"
+		}
+	})
 }
 
 func repeatPolicyParallel(t *testing.T) {
@@ -123,7 +138,7 @@ func TestRepeatPolicy_WithLimit(t *testing.T) {
 
 func TestRepeatPolicy_WithLimitAndCondition(t *testing.T) {
 	repeatPolicyParallel(t)
-	th := test.Setup(t)
+	th := test.Setup(t, withRepeatLiteralShell())
 
 	// Keep the condition present but constant so the test covers the limit path
 	// without spending minutes in Windows PowerShell script startup.
@@ -477,7 +492,7 @@ func TestRepeatPolicy_MaxIntervalSecFromEnvVar(t *testing.T) {
 
 func TestRepeatPolicy_LimitFromDynamicParamEval(t *testing.T) {
 	repeatPolicyParallel(t)
-	th := test.Setup(t)
+	th := test.Setup(t, withRepeatLiteralShell())
 
 	dag := th.DAG(t, fmt.Sprintf(`params:
   - name: repeat_limit
