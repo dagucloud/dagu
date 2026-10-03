@@ -109,10 +109,9 @@ func ScreamingSnakeToCamel(s string) string {
 		} else {
 			// Capitalize first letter of subsequent parts
 			if len(lower) > 0 {
-				result.WriteString(strings.ToUpper(lower[:1]))
-				if len(lower) > 1 {
-					result.WriteString(lower[1:])
-				}
+				r, size := utf8.DecodeRuneInString(lower)
+				result.WriteRune(unicode.ToUpper(r))
+				result.WriteString(lower[size:])
 			}
 		}
 	}
@@ -141,7 +140,8 @@ func KebabToCamel(s string) string {
 	// Capitalize remaining parts
 	for i := startIdx; i < len(parts); i++ {
 		if len(parts[i]) > 0 {
-			result += strings.ToUpper(parts[i][:1]) + parts[i][1:]
+			r, size := utf8.DecodeRuneInString(parts[i])
+			result += string(unicode.ToUpper(r)) + parts[i][size:]
 		}
 	}
 

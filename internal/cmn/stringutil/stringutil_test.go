@@ -152,6 +152,17 @@ func TestKebabToCamel(t *testing.T) {
 		result := stringutil.KebabToCamel("com.example.package")
 		require.Equal(t, "com.example.package", result)
 	})
+
+	t.Run("MultibyteFirstRune", func(t *testing.T) {
+		// Uppercasing must happen on the first rune, not the first byte.
+		result := stringutil.KebabToCamel("hello-étude")
+		require.Equal(t, "helloÉtude", result)
+	})
+
+	t.Run("MultibyteFirstPart", func(t *testing.T) {
+		result := stringutil.KebabToCamel("état-major")
+		require.Equal(t, "étatMajor", result)
+	})
 }
 
 func TestScreamingSnakeToCamel(t *testing.T) {
@@ -171,6 +182,8 @@ func TestScreamingSnakeToCamel(t *testing.T) {
 		{"MiXeD_CaSe", "mixedCase"},
 		{"A", "a"},
 		{"A_B_C", "aBC"},
+		{"USER_ÉTAT", "userÉtat"},
+		{"ÉTAT_MAJOR", "étatMajor"},
 	}
 
 	for _, tt := range tests {
