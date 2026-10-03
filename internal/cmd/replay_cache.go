@@ -23,6 +23,7 @@ func replayCaches(ctx *Context) []namedReplayCache {
 	return []namedReplayCache{
 		{kind: browserhost.AgentProvider, store: browserReplayCache(ctx)},
 		{kind: computerhost.AgentProvider, store: computerReplayCache(ctx)},
+		{kind: xlsxCacheKind, store: xlsxReplayCache(ctx)},
 	}
 }
 
