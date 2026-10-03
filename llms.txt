@@ -1061,12 +1061,13 @@ steps:
 The loop's `collect` builds one object per row with the key and the result
 fields, and `rows` accepts the foreach aggregate directly: a string-form
 `output: RESULTS` is the variable `${RESULTS}`, and its `outputs` list is
-what gets written back. The aggregate exists only when every item body
-succeeded, and `http.request` fails on a response outside 2xx, so one
-rejected order leaves every row unmarked and the next run submits the
-accepted ones again. A loop that must record rejections row by row needs a
-body that observes the outcome without failing, such as a script that calls
-the service and writes the status to its outputs; every row is then marked.
+what gets written back. `http.request` fails on a response outside 2xx, so a
+rejected order fails its item body; the loop is then partially succeeded,
+the aggregate lists the failed items and holds only the successful bodies in
+`outputs`, and the write-back marks the rows that succeeded. The rejected
+rows keep an empty Status, so the next run submits only them; the run ends
+partially succeeded with exit code 1 unless the loop sets
+`continue_on: {mark_success: true}`.
 
 `xlsx.read` `with` fields: `path`, `password`, `sheet` (first sheet by default,
 matched case-insensitively), `range` (`A2:F`, `Sheet1!A2:F`, a named range, or a
@@ -1101,11 +1102,16 @@ names scoped to it, and formulas elsewhere that refer to it stay valid; its
 merged regions and tables are removed. Other sheets, widths, styles, and
 defined names are untouched. ISO date strings become real dates. `xlsx.append` adds rows below the last used row,
 copying the style of the cell above, and writes a header only when the sheet is
-empty.
+empty. Appended fields are placed under the header cell of the same exact name:
+a loose match fails with `did you mean`, a name the header lacks adds a column
+at the right, and `header: false` writes rows by position onto a sheet with no
+header row.
 
 `xlsx.update_rows` `with` fields: `path`, `sheet`, `key` (the column that
 identifies a row, or `_row`), `rows`, `set` (`{Status: status}` takes a field of
-each row, `{Reviewed: {value: yes}}` writes one literal; omitted, every field
+each row, `{Reviewed: {value: yes}}` writes one literal, and a literal that is
+text in the canonical form of a number such as `"100"` is written as a number
+unless `type: string` pins it; omitted, every field
 other than the key and `_row` goes to the column of the same name), `missing`
 (`fail`, `skip`, or `append`), `atomic`, `dry_run`, `wait_for_unlock`,
 `artifact`. Columns the sheet lacks are added at the right. Two checks run
@@ -1147,7 +1153,10 @@ run goes on.
 `xlsx.write_cells` fills a template: `cells` maps addresses (`B2`,
 `Sheet1!B2`, `'My Sheet'!B2`, or a defined name for one cell) to a value, to
 `{value: v, type: t}` to pin the type, to `{formula: "=SUM(B2:B9)"}`, or to
-`null` to empty the cell. Every cell keeps its style, and a date written into
+`null` to empty the cell. An ISO date string becomes a date, and text in the
+canonical form of a number (`100`, `-12.5`, not `007` or `1,234`) becomes a
+number, so `${foreach.item.amount}`, which arrives as text, lands as a number;
+`type: string` keeps such text. Every cell keeps its style, and a date written into
 a plain cell gains a date format. `output` writes the result to a new
 workbook, which must be a different file, and leaves `path` untouched, so one
 template serves many fills; the workbook at `path` must exist. `changes.cells_changed` counts cells that

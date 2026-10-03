@@ -573,8 +573,15 @@ Rules:
 
 - If every item body succeeds, the parent `foreach` step succeeds.
 
-- If one or more item bodies fail, the parent `foreach` step fails after all
-  item bodies that can run have reached a terminal status.
+- If one or more item bodies fail and at least one succeeds, the parent
+  `foreach` step is `partially_succeeded` once all item bodies that can run
+  have reached a terminal status: its dependents run, and the DAG run ends
+  partially succeeded. This differs from `parallel`, where a failed child
+  DAG run fails the parent step, because a foreach body is the work of one
+  item and the other items' results remain usable.
+
+- If every item body fails, the parent `foreach` step fails after all item
+  bodies that can run have reached a terminal status.
 
 - A failed item body does not prevent later item bodies from starting unless
   the parent step is aborted or times out.
@@ -617,6 +624,11 @@ Rules:
 
 - `outputs` is ordered by item slot index and includes only successful item
   bodies.
+
+- The aggregate is written whether or not every item body succeeded: failed
+  item bodies appear in `items` with `error`, and only successful ones
+  contribute to `outputs`. A dependent step reads it through the string-form
+  `output` variable (Spec 012), which is set even when the parent step fails.
 
 - If `foreach.collect` is omitted, successful item output maps are empty.
 

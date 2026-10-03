@@ -163,9 +163,10 @@ is kept, while objects from YAML or a decoded map are written in sorted key
 order unless `columns` orders them. `input` is a `.json` array, a `.jsonl`
 file, or a `.csv` with a header line whose cells are text unless `types`
 converts them; `format` overrides the extension. A `_row` field is never
-written. Columns are positional: an append onto a sheet that already has a
-header does not match fields to that header by name, so give `columns` in
-the sheet's order when the rows' key order differs from it.
+written. A replace, or a write that creates the sheet, writes the table's
+own order as the header; an append onto a sheet that already has rows
+matches each field to the header row by name (see below), so the rows' key
+order does not matter there.
 
 A missing workbook is created in a directory that must exist; no writer
 creates directories. A `sheet` that does not exist is created; an
@@ -202,6 +203,18 @@ no header, and each new cell copies the style of the cell above it, so a date
 column stays a date column. An append that starts an empty sheet writes the
 header so the first run creates a table.
 
+Fields are placed by name. Object rows, rows from a CSV header, and rows
+given `columns` are matched to the sheet's header row, its first row, by
+exact name: a name the header has only loosely fails with `column "amount"
+not found in header row 1; did you mean "Amount"?`; a name the header lacks
+adds a column at the right, its header cell copying the style of the last
+header cell, counted in `columns_added`; header columns no field carries
+stay empty. Duplicate header names read as `Amount` and `Amount_2`. Array
+rows have no names and are written by position. `header: false` says the
+sheet has no header row: rows are written by position, and an empty sheet
+gets no header. A sheet with rows but no header row fails with `no header
+row found; use header: false to append rows by position`.
+
 ### Updating rows
 
 `xlsx.update_rows` takes `rows` (objects, each with the `key` column and
@@ -214,8 +227,12 @@ set:
   Reviewed: {value: "yes"}  # one literal for every row
 ```
 
-Without `set`, every field other than the key and `_row` goes to the
-column of the same name. A field in `set` that no row carries is an error:
+A literal that is text in the canonical form of a number, `100` or `-12.5`,
+is written as a number, since a reference interpolated into `with` arrives
+as text; `{value: "007", type: string}` pins text, and `type` takes any
+column type. Without `set`, every field other than the key and `_row` goes
+to the column of the same name. A field in `set` that no row carries is an
+error:
 `set.Status: field "state" is not in any row`. A column that is not in the
 header row is added at the right, its header cell copying the style of the
 last header cell.
@@ -395,10 +412,14 @@ sheet by default. A range, a named range, or a table is refused with
 `"A1:B2" is not a single cell`, and two addresses that name the same cell,
 such as `B3` and `$B$3`, with `"B3" and "$B$3" name the same cell Sheet1!B3`.
 A value is written as a cell value, with an
-ISO date or date-time string becoming a date; `{value: v, type: t}` pins
-the type, so `{value: "007", type: string}` stays text and a value
-interpolated from a reference such as `${foreach.item.amount}`, which
-arrives as text, becomes a number with `type: number`; `{formula: text}`
+ISO date or date-time string becoming a date and text in the canonical
+form of a number becoming a number: an optional leading `-`, digits with
+no leading zero, an optional fraction, so `100` and `-12.5` are numbers
+while `007`, `1,234`, `1e3`, and padded or full-width digits stay text.
+This is what lets a reference such as `${foreach.item.amount}`, which
+arrives as text, land as a number. `{value: v, type: t}` pins the type, so
+`{value: "007", type: string}` and `{value: "100", type: string}` stay
+text; `{formula: text}`
 writes a formula, with or without a leading `=`, replacing the value the
 cell held, so a read of the cell evaluates the formula; `null` empties the
 cell and removes its formula. Every cell keeps its style, and a date written
@@ -528,11 +549,14 @@ Every one of these is rejected by `dagu validate`:
 - `header` of a reader that is not `true`, `false`, a row number, or a
   list of row numbers: `header must be true, false, a row number, or a list
   of row numbers`; `header` of `xlsx.write` or `xlsx.append` that is a row
-  number: `header must be true or false for write`; `max_rows` below 1:
+  number: `header must be true or false for <operation>`; `max_rows` below 1:
   `max_rows must be >= 1`; a `where` operator other than `eq`, `ne`, or
   `in`: `where: Status: unknown operator "like"; use eq, ne, or in`; `set`
   values that are neither a field name nor `{value: literal}`:
-  `set.Status: use a field name or {value: literal}`; `missing: skip` or
+  `set.Status: use a field name or {value: literal}`; a `set` literal whose
+  `type` is not a column type: `set.Status: type: unknown column type
+  "money": use string, number, integer, boolean, date, or datetime`;
+  `missing: skip` or
   `append` with `key: _row`: `missing: skip needs a key column; with key:
   _row nothing else identifies a row`; `wait_for_unlock` that is not a
   duration: `wait_for_unlock must be a duration such as 30s or 5m`.
@@ -579,8 +603,11 @@ Every one of these is rejected by `dagu validate`:
 - A key column missing from the header row:
   `key column "Invoice" not found in header row 1; headers present: ...`, or
   with a loose match, `did you mean "Invoice No"?`.
-- A `set` column with only a loose match:
-  `column "status" not found in header row 1; did you mean "Status"?`.
+- A `set` column of `update_rows`, or an appended field, with only a loose
+  match: `column "status" not found in header row 1; did you mean
+  "Status"?`.
+- An append onto a sheet with rows but no header row: `no header row found;
+  use header: false to append rows by position`.
 - A `set` field no row carries: `set.Status: field "state" is not in any
   row`; the key column in `set`: `set.Invoice No: the key column cannot be
   updated`.
@@ -672,14 +699,14 @@ steps:
 
 `collect` gives each item one object with the key and the result fields,
 and `rows` takes the foreach aggregate, published as the variable
-`${RESULTS}` (Spec 012), directly, using its `outputs` list. The aggregate
-is published only when every item body succeeded (Spec 018), and
-`http.request` fails on a response outside 2xx, so one rejected order
-leaves every row unmarked and the next run submits the accepted ones
-again. A loop that must record rejections row by row needs a body that
-observes the outcome without failing, such as a script that calls the
-service and writes the status to its outputs; the write-back then marks
-every row.
+`${RESULTS}` (Spec 012), directly, using its `outputs` list. `http.request`
+fails on a response outside 2xx, so a rejected order fails its item body;
+the loop is then partially succeeded (Spec 018), the aggregate lists the
+failed items under `items` and holds only the successful bodies in
+`outputs`, and the write-back marks the rows that succeeded. The rejected
+rows keep an empty Status, so the next run submits only them; the run ends
+partially succeeded, with exit code 1 unless the loop sets
+`continue_on: {mark_success: true}`.
 
 Build a report from a query and keep it with the run:
 
@@ -741,9 +768,7 @@ steps:
             output: out/invoice-${foreach.item.invoice}.xlsx
             cells:
               Customer: ${foreach.item.customer}
-              B7:
-                value: ${foreach.item.amount}
-                type: number
+              B7: ${foreach.item.amount}
               B9: {formula: "=B7*1.1"}
             artifact: true
 ```
