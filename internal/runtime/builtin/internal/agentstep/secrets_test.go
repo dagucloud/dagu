@@ -24,4 +24,10 @@ func TestCheckTextSecrets(t *testing.T) {
 
 	err = agentstep.CheckTextSecrets("xlsx", "instruction", "west-coast tok-12345", secrets)
 	require.ErrorContains(t, err, "secret SHOP_TOKEN", "secrets are reported in name order")
+
+	err = agentstep.CheckTextSecrets("xlsx", "instruction", "Use tok-12345", map[string]string{"": "tok-12345"})
+	require.EqualError(t, err, "xlsx: with.instruction contains the value of secret , which would be sent to the model",
+		"a secret with an empty name is still a secret")
+	err = agentstep.CheckSecrets("browser", []agentstep.OperationTexts{{Kind: "act", Texts: []string{"Use tok-12345"}}}, map[string]string{"": "tok-12345"})
+	require.ErrorContains(t, err, "contains the value of secret ,")
 }

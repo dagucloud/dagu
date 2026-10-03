@@ -8226,13 +8226,18 @@
           "description": "xlsx.extract: what to find on the sheet, in plain words. A model answers with the cell that holds each schema property; the step reads the values from those cells. Required."
         },
         "schema": {
-          "type": "object",
-          "properties": {
-            "type": { "const": "object" },
-            "properties": { "type": "object" }
-          },
-          "required": ["type"],
-          "description": "xlsx.extract: a JSON Schema with type: object whose top-level properties name the fields to find; each becomes a step output holding the typed value of the cell the model named. A property type of number, integer, boolean, or string (with format date or date-time) pins how its cell is read. Required."
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "type": { "const": "object" },
+                "properties": { "type": "object" }
+              },
+              "required": ["type"]
+            },
+            { "type": "string" }
+          ],
+          "description": "xlsx.extract: a JSON Schema with type: object whose top-level properties name the fields to find; each becomes a step output holding the typed value of the cell the model named. A property type of number, integer, boolean, or string (with format date or date-time) pins how its cell is read. A string is a value reference resolved to the schema at run time. Required."
         },
         "send_values": {
           "oneOf": [{ "type": "boolean" }, { "type": "string" }],

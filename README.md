@@ -618,7 +618,7 @@ Dagu includes built-in actions that run within the Dagu process or on the select
 | `xlsx.read` / `xlsx.info` / `xlsx.list_sheets` | Read typed rows and describe `.xlsx` workbooks without a spreadsheet application |
 | `xlsx.write` / `xlsx.append` / `xlsx.update_rows` | Write reports, append rows, and write per-row results back into a workbook |
 | `xlsx.validate` / `xlsx.write_cells` / `xlsx.sheet` / `xlsx.convert` | Check rows against rules, fill template cells and formulas, manage sheets, and export a sheet to CSV, JSON, or JSONL |
-| `xlsx.extract` | Read fields out of a form-like sheet: a model names the cells, the engine reads their typed values, and a repeated layout needs no model call |
+| `xlsx.extract` | Read fields out of a form-like sheet: a model names the cells, the engine reads their typed values, and a layout seen before with the same instruction and fields is read from a cache without a model call |
 | `template.render` | Text generation with template rendering |
 | `router.route` | Conditional step routing based on values and patterns |
 | `dag.run` | Invoke another DAG as a sub-workflow with params and dependencies |

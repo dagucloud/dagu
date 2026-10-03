@@ -95,6 +95,9 @@ func (p *scriptedProvider) count() int {
 func (p *scriptedProvider) lastUserMessage() string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if len(p.requests) == 0 {
+		return ""
+	}
 	req := p.requests[len(p.requests)-1]
 	for _, m := range req.Messages {
 		if m.Role == llmpkg.RoleUser {
@@ -155,6 +158,11 @@ type extractRun struct {
 	dataDir  string
 	secrets  map[string]string
 	provider *scriptedProvider
+	// providers, when set, are handed out in order to each configured
+	// model; otherwise every model gets provider.
+	providers []*scriptedProvider
+	// providerErr, when set, makes building any provider fail.
+	providerErr error
 }
 
 type extractExecution struct {
@@ -188,7 +196,18 @@ func (r *extractRun) execute(cfg map[string]any, llm *ir.LLMConfig) *extractExec
 		return &extractExecution{err: err}
 	}
 	execution := &extractExecution{exec: created.(*extractExecutor)}
-	execution.exec.newProvider = func(context.Context, *ir.LLMConfig) (llmpkg.Provider, error) { return r.provider, nil }
+	built := 0
+	execution.exec.newProvider = func(context.Context, *ir.LLMConfig) (llmpkg.Provider, error) {
+		if r.providerErr != nil {
+			return nil, r.providerErr
+		}
+		if len(r.providers) > 0 {
+			p := r.providers[min(built, len(r.providers)-1)]
+			built++
+			return p, nil
+		}
+		return r.provider, nil
+	}
 	execution.exec.SetStdout(&execution.stdout)
 	execution.exec.SetStderr(&execution.stderr)
 	execution.err = execution.exec.Run(ctx)
@@ -215,14 +234,16 @@ func TestExtractValidation(t *testing.T) {
 		llm  *ir.LLMConfig
 		want string
 	}{
-		"no instruction":     {cfg: map[string]any{"path": "q.xlsx", "schema": quoteSchema}, llm: testModel, want: "extract requires with.instruction"},
-		"no schema":          {cfg: map[string]any{"path": "q.xlsx", "instruction": "find"}, llm: testModel, want: "extract requires with.schema"},
-		"schema not object":  {cfg: map[string]any{"path": "q.xlsx", "instruction": "find", "schema": map[string]any{"type": "array"}}, llm: testModel, want: "schema must have type: object"},
-		"bad property type":  {cfg: map[string]any{"path": "q.xlsx", "instruction": "find", "schema": map[string]any{"type": "object", "properties": map[string]any{"items": map[string]any{"type": "array"}}}}, llm: testModel, want: "schema.properties.items: type must be string, number, integer, or boolean"},
-		"collides":           {cfg: map[string]any{"path": "q.xlsx", "instruction": "find", "schema": map[string]any{"type": "object", "properties": map[string]any{"sheet": map[string]any{"type": "string"}}}}, llm: testModel, want: `schema property "sheet" collides with an output of xlsx.extract`},
-		"foreign field":      {cfg: quoteConfig(map[string]any{"cells": map[string]any{"B2": 1}}), llm: testModel, want: "with.cells is not valid for xlsx.extract"},
-		"missing model":      {cfg: quoteConfig(nil), llm: nil, want: errMissingModel},
-		"deferred reference": {cfg: quoteConfig(map[string]any{"schema": "${params.SCHEMA}"}), llm: testModel, want: ""},
+		"no instruction":        {cfg: map[string]any{"path": "q.xlsx", "schema": quoteSchema}, llm: testModel, want: "extract requires with.instruction"},
+		"no schema":             {cfg: map[string]any{"path": "q.xlsx", "instruction": "find"}, llm: testModel, want: "extract requires with.schema"},
+		"schema not object":     {cfg: map[string]any{"path": "q.xlsx", "instruction": "find", "schema": map[string]any{"type": "array"}}, llm: testModel, want: "schema must have type: object"},
+		"bad property type":     {cfg: map[string]any{"path": "q.xlsx", "instruction": "find", "schema": map[string]any{"type": "object", "properties": map[string]any{"items": map[string]any{"type": "array"}}}}, llm: testModel, want: "schema.properties.items: type must be string, number, integer, or boolean"},
+		"collides":              {cfg: map[string]any{"path": "q.xlsx", "instruction": "find", "schema": map[string]any{"type": "object", "properties": map[string]any{"sheet": map[string]any{"type": "string"}}}}, llm: testModel, want: `schema property "sheet" collides with an output of xlsx.extract`},
+		"properties not object": {cfg: map[string]any{"path": "q.xlsx", "instruction": "find", "schema": map[string]any{"type": "object", "properties": []any{"total"}}}, llm: testModel, want: "schema.properties must be an object"},
+		"property not object":   {cfg: map[string]any{"path": "q.xlsx", "instruction": "find", "schema": map[string]any{"type": "object", "properties": map[string]any{"total": "number"}}}, llm: testModel, want: "schema.properties.total must be an object"},
+		"foreign field":         {cfg: quoteConfig(map[string]any{"cells": map[string]any{"B2": 1}}), llm: testModel, want: "with.cells is not valid for xlsx.extract"},
+		"missing model":         {cfg: quoteConfig(nil), llm: nil, want: errMissingModel},
+		"deferred reference":    {cfg: quoteConfig(map[string]any{"schema": "${params.SCHEMA}"}), llm: testModel, want: ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -296,7 +317,7 @@ func TestExtractRejectsBadAnswers(t *testing.T) {
 		answer map[string]any
 		want   string
 	}{
-		"not an address": {answer: map[string]any{"quote_no": "B3", "delivery": "B5", "total": "123000"}, want: `xlsx: model answered field "total" with "123000", not a cell address`},
+		"not an address": {answer: map[string]any{"quote_no": "B3", "delivery": "B5", "total": "123000"}, want: `model request failed: openai/test-model: xlsx: model answered field "total" with "123000", not a cell address`},
 		"other sheet":    {answer: map[string]any{"quote_no": "B3", "delivery": "B5", "total": "Other!B2"}, want: `xlsx: model answered field "total" with "Other!B2", which is not on sheet Sheet1`},
 		"outside range":  {answer: map[string]any{"quote_no": "B3", "delivery": "B5", "total": "B7"}, want: `xlsx: model answered field "total" with "B7", which is outside Sheet1!A1:B5`},
 	} {
@@ -361,13 +382,14 @@ func TestExtractCacheHit(t *testing.T) {
 	assert.Equal(t, sourceModel, third.exec.GetOutputs()["source"])
 }
 
-func TestExtractCacheHealsOnNewField(t *testing.T) {
+func TestExtractCacheHealsOnSchemaChange(t *testing.T) {
 	t.Parallel()
 	r := newExtractRun(t)
 	quoteBook(t, r.dir, map[string]any{"A9": "担当者", "B9": "山田"})
 	require.NoError(t, r.execute(quoteConfig(nil), testModel).err)
 	require.Equal(t, 1, r.provider.count())
 
+	// A new field: the recording does not answer it.
 	schema := map[string]any{"type": "object", "properties": map[string]any{
 		"quote_no": map[string]any{"type": "string", "description": "見積番号"},
 		"delivery": map[string]any{"type": "string", "format": "date", "description": "納期"},
@@ -385,6 +407,82 @@ func TestExtractCacheHealsOnNewField(t *testing.T) {
 	require.NoError(t, again.err)
 	assert.Equal(t, 2, r.provider.count(), "the healed recording covers the new field")
 	assert.Equal(t, sourceCache, again.exec.GetOutputs()["source"])
+
+	// The same fields, but one now means something else: the description
+	// changed, so the recorded cell may be the wrong one.
+	renamed := map[string]any{"type": "object", "properties": map[string]any{
+		"quote_no": map[string]any{"type": "string", "description": "見積番号"},
+		"delivery": map[string]any{"type": "string", "format": "date", "description": "納期"},
+		"total":    map[string]any{"type": "number", "description": "合計金額"},
+		"person":   map[string]any{"type": "string", "description": "顧客名"},
+	}}
+	described := r.execute(quoteConfig(map[string]any{"schema": renamed}), testModel)
+	require.NoError(t, described.err)
+	assert.Equal(t, 3, r.provider.count(), "a changed description asks the model again")
+	assert.Equal(t, sourceModel, described.exec.GetOutputs()["source"])
+
+	// A field removed: the recording's extra cell must not be published.
+	fewer := r.execute(quoteConfig(nil), testModel)
+	require.NoError(t, fewer.err)
+	assert.Equal(t, 4, r.provider.count(), "fewer fields ask the model again rather than reuse a wider recording")
+	assert.Equal(t, map[string]string{"quote_no": "Sheet1!B3", "delivery": "Sheet1!B5", "total": "Sheet1!B7"}, fewer.exec.GetOutputs()["cells"])
+	_, hasPerson := fewer.exec.GetOutputs()["person"]
+	assert.False(t, hasPerson)
+}
+
+func TestExtractCachedRunNeedsNoProvider(t *testing.T) {
+	t.Parallel()
+	r := newExtractRun(t)
+	quoteBook(t, r.dir, nil)
+	require.NoError(t, r.execute(quoteConfig(nil), testModel).err)
+	require.Equal(t, 1, r.provider.count())
+
+	// The provider cannot be built, as with a missing API key; the cached
+	// cells are still read.
+	r.providerErr = errors.New("api key ANTHROPIC_API_KEY is not set")
+	run := r.execute(quoteConfig(nil), testModel)
+	require.NoError(t, run.err)
+	assert.Equal(t, sourceCache, run.exec.GetOutputs()["source"])
+	assert.Equal(t, 1, r.provider.count())
+
+	// A layout the cache lacks does need one.
+	quoteBook(t, r.dir, map[string]any{"A9": "担当者", "B9": "山田"})
+	missing := r.execute(quoteConfig(nil), testModel)
+	require.ErrorContains(t, missing.err, "api key ANTHROPIC_API_KEY is not set")
+}
+
+func TestExtractFallsBackOnUnusableAnswer(t *testing.T) {
+	t.Parallel()
+	r := newExtractRun(t)
+	quoteBook(t, r.dir, nil)
+	first := &scriptedProvider{answer: func(*llmpkg.ChatRequest) map[string]any {
+		return map[string]any{"quote_no": "123000", "delivery": "B5", "total": "B7"}
+	}}
+	providers := []*scriptedProvider{first, r.provider}
+	r.providers = providers
+	llm := &ir.LLMConfig{Provider: "openai", Model: "first", Models: []ir.ModelEntry{{Provider: "openai", Name: "first"}, {Provider: "openai", Name: "second"}}}
+	run := r.execute(quoteConfig(nil), llm)
+	require.NoError(t, run.err)
+	assert.Equal(t, 1, first.count(), "the first model answered, but not with addresses")
+	assert.Equal(t, 1, r.provider.count(), "the second model was asked")
+	assert.Equal(t, "Q-2026-001", run.exec.GetOutputs()["quote_no"])
+
+	// Every model unusable: the step fails naming each.
+	r.providers = []*scriptedProvider{first, first}
+	failed := r.execute(quoteConfig(map[string]any{"cache": false}), llm)
+	require.ErrorContains(t, failed.err, "model request failed: openai/first: xlsx: model answered field \"quote_no\" with \"123000\", not a cell address")
+	require.ErrorContains(t, failed.err, "openai/second: xlsx: model answered field")
+}
+
+func TestExtractRejectsNullAnswer(t *testing.T) {
+	t.Parallel()
+	cells, err := parseAnswer(json.RawMessage("null"), []string{"total"})
+	require.Nil(t, cells)
+	require.EqualError(t, err, "xlsx: model answer is not an object: null")
+
+	cells, err = parseAnswer(json.RawMessage(`{"total": "'O''Brien'!B2"}`), []string{"total"})
+	require.NoError(t, err)
+	assert.Equal(t, "'O''Brien'!B2", cells["total"], "a quoted sheet with a doubled apostrophe is an address")
 }
 
 func TestExtractCacheHealsOnRenamedLabel(t *testing.T) {

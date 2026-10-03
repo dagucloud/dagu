@@ -25,6 +25,10 @@ const DefaultMaxLayoutCells = 2000
 // maxLayoutText is the longest cell text a layout line carries, in runes.
 const maxLayoutText = 200
 
+// maxLayoutArea bounds the rectangle a layout walks, so two far-apart
+// cells do not make a sheet of empty cells to visit.
+const maxLayoutArea = 1_000_000
+
 // LayoutOptions selects the sheet a layout describes and what it shows.
 type LayoutOptions struct {
 	Password string
@@ -90,6 +94,9 @@ func Layout(ctx context.Context, path string, opts LayoutOptions) (*SheetLayout,
 		sheet = reg.Sheet
 	} else if reg, err = w.usedRange(sheet); err != nil {
 		return nil, err
+	}
+	if area := (reg.R2 - reg.R1 + 1) * (reg.C2 - reg.C1 + 1); area > maxLayoutArea {
+		return nil, w.sheetError(sheet, fmt.Sprintf("%s spans more than %d cells; set range to the part of the sheet that holds the fields", reg.String(), maxLayoutArea))
 	}
 	grid, err := w.grid(sheet)
 	if err != nil {

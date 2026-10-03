@@ -1,0 +1,35 @@
+working_dir: .
+env:
+  - LLM_BASE_URL: ${LLM_BASE_URL}
+steps:
+  - id: form
+    action: xlsx.write
+    with:
+      path: quote.xlsx
+      header: false
+      style: none
+      rows:
+        - ["見積番号", "Q-2026-009"]
+        - ["合計金額", 500]
+  - id: fields
+    depends: form
+    action: xlsx.extract
+    with:
+      path: quote.xlsx
+      cache: false
+      llm:
+        provider: local
+        model: test-model
+        base_url: ${LLM_BASE_URL}
+      instruction: Find the quote number and the total amount.
+      schema:
+        type: object
+        properties:
+          quote_no: {type: string, description: 見積番号}
+          total: {type: number, description: 合計金額}
+  - id: out
+    depends: fields
+    action: file.write
+    with:
+      path: out.json
+      content: '{"quote_no": "${steps.fields.outputs.quote_no}", "total": ${steps.fields.outputs.total}}'

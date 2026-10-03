@@ -10,6 +10,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
 	"github.com/dagucloud/dagu/v2/internal/cmn/replaycache"
+	"github.com/dagucloud/dagu/v2/internal/cmn/workbook"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -78,7 +79,7 @@ func runXlsxCacheClear(th test.Command, args ...string) (string, error) {
 }
 
 func xlsxReplayCache(th test.Command) *replaycache.Store {
-	return replaycache.New(filepath.Join(th.Config.Paths.DataDir, "xlsx"))
+	return replaycache.New(filepath.Join(th.Config.Paths.DataDir, workbook.DataDirName))
 }
 
 func seedXlsxReplayCache(t *testing.T, th test.Command, dagName string, steps ...string) {

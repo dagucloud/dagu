@@ -88,6 +88,7 @@ func TestReadCellsRejectsBadAddresses(t *testing.T) {
 		want  string
 	}{
 		"range":       {cells: map[string]string{"total": "A1:B2"}, want: `quote.xlsx: field "total": "A1:B2" is not a single cell`},
+		"open range":  {cells: map[string]string{"total": "B7:B"}, want: `quote.xlsx: field "total": "B7:B" is not a single cell`},
 		"other sheet": {cells: map[string]string{"total": "Other!B2"}, want: `quote.xlsx: field "total": "Other!B2" is not on sheet Sheet1`},
 		"outside":     {cells: map[string]string{"total": "B7"}, rng: "A1:D5", want: `quote.xlsx: field "total": "B7" is outside Sheet1!A1:D5`},
 		"not a cell":  {cells: map[string]string{"total": "123000"}, want: `quote.xlsx: field "total": "123000" is not a cell address`},

@@ -5,6 +5,8 @@ package xlsx
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -51,7 +53,7 @@ const extractSystemPrompt = "You locate fields on a spreadsheet form. The user m
 
 // cellAddressPattern is the one form an answer may take: an A1 address,
 // with or without a sheet.
-var cellAddressPattern = regexp.MustCompile(`^(?:'[^']+'!|[^!'\s]+!)?\$?[A-Za-z]{1,3}\$?[0-9]+$`)
+var cellAddressPattern = regexp.MustCompile(`^(?:'(?:[^']|'')+'!|[^!'\s]+!)?\$?[A-Za-z]{1,3}\$?[0-9]+$`)
 
 // providerFactory builds a provider for one resolved model configuration.
 type providerFactory func(ctx context.Context, cfg *ir.LLMConfig) (llmpkg.Provider, error)
@@ -94,8 +96,15 @@ type extractExecutor struct {
 	dagName string
 	secrets map[string]string
 	masker  *masking.Masker
-	models  []model
-	cache   *extractCache
+	// models are built on the first model request, so a run answered from
+	// the cache never touches a provider.
+	models []model
+	cache  *extractCache
+	// parameters is the respond tool's schema, and schemaDigest identifies
+	// it, so a cached answer is reused only for the same fields, types, and
+	// descriptions.
+	parameters   map[string]any
+	schemaDigest string
 	// newProvider builds providers; tests replace it.
 	newProvider providerFactory
 
@@ -135,16 +144,24 @@ func newExtractExecutor(ctx context.Context, env runtime.Env, step ir.Step, path
 	if env.DAG != nil {
 		dagName = env.DAG.Name
 	}
+	parameters := agentstep.ToolParameters(responseSchema(cfg.Schema, cfg.extractProperties))
+	canonical, err := json.Marshal(parameters)
+	if err != nil {
+		return nil, fmt.Errorf("xlsx: encode the response schema: %w", err)
+	}
+	sum := sha256.Sum256(canonical)
 	e := &extractExecutor{
-		stdout:  os.Stdout,
-		stderr:  os.Stderr,
-		step:    step,
-		path:    path,
-		cfg:     cfg,
-		dataDir: dataDir,
-		dagName: dagName,
-		secrets: secrets,
-		masker:  agentstep.NewMasker(secrets, nil),
+		stdout:       os.Stdout,
+		stderr:       os.Stderr,
+		step:         step,
+		path:         path,
+		cfg:          cfg,
+		dataDir:      dataDir,
+		dagName:      dagName,
+		secrets:      secrets,
+		masker:       agentstep.NewMasker(secrets, nil),
+		parameters:   parameters,
+		schemaDigest: hex.EncodeToString(sum[:]),
 	}
 	return e, nil
 }
@@ -200,15 +217,6 @@ func (e *extractExecutor) Run(ctx context.Context) error {
 // run lists the sheet, finds the cells from the cache or the model, reads
 // them, and returns the outputs, the stdout line, and the warnings.
 func (e *extractExecutor) run(ctx context.Context) (map[string]any, string, []string, error) {
-	factory := e.newProvider
-	if factory == nil {
-		factory = runtime.NewLLMProvider
-	}
-	models, err := newModels(ctx, e.step.LLM, factory)
-	if err != nil {
-		return nil, "", nil, err
-	}
-	e.models = models
 	if e.cfg.Cache {
 		stepKey := e.step.ID
 		if stepKey == "" {
@@ -270,7 +278,7 @@ func (e *extractExecutor) sourceNote(source string) string {
 func (e *extractExecutor) locate(ctx context.Context, layout *workbook.SheetLayout) (*workbook.ReadCellsResult, string, error) {
 	if e.cache != nil {
 		if entry, ok := e.cache.Lookup(layout.Key); ok {
-			if entryCovers(entry, e.cfg.Instruction, e.cfg.extractProperties) && anchorsHold(entry.Anchors, layout.Labels) {
+			if entry.Instruction == e.cfg.Instruction && entry.Schema == e.schemaDigest && anchorsHold(entry.Anchors, layout.Labels) {
 				result, err := e.readCells(ctx, layout, entry.Cells)
 				var bad *workbook.AddressError
 				switch {
@@ -301,6 +309,7 @@ func (e *extractExecutor) locate(ctx context.Context, layout *workbook.SheetLayo
 		e.cache.Stage(layout.Key, extractEntry{
 			Layout:      layout.Key,
 			Instruction: e.cfg.Instruction,
+			Schema:      e.schemaDigest,
 			Cells:       result.Cells,
 			Anchors:     anchorsFor(result.Cells, layout.Labels),
 		})
@@ -321,9 +330,13 @@ func (e *extractExecutor) readCells(ctx context.Context, layout *workbook.SheetL
 }
 
 // query asks the models, in order, which cell holds each field, and
-// returns the first usable answer as a map from field to address.
+// returns the first usable answer as a map from field to address. A model
+// whose request fails or whose answer is not addresses is passed over for
+// the next one.
 func (e *extractExecutor) query(ctx context.Context, layout *workbook.SheetLayout) (map[string]string, error) {
-	parameters := agentstep.ToolParameters(responseSchema(e.cfg.Schema, e.cfg.extractProperties))
+	if err := e.ensureModels(ctx); err != nil {
+		return nil, err
+	}
 	user := e.cfg.Instruction + "\n\nSheet: " + layout.Sheet + " (" + layout.Range + ", " +
 		fmt.Sprintf("%d %s", layout.Cells, plural(layout.Cells, "cell")) + ")\n" + layout.Listing
 	messages := []llmpkg.Message{
@@ -343,7 +356,7 @@ func (e *extractExecutor) query(ctx context.Context, layout *workbook.SheetLayou
 				Function: llmpkg.ToolFunction{
 					Name:        agentstep.RespondToolName,
 					Description: agentstep.RespondToolDescription,
-					Parameters:  parameters,
+					Parameters:  e.parameters,
 				},
 			}},
 			ToolChoice: "required",
@@ -361,9 +374,32 @@ func (e *extractExecutor) query(ctx context.Context, layout *workbook.SheetLayou
 			errs = append(errs, fmt.Errorf("%s: %w", m.label(), err))
 			continue
 		}
-		return parseAnswer(answer, e.cfg.extractProperties)
+		cells, err := parseAnswer(answer, e.cfg.extractProperties)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", m.label(), err))
+			continue
+		}
+		return cells, nil
 	}
 	return nil, fmt.Errorf("model request failed: %w", errors.Join(errs...))
+}
+
+// ensureModels builds the providers on the first request, so a run that
+// reads its cells from the cache needs no provider and no key.
+func (e *extractExecutor) ensureModels(ctx context.Context) error {
+	if e.models != nil {
+		return nil
+	}
+	factory := e.newProvider
+	if factory == nil {
+		factory = runtime.NewLLMProvider
+	}
+	models, err := newModels(ctx, e.step.LLM, factory)
+	if err != nil {
+		return err
+	}
+	e.models = models
+	return nil
 }
 
 // newModels builds a provider for every configured model, in fallback
@@ -423,6 +459,9 @@ func parseAnswer(raw json.RawMessage, fields []string) (map[string]string, error
 	var answer map[string]any
 	if err := json.Unmarshal(raw, &answer); err != nil {
 		return nil, fmt.Errorf("xlsx: model answer is not an object: %w", err)
+	}
+	if answer == nil {
+		return nil, errors.New("xlsx: model answer is not an object: null")
 	}
 	cells := make(map[string]string, len(fields))
 	for _, field := range fields {

@@ -97,8 +97,19 @@ func xlsxExtractOutputs(schema any) capturedOutputContract {
 		{Name: "source", Type: ir.StepDeclaredOutputTypeString, Source: ir.StepDeclaredOutputSourceCapture},
 		{Name: "warnings", Type: ir.StepDeclaredOutputTypeJSON, Source: ir.StepDeclaredOutputSourceCapture},
 	}}
-	object, _ := schema.(map[string]any)
-	properties, ok := object["properties"].(map[string]any)
+	// The names are unknown only while the schema cannot be read: a value
+	// reference resolved at run time, or properties that are not a map. A
+	// schema without properties publishes just the fixed outputs.
+	object, isObject := schema.(map[string]any)
+	if !isObject {
+		contract.dynamic = true
+		return contract
+	}
+	raw, present := object["properties"]
+	if !present {
+		return contract
+	}
+	properties, ok := raw.(map[string]any)
 	if !ok {
 		contract.dynamic = true
 		return contract

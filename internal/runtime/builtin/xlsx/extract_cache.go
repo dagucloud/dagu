@@ -22,6 +22,9 @@ type extractEntry struct {
 	Layout string `json:"layout"`
 	// Instruction is the instruction the answer was given for.
 	Instruction string `json:"instruction"`
+	// Schema identifies the fields the answer was given for, with their
+	// types and descriptions, so a changed meaning asks the model again.
+	Schema string `json:"schema"`
 	// Cells maps each field to the cell it was read from, as Sheet!B7, or
 	// an empty string for a field the sheet lacked.
 	Cells map[string]string `json:"cells"`
@@ -113,18 +116,4 @@ func cellCoordinates(ref string) (col, row int, ok bool) {
 		return 0, 0, false
 	}
 	return col, row, true
-}
-
-// entryCovers reports whether a cached entry answers the given instruction
-// for every field asked for.
-func entryCovers(entry extractEntry, instruction string, fields []string) bool {
-	if entry.Instruction != instruction {
-		return false
-	}
-	for _, field := range fields {
-		if _, ok := entry.Cells[field]; !ok {
-			return false
-		}
-	}
-	return true
 }

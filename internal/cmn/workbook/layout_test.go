@@ -5,6 +5,7 @@ package workbook
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -130,16 +131,44 @@ func TestLayoutKeyIsTheShapeNotTheText(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEqual(t, first.Key, third.Key, "a moved label changes the shape")
 
-	// A cell filled in: the shape changed.
+	// A cell filled in within the same range: the shape changed.
 	filled := formBook(t)
 	f, err = excelize.OpenFile(filled)
 	require.NoError(t, err)
-	require.NoError(t, f.SetCellValue("Sheet1", "D7", "税込"))
+	require.NoError(t, f.SetCellValue("Sheet1", "C7", "税込"))
 	require.NoError(t, f.Save())
 	require.NoError(t, f.Close())
 	fourth, err := Layout(context.Background(), filled, LayoutOptions{SendValues: true})
 	require.NoError(t, err)
+	assert.Equal(t, first.Range, fourth.Range, "the filled cell lies inside the range")
 	assert.NotEqual(t, first.Key, fourth.Key, "a new filled cell changes the shape")
+
+	// A cell filled in beyond the range: the range changed, so the shape did.
+	widened := formBook(t)
+	f, err = excelize.OpenFile(widened)
+	require.NoError(t, err)
+	require.NoError(t, f.SetCellValue("Sheet1", "D7", "税込"))
+	require.NoError(t, f.Save())
+	require.NoError(t, f.Close())
+	fifth, err := Layout(context.Background(), widened, LayoutOptions{SendValues: true})
+	require.NoError(t, err)
+	assert.NotEqual(t, first.Range, fifth.Range)
+	assert.NotEqual(t, first.Key, fifth.Key, "a wider range changes the shape")
+}
+
+func TestLayoutRefusesAHugeRectangle(t *testing.T) {
+	t.Parallel()
+	f := excelize.NewFile()
+	require.NoError(t, f.SetCellValue("Sheet1", "A1", "見積番号"))
+	require.NoError(t, f.SetCellValue("Sheet1", "ZZ100000", "far"))
+	path := filepath.Join(t.TempDir(), "sparse.xlsx")
+	require.NoError(t, f.SaveAs(path))
+	require.NoError(t, f.Close())
+	_, err := Layout(context.Background(), path, LayoutOptions{SendValues: true})
+	require.EqualError(t, err, "sparse.xlsx Sheet1: Sheet1!A1:ZZ100000 spans more than 1000000 cells; set range to the part of the sheet that holds the fields")
+	layout, err := Layout(context.Background(), path, LayoutOptions{SendValues: true, Range: "A1:B5"})
+	require.NoError(t, err)
+	assert.Equal(t, 1, layout.Cells, "a range brings the walk down to the form")
 }
 
 func TestLayoutErrors(t *testing.T) {

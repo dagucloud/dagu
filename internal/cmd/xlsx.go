@@ -16,9 +16,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Xlsx returns the command group for workbooks. The commands read a file
+// Xlsx returns the command group for workbooks. inspect and read open a file
 // directly, need no configuration or engine, and create no run, so a host
-// can call them to show a sheet picker or a typed preview.
+// can call them to show a sheet picker or a typed preview; cache clear is
+// the exception, acting on the data directory of the configured host.
 func Xlsx() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:          "xlsx",

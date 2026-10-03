@@ -1195,8 +1195,9 @@ typed value from that cell, so no value is invented. It publishes each
 property, `cells` (property to the `Sheet1!B7` it came from), `sheet`,
 `warnings`, and `source` (`model` or `cache`); do not declare outputs. The
 addresses are cached by the sheet's shape with the label beside each cell, so
-a repeated layout makes no model request; `dagu xlsx cache clear <dag>` drops
-the cache.
+a layout seen before makes no model request as long as the instruction, the
+schema, and the labels beside the cached cells are unchanged; `dagu xlsx cache
+clear <dag>` drops the cache.
 
 ```yaml
 llm:

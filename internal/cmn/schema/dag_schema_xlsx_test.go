@@ -127,6 +127,10 @@ steps:
 `
 	resolved := mustResolveDAGSchema(t)
 	require.NoError(t, resolved.Validate(mustParseYAMLDocument(t, source)))
+	const literalSchema = "schema:\n        type: object\n        properties:\n          quote_no: {type: string, description: 見積番号}\n          total: {type: number}"
+	require.Contains(t, source, literalSchema)
+	require.NoError(t, resolved.Validate(mustParseYAMLDocument(t, strings.Replace(source, literalSchema, "schema: ${params.SCHEMA}", 1))),
+		"a schema still held in a value reference is accepted; the run resolves it")
 	for _, tc := range []struct{ name, from, to string }{
 		{"unknown field", "trim: true", "strip: true"},
 		{"missing path", "path: orders.xlsx\n      sheet: Orders", "sheet: Orders"},
@@ -172,6 +176,7 @@ steps:
 		{"extract without instruction", "      instruction: Find the quote number and the total\n", ""},
 		{"extract without schema", "      schema:\n        type: object\n        properties:\n          quote_no: {type: string, description: 見積番号}\n          total: {type: number}\n", ""},
 		{"extract schema not an object", "schema:\n        type: object\n        properties:\n          quote_no: {type: string, description: 見積番号}\n          total: {type: number}", "schema: [a]"},
+		{"extract schema a number", "schema:\n        type: object\n        properties:\n          quote_no: {type: string, description: 見積番号}\n          total: {type: number}", "schema: 3"},
 		{"extract schema not type object", "        type: object\n        properties:\n          quote_no", "        type: array\n        properties:\n          quote_no"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

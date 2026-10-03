@@ -20,8 +20,9 @@ operations with every mode and error, convert to csv, json, and jsonl
 with every encoding and error, every `dagu dry` check, every validation
 message in Errors, the `dagu xlsx` commands with their flags and text
 formats, and extract with a scripted model: the cells the model names are
-read with their types, a repeated layout makes no model request, a
-changed layout or a schema with a new field asks again, `send_values:
+read with their types, a repeated layout with the same instruction and
+schema makes no model request, a changed layout or a changed schema asks
+again, `send_values:
 false` keeps values out of the request, a secret in the instruction stops
 the step before any request, and `dagu xlsx cache clear` and `dagu rm
 --history` drop the cached cells. Every workflow in Examples has a
@@ -429,7 +430,8 @@ quote, an order, or an application whose layout differs by sender.
 `instruction` says what to find, and `schema` (`type: object`) names the
 fields as properties. A model is asked which cell holds each field; the
 step then reads the typed value from that cell. The model never returns a
-value, so every output has a cell behind it and no number is invented.
+value, so every non-null output has a cell behind it and no number is
+invented.
 
 The model is sent the sheet's non-empty cells in its used range, or in
 `range`, one per line as `B3 [text,bold]: 見積番号`: the address, the kind
@@ -448,9 +450,12 @@ the text sent.
 
 The model answers through one `respond` tool whose parameters list each
 property as an A1 address, with or without a sheet, or `null` for a field
-the sheet lacks. An answer that is not one cell within the listed sheet
-and range fails the step; an empty cell within it is a null value, since a
-form may leave a box blank. `trim` and `formulas` read the cell as `xlsx.read`
+the sheet lacks. An answer that is not an object, or that names something
+other than one cell within the listed sheet and range, is unusable: the
+next configured model is asked, and when every model's answer is unusable
+the step fails with `model request failed: <provider>/<model>: ...` naming
+each answer's fault. An empty cell within the range is a null value, since
+a form may leave a box blank. `trim` and `formulas` read the cell as `xlsx.read`
 would. A property's `type` pins the cell: `number`, `integer`, `boolean`,
 `string`, and `string` with `format: date` or `date-time`; a property
 without a type gets the cell's own typed value. A cell that fails its type
@@ -458,7 +463,8 @@ fails the step with the usual `quote.xlsx Sheet1!B7: expected number,
 found "n/a"`. An empty cell or an absent field is null.
 
 The step takes the DAG-level `llm` block, or `with.llm`, which replaces it,
-as browser steps do. Several models are tried in order. The outputs are
+as browser steps do. Several models are tried in order, and an unusable
+answer counts as a failed request. The outputs are
 each property, `cells` (property to the `Sheet1!B7` it was read from,
 empty when absent), `sheet`, `warnings`, and `source`, `model` or `cache`.
 The stdout line is `Extracted 4 fields from quote.xlsx Sheet1 (model, 1234
@@ -470,13 +476,17 @@ sheet's shape: which cells hold something, their kinds and emphasis, and
 the merged regions, so two forms from one sender in the same template
 share it while their values differ. Each cached cell also keeps the label
 beside it, the nearest text cell to its left or above, which must still
-read the same. A later run whose layout, labels, instruction, and fields
-match reads the cached cells without a model call (`source: cache`). A
-layout not seen before asks the model; an entry whose instruction changed,
-that lacks a field the schema now has, whose label moved or was renamed,
-or whose address no longer names one cell is replaced after the model
-answers. An entry is kept only when the step succeeds; a failed step
-changes nothing. `cache: false` asks the model every run.
+read the same. A later run whose layout, labels, instruction, and schema
+(the property names, types, and descriptions) match reads the cached cells
+without a model call (`source: cache`). A layout not seen before asks the
+model; an entry whose instruction or schema changed, whose label moved or
+was renamed, or whose address no longer names one cell is replaced after
+the model answers. A field the model answered as absent has no label to
+watch, so it stays absent while the layout holds; a sender that adds the
+field changes the layout and is asked again, while a label renamed in
+place without any cell added or removed is noticed only through the
+fields that were found. An entry is kept only when the step succeeds; a
+failed step changes nothing. `cache: false` asks the model every run.
 
 `dagu dry` checks that the workbook and the sheet exist, nothing about the
 model.
@@ -667,9 +677,12 @@ Every one of these is rejected by `dagu validate`:
   with.input`.
 - `xlsx.extract` without `instruction`: `extract requires
   with.instruction`; without `schema`: `extract requires with.schema`; a
-  schema that is not an object schema: `schema must have type: object`; a
-  property of another type: `schema.properties.items: type must be string,
-  number, integer, or boolean`; a property named like a fixed output:
+  schema that is not an object schema: `schema must have type: object`;
+  `properties` that is not an object: `schema.properties must be an
+  object`; a property that is not an object: `schema.properties.items must
+  be an object`; a property of another type: `schema.properties.items:
+  type must be string, number, integer, or boolean`; a property named like
+  a fixed output:
   `schema property "sheet" collides with an output of xlsx.extract`;
   without a model: `xlsx.extract needs a model: set llm at the DAG level
   or with.llm on the step`; `llm` on another xlsx action: `with.llm is not
@@ -734,11 +747,14 @@ Every one of these is rejected by `dagu validate`:
   secret SHOP_TOKEN, which would be sent to the model`; a sheet past the
   cell cap: `quote.xlsx Sheet1: 2415 cells in
   Sheet1!A1:H600 is more than 2000; set range to the part of the sheet that
-  holds the fields`; a model answer that is not a cell: `xlsx: model
-  answered field "total" with "123000", not a cell address`; one off the
-  sheet or range: `xlsx: model answered field "total" with "H40", which is
-  outside Sheet1!A1:D20`; no model answered: `model request failed:
-  <provider errors>`.
+  holds the fields`; a used range too large to scan, past a million cells:
+  `quote.xlsx Sheet1: Sheet1!A1:XFD1048576 spans more than 1000000 cells;
+  set range to the part of the sheet that holds the fields`; every model's
+  answer unusable or every request failed: `model request failed:
+  <provider>/<model>: <fault>` for each model, the fault being `xlsx: model
+  answered field "total" with "123000", not a cell address`, `xlsx: model
+  answered field "total" with "H40", which is outside Sheet1!A1:D20`,
+  `xlsx: model answer is not an object: null`, or the provider's error.
 
 Errors that concern a cell name the workbook, sheet, and cell as
 `<workbook> <sheet>!<cell>: <message>`.

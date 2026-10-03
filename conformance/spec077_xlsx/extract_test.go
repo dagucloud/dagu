@@ -262,3 +262,16 @@ func TestXlsxExtractValidation(t *testing.T) {
 		})
 	}
 }
+
+// with.llm on the step gives the model when the DAG has no llm block.
+func TestXlsxExtractStepLLM(t *testing.T) {
+	t.Parallel()
+	model, modelURL := startFormModel(t)
+	dagu := harness.NewRunner(t)
+	dagu.RunWithEnv([]string{"LLM_BASE_URL=" + modelURL}, "start", "extract_step_llm.yaml").ExpectExitCode(0)
+	var out extracted
+	readJSON(t, dagu, "out.json", &out)
+	require.Equal(t, 1, model.count())
+	require.Equal(t, "Q-2026-009", out.QuoteNo)
+	require.Equal(t, float64(500), out.Total)
+}

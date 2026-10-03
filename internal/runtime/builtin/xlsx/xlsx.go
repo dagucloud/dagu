@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	executorType = "xlsx"
+	executorType = ir.ExecutorTypeXlsx
 
 	opRead       = "read"
 	opInfo       = "info"

@@ -96,6 +96,11 @@ func ReadCells(ctx context.Context, path string, opts ReadCellsOptions) (*ReadCe
 			result.Cells[field] = ""
 			continue
 		}
+		// A range written as one, such as A1:A, is refused before it is
+		// resolved, since an open end closes to one cell on a one-row sheet.
+		if strings.Contains(addr, ":") {
+			return nil, &AddressError{Workbook: w.base, Field: field, Address: addr, Msg: "is not a single cell"}
+		}
 		reg, err := w.parseRange(sheet, addr)
 		if err != nil {
 			return nil, &AddressError{Workbook: w.base, Field: field, Address: addr, Msg: "is not a cell address"}

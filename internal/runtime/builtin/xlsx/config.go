@@ -369,7 +369,13 @@ func validateExtractConfig(cfg *config) error {
 	if cfg.Schema["type"] != "object" {
 		return fmt.Errorf("%w: schema must have type: object", errConfig)
 	}
-	properties, _ := cfg.Schema["properties"].(map[string]any)
+	var properties map[string]any
+	if raw, present := cfg.Schema["properties"]; present {
+		var ok bool
+		if properties, ok = raw.(map[string]any); !ok {
+			return fmt.Errorf("%w: schema.properties must be an object", errConfig)
+		}
+	}
 	cfg.extractProperties = make([]string, 0, len(properties))
 	cfg.extractTypes = map[string]workbook.ColumnType{}
 	for _, name := range sortedNames(properties) {
@@ -377,7 +383,10 @@ func validateExtractConfig(cfg *config) error {
 			return fmt.Errorf("%w: schema property %q collides with an output of xlsx.extract", errConfig, name)
 		}
 		cfg.extractProperties = append(cfg.extractProperties, name)
-		spec, _ := properties[name].(map[string]any)
+		spec, ok := properties[name].(map[string]any)
+		if !ok {
+			return fmt.Errorf("%w: schema.properties.%s must be an object", errConfig, name)
+		}
 		t, ok, err := pinnedType(spec)
 		if err != nil {
 			return fmt.Errorf("%w: schema.properties.%s: %v", errConfig, name, err)
