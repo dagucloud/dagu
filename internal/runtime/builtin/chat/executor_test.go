@@ -724,13 +724,60 @@ func TestExecutor_ExecuteToolStep_RetriesTransientChatFailure(t *testing.T) {
 		},
 	}
 
-	msgs, done, err := executor.executeToolStep(context.Background(), provider, cfg, nil, []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "hello"}}, 0)
+	conv := newConversation([]ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "hello"}})
+	done, err := executor.executeToolStep(context.Background(), provider, cfg, nil, conv, 0)
 	require.NoError(t, err)
 	assert.True(t, done)
 	assert.Equal(t, int32(2), calls.Load())
-	require.Len(t, msgs, 2)
-	assert.Equal(t, "tool loop done", msgs[1].Content)
+	require.Len(t, conv.messages, 2)
+	assert.Equal(t, "tool loop done", conv.messages[1].Content)
 	assert.Contains(t, stdout.String(), "tool loop done")
+}
+
+// A provider's record of a tool-calling turn goes back with that turn on the
+// next request of the loop, and stays out of the saved session.
+func TestExecutor_ToolLoopReplaysProviderState(t *testing.T) {
+	t.Parallel()
+
+	state := &llmpkg.ProviderState{Provider: llmpkg.ProviderAnthropic, Data: []byte(`[{"type":"thinking"}]`)}
+	var requests []*llmpkg.ChatRequest
+	provider := &mockProvider{
+		chatFunc: func(_ context.Context, req *llmpkg.ChatRequest) (*llmpkg.ChatResponse, error) {
+			requests = append(requests, req)
+			if len(requests) == 1 {
+				return &llmpkg.ChatResponse{
+					ToolCalls: []llmpkg.ToolCall{{
+						ID:       "call-1",
+						Type:     "function",
+						Function: llmpkg.ToolCallFunction{Name: "missing", Arguments: "{}"},
+					}},
+					ProviderState: state,
+				}, nil
+			}
+			return &llmpkg.ChatResponse{Content: "done"}, nil
+		},
+	}
+	cfg := &ir.LLMConfig{Provider: "anthropic", Model: "claude-sonnet-4-6"}
+	registry := &ToolRegistry{
+		tools:    map[string]*toolInfo{"lookup": {Name: "lookup"}},
+		dagNames: map[string]string{"lookup": "lookup"},
+	}
+	var stdout bytes.Buffer
+	executor := &Executor{stdout: &stdout, step: ir.Step{LLM: cfg}, toolRegistry: registry}
+
+	err := executor.runWithToolsForModel(chatRuntimeContext(t, nil), provider,
+		[]ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "hello"}}, cfg)
+	require.NoError(t, err)
+
+	require.Len(t, requests, 2)
+	second := requests[1].Messages
+	require.Len(t, second, 3)
+	assert.Equal(t, llmpkg.RoleAssistant, second[1].Role)
+	assert.Same(t, state, second[1].ProviderState)
+	assert.Nil(t, second[0].ProviderState)
+	assert.Nil(t, second[2].ProviderState)
+	assert.Equal(t, "done\n", stdout.String())
+	require.Len(t, executor.GetMessages(), 4)
 }
 
 func stdoutWriter(buf *bytes.Buffer) *bytes.Buffer {

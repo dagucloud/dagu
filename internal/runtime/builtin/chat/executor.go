@@ -513,48 +513,40 @@ func (e *Executor) runWithToolsForModel(ctx context.Context, provider llmpkg.Pro
 		slog.Int("max_iterations", maxIterations),
 	)
 
-	// Working copy of messages for the tool loop
-	sessionMessages := make([]ir.LLMMessage, len(allMessages))
-	copy(sessionMessages, allMessages)
-
+	conv := newConversation(allMessages)
 	for iteration := range maxIterations {
-		var done bool
-		var err error
-		sessionMessages, done, err = e.executeToolStep(ctx, provider, cfg, tools, sessionMessages, iteration)
+		done, err := e.executeToolStep(ctx, provider, cfg, tools, conv, iteration)
 		if err != nil {
 			return err
 		}
 		if done {
-			e.savedMessages = sessionMessages
+			e.savedMessages = conv.messages
 			return nil
 		}
 	}
 
 	// Max iterations reached
-	return e.handleMaxIterationsReached(ctx, maxIterations, sessionMessages)
+	return e.handleMaxIterationsReached(ctx, maxIterations, conv.messages)
 }
 
-// executeToolStep performs a single iteration of the tool execution loop.
-// Returns updated messages, whether the session is done, and any error.
+// executeToolStep performs a single iteration of the tool execution loop,
+// adding the turn to conv. It reports whether the session is done.
 func (e *Executor) executeToolStep(
 	ctx context.Context,
 	provider llmpkg.Provider,
 	cfg *ir.LLMConfig,
 	tools []llmpkg.Tool,
-	msgs []ir.LLMMessage,
+	conv *conversation,
 	iteration int,
-) ([]ir.LLMMessage, bool, error) {
+) (bool, error) {
 	logger.Debug(ctx, "Tool loop iteration",
 		slog.Int("iteration", iteration+1),
-		slog.Int("message_count", len(msgs)),
+		slog.Int("message_count", len(conv.messages)),
 	)
-
-	// Mask secrets before sending to provider
-	maskedForProvider := maskSecretsForProvider(ctx, msgs)
 
 	req := &llmpkg.ChatRequest{
 		Model:       cfg.Model,
-		Messages:    toLLMMessages(maskedForProvider),
+		Messages:    conv.request(ctx),
 		Temperature: cfg.Temperature,
 		MaxTokens:   cfg.MaxTokens,
 		TopP:        cfg.TopP,
@@ -567,23 +559,22 @@ func (e *Executor) executeToolStep(
 	// Execute request
 	resp, err := llmpkg.ChatWithRetry(ctx, provider, req, llmpkg.DefaultLogicalRetryConfig())
 	if err != nil {
-		return nil, false, fmt.Errorf("chat request failed: %w", err)
+		return false, fmt.Errorf("chat request failed: %w", err)
 	}
 
 	// Check for final response (no tool calls)
 	if len(resp.ToolCalls) == 0 {
-		e.handleFinalResponse(ctx, msgs, resp, cfg, iteration)
-		// Return updated messages including the final response
-		finalMsgs := append(msgs, ir.LLMMessage{
+		e.handleFinalResponse(ctx, resp, iteration)
+		conv.add(ir.LLMMessage{
 			Role:     ir.LLMRoleAssistant,
 			Content:  resp.Content,
 			Metadata: e.createResponseMetadata(cfg, &resp.Usage),
-		})
-		return finalMsgs, true, nil
+		}, nil)
+		return true, nil
 	}
 
-	// Process tool calls
-	return e.processToolCalls(ctx, msgs, resp, iteration)
+	e.processToolCalls(ctx, conv, resp)
+	return false, nil
 }
 
 func (e *Executor) runStreamForModel(ctx context.Context, provider llmpkg.Provider, req *llmpkg.ChatRequest) (string, *llmpkg.Usage, error) {
@@ -665,9 +656,7 @@ func waitForStreamRetry(ctx context.Context, cfg llmpkg.LogicalRetryConfig, fail
 // handleFinalResponse processes and logs the final response from the LLM.
 func (e *Executor) handleFinalResponse(
 	ctx context.Context,
-	msgs []ir.LLMMessage,
 	resp *llmpkg.ChatResponse,
-	cfg *ir.LLMConfig,
 	iteration int,
 ) {
 	logger.Info(ctx, "LLM provided final response (no tool calls)",
@@ -681,13 +670,13 @@ func (e *Executor) handleFinalResponse(
 	}
 }
 
-// processToolCalls handles the execution of tool calls requested by the LLM.
+// processToolCalls runs the tool calls requested by the LLM and adds the
+// turn and its results to conv.
 func (e *Executor) processToolCalls(
 	ctx context.Context,
-	msgs []ir.LLMMessage,
+	conv *conversation,
 	resp *llmpkg.ChatResponse,
-	iteration int,
-) ([]ir.LLMMessage, bool, error) {
+) {
 	logger.Info(ctx, "LLM requested tool calls",
 		slog.Int("tool_call_count", len(resp.ToolCalls)),
 	)
@@ -705,12 +694,11 @@ func (e *Executor) processToolCalls(
 		}
 	}
 
-	assistantMsg := ir.LLMMessage{
+	conv.add(ir.LLMMessage{
 		Role:      ir.LLMRoleAssistant,
 		Content:   resp.Content,
 		ToolCalls: execToolCalls,
-	}
-	newMsgs := append(msgs, assistantMsg)
+	}, resp.ProviderState)
 
 	// Execute tools
 	toolCallResults := e.toolExecutor.ExecuteToolCalls(ctx, resp.ToolCalls)
@@ -726,7 +714,7 @@ func (e *Executor) processToolCalls(
 		if result.Error != "" {
 			toolMsg.Content = fmt.Sprintf("Error: %s", result.Error)
 		}
-		newMsgs = append(newMsgs, toolMsg)
+		conv.add(toolMsg, nil)
 
 		if tcr.SubRun.DAGRunID != "" {
 			e.collectedSubRuns = append(e.collectedSubRuns, tcr.SubRun)
@@ -742,8 +730,6 @@ func (e *Executor) processToolCalls(
 			slog.String("content_preview", contentPreview),
 		)
 	}
-
-	return newMsgs, false, nil
 }
 
 // handleMaxIterationsReached handles the case where the tool loop hits the limit.
