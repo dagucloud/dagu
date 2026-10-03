@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -505,7 +506,7 @@ func TestStagehandDocumentID(t *testing.T) {
 // closes the browser. Ending any other process would leave the browser
 // answering. A browser that was ended refuses connections, or, on Windows
 // while the process is still being torn down, accepts them without
-// answering, so any failed probe counts.
+// answering, so a refusal or a timeout counts; any reply does not.
 func TestStagehandReportsBrowserProcess(t *testing.T) {
 	t.Parallel()
 
@@ -516,7 +517,10 @@ func TestStagehandReportsBrowserProcess(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, process.Kill())
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		assert.Error(c, browserhost.Probe(context.Background(), handle.CDPURL), "the browser stops answering")
+		err := browserhost.Probe(context.Background(), handle.CDPURL)
+		var netErr net.Error
+		stopped := errors.Is(err, browserhost.ErrUnreachable) || (errors.As(err, &netErr) && netErr.Timeout())
+		assert.True(c, stopped, "the browser stops answering; last probe: %v", err)
 	}, 10*time.Second, 200*time.Millisecond)
 }
 
