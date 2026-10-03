@@ -66,8 +66,23 @@ func (p *Provider) Chat(ctx context.Context, req *llm.ChatRequest) (*llm.ChatRes
 	}
 	defer func() { _ = respBody.Close() }()
 
+	data, err := io.ReadAll(respBody)
+	if err != nil {
+		return nil, llm.WrapError(providerName, fmt.Errorf("failed to read response: %w", err))
+	}
 	var resp generateContentResponse
-	if err := json.NewDecoder(respBody).Decode(&resp); err != nil {
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, llm.WrapError(providerName, fmt.Errorf("failed to decode response: %w", err))
+	}
+	// The raw parts are kept so the turn can be sent back unchanged.
+	var raw struct {
+		Candidates []struct {
+			Content struct {
+				Parts json.RawMessage `json:"parts"`
+			} `json:"content"`
+		} `json:"candidates"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, llm.WrapError(providerName, fmt.Errorf("failed to decode response: %w", err))
 	}
 
@@ -111,12 +126,16 @@ func (p *Provider) Chat(ctx context.Context, req *llm.ChatRequest) (*llm.ChatRes
 		}
 	}
 
-	return &llm.ChatResponse{
+	result := &llm.ChatResponse{
 		Content:      content.String(),
 		FinishReason: finishReason,
 		Usage:        usage,
 		ToolCalls:    toolCalls,
-	}, nil
+	}
+	if len(resp.Candidates) > 0 && len(resp.Candidates[0].Content.Parts) > 0 {
+		result.ProviderState = &llm.ProviderState{Provider: llm.ProviderGemini, Data: raw.Candidates[0].Content.Parts}
+	}
+	return result, nil
 }
 
 // ChatStream sends messages and streams the response.
@@ -217,6 +236,15 @@ func (p *Provider) processMessages(reqMessages []llm.Message) (*systemInstructio
 			})
 
 		case llm.RoleAssistant:
+			for _, tc := range m.ToolCalls {
+				callNames[tc.ID] = tc.Function.Name
+			}
+			if state := m.ProviderState; state != nil && state.Provider == llm.ProviderGemini {
+				// The turn goes back as received, keeping its thought
+				// signatures.
+				contents = append(contents, content{Role: "model", rawParts: state.Data})
+				continue
+			}
 			// Check if this assistant message has tool calls
 			if len(m.ToolCalls) > 0 {
 				parts := make([]part, 0, len(m.ToolCalls)+1)
@@ -224,7 +252,6 @@ func (p *Provider) processMessages(reqMessages []llm.Message) (*systemInstructio
 					parts = append(parts, part{Text: m.Content})
 				}
 				for _, tc := range m.ToolCalls {
-					callNames[tc.ID] = tc.Function.Name
 					// Parse arguments from JSON string
 					var args map[string]any
 					if tc.Function.Arguments != "" {
@@ -504,6 +531,20 @@ type functionCallingConfig struct {
 type content struct {
 	Role  string `json:"role"`
 	Parts []part `json:"parts"`
+	// rawParts, when set, are sent in place of Parts.
+	rawParts json.RawMessage
+}
+
+// MarshalJSON sends a replayed turn's parts exactly as received.
+func (c content) MarshalJSON() ([]byte, error) {
+	if c.rawParts != nil {
+		return json.Marshal(struct {
+			Role  string          `json:"role"`
+			Parts json.RawMessage `json:"parts"`
+		}{c.Role, c.rawParts})
+	}
+	type plain content
+	return json.Marshal(plain(c))
 }
 
 type systemInstruction struct {
