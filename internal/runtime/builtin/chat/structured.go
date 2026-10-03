@@ -110,6 +110,8 @@ type answerSchema struct {
 	resolved   *jsonschema.Resolved
 }
 
+// newAnswerSchema prepares an output_schema for answers. It fails when the
+// schema cannot be resolved for validation.
 func newAnswerSchema(schema map[string]any) (*answerSchema, error) {
 	data, err := json.Marshal(schema)
 	if err != nil {
@@ -256,6 +258,7 @@ func withInstruction(msgs []llmpkg.Message) []llmpkg.Message {
 	return append([]llmpkg.Message{{Role: llmpkg.RoleSystem, Content: respondInstruction}}, msgs...)
 }
 
+// callsRespond reports whether a turn's tool calls include the respond tool.
 func callsRespond(calls []llmpkg.ToolCall) bool {
 	return slices.ContainsFunc(calls, func(call llmpkg.ToolCall) bool {
 		return call.Function.Name == agentstep.RespondToolName

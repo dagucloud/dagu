@@ -21,6 +21,8 @@ type conversation struct {
 	states map[int]*llmpkg.ProviderState
 }
 
+// newConversation starts a conversation from a copy of messages, so adding
+// turns never writes into the caller's slice.
 func newConversation(messages []ir.LLMMessage) *conversation {
 	return &conversation{
 		messages: slices.Clone(messages),
