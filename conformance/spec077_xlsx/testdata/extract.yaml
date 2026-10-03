@@ -1,0 +1,40 @@
+name: quote-extract
+working_dir: .
+env:
+  - LLM_BASE_URL: ${LLM_BASE_URL}
+llm:
+  provider: local
+  model: test-model
+  base_url: ${LLM_BASE_URL}
+steps:
+  - id: form
+    action: xlsx.write
+    with:
+      path: quote.xlsx
+      header: false
+      style: none
+      rows:
+        - ["御見積書", null, null]
+        - ["見積番号", "Q-2026-001", null]
+        - ["納期", "2026-10-15", null]
+        - ["合計金額", 123000, null]
+        - ["担当者", "山田", "内線 12"]
+  - id: fields
+    depends: form
+    action: xlsx.extract
+    with:
+      path: quote.xlsx
+      instruction: A supplier's quote. Find the quote number, the delivery date, the total amount, and the payment terms.
+      schema:
+        type: object
+        properties:
+          quote_no: {type: string, description: 見積番号}
+          delivery: {type: string, format: date, description: 納期}
+          total: {type: number, description: 合計金額}
+          terms: {type: string, description: 支払条件}
+  - id: out
+    depends: fields
+    action: file.write
+    with:
+      path: out.json
+      content: '{"quote_no": "${steps.fields.outputs.quote_no}", "delivery": "${steps.fields.outputs.delivery}", "total": ${steps.fields.outputs.total}, "cells": ${steps.fields.outputs.cells}, "sheet": "${steps.fields.outputs.sheet}", "source": "${steps.fields.outputs.source}", "warnings": ${steps.fields.outputs.warnings}}'
