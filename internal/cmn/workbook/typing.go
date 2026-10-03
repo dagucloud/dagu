@@ -13,6 +13,7 @@ import (
 	"unicode"
 
 	"github.com/xuri/excelize/v2"
+	"golang.org/x/text/width"
 )
 
 // ColumnType pins how a column's cells are typed.
@@ -189,6 +190,17 @@ func (w *file) text(s string, opts ReadOptions) string {
 // U+3000 common in Japanese workbooks.
 func trimSpace(s string) string {
 	return strings.TrimFunc(s, unicode.IsSpace)
+}
+
+// foldWidth reads full-width digits, letters, and punctuation as their
+// ASCII forms, the way a form filled on a Japanese keyboard writes them,
+// and the minus sign U+2212 as a hyphen, and drops surrounding white
+// space. It serves the pinned types only; a cell read as text keeps what
+// it holds.
+func foldWidth(s string) string {
+	s = width.Fold.String(s)
+	s = strings.ReplaceAll(s, "−", "-")
+	return strings.TrimSpace(s)
 }
 
 // numericText returns the number a string denotes when it is written the

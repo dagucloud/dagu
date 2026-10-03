@@ -9,30 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"golang.org/x/text/width"
 )
-
-// foldWidth reads full-width digits, letters, and punctuation as their
-// ASCII forms, the way a form filled on a Japanese keyboard writes them,
-// and the minus sign U+2212 as a hyphen, and drops surrounding white
-// space. It serves the pinned types only; a cell read as text keeps what
-// it holds.
-func foldWidth(s string) string {
-	s = width.Fold.String(s)
-	s = strings.ReplaceAll(s, "−", "-")
-	return strings.TrimSpace(s)
-}
-
-// numberText is the text a pinned number is parsed from: folded, without
-// thousands separators, and without one yen sign before it or one 円
-// after it, so ￥123,000 and 123,000円 read as 123000.
-func numberText(s string) string {
-	s = foldWidth(s)
-	s = strings.TrimSpace(strings.TrimPrefix(s, "¥"))
-	s = strings.TrimSpace(strings.TrimSuffix(s, "円"))
-	return strings.ReplaceAll(s, ",", "")
-}
 
 // japaneseLayouts are the date forms a kanji date takes, tried after the
 // ISO and slash forms.
