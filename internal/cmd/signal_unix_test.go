@@ -6,6 +6,7 @@
 package cmd_test
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -391,7 +393,9 @@ type signalRun struct {
 	cleaned  string
 	release  string
 	progress string
-	logFile  *os.File
+	// pid holds the process ID of the probe step's shell.
+	pid     string
+	logFile *os.File
 }
 
 func startSignalRun(t *testing.T, commandName string, maxCleanup int, edits ...func(string) string) *signalRun {
@@ -405,6 +409,7 @@ func startSignalRun(t *testing.T, commandName string, maxCleanup int, edits ...f
 		cleaned:  filepath.Join(dir, "cleaned"),
 		release:  newHoldFile(t),
 		progress: filepath.Join(dir, "progress"),
+		pid:      filepath.Join(dir, "pid"),
 	}
 	yaml := fmt.Sprintf(`
 type: graph
@@ -422,9 +427,10 @@ steps:
       }
       trap 'cleanup TERM' TERM
       trap 'cleanup INT' INT
+      printf '%%s' "$$" > %s
       printf ready > %s
       while :; do printf x >> %s; sleep 0.05; done
-`, maxCleanup, test.PosixQuote(run.stopped), test.PosixQuote(run.release), test.PosixQuote(run.cleaned), test.PosixQuote(ready), test.PosixQuote(run.progress))
+`, maxCleanup, test.PosixQuote(run.stopped), test.PosixQuote(run.release), test.PosixQuote(run.cleaned), test.PosixQuote(run.pid), test.PosixQuote(ready), test.PosixQuote(run.progress))
 	for _, edit := range edits {
 		yaml = edit(yaml)
 	}
@@ -460,6 +466,7 @@ steps:
 		if !run.exited {
 			terminateTestCommand(run.command, waitCh)
 		}
+		run.waitForProbeExit()
 	})
 	require.Eventually(t, func() bool {
 		return strings.Contains(run.output(), startupLog)
@@ -488,6 +495,36 @@ steps:
 	}
 	run.waitForFile(t, ready)
 	return run
+}
+
+// waitForProbeExit waits until the probe step's shell has exited, so it no
+// longer writes into the test's temporary directory. An aborted run reports
+// its status before its steps finish their cleanup, so the status alone does
+// not show that the shell is gone. A shell still alive at the deadline is
+// killed.
+func (r *signalRun) waitForProbeExit() {
+	data, err := os.ReadFile(r.pid)
+	if err != nil {
+		return
+	}
+	pid, err := strconv.Atoi(string(data))
+	if err != nil {
+		return
+	}
+	exited := func() bool {
+		return errors.Is(syscall.Kill(pid, 0), syscall.ESRCH)
+	}
+	waitUntil := func(timeout time.Duration) {
+		deadline := time.Now().Add(timeout)
+		for !exited() && time.Now().Before(deadline) {
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	waitUntil(commandLogWaitTimeout())
+	if !exited() {
+		_ = syscall.Kill(pid, syscall.SIGKILL)
+		waitUntil(time.Second)
+	}
 }
 
 func (r *signalRun) waitForFile(t *testing.T, path string) {
