@@ -143,6 +143,10 @@ type extracted struct {
 	Contact  string  `json:"contact"`
 	Title    string  `json:"title"`
 	Terms    string  `json:"terms"`
+	// Delivered and Accepted are the datetime and boolean fields of the
+	// Japanese quote.
+	Delivered string `json:"delivered"`
+	Accepted  bool   `json:"accepted"`
 	// TotalText is the total rendered inside a quoted string, so a null
 	// total can be told from a number.
 	TotalText string            `json:"total_text"`
@@ -283,6 +287,9 @@ func TestXlsxExtractJapanese(t *testing.T) {
 	require.Equal(t, "Ｑ－２０２６－００１", out.QuoteNo, "a string field keeps the text as it is")
 	require.Equal(t, "2026-10-15", out.Delivery, "an era date pinned to date")
 	require.Equal(t, float64(123000), out.Total, "a yen amount pinned to number")
+	require.Equal(t, "2026-10-15T14:30:00", out.Delivered, "an era date with 午後 pinned to date-time")
+	require.True(t, out.Accepted, "済 pinned to boolean")
+	require.Equal(t, "Sheet1!B6", out.Cells["accepted"])
 }
 
 // dagu xlsx cache clear and dagu rm --history drop the cached cells.

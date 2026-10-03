@@ -62,31 +62,57 @@ func TestXlsxMergedCellErrors(t *testing.T) {
 	}
 }
 
-// Spec 077 "Typing": Japanese text under a pinned type reads as its ASCII
-// form, a yen amount, a kanji date, or an era date; text that is none of
-// these still fails the type, quoted as the cell holds it.
+// Spec 077 "Japanese text under a pinned type": every family of amount,
+// date, time, and yes/no form reads under its pinned type; text outside
+// the forms fails the type, quoted as the cell holds it.
 func TestXlsxTypesJapanese(t *testing.T) {
 	t.Parallel()
 	dagu := harness.NewRunner(t)
 	dagu.Run("start", "types_japanese.yaml").ExpectExitCode(0)
 
-	var rows []map[string]any
-	readJSON(t, dagu, "out.json", &rows)
-	require.Len(t, rows, 4)
-	require.Equal(t, float64(123456), rows[0]["Amount"], "full-width digits and comma")
-	require.Equal(t, "2026-10-03", rows[0]["Due"], "full-width slashes")
-	require.Equal(t, "００７", rows[0]["Code"], "an unpinned column keeps its text")
-	require.Equal(t, float64(123000), rows[1]["Amount"], "a yen sign before the amount")
-	require.Equal(t, "2026-10-03", rows[1]["Due"], "an era date, long")
-	require.Equal(t, float64(123000), rows[2]["Amount"], "円 after the amount")
-	require.Equal(t, "2026-10-03", rows[2]["Due"], "an era date, short")
-	require.Equal(t, float64(-5), rows[3]["Amount"], "the minus sign U+2212")
-	require.Equal(t, "2019-05-01", rows[3]["Due"], "the first year of an era")
+	var out struct {
+		Rows     []map[string]any `json:"rows"`
+		Warnings []string         `json:"warnings"`
+	}
+	readJSON(t, dagu, "out.json", &out)
+	require.Len(t, out.Rows, 14)
+	for i, want := range []struct {
+		amount float64
+		due    string
+		when   string
+		done   any
+		note   string
+	}{
+		{123456, "2026-10-03", "2026-10-03T14:30:00", true, "full-width digits; a slash date with a time; a circle"},
+		{123000, "2026-10-03", "2026-10-03T14:30:00", false, "a yen sign; an era date; 時分; a cross"},
+		{123000, "2026-10-03", "2026-10-03T14:30:15", true, "円 after; a short era date; 時分秒; はい"},
+		{-5, "2019-05-01", "2026-10-03T14:30:15", false, "U+2212; the first year of an era; a dot date with seconds; いいえ"},
+		{123500, "2026-10-03", "2026-10-03T14:30:00", true, "Arabic digits with 万; a weekday mark; 午後; 済"},
+		{-1000, "2026-10-01", "2026-10-03T14:00:00", false, "▲; an era month; 時 alone; 未"},
+		{-1000, "2026-10-01", "2026-10-03T09:00:00", false, "accounting parentheses; a kanji month; 午前; 無"},
+		{123000, "2026-10-03", "2026-10-03T14:30:00", nil, "the trailing dash; kanji digits in place; (Fri); △ is not a boolean"},
+		{10, "2026-10-03", "2026-10-03T14:30:00", false, "percent; an era ligature; a weekday before the time; a dash for none"},
+		{123000, "2019-04-30", "2026-10-03T12:00:00", false, "a receipt in daiji; kanji numerals with units; 午後0時; an empty box"},
+		{1000, "2026-10-03", "2026-10-03T00:00:00", true, "a price tag; a dot date; 午前12時; 有"},
+		{150000000, "2019-04-30", "2026-10-03T00:00:00", true, "億; a dashed era date; a date alone; a check mark"},
+		{1000, "2026-10-03", "2026-10-03T14:30:00", false, "a tag in parentheses; a kanji era date; a colon time; 不要"},
+		{1000000, "2026-10-01", "2026-10-03T14:00:00", true, "百万; a slash month; 金曜日 before the time; 完了"},
+	} {
+		row := out.Rows[i]
+		require.Equal(t, want.amount, row["Amount"], "row %d amount: %s", i+2, want.note)
+		require.Equal(t, want.due, row["Due"], "row %d due: %s", i+2, want.note)
+		require.Equal(t, want.when, row["When"], "row %d when: %s", i+2, want.note)
+		require.Equal(t, want.done, row["Done"], "row %d done: %s", i+2, want.note)
+	}
+	require.Equal(t, "００７", out.Rows[0]["Code"], "an unpinned column keeps its text")
+	require.Equal(t, []string{`Sheet1!D9: expected boolean, found "△"`}, out.Warnings)
 
 	var warnings []string
 	readJSON(t, dagu, "warnings.json", &warnings)
 	require.Equal(t, []string{
-		`Sheet1!C4: expected number, found "abc"`,
-		`Sheet1!C5: expected number, found "x"`,
-	}, warnings, "full-width digits pinned to number convert; other text is quoted as it is")
+		`Sheet1!E4: expected number, found "abc"`,
+		`Sheet1!E5: expected number, found "1,000（千円）"`,
+		`Sheet1!E6: expected number, found "12万3万"`,
+		`Sheet1!D9: expected boolean, found "△"`,
+	}, warnings, "text outside the forms is quoted as the cell holds it")
 }

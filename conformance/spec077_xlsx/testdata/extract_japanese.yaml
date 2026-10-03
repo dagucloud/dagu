@@ -18,6 +18,8 @@ steps:
         - ["見積番号", "Ｑ－２０２６－００１"]
         - ["納期", "令和8年10月15日"]
         - ["合計金額", "￥123,000"]
+        - ["納品日時", "令和8年10月15日 午後2時30分"]
+        - ["検収", "済"]
   - id: fields
     depends: form
     action: xlsx.extract
@@ -30,9 +32,11 @@ steps:
           quote_no: {type: string, description: 見積番号}
           delivery: {type: string, format: date, description: 納期}
           total: {type: number, description: 合計金額}
+          delivered: {type: string, format: date-time, description: 納品日時}
+          accepted: {type: boolean, description: 検収}
   - id: out
     depends: fields
     action: file.write
     with:
       path: out.json
-      content: '{"quote_no": "${steps.fields.outputs.quote_no}", "delivery": "${steps.fields.outputs.delivery}", "total": ${steps.fields.outputs.total}, "cells": ${steps.fields.outputs.cells}, "source": "${steps.fields.outputs.source}"}'
+      content: '{"quote_no": "${steps.fields.outputs.quote_no}", "delivery": "${steps.fields.outputs.delivery}", "total": ${steps.fields.outputs.total}, "delivered": "${steps.fields.outputs.delivered}", "accepted": ${steps.fields.outputs.accepted}, "cells": ${steps.fields.outputs.cells}, "source": "${steps.fields.outputs.source}"}'
