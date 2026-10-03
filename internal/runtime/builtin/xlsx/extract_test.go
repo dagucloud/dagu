@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -31,7 +32,7 @@ import (
 func quoteBook(t *testing.T, dir string, cells map[string]any) string {
 	t.Helper()
 	f := excelize.NewFile()
-	date, err := f.NewStyle(&excelize.Style{CustomNumFmt: strPtr("yyyy-mm-dd")})
+	date, err := f.NewStyle(&excelize.Style{CustomNumFmt: new("yyyy-mm-dd")})
 	require.NoError(t, err)
 	values := map[string]any{
 		"A1": "御見積書",
@@ -39,9 +40,7 @@ func quoteBook(t *testing.T, dir string, cells map[string]any) string {
 		"A5": "納期", "B5": time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC),
 		"A7": "合計金額", "B7": 123000,
 	}
-	for cell, v := range cells {
-		values[cell] = v
-	}
+	maps.Copy(values, cells)
 	for cell, v := range values {
 		require.NoError(t, f.SetCellValue("Sheet1", cell, v))
 	}
@@ -52,7 +51,8 @@ func quoteBook(t *testing.T, dir string, cells map[string]any) string {
 	return path
 }
 
-func strPtr(s string) *string { return &s }
+//go:fix inline
+func strPtr(s string) *string { return new(s) }
 
 // scriptedProvider answers every request through answer and records the
 // requests it saw.
@@ -117,7 +117,7 @@ func labelRight(descriptions map[string]string) func(req *llmpkg.ChatRequest) ma
 		answer := map[string]any{}
 		for field, label := range descriptions {
 			answer[field] = nil
-			for _, line := range strings.Split(listing, "\n") {
+			for line := range strings.SplitSeq(listing, "\n") {
 				addr, text, ok := strings.Cut(line, " [")
 				if !ok {
 					continue
@@ -204,9 +204,7 @@ var testModel = &ir.LLMConfig{Provider: "openai", Model: "test-model"}
 
 func quoteConfig(extra map[string]any) map[string]any {
 	cfg := map[string]any{"path": "quote.xlsx", "instruction": "A supplier quote; find the quote number, delivery date, and total", "schema": quoteSchema}
-	for k, v := range extra {
-		cfg[k] = v
-	}
+	maps.Copy(cfg, extra)
 	return cfg
 }
 
@@ -497,4 +495,18 @@ func TestExtractDryRun(t *testing.T) {
 	require.ErrorContains(t, dryRun(t, dir, opExtract, quoteConfig(map[string]any{"sheet": "Nope"})), `field 'with.sheet': quote.xlsx: sheet "Nope" not found`)
 	require.ErrorContains(t, dryRun(t, dir, opExtract, quoteConfig(map[string]any{"path": "none.xlsx"})), "field 'with.path': none.xlsx: workbook not found")
 	require.NoError(t, dryRun(t, dir, opExtract, quoteConfig(map[string]any{"sheet": "${params.SHEET}"})), "a sheet still holding a reference is skipped")
+}
+
+func TestExtractSecretInDescription(t *testing.T) {
+	t.Parallel()
+	r := newExtractRun(t)
+	r.secrets = map[string]string{"SHOP_TOKEN": "tok-12345"}
+	quoteBook(t, r.dir, nil)
+	cfg := quoteConfig(nil)
+	cfg["schema"] = map[string]any{"type": "object", "properties": map[string]any{
+		"total": map[string]any{"type": "number", "description": "the total next to tok-12345"},
+	}}
+	run := r.execute(cfg, testModel)
+	require.EqualError(t, run.err, "xlsx: with.schema.properties.total.description contains the value of secret SHOP_TOKEN, which would be sent to the model")
+	assert.Equal(t, 0, r.provider.count())
 }

@@ -5,6 +5,7 @@ package spec
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -67,10 +68,8 @@ func validateXlsxExtractSchema(with map[string]any) error {
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		for _, fixed := range xlsxExtractFixedOutputs {
-			if name == fixed {
-				return ir.NewValidationError("with", with, fmt.Errorf("schema property %q collides with an output of xlsx.extract", name))
-			}
+		if slices.Contains(xlsxExtractFixedOutputs, name) {
+			return ir.NewValidationError("with", with, fmt.Errorf("schema property %q collides with an output of xlsx.extract", name))
 		}
 	}
 	return nil

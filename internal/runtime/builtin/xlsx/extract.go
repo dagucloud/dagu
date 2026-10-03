@@ -121,6 +121,16 @@ func newExtractExecutor(ctx context.Context, env runtime.Env, step ir.Step, path
 	if err := agentstep.CheckTextSecrets(executorType, "instruction", cfg.Instruction, secrets); err != nil {
 		return nil, err
 	}
+	// Property descriptions reach the model inside the respond tool, which
+	// is not masked, so a secret in one is refused the same way.
+	properties, _ := cfg.Schema["properties"].(map[string]any)
+	for _, name := range cfg.extractProperties {
+		property, _ := properties[name].(map[string]any)
+		description, _ := property["description"].(string)
+		if err := agentstep.CheckTextSecrets(executorType, "schema.properties."+name+".description", description, secrets); err != nil {
+			return nil, err
+		}
+	}
 	dagName := ""
 	if env.DAG != nil {
 		dagName = env.DAG.Name
@@ -282,8 +292,7 @@ func (e *extractExecutor) locate(ctx context.Context, layout *workbook.SheetLayo
 	}
 	result, err := e.readCells(ctx, layout, cells)
 	if err != nil {
-		var bad *workbook.AddressError
-		if errors.As(err, &bad) {
+		if bad, ok := errors.AsType[*workbook.AddressError](err); ok {
 			return nil, "", fmt.Errorf("xlsx: model answered field %q with %q, which %s", bad.Field, bad.Address, bad.Msg)
 		}
 		return nil, "", err

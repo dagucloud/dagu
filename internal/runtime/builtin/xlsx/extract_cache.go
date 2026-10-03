@@ -4,8 +4,9 @@
 package xlsx
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/replaycache"
@@ -30,10 +31,17 @@ type extractEntry struct {
 
 // anchor is the text cell nearest to an answered cell, to its left in the
 // same row or else above it in the same column, as it read when the model
-// answered.
+// answered. Only a digest of the text is kept, so the cache file never
+// holds what the sheet says.
 type anchor struct {
-	Cell string `json:"cell"`
-	Text string `json:"text"`
+	Cell   string `json:"cell"`
+	Digest string `json:"digest"`
+}
+
+// labelDigest is how an anchor remembers a label's text.
+func labelDigest(text string) string {
+	sum := sha256.Sum256([]byte(text))
+	return hex.EncodeToString(sum[:])
 }
 
 // extractCache stores the cells each extraction named, keyed by sheet
@@ -64,12 +72,12 @@ func anchorsFor(cells map[string]string, labels map[string]string) map[string]an
 func nearestLabel(col, row int, labels map[string]string) (anchor, bool) {
 	for c := col - 1; c >= 1; c-- {
 		if name, ok := labelAt(labels, c, row); ok {
-			return anchor{Cell: name, Text: labels[name]}, true
+			return anchor{Cell: name, Digest: labelDigest(labels[name])}, true
 		}
 	}
 	for r := row - 1; r >= 1; r-- {
 		if name, ok := labelAt(labels, col, r); ok {
-			return anchor{Cell: name, Text: labels[name]}, true
+			return anchor{Cell: name, Digest: labelDigest(labels[name])}, true
 		}
 	}
 	return anchor{}, false
@@ -88,7 +96,7 @@ func labelAt(labels map[string]string, col, row int) (string, bool) {
 // the same text at the same cell.
 func anchorsHold(anchors map[string]anchor, labels map[string]string) bool {
 	for _, a := range anchors {
-		if text, ok := labels[a.Cell]; !ok || text != a.Text {
+		if text, ok := labels[a.Cell]; !ok || labelDigest(text) != a.Digest {
 			return false
 		}
 	}
@@ -119,14 +127,4 @@ func entryCovers(entry extractEntry, instruction string, fields []string) bool {
 		}
 	}
 	return true
-}
-
-// sortedFields returns the fields of an answer in order.
-func sortedFields(cells map[string]string) []string {
-	fields := make([]string, 0, len(cells))
-	for field := range cells {
-		fields = append(fields, field)
-	}
-	sort.Strings(fields)
-	return fields
 }

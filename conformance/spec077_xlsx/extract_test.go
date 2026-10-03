@@ -81,7 +81,7 @@ func (m *formModel) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	// The cell to the right of each label.
 	valueCells := map[string]string{}
-	for _, line := range strings.Split(user, "\n") {
+	for line := range strings.SplitSeq(user, "\n") {
 		match := listingLine.FindStringSubmatch(line)
 		if match == nil || match[3] == "" {
 			continue

@@ -441,14 +441,16 @@ false` lists a non-text cell as its kind only, `B7 [number]`, so amounts
 and dates stay on the host. More than 2000 listed cells fails with
 `quote.xlsx Sheet1: 2415 cells in Sheet1!A1:H600 is more than 2000; set
 range to the part of the sheet that holds the fields`. Nothing else is
-sent: no variables and no screenshots. An `instruction` that holds the
-value of a declared secret of four or more characters fails before any
-model call, and secret values are masked in the text sent.
+sent: no variables and no screenshots. An `instruction` or a property
+`description` that holds the value of a declared secret of four or more
+characters fails before any model call, and secret values are masked in
+the text sent.
 
 The model answers through one `respond` tool whose parameters list each
 property as an A1 address, with or without a sheet, or `null` for a field
-the sheet lacks. An answer that is not one cell of the listed sheet and
-range fails the step. `trim` and `formulas` read the cell as `xlsx.read`
+the sheet lacks. An answer that is not one cell within the listed sheet
+and range fails the step; an empty cell within it is a null value, since a
+form may leave a box blank. `trim` and `formulas` read the cell as `xlsx.read`
 would. A property's `type` pins the cell: `number`, `integer`, `boolean`,
 `string`, and `string` with `format: date` or `date-time`; a property
 without a type gets the cell's own typed value. A cell that fails its type
@@ -727,7 +729,10 @@ Every one of these is rejected by `dagu validate`:
   does not exist: `out.csv: <system error>`.
 - An `xlsx.extract` instruction holding a secret: `xlsx: with.instruction
   contains the value of secret SHOP_TOKEN, which would be sent to the
-  model`; a sheet past the cell cap: `quote.xlsx Sheet1: 2415 cells in
+  model`, or a property description:
+  `xlsx: with.schema.properties.total.description contains the value of
+  secret SHOP_TOKEN, which would be sent to the model`; a sheet past the
+  cell cap: `quote.xlsx Sheet1: 2415 cells in
   Sheet1!A1:H600 is more than 2000; set range to the part of the sheet that
   holds the fields`; a model answer that is not a cell: `xlsx: model
   answered field "total" with "123000", not a cell address`; one off the
