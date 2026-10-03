@@ -411,3 +411,59 @@ func TestBuildRequestBody_ToolInputSchemaType(t *testing.T) {
 	assert.Equal(t, map[string]any{"type": "object"}, parsed.Tools[1].InputSchema)
 	assert.NotContains(t, parameters, "type", "the caller's schema must not be modified")
 }
+
+// Forced tool use is sent only to models that accept it: models before
+// Claude 5 with thinking off. Every other request asks for auto, so the
+// API does not reject it.
+func TestBuildRequestBody_ToolChoice(t *testing.T) {
+	t.Parallel()
+
+	provider := &Provider{config: llm.Config{APIKey: "test-key"}}
+	auto := map[string]any{"type": "auto"}
+	anyTool := map[string]any{"type": "any"}
+	namedTool := map[string]any{"type": "tool", "name": "respond"}
+
+	tests := []struct {
+		name     string
+		model    string
+		choice   string
+		thinking bool
+		expected map[string]any
+	}{
+		{name: "RequiredOnSonnet46", model: "claude-sonnet-4-6", choice: "required", expected: anyTool},
+		{name: "NamedOnHaiku45", model: "claude-haiku-4-5", choice: "respond", expected: namedTool},
+		{name: "RequiredOnClaude3", model: "claude-3-5-sonnet-20241022", choice: "required", expected: anyTool},
+		{name: "RequiredOnBedrockOpus48", model: "anthropic.claude-opus-4-8", choice: "required", expected: anyTool},
+		{name: "RequiredWithThinking", model: "claude-sonnet-4-6", choice: "required", thinking: true, expected: auto},
+		{name: "NamedWithThinking", model: "claude-opus-4-6", choice: "respond", thinking: true, expected: auto},
+		{name: "RequiredOnOpus55", model: "claude-opus-5-5", choice: "required", expected: auto},
+		{name: "RequiredOnSonnet5", model: "claude-sonnet-5", choice: "required", expected: auto},
+		{name: "NamedOnFable51", model: "claude-fable-5-1", choice: "respond", expected: auto},
+		{name: "RequiredOnMythos", model: "claude-mythos-5-1", choice: "required", expected: auto},
+		{name: "RequiredOnUnknownModel", model: "my-deployment", choice: "required", expected: auto},
+		{name: "Auto", model: "claude-sonnet-4-6", choice: "auto", expected: auto},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			req := &llm.ChatRequest{
+				Model:    tt.model,
+				Messages: []llm.Message{{Role: llm.RoleUser, Content: "Hello"}},
+				Tools: []llm.Tool{{
+					Type:     "function",
+					Function: llm.ToolFunction{Name: "respond", Parameters: map[string]any{"type": "object"}},
+				}},
+				ToolChoice: tt.choice,
+			}
+			if tt.thinking {
+				req.Thinking = &llm.ThinkingRequest{Enabled: true}
+			}
+			body, err := provider.buildRequestBody(req, false)
+			require.NoError(t, err)
+
+			var parsed map[string]any
+			require.NoError(t, json.Unmarshal(body, &parsed))
+			assert.Equal(t, tt.expected, parsed["tool_choice"])
+		})
+	}
+}

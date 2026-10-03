@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"strconv"
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/llm"
@@ -193,14 +194,17 @@ func (p *Provider) buildRequestBody(req *llm.ChatRequest, stream bool) ([]byte, 
 
 	// Add tool choice if specified
 	if req.ToolChoice != "" {
-		switch req.ToolChoice {
-		case "auto":
+		forced := forcedToolChoiceSupported(req)
+		switch {
+		case req.ToolChoice == "auto":
 			chatReq.ToolChoice = map[string]string{"type": "auto"}
-		case "required":
-			chatReq.ToolChoice = map[string]string{"type": "any"}
-		case "none":
+		case req.ToolChoice == "none":
 			// Don't include tools
 			chatReq.Tools = nil
+		case !forced:
+			chatReq.ToolChoice = map[string]string{"type": "auto"}
+		case req.ToolChoice == "required":
+			chatReq.ToolChoice = map[string]string{"type": "any"}
 		default:
 			// Specific tool name
 			chatReq.ToolChoice = map[string]string{"type": "tool", "name": req.ToolChoice}
@@ -370,6 +374,25 @@ func inputSchema(parameters map[string]any) map[string]any {
 	}
 	schema["type"] = "object"
 	return schema
+}
+
+// forcedToolChoiceSupported reports whether a request may force tool use.
+// The API rejects a forced choice while thinking is enabled, and models from
+// Claude 5 on either think by default or reject it outright. Unrecognized
+// model IDs get auto, which every model accepts.
+func forcedToolChoiceSupported(req *llm.ChatRequest) bool {
+	if req.Thinking != nil && req.Thinking.Enabled {
+		return false
+	}
+	if legacyClaudePattern.MatchString(req.Model) {
+		return true
+	}
+	match := claudeModelPattern.FindStringSubmatch(req.Model)
+	if match == nil || match[1] == "fable" || match[1] == "mythos" {
+		return false
+	}
+	major, _ := strconv.Atoi(match[2])
+	return major < 5
 }
 
 // getThinkingBudget determines the token budget for thinking mode.
