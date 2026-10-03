@@ -1,0 +1,5 @@
+steps:
+  - action: xlsx.sheet
+    with:
+      path: report.xlsx
+      sheet: October

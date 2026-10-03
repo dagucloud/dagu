@@ -1,0 +1,6 @@
+steps:
+  - action: xlsx.write
+    with:
+      path: orders.xlsx
+      rows: "[]"
+      wait_for_unlock: soon

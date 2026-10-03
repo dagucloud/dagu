@@ -1,0 +1,6 @@
+steps:
+  - action: xlsx.read
+    with:
+      path: orders.xlsx
+      types: {Amount: number}
+      on_type_error: skip

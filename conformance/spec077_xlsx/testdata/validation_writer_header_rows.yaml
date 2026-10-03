@@ -1,0 +1,6 @@
+steps:
+  - action: xlsx.write
+    with:
+      path: orders.xlsx
+      rows: "[]"
+      header: 2

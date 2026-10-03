@@ -1,0 +1,7 @@
+steps:
+  - action: xlsx.sheet
+    with:
+      path: report.xlsx
+      operation: delete
+      sheet: October
+      if_exists: skip

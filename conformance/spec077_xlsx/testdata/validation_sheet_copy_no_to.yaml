@@ -1,0 +1,6 @@
+steps:
+  - action: xlsx.sheet
+    with:
+      path: report.xlsx
+      operation: copy
+      sheet: Template
