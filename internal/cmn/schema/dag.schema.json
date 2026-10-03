@@ -4099,6 +4099,19 @@
         { "required": ["password"] },
         { "required": ["oauth"] }
       ],
+      "if": {
+        "properties": { "provider": { "const": "google" } },
+        "required": ["provider", "oauth"]
+      },
+      "then": {
+        "not": {
+          "anyOf": [
+            { "required": ["imap"] },
+            { "required": ["smtp"] },
+            { "required": ["username"] }
+          ]
+        }
+      },
       "description": "A mailbox that mail actions read from and send through."
     },
     "mailServer": {

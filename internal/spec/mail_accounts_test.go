@@ -142,6 +142,11 @@ func TestMailAccountsErrors(t *testing.T) {
 			wantErr: `mail account "ops@example.com": imap is not used by a google account with oauth, which uses the Gmail API`,
 		},
 		{
+			name:    "SMTPOnGmailAPIAccount",
+			account: "{provider: google, smtp: {security: starttls}, oauth: {provider: google_refresh, client_id: c, client_secret: s, refresh_token: r}}",
+			wantErr: `mail account "ops@example.com": smtp is not used by a google account with oauth, which uses the Gmail API`,
+		},
+		{
 			name:    "UsernameOnGmailAPIAccount",
 			account: "{provider: google, username: me, oauth: {provider: google_refresh, client_id: c, client_secret: s, refresh_token: r}}",
 			wantErr: `mail account "ops@example.com": username is not used by a google account with oauth, which uses the Gmail API`,

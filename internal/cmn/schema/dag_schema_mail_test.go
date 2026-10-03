@@ -26,6 +26,9 @@ mail_accounts:
     smtp: {host: smtp.example.com, port: "587", security: starttls}
     username: billing
     password: ${BILLING_PASSWORD}
+  me@gmail.com:
+    provider: google
+    oauth: {provider: google_refresh, client_id: c, client_secret: s, refresh_token: r}
 steps:
   - run: "true"
 `
@@ -39,6 +42,9 @@ steps:
 		{"SMTP-only OAuth provider", "provider: microsoft_refresh", "provider: microsoft"},
 		{"unknown server field", "skip_tls_verify: true", "verify: false"},
 		{"scopes not a list", "scopes: [https://outlook.office.com/IMAP.AccessAsUser.All]", "scopes: imap"},
+		{"server on Gmail API account", "client_secret: s, refresh_token: r}", "client_secret: s, refresh_token: r}\n    imap: {host: imap.gmail.com}"},
+		{"SMTP on Gmail API account", "client_secret: s, refresh_token: r}", "client_secret: s, refresh_token: r}\n    smtp: {security: starttls}"},
+		{"username on Gmail API account", "client_secret: s, refresh_token: r}", "client_secret: s, refresh_token: r}\n    username: me"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			doc := mustParseYAMLDocument(t, strings.Replace(source, tc.from, tc.to, 1))
