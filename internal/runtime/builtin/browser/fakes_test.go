@@ -4,6 +4,7 @@
 package browser
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -58,8 +59,9 @@ type fakeEngine struct {
 	// actNavigatesTo is the page an act or a replay leaves the browser on,
 	// if set.
 	actNavigatesTo string
-	// replayNavigatesTo is the page a performed replay leaves the browser
-	// on, if set, while acts stay on their page.
+	// replayNavigatesTo, if set, is the page a performed replay leaves the
+	// browser on in place of actNavigatesTo, so replays can load a page
+	// while acts do not.
 	replayNavigatesTo string
 	// hidden lists the selectors of recorded actions whose element is on
 	// the page but hidden, so a replay does not perform them.
@@ -201,11 +203,8 @@ func (e *fakeEngine) Replay(_ context.Context, action recordedAction, _ map[stri
 	if slices.Contains(e.hidden, action.Selector) {
 		return false, nil
 	}
-	if e.actNavigatesTo != "" {
-		e.load(e.actNavigatesTo)
-	}
-	if e.replayNavigatesTo != "" {
-		e.load(e.replayNavigatesTo)
+	if target := cmp.Or(e.replayNavigatesTo, e.actNavigatesTo); target != "" {
+		e.load(target)
 	}
 	if e.replayLosesPage > 0 {
 		e.replayLosesPage--
