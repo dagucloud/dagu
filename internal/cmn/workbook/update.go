@@ -144,7 +144,10 @@ func DecodeUpdateRows(value any) ([]Row, error) {
 // UpdateRows writes columns back to the rows they came from. Before any
 // cell changes, the key column and every existing column in Set must still
 // be in the header row by name, and every row carrying _row must still hold
-// its key there; either failure aborts with nothing saved.
+// its key there; either failure aborts with nothing saved. A merged cell is
+// written once, at its top-left cell; rows that give it different values,
+// or a merged cell reaching outside its column's data rows, abort the same
+// way.
 func UpdateRows(ctx context.Context, path string, opts UpdateOptions) (*WriteResult, error) {
 	if opts.Missing == "" {
 		opts.Missing = MissingFail
@@ -167,6 +170,17 @@ type updatePlan struct {
 	grid      [][]string
 	merges    mergeFill
 	headerRow int
+	// mergedWrites holds the first write each merged cell receives, so a
+	// second row that writes it another value is refused rather than
+	// silently overwriting the first.
+	mergedWrites map[region]mergedWrite
+}
+
+// mergedWrite is a value an update writes into a merged cell and the input
+// row it came from.
+type mergedWrite struct {
+	index int
+	value any
 }
 
 // appendBase is the row whose styles appended rows inherit: the last data
@@ -235,7 +249,7 @@ func updateOnce(ctx context.Context, path string, opts UpdateOptions) (*WriteRes
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		changed, err := w.applyRow(plan, target.row, target.input, false)
+		changed, err := w.applyRow(plan, target, false)
 		if err != nil {
 			return nil, err
 		}
@@ -244,16 +258,20 @@ func updateOnce(ctx context.Context, path string, opts UpdateOptions) (*WriteRes
 			result.Changes.CellsChanged += changed
 		}
 	}
-	for _, input := range appends {
+	for _, target := range appends {
 		lastRow++
+		target.row = lastRow
 		if plan.keyCol > 0 {
-			if err := w.setCell(plan.sheet, plan.keyCol, lastRow, input[opts.Key]); err != nil {
+			if _, _, err := w.mergedTarget(plan, plan.keyCol, lastRow, plan.headers[plan.keyCol-plan.reg.C1]); err != nil {
 				return nil, err
 			}
-			w.styleWrittenCell(plan.sheet, plan.keyCol, lastRow, w.styleAt(plan.sheet, plan.keyCol, plan.appendBase()), input[opts.Key], "")
+			if err := w.setCell(plan.sheet, plan.keyCol, lastRow, target.input[opts.Key]); err != nil {
+				return nil, err
+			}
+			w.styleWrittenCell(plan.sheet, plan.keyCol, lastRow, w.styleAt(plan.sheet, plan.keyCol, plan.appendBase()), target.input[opts.Key], "")
 			result.Changes.CellsChanged++
 		}
-		changed, err := w.applyRow(plan, lastRow, input, true)
+		changed, err := w.applyRow(plan, target, true)
 		if err != nil {
 			return nil, err
 		}
@@ -297,7 +315,7 @@ func (w *file) planUpdate(opts UpdateOptions, warn func(string)) (*updatePlan, e
 	headers := headerNames(reg, layout, grid, merges, warn)
 	plan := &updatePlan{
 		sheet: sheet, reg: reg, layout: layout, headers: headers, grid: grid, merges: merges,
-		headerRow: layout.rows[len(layout.rows)-1],
+		headerRow: layout.rows[len(layout.rows)-1], mergedWrites: map[region]mergedWrite{},
 	}
 	headerRow := layout.rows[0]
 	if opts.Key != RowNumberKey {
@@ -382,7 +400,7 @@ type rowTarget struct {
 
 // locateRows finds the sheet row of every input row and runs the second
 // shape check: a row addressed by _row must still hold its key there.
-func (w *file) locateRows(plan *updatePlan, opts UpdateOptions, warn func(string)) (targets []rowTarget, appends []Row, err error) {
+func (w *file) locateRows(plan *updatePlan, opts UpdateOptions, warn func(string)) (targets, appends []rowTarget, err error) {
 	byKey := map[string][]int{}
 	if plan.keyCol > 0 {
 		for r := plan.layout.dataStart; r <= plan.reg.R2; r++ {
@@ -434,7 +452,7 @@ func (w *file) locateRows(plan *updatePlan, opts UpdateOptions, warn func(string
 				case MissingSkip:
 					warn(fmt.Sprintf("%s: key %q not found; row skipped", plan.sheet, want))
 				case MissingAppend:
-					appends = append(appends, input)
+					appends = append(appends, rowTarget{index: i, input: input})
 				case MissingFail:
 					return nil, nil, w.sheetError(plan.sheet, fmt.Sprintf("key %q not found", want))
 				default:
@@ -498,7 +516,8 @@ func sameValue(existing, value any) bool {
 
 // applyRow writes the set columns of one input row into a sheet row and
 // reports how many cells changed.
-func (w *file) applyRow(plan *updatePlan, row int, input Row, appended bool) (int, error) {
+func (w *file) applyRow(plan *updatePlan, target rowTarget, appended bool) (int, error) {
+	row, input := target.row, target.input
 	changed := 0
 	for _, sc := range plan.set {
 		var value any
@@ -521,9 +540,23 @@ func (w *file) applyRow(plan *updatePlan, row int, input Row, appended bool) (in
 		if err != nil {
 			return 0, w.cellError(plan.sheet, sc.column, row, err.Error())
 		}
+		merge, merged, err := w.mergedTarget(plan, sc.column, row, sc.name)
+		if err != nil {
+			return 0, err
+		}
+		col, cellRow := sc.column, row
+		if merged {
+			if first, seen := plan.mergedWrites[merge]; seen {
+				if !sameValue(comparable(first.value), comparable(out)) {
+					return 0, w.sheetError(plan.sheet, fmt.Sprintf("rows[%d] and rows[%d] write different values to merged cell %s", first.index, target.index, merge))
+				}
+				continue
+			}
+			plan.mergedWrites[merge] = mergedWrite{index: target.index, value: out}
+			col, cellRow = merge.C1, merge.R1
+		}
 		if !appended {
-			oc, or := plan.merges.origin(sc.column, row)
-			existing, err := w.cellValue(plan.sheet, oc, or, cellAt(plan.grid, oc, or), ReadOptions{}, func(string) {})
+			existing, err := w.cellValue(plan.sheet, col, cellRow, cellAt(plan.grid, col, cellRow), ReadOptions{}, func(string) {})
 			if err != nil {
 				return 0, err
 			}
@@ -533,11 +566,11 @@ func (w *file) applyRow(plan *updatePlan, row int, input Row, appended bool) (in
 				continue
 			}
 		}
-		cell := cellName(sc.column, row)
+		cell := cellName(col, cellRow)
 		if out == nil {
 			if !appended {
 				if err := w.f.SetCellStr(plan.sheet, cell, ""); err != nil {
-					return 0, w.cellError(plan.sheet, sc.column, row, err.Error())
+					return 0, w.cellError(plan.sheet, col, cellRow, err.Error())
 				}
 				changed++
 			}
@@ -547,17 +580,32 @@ func (w *file) applyRow(plan *updatePlan, row int, input Row, appended bool) (in
 		// library gives a time value a date format of its own when the cell
 		// has none; the kind the value or the literal's type calls for is
 		// applied over the cell's own style instead.
-		base := w.styleAt(plan.sheet, sc.column, row)
+		base := w.styleAt(plan.sheet, col, cellRow)
 		if appended {
-			base = w.styleAt(plan.sheet, sc.column, plan.appendBase())
+			base = w.styleAt(plan.sheet, col, plan.appendBase())
 		}
-		if err := w.setCell(plan.sheet, sc.column, row, out); err != nil {
+		if err := w.setCell(plan.sheet, col, cellRow, out); err != nil {
 			return 0, err
 		}
-		w.styleWrittenCell(plan.sheet, sc.column, row, base, out, kind)
+		w.styleWrittenCell(plan.sheet, col, cellRow, base, out, kind)
 		changed++
 	}
 	return changed, nil
+}
+
+// mergedTarget reports the merged cell covering (col, row), whose top-left
+// cell is where a write to (col, row) lands. A merged cell reaching into
+// another column, the header, or the rows below the table would carry the
+// write there, so it is refused; column names the column for the error.
+func (w *file) mergedTarget(plan *updatePlan, col, row int, column string) (region, bool, error) {
+	merge, merged := plan.merges.at(col, row)
+	if !merged {
+		return region{}, false, nil
+	}
+	if merge.C1 != merge.C2 || merge.R1 < plan.layout.dataStart || merge.R2 > plan.reg.R2 {
+		return region{}, false, w.cellError(plan.sheet, col, row, fmt.Sprintf("merged cell %s reaches outside column %q of the data rows; unmerge it to write this cell", merge.ref(), column))
+	}
+	return merge, true, nil
 }
 
 func joinInts(values []int) string {

@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -311,4 +312,98 @@ func TestUpdateRowsDatetimeLiteralKeepsItsFormatAtMidnight(t *testing.T) {
 	back, err := Read(context.Background(), path, ReadOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, "2026-10-01T00:00:00", back.Rows[0]["Amount"], "a literal pinned to datetime keeps a date-time format even at midnight")
+}
+
+// mergedBook is an order slip: order 1 has two lines, rows 2 and 3, whose
+// Order, Status, and Due cells are merged, and order 2 has one line. The
+// merges replace the default ones when given.
+func mergedBook(t *testing.T, merges ...string) string {
+	t.Helper()
+	f := excelize.NewFile()
+	const s = "Sheet1"
+	setRow(t, f, s, "A1", "ID", "Order", "Status", "Due")
+	setRow(t, f, s, "A2", 1, "A-1")
+	setRow(t, f, s, "A3", 2)
+	setRow(t, f, s, "A4", 3, "A-2")
+	if len(merges) == 0 {
+		merges = []string{"B2:B3", "C2:C3", "D2:D3"}
+	}
+	for _, m := range merges {
+		first, last, _ := strings.Cut(m, ":")
+		require.NoError(t, f.MergeCell(s, first, last))
+	}
+	return saveBook(t, f, "merged.xlsx")
+}
+
+func TestUpdateRowsMergedCellConflict(t *testing.T) {
+	t.Parallel()
+	path := mergedBook(t)
+	before := fileHash(t, path)
+	_, err := UpdateRows(context.Background(), path, UpdateOptions{Key: "ID", Rows: []Row{{"ID": 1, "Status": "first"}, {"ID": 2, "Status": "second"}}})
+	require.EqualError(t, err, "merged.xlsx Sheet1: rows[0] and rows[1] write different values to merged cell Sheet1!C2:C3")
+	// A row whose value the cell already holds still claims it.
+	_, err = UpdateRows(context.Background(), path, UpdateOptions{Key: "ID", Rows: []Row{{"ID": 1, "Status": nil}, {"ID": 2, "Status": "second"}}})
+	require.EqualError(t, err, "merged.xlsx Sheet1: rows[0] and rows[1] write different values to merged cell Sheet1!C2:C3")
+	assert.Equal(t, before, fileHash(t, path))
+}
+
+func TestUpdateRowsMergedCellEqualValues(t *testing.T) {
+	t.Parallel()
+	path := mergedBook(t)
+	result, err := UpdateRows(context.Background(), path, UpdateOptions{Key: "ID", Rows: []Row{{"ID": 1, "Status": "Done"}, {"ID": 2, "Status": "Done"}}})
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.Changes.CellsChanged, "the merged cell is written once")
+
+	back, err := Read(context.Background(), path, ReadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, "Done", back.Rows[0]["Status"])
+	assert.Equal(t, "Done", back.Rows[1]["Status"])
+	assert.Nil(t, back.Rows[2]["Status"])
+	f, err := excelize.OpenFile(path)
+	require.NoError(t, err)
+	defer func() { _ = f.Close() }()
+	merges, err := f.GetMergeCells("Sheet1")
+	require.NoError(t, err)
+	assert.Len(t, merges, 3)
+}
+
+func TestUpdateRowsMergedCellFromItsSecondRow(t *testing.T) {
+	t.Parallel()
+	path := mergedBook(t)
+	_, err := UpdateRows(context.Background(), path, UpdateOptions{Key: "ID", Rows: []Row{{"ID": 2, "Status": "Done", "Due": "2026-11-01"}}})
+	require.NoError(t, err)
+	back, err := Read(context.Background(), path, ReadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, "Done", back.Rows[0]["Status"])
+	assert.Equal(t, "2026-11-01", back.Rows[0]["Due"], "the date format lands on the cell that shows the date")
+
+	_, err = UpdateRows(context.Background(), path, UpdateOptions{Key: "ID", Rows: []Row{{"ID": 2, "Status": nil}}})
+	require.NoError(t, err)
+	back, err = Read(context.Background(), path, ReadOptions{})
+	require.NoError(t, err)
+	assert.Nil(t, back.Rows[0]["Status"])
+}
+
+// A merged cell reaching outside the column's data cells would carry the
+// write into the key, the header, or a column the update does not set.
+func TestUpdateRowsMergedCellOutsideItsColumn(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, merge, message string
+		row                  Row
+		missing              MissingMode
+	}{
+		{"key column", "A4:C4", `merged.xlsx Sheet1!C4: merged cell A4:C4 reaches outside column "Status" of the data rows; unmerge it to write this cell`, Row{"ID": 3, "Status": "Done"}, ""},
+		{"header row", "C1:C2", `merged.xlsx Sheet1!C2: merged cell C1:C2 reaches outside column "Status" of the data rows; unmerge it to write this cell`, Row{"ID": 1, "Status": "Done"}, ""},
+		{"appended row", "A5:D6", `merged.xlsx Sheet1!A5: merged cell A5:D6 reaches outside column "ID" of the data rows; unmerge it to write this cell`, Row{"ID": 9, "Status": "New"}, MissingAppend},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			path := mergedBook(t, tc.merge)
+			before := fileHash(t, path)
+			_, err := UpdateRows(context.Background(), path, UpdateOptions{Key: "ID", Rows: []Row{tc.row}, Missing: tc.missing})
+			require.EqualError(t, err, tc.message)
+			assert.Equal(t, before, fileHash(t, path))
+		})
+	}
 }

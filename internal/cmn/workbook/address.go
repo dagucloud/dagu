@@ -23,9 +23,14 @@ type region struct {
 }
 
 func (r region) String() string {
+	return r.Sheet + "!" + r.ref()
+}
+
+// ref is the region's address without its sheet, such as A3:B4.
+func (r region) ref() string {
 	start, _ := excelize.CoordinatesToCellName(r.C1, r.R1)
 	end, _ := excelize.CoordinatesToCellName(r.C2, max(r.R2, r.R1))
-	return r.Sheet + "!" + start + ":" + end
+	return start + ":" + end
 }
 
 func (r region) rows() int {

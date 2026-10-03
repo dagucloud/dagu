@@ -205,12 +205,20 @@ func (w *file) mergeMap(sheet string) (mergeFill, error) {
 // origin returns the coordinates whose value a cell shows: its own, or the
 // top-left cell of the merge region covering it.
 func (m mergeFill) origin(col, row int) (int, int) {
-	for _, reg := range m {
-		if col >= reg.C1 && col <= reg.C2 && row >= reg.R1 && row <= reg.R2 {
-			return reg.C1, reg.R1
-		}
+	if reg, ok := m.at(col, row); ok {
+		return reg.C1, reg.R1
 	}
 	return col, row
+}
+
+// at returns the merge region covering a cell, if any.
+func (m mergeFill) at(col, row int) (region, bool) {
+	for _, reg := range m {
+		if col >= reg.C1 && col <= reg.C2 && row >= reg.R1 && row <= reg.R2 {
+			return reg, true
+		}
+	}
+	return region{}, false
 }
 
 // headerLayout is where a read's header rows sit and where data begins.
