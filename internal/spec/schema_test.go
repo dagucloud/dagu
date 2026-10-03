@@ -173,6 +173,14 @@ func TestLoadSchemaFromURL(t *testing.T) {
 		assert.Contains(t, err.Error(), "unsupported URL scheme")
 	})
 
+	t.Run("CredentialsInURL", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := loadSchemaFromURL("https://user:pass@example.com/schema.json")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "credentials")
+	})
+
 	t.Run("ConnectionRefused", func(t *testing.T) {
 		t.Parallel()
 

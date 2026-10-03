@@ -111,6 +111,9 @@ func loadSchemaFromURL(schemaURL string) (data []byte, err error) {
 	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
 		return nil, fmt.Errorf("unsupported URL scheme: %s", parsedURL.Scheme)
 	}
+	if parsedURL.User != nil {
+		return nil, fmt.Errorf("schema URL must not contain credentials")
+	}
 
 	req, err := http.NewRequest("GET", schemaURL, nil)
 	if err != nil {

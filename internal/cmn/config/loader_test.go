@@ -2097,6 +2097,42 @@ cors_allowed_origins:
 		assert.Contains(t, cfg.Warnings[0], `auth.mode "none"`)
 		assert.Contains(t, cfg.Warnings[0], "execute workflows without authentication")
 	})
+
+	t.Run("OriginWithPathWarns", func(t *testing.T) {
+		// An origin entry is just scheme://host[:port]; a path, query, or
+		// fragment is silently dropped when matching, so the config should
+		// warn about it.
+		cfg := loadFromYAML(t, `
+auth:
+  mode: none
+cors_allowed_origins:
+  - https://app.example.com/some/path
+`)
+		require.Len(t, cfg.Warnings, 1)
+		assert.Contains(t, cfg.Warnings[0], "path, query, or fragment")
+	})
+
+	t.Run("OriginWithFragmentOnlyWarns", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+auth:
+  mode: none
+cors_allowed_origins:
+  - https://app.example.com#section
+`)
+		require.Len(t, cfg.Warnings, 1)
+		assert.Contains(t, cfg.Warnings[0], "path, query, or fragment")
+	})
+
+	t.Run("WildcardPatternDoesNotWarn", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+auth:
+  mode: none
+cors_allowed_origins:
+  - https://*.example.com
+  - https://plain.example.com/
+`)
+		assert.Empty(t, cfg.Warnings)
+	})
 }
 
 func TestLoad_IPAccess(t *testing.T) {
