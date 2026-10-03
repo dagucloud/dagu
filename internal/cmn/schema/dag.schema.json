@@ -7541,7 +7541,7 @@
         "allowed_domains": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 },
-          "description": "Domains the browser may navigate to, such as example.com or *.example.com."
+          "description": "Hosts the page's HTTP(S) requests may reach, such as example.com or *.example.com. List the CDN and sign-in hosts the site loads from."
         },
         "screenshots": {
           "type": "string",
@@ -7640,7 +7640,7 @@
                 "instruction": { "type": "string", "minLength": 1 },
                 "cache": {
                   "type": "boolean",
-                  "description": "Replay recorded actions for this operation. Defaults to with.cache."
+                  "description": "Set false to disable the replay cache for this operation. Has no effect when with.cache is false."
                 }
               }
             }
@@ -7870,7 +7870,7 @@
                 "instruction": { "type": "string", "minLength": 1 },
                 "cache": {
                   "type": "boolean",
-                  "description": "Replay recorded actions for this operation. Defaults to with.cache."
+                  "description": "Set false to disable the replay cache for this operation. Has no effect when with.cache is false."
                 },
                 "max_actions": {
                   "type": "integer",

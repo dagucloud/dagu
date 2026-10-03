@@ -30,8 +30,8 @@ Flags:
       --dry-run       Preview what would be deleted without deleting
 
 Active runs are never deleted from history. Deleting all history also clears
-the replay cache of the DAG's browser steps on this host. Definition deletion
-is refused while the DAG has alive processes.
+the replay caches of the DAG's browser and computer steps on this host.
+Definition deletion is refused while the DAG has alive processes.
 
 With --definition, identify the DAG by filename, stem, or configured path.
 
