@@ -253,7 +253,9 @@ type cellTarget struct {
 // resolveCells maps every address to its cell, in address order, and
 // refuses two addresses that name the same cell, such as B3 and $B$3 or a
 // defined name and the cell it refers to: the request would otherwise
-// write one of their values at random.
+// write one of their values at random. An address inside a merged cell, or
+// a range covering exactly its area, as Excel names a merged cell, names
+// the merged cell, whose top-left cell holds its value.
 func (w *file) resolveCells(sheet string, cells map[string]CellValue) ([]cellTarget, error) {
 	addresses := make([]string, 0, len(cells))
 	for addr := range cells {
@@ -262,17 +264,31 @@ func (w *file) resolveCells(sheet string, cells map[string]CellValue) ([]cellTar
 	sort.Strings(addresses)
 	targets := make([]cellTarget, 0, len(addresses))
 	first := map[string]string{}
+	merges := map[string]mergeFill{}
 	for _, addr := range addresses {
 		reg, err := w.parseRange(sheet, addr)
 		if err != nil {
 			return nil, err
 		}
-		if reg.C1 != reg.C2 || reg.R1 != reg.R2 {
+		fill, loaded := merges[reg.Sheet]
+		if !loaded {
+			if fill, err = w.mergeMap(reg.Sheet); err != nil {
+				return nil, err
+			}
+			merges[reg.Sheet] = fill
+		}
+		single := reg.C1 == reg.C2 && reg.R1 == reg.R2
+		key, what := reg.Sheet+"!"+cellName(reg.C1, reg.R1), "cell"
+		merge, merged := fill.at(reg.C1, reg.R1)
+		switch {
+		case merged && (single || reg == merge):
+			reg = region{Sheet: reg.Sheet, C1: merge.C1, R1: merge.R1, C2: merge.C1, R2: merge.R1}
+			key, what = merge.String(), "merged cell"
+		case !single:
 			return nil, fmt.Errorf("%s: %q is not a single cell", w.base, addr)
 		}
-		key := reg.String()
 		if other, dup := first[key]; dup {
-			return nil, fmt.Errorf("%s: %q and %q name the same cell %s", w.base, other, addr, key)
+			return nil, fmt.Errorf("%s: %q and %q name the same %s %s", w.base, other, addr, what, key)
 		}
 		first[key] = addr
 		targets = append(targets, cellTarget{addr: addr, region: reg})

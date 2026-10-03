@@ -268,3 +268,45 @@ func TestWriteCellsDryRunAndErrors(t *testing.T) {
 	var missing *NotFoundError
 	require.ErrorAs(t, err, &missing)
 }
+
+// mergedTemplate is a template whose total box spans B2:D2 and is named
+// Total, the way Excel names a merged cell: over its whole area.
+func mergedTemplate(t *testing.T) string {
+	t.Helper()
+	f := excelize.NewFile()
+	setRow(t, f, "Sheet1", "A1", "Customer", "")
+	setRow(t, f, "Sheet1", "A2", "Total", "old")
+	require.NoError(t, f.MergeCell("Sheet1", "B2", "D2"))
+	require.NoError(t, f.SetDefinedName(&excelize.DefinedName{Name: "Total", RefersTo: "Sheet1!$B$2:$D$2"}))
+	return saveBook(t, f, "merged.xlsx")
+}
+
+func TestWriteCellsMergedCell(t *testing.T) {
+	t.Parallel()
+	for _, addr := range []string{"Total", "C2", "B2:D2"} {
+		t.Run(addr, func(t *testing.T) {
+			t.Parallel()
+			path := mergedTemplate(t)
+			result, err := WriteCells(context.Background(), path, WriteCellsOptions{Cells: map[string]CellValue{addr: {Value: int64(42)}}})
+			require.NoError(t, err)
+			assert.Equal(t, Changes{Sheet: "Sheet1", Range: "Sheet1!B2:B2", RowsUpdated: 1, CellsChanged: 1}, result.Changes)
+			f, err := excelize.OpenFile(path)
+			require.NoError(t, err)
+			defer func() { _ = f.Close() }()
+			total, err := f.GetCellValue("Sheet1", "B2")
+			require.NoError(t, err)
+			assert.Equal(t, "42", total)
+		})
+	}
+}
+
+func TestWriteCellsRejectsTwoAddressesInOneMergedCell(t *testing.T) {
+	t.Parallel()
+	path := mergedTemplate(t)
+	before := fileHash(t, path)
+	_, err := WriteCells(context.Background(), path, WriteCellsOptions{Cells: map[string]CellValue{"B2": {Value: 1}, "C2": {Value: 2}}})
+	require.EqualError(t, err, `merged.xlsx: "B2" and "C2" name the same merged cell Sheet1!B2:D2`)
+	_, err = WriteCells(context.Background(), path, WriteCellsOptions{Cells: map[string]CellValue{"B2:C2": {Value: 1}}})
+	require.ErrorContains(t, err, `"B2:C2" is not a single cell`, "a range that is only part of a merged cell")
+	assert.Equal(t, before, fileHash(t, path))
+}
