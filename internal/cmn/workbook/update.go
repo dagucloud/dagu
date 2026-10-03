@@ -238,7 +238,7 @@ func updateOnce(ctx context.Context, path string, opts UpdateOptions) (*WriteRes
 		}
 		plan.reg.C2++
 		plan.set[i].column = plan.reg.C2
-		if err := w.addHeaderColumn(plan.sheet, plan.headerRow, plan.reg.C2, plan.set[i].name); err != nil {
+		if err := w.addHeaderColumn(plan.sheet, plan.merges, plan.headerRow, plan.reg.C2, plan.set[i].name); err != nil {
 			return nil, err
 		}
 		result.Changes.ColumnsAdded++

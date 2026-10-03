@@ -332,7 +332,7 @@ func (w *file) alignAppend(sheet string, table Table, header bool, warn func(str
 			return targets, w.sheetError(sheet, fmt.Sprintf("column %q not found in header row %d; did you mean %q?", name, targets.headerRow, near))
 		default:
 			next++
-			if err := w.addHeaderColumn(sheet, targets.headerRow, next, name); err != nil {
+			if err := w.addHeaderColumn(sheet, merges, targets.headerRow, next, name); err != nil {
 				return targets, err
 			}
 			targets.cols[c] = next
@@ -344,8 +344,13 @@ func (w *file) alignAppend(sheet string, table Table, header bool, warn func(str
 
 // addHeaderColumn writes the header cell of a column added at the right of
 // a header row, copying the style of the header cell to its left so the
-// header keeps one look.
-func (w *file) addHeaderColumn(sheet string, headerRow, col int, name string) error {
+// header keeps one look. A header cell inside a merged cell is refused: the
+// name would land in the merged cell's top-left cell, which may hold
+// another column's header.
+func (w *file) addHeaderColumn(sheet string, merges mergeFill, headerRow, col int, name string) error {
+	if merge, ok := merges.at(col, headerRow); ok {
+		return w.cellError(sheet, col, headerRow, fmt.Sprintf("merged cell %s covers the header cell of new column %q; unmerge it to add the column", merge.ref(), name))
+	}
 	cell := cellName(col, headerRow)
 	if err := w.f.SetCellStr(sheet, cell, name); err != nil {
 		return w.cellError(sheet, col, headerRow, err.Error())

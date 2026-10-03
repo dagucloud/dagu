@@ -419,3 +419,16 @@ func TestUpdateRowsComparesTextExactly(t *testing.T) {
 	_, err = UpdateRows(context.Background(), merged, UpdateOptions{Key: "ID", Rows: []Row{{"ID": 1, "Status": "Ready"}, {"ID": 2, "Status": "Ready "}}})
 	require.ErrorContains(t, err, "rows[0] and rows[1] write different values to merged cell Sheet1!C2:C3")
 }
+
+// A header cell merged across the column a new one would take: the new
+// header would land in the merged cell's top-left cell, an existing header.
+func TestUpdateRowsAddedColumnUnderMergedHeader(t *testing.T) {
+	t.Parallel()
+	path := mergedBook(t, "D1:E1")
+	before := fileHash(t, path)
+	set, err := ParseSet(map[string]any{"Checked": map[string]any{"value": "yes"}})
+	require.NoError(t, err)
+	_, err = UpdateRows(context.Background(), path, UpdateOptions{Key: "ID", Rows: []Row{{"ID": 1}}, Set: set})
+	require.EqualError(t, err, `merged.xlsx Sheet1!E1: merged cell D1:E1 covers the header cell of new column "Checked"; unmerge it to add the column`)
+	assert.Equal(t, before, fileHash(t, path))
+}
