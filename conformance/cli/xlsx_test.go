@@ -5,6 +5,7 @@ package cli_test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
@@ -64,4 +65,95 @@ func TestXlsxInspectAndReadCommands(t *testing.T) {
 	missing := dagu.Run("xlsx", "read", "missing.xlsx")
 	missing.ExpectNonZeroExitCode()
 	missing.ExpectStderrContains("missing.xlsx: workbook not found")
+}
+
+// TestXlsxReadCommandFlags covers the read options the command exposes:
+// sheet, range, header, columns, and max-rows, each changing what the
+// command prints the way the xlsx.read option does.
+func TestXlsxReadCommandFlags(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	dagu.RunWithEnv(sharedEnv(t), "start", "xlsx_two_sheets.yaml").ExpectExitCode(0)
+
+	type result struct {
+		Rows      []map[string]any `json:"rows"`
+		Count     int              `json:"count"`
+		Headers   []string         `json:"headers"`
+		Sheet     string           `json:"sheet"`
+		Range     string           `json:"range"`
+		Truncated bool             `json:"truncated"`
+	}
+	for _, tc := range []struct {
+		name  string
+		flags []string
+		want  result
+	}{
+		{"sheet", []string{"--sheet", "Second"}, result{Count: 3, Headers: []string{"Quarterly report", "Q3"}, Sheet: "Second", Range: "Second!A1:B4"}},
+		{"header row", []string{"--sheet", "Second", "--header", "2"}, result{Count: 2, Headers: []string{"Item", "Qty"}, Sheet: "Second", Range: "Second!A2:B4"}},
+		{"range", []string{"--range", "B1:C"}, result{Count: 2, Headers: []string{"Amount", "Due"}, Sheet: "Orders", Range: "Orders!B1:C3"}},
+		{"header false", []string{"--header", "false"}, result{Count: 3, Headers: []string{"A", "B", "C"}, Sheet: "Orders", Range: "Orders!A1:C3"}},
+		{"columns", []string{"--columns", "Invoice No:inv,Amount"}, result{Count: 2, Headers: []string{"inv", "Amount"}, Sheet: "Orders", Range: "Orders!A1:C3"}},
+		{"max rows", []string{"--max-rows", "1"}, result{Count: 1, Headers: []string{"Invoice No", "Amount", "Due"}, Sheet: "Orders", Range: "Orders!A1:C3", Truncated: true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			read := dagu.Run(append([]string{"xlsx", "read", "orders.xlsx", "--format", "json"}, tc.flags...)...)
+			read.ExpectExitCode(0)
+			var got result
+			require.NoError(t, json.Unmarshal([]byte(read.Stdout()), &got), read.Stdout())
+			require.Len(t, got.Rows, tc.want.Count)
+			got.Rows = nil
+			require.Equal(t, tc.want, got)
+		})
+	}
+
+	columns := dagu.Run("xlsx", "read", "orders.xlsx", "--format", "json", "--columns", "Invoice No:inv,Amount")
+	columns.ExpectExitCode(0)
+	var renamed result
+	require.NoError(t, json.Unmarshal([]byte(columns.Stdout()), &renamed), columns.Stdout())
+	require.Equal(t, "INV-1", renamed.Rows[0]["inv"])
+	require.NotContains(t, renamed.Rows[0], "Due")
+
+	text := dagu.Run("xlsx", "read", "orders.xlsx")
+	text.ExpectExitCode(0)
+	lines := strings.Split(strings.ReplaceAll(text.Stdout(), "\r\n", "\n"), "\n")
+	require.Equal(t, "_row\tInvoice No\tAmount\tDue", lines[0], "the text form is tab-separated with _row first")
+	require.Equal(t, "2\tINV-1\t10\t2026-10-01", lines[1])
+	require.Len(t, lines, 4, "one line per row and a trailing newline")
+}
+
+// TestXlsxInspectCommandSheet covers --sheet on inspect and the text form.
+func TestXlsxInspectCommandSheet(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	dagu.RunWithEnv(sharedEnv(t), "start", "xlsx_two_sheets.yaml").ExpectExitCode(0)
+
+	all := dagu.Run("xlsx", "inspect", "orders.xlsx", "--format", "json")
+	all.ExpectExitCode(0)
+	var info struct {
+		Sheets []struct {
+			Name string `json:"name"`
+		} `json:"sheets"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(all.Stdout()), &info), all.Stdout())
+	require.Len(t, info.Sheets, 2)
+
+	one := dagu.Run("xlsx", "inspect", "orders.xlsx", "--format", "json", "--sheet", "Second")
+	one.ExpectExitCode(0)
+	require.NoError(t, json.Unmarshal([]byte(one.Stdout()), &info), one.Stdout())
+	require.Len(t, info.Sheets, 1)
+	require.Equal(t, "Second", info.Sheets[0].Name)
+
+	missing := dagu.Run("xlsx", "inspect", "orders.xlsx", "--sheet", "Nope")
+	missing.ExpectNonZeroExitCode()
+	missing.ExpectStderrContains(`orders.xlsx: sheet "Nope" not found; sheets present: Orders, Second`)
+
+	text := dagu.Run("xlsx", "inspect", "orders.xlsx", "--rows", "1")
+	text.ExpectExitCode(0)
+	lines := strings.Split(strings.ReplaceAll(text.Stdout(), "\r\n", "\n"), "\n")
+	require.Equal(t, "orders.xlsx: 2 sheets, 1900 date system", lines[0])
+	require.Equal(t, `Sheet "Orders": used A1:C3, table Orders!A1:C3, header row 1, 2 rows`, lines[1])
+	require.Equal(t, "  Columns: Invoice No (string), Amount (number), Due (date)", lines[2])
+	require.Equal(t, "  Row 2: Invoice No=INV-1  Amount=10  Due=2026-10-01", lines[3])
 }

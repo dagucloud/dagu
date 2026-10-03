@@ -1,0 +1,17 @@
+working_dir: .
+steps:
+  - id: orders
+    action: xlsx.write
+    with:
+      path: orders.xlsx
+      sheet: Orders
+      columns: [Invoice No, Amount, Due]
+      rows: [{"Invoice No": "INV-1", "Amount": 10, "Due": "2026-10-01"}, {"Invoice No": "INV-2", "Amount": 20.5, "Due": "2026-10-02"}]
+  - id: second
+    depends: orders
+    action: xlsx.write
+    with:
+      path: orders.xlsx
+      sheet: Second
+      header: false
+      rows: [["Quarterly report", "Q3"], ["Item", "Qty"], ["Widget", 3], ["Gadget", 5]]
