@@ -1,0 +1,25 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: report.xlsx
+      header: false
+      rows:
+        - ["Monthly report"]
+        - [null]
+        - [" Invoice ", null, "Amount", "Amount", "Note\nText"]
+        - ["INV-1", "x", 1, 2, "n1"]
+        - ["INV-2", "y", 3, 4, "n2"]
+  - id: read
+    depends: write
+    action: xlsx.read
+    with:
+      path: report.xlsx
+      header: 3
+  - id: out
+    depends: read
+    action: file.write
+    with:
+      path: out.json
+      content: '{"headers": ${steps.read.outputs.headers}, "range": "${steps.read.outputs.range}", "count": ${steps.read.outputs.count}, "rows": ${steps.read.outputs.rows}, "warnings": ${steps.read.outputs.warnings}}'

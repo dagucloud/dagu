@@ -6,3 +6,9 @@ steps:
       path: held.xlsx
       columns: [a]
       rows: [{"a": 2}]
+  - id: out
+    depends: append
+    action: file.write
+    with:
+      path: warnings.json
+      content: ${steps.append.outputs.warnings}

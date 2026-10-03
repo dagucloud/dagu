@@ -1,0 +1,42 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: calc.xlsx
+      columns: [a, b]
+      rows: [{"a": 2}, {"a": 3}]
+  - id: formulas
+    depends: write
+    action: xlsx.write_cells
+    with:
+      path: calc.xlsx
+      cells:
+        B2: {formula: "=A2*2"}
+        B3: {formula: "=NA()"}
+  - id: cached
+    depends: formulas
+    action: xlsx.read
+    with:
+      path: calc.xlsx
+  - id: text
+    depends: formulas
+    action: xlsx.read
+    with:
+      path: calc.xlsx
+      formulas: text
+  - id: calculate
+    depends: formulas
+    action: xlsx.read
+    with:
+      path: calc.xlsx
+      formulas: calculate
+  - id: out
+    depends: [cached, text, calculate]
+    action: file.write
+    with:
+      path: out.json
+      content: |
+        {"cached": {"rows": ${steps.cached.outputs.rows}, "warnings": ${steps.cached.outputs.warnings}},
+         "text": {"rows": ${steps.text.outputs.rows}, "warnings": ${steps.text.outputs.warnings}},
+         "calculate": {"rows": ${steps.calculate.outputs.rows}, "warnings": ${steps.calculate.outputs.warnings}}}

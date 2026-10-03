@@ -1,0 +1,33 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: many.xlsx
+      input: many.csv
+  - id: default
+    depends: write
+    action: xlsx.read
+    with:
+      path: many.xlsx
+  - id: raised
+    depends: write
+    action: xlsx.read
+    with:
+      path: many.xlsx
+      max_rows: 5001
+  - id: convert
+    depends: write
+    action: xlsx.convert
+    with:
+      path: many.xlsx
+      output: many.jsonl
+  - id: out
+    depends: [default, raised, convert]
+    action: file.write
+    with:
+      path: out.json
+      content: |
+        {"default": {"count": ${steps.default.outputs.count}, "truncated": ${steps.default.outputs.truncated}, "warnings": ${steps.default.outputs.warnings}},
+         "raised": {"count": ${steps.raised.outputs.count}, "truncated": ${steps.raised.outputs.truncated}, "warnings": ${steps.raised.outputs.warnings}},
+         "convert": {"count": ${steps.convert.outputs.count}}}

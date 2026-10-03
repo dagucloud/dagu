@@ -274,6 +274,15 @@ func TestXlsxTypeErrors(t *testing.T) {
 	require.Equal(t, float64(7), out.Rows[1]["Amount"])
 	require.Len(t, out.Warnings, 1)
 	require.Contains(t, out.Warnings[0], `Sheet1!A2: expected number, found "N/A"`)
+
+	// on_type_error: null is another spelling of warn.
+	var asNull struct {
+		Rows     []map[string]any `json:"rows"`
+		Warnings []string         `json:"warnings"`
+	}
+	readJSON(t, warn, "out_null.json", &asNull)
+	require.Equal(t, out.Rows, asNull.Rows)
+	require.Equal(t, out.Warnings, asNull.Warnings)
 }
 
 func TestXlsxUnsupportedFormat(t *testing.T) {
@@ -293,6 +302,12 @@ func TestXlsxLockFileNobodyHolds(t *testing.T) {
 	dagu.Run("start", "write_only.yaml").ExpectExitCode(0)
 	dagu.WriteFile("~$held.xlsx", "held")
 	dagu.Run("start", "append_only.yaml").ExpectExitCode(0)
+	// The step warns about the leftover; the rest of the text says whether
+	// this platform could tell that no program holds it.
+	var warnings []string
+	readJSON(t, dagu, "warnings.json", &warnings)
+	require.Len(t, warnings, 1)
+	require.Contains(t, warnings[0], "~$held.xlsx exists")
 }
 
 func TestXlsxValidation(t *testing.T) {

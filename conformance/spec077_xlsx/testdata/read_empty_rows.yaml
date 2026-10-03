@@ -1,0 +1,45 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: gaps.xlsx
+      columns: [n]
+      rows: [{"n": 1}, {"n": null}, {"n": 2}, {"n": null}, {"n": null}]
+  - id: default
+    depends: write
+    action: xlsx.read
+    with:
+      path: gaps.xlsx
+      range: A1:A6
+  - id: keep
+    depends: write
+    action: xlsx.read
+    with:
+      path: gaps.xlsx
+      range: A1:A6
+      keep_empty_rows: true
+  - id: stop
+    depends: write
+    action: xlsx.read
+    with:
+      path: gaps.xlsx
+      range: A1:A6
+      stop_at_blank: true
+  - id: capped
+    depends: write
+    action: xlsx.read
+    with:
+      path: gaps.xlsx
+      range: A1:A6
+      max_rows: 2
+  - id: out
+    depends: [default, keep, stop, capped]
+    action: file.write
+    with:
+      path: out.json
+      content: |
+        {"default": {"count": ${steps.default.outputs.count}, "rows": ${steps.default.outputs.rows}, "truncated": ${steps.default.outputs.truncated}},
+         "keep": {"count": ${steps.keep.outputs.count}, "rows": ${steps.keep.outputs.rows}},
+         "stop": {"count": ${steps.stop.outputs.count}, "rows": ${steps.stop.outputs.rows}},
+         "capped": {"count": ${steps.capped.outputs.count}, "rows": ${steps.capped.outputs.rows}, "truncated": ${steps.capped.outputs.truncated}, "warnings": ${steps.capped.outputs.warnings}}}

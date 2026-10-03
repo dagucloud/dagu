@@ -19,3 +19,16 @@ steps:
     with:
       path: out.json
       content: '{"rows": ${steps.read.outputs.rows}, "warnings": ${steps.read.outputs.warnings}}'
+  - id: read_null
+    depends: write
+    action: xlsx.read
+    with:
+      path: amounts.xlsx
+      types: {Amount: number}
+      on_type_error: "null"
+  - id: out_null
+    depends: read_null
+    action: file.write
+    with:
+      path: out_null.json
+      content: '{"rows": ${steps.read_null.outputs.rows}, "warnings": ${steps.read_null.outputs.warnings}}'
