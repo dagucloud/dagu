@@ -89,7 +89,8 @@ func TestSearch(t *testing.T) {
 }
 
 // One loop item fails: the other email is marked read, and the failed one
-// stays unread so the next run takes it again.
+// stays unread so the next run takes it again. The loop is partially
+// succeeded (Spec 018), so the run reports that rather than a failure.
 func TestEachEmailMarkedAfterItsWork(t *testing.T) {
 	t.Parallel()
 
@@ -98,7 +99,9 @@ func TestEachEmailMarkedAfterItsWork(t *testing.T) {
 	broken := server.Append(t, "INBOX", email("Broken", "This one fails."))
 
 	dagu := harness.NewRunner(t)
-	dagu.RunWithEnv(accountEnv(server), "start", "each_mark_read.yaml").ExpectNonZeroExitCode()
+	result := dagu.RunWithEnv(accountEnv(server), "start", "each_mark_read.yaml")
+	result.ExpectExitCode(0)
+	require.Contains(t, result.Stdout(), "Partially Succeeded")
 
 	assert.True(t, server.HasFlag(t, "INBOX", good, imap.FlagSeen))
 	assert.False(t, server.HasFlag(t, "INBOX", broken, imap.FlagSeen))
