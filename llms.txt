@@ -1066,8 +1066,7 @@ rejected order fails its item body; the loop is then partially succeeded,
 the aggregate lists the failed items and holds only the successful bodies in
 `outputs`, and the write-back marks the rows that succeeded. The rejected
 rows keep an empty Status, so the next run submits only them; the run ends
-partially succeeded with exit code 1 unless the loop sets
-`continue_on: {mark_success: true}`.
+partially succeeded.
 
 `xlsx.read` `with` fields: `path`, `password`, `sheet` (first sheet by default,
 matched case-insensitively), `range` (`A2:F`, `Sheet1!A2:F`, a named range, or a

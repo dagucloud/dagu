@@ -705,8 +705,8 @@ the loop is then partially succeeded (Spec 018), the aggregate lists the
 failed items under `items` and holds only the successful bodies in
 `outputs`, and the write-back marks the rows that succeeded. The rejected
 rows keep an empty Status, so the next run submits only them; the run ends
-partially succeeded, with exit code 1 unless the loop sets
-`continue_on: {mark_success: true}`.
+partially succeeded, which the run history shows and `dagu status`
+reports.
 
 Build a report from a query and keep it with the run:
 
