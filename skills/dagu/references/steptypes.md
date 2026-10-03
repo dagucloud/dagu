@@ -735,7 +735,8 @@ from `mail.search`): `to` defaults to its Reply-To or sender, `subject` to
 
 ## mail.search / mail.organize
 
-Read and organize a mailbox over IMAP. Accounts live in the DAG-level (or base
+Read and organize a mailbox over IMAP or, for a Google account signed in with
+OAuth, the Gmail API. Accounts live in the DAG-level (or base
 config) `mail_accounts` map, keyed by email address. `provider: google` or
 `provider: microsoft` fills in the servers; any other server sets `imap.host`.
 Authenticate with `password` or with `oauth` (`google_refresh` or
@@ -744,7 +745,8 @@ Authenticate with `password` or with `oauth` (`google_refresh` or
 `provider: google` account with `oauth` uses the Gmail API instead of IMAP and
 SMTP: it takes no `imap`, `smtp`, or `username`, folders are Gmail labels, and
 its grant needs `https://www.googleapis.com/auth/gmail.modify` or
-`https://mail.google.com/`.
+`https://mail.google.com/`, and the Google Cloud project of `client_id` must have
+the Gmail API enabled.
 
 ```yaml
 mail_accounts:

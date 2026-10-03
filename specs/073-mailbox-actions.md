@@ -106,13 +106,19 @@ The actions behave as they do over IMAP, with Gmail's labels as folders:
   `[Gmail]/Important`, `[Gmail]/Spam`, and `[Gmail]/Trash` are those labels.
   `[Google Mail]/` works as the prefix, and `Bin` as the name of Trash.
 - Searching any folder other than Spam or Trash leaves out email in either.
+- Gmail lists the newest email first, so a search examines at most the newest
+  2,000 emails that pass the folder, `unread`, `within`, and `has_attachments`
+  filters, and returns the oldest matches among them. When more emails pass
+  those filters, `truncated` is `true`.
 - `unread` and `flagged` are the `UNREAD` and `STARRED` labels.
 - `move: folder` adds the destination label, creating it when it does not exist,
-  and removes the label the email was found under. `archive` removes that label,
+  and removes the label the email was found under. A folder under `[Gmail]/` or
+  `[Google Mail]/` that is none of Gmail's own is never created; the step fails. `archive` removes that label,
   so email found in `INBOX` leaves the inbox. `trash` moves the email to Gmail's
   trash.
 - An email is missing when it no longer carries the label it was found under, is
-  in the trash (unless it was found there), or no longer exists.
+  in Spam or Trash (unless it was found there), or no longer exists. The same
+  holds for `in_reply_to`.
 - `mail.send` sends through the Gmail API. A reply also joins the Gmail
   conversation of the email it answers.
 
@@ -144,7 +150,8 @@ Published outputs, following [Spec 012](012-step-outputs.md):
   path}`).
 - `count`: the number of elements in `messages`.
 - `truncated`: `true` when any `text` was shortened, or any email left out, to fit
-  the output limit.
+  the output limit, or when a Gmail API search examined only the newest emails of
+  the folder ([Gmail API accounts](#gmail-api-accounts)).
 
 `text` is the plain-text body, or the HTML body converted to text when the email
 has no plain-text part, at most 10,000 characters. When the encoded outputs would
@@ -278,8 +285,8 @@ At run time:
   before sending, with an error containing
   `in_reply_to: the email is no longer in its folder`.
 - A connection failure or timeout fails the step. An IMAP connection that
-  transfers nothing for two minutes counts as failed, as does a Gmail API request
-  that takes longer than two minutes. Changes that
+  transfers nothing for two minutes counts as failed, as does a Gmail API
+  connection. Changes that
   `mail.organize` already applied stay applied.
 - `mail.search` with `save_attachments` while artifact storage is off:
   `save_attachments requires artifact storage`.
