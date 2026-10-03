@@ -13,7 +13,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -138,10 +137,15 @@ func isLikelyLocalDAGArg(arg string) bool {
 	if strings.HasSuffix(arg, ".yaml") || strings.HasSuffix(arg, ".yml") {
 		return true
 	}
-	if strings.ContainsRune(arg, filepath.Separator) {
+	if strings.Contains(arg, "/") {
 		return true
 	}
-	return false
+	// A bare backslash can be a valid character in a remote file ID, so only
+	// unambiguous Windows path prefixes read as local.
+	if strings.HasPrefix(arg, `\\`) {
+		return true
+	}
+	return len(arg) > 2 && arg[1] == ':' && arg[2] == '\\'
 }
 
 func (c *remoteClient) startDAG(ctx context.Context, fileName string, body api.ExecuteDAGJSONBody) (*api.DAGRunSummary, error) {

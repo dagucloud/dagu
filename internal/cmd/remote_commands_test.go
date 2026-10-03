@@ -68,6 +68,35 @@ func TestToExecStatus_MapsRemoteFieldsExplicitly(t *testing.T) {
 	assert.Equal(t, []string{"hello"}, status.Nodes[0].Step.Commands[0].Args)
 }
 
+func TestIsLikelyLocalDAGArg(t *testing.T) {
+	t.Parallel()
+
+	// A forward slash always reads as a local path. A bare backslash can be a
+	// valid character in a remote file ID, so only Windows drive-letter and
+	// UNC prefixes read as local.
+	tests := []struct {
+		name string
+		arg  string
+		want bool
+	}{
+		{name: "yaml suffix", arg: "workflow.yaml", want: true},
+		{name: "yml suffix", arg: "workflow.yml", want: true},
+		{name: "posix separator", arg: "dir/workflow", want: true},
+		{name: "windows drive path", arg: `C:\dags\workflow`, want: true},
+		{name: "windows unc path", arg: `\\server\dags\workflow`, want: true},
+		{name: "windows forward slashes", arg: "C:/dags/workflow", want: true},
+		{name: "remote dag name", arg: "workflow", want: false},
+		{name: "remote dag fileName", arg: "etl-dag", want: false},
+		{name: "remote id with backslash", arg: `dir\workflow`, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, isLikelyLocalDAGArg(tt.arg))
+		})
+	}
+}
+
 func TestRemoteStatusValueRejectsNone(t *testing.T) {
 	t.Parallel()
 
