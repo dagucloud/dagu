@@ -1246,7 +1246,7 @@ Structured output behavior:
 - The schema needs `type: object`, at least one property, and every `required` name listed under `properties`. It cannot be combined with `web_search` or a tool named `respond`.
 - An invalid answer gets one correction, then the next `with.model` entry is tried. When none answers, the step fails; the error omits the answer and the step's stderr shows each rejected answer and why.
 - Validation checks shape, not truth. For extraction, leave a field out of `required` when the text may not contain it; a required field makes the model invent a value.
-- With `tools`, the tool DAGs are offered next to `respond`, and reaching `max_tool_iterations` without an answer fails the step. The answer is never streamed.
+- With `tools`, the tool DAGs are offered next to `respond`. Reaching `max_tool_iterations` without an answer fails that model like an unusable answer, so the next `with.model` entry starts over, running the tools again. The answer is never streamed.
 
 ## harness.run
 

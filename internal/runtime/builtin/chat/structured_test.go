@@ -405,3 +405,28 @@ func TestStructuredOutputToolLimit(t *testing.T) {
 	assert.Len(t, provider.Requests(), 2)
 	assert.Empty(t, run.stdout.String())
 }
+
+// A model that reaches the tool iteration limit has failed like one that
+// cannot answer, so the next model starts over.
+func TestStructuredOutputToolLimitFallback(t *testing.T) {
+	t.Parallel()
+
+	missing := &llmpkg.ChatResponse{ToolCalls: []llmpkg.ToolCall{{ID: "call-missing", Type: "function", Function: llmpkg.ToolCallFunction{Name: "missing"}}}}
+	looping := &scriptedProvider{responses: []*llmpkg.ChatResponse{missing, missing}}
+	answering := &scriptedProvider{responses: []*llmpkg.ChatResponse{respondWith(`{"category":"question"}`)}}
+	step := classifyStep()
+	step.LLM = &ir.LLMConfig{
+		Models: []ir.ModelEntry{
+			{Provider: "openai", Name: "looping"},
+			{Provider: "openai", Name: "answering"},
+		},
+		MaxToolIterations: new(2),
+	}
+	run := newStructuredRun(t, step, map[string]*scriptedProvider{"looping": looping, "answering": answering})
+	run.executor.toolRegistry = toolRegistry()
+
+	require.NoError(t, run.Run(t))
+	assert.Equal(t, `{"category":"question"}`+"\n", run.stdout.String())
+	assert.Len(t, looping.Requests(), 2)
+	assert.Len(t, answering.Requests(), 1)
+}

@@ -176,7 +176,9 @@ func (a *answerSchema) accept(resp *llmpkg.ChatResponse) ([]byte, error) {
 // tool; a turn that calls respond ends the session without running the
 // turn's other calls. An unusable answer gets one correction as plain
 // messages, which keeps the history append-only and free of unanswered
-// tool calls.
+// tool calls. A model that gives no usable answer, after its correction or
+// within the tool iteration limit, returns an error so Run tries the next
+// model.
 func (e *Executor) runStructuredForModel(ctx context.Context, provider llmpkg.Provider, allMessages []ir.LLMMessage, cfg *ir.LLMConfig) error {
 	tools := []llmpkg.Tool{e.answer.tool}
 	if e.toolRegistry.HasTools() {
@@ -238,7 +240,8 @@ func (e *Executor) runStructuredForModel(ctx context.Context, provider llmpkg.Pr
 	}
 
 	e.savedMessages = conv.messages
-	return fmt.Errorf("max tool iterations (%d) reached without a %s answer", maxIterations, agentstep.RespondToolName)
+	return fmt.Errorf("%s/%s: max tool iterations (%d) reached without a %s answer",
+		cfg.Provider, cfg.Model, maxIterations, agentstep.RespondToolName)
 }
 
 // withInstruction adds the respond instruction to the first system message,

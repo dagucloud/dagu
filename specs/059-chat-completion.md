@@ -89,8 +89,9 @@ failed and the next `with.model` entry is tried.
 
 With `with.tools`, the tool DAGs are offered next to `respond`. A response
 that calls `respond` ends the loop; other tool calls in that response do
-not run. Reaching `with.max_tool_iterations` without an answer fails the
-step.
+not run. Reaching `with.max_tool_iterations` without an answer fails that
+model, like an unusable answer: the next `with.model` entry starts over,
+and the step fails when no model is left.
 
 ## Errors
 
