@@ -151,6 +151,14 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 	for c := range cols {
 		cols[c] = c + 1
 	}
+	// Appended cells land in rows that may already hold merged cells, which
+	// would take every value written inside them into their top-left cell.
+	var merges mergeFill
+	if opts.Mode == WriteAppend {
+		if merges, err = w.mergeMap(sheet); err != nil {
+			return nil, err
+		}
+	}
 	headerRow := 0
 	if opts.Mode == WriteAppend && !fresh {
 		targets, err := w.alignAppend(sheet, table, opts.Header, warn)
@@ -182,6 +190,9 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 	}
 	if writeHeader {
 		for c, name := range table.Columns {
+			if err := w.notMerged(sheet, merges, cols[c], startRow); err != nil {
+				return nil, err
+			}
 			if err := w.f.SetCellStr(sheet, cellName(cols[c], startRow), name); err != nil {
 				return nil, w.cellError(sheet, cols[c], startRow, err.Error())
 			}
@@ -206,6 +217,9 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 			}
 			if v == nil {
 				continue
+			}
+			if err := w.notMerged(sheet, merges, cols[c], r); err != nil {
+				return nil, err
 			}
 			if err := w.setCell(sheet, cols[c], r, v); err != nil {
 				return nil, err
@@ -240,6 +254,14 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 		return nil, err
 	}
 	return result, nil
+}
+
+// notMerged refuses an appended cell inside a merged cell.
+func (w *file) notMerged(sheet string, merges mergeFill, col, row int) error {
+	if merge, ok := merges.at(col, row); ok {
+		return w.cellError(sheet, col, row, fmt.Sprintf("cannot append into merged cell %s; unmerge it to write this cell", merge.ref()))
+	}
+	return nil
 }
 
 func mustGrid(w *file, sheet string) [][]string {
