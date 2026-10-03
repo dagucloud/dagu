@@ -294,8 +294,8 @@ func cleanHeader(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
-// findColumn locates a header by exact name, then case-insensitively and
-// ignoring surrounding space; near reports the loose match when exact fails.
+// findColumn locates a header by exact name, then loosely, ignoring case and
+// spacing as looseName does; near reports the loose match when exact fails.
 func findColumn(headers []string, name string) (index int, near string) {
 	for i, h := range headers {
 		if h == name {
