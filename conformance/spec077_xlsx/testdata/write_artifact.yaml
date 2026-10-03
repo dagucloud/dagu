@@ -1,0 +1,56 @@
+working_dir: .
+artifacts:
+  dir: artifacts
+steps:
+  - id: report
+    action: xlsx.write
+    with:
+      path: totals.xlsx
+      sheet: Totals
+      columns: [customer, total]
+      types: {total: number}
+      rows: [{"customer": "Acme", "total": 30}, {"customer": "Beta", "total": 12.5}]
+      artifact: true
+  - id: fill
+    depends: report
+    action: xlsx.write_cells
+    with:
+      path: totals.xlsx
+      output: filled.xlsx
+      cells: {D1: Reviewed}
+      artifact: true
+  - id: export
+    depends: report
+    action: xlsx.convert
+    with:
+      path: totals.xlsx
+      output: totals.csv
+      artifact: true
+  - id: preview
+    depends: report
+    action: xlsx.write
+    with:
+      path: preview.xlsx
+      rows: [{"a": 1}]
+      dry_run: true
+      artifact: true
+  - id: back
+    depends: report
+    action: xlsx.read
+    with:
+      path: ${context.paths.artifacts_dir}/${steps.report.outputs.artifact}
+  - id: paths
+    depends: [fill, export]
+    action: file.write
+    with:
+      path: artifacts.txt
+      content: |
+        ${steps.report.outputs.artifact}
+        ${steps.fill.outputs.artifact}
+        ${steps.export.outputs.artifact}
+  - id: rows
+    depends: back
+    action: file.write
+    with:
+      path: back.json
+      content: ${steps.back.outputs.rows}

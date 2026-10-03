@@ -1,0 +1,10 @@
+working_dir: .
+artifacts:
+  enabled: false
+steps:
+  - id: report
+    action: xlsx.write
+    with:
+      path: totals.xlsx
+      rows: [{"a": 1}]
+      artifact: true

@@ -1,0 +1,9 @@
+working_dir: .
+steps:
+  - id: mark
+    action: xlsx.update_rows
+    with:
+      path: orders.xlsx
+      key: Invoice No
+      rows: '[{"Invoice No": "INV-1", "note": "x"}]'
+      set: {Nope9f3c2b1a: note}
