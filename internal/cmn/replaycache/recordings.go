@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sync"
 	"time"
 
@@ -62,6 +63,27 @@ func (r *Recordings[T]) Lookup(key string) (T, bool) {
 		r.mu.Unlock()
 	}
 	return entry, ok
+}
+
+// Find returns the first recording, in key order, that match accepts, as
+// the file holds it now, and counts it as replayed. It serves a lookup
+// whose key is not known in advance, such as a recording made for a sheet
+// of another shape that still answers this one. A missing, corrupt, or
+// unreadable file holds none.
+func (r *Recordings[T]) Find(match func(key string, entry T) bool) (string, T, bool) {
+	entries, _ := read[T](r.path)
+	for _, key := range slices.Sorted(maps.Keys(entries)) {
+		entry := entries[key]
+		if !match(key, entry) {
+			continue
+		}
+		r.mu.Lock()
+		r.used[key] = entry
+		r.mu.Unlock()
+		return key, entry, true
+	}
+	var none T
+	return "", none, false
 }
 
 // Stage records what an operation did, to be kept by Commit.

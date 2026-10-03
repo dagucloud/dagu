@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/replaycache"
@@ -50,6 +51,47 @@ func TestRecordingsKeepOnlyCommitted(t *testing.T) {
 	require.NoError(t, failed.Commit(context.Background()))
 	_, ok = lookup(path, "other")
 	assert.False(t, ok, "a discarded recording is never written")
+}
+
+// Find serves a lookup whose key is not known in advance, and what it
+// finds can be dropped like a looked-up recording.
+func TestRecordingsFind(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "step.json")
+	commitRecording(t, path, "b", "second")
+	commitRecording(t, path, "a", "first")
+
+	recordings := openRecordings(path)
+	key, entry, ok := recordings.Find(func(_ string, entry string) bool { return strings.HasPrefix(entry, "s") })
+	require.True(t, ok)
+	assert.Equal(t, "b", key)
+	assert.Equal(t, "second", entry)
+	_, _, ok = recordings.Find(func(string, string) bool { return false })
+	assert.False(t, ok)
+	key, _, ok = recordings.Find(func(string, string) bool { return true })
+	require.True(t, ok)
+	assert.Equal(t, "a", key, "keys are visited in order")
+
+	recordings.Drop("b")
+	require.NoError(t, recordings.Commit(context.Background()))
+	_, ok = lookup(path, "b")
+	assert.False(t, ok, "a found recording that was dropped is removed")
+	_, ok = lookup(path, "a")
+	assert.True(t, ok)
+
+	replaced := openRecordings(path)
+	_, _, ok = replaced.Find(func(key string, _ string) bool { return key == "a" })
+	require.True(t, ok)
+	commitRecording(t, path, "a", "newer")
+	replaced.Drop("a")
+	require.NoError(t, replaced.Commit(context.Background()))
+	entry, ok = lookup(path, "a")
+	require.True(t, ok, "a recording another run replaced since is kept")
+	assert.Equal(t, "newer", entry)
+
+	_, _, ok = openRecordings(filepath.Join(t.TempDir(), "none.json")).Find(func(string, string) bool { return true })
+	assert.False(t, ok, "a missing file holds none")
 }
 
 // Runs of one DAG share the file, so a commit merges into what other runs
