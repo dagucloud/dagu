@@ -721,6 +721,7 @@ func TestServerExposesReferenceResourcesAndPrompts(t *testing.T) {
 	require.Contains(t, authoring.Contents[0].Text, "Build workflows are local-only")
 	require.Contains(t, authoring.Contents[0].Text, "schedule profile is an activation filter")
 	require.Contains(t, authoring.Contents[0].Text, "target=dag_profile")
+	require.Contains(t, authoring.Contents[0].Text, "output_schema answers through a forced respond tool")
 
 	prompts, err := session.ListPrompts(ctx, nil)
 	require.NoError(t, err)

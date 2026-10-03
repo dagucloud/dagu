@@ -1760,7 +1760,7 @@
         "output_schema": {
           "type": "object",
           "additionalProperties": true,
-          "description": "Inline JSON Schema object used to validate stdout JSON before publishing step output."
+          "description": "Inline JSON Schema object used to validate stdout JSON before publishing step output. On a chat.completion step the model answers in this shape: the schema needs type: object and at least one property, and only the listed properties are published."
         },
         "outputs": {
           "type": "array",

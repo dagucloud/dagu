@@ -7,9 +7,9 @@ Partially implemented.
 ## Scope
 
 This spec covers `chat.completion` request construction, response output,
-stream selection, model fallback, and the `with.tools` agentic tool-calling
-loop, using a local OpenAI-compatible endpoint. No external model service is
-required.
+stream selection, model fallback, the `with.tools` agentic tool-calling
+loop, and structured output through `output_schema`, using a local
+OpenAI-compatible endpoint. No external model service is required.
 
 Provider-specific parameters, timeout, abort, and UI-facing tool sub-DAG
 drill-down tracking belong to executor and lifecycle coverage.
@@ -56,13 +56,56 @@ continues to request another response.
 `with.max_tool_iterations` bounds how many such request/tool-call rounds
 run, default 10. Reaching the limit does not fail the step: it is a second,
 equally successful termination path alongside the model responding with no
-further tool calls.
+further tool calls. A step with `output_schema` is the exception; see
+below.
+
+### Structured output
+
+A step-level `output_schema` makes the model answer in that shape. The
+schema must declare `type: object`, list at least one property under
+`properties`, and list every `required` name under `properties`.
+
+Each request offers a `respond` tool whose parameters are the schema and
+requires a tool call (`tool_choice: required`). The first system message
+gains an instruction to answer through `respond`; when there is none, the
+instruction becomes the first message. The instruction is not part of the
+saved session. Structured requests never stream, regardless of
+`with.stream`.
+
+The answer is the arguments of the model's `respond` call. A reply without
+that call is accepted when its text is a JSON object, optionally inside a
+`json` code fence. Properties the schema does not list are dropped, and the
+remaining object is validated against the schema. The step writes the
+object to stdout as one line of JSON with keys in sorted order, and each
+listed property becomes `${steps.<id>.outputs.<name>}`. Because only listed
+properties are published, a reference to any other output of the step is
+reported as unknown, even when the schema allows additional properties.
+
+An answer that is not a JSON object or does not match the schema gets one
+correction: the next request carries the rejected answer as an assistant
+message without tool calls, followed by a user message stating why it was
+rejected. When the corrected answer is also unusable, that model has
+failed and the next `with.model` entry is tried.
+
+With `with.tools`, the tool DAGs are offered next to `respond`. A response
+that calls `respond` ends the loop; other tool calls in that response do
+not run. Reaching `with.max_tool_iterations` without an answer fails the
+step.
 
 ## Errors
 
 `dagu validate` rejects missing prompt/message input and a configured
 provider without a model. It exits nonzero with an error identifying the
 invalid configuration.
+
+With `output_schema`, `dagu validate` also rejects a schema without
+`type: object`, a schema that lists no properties, a `required` name that
+`properties` does not list, `with.web_search`, and a tool named `respond`.
+
+When no model gives a usable structured answer, the step fails with an
+error naming the last model and stating that no answer matched
+`output_schema`. The error contains no part of the rejected answers; the
+step's stderr receives each rejected answer with the reason.
 
 When the first fallback model rejects a request and the next succeeds,
 the step succeeds and writes the successful response. Exhausted fallback,
@@ -80,6 +123,32 @@ steps:
       base_url: http://localhost:8080
       prompt: Summarize the supplied text.
       stream: false
+```
+
+Structured output, published as step outputs:
+
+```yaml
+steps:
+  - id: classify
+    action: chat.completion
+    with:
+      provider: local
+      model: local-model
+      base_url: http://localhost:8080
+      prompt: "Classify this note and extract the amount: please refund my 12.50"
+    output_schema:
+      type: object
+      properties:
+        category:
+          type: string
+          enum: [refund, complaint, question]
+        amount:
+          type: number
+      required: [category]
+
+  - id: record
+    depends: classify
+    run: echo "${steps.classify.outputs.category}"
 ```
 
 Tool calling, using another DAG in the same file as a tool:

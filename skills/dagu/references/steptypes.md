@@ -992,6 +992,41 @@ steps:
 
 `with` fields: `source`, `destination`, `format`, `compression_level`, `password`, `overwrite`, `strip_components`, `include`, `exclude`.
 
+## chat.completion
+
+Send a prompt to a model and print the reply. `with.prompt` (or `with.messages`) is required; every other `with` key (`provider`, `model`, `system`, `tools`, `max_tool_iterations`, `stream`, `thinking`, `web_search`) configures the model and replaces the DAG-level `llm` block entirely. `with.model` can be a list of `{provider, name}` entries tried in order.
+
+Add a step-level `output_schema` when later steps need typed values instead of free text:
+
+```yaml
+steps:
+  - id: classify
+    action: chat.completion
+    with:
+      provider: openai
+      model: gpt-5
+      prompt: "Classify this note and extract the amount: ${foreach.item.note}"
+    output_schema:
+      type: object
+      properties:
+        category: {type: string, enum: [refund, complaint, question]}
+        amount: {type: number}
+      required: [category]
+
+  - id: record
+    depends: classify
+    run: ./record.sh '${steps.classify.outputs.category}' '${steps.classify.outputs.amount}'
+```
+
+Structured output behavior:
+
+- The model answers through a forced `respond` tool whose parameters are the schema. A plain-text JSON reply is also accepted.
+- Unlisted properties are dropped, the rest is validated, and stdout is one JSON object. Each listed property becomes `${steps.<id>.outputs.<name>}`; references to other names are reported as unknown even for an open schema.
+- The schema needs `type: object`, at least one property, and every `required` name listed under `properties`. It cannot be combined with `web_search` or a tool named `respond`.
+- An invalid answer gets one correction, then the next `with.model` entry is tried. When none answers, the step fails; the error omits the answer and the step's stderr shows each rejected answer and why.
+- Validation checks shape, not truth. For extraction, leave a field out of `required` when the text may not contain it; a required field makes the model invent a value.
+- With `tools`, the tool DAGs are offered next to `respond`, and reaching `max_tool_iterations` without an answer fails the step. The answer is never streamed.
+
 ## harness.run
 
 Invoke external coding-agent CLIs through built-in provider adapters or custom harness definitions.
