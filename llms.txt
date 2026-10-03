@@ -1074,7 +1074,9 @@ table; without it the data block is detected, skipping leading empty rows and
 columns), `header` (`true`, `false` for `A`, `B`, `C`, a row number, or `[3, 4]`
 to join two header rows), `columns` (names or `{name: alias}`), `merged` (`fill`
 or `first`), `stop_at_blank`, `keep_empty_rows`, `trim`, `formulas` (`cached`,
-`text`, `calculate`), `types` (`{amount: number, due: date}`), `on_type_error`
+`text`, `calculate`), `types` (`{amount: number, due: date}`; a pinned column
+also reads full-width digits, `￥123,000`, `123,000円`, `2026年10月3日`, and era
+dates such as `令和8年10月3日` or `R8.10.3`), `on_type_error`
 (`fail` or `warn`), `where` (`{Status: ""}`, `{Status: {ne: Done}}`,
 `{Status: {in: [A, B]}}`), `max_rows` (default 5000). It publishes `rows` (objects
 keyed by header, each with `_row`), `count`, `headers`, `sheet`, `range`,
@@ -1159,7 +1161,10 @@ run goes on.
 inside a merged cell, or a name over its whole area, writes the merged cell,
 and two addresses in one merged cell fail the step) to a value, to
 `{value: v, type: t}` to pin the type, to `{formula: "=SUM(B2:B9)"}`, or to
-`null` to empty the cell. An ISO date string becomes a date, and text in the
+`null` to empty the cell. `merge` lists ranges to merge first (`[A1:D1]`), so
+a title can span the template; a range over a filled cell or another merged
+region fails the step, and `changes.merged` counts the ranges merged. An ISO
+date string becomes a date, and text in the
 canonical form of a number (`100`, `-12.5`, not `007` or `1,234`) becomes a
 number, so `${foreach.item.amount}`, which arrives as text, lands as a number;
 `type: string` keeps such text. Every cell keeps its style, and a date written into
@@ -1201,10 +1206,14 @@ answers only the address of each field's cell, or null; the engine reads the
 typed value from that cell, so no value is invented. It publishes each
 property, `cells` (property to the `Sheet1!B7` it came from), `sheet`,
 `warnings`, and `source` (`model` or `cache`); do not declare outputs. The
-addresses are cached by the sheet's shape with the label beside each cell, so
-a layout seen before makes no model request as long as the instruction, the
-schema, and the labels beside the cached cells are unchanged; `dagu xlsx cache
-clear <dag>` drops the cache.
+model also names the cells that are labels, and the addresses are cached by
+the sheet's shape with a digest of each label, so a layout seen before makes
+no model request as long as the instruction, the schema, and the labels are
+unchanged; a form of the same template with a box left blank is read from
+the cache too, while a label renamed in place asks again. `dagu xlsx cache
+clear <dag>` drops the cache. A pinned type reads Japanese text as
+`xlsx.read` does: full-width digits, `￥123,000`, `123,000円`, `2026年10月3日`,
+and era dates such as `令和8年10月3日` or `R8.10.3`.
 
 ```yaml
 llm:
