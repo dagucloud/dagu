@@ -323,6 +323,12 @@ func (e *stagehandEngine) Act(ctx context.Context, instruction string, variables
 }
 
 func (e *stagehandEngine) Replay(ctx context.Context, recorded recordedAction, variables map[string]string, timeout time.Duration) (bool, error) {
+	// The runtime types into or fills a hidden element without failing, so
+	// a recorded element that is now hidden, such as a field in a closed
+	// dialog, counts as a miss.
+	if !e.targetVisible(ctx, recorded.Selector) {
+		return false, ctx.Err()
+	}
 	action := stagehand.Action{
 		Selector:    recorded.Selector,
 		Description: recorded.Description,
@@ -344,6 +350,20 @@ func (e *stagehandEngine) Replay(ctx context.Context, recorded recordedAction, v
 		return false, nil
 	}
 	return result.Data.Success, nil
+}
+
+// targetVisible reports whether selector, resolved as a replayed action
+// resolves it, matches a visible element. It reports false when the page
+// cannot tell.
+func (e *stagehandEngine) targetVisible(ctx context.Context, selector string) bool {
+	visible, err := boundCall(ctx, e.pageCallTimeout, func(ctx context.Context) (bool, error) {
+		page, err := e.page(ctx)
+		if err != nil {
+			return false, err
+		}
+		return page.Locator(selector).IsVisible(ctx)
+	})
+	return err == nil && visible
 }
 
 // sessionLost returns an error wrapping errPageSessionLost when an act call

@@ -30,9 +30,10 @@ type engine interface {
 	// the act reported back; the act may or may not have taken effect.
 	Act(ctx context.Context, instruction string, variables map[string]string, timeout time.Duration) (actOutcome, error)
 	// Replay performs one recorded action without a model call and reports
-	// whether it succeeded. Its error wraps errPageSessionLost when the
-	// connection to the page went away before the action reported back; the
-	// action may or may not have taken effect.
+	// whether it succeeded. An action whose element is not visible is not
+	// performed and does not succeed. Its error wraps errPageSessionLost when
+	// the connection to the page went away before the action reported back;
+	// the action may or may not have taken effect.
 	Replay(ctx context.Context, action recordedAction, variables map[string]string, timeout time.Duration) (bool, error)
 	// DocumentID identifies the document the active page shows. It changes
 	// whenever the page loads a new document.

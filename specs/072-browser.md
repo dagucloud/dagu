@@ -187,8 +187,9 @@ With `with.cache` true (the default), a successful `act` records the actions it
 performed. A later run of the same step on the same host replays them without a
 model request when the operation position, instruction, and page URL without
 query or fragment match. When a replay fails, the step asks the model again and
-records the new actions. `act.cache: false` disables the cache for one
-operation.
+records the new actions. A replay fails when a recorded element is gone or is
+on the page but not visible, such as a field in a closed dialog.
+`act.cache: false` disables the cache for one operation.
 
 The cache covers `act` only. `extract` and model-judged conditions make model
 requests on every run. A replay that finds an element at the recorded location
