@@ -4,7 +4,10 @@
 package gemini
 
 import (
+	"context"
 	"encoding/json"
+	"io"
+	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/llm"
@@ -268,4 +271,30 @@ func TestBuildRequestBody_Images(t *testing.T) {
 		{"inlineData":{"mimeType":"image/png","data":"AQI="}},
 		{"text":"describe"}
 	]`, string(parsed.Contents[0].Parts))
+}
+
+// A single SSE data line larger than bufio.Scanner's default 64 KiB limit must
+// not terminate the stream.
+func TestStreamResponse_LargeEvent(t *testing.T) {
+	t.Parallel()
+
+	big := strings.Repeat("a", 200*1024)
+	stream := "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"" + big + "\"}]},\"finishReason\":\"STOP\"}]}\n\n"
+
+	provider := &Provider{}
+	events := make(chan llm.StreamEvent)
+	go provider.streamResponse(context.Background(), io.NopCloser(strings.NewReader(stream)), events)
+
+	var deltas []string
+	done := false
+	for event := range events {
+		require.NoError(t, event.Error)
+		if event.Done {
+			done = true
+			continue
+		}
+		deltas = append(deltas, event.Delta)
+	}
+	require.True(t, done)
+	require.Equal(t, []string{big}, deltas)
 }

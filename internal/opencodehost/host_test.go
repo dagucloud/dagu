@@ -74,6 +74,18 @@ func TestCloseIsIdempotent(t *testing.T) {
 	require.NoError(t, host.Close(t.Context()))
 }
 
+// Startup output can contain lines longer than bufio.Scanner's default 64 KiB
+// limit; endpoint discovery must still find the listening line.
+func TestScanEndpointLongLines(t *testing.T) {
+	t.Parallel()
+
+	ready := make(chan string, 1)
+	stdout := strings.Repeat("x", 200*1024) + "\nopencode server listening on http://127.0.0.1:4096\n"
+	scanEndpoint(strings.NewReader(stdout), ready)
+	require.Len(t, ready, 1, "listening endpoint was not found")
+	require.Equal(t, "http://127.0.0.1:4096", <-ready)
+}
+
 func TestValidateRequiresManagedCredentials(t *testing.T) {
 	t.Parallel()
 

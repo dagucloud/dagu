@@ -351,6 +351,7 @@ func countLinesExact(filePath string) (int, error) {
 	}()
 
 	scanner := bufio.NewScanner(file)
+	ConfigureScanner(scanner)
 	lineCount := 0
 	for scanner.Scan() {
 		lineCount++
@@ -380,6 +381,7 @@ func readFirstLines(filePath string, n int, totalLines int, decoder *encoding.De
 	}
 
 	scanner := bufio.NewScanner(reader)
+	ConfigureScanner(scanner)
 	lines := make([]string, 0, n)
 	lineCount := 0
 
@@ -441,6 +443,7 @@ func readLastLines(filePath string, n int, totalLines int, decoder *encoding.Dec
 	// Use a ring buffer to keep the last n lines
 	ring := make([]string, n)
 	scanner := bufio.NewScanner(reader)
+	ConfigureScanner(scanner)
 	lineCount := 0
 	ringIndex := 0
 
@@ -510,6 +513,7 @@ func readLinesRange(filePath string, offset, limit int, totalLines int, decoder 
 	}
 
 	scanner := bufio.NewScanner(reader)
+	ConfigureScanner(scanner)
 	lineNum := 1
 	lines := make([]string, 0, limit)
 

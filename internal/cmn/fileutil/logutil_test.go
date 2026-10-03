@@ -931,6 +931,42 @@ func TestDecodeString(t *testing.T) {
 	}
 }
 
+// Lines longer than bufio.Scanner's default 64 KiB limit must still be read.
+func TestReadLogLinesLongLine(t *testing.T) {
+	tempDir := t.TempDir()
+
+	longLine := strings.Repeat("x", 200*1024)
+	testLogPath := filepath.Join(tempDir, "long.log")
+	content := "Line 1\n" + longLine + "\nLine 3\n"
+	if err := os.WriteFile(testLogPath, []byte(content), 0600); err != nil {
+		t.Fatalf("Failed to create test log file: %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		options LogReadOptions
+	}{
+		{name: "Range", options: LogReadOptions{Offset: 1, Limit: 10}},
+		{name: "Head", options: LogReadOptions{Head: 3}},
+		{name: "Tail", options: LogReadOptions{Tail: 3}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := ReadLogLines(testLogPath, tt.options)
+			if err != nil {
+				t.Fatalf("ReadLogLines() error = %v", err)
+			}
+			if result.LineCount != 3 || len(result.Lines) != 3 {
+				t.Fatalf("ReadLogLines() LineCount = %v, want 3", result.LineCount)
+			}
+			if result.Lines[1] != longLine {
+				t.Errorf("ReadLogLines() long line length = %d, want %d", len(result.Lines[1]), len(longLine))
+			}
+		})
+	}
+}
+
 func TestDecodeStringCharsetNormalization(t *testing.T) {
 	// Test that charset names are properly normalized
 	// "こんにちは" in Shift_JIS encoding

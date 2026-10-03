@@ -4,7 +4,9 @@
 package anthropic
 
 import (
+	"context"
 	"encoding/json"
+	"io"
 	"strings"
 	"testing"
 
@@ -336,4 +338,31 @@ func TestBuildRequestBody_Images(t *testing.T) {
 		{"type":"image","source":{"type":"base64","media_type":"image/png","data":"AQI="}},
 		{"type":"text","text":"describe"}
 	]`, string(parsed.Messages[1].Content))
+}
+
+// A single SSE data line larger than bufio.Scanner's default 64 KiB limit must
+// not terminate the stream.
+func TestStreamResponse_LargeEvent(t *testing.T) {
+	t.Parallel()
+
+	big := strings.Repeat("a", 200*1024)
+	stream := "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"" + big + "\"}}\n\n" +
+		"data: {\"type\":\"message_stop\"}\n\n"
+
+	provider := &Provider{}
+	events := make(chan llm.StreamEvent)
+	go provider.streamResponse(context.Background(), io.NopCloser(strings.NewReader(stream)), events)
+
+	var deltas []string
+	done := false
+	for event := range events {
+		require.NoError(t, event.Error)
+		if event.Done {
+			done = true
+			continue
+		}
+		deltas = append(deltas, event.Delta)
+	}
+	require.True(t, done)
+	require.Equal(t, []string{big}, deltas)
 }

@@ -6,6 +6,7 @@ package textsearch
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -147,6 +148,25 @@ func TestGrep(t *testing.T) {
 			require.Equal(t, tc.Want, ret)
 		})
 	}
+}
+
+// Lines longer than bufio.Scanner's default 64 KiB limit must still be searched.
+func TestGrep_LongLine(t *testing.T) {
+	t.Parallel()
+
+	long := strings.Repeat("a", 200*1024) + " needle"
+	dat := []byte("first\n" + long + "\nlast\n")
+	opts := GrepOptions{IsRegexp: false}
+
+	matches, err := Grep(dat, "needle", opts)
+	require.NoError(t, err)
+	require.Len(t, matches, 1)
+	require.Equal(t, 2, matches[0].LineNumber)
+
+	window, err := GrepWindow(dat, "needle", opts)
+	require.NoError(t, err)
+	require.Len(t, window.Matches, 1)
+	require.Equal(t, 2, window.Matches[0].LineNumber)
 }
 
 func TestGrepWindow(t *testing.T) {
