@@ -467,12 +467,18 @@ func TestBaseWatchLifecycle(t *testing.T) {
 				}
 			}
 			// On Windows a base file op fails while the reader still holds it
-			// open, and a just-deleted watched directory stays delete-pending
-			// until its watch handle closes; retry until both settle.
+			// open (Go file handles do not share delete access), and a
+			// just-deleted watched directory stays delete-pending until its
+			// watch handle closes; retry until both settle.
 			retryFileOp := func(op func() error) {
 				t.Helper()
-				require.Eventually(t, func() bool { return op() == nil },
-					3*time.Second, 10*time.Millisecond)
+				var lastErr error
+				if !assert.Eventually(t, func() bool {
+					lastErr = op()
+					return lastErr == nil
+				}, 5*time.Second, 10*time.Millisecond) {
+					require.NoError(t, lastErr)
+				}
 			}
 			write := func(body string) {
 				t.Helper()
@@ -486,7 +492,7 @@ func TestBaseWatchLifecycle(t *testing.T) {
 			write("queue: recovered\n")
 			expect(persis.DAGChangeAdded, "recovered")
 			replacement := filepath.Join(filepath.Dir(base), "replacement.tmp")
-			require.NoError(t, os.WriteFile(replacement, []byte("queue: atomic\n"), 0600))
+			retryFileOp(func() error { return os.WriteFile(replacement, []byte("queue: atomic\n"), 0600) })
 			retryFileOp(func() error { return os.Rename(replacement, base) })
 			expect(persis.DAGChangeUpdated, "atomic")
 			// Recreating a directory before the debounce expires must restore its watch.
