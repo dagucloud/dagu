@@ -53,6 +53,12 @@ type MailAccount struct {
 	OAuth    *oauthconfig.Config
 }
 
+// GmailAPI reports whether the account reaches its mailbox through the Gmail
+// API instead of IMAP and SMTP. Such an account has no servers.
+func (a *MailAccount) GmailAPI() bool {
+	return a.Provider == MailProviderGoogle && a.OAuth != nil
+}
+
 // MailServer is the IMAP or SMTP server of a mail account.
 type MailServer struct {
 	Host          string
