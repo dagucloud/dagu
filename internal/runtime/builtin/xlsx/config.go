@@ -382,6 +382,9 @@ func validateExtractConfig(cfg *config) error {
 		if slices.Contains(extractFixedOutputs, name) {
 			return fmt.Errorf("%w: schema property %q collides with an output of xlsx.extract", errConfig, name)
 		}
+		if name == respondLabels {
+			return fmt.Errorf("%w: schema property %q is reserved by xlsx.extract", errConfig, name)
+		}
 		cfg.extractProperties = append(cfg.extractProperties, name)
 		spec, ok := properties[name].(map[string]any)
 		if !ok {

@@ -68,6 +68,10 @@ type SheetLayout struct {
 	// Labels maps the address of every text cell to its text, so a cached
 	// answer can check that the label beside a cell still reads the same.
 	Labels map[string]string
+	// Addresses lists the top-left address of every listed cell, in the
+	// order listed, so a cached answer can tell a sheet of the same
+	// template with a box left blank from one that holds more.
+	Addresses []string
 }
 
 // Layout lists the non-empty cells of a sheet the way a model is shown
@@ -161,6 +165,7 @@ func Layout(ctx context.Context, path string, opts LayoutOptions) (*SheetLayout,
 				continue
 			}
 			addr := cellName(col, row)
+			layout.Addresses = append(layout.Addresses, addr)
 			span := addr
 			for _, m := range merges {
 				if m.C1 == col && m.R1 == row && (m.C2 > m.C1 || m.R2 > m.R1) {

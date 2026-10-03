@@ -48,12 +48,20 @@ const extractSystemPrompt = "You locate fields on a spreadsheet form. The user m
 	"one per line, as ADDRESS [KIND,HINTS]: TEXT; a merged region is listed once by its range, such as A1:D1. " +
 	"For each requested field, answer with the address of the single cell that holds the field's value, " +
 	"not the cell holding its label; a value usually sits to the right of or below its label. " +
-	"Answer null for a field the sheet does not have. Answer only addresses, never values, by calling the " +
-	agentstep.RespondToolName + " tool."
+	"Answer null for a field the sheet does not have. In labels, list the addresses of the cells that are labels or " +
+	"headings rather than values: field names, column headings, and the form's title. Answer only addresses, never " +
+	"values, by calling the " + agentstep.RespondToolName + " tool."
 
 // cellAddressPattern is the one form an answer may take: an A1 address,
 // with or without a sheet.
 var cellAddressPattern = regexp.MustCompile(`^(?:'(?:[^']|'')+'!|[^!'\s]+!)?\$?[A-Za-z]{1,3}\$?[0-9]+$`)
+
+// labelPattern is the form a named label may take: a cell address, or the
+// span of a merged region such as A1:D1, with or without a sheet.
+var labelPattern = regexp.MustCompile(`^(?:'(?:[^']|'')+'!|[^!'\s]+!)?\$?[A-Za-z]{1,3}\$?[0-9]+(?::\$?[A-Za-z]{1,3}\$?[0-9]+)?$`)
+
+// respondLabels is the respond tool property that lists the label cells.
+const respondLabels = "labels"
 
 // providerFactory builds a provider for one resolved model configuration.
 type providerFactory func(ctx context.Context, cfg *ir.LLMConfig) (llmpkg.Provider, error)
@@ -278,19 +286,21 @@ func (e *extractExecutor) sourceNote(source string) string {
 	return fmt.Sprintf("%s, %d tokens", sourceModel, e.usage.total())
 }
 
-// locate finds the cell of every field: from a recording of the same
-// layout when one still holds, else from the model, whose answer is then
-// recorded. source says which.
+// locate finds the cell of every field: from a recording that serves this
+// sheet, else from the model, whose answer is then recorded. source says
+// which. A recording of the sheet's own layout serves it when its
+// instruction, schema, and labels hold; one of another layout serves it
+// when, besides, it saw every cell the sheet lists, which is the same
+// template with a box left blank.
 func (e *extractExecutor) locate(ctx context.Context, layout *workbook.SheetLayout) (*workbook.ReadCellsResult, string, error) {
 	if e.cache != nil {
 		if entry, ok := e.cache.Lookup(layout.Key); ok {
-			if entry.Instruction == e.cfg.Instruction && entry.Schema == e.schemaDigest && anchorsHold(entry.Anchors, layout.Labels) {
+			if e.serves(entry, layout) {
 				result, err := e.readCells(ctx, layout, entry.Cells)
-				var bad *workbook.AddressError
-				switch {
-				case err == nil:
+				if err == nil {
 					return result, sourceCache, nil
-				case !errors.As(err, &bad):
+				}
+				if _, bad := errors.AsType[*workbook.AddressError](err); !bad {
 					return nil, "", err
 				}
 			}
@@ -299,8 +309,21 @@ func (e *extractExecutor) locate(ctx context.Context, layout *workbook.SheetLayo
 			// place once the step succeeds.
 			e.cache.Drop(layout.Key)
 		}
+		if _, entry, ok := e.cache.Find(func(key string, entry extractEntry) bool {
+			return key != layout.Key && e.serves(entry, layout) && listedCovers(entry.Listed, layout.Addresses)
+		}); ok {
+			result, err := e.readCells(ctx, layout, entry.Cells)
+			if err == nil {
+				return result, sourceCache, nil
+			}
+			if _, bad := errors.AsType[*workbook.AddressError](err); !bad {
+				return nil, "", err
+			}
+			// A recorded cell lies outside this sheet's range; the recording
+			// still serves its own layout, so the model is asked for this one.
+		}
 	}
-	result, err := e.query(ctx, layout)
+	result, labels, err := e.query(ctx, layout)
 	if err != nil {
 		return nil, "", err
 	}
@@ -310,10 +333,17 @@ func (e *extractExecutor) locate(ctx context.Context, layout *workbook.SheetLayo
 			Instruction: e.cfg.Instruction,
 			Schema:      e.schemaDigest,
 			Cells:       result.Cells,
-			Anchors:     anchorsFor(result.Cells, layout.Labels),
+			Labels:      labelsFor(result.Cells, labels, layout.Labels),
+			Listed:      layout.Addresses,
 		})
 	}
 	return result, sourceModel, nil
+}
+
+// serves reports whether a recording answers this sheet: the same
+// instruction and schema, and every watched label still reading the same.
+func (e *extractExecutor) serves(entry extractEntry, layout *workbook.SheetLayout) bool {
+	return entry.Instruction == e.cfg.Instruction && entry.Schema == e.schemaDigest && labelsHold(entry.Labels, layout.Labels)
 }
 
 func (e *extractExecutor) readCells(ctx context.Context, layout *workbook.SheetLayout, cells map[string]string) (*workbook.ReadCellsResult, error) {
@@ -331,14 +361,15 @@ func (e *extractExecutor) readCells(ctx context.Context, layout *workbook.SheetL
 }
 
 // query asks the models, in order, which cell holds each field, reads the
-// cells the first usable answer names, and returns what they hold. A model
+// cells the first usable answer names, and returns what they hold and the
+// label cells the answer named. A model
 // that cannot be built, whose request fails, or whose answer is not
 // addresses within the listed sheet and range is passed over for the next
 // one; a cell that fails its pinned type fails the step, since another
 // model would read the same cell.
-func (e *extractExecutor) query(ctx context.Context, layout *workbook.SheetLayout) (*workbook.ReadCellsResult, error) {
+func (e *extractExecutor) query(ctx context.Context, layout *workbook.SheetLayout) (*workbook.ReadCellsResult, []string, error) {
 	if err := e.ensureModels(ctx); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	factory := e.newProvider
 	if factory == nil {
@@ -375,7 +406,7 @@ func (e *extractExecutor) query(ctx context.Context, layout *workbook.SheetLayou
 		}, llmpkg.DefaultLogicalRetryConfig())
 		if err != nil {
 			if ctx.Err() != nil {
-				return nil, ctx.Err()
+				return nil, nil, ctx.Err()
 			}
 			errs = append(errs, fmt.Errorf("%s: %w", m.label(), err))
 			continue
@@ -386,7 +417,7 @@ func (e *extractExecutor) query(ctx context.Context, layout *workbook.SheetLayou
 			errs = append(errs, fmt.Errorf("%s: %w", m.label(), err))
 			continue
 		}
-		cells, err := parseAnswer(answer, e.cfg.extractProperties)
+		cells, labels, err := parseAnswer(answer, e.cfg.extractProperties)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", m.label(), err))
 			continue
@@ -397,11 +428,11 @@ func (e *extractExecutor) query(ctx context.Context, layout *workbook.SheetLayou
 				errs = append(errs, fmt.Errorf("%s: xlsx: model answered field %q with %q, which %s", m.label(), bad.Field, bad.Address, bad.Msg))
 				continue
 			}
-			return nil, err
+			return nil, nil, err
 		}
-		return result, nil
+		return result, labels, nil
 	}
-	return nil, fmt.Errorf("model request failed: %w", errors.Join(errs...))
+	return nil, nil, fmt.Errorf("model request failed: %w", errors.Join(errs...))
 }
 
 // ensureModels resolves the configured models on the first request, so a
@@ -455,6 +486,12 @@ func responseSchema(schema map[string]any, fields []string) map[string]any {
 		}
 		required = append(required, field)
 	}
+	properties[respondLabels] = map[string]any{
+		"type":        "array",
+		"items":       map[string]any{"type": "string"},
+		"description": "The addresses of the cells that are labels or headings rather than values: field names, column headings, the form's title",
+	}
+	required = append(required, respondLabels)
 	return map[string]any{
 		"type":                 "object",
 		"additionalProperties": false,
@@ -464,15 +501,16 @@ func responseSchema(schema map[string]any, fields []string) map[string]any {
 }
 
 // parseAnswer reads the model's answer: every field as a cell address, or
-// null for one the sheet lacks. A field the model left out is absent, and
-// anything that is not an address is refused.
-func parseAnswer(raw json.RawMessage, fields []string) (map[string]string, error) {
+// null for one the sheet lacks, and the label cells it named. A field the
+// model left out is absent, labels left out are none, and anything that
+// is not an address is refused.
+func parseAnswer(raw json.RawMessage, fields []string) (map[string]string, []string, error) {
 	var answer map[string]any
 	if err := json.Unmarshal(raw, &answer); err != nil {
-		return nil, fmt.Errorf("xlsx: model answer is not an object: %w", err)
+		return nil, nil, fmt.Errorf("xlsx: model answer is not an object: %w", err)
 	}
 	if answer == nil {
-		return nil, errors.New("xlsx: model answer is not an object: null")
+		return nil, nil, errors.New("xlsx: model answer is not an object: null")
 	}
 	cells := make(map[string]string, len(fields))
 	for _, field := range fields {
@@ -484,9 +522,36 @@ func parseAnswer(raw json.RawMessage, fields []string) (map[string]string, error
 		text, isText := value.(string)
 		text = strings.TrimSpace(text)
 		if !isText || !cellAddressPattern.MatchString(text) {
-			return nil, fmt.Errorf("xlsx: model answered field %q with %q, not a cell address", field, fmt.Sprint(value))
+			return nil, nil, fmt.Errorf("xlsx: model answered field %q with %q, not a cell address", field, fmt.Sprint(value))
 		}
 		cells[field] = text
 	}
-	return cells, nil
+	labels, err := answerLabels(answer[respondLabels])
+	if err != nil {
+		return nil, nil, err
+	}
+	return cells, labels, nil
+}
+
+// answerLabels reads the label cells the model named: none when the
+// answer has no labels, else every item as a cell address or a merged
+// span.
+func answerLabels(value any) ([]string, error) {
+	if value == nil {
+		return nil, nil
+	}
+	list, ok := value.([]any)
+	if !ok {
+		return nil, fmt.Errorf("xlsx: model answered labels with %q, not a list of cell addresses", fmt.Sprint(value))
+	}
+	labels := make([]string, 0, len(list))
+	for _, item := range list {
+		text, isText := item.(string)
+		text = strings.TrimSpace(text)
+		if !isText || !labelPattern.MatchString(text) {
+			return nil, fmt.Errorf("xlsx: model named label %q, which is not a cell address", fmt.Sprint(item))
+		}
+		labels = append(labels, text)
+	}
+	return labels, nil
 }

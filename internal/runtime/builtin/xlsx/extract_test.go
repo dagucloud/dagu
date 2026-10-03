@@ -42,6 +42,10 @@ func quoteBook(t *testing.T, dir string, cells map[string]any) string {
 	}
 	maps.Copy(values, cells)
 	for cell, v := range values {
+		if v == nil {
+			// A box left blank: the cell is not there at all.
+			continue
+		}
 		require.NoError(t, f.SetCellValue("Sheet1", cell, v))
 	}
 	require.NoError(t, f.SetCellStyle("Sheet1", "B5", "B5", date))
@@ -108,7 +112,8 @@ func (p *scriptedProvider) lastUserMessage() string {
 }
 
 // labelRight answers each field by finding the listing line whose text
-// equals the field's description and naming the cell to its right.
+// equals the field's description and naming the cell to its right, and
+// names the leftmost text cell of every row as a label.
 func labelRight(descriptions map[string]string) func(req *llmpkg.ChatRequest) map[string]any {
 	return func(req *llmpkg.ChatRequest) map[string]any {
 		listing := ""
@@ -137,8 +142,33 @@ func labelRight(descriptions map[string]string) func(req *llmpkg.ChatRequest) ma
 				answer[field] = next
 			}
 		}
+		answer[respondLabels] = leftmostLabels(listing)
 		return answer
 	}
+}
+
+// leftmostLabels names the first text cell of each listed row as a label,
+// the way a form puts its labels to the left of their values.
+func leftmostLabels(listing string) []any {
+	labels := []any{}
+	seen := map[int]bool{}
+	for line := range strings.SplitSeq(listing, "\n") {
+		addr, rest, ok := strings.Cut(line, " [")
+		if !ok {
+			continue
+		}
+		kind, _, _ := strings.Cut(rest, "]")
+		addr, _, _ = strings.Cut(addr, ":")
+		_, row, err := excelize.CellNameToCoordinates(addr)
+		if err != nil || seen[row] {
+			continue
+		}
+		seen[row] = true
+		if strings.HasPrefix(kind, "text") {
+			labels = append(labels, addr)
+		}
+	}
+	return labels
 }
 
 var quoteSchema = map[string]any{
@@ -243,6 +273,7 @@ func TestExtractValidation(t *testing.T) {
 		"schema not object":     {cfg: map[string]any{"path": "q.xlsx", "instruction": "find", "schema": map[string]any{"type": "array"}}, llm: testModel, want: "schema must have type: object"},
 		"bad property type":     {cfg: map[string]any{"path": "q.xlsx", "instruction": "find", "schema": map[string]any{"type": "object", "properties": map[string]any{"items": map[string]any{"type": "array"}}}}, llm: testModel, want: "schema.properties.items: type must be string, number, integer, or boolean"},
 		"collides":              {cfg: map[string]any{"path": "q.xlsx", "instruction": "find", "schema": map[string]any{"type": "object", "properties": map[string]any{"sheet": map[string]any{"type": "string"}}}}, llm: testModel, want: `schema property "sheet" collides with an output of xlsx.extract`},
+		"reserved":              {cfg: map[string]any{"path": "q.xlsx", "instruction": "find", "schema": map[string]any{"type": "object", "properties": map[string]any{"labels": map[string]any{"type": "string"}}}}, llm: testModel, want: `schema property "labels" is reserved by xlsx.extract`},
 		"properties not object": {cfg: map[string]any{"path": "q.xlsx", "instruction": "find", "schema": map[string]any{"type": "object", "properties": []any{"total"}}}, llm: testModel, want: "schema.properties must be an object"},
 		"property not object":   {cfg: map[string]any{"path": "q.xlsx", "instruction": "find", "schema": map[string]any{"type": "object", "properties": map[string]any{"total": "number"}}}, llm: testModel, want: "schema.properties.total must be an object"},
 		"foreign field":         {cfg: quoteConfig(map[string]any{"cells": map[string]any{"B2": 1}}), llm: testModel, want: "with.cells is not valid for xlsx.extract"},
@@ -291,7 +322,9 @@ func TestExtractReadsAnsweredCells(t *testing.T) {
 	require.Len(t, req.Tools, 1)
 	assert.Equal(t, "respond", req.Tools[0].Function.Name)
 	properties := req.Tools[0].Function.Parameters["properties"].(map[string]any)
-	assert.Len(t, properties, 3)
+	assert.Len(t, properties, 4)
+	assert.Equal(t, "array", properties["labels"].(map[string]any)["type"], "the model names the label cells")
+	assert.Contains(t, req.Tools[0].Function.Parameters["required"], "labels")
 	assert.Equal(t, []any{"string", "null"}, properties["total"].(map[string]any)["type"])
 	user := r.provider.lastUserMessage()
 	assert.True(t, strings.HasPrefix(user, "A supplier quote; find the quote number, delivery date, and total\n\nSheet: Sheet1 (Sheet1!A1:B7, 7 cells)\n"), user)
@@ -589,13 +622,26 @@ func mergeConfig(base, extra map[string]any) map[string]any {
 
 func TestExtractRejectsNullAnswer(t *testing.T) {
 	t.Parallel()
-	cells, err := parseAnswer(json.RawMessage("null"), []string{"total"})
+	cells, _, err := parseAnswer(json.RawMessage("null"), []string{"total"})
 	require.Nil(t, cells)
 	require.EqualError(t, err, "xlsx: model answer is not an object: null")
 
-	cells, err = parseAnswer(json.RawMessage(`{"total": "'O''Brien'!B2"}`), []string{"total"})
+	cells, labels, err := parseAnswer(json.RawMessage(`{"total": "'O''Brien'!B2"}`), []string{"total"})
 	require.NoError(t, err)
 	assert.Equal(t, "'O''Brien'!B2", cells["total"], "a quoted sheet with a doubled apostrophe is an address")
+	assert.Nil(t, labels, "an answer without labels names none")
+
+	_, labels, err = parseAnswer(json.RawMessage(`{"total": "B7", "labels": ["A7", "'Sheet1'!$A$3", "A1:D1", null]}`), []string{"total"})
+	require.EqualError(t, err, `xlsx: model named label "<nil>", which is not a cell address`)
+	assert.Nil(t, labels)
+	_, _, err = parseAnswer(json.RawMessage(`{"total": "B7", "labels": "A7"}`), []string{"total"})
+	require.EqualError(t, err, `xlsx: model answered labels with "A7", not a list of cell addresses`)
+	_, labels, err = parseAnswer(json.RawMessage(`{"total": "B7", "labels": ["A7", "'Sheet1'!$A$3", "A1:D1"]}`), []string{"total"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"A7", "'Sheet1'!$A$3", "A1:D1"}, labels, "a sheet, dollar signs, and a merged span are accepted")
+	assert.Equal(t, map[string]string{"A7": labelDigest("合計金額"), "A3": labelDigest("見積番号"), "A1": labelDigest("御見積書")},
+		labelsFor(map[string]string{}, labels, map[string]string{"A7": "合計金額", "A3": "見積番号", "A1": "御見積書", "B9": "備考"}),
+		"a named label is watched by its top-left cell")
 }
 
 func TestExtractCacheHealsOnRenamedLabel(t *testing.T) {
@@ -613,6 +659,95 @@ func TestExtractCacheHealsOnRenamedLabel(t *testing.T) {
 	assert.Equal(t, 2, r.provider.count(), "a changed label asks the model again")
 	assert.Equal(t, sourceModel, run.exec.GetOutputs()["source"])
 	assert.Nil(t, run.exec.GetOutputs()["total"], "the scripted model finds no 合計金額 label now")
+}
+
+// A form of the same template with a box left blank has another shape,
+// but its labels hold and it lists no cell the recording did not see.
+func TestExtractCacheServesABlankBox(t *testing.T) {
+	t.Parallel()
+	r := newExtractRun(t)
+	quoteBook(t, r.dir, nil)
+	require.NoError(t, r.execute(quoteConfig(nil), testModel).err)
+	require.Equal(t, 1, r.provider.count())
+
+	quoteBook(t, r.dir, map[string]any{"B3": "Q-2026-002", "B7": nil})
+	blank := r.execute(quoteConfig(nil), testModel)
+	require.NoError(t, blank.err)
+	assert.Equal(t, 1, r.provider.count(), "a blank box makes no model request")
+	outputs := blank.exec.GetOutputs()
+	assert.Equal(t, sourceCache, outputs["source"])
+	assert.Equal(t, "Q-2026-002", outputs["quote_no"])
+	assert.Nil(t, outputs["total"], "the blank box is null")
+	assert.Equal(t, "Sheet1!B7", outputs["cells"].(map[string]string)["total"])
+}
+
+// A recording made on a form with a blank box never hides a value: a
+// form listing a cell the recording did not see asks the model, and its
+// recording then serves the blank form too.
+func TestExtractCacheAsksForACellNoRecordingSaw(t *testing.T) {
+	t.Parallel()
+	r := newExtractRun(t)
+	quoteBook(t, r.dir, map[string]any{"B7": nil})
+	first := r.execute(quoteConfig(nil), testModel)
+	require.NoError(t, first.err)
+	require.Equal(t, 1, r.provider.count())
+	assert.Nil(t, first.exec.GetOutputs()["total"])
+
+	quoteBook(t, r.dir, nil)
+	filled := r.execute(quoteConfig(nil), testModel)
+	require.NoError(t, filled.err)
+	assert.Equal(t, 2, r.provider.count(), "a cell no recording saw asks the model")
+	assert.Equal(t, sourceModel, filled.exec.GetOutputs()["source"])
+	assert.Equal(t, int64(123000), filled.exec.GetOutputs()["total"])
+
+	quoteBook(t, r.dir, map[string]any{"B7": nil})
+	again := r.execute(quoteConfig(nil), testModel)
+	require.NoError(t, again.err)
+	assert.Equal(t, 2, r.provider.count(), "the filled recording serves the blank form")
+	assert.Equal(t, sourceCache, again.exec.GetOutputs()["source"])
+	assert.Nil(t, again.exec.GetOutputs()["total"])
+}
+
+// A label renamed in place is noticed through the labels the model named,
+// even for a field the sheet lacked when the recording was made.
+func TestExtractCacheHealsOnRenamedLabelOfAnAbsentField(t *testing.T) {
+	t.Parallel()
+	r := newExtractRun(t)
+	schema := mergeConfig(quoteSchema, nil)
+	schema["properties"] = mergeConfig(quoteSchema["properties"].(map[string]any), map[string]any{
+		"terms": map[string]any{"type": "string", "description": "支払条件"},
+	})
+	r.provider.answer = labelRight(map[string]string{"quote_no": "見積番号", "delivery": "納期", "total": "合計金額", "terms": "支払条件"})
+	cfg := quoteConfig(map[string]any{"schema": schema})
+
+	quoteBook(t, r.dir, map[string]any{"A9": "備考", "B9": "特になし"})
+	first := r.execute(cfg, testModel)
+	require.NoError(t, first.err)
+	require.Equal(t, 1, r.provider.count())
+	assert.Nil(t, first.exec.GetOutputs()["terms"], "the sheet has no payment terms")
+
+	// The same shape: a text label and a text value at the same cells, but
+	// the label now names the field that was absent.
+	quoteBook(t, r.dir, map[string]any{"A9": "支払条件", "B9": "月末締翌月末払"})
+	run := r.execute(cfg, testModel)
+	require.NoError(t, run.err)
+	assert.Equal(t, 2, r.provider.count(), "a renamed label asks the model again")
+	outputs := run.exec.GetOutputs()
+	assert.Equal(t, sourceModel, outputs["source"])
+	assert.Equal(t, "月末締翌月末払", outputs["terms"])
+	assert.Equal(t, "Sheet1!B9", outputs["cells"].(map[string]string)["terms"])
+}
+
+// Labels that are not addresses make the answer unusable, like a field.
+func TestExtractRejectsBadLabels(t *testing.T) {
+	t.Parallel()
+	r := newExtractRun(t)
+	quoteBook(t, r.dir, nil)
+	r.provider.answer = func(*llmpkg.ChatRequest) map[string]any {
+		return map[string]any{"quote_no": "B3", "delivery": "B5", "total": "B7", "labels": []any{"A3", "the title"}}
+	}
+	run := r.execute(quoteConfig(nil), testModel)
+	require.ErrorContains(t, run.err, `model request failed: openai/test-model: xlsx: model named label "the title", which is not a cell address`)
 }
 
 func TestExtractCacheHealsOnInstructionChange(t *testing.T) {
