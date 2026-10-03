@@ -825,8 +825,6 @@ steps:
         order_id: ${foreach.item.order_id}
         status: ${steps.submit.outputs.status_code}
     output: RESULTS
-    continue_on:
-      failure: true
   - id: mark
     depends: each
     action: xlsx.update_rows
@@ -834,17 +832,18 @@ steps:
       path: ~/Inbox/orders.xlsx
       sheet: Orders
       key: order_id
-      rows: ${steps.each.outputs.RESULTS}
+      rows: ${RESULTS}
       set: {Status: status}
       wait_for_unlock: 5m
 ```
 
 The loop's `collect` builds one object per row with the key and the result
-fields, and `rows` accepts the foreach aggregate directly: its `outputs` list,
-the collected objects of the item bodies that succeeded, is what gets written
-back. `continue_on.failure` on the loop lets the write-back run when some
-rows failed, so the rows that did succeed are marked and are not submitted
-again on the next run; the run still reports the failure.
+fields, and `rows` accepts the foreach aggregate directly: a string-form
+`output: RESULTS` is the variable `${RESULTS}`, and its `outputs` list is
+what gets written back. The aggregate exists only when every item body
+succeeded, so a body that must record a failure reports it as an output,
+the way `status_code` does here, rather than failing; every row is then
+marked and none is submitted again on the next run.
 
 `xlsx.read` `with` fields: `path`, `password`, `sheet` (first sheet by default,
 matched case-insensitively), `range` (`A2:F`, `Sheet1!A2:F`, a named range, or a
