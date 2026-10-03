@@ -27,6 +27,11 @@ const extractBatchSource = `async (batch, input) => (await batch.extract(input.i
 
 const telemetryPath = "/v1/traces"
 
+// actResponseFormat names the model answer that picks the element an act
+// instruction describes. The answer's twoStep field makes the runtime ask
+// the model for a second action and perform it too.
+const actResponseFormat = "Act"
+
 const (
 	// pageCallTimeout bounds a page read or screenshot, so a page that stops
 	// responding fails the step instead of hanging it.
@@ -653,12 +658,18 @@ func stagehandGenerate(generate generateFunc) stagehand.LLMGenerateFunc {
 		if err != nil {
 			return stagehand.LLMGenerateResult{}, err
 		}
+		answer := resp.JSON
+		if req.SchemaName == actResponseFormat {
+			if answer, err = singleStep(answer); err != nil {
+				return stagehand.LLMGenerateResult{}, err
+			}
+		}
 		return stagehand.StructuredGenerateResult(stagehand.LLMStructuredGenerateResult{
 			Role: stagehand.LLMRoleAssistant,
 			Content: stagehand.LLMMessageContent{
-				stagehand.TextContentBlock(stagehand.LLMTextContent{Type: "text", Text: string(resp.JSON)}),
+				stagehand.TextContentBlock(stagehand.LLMTextContent{Type: "text", Text: string(answer)}),
 			},
-			StructuredContent: resp.JSON,
+			StructuredContent: answer,
 			Usage: &stagehand.LLMUsage{
 				InputTokens:  resp.Usage.Input,
 				OutputTokens: resp.Usage.Output,
@@ -666,6 +677,25 @@ func stagehandGenerate(generate generateFunc) stagehand.LLMGenerateFunc {
 			},
 		}), nil
 	}
+}
+
+// singleStep turns off the second action an act answer asks for, so an act
+// performs only the one action its instruction describes. An answer that is
+// not an object is returned unchanged for the runtime to reject.
+func singleStep(answer json.RawMessage) (json.RawMessage, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(answer, &fields); err != nil {
+		return answer, nil
+	}
+	if _, ok := fields["twoStep"]; !ok {
+		return answer, nil
+	}
+	fields["twoStep"] = json.RawMessage("false")
+	single, err := json.Marshal(fields)
+	if err != nil {
+		return nil, fmt.Errorf("encode act answer: %w", err)
+	}
+	return single, nil
 }
 
 func messageText(content stagehand.LLMMessageContent) (string, error) {

@@ -19,6 +19,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -242,6 +243,58 @@ func TestStagehandReplayHiddenElement(t *testing.T) {
 	replayed, err = eng.Replay(t.Context(), typeInto("xpath=/html/body/input[1]"), nil, time.Minute)
 	require.NoError(t, err)
 	assert.True(t, replayed, "the field outside the dialog is visible")
+}
+
+// menuPage adds an Approve button once its menu is opened.
+const menuPage = `<p id="status">pending</p>
+<button onclick="openMenu()">Open menu</button>
+<script>
+function openMenu() {
+	const approve = document.createElement("button");
+	approve.textContent = "Approve";
+	approve.onclick = () => { document.getElementById("status").textContent = "approved"; };
+	document.body.append(approve);
+}
+</script>`
+
+var menuButtonPattern = regexp.MustCompile(`\[(\d+-\d+)\] button: (Open menu|Approve)`)
+
+// An act performs one action even when the model asks to follow it with
+// another, which the runtime would otherwise ask for and perform as well.
+func TestStagehandActPerformsOneAction(t *testing.T) {
+	t.Parallel()
+
+	var requests atomic.Int32
+	// The model clicks Approve once the page shows it, and Open menu before,
+	// and always asks for a second action.
+	model := func(_ context.Context, req generateRequest) (generateResponse, error) {
+		requests.Add(1)
+		text := ""
+		for _, message := range req.Messages {
+			text += message.Text
+		}
+		buttons := map[string]string{}
+		for _, match := range menuButtonPattern.FindAllStringSubmatch(text, -1) {
+			buttons[match[2]] = match[1]
+		}
+		id, ok := buttons["Approve"]
+		if !ok {
+			id = buttons["Open menu"]
+		}
+		answer := fmt.Sprintf(`{"action":{"elementId":%q,"description":"menu button","method":"click","arguments":[]},"twoStep":true}`, id)
+		return generateResponse{JSON: json.RawMessage(answer)}, nil
+	}
+	eng := launchBrowser(t, launchOptions{Generate: model})
+	require.NoError(t, eng.Goto(t.Context(), "data:text/html,"+url.PathEscape(menuPage), 30*time.Second))
+
+	outcome, err := eng.Act(t.Context(), "Open the menu", nil, time.Minute)
+	require.NoError(t, err)
+	require.True(t, outcome.Success, outcome.Message)
+	assert.Len(t, outcome.Actions, 1)
+	assert.EqualValues(t, 1, requests.Load(), "no model request for a second action")
+	text, err := eng.PageText(t.Context())
+	require.NoError(t, err)
+	assert.Contains(t, text, "pending", "Approve is not clicked")
 }
 
 // The runtime reports a detached page session in a failed act result when
