@@ -30,6 +30,9 @@ type DAGRunStore interface {
 	FindSubAttempt(ctx context.Context, root ir.DAGRunRef, childRunID string) (dagrun.Attempt, error)
 	RemoveOldDAGRuns(ctx context.Context, req DAGRunRetentionRequest) ([]ir.DAGRunRef, error)
 	RemoveDAGRun(ctx context.Context, req DAGRunRemoveRequest) error
+	// PruneArtifacts removes artifact directories and index records that no
+	// surviving DAG run points to.
+	PruneArtifacts(ctx context.Context, req ArtifactPruneRequest) (*ArtifactPruneResult, error)
 }
 
 // DAGRunStatusQuery contains normalized backend filters for listing runs.
@@ -92,6 +95,31 @@ type DAGRunRetentionRequest struct {
 type DAGRunRemoveRequest struct {
 	DAGRun       ir.DAGRunRef
 	RejectActive bool
+}
+
+// ArtifactPruneRequest describes a sweep for orphaned artifact directories.
+type ArtifactPruneRequest struct {
+	// Root is the artifact tree to sweep; empty uses the store's configured
+	// artifact root.
+	Root string
+	// ProtectedDirs are directories the sweep must never reach. A root that
+	// equals or contains one of them, or the store's run history, is refused.
+	ProtectedDirs []string
+	// OlderThan bounds removal to entries created before it. Stores clamp it
+	// to a minimum age, because a run's artifact directory exists before its
+	// record does.
+	OlderThan TimeInUTC
+	// DryRun reports what would be removed without removing it.
+	DryRun bool
+}
+
+// ArtifactPruneResult reports the paths a sweep removed, or would remove in a
+// dry run.
+type ArtifactPruneResult struct {
+	// Dirs are run artifact directories.
+	Dirs []string
+	// Records are artifact index sidecars whose run is gone.
+	Records []string
 }
 
 // DAGRunRepositoryOptions configures application-level DAG-run behavior.

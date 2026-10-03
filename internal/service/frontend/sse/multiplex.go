@@ -357,39 +357,7 @@ func (m *Multiplexer) applyMutation(ctx context.Context, session *streamSession,
 		}
 	}
 
-	// TODO: Extract add-topic classification into a helper when we can do a
-	// broader cleanup without mixing behavior changes into this regression fix.
-	mutationErrors := make([]TopicMutationError, 0)
-	authorizedAdds := make([]ParsedTopic, 0, len(addedParsed))
-	for _, parsed := range addedParsed {
-		authorizer := m.getAuthorizer(parsed.Type)
-		if authorizer == nil {
-			authorizedAdds = append(authorizedAdds, parsed)
-			continue
-		}
-		if err := authorizer(ctx, parsed.Identifier); err != nil {
-			mutationErrors = append(mutationErrors, TopicMutationError{
-				Topic:   parsed.Key,
-				Code:    "unauthorized",
-				Message: err.Error(),
-			})
-			continue
-		}
-		authorizedAdds = append(authorizedAdds, parsed)
-	}
-
-	supportedAdds := make([]ParsedTopic, 0, len(authorizedAdds))
-	for _, parsed := range authorizedAdds {
-		if m.hasFetcher(parsed.Type) {
-			supportedAdds = append(supportedAdds, parsed)
-			continue
-		}
-		mutationErrors = append(mutationErrors, TopicMutationError{
-			Topic:   parsed.Key,
-			Code:    "unsupported_topic",
-			Message: fmt.Sprintf("topic type %q is not supported by this server", parsed.Type),
-		})
-	}
+	supportedAdds, mutationErrors := m.classifyAddedTopics(ctx, addedParsed)
 
 	resolvedAdds, createdTopics, err := m.resolveTopicsForMutation(supportedAdds)
 	if err != nil {
@@ -474,6 +442,44 @@ func (m *Multiplexer) applyMutation(ctx context.Context, session *streamSession,
 		added:      addedTopics,
 		statusCode: statusCode,
 	}, nil
+}
+
+// classifyAddedTopics filters requested topics by authorization and fetcher
+// support, collecting a mutation error for each rejected topic.
+func (m *Multiplexer) classifyAddedTopics(ctx context.Context, addedParsed []ParsedTopic) ([]ParsedTopic, []TopicMutationError) {
+	mutationErrors := make([]TopicMutationError, 0)
+	authorizedAdds := make([]ParsedTopic, 0, len(addedParsed))
+	for _, parsed := range addedParsed {
+		authorizer := m.getAuthorizer(parsed.Type)
+		if authorizer == nil {
+			authorizedAdds = append(authorizedAdds, parsed)
+			continue
+		}
+		if err := authorizer(ctx, parsed.Identifier); err != nil {
+			mutationErrors = append(mutationErrors, TopicMutationError{
+				Topic:   parsed.Key,
+				Code:    "unauthorized",
+				Message: err.Error(),
+			})
+			continue
+		}
+		authorizedAdds = append(authorizedAdds, parsed)
+	}
+
+	supportedAdds := make([]ParsedTopic, 0, len(authorizedAdds))
+	for _, parsed := range authorizedAdds {
+		if m.hasFetcher(parsed.Type) {
+			supportedAdds = append(supportedAdds, parsed)
+			continue
+		}
+		mutationErrors = append(mutationErrors, TopicMutationError{
+			Topic:   parsed.Key,
+			Code:    "unsupported_topic",
+			Message: fmt.Sprintf("topic type %q is not supported by this server", parsed.Type),
+		})
+	}
+
+	return supportedAdds, mutationErrors
 }
 
 func (m *Multiplexer) attachTopicToSession(session *streamSession, parsed ParsedTopic, candidate *multiplexTopic) (*multiplexTopic, error) {

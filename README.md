@@ -831,7 +831,7 @@ See the [distributed execution documentation](https://docs.dagu.sh/server-admin/
 | `dagu cleanup <dag>` | Clean up old run data |
 | `dagu version` | Show version |
 
-The table lists the most common commands. The binary ships 31 in total, including `exec`, `ls`, `ps`, `rm`, `sync`, `schema`, `example`, `config`, `profile`, `context`, `license`, `upgrade`, and `completion`; run `dagu --help` or see the [CLI reference](https://docs.dagu.sh/getting-started/cli) for all of them.
+The table lists the most common commands. The binary ships 36 in total, including `exec`, `ls`, `ps`, `rm`, `prune-artifacts`, `sync`, `schema`, `example`, `config`, `profile`, `context`, `license`, `upgrade`, and `completion`; run `dagu --help` or see the [CLI reference](https://docs.dagu.sh/getting-started/cli) for all of them.
 
 ## Environment Variables
 

@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 )
 
 var sourceFiles = []string{
@@ -79,7 +81,7 @@ func WriteFile(outputPath string, opts Options) error {
 		}
 	}
 
-	if err := os.WriteFile(outputPath, content, 0o644); err != nil {
+	if err := fileutil.WriteFileAtomic(outputPath, content, 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", outputPath, err)
 	}
 	return nil

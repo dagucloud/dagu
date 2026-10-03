@@ -331,6 +331,12 @@ func (r *DAGRunRepository) RemoveDAGRun(ctx context.Context, ref ir.DAGRunRef, o
 	return errors.Join(err, removeErr)
 }
 
+// PruneArtifacts removes artifact directories and index records that no
+// surviving DAG run points to.
+func (r *DAGRunRepository) PruneArtifacts(ctx context.Context, request ArtifactPruneRequest) (*ArtifactPruneResult, error) {
+	return r.store.PruneArtifacts(ctx, request)
+}
+
 func (r *DAGRunRepository) enqueueDAGRunRemovals(ctx context.Context, refs []ir.DAGRunRef) error {
 	for _, ref := range refs {
 		resources, err := r.agentSessionResources(ctx, ref)

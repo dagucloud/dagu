@@ -32,6 +32,7 @@ import (
 	aquainstallpackage "github.com/aquaproj/aqua/v2/pkg/installpackage"
 	aquaruntime "github.com/aquaproj/aqua/v2/pkg/runtime"
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/tools"
@@ -189,7 +190,7 @@ func (i *Installer) installResolved(ctx context.Context, cfg *ir.ToolConfig, opt
 	if err != nil {
 		return nil, err
 	}
-	if err := os.WriteFile(paths.ConfigFile, data, 0o600); err != nil {
+	if err := fileutil.WriteFileAtomic(paths.ConfigFile, data, 0o600); err != nil {
 		return nil, fmt.Errorf("write generated aqua config: %w", err)
 	}
 

@@ -425,7 +425,7 @@ func persistInlineEnqueueLabels(dag *ir.DAG, labels string) error {
 		return nil
 	}
 
-	if err := os.WriteFile(dag.Location, patched, 0o600); err != nil {
+	if err := fileutil.WriteFileAtomic(dag.Location, patched, 0o600); err != nil {
 		return fmt.Errorf("write patched inline spec: %w", err)
 	}
 
