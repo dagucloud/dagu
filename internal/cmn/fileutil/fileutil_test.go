@@ -114,6 +114,7 @@ func TestResolvePath(t *testing.T) {
 
 	t.Setenv("HOME", testHome)
 	t.Setenv("TEMP_DIR", testTempDir)
+	t.Setenv("TILDE_USER", "~alice")
 	if runtime.GOOS == "windows" {
 		t.Setenv("USERPROFILE", testHome)
 		volume := filepath.VolumeName(testHome)
@@ -152,6 +153,12 @@ func TestResolvePath(t *testing.T) {
 			name:        "TildeOnly",
 			path:        "~",
 			expected:    filepath.Clean(testHome),
+			expectError: false,
+		},
+		{
+			name:        "TildeBackslashSeparator",
+			path:        `~\documents`,
+			expected:    filepath.Clean(filepath.Join(testHome, "documents")),
 			expectError: false,
 		},
 		{
@@ -196,6 +203,33 @@ func TestResolvePath(t *testing.T) {
 			expected:    filepath.Join(cwd, "projects/dagu"),
 			expectError: false,
 		},
+		{
+			name:        "TildeUserPath",
+			path:        "~alice/documents",
+			expectError: true,
+		},
+		{
+			name:        "TildeUserOnly",
+			path:        "~alice",
+			expectError: true,
+		},
+		{
+			name:        "TildeUserFromEnvExpansion",
+			path:        "$TILDE_USER/documents",
+			expectError: true,
+		},
+		{
+			name:        "TildeMidPathNotExpanded",
+			path:        "docs/~drafts",
+			expected:    filepath.Join(cwd, "docs", "~drafts"),
+			expectError: false,
+		},
+		{
+			name:        "TildeInsideHomeRelativePath",
+			path:        "~/docs/~archive",
+			expected:    filepath.Clean(filepath.Join(testHome, "docs", "~archive")),
+			expectError: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -226,6 +260,15 @@ func TestResolvePath(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestResolvePathRejectsUserTilde(t *testing.T) {
+	t.Parallel()
+
+	_, err := ResolvePath("~alice/documents")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "~alice/documents")
+	assert.Contains(t, err.Error(), "not supported")
 }
 
 func TestMustResolvePath(t *testing.T) {
