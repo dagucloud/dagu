@@ -731,6 +731,7 @@ Dagu exposes Prometheus-compatible metrics:
 - `dagu_uptime_seconds`: Server uptime
 - `dagu_dag_runs_total`: Total DAG runs by status
 - `dagu_dag_runs_total_by_dag`: Per-DAG run counts
+- `dagu_dag_run_status`: Current status of each DAG's latest run (one-hot gauge per status)
 - `dagu_dag_run_duration_seconds`: Histogram of run durations
 - `dagu_dag_runs_currently_running`: Active DAG runs
 - `dagu_dag_runs_queued_total`: Queued runs
