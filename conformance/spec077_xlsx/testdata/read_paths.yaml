@@ -3,7 +3,9 @@ params:
   - BOOK: abs.xlsx
 steps:
   - id: home
-    run: mkdir -p "$HOME"
+    action: file.mkdir
+    with:
+      path: "~"
   - id: write_tilde
     depends: home
     action: xlsx.write

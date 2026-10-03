@@ -51,4 +51,7 @@ steps:
     output: FILLED
   - id: record
     depends: each
-    run: printf "%s" "$FILLED" > filled.json
+    action: file.write
+    with:
+      path: filled.json
+      content: ${FILLED}

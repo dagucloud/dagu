@@ -841,9 +841,11 @@ The loop's `collect` builds one object per row with the key and the result
 fields, and `rows` accepts the foreach aggregate directly: a string-form
 `output: RESULTS` is the variable `${RESULTS}`, and its `outputs` list is
 what gets written back. The aggregate exists only when every item body
-succeeded, so a body that must record a failure reports it as an output,
-the way `status_code` does here, rather than failing; every row is then
-marked and none is submitted again on the next run.
+succeeded, and `http.request` fails on a response outside 2xx, so one
+rejected order leaves every row unmarked and the next run submits the
+accepted ones again. A loop that must record rejections row by row needs a
+body that observes the outcome without failing, such as a script that calls
+the service and writes the status to its outputs; every row is then marked.
 
 `xlsx.read` `with` fields: `path`, `password`, `sheet` (first sheet by default,
 matched case-insensitively), `range` (`A2:F`, `Sheet1!A2:F`, a named range, or a

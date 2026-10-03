@@ -40,7 +40,7 @@ func TestXlsxArtifacts(t *testing.T) {
 		names = append(names, strings.Join(parts[4:], "/"))
 	}
 	require.ElementsMatch(t, []string{"xlsx/report/totals.xlsx", "xlsx/fill/filled.xlsx", "xlsx/export/totals.csv"}, names,
-		"the dry-run step with artifact: true copied nothing")
+		"one copy per published artifact and none from the dry-run step")
 
 	disabled := harness.NewRunner(t)
 	result := disabled.Run("start", "artifact_disabled.yaml")

@@ -67,9 +67,6 @@ func TestXlsxInspectAndReadCommands(t *testing.T) {
 	missing.ExpectStderrContains("missing.xlsx: workbook not found")
 }
 
-// TestXlsxReadCommandFlags covers the read options the command exposes:
-// sheet, range, header, columns, and max-rows, each changing what the
-// command prints the way the xlsx.read option does.
 func TestXlsxReadCommandFlags(t *testing.T) {
 	t.Parallel()
 
@@ -122,7 +119,6 @@ func TestXlsxReadCommandFlags(t *testing.T) {
 	require.Len(t, lines, 4, "one line per row and a trailing newline")
 }
 
-// TestXlsxInspectCommandSheet covers --sheet on inspect and the text form.
 func TestXlsxInspectCommandSheet(t *testing.T) {
 	t.Parallel()
 

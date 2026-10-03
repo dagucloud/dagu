@@ -23,9 +23,11 @@ formats. Every workflow in Examples has a fixture.
 
 Conformance exceptions, behavior that a black-box run cannot observe or
 set up and that unit tests of `internal/cmn/workbook` cover instead:
-`password` (nothing in Dagu writes a protected workbook); what `mode:
-replace` clears, `style: table` formatting, style copying, and column
-widths (not readable through `xlsx.read`); the temporary file of an
+`password` (nothing in Dagu writes a protected workbook); the styles,
+hyperlinks, merged regions, and tables that `mode: replace` clears,
+`style: table` formatting, style copying, and column widths (not readable
+through `xlsx.read`; that a replace empties the values is covered); the
+temporary file of an
 atomic save and symbolic links; a lock file another process holds,
 `wait_for_unlock` timing, and Windows sharing violations; the consequences
 of a rename or delete for formulas and defined names and what a copy
@@ -502,8 +504,8 @@ Every one of these is rejected by `dagu validate`:
 
 - Any xlsx action without `with.path`: `path is required for <operation>`.
 - `xlsx.write` or `xlsx.append` without `rows` or `input`:
-  `write requires with.rows or with.input`; with both:
-  `write accepts with.rows or with.input, not both`.
+  `<operation> requires with.rows or with.input`; with both:
+  `<operation> accepts with.rows or with.input, not both`.
 - `xlsx.update_rows` without `key`: `key is required for update_rows`;
   without `rows`: `update_rows requires with.rows`; with `header: false`:
   `update_rows needs a header row; header: false is not supported`.
@@ -671,10 +673,13 @@ steps:
 `collect` gives each item one object with the key and the result fields,
 and `rows` takes the foreach aggregate, published as the variable
 `${RESULTS}` (Spec 012), directly, using its `outputs` list. The aggregate
-is published only when every item body succeeded (Spec 018), so a body
-that must record a failure reports it as an output, the way `status_code`
-does here, rather than failing; the write-back then marks every row, and
-the rows marked are not submitted again on the next run.
+is published only when every item body succeeded (Spec 018), and
+`http.request` fails on a response outside 2xx, so one rejected order
+leaves every row unmarked and the next run submits the accepted ones
+again. A loop that must record rejections row by row needs a body that
+observes the outcome without failing, such as a script that calls the
+service and writes the status to its outputs; the write-back then marks
+every row.
 
 Build a report from a query and keep it with the run:
 

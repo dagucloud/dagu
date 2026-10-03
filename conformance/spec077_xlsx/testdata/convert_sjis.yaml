@@ -14,4 +14,4 @@ steps:
       output: sjis.csv
       encoding: shift_jis
       delimiter: ";"
-      columns: [品名]
+      columns: [品名, 数量]

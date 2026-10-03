@@ -208,7 +208,7 @@ func TestXlsxConvert(t *testing.T) {
 	require.NoError(t, err)
 	decoded, err := japanese.ShiftJIS.NewDecoder().Bytes(raw)
 	require.NoError(t, err)
-	require.Equal(t, "品名\nりんご\n", string(decoded), "columns keeps the named column")
+	require.Equal(t, "品名;数量\nりんご;3\n", string(decoded), "columns keeps the named columns and the delimiter separates them")
 	require.NotEqual(t, "品名", string(raw[:len("品名")]), "the bytes are Shift_JIS, not UTF-8")
 
 	input := harness.NewRunner(t)

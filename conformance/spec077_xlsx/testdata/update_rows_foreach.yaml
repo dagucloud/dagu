@@ -37,8 +37,6 @@ steps:
         order_id: ${foreach.item.order_id}
         status: ${steps.submit.outputs.result}
     output: RESULTS
-    continue_on:
-      failure: true
   - id: mark
     depends: each
     action: xlsx.update_rows
