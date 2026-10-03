@@ -1,0 +1,37 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: amounts.xlsx
+      columns: [Amount, Due, Code]
+      rows:
+        - {"Amount": "１２３，４５６", "Due": "２０２６／１０／０３", "Code": "００７"}
+        - {"Amount": "￥123,000", "Due": "令和8年10月3日", "Code": "１２３"}
+        - {"Amount": "123,000円", "Due": "R8.10.3", "Code": "abc"}
+        - {"Amount": "−5", "Due": "令和元年5月1日", "Code": "x"}
+  - id: read
+    depends: write
+    action: xlsx.read
+    with:
+      path: amounts.xlsx
+      types: {Amount: number, Due: date}
+  - id: out
+    depends: read
+    action: file.write
+    with:
+      path: out.json
+      content: ${steps.read.outputs.rows}
+  - id: bad
+    depends: write
+    action: xlsx.read
+    with:
+      path: amounts.xlsx
+      types: {Code: number}
+      on_type_error: warn
+  - id: warnings
+    depends: bad
+    action: file.write
+    with:
+      path: warnings.json
+      content: ${steps.bad.outputs.warnings}

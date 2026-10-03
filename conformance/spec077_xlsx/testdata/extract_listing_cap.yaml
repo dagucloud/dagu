@@ -1,0 +1,24 @@
+name: quote-extract-listing-cap
+working_dir: .
+env:
+  - LLM_BASE_URL: ${LLM_BASE_URL}
+llm:
+  provider: local
+  model: test-model
+  base_url: ${LLM_BASE_URL}
+steps:
+  - id: sheet
+    action: xlsx.write
+    with:
+      path: long.xlsx
+      input: long.csv
+  - id: fields
+    depends: sheet
+    action: xlsx.extract
+    with:
+      path: long.xlsx
+      instruction: Find the total.
+      schema:
+        type: object
+        properties:
+          total: {type: number, description: 合計金額}

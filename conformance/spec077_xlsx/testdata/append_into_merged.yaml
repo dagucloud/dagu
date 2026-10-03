@@ -1,0 +1,21 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: log.xlsx
+      columns: [when, what]
+      rows: [{"when": "2026-10-01", "what": "start"}]
+  - id: box
+    depends: write
+    action: xlsx.write_cells
+    with:
+      path: log.xlsx
+      merge: [A3:B4]
+      cells: {A1: when}
+  - id: append
+    depends: box
+    action: xlsx.append
+    with:
+      path: log.xlsx
+      rows: [["2026-10-02", "more"]]

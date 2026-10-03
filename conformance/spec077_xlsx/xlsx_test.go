@@ -22,6 +22,7 @@ type changes struct {
 	RowsAppended int    `json:"rows_appended"`
 	ColumnsAdded int    `json:"columns_added"`
 	CellsChanged int    `json:"cells_changed"`
+	Merged       int    `json:"merged"`
 }
 
 func readJSON(t *testing.T, dagu *harness.Runner, name string, into any) {

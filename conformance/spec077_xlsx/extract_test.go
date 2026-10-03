@@ -19,13 +19,16 @@ import (
 )
 
 // listingLine is one cell of the listing the step sends: the address, the
-// kind and hints, and the text when values are sent.
-var listingLine = regexp.MustCompile(`^([A-Z]+)(\d+)(?::[A-Z]+\d+)? \[[^\]]*\](?:: (.*))?$`)
+// kind and hints, and the text when values are sent; a merged region
+// lists its span, whose text lives in its top-left cell.
+var listingLine = regexp.MustCompile(`^([A-Z]+)(\d+)(?::[A-Z]+\d+)? \[([^\]]*)\](?:: (.*))?$`)
 
 // formModel answers like a model reading the listing: for each requested
 // field it finds the cell whose text is the field's description, or its
 // name, and names the cell to its right; a field with no such label is
-// null. It counts requests and keeps the last user message.
+// null. It names the leftmost text cell of every row as a label, the way
+// a form puts its labels to the left of their values. It counts requests
+// and keeps the last user message.
 type formModel struct {
 	mu       sync.Mutex
 	requests int
@@ -79,19 +82,34 @@ func (m *formModel) serve(w http.ResponseWriter, r *http.Request) {
 			user = message.Content
 		}
 	}
-	// The cell to the right of each label.
+	// The cell to the right of each label, and the leftmost text cell of
+	// every row.
 	valueCells := map[string]string{}
+	labels := []string{}
+	rows := map[string]bool{}
 	for line := range strings.SplitSeq(user, "\n") {
 		match := listingLine.FindStringSubmatch(line)
-		if match == nil || match[3] == "" {
+		if match == nil {
 			continue
 		}
-		valueCells[strings.TrimSpace(match[3])] = nextColumn(match[1]) + match[2]
+		if !rows[match[2]] {
+			rows[match[2]] = true
+			if strings.HasPrefix(match[3], "text") {
+				labels = append(labels, match[1]+match[2])
+			}
+		}
+		if match[4] == "" {
+			continue
+		}
+		valueCells[strings.TrimSpace(match[4])] = nextColumn(match[1]) + match[2]
 	}
 	// The step wraps each property's description in a sentence; the label
 	// is the listing text that sentence, or the property name, contains.
-	answer := map[string]any{}
+	answer := map[string]any{"labels": labels}
 	for name, property := range req.Tools[0].Function.Parameters.Properties {
+		if name == "labels" {
+			continue
+		}
 		answer[name] = nil
 		for label, cell := range valueCells {
 			if strings.Contains(property.Description, label) || label == name {
@@ -119,14 +137,19 @@ func nextColumn(column string) string {
 }
 
 type extracted struct {
-	QuoteNo  string            `json:"quote_no"`
-	Delivery string            `json:"delivery"`
-	Total    float64           `json:"total"`
-	Contact  string            `json:"contact"`
-	Cells    map[string]string `json:"cells"`
-	Sheet    string            `json:"sheet"`
-	Source   string            `json:"source"`
-	Warnings []string          `json:"warnings"`
+	QuoteNo  string  `json:"quote_no"`
+	Delivery string  `json:"delivery"`
+	Total    float64 `json:"total"`
+	Contact  string  `json:"contact"`
+	Title    string  `json:"title"`
+	Terms    string  `json:"terms"`
+	// TotalText is the total rendered inside a quoted string, so a null
+	// total can be told from a number.
+	TotalText string            `json:"total_text"`
+	Cells     map[string]string `json:"cells"`
+	Sheet     string            `json:"sheet"`
+	Source    string            `json:"source"`
+	Warnings  []string          `json:"warnings"`
 }
 
 func extractEnv(modelURL, home string) []string {
@@ -174,10 +197,32 @@ func TestXlsxExtractCache(t *testing.T) {
 	require.Equal(t, "cache", out.Source)
 	require.Equal(t, "Q-2026-001", out.QuoteNo)
 
+	// The same template with the total box left blank: another shape, but
+	// the labels hold and no cell is new, so the cache serves it.
+	blank := harness.NewRunner(t)
+	blank.RunWithEnv(env, "start", "extract_blank_total.yaml").ExpectExitCode(0)
+	readJSON(t, blank, "out.json", &out)
+	require.Equal(t, 1, model.count(), "a box left blank makes no model request")
+	require.Equal(t, "cache", out.Source)
+	require.Equal(t, "Q-2026-004", out.QuoteNo)
+	require.Equal(t, "null", out.TotalText, "the blank box is null")
+	require.Equal(t, "Sheet1!B4", out.Cells["total"])
+
+	// The same shape, with the label of the field the sheet lacked now in
+	// place of another label: the model is asked again and finds the field.
+	terms := harness.NewRunner(t)
+	terms.RunWithEnv(env, "start", "extract_terms_label.yaml").ExpectExitCode(0)
+	readJSON(t, terms, "out.json", &out)
+	require.Equal(t, 2, model.count(), "a label renamed in place asks again")
+	require.Equal(t, "model", out.Source)
+	require.Equal(t, "月末締翌月末払", out.Terms)
+	require.Equal(t, "Sheet1!B5", out.Cells["terms"])
+	require.Equal(t, float64(78000), out.Total)
+
 	more := harness.NewRunner(t)
 	more.RunWithEnv(env, "start", "extract_more_fields.yaml").ExpectExitCode(0)
 	readJSON(t, more, "out.json", &out)
-	require.Equal(t, 2, model.count(), "a field the cached entry lacks asks again")
+	require.Equal(t, 3, model.count(), "a field the cached entry lacks asks again")
 	require.Equal(t, "model", out.Source)
 	require.Equal(t, "佐藤", out.Contact)
 	require.Equal(t, "Q-2026-002", out.QuoteNo, "the same template with other values")
@@ -185,9 +230,59 @@ func TestXlsxExtractCache(t *testing.T) {
 	relayout := harness.NewRunner(t)
 	relayout.RunWithEnv(env, "start", "extract_relayout.yaml").ExpectExitCode(0)
 	readJSON(t, relayout, "out.json", &out)
-	require.Equal(t, 3, model.count(), "a changed layout asks again")
+	require.Equal(t, 4, model.count(), "a changed layout asks again")
 	require.Equal(t, "Sheet1!B3", out.Cells["quote_no"], "the cells follow the new layout")
 	require.Equal(t, float64(45000), out.Total)
+}
+
+// A sheet past the cell cap, or whose listing is past the size cap, stops
+// the step before any request.
+func TestXlsxExtractCaps(t *testing.T) {
+	t.Parallel()
+	model, modelURL := startFormModel(t)
+	env := []string{"LLM_BASE_URL=" + modelURL}
+
+	cells := harness.NewRunner(t)
+	writeCSV(t, cells, "big.csv", 2500, 1)
+	result := cells.RunWithEnv(env, "start", "extract_cell_cap.yaml")
+	result.ExpectNonZeroExitCode()
+	result.ExpectStderrContains("big.xlsx Sheet1: 5002 cells in Sheet1!A1:B2501 is more than 2000; set range to the part of the sheet that holds the fields")
+
+	listing := harness.NewRunner(t)
+	writeCSV(t, listing, "long.csv", 999, 200)
+	result = listing.RunWithEnv(env, "start", "extract_listing_cap.yaml")
+	result.ExpectNonZeroExitCode()
+	result.ExpectStderrContains("long.xlsx Sheet1: the listing of Sheet1!A1:B1000 is ", " KB, more than 200 KB; set range to the part of the sheet that holds the fields")
+	require.Equal(t, 0, model.count(), "neither sheet reaches the model")
+}
+
+// A merged region is listed once by its range, and a cell inside it reads
+// the region's top-left cell.
+func TestXlsxExtractMerged(t *testing.T) {
+	t.Parallel()
+	model, modelURL := startFormModel(t)
+	dagu := harness.NewRunner(t)
+	dagu.RunWithEnv([]string{"LLM_BASE_URL=" + modelURL}, "start", "extract_merged.yaml").ExpectExitCode(0)
+	var out extracted
+	readJSON(t, dagu, "out.json", &out)
+	require.Contains(t, model.userMessage(), "A1:C1 [text]: 御見積書")
+	require.Equal(t, "御見積書", out.Title)
+	require.Equal(t, "Sheet1!A1", out.Cells["title"], "the model named B1, inside the merged region")
+	require.Equal(t, "Q-2026-001", out.QuoteNo)
+	require.Equal(t, float64(123000), out.Total)
+}
+
+// Japanese text under a pinned type is read as Typing describes.
+func TestXlsxExtractJapanese(t *testing.T) {
+	t.Parallel()
+	_, modelURL := startFormModel(t)
+	dagu := harness.NewRunner(t)
+	dagu.RunWithEnv([]string{"LLM_BASE_URL=" + modelURL}, "start", "extract_japanese.yaml").ExpectExitCode(0)
+	var out extracted
+	readJSON(t, dagu, "out.json", &out)
+	require.Equal(t, "Ｑ－２０２６－００１", out.QuoteNo, "a string field keeps the text as it is")
+	require.Equal(t, "2026-10-15", out.Delivery, "an era date pinned to date")
+	require.Equal(t, float64(123000), out.Total, "a yen amount pinned to number")
 }
 
 // dagu xlsx cache clear and dagu rm --history drop the cached cells.

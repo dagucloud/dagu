@@ -1,0 +1,44 @@
+name: quote-extract-merged
+working_dir: .
+env:
+  - LLM_BASE_URL: ${LLM_BASE_URL}
+llm:
+  provider: local
+  model: test-model
+  base_url: ${LLM_BASE_URL}
+steps:
+  - id: form
+    action: xlsx.write
+    with:
+      path: quote.xlsx
+      header: false
+      style: none
+      rows:
+        - ["御見積書", null, null]
+        - ["見積番号", "Q-2026-001", null]
+        - ["合計金額", 123000, null]
+  - id: title
+    depends: form
+    action: xlsx.write_cells
+    with:
+      path: quote.xlsx
+      cells: {A1: 御見積書}
+      merge: [A1:C1]
+  - id: fields
+    depends: title
+    action: xlsx.extract
+    with:
+      path: quote.xlsx
+      instruction: A supplier quote. Find the title, the quote number, and the total amount.
+      schema:
+        type: object
+        properties:
+          title: {type: string, description: 御見積書}
+          quote_no: {type: string, description: 見積番号}
+          total: {type: number, description: 合計金額}
+  - id: out
+    depends: fields
+    action: file.write
+    with:
+      path: out.json
+      content: '{"title": "${steps.fields.outputs.title}", "quote_no": "${steps.fields.outputs.quote_no}", "total": ${steps.fields.outputs.total}, "cells": ${steps.fields.outputs.cells}, "source": "${steps.fields.outputs.source}"}'

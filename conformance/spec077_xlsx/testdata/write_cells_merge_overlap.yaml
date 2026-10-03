@@ -1,0 +1,22 @@
+working_dir: .
+steps:
+  - id: template
+    action: xlsx.write
+    with:
+      path: template.xlsx
+      header: false
+      rows: [["Title"]]
+  - id: first
+    depends: template
+    action: xlsx.write_cells
+    with:
+      path: template.xlsx
+      merge: [B1:E1]
+      cells: {A2: 1}
+  - id: second
+    depends: first
+    action: xlsx.write_cells
+    with:
+      path: template.xlsx
+      merge: [A1:D1]
+      cells: {A3: 1}

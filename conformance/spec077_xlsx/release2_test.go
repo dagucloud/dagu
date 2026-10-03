@@ -265,6 +265,7 @@ func TestXlsxReleaseTwoValidation(t *testing.T) {
 	for _, tc := range []struct{ file, message string }{
 		{"validation_validate_no_rules.yaml", "validate requires at least one of with.required, with.not_blank, with.unique, with.types, or with.allowed"},
 		{"validation_write_cells_no_cells.yaml", "write_cells requires with.cells"},
+		{"validation_write_cells_merge.yaml", `merge: "B2" is not a range`},
 		{"validation_sheet_bad_operation.yaml", "move does not equal any of: [add copy rename delete]"},
 		{"validation_convert_no_output.yaml", "convert requires with.output"},
 		{"validation_bad_encoding.yaml", "latin1 does not equal any of: [utf-8 utf-8-bom shift_jis cp932 windows-31j sjis ms932]"},
