@@ -269,3 +269,41 @@ func TestBuildRequestBody_Images(t *testing.T) {
 		{"text":"describe"}
 	]`, string(parsed.Contents[0].Parts))
 }
+
+// Tool results name the function they answer, found through the call ID,
+// and the results of one turn's calls travel in one content, as Gemini
+// requires for parallel calls.
+func TestBuildRequestBody_FunctionResponses(t *testing.T) {
+	t.Parallel()
+
+	provider := &Provider{config: llm.Config{APIKey: "test-key"}}
+	body, err := provider.buildRequestBody(&llm.ChatRequest{
+		Model: "gemini-2.5-flash",
+		Messages: []llm.Message{
+			{Role: llm.RoleUser, Content: "weather in Tokyo and Paris"},
+			{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
+				{ID: "call_0", Type: "function", Function: llm.ToolCallFunction{Name: "get_weather", Arguments: `{"city":"Tokyo"}`}},
+				{ID: "call_1", Type: "function", Function: llm.ToolCallFunction{Name: "get_time", Arguments: `{"city":"Paris"}`}},
+			}},
+			{Role: llm.RoleTool, ToolCallID: "call_0", Content: `{"celsius":21}`},
+			{Role: llm.RoleTool, ToolCallID: "call_1", Content: "noon"},
+			{Role: llm.RoleUser, Content: "thanks"},
+		},
+	})
+	require.NoError(t, err)
+
+	var parsed struct {
+		Contents []struct {
+			Role  string          `json:"role"`
+			Parts json.RawMessage `json:"parts"`
+		} `json:"contents"`
+	}
+	require.NoError(t, json.Unmarshal(body, &parsed))
+	require.Len(t, parsed.Contents, 4)
+	assert.Equal(t, "user", parsed.Contents[2].Role)
+	assert.JSONEq(t, `[
+		{"functionResponse":{"name":"get_weather","response":{"celsius":21}}},
+		{"functionResponse":{"name":"get_time","response":{"result":"noon"}}}
+	]`, string(parsed.Contents[2].Parts))
+	assert.JSONEq(t, `[{"text":"thanks"}]`, string(parsed.Contents[3].Parts))
+}

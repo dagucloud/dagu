@@ -191,8 +191,11 @@ func (p *Provider) buildRequestBody(req *llm.ChatRequest) ([]byte, error) {
 func (p *Provider) processMessages(reqMessages []llm.Message) (*systemInstruction, []content) {
 	var sysInstr *systemInstruction
 	contents := make([]content, 0, len(reqMessages))
+	// callNames maps tool call IDs to function names; a function response
+	// must name the function it answers.
+	callNames := make(map[string]string)
 
-	for _, m := range reqMessages {
+	for i, m := range reqMessages {
 		switch m.Role {
 		case llm.RoleSystem:
 			if sysInstr == nil {
@@ -221,6 +224,7 @@ func (p *Provider) processMessages(reqMessages []llm.Message) (*systemInstructio
 					parts = append(parts, part{Text: m.Content})
 				}
 				for _, tc := range m.ToolCalls {
+					callNames[tc.ID] = tc.Function.Name
 					// Parse arguments from JSON string
 					var args map[string]any
 					if tc.Function.Arguments != "" {
@@ -255,15 +259,18 @@ func (p *Provider) processMessages(reqMessages []llm.Message) (*systemInstructio
 			if err := json.Unmarshal([]byte(m.Content), &jsonResponse); err == nil {
 				response = jsonResponse
 			}
-			contents = append(contents, content{
-				Role: "user",
-				Parts: []part{{
-					FunctionResponse: &functionResponsePart{
-						Name:     m.Name,
-						Response: response,
-					},
-				}},
-			})
+			name := m.Name
+			if name == "" {
+				name = callNames[m.ToolCallID]
+			}
+			responsePart := part{FunctionResponse: &functionResponsePart{Name: name, Response: response}}
+			// Responses to the calls of one turn share a single content.
+			if i > 0 && reqMessages[i-1].Role == llm.RoleTool {
+				last := &contents[len(contents)-1]
+				last.Parts = append(last.Parts, responsePart)
+				continue
+			}
+			contents = append(contents, content{Role: "user", Parts: []part{responsePart}})
 		}
 	}
 	return sysInstr, contents
