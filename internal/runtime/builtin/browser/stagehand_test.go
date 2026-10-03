@@ -223,6 +223,27 @@ func TestStagehandActRecordsReplayableActions(t *testing.T) {
 	assert.Equal(t, requests, model.requestCount(), "replay makes no model call")
 }
 
+// A recorded element still on the page but hidden, such as a field in a
+// closed dialog, fails the replay. The runtime would otherwise type into it
+// and report success.
+func TestStagehandReplayHiddenElement(t *testing.T) {
+	t.Parallel()
+
+	eng := launchBrowser(t, launchOptions{Generate: (&shopModel{}).generate})
+	require.NoError(t, eng.Goto(t.Context(), `data:text/html,<dialog><input></dialog><input>`, time.Minute))
+	typeInto := func(selector string) recordedAction {
+		return recordedAction{Selector: selector, Method: "type", Arguments: []string{"10"}}
+	}
+
+	replayed, err := eng.Replay(t.Context(), typeInto("xpath=/html/body/dialog[1]/input[1]"), nil, time.Minute)
+	require.NoError(t, err)
+	assert.False(t, replayed, "the field in the closed dialog is hidden")
+
+	replayed, err = eng.Replay(t.Context(), typeInto("xpath=/html/body/input[1]"), nil, time.Minute)
+	require.NoError(t, err)
+	assert.True(t, replayed, "the field outside the dialog is visible")
+}
+
 // The runtime reports a detached page session in a failed act result when
 // the action failed, and as an RPC error when the work around it did. Other
 // failures, including the SDK's own connection errors, are not a lost page.
