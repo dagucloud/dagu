@@ -745,11 +745,11 @@ func TestCoerceJapaneseText(t *testing.T) {
 		"大正15年12月24日":  "1926-12-24",
 		"明治元年1月25日":    "1868-01-25",
 		"平成元年1月8日":     "1989-01-08",
-		"令和元年4月30日":    "", // the day before 令和 began
-		"平成31年5月1日":    "", // the day 令和 began
-		"昭和64年1月8日":    "", // the day 平成 began
-		"明治元年1月1日":     "", // before 明治 began
-		"令和8年10月3日（金）": "", // a weekday is not read
+		"令和元年4月30日":    "",           // the day before 令和 began
+		"平成31年5月1日":    "",           // the day 令和 began
+		"昭和64年1月8日":    "",           // the day 平成 began
+		"明治元年1月1日":     "",           // before 明治 began
+		"令和8年10月3日（金）": "2026-10-03", // a weekday is dropped
 		"令和8年2月30日":    "",
 		"令和0年1月1日":     "",
 		"2026年13月1日":   "",

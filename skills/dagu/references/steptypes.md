@@ -854,8 +854,11 @@ columns), `header` (`true`, `false` for `A`, `B`, `C`, a row number, or `[3, 4]`
 to join two header rows), `columns` (names or `{name: alias}`), `merged` (`fill`
 or `first`), `stop_at_blank`, `keep_empty_rows`, `trim`, `formulas` (`cached`,
 `text`, `calculate`), `types` (`{amount: number, due: date}`; a pinned column
-also reads full-width digits, `￥123,000`, `123,000円`, `2026年10月3日`, and era
-dates such as `令和8年10月3日` or `R8.10.3`), `on_type_error`
+also reads Japanese forms: `￥123,000`, `12万3,500円`, `▲1,000`, `(1,000)`,
+`10%`, `税込1,000`, `金壱拾弐万参千円也`, `2026年10月3日`, `令和8年10月3日`,
+`R8.10.3`, `2026年10月` as its first day, `10月3日` in the current year,
+`令和8年10月3日（金） 午後2時30分`, and under `boolean` `はい`/`いいえ`, `有`/`無`,
+`済`/`未`, `○`/`×`), `on_type_error`
 (`fail` or `warn`), `where` (`{Status: ""}`, `{Status: {ne: Done}}`,
 `{Status: {in: [A, B]}}`), `max_rows` (default 5000). It publishes `rows` (objects
 keyed by header, each with `_row`), `count`, `headers`, `sheet`, `range`,
@@ -991,8 +994,9 @@ no model request as long as the instruction, the schema, and the labels are
 unchanged; a form of the same template with a box left blank is read from
 the cache too, while a label renamed in place asks again. `dagu xlsx cache
 clear <dag>` drops the cache. A pinned type reads Japanese text as
-`xlsx.read` does: full-width digits, `￥123,000`, `123,000円`, `2026年10月3日`,
-and era dates such as `令和8年10月3日` or `R8.10.3`.
+`xlsx.read` does: amounts such as `￥123,000`, `12万3,500円`, `▲1,000`, or
+`10%`, dates such as `2026年10月3日`, `令和8年10月3日 午後2時30分`, or `R8.10.3`,
+and `済`/`未` or `○`/`×` under `boolean`.
 
 ```yaml
 llm:
