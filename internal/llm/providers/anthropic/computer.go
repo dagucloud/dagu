@@ -8,11 +8,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
-	"strconv"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/llm"
+	"github.com/dagucloud/dagu/v2/internal/llm/claudemodel"
 	"github.com/dagucloud/dagu/v2/internal/llm/computeruse"
 )
 
@@ -35,33 +34,21 @@ var truncatingStopReasons = map[string]bool{"max_tokens": true, "model_context_w
 // screenshots are never removed.
 var computerImageLimit = computeruse.ImageLimit{LongEdge: 2000, MaxPixels: 3_600_000}
 
-// claudeModelPattern reads the family and version from a model ID such as
-// claude-opus-4-8, anthropic.claude-sonnet-5 or claude-opus-4-5@20251101.
-var claudeModelPattern = regexp.MustCompile(`claude-(opus|sonnet|haiku|fable|mythos)-(\d+)(?:-(\d+))?`)
-
-// legacyClaudePattern matches model IDs of the claude-3 generation.
-var legacyClaudePattern = regexp.MustCompile(`claude-\d`)
-
 // toolsetSupported reports whether a model takes the computer toolset.
 // Earlier models only take the computer_20251124 tool and older versions.
 // Unrecognized IDs, such as custom deployments, are assumed to support it.
 func toolsetSupported(model string) bool {
-	if legacyClaudePattern.MatchString(model) {
-		return false
-	}
-	match := claudeModelPattern.FindStringSubmatch(model)
-	if match == nil {
-		return true
-	}
-	family := match[1]
-	major, _ := strconv.Atoi(match[2])
-	minor, _ := strconv.Atoi(match[3])
+	parsed, ok := claudemodel.Parse(model)
 	switch {
-	case family == "fable" || family == "mythos" || major >= 5:
+	case !ok:
 		return true
-	case family == "opus" && major == 4:
-		// A date suffix such as 20250929 is not a minor version.
-		return minor >= 8 && minor < 100
+	case parsed.Family == "":
+		// The claude-3 generation.
+		return false
+	case parsed.Family == "fable" || parsed.Family == "mythos" || parsed.Major >= 5:
+		return true
+	case parsed.Family == "opus" && parsed.Major == 4:
+		return parsed.Minor >= 8
 	default:
 		return false
 	}
