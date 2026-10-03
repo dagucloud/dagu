@@ -337,3 +337,77 @@ func TestBuildRequestBody_Images(t *testing.T) {
 		{"type":"text","text":"describe"}
 	]`, string(parsed.Messages[1].Content))
 }
+
+// A tool's parameter schema reaches the API whole, so references, nested
+// definitions, and constraints keep their meaning.
+func TestBuildRequestBody_ToolInputSchema(t *testing.T) {
+	t.Parallel()
+
+	provider := &Provider{config: llm.Config{APIKey: "test-key"}}
+	parameters := map[string]any{
+		"type":                 "object",
+		"description":          "A classified note",
+		"additionalProperties": false,
+		"properties": map[string]any{
+			"category": map[string]any{"$ref": "#/$defs/category"},
+		},
+		"required": []any{"category"},
+		"$defs": map[string]any{
+			"category": map[string]any{"type": "string", "enum": []any{"refund", "question"}},
+		},
+	}
+	req := &llm.ChatRequest{
+		Model:    "claude-sonnet-4-6",
+		Messages: []llm.Message{{Role: llm.RoleUser, Content: "Hello"}},
+		Tools: []llm.Tool{{
+			Type:     "function",
+			Function: llm.ToolFunction{Name: "respond", Parameters: parameters},
+		}},
+	}
+	body, err := provider.buildRequestBody(req, false)
+	require.NoError(t, err)
+
+	var parsed struct {
+		Tools []struct {
+			InputSchema map[string]any `json:"input_schema"`
+		} `json:"tools"`
+	}
+	require.NoError(t, json.Unmarshal(body, &parsed))
+	require.Len(t, parsed.Tools, 1)
+
+	expected, err := json.Marshal(parameters)
+	require.NoError(t, err)
+	actual, err := json.Marshal(parsed.Tools[0].InputSchema)
+	require.NoError(t, err)
+	assert.JSONEq(t, string(expected), string(actual))
+}
+
+// A schema without a type is sent as an object, which the API requires.
+func TestBuildRequestBody_ToolInputSchemaType(t *testing.T) {
+	t.Parallel()
+
+	provider := &Provider{config: llm.Config{APIKey: "test-key"}}
+	parameters := map[string]any{"properties": map[string]any{"q": map[string]any{"type": "string"}}}
+	req := &llm.ChatRequest{
+		Model:    "claude-sonnet-4-6",
+		Messages: []llm.Message{{Role: llm.RoleUser, Content: "Hello"}},
+		Tools: []llm.Tool{
+			{Type: "function", Function: llm.ToolFunction{Name: "search", Parameters: parameters}},
+			{Type: "function", Function: llm.ToolFunction{Name: "ping"}},
+		},
+	}
+	body, err := provider.buildRequestBody(req, false)
+	require.NoError(t, err)
+
+	var parsed struct {
+		Tools []struct {
+			InputSchema map[string]any `json:"input_schema"`
+		} `json:"tools"`
+	}
+	require.NoError(t, json.Unmarshal(body, &parsed))
+	require.Len(t, parsed.Tools, 2)
+	assert.Equal(t, "object", parsed.Tools[0].InputSchema["type"])
+	assert.Contains(t, parsed.Tools[0].InputSchema, "properties")
+	assert.Equal(t, map[string]any{"type": "object"}, parsed.Tools[1].InputSchema)
+	assert.NotContains(t, parameters, "type", "the caller's schema must not be modified")
+}
