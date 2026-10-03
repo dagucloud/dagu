@@ -26,11 +26,8 @@ steps:
       steps:
         - id: submit
           run: |
-            if test "${foreach.item.order_id}" != "INV-2"; then
-              echo 'result=submitted' >> "$DAGU_OUTPUT_FILE"
-            else
-              echo 'result=failed' >> "$DAGU_OUTPUT_FILE"
-            fi
+            test "${foreach.item.order_id}" != "INV-2"
+            echo 'result=submitted' >> "$DAGU_OUTPUT_FILE"
           outputs:
             - name: result
       collect:

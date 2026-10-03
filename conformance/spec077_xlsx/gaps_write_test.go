@@ -109,8 +109,10 @@ func TestXlsxAppendPreview(t *testing.T) {
 
 // TestXlsxUpdateRowsForeach is the spec's first example: rows still to do
 // are read, acted on in a foreach, and the results written back from the
-// loop's aggregate output. The body reports its own outcome rather than
-// failing, since a foreach with a failed item publishes no aggregate.
+// loop's aggregate output. One submission fails, so the loop and the run
+// end partially succeeded, yet the write-back runs: the rows that
+// succeeded are marked and the failed row keeps its empty Status, so the
+// next run's where retries only it.
 func TestXlsxUpdateRowsForeach(t *testing.T) {
 	t.Parallel()
 	dagu := harness.NewRunner(t)
@@ -136,14 +138,14 @@ func TestXlsxUpdateRowsForeach(t *testing.T) {
 	}
 	readJSON(t, dagu, "out.json", &out)
 	require.Equal(t, 3, out.Results.Summary.Total, "where kept the rows with an empty Status")
-	require.Equal(t, 3, out.Results.Summary.Succeeded)
-	require.Equal(t, 0, out.Results.Summary.Failed)
-	require.Len(t, out.Results.Outputs, 3, "outputs holds the collected object of every item")
-	require.Equal(t, map[string]any{"order_id": "INV-2", "status": "failed"}, out.Results.Outputs[1])
-	require.Equal(t, 3, out.Changes.RowsUpdated, "rows takes the aggregate and uses its outputs list")
+	require.Equal(t, 2, out.Results.Summary.Succeeded)
+	require.Equal(t, 1, out.Results.Summary.Failed)
+	require.Len(t, out.Results.Outputs, 2, "outputs holds the collected object of the items that succeeded")
+	require.Equal(t, map[string]any{"order_id": "INV-4", "status": "submitted"}, out.Results.Outputs[1])
+	require.Equal(t, 2, out.Changes.RowsUpdated, "rows takes the aggregate and uses its outputs list")
 	require.Len(t, out.Rows, 4)
 	require.Equal(t, "submitted", out.Rows[0]["Status"])
-	require.Equal(t, "failed", out.Rows[1]["Status"], "the item that could not submit marked its row")
+	require.Nil(t, out.Rows[1]["Status"], "the row whose submission failed is untouched, so the next run retries it")
 	require.Equal(t, "Done", out.Rows[2]["Status"], "the row where left out is untouched")
 	require.Equal(t, "submitted", out.Rows[3]["Status"])
 }

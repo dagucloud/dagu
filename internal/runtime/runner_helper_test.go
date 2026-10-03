@@ -370,8 +370,12 @@ func (ph planHelper) assertRun(t *testing.T, expectedStatus ir.Status) runResult
 	case ir.Succeeded, ir.Aborted, ir.Waiting, ir.Rejected:
 		require.NoError(t, err)
 
-	case ir.Failed, ir.PartiallySucceeded:
+	case ir.Failed:
 		require.Error(t, err)
+
+	case ir.PartiallySucceeded:
+		// A failed step allowed to continue reports an error; a step an
+		// executor marked partially succeeded does not.
 
 	case ir.Running, ir.NotStarted, ir.Queued:
 		t.Errorf("unexpected status %s", expectedStatus)

@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -65,6 +66,64 @@ func TestForeachRuntimeRunsBodyAndPublishesAggregate(t *testing.T) {
 		{Value: "https://example.com/one", Key: "one"},
 		{Value: "https://example.com/two", Key: "two"},
 	}, state.records())
+}
+
+// A loop some item bodies failed is partially succeeded: the steps after it
+// run, and the aggregate names the failed items.
+func TestForeachRuntimePartialFailureIsPartiallySucceeded(t *testing.T) {
+	probeType, _ := registerForeachProbeExecutor(t)
+	r := setupRunner(t)
+
+	parent := foreachRuntimeStep(probeType, []any{
+		map[string]any{"slug": "a", "url": "a"},
+		map[string]any{"slug": "b", "url": "b"},
+		map[string]any{"slug": "c", "url": "c"},
+	}, 3)
+	parent.Foreach.Steps[0].ExecutorConfig.Config["fail_for"] = "b"
+	after := successStep("after", "each")
+
+	result := r.newPlan(t, parent, after).assertRun(t, ir.PartiallySucceeded)
+	node := result.nodeByName(t, "each")
+	assert.Equal(t, ir.NodePartiallySucceeded, node.State().Status)
+	assert.Equal(t, ir.NodeSucceeded, result.nodeByName(t, "after").State().Status, "the dependent runs without continue_on")
+
+	raw, ok := node.NodeData().StringFormOutputValue()
+	require.True(t, ok, "the aggregate is published")
+	var aggregate foreachAggregate
+	require.NoError(t, json.Unmarshal([]byte(raw), &aggregate))
+	assert.Equal(t, 3, aggregate.Summary.Total)
+	assert.Equal(t, 2, aggregate.Summary.Succeeded)
+	assert.Equal(t, 1, aggregate.Summary.Failed)
+	require.Len(t, aggregate.Items, 3)
+	assert.Equal(t, ir.NodeFailed.String(), aggregate.Items[1].Status)
+	assert.NotEmpty(t, aggregate.Items[1].Error)
+	assert.Equal(t, []map[string]string{{"summary": "a"}, {"summary": "c"}}, aggregate.Outputs, "outputs holds the successful bodies only")
+}
+
+// A loop every item body failed is failed, and the steps after it do not run.
+func TestForeachRuntimeAllItemsFailedIsFailed(t *testing.T) {
+	probeType, _ := registerForeachProbeExecutor(t)
+	r := setupRunner(t)
+
+	parent := foreachRuntimeStep(probeType, []any{
+		map[string]any{"slug": "a", "url": "a"},
+		map[string]any{"slug": "b", "url": "b"},
+	}, 2)
+	parent.Foreach.Steps[0].ExecutorConfig.Config["fail_for"] = "a,b"
+	after := successStep("after", "each")
+
+	result := r.newPlan(t, parent, after).assertRun(t, ir.Failed)
+	node := result.nodeByName(t, "each")
+	assert.Equal(t, ir.NodeFailed, node.State().Status)
+	assert.Contains(t, node.State().Error.Error(), "all 2 item bodies failed; first error:")
+	assert.Equal(t, ir.NodeAborted, result.nodeByName(t, "after").State().Status, "the dependent does not run")
+
+	raw, ok := node.NodeData().StringFormOutputValue()
+	require.True(t, ok, "the aggregate is still published")
+	var aggregate foreachAggregate
+	require.NoError(t, json.Unmarshal([]byte(raw), &aggregate))
+	assert.Equal(t, 2, aggregate.Summary.Failed)
+	assert.Empty(t, aggregate.Outputs)
 }
 
 func TestForeachRuntimeHonorsMaxConcurrent(t *testing.T) {
@@ -265,6 +324,13 @@ func (e *foreachProbeExecutor) Run(ctx context.Context) error {
 				return ctx.Err()
 			case <-timer.C:
 			}
+		}
+	}
+
+	// fail_for names the values whose item body fails, comma-separated.
+	for failing := range strings.SplitSeq(stringConfigValue(e.cfg["fail_for"]), ",") {
+		if failing != "" && failing == stringConfigValue(e.cfg["value"]) {
+			return fmt.Errorf("probe refused %s", failing)
 		}
 	}
 

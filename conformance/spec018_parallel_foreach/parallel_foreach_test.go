@@ -4,9 +4,13 @@
 package spec018_parallel_foreach_test
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
+	"github.com/stretchr/testify/require"
 )
 
 func TestParallelValidation(t *testing.T) {
@@ -189,5 +193,54 @@ func TestForeachRuntime(t *testing.T) {
 		result.ExpectExitCode(1)
 		result.ExpectStderrContains("foreach.items string must resolve to a JSON array")
 		dagu.ExpectNoFile("foreach-non-json-ran.txt")
+	})
+
+	t.Run("a failed item body leaves the step partially succeeded with its aggregate", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := harness.NewRunner(t)
+		env := []string{"DAGU_HOME=" + filepath.Join(t.TempDir(), "dagu")}
+		const runID = "spec018-foreach-partial"
+		result := dagu.RunWithEnv(env, "start", "--run-id="+runID, "foreach_partial_failure.yaml")
+		result.ExpectExitCode(0)
+
+		status := dagu.RunWithEnv(env, "status", "--run-id="+runID, "foreach_partial_failure.yaml")
+		status.ExpectExitCode(0)
+		require.Contains(t, status.Stdout(), "Partially Succeeded")
+
+		var aggregate struct {
+			Summary struct {
+				Total     int `json:"total"`
+				Succeeded int `json:"succeeded"`
+				Failed    int `json:"failed"`
+			} `json:"summary"`
+			Items []struct {
+				Key    string `json:"key"`
+				Status string `json:"status"`
+				Error  string `json:"error"`
+			} `json:"items"`
+			Outputs []map[string]string `json:"outputs"`
+		}
+		data, err := os.ReadFile(dagu.ProjectPath("foreach-partial-results.txt"))
+		require.NoError(t, err, "the dependent step ran and wrote the aggregate")
+		require.NoError(t, json.Unmarshal(data, &aggregate))
+		require.Equal(t, 3, aggregate.Summary.Total)
+		require.Equal(t, 2, aggregate.Summary.Succeeded)
+		require.Equal(t, 1, aggregate.Summary.Failed)
+		require.Len(t, aggregate.Items, 3)
+		require.Equal(t, "b", aggregate.Items[1].Key)
+		require.Equal(t, "failed", aggregate.Items[1].Status)
+		require.NotEmpty(t, aggregate.Items[1].Error)
+		require.Equal(t, []map[string]string{{"item": "a"}, {"item": "c"}}, aggregate.Outputs, "outputs holds the successful bodies only")
+	})
+
+	t.Run("every item body failing fails the step", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := harness.NewRunner(t)
+		result := dagu.Run("start", "foreach_all_fail.yaml")
+		result.ExpectExitCode(1)
+		result.ExpectStderrContains("all 2 item bodies failed")
+		dagu.ExpectNoFile("foreach-all-fail-results.txt")
 	})
 }

@@ -1,0 +1,18 @@
+working_dir: .
+steps:
+  - name: each
+    foreach:
+      items: ["a", "b"]
+      key: ${foreach.item}
+      steps:
+        - id: body
+          run: "false"
+      collect:
+        item: ${foreach.item}
+    output: RESULTS
+  - name: consume
+    depends: each
+    action: file.write
+    with:
+      path: foreach-all-fail-results.txt
+      content: ${RESULTS}
