@@ -42,9 +42,9 @@ atomic save and symbolic links; a lock file another process holds,
 of a rename or delete for formulas and defined names and what a copy
 leaves behind (library behavior); the dry check leaving an unopenable
 workbook to the run; `.xls` and `.ods` beyond the extension check; merged
-regions in the extract listing and the extract cell cap (no fixture can
-merge cells or write thousands of cells cheaply). Which cell a real model
-names is not a conformance matter: the scripted model answers
+regions in the extract listing and the extract cell and listing size caps
+(no fixture can merge cells or write thousands of cells cheaply). Which
+cell a real model names is not a conformance matter: the scripted model answers
 deterministically, and the suite proves what the engine does with an
 answer. The MCP `workbook` target is covered by the Spec 021 suite.
 
@@ -467,8 +467,12 @@ region is listed once as `A1:D1 [text,bold]: 御見積書`. `send_values:
 false` lists a non-text cell as its kind only, `B7 [number]`, so amounts
 and dates stay on the host. More than 2000 listed cells fails with
 `quote.xlsx Sheet1: 2415 cells in Sheet1!A1:H600 is more than 2000; set
-range to the part of the sheet that holds the fields`. Nothing else is
-sent: no variables and no screenshots. An `instruction` or a property
+range to the part of the sheet that holds the fields`. A listing longer
+than 200 KB fails the same way before any request, so a sheet that could
+not fit a model context is refused on the host: `quote.xlsx Sheet1: the
+listing of Sheet1!A1:H600 is 412 KB, more than 200 KB; set range to the
+part of the sheet that holds the fields`. Nothing else is sent: no
+variables and no screenshots. An `instruction` or a property
 `description` that holds the value of a declared secret of four or more
 characters fails before any model call, and secret values are masked in
 the text sent.
@@ -787,7 +791,10 @@ Every one of these is rejected by `dagu validate`:
   secret SHOP_TOKEN, which would be sent to the model`; a sheet past the
   cell cap: `quote.xlsx Sheet1: 2415 cells in
   Sheet1!A1:H600 is more than 2000; set range to the part of the sheet that
-  holds the fields`; a used range too large to scan, past a million cells:
+  holds the fields`; a listing past the size cap: `quote.xlsx Sheet1:
+  the listing of Sheet1!A1:H600 is 412 KB, more than 200 KB; set range to
+  the part of the sheet that holds the fields`; a used range too large to
+  scan, past a million cells:
   `quote.xlsx Sheet1: Sheet1!A1:XFD1048576 spans more than 1000000 cells;
   set range to the part of the sheet that holds the fields`; every model's
   answer unusable or every request failed: `model request failed:

@@ -5,7 +5,9 @@ package workbook
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -100,6 +102,27 @@ func TestLayoutCapFails(t *testing.T) {
 	t.Parallel()
 	_, err := Layout(context.Background(), formBook(t), LayoutOptions{SendValues: true, MaxCells: 4})
 	require.EqualError(t, err, "quote.xlsx Sheet1: 10 cells in Sheet1!A1:C11 is more than 4; set range to the part of the sheet that holds the fields")
+}
+
+func TestLayoutSizeCapFails(t *testing.T) {
+	t.Parallel()
+	f := excelize.NewFile()
+	for row := 1; row <= 10; row++ {
+		require.NoError(t, f.SetCellValue("Sheet1", "A"+strconv.Itoa(row), "備考"))
+		require.NoError(t, f.SetCellValue("Sheet1", "B"+strconv.Itoa(row), strings.Repeat("あ", 200)))
+	}
+	path := saveBook(t, f, "notes.xlsx")
+
+	full, err := Layout(context.Background(), path, LayoutOptions{SendValues: true})
+	require.NoError(t, err, "well under the default cap")
+	size := len(full.Listing)
+	require.Greater(t, size, 2*1024)
+
+	_, err = Layout(context.Background(), path, LayoutOptions{SendValues: true, MaxBytes: 1024})
+	require.EqualError(t, err, fmt.Sprintf("notes.xlsx Sheet1: the listing of Sheet1!A1:B10 is %d KB, more than 1 KB; set range to the part of the sheet that holds the fields", (size+1023)/1024))
+
+	_, err = Layout(context.Background(), path, LayoutOptions{SendValues: true, MaxBytes: 1024, Range: "A1:B1"})
+	require.NoError(t, err, "a range that holds the fields fits")
 }
 
 func TestLayoutKeyIsTheShapeNotTheText(t *testing.T) {
