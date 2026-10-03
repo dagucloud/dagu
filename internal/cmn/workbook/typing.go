@@ -275,11 +275,8 @@ func coerce(v any, t ColumnType, date1904 bool) (any, error) {
 		case bool:
 			return x, nil
 		case string:
-			switch strings.ToLower(strings.TrimSpace(x)) {
-			case "true", "yes", "1":
-				return true, nil
-			case "false", "no", "0":
-				return false, nil
+			if b, ok := parseBooleanText(x); ok {
+				return b, nil
 			}
 		case int64:
 			if x == 0 || x == 1 {
