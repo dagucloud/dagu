@@ -123,6 +123,20 @@ func TestLayoutSizeCapFails(t *testing.T) {
 
 	_, err = Layout(context.Background(), path, LayoutOptions{SendValues: true, MaxKB: 1, Range: "A1:B1"})
 	require.NoError(t, err, "a range that holds the fields fits")
+
+	// The default cap, with no option set: 350 rows of 200 Japanese
+	// characters list past 200 KB while staying under the cell cap.
+	f = excelize.NewFile()
+	for row := 1; row <= 350; row++ {
+		require.NoError(t, f.SetCellValue("Sheet1", "A"+strconv.Itoa(row), "備考"))
+		require.NoError(t, f.SetCellValue("Sheet1", "B"+strconv.Itoa(row), strings.Repeat("あ", 200)))
+	}
+	long := saveBook(t, f, "long.xlsx")
+	wide, err := Layout(context.Background(), long, LayoutOptions{SendValues: true, MaxKB: 1000})
+	require.NoError(t, err)
+	require.Greater(t, len(wide.Listing), DefaultMaxLayoutKB*1024)
+	_, err = Layout(context.Background(), long, LayoutOptions{SendValues: true})
+	require.EqualError(t, err, fmt.Sprintf("long.xlsx Sheet1: the listing of Sheet1!A1:B350 is %d KB, more than 200 KB; set range to the part of the sheet that holds the fields", (len(wide.Listing)+1023)/1024))
 }
 
 func TestLayoutKeyIsTheShapeNotTheText(t *testing.T) {
