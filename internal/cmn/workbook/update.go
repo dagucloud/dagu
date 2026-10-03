@@ -224,11 +224,8 @@ func updateOnce(ctx context.Context, path string, opts UpdateOptions) (*WriteRes
 		}
 		plan.reg.C2++
 		plan.set[i].column = plan.reg.C2
-		if err := w.f.SetCellStr(plan.sheet, cellName(plan.reg.C2, plan.headerRow), plan.set[i].name); err != nil {
-			return nil, w.cellError(plan.sheet, plan.reg.C2, plan.headerRow, err.Error())
-		}
-		if style, err := w.f.GetCellStyle(plan.sheet, cellName(plan.reg.C2-1, plan.headerRow)); err == nil && style != 0 {
-			_ = w.f.SetCellStyle(plan.sheet, cellName(plan.reg.C2, plan.headerRow), cellName(plan.reg.C2, plan.headerRow), style)
+		if err := w.addHeaderColumn(plan.sheet, plan.headerRow, plan.reg.C2, plan.set[i].name); err != nil {
+			return nil, err
 		}
 		result.Changes.ColumnsAdded++
 	}

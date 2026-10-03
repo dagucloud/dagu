@@ -43,7 +43,11 @@ type WriteOptions struct {
 	// that does not exist is created.
 	Sheet string
 	Mode  WriteMode
-	// Header writes the column names as the first row.
+	// Header says the sheet has a header row. A replace, or an append that
+	// starts an empty sheet, writes the column names as the first row; an
+	// append below existing rows matches each column to the header row by
+	// name. False means no header row: nothing is written for one and rows
+	// are appended by position.
 	Header bool
 	Style  StyleMode
 	// Types pins how string values are written: date and datetime strings
@@ -69,8 +73,9 @@ const (
 
 // Write creates a workbook or writes a sheet from a table. With
 // WriteReplace an existing sheet is replaced; with WriteAppend rows are
-// added below its last used row and no header is written. Other sheets,
-// widths, styles, and defined names are preserved.
+// added below its last used row, each column under the header cell of the
+// same name, and no header is written. Other sheets, widths, styles, and
+// defined names are preserved.
 func Write(ctx context.Context, path string, table Table, opts WriteOptions) (*WriteResult, error) {
 	if opts.Mode == "" {
 		opts.Mode = WriteReplace
@@ -83,10 +88,9 @@ func Write(ctx context.Context, path string, table Table, opts WriteOptions) (*W
 	})
 }
 
-// Append is Write with WriteAppend and no header.
+// Append is Write with WriteAppend.
 func Append(ctx context.Context, path string, table Table, opts WriteOptions) (*WriteResult, error) {
 	opts.Mode = WriteAppend
-	opts.Header = false
 	return Write(ctx, path, table, opts)
 }
 
@@ -95,12 +99,13 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 		return nil, err
 	}
 	result := &WriteResult{Path: path, DryRun: opts.DryRun, Warnings: []string{}}
+	warn := func(msg string) { result.Warnings = append(result.Warnings, msg) }
 	warning, err := checkLockFile(path)
 	if err != nil {
 		return nil, err
 	}
 	if warning != "" {
-		result.Warnings = append(result.Warnings, warning)
+		warn(warning)
 	}
 	w, created, err := openOrCreate(path, opts.Password, opts.Sheet)
 	if err != nil {
@@ -139,27 +144,46 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 	}
 
 	kinds := columnKinds(table, opts.Types)
+	// cols is the sheet column each table column is written to: its own
+	// position, or the column of the header cell with its name when rows
+	// are appended below a header row.
+	cols := make([]int, len(table.Columns))
+	for c := range cols {
+		cols[c] = c + 1
+	}
+	headerRow := 0
+	if opts.Mode == WriteAppend && !fresh {
+		targets, err := w.alignAppend(sheet, table, opts.Header, warn)
+		if err != nil {
+			return nil, err
+		}
+		cols, headerRow = targets.cols, targets.headerRow
+		result.Changes.ColumnsAdded = len(targets.added)
+	}
 	dataRow := startRow
 	cells := 0
 	// Rows appended below existing ones take their styles from the row
-	// above the first of them, read once per column.
+	// above the first of them, read once per column; a header row's style
+	// never spreads into the rows below it.
 	var bases []int
 	if !fresh {
 		bases = make([]int, len(table.Columns))
-		for c := range table.Columns {
-			bases[c] = w.styleAt(sheet, c+1, startRow-1)
+		if startRow-1 != headerRow {
+			for c := range table.Columns {
+				bases[c] = w.styleAt(sheet, cols[c], startRow-1)
+			}
 		}
 	}
 	// An append below existing rows never writes a header; an append that
 	// starts an empty sheet writes one so the first run creates a table.
 	writeHeader := opts.Header
 	if opts.Mode == WriteAppend {
-		writeHeader = fresh && len(table.Columns) > 0
+		writeHeader = opts.Header && fresh && len(table.Columns) > 0
 	}
 	if writeHeader {
 		for c, name := range table.Columns {
-			if err := w.f.SetCellStr(sheet, cellName(c+1, startRow), name); err != nil {
-				return nil, w.cellError(sheet, c+1, startRow, err.Error())
+			if err := w.f.SetCellStr(sheet, cellName(cols[c], startRow), name); err != nil {
+				return nil, w.cellError(sheet, cols[c], startRow, err.Error())
 			}
 		}
 		cells += len(table.Columns)
@@ -178,23 +202,27 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 			// the column's number format and leaves mixed columns alone.
 			v, err := outValue(value, opts.Types[table.Columns[c]], w.date1904)
 			if err != nil {
-				return nil, w.cellError(sheet, c+1, r, err.Error())
+				return nil, w.cellError(sheet, cols[c], r, err.Error())
 			}
 			if v == nil {
 				continue
 			}
-			if err := w.setCell(sheet, c+1, r, v); err != nil {
+			if err := w.setCell(sheet, cols[c], r, v); err != nil {
 				return nil, err
 			}
 			if !fresh {
-				w.styleWrittenCell(sheet, c+1, r, bases[c], v, opts.Types[table.Columns[c]])
+				w.styleWrittenCell(sheet, cols[c], r, bases[c], v, opts.Types[table.Columns[c]])
 			}
 			cells++
 		}
 	}
 	lastRow := max(dataRow+len(table.Rows)-1, startRow)
 	if len(table.Columns) > 0 {
-		result.Changes.Range = region{Sheet: sheet, C1: 1, R1: startRow, C2: len(table.Columns), R2: lastRow}.String()
+		c1, c2 := cols[0], cols[0]
+		for _, c := range cols {
+			c1, c2 = min(c1, c), max(c2, c)
+		}
+		result.Changes.Range = region{Sheet: sheet, C1: c1, R1: startRow, C2: c2, R2: lastRow}.String()
 	}
 	result.Changes.RowsAppended = len(table.Rows)
 	result.Changes.CellsChanged = cells
@@ -217,6 +245,86 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 func mustGrid(w *file, sheet string) [][]string {
 	grid, _ := w.grid(sheet)
 	return grid
+}
+
+// appendTargets says where an append below existing rows puts each table
+// column.
+type appendTargets struct {
+	// cols is the sheet column of each table column.
+	cols []int
+	// headerRow is the row the names were matched against; zero when the
+	// rows were placed by position.
+	headerRow int
+	// added lists the table columns the header row lacked, which were given
+	// a header cell at the right.
+	added []int
+}
+
+// alignAppend maps the columns of rows appended below existing ones to the
+// sheet's columns: by position when the sheet has no header row or the rows
+// are arrays, otherwise by the exact name in the header row, the way
+// update_rows resolves its columns. A name the header row holds only
+// loosely is refused rather than guessed; a name it lacks becomes a new
+// column at the right, so no value lands under a header it was not meant
+// for.
+func (w *file) alignAppend(sheet string, table Table, header bool, warn func(string)) (appendTargets, error) {
+	targets := appendTargets{cols: make([]int, len(table.Columns))}
+	if !header || table.Positional {
+		for c := range targets.cols {
+			targets.cols[c] = c + 1
+		}
+		return targets, nil
+	}
+	spec := HeaderSpec{Mode: HeaderFirstRow}
+	loc, err := w.locate(sheet, "", spec)
+	if err != nil {
+		return targets, err
+	}
+	if !loc.ok {
+		return targets, w.sheetError(sheet, "no header row found; use header: false to append rows by position")
+	}
+	layout, err := layoutHeader(loc.reg, spec)
+	if err != nil {
+		return targets, fmt.Errorf("%s %s: %w", w.base, sheet, err)
+	}
+	merges, err := w.mergeMap(sheet)
+	if err != nil {
+		return targets, err
+	}
+	headers := headerNames(loc.reg, layout, loc.grid, merges, warn)
+	targets.headerRow = layout.rows[0]
+	next := loc.reg.C2
+	for c, name := range table.Columns {
+		i, near := findColumn(headers, name)
+		switch {
+		case i >= 0:
+			targets.cols[c] = loc.reg.C1 + i
+		case near != "":
+			return targets, w.sheetError(sheet, fmt.Sprintf("column %q not found in header row %d; did you mean %q?", name, targets.headerRow, near))
+		default:
+			next++
+			if err := w.addHeaderColumn(sheet, targets.headerRow, next, name); err != nil {
+				return targets, err
+			}
+			targets.cols[c] = next
+			targets.added = append(targets.added, c)
+		}
+	}
+	return targets, nil
+}
+
+// addHeaderColumn writes the header cell of a column added at the right of
+// a header row, copying the style of the header cell to its left so the
+// header keeps one look.
+func (w *file) addHeaderColumn(sheet string, headerRow, col int, name string) error {
+	cell := cellName(col, headerRow)
+	if err := w.f.SetCellStr(sheet, cell, name); err != nil {
+		return w.cellError(sheet, col, headerRow, err.Error())
+	}
+	if style, err := w.f.GetCellStyle(sheet, cellName(col-1, headerRow)); err == nil && style != 0 {
+		_ = w.f.SetCellStyle(sheet, cell, cell, style)
+	}
+	return nil
 }
 
 // targetSheet resolves the sheet a write goes to, creating it when the name

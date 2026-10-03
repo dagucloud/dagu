@@ -21,6 +21,10 @@ import (
 type Table struct {
 	Columns []string
 	Rows    [][]any
+	// Positional is set when the rows came as arrays with no columns given:
+	// the names are letters standing in for positions, so an append writes
+	// them by position instead of matching them to a header row.
+	Positional bool
 }
 
 // DecodeRows reads rows as a writer receives them: a JSON string, a list of
@@ -166,7 +170,8 @@ func arraysToTable(list []any, order []string) (Table, error) {
 		}
 		rows = append(rows, values)
 	}
-	if len(order) == 0 {
+	positional := len(order) == 0
+	if positional {
 		for c := 1; c <= width; c++ {
 			name, _ := excelize.ColumnNumberToName(c)
 			order = append(order, name)
@@ -181,7 +186,7 @@ func arraysToTable(list []any, order []string) (Table, error) {
 			rows[i] = rows[i][:len(order)]
 		}
 	}
-	return Table{Columns: order, Rows: rows}, nil
+	return Table{Columns: order, Rows: rows, Positional: positional}, nil
 }
 
 // LoadOptions says how LoadTable reads a file.

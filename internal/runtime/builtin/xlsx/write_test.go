@@ -124,7 +124,7 @@ func TestWriteValidation(t *testing.T) {
 		{"bad format", opWrite, map[string]any{"path": "a.xlsx", "input": "x", "format": "xml"}, "format must be json, jsonl, or csv"},
 		{"bad wait", opWrite, map[string]any{"path": "a.xlsx", "rows": "[]", "wait_for_unlock": "soon"}, "wait_for_unlock must be a duration"},
 		{"row-number header", opWrite, map[string]any{"path": "a.xlsx", "rows": "[]", "header": 3}, "header must be true or false for write"},
-		{"header list on append", opAppend, map[string]any{"path": "a.xlsx", "rows": "[]", "header": []any{1, 2}}, "with.header is not valid for xlsx.append"},
+		{"header list on append", opAppend, map[string]any{"path": "a.xlsx", "rows": "[]", "header": []any{1, 2}}, "header must be true or false for append"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

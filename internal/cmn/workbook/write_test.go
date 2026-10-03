@@ -168,7 +168,7 @@ func TestAppendCopiesStyles(t *testing.T) {
 	require.NoError(t, err)
 
 	more := Table{Columns: orders().Columns, Rows: [][]any{{"INV-3", int64(30), "2026-10-03", true, "x"}}}
-	result, err := Append(context.Background(), path, more, WriteOptions{})
+	result, err := Append(context.Background(), path, more, WriteOptions{Header: true})
 	require.NoError(t, err)
 	assert.Equal(t, Changes{Sheet: "Sheet1", Range: "Sheet1!A4:E4", RowsAppended: 1, CellsChanged: 5}, result.Changes)
 
@@ -193,7 +193,7 @@ func TestAppendCopiesStyles(t *testing.T) {
 func TestAppendToEmptySheetAndWriteModeAppend(t *testing.T) {
 	t.Parallel()
 	path := saveBook(t, excelize.NewFile(), "empty-append.xlsx")
-	result, err := Append(context.Background(), path, Table{Columns: []string{"a", "b"}, Rows: [][]any{{1, 2}}}, WriteOptions{})
+	result, err := Append(context.Background(), path, Table{Columns: []string{"a", "b"}, Rows: [][]any{{1, 2}}}, WriteOptions{Header: true})
 	require.NoError(t, err)
 	assert.Equal(t, "Sheet1!A1:B2", result.Changes.Range, "an append that starts an empty sheet writes the header")
 
@@ -414,7 +414,7 @@ func TestAppendedDateKeepsTheCellStyleAbove(t *testing.T) {
 	require.NoError(t, f.SetCellStyle("Sheet1", "A2", "A2", bordered))
 	path := saveBook(t, f, "border.xlsx")
 
-	_, err = Append(context.Background(), path, Table{Columns: []string{"when"}, Rows: [][]any{{"2026-10-01"}}}, WriteOptions{})
+	_, err = Append(context.Background(), path, Table{Columns: []string{"when"}, Rows: [][]any{{"2026-10-01"}}}, WriteOptions{Header: true})
 	require.NoError(t, err)
 	g, err := excelize.OpenFile(path)
 	require.NoError(t, err)
@@ -449,7 +449,7 @@ func TestSaveKeepsPermissionBits(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.Chmod(path, 0o600))
 
-	_, err = Append(context.Background(), path, Table{Columns: orders().Columns, Rows: [][]any{{"INV-3", 1, nil, nil, nil}}}, WriteOptions{})
+	_, err = Append(context.Background(), path, Table{Columns: orders().Columns, Rows: [][]any{{"INV-3", 1, nil, nil, nil}}}, WriteOptions{Header: true})
 	require.NoError(t, err)
 	info, err := os.Stat(path)
 	require.NoError(t, err)
@@ -561,4 +561,199 @@ func TestReplaceClearsAnA1OnlySheet(t *testing.T) {
 	linked, _, err := g.GetCellHyperLink("Sheet1", "A1")
 	require.NoError(t, err)
 	assert.False(t, linked, "the old hyperlink does not attach to the new header")
+}
+
+// logBook writes a two-row sheet with the header when, what, who.
+func logBook(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "log.xlsx")
+	table := Table{Columns: []string{"when", "what", "who"}, Rows: [][]any{
+		{"2026-10-01", "start", "ann"},
+		{"2026-10-02", "work", "bob"},
+	}}
+	_, err := Write(context.Background(), path, table, WriteOptions{Header: true})
+	require.NoError(t, err)
+	return path
+}
+
+func TestAppendAlignsFieldsToHeader(t *testing.T) {
+	t.Parallel()
+	path := logBook(t)
+	// The keys arrive in another order than the header, as a YAML map's
+	// sorted keys would.
+	more := Table{Columns: []string{"who", "when"}, Rows: [][]any{{"cid", "2026-10-03"}}}
+	result, err := Append(context.Background(), path, more, WriteOptions{Header: true})
+	require.NoError(t, err)
+	assert.Equal(t, Changes{Sheet: "Sheet1", Range: "Sheet1!A4:C4", RowsAppended: 1, CellsChanged: 2}, result.Changes)
+
+	back, err := Read(context.Background(), path, ReadOptions{})
+	require.NoError(t, err)
+	require.Equal(t, 3, back.Count)
+	assert.Equal(t, "2026-10-03", back.Rows[2]["when"])
+	assert.Nil(t, back.Rows[2]["what"], "a header column no field carries stays empty")
+	assert.Equal(t, "cid", back.Rows[2]["who"])
+}
+
+func TestAppendAddsMissingColumnAtRight(t *testing.T) {
+	t.Parallel()
+	path := logBook(t)
+	more := Table{Columns: []string{"note", "when"}, Rows: [][]any{{"late", "2026-10-03"}}}
+	result, err := Append(context.Background(), path, more, WriteOptions{Header: true})
+	require.NoError(t, err)
+	assert.Equal(t, Changes{Sheet: "Sheet1", Range: "Sheet1!A4:D4", RowsAppended: 1, ColumnsAdded: 1, CellsChanged: 2}, result.Changes,
+		"the header cell is not counted and the header row is not in the range")
+
+	back, err := Read(context.Background(), path, ReadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"when", "what", "who", "note"}, back.Headers)
+	assert.Equal(t, "late", back.Rows[2]["note"])
+
+	f, err := excelize.OpenFile(path)
+	require.NoError(t, err)
+	defer func() { _ = f.Close() }()
+	last, err := f.GetCellStyle("Sheet1", "C1")
+	require.NoError(t, err)
+	added, err := f.GetCellStyle("Sheet1", "D1")
+	require.NoError(t, err)
+	assert.Equal(t, last, added, "the new header cell copies the last header cell's style")
+}
+
+func TestAppendLooseHeaderMatchFails(t *testing.T) {
+	t.Parallel()
+	path := logBook(t)
+	before, err := os.ReadFile(path)
+	require.NoError(t, err)
+	more := Table{Columns: []string{"When", "what"}, Rows: [][]any{{"2026-10-03", "x"}}}
+	_, err = Append(context.Background(), path, more, WriteOptions{Header: true})
+	require.ErrorContains(t, err, `column "When" not found in header row 1; did you mean "when"?`)
+	after, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, before, after, "a refused append writes nothing")
+}
+
+func TestAppendHeaderFalseIsPositional(t *testing.T) {
+	t.Parallel()
+	path := logBook(t)
+	more := Table{Columns: []string{"who", "when"}, Rows: [][]any{{"cid", "2026-10-03"}}}
+	result, err := Append(context.Background(), path, more, WriteOptions{Header: false})
+	require.NoError(t, err)
+	assert.Equal(t, "Sheet1!A4:B4", result.Changes.Range)
+	back, err := Read(context.Background(), path, ReadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, "cid", back.Rows[2]["when"], "header: false writes by position")
+	assert.Equal(t, "2026-10-03", back.Rows[2]["what"])
+
+	// A fresh sheet with no header row gets none.
+	empty := saveBook(t, excelize.NewFile(), "empty.xlsx")
+	result, err = Append(context.Background(), empty, more, WriteOptions{Header: false})
+	require.NoError(t, err)
+	assert.Equal(t, "Sheet1!A1:B1", result.Changes.Range)
+	rows, err := Read(context.Background(), empty, ReadOptions{Header: HeaderSpec{Mode: HeaderNone}})
+	require.NoError(t, err)
+	assert.Equal(t, "cid", rows.Rows[0]["A"])
+}
+
+func TestAppendCSVAlignsByItsHeader(t *testing.T) {
+	t.Parallel()
+	path := logBook(t)
+	csv := filepath.Join(t.TempDir(), "more.csv")
+	require.NoError(t, os.WriteFile(csv, []byte("who,when\ncid,2026-10-03\n"), 0o600))
+	table, err := LoadTable(csv, LoadOptions{})
+	require.NoError(t, err)
+	assert.False(t, table.Positional)
+	_, err = Append(context.Background(), path, table, WriteOptions{Header: true})
+	require.NoError(t, err)
+	back, err := Read(context.Background(), path, ReadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, "cid", back.Rows[2]["who"], "a CSV header names the columns it goes under")
+	assert.Equal(t, "2026-10-03", back.Rows[2]["when"])
+}
+
+func TestAppendArrayRowsStayPositional(t *testing.T) {
+	t.Parallel()
+	path := logBook(t)
+	table, err := DecodeRows(`[["2026-10-03", "more", "cid"]]`, nil)
+	require.NoError(t, err)
+	assert.True(t, table.Positional)
+	assert.Equal(t, []string{"A", "B", "C"}, table.Columns, "letters stand in for positions")
+	result, err := Append(context.Background(), path, table, WriteOptions{Header: true})
+	require.NoError(t, err)
+	assert.Equal(t, Changes{Sheet: "Sheet1", Range: "Sheet1!A4:C4", RowsAppended: 1, CellsChanged: 3}, result.Changes,
+		"the letters are not matched against the header, so no column is added")
+	back, err := Read(context.Background(), path, ReadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"when", "what", "who"}, back.Headers)
+	assert.Equal(t, "more", back.Rows[2]["what"])
+}
+
+func TestAppendStyleBasePerTargetColumn(t *testing.T) {
+	t.Parallel()
+	path := logBook(t)
+	// The date column is first in the sheet and last in the appended row;
+	// the appended date must still take the style of the date cell above.
+	more := Table{Columns: []string{"who", "when"}, Rows: [][]any{{"cid", "2026-10-03"}}}
+	_, err := Append(context.Background(), path, more, WriteOptions{Header: true})
+	require.NoError(t, err)
+	f, err := excelize.OpenFile(path)
+	require.NoError(t, err)
+	defer func() { _ = f.Close() }()
+	above, err := f.GetCellStyle("Sheet1", "A3")
+	require.NoError(t, err)
+	below, err := f.GetCellStyle("Sheet1", "A4")
+	require.NoError(t, err)
+	assert.Equal(t, above, below, "the date cell takes the style of the date cell above, not of column A's position in the row")
+	whoAbove, err := f.GetCellStyle("Sheet1", "C3")
+	require.NoError(t, err)
+	whoBelow, err := f.GetCellStyle("Sheet1", "C4")
+	require.NoError(t, err)
+	assert.Equal(t, whoAbove, whoBelow)
+}
+
+func TestAppendBelowHeaderOnlySheetDoesNotCopyHeaderStyle(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "header-only.xlsx")
+	_, err := Write(context.Background(), path, Table{Columns: []string{"when", "what"}, Rows: [][]any{}}, WriteOptions{Header: true})
+	require.NoError(t, err)
+	_, err = Append(context.Background(), path, Table{Columns: []string{"what", "when"}, Rows: [][]any{{"start", "2026-10-01"}}}, WriteOptions{Header: true})
+	require.NoError(t, err)
+	f, err := excelize.OpenFile(path)
+	require.NoError(t, err)
+	defer func() { _ = f.Close() }()
+	header, err := f.GetCellStyle("Sheet1", "B1")
+	require.NoError(t, err)
+	cell, err := f.GetCellStyle("Sheet1", "B2")
+	require.NoError(t, err)
+	assert.NotEqual(t, header, cell, "the header's bold does not spread into the first data row")
+	back, err := Read(context.Background(), path, ReadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, "start", back.Rows[0]["what"])
+}
+
+func TestAppendNilFieldLeavesCellEmpty(t *testing.T) {
+	t.Parallel()
+	path := logBook(t)
+	more := Table{Columns: []string{"what", "when", "who"}, Rows: [][]any{{nil, "2026-10-03", "cid"}}}
+	result, err := Append(context.Background(), path, more, WriteOptions{Header: true})
+	require.NoError(t, err)
+	assert.Equal(t, 2, result.Changes.CellsChanged)
+	back, err := Read(context.Background(), path, ReadOptions{})
+	require.NoError(t, err)
+	assert.Nil(t, back.Rows[2]["what"])
+}
+
+func TestAppendDuplicateHeaderNames(t *testing.T) {
+	t.Parallel()
+	f := excelize.NewFile()
+	setRow(t, f, "Sheet1", "A1", "Amount", "Amount", "Note")
+	setRow(t, f, "Sheet1", "A2", 1, 2, "x")
+	path := saveBook(t, f, "dupes.xlsx")
+	more := Table{Columns: []string{"Amount_2", "Amount"}, Rows: [][]any{{int64(20), int64(10)}}}
+	result, err := Append(context.Background(), path, more, WriteOptions{Header: true})
+	require.NoError(t, err)
+	assert.Equal(t, []string{`Sheet1: duplicate header "Amount" renamed Amount_2`}, result.Warnings)
+	assert.Equal(t, 0, result.Changes.ColumnsAdded, "the renamed duplicate is matched, not added")
+	back, err := Read(context.Background(), path, ReadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, int64(10), back.Rows[1]["Amount"])
+	assert.Equal(t, int64(20), back.Rows[1]["Amount_2"])
 }

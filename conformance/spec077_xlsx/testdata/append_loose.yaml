@@ -1,0 +1,20 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: orders.xlsx
+      columns: [Invoice No, Amount]
+      rows: [{"Invoice No": "INV-1", "Amount": 10}]
+  - id: append
+    depends: write
+    action: xlsx.append
+    with:
+      path: orders.xlsx
+      rows: [{"Invoice No": "INV-2", "amount": 20}]
+  - id: after
+    depends: append
+    action: file.write
+    with:
+      path: after.txt
+      content: appended

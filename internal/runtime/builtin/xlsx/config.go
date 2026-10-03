@@ -157,8 +157,8 @@ var fieldsByOperation = map[string][]string{
 	opListSheets: {"path", "password"},
 	opWrite: {"path", "password", "sheet", "rows", "input", "format", "encoding", "delimiter", "columns", "header",
 		"mode", "style", "types", "atomic", "dry_run", "wait_for_unlock", "artifact"},
-	opAppend: {"path", "password", "sheet", "rows", "input", "format", "encoding", "delimiter", "columns", "types",
-		"atomic", "dry_run", "wait_for_unlock", "artifact"},
+	opAppend: {"path", "password", "sheet", "rows", "input", "format", "encoding", "delimiter", "columns", "header",
+		"types", "atomic", "dry_run", "wait_for_unlock", "artifact"},
 	opUpdateRows: {"path", "password", "sheet", "header", "rows", "key", "set", "missing", "atomic",
 		"dry_run", "wait_for_unlock", "artifact"},
 	opValidate: {"path", "password", "sheet", "range", "header", "columns", "merged", "trim", "formulas",
@@ -640,7 +640,8 @@ var configSchema = &jsonschema.Schema{
 		"range": {Type: "string", Description: "Cell range such as A2:F or A2:F200, a Sheet!A2:F reference, a named range, or a table name. " +
 			"Without it the data block is detected: leading empty rows and columns are skipped."},
 		"header": {Description: "true (default) takes the first row of the range as column names, false names columns A, B, C, " +
-			"a row number takes that sheet row, and a list such as [3, 4] joins two header rows with a space."},
+			"a row number takes that sheet row, and a list such as [3, 4] joins two header rows with a space. " +
+			"For append and write with mode: append, true matches each field to the header row by name and false appends rows by position with no header row."},
 		"columns": {Description: "Columns to keep, in order: names, or {name: alias} entries to rename, such as [Status, {Invoice No: invoice_no}]."},
 		"merged": {Type: "string", Enum: []any{"fill", "first"},
 			Description: "How merged cells are read: fill (default) repeats the value into every covered cell; first keeps it in the top-left cell only."},
