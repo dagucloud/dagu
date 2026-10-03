@@ -18,8 +18,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
 )
 
-const toolChoiceRequired = "required"
-
 // providerFactory builds a provider for one resolved model configuration.
 type providerFactory func(ctx context.Context, cfg *ir.LLMConfig) (llmpkg.Provider, error)
 
@@ -133,7 +131,7 @@ func (b *modelBridge) generate(ctx context.Context, req generateRequest) (genera
 					Parameters:  parameters,
 				},
 			}},
-			ToolChoice: toolChoiceRequired,
+			ToolChoice: agentstep.ToolChoiceRequired,
 		}
 		if chatReq.Temperature == nil {
 			chatReq.Temperature = req.Temperature

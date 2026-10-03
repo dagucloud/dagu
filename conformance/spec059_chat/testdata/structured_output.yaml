@@ -1,0 +1,26 @@
+working_dir: .
+env:
+  - LLM_BASE_URL: ${LLM_BASE_URL}
+steps:
+  - id: classify
+    action: chat.completion
+    stdout: answer.out
+    stderr: rejected.err
+    with:
+      prompt: "Classify this note: please refund my 12.50"
+      provider: local
+      model: test-model
+      base_url: $LLM_BASE_URL
+    output_schema:
+      type: object
+      properties:
+        category:
+          type: string
+          enum: [refund, complaint, question]
+        amount:
+          type: number
+      required: [category, amount]
+  - id: record
+    depends: classify
+    run: printf '%s %s\n' '${steps.classify.outputs.category}' '${steps.classify.outputs.amount}'
+    stdout: result.out

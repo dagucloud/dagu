@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Package agentstep holds what the built-in steps that drive a model
-// themselves, browser and computer, share: with-block validation helpers,
-// the respond tool, and lock upkeep.
+// themselves, such as browser, computer, and chat, share: with-block
+// validation helpers, the respond tool, and lock upkeep.
 package agentstep
 
 import (
@@ -85,6 +85,8 @@ func NonEmptyString() *jsonschema.Schema {
 const (
 	RespondToolName        = "respond"
 	RespondToolDescription = "Return the answer as arguments that match the parameter schema exactly."
+	// ToolChoiceRequired asks the model to call one of the offered tools.
+	ToolChoiceRequired = "required"
 )
 
 // schemaKeysToStrip are schema annotations some providers reject in tool

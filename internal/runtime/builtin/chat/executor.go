@@ -61,6 +61,10 @@ type Executor struct {
 
 	// Tool definitions that were available to the LLM (for UI visibility)
 	savedToolDefinitions []ir.ToolDefinition
+
+	// answer is the output_schema the model answers through the respond
+	// tool, when the step declares one.
+	answer *answerSchema
 }
 
 // newChatExecutor creates a new chat executor from a step configuration.
@@ -144,6 +148,14 @@ func newChatExecutor(ctx context.Context, step ir.Step) (executor.Executor, erro
 		if _, ok := registry.GetDAGByToolName(agentstep.RespondToolName); ok && step.HasOutputSchema() {
 			return nil, reservedToolError()
 		}
+	}
+
+	if step.HasOutputSchema() {
+		answer, err := newAnswerSchema(step.OutputSchema)
+		if err != nil {
+			return nil, err
+		}
+		e.answer = answer
 	}
 
 	return e, nil
@@ -420,6 +432,11 @@ func (e *Executor) runWithModel(ctx context.Context, model ir.ModelEntry, allMes
 		return err
 	}
 
+	// A structured answer is never streamed.
+	if e.answer != nil {
+		return e.runStructuredForModel(ctx, provider, allMessages, effectiveCfg)
+	}
+
 	// Dispatch to tool-enabled execution if tools are configured
 	if e.toolRegistry != nil && e.toolRegistry.HasTools() {
 		return e.runWithToolsForModel(ctx, provider, allMessages, effectiveCfg)
@@ -513,14 +530,7 @@ func (e *Executor) runWithToolsForModel(ctx context.Context, provider llmpkg.Pro
 	tools := e.toolRegistry.ToLLMTools()
 
 	// Store tool definitions for UI visibility
-	e.savedToolDefinitions = make([]ir.ToolDefinition, len(tools))
-	for i, t := range tools {
-		e.savedToolDefinitions[i] = ir.ToolDefinition{
-			Name:        t.Function.Name,
-			Description: t.Function.Description,
-			Parameters:  t.Function.Parameters,
-		}
-	}
+	e.savedToolDefinitions = toolDefinitions(tools)
 
 	logger.Info(ctx, "Starting tool-enabled chat execution",
 		slog.Int("tool_count", len(tools)),
@@ -541,6 +551,19 @@ func (e *Executor) runWithToolsForModel(ctx context.Context, provider llmpkg.Pro
 
 	// Max iterations reached
 	return e.handleMaxIterationsReached(ctx, maxIterations, conv.messages)
+}
+
+// toolDefinitions lists the tools offered to the model, for UI visibility.
+func toolDefinitions(tools []llmpkg.Tool) []ir.ToolDefinition {
+	definitions := make([]ir.ToolDefinition, len(tools))
+	for i, t := range tools {
+		definitions[i] = ir.ToolDefinition{
+			Name:        t.Function.Name,
+			Description: t.Function.Description,
+			Parameters:  t.Function.Parameters,
+		}
+	}
+	return definitions
 }
 
 // executeToolStep performs a single iteration of the tool execution loop,

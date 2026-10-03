@@ -1,0 +1,12 @@
+steps:
+  - action: chat.completion
+    with:
+      prompt: "Classify this note"
+      provider: openai
+      model: gpt-4o
+    output_schema:
+      type: object
+      properties:
+        category:
+          type: string
+      required: [category, currency]

@@ -838,7 +838,7 @@ func TestModelBridgeFallsBackAndMasks(t *testing.T) {
 
 	require.Len(t, working.calls, 1)
 	request := working.calls[0]
-	assert.Equal(t, toolChoiceRequired, request.ToolChoice)
+	assert.Equal(t, agentstep.ToolChoiceRequired, request.ToolChoice)
 	assert.NotContains(t, request.Tools[0].Function.Parameters, "$schema")
 	assert.Equal(t, "tree contains *******", lastUserText(request))
 }

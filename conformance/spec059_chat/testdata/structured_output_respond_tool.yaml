@@ -1,0 +1,17 @@
+steps:
+  - action: chat.completion
+    with:
+      prompt: "Classify this note"
+      provider: openai
+      model: gpt-4o
+      tools:
+        - respond
+    output_schema:
+      type: object
+      properties:
+        category:
+          type: string
+---
+name: respond
+steps:
+  - command: echo "ok"
