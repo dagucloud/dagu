@@ -1,0 +1,52 @@
+working_dir: .
+steps:
+  - id: template
+    action: xlsx.write
+    with:
+      path: template.xlsx
+      header: false
+      rows: [["Code", ""], ["Date", ""], ["Total", ""]]
+  - id: first
+    depends: template
+    action: xlsx.write_cells
+    with:
+      path: template.xlsx
+      atomic: false
+      wait_for_unlock: 1s
+      cells:
+        B1: {value: "007", type: string}
+        B2: {value: "2026-10-01", type: string}
+  - id: second
+    depends: first
+    action: xlsx.write_cells
+    with:
+      path: template.xlsx
+      cells:
+        B2: "2026-10-01"
+  - id: third
+    depends: second
+    action: xlsx.write_cells
+    with:
+      path: template.xlsx
+      cells:
+        B1: {value: "007", type: string}
+        B2: "2026-10-01"
+  - id: formula
+    depends: third
+    action: xlsx.write_cells
+    with:
+      path: template.xlsx
+      cells:
+        B3: {formula: "=LEN(B1)"}
+  - id: read
+    depends: formula
+    action: xlsx.read
+    with:
+      path: template.xlsx
+      header: false
+  - id: out
+    depends: read
+    action: file.write
+    with:
+      path: out.json
+      content: '{"first": ${steps.first.outputs.changes}, "second": ${steps.second.outputs.changes}, "third": ${steps.third.outputs.changes}, "rows": ${steps.read.outputs.rows}, "warnings": ${steps.read.outputs.warnings}}'

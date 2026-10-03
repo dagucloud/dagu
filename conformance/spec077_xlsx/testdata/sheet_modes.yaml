@@ -1,0 +1,86 @@
+working_dir: .
+steps:
+  - id: template
+    action: xlsx.write
+    with:
+      path: report.xlsx
+      sheet: Template
+      columns: [Item, Amount]
+      rows: [{"Item": "Rent", "Amount": 100}]
+  - id: data
+    depends: template
+    action: xlsx.write
+    with:
+      path: report.xlsx
+      sheet: Data
+      columns: [Item, Amount]
+      rows: [{"Item": "Food", "Amount": 20}, {"Item": "Fuel", "Amount": 30}]
+  - id: copy_replace
+    depends: data
+    action: xlsx.sheet
+    with:
+      path: report.xlsx
+      operation: copy
+      sheet: Data
+      to: Template
+      if_exists: replace
+  - id: rename_same
+    depends: copy_replace
+    action: xlsx.sheet
+    with:
+      path: report.xlsx
+      operation: rename
+      sheet: Template
+      to: Template
+  - id: rename_case
+    depends: rename_same
+    action: xlsx.sheet
+    with:
+      path: report.xlsx
+      operation: rename
+      sheet: Template
+      to: TEMPLATE
+  - id: copy_missing
+    depends: rename_case
+    action: xlsx.sheet
+    with:
+      path: report.xlsx
+      operation: copy
+      sheet: Nope
+      to: Extra
+      missing: skip
+  - id: rename_missing
+    depends: copy_missing
+    action: xlsx.sheet
+    with:
+      path: report.xlsx
+      operation: rename
+      sheet: Nope
+      to: Extra
+      missing: skip
+  - id: add_replace
+    depends: rename_missing
+    action: xlsx.sheet
+    with:
+      path: report.xlsx
+      operation: add
+      sheet: Data
+      if_exists: replace
+  - id: read_template
+    depends: add_replace
+    action: xlsx.read
+    with:
+      path: report.xlsx
+      sheet: TEMPLATE
+  - id: read_data
+    depends: add_replace
+    action: xlsx.read
+    with:
+      path: report.xlsx
+      sheet: Data
+  - id: out
+    depends: [read_template, read_data]
+    action: file.write
+    with:
+      path: out.json
+      content: '{"copy_replace": ${steps.copy_replace.outputs.sheets}, "rename_same": ${steps.rename_same.outputs.sheets}, "rename_same_warnings": ${steps.rename_same.outputs.warnings}, "rename_case": ${steps.rename_case.outputs.sheets}, "copy_missing": ${steps.copy_missing.outputs.sheets}, "copy_missing_warnings": ${steps.copy_missing.outputs.warnings}, "rename_missing_warnings": ${steps.rename_missing.outputs.warnings}, "add_replace": ${steps.add_replace.outputs.sheets}, "template_rows": ${steps.read_template.outputs.rows}, "data_count": ${steps.read_data.outputs.count}}'

@@ -62,15 +62,17 @@ func TestXlsxValidate(t *testing.T) {
 	}
 	require.Equal(t, problem{Code: "missing_column", Sheet: "Sheet1", Column: "Nope", Message: `column "Nope" not found; headers present: Invoice No, Amount, Status`}, codes["missing_column"])
 	require.Equal(t, problem{Code: "type", Sheet: "Sheet1", Cell: "B3", Row: 3, Column: "Amount", Message: `expected number, found "N/A"`}, codes["type"])
-	require.Equal(t, "A3", codes["duplicate"].Cell)
-	require.Equal(t, "C3", codes["not_allowed"].Cell)
-	require.Equal(t, "C4", codes["blank"].Cell)
+	require.Equal(t, problem{Code: "duplicate", Sheet: "Sheet1", Cell: "A3", Row: 3, Column: "Invoice No", Message: `duplicate value "INV-1"; first at row 2`}, codes["duplicate"])
+	require.Equal(t, problem{Code: "not_allowed", Sheet: "Sheet1", Cell: "C3", Row: 3, Column: "Status", Message: `value "Pending" is not one of Done, Open`}, codes["not_allowed"])
+	require.Equal(t, problem{Code: "blank", Sheet: "Sheet1", Cell: "C4", Row: 4, Column: "Status", Message: "Status is blank"}, codes["blank"])
 
 	failing := harness.NewRunner(t)
 	result := failing.Run("start", "validate_fail.yaml")
 	result.ExpectNonZeroExitCode()
 	result.ExpectStderrContains("2 problems found in orders.xlsx Sheet1")
 	failing.ExpectNoFile("after.txt")
+	require.Equal(t, "problem: Sheet1!B3: expected number, found \"N/A\"\nproblem: Sheet1!A3: duplicate value \"INV-1\"; first at row 2\n", readFile(t, failing, "check.err"),
+		"the problems are listed on stderr before the step fails")
 }
 
 func TestXlsxValidateThenHumanTask(t *testing.T) {
@@ -206,7 +208,7 @@ func TestXlsxConvert(t *testing.T) {
 	require.NoError(t, err)
 	decoded, err := japanese.ShiftJIS.NewDecoder().Bytes(raw)
 	require.NoError(t, err)
-	require.Equal(t, "品名;数量\nりんご;3\n", string(decoded))
+	require.Equal(t, "品名\nりんご\n", string(decoded), "columns keeps the named column")
 	require.NotEqual(t, "品名", string(raw[:len("品名")]), "the bytes are Shift_JIS, not UTF-8")
 
 	input := harness.NewRunner(t)

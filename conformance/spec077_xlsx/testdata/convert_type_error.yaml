@@ -4,14 +4,12 @@ steps:
     action: xlsx.write
     with:
       path: orders.xlsx
-      columns: [品名, 数量]
-      rows: [{"品名": "りんご", "数量": 3}]
+      columns: [Item, Amount]
+      rows: [{"Item": "pear", "Amount": "N/A"}]
   - id: csv
     depends: write
     action: xlsx.convert
     with:
       path: orders.xlsx
-      output: sjis.csv
-      encoding: shift_jis
-      delimiter: ";"
-      columns: [品名]
+      output: out.csv
+      types: {Amount: number}

@@ -1,0 +1,16 @@
+working_dir: .
+steps:
+  - id: template
+    action: xlsx.write
+    with:
+      path: template.xlsx
+      header: false
+      rows: [["Customer", ""], ["Date", ""], ["Qty", 2]]
+  - id: fill
+    depends: template
+    action: xlsx.write_cells
+    with:
+      path: template.xlsx
+      cells:
+        B3: 3
+        $B$3: 2

@@ -1,0 +1,23 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: orders.xlsx
+      sheet: Orders
+      columns: [Item, Qty]
+      rows: [{"Item": "pear", "Qty": 3}]
+  - id: csv
+    depends: write
+    action: xlsx.convert
+    with:
+      path: orders.xlsx
+      output: bom.csv
+      encoding: utf-8-bom
+      atomic: false
+  - id: result
+    depends: csv
+    action: file.write
+    with:
+      path: result.json
+      content: '{"sheet": "${steps.csv.outputs.sheet}", "format": "${steps.csv.outputs.format}", "count": ${steps.csv.outputs.count}, "warnings": ${steps.csv.outputs.warnings}}'

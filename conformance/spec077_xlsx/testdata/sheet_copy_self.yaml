@@ -1,0 +1,18 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: report.xlsx
+      sheet: Template
+      columns: [Item]
+      rows: [{"Item": "Rent"}]
+  - id: copy
+    depends: write
+    action: xlsx.sheet
+    with:
+      path: report.xlsx
+      operation: copy
+      sheet: Template
+      to: template
+      if_exists: replace

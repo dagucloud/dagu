@@ -9,6 +9,7 @@ steps:
   - id: check
     depends: write
     action: xlsx.validate
+    stderr: check.err
     with:
       path: orders.xlsx
       unique: [Invoice No]
