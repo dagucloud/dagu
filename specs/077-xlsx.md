@@ -23,7 +23,9 @@ formats. Every workflow in Examples has a fixture.
 
 Conformance exceptions, behavior that a black-box run cannot observe or
 set up and that unit tests of `internal/cmn/workbook` cover instead:
-`password` (nothing in Dagu writes a protected workbook); the styles,
+`password` (nothing in Dagu writes a protected workbook); writes that
+meet a merged cell in `update_rows`, `write_cells`, and appends (nothing
+in Dagu creates a merged cell); the styles,
 hyperlinks, merged regions, and tables that `mode: replace` clears,
 `style: table` formatting, style copying, and column widths (not readable
 through `xlsx.read`; that a replace empties the values is covered); the
@@ -201,7 +203,11 @@ writes bare cells.
 `xlsx.append`, and `mode: append`, write below the last non-empty row with
 no header, and each new cell copies the style of the cell above it, so a date
 column stays a date column. An append that starts an empty sheet writes the
-header so the first run creates a table.
+header so the first run creates a table. A cell to append that lies in a
+merged cell, such as an empty notes box below the rows, fails the step with
+`Sheet1!A3: cannot append into merged cell A3:B4; unmerge it to write this
+cell`, since every value written inside it would land in its top-left
+cell.
 
 Fields are placed by name. Object rows, rows from a CSV header, and rows
 given `columns` are matched to the sheet's header row, its first row, by
@@ -258,15 +264,29 @@ the column's format; a date written elsewhere gets a date format. The key
 column cannot be in `set`: `set.Invoice No: the key column cannot be
 updated`.
 
+A cell inside a merged cell is the merged cell: it is compared, written,
+and styled at its top-left cell, the one Excel shows. Rows that share a
+merged cell, such as the lines of one order under a merged Status, may
+write it the same value, which is written once and counted once in
+`cells_changed`; different values fail the step with `rows[0] and rows[1]
+write different values to merged cell Sheet1!C2:C3`, a row that leaves the
+cell as it already is included.
+
 ### Shape checks
 
-Two checks run before any cell is written, and either failure aborts the
-step with the workbook untouched. They cannot be turned off.
+Three checks run before anything is saved, and any failure aborts the step
+with the workbook untouched. They cannot be turned off.
 
 1. The key column and every column in `set` that already exists must still be
    in the header row by exact name. A header that matches only
    ignoring case or spacing is reported with the name found.
 2. Every row carrying `_row` must still hold its key at that row.
+3. A merged cell to write, including one an appended row would land in,
+   must lie within one column of the data rows; one reaching into another
+   column such as the key, into the header, or below the data rows would
+   carry the write there: `orders.xlsx Sheet1!C4: merged cell A4:C4
+   reaches outside column "Status" of the data rows; unmerge it to write
+   this cell`.
 
 ### Change summary
 
@@ -411,6 +431,10 @@ refers to one cell; an address without a sheet uses `sheet`, the first
 sheet by default. A range, a named range, or a table is refused with
 `"A1:B2" is not a single cell`, and two addresses that name the same cell,
 such as `B3` and `$B$3`, with `"B3" and "$B$3" name the same cell Sheet1!B3`.
+A merged cell is one cell: an address inside it, or a range or defined name
+covering exactly its area, as Excel names a merged cell, writes its
+top-left cell, and two addresses inside one merged cell fail with `"B10"
+and "C10" name the same merged cell Sheet1!B10:D10`.
 A value is written as a cell value, with an
 ISO date or date-time string becoming a date and text in the canonical
 form of a number becoming a number: an optional leading `-`, digits with
@@ -617,6 +641,13 @@ Every one of these is rejected by `dagu validate`:
 - A key at two rows: `key "INV-1" appears at rows 5 and 9`.
 - Two input rows addressing one sheet row: `rows[0] and rows[2] both
   address row 17`.
+- Two input rows writing different values to one merged cell: `rows[0] and
+  rows[1] write different values to merged cell Sheet1!C2:C3`.
+- A merged cell to update reaching outside its column's data rows:
+  `orders.xlsx Sheet1!C4: merged cell A4:C4 reaches outside column "Status"
+  of the data rows; unmerge it to write this cell`; a cell to append inside
+  a merged cell: `Sheet1!A3: cannot append into merged cell A3:B4; unmerge
+  it to write this cell`.
 - A workbook another program holds, on Windows:
   `orders.xlsx is open in another program; close it and retry`.
 - `artifact: true` in a DAG whose artifacts are disabled:
@@ -625,7 +656,8 @@ Every one of these is rejected by `dagu validate`:
   `2 problems found in orders.xlsx Orders`.
 - A `write_cells` address that is not one cell: `template.xlsx: "A1:B2" is
   not a single cell`; two addresses naming one cell: `template.xlsx: "B3"
-  and "$B$3" name the same cell Sheet1!B3`; a workbook to fill that does
+  and "$B$3" name the same cell Sheet1!B3`, or one merged cell: `"B10" and
+  "C10" name the same merged cell Sheet1!B10:D10`; a workbook to fill that does
   not exist: `template.xlsx: workbook not found`; an `output` that is the
   workbook itself: `template.xlsx: output must be a different file from
   path; leave output out to fill the workbook in place`.

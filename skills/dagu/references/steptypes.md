@@ -896,7 +896,11 @@ other than the key and `_row` goes to the column of the same name), `missing`
 before any cell is written and cannot be turned off: the key column and every
 existing `set` column must still be in the header row by name, and a row
 addressed by `_row` must still hold its key there. Either failure fails the
-step with the file untouched.
+step with the file untouched. A merged cell, such as one Status over the
+lines of an order, is written once at its top-left cell: rows may give it
+the same value, different values fail the step, and a merged cell reaching
+outside its column's data rows is refused. Appends never write into a
+merged cell.
 
 Every writer publishes `path`, `sheet`, `changes` (`{sheet, range, rows_updated,
 rows_appended, columns_added, cells_changed}`), `dry_run`, and `warnings`.
@@ -929,7 +933,9 @@ precondition is `${steps.<id>.outputs.count}` with `expected: "num:>0"` and
 run goes on.
 
 `xlsx.write_cells` fills a template: `cells` maps addresses (`B2`,
-`Sheet1!B2`, `'My Sheet'!B2`, or a defined name for one cell) to a value, to
+`Sheet1!B2`, `'My Sheet'!B2`, or a defined name for one cell; an address
+inside a merged cell, or a name over its whole area, writes the merged cell)
+to a value, to
 `{value: v, type: t}` to pin the type, to `{formula: "=SUM(B2:B9)"}`, or to
 `null` to empty the cell. An ISO date string becomes a date, and text in the
 canonical form of a number (`100`, `-12.5`, not `007` or `1,234`) becomes a
