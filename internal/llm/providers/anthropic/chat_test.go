@@ -91,3 +91,36 @@ func TestChatIgnoresOtherProviderState(t *testing.T) {
 	require.NoError(t, err)
 	assert.JSONEq(t, `[{"type":"tool_use","id":"tu-1","name":"lookup","input":{"q":"a"}}]`, string(content))
 }
+
+// The results of one turn's tool calls go back in a single user message, as
+// the API expects for parallel tool use.
+func TestChatGroupsToolResults(t *testing.T) {
+	t.Parallel()
+
+	server := messagesServer(`{"content":[{"type":"text","text":"done"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`)
+	provider, err := llm.NewProvider(llm.ProviderAnthropic, llm.Config{APIKey: "test-key", BaseURL: server.Start(t)})
+	require.NoError(t, err)
+
+	_, err = provider.Chat(context.Background(), &llm.ChatRequest{
+		Model: "claude-sonnet-4-6",
+		Messages: []llm.Message{
+			{Role: llm.RoleUser, Content: "look up a and b"},
+			{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
+				{ID: "tu-1", Type: "function", Function: llm.ToolCallFunction{Name: "lookup", Arguments: `{"q":"a"}`}},
+				{ID: "tu-2", Type: "function", Function: llm.ToolCallFunction{Name: "lookup", Arguments: `{"q":"b"}`}},
+			}},
+			{Role: llm.RoleTool, ToolCallID: "tu-1", Content: "A"},
+			{Role: llm.RoleTool, ToolCallID: "tu-2", Content: "B"},
+		},
+	})
+	require.NoError(t, err)
+
+	messages := server.Requests()[0]["messages"].([]any)
+	require.Len(t, messages, 3)
+	results, err := json.Marshal(messages[2])
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"role":"user","content":[
+		{"type":"tool_result","tool_use_id":"tu-1","content":"A"},
+		{"type":"tool_result","tool_use_id":"tu-2","content":"B"}
+	]}`, string(results))
+}

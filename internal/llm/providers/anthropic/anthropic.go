@@ -269,7 +269,7 @@ func (p *Provider) processMessages(reqMessages []llm.Message) (string, []message
 	var systemContent string
 	messages := make([]message, 0, len(reqMessages))
 
-	for _, m := range reqMessages {
+	for i, m := range reqMessages {
 		switch m.Role {
 		case llm.RoleSystem:
 			// Concatenate system messages
@@ -326,16 +326,20 @@ func (p *Provider) processMessages(reqMessages []llm.Message) (string, []message
 			}
 		case llm.RoleTool:
 			// Tool results in Anthropic are sent as user messages with tool_result content blocks
-			contentBlocks := []any{
-				map[string]any{
-					"type":        "tool_result",
-					"tool_use_id": m.ToolCallID,
-					"content":     m.Content,
-				},
+			result := map[string]any{
+				"type":        "tool_result",
+				"tool_use_id": m.ToolCallID,
+				"content":     m.Content,
+			}
+			// Results of one turn's calls share a single user message.
+			if i > 0 && reqMessages[i-1].Role == llm.RoleTool {
+				last := &messages[len(messages)-1]
+				last.Content = append(last.Content.([]any), result)
+				continue
 			}
 			messages = append(messages, message{
 				Role:    "user",
-				Content: contentBlocks,
+				Content: []any{result},
 			})
 		}
 	}
