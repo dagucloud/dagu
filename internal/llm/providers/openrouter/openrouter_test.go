@@ -225,3 +225,49 @@ func TestBuildRequestBody_Images(t *testing.T) {
 		{"type":"text","text":"describe"}
 	]`, string(parsed.Messages[1].Content))
 }
+
+// Claude models refuse a forced tool choice while reasoning and from Claude 5
+// on, so those requests ask for auto. Other models keep the forced choice.
+func TestBuildRequestBody_ToolChoice(t *testing.T) {
+	t.Parallel()
+
+	provider := &Provider{config: llm.Config{APIKey: "test-key"}}
+	tests := []struct {
+		name     string
+		model    string
+		choice   string
+		thinking bool
+		expected string
+	}{
+		{name: "Claude5", model: "anthropic/claude-sonnet-5.5", choice: "required", expected: "auto"},
+		{name: "Fable", model: "anthropic/claude-fable-5.1", choice: "required", expected: "auto"},
+		{name: "Claude4", model: "anthropic/claude-sonnet-4.6", choice: "required", expected: "required"},
+		{name: "Claude4Reasoning", model: "anthropic/claude-sonnet-4.6", choice: "required", thinking: true, expected: "auto"},
+		{name: "OtherModel", model: "openai/gpt-5.4-mini", choice: "required", expected: "required"},
+		{name: "OtherModelReasoning", model: "google/gemini-3.8-flash", choice: "required", thinking: true, expected: "required"},
+		{name: "Auto", model: "anthropic/claude-sonnet-5.5", choice: "auto", expected: "auto"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			req := &llm.ChatRequest{
+				Model:    tt.model,
+				Messages: []llm.Message{{Role: llm.RoleUser, Content: "Hello"}},
+				Tools: []llm.Tool{{
+					Type:     "function",
+					Function: llm.ToolFunction{Name: "respond", Parameters: map[string]any{"type": "object"}},
+				}},
+				ToolChoice: tt.choice,
+			}
+			if tt.thinking {
+				req.Thinking = &llm.ThinkingRequest{Enabled: true}
+			}
+			body, err := provider.buildRequestBody(req, false)
+			require.NoError(t, err)
+
+			var parsed map[string]any
+			require.NoError(t, json.Unmarshal(body, &parsed))
+			assert.Equal(t, tt.expected, parsed["tool_choice"])
+		})
+	}
+}
