@@ -721,7 +721,7 @@ func childRunSummary(ctx context.Context, childRunID string, outputsReported boo
 		if outputs := childOutputs(status.Nodes); len(outputs) > 0 {
 			sb.WriteString("outputs:\n")
 			for _, key := range slices.Sorted(maps.Keys(outputs)) {
-				fmt.Fprintf(&sb, "  %s=%s\n", key, stringutil.TruncString(outputs[key], 2000))
+				fmt.Fprintf(&sb, "  %s=%s\n", key, stringutil.TruncUTF8Bytes(outputs[key], 2000))
 			}
 		}
 	}

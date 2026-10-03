@@ -8,6 +8,7 @@ import (
 	"context"
 	"os"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -898,6 +899,9 @@ func TestTruncateString(t *testing.T) {
 		{"hi", 2, "hi"},
 		{"hello", 3, "hel"}, // When maxLen <= 3, no room for ellipsis
 		{"ab", 1, "a"},
+		// The byte cut lands inside 界; it must not split the rune.
+		{"ab界cdef", 6, "ab..."},
+		{"ab界", 4, "a..."},
 	}
 
 	for _, tt := range tests {
@@ -905,6 +909,7 @@ func TestTruncateString(t *testing.T) {
 			t.Parallel()
 			result := redisexec.TruncateString(tt.input, tt.maxLen)
 			assert.Equal(t, tt.expected, result)
+			assert.True(t, utf8.ValidString(result))
 		})
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -445,8 +446,17 @@ func wrapText(text string, maxWidth int) []string {
 				currentLine.Reset()
 			}
 			for len(word) > maxWidth {
-				lines = append(lines, word[:maxWidth])
-				word = word[maxWidth:]
+				// Never split a UTF-8 codepoint; if the first rune alone
+				// exceeds maxWidth, emit it whole.
+				cut := maxWidth
+				for cut > 0 && !utf8.RuneStart(word[cut]) {
+					cut--
+				}
+				if cut == 0 {
+					_, cut = utf8.DecodeRuneInString(word)
+				}
+				lines = append(lines, word[:cut])
+				word = word[cut:]
 			}
 			if len(word) > 0 {
 				currentLine.WriteString(word)

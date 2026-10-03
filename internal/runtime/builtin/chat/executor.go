@@ -17,6 +17,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -734,7 +735,7 @@ func (e *Executor) processToolCalls(
 
 		contentPreview := result.Content
 		if len(contentPreview) > 200 {
-			contentPreview = contentPreview[:200] + "..."
+			contentPreview = stringutil.TruncUTF8Bytes(contentPreview, 200) + "..."
 		}
 		logger.Info(ctx, "Tool execution result",
 			tag.Tool(result.Name),

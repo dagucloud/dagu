@@ -1292,3 +1292,17 @@ func TestRenderDAGStatus_SchedulerLogLastBranchWhenNoSteps(t *testing.T) {
 
 	require.Contains(t, output, "└─log:")
 }
+
+func TestWrapTextMultibyteBoundary(t *testing.T) {
+	t.Parallel()
+
+	// A word wider than maxWidth is split into chunks; a byte-width cut must
+	// not split a multibyte rune.
+	word := strings.Repeat("界", 20)
+	lines := wrapText(word, 20)
+	require.NotEmpty(t, lines)
+	for _, line := range lines {
+		assert.True(t, utf8.ValidString(line))
+	}
+	assert.Equal(t, word, strings.Join(lines, ""))
+}
