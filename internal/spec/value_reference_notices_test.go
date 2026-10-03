@@ -385,6 +385,39 @@ steps:
 
 // A schema that accepts only the names it lists is a complete contract, so a
 // misspelled name is still reported.
+// A chat step publishes only the properties its output_schema lists, so an
+// open schema still makes other names unknown.
+func TestUnknownOutputNoticeForChatOutputSchema(t *testing.T) {
+	t.Parallel()
+
+	result, err := spec.LoadYAMLWithResult(context.Background(), []byte(`
+name: notices
+steps:
+  - id: classify
+    action: chat.completion
+    with:
+      provider: openai
+      model: gpt-4o
+      prompt: classify
+    output_schema:
+      type: object
+      properties:
+        category: {type: string}
+  - id: record
+    depends: classify
+    run: echo ${steps.classify.outputs.category} ${steps.classify.outputs.amount}
+`))
+	require.NoError(t, err)
+
+	var unknown []string
+	for _, notice := range result.ValueReferenceNotices {
+		if notice.Reason == cmnvalue.ValueReferenceReasonUnknownOutputName {
+			unknown = append(unknown, notice.Token)
+		}
+	}
+	assert.Equal(t, []string{"${steps.classify.outputs.amount}"}, unknown)
+}
+
 func TestUnknownOutputNoticeForClosedOutputSchema(t *testing.T) {
 	t.Parallel()
 

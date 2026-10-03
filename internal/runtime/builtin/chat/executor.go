@@ -25,6 +25,7 @@ import (
 	// Import all providers to register them
 	_ "github.com/dagucloud/dagu/v2/internal/llm/allproviders"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
 
@@ -66,6 +67,10 @@ type Executor struct {
 func newChatExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	if step.LLM == nil {
 		return nil, fmt.Errorf("llm configuration is required for chat step")
+	}
+	// Handler steps skip load-time step validation.
+	if err := validateOutputSchema(step); err != nil {
+		return nil, err
 	}
 
 	cfg := step.LLM
@@ -135,6 +140,10 @@ func newChatExecutor(ctx context.Context, step ir.Step) (executor.Executor, erro
 			return nil, fmt.Errorf("failed to initialize tool registry: %w", err)
 		}
 		e.toolRegistry = registry
+		// A tool's name comes from its DAG, which is known only once loaded.
+		if _, ok := registry.GetDAGByToolName(agentstep.RespondToolName); ok && step.HasOutputSchema() {
+			return nil, reservedToolError()
+		}
 	}
 
 	return e, nil
@@ -780,7 +789,7 @@ func (e *Executor) createResponseMetadata(cfg *ir.LLMConfig, usage *llmpkg.Usage
 }
 
 func init() {
-	executor.RegisterExecutor(ir.ExecutorTypeChat, newChatExecutor, nil, registry.ExecutorCapabilities{
+	executor.RegisterExecutor(ir.ExecutorTypeChat, newChatExecutor, validateStep, registry.ExecutorCapabilities{
 		LLM:      true,
 		Messages: true,
 		// All others false - chat doesn't support command, script, shell, container, subdag

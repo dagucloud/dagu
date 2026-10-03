@@ -69,9 +69,10 @@ func capturedOutputs(step *ir.Step) capturedOutputContract {
 		}
 		// An open schema validates names it never lists, and a run publishes
 		// whatever it accepted, so the listed names are only a lower bound.
+		// A chat step prints only the listed names.
 		return capturedOutputContract{
 			declarations: outputSchemaDeclarations(properties),
-			dynamic:      !schemaForbidsExtraProperties(step.OutputSchema),
+			dynamic:      step.ExecutorConfig.Type != ir.ExecutorTypeChat && !schemaForbidsExtraProperties(step.OutputSchema),
 		}
 	case isOutputsWriteStep(step):
 		values, ok := step.ExecutorConfig.Config["values"].(map[string]any)
