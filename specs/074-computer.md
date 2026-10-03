@@ -189,8 +189,9 @@ instruction, and display size match and each screen, and the area around each
 pointer action, still looks as recorded. The screen after the last action must
 also match. When a screen differs or an action fails, the model continues the
 task from the current screen and the new actions are recorded; the timeline
-marks the operation `healed`. The turns that replayed and the new actions
-replace the recording; when there are none, it is removed. A full replay is
+marks the operation `healed`. When the step succeeds, the turns that replayed
+and the new actions replace the recording; when there are none, the recording
+is removed unless another run of the step replaced it first. A full replay is
 marked `cache-hit`. `act.cache: false` disables the cache for one operation.
 
 Runs of a step share its recordings, and each `act` reads them when it runs. A
