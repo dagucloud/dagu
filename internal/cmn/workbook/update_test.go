@@ -281,3 +281,20 @@ func TestUpdateRowsRejectsTwoInputsForOneRow(t *testing.T) {
 	_, err := UpdateRows(context.Background(), path, UpdateOptions{Key: "Invoice No", Rows: rows})
 	require.ErrorContains(t, err, "rows[0] and rows[1] both address row 2")
 }
+
+func TestUpdateRowsTypedLiteralReplacesTextThatReadsTheSame(t *testing.T) {
+	t.Parallel()
+	path := ordersBook(t)
+	text, err := ParseSet(map[string]any{"Amount": map[string]any{"value": "100", "type": "string"}})
+	require.NoError(t, err)
+	_, err = UpdateRows(context.Background(), path, UpdateOptions{Key: "Invoice No", Rows: []Row{{"Invoice No": "INV-1"}}, Set: text})
+	require.NoError(t, err)
+	number, err := ParseSet(map[string]any{"Amount": map[string]any{"value": "100", "type": "number"}})
+	require.NoError(t, err)
+	result, err := UpdateRows(context.Background(), path, UpdateOptions{Key: "Invoice No", Rows: []Row{{"Invoice No": "INV-1"}}, Set: number})
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.Changes.CellsChanged, "a number over text that reads the same is a change")
+	back, err := Read(context.Background(), path, ReadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, int64(100), back.Rows[0]["Amount"])
+}

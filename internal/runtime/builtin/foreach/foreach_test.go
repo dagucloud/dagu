@@ -38,3 +38,20 @@ func TestForeachStatusDetailsUseConfiguredKeys(t *testing.T) {
 		{Label: "customer-a", Status: ir.NodeFailed},
 	}, foreachStatusDetails(items, results, true))
 }
+
+func TestSummarizeLeavesUnstartedItemsOutOfTheFailedCount(t *testing.T) {
+	t.Parallel()
+
+	results := []itemResult{
+		{Index: 0, Status: ir.NodeSucceeded.String()},
+		{Index: 1, Status: ir.NodeFailed.String(), Error: "exit status 1"},
+		{Index: 2, Status: ir.NodeNotStarted.String()},
+	}
+	outcome := summarize(results, nil)
+	assert.Equal(t, 3, outcome.total)
+	assert.Equal(t, 1, outcome.failed)
+	assert.NoError(t, outcome.err)
+
+	allFailed := summarize(results[1:2], nil)
+	assert.EqualError(t, allFailed.err, "all 1 item bodies failed; first error: exit status 1")
+}

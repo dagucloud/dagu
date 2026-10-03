@@ -513,26 +513,6 @@ func (w *file) applyRow(plan *updatePlan, row int, input Row, appended bool) (in
 			}
 			value = field
 		}
-		if !appended {
-			oc, or := plan.merges.origin(sc.column, row)
-			existing, err := w.cellValue(plan.sheet, oc, or, cellAt(plan.grid, oc, or), ReadOptions{}, func(string) {})
-			if err != nil {
-				return 0, err
-			}
-			if sameValue(existing, value) {
-				continue
-			}
-		}
-		cell := cellName(sc.column, row)
-		if value == nil {
-			if !appended {
-				if err := w.f.SetCellStr(plan.sheet, cell, ""); err != nil {
-					return 0, w.cellError(plan.sheet, sc.column, row, err.Error())
-				}
-				changed++
-			}
-			continue
-		}
 		var kind ColumnType
 		if sc.value.IsLiteral {
 			kind = sc.value.Type
@@ -540,6 +520,28 @@ func (w *file) applyRow(plan *updatePlan, row int, input Row, appended bool) (in
 		out, err := outValue(value, kind, w.date1904)
 		if err != nil {
 			return 0, w.cellError(plan.sheet, sc.column, row, err.Error())
+		}
+		if !appended {
+			oc, or := plan.merges.origin(sc.column, row)
+			existing, err := w.cellValue(plan.sheet, oc, or, cellAt(plan.grid, oc, or), ReadOptions{}, func(string) {})
+			if err != nil {
+				return 0, err
+			}
+			// The value is compared as it will be written, so a literal
+			// pinned to a number replaces the text that reads the same.
+			if sameValue(existing, comparable(out)) {
+				continue
+			}
+		}
+		cell := cellName(sc.column, row)
+		if out == nil {
+			if !appended {
+				if err := w.f.SetCellStr(plan.sheet, cell, ""); err != nil {
+					return 0, w.cellError(plan.sheet, sc.column, row, err.Error())
+				}
+				changed++
+			}
+			continue
 		}
 		if err := w.setCell(plan.sheet, sc.column, row, out); err != nil {
 			return 0, err

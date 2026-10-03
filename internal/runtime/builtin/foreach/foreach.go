@@ -125,7 +125,9 @@ func summarize(results []itemResult, dispatchErr error) runOutcome {
 	outcome := runOutcome{total: len(results)}
 	var first string
 	for _, result := range results {
-		if result.Status == ir.NodeSucceeded.String() {
+		// An item a cancellation kept from starting neither succeeded nor
+		// failed; the cancellation itself decides the outcome.
+		if result.Status == ir.NodeSucceeded.String() || result.Status == ir.NodeNotStarted.String() {
 			continue
 		}
 		outcome.failed++
@@ -321,6 +323,11 @@ dispatch:
 		}(item)
 	}
 	wg.Wait()
+	if dispatchErr == nil {
+		// A cancellation that arrived while the last items ran is reported
+		// as such, not as those items' failure.
+		dispatchErr = ctx.Err()
+	}
 	return results, dispatchErr
 }
 
@@ -446,16 +453,20 @@ func (e *foreachExecutor) writeAggregate(results []itemResult) error {
 	}
 	output.Summary.Total = len(results)
 	for _, result := range results {
-		if result.Status == ir.NodeSucceeded.String() {
+		switch result.Status {
+		case ir.NodeSucceeded.String():
 			output.Summary.Succeeded++
 			if result.Outputs == nil {
 				output.Outputs = append(output.Outputs, map[string]string{})
 			} else {
 				output.Outputs = append(output.Outputs, result.Outputs)
 			}
-			continue
+		case ir.NodeNotStarted.String():
+			// An item a cancellation kept from starting is listed, not
+			// counted as a body that failed.
+		default:
+			output.Summary.Failed++
 		}
-		output.Summary.Failed++
 	}
 
 	w := e.stdout

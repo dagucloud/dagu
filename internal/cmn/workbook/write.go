@@ -294,7 +294,14 @@ func (w *file) alignAppend(sheet string, table Table, header bool, warn func(str
 	headers := headerNames(loc.reg, layout, loc.grid, merges, warn)
 	targets.headerRow = layout.rows[0]
 	next := loc.reg.C2
+	seen := make(map[string]bool, len(table.Columns))
 	for c, name := range table.Columns {
+		// Two table columns with one name would land on one header cell and
+		// the later value would overwrite the earlier one.
+		if seen[name] {
+			return targets, w.sheetError(sheet, fmt.Sprintf("column %q is given twice; appended columns must have distinct names", name))
+		}
+		seen[name] = true
 		i, near := findColumn(headers, name)
 		switch {
 		case i >= 0:

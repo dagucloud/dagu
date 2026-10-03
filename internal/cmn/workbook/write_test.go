@@ -757,3 +757,11 @@ func TestAppendDuplicateHeaderNames(t *testing.T) {
 	assert.Equal(t, int64(10), back.Rows[1]["Amount"])
 	assert.Equal(t, int64(20), back.Rows[1]["Amount_2"])
 }
+
+func TestAppendDuplicateTableColumnsFail(t *testing.T) {
+	t.Parallel()
+	path := logBook(t)
+	more := Table{Columns: []string{"when", "when"}, Rows: [][]any{{"2026-10-03", "2026-10-04"}}}
+	_, err := Append(context.Background(), path, more, WriteOptions{Header: true})
+	require.ErrorContains(t, err, `column "when" is given twice; appended columns must have distinct names`)
+}
