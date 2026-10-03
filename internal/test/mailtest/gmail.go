@@ -235,7 +235,7 @@ func (g *Gmail) listMessages(w http.ResponseWriter, r *http.Request) {
 	includeSpamTrash := query.Get("includeSpamTrash") == "true"
 	after := int64(-1)
 	hasAttachment := false
-	for _, term := range strings.Fields(query.Get("q")) {
+	for term := range strings.FieldsSeq(query.Get("q")) {
 		switch {
 		case strings.HasPrefix(term, "after:"):
 			seconds, err := strconv.ParseInt(strings.TrimPrefix(term, "after:"), 10, 64)
