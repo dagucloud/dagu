@@ -883,7 +883,8 @@ copying the style of the cell above, and writes a header only when the sheet is
 empty. Appended fields are placed under the header cell of the same exact name:
 a loose match fails with `did you mean`, a name the header lacks adds a column
 at the right, and `header: false` writes rows by position onto a sheet with no
-header row.
+header row. An append fails when a cell it would write, or the header cell of
+a new column, lies in a merged cell.
 
 `xlsx.update_rows` `with` fields: `path`, `sheet`, `key` (the column that
 identifies a row, or `_row`), `rows`, `set` (`{Status: status}` takes a field of
@@ -899,8 +900,8 @@ addressed by `_row` must still hold its key there. Either failure fails the
 step with the file untouched. A merged cell, such as one Status over the
 lines of an order, is written once at its top-left cell: rows may give it
 the same value, different values fail the step, and a merged cell reaching
-outside its column's data rows is refused. Appends never write into a
-merged cell.
+outside its column's data rows is refused. A row appended with `missing:
+append`, or a new column, that would land in a merged cell fails the step.
 
 Every writer publishes `path`, `sheet`, `changes` (`{sheet, range, rows_updated,
 rows_appended, columns_added, cells_changed}`), `dry_run`, and `warnings`.
@@ -934,8 +935,8 @@ run goes on.
 
 `xlsx.write_cells` fills a template: `cells` maps addresses (`B2`,
 `Sheet1!B2`, `'My Sheet'!B2`, or a defined name for one cell; an address
-inside a merged cell, or a name over its whole area, writes the merged cell)
-to a value, to
+inside a merged cell, or a name over its whole area, writes the merged cell,
+and two addresses in one merged cell fail the step) to a value, to
 `{value: v, type: t}` to pin the type, to `{formula: "=SUM(B2:B9)"}`, or to
 `null` to empty the cell. An ISO date string becomes a date, and text in the
 canonical form of a number (`100`, `-12.5`, not `007` or `1,234`) becomes a

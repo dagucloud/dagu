@@ -215,7 +215,10 @@ exact name: a name the header has only loosely fails with `column "amount"
 not found in header row 1; did you mean "Amount"?`; a name the header lacks
 adds a column at the right, its header cell copying the style of the last
 header cell, counted in `columns_added`; header columns no field carries
-stay empty. Duplicate header names read as `Amount` and `Amount_2`. Array
+stay empty. A new header cell inside a merged cell would land in the merged
+cell's top-left cell, which may hold another column's header, so it fails
+with `Sheet1!C1: merged cell B1:C1 covers the header cell of new column
+"note"; unmerge it to add the column`. Duplicate header names read as `Amount` and `Amount_2`. Array
 rows have no names and are written by position. `header: false` says the
 sheet has no header row: rows are written by position, and an empty sheet
 gets no header. A sheet with rows but no header row fails with `no header
@@ -241,7 +244,8 @@ to the column of the same name. A field in `set` that no row carries is an
 error:
 `set.Status: field "state" is not in any row`. A column that is not in the
 header row is added at the right, its header cell copying the style of the
-last header cell.
+last header cell; a new header cell inside a merged cell fails as it does
+for an append.
 
 Rows are matched by `_row` when present, else by the key column, with keys
 compared as trimmed text so `7` and `"7"` match. A key found at two rows is
@@ -259,7 +263,8 @@ sheet row are an error: `rows[0] and rows[2] both address row 17`.
 Only the columns in `set` change. A row that does not carry a mapped field
 leaves that cell as it is; an explicit null empties it. A cell whose value
 already matches, compared with its type so the number 7 and the text `7`
-differ, is not counted as changed. A date written into a date column keeps
+differ and text exactly, surrounding space included, is not counted as
+changed. A date written into a date column keeps
 the column's format; a date written elsewhere gets a date format. The key
 column cannot be in `set`: `set.Invoice No: the key column cannot be
 updated`.
@@ -647,7 +652,9 @@ Every one of these is rejected by `dagu validate`:
   `orders.xlsx Sheet1!C4: merged cell A4:C4 reaches outside column "Status"
   of the data rows; unmerge it to write this cell`; a cell to append inside
   a merged cell: `Sheet1!A3: cannot append into merged cell A3:B4; unmerge
-  it to write this cell`.
+  it to write this cell`; a new column whose header cell is inside a merged
+  cell: `Sheet1!C1: merged cell B1:C1 covers the header cell of new column
+  "note"; unmerge it to add the column`.
 - A workbook another program holds, on Windows:
   `orders.xlsx is open in another program; close it and retry`.
 - `artifact: true` in a DAG whose artifacts are disabled:
