@@ -49,7 +49,7 @@ test('shows activation, benefits, and deactivation on desktop and mobile', async
   const sidebar = page.getByTestId('app-sidebar');
   const badge = sidebar
     .getByRole('link', { name: 'Plan & features', exact: true })
-    .first();
+    .filter({ hasText: /^(Community|Team)$/ });
   await expect(badge).toHaveText('Community');
   await badge.click();
   await expect(
