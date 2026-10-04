@@ -4,7 +4,7 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useContext, useState } from 'react';
-import { SWRConfig } from 'swr';
+import { SWRConfig, useSWRConfig } from 'swr';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { LicenseProvider } from '../LicenseProvider';
 import { LicenseContext } from '@/contexts/LicenseContext';
@@ -43,6 +43,7 @@ function deferred<T>() {
 function Probe() {
   const { license, loading, error } = useLicenseState();
   const { mutate } = useContext(LicenseContext)!;
+  const { mutate: clearCache } = useSWRConfig();
   return (
     <>
       <output aria-label="Status">
@@ -61,6 +62,17 @@ function Probe() {
       >
         Activate Team
       </button>
+      <button onClick={() => void mutate(community, { revalidate: false })}>
+        Deactivate
+      </button>
+      <button
+        onClick={() =>
+          void clearCache(() => true, undefined, { revalidate: false })
+        }
+      >
+        Clear session
+      </button>
+      <button onClick={() => void mutate()}>Refresh</button>
     </>
   );
 }
@@ -80,6 +92,30 @@ beforeEach(() => localStorage.clear());
 afterEach(() => vi.unstubAllGlobals());
 
 describe('node-specific license status', () => {
+  it('does not restore bootstrap entitlements after a session reset', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(Response.json(paid))
+        .mockResolvedValue(
+          Response.json({ message: 'offline' }, { status: 503 })
+        )
+    );
+    render(<Harness />);
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    await userEvent.click(screen.getByRole('button', { name: 'Deactivate' }));
+    expect(screen.getByLabelText('Status')).toHaveTextContent('community');
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Clear session' })
+    );
+    expect(screen.getByLabelText('Status')).toHaveTextContent('loading');
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await waitFor(() =>
+      expect(screen.getByLabelText('Status')).toHaveTextContent('unavailable')
+    );
+  });
+
   it('keeps pending and late remote responses separate from local status', async () => {
     const remote = deferred<Response>();
     vi.stubGlobal(

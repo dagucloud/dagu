@@ -63,6 +63,11 @@ export function LicenseProvider({
     }
   );
 
+  // Session resets must not restore an HTML snapshot superseded by live status.
+  if (bootstrap.license && data && data !== bootstrap.license) {
+    setBootstrap({ remoteNode });
+  }
+
   return (
     <LicenseContext.Provider value={{ license: data, error, mutate, now }}>
       {children}
