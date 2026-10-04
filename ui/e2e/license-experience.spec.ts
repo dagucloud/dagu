@@ -91,6 +91,15 @@ test('shows activation, benefits, and deactivation on desktop and mobile', async
   await page.keyboard.press('Escape');
   await expect(page.getByRole('tooltip')).toBeHidden();
   await sidebar.getByRole('button', { name: 'Collapse sidebar' }).click();
+  await expect(badge).toBeVisible();
+  await badge.focus();
+  await expect(page.getByRole('tooltip')).toContainText('Team · Active');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('tooltip')).toBeHidden();
+  await page.screenshot({
+    path: testInfo.outputPath('license-active-collapsed.png'),
+    fullPage: true,
+  });
   await page.setViewportSize({ width: 390, height: 844 });
   const mobileBadge = page
     .locator('header')

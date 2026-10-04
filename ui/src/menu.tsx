@@ -1184,18 +1184,16 @@ export const mainListItems = React.forwardRef<
         {config.version && (
           <div
             className={cn(
-              'px-3 text-[11px] font-mono text-sidebar-foreground/50',
-              isOpen ? 'pb-1' : 'pb-3 text-center px-0'
+              'px-3 pb-1 text-[11px] font-mono text-sidebar-foreground/50',
+              !isOpen && 'text-center px-0'
             )}
           >
             {isOpen ? `v${config.version}` : config.version.split('.')[0]}
           </div>
         )}
-        {isOpen && (
-          <div className="px-3 pb-3 min-w-0">
-            <LicenseBadge onNavigate={onNavItemClick} />
-          </div>
-        )}
+        <div className={cn('pb-3 min-w-0', isOpen ? 'px-3' : 'text-center')}>
+          <LicenseBadge onNavigate={onNavItemClick} />
+        </div>
       </div>
     </div>
   );
