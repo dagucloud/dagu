@@ -70,8 +70,8 @@ export default defineConfig({
     cwd: repoRoot,
     url: `${baseURL}/api/v1/health`,
     timeout: 90_000,
-    // Let the stack trap stop services restarted outside its original process group.
-    gracefulShutdown: { signal: 'SIGTERM', timeout: 30_000 },
+    // Allow six sequential 10-second service shutdowns plus cleanup overhead.
+    gracefulShutdown: { signal: 'SIGTERM', timeout: 90_000 },
     reuseExistingServer: false,
     stdout: 'pipe',
     stderr: 'pipe',
