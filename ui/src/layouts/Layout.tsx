@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import { LicenseBadge } from '@/components/LicenseBadge';
 import { LicenseBanner } from '@/components/LicenseBanner';
 import { SchedulerPauseBanner } from '@/components/SchedulerPauseBanner';
 import { UpdateBanner } from '@/components/UpdateBanner';
@@ -246,7 +247,9 @@ function Content({ navbarColor, children }: LayoutProps) {
           >
             {config.title || 'Dagu'}
           </span>
-          <div className="w-8" />
+          <div className="max-w-[45%] shrink-0">
+            <LicenseBadge />
+          </div>
         </header>
 
         {/* Scrollable Content - More Compact Padding */}

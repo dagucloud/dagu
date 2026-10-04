@@ -24,6 +24,8 @@ const useCanViewAuditLogsMock = vi.fn();
 const useHasFeatureMock = vi.fn();
 const useViewsMock = vi.fn();
 
+vi.mock('@/components/LicenseBadge', () => ({ LicenseBadge: () => null }));
+
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => useAuthMock(),
   useIsAdmin: () => useIsAdminMock(),

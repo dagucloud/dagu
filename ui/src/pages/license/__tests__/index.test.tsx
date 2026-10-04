@@ -1,4 +1,10 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import * as React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -6,15 +12,32 @@ import LicensePage from '@/pages/license';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import {
   ConfigContext,
-  ConfigUpdateContext,
   type Config,
   type LicenseStatus,
 } from '@/contexts/ConfigContext';
 import { useClient } from '@/hooks/api';
+import { LicenseProvider } from '@/components/LicenseProvider';
+import { SWRConfig } from 'swr';
+import { MemoryRouter } from 'react-router-dom';
 
-vi.mock('@/hooks/api', () => ({
-  useClient: vi.fn(),
-}));
+vi.mock('@/hooks/api', async () => {
+  const { default: useSWR } = await import('swr');
+  const useClient = vi.fn();
+  return {
+    useClient,
+    useQuery: (path: string, params: unknown, options: object) =>
+      useSWR(
+        [path, params],
+        async () => {
+          const result = await useClient().GET(path, params);
+          if (result.error) throw result.error;
+          return result.data;
+        },
+        options
+      ),
+  };
+});
+vi.mock('@/contexts/AuthContext', () => ({ useIsAdmin: () => true }));
 
 const useClientMock = vi.mocked(useClient);
 
@@ -74,27 +97,32 @@ function makeConfig(licenseOverrides: Partial<LicenseStatus> = {}): Config {
   };
 }
 
-function renderPage(
-  licenseOverrides: Partial<LicenseStatus> = {},
-  updateConfig: (patch: Partial<Config>) => void = () => undefined
-) {
+function renderPage(licenseOverrides: Partial<LicenseStatus> = {}) {
   return render(
-    <ConfigContext.Provider value={makeConfig(licenseOverrides)}>
-      <ConfigUpdateContext.Provider value={updateConfig}>
-        <AppBarContext.Provider
-          value={{
-            title: '',
-            setTitle: () => undefined,
-            remoteNodes: ['local'],
-            setRemoteNodes: () => undefined,
-            selectedRemoteNode: 'local',
-            selectRemoteNode: () => undefined,
-          }}
-        >
-          <LicensePage />
-        </AppBarContext.Provider>
-      </ConfigUpdateContext.Provider>
-    </ConfigContext.Provider>
+    <MemoryRouter>
+      <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+        <ConfigContext.Provider value={makeConfig(licenseOverrides)}>
+          <AppBarContext.Provider
+            value={{
+              title: '',
+              setTitle: () => undefined,
+              remoteNodes: ['local'],
+              setRemoteNodes: () => undefined,
+              selectedRemoteNode: 'local',
+              selectRemoteNode: () => undefined,
+            }}
+          >
+            <LicenseProvider
+              enabled
+              remoteNode="local"
+              initialLicense={makeConfig(licenseOverrides).license}
+            >
+              <LicensePage />
+            </LicenseProvider>
+          </AppBarContext.Provider>
+        </ConfigContext.Provider>
+      </SWRConfig>
+    </MemoryRouter>
   );
 }
 
@@ -102,6 +130,7 @@ describe('LicensePage', () => {
   beforeEach(() => {
     useClientMock.mockReturnValue({
       POST: vi.fn(),
+      GET: vi.fn().mockReturnValue(new Promise(() => {})),
     } as never);
   });
 
@@ -172,7 +201,6 @@ describe('LicensePage', () => {
 
   it('refreshes the authoritative status after activation', async () => {
     const user = userEvent.setup();
-    const updateConfig = vi.fn();
     const status: LicenseStatus = {
       valid: true,
       plan: 'enterprise',
@@ -192,21 +220,84 @@ describe('LicensePage', () => {
         features: status.features,
       },
     });
-    const get = vi.fn().mockResolvedValue({ data: status });
+    const get = vi
+      .fn()
+      .mockResolvedValueOnce({ data: makeConfig().license })
+      .mockResolvedValue({ data: status });
     useClientMock.mockReturnValue({ POST: post, GET: get } as never);
-    renderPage({}, updateConfig);
+    renderPage();
 
-    await user.type(
-      screen.getByRole('textbox', { name: 'License key' }),
-      'key'
-    );
+    await user.type(screen.getByLabelText('License key'), 'key');
     await user.click(screen.getByRole('button', { name: 'Activate' }));
 
     await waitFor(() => {
       expect(get).toHaveBeenCalledWith('/license/status', {
         params: { query: { remoteNode: 'local' } },
       });
-      expect(updateConfig).toHaveBeenLastCalledWith({ license: status });
+      expect(screen.getByText('Enterprise · Active')).toBeVisible();
     });
+  });
+  it('shows only entitled features as included', () => {
+    renderPage({ features: ['audit'] });
+    const audit = screen
+      .getByRole('heading', { name: 'Audit logs' })
+      .closest('article')!;
+    const sso = screen
+      .getByRole('heading', { name: 'Single sign-on' })
+      .closest('article')!;
+    expect(within(audit).getByText('Included')).toBeVisible();
+    expect(
+      within(sso).getByText('Requires a license with this feature')
+    ).toBeVisible();
+    expect(
+      within(sso).queryByRole('link', { name: 'Setup guide' })
+    ).not.toBeInTheDocument();
+    expect(screen.getAllByText('Included')).toHaveLength(3);
+  });
+
+  it('preserves the current plan when activation fails', async () => {
+    const post = vi
+      .fn()
+      .mockResolvedValue({ error: { message: 'Invalid license key' } });
+    useClientMock.mockReturnValue({
+      POST: post,
+      GET: vi.fn().mockResolvedValue({ data: makeConfig().license }),
+    } as never);
+    renderPage();
+    await userEvent.type(screen.getByLabelText('License key'), 'invalid');
+    await userEvent.click(screen.getByRole('button', { name: 'Activate' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Invalid license key'
+    );
+    expect(screen.getByText('Pro · Active')).toBeVisible();
+  });
+
+  it('updates status and benefits after deactivation', async () => {
+    const community = makeConfig({
+      valid: false,
+      community: true,
+      plan: '',
+      features: [],
+      expiry: '',
+    }).license;
+    const post = vi.fn().mockResolvedValue({});
+    const get = vi
+      .fn()
+      .mockResolvedValueOnce({ data: makeConfig().license })
+      .mockResolvedValue({ data: community });
+    useClientMock.mockReturnValue({ POST: post, GET: get } as never);
+    renderPage();
+    await waitFor(() => expect(get).toHaveBeenCalled());
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Deactivate License' })
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Deactivate' }));
+    expect(
+      await screen.findByText('License deactivated. Running in community mode.')
+    ).toBeVisible();
+    expect(screen.getByText('Community', { exact: true })).toBeVisible();
+    expect(
+      screen.getAllByText('Requires a license with this feature')
+    ).toHaveLength(5);
   });
 });

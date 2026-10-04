@@ -1,8 +1,10 @@
 import { render, screen } from '@testing-library/react';
 import * as React from 'react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LicenseBanner } from '@/components/LicenseBanner';
 import { ConfigContext, type Config } from '@/contexts/ConfigContext';
+
+vi.mock('@/contexts/AuthContext', () => ({ useIsAdmin: () => true }));
 
 function makeConfig(overrides: Partial<Config> = {}): Config {
   return {

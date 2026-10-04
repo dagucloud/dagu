@@ -67,10 +67,6 @@ export type Config = {
 
 export const ConfigContext = createContext<Config>(null!);
 
-export const ConfigUpdateContext = createContext<
-  (patch: Partial<Config>) => void
->(() => {});
-
 /**
  * Access the application configuration from the nearest ConfigContext provider.
  *
@@ -78,8 +74,4 @@ export const ConfigUpdateContext = createContext<
  */
 export function useConfig(): Config {
   return useContext(ConfigContext);
-}
-
-export function useUpdateConfig(): (patch: Partial<Config>) => void {
-  return useContext(ConfigUpdateContext);
 }

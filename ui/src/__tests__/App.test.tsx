@@ -8,6 +8,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Config } from '@/contexts/ConfigContext';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import App from '../App';
+import { useLicense } from '@/hooks/useLicense';
+import userEvent from '@testing-library/user-event';
 
 const { clientMock, clientGetMock, overviewImportError, useQueryMock } =
   vi.hoisted(() => {
@@ -38,9 +40,21 @@ vi.mock('@/hooks/api', () => ({
 }));
 
 vi.mock('../layouts/Layout', () => ({
-  default: ({ children }: { children: React.ReactNode }) => (
-    <main>{children}</main>
-  ),
+  default: ({ children }: { children: React.ReactNode }) => {
+    const license = useLicense();
+    const { selectRemoteNode } = React.useContext(AppBarContext);
+    return (
+      <main>
+        <output aria-label="Current license">
+          {license.valid ? license.plan : 'unavailable'}
+        </output>
+        <button onClick={() => selectRemoteNode('remote')}>
+          Select remote
+        </button>
+        {children}
+      </main>
+    );
+  },
 }));
 
 vi.mock('../pages/administration', () => ({
@@ -207,7 +221,9 @@ beforeEach(() => {
   clientGetMock.mockReset();
   clientGetMock.mockResolvedValue({ data: { workspaces: [] } });
   useQueryMock.mockReset();
-  useQueryMock.mockReturnValue({ data: undefined });
+  useQueryMock.mockImplementation((_path, _params, options) => ({
+    data: options?.fallbackData,
+  }));
   overviewImportError.current = false;
   vi.stubGlobal(
     'fetch',
@@ -289,7 +305,7 @@ describe('App license routing', () => {
 
     expect(await screen.findByRole('heading', { name: heading })).toBeVisible();
     expect(
-      screen.queryByRole('heading', { name: 'License Required' })
+      screen.queryByRole('heading', { name: 'Incident routing' })
     ).not.toBeInTheDocument();
   });
 
@@ -298,12 +314,32 @@ describe('App license routing', () => {
 
     await waitFor(() => {
       expect(
-        screen.getByRole('heading', { name: 'License Required' })
+        screen.getByRole('heading', { name: 'Incident routing' })
       ).toBeVisible();
     });
     expect(
       screen.queryByRole('heading', { name: 'Incidents' })
     ).not.toBeInTheDocument();
+  });
+
+  it('does not show the local license while a remote status is pending', async () => {
+    const config = makeConfig({ remoteNodes: 'local,remote' });
+    config.license = {
+      ...config.license,
+      valid: true,
+      community: false,
+      plan: 'pro',
+    };
+    renderAt('/home', config);
+    expect(await screen.findByLabelText('Current license')).toHaveTextContent(
+      'pro'
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Select remote' })
+    );
+    expect(screen.getByLabelText('Current license')).toHaveTextContent(
+      'unavailable'
+    );
   });
 
   it('updates licensed routes from the live license status', async () => {

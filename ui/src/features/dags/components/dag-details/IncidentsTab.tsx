@@ -1,6 +1,8 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import { LicenseFeaturePrompt } from '@/components/LicenseFeaturePrompt';
+import { hasActiveLicense } from '@/lib/license';
 import {
   AlertTriangle,
   Loader2,
@@ -8,10 +10,8 @@ import {
   RotateCcw,
   Save,
   Settings,
-  Shield,
 } from 'lucide-react';
 import { ReactElement, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -35,33 +35,6 @@ type IncidentsTabProps = {
   workspaceName?: string;
 };
 
-function LicenseRequired(): ReactElement {
-  return (
-    <div className="flex flex-col items-center justify-center gap-4 rounded-md border border-border p-8 text-center">
-      <Shield size={40} className="text-muted-foreground" />
-      <div>
-        <h2 className="text-lg font-semibold text-foreground">
-          <I18nText text={'License Required'} />
-        </h2>
-        <p className="mt-1 max-w-md text-sm text-muted-foreground">
-          <I18nText
-            text={
-              'Incident connections and routing require an active Dagu license or trial. Visit the'
-            }
-          />{' '}
-          <Link
-            to="/license"
-            className="text-primary underline underline-offset-2"
-          >
-            <I18nText text={'License'} />
-          </Link>{' '}
-          <I18nText text={'page to activate one.'} />
-        </p>
-      </div>
-    </div>
-  );
-}
-
 function apiErrorMessage(error: unknown, fallback: string): string | null {
   if (!error) return null;
   if (typeof error === 'object' && 'message' in error) {
@@ -76,7 +49,7 @@ export default function IncidentsTab({
   workspaceName,
 }: IncidentsTabProps): ReactElement {
   const license = useLicense();
-  const licensed = !license.community && (license.valid || license.gracePeriod);
+  const licensed = hasActiveLicense(license);
   const remoteNode = useRemoteNode();
   const client = useClient();
   const { showToast } = useSimpleToast();
@@ -148,7 +121,7 @@ export default function IncidentsTab({
   }, [data, fileName]);
 
   if (!licensed) {
-    return <LicenseRequired />;
+    return <LicenseFeaturePrompt feature="incidents" />;
   }
 
   const refresh = async () => {

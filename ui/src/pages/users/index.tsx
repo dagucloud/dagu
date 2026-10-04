@@ -1,3 +1,4 @@
+import { LicenseFeaturePrompt } from '@/components/LicenseFeaturePrompt';
 import { components, UserAuthProvider } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -23,7 +24,6 @@ import dayjs from '@/lib/dayjs';
 import ConfirmModal from '@/components/ui/confirm-dialog';
 import {
   Ban,
-  Info,
   Key,
   MoreHorizontal,
   Pencil,
@@ -32,13 +32,11 @@ import {
   UserPlus,
 } from 'lucide-react';
 import { useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { ResetPasswordModal } from './ResetPasswordModal';
 import { UserFormModal } from './UserFormModal';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 import { useI18n } from '@/i18n/I18nProvider';
-import { I18nTemplate } from '@/i18n/I18nTemplate';
 
 type User = components['schemas']['User'];
 type UsersListResponse = components['schemas']['UsersListResponse'];
@@ -267,23 +265,11 @@ export default function UsersPage() {
       )}
 
       {!hasRbac && (
-        <div className="flex items-center gap-2 p-3 text-sm text-muted-foreground bg-muted/50 rounded-md">
-          <Info className="h-4 w-4 shrink-0" />
-          <span>
-            <I18nTemplate
-              text="User management features (create, edit, delete) require a {licenseLink}. Password reset is available for all admins."
-              values={{
-                licenseLink: (
-                  <Link
-                    to="/license"
-                    className="text-primary underline underline-offset-2"
-                  >
-                    <I18nText text="license or trial" />
-                  </Link>
-                ),
-              }}
-            />
-          </span>
+        <div className="space-y-2">
+          <LicenseFeaturePrompt feature="rbac" />
+          <p className="text-xs text-muted-foreground">
+            <I18nText text="Password reset remains available to administrators." />
+          </p>
         </div>
       )}
 

@@ -4,7 +4,6 @@
 import React from 'react';
 import {
   BrowserRouter,
-  Link,
   Navigate,
   Route,
   Routes,
@@ -12,7 +11,8 @@ import {
 } from 'react-router-dom';
 import { SWRConfig, mutate as globalMutate } from 'swr';
 
-import { Shield } from 'lucide-react';
+import { LicenseFeaturePrompt } from '@/components/LicenseFeaturePrompt';
+import { hasActiveLicense, type LicensedFeature } from '@/lib/license';
 
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { QueryFeedback } from './components/QueryFeedback';
@@ -21,12 +21,7 @@ import { ToastProvider } from '@/components/ui/simple-toast';
 import RunProgressStack from '@/features/dags/components/dag-execution/RunProgressStack';
 import { AppBarContext } from './contexts/AppBarContext';
 import { AuthProvider, useCanAccessGitSync } from './contexts/AuthContext';
-import {
-  Config,
-  ConfigContext,
-  ConfigUpdateContext,
-  useUpdateConfig,
-} from './contexts/ConfigContext';
+import { Config, ConfigContext } from './contexts/ConfigContext';
 import { useHasFeature, useLicense } from './hooks/useLicense';
 import { SchemaProvider } from './contexts/SchemaContext';
 import { SearchStateProvider } from './contexts/SearchStateContext';
@@ -37,7 +32,8 @@ import {
 import Layout from './layouts/Layout';
 import fetchJson from './lib/fetchJson';
 import { fetchWithTimeout, shouldRetryQueryError } from './lib/requestTimeout';
-import { useClient, useQuery } from './hooks/api';
+import { useClient } from './hooks/api';
+import { LicenseProvider } from './components/LicenseProvider';
 import { addAuthSessionListener, getAuthToken } from './lib/authSession';
 import {
   getStoredWorkspaceSelection,
@@ -241,12 +237,12 @@ function LicensedRoute({
   feature,
   children,
 }: {
-  feature: string;
+  feature: LicensedFeature;
   children: React.ReactElement;
 }): React.ReactElement {
   const hasFeature = useHasFeature(feature);
   if (hasFeature) return children;
-  return <LicenseRequiredMessage />;
+  return <LicenseFeaturePrompt feature={feature} />;
 }
 
 function ActiveLicenseDeveloperElement({
@@ -255,36 +251,11 @@ function ActiveLicenseDeveloperElement({
   children: React.ReactElement;
 }): React.ReactElement {
   const license = useLicense();
-  const licensed = !license.community && (license.valid || license.gracePeriod);
+  const licensed = hasActiveLicense(license);
   return (
     <DeveloperElement>
-      {licensed ? children : <LicenseRequiredMessage />}
+      {licensed ? children : <LicenseFeaturePrompt feature="incidents" />}
     </DeveloperElement>
-  );
-}
-
-function LicenseRequiredMessage(): React.ReactElement {
-  return (
-    <div className="flex flex-col items-center justify-center h-full gap-4 text-center p-8">
-      <Shield size={48} className="text-muted-foreground" />
-      <h2 className="text-xl font-semibold">
-        <I18nText text={'License Required'} />
-      </h2>
-      <p className="text-sm text-muted-foreground max-w-md">
-        <I18nText
-          text={
-            'This feature requires an active Dagu license or trial. Visit the'
-          }
-        />{' '}
-        <Link
-          to="/license"
-          className="text-primary underline underline-offset-2"
-        >
-          <I18nText text={'License'} />
-        </Link>{' '}
-        <I18nText text={'page to activate your license.'} />
-      </p>
-    </div>
   );
 }
 
@@ -352,35 +323,6 @@ function LazyRoutes({
   );
 }
 
-function LicenseStatusSync({
-  enabled,
-  remoteNode,
-}: {
-  enabled: boolean;
-  remoteNode: string;
-}): null {
-  const updateConfig = useUpdateConfig();
-  const { data } = useQuery(
-    '/license/status',
-    enabled ? { params: { query: { remoteNode } } } : null,
-    {
-      keepPreviousData: true,
-      refreshInterval: 60_000,
-      revalidateOnFocus: true,
-      revalidateOnReconnect: true,
-      shouldRetryOnError: false,
-    }
-  );
-
-  React.useEffect(() => {
-    if (data) {
-      updateConfig({ license: data });
-    }
-  }, [data, updateConfig]);
-
-  return null;
-}
-
 function AppInner({ config: initialConfig }: Props): React.ReactElement {
   const client = useClient();
   const { locale } = useI18n();
@@ -445,9 +387,12 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
       setSelectedRemoteNode(validNode);
       localStorage.setItem(REMOTE_NODE_STORAGE_KEY, validNode);
 
-      // Clear SWR cache on node switch. Active hooks refetch automatically
-      // since their keys include remoteNode.
-      globalMutate(() => true, undefined, { revalidate: false });
+      // Retain node-specific license status while other resource queries refresh.
+      globalMutate(
+        (key) => !Array.isArray(key) || key[1] !== '/license/status',
+        undefined,
+        { revalidate: false }
+      );
       setWorkspacesLoaded(false);
     },
     [remoteNodes]
@@ -673,11 +618,11 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
         }}
       >
         <ConfigContext.Provider value={config}>
-          <ConfigUpdateContext.Provider value={updateConfig}>
-            <LicenseStatusSync
-              enabled={canFetchAuthenticatedResources}
-              remoteNode={selectedRemoteNode}
-            />
+          <LicenseProvider
+            enabled={canFetchAuthenticatedResources}
+            remoteNode={selectedRemoteNode}
+            initialLicense={initialConfig.license}
+          >
             <AuthProvider>
               <SearchStateProvider>
                 <SchemaProvider>
@@ -918,7 +863,9 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                         path="/license"
                                         element={
                                           <AdminElement>
-                                            <LicensePage />
+                                            <LicensePage
+                                              key={selectedRemoteNode}
+                                            />
                                           </AdminElement>
                                         }
                                       />
@@ -944,7 +891,7 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                 </SchemaProvider>
               </SearchStateProvider>
             </AuthProvider>
-          </ConfigUpdateContext.Provider>
+          </LicenseProvider>
         </ConfigContext.Provider>
       </AppBarContext.Provider>
     </SWRConfig>

@@ -1,6 +1,8 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import { LicenseActions } from '@/components/LicenseActions';
+import { hasActiveLicense } from '@/lib/license';
 import { components } from '@/api/v1/schema';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -67,9 +69,9 @@ export default function APIKeysPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingKey, setEditingKey] = useState<APIKey | null>(null);
   const [deletingKey, setDeletingKey] = useState<APIKey | null>(null);
-  const hasActiveLicense = license.valid || license.gracePeriod;
+  const activeLicense = hasActiveLicense(license);
   const communityLimitReached =
-    !hasActiveLicense && apiKeys.length >= COMMUNITY_API_KEY_LIMIT;
+    !activeLicense && apiKeys.length >= COMMUNITY_API_KEY_LIMIT;
 
   // Set page title
   useEffect(() => {
@@ -192,6 +194,9 @@ export default function APIKeysPage() {
                 }
               />
             </p>
+            <div className="mt-2">
+              <LicenseActions content="api-keys" />
+            </div>
           </div>
         </div>
       )}

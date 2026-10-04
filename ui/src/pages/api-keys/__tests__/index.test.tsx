@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import { MemoryRouter } from 'react-router-dom';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -130,7 +131,9 @@ function renderPage({
   render(
     <ConfigContext.Provider value={makeConfig(license)}>
       <AppBarContext.Provider value={appBarValue}>
-        <APIKeysPage />
+        <MemoryRouter>
+          <APIKeysPage />
+        </MemoryRouter>
       </AppBarContext.Provider>
     </ConfigContext.Provider>
   );
