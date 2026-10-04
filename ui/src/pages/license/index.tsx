@@ -30,7 +30,9 @@ export default function LicensePage() {
   const client = useClient();
   const { ts } = useI18n();
   const [key, setKey] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [pendingAction, setPendingAction] = useState<
+    'activate' | 'deactivate' | null
+  >(null);
   const [showDeactivateConfirm, setShowDeactivateConfirm] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -42,40 +44,23 @@ export default function LicensePage() {
   async function handleActivate(e: React.FormEvent) {
     e.preventDefault();
     if (!key.trim()) return;
-    setBusy(true);
+    setPendingAction('activate');
     setError(null);
     setSuccessMessage(null);
     try {
       const next = await mutate(
         async () => {
-          const { data, error: apiError } = await client.POST(
-            '/license/activate',
-            {
-              params: { query: { remoteNode } },
-              body: { key: key.trim() },
-            }
-          );
+          const { error: apiError } = await client.POST('/license/activate', {
+            params: { query: { remoteNode } },
+            body: { key: key.trim() },
+          });
           if (apiError)
             throw new Error(apiError.message || ts('Activation failed'));
-          if (!data?.plan) {
-            const status = await client.GET('/license/status', {
-              params: { query: { remoteNode } },
-            });
-            if (!status.data) throw new Error(ts('License status unavailable'));
-            return status.data;
-          }
-          return {
-            valid: true,
-            plan: data.plan,
-            features: data.features || [],
-            expiry: data.expiry || '',
-            gracePeriod: false,
-            graceEndsAt: '',
-            community: false,
-            source: 'file',
-            warningCode: '',
-            error: '',
-          } satisfies LicenseStatus;
+          const status = await client.GET('/license/status', {
+            params: { query: { remoteNode } },
+          });
+          if (!status.data) throw new Error(ts('License status unavailable'));
+          return status.data;
         },
         { revalidate: true }
       );
@@ -90,13 +75,13 @@ export default function LicensePage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : ts('Activation failed'));
     } finally {
-      setBusy(false);
+      setPendingAction(null);
     }
   }
 
   async function handleDeactivate() {
     setShowDeactivateConfirm(false);
-    setBusy(true);
+    setPendingAction('deactivate');
     setError(null);
     setSuccessMessage(null);
     try {
@@ -126,7 +111,7 @@ export default function LicensePage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : ts('Deactivation failed'));
     } finally {
-      setBusy(false);
+      setPendingAction(null);
     }
   }
 
@@ -301,15 +286,15 @@ export default function LicensePage() {
             placeholder="DAGU-XXXX-XXXX-XXXX-XXXX"
             className="font-mono text-sm h-8"
             aria-label={ts('License key')}
-            disabled={busy}
+            disabled={Boolean(pendingAction)}
           />
           <Button
             type="submit"
             size="sm"
             className="h-8 shrink-0"
-            disabled={busy || !key.trim()}
+            disabled={Boolean(pendingAction) || !key.trim()}
           >
-            {ts(busy ? 'Activating...' : 'Activate')}
+            {ts(pendingAction === 'activate' ? 'Activating...' : 'Activate')}
           </Button>
         </form>
         <p className="text-xs text-muted-foreground">
@@ -336,11 +321,15 @@ export default function LicensePage() {
               <Button
                 variant="destructive"
                 size="sm"
-                disabled={busy}
+                disabled={Boolean(pendingAction)}
                 onClick={() => setShowDeactivateConfirm(true)}
               >
                 <AlertTriangle className="h-3.5 w-3.5" />
-                {ts('Deactivate License')}
+                {ts(
+                  pendingAction === 'deactivate'
+                    ? 'Deactivating...'
+                    : 'Deactivate License'
+                )}
               </Button>
             </>
           )}

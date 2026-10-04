@@ -1,4 +1,5 @@
 import {
+  act,
   cleanup,
   render,
   screen,
@@ -299,5 +300,71 @@ describe('LicensePage', () => {
     expect(
       screen.getAllByText('Requires a license with this feature')
     ).toHaveLength(5);
+  });
+  it('labels a pending deactivation without claiming activation', async () => {
+    let resolve!: (value: object) => void;
+    const pending = new Promise<object>((done) => {
+      resolve = done;
+    });
+    useClientMock.mockReturnValue({
+      POST: vi.fn(() => pending),
+      GET: vi.fn().mockResolvedValue({ data: makeConfig().license }),
+    } as never);
+    renderPage();
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Deactivate License' })
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Deactivate' }));
+    expect(screen.getByRole('button', { name: 'Activate' })).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: 'Deactivating...' })
+    ).toBeDisabled();
+    resolve({});
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Deactivate License' })
+      ).toBeEnabled()
+    );
+  });
+  it('waits for authoritative activation status and preserves warnings', async () => {
+    const community = makeConfig({
+      community: true,
+      valid: false,
+      plan: '',
+      features: [],
+    }).license;
+    const status = makeConfig({
+      plan: 'team',
+      warningCode: 'MACHINE_LIMIT_EXCEEDED',
+    }).license;
+    let resolve!: (value: { data: LicenseStatus }) => void;
+    const pending = new Promise<{ data: LicenseStatus }>((done) => {
+      resolve = done;
+    });
+    const get = vi
+      .fn()
+      .mockResolvedValueOnce({ data: community })
+      .mockReturnValue(pending);
+    useClientMock.mockReturnValue({
+      POST: vi
+        .fn()
+        .mockResolvedValue({
+          data: { plan: 'team', features: status.features },
+        }),
+      GET: get,
+    } as never);
+    renderPage(community);
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(1));
+    await userEvent.type(screen.getByLabelText('License key'), 'key');
+    await userEvent.click(screen.getByRole('button', { name: 'Activate' }));
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+    expect(screen.getByText('Community', { exact: true })).toBeVisible();
+    await act(async () => {
+      resolve({ data: status });
+      await pending;
+    });
+    expect(
+      await screen.findByText('Team · License needs attention')
+    ).toBeVisible();
   });
 });
