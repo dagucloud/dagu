@@ -49,7 +49,7 @@ export function LicenseActions({
           : 'Renew license';
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Button asChild size="sm">
+      <Button asChild size="sm" variant="outline">
         <a
           href={licenseLink(action, content)}
           target="_blank"
@@ -59,7 +59,7 @@ export function LicenseActions({
         </a>
       </Button>
       {action !== 'plans' && (
-        <Button asChild variant="outline" size="sm">
+        <Button asChild variant="link" size="sm">
           <a
             href={licenseLink('plans', content)}
             target="_blank"
@@ -70,7 +70,7 @@ export function LicenseActions({
         </Button>
       )}
       {activationLink && (
-        <Button asChild variant="ghost" size="sm">
+        <Button asChild variant="link" size="sm">
           <Link to="/license#activate">{ts('Activate a key')}</Link>
         </Button>
       )}

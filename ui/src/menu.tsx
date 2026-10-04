@@ -739,10 +739,11 @@ export const mainListItems = React.forwardRef<
         >
           {title}
         </span>
-      </div>
-
-      <div className="mb-3 px-1 min-w-0">
-        <LicenseBadge compact={!isOpen} onNavigate={onNavItemClick} />
+        {isOpen && (
+          <div className="ml-2 min-w-0">
+            <LicenseBadge onNavigate={onNavItemClick} />
+          </div>
+        )}
       </div>
       {/* Developer-tool Navigation - Compact Spacing */}
       <nav className="flex-1 min-h-0 overflow-y-auto pr-1 flex flex-col gap-4">

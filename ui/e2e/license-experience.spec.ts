@@ -66,7 +66,7 @@ test('shows activation, benefits, and deactivation on desktop and mobile', async
     .getByLabel('License key', { exact: true })
     .fill('DAGU-E2E-EXAMPLE');
   await page.getByRole('button', { name: 'Activate', exact: true }).click();
-  await expect(badge).toHaveText('Team · Active');
+  await expect(badge).toHaveText('Team');
   await expect(
     page.getByText('Team activated. Explore your included features below.')
   ).toBeVisible();
@@ -79,17 +79,26 @@ test('shows activation, benefits, and deactivation on desktop and mobile', async
     path: testInfo.outputPath('license-active-desktop.png'),
     fullPage: true,
   });
-  await sidebar.getByRole('button', { name: 'Collapse sidebar' }).click();
+  await sidebar.getByRole('button', { name: 'Dark Mode' }).click();
+  await expect(page.locator('html')).toHaveClass(/dark/);
+  await page.screenshot({
+    path: testInfo.outputPath('license-active-dark.png'),
+    fullPage: true,
+  });
+  await sidebar.getByRole('button', { name: 'Light Mode' }).click();
   await badge.focus();
   await expect(page.getByRole('tooltip')).toContainText('Team · Active');
   await page.keyboard.press('Escape');
+  await expect(page.getByRole('tooltip')).toBeHidden();
+  await sidebar.getByRole('button', { name: 'Collapse sidebar' }).click();
   await page.setViewportSize({ width: 390, height: 844 });
   const mobileBadge = page
     .locator('header')
     .getByRole('link', { name: 'Plan & features' });
-  await expect(mobileBadge).toHaveText('Team · Active');
+  await expect(mobileBadge).toHaveText('Team');
   await mobileBadge.click();
   await page.keyboard.press('Escape');
+  await expect(page.getByRole('tooltip')).toBeHidden();
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth

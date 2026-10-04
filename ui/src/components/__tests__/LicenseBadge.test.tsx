@@ -26,15 +26,12 @@ const paid: LicenseStatus = {
   source: 'file',
   warningCode: '',
 };
-function renderLicense(
-  overrides: Partial<LicenseStatus> = {},
-  compact = false
-) {
+function renderLicense(overrides: Partial<LicenseStatus> = {}) {
   const license = { ...paid, ...overrides };
   return render(
     <MemoryRouter>
       <ConfigContext.Provider value={{ license } as Config}>
-        <LicenseBadge compact={compact} />
+        <LicenseBadge />
         <LicenseFeaturePrompt feature="audit" />
         <LicenseBanner />
       </ConfigContext.Provider>
@@ -72,17 +69,17 @@ describe('license presentation', () => {
       'Team · License needs attention',
     ],
     [{ community: true, error: 'Invalid token' }, 'License Error'],
-  ])('shows an accurate badge for %j', (license, label) => {
+  ])('shows accurate license details for %j', async (license, label) => {
     renderLicense(license);
-    expect(
-      screen.getByRole('link', { name: 'Plan & features' })
-    ).toHaveTextContent(label);
+    await userEvent.tab();
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(label);
   });
 
   it('provides keyboard-accessible details and a direct management link', async () => {
-    renderLicense({ expiry: '2027-01-01T00:00:00Z' }, true);
+    renderLicense({ expiry: '2027-01-01T00:00:00Z' });
     const link = screen.getByRole('link', { name: 'Plan & features' });
     expect(link).toHaveAttribute('href', '/license');
+    expect(link).toHaveTextContent(/^Team$/);
     await userEvent.tab();
     const tooltip = await screen.findByRole('tooltip');
     expect(tooltip).toHaveTextContent('Team · Active');
@@ -136,14 +133,18 @@ describe('license presentation', () => {
     );
   });
 
-  it('keeps new trials calm and warns during the final three days', () => {
+  it('keeps new trials calm and warns during the final three days', async () => {
     const view = renderLicense({
       plan: 'trial',
       expiry: '2026-10-15T00:00:00Z',
     });
     expect(
       screen.getByRole('link', { name: 'Plan & features' })
-    ).toHaveTextContent('14 days left');
+    ).toHaveTextContent(/^Trial$/);
+    await userEvent.tab();
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      '14 days left'
+    );
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     view.unmount();
     renderLicense({ plan: 'trial', expiry: '2026-10-04T00:00:00Z' });

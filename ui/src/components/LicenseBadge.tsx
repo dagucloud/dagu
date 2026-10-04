@@ -7,6 +7,7 @@ import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useLicenseState } from '@/hooks/useLicense';
 import { useI18n } from '@/i18n/I18nProvider';
 import dayjs from '@/lib/dayjs';
+import { licensePlanName } from '@/lib/license';
 import { LicenseStatusBadge } from './LicenseStatusBadge';
 import { Tooltip, TooltipTrigger, TooltipContent } from './ui/tooltip';
 import {
@@ -15,17 +16,16 @@ import {
   DropdownMenuContent,
 } from './ui/dropdown-menu';
 
-export function LicenseBadge({
-  compact = false,
-  onNavigate,
-}: {
-  compact?: boolean;
-  onNavigate?: () => void;
-}) {
+export function LicenseBadge({ onNavigate }: { onNavigate?: () => void }) {
   const isAdmin = useIsAdmin();
   const remoteNode = useRemoteNode();
   const { license, loading, error } = useLicenseState();
   const { ts } = useI18n();
+  const label = loading
+    ? ts('Checking license…')
+    : error
+      ? ts('License status unavailable')
+      : ts(licensePlanName(license));
   const details = (
     <div className="space-y-2 max-w-64">
       <LicenseStatusBadge />
@@ -48,7 +48,7 @@ export function LicenseBadge({
     </div>
   );
   const className =
-    'min-w-0 max-w-full rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
+    'inline-block min-w-0 max-w-full truncate rounded-sm align-middle text-xs font-normal text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
   return isAdmin ? (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -58,7 +58,7 @@ export function LicenseBadge({
           aria-label={ts('Plan & features')}
           className={className}
         >
-          <LicenseStatusBadge compact={compact} />
+          {label}
         </Link>
       </TooltipTrigger>
       <TooltipContent>{details}</TooltipContent>
@@ -73,7 +73,7 @@ export function LicenseBadge({
               aria-label={ts('Plan & features')}
               className={className}
             >
-              <LicenseStatusBadge compact={compact} />
+              {label}
             </button>
           </DropdownMenuTrigger>
         </TooltipTrigger>

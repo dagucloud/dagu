@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { LicenseActions } from '@/components/LicenseActions';
+import { Link } from 'react-router-dom';
 import { hasActiveLicense } from '@/lib/license';
 import { components } from '@/api/v1/schema';
 import { Badge } from '@/components/ui/badge';
@@ -194,9 +194,11 @@ export default function APIKeysPage() {
                 }
               />
             </p>
-            <div className="mt-2">
-              <LicenseActions content="api-keys" />
-            </div>
+            {isAdmin && (
+              <Link to="/license" className="mt-2 inline-block underline">
+                <I18nText text="Plan & features" />
+              </Link>
+            )}
           </div>
         </div>
       )}

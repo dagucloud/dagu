@@ -190,16 +190,8 @@ export default function LicensePage() {
         )}
       </section>
       {successMessage && (
-        <div
-          role="status"
-          className="rounded-md border border-success/30 bg-success/10 p-3 text-sm"
-        >
+        <div role="status" className="text-sm text-muted-foreground">
           <p>{successMessage}</p>
-          {active && (
-            <a href="#features" className="underline">
-              {ts('Explore included features')}
-            </a>
-          )}
         </div>
       )}
       {error && (

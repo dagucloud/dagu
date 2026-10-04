@@ -11,13 +11,12 @@ import {
 } from '@/lib/license';
 import { Shield, ShieldCheck } from 'lucide-react';
 
-export function LicenseStatusBadge({ compact = false }: { compact?: boolean }) {
+export function LicenseStatusBadge() {
   const { license, loading, error, now } = useLicenseState();
   const { ts } = useI18n();
   const days = licenseDaysLeft(license.expiry, now);
   let status = ts('Active');
-  let variant: 'primary' | 'secondary' | 'success' | 'warning' | 'error' =
-    license.plan === 'trial' ? 'primary' : 'success';
+  let variant: 'secondary' | 'warning' | 'error' = 'secondary';
   if (loading) {
     status = ts('Checking license…');
     variant = 'secondary';
@@ -46,7 +45,7 @@ export function LicenseStatusBadge({ compact = false }: { compact?: boolean }) {
         : ts(days === 1 ? '{count} day left' : '{count} days left', {
             count: days,
           });
-    variant = days <= TRIAL_WARNING_DAYS ? 'warning' : 'primary';
+    variant = days <= TRIAL_WARNING_DAYS ? 'warning' : 'secondary';
   }
   const label =
     loading || error || license.error || license.community
@@ -56,7 +55,7 @@ export function LicenseStatusBadge({ compact = false }: { compact?: boolean }) {
   return (
     <Badge variant={variant} className="max-w-full" title={label}>
       <Icon aria-hidden="true" className="shrink-0" />
-      <span className={compact ? 'sr-only' : 'truncate'}>{label}</span>
+      <span className="truncate">{label}</span>
     </Badge>
   );
 }
