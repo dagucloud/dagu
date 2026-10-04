@@ -5,6 +5,7 @@ package spec_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -146,6 +147,35 @@ steps:
 	require.NoError(t, err)
 	require.NotNil(t, referenced.Artifacts)
 	assert.True(t, referenced.Artifacts.Enabled)
+}
+
+// A reference in one set literal defers set to the run; a set without one
+// is still checked at load.
+func TestXlsxUpdateRowsSetReference(t *testing.T) {
+	t.Parallel()
+
+	const yaml = `
+steps:
+  - id: reg
+    run: echo 1
+    output:
+      ticket: {from: stdout}
+  - id: mark
+    depends: [reg]
+    action: xlsx.update_rows
+    with:
+      path: orders.xlsx
+      key: _row
+      rows: '[{"_row": 2}]'
+      set:
+        Checked: {value: done}
+        Status: %s
+`
+	_, err := spec.LoadYAML(context.Background(), []byte(fmt.Sprintf(yaml, `{value: "${steps.reg.outputs.ticket}"}`)))
+	require.NoError(t, err)
+
+	_, err = spec.LoadYAML(context.Background(), []byte(fmt.Sprintf(yaml, `{value: done, extra: 1}`)))
+	require.ErrorContains(t, err, "set.Status: use a field name or {value: literal}")
 }
 
 func TestXlsxReadActionsRejectInvalidConfig(t *testing.T) {

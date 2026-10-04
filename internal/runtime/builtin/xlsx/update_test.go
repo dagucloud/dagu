@@ -60,6 +60,21 @@ func TestUpdateRowsShapeCheckFailsTheStep(t *testing.T) {
 	assert.Equal(t, 1, tw.exec.ExitCode())
 }
 
+// A set deferred at build time is still parsed once its references resolve.
+func TestUpdateRowsChecksDeferredSetAtRun(t *testing.T) {
+	t.Parallel()
+	cfg := map[string]any{"path": "a.xlsx", "key": "_row", "rows": `[{"_row": 2}]`,
+		"set": map[string]any{"Status": map[string]any{"value": "${steps.reg.outputs.ticket}", "extra": 1}}}
+	require.NoError(t, validateStep(ir.Step{
+		Commands:       []ir.CommandEntry{{Command: opUpdateRows}},
+		ExecutorConfig: ir.ExecutorConfig{Type: executorType, Config: cfg},
+	}))
+
+	cfg["set"] = map[string]any{"Status": map[string]any{"value": "1", "extra": 1}}
+	_, err := newTestWriter(t, t.TempDir(), opUpdateRows, cfg)
+	require.ErrorContains(t, err, "set.Status: use a field name or {value: literal}")
+}
+
 func TestUpdateRowsValidation(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {

@@ -467,7 +467,7 @@ func validateWriterConfig(operation string, cfg *config) error {
 		if strings.TrimSpace(cfg.Key) == workbook.RowNumberKey && cfg.Missing != "" && cfg.Missing != string(workbook.MissingFail) {
 			return fmt.Errorf("%w: missing: %s needs a key column; with key: _row nothing else identifies a row", errConfig, cfg.Missing)
 		}
-		if cfg.present["set"] {
+		if cfg.provided("set") {
 			set, err := workbook.ParseSet(cfg.Set)
 			if err != nil {
 				return fmt.Errorf("%w: %v", errConfig, err)
