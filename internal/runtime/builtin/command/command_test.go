@@ -1407,6 +1407,40 @@ func TestSetupScript(t *testing.T) {
 	}
 }
 
+// TestSetupScriptPowerShellBOM checks that a PowerShell script file starts
+// with a UTF-8 byte order mark, so Windows PowerShell decodes it as UTF-8
+// rather than the ANSI code page, while other script kinds stay unchanged.
+func TestSetupScriptPowerShellBOM(t *testing.T) {
+	tmpDir := t.TempDir()
+	const bom = "\xEF\xBB\xBF"
+	const script = "Write-Output 'first'\nWrite-Output '台帳に伝票を3件入力（未保存）'"
+
+	t.Run("powershell script carries BOM", func(t *testing.T) {
+		for _, shell := range []string{"powershell", "pwsh", "powershell.exe"} {
+			scriptFile, err := setupScript(tmpDir, script, "", []string{shell})
+			require.NoError(t, err)
+			defer func() { _ = os.Remove(scriptFile) }()
+
+			assert.True(t, strings.HasSuffix(scriptFile, ".ps1"), "shell %s: expected .ps1, got %s", shell, scriptFile)
+			content, err := os.ReadFile(scriptFile)
+			require.NoError(t, err)
+			assert.Equal(t, bom+powerShellPreamble()+"\n"+script, string(content), "shell %s", shell)
+		}
+	})
+
+	t.Run("other scripts carry no BOM", func(t *testing.T) {
+		for _, shell := range []string{"cmd", "/bin/sh", "/usr/bin/python"} {
+			scriptFile, err := setupScript(tmpDir, script, "", []string{shell})
+			require.NoError(t, err)
+			defer func() { _ = os.Remove(scriptFile) }()
+
+			content, err := os.ReadFile(scriptFile)
+			require.NoError(t, err)
+			assert.Equal(t, script, string(content), "shell %s", shell)
+		}
+	})
+}
+
 // TestValidateCommandStep tests step validation
 func TestValidateCommandStep(t *testing.T) {
 	tests := []struct {

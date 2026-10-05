@@ -97,6 +97,11 @@ func createScriptTempFallback(workDir, pattern string, systemTempErr error) (*os
 	return file, nil
 }
 
+// utf8BOM is the UTF-8 byte order mark. Windows PowerShell decodes a script file
+// without one using the ANSI code page, which corrupts non-ASCII script text
+// before the UTF-8 preamble below can run.
+const utf8BOM = "\xEF\xBB\xBF"
+
 func hasShebang(script string) bool {
 	return strings.HasPrefix(script, "#!")
 }
@@ -136,13 +141,16 @@ func scriptLineOffset(scriptFile string) int {
 }
 
 // preprocessScript returns the script content adjusted for the shell indicated by ext.
-// For ".ps1" it prepends PowerShell directives that make cmdlet errors stop
-// execution and normalize UTF-8 console/pipeline encoding; for other extensions
-// it returns the original script.
+// For ".ps1" it prefixes a UTF-8 byte order mark so Windows PowerShell reads the
+// file as UTF-8 regardless of the console code page, then prepends PowerShell
+// directives that make cmdlet errors stop execution and normalize UTF-8
+// console/pipeline encoding; for other extensions it returns the original script.
 func preprocessScript(script, ext string) string {
 	switch ext {
 	case ".ps1":
-		return powerShellPreamble() + "\n" + script
+		// The BOM precedes the preamble so scriptLineOffset still counts only
+		// the prepended statements. pwsh accepts the BOM as well.
+		return utf8BOM + powerShellPreamble() + "\n" + script
 	default:
 		return script
 	}

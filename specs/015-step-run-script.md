@@ -278,6 +278,11 @@ argument behavior, secrecy, and failure behavior.
 - PowerShell script execution normalizes PowerShell error handling and UTF-8
   text encoding before user script code starts.
 
+- PowerShell script input is written as UTF-8 with a byte order mark, so
+  Windows PowerShell decodes the script text as UTF-8 regardless of the console
+  code page and a multi-line script runs the same whatever characters its lines
+  hold.
+
 - Under PowerShell normalization, a PowerShell error written by `Write-Error`
   fails the step unless the script handles the error.
 
