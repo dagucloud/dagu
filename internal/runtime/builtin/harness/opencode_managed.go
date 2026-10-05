@@ -37,7 +37,7 @@ func (e *harnessExecutor) runManagedOpenCode(
 	cfg providerConfig,
 	host opencodehost.Config,
 ) (*os.File, error) {
-	client := &openCodeClient{host: host, directory: e.workDir, http: &http.Client{Timeout: 30 * time.Second}}
+	client := &openCodeClient{host: host, directory: e.workDir, http: newOpenCodeHTTPClient(30 * time.Second)}
 	e.mu.Lock()
 	e.managedHost = host
 	e.hasDeterminedStatus = false

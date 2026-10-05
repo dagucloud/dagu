@@ -25,6 +25,22 @@ type openCodeClient struct {
 	http      *http.Client
 }
 
+// openCodeTransport is shared by OpenCode clients and kept apart from
+// http.DefaultTransport: closing the default transport's idle connections,
+// as httptest.Server.Close does, can fail a request that is in flight on it.
+var openCodeTransport = newOpenCodeTransport()
+
+func newOpenCodeTransport() http.RoundTripper {
+	if base, ok := http.DefaultTransport.(*http.Transport); ok {
+		return base.Clone()
+	}
+	return http.DefaultTransport
+}
+
+func newOpenCodeHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{Transport: openCodeTransport, Timeout: timeout}
+}
+
 type openCodeSession struct {
 	ID        string `json:"id"`
 	Directory string `json:"directory"`
@@ -247,7 +263,7 @@ func (c *openCodeClient) abort(ctx context.Context, sessionID string) error {
 func abortManagedOpenCode(ctx context.Context, host opencodehost.Config, sessionID, directory string) error {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	client := &openCodeClient{host: host, directory: directory, http: &http.Client{Timeout: 3 * time.Second}}
+	client := &openCodeClient{host: host, directory: directory, http: newOpenCodeHTTPClient(3 * time.Second)}
 	return client.abort(ctx, sessionID)
 }
 

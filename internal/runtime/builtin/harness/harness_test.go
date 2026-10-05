@@ -376,6 +376,32 @@ func TestHarnessStopContinuesAfterManagedAbort(t *testing.T) {
 	assert.True(t, fallbackStopped)
 }
 
+// Closing the idle connections of http.DefaultTransport, as
+// httptest.Server.Close does, can fail a request that is in flight on it. The
+// OpenCode connection must survive such a reset. Not parallel: it resets the
+// shared default transport.
+func TestOpenCodeConnSurvivesTransportReset(t *testing.T) {
+	var mu sync.Mutex
+	var remoteAddrs []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		remoteAddrs = append(remoteAddrs, r.RemoteAddr)
+		mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(server.Close)
+	host := opencodehost.Config{URL: server.URL, Password: "secret", InstanceID: "host-1"}
+
+	require.NoError(t, abortManagedOpenCode(t.Context(), host, "session-1", ""))
+	http.DefaultTransport.(*http.Transport).CloseIdleConnections()
+	require.NoError(t, abortManagedOpenCode(t.Context(), host, "session-1", ""))
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, remoteAddrs, 2)
+	assert.Equal(t, remoteAddrs[0], remoteAddrs[1])
+}
+
 func TestManagedOpenCodeCleanRestartCreatesNewSession(t *testing.T) {
 	t.Parallel()
 
