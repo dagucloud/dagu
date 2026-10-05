@@ -904,6 +904,13 @@ func TestReadLogLinesEncoding(t *testing.T) {
 			want:    []string{"日本語"},
 		},
 		{
+			// "~" before a newline continues the line in HZ-GB2312.
+			name:    "HZGB2312Continuation",
+			content: []byte("foo~\nbar\n"),
+			options: LogReadOptions{Encoding: "hz-gb-2312"},
+			want:    []string{"foobar"},
+		},
+		{
 			name:    "UTF16LE",
 			content: encode(unicode.UTF16(unicode.LittleEndian, unicode.IgnoreBOM), "A\n日本\n"),
 			options: LogReadOptions{Encoding: "utf-16le"},

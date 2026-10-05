@@ -185,8 +185,7 @@ func normalizeCharset(charset string) string {
 
 // lineDecoder turns the raw lines of a log file into UTF-8 text.
 type lineDecoder struct {
-	// stream decodes the whole file before it is split into lines. UTF-16
-	// needs it because its newline spans two bytes.
+	// stream decodes the whole file before it is split into lines.
 	stream *encoding.Decoder
 	// fallback decodes a line that is not already UTF-8.
 	fallback *encoding.Decoder
@@ -196,7 +195,13 @@ type lineDecoder struct {
 // unknown charset keeps every line as is.
 func newLineDecoder(charset string) lineDecoder {
 	decoder := getEncodingDecoder(charset)
-	if name := normalizeCharset(charset); strings.HasPrefix(name, "utf-16") || strings.HasPrefix(name, "utf16") {
+	switch normalizeCharset(charset) {
+	// A line cannot be judged on its own in these charsets: the UTF-16
+	// newline spans two bytes, and ISO-2022-JP and HZ-GB2312 are 7-bit,
+	// so always valid UTF-8, with shift state that carries across lines.
+	case "utf-16", "utf16", "utf-16le", "utf16le", "utf-16be", "utf16be",
+		"iso-2022-jp", "iso2022jp", "csiso2022jp",
+		"hz-gb-2312", "hz":
 		return lineDecoder{stream: decoder}
 	}
 	return lineDecoder{fallback: decoder}
@@ -210,12 +215,10 @@ func (d lineDecoder) reader(r io.Reader) io.Reader {
 	return transform.NewReader(r, d.stream)
 }
 
-// text returns a scanned line as UTF-8 text. A line holding valid multi-byte
+// text returns a scanned line as UTF-8 text. A line that is already valid
 // UTF-8 is kept as is, so UTF-8 output survives a code page charset.
 func (d lineDecoder) text(line []byte) string {
-	// A 7-bit line is still decoded: ISO-2022-JP text is 7-bit, and other
-	// charsets leave ASCII unchanged.
-	if d.fallback == nil || (utf8.Valid(line) && utf8.RuneCount(line) < len(line)) {
+	if d.fallback == nil || utf8.Valid(line) {
 		return string(line)
 	}
 	decoded, err := d.fallback.Bytes(line)
