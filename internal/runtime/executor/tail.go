@@ -103,6 +103,8 @@ func (t *TailWriter) trimPartialRune() []byte {
 	return t.buf
 }
 
+// decode converts the buffer from the writer's encoding or, when none is set,
+// from the console code page of child processes.
 func (t *TailWriter) decode() string {
 	if t.encoding != "" {
 		return fileutil.DecodeString(t.encoding, t.buf)
