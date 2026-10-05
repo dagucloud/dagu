@@ -6,8 +6,13 @@ package fileutil
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"golang.org/x/text/encoding"
+	"golang.org/x/text/encoding/japanese"
+	"golang.org/x/text/encoding/unicode"
 )
 
 func TestReadLogLines(t *testing.T) {
@@ -431,7 +436,7 @@ func TestReadFirstLines(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := readFirstLines(tt.filePath, tt.n, tt.totalLines, nil)
+			result, err := readFirstLines(tt.filePath, tt.n, tt.totalLines, lineDecoder{})
 
 			// Check error expectation
 			if (err != nil) != tt.expectError {
@@ -542,7 +547,7 @@ func TestReadLastLines(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := readLastLines(tt.filePath, tt.n, tt.totalLines, nil)
+			result, err := readLastLines(tt.filePath, tt.n, tt.totalLines, lineDecoder{})
 
 			// Check error expectation
 			if (err != nil) != tt.expectError {
@@ -680,7 +685,7 @@ func TestReadLinesRange(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := readLinesRange(tt.filePath, tt.offset, tt.limit, tt.totalLines, nil)
+			result, err := readLinesRange(tt.filePath, tt.offset, tt.limit, tt.totalLines, lineDecoder{})
 
 			// Check error expectation
 			if (err != nil) != tt.expectError {
@@ -837,6 +842,91 @@ func generateVaryingLineLengths(lineCount int) string {
 		builder.WriteString(line)
 	}
 	return builder.String()
+}
+
+// A non-UTF-8 charset decodes only the lines that are not already UTF-8, so a
+// log that mixes UTF-8 and code page output stays readable.
+func TestReadLogLinesEncoding(t *testing.T) {
+	encode := func(enc encoding.Encoding, s string) []byte {
+		b, err := enc.NewEncoder().Bytes([]byte(s))
+		if err != nil {
+			t.Fatalf("Failed to encode %q: %v", s, err)
+		}
+		return b
+	}
+	mixed := slices.Concat(
+		[]byte("開始\r\n"),
+		encode(japanese.ShiftJIS, "こんにちは\r\n"),
+		[]byte("done\r\n終了\r\n"),
+	)
+
+	tests := []struct {
+		name    string
+		content []byte
+		options LogReadOptions
+		want    []string
+	}{
+		{
+			name:    "UTF8UnderShiftJIS",
+			content: []byte("日本語の出力テスト\r\n"),
+			options: LogReadOptions{Encoding: "shift_jis"},
+			want:    []string{"日本語の出力テスト"},
+		},
+		{
+			name:    "ShiftJIS",
+			content: encode(japanese.ShiftJIS, "こんにちは\n"),
+			options: LogReadOptions{Encoding: "shift_jis"},
+			want:    []string{"こんにちは"},
+		},
+		{
+			name:    "MixedHead",
+			content: mixed,
+			options: LogReadOptions{Encoding: "shift_jis", Head: 2},
+			want:    []string{"開始", "こんにちは"},
+		},
+		{
+			name:    "MixedTail",
+			content: mixed,
+			options: LogReadOptions{Encoding: "shift_jis", Tail: 3},
+			want:    []string{"こんにちは", "done", "終了"},
+		},
+		{
+			name:    "MixedRange",
+			content: mixed,
+			options: LogReadOptions{Encoding: "shift_jis", Offset: 2, Limit: 3},
+			want:    []string{"こんにちは", "done", "終了"},
+		},
+		{
+			// ISO-2022-JP text is 7-bit, which is also valid UTF-8.
+			name:    "ISO2022JP",
+			content: encode(japanese.ISO2022JP, "日本語\n"),
+			options: LogReadOptions{Encoding: "iso-2022-jp"},
+			want:    []string{"日本語"},
+		},
+		{
+			name:    "UTF16LE",
+			content: encode(unicode.UTF16(unicode.LittleEndian, unicode.IgnoreBOM), "A\n日本\n"),
+			options: LogReadOptions{Encoding: "utf-16le"},
+			want:    []string{"A", "日本"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "step.out")
+			if err := os.WriteFile(path, tt.content, 0600); err != nil {
+				t.Fatalf("Failed to create test log file: %v", err)
+			}
+
+			result, err := ReadLogLines(path, tt.options)
+			if err != nil {
+				t.Fatalf("ReadLogLines() error = %v", err)
+			}
+			if !slices.Equal(result.Lines, tt.want) {
+				t.Errorf("ReadLogLines() lines = %q, want %q", result.Lines, tt.want)
+			}
+		})
+	}
 }
 
 func TestDecodeString(t *testing.T) {

@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"unicode/utf8"
 
 	"golang.org/x/text/encoding"
 	"golang.org/x/text/encoding/charmap"
@@ -28,7 +29,7 @@ type LogReadOptions struct {
 	Tail     int    // Number of lines from the end
 	Offset   int    // Line number to start from (1-based)
 	Limit    int    // Maximum number of lines to return
-	Encoding string // Character encoding for the log file (e.g., "utf-8", "shift_jis", "euc-jp")
+	Encoding string // Charset for lines that are not valid UTF-8 (e.g., "shift_jis", "euc-jp")
 }
 
 // LogResult represents the result of reading a log file
@@ -49,11 +50,7 @@ func getEncodingDecoder(charset string) *encoding.Decoder {
 		return nil
 	}
 
-	// Normalize the charset name for comparison
-	normalized := strings.ToLower(strings.ReplaceAll(charset, "_", "-"))
-	normalized = strings.ReplaceAll(normalized, " ", "-")
-
-	switch normalized {
+	switch normalizeCharset(charset) {
 	// UTF-8 (no decoder needed)
 	case "utf-8", "utf8":
 		return nil
@@ -180,6 +177,54 @@ func getEncodingDecoder(charset string) *encoding.Decoder {
 	}
 }
 
+// normalizeCharset lowercases a charset name and spells its separators as hyphens.
+func normalizeCharset(charset string) string {
+	normalized := strings.ToLower(strings.ReplaceAll(charset, "_", "-"))
+	return strings.ReplaceAll(normalized, " ", "-")
+}
+
+// lineDecoder turns the raw lines of a log file into UTF-8 text.
+type lineDecoder struct {
+	// stream decodes the whole file before it is split into lines. UTF-16
+	// needs it because its newline spans two bytes.
+	stream *encoding.Decoder
+	// fallback decodes a line that is not already UTF-8.
+	fallback *encoding.Decoder
+}
+
+// newLineDecoder returns the lineDecoder for charset. An empty, UTF-8, or
+// unknown charset keeps every line as is.
+func newLineDecoder(charset string) lineDecoder {
+	decoder := getEncodingDecoder(charset)
+	if name := normalizeCharset(charset); strings.HasPrefix(name, "utf-16") || strings.HasPrefix(name, "utf16") {
+		return lineDecoder{stream: decoder}
+	}
+	return lineDecoder{fallback: decoder}
+}
+
+// reader returns r, decoded first when its lines cannot be split on raw bytes.
+func (d lineDecoder) reader(r io.Reader) io.Reader {
+	if d.stream == nil {
+		return r
+	}
+	return transform.NewReader(r, d.stream)
+}
+
+// text returns a scanned line as UTF-8 text. A line holding valid multi-byte
+// UTF-8 is kept as is, so UTF-8 output survives a code page charset.
+func (d lineDecoder) text(line []byte) string {
+	// A 7-bit line is still decoded: ISO-2022-JP text is 7-bit, and other
+	// charsets leave ASCII unchanged.
+	if d.fallback == nil || (utf8.Valid(line) && utf8.RuneCount(line) < len(line)) {
+		return string(line)
+	}
+	decoded, err := d.fallback.Bytes(line)
+	if err != nil {
+		return string(line)
+	}
+	return string(decoded)
+}
+
 // ReadLogLines reads a specific portion of a log file without loading the entire file into memory
 func ReadLogLines(filePath string, options LogReadOptions) (*LogResult, error) {
 	// Check if file exists
@@ -204,8 +249,7 @@ func ReadLogLines(filePath string, options LogReadOptions) (*LogResult, error) {
 		}, nil
 	}
 
-	// Get the encoding decoder (nil for UTF-8 or empty)
-	decoder := getEncodingDecoder(options.Encoding)
+	decoder := newLineDecoder(options.Encoding)
 
 	// Estimate or count total lines in the file
 	totalLines, isEstimate, err := estimateLineCount(filePath)
@@ -364,7 +408,7 @@ func countLinesExact(filePath string) (int, error) {
 }
 
 // readFirstLines reads the first n lines from a file
-func readFirstLines(filePath string, n int, totalLines int, decoder *encoding.Decoder) (*LogResult, error) {
+func readFirstLines(filePath string, n int, totalLines int, decoder lineDecoder) (*LogResult, error) {
 	file, err := os.Open(filePath) //nolint:gosec
 	if err != nil {
 		return nil, err
@@ -373,18 +417,12 @@ func readFirstLines(filePath string, n int, totalLines int, decoder *encoding.De
 		_ = file.Close()
 	}()
 
-	// Create a reader, optionally wrapping with decoder for non-UTF-8 encodings
-	var reader io.Reader = file
-	if decoder != nil {
-		reader = transform.NewReader(file, decoder)
-	}
-
-	scanner := bufio.NewScanner(reader)
+	scanner := bufio.NewScanner(decoder.reader(file))
 	lines := make([]string, 0, n)
 	lineCount := 0
 
 	for scanner.Scan() && lineCount < n {
-		lines = append(lines, scanner.Text())
+		lines = append(lines, decoder.text(scanner.Bytes()))
 		lineCount++
 	}
 
@@ -407,7 +445,7 @@ func readFirstLines(filePath string, n int, totalLines int, decoder *encoding.De
 }
 
 // readLastLines reads the last n lines from a file
-func readLastLines(filePath string, n int, totalLines int, decoder *encoding.Decoder) (*LogResult, error) {
+func readLastLines(filePath string, n int, totalLines int, decoder lineDecoder) (*LogResult, error) {
 	// If n is 0, return empty result
 	if n <= 0 {
 		return &LogResult{
@@ -432,20 +470,14 @@ func readLastLines(filePath string, n int, totalLines int, decoder *encoding.Dec
 		return readFirstLines(filePath, totalLines, totalLines, decoder)
 	}
 
-	// Create a reader, optionally wrapping with decoder for non-UTF-8 encodings
-	var reader io.Reader = file
-	if decoder != nil {
-		reader = transform.NewReader(file, decoder)
-	}
-
 	// Use a ring buffer to keep the last n lines
 	ring := make([]string, n)
-	scanner := bufio.NewScanner(reader)
+	scanner := bufio.NewScanner(decoder.reader(file))
 	lineCount := 0
 	ringIndex := 0
 
 	for scanner.Scan() {
-		ring[ringIndex] = scanner.Text()
+		ring[ringIndex] = decoder.text(scanner.Bytes())
 		ringIndex = (ringIndex + 1) % n
 		lineCount++
 	}
@@ -480,7 +512,7 @@ func readLastLines(filePath string, n int, totalLines int, decoder *encoding.Dec
 }
 
 // readLinesRange reads a range of lines from a file
-func readLinesRange(filePath string, offset, limit int, totalLines int, decoder *encoding.Decoder) (*LogResult, error) {
+func readLinesRange(filePath string, offset, limit int, totalLines int, decoder lineDecoder) (*LogResult, error) {
 	file, err := os.Open(filePath) //nolint:gosec
 	if err != nil {
 		return nil, err
@@ -503,13 +535,7 @@ func readLinesRange(filePath string, offset, limit int, totalLines int, decoder 
 		}, nil
 	}
 
-	// Create a reader, optionally wrapping with decoder for non-UTF-8 encodings
-	var reader io.Reader = file
-	if decoder != nil {
-		reader = transform.NewReader(file, decoder)
-	}
-
-	scanner := bufio.NewScanner(reader)
+	scanner := bufio.NewScanner(decoder.reader(file))
 	lineNum := 1
 	lines := make([]string, 0, limit)
 
@@ -520,7 +546,7 @@ func readLinesRange(filePath string, offset, limit int, totalLines int, decoder 
 
 	// Read lines from offset to offset+limit
 	for lineNum <= totalLines && len(lines) < limit && scanner.Scan() {
-		lines = append(lines, scanner.Text())
+		lines = append(lines, decoder.text(scanner.Bytes()))
 		lineNum++
 	}
 
