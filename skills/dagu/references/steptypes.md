@@ -860,16 +860,19 @@ also reads Japanese forms: `￥123,000`, `12万3,500円`, `▲1,000`, `(1,000)`,
 `令和8年10月3日（金） 午後2時30分`, and under `boolean` `はい`/`いいえ`, `有`/`無`,
 `済`/`未`, `○`/`×`), `on_type_error`
 (`fail` or `warn`), `where` (`{Status: ""}`, `{Status: {ne: Done}}`,
-`{Status: {in: [A, B]}}`), `max_rows` (default 5000). It publishes `rows` (objects
-keyed by header, each with `_row`), `count`, `headers`, `sheet`, `range`,
+`{Status: {in: [A, B]}}`), `max_rows` (default 5000), `skip_hidden` (`true`
+leaves out rows hidden by a filter or by hand; they are read by default). It
+publishes `rows` (objects keyed by header, each with `_row`), `count`, `headers`, `sheet`, `range`,
 `warnings`, and `truncated`; do not declare outputs on the step. Numbers stay
 numbers, dates become ISO 8601 text, text keeps leading zeros, and errors name
 the cell: `orders.xlsx Orders!D17: expected number, found "N/A"`.
 
-`xlsx.info` publishes `path`, `sheets` (each with `name`, `used_range`, `range`,
-`header_row`, `headers`, `types`, `row_count`, `columns`, `profile_truncated`,
-`tables`), `named_ranges`, `date_system`, and `warnings`; `xlsx.list_sheets`
-publishes `sheets` and `count`. `types` and `columns` cover every data row of
+`xlsx.info` publishes `path`, `sheets` (each with `name`, `hidden`, `used_range`,
+`range`, `header_row`, `headers`, `types`, `row_count`, `hidden_rows`, `columns`,
+`profile_truncated`, `tables`), `named_ranges`, `date_system`, and `warnings`;
+`xlsx.list_sheets` publishes `sheets` and `count`. `hidden` marks a hidden or
+very hidden sheet, and `hidden_rows` counts the data rows a filter or a person
+hid; pass `skip_hidden: true` to read only the rows shown. `types` and `columns` cover every data row of
 the detected table, up to 5000 (`profile_truncated` when there are more). Each
 column has `name`, `type`, `filled`, `blank`, `distinct` (counted up to 1000),
 `values` (the distinct values when 12 or fewer repeat), `min` and `max` (number
@@ -927,8 +930,8 @@ the run's artifacts; a copy that fails after the save is a warning, not a
 failed step.
 
 `xlsx.validate` checks a sheet before a workflow acts on it. `with` fields:
-`path`, `password`, `sheet`, `range`, `header`, `columns`, `merged`, `trim`,
-`formulas`, `max_problems` (default 1000: `count` reports every problem found
+`path`, `password`, `sheet`, `range`, `header`, `columns`, `merged`,
+`skip_hidden`, `trim`, `formulas`, `max_problems` (default 1000: `count` reports every problem found
 while `problems` keeps that many), and the rules `required` (columns the
 header row must have), `not_blank` (columns no non-empty row may leave empty;
 rows whose cells are all empty are skipped), `unique` (columns whose values may not repeat), `types`
@@ -976,7 +979,7 @@ does not carry tables, images, or charts.
 
 `xlsx.convert` exports a sheet: `path`, `output` (the file; `.csv`, `.json`,
 `.jsonl`, or `format`), the read options `sheet`, `range`, `header`,
-`columns`, `types`, `trim`, and for csv `encoding` (`utf-8`, `utf-8-bom`,
+`columns`, `types`, `trim`, `skip_hidden`, and for csv `encoding` (`utf-8`, `utf-8-bom`,
 `shift_jis`; `cp932` is accepted) and `delimiter`. Every row is written, with
 no cap; `_row` is not. It publishes `path`, `format`, `count`, `sheet`,
 `range`, `warnings`, and with `artifact: true` the file's copy. The reverse

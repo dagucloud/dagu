@@ -9,7 +9,8 @@ can observe: the stdout line and the `warning:` and `problem:` streams,
 path forms, every `range` and `header` form with the header warnings,
 table detection, typing, formulas and error cells, empty rows, `where`,
 `max_rows` with its default and the output budget, the column profile of
-`xlsx.info` with its caps and the warning cap, `rows` and every
+`xlsx.info` with its caps and the warning cap, hidden sheets and rows with
+`skip_hidden` on read, validate, and convert, `rows` and every
 `input` file kind with its encodings and the byte order mark, write modes
 and `types` on write, sheet preservation, append, update_rows with its
 matching rules, modes, shape checks, the foreach aggregate, and every
@@ -249,12 +250,21 @@ out from the end and `truncated` is true with the warning `output
 truncated to N of M rows; narrow the range or columns, or filter with
 where`.
 
+Rows hidden by a filter or by hand are read like any other row.
+`skip_hidden: true` leaves them out: they are not returned, not counted
+toward `max_rows`, and do not stop a `stop_at_blank` read. A row past the
+last row holding a cell counts as shown.
+
 ### Describing a workbook
 
-`xlsx.info` publishes one entry per sheet in `sheets`: `name`,
-`used_range`, `range` (the detected table), `header_row` (0 for an empty
-sheet), `headers`, `types`, `row_count`, `columns`, `profile_truncated`,
-and `tables` (`{name, range}`). `types` and `columns` cover the data rows
+`xlsx.info` publishes one entry per sheet in `sheets`: `name`, `hidden`
+(true for a sheet hidden from the workbook's tabs, very hidden included;
+absent otherwise), `used_range`, `range` (the detected table),
+`header_row` (0 for an empty sheet), `headers`, `types`, `row_count`,
+`hidden_rows`, `columns`, `profile_truncated`, and `tables` (`{name,
+range}`). `hidden_rows` counts the data rows holding a value that are
+hidden by a filter or by hand, among the rows the profile reads; it is
+absent when there are none. `types` and `columns` cover the data rows
 of the detected table that hold a value, up to 5000; when the table holds
 more, `profile_truncated` is true, and is absent otherwise. A column's type
 is the kind most of its cells hold, a column mixing integers and decimals
@@ -462,13 +472,16 @@ prints what `xlsx.info` publishes plus up to N typed sample rows per sheet;
 `--sheet` describes one sheet, matched as `sheet` matches, and a name that
 is not in the workbook fails with `sheet "Nope" not found; sheets present:
 ...`. `dagu xlsx read <path>
-[--sheet] [--range] [--header] [--columns] [--max-rows] [--format]` prints
-what `xlsx.read` publishes, the flags taking the values the fields take.
+[--sheet] [--range] [--header] [--columns] [--max-rows] [--skip-hidden]
+[--format]` prints what `xlsx.read` publishes, the flags taking the values
+the fields take.
 Both read the file directly, create no run, and exit non-zero with the
 error on stderr. The `text` format of `inspect` prints a heading,
 `orders.xlsx: 2 sheets, 1900 date system`, then one line per sheet,
 `Sheet "Orders": used A1:C3, table Orders!A1:C3, header row 1, 2 rows`,
-ending in `, first 5000 profiled` when the profile is truncated, followed
+with `(hidden)` after the name of a hidden sheet, `, 3 hidden` after the
+row count when rows are hidden, and `, first 5000 profiled` at the end
+when the profile is truncated, followed
 by the columns with their profiles and the sample rows. Each column reads
 `Name (type: values; min..max; N blank; N odd: CELL "text", ...)`, each
 part present only when the profile has it, as in `Columns: Invoice No
@@ -494,7 +507,7 @@ Spec 021 defines the target's fields and errors.
 ### Validating
 
 `xlsx.validate` reads a sheet the way `xlsx.read` does (`sheet`, `range`,
-`header`, `columns`, `merged`, `trim`, `formulas`) and checks every
+`header`, `columns`, `merged`, `skip_hidden`, `trim`, `formulas`) and checks every
 non-empty row against rules: `required` lists columns the header row must
 have, `not_blank` columns no row may leave empty, `unique` columns whose
 values may not repeat, `types` columns whose cells must convert, and
@@ -734,7 +747,8 @@ images, charts, or page setup.
 `xlsx.convert` writes the rows of a sheet to the file named by `output`,
 as `csv`, `json`, or `jsonl` by the file's extension (`.ndjson` counts as
 jsonl) or by `format`. It reads the way `xlsx.read` does (`sheet`,
-`range`, `header`, `columns`, `types`, `trim`, `merged`, `formulas`) but
+`range`, `header`, `columns`, `types`, `trim`, `merged`, `formulas`,
+`skip_hidden`) but
 with every row and no output budget, since the rows go to a file, and a
 cell that fails a pinned type fails the step. Columns follow the header
 order, or `columns`, and the `_row` field is not written: the file is a
