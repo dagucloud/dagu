@@ -69,6 +69,15 @@ func TestXlsxRoundTrip(t *testing.T) {
 	require.Equal(t, "Orders!A1:E3", meta.Range)
 	require.False(t, meta.Truncated)
 
+	type column struct {
+		Name     string `json:"name"`
+		Type     string `json:"type"`
+		Filled   int    `json:"filled"`
+		Blank    int    `json:"blank"`
+		Distinct int    `json:"distinct"`
+		Min      any    `json:"min"`
+		Max      any    `json:"max"`
+	}
 	var info []struct {
 		Name      string            `json:"name"`
 		Range     string            `json:"range"`
@@ -76,6 +85,7 @@ func TestXlsxRoundTrip(t *testing.T) {
 		Headers   []string          `json:"headers"`
 		Types     map[string]string `json:"types"`
 		RowCount  int               `json:"row_count"`
+		Columns   []column          `json:"columns"`
 	}
 	readJSON(t, dagu, "info.json", &info)
 	require.Len(t, info, 1)
@@ -87,6 +97,13 @@ func TestXlsxRoundTrip(t *testing.T) {
 	require.Equal(t, "datetime", info[0].Types["Due"])
 	require.Equal(t, "boolean", info[0].Types["Paid"])
 	require.Equal(t, 2, info[0].RowCount)
+	require.Equal(t, []column{
+		{Name: "Invoice No", Type: "string", Filled: 2, Distinct: 2},
+		{Name: "Amount", Type: "number", Filled: 2, Distinct: 2, Min: float64(10), Max: 20.5},
+		{Name: "Due", Type: "datetime", Filled: 2, Distinct: 2, Min: "2026-10-01T00:00:00", Max: "2026-10-02T14:30:00"},
+		{Name: "Paid", Type: "boolean", Filled: 2, Distinct: 2},
+		{Name: "Note", Type: "string", Filled: 1, Blank: 1, Distinct: 1},
+	}, info[0].Columns)
 
 	var sheets []string
 	readJSON(t, dagu, "sheets.json", &sheets)
