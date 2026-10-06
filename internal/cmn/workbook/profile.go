@@ -144,6 +144,22 @@ func fitsType(kind string, t ColumnType) bool {
 	}
 }
 
+// profileRows returns the leading rows holding at most limit rows with a
+// value, and whether a row with a value follows them.
+func profileRows(rows []Row, headers []string, limit int) ([]Row, bool) {
+	counted := 0
+	for i, row := range rows {
+		if rowIsNull(row, headers) {
+			continue
+		}
+		if counted == limit {
+			return rows[:i], true
+		}
+		counted++
+	}
+	return rows, false
+}
+
 // rowIsNull reports whether every cell of a typed row is empty, the rows a
 // read keeps only between rows that hold a value.
 func rowIsNull(row Row, headers []string) bool {

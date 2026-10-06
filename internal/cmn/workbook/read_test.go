@@ -630,6 +630,14 @@ func TestInspectProfileCap(t *testing.T) {
 	assert.Equal(t, 5, qty.Odd)
 	assert.Equal(t, []OddCell{{Cell: "B1000", Text: "n/a"}, {Cell: "B2000", Text: "n/a"}, {Cell: "B3000", Text: "n/a"}}, qty.OddCells)
 	assert.Equal(t, []string{strings.Repeat("あ", 39) + "…"}, note.Values)
+
+	// A sample larger than the cap is read whole; the profile is not.
+	info, err = Inspect(context.Background(), path, InspectOptions{SampleRows: DefaultMaxRows + 1})
+	require.NoError(t, err)
+	sheet = info.Sheets[0]
+	assert.Len(t, sheet.Sample, DefaultMaxRows+1)
+	assert.True(t, sheet.ProfileTruncated)
+	assert.Equal(t, DefaultMaxRows, sheet.Columns[0].Filled)
 }
 
 func TestOpenErrors(t *testing.T) {

@@ -34,8 +34,7 @@ type Info struct {
 }
 
 // SheetInfo describes one worksheet. Types and Columns cover the data rows
-// of the detected table, up to DefaultMaxRows of them or SampleRows when
-// that is more.
+// of the detected table, up to DefaultMaxRows of them.
 type SheetInfo struct {
 	Name      string            `json:"name"`
 	UsedRange string            `json:"used_range"`
@@ -193,9 +192,12 @@ func (w *file) inspectSheet(ctx context.Context, sheet string, sampleRows int, w
 		warn(sheet + ": " + msg)
 	}
 	si.Headers = result.Headers
-	si.Types = detectTypes(result.Headers, result.Rows)
-	si.Columns = w.profileColumns(reg, result.Headers, si.Types, result.Rows)
-	si.ProfileTruncated = result.Truncated
+	// A sample larger than the profile is read whole, but the profile
+	// still stops at DefaultMaxRows.
+	profiled, more := profileRows(result.Rows, result.Headers, DefaultMaxRows)
+	si.Types = detectTypes(result.Headers, profiled)
+	si.Columns = w.profileColumns(reg, result.Headers, si.Types, profiled)
+	si.ProfileTruncated = result.Truncated || more
 	if sampleRows > 0 {
 		si.Sample = result.Rows[:min(sampleRows, len(result.Rows))]
 	}
