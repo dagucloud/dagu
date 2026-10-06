@@ -1362,14 +1362,16 @@ func TestPushBackRemoteResumeStaysQueued(t *testing.T) {
 	startResp.Unmarshal(t, &startBody)
 
 	waiting := waitForStoredDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *ir.DAGRunStatus) bool {
-		return status.Status == ir.Waiting && status.FinishedAt != "" && hasNodeWithStatus(status, "review", ir.NodeWaiting)
+		return status.Status == ir.Waiting && status.FinishedAt != "" && hasNodeWithStatus(status, "review", ir.NodeWaiting) &&
+			hasRunProcessIdentity(status)
 	})
 	// The run actually waited in a local process, which compacts its status
 	// file on exit and would replace the writes below with its last status.
-	// A remote worker leaves no such process, so let it exit first.
+	// A remote worker leaves no such process, so wait until the process
+	// itself is gone; a stale heartbeat alone does not prove that.
 	require.Eventually(t, func() bool {
-		alive, err := server.ProcRepository.IsAttemptAlive(server.Context, dagName, waiting.DAGRun(), waiting.AttemptID)
-		return err == nil && !alive
+		matched, _, ok := procutil.MatchesStartTime(int(waiting.PID), waiting.PIDStartedAt)
+		return !ok || !matched
 	}, dagRunEventuallyTimeout(10*time.Second), 100*time.Millisecond)
 
 	// The wait was reported by a remote worker that stays alive but idle.
