@@ -1364,6 +1364,13 @@ func TestPushBackRemoteResumeStaysQueued(t *testing.T) {
 	waiting := waitForStoredDAGRunStatus(t, server, dagName, startBody.DagRunId, 10*time.Second, func(status *ir.DAGRunStatus) bool {
 		return status.Status == ir.Waiting && status.FinishedAt != "" && hasNodeWithStatus(status, "review", ir.NodeWaiting)
 	})
+	// The run actually waited in a local process, which compacts its status
+	// file on exit and would replace the writes below with its last status.
+	// A remote worker leaves no such process, so let it exit first.
+	require.Eventually(t, func() bool {
+		alive, err := server.ProcRepository.IsAttemptAlive(server.Context, dagName, waiting.DAGRun(), waiting.AttemptID)
+		return err == nil && !alive
+	}, dagRunEventuallyTimeout(10*time.Second), 100*time.Millisecond)
 
 	// The wait was reported by a remote worker that stays alive but idle.
 	const workerID = "worker-1"
