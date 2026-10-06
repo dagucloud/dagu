@@ -215,8 +215,9 @@ func (w *file) locate(sheetName, rangeRef string, header HeaderSpec) (location, 
 }
 
 // rowHidden reports whether a sheet row is hidden, by a filter or by hand.
-// Rows past the last one holding a cell count as shown: they are blank, and
-// the library reports every row past the stored ones as hidden.
+// Rows past the last one holding a cell, row len(grid)-1 since the grid is
+// indexed from row 1, count as shown: they are blank, and the library
+// reports every row past the stored ones as hidden.
 func (w *file) rowHidden(sheet string, grid [][]string, row int) bool {
 	if row >= len(grid) {
 		return false

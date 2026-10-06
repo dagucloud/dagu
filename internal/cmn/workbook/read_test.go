@@ -710,6 +710,24 @@ func TestSkipHidden(t *testing.T) {
 	assert.Equal(t, "ID,状態\nA-1,済\nA-3,済\nA-6,済\n", string(csv))
 }
 
+func TestSkipHiddenLastRow(t *testing.T) {
+	t.Parallel()
+	f := excelize.NewFile()
+	setRow(t, f, "Sheet1", "A1", "ID", "Note")
+	setRow(t, f, "Sheet1", "A2", "A-1", "shown")
+	setRow(t, f, "Sheet1", "A3", "A-2", "hidden")
+	require.NoError(t, f.SetRowVisible("Sheet1", 3, false))
+	path := saveBook(t, f, "last.xlsx")
+
+	visible, err := Read(context.Background(), path, ReadOptions{SkipHidden: true})
+	require.NoError(t, err)
+	require.Equal(t, 1, visible.Count)
+	assert.Equal(t, "A-1", visible.Rows[0]["ID"])
+	info, err := Inspect(context.Background(), path, InspectOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, 1, info.Sheets[0].HiddenRows)
+}
+
 func TestOpenErrors(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
