@@ -70,6 +70,26 @@ func TestReadWorkbookTarget(t *testing.T) {
 		require.True(t, ok)
 		require.Equal(t, "INV-1", first["Invoice No"])
 		require.Equal(t, float64(2), first["_row"])
+		require.NotContains(t, sheet, "profile_truncated", "a table the profile reads whole is not truncated")
+	})
+
+	t.Run("reports a truncated profile", func(t *testing.T) {
+		long := filepath.Join(t.TempDir(), "long.xlsx")
+		rows := make([][]any, workbook.DefaultMaxRows+1)
+		for i := range rows {
+			rows[i] = []any{int64(i + 1)}
+		}
+		_, err := workbook.Write(context.Background(), long, workbook.Table{Columns: []string{"n"}, Rows: rows}, workbook.WriteOptions{Header: true})
+		require.NoError(t, err)
+
+		result := callRead(t, session, map[string]any{"target": "workbook", "path": long})
+		require.False(t, result.IsError)
+		sheets, ok := requireData(t, mcptest.StructuredMap(t, result))["sheets"].([]any)
+		require.True(t, ok)
+		sheet, ok := sheets[0].(map[string]any)
+		require.True(t, ok)
+		require.Equal(t, float64(workbook.DefaultMaxRows+1), sheet["row_count"])
+		require.Equal(t, true, sheet["profile_truncated"])
 	})
 
 	t.Run("requires path", func(t *testing.T) {
