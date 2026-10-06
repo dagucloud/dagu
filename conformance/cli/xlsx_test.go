@@ -29,7 +29,12 @@ func TestXlsxInspectAndReadCommands(t *testing.T) {
 			Headers   []string          `json:"headers"`
 			Types     map[string]string `json:"types"`
 			RowCount  int               `json:"row_count"`
-			Sample    []map[string]any  `json:"sample"`
+			Columns   []struct {
+				Name string `json:"name"`
+				Min  any    `json:"min"`
+				Max  any    `json:"max"`
+			} `json:"columns"`
+			Sample []map[string]any `json:"sample"`
 		} `json:"sheets"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(inspect.Stdout()), &info), inspect.Stdout())
@@ -41,6 +46,10 @@ func TestXlsxInspectAndReadCommands(t *testing.T) {
 	require.Equal(t, "number", info.Sheets[0].Types["Amount"])
 	require.Equal(t, "date", info.Sheets[0].Types["Due"])
 	require.Equal(t, 2, info.Sheets[0].RowCount)
+	require.Len(t, info.Sheets[0].Columns, 3)
+	require.Equal(t, "Amount", info.Sheets[0].Columns[1].Name)
+	require.Equal(t, float64(10), info.Sheets[0].Columns[1].Min)
+	require.Equal(t, 20.5, info.Sheets[0].Columns[1].Max)
 	require.Len(t, info.Sheets[0].Sample, 1)
 
 	read := dagu.Run("xlsx", "read", "orders.xlsx", "--format", "json")
@@ -150,6 +159,8 @@ func TestXlsxInspectCommandSheet(t *testing.T) {
 	lines := strings.Split(strings.ReplaceAll(text.Stdout(), "\r\n", "\n"), "\n")
 	require.Equal(t, "orders.xlsx: 2 sheets, 1900 date system", lines[0])
 	require.Equal(t, `Sheet "Orders": used A1:C3, table Orders!A1:C3, header row 1, 2 rows`, lines[1])
-	require.Equal(t, "  Columns: Invoice No (string), Amount (number), Due (date)", lines[2])
+	require.Equal(t, "  Columns: Invoice No (string), Amount (number; 10..20.5), Due (date; 2026-10-01..2026-10-02)", lines[2])
 	require.Equal(t, "  Row 2: Invoice No=INV-1  Amount=10  Due=2026-10-01", lines[3])
+	require.Equal(t, `Sheet "Second": used A1:B4, table Second!A1:B4, header row 1, 3 rows`, lines[4])
+	require.Equal(t, `  Columns: Quarterly report (string), Q3 (integer; 3..5; 1 odd: B2 "Qty")`, lines[5])
 }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
@@ -44,12 +45,23 @@ block, the header row and column names, the type of each column, the
 number of data rows, its tables, and a few typed sample rows. Named ranges
 and the date system are listed for the workbook.
 
+Types and a profile of each column come from every data row of the block,
+up to 5000: how many cells are filled and blank, how many distinct values
+there are, the values themselves when a few repeat, the lowest and highest
+number or date, and the cells that do not read as the column's type, such
+as 未定 in a number column. The text format shows the profile after each
+column name:
+
+  Columns: 状態 (string: 済, 未; 40 blank), 数量 (number; 1..250; 1 odd: D300 "未定")
+
 This is what xlsx.info publishes, read straight from the file. Nothing is
 written and no run is created.
 
 With --format json, the result is one JSON object: path, date_system,
 sheets (each with name, used_range, range, header_row, headers, types,
-row_count, tables, and sample), named_ranges, and warnings.
+row_count, columns, profile_truncated, tables, and sample), named_ranges,
+and warnings. Each column has name, type, filled, blank, distinct, values,
+min, max, odd, and odd_cells.
 `,
 		Example: `  dagu xlsx inspect orders.xlsx
   dagu xlsx inspect orders.xlsx --sheet Orders --rows 10
@@ -124,45 +136,15 @@ func runXlsxInspect(cmd *cobra.Command, args []string) error {
 	rows, _ := cmd.Flags().GetInt("rows")
 	sheet, _ := cmd.Flags().GetString("sheet")
 
-	info, err := workbook.Inspect(cmd.Context(), path, workbook.InspectOptions{SampleRows: max(rows, 0)})
+	info, err := workbook.Inspect(cmd.Context(), path, workbook.InspectOptions{Sheet: sheet, SampleRows: max(rows, 0)})
 	if err != nil {
 		return err
-	}
-	if sheet != "" {
-		if err := keepSheet(info, sheet); err != nil {
-			return err
-		}
 	}
 	out := cmd.OutOrStdout()
 	if format == "json" {
 		return writeIndentedJSON(out, info)
 	}
 	return renderInfo(out, info)
-}
-
-func keepSheet(info *workbook.Info, name string) error {
-	var kept []workbook.SheetInfo
-	for _, s := range info.Sheets {
-		if s.Name == name {
-			kept = append(kept, s)
-		}
-	}
-	if len(kept) == 0 {
-		for _, s := range info.Sheets {
-			if strings.EqualFold(s.Name, name) {
-				kept = append(kept, s)
-			}
-		}
-	}
-	if len(kept) == 0 {
-		names := make([]string, 0, len(info.Sheets))
-		for _, s := range info.Sheets {
-			names = append(names, s.Name)
-		}
-		return fmt.Errorf("%s: sheet %q not found; sheets present: %s", workbook.Base(info.Path), name, strings.Join(names, ", "))
-	}
-	info.Sheets = kept
-	return nil
 }
 
 func runXlsxRead(cmd *cobra.Command, args []string) error {
@@ -229,11 +211,15 @@ func renderInfo(out io.Writer, info *workbook.Info) error {
 			w.printf("Sheet %q: empty\n", s.Name)
 			continue
 		}
-		w.printf("Sheet %q: used %s, table %s, header row %d, %d rows\n",
-			s.Name, strings.TrimPrefix(s.UsedRange, s.Name+"!"), s.Range, s.HeaderRow, s.RowCount)
-		columns := make([]string, 0, len(s.Headers))
-		for _, h := range s.Headers {
-			columns = append(columns, fmt.Sprintf("%s (%s)", h, s.Types[h]))
+		profiled := ""
+		if s.ProfileTruncated && len(s.Columns) > 0 {
+			profiled = fmt.Sprintf(", first %d profiled", s.Columns[0].Filled+s.Columns[0].Blank)
+		}
+		w.printf("Sheet %q: used %s, table %s, header row %d, %d rows%s\n",
+			s.Name, strings.TrimPrefix(s.UsedRange, s.Name+"!"), s.Range, s.HeaderRow, s.RowCount, profiled)
+		columns := make([]string, 0, len(s.Columns))
+		for _, c := range s.Columns {
+			columns = append(columns, columnSummary(c))
 		}
 		w.printf("  Columns: %s\n", strings.Join(columns, ", "))
 		for _, t := range s.Tables {
@@ -254,6 +240,35 @@ func renderInfo(out io.Writer, info *workbook.Info) error {
 		w.printf("Warning: %s\n", msg)
 	}
 	return w.err
+}
+
+// columnSummary renders a column and its profile on one line: the type,
+// the listed values, the range, the blank count, and the odd cells, as in
+// `数量 (number; 1..250; 1 odd: D300 "未定")`.
+func columnSummary(c workbook.ColumnInfo) string {
+	head := c.Type
+	if len(c.Values) > 0 {
+		values := make([]string, 0, len(c.Values))
+		for _, v := range c.Values {
+			values = append(values, displayValue(v))
+		}
+		head += ": " + strings.Join(values, ", ")
+	}
+	parts := []string{head}
+	if c.Min != nil {
+		parts = append(parts, displayValue(c.Min)+".."+displayValue(c.Max))
+	}
+	if c.Blank > 0 {
+		parts = append(parts, fmt.Sprintf("%d blank", c.Blank))
+	}
+	if c.Odd > 0 {
+		cells := make([]string, 0, len(c.OddCells))
+		for _, cell := range c.OddCells {
+			cells = append(cells, cell.Cell+" "+strconv.Quote(cell.Text))
+		}
+		parts = append(parts, fmt.Sprintf("%d odd: %s", c.Odd, strings.Join(cells, ", ")))
+	}
+	return fmt.Sprintf("%s (%s)", c.Name, strings.Join(parts, "; "))
 }
 
 func renderRows(out io.Writer, result *workbook.ReadResult) error {

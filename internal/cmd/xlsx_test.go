@@ -56,6 +56,8 @@ func TestXlsxInspectJSON(t *testing.T) {
 	assert.Equal(t, "number", info.Sheets[0].Types["Amount"])
 	assert.Equal(t, "date", info.Sheets[0].Types["Due"])
 	assert.Equal(t, 2, info.Sheets[0].RowCount)
+	require.Len(t, info.Sheets[0].Columns, 3)
+	assert.Equal(t, workbook.ColumnInfo{Name: "Due", Type: "date", Filled: 2, Distinct: 2, Min: "2026-10-01", Max: "2026-10-02"}, info.Sheets[0].Columns[2])
 	require.Len(t, info.Sheets[0].Sample, 1)
 	assert.Equal(t, "INV-1", info.Sheets[0].Sample[0]["Invoice No"])
 }
@@ -67,11 +69,26 @@ func TestXlsxInspectText(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, out, "orders.xlsx: 1 sheets, 1900 date system")
 	assert.Contains(t, out, `Sheet "Orders": used A1:C3, table Orders!A1:C3, header row 1, 2 rows`)
-	assert.Contains(t, out, "Columns: Invoice No (string), Amount (number), Due (date)")
+	assert.Contains(t, out, "Columns: Invoice No (string), Amount (number; 10..20.5), Due (date; 2026-10-01..2026-10-02)")
 	assert.Contains(t, out, "Row 2: Invoice No=INV-1  Amount=10  Due=2026-10-01")
 
 	_, err = runXlsx(t, "inspect", path, "--sheet", "Nope")
 	require.ErrorContains(t, err, `sheet "Nope" not found; sheets present: Orders`)
+}
+
+func TestXlsxInspectTextProfile(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "status.xlsx")
+	table := workbook.Table{
+		Columns: []string{"Status", "Qty"},
+		Rows:    [][]any{{"済", int64(1)}, {"未", int64(2)}, {"済", "未定"}, {nil, int64(4)}},
+	}
+	_, err := workbook.Write(context.Background(), path, table, workbook.WriteOptions{Header: true})
+	require.NoError(t, err)
+
+	out, err := runXlsx(t, "inspect", path)
+	require.NoError(t, err)
+	assert.Contains(t, out, `Columns: Status (string: 済, 未; 1 blank), Qty (integer; 1..4; 1 odd: B4 "未定")`)
 }
 
 func TestXlsxReadJSONAndText(t *testing.T) {
