@@ -34,6 +34,7 @@ steps:
       merged: fill
       stop_at_blank: true
       keep_empty_rows: false
+      skip_hidden: true
       trim: true
       formulas: cached
       types: {Amount: number, Due: date}

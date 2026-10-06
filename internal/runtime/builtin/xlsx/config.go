@@ -32,6 +32,7 @@ type config struct {
 	Merged        string            `mapstructure:"merged"`
 	StopAtBlank   bool              `mapstructure:"stop_at_blank"`
 	KeepEmptyRows bool              `mapstructure:"keep_empty_rows"`
+	SkipHidden    bool              `mapstructure:"skip_hidden"`
 	Trim          bool              `mapstructure:"trim"`
 	Formulas      string            `mapstructure:"formulas"`
 	Types         map[string]string `mapstructure:"types"`
@@ -166,7 +167,7 @@ func holdsReference(v any) bool {
 // fieldsByOperation lists the with fields each operation accepts.
 var fieldsByOperation = map[string][]string{
 	opRead: {"path", "password", "sheet", "range", "header", "columns", "merged", "stop_at_blank",
-		"keep_empty_rows", "trim", "formulas", "types", "on_type_error", "where", "max_rows"},
+		"keep_empty_rows", "skip_hidden", "trim", "formulas", "types", "on_type_error", "where", "max_rows"},
 	opInfo:       {"path", "password"},
 	opListSheets: {"path", "password"},
 	opWrite: {"path", "password", "sheet", "rows", "input", "format", "encoding", "delimiter", "columns", "header",
@@ -175,13 +176,13 @@ var fieldsByOperation = map[string][]string{
 		"types", "atomic", "dry_run", "wait_for_unlock", "artifact"},
 	opUpdateRows: {"path", "password", "sheet", "header", "rows", "key", "set", "missing", "atomic",
 		"dry_run", "wait_for_unlock", "artifact"},
-	opValidate: {"path", "password", "sheet", "range", "header", "columns", "merged", "trim", "formulas",
+	opValidate: {"path", "password", "sheet", "range", "header", "columns", "merged", "skip_hidden", "trim", "formulas",
 		"required", "not_blank", "unique", "types", "allowed", "on_problem", "max_problems"},
 	opWriteCells: {"path", "password", "sheet", "cells", "merge", "output", "atomic", "dry_run", "wait_for_unlock", "artifact"},
 	opSheet: {"path", "password", "operation", "sheet", "to", "if_exists", "missing", "position", "atomic",
 		"dry_run", "wait_for_unlock", "artifact"},
 	opConvert: {"path", "password", "sheet", "range", "header", "columns", "types", "trim", "merged", "formulas",
-		"output", "format", "encoding", "delimiter", "atomic", "artifact"},
+		"skip_hidden", "output", "format", "encoding", "delimiter", "atomic", "artifact"},
 	opExtract: {"path", "password", "sheet", "range", "instruction", "schema", "send_values", "cache", "trim", "formulas"},
 }
 
@@ -600,6 +601,7 @@ func (cfg config) readOptions() workbook.ReadOptions {
 		Merged:        workbook.MergedMode(cfg.Merged),
 		StopAtBlank:   cfg.StopAtBlank,
 		KeepEmptyRows: cfg.KeepEmptyRows,
+		SkipHidden:    cfg.SkipHidden,
 		Trim:          cfg.Trim,
 		Formulas:      workbook.FormulaMode(cfg.Formulas),
 		Types:         cfg.types,
@@ -666,6 +668,7 @@ func (cfg config) validateOptions() workbook.ValidateOptions {
 		Merged:      workbook.MergedMode(cfg.Merged),
 		Trim:        cfg.Trim,
 		Formulas:    workbook.FormulaMode(cfg.Formulas),
+		SkipHidden:  cfg.SkipHidden,
 		Required:    cfg.Required,
 		NotBlank:    cfg.NotBlank,
 		Unique:      cfg.Unique,
@@ -705,20 +708,21 @@ func (cfg config) sheetOptions(log func(string)) workbook.SheetOptions {
 
 func (cfg config) convertOptions(output string) workbook.ConvertOptions {
 	return workbook.ConvertOptions{
-		Password:  cfg.Password,
-		Output:    output,
-		Format:    cfg.convertFormat,
-		Sheet:     cfg.Sheet,
-		Range:     cfg.Range,
-		Header:    cfg.header,
-		Columns:   cfg.columns,
-		Types:     cfg.types,
-		Trim:      cfg.Trim,
-		Merged:    workbook.MergedMode(cfg.Merged),
-		Formulas:  workbook.FormulaMode(cfg.Formulas),
-		Encoding:  cfg.encoding,
-		Delimiter: cfg.delimiter,
-		InPlace:   !cfg.Atomic,
+		Password:   cfg.Password,
+		Output:     output,
+		Format:     cfg.convertFormat,
+		Sheet:      cfg.Sheet,
+		Range:      cfg.Range,
+		Header:     cfg.header,
+		Columns:    cfg.columns,
+		Types:      cfg.types,
+		Trim:       cfg.Trim,
+		Merged:     workbook.MergedMode(cfg.Merged),
+		Formulas:   workbook.FormulaMode(cfg.Formulas),
+		SkipHidden: cfg.SkipHidden,
+		Encoding:   cfg.encoding,
+		Delimiter:  cfg.delimiter,
+		InPlace:    !cfg.Atomic,
 	}
 }
 
@@ -758,6 +762,7 @@ var configSchema = &jsonschema.Schema{
 			Description: "How merged cells are read: fill (default) repeats the value into every covered cell; first keeps it in the top-left cell only."},
 		"stop_at_blank":   boolOrRef("Stop at the first fully empty row instead of reading to the end of the used range."),
 		"keep_empty_rows": boolOrRef("Keep trailing empty rows as rows of nulls."),
+		"skip_hidden":     boolOrRef("Leave out rows hidden by a filter or by hand. Defaults to false: hidden rows are read."),
 		"trim":            boolOrRef("Trim surrounding white space, including full-width spaces, from text cells."),
 		"formulas": {Type: "string", Enum: []any{"cached", "text", "calculate"},
 			Description: "What formula cells yield: cached (default) the stored result, text the formula itself, calculate an evaluation."},

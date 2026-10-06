@@ -8036,6 +8036,10 @@
           "oneOf": [{ "type": "boolean" }, { "type": "string" }],
           "description": "Keep trailing empty rows as rows of nulls."
         },
+        "skip_hidden": {
+          "oneOf": [{ "type": "boolean" }, { "type": "string" }],
+          "description": "Leave out rows hidden by a filter or by hand. Defaults to false: hidden rows are read."
+        },
         "trim": {
           "oneOf": [{ "type": "boolean" }, { "type": "string" }],
           "description": "Trim surrounding white space, including full-width spaces, from text cells."

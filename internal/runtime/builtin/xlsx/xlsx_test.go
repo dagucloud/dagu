@@ -6,6 +6,7 @@ package xlsx
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -92,6 +93,35 @@ func TestReadPublishesRows(t *testing.T) {
 	assert.Equal(t, 0, te.exec.ExitCode())
 }
 
+func TestReadSkipsHiddenRows(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	f := excelize.NewFile()
+	for i, row := range [][]any{{"Invoice No", "Amount"}, {"INV-1", 10}, {"INV-2", 20}} {
+		require.NoError(t, f.SetSheetRow("Sheet1", fmt.Sprintf("A%d", i+1), &row))
+	}
+	require.NoError(t, f.SetRowVisible("Sheet1", 2, false))
+	require.NoError(t, f.SaveAs(filepath.Join(dir, "orders.xlsx")))
+	require.NoError(t, f.Close())
+
+	te, err := newTestExecutor(t, dir, opRead, map[string]any{"path": "orders.xlsx", "skip_hidden": true})
+	require.NoError(t, err)
+	require.NoError(t, te.exec.Run(context.Background()))
+	rows, ok := te.exec.GetOutputs()["rows"].([]workbook.Row)
+	require.True(t, ok)
+	require.Len(t, rows, 1)
+	assert.Equal(t, "INV-2", rows[0]["Invoice No"])
+
+	// validate and convert take the field too.
+	for op, cfg := range map[string]map[string]any{
+		opValidate: {"path": "orders.xlsx", "skip_hidden": true, "required": "Amount"},
+		opConvert:  {"path": "orders.xlsx", "skip_hidden": true, "output": "out.csv"},
+	} {
+		step := ir.Step{Commands: []ir.CommandEntry{{Command: op}}, ExecutorConfig: ir.ExecutorConfig{Type: executorType, Config: cfg}}
+		require.NoError(t, validateStep(step), op)
+	}
+}
+
 func TestReadFitsOutputBudget(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -176,6 +206,7 @@ func TestValidation(t *testing.T) {
 		{"missing path", opRead, map[string]any{}, "path is required for read"},
 		{"unknown field", opRead, map[string]any{"path": "a.xlsx", "strip": true}, "invalid keys: strip"},
 		{"foreign field", opInfo, map[string]any{"path": "a.xlsx", "range": "A1:B2"}, "with.range is not valid for xlsx.info"},
+		{"skip_hidden on info", opInfo, map[string]any{"path": "a.xlsx", "skip_hidden": true}, "with.skip_hidden is not valid for xlsx.info"},
 		{"bad merged", opRead, map[string]any{"path": "a.xlsx", "merged": "middle"}, "merged must be fill or first"},
 		{"bad formulas", opRead, map[string]any{"path": "a.xlsx", "formulas": "eval"}, "formulas must be cached, text, or calculate"},
 		{"bad on_type_error", opRead, map[string]any{"path": "a.xlsx", "on_type_error": "ignore"}, "on_type_error must be fail, warn, or null"},
