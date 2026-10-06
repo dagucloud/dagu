@@ -231,7 +231,7 @@ dagu computer cache clear <dag> [--step <id>]
 
 ### dagu xlsx inspect
 
-Describe every sheet of an `.xlsx` workbook: used range, detected data block, header row, column names and types, row count, tables, and a few typed sample rows, plus the workbook's named ranges and date system. It reads the file directly, needs no configuration or engine, and creates no run. `--sheet` limits the output to one sheet and `--rows` sets the sample size. `--format json` prints one object: `path`, `date_system`, `sheets` (each with `name`, `used_range`, `range`, `header_row`, `headers`, `types`, `row_count`, `tables`, `sample`), `named_ranges`, and `warnings`.
+Describe every sheet of an `.xlsx` workbook: used range, detected data block, header row, column names and types, a profile of each column, row count, tables, and a few typed sample rows, plus the workbook's named ranges and date system. Types and the profile cover every data row up to 5000: filled and blank counts, distinct count, the values when a few repeat, min and max of number and date columns, and the cells that do not read as the column's type. The text format shows them after each column, as in `状態 (string: 済, 未; 40 blank), 数量 (number; 1..250; 1 odd: D300 "未定")`. It reads the file directly, needs no configuration or engine, and creates no run. `--sheet` describes one sheet only and `--rows` sets the sample size. `--format json` prints one object: `path`, `date_system`, `sheets` (each with `name`, `used_range`, `range`, `header_row`, `headers`, `types`, `row_count`, `columns`, `profile_truncated`, `tables`, `sample`), `named_ranges`, and `warnings`.
 
 ```sh
 dagu xlsx inspect <path> [--sheet <name>] [--rows <n>] [--format json]

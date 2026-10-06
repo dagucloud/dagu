@@ -867,10 +867,18 @@ numbers, dates become ISO 8601 text, text keeps leading zeros, and errors name
 the cell: `orders.xlsx Orders!D17: expected number, found "N/A"`.
 
 `xlsx.info` publishes `path`, `sheets` (each with `name`, `used_range`, `range`,
-`header_row`, `headers`, `types`, `row_count`, `tables`), `named_ranges`,
-`date_system`, and `warnings`; `xlsx.list_sheets` publishes `sheets` and `count`. Before writing
-a workflow for a workbook, read it with `dagu xlsx inspect <path>` or the MCP
-`workbook` target to learn its sheets, headers, and types.
+`header_row`, `headers`, `types`, `row_count`, `columns`, `profile_truncated`,
+`tables`), `named_ranges`, `date_system`, and `warnings`; `xlsx.list_sheets`
+publishes `sheets` and `count`. `types` and `columns` cover every data row of
+the detected table, up to 5000 (`profile_truncated` when there are more). Each
+column has `name`, `type`, `filled`, `blank`, `distinct` (counted up to 1000),
+`values` (the distinct values when 12 or fewer repeat), `min` and `max` (number
+and date columns), `odd` (cells the type cannot read even when pinned, such as
+`未定` in a number column; `１２` or `令和8年10月3日` are not odd), and
+`odd_cells` (the first three as `{cell, text}`). Before writing a workflow for a
+workbook, read it with `dagu xlsx inspect <path>` or the MCP `workbook` target
+to learn its sheets, headers, and types, and use the profile to choose `where`
+values, `types`, and `on_type_error`.
 
 `xlsx.write` `with` fields: `path`, `sheet` (created when missing), `rows` (a
 list of objects or arrays, usually `${steps.<id>.outputs.rows}`) or `input` (a

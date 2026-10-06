@@ -168,7 +168,7 @@ Targets:
 - wiki lists the Wiki tree or a flat page list. In tree mode, page and perPage select direct children of the workspace or prefix, and each returned directory includes its descendants. In flat mode, they select individual pages.
 - wiki_page reads one Markdown Wiki page.
 - wiki_search searches accessible Wiki pages in stable path order. Continue with nextCursor while keeping search, workspace, and prefix unchanged.
-- workbook inspects an .xlsx file on the server: for each sheet its used range, detected data block, header row, headers, column types, row count, tables, and five typed sample rows; plus named ranges and the date system. The path is any file the server process can read and is recorded in the audit log. Use the result to write xlsx.read with the right sheet, range, columns, and types.
+- workbook inspects an .xlsx file on the server: for each sheet its used range, detected data block, header row, headers, column types, a profile of each column over up to 5000 rows (filled, blank, distinct, the values when a few repeat, min and max, and odd cells that do not read as the type, such as 未定 in a number column), row count, tables, and five typed sample rows; plus named ranges and the date system. The path is any file the server process can read and is recorded in the audit log. Use the result to write xlsx.read with the right sheet, range, columns, and types.
 - runs lists DAG-runs.
 - run reads one DAG-run. With subRunId, it reads the child run under the identified root run.
 - run_logs reads scheduler and step log metadata.

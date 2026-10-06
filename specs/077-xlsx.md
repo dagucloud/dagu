@@ -8,7 +8,8 @@ Conformance covers every statement below that a run of the `dagu` binary
 can observe: the stdout line and the `warning:` and `problem:` streams,
 path forms, every `range` and `header` form with the header warnings,
 table detection, typing, formulas and error cells, empty rows, `where`,
-`max_rows` with its default and the output budget, `rows` and every
+`max_rows` with its default and the output budget, the column profile of
+`xlsx.info` with its caps and the warning cap, `rows` and every
 `input` file kind with its encodings and the byte order mark, write modes
 and `types` on write, sheet preservation, append, update_rows with its
 matching rules, modes, shape checks, the foreach aggregate, and every
@@ -81,7 +82,7 @@ changed shape under the workflow is refused rather than written to.
 | Action | Purpose | Outputs |
 | --- | --- | --- |
 | `xlsx.read` | Rows of a sheet, range, named range, or table. | `rows`, `count`, `headers`, `sheet`, `range`, `warnings`, `truncated` |
-| `xlsx.info` | Sheets with used range, detected table, headers, column types, row count, and tables; named ranges; date system. | `path`, `date_system`, `sheets`, `named_ranges`, `warnings` |
+| `xlsx.info` | Sheets with used range, detected table, headers, column types, a profile of each column, row count, and tables; named ranges; date system. | `path`, `date_system`, `sheets`, `named_ranges`, `warnings` |
 | `xlsx.list_sheets` | Sheet names in order. | `sheets`, `count` |
 | `xlsx.write` | Create a workbook or write a sheet from rows. | `path`, `sheet`, `changes`, `dry_run`, `warnings`, `artifact` |
 | `xlsx.append` | Add rows below the last used row. | Same as `xlsx.write` |
@@ -247,6 +248,34 @@ Rows that exceed the step output budget, 900 KiB or `max_output_size` less
 out from the end and `truncated` is true with the warning `output
 truncated to N of M rows; narrow the range or columns, or filter with
 where`.
+
+### Describing a workbook
+
+`xlsx.info` publishes one entry per sheet in `sheets`: `name`,
+`used_range`, `range` (the detected table), `header_row` (0 for an empty
+sheet), `headers`, `types`, `row_count`, `columns`, `profile_truncated`,
+and `tables` (`{name, range}`). `types` and `columns` cover the data rows
+of the detected table that hold a value, up to 5000; when the table holds
+more, `profile_truncated` is true, and is absent otherwise. A column's type
+is the kind most of its cells hold, a column mixing integers and decimals
+being `number` and one mixing dates and datetimes `datetime`; an empty
+column is `string`.
+
+`columns` profiles each column in header order:
+
+| Field | Meaning |
+| --- | --- |
+| `name`, `type` | The header and its entry in `types`. |
+| `filled`, `blank` | Cells that hold a value, and cells that are empty or hold only white space. |
+| `distinct` | Distinct values, compared as trimmed text, counted up to 1000. |
+| `values` | The distinct values in order of first appearance, when there are 12 or fewer and one repeats, so a column of unique identifiers lists none. A value longer than 40 characters is cut to 40 ending in `…`. |
+| `min`, `max` | The lowest and highest number of an `integer` or `number` column, or date of a `date` or `datetime` column, over the cells that hold that type. |
+| `odd` | Cells holding a value the column's type cannot read even when pinned with `types`, such as `未定` in a number column. `１２`, `三千`, and `令和8年10月3日` read under their type and are not odd; a `string` column has none. |
+| `odd_cells` | The first three odd cells as `{cell, text}`, such as `{"cell": "D300", "text": "未定"}`, the text cut like a value. |
+
+`values`, `min`, `max`, `odd`, and `odd_cells` are absent when there is
+nothing to report. A sheet reports its first 20 read warnings, such as
+`Sheet1: Sheet1!B3: error cell #N/A`, then `Sheet1: 380 more warnings`.
 
 ### Writing
 
@@ -430,17 +459,22 @@ not repeat a write that already happened.
 
 `dagu xlsx inspect <path> [--rows N] [--sheet NAME] [--format text|json]`
 prints what `xlsx.info` publishes plus up to N typed sample rows per sheet;
-`--sheet` keeps one sheet, and a name that is not in the workbook fails
-with `sheet "Nope" not found; sheets present: ...`. `dagu xlsx read <path>
+`--sheet` describes one sheet, matched as `sheet` matches, and a name that
+is not in the workbook fails with `sheet "Nope" not found; sheets present:
+...`. `dagu xlsx read <path>
 [--sheet] [--range] [--header] [--columns] [--max-rows] [--format]` prints
 what `xlsx.read` publishes, the flags taking the values the fields take.
 Both read the file directly, create no run, and exit non-zero with the
 error on stderr. The `text` format of `inspect` prints a heading,
 `orders.xlsx: 2 sheets, 1900 date system`, then one line per sheet,
 `Sheet "Orders": used A1:C3, table Orders!A1:C3, header row 1, 2 rows`,
-followed by the columns with their kinds and the sample rows; the `text`
-format of `read` prints a tab-separated header line starting with `_row`
-and one line per row.
+ending in `, first 5000 profiled` when the profile is truncated, followed
+by the columns with their profiles and the sample rows. Each column reads
+`Name (type: values; min..max; N blank; N odd: CELL "text", ...)`, each
+part present only when the profile has it, as in `Columns: Invoice No
+(string), 状態 (string: 済, 未; 40 blank), 数量 (number; 1..250; 1 odd:
+D300 "未定")`. The `text` format of `read` prints a tab-separated header
+line starting with `_row` and one line per row.
 
 `dagu xlsx cache clear <DAG> [--step ID]` removes the cached cell
 addresses of a DAG's `xlsx.extract` steps on this host, printing `Removed

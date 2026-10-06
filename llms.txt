@@ -1088,10 +1088,18 @@ numbers, dates become ISO 8601 text, text keeps leading zeros, and errors name
 the cell: `orders.xlsx Orders!D17: expected number, found "N/A"`.
 
 `xlsx.info` publishes `path`, `sheets` (each with `name`, `used_range`, `range`,
-`header_row`, `headers`, `types`, `row_count`, `tables`), `named_ranges`,
-`date_system`, and `warnings`; `xlsx.list_sheets` publishes `sheets` and `count`. Before writing
-a workflow for a workbook, read it with `dagu xlsx inspect <path>` or the MCP
-`workbook` target to learn its sheets, headers, and types.
+`header_row`, `headers`, `types`, `row_count`, `columns`, `profile_truncated`,
+`tables`), `named_ranges`, `date_system`, and `warnings`; `xlsx.list_sheets`
+publishes `sheets` and `count`. `types` and `columns` cover every data row of
+the detected table, up to 5000 (`profile_truncated` when there are more). Each
+column has `name`, `type`, `filled`, `blank`, `distinct` (counted up to 1000),
+`values` (the distinct values when 12 or fewer repeat), `min` and `max` (number
+and date columns), `odd` (cells the type cannot read even when pinned, such as
+`未定` in a number column; `１２` or `令和8年10月3日` are not odd), and
+`odd_cells` (the first three as `{cell, text}`). Before writing a workflow for a
+workbook, read it with `dagu xlsx inspect <path>` or the MCP `workbook` target
+to learn its sheets, headers, and types, and use the profile to choose `where`
+values, `types`, and `on_type_error`.
 
 `xlsx.write` `with` fields: `path`, `sheet` (created when missing), `rows` (a
 list of objects or arrays, usually `${steps.<id>.outputs.rows}`) or `input` (a
@@ -1905,7 +1913,7 @@ dagu computer cache clear <dag> [--step <id>]
 
 ### dagu xlsx inspect
 
-Describe every sheet of an `.xlsx` workbook: used range, detected data block, header row, column names and types, row count, tables, and a few typed sample rows, plus the workbook's named ranges and date system. It reads the file directly, needs no configuration or engine, and creates no run. `--sheet` limits the output to one sheet and `--rows` sets the sample size. `--format json` prints one object: `path`, `date_system`, `sheets` (each with `name`, `used_range`, `range`, `header_row`, `headers`, `types`, `row_count`, `tables`, `sample`), `named_ranges`, and `warnings`.
+Describe every sheet of an `.xlsx` workbook: used range, detected data block, header row, column names and types, a profile of each column, row count, tables, and a few typed sample rows, plus the workbook's named ranges and date system. Types and the profile cover every data row up to 5000: filled and blank counts, distinct count, the values when a few repeat, min and max of number and date columns, and the cells that do not read as the column's type. The text format shows them after each column, as in `状態 (string: 済, 未; 40 blank), 数量 (number; 1..250; 1 odd: D300 "未定")`. It reads the file directly, needs no configuration or engine, and creates no run. `--sheet` describes one sheet only and `--rows` sets the sample size. `--format json` prints one object: `path`, `date_system`, `sheets` (each with `name`, `used_range`, `range`, `header_row`, `headers`, `types`, `row_count`, `columns`, `profile_truncated`, `tables`, `sample`), `named_ranges`, and `warnings`.
 
 ```sh
 dagu xlsx inspect <path> [--sheet <name>] [--rows <n>] [--format json]
