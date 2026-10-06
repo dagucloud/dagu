@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -141,6 +142,25 @@ func TestForeachRuntimeHonorsMaxConcurrent(t *testing.T) {
 	r.newPlan(t, parent).assertRun(t, ir.Succeeded)
 
 	assert.Equal(t, 2, state.maxActive())
+}
+
+// Concurrent items keep body logs in foreach/<index>/ instead of one shared directory.
+func TestForeachRuntimeItemLogsStaySeparate(t *testing.T) {
+	probeType, _ := registerForeachProbeExecutor(t)
+	r := setupRunner(t)
+
+	parent := foreachRuntimeStep(probeType, []any{
+		map[string]any{"slug": "one", "url": "one"},
+		map[string]any{"slug": "two", "url": "two"},
+	}, 2)
+	result := r.newPlan(t, parent).assertRun(t, ir.Succeeded)
+
+	base := filepath.Join(filepath.Dir(result.nodeByName(t, "each").State().Stdout), "foreach")
+	for _, index := range []string{"0", "1"} {
+		matches, err := filepath.Glob(filepath.Join(base, index, "*.out"))
+		require.NoError(t, err)
+		require.Len(t, matches, 1)
+	}
 }
 
 type foreachAggregate struct {

@@ -346,7 +346,7 @@ func (e *foreachExecutor) runItem(ctx context.Context, item expandedItem) itemRe
 
 	bodyRunID := bodyDAGRunID(ctx, item.index)
 	runner := runtime.New(&runtime.Config{
-		LogDir:   bodyLogDir(ctx),
+		LogDir:   bodyLogDir(ctx, item.index),
 		DAGRunID: bodyRunID,
 	})
 	err = runner.Run(itemCtx, plan, nil)
@@ -483,18 +483,19 @@ func (e *foreachExecutor) writeAggregate(results []itemResult) error {
 	return err
 }
 
-func bodyLogDir(ctx context.Context) string {
+func bodyLogDir(ctx context.Context, index int) string {
+	itemDir := strconv.Itoa(index)
 	env := runtime.GetEnv(ctx)
 	if env.Scope != nil {
 		if stdout, ok := env.Scope.Get(runenv.EnvKeyDAGRunStepStdoutFile); ok && stdout != "" {
-			return filepath.Join(filepath.Dir(stdout), "foreach")
+			return filepath.Join(filepath.Dir(stdout), "foreach", itemDir)
 		}
 	}
 	rCtx := runtime.GetDAGContext(ctx)
 	if rCtx.DAGRunLogDir != "" {
-		return filepath.Join(rCtx.DAGRunLogDir, "foreach")
+		return filepath.Join(rCtx.DAGRunLogDir, "foreach", itemDir)
 	}
-	return filepath.Join(os.TempDir(), "dagu-foreach")
+	return filepath.Join(os.TempDir(), "dagu-foreach", itemDir)
 }
 
 func bodyDAGRunID(ctx context.Context, index int) string {
