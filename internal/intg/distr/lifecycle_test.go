@@ -331,6 +331,7 @@ func TestCancellation_WorkerStopDrainsRun(t *testing.T) {
 	dir := t.TempDir()
 	trapMarker := filepath.Join(dir, "trap")
 	exitMarker := filepath.Join(dir, "exit")
+	readyMarker := filepath.Join(dir, "ready")
 	f := newTestFixture(t, fmt.Sprintf(`
 name: worker-stop-drain
 worker_selector:
@@ -343,17 +344,21 @@ steps:
   - name: long
     run: |
       trap 'sleep 1; touch %s; exit 1' TERM
+      touch %s
       sleep 30 &
       wait
-`, test.ShellQuote(exitMarker), test.ShellQuote(trapMarker)))
+`, test.ShellQuote(exitMarker), test.ShellQuote(trapMarker), test.ShellQuote(readyMarker)))
 	defer f.cleanup()
 
 	require.NoError(t, f.enqueue())
 	f.waitForQueued()
 	f.startScheduler(30 * time.Second)
 	f.waitForStatus(ir.Running, 20*time.Second)
-	// Give the step time to install its trap.
-	time.Sleep(time.Second)
+	// Wait until the step has installed its trap.
+	require.Eventually(t, func() bool {
+		_, err := os.Stat(readyMarker)
+		return err == nil
+	}, 20*time.Second, 50*time.Millisecond, "step should install its trap")
 
 	stopCtx, cancel := context.WithTimeout(context.Background(), distrTestTimeout(20*time.Second))
 	defer cancel()
