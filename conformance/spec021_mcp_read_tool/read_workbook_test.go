@@ -5,12 +5,14 @@ package spec021_mcp_read_tool_test
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/conformance/mcptest"
 	"github.com/dagucloud/dagu/v2/internal/cmn/workbook"
 	"github.com/stretchr/testify/require"
+	"github.com/xuri/excelize/v2"
 )
 
 func TestReadWorkbookTarget(t *testing.T) {
@@ -90,6 +92,33 @@ func TestReadWorkbookTarget(t *testing.T) {
 		require.True(t, ok)
 		require.Equal(t, float64(workbook.DefaultMaxRows+1), sheet["row_count"])
 		require.Equal(t, true, sheet["profile_truncated"])
+	})
+
+	t.Run("reports hidden sheets and rows", func(t *testing.T) {
+		f := excelize.NewFile()
+		for i, row := range [][]any{{"ID", "Status"}, {"A-1", "Done"}, {"A-2", "Open"}} {
+			require.NoError(t, f.SetSheetRow("Sheet1", fmt.Sprintf("A%d", i+1), &row))
+		}
+		require.NoError(t, f.SetRowVisible("Sheet1", 3, false))
+		_, err := f.NewSheet("Archive")
+		require.NoError(t, err)
+		require.NoError(t, f.SetSheetVisible("Archive", false))
+		hidden := filepath.Join(t.TempDir(), "hidden.xlsx")
+		require.NoError(t, f.SaveAs(hidden))
+		require.NoError(t, f.Close())
+
+		result := callRead(t, session, map[string]any{"target": "workbook", "path": hidden})
+		require.False(t, result.IsError)
+		sheets, ok := requireData(t, mcptest.StructuredMap(t, result))["sheets"].([]any)
+		require.True(t, ok)
+		require.Len(t, sheets, 2)
+		data, ok := sheets[0].(map[string]any)
+		require.True(t, ok)
+		require.NotContains(t, data, "hidden")
+		require.Equal(t, float64(1), data["hidden_rows"])
+		archive, ok := sheets[1].(map[string]any)
+		require.True(t, ok)
+		require.Equal(t, true, archive["hidden"])
 	})
 
 	t.Run("requires path", func(t *testing.T) {
