@@ -36,13 +36,19 @@ type Info struct {
 // SheetInfo describes one worksheet. Types and Columns cover the data rows
 // of the detected table, up to DefaultMaxRows of them.
 type SheetInfo struct {
-	Name      string            `json:"name"`
+	Name string `json:"name"`
+	// Hidden is true for a sheet hidden from the workbook's tabs, very
+	// hidden ones included.
+	Hidden    bool              `json:"hidden,omitempty"`
 	UsedRange string            `json:"used_range"`
 	Range     string            `json:"range"`
 	HeaderRow int               `json:"header_row"`
 	Headers   []string          `json:"headers"`
 	Types     map[string]string `json:"types"`
 	RowCount  int               `json:"row_count"`
+	// HiddenRows counts the data rows holding a value that are hidden, by
+	// a filter or by hand, among the rows Types and Columns cover.
+	HiddenRows int `json:"hidden_rows,omitempty"`
 	// Columns profiles each column, in header order.
 	Columns []ColumnInfo `json:"columns"`
 	// ProfileTruncated is true when the table holds more data rows than
@@ -157,6 +163,9 @@ func Inspect(ctx context.Context, path string, opts InspectOptions) (*Info, erro
 
 func (w *file) inspectSheet(ctx context.Context, sheet string, sampleRows int, warn func(string)) (SheetInfo, error) {
 	si := SheetInfo{Name: sheet, Headers: []string{}, Types: map[string]string{}, Columns: []ColumnInfo{}, Tables: []TableInfo{}}
+	if visible, err := w.f.GetSheetVisible(sheet); err == nil {
+		si.Hidden = !visible
+	}
 	used, err := w.usedRange(sheet)
 	if err != nil {
 		return si, err
@@ -199,6 +208,11 @@ func (w *file) inspectSheet(ctx context.Context, sheet string, sampleRows int, w
 	si.Types = detectTypes(result.Headers, profiled)
 	si.Columns = w.profileColumns(reg, result.Headers, si.Types, profiled)
 	si.ProfileTruncated = result.Truncated || more
+	for _, row := range profiled {
+		if r, _ := row[RowNumberKey].(int); !rowIsNull(row, result.Headers) && w.rowHidden(sheet, grid, r) {
+			si.HiddenRows++
+		}
+	}
 	if sampleRows > 0 {
 		si.Sample = result.Rows[:min(sampleRows, len(result.Rows))]
 	}

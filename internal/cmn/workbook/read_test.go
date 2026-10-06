@@ -641,6 +641,75 @@ func TestInspectProfileCap(t *testing.T) {
 	assert.Equal(t, DefaultMaxRows, sheet.Columns[0].Filled)
 }
 
+// hiddenBook has a sheet with one row hidden by hand and two hidden by an
+// autofilter on 状態, a hidden sheet, and a very hidden sheet.
+func hiddenBook(t *testing.T) string {
+	t.Helper()
+	f := excelize.NewFile()
+	require.NoError(t, f.SetSheetName("Sheet1", "Data"))
+	setRow(t, f, "Data", "A1", "ID", "状態")
+	for i, status := range []string{"済", "未", "済", "未", "保留", "済"} {
+		setRow(t, f, "Data", fmt.Sprintf("A%d", i+2), fmt.Sprintf("A-%d", i+1), status)
+	}
+	require.NoError(t, f.SetRowVisible("Data", 3, false))
+	require.NoError(t, f.AutoFilter("Data", "A1:B7", []excelize.AutoFilterOptions{{Column: "B", Expression: "x == 済"}}))
+	require.NoError(t, f.SetRowVisible("Data", 5, false))
+	require.NoError(t, f.SetRowVisible("Data", 6, false))
+	for _, name := range []string{"Archive", "Secret"} {
+		_, err := f.NewSheet(name)
+		require.NoError(t, err)
+		setRow(t, f, name, "A1", "ID", "Note")
+		setRow(t, f, name, "A2", "Z-1", "old")
+	}
+	require.NoError(t, f.SetSheetVisible("Archive", false))
+	require.NoError(t, f.SetSheetVisible("Secret", false, true))
+	return saveBook(t, f, "hidden.xlsx")
+}
+
+func TestInspectHidden(t *testing.T) {
+	t.Parallel()
+	info, err := Inspect(context.Background(), hiddenBook(t), InspectOptions{})
+	require.NoError(t, err)
+	require.Len(t, info.Sheets, 3)
+	data, archive, secret := info.Sheets[0], info.Sheets[1], info.Sheets[2]
+	assert.False(t, data.Hidden)
+	assert.Equal(t, 3, data.HiddenRows)
+	assert.Equal(t, 6, data.Columns[1].Filled, "the profile still counts hidden rows")
+	assert.True(t, archive.Hidden)
+	assert.Zero(t, archive.HiddenRows)
+	assert.True(t, secret.Hidden, "a very hidden sheet is hidden")
+}
+
+func TestSkipHidden(t *testing.T) {
+	t.Parallel()
+	path := hiddenBook(t)
+	ctx := context.Background()
+
+	all, err := Read(ctx, path, ReadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, 6, all.Count, "hidden rows are read by default")
+	visible, err := Read(ctx, path, ReadOptions{SkipHidden: true})
+	require.NoError(t, err)
+	require.Equal(t, 3, visible.Count)
+	for i, want := range []int{2, 4, 7} {
+		assert.Equal(t, want, visible.Rows[i][RowNumberKey])
+		assert.Equal(t, "済", visible.Rows[i]["状態"])
+	}
+
+	checked, err := Validate(ctx, path, ValidateOptions{SkipHidden: true, Allowed: map[string][]any{"状態": {"済"}}})
+	require.NoError(t, err)
+	assert.Equal(t, 3, checked.Rows)
+	assert.True(t, checked.OK, "the rows the filter hides are not checked")
+
+	out := filepath.Join(t.TempDir(), "visible.csv")
+	converted, err := Convert(ctx, path, ConvertOptions{Output: out, SkipHidden: true})
+	require.NoError(t, err)
+	assert.Equal(t, 3, converted.Count)
+	csv, err := os.ReadFile(out)
+	require.NoError(t, err)
+	assert.Equal(t, "ID,状態\nA-1,済\nA-3,済\nA-6,済\n", string(csv))
+}
+
 func TestOpenErrors(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

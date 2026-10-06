@@ -64,6 +64,8 @@ type ValidateOptions struct {
 	Merged   MergedMode
 	Trim     bool
 	Formulas FormulaMode
+	// SkipHidden leaves out rows hidden by a filter or by hand.
+	SkipHidden bool
 
 	// Required lists columns the header row must have.
 	Required []string
@@ -235,6 +237,9 @@ func (w *file) validate(ctx context.Context, opts ValidateOptions) (*ValidateRes
 	for r := layout.dataStart; r <= reg.R2; r++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
+		}
+		if opts.SkipHidden && w.rowHidden(sheet, grid, r) {
+			continue
 		}
 		full, empty, err := w.readRow(sheet, reg, r, grid, merges, headers, nil, readOpts, warn)
 		if err != nil {

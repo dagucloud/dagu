@@ -43,6 +43,8 @@ type ReadOptions struct {
 	Where         map[string]any
 	// MaxRows caps the rows returned; zero means DefaultMaxRows.
 	MaxRows int
+	// SkipHidden leaves out rows hidden by a filter or by hand.
+	SkipHidden bool
 
 	// quietLimit drops the warning a hit MaxRows adds; Inspect samples a
 	// few rows on purpose and reports the row count separately.
@@ -120,6 +122,9 @@ func (w *file) read(ctx context.Context, opts ReadOptions) (*ReadResult, error) 
 	for r := layout.dataStart; r <= reg.R2; r++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
+		}
+		if opts.SkipHidden && w.rowHidden(sheet, grid, r) {
+			continue
 		}
 		full, empty, err := w.readRow(sheet, reg, r, grid, merges, headers, plan.types, opts, warn)
 		if err != nil {
@@ -207,6 +212,17 @@ func (w *file) locate(sheetName, rangeRef string, header HeaderSpec) (location, 
 	default:
 		return location{}, fmt.Errorf("unknown header mode %d", header.Mode)
 	}
+}
+
+// rowHidden reports whether a sheet row is hidden, by a filter or by hand.
+// Rows past the last one holding a cell count as shown: they are blank, and
+// the library reports every row past the stored ones as hidden.
+func (w *file) rowHidden(sheet string, grid [][]string, row int) bool {
+	if row >= len(grid) {
+		return false
+	}
+	visible, err := w.f.GetRowVisible(sheet, row)
+	return err == nil && !visible
 }
 
 // readRow types every cell of one sheet row under the region's headers.
