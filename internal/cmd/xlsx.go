@@ -45,6 +45,10 @@ block, the header row and column names, the type of each column, the
 number of data rows, its tables, and a few typed sample rows. Named ranges
 and the date system are listed for the workbook.
 
+A sheet hidden from the workbook's tabs is marked (hidden), and a sheet
+with rows hidden by a filter or by hand counts them, as in "300 rows, 12
+hidden"; dagu xlsx read --skip-hidden leaves those rows out.
+
 Types and a profile of each column come from every data row of the block,
 up to 5000: how many cells are filled and blank, how many distinct values
 there are, the values themselves when a few repeat, the lowest and highest
@@ -58,10 +62,10 @@ This is what xlsx.info publishes, read straight from the file. Nothing is
 written and no run is created.
 
 With --format json, the result is one JSON object: path, date_system,
-sheets (each with name, used_range, range, header_row, headers, types,
-row_count, columns, profile_truncated, tables, and sample), named_ranges,
-and warnings. Each column has name, type, filled, blank, distinct, values,
-min, max, odd, and odd_cells.
+sheets (each with name, hidden, used_range, range, header_row, headers,
+types, row_count, hidden_rows, columns, profile_truncated, tables, and
+sample), named_ranges, and warnings. Each column has name, type, filled,
+blank, distinct, values, min, max, odd, and odd_cells.
 `,
 		Example: `  dagu xlsx inspect orders.xlsx
   dagu xlsx inspect orders.xlsx --sheet Orders --rows 10
@@ -82,7 +86,8 @@ func xlsxReadCommand() *cobra.Command {
 		Short: "Print the typed rows of a sheet",
 		Long: `Print the rows of a sheet the way xlsx.read publishes them: numbers stay
 numbers, dates become ISO 8601 text, text keeps its leading zeros, and each
-row carries _row, its sheet row number.
+row carries _row, its sheet row number. Rows hidden by a filter or by hand
+are read unless --skip-hidden leaves them out.
 
 With --format json, the result is one JSON object: rows, count, headers,
 sheet, range, warnings, and truncated. The text format prints a tab-separated
@@ -90,7 +95,8 @@ header line and one line per row.
 `,
 		Example: `  dagu xlsx read orders.xlsx
   dagu xlsx read orders.xlsx --sheet Orders --range A2:F --header false
-  dagu xlsx read orders.xlsx --columns "Invoice No,Amount" --format json`,
+  dagu xlsx read orders.xlsx --columns "Invoice No,Amount" --format json
+  dagu xlsx read orders.xlsx --skip-hidden`,
 		Args:         cobra.ExactArgs(1),
 		SilenceUsage: true,
 		RunE:         runXlsxRead,
@@ -100,6 +106,7 @@ header line and one line per row.
 	cmd.Flags().String("header", "true", "Header: true, false, a row number, or rows such as 3,4")
 	cmd.Flags().String("columns", "", "Columns to keep, comma-separated, with optional name:alias renames")
 	cmd.Flags().Int("max-rows", 0, "Most rows to print (default 5000)")
+	cmd.Flags().Bool("skip-hidden", false, "Leave out rows hidden by a filter or by hand")
 	cmd.Flags().StringP("format", "f", "text", "Output format: text or json (default: text)")
 	return cmd
 }
@@ -160,6 +167,7 @@ func runXlsxRead(cmd *cobra.Command, args []string) error {
 	opts.Sheet, _ = cmd.Flags().GetString("sheet")
 	opts.Range, _ = cmd.Flags().GetString("range")
 	opts.MaxRows, _ = cmd.Flags().GetInt("max-rows")
+	opts.SkipHidden, _ = cmd.Flags().GetBool("skip-hidden")
 	header, _ := cmd.Flags().GetString("header")
 	if opts.Header, err = workbook.ParseHeader(header); err != nil {
 		return fmt.Errorf("--header: %w", err)
@@ -207,16 +215,23 @@ func renderInfo(out io.Writer, info *workbook.Info) error {
 	w := &lineWriter{out: out}
 	w.printf("%s: %d sheets, %s date system\n", workbook.Base(info.Path), len(info.Sheets), info.DateSystem)
 	for _, s := range info.Sheets {
+		name := fmt.Sprintf("%q", s.Name)
+		if s.Hidden {
+			name += " (hidden)"
+		}
 		if s.HeaderRow == 0 {
-			w.printf("Sheet %q: empty\n", s.Name)
+			w.printf("Sheet %s: empty\n", name)
 			continue
 		}
-		profiled := ""
-		if s.ProfileTruncated && len(s.Columns) > 0 {
-			profiled = fmt.Sprintf(", first %d profiled", s.Columns[0].Filled+s.Columns[0].Blank)
+		rows := fmt.Sprintf("%d rows", s.RowCount)
+		if s.HiddenRows > 0 {
+			rows += fmt.Sprintf(", %d hidden", s.HiddenRows)
 		}
-		w.printf("Sheet %q: used %s, table %s, header row %d, %d rows%s\n",
-			s.Name, strings.TrimPrefix(s.UsedRange, s.Name+"!"), s.Range, s.HeaderRow, s.RowCount, profiled)
+		if s.ProfileTruncated && len(s.Columns) > 0 {
+			rows += fmt.Sprintf(", first %d profiled", s.Columns[0].Filled+s.Columns[0].Blank)
+		}
+		w.printf("Sheet %s: used %s, table %s, header row %d, %s\n",
+			name, strings.TrimPrefix(s.UsedRange, s.Name+"!"), s.Range, s.HeaderRow, rows)
 		columns := make([]string, 0, len(s.Columns))
 		for _, c := range s.Columns {
 			columns = append(columns, columnSummary(c))

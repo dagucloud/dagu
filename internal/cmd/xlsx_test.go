@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -16,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/workbook"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/xuri/excelize/v2"
 )
 
 func writeTestWorkbook(t *testing.T) string {
@@ -89,6 +91,34 @@ func TestXlsxInspectTextProfile(t *testing.T) {
 	out, err := runXlsx(t, "inspect", path)
 	require.NoError(t, err)
 	assert.Contains(t, out, `Columns: Status (string: 済, 未; 1 blank), Qty (integer; 1..4; 1 odd: B4 "未定")`)
+}
+
+func TestXlsxHiddenSheetsAndRows(t *testing.T) {
+	t.Parallel()
+	f := excelize.NewFile()
+	for i, row := range [][]any{{"ID", "Status"}, {"A-1", "Done"}, {"A-2", "Open"}, {"A-3", "Done"}} {
+		require.NoError(t, f.SetSheetRow("Sheet1", fmt.Sprintf("A%d", i+1), &row))
+	}
+	require.NoError(t, f.SetRowVisible("Sheet1", 3, false))
+	_, err := f.NewSheet("Archive")
+	require.NoError(t, err)
+	require.NoError(t, f.SetSheetRow("Archive", "A1", &[]any{"ID", "Note"}))
+	require.NoError(t, f.SetSheetVisible("Archive", false))
+	path := filepath.Join(t.TempDir(), "hidden.xlsx")
+	require.NoError(t, f.SaveAs(path))
+	require.NoError(t, f.Close())
+
+	out, err := runXlsx(t, "inspect", path)
+	require.NoError(t, err)
+	assert.Contains(t, out, `Sheet "Sheet1": used A1:B4, table Sheet1!A1:B4, header row 1, 3 rows, 1 hidden`)
+	assert.Contains(t, out, `Sheet "Archive" (hidden): used A1:B1, table Archive!A1:B1, header row 1, 0 rows`)
+
+	out, err = runXlsx(t, "read", path, "--skip-hidden", "--format", "json")
+	require.NoError(t, err)
+	var result workbook.ReadResult
+	require.NoError(t, json.Unmarshal([]byte(out), &result))
+	require.Equal(t, 2, result.Count)
+	assert.Equal(t, "A-3", result.Rows[1]["ID"])
 }
 
 func TestXlsxReadJSONAndText(t *testing.T) {
