@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Package spec077_xlsx_test covers the xlsx actions through the CLI. Every
-// workbook is created by xlsx.write inside the fixture, and step outputs are
-// captured with file.write steps because outputs do not go to stdout.
+// workbook is created by xlsx.write inside the fixture, except one with
+// hidden sheets and rows, which no action writes and the test builds; step
+// outputs are captured with file.write steps because outputs do not go to
+// stdout.
 package spec077_xlsx_test
 
 import (

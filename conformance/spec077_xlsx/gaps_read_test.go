@@ -4,12 +4,14 @@
 package spec077_xlsx_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
 	"github.com/stretchr/testify/require"
+	"github.com/xuri/excelize/v2"
 )
 
 // readOut is what a reading fixture captures for one xlsx.read step.
@@ -183,6 +185,75 @@ func TestXlsxInfoProfile(t *testing.T) {
 	lines := strings.Split(strings.ReplaceAll(text.Stdout(), "\r\n", "\n"), "\n")
 	require.Equal(t, `Sheet "Orders": used A1:D5002, table Orders!A1:D5002, header row 1, 5001 rows, first 5000 profiled`, lines[1])
 	require.Equal(t, `  Columns: ID (string), 状態 (string: 済, 未; 1667 blank), 数量 (integer; 2..5001; 1 odd: C300 "未定"), Calc (string; 5000 blank)`, lines[2])
+}
+
+// writeHiddenBook builds a workbook no action can write: a sheet with one
+// row hidden by hand and two hidden by an autofilter on 状態, a hidden
+// sheet, and a very hidden sheet.
+func writeHiddenBook(t *testing.T, dagu *harness.Runner) {
+	t.Helper()
+	f := excelize.NewFile()
+	require.NoError(t, f.SetSheetName("Sheet1", "Data"))
+	for i, row := range [][]any{{"ID", "状態"}, {"A-1", "済"}, {"A-2", "未"}, {"A-3", "済"}, {"A-4", "未"}, {"A-5", "保留"}, {"A-6", "済"}} {
+		require.NoError(t, f.SetSheetRow("Data", fmt.Sprintf("A%d", i+1), &row))
+	}
+	require.NoError(t, f.SetRowVisible("Data", 3, false))
+	require.NoError(t, f.AutoFilter("Data", "A1:B7", []excelize.AutoFilterOptions{{Column: "B", Expression: "x == 済"}}))
+	require.NoError(t, f.SetRowVisible("Data", 5, false))
+	require.NoError(t, f.SetRowVisible("Data", 6, false))
+	for _, name := range []string{"Archive", "Secret"} {
+		_, err := f.NewSheet(name)
+		require.NoError(t, err)
+		require.NoError(t, f.SetSheetRow(name, "A1", &[]any{"ID", "Note"}))
+	}
+	require.NoError(t, f.SetSheetVisible("Archive", false))
+	require.NoError(t, f.SetSheetVisible("Secret", false, true))
+	require.NoError(t, f.SaveAs(dagu.ProjectPath("hidden.xlsx")))
+	require.NoError(t, f.Close())
+}
+
+func TestXlsxHiddenSheetsAndRows(t *testing.T) {
+	t.Parallel()
+	dagu := harness.NewRunner(t)
+	writeHiddenBook(t, dagu)
+	dagu.Run("start", "hidden_rows.yaml").ExpectExitCode(0)
+
+	var out struct {
+		Sheets []struct {
+			Name       string `json:"name"`
+			Hidden     bool   `json:"hidden"`
+			HiddenRows int    `json:"hidden_rows"`
+		} `json:"sheets"`
+		All       int              `json:"all"`
+		Visible   []map[string]any `json:"visible"`
+		Checked   int              `json:"checked"`
+		OK        bool             `json:"ok"`
+		Converted int              `json:"converted"`
+	}
+	readJSON(t, dagu, "out.json", &out)
+	require.Len(t, out.Sheets, 3)
+	require.False(t, out.Sheets[0].Hidden)
+	require.Equal(t, 3, out.Sheets[0].HiddenRows, "rows hidden by hand and by the filter count")
+	require.True(t, out.Sheets[1].Hidden)
+	require.True(t, out.Sheets[2].Hidden, "a very hidden sheet is hidden")
+	require.Equal(t, 6, out.All, "hidden rows are read by default")
+	require.Equal(t, []string{"A-1", "A-3", "A-6"}, names(out.Visible, "ID"))
+	require.Equal(t, 3, out.Checked)
+	require.True(t, out.OK, "validate checks only the rows shown")
+	require.Equal(t, 3, out.Converted)
+	require.Equal(t, "ID,状態\nA-1,済\nA-3,済\nA-6,済\n", strings.ReplaceAll(readFile(t, dagu, "visible.csv"), "\r\n", "\n"))
+
+	text := dagu.Run("xlsx", "inspect", "hidden.xlsx", "--rows", "0")
+	text.ExpectExitCode(0)
+	lines := strings.Split(strings.ReplaceAll(text.Stdout(), "\r\n", "\n"), "\n")
+	require.Equal(t, `Sheet "Data": used A1:B7, table Data!A1:B7, header row 1, 6 rows, 3 hidden`, lines[1])
+	require.Equal(t, `Sheet "Archive" (hidden): used A1:B1, table Archive!A1:B1, header row 1, 0 rows`, lines[3])
+
+	read := dagu.Run("xlsx", "read", "hidden.xlsx", "--skip-hidden", "--format", "json")
+	read.ExpectExitCode(0)
+	var rows readOut
+	require.NoError(t, json.Unmarshal([]byte(read.Stdout()), &rows), read.Stdout())
+	require.Equal(t, []string{"A-1", "A-3", "A-6"}, names(rows.Rows, "ID"))
 }
 
 type oddCell struct {
