@@ -99,3 +99,87 @@ func TestWaitForUnlockSucceedsOnceReleased(t *testing.T) {
 	require.NotEmpty(t, logs)
 	assert.Contains(t, logs[0], "held.xlsx is open in another program; retrying in 2s")
 }
+
+// holdSharingReads opens a file the way Excel opens a workbook: for reading
+// and writing, sharing reads only. The workbook can still be read, so the
+// temporary file of an atomic save is written, but the rename over the
+// original is refused.
+func holdSharingReads(t *testing.T, path string) func() {
+	t.Helper()
+	name, err := syscall.UTF16PtrFromString(path)
+	require.NoError(t, err)
+	handle, err := syscall.CreateFile(name, syscall.GENERIC_READ|syscall.GENERIC_WRITE, syscall.FILE_SHARE_READ, nil, syscall.OPEN_EXISTING, syscall.FILE_ATTRIBUTE_NORMAL, 0)
+	require.NoError(t, err)
+	var once sync.Once
+	release := func() { once.Do(func() { _ = syscall.CloseHandle(handle) }) }
+	t.Cleanup(release)
+	return release
+}
+
+// Excel refuses the rename over a workbook it has open with access denied,
+// not a sharing violation; the step must still report the workbook as open
+// in another program and leave no temporary file behind.
+func TestRenameOverHeldWorkbookBecomesLockedError(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "held.xlsx")
+	_, err := Write(context.Background(), path, orders(), WriteOptions{Header: true})
+	require.NoError(t, err)
+
+	release := holdSharingReads(t, path)
+	defer release()
+
+	_, err = Append(context.Background(), path, Table{Columns: orders().Columns, Rows: [][]any{{"INV-3", 1, nil, nil, nil}}}, WriteOptions{Header: true})
+	var locked *LockedError
+	require.ErrorAs(t, err, &locked)
+	assert.Equal(t, "held.xlsx is open in another program; close it and retry", err.Error())
+	entries, err := os.ReadDir(filepath.Dir(path))
+	require.NoError(t, err)
+	for _, entry := range entries {
+		assert.NotContains(t, entry.Name(), ".dagu-", "a refused rename leaves no temporary file")
+	}
+}
+
+// A rename refused for a reason other than another program's hold, such as a
+// read-only workbook, keeps the system error so nobody waits for a release
+// that never comes.
+func TestRenameOverReadOnlyWorkbookIsNotLocked(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "readonly.xlsx")
+	_, err := Write(context.Background(), path, orders(), WriteOptions{Header: true})
+	require.NoError(t, err)
+	require.NoError(t, os.Chmod(path, 0o444))
+	t.Cleanup(func() { _ = os.Chmod(path, 0o644) })
+
+	_, err = Append(context.Background(), path, Table{Columns: orders().Columns, Rows: [][]any{{"INV-3", 1, nil, nil, nil}}}, WriteOptions{Header: true})
+	require.Error(t, err)
+	var locked *LockedError
+	assert.False(t, errors.As(err, &locked), "a read-only workbook is not open in another program: %v", err)
+	assert.ErrorIs(t, err, syscall.ERROR_ACCESS_DENIED)
+}
+
+func TestWaitForUnlockSucceedsOnceExcelReleasesTheWorkbook(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "held.xlsx")
+	_, err := Write(context.Background(), path, orders(), WriteOptions{Header: true})
+	require.NoError(t, err)
+
+	release := holdSharingReads(t, path)
+	released := false
+	var logs []string
+	opts := WriteOptions{Header: true, Lock: LockOptions{
+		WaitFor: 10 * time.Second,
+		Log:     func(msg string) { logs = append(logs, msg) },
+		sleep: func(context.Context, time.Duration) error {
+			if !released {
+				release()
+				released = true
+			}
+			return nil
+		},
+	}}
+	result, err := Append(context.Background(), path, Table{Columns: orders().Columns, Rows: [][]any{{"INV-3", 1, nil, nil, nil}}}, opts)
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.Changes.RowsAppended)
+	require.Len(t, logs, 1)
+	assert.Contains(t, logs[0], "held.xlsx is open in another program; retrying in 2s")
+}

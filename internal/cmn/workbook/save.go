@@ -69,8 +69,8 @@ func openOrCreate(path, password, sheet string) (w *file, created bool, err erro
 // temporary name in the same directory that is renamed over the target, so
 // a crash never leaves a half-written workbook; the target's permission
 // bits are kept, and a symbolic link is followed so the workbook it points
-// to is replaced rather than the link. Sharing violations become
-// LockedError.
+// to is replaced rather than the link. A sharing violation, or a rename
+// another program's hold on the workbook refuses, becomes LockedError.
 func (w *file) save(inPlace bool) error {
 	if inPlace {
 		return classifyError(w.path, w.f.SaveAs(w.path))
@@ -106,7 +106,7 @@ func replaceAtomically(path, ext string, fill func(tmp string) error) error {
 	}
 	if err := os.Rename(tmp, target); err != nil {
 		_ = os.Remove(tmp)
-		return classifyError(path, err)
+		return classifyRenameError(path, target, err)
 	}
 	return nil
 }

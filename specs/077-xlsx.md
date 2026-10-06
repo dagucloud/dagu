@@ -448,11 +448,16 @@ fails the step; a lock file nobody holds is a leftover of a crash, so the
 step warns and continues: on Windows, where the hold can be probed,
 `~$orders.xlsx exists but no program holds it; the workbook may have been
 closed without cleanup`, elsewhere `~$orders.xlsx exists; the workbook may
-be open in another program, or the lock file may be a leftover`. A Windows
-sharing violation on open, save, or
-rename fails the same way. `wait_for_unlock: 5m` retries a locked workbook,
-waiting two seconds and doubling to one minute, and logs each wait; the
-whole open-modify-save sequence runs again on each try.
+be open in another program, or the lock file may be a leftover`. On
+Windows, a sharing violation on open or save fails the same way, and so
+does a rename refused because another program holds the workbook open:
+Excel shares only reads, so the temporary file is written but the rename
+over the original is refused with access denied, and the step tells that
+hold apart from a read-only workbook or a permission problem, which keep
+the system error. A refused rename leaves no temporary file behind.
+`wait_for_unlock: 5m` retries a locked workbook, waiting two seconds and
+doubling to one minute, and logs each wait; the whole open-modify-save
+sequence runs again on each try.
 
 ### Artifacts
 

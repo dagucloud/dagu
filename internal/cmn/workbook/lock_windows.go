@@ -39,3 +39,31 @@ func lockFileHeld(lock string) bool {
 	_ = f.Close()
 	return false
 }
+
+// deleteAccess is the DELETE access right, which syscall does not name.
+const deleteAccess = 0x00010000
+
+// renameRefusedByHolder reports whether a rename over target failed because
+// another process holds it open without sharing deletes, the way Excel
+// holds a workbook: it shares reads only, so the temporary file of an atomic
+// save is written but the rename over the original is refused. Windows
+// reports that refusal as access denied, the same code as a read-only file
+// or a permission problem, so the hold is probed: opening the file for
+// deletion with every share mode fails with a sharing violation only while
+// such a handle exists.
+func renameRefusedByHolder(target string, err error) bool {
+	if !errors.Is(err, syscall.ERROR_ACCESS_DENIED) {
+		return false
+	}
+	name, convErr := syscall.UTF16PtrFromString(target)
+	if convErr != nil {
+		return false
+	}
+	share := uint32(syscall.FILE_SHARE_READ | syscall.FILE_SHARE_WRITE | syscall.FILE_SHARE_DELETE)
+	handle, openErr := syscall.CreateFile(name, deleteAccess, share, nil, syscall.OPEN_EXISTING, syscall.FILE_ATTRIBUTE_NORMAL, 0)
+	if openErr != nil {
+		return isSharingViolation(openErr)
+	}
+	_ = syscall.CloseHandle(handle)
+	return false
+}
