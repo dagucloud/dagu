@@ -728,6 +728,36 @@ func TestSkipHiddenLastRow(t *testing.T) {
 	assert.Equal(t, 1, info.Sheets[0].HiddenRows)
 }
 
+// TestSkipHiddenLimits covers skipped rows meeting max_rows and
+// stop_at_blank: a hidden row does not count toward the cap, and a hidden
+// blank row does not stop the read.
+func TestSkipHiddenLimits(t *testing.T) {
+	t.Parallel()
+	f := excelize.NewFile()
+	setRow(t, f, "Sheet1", "A1", "ID", "Note")
+	setRow(t, f, "Sheet1", "A2", "A-1", "shown")
+	setRow(t, f, "Sheet1", "A3", "A-2", "hidden")
+	setRow(t, f, "Sheet1", "A5", "A-3", "shown")
+	require.NoError(t, f.SetRowVisible("Sheet1", 3, false))
+	require.NoError(t, f.SetRowVisible("Sheet1", 4, false))
+	path := saveBook(t, f, "limits.xlsx")
+	ctx := context.Background()
+
+	capped, err := Read(ctx, path, ReadOptions{SkipHidden: true, MaxRows: 2})
+	require.NoError(t, err)
+	require.Equal(t, 2, capped.Count)
+	assert.Equal(t, "A-3", capped.Rows[1]["ID"], "the hidden row does not count toward max_rows")
+	assert.False(t, capped.Truncated)
+
+	stopped, err := Read(ctx, path, ReadOptions{StopAtBlank: true})
+	require.NoError(t, err)
+	assert.Equal(t, 2, stopped.Count, "the hidden blank row stops a read that keeps hidden rows")
+	visible, err := Read(ctx, path, ReadOptions{SkipHidden: true, StopAtBlank: true})
+	require.NoError(t, err)
+	require.Equal(t, 2, visible.Count)
+	assert.Equal(t, "A-3", visible.Rows[1]["ID"])
+}
+
 func TestOpenErrors(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
