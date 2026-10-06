@@ -824,6 +824,8 @@ func (h *remoteTaskHandler) executeDAGRun(
 		opts,
 	)
 
+	onShutdownSignal(ctx, agentInstance.Signal)
+
 	// Run the agent
 	if err := agentInstance.Run(ctx); err != nil {
 		logger.Error(ctx, "DAG execution failed",

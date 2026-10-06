@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"syscall"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
@@ -78,6 +79,9 @@ var workerFlags = []commandLineFlag{
 }
 
 func runWorker(ctx *Context, _ []string) error {
+	signalCtx, stop := notifyShutdownContext(ctx.Context, syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	workerID := ctx.Config.Worker.ID
 	// Default to hostname@PID if not configured
 	if workerID == "" {
@@ -121,7 +125,9 @@ func runWorker(ctx *Context, _ []string) error {
 	// browsers by deadline and owner liveness only.
 	startBrowserReaper(ctx, ctx.Config.Paths.DataDir, nil)
 
-	// Start the worker in a goroutine to allow for graceful shutdown
+	// Start the worker in a goroutine to allow for graceful shutdown. It gets
+	// the parent context because canceling it would cancel running tasks
+	// instead of letting Stop drain them.
 	errCh := make(chan error, 1)
 	go func() {
 		if err := w.Start(ctx); err != nil {
@@ -131,7 +137,9 @@ func runWorker(ctx *Context, _ []string) error {
 
 	// Wait for either context cancellation or an error
 	select {
-	case <-ctx.Done():
+	case <-signalCtx.Done():
+		// Let a second SIGINT end shutdown; SIGTERM stays absorbed.
+		stop()
 		logger.Info(ctx, "Worker shutting down")
 		if err := w.Stop(ctx); err != nil {
 			return fmt.Errorf("failed to stop worker: %w", err)

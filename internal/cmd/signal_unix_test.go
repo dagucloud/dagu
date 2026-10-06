@@ -383,6 +383,49 @@ func TestSchedulerUnsupportedSignal(t *testing.T) {
 	}
 }
 
+// A standalone worker must stop its poll loop on SIGINT and SIGTERM and exit
+// cleanly instead of being killed by the default signal action.
+func TestWorkerSignalShutdown(t *testing.T) {
+	for _, shutdownSignal := range []os.Signal{syscall.SIGTERM, syscall.SIGINT} {
+		t.Run(shutdownSignal.String(), func(t *testing.T) {
+			th := test.SetupCommand(t, test.WithBuiltExecutable())
+			port := findPort(t)
+			coord := startServiceCommand(t, th, "coordinator", "--coordinator.port="+port, "--coordinator.health-port=0")
+			require.Eventually(t, func() bool {
+				return strings.Contains(coord.output(), "Registered with service registry")
+			}, commandLogWaitTimeout(), 20*time.Millisecond, "output: %s", coord.output())
+
+			run := startServiceCommand(t, th, "worker", "--worker.coordinators=127.0.0.1:"+port, "--worker.health-port=0")
+			require.Eventually(t, func() bool {
+				return strings.Contains(run.output(), "Starting worker")
+			}, commandLogWaitTimeout(), 20*time.Millisecond, "output: %s", run.output())
+			require.NoError(t, run.command.Process.Signal(shutdownSignal))
+			require.NoError(t, run.wait(t), "output: %s", run.output())
+			require.Contains(t, run.output(), "Worker shutting down")
+		})
+	}
+}
+
+func startServiceCommand(t *testing.T, th test.Command, args ...string) *signalRun {
+	t.Helper()
+	command := exec.Command(th.Config.Paths.Executable, test.WithConfigFlag(args, th.Config)...) //nolint:gosec // Test executes the repository binary.
+	command.Env = th.ChildEnv
+	logFile, err := os.CreateTemp(t.TempDir(), args[0]+"-*.log")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = logFile.Close() })
+	command.Stdout, command.Stderr = logFile, logFile
+	require.NoError(t, command.Start())
+	waitCh := make(chan error, 1)
+	go func() { waitCh <- command.Wait() }()
+	run := &signalRun{th: th, command: command, waitCh: waitCh, logFile: logFile}
+	t.Cleanup(func() {
+		if !run.exited {
+			terminateTestCommand(command, waitCh)
+		}
+	})
+	return run
+}
+
 type signalRun struct {
 	th       test.Command
 	dag      test.DAG

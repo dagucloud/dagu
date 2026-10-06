@@ -4,8 +4,11 @@
 package distr_test
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
 	"syscall"
 	"testing"
 	"time"
@@ -317,6 +320,50 @@ steps:
 			}
 		}
 	})
+}
+
+// Stopping a worker must let its running DAG run clean up and run its
+// lifecycle handlers before the run context is canceled.
+func TestCancellation_WorkerStopDrainsRun(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses a POSIX shell trap")
+	}
+	dir := t.TempDir()
+	trapMarker := filepath.Join(dir, "trap")
+	exitMarker := filepath.Join(dir, "exit")
+	f := newTestFixture(t, fmt.Sprintf(`
+name: worker-stop-drain
+worker_selector:
+  test: "true"
+max_clean_up_time_sec: 10
+handler_on:
+  exit:
+    run: touch %s
+steps:
+  - name: long
+    run: |
+      trap 'sleep 1; touch %s; exit 1' TERM
+      sleep 30 &
+      wait
+`, test.ShellQuote(exitMarker), test.ShellQuote(trapMarker)))
+	defer f.cleanup()
+
+	require.NoError(t, f.enqueue())
+	f.waitForQueued()
+	f.startScheduler(30 * time.Second)
+	f.waitForStatus(ir.Running, 20*time.Second)
+	// Give the step time to install its trap.
+	time.Sleep(time.Second)
+
+	stopCtx, cancel := context.WithTimeout(context.Background(), distrTestTimeout(20*time.Second))
+	defer cancel()
+	require.NoError(t, f.workers[0].Stop(stopCtx))
+
+	require.FileExists(t, trapMarker, "step cleanup should finish before the worker stops")
+	require.FileExists(t, exitMarker, "exit handler should run before the worker stops")
+	status := f.waitForStatusIn([]ir.Status{ir.Aborted, ir.Failed}, 10*time.Second)
+	require.NotNil(t, status.OnExit)
+	require.Equal(t, ir.NodeSucceeded, status.OnExit.Status)
 }
 
 func TestCancellation_ParallelItems(t *testing.T) {

@@ -13,6 +13,7 @@ import (
 	"os"
 	"runtime"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
@@ -45,11 +46,17 @@ type Worker struct {
 
 	// For cancellation support (key is AttemptKey)
 	cancelFuncs map[string]context.CancelFunc
+	// For graceful shutdown requests to running tasks (key is AttemptKey)
+	runSignals map[string]*runSignal
+	stopping   bool
 
 	// For graceful shutdown
-	stopOnce   sync.Once
-	stopCancel context.CancelFunc // Cancels the worker's internal context
-	stopDone   chan struct{}      // Signals when all goroutines have stopped
+	stopOnce    sync.Once
+	stopPolling context.CancelFunc // Stops polling for new tasks
+	stopCancel  context.CancelFunc // Cancels the worker's internal context
+	runsCtx     context.Context    // Running tasks are canceled when this is done
+	pollersDone chan struct{}      // Signals when all pollers, and so all tasks, have stopped
+	stopDone    chan struct{}      // Signals when all goroutines have stopped
 
 	// For global PostgreSQL connection pool
 	poolManager  *sql.GlobalPoolManager
@@ -126,6 +133,7 @@ func NewWorker(
 		runningTasks:   make(map[string]*runningTaskState),
 		pollerTasks:    make(map[string]string),
 		cancelFuncs:    make(map[string]context.CancelFunc),
+		runSignals:     make(map[string]*runSignal),
 		healthServer:   healthcheck.NewServer("worker", healthPort),
 		openCodeHost:   opencodehost.New(context.Background(), openCodeConfig),
 	}
@@ -150,6 +158,12 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 	internalCtx = opencodehost.WithHost(internalCtx, w.openCodeHost)
 	w.stopCancel = cancel
 	w.stopDone = make(chan struct{})
+	// Stop() ends polling first so that running tasks can finish before
+	// internalCtx is canceled.
+	pollingStopped, stopPolling := context.WithCancel(context.Background())
+	w.stopPolling = stopPolling
+	w.runsCtx = internalCtx
+	w.pollersDone = make(chan struct{})
 
 	if w.cfg != nil {
 		w.poolManager = sql.NewGlobalPoolManager(sql.GlobalPoolConfig{
@@ -191,14 +205,18 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 		}
 	}
 
+	pollCtx, cancelPoll := context.WithCancel(internalCtx)
+	context.AfterFunc(pollingStopped, cancelPoll)
+
 	// Create a wait group to track all polling goroutines
 	var wg sync.WaitGroup
+	var pollers sync.WaitGroup
 
 	// Launch polling goroutines
 	for i := 0; i < w.maxActiveRuns; i++ {
-		wg.Add(1)
+		pollers.Add(1)
 		go func(pollerIndex int) {
-			defer wg.Done()
+			defer pollers.Done()
 			// Create a wrapper task handler that tracks task state
 			wrappedHandler := &trackingHandler{
 				worker:      w,
@@ -206,9 +224,14 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 				handler:     w.handler,
 			}
 			poller := NewPoller(w.id, w.coordinatorCli, wrappedHandler, pollerIndex, w.labels)
-			poller.Run(internalCtx)
+			poller.Run(pollCtx)
 		}(i)
 	}
+	wg.Go(func() {
+		pollers.Wait()
+		cancelPoll()
+		close(w.pollersDone)
+	})
 
 	// Start heartbeat goroutine
 	wg.Go(func() {
@@ -218,7 +241,7 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 		w.sendRunHeartbeats(internalCtx)
 	})
 	wg.Go(func() {
-		w.cleanupAgentSessions(internalCtx)
+		w.cleanupAgentSessions(pollCtx)
 	})
 
 	// Wait for all goroutines to complete, then signal done
@@ -345,6 +368,22 @@ func (w *Worker) Stop(ctx context.Context) error {
 	w.stopOnce.Do(func() {
 		logger.Info(ctx, "Worker stopping", tag.WorkerID(w.id))
 
+		// Stop polling, then ask running tasks to stop the way a local run
+		// handles SIGTERM. Their contexts stay live so cleanup, lifecycle
+		// handlers and the final status report can run.
+		if w.stopPolling != nil {
+			w.stopPolling()
+		}
+		w.signalRunningTasks(syscall.SIGTERM)
+		if w.pollersDone != nil {
+			select {
+			case <-w.pollersDone:
+			case <-ctx.Done():
+				logger.Warn(ctx, "Worker stop timed out waiting for running tasks",
+					tag.WorkerID(w.id))
+			}
+		}
+
 		// Cancel the internal context to signal all goroutines to stop
 		if w.stopCancel != nil {
 			w.stopCancel()
@@ -459,9 +498,15 @@ func (t *trackingHandler) Handle(ctx context.Context, task *coordinatorv1.Task) 
 		return err
 	}
 
-	// Create a cancellable context for this task
-	taskCtx, cancel := context.WithCancel(ctx)
+	// Create a cancellable context for this task. It outlives the poll
+	// context so a graceful stop can finish; Stop cancels it through runsCtx.
+	taskCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancel()
+	if t.worker.runsCtx != nil {
+		defer context.AfterFunc(t.worker.runsCtx, cancel)()
+	}
+	signal := &runSignal{}
+	taskCtx = context.WithValue(taskCtx, runSignalKey{}, signal)
 
 	runningTask := &coordinatorv1.RunningTask{
 		DagRunId:         task.DagRunId,
@@ -503,14 +548,20 @@ func (t *trackingHandler) Handle(ctx context.Context, task *coordinatorv1.Task) 
 	}
 	t.worker.pollerTasks[pollerID] = attemptKey
 	t.worker.cancelFuncs[attemptKey] = cancel
+	t.worker.runSignals[attemptKey] = signal
+	stopping := t.worker.stopping
 	t.worker.pollersMu.Unlock()
 	defer func() {
 		t.worker.pollersMu.Lock()
 		delete(t.worker.runningTasks, attemptKey)
 		delete(t.worker.pollerTasks, pollerID)
 		delete(t.worker.cancelFuncs, attemptKey)
+		delete(t.worker.runSignals, attemptKey)
 		t.worker.pollersMu.Unlock()
 	}()
+	if stopping {
+		signal.send(taskCtx, syscall.SIGTERM)
+	}
 
 	// Execute the task with cancellable context
 	return t.handler.Handle(taskCtx, task)
@@ -735,6 +786,60 @@ func (w *Worker) sendHeartbeat(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// runSignal forwards a worker shutdown signal to the run started for a task.
+type runSignal struct {
+	mu      sync.Mutex
+	handler func(context.Context, os.Signal)
+	ctx     context.Context
+	sig     os.Signal
+}
+
+type runSignalKey struct{}
+
+// onShutdownSignal registers handler to receive the worker shutdown signal
+// for the task running under ctx. A signal sent earlier is delivered at once.
+func onShutdownSignal(ctx context.Context, handler func(context.Context, os.Signal)) {
+	s, ok := ctx.Value(runSignalKey{}).(*runSignal)
+	if !ok {
+		return
+	}
+	s.mu.Lock()
+	s.handler, s.ctx = handler, ctx
+	sig := s.sig
+	s.mu.Unlock()
+	if sig != nil {
+		go handler(ctx, sig)
+	}
+}
+
+func (s *runSignal) send(ctx context.Context, sig os.Signal) {
+	s.mu.Lock()
+	if s.sig != nil {
+		s.mu.Unlock()
+		return
+	}
+	s.sig = sig
+	handler := s.handler
+	if s.ctx != nil {
+		ctx = s.ctx
+	}
+	s.mu.Unlock()
+	if handler != nil {
+		go handler(ctx, sig)
+	}
+}
+
+// signalRunningTasks forwards sig to every running task and to tasks that
+// register after this call.
+func (w *Worker) signalRunningTasks(sig os.Signal) {
+	w.pollersMu.Lock()
+	defer w.pollersMu.Unlock()
+	w.stopping = true
+	for _, s := range w.runSignals {
+		s.send(context.Background(), sig)
+	}
 }
 
 // processCancellations cancels tasks that the coordinator has marked for cancellation
