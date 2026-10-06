@@ -269,7 +269,7 @@ column is `string`.
 | `filled`, `blank` | Cells that hold a value, and cells that are empty or hold only white space. |
 | `distinct` | Distinct values, compared as trimmed text, counted up to 1000. |
 | `values` | The distinct values in order of first appearance, when there are 12 or fewer and one repeats, so a column of unique identifiers lists none. A value longer than 40 characters is cut to 40 ending in `…`. |
-| `min`, `max` | The lowest and highest number of an `integer` or `number` column, or date of a `date` or `datetime` column, over the cells that hold that type. |
+| `min`, `max` | The lowest and highest number of an `integer` or `number` column, or date of a `date` or `datetime` column, over the cells that read as that type the way `types` reads them, so `１２` counts as 12. |
 | `odd` | Cells holding a value the column's type cannot read even when pinned with `types`, such as `未定` in a number column. `１２`, `三千`, and `令和8年10月3日` read under their type and are not odd; a `string` column has none. |
 | `odd_cells` | The first three odd cells as `{cell, text}`, such as `{"cell": "D300", "text": "未定"}`, the text cut like a value. |
 

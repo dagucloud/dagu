@@ -71,7 +71,8 @@ type ColumnInfo struct {
 	// cut and ends in "…".
 	Values []string `json:"values,omitempty"`
 	// Min and Max are the lowest and highest value of an integer, number,
-	// date, or datetime column, over the cells that hold that type.
+	// date, or datetime column, over the cells that read as that type the
+	// way a pinned type reads them, so １２ counts as 12.
 	Min any `json:"min,omitempty"`
 	Max any `json:"max,omitempty"`
 	// Odd counts the cells that hold a value which does not read as Type,

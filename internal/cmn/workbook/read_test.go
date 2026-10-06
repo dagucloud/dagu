@@ -553,8 +553,9 @@ func TestInspect(t *testing.T) {
 
 // TestInspectProfile covers what the profile sees below the first rows: a
 // number column with 未定 at row 300, Japanese numerals a pinned number
-// reads, a status column of repeated values and blanks, a column of unique
-// identifiers, and a date column.
+// reads, which count toward its range as 三千 does for the max, a status
+// column of repeated values and blanks, a column of unique identifiers, and
+// a date column.
 func TestInspectProfile(t *testing.T) {
 	t.Parallel()
 	f := excelize.NewFile()
@@ -598,7 +599,7 @@ func TestInspectProfile(t *testing.T) {
 		{Name: "ID", Type: "string", Filled: 300, Distinct: 300},
 		{Name: "状態", Type: "string", Filled: 300 - blanks, Blank: blanks, Distinct: 2, Values: []string{"済", "未"}},
 		{Name: "日付", Type: "date", Filled: 300, Distinct: 300, Min: "2026-01-01", Max: "2026-10-27"},
-		{Name: "数量", Type: "number", Filled: 300, Distinct: 300, Min: int64(2), Max: int64(301),
+		{Name: "数量", Type: "number", Filled: 300, Distinct: 300, Min: int64(2), Max: int64(3000),
 			Odd: 1, OddCells: []OddCell{{Cell: "D300", Text: "未定"}}},
 	}, sheet.Columns)
 }

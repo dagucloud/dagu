@@ -75,20 +75,25 @@ func (p *columnProfile) add(v any, row int, date1904 bool) {
 			}
 		}
 	}
-	kind := detectKind(v)
-	if fitsType(kind, p.kind) {
-		p.bound(v)
+	// A string column reads every value, so none is odd.
+	if p.kind == TypeString {
 		return
 	}
-	if _, err := coerce(v, p.kind, date1904); err != nil {
-		p.info.Odd++
-		if len(p.info.OddCells) < maxOddCells {
-			p.info.OddCells = append(p.info.OddCells, OddCell{Cell: cellName(p.col, row), Text: shortText(valueString(v))})
+	read := v
+	if detectKind(v) != string(p.kind) {
+		var err error
+		if read, err = coerce(v, p.kind, date1904); err != nil {
+			p.info.Odd++
+			if len(p.info.OddCells) < maxOddCells {
+				p.info.OddCells = append(p.info.OddCells, OddCell{Cell: cellName(p.col, row), Text: shortText(valueString(v))})
+			}
+			return
 		}
 	}
+	p.bound(read)
 }
 
-// bound widens Min and Max to a value that holds the column's type.
+// bound widens Min and Max to a value read as the column's type.
 func (p *columnProfile) bound(v any) {
 	switch p.kind {
 	case TypeInteger, TypeNumber:
@@ -126,22 +131,6 @@ func (p *columnProfile) result() ColumnInfo {
 		}
 	}
 	return info
-}
-
-// fitsType reports whether a value of the given kind holds column type t
-// as it is: an integer fits a number column, a date a datetime column,
-// and anything a string column.
-func fitsType(kind string, t ColumnType) bool {
-	switch {
-	case t == TypeString, kind == string(t):
-		return true
-	case t == TypeNumber:
-		return kind == string(TypeInteger)
-	case t == TypeDateTime:
-		return kind == string(TypeDate)
-	default:
-		return false
-	}
 }
 
 // profileRows returns the leading rows holding at most limit rows with a
