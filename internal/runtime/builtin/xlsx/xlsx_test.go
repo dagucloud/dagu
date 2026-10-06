@@ -152,6 +152,10 @@ func TestInfoAndListSheets(t *testing.T) {
 	require.Len(t, sheets, 1)
 	assert.Equal(t, []string{"Invoice No", "Amount"}, sheets[0].Headers)
 	assert.Equal(t, 1, sheets[0].HeaderRow)
+	assert.Equal(t, []workbook.ColumnInfo{
+		{Name: "Invoice No", Type: "string", Filled: 1, Distinct: 1},
+		{Name: "Amount", Type: "integer", Filled: 1, Distinct: 1, Min: int64(10), Max: int64(10)},
+	}, sheets[0].Columns)
 	assert.Equal(t, "1900", outputs["date_system"])
 	assert.Equal(t, "orders.xlsx: 1 sheets\n", info.stdout.String())
 

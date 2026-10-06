@@ -528,14 +528,108 @@ func TestInspect(t *testing.T) {
 	assert.Equal(t, []TableInfo{{Name: "OrderTable", Range: "A1:C3"}}, orders.Tables)
 	require.Len(t, orders.Sample, 1)
 	assert.Equal(t, "INV-1", orders.Sample[0]["Invoice No"])
+	assert.Equal(t, []ColumnInfo{
+		{Name: "Invoice No", Type: "string", Filled: 2, Distinct: 2},
+		{Name: "Amount", Type: "number", Filled: 2, Distinct: 2, Min: int64(10), Max: 20.5},
+		{Name: "Due", Type: "date", Filled: 1, Blank: 1, Distinct: 1, Min: "2026-10-01", Max: "2026-10-01"},
+	}, orders.Columns)
 	notes := info.Sheets[1]
 	assert.Equal(t, 0, notes.HeaderRow)
 	assert.Empty(t, notes.Headers)
+	assert.Empty(t, notes.Columns)
 	assert.Equal(t, []NamedRange{{Name: "Total", RefersTo: "Orders!$B$2:$B$3", Scope: "Workbook"}}, info.NamedRanges)
+
+	one, err := Inspect(context.Background(), path, InspectOptions{Sheet: "notes"})
+	require.NoError(t, err)
+	require.Len(t, one.Sheets, 1)
+	assert.Equal(t, "Notes", one.Sheets[0].Name)
+	_, err = Inspect(context.Background(), path, InspectOptions{Sheet: "Nope"})
+	require.ErrorContains(t, err, `sheet "Nope" not found; sheets present: Orders, Notes`)
 
 	sheets, err := ListSheets(path, "")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"Orders", "Notes"}, sheets)
+}
+
+// TestInspectProfile covers what the profile sees below the first rows: a
+// number column with 未定 at row 300, Japanese numerals a pinned number
+// reads, a status column of repeated values and blanks, a column of unique
+// identifiers, and a date column.
+func TestInspectProfile(t *testing.T) {
+	t.Parallel()
+	f := excelize.NewFile()
+	setRow(t, f, "Sheet1", "A1", "ID", "状態", "日付", "数量")
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	blanks := 0
+	for r := 2; r <= 301; r++ {
+		var status any
+		switch r % 3 {
+		case 0:
+			status = "済"
+		case 1:
+			status = "未"
+		default:
+			blanks++
+		}
+		var qty any = r
+		switch r {
+		case 5:
+			qty = 2.5
+		case 10:
+			qty = "１２"
+		case 11:
+			qty = "三千"
+		case 300:
+			qty = "未定"
+		}
+		setRow(t, f, "Sheet1", fmt.Sprintf("A%d", r), fmt.Sprintf("ORD-%03d", r), status, start.AddDate(0, 0, r-2), qty)
+	}
+	require.NoError(t, f.SetCellStyle("Sheet1", "C2", "C301", styleID(t, f, &excelize.Style{NumFmt: 14})))
+	path := saveBook(t, f, "profile.xlsx")
+
+	info, err := Inspect(context.Background(), path, InspectOptions{})
+	require.NoError(t, err)
+	require.Len(t, info.Sheets, 1)
+	sheet := info.Sheets[0]
+	assert.Equal(t, 300, sheet.RowCount)
+	assert.False(t, sheet.ProfileTruncated)
+	assert.Equal(t, map[string]string{"ID": "string", "状態": "string", "日付": "date", "数量": "number"}, sheet.Types)
+	assert.Equal(t, []ColumnInfo{
+		{Name: "ID", Type: "string", Filled: 300, Distinct: 300},
+		{Name: "状態", Type: "string", Filled: 300 - blanks, Blank: blanks, Distinct: 2, Values: []string{"済", "未"}},
+		{Name: "日付", Type: "date", Filled: 300, Distinct: 300, Min: "2026-01-01", Max: "2026-10-27"},
+		{Name: "数量", Type: "number", Filled: 300, Distinct: 300, Min: int64(2), Max: int64(301),
+			Odd: 1, OddCells: []OddCell{{Cell: "D300", Text: "未定"}}},
+	}, sheet.Columns)
+}
+
+// TestInspectProfileCap covers a table longer than the profile reads, and
+// the bounds on what one column reports.
+func TestInspectProfileCap(t *testing.T) {
+	t.Parallel()
+	f := excelize.NewFile()
+	long := strings.Repeat("あ", 50)
+	setRow(t, f, "Sheet1", "A1", "ID", "Qty", "Note")
+	for r := 2; r <= DefaultMaxRows+2; r++ {
+		var qty any = r
+		if r%1000 == 0 {
+			qty = "n/a"
+		}
+		setRow(t, f, "Sheet1", fmt.Sprintf("A%d", r), r, qty, long)
+	}
+	path := saveBook(t, f, "cap.xlsx")
+
+	info, err := Inspect(context.Background(), path, InspectOptions{})
+	require.NoError(t, err)
+	sheet := info.Sheets[0]
+	assert.Equal(t, DefaultMaxRows+1, sheet.RowCount)
+	assert.True(t, sheet.ProfileTruncated)
+	id, qty, note := sheet.Columns[0], sheet.Columns[1], sheet.Columns[2]
+	assert.Equal(t, DefaultMaxRows, id.Filled)
+	assert.Equal(t, 1000, id.Distinct)
+	assert.Equal(t, 5, qty.Odd)
+	assert.Equal(t, []OddCell{{Cell: "B1000", Text: "n/a"}, {Cell: "B2000", Text: "n/a"}, {Cell: "B3000", Text: "n/a"}}, qty.OddCells)
+	assert.Equal(t, []string{strings.Repeat("あ", 39) + "…"}, note.Values)
 }
 
 func TestOpenErrors(t *testing.T) {
