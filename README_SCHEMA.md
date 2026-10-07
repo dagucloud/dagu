@@ -197,6 +197,7 @@ Current builtin actions:
 | `postgres.import`, `sqlite.import` | SQL imports | `import`, database config |
 | `redis.<operation>` | Redis operations | Redis config; operation comes from the action suffix |
 | `jq.filter` | jq transforms | `filter`, plus `data` or `input` |
+| `js.run` | Sandboxed JavaScript | `script`, optional `input` or `input_file` |
 | `dag.run` | Child DAG execution | `dag`, optional `params` |
 | `dag.enqueue` | Asynchronous child DAG enqueue | `dag`, optional `params`, optional `queue` |
 | `human.task` | Operator input before downstream steps continue | `prompt`, optional flat scalar `form`, optional `artifacts`, optional `push_back` |

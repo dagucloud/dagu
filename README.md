@@ -609,6 +609,7 @@ Dagu includes built-in actions that run within the Dagu process or on the select
 | `state.get` / `state.set` / `state.delete` / `state.list` / `state.diff` | Persistent JSON state across DAG runs |
 | `data.convert` / `data.pick` | Convert and select structured data |
 | `jq.filter` | JSON transformation using jq expressions |
+| `js.run` | JavaScript transforms in an embedded sandbox, no Node.js needed |
 | `archive.create` / `archive.extract` / `archive.list` | Create, extract, and list zip/tar archives |
 | `wait.duration` / `wait.until` / `wait.file` / `wait.http` | Wait for time, file state, or HTTP readiness |
 | `human.task` | Wait for acknowledgement or typed operator input before downstream steps continue |
