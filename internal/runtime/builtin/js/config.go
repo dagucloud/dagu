@@ -13,7 +13,7 @@ type jsConfig struct {
 	Input     any    `mapstructure:"input"`
 	InputFile string `mapstructure:"input_file"`
 	Format    string `mapstructure:"format"`
-	Timeout   string `mapstructure:"timeout"`
+	Timeout   any    `mapstructure:"timeout"`
 }
 
 var configSchema = &jsonschema.Schema{
@@ -28,12 +28,12 @@ var configSchema = &jsonschema.Schema{
 		},
 		"format": {
 			Type:        "string",
-			Enum:        []any{formatText, formatJSON},
-			Description: "How string input is interpreted: text binds it as-is, json parses it first. Applies to input_file contents and to a string input. Defaults to text.",
+			Enum:        []any{formatAuto, formatText, formatJSON},
+			Description: "How string input is interpreted. auto (default) parses a JSON object or array and binds any other string as-is, text always binds the string as-is, json always parses and fails on invalid JSON. Applies to input_file contents and to a string input.",
 		},
 		"timeout": {
-			Type:        "string",
-			Description: "Maximum script run time as a duration such as 30s or 2m. Defaults to 60s.",
+			Types:       []string{"integer", "string"},
+			Description: "Maximum script run time in seconds, or a duration such as 2m. Defaults to the step timeout, or 60s when the step has none.",
 		},
 	},
 }

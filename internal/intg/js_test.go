@@ -72,7 +72,6 @@ func TestJSRun(t *testing.T) {
     action: js.run
     with:
       input: ${produce.output}
-      format: json
       script: return input.items.map((item) => item + input.count).join(",")
     output: RESULT
 `)

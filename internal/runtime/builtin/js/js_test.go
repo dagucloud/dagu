@@ -63,6 +63,9 @@ func TestJS_Output(t *testing.T) {
 		{name: "ToJSON", script: `return {toJSON() { return "custom" }}`, want: "\"custom\"\n"},
 		{name: "KeyOrder", script: `return {z: 1, a: 2}`, want: "{\n  \"z\": 1,\n  \"a\": 2\n}\n"},
 		{name: "TemplateLiteral", script: "return `v=${input.x}`", cfg: map[string]any{"input": map[string]any{"x": 1}}, want: "v=1\n"},
+		{name: "ResolvedPromise", script: `return Promise.resolve({ok: true})`, want: "{\n  \"ok\": true\n}\n"},
+		{name: "Await", script: `const v = await Promise.resolve(2); return v * 21`, want: "42\n"},
+		{name: "AwaitAll", script: `const [a, b] = await Promise.all([Promise.resolve(1), 2]); return a + b`, want: "3\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -112,6 +115,70 @@ func TestJS_Input(t *testing.T) {
 		require.NoError(t, got.err)
 		assert.Equal(t, "2\n", got.stdout)
 	})
+
+	t.Run("AutoFormat", func(t *testing.T) {
+		t.Parallel()
+		for _, tt := range []struct {
+			name  string
+			input string
+			want  string
+		}{
+			{name: "Object", input: ` {"a":1}`, want: "object:1\n"},
+			{name: "Array", input: `[1,2,3]`, want: "object:3\n"},
+			{name: "Scalar", input: `123`, want: "string:3\n"},
+			{name: "HTML", input: `<a href="/x">`, want: "string:13\n"},
+			{name: "InvalidJSON", input: `{not json`, want: "string:9\n"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+				got := run(t, context.Background(), `return typeof input + ":" + (input.length ?? input.a)`, map[string]any{"input": tt.input})
+				require.NoError(t, got.err)
+				assert.Equal(t, tt.want, got.stdout)
+			})
+		}
+	})
+
+	t.Run("TextFormatKeepsJSONString", func(t *testing.T) {
+		t.Parallel()
+		got := run(t, context.Background(), `return typeof input`, map[string]any{"input": `{"a":1}`, "format": "text"})
+		require.NoError(t, got.err)
+		assert.Equal(t, "string\n", got.stdout)
+	})
+}
+
+func TestResolveTimeout(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name       string
+		configured any
+		step       time.Duration
+		want       time.Duration
+		wantErr    string
+	}{
+		{name: "Default", want: defaultTimeout},
+		{name: "DefersToStep", step: 5 * time.Minute, want: 0},
+		{name: "Seconds", configured: 30, want: 30 * time.Second},
+		{name: "SecondsUint64", configured: uint64(30), want: 30 * time.Second},
+		{name: "SecondsFloat", configured: 1.5, want: 1500 * time.Millisecond},
+		{name: "SecondsString", configured: "30", want: 30 * time.Second},
+		{name: "Duration", configured: "2m", want: 2 * time.Minute},
+		{name: "ExplicitBeatsStep", configured: "1s", step: time.Hour, want: time.Second},
+		{name: "Zero", configured: 0, wantErr: "invalid timeout"},
+		{name: "Negative", configured: "-5s", wantErr: "invalid timeout"},
+		{name: "Garbage", configured: "soon", wantErr: "invalid timeout"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := resolveTimeout(tt.configured, tt.step)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }
 
 func TestJS_InputFile(t *testing.T) {
@@ -162,6 +229,7 @@ func TestJS_ConfigErrors(t *testing.T) {
 		{name: "EmptyScript", script: "  ", want: "script is required"},
 		{name: "BothInputs", script: "return 1", cfg: map[string]any{"input": 1, "input_file": "x"}, want: "mutually exclusive"},
 		{name: "BadFormat", script: "return 1", cfg: map[string]any{"format": "xml"}, want: `invalid format "xml"`},
+		{name: "BadFormatMentionsAuto", script: "return 1", cfg: map[string]any{"format": "xml"}, want: "want auto, text, or json"},
 		{name: "JSONFormatNonString", script: "return 1", cfg: map[string]any{"input": 1, "format": "json"}, want: "requires input to be a string"},
 		{name: "JSONFormatInvalid", script: "return 1", cfg: map[string]any{"input": "{", "format": "json"}, want: "input is not valid JSON"},
 		{name: "BadTimeout", script: "return 1", cfg: map[string]any{"timeout": "soon"}, want: `invalid timeout "soon"`},
@@ -198,7 +266,9 @@ func TestValidateStep(t *testing.T) {
 	require.NoError(t, validateStep(newStep("", nil)))
 	err := validateStep(newStep("const a = 1;\nconst x = ;", nil))
 	require.ErrorContains(t, err, "js: compile error: SyntaxError")
-	require.ErrorContains(t, err, "Line 2")
+	require.ErrorContains(t, err, "Line 2:11")
+	err = validateStep(newStep("return 1 +;", nil))
+	require.ErrorContains(t, err, "Line 1:11")
 }
 
 func TestJS_Console(t *testing.T) {
@@ -248,7 +318,11 @@ func TestJS_RuntimeErrors(t *testing.T) {
 		{name: "ReferenceError", script: `return nope()`, wantErr: "js: ReferenceError: nope is not defined"},
 		{name: "ThrowString", script: `throw "str"`, wantErr: "js: str"},
 		{name: "LineNumber", script: "const a = 1;\nconst b = 2;\nthrow new Error('line3')", wantErr: "js: Error: line3 (script line 3)", wantStderr: "script:3"},
-		{name: "ThrowStringLine", script: "\nthrow 'str'", wantErr: "js: str (script line 2)"},
+		{name: "ThrowStringNoStack", script: "\nthrow 'str'", wantErr: "js: str"},
+		{name: "RejectedPromise", script: "return Promise.reject(new Error('nope'))", wantErr: "js: Error: nope"},
+		{name: "AwaitRejected", script: "\nawait Promise.reject(new TypeError('later'))", wantErr: "js: TypeError: later"},
+		{name: "PendingPromise", script: "return new Promise(() => {})", wantErr: "promise that never settled"},
+		{name: "FirstLineColumn", script: "null.x", wantStderr: "script:1:6", wantErr: "js: TypeError:"},
 		{name: "NativeFrameSkipped", script: "\n[1].map(() => { throw new RangeError('inner') })", wantErr: "js: RangeError: inner (script line 2)"},
 		{name: "Recursion", script: `function f() { return f() + 1 } return f()`, wantErr: "Maximum call stack size exceeded"},
 		{name: "Circular", script: `const o = {}; o.self = o; return o`, wantErr: "js: TypeError:"},
@@ -271,7 +345,7 @@ func TestJS_Timeout(t *testing.T) {
 
 	start := time.Now()
 	got := run(t, context.Background(), `while (true) {}`, map[string]any{"timeout": "100ms"})
-	require.EqualError(t, got.err, "js: timeout after 100ms")
+	require.EqualError(t, got.err, "js: timeout after 100ms; raise with.timeout to allow longer scripts")
 	assert.Less(t, time.Since(start), 5*time.Second)
 }
 

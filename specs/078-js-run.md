@@ -28,10 +28,16 @@ follow ordinary executor-config reference resolution and contribute inferred
 dependencies.
 
 `with.input_file` names a file whose contents are bound to `input`.
-`with.format` selects how string input is interpreted: `text` (default) binds
-the string as-is, `json` parses it first. The option applies to `input_file`
-contents and to a string `input`. `input` and `input_file` are mutually
-exclusive. When neither is set, `input` is `undefined`.
+`with.format` selects how string input is interpreted. `auto` (default)
+parses a string that is a JSON object or array and binds any other string
+as-is, `text` always binds the string as-is, and `json` always parses and
+rejects invalid JSON. The option applies to `input_file` contents and to a
+string `input`. `input` and `input_file` are mutually exclusive. When neither
+is set, `input` is `undefined`.
+
+The script body may use `await`. Promises settle through the microtask queue
+drained after the body returns; there is no event loop or timer, so a promise
+that is still pending afterwards fails the step.
 
 The returned value is written to stdout. `undefined` writes nothing. A string
 is written as-is followed by a newline. Any other value is written as JSON
@@ -40,10 +46,12 @@ serialization semantics (`toJSON`, `Date`, dropped function properties).
 
 The sandbox exposes the ECMAScript builtins, `console` (whose methods write to
 the step's stderr), `URL`, and `URLSearchParams`. It has no `require`,
-`fetch`, filesystem access, `process`, timers, or event loop.
+`fetch`, filesystem access, `process`, or timers.
 
-`with.timeout` bounds script execution and defaults to `60s`. Expiry, step
-timeout, and a stop request interrupt the engine and fail the step.
+`with.timeout` bounds script execution, as integer seconds or a duration
+string. When it is unset, a step `timeout` governs alone; without either,
+`60s` applies. Expiry, step timeout, and a stop request interrupt the engine
+and fail the step.
 
 ## Errors
 
@@ -55,8 +63,9 @@ compile error names the script line.
 An invalid `with.format`, an invalid `with.timeout`, a missing or unreadable
 `input_file`, and invalid JSON under `format: json` fail executor setup.
 
-A thrown value fails the step. The error names the exception and the script
-line, and the JavaScript stack trace is written to stderr. A script that
+A thrown value or rejected promise fails the step. The error names the
+exception and the script line, and the JavaScript stack trace, with lines and
+columns matching the script text, is written to stderr. A script that
 returns `undefined` succeeds with empty stdout and a notice on stderr. A
 script that exceeds `with.timeout` fails the step.
 

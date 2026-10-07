@@ -7207,17 +7207,17 @@
         },
         "format": {
           "type": "string",
-          "enum": ["text", "json"],
-          "default": "text",
-          "description": "How string input is interpreted: text binds it as-is, json parses it first. Applies to input_file contents and to a string input, such as a captured output from an earlier step."
+          "enum": ["auto", "text", "json"],
+          "default": "auto",
+          "description": "How string input is interpreted. auto parses a JSON object or array (such as a captured output from an earlier step) and binds any other string as-is; text always binds the string as-is; json always parses and fails on invalid JSON. Applies to input_file contents and to a string input."
         },
         "timeout": {
-          "type": "string",
-          "default": "60s",
-          "description": "Maximum script run time as a duration such as 30s or 2m."
+          "type": ["integer", "string"],
+          "minimum": 1,
+          "description": "Maximum script run time in seconds, or a duration such as 2m. Defaults to the step timeout, or 60s when the step has none."
         }
       },
-      "description": "Configuration for action: js.run. The sandbox exposes ECMAScript builtins, console (to stderr), URL, and URLSearchParams; it has no require, fetch, filesystem, or timers."
+      "description": "Configuration for action: js.run. The script may use await; promises settle only through the microtask queue, since there is no event loop. The sandbox exposes ECMAScript builtins, console (to stderr), URL, and URLSearchParams; it has no require, fetch, filesystem, or timers."
     },
     "dataConvertActionConfig": {
       "type": "object",

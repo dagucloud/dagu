@@ -1,0 +1,11 @@
+working_dir: .
+steps:
+  - action: js.run
+    stdout: result.out
+    with:
+      input:
+        n: 2
+      timeout: 5
+      script: |
+        const v = await Promise.resolve(input.n);
+        return v * 2;

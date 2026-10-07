@@ -24,12 +24,14 @@ steps:
 	require.NoError(t, resolved.Validate(mustParseYAMLDocument(t, source)))
 	require.NoError(t, resolved.Validate(mustParseYAMLDocument(t, strings.Replace(source,
 		"      input: {urls: [a, b]}\n", "      input_file: page.html\n      format: json\n", 1))))
+	require.NoError(t, resolved.Validate(mustParseYAMLDocument(t, strings.Replace(source, "timeout: 5s", "timeout: 30", 1))))
 
 	for _, tc := range []struct{ name, from, to string }{
 		{"script", "      script: return input.urls.length\n", ""},
 		{"empty script", "return input.urls.length", "''"},
 		{"both inputs", "      timeout: 5s\n", "      input_file: page.html\n"},
 		{"format", "      timeout: 5s\n", "      format: xml\n"},
+		{"timeout", "timeout: 5s", "timeout: 0"},
 		{"unknown", "      timeout:", "      args:"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

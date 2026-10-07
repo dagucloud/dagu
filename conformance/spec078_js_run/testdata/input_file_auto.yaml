@@ -4,5 +4,4 @@ steps:
     stdout: result.out
     with:
       input_file: data.json
-      format: text
-      script: return typeof input
+      script: return typeof input + ":" + input.city

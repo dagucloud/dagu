@@ -24,6 +24,8 @@ func TestJSRun(t *testing.T) {
 		{"undefined.yaml", ""},
 		{"input.yaml", "Metropolis:2\n"},
 		{"input_file_text.yaml", "string\n"},
+		{"input_file_auto.yaml", "object:Metropolis\n"},
+		{"await.yaml", "4\n"},
 		{"input_file_json.yaml", "Metropolis\n"},
 		{"template_literal.yaml", "Hello Metropolis\n"},
 	} {

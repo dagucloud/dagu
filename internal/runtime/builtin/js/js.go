@@ -6,7 +6,8 @@
 // The script receives the configured input as its only parameter and the
 // returned value becomes the step's stdout. The runtime exposes the ECMAScript
 // builtins, console, URL, and URLSearchParams. It has no module loader, host
-// I/O, timers, or event loop.
+// I/O, or timers; promises settle only through the microtask queue drained
+// after the script returns.
 package js
 
 import (
@@ -16,6 +17,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -37,6 +41,7 @@ var (
 )
 
 const (
+	formatAuto = "auto"
 	formatText = "text"
 	formatJSON = "json"
 
@@ -49,11 +54,12 @@ const (
 	// programName appears in JavaScript stack frames as programName:line:col.
 	programName = "script"
 
-	// The wrapper turns the script into a function body so return works. The
-	// prefix has no line break, which keeps script line numbers intact in
-	// stack traces.
-	wrapperPrefix = "(function(input){"
-	wrapperSuffix = "\n})"
+	// The wrapper turns the script into an async function body so return and
+	// await work. It occupies its own line, and wrapperLineOffset is
+	// subtracted from reported positions so lines and columns match the YAML.
+	wrapperPrefix     = "(async function(input){\n"
+	wrapperSuffix     = "\n})"
+	wrapperLineOffset = 1
 
 	jsonIndent = 2
 
@@ -70,12 +76,17 @@ const (
 	reasonStop    interruptReason = "stop"
 )
 
+var (
+	stackPosition   = regexp.MustCompile(`\b` + programName + `:(\d+):(\d+)`)
+	compilePosition = regexp.MustCompile(`\bLine (\d+):(\d+)`)
+)
+
 type js struct {
 	stdout  io.Writer
 	stderr  io.Writer
 	program *goja.Program
 	input   scriptInput
-	timeout time.Duration
+	timeout time.Duration // zero disables the sandbox timer
 
 	mu     sync.Mutex
 	vm     *goja.Runtime
@@ -104,18 +115,15 @@ func newJS(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	}
 	format := cfg.Format
 	if format == "" {
-		format = formatText
+		format = formatAuto
 	}
-	if format != formatText && format != formatJSON {
-		return nil, fmt.Errorf("js: invalid format %q (want text or json)", cfg.Format)
+	if format != formatAuto && format != formatText && format != formatJSON {
+		return nil, fmt.Errorf("js: invalid format %q (want auto, text, or json)", cfg.Format)
 	}
 
-	timeout := defaultTimeout
-	if cfg.Timeout != "" {
-		timeout, err = time.ParseDuration(cfg.Timeout)
-		if err != nil || timeout <= 0 {
-			return nil, fmt.Errorf("js: invalid timeout %q", cfg.Timeout)
-		}
+	timeout, err := resolveTimeout(cfg.Timeout, step.Timeout)
+	if err != nil {
+		return nil, err
 	}
 
 	input, err := loadInput(ctx, cfg, hasInput, format)
@@ -137,10 +145,50 @@ func newJS(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	}, nil
 }
 
+// resolveTimeout picks the sandbox timer. An explicit with.timeout wins; a
+// step timeout alone is left to the step context; otherwise the default
+// applies so a runaway script cannot hang the run.
+func resolveTimeout(configured any, stepTimeout time.Duration) (time.Duration, error) {
+	if configured == nil {
+		if stepTimeout > 0 {
+			return 0, nil
+		}
+		return defaultTimeout, nil
+	}
+	if text, ok := configured.(string); ok {
+		if seconds, err := strconv.ParseFloat(text, 64); err == nil {
+			return secondsTimeout(seconds, configured)
+		}
+		timeout, err := time.ParseDuration(text)
+		if err != nil || timeout <= 0 {
+			return 0, fmt.Errorf("js: invalid timeout %q (want seconds or a duration such as 2m)", text)
+		}
+		return timeout, nil
+	}
+	value := reflect.ValueOf(configured)
+	switch value.Kind() { //nolint:exhaustive // YAML and JSON decoders yield only these numeric kinds.
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return secondsTimeout(float64(value.Int()), configured)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return secondsTimeout(float64(value.Uint()), configured)
+	case reflect.Float32, reflect.Float64:
+		return secondsTimeout(value.Float(), configured)
+	default:
+		return 0, fmt.Errorf("js: invalid timeout %v (want seconds or a duration such as 2m)", configured)
+	}
+}
+
+func secondsTimeout(seconds float64, configured any) (time.Duration, error) {
+	if seconds <= 0 {
+		return 0, fmt.Errorf("js: invalid timeout %v (want seconds or a duration such as 2m)", configured)
+	}
+	return time.Duration(seconds * float64(time.Second)), nil
+}
+
 func compileScript(script string) (*goja.Program, error) {
 	program, err := goja.Compile(programName, wrapperPrefix+script+wrapperSuffix, false)
 	if err != nil {
-		return nil, fmt.Errorf("js: compile error: %w", err)
+		return nil, fmt.Errorf("js: compile error: %s", shiftPositions(compilePosition, err.Error()))
 	}
 	return program, nil
 }
@@ -160,15 +208,11 @@ func validateStep(step ir.Step) error {
 func loadInput(ctx context.Context, cfg jsConfig, hasInput bool, format string) (scriptInput, error) {
 	switch {
 	case hasInput:
+		if text, ok := cfg.Input.(string); ok {
+			return stringInput(text, format, "input")
+		}
 		if format == formatJSON {
-			text, ok := cfg.Input.(string)
-			if !ok {
-				return scriptInput{}, errors.New("js: format json requires input to be a string")
-			}
-			if !json.Valid([]byte(text)) {
-				return scriptInput{}, errors.New("js: input is not valid JSON")
-			}
-			return scriptInput{json: []byte(text)}, nil
+			return scriptInput{}, errors.New("js: format json requires input to be a string")
 		}
 		encoded, err := json.Marshal(cfg.Input)
 		if err != nil {
@@ -184,17 +228,32 @@ func loadInput(ctx context.Context, cfg jsConfig, hasInput bool, format string) 
 		if err != nil {
 			return scriptInput{}, fmt.Errorf("js: reading input_file %q: %w", path, err)
 		}
-		if format == formatJSON {
-			if !json.Valid(data) {
-				return scriptInput{}, fmt.Errorf("js: input_file %q is not valid JSON", path)
-			}
-			return scriptInput{json: data}, nil
-		}
-		text := string(data)
-		return scriptInput{text: &text}, nil
+		return stringInput(string(data), format, fmt.Sprintf("input_file %q", path))
 	default:
 		return scriptInput{}, nil
 	}
+}
+
+// stringInput applies the format to string input. Auto parses only JSON
+// objects and arrays, so plain text and scalar-looking strings stay strings.
+func stringInput(text, format, source string) (scriptInput, error) {
+	switch format {
+	case formatJSON:
+		if !json.Valid([]byte(text)) {
+			return scriptInput{}, fmt.Errorf("js: %s is not valid JSON", source)
+		}
+		return scriptInput{json: []byte(text)}, nil
+	case formatAuto:
+		if looksLikeJSONContainer(text) && json.Valid([]byte(text)) {
+			return scriptInput{json: []byte(text)}, nil
+		}
+	}
+	return scriptInput{text: &text}, nil
+}
+
+func looksLikeJSONContainer(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	return strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[")
 }
 
 func (e *js) SetStdout(w io.Writer) { e.stdout = w }
@@ -240,11 +299,15 @@ func (e *js) Run(ctx context.Context) error {
 
 	done := make(chan struct{})
 	defer close(done)
-	timer := time.NewTimer(e.timeout)
-	defer timer.Stop()
+	var timer <-chan time.Time
+	if e.timeout > 0 {
+		t := time.NewTimer(e.timeout)
+		defer t.Stop()
+		timer = t.C
+	}
 	go func() {
 		select {
-		case <-timer.C:
+		case <-timer:
 			vm.Interrupt(reasonTimeout)
 		case <-ctx.Done():
 			vm.Interrupt(reasonCancel)
@@ -270,7 +333,29 @@ func (e *js) Run(ctx context.Context) error {
 	if err != nil {
 		return e.classify(ctx, err)
 	}
+	result, err = e.settle(result)
+	if err != nil {
+		return err
+	}
 	return e.writeResult(vm, stringify, result)
+}
+
+// settle unwraps the promise returned by the async wrapper. The microtask
+// queue has already drained, so a promise that is still pending can never
+// resolve.
+func (e *js) settle(value goja.Value) (goja.Value, error) {
+	promise, ok := value.Export().(*goja.Promise)
+	if !ok {
+		return value, nil
+	}
+	switch promise.State() {
+	case goja.PromiseStateFulfilled:
+		return e.settle(promise.Result())
+	case goja.PromiseStateRejected:
+		return nil, e.rejection(promise.Result())
+	default:
+		return nil, errors.New("js: script returned a promise that never settled; the sandbox has no event loop, so only promises that resolve synchronously are supported")
+	}
 }
 
 func (e *js) inputValue(vm *goja.Runtime, parse goja.Callable) (goja.Value, error) {
@@ -300,7 +385,7 @@ func (e *js) writeResult(vm *goja.Runtime, stringify goja.Callable, value goja.V
 	}
 	encoded, err := stringify(goja.Undefined(), value, goja.Null(), vm.ToValue(jsonIndent))
 	if err != nil {
-		return classifyException(err, nil)
+		return e.classify(context.Background(), err)
 	}
 	if goja.IsUndefined(encoded) {
 		_, _ = fmt.Fprintln(e.stderr, undefinedNotice)
@@ -314,53 +399,70 @@ func (e *js) classify(ctx context.Context, err error) error {
 	if interrupted, ok := errors.AsType[*goja.InterruptedError](err); ok {
 		switch interrupted.Value() {
 		case reasonTimeout:
-			return fmt.Errorf("js: timeout after %s", e.timeout)
+			return fmt.Errorf("js: timeout after %s; raise with.timeout to allow longer scripts", formatDuration(e.timeout))
 		case reasonCancel:
 			return fmt.Errorf("js: cancelled: %w", ctx.Err())
 		default:
 			return errors.New("js: stopped")
 		}
 	}
-	return classifyException(err, e.stderr)
-}
-
-// classifyException turns a goja error into a step error. The JavaScript
-// stack trace goes to stderr when a writer is available.
-func classifyException(err error, stderr io.Writer) error {
 	if overflow, ok := errors.AsType[*goja.StackOverflowError](err); ok {
-		writeStack(stderr, overflow.String())
+		e.writeStack(overflow.String())
 		return errors.New("js: RangeError: Maximum call stack size exceeded")
 	}
 	exception, ok := errors.AsType[*goja.Exception](err)
 	if !ok {
 		return fmt.Errorf("js: %w", err)
 	}
-	thrown := exception.Value()
-	location := scriptLocation(exception)
+	return e.rejection(exception.Value())
+}
+
+// rejection turns a thrown or rejected value into the step error. Error
+// objects carry their own stack, which names the script line; the adjusted
+// trace goes to stderr and the line goes into the error itself.
+func (e *js) rejection(thrown goja.Value) error {
 	if obj, ok := thrown.(*goja.Object); ok && obj.ClassName() == "Error" {
-		writeStack(stderr, obj.Get("stack").String())
-		return fmt.Errorf("js: %s: %s%s", obj.Get("name").String(), obj.Get("message").String(), location)
+		stack := shiftPositions(stackPosition, obj.Get("stack").String())
+		e.writeStack(stack)
+		return fmt.Errorf("js: %s: %s%s", obj.Get("name").String(), obj.Get("message").String(), scriptLocation(stack))
 	}
-	writeStack(stderr, exception.String())
-	return fmt.Errorf("js: %s%s", thrown.String(), location)
+	return fmt.Errorf("js: %s", thrown.String())
 }
 
-// scriptLocation names the innermost script line on the exception's stack,
-// skipping native frames, so the step error itself points at the line.
-func scriptLocation(exception *goja.Exception) string {
-	for _, frame := range exception.Stack() {
-		if pos := frame.Position(); pos.Filename == programName && pos.Line > 0 {
-			return fmt.Sprintf(" (script line %d)", pos.Line)
-		}
-	}
-	return ""
-}
-
-func writeStack(w io.Writer, stack string) {
-	if w == nil || stack == "" {
+func (e *js) writeStack(stack string) {
+	if e.stderr == nil || stack == "" {
 		return
 	}
-	_, _ = fmt.Fprintln(w, stack)
+	_, _ = fmt.Fprintln(e.stderr, stack)
+}
+
+// scriptLocation names the innermost script line in an adjusted stack trace.
+func scriptLocation(stack string) string {
+	match := stackPosition.FindStringSubmatch(stack)
+	if match == nil {
+		return ""
+	}
+	return fmt.Sprintf(" (script line %s)", match[1])
+}
+
+// shiftPositions rewrites line:column pairs so they count from the first
+// script line rather than the wrapper line.
+func shiftPositions(pattern *regexp.Regexp, text string) string {
+	return pattern.ReplaceAllStringFunc(text, func(match string) string {
+		parts := pattern.FindStringSubmatch(match)
+		line, _ := strconv.Atoi(parts[1])
+		if line > wrapperLineOffset {
+			line -= wrapperLineOffset
+		}
+		return strings.Replace(match, parts[1]+":"+parts[2], strconv.Itoa(line)+":"+parts[2], 1)
+	})
+}
+
+func formatDuration(d time.Duration) string {
+	if d%time.Second == 0 {
+		return strconv.Itoa(int(d/time.Second)) + "s"
+	}
+	return d.String()
 }
 
 // installConsole binds a console object whose methods write to the step's
