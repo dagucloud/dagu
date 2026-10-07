@@ -94,10 +94,16 @@ func ReportValueReferenceNotices(dag *ir.DAG, sink cmnvalue.ValueReferenceNotice
 	}
 }
 
+// isForeachItemScopeFieldPath reports whether a field resolves with item scope:
+// the owning foreach step's key and collect expressions and every body field.
 func isForeachItemScopeFieldPath(path string) bool {
-	return strings.Contains(path, ".foreach.key") ||
-		strings.Contains(path, ".foreach.steps[") ||
-		strings.Contains(path, ".foreach.collect.")
+	return isForeachItemFieldPath(path) || strings.Contains(path, ".foreach.steps[")
+}
+
+// isForeachItemFieldPath reports whether a field belongs to the foreach step
+// itself but is evaluated per item.
+func isForeachItemFieldPath(path string) bool {
+	return strings.Contains(path, ".foreach.key") || strings.Contains(path, ".foreach.collect.")
 }
 
 func reportStepEnvValueReferenceNotices(

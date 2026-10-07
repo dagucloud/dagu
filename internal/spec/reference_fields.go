@@ -26,11 +26,11 @@ type ReferenceField struct {
 	// OwnerStepPath is the spec path of the owning step, such as "steps[0]" or
 	// "handler_on.exit". It is empty for ir.DAG-level fields.
 	OwnerStepPath string
-	// TopLevelStepIndex is the index into DAG.Steps of the top-level step that
+	Field         cmnvalue.Field
+	// topLevelStepIndex is the index into DAG.Steps of the top-level step that
 	// owns the field, including fields of foreach body steps. It is -1 for
 	// DAG-level and handler fields.
-	TopLevelStepIndex int
-	Field             cmnvalue.Field
+	topLevelStepIndex int
 }
 
 type referenceFieldWalker struct {
@@ -50,7 +50,7 @@ func (w *referenceFieldWalker) add(field ReferenceField) {
 	if field.Value == "" {
 		return
 	}
-	field.TopLevelStepIndex = w.topLevelStepIndex
+	field.topLevelStepIndex = w.topLevelStepIndex
 	w.fields = append(w.fields, field)
 }
 

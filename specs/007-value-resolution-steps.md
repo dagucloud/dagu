@@ -141,6 +141,9 @@ Rules:
   cycle is a load error that names the producing step and the owning step.
 - In a chain DAG, chain order already satisfies every inferred dependency that
   points to an earlier step. A reference to a later step is the cycle case.
+- Inferred dependencies order execution. Behavior that `depends` enables
+  beyond ordering, such as chat message inheritance between LLM steps, still
+  requires an explicit `depends` entry.
 - Inferred dependencies are stored on the step separately from `depends`.
   `dagu validate` reports each one as
   `inferred: <producer> -> <consumer> (<field path>)`, the API carries them in
