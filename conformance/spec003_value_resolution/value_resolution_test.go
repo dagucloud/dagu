@@ -121,11 +121,9 @@ func TestRootEnvInsertionOnRetry(t *testing.T) {
 // from "Unresolved Supported References" are actually distinguished, not just
 // both labeled generically:
 //
-//   - A defect (a reference the spec statically cannot resolve — either an
-//     undeclared const name, or a step-output reference in a field whose
-//     owning spec does not provide the lookup scope because the consuming
-//     step never authored the dependency) must be reported by `dagu validate`
-//     even without `--show-unresolved`.
+//   - A defect (a reference the spec statically cannot resolve, such as an
+//     undeclared const name) must be reported by `dagu validate` even without
+//     `--show-unresolved`.
 //   - A runtime-only notice (a well-formed reference whose availability
 //     depends on a value only the caller can supply at run start, such as a
 //     required param not yet provided at validate time) must stay out of
@@ -154,13 +152,14 @@ func TestDefectAndRuntimeOnlyNoticeClassification(t *testing.T) {
 		result.ExpectStderrContains("${consts.unknown_host}", "ssh.host")
 	})
 
-	t.Run("defect: step-output reference missing its authored dependency is reported without --show-unresolved", func(t *testing.T) {
+	t.Run("step-output reference without depends is an inferred dependency, not a notice", func(t *testing.T) {
 		t.Parallel()
 
 		dagu := harness.NewRunner(t)
-		result := dagu.Run("validate", "notice_defect_missing_dependency.yaml")
+		result := dagu.Run("validate", "inferred_dependency_env.yaml")
 		result.ExpectExitCode(0)
-		result.ExpectStderrContains("${steps.build.outputs.image}", "does not depend on the producing step")
+		result.ExpectStderrContains("inferred: build -> deploy (steps[1].env[0])")
+		result.ExpectStderrNotContains("${steps.build.outputs.image}")
 	})
 
 	t.Run("runtime-only: missing required param stays quiet by default", func(t *testing.T) {

@@ -160,6 +160,20 @@ func TestForeachRuntime(t *testing.T) {
 		)
 	})
 
+	t.Run("string item source from a step output infers the dependency", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := harness.NewRunner(t)
+		result := dagu.Run("start", "foreach_items_from_step_output.yaml")
+		result.ExpectExitCode(0)
+		dagu.ExpectFileContains(
+			"foreach-from-output.txt",
+			`"total":2`,
+			`"item":"item=1"`,
+			`"item":"item=2"`,
+		)
+	})
+
 	t.Run("zero items succeeds with empty output arrays", func(t *testing.T) {
 		t.Parallel()
 

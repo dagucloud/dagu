@@ -1094,3 +1094,28 @@ func TestCreateRetryPlan_CommandStepUsesNewRunWorkDirAfterRetry(t *testing.T) {
 	require.Equal(t, freshRunWorkDir, env.WorkingDir)
 	require.NotEqual(t, staleRunWorkDir, env.WorkingDir)
 }
+
+func TestPlan_InferredDependsFromStep(t *testing.T) {
+	t.Parallel()
+
+	plan, err := runtime.NewPlan(
+		ir.Step{Name: "producer"},
+		ir.Step{Name: "consumer", InferredDepends: []ir.InferredDependency{{Step: "producer", Field: "steps[1].run"}}},
+	)
+	require.NoError(t, err)
+
+	producer := plan.GetNodeByName("producer")
+	consumer := plan.GetNodeByName("consumer")
+	require.Equal(t, []int{producer.ID()}, plan.Dependencies(consumer.ID()))
+	require.True(t, plan.IsInferredDependency(producer.ID(), consumer.ID()))
+}
+
+func TestPlan_InferredDependsCycle(t *testing.T) {
+	t.Parallel()
+
+	_, err := runtime.NewPlan(
+		ir.Step{Name: "a", Depends: []string{"b"}},
+		ir.Step{Name: "b", InferredDepends: []ir.InferredDependency{{Step: "a"}}},
+	)
+	require.ErrorIs(t, err, runtime.ErrCyclicPlan)
+}
