@@ -213,3 +213,31 @@ func TestExpandStringPreservesForeachItemLiterals(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, `{"note":"a < b & c > d"}`, got)
 }
+
+// A foreach item field named with a leading underscore, such as the _row a
+// workbook reader attaches to each row, resolves like any other field.
+func TestExpandStringResolvesUnderscoreForeachField(t *testing.T) {
+	t.Parallel()
+
+	resolver := value.NewResolver(
+		value.StaticScope{},
+		value.RuntimeScope{
+			Foreach: value.Values{
+				"index": "0",
+				"key":   "A",
+				"row": map[string]any{
+					"_row": 2,
+					"name": "A",
+				},
+			},
+		},
+	)
+
+	got, err := resolver.String(
+		context.Background(),
+		`[{"_row": ${foreach.row._row}, "name": "${foreach.row.name}"}]`,
+		value.WorkflowField("run"),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, `[{"_row": 2, "name": "A"}]`, got)
+}

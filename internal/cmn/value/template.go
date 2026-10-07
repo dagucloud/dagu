@@ -603,12 +603,12 @@ func supportedStrictBinding(segments []string) bool {
 		if len(segments) != 2 && len(segments) != 3 {
 			return false
 		}
-		for _, segment := range segments[1:] {
-			if !bindingNamePattern.MatchString(segment) {
-				return false
-			}
+		if !bindingNamePattern.MatchString(segments[1]) {
+			return false
 		}
-		return true
+		// An item field is a data key, so it may start with an underscore,
+		// as the _row a workbook reader attaches to each row does.
+		return len(segments) == 2 || validOutputPathSegment(segments[2])
 	case "inputs", "outputs":
 		return len(segments) == 2 && bindingNamePattern.MatchString(segments[1])
 	case "context":
