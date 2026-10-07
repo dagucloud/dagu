@@ -2878,6 +2878,18 @@
         },
         {
           "if": {
+            "properties": { "action": { "const": "js.run" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/jsRunActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
             "properties": { "action": { "const": "log.write" } },
             "required": ["action"]
           },
@@ -6666,6 +6678,7 @@
             "http.request",
             "human.task",
             "jq.filter",
+            "js.run",
             "k8s.run",
             "kubernetes.run",
             "log.write",
@@ -7171,6 +7184,40 @@
         }
       },
       "description": "Configuration for action: jq.filter."
+    },
+    "jsRunActionConfig": {
+      "type": "object",
+      "required": ["script"],
+      "not": {
+        "required": ["input", "input_file"]
+      },
+      "additionalProperties": false,
+      "properties": {
+        "script": {
+          "type": "string",
+          "minLength": 1,
+          "description": "JavaScript function body. The configured input is available as `input`; `return` a value to write it to stdout (strings as-is, other values as JSON). The text is used as written: Dagu does not resolve ${...} inside it, so pass workflow values through `input`."
+        },
+        "input": {
+          "description": "Value bound to `input`. Any YAML value; strings may use ${...} references. Mutually exclusive with input_file."
+        },
+        "input_file": {
+          "type": "string",
+          "description": "File whose contents are bound to `input`. Mutually exclusive with input."
+        },
+        "format": {
+          "type": "string",
+          "enum": ["text", "json"],
+          "default": "text",
+          "description": "How input_file is interpreted: text binds the raw contents, json parses them first."
+        },
+        "timeout": {
+          "type": "string",
+          "default": "60s",
+          "description": "Maximum script run time as a duration such as 30s or 2m."
+        }
+      },
+      "description": "Configuration for action: js.run. The sandbox exposes ECMAScript builtins, console (to stderr), URL, and URLSearchParams; it has no require, fetch, filesystem, or timers."
     },
     "dataConvertActionConfig": {
       "type": "object",

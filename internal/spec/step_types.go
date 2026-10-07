@@ -90,6 +90,7 @@ var builtinStepTypeNames = map[string]struct{}{
 	"harness":       {},
 	"http":          {},
 	"jq":            {},
+	"js":            {},
 	"k8s":           {},
 	"kubernetes":    {},
 	"log":           {},

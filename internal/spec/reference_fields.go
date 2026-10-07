@@ -190,7 +190,7 @@ func (w *referenceFieldWalker) walkStepCommands(path string, step ir.Step, base 
 }
 
 func scriptReferenceField(path string, step ir.Step, command cmnvalue.CommandContext) cmnvalue.Field {
-	if step.ExecutorConfig.Type == "template" {
+	if step.ExecutorConfig.IsVerbatimScript() {
 		return cmnvalue.TemplateScriptField(path)
 	}
 	if step.ExecutorConfig.IsCommand() {

@@ -195,6 +195,30 @@ handler_on:
 			},
 		},
 		{
+			name: "JSScriptCreatesNoEdge",
+			yaml: inferredDependsProducer + `
+  - id: shape
+    action: js.run
+    with:
+      script: return "${steps.read.outputs.rows}"
+`,
+			wantInferred: map[string][]ir.InferredDependency{"shape": nil},
+		},
+		{
+			name: "JSInputCreatesEdge",
+			yaml: inferredDependsProducer + `
+  - id: shape
+    action: js.run
+    with:
+      script: return input.rows
+      input:
+        rows: ${steps.read.outputs.rows}
+`,
+			wantInferred: map[string][]ir.InferredDependency{
+				"shape": {{Step: "read", Field: "steps[1].with.input.rows"}},
+			},
+		},
+		{
 			name: "EscapedTextCreatesNoEdge",
 			yaml: inferredDependsProducer + `
   - id: show

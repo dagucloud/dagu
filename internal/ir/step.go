@@ -391,6 +391,13 @@ func (e ExecutorConfig) IsCommand() bool {
 	return e.Type == "" || e.Type == "command"
 }
 
+// IsVerbatimScript reports whether the executor receives the step script as
+// written, without workflow value resolution. Such executors interpret the
+// script text themselves and take workflow values through their config.
+func (e ExecutorConfig) IsVerbatimScript() bool {
+	return e.Type == "template" || e.Type == "js"
+}
+
 // RetryPolicy contains the retry policy for a step.
 type RetryPolicy struct {
 	// Limit is the number of retries allowed.

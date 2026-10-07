@@ -1068,7 +1068,7 @@ func evalTemplateConfig(ctx context.Context, config map[string]any) (map[string]
 }
 
 func scriptField(ctx context.Context, step ir.Step) cmnvalue.Field {
-	if step.ExecutorConfig.Type == "template" {
+	if step.ExecutorConfig.IsVerbatimScript() {
 		return cmnvalue.TemplateScriptField("run")
 	}
 	command := registry.ScriptResolution(ctx, step)

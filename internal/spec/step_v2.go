@@ -79,6 +79,7 @@ var builtinActionNormalizers = map[string]actionNormalizer{
 	"http.request":        normalizeHTTPRequestAction,
 	"human.task":          normalizeHumanTaskAction,
 	"jq.filter":           normalizeJQFilterAction,
+	"js.run":              normalizeJSRunAction,
 	"k8s.run":             optionalCommandAction("k8s", "command"),
 	"kubernetes.run":      optionalCommandAction("kubernetes", "command"),
 	"log.write":           normalizeLogAction,
@@ -825,6 +826,25 @@ func normalizeJQFilterAction(normalized map[string]any, with map[string]any) err
 		delete(with, "data")
 	}
 	return finishAction(normalized, "jq", with)
+}
+
+func normalizeJSRunAction(normalized map[string]any, with map[string]any) error {
+	value, err := requireActionField(with, "script")
+	if err != nil {
+		return err
+	}
+	script, ok := value.(string)
+	if !ok || strings.TrimSpace(script) == "" {
+		return ir.NewValidationError("with", with, fmt.Errorf("with.script must be a non-empty string"))
+	}
+	if _, hasInput := with["input"]; hasInput {
+		if _, hasFile := with["input_file"]; hasFile {
+			return ir.NewValidationError("with", with, fmt.Errorf("js.run does not allow both with.input and with.input_file"))
+		}
+	}
+	delete(with, "script")
+	normalized["script"] = script
+	return finishAction(normalized, "js", with)
 }
 
 func stringifyActionData(data any) (string, error) {

@@ -46,6 +46,7 @@ func TestMain(m *testing.M) {
 	})
 	// jq and http: support command and script
 	registry.RegisterExecutorCapabilities("jq", registry.ExecutorCapabilities{Command: true, Script: true})
+	registry.RegisterExecutorCapabilities("js", registry.ExecutorCapabilities{Script: true})
 	registry.RegisterExecutorCapabilities("http", registry.ExecutorCapabilities{Command: true, Script: true})
 	// SQL executors: support query command and script execution
 	for _, t := range []string{"postgres", "sqlite"} {

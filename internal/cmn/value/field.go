@@ -196,11 +196,12 @@ func ContainerEnvField(path string) Field { return newField(path, fieldContainer
 // ExecutorConfigField returns the policy for executor configuration objects.
 func ExecutorConfigField(path string) Field { return newField(path, fieldExecutorConfig) }
 
-// TemplateScriptField returns the policy for template executor scripts.
+// TemplateScriptField returns the policy for scripts that executors such as
+// template and js interpret as written.
 func TemplateScriptField(path string) Field { return newField(path, fieldTemplateScript) }
 
-// IsTemplateScript reports whether the field is a template executor script,
-// whose text is rendered by the executor rather than value-resolved.
+// IsTemplateScript reports whether the field is a script passed to its
+// executor as written rather than value-resolved.
 func (f Field) IsTemplateScript() bool { return f.kind == fieldTemplateScript }
 
 // TemplateConfigField returns the policy for template executor configuration.
