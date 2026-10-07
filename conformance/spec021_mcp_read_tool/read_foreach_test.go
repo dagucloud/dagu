@@ -33,18 +33,17 @@ func requireForeachRead(t *testing.T, result *mcpsdk.CallToolResult, target, uri
 // foreach_items -> foreach_item -> step_log with item and bodyStepName.
 func TestReadForeachDrillDown(t *testing.T) {
 	server := mcptest.NewServer(t)
+	// Each item exits with its own value, so item 3 fails and item 0 succeeds
+	// under every shell the runner may pick.
 	server.CreateDAG(t, "mcp_foreach", `steps:
   - name: each
     foreach:
-      items: [a, b]
+      items: [0, 3]
       steps:
         - id: body
           run: |
-            echo "item ${foreach.item}"
-            if [ "${foreach.item}" = "b" ]; then
-              echo "real cause for b" >&2
-              exit 3
-            fi
+            echo item ${foreach.item}
+            exit ${foreach.item}
 `)
 	dagRunID := server.StartDAG(t, "mcp_foreach")
 	server.WaitForDAGRunStatus(t, "mcp_foreach", dagRunID, api.StatusPartialSuccess)
@@ -91,19 +90,19 @@ func TestReadForeachDrillDown(t *testing.T) {
 	require.NotEmpty(t, detail["error"])
 	body := requireItem(t, detail["steps"].([]any), "name", "body")
 	require.Equal(t, "failed", body["statusLabel"])
-	require.Equal(t, true, body["hasStderr"])
+	require.Equal(t, true, body["hasStdout"])
 
-	// The body step log carries the real cause from stderr.
+	// The body step log reads the item's own output.
 	result = callRead(t, session, map[string]any{
 		"target": "step_log", "name": "mcp_foreach", "dagRunId": dagRunID,
-		"stepName": "each", "item": item, "bodyStepName": "body", "query": "stream=stderr",
+		"stepName": "each", "item": item, "bodyStepName": "body", "query": "stream=stdout",
 	})
-	logURI := itemsURI + "/" + item + "/steps/body/logs?stream=stderr"
+	logURI := itemsURI + "/" + item + "/steps/body/logs?stream=stdout"
 	output = requireForeachRead(t, result, "step_log", logURI, "dag_run_foreach_step_log", "application/json")
 	require.Equal(t, "body", output["bodyStepName"])
 	logData := requireData(t, output)
-	require.Contains(t, requireString(t, logData, "stderrContent"), "real cause for b")
-	require.Empty(t, logData["stdoutContent"])
+	require.Contains(t, requireString(t, logData, "stdoutContent"), "item 3")
+	require.Empty(t, logData["stderrContent"])
 
 	// An item that has no record is not found.
 	result = callRead(t, session, map[string]any{"target": "foreach_item", "name": "mcp_foreach", "dagRunId": dagRunID, "stepName": "each", "item": "9"})
