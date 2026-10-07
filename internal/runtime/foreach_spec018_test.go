@@ -144,7 +144,8 @@ func TestForeachRuntimeHonorsMaxConcurrent(t *testing.T) {
 	assert.Equal(t, 2, state.maxActive())
 }
 
-// Concurrent items keep body logs in foreach/<index>/ instead of one shared directory.
+// Concurrent items keep body logs in foreach/<step>/<index>/ instead of one
+// shared directory, and each item records its body run beside those logs.
 func TestForeachRuntimeItemLogsStaySeparate(t *testing.T) {
 	probeType, _ := registerForeachProbeExecutor(t)
 	r := setupRunner(t)
@@ -155,12 +156,54 @@ func TestForeachRuntimeItemLogsStaySeparate(t *testing.T) {
 	}, 2)
 	result := r.newPlan(t, parent).assertRun(t, ir.Succeeded)
 
-	base := filepath.Join(filepath.Dir(result.nodeByName(t, "each").State().Stdout), "foreach")
+	base := filepath.Join(filepath.Dir(result.nodeByName(t, "each").State().Stdout), "foreach", "each")
 	for _, index := range []string{"0", "1"} {
 		matches, err := filepath.Glob(filepath.Join(base, index, "*.out"))
 		require.NoError(t, err)
 		require.Len(t, matches, 1)
 	}
+}
+
+// The step records its items up front and each item's body steps with their
+// log file names, so the item bodies can be inspected without the run
+// status carrying them.
+func TestForeachRuntimeRecordsItems(t *testing.T) {
+	probeType, _ := registerForeachProbeExecutor(t)
+	r := setupRunner(t)
+
+	parent := foreachRuntimeStep(probeType, []any{
+		map[string]any{"slug": "one", "url": "one"},
+		map[string]any{"slug": "two", "url": "two"},
+	}, 2)
+	result := r.newPlan(t, parent).assertRun(t, ir.Succeeded)
+	base := filepath.Join(filepath.Dir(result.nodeByName(t, "each").State().Stdout), "foreach", "each")
+
+	var items ir.ForeachItems
+	readJSONFile(t, filepath.Join(base, "items.json"), &items)
+	assert.Equal(t, ir.ForeachItems{Total: 2, Items: []ir.ForeachItemRef{
+		{Index: 0, Key: "one"},
+		{Index: 1, Key: "two"},
+	}}, items)
+
+	var item ir.ForeachItemStatus
+	readJSONFile(t, filepath.Join(base, "1", "status.json"), &item)
+	assert.Equal(t, 1, item.Index)
+	assert.Equal(t, "two", item.Key)
+	assert.Equal(t, ir.NodeSucceeded, item.Status)
+	assert.NotEmpty(t, item.StartedAt)
+	assert.NotEmpty(t, item.FinishedAt)
+	require.Len(t, item.Steps, 1)
+	assert.Equal(t, "write", item.Steps[0].Name)
+	assert.Equal(t, ir.NodeSucceeded, item.Steps[0].Status)
+	assert.FileExists(t, filepath.Join(base, "1", item.Steps[0].Stdout))
+	assert.FileExists(t, filepath.Join(base, "1", item.Steps[0].Stderr))
+}
+
+func readJSONFile(t *testing.T, path string, v any) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(data, v))
 }
 
 type foreachAggregate struct {

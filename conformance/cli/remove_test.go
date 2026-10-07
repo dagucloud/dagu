@@ -132,7 +132,7 @@ func TestRemoveHistoryDeletesForeachBodyLogs(t *testing.T) {
 	dagu.RunWithEnv(env, "start", "foreach.yaml").ExpectExitCode(0)
 
 	logDir := filepath.Join(home, "logs", "foreach")
-	bodyLogs, err := filepath.Glob(filepath.Join(logDir, "*", "*", "foreach", "*", "*.out"))
+	bodyLogs, err := filepath.Glob(filepath.Join(logDir, "*", "*", "foreach", "*", "*", "*.out"))
 	require.NoError(t, err)
 	require.Len(t, bodyLogs, 2, "the run should have written one body log per item")
 

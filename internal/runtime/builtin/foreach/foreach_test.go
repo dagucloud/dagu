@@ -5,6 +5,7 @@ package foreach
 
 import (
 	"context"
+	"io"
 	"path/filepath"
 	"testing"
 
@@ -73,12 +74,13 @@ func TestRunItemRemovesScratchLogDir(t *testing.T) {
 	e := &foreachExecutor{step: ir.Step{
 		Name: "each",
 		Foreach: &ir.ForeachConfig{
+			Items: []any{"a"},
 			Steps: []ir.Step{{Name: "body", ID: "body", Command: "true"}},
 		},
 	}}
+	e.SetStdout(io.Discard)
 	ctx := runtime.NewContext(context.Background(), &ir.DAG{Name: "each"}, "run-1", "")
-	result := e.runItem(ctx, expandedItem{index: 0, key: "0", value: "a"})
-	require.Equal(t, ir.NodeSucceeded.String(), result.Status, result.Error)
+	require.NoError(t, e.Run(ctx))
 
 	leftover, err := filepath.Glob(filepath.Join(tmpDir, scratchLogDirPrefix+"*"))
 	require.NoError(t, err)

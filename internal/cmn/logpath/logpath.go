@@ -15,10 +15,6 @@ import (
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 )
 
-// ForeachLogDirName is the directory, next to a foreach step's own log files,
-// that holds the log files of its item bodies.
-const ForeachLogDirName = "foreach"
-
 // Config defines configuration for DAG run log file creation.
 type Config struct {
 	BaseDir   string

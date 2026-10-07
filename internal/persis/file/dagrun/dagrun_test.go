@@ -568,12 +568,14 @@ func TestDAGRunRemove(t *testing.T) {
 		dagRunLogDir := filepath.Join(t.TempDir(), "dag-run")
 		attemptLogDir := filepath.Join(dagRunLogDir, "run-attempt")
 		foreachLogDir := filepath.Join(attemptLogDir, logpath.ForeachLogDirName)
-		nestedLogDir := filepath.Join(foreachLogDir, "0", logpath.ForeachLogDirName, "1")
+		itemDir := filepath.Join(foreachLogDir, "each", "0")
+		nestedLogDir := filepath.Join(itemDir, logpath.ForeachLogDirName, "inner", "1")
 		require.NoError(t, os.MkdirAll(nestedLogDir, 0750))
 
 		stepLog := filepath.Join(attemptLogDir, "each.out")
 		bodyLogs := []string{
-			filepath.Join(foreachLogDir, "0", "body.out"),
+			filepath.Join(itemDir, "body.out"),
+			filepath.Join(itemDir, logpath.ForeachItemStatusFile),
 			filepath.Join(nestedLogDir, "inner.out"),
 		}
 		for _, logFile := range append([]string{stepLog}, bodyLogs...) {
