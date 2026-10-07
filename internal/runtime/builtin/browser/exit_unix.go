@@ -6,17 +6,33 @@
 package browser
 
 import (
+	"context"
 	"errors"
 	"syscall"
 )
 
-// browserExited reports whether the browser started as process pid has
-// exited together with the helpers in its process group. Processes that
-// leave the group, such as the Chrome crash reporter and updater, are not
-// waited for.
-func browserExited(pid int) bool {
-	if syscall.Kill(pid, 0) == nil {
+// browserProcessTree is the browser's process group: the browser started as
+// its leader and the helpers started in it.
+type browserProcessTree struct {
+	pid int
+}
+
+func recordBrowserProcessTree(pid int) *browserProcessTree {
+	return &browserProcessTree{pid: pid}
+}
+
+// exited reports whether the browser has exited together with the helpers
+// in its process group. Processes that leave the group, such as the Chrome
+// crash reporter and updater, are not waited for.
+func (t *browserProcessTree) exited() bool {
+	if syscall.Kill(t.pid, 0) == nil {
 		return false
 	}
-	return errors.Is(syscall.Kill(-pid, 0), syscall.ESRCH)
+	return errors.Is(syscall.Kill(-t.pid, 0), syscall.ESRCH)
+}
+
+// awaitExit returns at once. The runtime signals the whole process group, so
+// the helpers leave with the browser.
+func (*browserProcessTree) awaitExit(context.Context) error {
+	return nil
 }

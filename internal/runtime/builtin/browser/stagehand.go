@@ -553,17 +553,23 @@ func (e *stagehandEngine) Close(ctx context.Context) error {
 	return errors.Join(e.release(ctx), closeBrowser(ctx, e.handle.BrowserPID, e.browser.Close))
 }
 
-// closeBrowser terminates a launched browser with closeRuntime. Besides the
+// closeBrowser terminates a launched browser with closeRuntime. The browser's
+// process tree is recorded from process ID pid before closing. Besides the
 // browser, closeRuntime waits for every process that inherited the browser's
 // output, such as the Chrome updater on macOS, which can outlive the browser
-// by minutes; that wait continues in the background once the browser with
-// process ID pid has exited where browserExited can tell. Otherwise, and
-// without a process ID, it waits for closeRuntime.
+// by minutes; that wait continues in the background once the tree has exited
+// where the tree can tell. Once closeRuntime returns, the tree is given time
+// to finish exiting where helpers outlive the browser. Without a process ID,
+// closing waits for closeRuntime alone.
 func closeBrowser(ctx context.Context, pid int, closeRuntime func(context.Context) error) error {
+	var tree *browserProcessTree
+	if pid > 0 {
+		tree = recordBrowserProcessTree(pid)
+	}
 	closed := make(chan error, 1)
 	go func() { closed <- closeRuntime(ctx) }()
 	var exitChecks <-chan time.Time
-	if pid > 0 {
+	if tree != nil {
 		ticker := time.NewTicker(exitPollInterval)
 		defer ticker.Stop()
 		exitChecks = ticker.C
@@ -571,11 +577,14 @@ func closeBrowser(ctx context.Context, pid int, closeRuntime func(context.Contex
 	for {
 		select {
 		case err := <-closed:
-			return err
+			if tree == nil {
+				return err
+			}
+			return errors.Join(err, tree.awaitExit(ctx))
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-exitChecks:
-			if browserExited(pid) {
+			if tree.exited() {
 				return nil
 			}
 		}

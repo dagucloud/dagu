@@ -67,3 +67,8 @@ func TestCloseBrowserWaitsForProcessGroup(t *testing.T) {
 		t.Fatal("did not return after the process group exited")
 	}
 }
+
+// profileHolders reports nothing: profile removal has not failed on Unix.
+func profileHolders(string) string {
+	return ""
+}
