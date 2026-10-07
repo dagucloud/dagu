@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -69,10 +70,47 @@ func TestCloseBrowserLeavesReusedProcessIDAlone(t *testing.T) {
 	startedAt, ok := procutil.StartTime(other.Process.Pid)
 	require.True(t, ok)
 
+	require.Nil(t, recordBrowserProcessTree(other.Process.Pid, startedAt-1))
+	require.Nil(t, recordBrowserProcessTree(other.Process.Pid, 0), "an unknown start time tracks nothing")
+
 	err := closeBrowser(context.Background(), other.Process.Pid, startedAt-1, func(context.Context) error { return nil })
 	require.NoError(t, err)
 	assert.True(t, procutil.IsAlive(other.Process.Pid), "the process keeps running")
 	assert.True(t, procutil.IsAlive(helperPID), "its child keeps running")
+}
+
+// While the runtime is still closing, a tree that has exited does not end
+// the close on Windows: the runtime ends helpers the tree did not record.
+func TestCloseBrowserWaitsForRuntimeOnWindows(t *testing.T) {
+	t.Parallel()
+
+	browser := startSleeper(t)
+	startedAt, ok := procutil.StartTime(browser.Process.Pid)
+	require.True(t, ok)
+	runtimeBlocked := make(chan struct{})
+	closed := make(chan error, 1)
+	go func() {
+		closed <- closeBrowser(context.Background(), browser.Process.Pid, startedAt, func(context.Context) error {
+			<-runtimeBlocked
+			return nil
+		})
+	}()
+
+	require.NoError(t, browser.Process.Kill())
+	_ = browser.Wait()
+	select {
+	case err := <-closed:
+		t.Fatalf("returned before the runtime closed: %v", err)
+	case <-time.After(500 * time.Millisecond):
+	}
+
+	close(runtimeBlocked)
+	select {
+	case err := <-closed:
+		assert.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("did not return after the runtime closed")
+	}
 }
 
 // profileHolders reports the processes whose command line names dir, and

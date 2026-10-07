@@ -559,11 +559,11 @@ func (e *stagehandEngine) Close(ctx context.Context) error {
 // process tree is recorded before closing from process ID pid and its start
 // time startedAt. Besides the browser, closeRuntime waits for every process
 // that inherited the browser's output, such as the Chrome updater on macOS,
-// which can outlive the browser by minutes; that wait continues in the
-// background once the tree has exited where the tree can tell. Once
-// closeRuntime returns, the tree is given time to finish exiting where
-// helpers outlive the browser. Without a process ID, closing waits for
-// closeRuntime alone.
+// which can outlive the browser by minutes; where the tree exiting ends the
+// close, that wait continues in the background once the tree has exited.
+// Once closeRuntime returns, the tree is given time to finish exiting where
+// helpers outlive the browser. Without a trackable process, closing waits
+// for closeRuntime alone.
 func closeBrowser(ctx context.Context, pid int, startedAt int64, closeRuntime func(context.Context) error) error {
 	var tree *browserProcessTree
 	if pid > 0 {
@@ -572,7 +572,7 @@ func closeBrowser(ctx context.Context, pid int, startedAt int64, closeRuntime fu
 	closed := make(chan error, 1)
 	go func() { closed <- closeRuntime(ctx) }()
 	var exitChecks <-chan time.Time
-	if tree != nil {
+	if tree != nil && tree.exitEndsClose() {
 		ticker := time.NewTicker(exitPollInterval)
 		defer ticker.Stop()
 		exitChecks = ticker.C

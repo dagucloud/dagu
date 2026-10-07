@@ -36,22 +36,22 @@ type browserProcessTree struct {
 }
 
 // recordBrowserProcessTree records the browser started at startedAt as
-// process pid, and every process running under it. A browser whose start
-// time is unknown is not tracked, because its ID cannot be told from a reused
-// one. When the browser has already exited, the helpers it left behind are
-// still recorded: those started under its ID after it did, as long as no
-// later process has taken the ID.
+// process pid, and every process running under it. The result is nil when
+// nothing can be tracked: a browser whose start time is unknown, because its
+// ID cannot be told from a reused one, or an ID that a later process has
+// taken. When the browser has already exited, the helpers it left behind are
+// still recorded: those started under its ID after it did.
 func recordBrowserProcessTree(pid int, startedAt int64) *browserProcessTree {
-	tree := &browserProcessTree{startedAt: map[int]int64{}}
 	if startedAt <= 0 {
-		return tree
+		return nil
 	}
+	tree := &browserProcessTree{startedAt: map[int]int64{}}
 	children := childProcesses()
 	switch {
 	case processRunning(pid, startedAt):
 		tree.startedAt[pid] = startedAt
 	case procutil.IsAlive(pid):
-		return tree
+		return nil
 	}
 	pending := children[pid]
 	for len(pending) > 0 {
@@ -85,6 +85,13 @@ func childProcesses() map[int][]int {
 		children[parent] = append(children[parent], child)
 	}
 	return children
+}
+
+// exitEndsClose reports that the tree exiting does not end the close. The
+// runtime ends the whole process tree it finds, including helpers started
+// after the tree was recorded, so the close waits for it.
+func (*browserProcessTree) exitEndsClose() bool {
+	return false
 }
 
 // exited reports whether every recorded process has exited. A process ID
@@ -141,14 +148,29 @@ func (t *browserProcessTree) awaitExit(ctx context.Context) error {
 	}
 }
 
-// terminate ends every recorded process that is still running.
+// terminate ends every recorded process that is still running. Each process
+// is checked and ended through one handle, so an ID reused between the check
+// and the end cannot name another process.
 func (t *browserProcessTree) terminate() {
-	for _, pid := range t.running() {
-		handle, err := windows.OpenProcess(windows.PROCESS_TERMINATE, false, uint32(pid)) //nolint:gosec // process IDs come from the process snapshot and fit in uint32.
-		if err != nil {
-			continue
-		}
-		_ = windows.TerminateProcess(handle, 1)
-		_ = windows.CloseHandle(handle)
+	for pid, startedAt := range t.startedAt {
+		terminateProcess(pid, startedAt)
 	}
+}
+
+// terminateProcess ends process pid when it is still the one that started at
+// startedAt.
+func terminateProcess(pid int, startedAt int64) {
+	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.PROCESS_TERMINATE, false, uint32(pid)) //nolint:gosec // process IDs come from the process snapshot and fit in uint32.
+	if err != nil {
+		return
+	}
+	defer windows.CloseHandle(handle) //nolint:errcheck
+	var creation, exit, kernel, user windows.Filetime
+	if err := windows.GetProcessTimes(handle, &creation, &exit, &kernel, &user); err != nil {
+		return
+	}
+	if creation.Nanoseconds()/int64(time.Millisecond) != startedAt {
+		return
+	}
+	_ = windows.TerminateProcess(handle, 1)
 }

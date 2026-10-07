@@ -23,6 +23,12 @@ func recordBrowserProcessTree(pid int, _ int64) *browserProcessTree {
 	return &browserProcessTree{pid: pid}
 }
 
+// exitEndsClose reports that the group exiting ends the close: the runtime
+// may still be waiting on processes that left the group.
+func (*browserProcessTree) exitEndsClose() bool {
+	return true
+}
+
 // exited reports whether the browser has exited together with the helpers
 // in its process group. Processes that leave the group, such as the Chrome
 // crash reporter and updater, are not waited for.
