@@ -23,18 +23,21 @@ func inferStepOutputDependencies(dag *ir.DAG, errs *ir.ErrorList) {
 		return
 	}
 	idToIndex := make(map[string]int, len(dag.Steps))
+	nameToIndex := make(map[string]int, len(dag.Steps))
 	for i := range dag.Steps {
+		nameToIndex[dag.Steps[i].Name] = i
 		if dag.Steps[i].ID != "" {
 			idToIndex[dag.Steps[i].ID] = i
 		}
 	}
+	// Lookups read dag.Steps by index so that edges appended during the loop
+	// are visible to later reachability checks.
 	stepByName := func(name string) (ir.Step, bool) {
-		for i := range dag.Steps {
-			if dag.Steps[i].Name == name {
-				return dag.Steps[i], true
-			}
+		i, ok := nameToIndex[name]
+		if !ok {
+			return ir.Step{}, false
 		}
-		return ir.Step{}, false
+		return dag.Steps[i], true
 	}
 
 	for _, field := range ReferenceFields(dag) {
