@@ -1,0 +1,7 @@
+steps:
+  - name: each
+    foreach:
+      items: [a, b]
+      steps:
+        - id: body
+          run: echo "item ${foreach.item}"

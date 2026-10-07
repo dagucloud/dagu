@@ -4,6 +4,8 @@
 package cli_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
@@ -111,4 +113,34 @@ func TestRemoveDefinitionRefusedWhileActive(t *testing.T) {
 	result.ExpectNonZeroExitCode()
 	result.ExpectStderrContains("alive process")
 	require.FileExists(t, dagu.ProjectPath("long_running.yaml"))
+}
+
+// TestRemoveHistoryDeletesForeachBodyLogs proves history removal takes the
+// foreach body logs with it. Those logs are not recorded in the run status,
+// so a removal that only follows recorded paths leaves the run's log
+// directory behind.
+func TestRemoveHistoryDeletesForeachBodyLogs(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	home := filepath.Join(t.TempDir(), "dagu")
+	env := []string{
+		"DAGU_HOME=" + home,
+		"DAGU_DAGS_DIR=.",
+	}
+
+	dagu.RunWithEnv(env, "start", "foreach.yaml").ExpectExitCode(0)
+
+	logDir := filepath.Join(home, "logs", "foreach")
+	bodyLogs, err := filepath.Glob(filepath.Join(logDir, "*", "*", "foreach", "*", "*.out"))
+	require.NoError(t, err)
+	require.Len(t, bodyLogs, 2, "the run should have written one body log per item")
+
+	result := dagu.RunWithEnv(env, "rm", "-H", "-f", "foreach")
+	result.ExpectExitCode(0)
+	require.Contains(t, result.Stdout(), `Successfully removed 1 run(s) for DAG "foreach"`)
+
+	entries, err := os.ReadDir(logDir)
+	require.NoError(t, err)
+	require.Empty(t, entries, "the run's log directory should be gone")
 }
