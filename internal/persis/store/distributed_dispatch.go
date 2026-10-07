@@ -313,6 +313,9 @@ func (idx *dispatchTaskIndex) hasExpired(now time.Time, ttl time.Duration) bool 
 	return false
 }
 
+// rememberNoMatch records that no pending task matches the claim shape key
+// until the pending set changes. The cache is cleared when it reaches
+// dispatchNoMatchCacheLimit entries.
 func (idx *dispatchTaskIndex) rememberNoMatch(key string) {
 	if idx == nil {
 		return
@@ -323,6 +326,8 @@ func (idx *dispatchTaskIndex) rememberNoMatch(key string) {
 	idx.noMatch[key] = struct{}{}
 }
 
+// hasNoMatch reports whether the claim shape key is known to match no
+// pending task.
 func (idx *dispatchTaskIndex) hasNoMatch(key string) bool {
 	if idx == nil {
 		return false
@@ -599,6 +604,9 @@ func (s *DispatchTaskStore) ClaimNext(ctx context.Context, claim dispatch.Dispat
 	return nil, nil
 }
 
+// claimNextPending claims the oldest indexed pending task that matches claim.
+// The second result reports a stale index, which the caller rebuilds before
+// trying again.
 func (s *DispatchTaskStore) claimNextPending(ctx context.Context, claim dispatch.DispatchTaskClaim) (*dispatch.ClaimedDispatchTask, bool, error) {
 	if s.index == nil {
 		if err := s.rebuildDispatchIndex(ctx); err != nil {
@@ -1008,6 +1016,8 @@ func (s *DispatchTaskStore) releaseClaimRecord(ctx context.Context, rec *persis.
 	return nil
 }
 
+// removePendingRecordsWithActiveClaims deletes pending records whose task is
+// already held by a live claim, so a recycled task is never dispatched twice.
 func (s *DispatchTaskStore) removePendingRecordsWithActiveClaims(ctx context.Context) error {
 	if s.index == nil || len(s.index.claims) == 0 {
 		return nil

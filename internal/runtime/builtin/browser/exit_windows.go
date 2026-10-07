@@ -35,6 +35,7 @@ type browserProcessTree struct {
 	startedAt map[int]int64
 }
 
+// recordBrowserProcessTree records pid and every process running under it.
 func recordBrowserProcessTree(pid int) *browserProcessTree {
 	tree := &browserProcessTree{startedAt: map[int]int64{}}
 	children := childProcesses()
@@ -87,6 +88,8 @@ func (t *browserProcessTree) running() []int {
 	return running
 }
 
+// processRunning reports whether pid still belongs to the process that
+// started at startedAt, or to any live process when startedAt is unknown.
 func processRunning(pid int, startedAt int64) bool {
 	if !procutil.IsAlive(pid) {
 		return false

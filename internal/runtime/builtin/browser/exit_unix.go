@@ -17,6 +17,7 @@ type browserProcessTree struct {
 	pid int
 }
 
+// recordBrowserProcessTree identifies the process group led by pid.
 func recordBrowserProcessTree(pid int) *browserProcessTree {
 	return &browserProcessTree{pid: pid}
 }
