@@ -258,7 +258,7 @@ steps:
     run: ./deploy.sh '${steps.build.outputs.image_tag}'
 ```
 
-Warning-only missing dependency:
+Inferred dependency without `depends`:
 
 ```yaml
 steps:

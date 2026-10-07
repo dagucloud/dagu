@@ -101,8 +101,8 @@ An item run is one represented child DAG run or enqueue request created by
 
 - Item-scoped references do not create dependencies.
 
-- References to prior top-level step outputs still require normal dependency
-  ordering under Spec 007.
+- References to prior top-level step outputs are ordered under Spec 007,
+  through `depends` or through an inferred dependency on the owning step.
 
 - Dynamic evaluation is not run for item-scoped references unless another spec
   explicitly opts in.
@@ -521,11 +521,13 @@ Rules:
 
 - Top-level steps must not depend on body steps directly.
 
-- A body step can reference top-level step outputs when the top-level producer
-  is ordered before the owning `foreach` step under Spec 007.
+- A body step can reference top-level step outputs. The reference adds an
+  inferred dependency from the producer to the owning `foreach` step under
+  Spec 007, so the producer is ordered before the body runs.
 
 - A body step can reference an earlier body step output from the same item body
-  using normal step-output reference syntax.
+  using normal step-output reference syntax. Such a reference creates no
+  inferred dependency; body ordering comes from body `depends`.
 
 - Body step output references never cross item bodies.
 

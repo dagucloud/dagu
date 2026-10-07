@@ -241,7 +241,8 @@ Rules:
   output variable for this spec.
 - Output variables enter only the environment scope of downstream steps that
   directly or transitively depend on the producing step.
-- Output variables do not create dependencies.
+- Output variables do not create dependencies. Only supported step output
+  references do, under Spec 007.
 
 ### Environment Declarations
 
