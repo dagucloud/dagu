@@ -287,6 +287,14 @@ var (
 		viperKey:     "worker.health_port",
 	}
 
+	workerShutdownTimeoutFlag = commandLineFlag{
+		name:         "worker.shutdown-timeout",
+		defaultValue: "60s",
+		usage:        "How long a stopping worker drains running DAG runs before it cancels them (default: 60s, 0 waits without a bound)",
+		bindViper:    true,
+		viperKey:     "worker.shutdown_timeout",
+	}
+
 	workerCoordinatorsFlag = commandLineFlag{
 		name:      "worker.coordinators",
 		usage:     "Required coordinator addresses (format: host1:port1,host2:port2)",

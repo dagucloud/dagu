@@ -348,9 +348,10 @@ func TestLoad_Env(t *testing.T) {
 			HealthPort: 50101,
 		},
 		Worker: Worker{
-			ID:            "test-worker-123",
-			MaxActiveRuns: 200,
-			HealthPort:    50102,
+			ID:              "test-worker-123",
+			MaxActiveRuns:   200,
+			HealthPort:      50102,
+			ShutdownTimeout: 60 * time.Second,
 			PostgresPool: PostgresPoolConfig{
 				MaxOpenConns:    25,
 				MaxIdleConns:    5,
@@ -427,6 +428,55 @@ worker:
 
 	assert.Zero(t, cfg.Coordinator.HealthPort)
 	assert.Zero(t, cfg.Worker.HealthPort)
+}
+
+func TestLoad_WorkerShutdownTimeout(t *testing.T) {
+	t.Run("Default", func(t *testing.T) {
+		cfg := loadFromYAML(t, "# empty")
+		assert.Equal(t, 60*time.Second, cfg.Worker.ShutdownTimeout)
+	})
+
+	t.Run("FromYAML", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+worker:
+  shutdown_timeout: 5m
+`)
+		assert.Equal(t, 5*time.Minute, cfg.Worker.ShutdownTimeout)
+	})
+
+	t.Run("ZeroDisablesBound", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+worker:
+  shutdown_timeout: 0
+`)
+		assert.Zero(t, cfg.Worker.ShutdownTimeout)
+	})
+
+	t.Run("FromEnv", func(t *testing.T) {
+		cfg := loadWithEnv(t, "# empty", map[string]string{
+			"DAGU_WORKER_SHUTDOWN_TIMEOUT": "45s",
+		})
+		assert.Equal(t, 45*time.Second, cfg.Worker.ShutdownTimeout)
+	})
+
+	t.Run("InvalidFallsBackToDefault", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+worker:
+  shutdown_timeout: soon
+`)
+		assert.Equal(t, 60*time.Second, cfg.Worker.ShutdownTimeout)
+		require.NotEmpty(t, cfg.Warnings)
+		assert.Contains(t, cfg.Warnings[len(cfg.Warnings)-1], "Invalid worker.shutdown_timeout value: soon")
+	})
+
+	t.Run("NegativeIsRejected", func(t *testing.T) {
+		err := loadWithErrorFromYAML(t, `
+worker:
+  shutdown_timeout: -1s
+`)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "worker.shutdown_timeout must be >= 0")
+	})
 }
 
 func TestLoad_WithAppHomeDir(t *testing.T) {
@@ -855,9 +905,10 @@ scheduler:
 			HealthPort: 8091,
 		},
 		Worker: Worker{
-			ID:            "worker-1",
-			MaxActiveRuns: 50,
-			HealthPort:    8092,
+			ID:              "worker-1",
+			MaxActiveRuns:   50,
+			HealthPort:      8092,
+			ShutdownTimeout: 60 * time.Second,
 			Labels: map[string]string{
 				"env":    "production",
 				"region": "us-west-2",

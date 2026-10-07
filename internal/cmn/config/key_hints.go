@@ -136,6 +136,7 @@ var legacyToSnakeCaseKey = map[string]string{
 
 	// Worker
 	"worker.maxactiveruns":                "worker.max_active_runs",
+	"worker.shutdowntimeout":              "worker.shutdown_timeout",
 	"worker.postgrespool":                 "worker.postgres_pool",
 	"worker.postgrespool.maxopenconns":    "worker.postgres_pool.max_open_conns",
 	"worker.postgrespool.maxidleconns":    "worker.postgres_pool.max_idle_conns",

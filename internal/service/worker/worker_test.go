@@ -479,6 +479,80 @@ func TestWorkerStopWithoutStart(t *testing.T) {
 	})
 }
 
+func TestWorkerStopDeadline(t *testing.T) {
+	// startWorkerWithRun starts a worker whose only task runs handle and
+	// returns once that task has started.
+	startWorkerWithRun := func(t *testing.T, handle func(context.Context) error) *worker.Worker {
+		t.Helper()
+		mockCoordinatorCli := newMockCoordinatorCli()
+		var dispatched atomic.Bool
+		mockCoordinatorCli.SetPollFunc(func(ctx context.Context, _ backoff.RetryPolicy, _ *coordinatorv1.PollRequest) (*coordinatorv1.Task, error) {
+			if dispatched.Swap(true) {
+				<-ctx.Done()
+				return nil, ctx.Err()
+			}
+			return &coordinatorv1.Task{DagRunId: "run-1", AttemptKey: "attempt-1"}, nil
+		})
+
+		started := make(chan struct{})
+		w := worker.NewWorker("test-worker", 1, mockCoordinatorCli, map[string]string{}, &config.Config{})
+		w.SetHandler(&mockHandler{
+			ExecuteFunc: func(ctx context.Context, _ *coordinatorv1.Task) error {
+				close(started)
+				return handle(ctx)
+			},
+		})
+		go func() {
+			_ = w.Start(context.Background())
+		}()
+		select {
+		case <-started:
+		case <-time.After(5 * time.Second):
+			t.Fatal("task did not start")
+		}
+		return w
+	}
+
+	t.Run("DeadlineCancelsRunAndWaitsForItToExit", func(t *testing.T) {
+		// The run ignores the drain and only ends once its context is
+		// canceled, then needs a moment to report its final status.
+		var runCanceled, runExited atomic.Bool
+		w := startWorkerWithRun(t, func(ctx context.Context) error {
+			<-ctx.Done()
+			runCanceled.Store(true)
+			time.Sleep(300 * time.Millisecond)
+			runExited.Store(true)
+			return ctx.Err()
+		})
+
+		stopCtx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		begin := time.Now()
+		err := w.Stop(stopCtx)
+		elapsed := time.Since(begin)
+
+		require.NoError(t, err, "reaching the deadline is not a stop failure")
+		require.True(t, runCanceled.Load(), "the deadline should cancel the running task")
+		require.True(t, runExited.Load(), "Stop should wait for the canceled task to exit")
+		require.GreaterOrEqual(t, elapsed, 200*time.Millisecond)
+		require.Less(t, elapsed, 5*time.Second)
+	})
+
+	t.Run("NoDeadlineWaitsForRunWithoutCanceling", func(t *testing.T) {
+		var canceledBeforeExit atomic.Bool
+		w := startWorkerWithRun(t, func(ctx context.Context) error {
+			time.Sleep(300 * time.Millisecond)
+			canceledBeforeExit.Store(ctx.Err() != nil)
+			return nil
+		})
+
+		begin := time.Now()
+		require.NoError(t, w.Stop(context.Background()))
+		require.GreaterOrEqual(t, time.Since(begin), 250*time.Millisecond)
+		require.False(t, canceledBeforeExit.Load(), "without a deadline Stop should let the task finish")
+	})
+}
+
 func TestWorkerDefaultID(t *testing.T) {
 	t.Run("GeneratesDefaultIDWhenEmpty", func(t *testing.T) {
 		labels := make(map[string]string)

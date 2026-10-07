@@ -385,6 +385,9 @@ type WorkerDef struct {
 	ID            string `mapstructure:"id"`
 	MaxActiveRuns int    `mapstructure:"max_active_runs"`
 	HealthPort    int    `mapstructure:"health_port"`
+	// ShutdownTimeout is a duration string such as "60s". Default: 60s; 0
+	// waits without a bound.
+	ShutdownTimeout string `mapstructure:"shutdown_timeout"`
 	// Labels accepts either a string "key=value,key2=value2,..." or map[string]string.
 	// When string, parsed as comma-separated key=value pairs.
 	Labels any `mapstructure:"labels"`

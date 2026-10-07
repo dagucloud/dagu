@@ -362,7 +362,17 @@ func cleanupErrorMessage(err error) string {
 	return message
 }
 
-// Stop gracefully shuts down the worker.
+// stopCleanupTimeout bounds the shutdown steps that follow the drain once the
+// Stop context has expired: waiting for canceled runs to exit and closing the
+// coordinator client, health server and OpenCode host.
+const stopCleanupTimeout = 10 * time.Second
+
+// Stop gracefully shuts down the worker. It stops polling, sends SIGTERM to
+// running tasks and waits until they finish their cleanup window and lifecycle
+// handlers, or until ctx is done. Without a deadline on ctx, Stop can wait
+// indefinitely for a task that does not exit. When ctx is done first, Stop
+// cancels the remaining tasks and gives them and the remaining shutdown steps
+// up to stopCleanupTimeout of their own.
 func (w *Worker) Stop(ctx context.Context) error {
 	var err error
 	w.stopOnce.Do(func() {
@@ -387,6 +397,14 @@ func (w *Worker) Stop(ctx context.Context) error {
 		// Cancel the internal context to signal all goroutines to stop
 		if w.stopCancel != nil {
 			w.stopCancel()
+		}
+
+		// An expired ctx would fail the remaining steps at once, and the
+		// canceled tasks still need time to report their final status.
+		if ctx.Err() != nil {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), stopCleanupTimeout)
+			defer cancel()
 		}
 
 		// Wait for all goroutines to complete (with timeout from ctx)

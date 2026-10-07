@@ -371,6 +371,62 @@ steps:
 	require.Equal(t, ir.NodeSucceeded, status.OnExit.Status)
 }
 
+// A Stop deadline bounds the drain. When a lifecycle handler hangs past it,
+// the worker cancels the run, waits for the canceled run to report its final
+// status, and Stop returns without an error.
+func TestCancellation_WorkerStopDeadlineCancelsHangingHandler(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX shell steps")
+	}
+	dir := t.TempDir()
+	readyMarker := filepath.Join(dir, "ready")
+	handlerMarker := filepath.Join(dir, "handler")
+	f := newTestFixture(t, fmt.Sprintf(`
+name: worker-stop-deadline
+worker_selector:
+  test: "true"
+max_clean_up_time_sec: 2
+handler_on:
+  exit:
+    run: |
+      touch %s
+      sleep 60
+steps:
+  - name: long
+    run: |
+      touch %s
+      sleep 30
+`, test.ShellQuote(handlerMarker), test.ShellQuote(readyMarker)))
+	defer f.cleanup()
+
+	require.NoError(t, f.enqueue())
+	f.waitForQueued()
+	f.startScheduler(30 * time.Second)
+	f.waitForStatus(ir.Running, 20*time.Second)
+	require.Eventually(t, func() bool {
+		_, err := os.Stat(readyMarker)
+		return err == nil
+	}, 20*time.Second, 50*time.Millisecond, "step should start")
+
+	deadline := distrTestTimeout(4 * time.Second)
+	stopCtx, cancel := context.WithTimeout(context.Background(), deadline)
+	defer cancel()
+	begin := time.Now()
+	require.NoError(t, f.workers[0].Stop(stopCtx))
+	elapsed := time.Since(begin)
+
+	require.FileExists(t, handlerMarker, "exit handler should be running when the deadline expires")
+	require.GreaterOrEqual(t, elapsed, deadline, "Stop should drain until the deadline")
+	require.Less(t, elapsed, deadline+15*time.Second, "Stop should end soon after the deadline")
+	// The final status must be stored by the time Stop returns, because the
+	// worker process exits right after Stop.
+	status, err := f.latestStoredStatus()
+	require.NoError(t, err)
+	require.Contains(t, []ir.Status{ir.Aborted, ir.Failed}, status.Status)
+	require.NotNil(t, status.OnExit)
+	require.NotEqual(t, ir.NodeSucceeded, status.OnExit.Status)
+}
+
 func TestCancellation_ParallelItems(t *testing.T) {
 	t.Run("cancelParallelExecutionOnWorkers", func(t *testing.T) {
 		tmpDir := t.TempDir()
