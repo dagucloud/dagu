@@ -11,14 +11,13 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-const windowsStillActiveExitCode = 259
 const maxPIDUint32 = 1<<32 - 1
 
 func isAlive(pid int) bool {
 	if !canUseWindowsPID(pid) {
 		return false
 	}
-	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid)) //nolint:gosec // canUseWindowsPID bounds pid to the uint32 range.
+	handle, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid)) //nolint:gosec // canUseWindowsPID bounds pid to the uint32 range.
 	if err != nil {
 		return err == windows.ERROR_ACCESS_DENIED
 	}
@@ -27,13 +26,15 @@ func isAlive(pid int) bool {
 }
 
 // HandleIsAlive reports whether the process behind handle is still running.
-// The handle needs PROCESS_QUERY_LIMITED_INFORMATION access.
+// The handle needs SYNCHRONIZE access. A process is running until its handle
+// is signaled; the exit code alone cannot tell, since a process may exit with
+// the code that also means still active.
 func HandleIsAlive(handle windows.Handle) bool {
-	var exitCode uint32
-	if err := windows.GetExitCodeProcess(handle, &exitCode); err != nil {
+	event, err := windows.WaitForSingleObject(handle, 0)
+	if err != nil {
 		return true
 	}
-	return exitCode == windowsStillActiveExitCode
+	return event != windows.WAIT_OBJECT_0
 }
 
 func canLookupStartTime(pid int) bool {

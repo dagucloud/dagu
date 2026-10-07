@@ -25,8 +25,8 @@ const (
 	// the runtime has closed the browser.
 	helperExitTimeout = 10 * time.Second
 	// treeProcessAccess is the access the tree needs to a process: to read
-	// its parent, start time, and exit code, and to end it.
-	treeProcessAccess = windows.PROCESS_QUERY_LIMITED_INFORMATION | windows.PROCESS_TERMINATE
+	// its parent and start time, to wait for its exit, and to end it.
+	treeProcessAccess = windows.PROCESS_QUERY_LIMITED_INFORMATION | windows.PROCESS_TERMINATE | windows.SYNCHRONIZE
 )
 
 // browserProcessTree is the browser and the helpers that were running under
