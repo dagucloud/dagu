@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
@@ -488,12 +489,12 @@ func bodyLogDir(ctx context.Context, index int) string {
 	env := runtime.GetEnv(ctx)
 	if env.Scope != nil {
 		if stdout, ok := env.Scope.Get(runenv.EnvKeyDAGRunStepStdoutFile); ok && stdout != "" {
-			return filepath.Join(filepath.Dir(stdout), "foreach", itemDir)
+			return filepath.Join(filepath.Dir(stdout), logpath.ForeachLogDirName, itemDir)
 		}
 	}
 	rCtx := runtime.GetDAGContext(ctx)
 	if rCtx.DAGRunLogDir != "" {
-		return filepath.Join(rCtx.DAGRunLogDir, "foreach", itemDir)
+		return filepath.Join(rCtx.DAGRunLogDir, logpath.ForeachLogDirName, itemDir)
 	}
 	return filepath.Join(os.TempDir(), "dagu-foreach", itemDir)
 }

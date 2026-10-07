@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/stretchr/testify/assert"
@@ -210,8 +211,9 @@ func TestListLogFiles(t *testing.T) {
 		require.NoError(t, att.Write(run.Context, dagRunStatus))
 		require.NoError(t, att.Close(run.Context))
 
-		logFiles, err := run.listLogFiles(run.Context)
+		logs, err := run.listLogFiles(run.Context)
 		require.NoError(t, err)
+		logFiles := logs.files
 
 		expectedFiles := []string{
 			"/tmp/test.log",
@@ -257,8 +259,9 @@ func TestListLogFiles(t *testing.T) {
 		require.NoError(t, att.Write(run.Context, dagRunStatus))
 		require.NoError(t, att.Close(run.Context))
 
-		logFiles, err := run.listLogFiles(run.Context)
+		logs, err := run.listLogFiles(run.Context)
 		require.NoError(t, err)
+		logFiles := logs.files
 
 		expectedFiles := []string{
 			"/tmp/test.log",
@@ -556,6 +559,52 @@ func TestDAGRunRemove(t *testing.T) {
 			_, err := os.Stat(logFile)
 			assert.True(t, os.IsNotExist(err), "log file should be removed: %s", logFile)
 		}
+		assert.NoDirExists(t, attemptLogDir)
+		assert.NoDirExists(t, dagRunLogDir)
+	})
+
+	// Body steps of a foreach step log under the attempt's foreach/ directory
+	// without appearing in the run status, so removal must drop that tree by
+	// its location rather than by recorded paths.
+	t.Run("RemovesForeachBodyLogs", func(t *testing.T) {
+		dagRunLogDir := filepath.Join(t.TempDir(), "dag-run")
+		attemptLogDir := filepath.Join(dagRunLogDir, "run-attempt")
+		foreachLogDir := filepath.Join(attemptLogDir, logpath.ForeachLogDirName)
+		nestedLogDir := filepath.Join(foreachLogDir, "0", logpath.ForeachLogDirName, "1")
+		require.NoError(t, os.MkdirAll(nestedLogDir, 0750))
+
+		stepLog := filepath.Join(attemptLogDir, "each.out")
+		bodyLogs := []string{
+			filepath.Join(foreachLogDir, "0", "body.out"),
+			filepath.Join(nestedLogDir, "inner.out"),
+		}
+		for _, logFile := range append([]string{stepLog}, bodyLogs...) {
+			require.NoError(t, os.WriteFile(logFile, []byte("log"), 0600))
+		}
+
+		root := setupTestDataRoot(t)
+		run := root.CreateTestDAGRun(t, "test-dag-run", persis.NewUTC(time.Now()))
+		dagRunStatus := ir.InitialStatus(&ir.DAG{Name: "test-dag"})
+		dagRunStatus.DAGRunID = "test-dag-run"
+		dagRunStatus.Log = filepath.Join(dagRunLogDir, "dag-run.log")
+		dagRunStatus.Nodes = []*ir.Node{{
+			Step:   ir.Step{Name: "each"},
+			Stdout: stepLog,
+			Stderr: stepLog,
+		}}
+
+		att, err := run.CreateAttempt(run.Context, persis.NewUTC(time.Now()), nil, "")
+		require.NoError(t, err)
+		require.NoError(t, att.Open(run.Context))
+		require.NoError(t, att.Write(run.Context, dagRunStatus))
+		require.NoError(t, att.Close(run.Context))
+
+		require.NoError(t, run.Remove(run.Context))
+
+		for _, logFile := range bodyLogs {
+			assert.NoFileExists(t, logFile)
+		}
+		assert.NoDirExists(t, foreachLogDir)
 		assert.NoDirExists(t, attemptLogDir)
 		assert.NoDirExists(t, dagRunLogDir)
 	})
