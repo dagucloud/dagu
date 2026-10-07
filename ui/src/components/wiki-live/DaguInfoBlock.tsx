@@ -217,9 +217,13 @@ function DagDetailsSections({
                     {step.name}
                   </td>
                   <td className="py-1 pr-3 text-muted-foreground">
-                    {(step.depends ?? []).length > 0
+                    {[...(step.depends ?? []), ...(step.inferredDepends ?? [])]
+                      .length > 0
                       ? ts('after {steps}', {
-                          steps: (step.depends ?? []).join(', '),
+                          steps: [
+                            ...(step.depends ?? []),
+                            ...(step.inferredDepends ?? []),
+                          ].join(', '),
                         })
                       : ''}
                   </td>
