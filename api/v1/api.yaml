@@ -3261,6 +3261,158 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /dag-runs/{name}/{dagRunId}/steps/{stepName}/foreach:
+    get:
+      summary: "List the items of a foreach step in a DAG-run"
+      description: |
+        Lists the items a foreach step expanded to, with the status each item's
+        body run reached. Items are sorted failed first, then running, then the
+        rest in index order. Nested foreach items are listed by passing the
+        parent path a body step reports as foreachParent.
+      operationId: "getDAGRunForeachItems"
+      tags:
+        - "dag-runs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGName"
+        - $ref: "#/components/parameters/DAGRunId"
+        - $ref: "#/components/parameters/StepName"
+        - $ref: "#/components/parameters/ForeachParent"
+        - $ref: "#/components/parameters/ForeachItemStatusFilter"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: "A successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ForeachItemList"
+        "404":
+          description: "DAG-run or step not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dag-runs/{name}/{dagRunId}/steps/{stepName}/foreach/{item}:
+    get:
+      summary: "Retrieve one item of a foreach step in a DAG-run"
+      description: "Fetches an item's body run: its status and the status of each body step"
+      operationId: "getDAGRunForeachItem"
+      tags:
+        - "dag-runs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGName"
+        - $ref: "#/components/parameters/DAGRunId"
+        - $ref: "#/components/parameters/StepName"
+        - $ref: "#/components/parameters/ForeachItemPath"
+      responses:
+        "200":
+          description: "A successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ForeachItem"
+        "404":
+          description: "DAG-run, step, or item not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dag-runs/{name}/{dagRunId}/steps/{stepName}/foreach/{item}/steps/{bodyStepName}/log:
+    get:
+      summary: "Retrieve log for a body step of a foreach item in a DAG-run"
+      description: "Fetches the log of one body step run for one item of a foreach step"
+      operationId: "getDAGRunForeachStepLog"
+      tags:
+        - "dag-runs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGName"
+        - $ref: "#/components/parameters/DAGRunId"
+        - $ref: "#/components/parameters/StepName"
+        - $ref: "#/components/parameters/ForeachItemPath"
+        - $ref: "#/components/parameters/BodyStepName"
+        - $ref: "#/components/parameters/Tail"
+        - $ref: "#/components/parameters/Head"
+        - $ref: "#/components/parameters/Offset"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Stream"
+      responses:
+        "200":
+          description: "A successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Log"
+        "404":
+          description: "Log file not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dag-runs/{name}/{dagRunId}/steps/{stepName}/foreach/{item}/steps/{bodyStepName}/log/download:
+    get:
+      summary: "Download log for a body step of a foreach item in a DAG-run"
+      description: "Downloads the entire log file of one body step run for one item of a foreach step"
+      operationId: "downloadDAGRunForeachStepLog"
+      tags:
+        - "dag-runs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGName"
+        - $ref: "#/components/parameters/DAGRunId"
+        - $ref: "#/components/parameters/StepName"
+        - $ref: "#/components/parameters/ForeachItemPath"
+        - $ref: "#/components/parameters/BodyStepName"
+        - $ref: "#/components/parameters/Stream"
+      responses:
+        "200":
+          description: "Log file content"
+          headers:
+            Content-Disposition:
+              schema:
+                type: "string"
+              description: "Attachment filename"
+          content:
+            text/plain:
+              schema:
+                type: "string"
+        "404":
+          description: "Log file not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /dag-runs/{name}/{dagRunId}/steps/log/download:
     get:
       summary: "Download step logs as ZIP of a DAG-run"
@@ -3269,8 +3421,10 @@ paths:
         DAG-run only. Logs from nested DAG-runs are not included.
         Returns a streaming ZIP archive with no size limit. Each available log is
         stored as <index>-<step-name>/stdout.log or stderr.log, in run order.
-        Missing files are skipped. Each file includes only the bytes present when
-        it is opened; subsequent log growth is excluded.
+        The body logs and item records of a foreach step are stored under
+        <index>-<step-name>/foreach/. Missing files are skipped. Each file
+        includes only the bytes present when it is opened; subsequent log growth
+        is excluded.
       operationId: "downloadDAGRunStepLogs"
       tags:
         - "dag-runs"
@@ -4071,6 +4225,182 @@ paths:
             type: "string"
           description: "ID of the sub DAG-run to download the step log for"
         - $ref: "#/components/parameters/StepName"
+        - $ref: "#/components/parameters/Stream"
+      responses:
+        "200":
+          description: "Log file content"
+          headers:
+            Content-Disposition:
+              schema:
+                type: "string"
+              description: "Attachment filename"
+          content:
+            text/plain:
+              schema:
+                type: "string"
+        "404":
+          description: "Log file not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/steps/{stepName}/foreach:
+    get:
+      summary: "List the items of a foreach step in a sub DAG-run"
+      description: |
+        Lists the items a foreach step expanded to, with the status each item's
+        body run reached. Items are sorted failed first, then running, then the
+        rest in index order. Nested foreach items are listed by passing the
+        parent path a body step reports as foreachParent.
+      operationId: "getSubDAGRunForeachItems"
+      tags:
+        - "dag-runs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGName"
+        - $ref: "#/components/parameters/DAGRunId"
+        - name: "subDAGRunId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+          description: "ID of the sub DAG-run"
+        - $ref: "#/components/parameters/StepName"
+        - $ref: "#/components/parameters/ForeachParent"
+        - $ref: "#/components/parameters/ForeachItemStatusFilter"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: "A successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ForeachItemList"
+        "404":
+          description: "DAG-run or step not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/steps/{stepName}/foreach/{item}:
+    get:
+      summary: "Retrieve one item of a foreach step in a sub DAG-run"
+      description: "Fetches an item's body run: its status and the status of each body step"
+      operationId: "getSubDAGRunForeachItem"
+      tags:
+        - "dag-runs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGName"
+        - $ref: "#/components/parameters/DAGRunId"
+        - name: "subDAGRunId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+          description: "ID of the sub DAG-run"
+        - $ref: "#/components/parameters/StepName"
+        - $ref: "#/components/parameters/ForeachItemPath"
+      responses:
+        "200":
+          description: "A successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ForeachItem"
+        "404":
+          description: "DAG-run, step, or item not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/steps/{stepName}/foreach/{item}/steps/{bodyStepName}/log:
+    get:
+      summary: "Retrieve log for a body step of a foreach item in a sub DAG-run"
+      description: "Fetches the log of one body step run for one item of a foreach step"
+      operationId: "getSubDAGRunForeachStepLog"
+      tags:
+        - "dag-runs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGName"
+        - $ref: "#/components/parameters/DAGRunId"
+        - name: "subDAGRunId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+          description: "ID of the sub DAG-run"
+        - $ref: "#/components/parameters/StepName"
+        - $ref: "#/components/parameters/ForeachItemPath"
+        - $ref: "#/components/parameters/BodyStepName"
+        - $ref: "#/components/parameters/Tail"
+        - $ref: "#/components/parameters/Head"
+        - $ref: "#/components/parameters/Offset"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Stream"
+      responses:
+        "200":
+          description: "A successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Log"
+        "404":
+          description: "Log file not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/steps/{stepName}/foreach/{item}/steps/{bodyStepName}/log/download:
+    get:
+      summary: "Download log for a body step of a foreach item in a sub DAG-run"
+      description: "Downloads the entire log file of one body step run for one item of a foreach step"
+      operationId: "downloadSubDAGRunForeachStepLog"
+      tags:
+        - "dag-runs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGName"
+        - $ref: "#/components/parameters/DAGRunId"
+        - name: "subDAGRunId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+          description: "ID of the sub DAG-run"
+        - $ref: "#/components/parameters/StepName"
+        - $ref: "#/components/parameters/ForeachItemPath"
+        - $ref: "#/components/parameters/BodyStepName"
         - $ref: "#/components/parameters/Stream"
       responses:
         "200":
@@ -10537,6 +10867,45 @@ components:
       schema:
         type: string
 
+    ForeachItemPath:
+      name: item
+      in: path
+      description: |
+        Path of a foreach item: the item index, or for an item of a nested
+        foreach the parent path reported as foreachParent followed by a dot
+        and the item index, such as 2.inner.0.
+      required: true
+      schema:
+        type: string
+        pattern: "^[0-9]+(\\.[a-zA-Z0-9_-]+\\.[0-9]+)*$"
+
+    BodyStepName:
+      name: bodyStepName
+      in: path
+      description: name or ID of a body step of the foreach item
+      required: true
+      schema:
+        type: string
+
+    ForeachParent:
+      name: parent
+      in: query
+      description: |
+        Lists the items of a nested foreach instead of the step's own items.
+        The value is the foreachParent a body step reports, such as 2.inner.
+      required: false
+      schema:
+        type: string
+        pattern: "^[0-9]+\\.[a-zA-Z0-9_-]+(\\.[0-9]+\\.[a-zA-Z0-9_-]+)*$"
+
+    ForeachItemStatusFilter:
+      name: status
+      in: query
+      description: only list items whose body run reached this status
+      required: false
+      schema:
+        $ref: "#/components/schemas/ForeachItemStatusFilter"
+
     HumanTaskStepId:
       name: stepId
       in: path
@@ -15175,6 +15544,156 @@ components:
           type: string
         error:
           type: string
+
+    ForeachItemStatusFilter:
+      type: string
+      description: "Status of a foreach item's body run"
+      enum:
+        - "not_started"
+        - "running"
+        - "succeeded"
+        - "failed"
+        - "aborted"
+
+    ForeachItemCounts:
+      type: object
+      description: "Number of items per body run status"
+      properties:
+        notStarted:
+          type: integer
+        running:
+          type: integer
+        succeeded:
+          type: integer
+        failed:
+          type: integer
+        aborted:
+          type: integer
+      required:
+        - notStarted
+        - running
+        - succeeded
+        - failed
+        - aborted
+
+    ForeachItemList:
+      type: object
+      description: "One page of a foreach step's items"
+      properties:
+        total:
+          type: integer
+          description: "Number of items the step expanded to, before any status filter"
+        counts:
+          $ref: "#/components/schemas/ForeachItemCounts"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ForeachItemSummary"
+      required:
+        - total
+        - counts
+        - items
+
+    ForeachItemSummary:
+      type: object
+      description: "One item of a foreach step and the status its body run reached"
+      properties:
+        item:
+          type: string
+          description: "Path that addresses the item in the foreach item routes"
+        index:
+          type: integer
+        key:
+          type: string
+        status:
+          $ref: "#/components/schemas/NodeStatus"
+        statusLabel:
+          $ref: "#/components/schemas/NodeStatusLabel"
+        error:
+          type: string
+          description: "Error the body run reported, when it failed"
+        startedAt:
+          type: string
+          description: "RFC3339 timestamp when the body run started"
+        finishedAt:
+          type: string
+          description: "RFC3339 timestamp when the body run finished"
+      required:
+        - item
+        - index
+        - key
+        - status
+        - statusLabel
+
+    ForeachItem:
+      type: object
+      description: "One item of a foreach step with the status of each body step"
+      properties:
+        item:
+          type: string
+          description: "Path that addresses the item in the foreach item routes"
+        index:
+          type: integer
+        key:
+          type: string
+        status:
+          $ref: "#/components/schemas/NodeStatus"
+        statusLabel:
+          $ref: "#/components/schemas/NodeStatusLabel"
+        error:
+          type: string
+        startedAt:
+          type: string
+        finishedAt:
+          type: string
+        steps:
+          type: array
+          description: "Body steps in execution order"
+          items:
+            $ref: "#/components/schemas/ForeachBodyStep"
+      required:
+        - item
+        - index
+        - key
+        - status
+        - statusLabel
+        - steps
+
+    ForeachBodyStep:
+      type: object
+      description: "Status of one body step within a foreach item"
+      properties:
+        name:
+          type: string
+        id:
+          type: string
+        status:
+          $ref: "#/components/schemas/NodeStatus"
+        statusLabel:
+          $ref: "#/components/schemas/NodeStatusLabel"
+        error:
+          type: string
+        startedAt:
+          type: string
+        finishedAt:
+          type: string
+        retryCount:
+          type: integer
+        hasStdout:
+          type: boolean
+          description: "Whether a stdout log file was recorded for the step"
+        hasStderr:
+          type: boolean
+          description: "Whether a stderr log file was recorded for the step"
+        foreachParent:
+          type: string
+          description: "For a body step that is itself a foreach, the parent path that lists its items"
+      required:
+        - name
+        - status
+        - statusLabel
+        - hasStdout
+        - hasStderr
 
     Log:
       type: object

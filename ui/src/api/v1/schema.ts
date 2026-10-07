@@ -1190,6 +1190,90 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dag-runs/{name}/{dagRunId}/steps/{stepName}/foreach": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the items of a foreach step in a DAG-run
+         * @description Lists the items a foreach step expanded to, with the status each item's
+         *     body run reached. Items are sorted failed first, then running, then the
+         *     rest in index order. Nested foreach items are listed by passing the
+         *     parent path a body step reports as foreachParent.
+         *
+         */
+        get: operations["getDAGRunForeachItems"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dag-runs/{name}/{dagRunId}/steps/{stepName}/foreach/{item}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Retrieve one item of a foreach step in a DAG-run
+         * @description Fetches an item's body run: its status and the status of each body step
+         */
+        get: operations["getDAGRunForeachItem"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dag-runs/{name}/{dagRunId}/steps/{stepName}/foreach/{item}/steps/{bodyStepName}/log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Retrieve log for a body step of a foreach item in a DAG-run
+         * @description Fetches the log of one body step run for one item of a foreach step
+         */
+        get: operations["getDAGRunForeachStepLog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dag-runs/{name}/{dagRunId}/steps/{stepName}/foreach/{item}/steps/{bodyStepName}/log/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download log for a body step of a foreach item in a DAG-run
+         * @description Downloads the entire log file of one body step run for one item of a foreach step
+         */
+        get: operations["downloadDAGRunForeachStepLog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dag-runs/{name}/{dagRunId}/steps/log/download": {
         parameters: {
             query?: never;
@@ -1203,8 +1287,10 @@ export interface paths {
          *     DAG-run only. Logs from nested DAG-runs are not included.
          *     Returns a streaming ZIP archive with no size limit. Each available log is
          *     stored as <index>-<step-name>/stdout.log or stderr.log, in run order.
-         *     Missing files are skipped. Each file includes only the bytes present when
-         *     it is opened; subsequent log growth is excluded.
+         *     The body logs and item records of a foreach step are stored under
+         *     <index>-<step-name>/foreach/. Missing files are skipped. Each file
+         *     includes only the bytes present when it is opened; subsequent log growth
+         *     is excluded.
          *
          */
         get: operations["downloadDAGRunStepLogs"];
@@ -1550,6 +1636,90 @@ export interface paths {
          * @description Downloads the entire log file for an individual step in a sub DAG-run
          */
         get: operations["downloadSubDAGRunStepLog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/steps/{stepName}/foreach": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the items of a foreach step in a sub DAG-run
+         * @description Lists the items a foreach step expanded to, with the status each item's
+         *     body run reached. Items are sorted failed first, then running, then the
+         *     rest in index order. Nested foreach items are listed by passing the
+         *     parent path a body step reports as foreachParent.
+         *
+         */
+        get: operations["getSubDAGRunForeachItems"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/steps/{stepName}/foreach/{item}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Retrieve one item of a foreach step in a sub DAG-run
+         * @description Fetches an item's body run: its status and the status of each body step
+         */
+        get: operations["getSubDAGRunForeachItem"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/steps/{stepName}/foreach/{item}/steps/{bodyStepName}/log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Retrieve log for a body step of a foreach item in a sub DAG-run
+         * @description Fetches the log of one body step run for one item of a foreach step
+         */
+        get: operations["getSubDAGRunForeachStepLog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/steps/{stepName}/foreach/{item}/steps/{bodyStepName}/log/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download log for a body step of a foreach item in a sub DAG-run
+         * @description Downloads the entire log file of one body step run for one item of a foreach step
+         */
+        get: operations["downloadSubDAGRunForeachStepLog"];
         put?: never;
         post?: never;
         delete?: never;
@@ -6062,6 +6232,72 @@ export interface components {
             path: string;
             error: string;
         };
+        /**
+         * @description Status of a foreach item's body run
+         * @enum {string}
+         */
+        ForeachItemStatusFilter: ForeachItemStatusFilter;
+        /** @description Number of items per body run status */
+        ForeachItemCounts: {
+            notStarted: number;
+            running: number;
+            succeeded: number;
+            failed: number;
+            aborted: number;
+        };
+        /** @description One page of a foreach step's items */
+        ForeachItemList: {
+            /** @description Number of items the step expanded to, before any status filter */
+            total: number;
+            counts: components["schemas"]["ForeachItemCounts"];
+            items: components["schemas"]["ForeachItemSummary"][];
+        };
+        /** @description One item of a foreach step and the status its body run reached */
+        ForeachItemSummary: {
+            /** @description Path that addresses the item in the foreach item routes */
+            item: string;
+            index: number;
+            key: string;
+            status: components["schemas"]["NodeStatus"];
+            statusLabel: components["schemas"]["NodeStatusLabel"];
+            /** @description Error the body run reported, when it failed */
+            error?: string;
+            /** @description RFC3339 timestamp when the body run started */
+            startedAt?: string;
+            /** @description RFC3339 timestamp when the body run finished */
+            finishedAt?: string;
+        };
+        /** @description One item of a foreach step with the status of each body step */
+        ForeachItem: {
+            /** @description Path that addresses the item in the foreach item routes */
+            item: string;
+            index: number;
+            key: string;
+            status: components["schemas"]["NodeStatus"];
+            statusLabel: components["schemas"]["NodeStatusLabel"];
+            error?: string;
+            startedAt?: string;
+            finishedAt?: string;
+            /** @description Body steps in execution order */
+            steps: components["schemas"]["ForeachBodyStep"][];
+        };
+        /** @description Status of one body step within a foreach item */
+        ForeachBodyStep: {
+            name: string;
+            id?: string;
+            status: components["schemas"]["NodeStatus"];
+            statusLabel: components["schemas"]["NodeStatusLabel"];
+            error?: string;
+            startedAt?: string;
+            finishedAt?: string;
+            retryCount?: number;
+            /** @description Whether a stdout log file was recorded for the step */
+            hasStdout: boolean;
+            /** @description Whether a stderr log file was recorded for the step */
+            hasStderr: boolean;
+            /** @description For a body step that is itself a foreach, the parent path that lists its items */
+            foreachParent?: string;
+        };
         /** @description Log information for the execution */
         Log: {
             /** @description Log content */
@@ -7120,6 +7356,19 @@ export interface components {
         DAGName: components["schemas"]["DAGName"];
         /** @description name of the step */
         StepName: string;
+        /** @description Path of a foreach item: the item index, or for an item of a nested
+         *     foreach the parent path reported as foreachParent followed by a dot
+         *     and the item index, such as 2.inner.0.
+         *      */
+        ForeachItemPath: string;
+        /** @description name or ID of a body step of the foreach item */
+        BodyStepName: string;
+        /** @description Lists the items of a nested foreach instead of the step's own items.
+         *     The value is the foreachParent a body step reports, such as 2.inner.
+         *      */
+        ForeachParent: string;
+        /** @description only list items whose body run reached this status */
+        ForeachItemStatusFilter: components["schemas"]["ForeachItemStatusFilter"];
         /** @description explicit ID of the human-task step */
         HumanTaskStepId: string;
         /** @description Relative artifact file path within the DAG-run artifact directory. Must not start with '/' or '\' or contain '..'. */
@@ -10960,6 +11209,241 @@ export interface operations {
             };
         };
     };
+    getDAGRunForeachItems: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Lists the items of a nested foreach instead of the step's own items.
+                 *     The value is the foreachParent a body step reports, such as 2.inner.
+                 *      */
+                parent?: components["parameters"]["ForeachParent"];
+                /** @description only list items whose body run reached this status */
+                status?: components["parameters"]["ForeachItemStatusFilter"];
+                /** @description page number of items to fetch (default is 1) */
+                page?: components["parameters"]["Page"];
+                /** @description number of items per page (default is 30, max is 100) */
+                perPage?: components["parameters"]["PerPage"];
+            };
+            header?: never;
+            path: {
+                /** @description name of the DAG */
+                name: components["parameters"]["DAGName"];
+                /** @description ID of the DAG-run or 'latest' to get the most recent DAG-run */
+                dagRunId: components["parameters"]["DAGRunId"];
+                /** @description name of the step */
+                stepName: components["parameters"]["StepName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ForeachItemList"];
+                };
+            };
+            /** @description DAG-run or step not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getDAGRunForeachItem: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description name of the DAG */
+                name: components["parameters"]["DAGName"];
+                /** @description ID of the DAG-run or 'latest' to get the most recent DAG-run */
+                dagRunId: components["parameters"]["DAGRunId"];
+                /** @description name of the step */
+                stepName: components["parameters"]["StepName"];
+                /** @description Path of a foreach item: the item index, or for an item of a nested
+                 *     foreach the parent path reported as foreachParent followed by a dot
+                 *     and the item index, such as 2.inner.0.
+                 *      */
+                item: components["parameters"]["ForeachItemPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ForeachItem"];
+                };
+            };
+            /** @description DAG-run, step, or item not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getDAGRunForeachStepLog: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Number of lines to return from the end of the file */
+                tail?: components["parameters"]["Tail"];
+                /** @description Number of lines to return from the beginning of the file */
+                head?: components["parameters"]["Head"];
+                /** @description Line number to start reading from (1-based) */
+                offset?: components["parameters"]["Offset"];
+                /** @description Maximum number of lines to return */
+                limit?: components["parameters"]["Limit"];
+                /** @description Whether to return stdout or stderr logs */
+                stream?: components["parameters"]["Stream"];
+            };
+            header?: never;
+            path: {
+                /** @description name of the DAG */
+                name: components["parameters"]["DAGName"];
+                /** @description ID of the DAG-run or 'latest' to get the most recent DAG-run */
+                dagRunId: components["parameters"]["DAGRunId"];
+                /** @description name of the step */
+                stepName: components["parameters"]["StepName"];
+                /** @description Path of a foreach item: the item index, or for an item of a nested
+                 *     foreach the parent path reported as foreachParent followed by a dot
+                 *     and the item index, such as 2.inner.0.
+                 *      */
+                item: components["parameters"]["ForeachItemPath"];
+                /** @description name or ID of a body step of the foreach item */
+                bodyStepName: components["parameters"]["BodyStepName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Log"];
+                };
+            };
+            /** @description Log file not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    downloadDAGRunForeachStepLog: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Whether to return stdout or stderr logs */
+                stream?: components["parameters"]["Stream"];
+            };
+            header?: never;
+            path: {
+                /** @description name of the DAG */
+                name: components["parameters"]["DAGName"];
+                /** @description ID of the DAG-run or 'latest' to get the most recent DAG-run */
+                dagRunId: components["parameters"]["DAGRunId"];
+                /** @description name of the step */
+                stepName: components["parameters"]["StepName"];
+                /** @description Path of a foreach item: the item index, or for an item of a nested
+                 *     foreach the parent path reported as foreachParent followed by a dot
+                 *     and the item index, such as 2.inner.0.
+                 *      */
+                item: components["parameters"]["ForeachItemPath"];
+                /** @description name or ID of a body step of the foreach item */
+                bodyStepName: components["parameters"]["BodyStepName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Log file content */
+            200: {
+                headers: {
+                    /** @description Attachment filename */
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+            /** @description Log file not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     downloadDAGRunStepLogs: {
         parameters: {
             query?: {
@@ -12015,6 +12499,249 @@ export interface operations {
                 subDAGRunId: string;
                 /** @description name of the step */
                 stepName: components["parameters"]["StepName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Log file content */
+            200: {
+                headers: {
+                    /** @description Attachment filename */
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+            /** @description Log file not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getSubDAGRunForeachItems: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Lists the items of a nested foreach instead of the step's own items.
+                 *     The value is the foreachParent a body step reports, such as 2.inner.
+                 *      */
+                parent?: components["parameters"]["ForeachParent"];
+                /** @description only list items whose body run reached this status */
+                status?: components["parameters"]["ForeachItemStatusFilter"];
+                /** @description page number of items to fetch (default is 1) */
+                page?: components["parameters"]["Page"];
+                /** @description number of items per page (default is 30, max is 100) */
+                perPage?: components["parameters"]["PerPage"];
+            };
+            header?: never;
+            path: {
+                /** @description name of the DAG */
+                name: components["parameters"]["DAGName"];
+                /** @description ID of the DAG-run or 'latest' to get the most recent DAG-run */
+                dagRunId: components["parameters"]["DAGRunId"];
+                /** @description ID of the sub DAG-run */
+                subDAGRunId: string;
+                /** @description name of the step */
+                stepName: components["parameters"]["StepName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ForeachItemList"];
+                };
+            };
+            /** @description DAG-run or step not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getSubDAGRunForeachItem: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description name of the DAG */
+                name: components["parameters"]["DAGName"];
+                /** @description ID of the DAG-run or 'latest' to get the most recent DAG-run */
+                dagRunId: components["parameters"]["DAGRunId"];
+                /** @description ID of the sub DAG-run */
+                subDAGRunId: string;
+                /** @description name of the step */
+                stepName: components["parameters"]["StepName"];
+                /** @description Path of a foreach item: the item index, or for an item of a nested
+                 *     foreach the parent path reported as foreachParent followed by a dot
+                 *     and the item index, such as 2.inner.0.
+                 *      */
+                item: components["parameters"]["ForeachItemPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ForeachItem"];
+                };
+            };
+            /** @description DAG-run, step, or item not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getSubDAGRunForeachStepLog: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Number of lines to return from the end of the file */
+                tail?: components["parameters"]["Tail"];
+                /** @description Number of lines to return from the beginning of the file */
+                head?: components["parameters"]["Head"];
+                /** @description Line number to start reading from (1-based) */
+                offset?: components["parameters"]["Offset"];
+                /** @description Maximum number of lines to return */
+                limit?: components["parameters"]["Limit"];
+                /** @description Whether to return stdout or stderr logs */
+                stream?: components["parameters"]["Stream"];
+            };
+            header?: never;
+            path: {
+                /** @description name of the DAG */
+                name: components["parameters"]["DAGName"];
+                /** @description ID of the DAG-run or 'latest' to get the most recent DAG-run */
+                dagRunId: components["parameters"]["DAGRunId"];
+                /** @description ID of the sub DAG-run */
+                subDAGRunId: string;
+                /** @description name of the step */
+                stepName: components["parameters"]["StepName"];
+                /** @description Path of a foreach item: the item index, or for an item of a nested
+                 *     foreach the parent path reported as foreachParent followed by a dot
+                 *     and the item index, such as 2.inner.0.
+                 *      */
+                item: components["parameters"]["ForeachItemPath"];
+                /** @description name or ID of a body step of the foreach item */
+                bodyStepName: components["parameters"]["BodyStepName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Log"];
+                };
+            };
+            /** @description Log file not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    downloadSubDAGRunForeachStepLog: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Whether to return stdout or stderr logs */
+                stream?: components["parameters"]["Stream"];
+            };
+            header?: never;
+            path: {
+                /** @description name of the DAG */
+                name: components["parameters"]["DAGName"];
+                /** @description ID of the DAG-run or 'latest' to get the most recent DAG-run */
+                dagRunId: components["parameters"]["DAGRunId"];
+                /** @description ID of the sub DAG-run */
+                subDAGRunId: string;
+                /** @description name of the step */
+                stepName: components["parameters"]["StepName"];
+                /** @description Path of a foreach item: the item index, or for an item of a nested
+                 *     foreach the parent path reported as foreachParent followed by a dot
+                 *     and the item index, such as 2.inner.0.
+                 *      */
+                item: components["parameters"]["ForeachItemPath"];
+                /** @description name or ID of a body step of the foreach item */
+                bodyStepName: components["parameters"]["BodyStepName"];
             };
             cookie?: never;
         };
@@ -20157,6 +20884,13 @@ export enum StepOutputDeclarationType {
 export enum WikiPageTreeNodeResponseType {
     file = "file",
     directory = "directory"
+}
+export enum ForeachItemStatusFilter {
+    not_started = "not_started",
+    running = "running",
+    succeeded = "succeeded",
+    failed = "failed",
+    aborted = "aborted"
 }
 export enum RepeatMode {
     While = "while",

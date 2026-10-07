@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"mime"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/go-chi/chi/v5/middleware"
 )
@@ -90,11 +92,58 @@ func (r *stepLogArchiveResponse) writeArchive(w io.Writer) error {
 				return closeErr
 			}
 		}
+		if node.Step.ExecutorConfig.Type == ir.ExecutorTypeForeach {
+			if err := r.writeForeachDir(archive, directory, foreachStepDir(node)); err != nil {
+				return err
+			}
+		}
 	}
 	if err := r.ctx.Err(); err != nil {
 		return err
 	}
 	return archive.Close()
+}
+
+// writeForeachDir adds a foreach step's item records and body logs under
+// <directory>/foreach/, keeping their layout on disk.
+func (r *stepLogArchiveResponse) writeForeachDir(archive *zip.Writer, directory, stepDir string) error {
+	if stepDir == "" {
+		return nil
+	}
+	return filepath.WalkDir(stepDir, func(path string, entry fs.DirEntry, err error) error {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if err := r.ctx.Err(); err != nil {
+			return err
+		}
+		if !entry.Type().IsRegular() {
+			return nil
+		}
+		rel, err := filepath.Rel(stepDir, path)
+		if err != nil {
+			return err
+		}
+		reader, err := r.openLog(r.ctx, path)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		file, err := archive.Create(directory + "/" + logpath.ForeachLogDirName + "/" + filepath.ToSlash(rel))
+		if err == nil {
+			_, err = io.Copy(file, reader)
+		}
+		closeErr := reader.Close()
+		if err != nil {
+			return err
+		}
+		return closeErr
+	})
 }
 
 // logFileResponse streams one log file as a text attachment and closes it afterwards.
@@ -117,6 +166,14 @@ func (r *logFileResponse) VisitDownloadSubDAGRunLogResponse(w http.ResponseWrite
 }
 
 func (r *logFileResponse) VisitDownloadSubDAGRunStepLogResponse(w http.ResponseWriter) error {
+	return r.writeTo(w)
+}
+
+func (r *logFileResponse) VisitDownloadDAGRunForeachStepLogResponse(w http.ResponseWriter) error {
+	return r.writeTo(w)
+}
+
+func (r *logFileResponse) VisitDownloadSubDAGRunForeachStepLogResponse(w http.ResponseWriter) error {
 	return r.writeTo(w)
 }
 

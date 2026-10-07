@@ -4584,7 +4584,12 @@ func (a *API) stepLogFromStatus(ctx context.Context, dagStatus *ir.DAGRunStatus,
 	if err != nil {
 		return StepLogResponse{}, fmt.Errorf("step %s not found in DAG %s", stepName, dagStatus.Name)
 	}
+	return a.stepLogFromFiles(ctx, node.Stdout, node.Stderr, stepName, opts)
+}
 
+// stepLogFromFiles reads a step's stdout and stderr files as the step log
+// response. An empty path leaves that stream empty.
+func (a *API) stepLogFromFiles(ctx context.Context, stdoutPath, stderrPath, stepName string, opts StepLogReadOptions) (StepLogResponse, error) {
 	options := opts.logReadOptions(a.logEncodingCharset)
 	readStdout := opts.Stream == "" || opts.Stream == string(api.StreamStdout)
 	readStderr := opts.Stream == "" || opts.Stream == string(api.StreamStderr)
@@ -4594,8 +4599,9 @@ func (a *API) stepLogFromStatus(ctx context.Context, dagStatus *ir.DAGRunStatus,
 	var stdoutContent string
 	var lineCount, totalLines int
 	var hasMore bool
-	if readStdout && node.Stdout != "" {
-		stdoutContent, lineCount, totalLines, hasMore, _, err = fileutil.ReadLogContent(node.Stdout, options)
+	var err error
+	if readStdout && stdoutPath != "" {
+		stdoutContent, lineCount, totalLines, hasMore, _, err = fileutil.ReadLogContent(stdoutPath, options)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return StepLogResponse{}, fmt.Errorf("error reading stdout: %w", err)
 		}
@@ -4603,16 +4609,16 @@ func (a *API) stepLogFromStatus(ctx context.Context, dagStatus *ir.DAGRunStatus,
 
 	// Read stderr
 	var stderrContent string
-	if readStderr && node.Stderr != "" {
+	if readStderr && stderrPath != "" {
 		var stderrLineCount, stderrTotalLines int
 		var stderrHasMore bool
-		stderrContent, stderrLineCount, stderrTotalLines, stderrHasMore, _, err = fileutil.ReadLogContent(node.Stderr, options)
+		stderrContent, stderrLineCount, stderrTotalLines, stderrHasMore, _, err = fileutil.ReadLogContent(stderrPath, options)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			// Log warning for real errors, return empty stderr
 			logger.Warn(ctx, "Failed to read stderr log",
 				tag.Error(err),
 				slog.String("stepName", stepName),
-				slog.String("stderrPath", node.Stderr),
+				slog.String("stderrPath", stderrPath),
 			)
 			stderrContent = ""
 		}
