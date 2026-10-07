@@ -275,7 +275,7 @@ func (dr DAGRun) Remove(ctx context.Context) error {
 
 // removeLogFiles removes all log files associated with the dag-run and its sub dag-runs.
 func (dr DAGRun) removeLogFiles(ctx context.Context) error {
-	logs, err := dr.listLogFiles(ctx)
+	deleteFiles, err := dr.listLogFiles(ctx)
 	if err != nil {
 		logger.Error(ctx, "Failed to list log files to remove",
 			tag.Error(err),
@@ -295,14 +295,13 @@ func (dr DAGRun) removeLogFiles(ctx context.Context) error {
 			tag.RunID(dr.dagRunID))
 	}
 	for _, child := range children {
-		subLogs, err := child.listLogFiles(ctx)
+		subLogFiles, err := child.listLogFiles(ctx)
 		if err != nil {
 			logger.Error(ctx, "Failed to list log files for sub dag-run",
 				tag.Error(err),
 				tag.RunID(child.dagRunID))
 		}
-		logs.files = append(logs.files, subLogs.files...)
-		logs.foreachDirs = append(logs.foreachDirs, subLogs.foreachDirs...)
+		deleteFiles = append(deleteFiles, subLogFiles...)
 		subArtifactDirs, err := child.listArtifactDirs(ctx)
 		if err != nil {
 			logger.Error(ctx, "Failed to list artifact directories for sub dag-run",
@@ -322,7 +321,7 @@ func (dr DAGRun) removeLogFiles(ctx context.Context) error {
 	}
 
 	// Remove all log files.
-	for file := range uniquePaths(logs.files) {
+	for file := range uniquePaths(deleteFiles) {
 		if err := fileutil.Remove(file); err != nil && !errors.Is(err, os.ErrNotExist) {
 			logger.Error(ctx, "Failed to remove log file",
 				tag.Error(err),
@@ -331,12 +330,15 @@ func (dr DAGRun) removeLogFiles(ctx context.Context) error {
 		}
 		parentDirs[filepath.Dir(file)] = struct{}{}
 	}
-	for dir := range uniquePaths(logs.foreachDirs) {
-		if err := fileutil.RemoveAll(dir); err != nil {
+	// Foreach body logs are not recorded in the status; they live in a
+	// fixed directory beside the step's own log files.
+	for dir := range parentDirs {
+		foreachDir := filepath.Join(dir, logpath.ForeachLogDirName)
+		if err := fileutil.RemoveAll(foreachDir); err != nil {
 			logger.Error(ctx, "Failed to remove foreach body log directory",
 				tag.Error(err),
 				tag.RunID(dr.dagRunID),
-				tag.Dir(dir))
+				tag.Dir(foreachDir))
 		}
 	}
 	for dir := range uniqueArtifactDirs {
@@ -456,21 +458,13 @@ func (dr DAGRun) listAttemptDirs() ([]string, error) {
 }
 
 // listLogFiles lists all log files associated with the dag-run.
-// attemptLogs lists the log files recorded in a run's attempts and the
-// directories holding foreach body logs, which the status never records
-// and are found beside the foreach step's own log files instead.
-type attemptLogs struct {
-	files       []string
-	foreachDirs []string
-}
-
-func (dr DAGRun) listLogFiles(ctx context.Context) (attemptLogs, error) {
+func (dr DAGRun) listLogFiles(ctx context.Context) ([]string, error) {
 	attDirs, err := dr.listAttemptDirs()
 	if err != nil {
-		return attemptLogs{}, fmt.Errorf("failed to list attempt directories: %w", err)
+		return nil, fmt.Errorf("failed to list attempt directories: %w", err)
 	}
 
-	var logs attemptLogs
+	var logFiles []string
 	for _, attDir := range attDirs {
 		attempt, err := NewAttempt(filepath.Join(dr.baseDir, attDir, JSONLStatusFile), nil)
 		if err != nil {
@@ -491,21 +485,16 @@ func (dr DAGRun) listLogFiles(ctx context.Context) (attemptLogs, error) {
 				tag.AttemptID(attempt.ID()))
 			continue
 		}
-		logs.files = append(logs.files, status.Log)
+		logFiles = append(logFiles, status.Log)
 		for _, n := range status.NodesInRunOrder() {
 			if n == nil {
 				continue
 			}
-			logs.files = append(logs.files, n.Stdout, n.Stderr)
-			for _, file := range []string{n.Stdout, n.Stderr} {
-				if file != "" {
-					logs.foreachDirs = append(logs.foreachDirs, filepath.Join(filepath.Dir(file), logpath.ForeachLogDirName))
-				}
-			}
+			logFiles = append(logFiles, n.Stdout, n.Stderr)
 		}
 	}
 
-	return logs, nil
+	return logFiles, nil
 }
 
 func (dr DAGRun) listArtifactDirs(ctx context.Context) ([]string, error) {

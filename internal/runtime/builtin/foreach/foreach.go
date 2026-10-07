@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 
@@ -490,6 +491,10 @@ func (e *foreachExecutor) writeAggregate(results []itemResult) error {
 	return err
 }
 
+// scratchLogDirPrefix names the temporary directories holding body logs of
+// runs that have no log directory of their own.
+const scratchLogDirPrefix = "dagu-foreach-"
+
 // bodyLogDir returns the directory an item's body logs are written to.
 // Body logs belong to the parent step's log directory, where run removal
 // finds them. A run without a log directory gets a scratch directory that
@@ -507,11 +512,11 @@ func bodyLogDir(ctx context.Context, index int) (string, func(), error) {
 	if rCtx.DAGRunLogDir != "" {
 		return filepath.Join(rCtx.DAGRunLogDir, logpath.ForeachLogDirName, itemDir), keep, nil
 	}
-	dir, err := os.MkdirTemp("", "dagu-foreach-")
+	dir, err := os.MkdirTemp("", scratchLogDirPrefix)
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to create scratch log directory for item %d: %w", index, err)
+		return "", keep, fmt.Errorf("failed to create scratch log directory for item %d: %w", index, err)
 	}
-	return dir, func() { _ = os.RemoveAll(dir) }, nil
+	return dir, func() { _ = fileutil.RemoveAll(dir) }, nil
 }
 
 func bodyDAGRunID(ctx context.Context, index int) string {

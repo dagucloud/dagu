@@ -5,7 +5,7 @@ package foreach
 
 import (
 	"context"
-	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -80,7 +80,7 @@ func TestRunItemRemovesScratchLogDir(t *testing.T) {
 	result := e.runItem(ctx, expandedItem{index: 0, key: "0", value: "a"})
 	require.Equal(t, ir.NodeSucceeded.String(), result.Status, result.Error)
 
-	entries, err := os.ReadDir(tmpDir)
+	leftover, err := filepath.Glob(filepath.Join(tmpDir, scratchLogDirPrefix+"*"))
 	require.NoError(t, err)
-	assert.Empty(t, entries, "the scratch log directory should be removed")
+	assert.Empty(t, leftover, "the scratch log directory should be removed")
 }

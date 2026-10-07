@@ -211,9 +211,8 @@ func TestListLogFiles(t *testing.T) {
 		require.NoError(t, att.Write(run.Context, dagRunStatus))
 		require.NoError(t, att.Close(run.Context))
 
-		logs, err := run.listLogFiles(run.Context)
+		logFiles, err := run.listLogFiles(run.Context)
 		require.NoError(t, err)
-		logFiles := logs.files
 
 		expectedFiles := []string{
 			"/tmp/test.log",
@@ -259,9 +258,8 @@ func TestListLogFiles(t *testing.T) {
 		require.NoError(t, att.Write(run.Context, dagRunStatus))
 		require.NoError(t, att.Close(run.Context))
 
-		logs, err := run.listLogFiles(run.Context)
+		logFiles, err := run.listLogFiles(run.Context)
 		require.NoError(t, err)
-		logFiles := logs.files
 
 		expectedFiles := []string{
 			"/tmp/test.log",
