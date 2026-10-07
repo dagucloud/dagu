@@ -31,6 +31,8 @@ This spec covers:
 - deterministic template functions and pipeline-friendly argument ordering
 - `missingkey=error` behavior: referencing an undeclared data key fails
   the step
+- build-time parsing of `with.template` text, including the hint given
+  when a `with.data` key is written without its leading dot
 - validation and runtime errors
 
 This spec does not define:
@@ -71,9 +73,21 @@ another workflow's YAML) without it being consumed by Dagu first.
 field is -- a bare `$VAR` or `${VAR}` inside a `with.data` value
 resolves normally -- before being passed to the template as `.`.
 
+### Parsing
+
+Inline `with.template` text is parsed when the DAG is built, so a `{{ }}`
+syntax error is reported by `dagu validate` and rejects the DAG before any
+step runs. `with.template_ref` text is only known at run time and is parsed
+when the step runs.
+
+Template data is addressed through the dot: `{{ .key }}`. A bare
+`{{ key }}` is a function call in Go templates. When the parse error names
+an undefined function whose name is a `with.data` key, the error adds a
+hint such as `did you mean "{{ .key }}"?`.
+
 ### Rendering
 
-The template is parsed and executed with `missingkey=error`: referencing
+The template is executed with `missingkey=error`: referencing
 a data key that is not present in `with.data` fails the step, rather
 than rendering an empty value. The rendered result is written to stdout,
 or, when `with.output` is set, to that file path (resolved relative to
@@ -99,13 +113,16 @@ validate`), not only when the step runs:
 - `with.template_ref` set to a value that is not exactly one complete
   scoped reference: an error containing `"must be one complete scoped
   value reference"`.
+- `with.template` text with invalid `{{ }}` syntax: an error containing
+  `"template: parse error"`. When the undefined function name is a
+  `with.data` key, the error also contains `did you mean "{{ .key }}"?`.
 
 ### Runtime
 
 - A template referencing a data key that is not present in `with.data`:
   an error containing `"map has no entry for key"`.
-- A template with invalid `{{ }}` syntax: an error containing
-  `"template: parse error"`.
+- A `with.template_ref` template with invalid `{{ }}` syntax: an error
+  containing `"template: parse error"`, with the same hint as above.
 
 ### Lifecycle and cleanup
 

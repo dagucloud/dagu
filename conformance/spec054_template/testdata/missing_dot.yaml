@@ -1,0 +1,6 @@
+steps:
+  - action: template.render
+    with:
+      template: "{{ report }}"
+      data:
+        report: hello

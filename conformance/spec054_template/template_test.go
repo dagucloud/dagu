@@ -26,7 +26,8 @@ func TestTemplateErrors(t *testing.T) {
 		{"validate", "both_set.yaml", "requires exactly one of with.template or with.template_ref"},
 		{"validate", "bad_template_ref.yaml", "must be one complete scoped value reference"},
 		{"start", "missingkey.yaml", "map has no entry for key"},
-		{"start", "parse_error.yaml", "template: parse error"},
+		{"validate", "parse_error.yaml", "template: parse error"},
+		{"validate", "missing_dot.yaml", `did you mean "{{ .report }}"`},
 	} {
 		t.Run(tc.file, func(t *testing.T) {
 			t.Parallel()
