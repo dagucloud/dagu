@@ -27,6 +27,7 @@ import (
 
 	stagehand "github.com/browserbase/stagehand/packages/sdk-go/v4"
 	"github.com/dagucloud/dagu/v2/internal/browserhost"
+	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -192,10 +193,13 @@ func browserProfileDir(t *testing.T) string {
 	dir, err := os.MkdirTemp("", "dagu-browser-test-")
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		removed := assert.Eventually(t, func() bool { return os.RemoveAll(dir) == nil },
-			10*time.Second, 200*time.Millisecond, "remove the browser profile")
+		var removeErr error
+		removed := assert.Eventually(t, func() bool {
+			removeErr = os.RemoveAll(dir)
+			return removeErr == nil
+		}, 10*time.Second, 200*time.Millisecond, "remove the browser profile")
 		if !removed {
-			t.Log(profileHolders(dir))
+			t.Logf("last removal error: %v\n%s", removeErr, profileHolders(dir))
 		}
 	})
 	return dir
@@ -665,8 +669,9 @@ func TestCloseBrowserReportsRuntimeError(t *testing.T) {
 	t.Parallel()
 
 	browser := startSleeper(t)
+	startedAt, _ := procutil.StartTime(browser.Process.Pid)
 	closeErr := errors.New("close failed")
-	err := closeBrowser(t.Context(), browser.Process.Pid, func(context.Context) error { return closeErr })
+	err := closeBrowser(t.Context(), browser.Process.Pid, startedAt, func(context.Context) error { return closeErr })
 	require.ErrorIs(t, err, closeErr)
 }
 

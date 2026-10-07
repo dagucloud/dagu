@@ -17,8 +17,9 @@ type browserProcessTree struct {
 	pid int
 }
 
-// recordBrowserProcessTree identifies the process group led by pid.
-func recordBrowserProcessTree(pid int) *browserProcessTree {
+// recordBrowserProcessTree identifies the process group led by pid. The
+// group, not the start time, tells the browser's processes apart.
+func recordBrowserProcessTree(pid int, _ int64) *browserProcessTree {
 	return &browserProcessTree{pid: pid}
 }
 

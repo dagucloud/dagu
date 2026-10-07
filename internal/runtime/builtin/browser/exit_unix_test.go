@@ -45,7 +45,7 @@ func TestCloseBrowserWaitsForProcessGroup(t *testing.T) {
 
 	closed := make(chan error, 1)
 	go func() {
-		closed <- closeBrowser(context.Background(), pid, func(context.Context) error {
+		closed <- closeBrowser(context.Background(), pid, 0, func(context.Context) error {
 			<-runtimeBlocked
 			return nil
 		})

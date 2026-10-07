@@ -35,19 +35,36 @@ type browserProcessTree struct {
 	startedAt map[int]int64
 }
 
-// recordBrowserProcessTree records pid and every process running under it.
-func recordBrowserProcessTree(pid int) *browserProcessTree {
+// recordBrowserProcessTree records the browser started at startedAt as
+// process pid, and every process running under it. A browser whose start
+// time is unknown is not tracked, because its ID cannot be told from a reused
+// one. When the browser has already exited, the helpers it left behind are
+// still recorded: those started under its ID after it did, as long as no
+// later process has taken the ID.
+func recordBrowserProcessTree(pid int, startedAt int64) *browserProcessTree {
 	tree := &browserProcessTree{startedAt: map[int]int64{}}
+	if startedAt <= 0 {
+		return tree
+	}
 	children := childProcesses()
-	pending := []int{pid}
+	switch {
+	case processRunning(pid, startedAt):
+		tree.startedAt[pid] = startedAt
+	case procutil.IsAlive(pid):
+		return tree
+	}
+	pending := children[pid]
 	for len(pending) > 0 {
 		next := pending[0]
 		pending = pending[1:]
 		if _, seen := tree.startedAt[next]; seen {
 			continue
 		}
-		startedAt, _ := procutil.StartTime(next)
-		tree.startedAt[next] = startedAt
+		nextStartedAt, ok := procutil.StartTime(next)
+		if !ok || nextStartedAt < startedAt {
+			continue
+		}
+		tree.startedAt[next] = nextStartedAt
 		pending = append(pending, children[next]...)
 	}
 	return tree
