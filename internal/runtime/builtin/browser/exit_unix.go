@@ -44,3 +44,6 @@ func (t *browserProcessTree) exited() bool {
 func (*browserProcessTree) awaitExit(context.Context) error {
 	return nil
 }
+
+// release holds nothing to free.
+func (*browserProcessTree) release() {}

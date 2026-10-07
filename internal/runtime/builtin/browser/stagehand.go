@@ -569,6 +569,9 @@ func closeBrowser(ctx context.Context, pid int, startedAt int64, closeRuntime fu
 	if pid > 0 {
 		tree = recordBrowserProcessTree(pid, startedAt)
 	}
+	if tree != nil {
+		defer tree.release()
+	}
 	closed := make(chan error, 1)
 	go func() { closed <- closeRuntime(ctx) }()
 	var exitChecks <-chan time.Time

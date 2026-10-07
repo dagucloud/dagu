@@ -29,8 +29,8 @@ func TestCloseBrowserEndsHelpers(t *testing.T) {
 	startedAt, ok := procutil.StartTime(browser.Process.Pid)
 	require.True(t, ok)
 	tree := recordBrowserProcessTree(browser.Process.Pid, startedAt)
-	require.Contains(t, tree.startedAt, browser.Process.Pid)
-	require.Contains(t, tree.startedAt, helperPID)
+	t.Cleanup(tree.release)
+	require.Equal(t, []int{min(browser.Process.Pid, helperPID), max(browser.Process.Pid, helperPID)}, tree.running())
 	require.False(t, tree.exited())
 
 	err := closeBrowser(context.Background(), browser.Process.Pid, startedAt, func(context.Context) error {

@@ -23,7 +23,12 @@ func isAlive(pid int) bool {
 		return err == windows.ERROR_ACCESS_DENIED
 	}
 	defer windows.CloseHandle(handle) //nolint:errcheck
+	return HandleIsAlive(handle)
+}
 
+// HandleIsAlive reports whether the process behind handle is still running.
+// The handle needs PROCESS_QUERY_LIMITED_INFORMATION access.
+func HandleIsAlive(handle windows.Handle) bool {
 	var exitCode uint32
 	if err := windows.GetExitCodeProcess(handle, &exitCode); err != nil {
 		return true

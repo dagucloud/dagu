@@ -19,24 +19,31 @@ import (
 
 const (
 	// helperExitGrace is how long the browser's helpers get to leave on their
-	// own after the runtime has closed the browser before they are ended.
+	// own after the browser has gone before they are ended.
 	helperExitGrace = 2 * time.Second
-	// helperExitTimeout bounds the wait for the helpers after the runtime has
-	// closed the browser.
+	// helperExitTimeout bounds the wait for the browser and its helpers after
+	// the runtime has closed the browser.
 	helperExitTimeout = 10 * time.Second
+	// treeProcessAccess is the access the tree needs to a process: to read
+	// its parent, start time, and exit code, and to end it.
+	treeProcessAccess = windows.PROCESS_QUERY_LIMITED_INFORMATION | windows.PROCESS_TERMINATE
 )
 
 // browserProcessTree is the browser and the helpers that were running under
 // it when closing began. Windows has no process group that tells the helpers
 // apart, and they can keep the profile open after the browser process has
-// exited, so each one is tracked by process ID and start time.
+// exited. Each process is held through an open handle, which keeps its ID
+// from being reused while the tree exists, so a process checked once stays
+// the same process until it is ended or released.
 type browserProcessTree struct {
-	// browser is the browser process ID, or 0 once the browser has exited.
-	// The browser is waited for but never ended here, so a browser still
-	// writing its profile after the runtime returns finishes on its own.
-	browser int
-	// startedAt maps each recorded process ID to its start time.
-	startedAt map[int]int64
+	members []treeProcess
+}
+
+// treeProcess is one process held by the tree.
+type treeProcess struct {
+	pid     int
+	handle  windows.Handle
+	browser bool
 }
 
 // recordBrowserProcessTree records the browser started at startedAt as
@@ -44,35 +51,72 @@ type browserProcessTree struct {
 // nothing can be tracked: a browser whose start time is unknown, because its
 // ID cannot be told from a reused one, or an ID that a later process has
 // taken. When the browser has already exited, the helpers it left behind are
-// still recorded: those started under its ID after it did.
+// still recorded: those started under its ID after it did. The browser itself
+// is waited for but never ended here, so a browser still writing its profile
+// after the runtime returns finishes on its own.
 func recordBrowserProcessTree(pid int, startedAt int64) *browserProcessTree {
 	if startedAt <= 0 {
 		return nil
 	}
-	tree := &browserProcessTree{startedAt: map[int]int64{}}
-	children := childProcesses()
-	switch {
-	case processRunning(pid, startedAt):
-		tree.browser = pid
-		tree.startedAt[pid] = startedAt
-	case procutil.IsAlive(pid):
-		return nil
+	tree := &browserProcessTree{}
+	if handle, ok := openProcess(pid); ok {
+		actual, known := procutil.HandleStartTime(handle)
+		if !known || actual != startedAt {
+			_ = windows.CloseHandle(handle)
+			if procutil.IsAlive(pid) {
+				return nil
+			}
+		} else {
+			tree.members = append(tree.members, treeProcess{pid: pid, handle: handle, browser: true})
+		}
 	}
-	pending := children[pid]
+	// The snapshot only proposes candidates. Each one is verified through
+	// its own handle: its parent must be a tree member and it must have
+	// started no earlier than the browser.
+	children := childProcesses()
+	seen := map[int]bool{pid: true}
+	pending := []int{pid}
 	for len(pending) > 0 {
-		next := pending[0]
+		parent := pending[0]
 		pending = pending[1:]
-		if _, seen := tree.startedAt[next]; seen {
-			continue
+		for _, child := range children[parent] {
+			if seen[child] {
+				continue
+			}
+			seen[child] = true
+			handle, ok := openProcess(child)
+			if !ok {
+				continue
+			}
+			childStartedAt, known := procutil.HandleStartTime(handle)
+			if !known || childStartedAt < startedAt || parentProcessID(handle) != parent {
+				_ = windows.CloseHandle(handle)
+				continue
+			}
+			tree.members = append(tree.members, treeProcess{pid: child, handle: handle})
+			pending = append(pending, child)
 		}
-		nextStartedAt, ok := procutil.StartTime(next)
-		if !ok || nextStartedAt < startedAt {
-			continue
-		}
-		tree.startedAt[next] = nextStartedAt
-		pending = append(pending, children[next]...)
 	}
 	return tree
+}
+
+func openProcess(pid int) (windows.Handle, bool) {
+	if pid <= 0 || uint64(pid) > uint64(^uint32(0)) {
+		return 0, false
+	}
+	handle, err := windows.OpenProcess(treeProcessAccess, false, uint32(pid))
+	return handle, err == nil
+}
+
+// parentProcessID returns the ID of the process that started the process
+// behind handle, or 0 when it cannot be read.
+func parentProcessID(handle windows.Handle) int {
+	var info windows.PROCESS_BASIC_INFORMATION
+	var size uint32
+	if err := windows.NtQueryInformationProcess(handle, windows.ProcessBasicInformation, unsafe.Pointer(&info), uint32(unsafe.Sizeof(info)), &size); err != nil {
+		return 0
+	}
+	return int(info.InheritedFromUniqueProcessId)
 }
 
 // childProcesses maps each process ID to the IDs of its live children.
@@ -99,8 +143,7 @@ func (*browserProcessTree) exitEndsClose() bool {
 	return false
 }
 
-// exited reports whether every recorded process has exited. A process ID
-// that now belongs to a process with another start time counts as exited.
+// exited reports whether every recorded process has exited.
 func (t *browserProcessTree) exited() bool {
 	return len(t.running()) == 0
 }
@@ -108,23 +151,22 @@ func (t *browserProcessTree) exited() bool {
 // running returns the recorded processes that have not exited.
 func (t *browserProcessTree) running() []int {
 	var running []int
-	for pid, startedAt := range t.startedAt {
-		if processRunning(pid, startedAt) {
-			running = append(running, pid)
+	for _, member := range t.members {
+		if procutil.HandleIsAlive(member.handle) {
+			running = append(running, member.pid)
 		}
 	}
 	slices.Sort(running)
 	return running
 }
 
-// processRunning reports whether pid still belongs to the process that
-// started at startedAt, or to any live process when startedAt is unknown.
-func processRunning(pid int, startedAt int64) bool {
-	if !procutil.IsAlive(pid) {
-		return false
+func (t *browserProcessTree) browserRunning() bool {
+	for _, member := range t.members {
+		if member.browser && procutil.HandleIsAlive(member.handle) {
+			return true
+		}
 	}
-	matched, _, ok := procutil.MatchesStartTime(pid, startedAt)
-	return !ok || matched
+	return false
 }
 
 // awaitExit waits for the recorded processes to exit after the runtime has
@@ -158,31 +200,20 @@ func (t *browserProcessTree) awaitExit(ctx context.Context) error {
 	}
 }
 
-func (t *browserProcessTree) browserRunning() bool {
-	return t.browser != 0 && processRunning(t.browser, t.startedAt[t.browser])
-}
-
-// endHelpers ends every recorded helper that is still running. Each process
-// is checked and ended through one handle, so an ID reused between the check
-// and the end cannot name another process.
+// endHelpers ends every recorded helper that is still running, through the
+// handle that has held it since it was recorded.
 func (t *browserProcessTree) endHelpers() {
-	for pid, startedAt := range t.startedAt {
-		if pid != t.browser {
-			terminateProcess(pid, startedAt)
+	for _, member := range t.members {
+		if !member.browser && procutil.HandleIsAlive(member.handle) {
+			_ = windows.TerminateProcess(member.handle, 1)
 		}
 	}
 }
 
-// terminateProcess ends process pid when it is still the one that started at
-// startedAt.
-func terminateProcess(pid int, startedAt int64) {
-	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.PROCESS_TERMINATE, false, uint32(pid)) //nolint:gosec // process IDs come from the process snapshot and fit in uint32.
-	if err != nil {
-		return
+// release closes the held process handles.
+func (t *browserProcessTree) release() {
+	for _, member := range t.members {
+		_ = windows.CloseHandle(member.handle)
 	}
-	defer windows.CloseHandle(handle) //nolint:errcheck
-	if actual, ok := procutil.HandleStartTime(handle); !ok || actual != startedAt {
-		return
-	}
-	_ = windows.TerminateProcess(handle, 1)
+	t.members = nil
 }
