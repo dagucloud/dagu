@@ -7209,7 +7209,7 @@
           "type": "string",
           "enum": ["text", "json"],
           "default": "text",
-          "description": "How input_file is interpreted: text binds the raw contents, json parses them first."
+          "description": "How string input is interpreted: text binds it as-is, json parses it first. Applies to input_file contents and to a string input, such as a captured output from an earlier step."
         },
         "timeout": {
           "type": "string",

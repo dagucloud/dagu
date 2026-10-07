@@ -29,7 +29,7 @@ var configSchema = &jsonschema.Schema{
 		"format": {
 			Type:        "string",
 			Enum:        []any{formatText, formatJSON},
-			Description: "How input_file is interpreted: text binds the raw contents, json parses them first. Defaults to text.",
+			Description: "How string input is interpreted: text binds it as-is, json parses it first. Applies to input_file contents and to a string input. Defaults to text.",
 		},
 		"timeout": {
 			Type:        "string",

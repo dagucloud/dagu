@@ -138,6 +138,16 @@ func newJS(ctx context.Context, step ir.Step) (executor.Executor, error) {
 func loadInput(ctx context.Context, cfg jsConfig, hasInput bool, format string) (scriptInput, error) {
 	switch {
 	case hasInput:
+		if format == formatJSON {
+			text, ok := cfg.Input.(string)
+			if !ok {
+				return scriptInput{}, errors.New("js: format json requires input to be a string")
+			}
+			if !json.Valid([]byte(text)) {
+				return scriptInput{}, errors.New("js: input is not valid JSON")
+			}
+			return scriptInput{json: []byte(text)}, nil
+		}
 		encoded, err := json.Marshal(cfg.Input)
 		if err != nil {
 			return scriptInput{}, fmt.Errorf("js: input must be JSON-serializable: %w", err)

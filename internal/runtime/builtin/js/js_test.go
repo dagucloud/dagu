@@ -105,6 +105,13 @@ func TestJS_Input(t *testing.T) {
 		require.NoError(t, got.err)
 		assert.Equal(t, "undefined\n", got.stdout)
 	})
+
+	t.Run("StringParsedAsJSON", func(t *testing.T) {
+		t.Parallel()
+		got := run(t, context.Background(), `return input.items.length`, map[string]any{"input": `{"items":[1,2]}`, "format": "json"})
+		require.NoError(t, got.err)
+		assert.Equal(t, "2\n", got.stdout)
+	})
 }
 
 func TestJS_InputFile(t *testing.T) {
@@ -155,6 +162,8 @@ func TestJS_ConfigErrors(t *testing.T) {
 		{name: "EmptyScript", script: "  ", want: "script is required"},
 		{name: "BothInputs", script: "return 1", cfg: map[string]any{"input": 1, "input_file": "x"}, want: "mutually exclusive"},
 		{name: "BadFormat", script: "return 1", cfg: map[string]any{"format": "xml"}, want: `invalid format "xml"`},
+		{name: "JSONFormatNonString", script: "return 1", cfg: map[string]any{"input": 1, "format": "json"}, want: "requires input to be a string"},
+		{name: "JSONFormatInvalid", script: "return 1", cfg: map[string]any{"input": "{", "format": "json"}, want: "input is not valid JSON"},
 		{name: "BadTimeout", script: "return 1", cfg: map[string]any{"timeout": "soon"}, want: `invalid timeout "soon"`},
 		{name: "ZeroTimeout", script: "return 1", cfg: map[string]any{"timeout": "0s"}, want: `invalid timeout "0s"`},
 		{name: "UnknownField", script: "return 1", cfg: map[string]any{"args": 1}, want: "invalid configuration"},
