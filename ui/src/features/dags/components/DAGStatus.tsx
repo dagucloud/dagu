@@ -53,6 +53,7 @@ import {
 import { DAGStatusOverview, NodeStatusTable } from './dag-details';
 import { DAGSpecReadOnly } from './dag-editor';
 import { StepDetailsDrawer } from './step-details';
+import type { ForeachLogTarget } from '../hooks/useStepLogQuery';
 import {
   LogViewer,
   ParallelExecutionModal,
@@ -186,6 +187,7 @@ function DAGStatus({
     dagRunId: string;
     stream: Stream;
     node?: components['schemas']['Node'];
+    foreach?: ForeachLogTarget;
   }>({
     isOpen: false,
     logType: 'step',
@@ -1084,6 +1086,7 @@ function DAGStatus({
           isOpen={isStepDetailsOpen}
           step={selectedDetailNode?.step}
           node={selectedDetailNode}
+          dagRun={displayDAGRun}
           onClose={closeStepDetails}
           onViewLog={(node, stream) =>
             handleViewLog(
@@ -1091,6 +1094,16 @@ function DAGStatus({
               displayDAGRun.dagRunId,
               node
             )
+          }
+          onViewBodyStepLog={(bodyStepName, foreach, stream) =>
+            setLogViewer({
+              isOpen: true,
+              logType: 'step',
+              stepName: bodyStepName,
+              dagRunId: displayDAGRun.dagRunId,
+              stream,
+              foreach,
+            })
           }
           onOpenSubRun={(node, subRunIndex) => openSubRunAt(node, subRunIndex)}
         />
@@ -1106,6 +1119,7 @@ function DAGStatus({
           dagRun={displayDAGRun}
           stream={logViewer.stream}
           node={logViewer.node}
+          foreach={logViewer.foreach}
         />
 
         {/* Parallel execution selection modal */}

@@ -11,11 +11,13 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 import NodeStatusChip from '../common/NodeStatusChip';
 import { StepDetails } from './StepDetails';
+import { ForeachItemsSection, type OpenBodyStepLog } from './foreach';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 
 type Step = components['schemas']['Step'];
 type Node = components['schemas']['Node'];
+type DAGRunDetails = components['schemas']['DAGRunDetails'];
 
 type LogStream = 'stdout' | 'stderr';
 
@@ -26,8 +28,11 @@ type StepDetailsDrawerProps = {
   step?: Step;
   /** Runtime state of the step within the inspected run; omitted in spec-only views. */
   node?: Node;
+  /** The inspected run; lets a foreach step list its items. */
+  dagRun?: DAGRunDetails;
   onViewLog?: (node: Node, stream: LogStream) => void;
   onOpenSubRun?: (node: Node, subRunIndex: number) => void;
+  onViewBodyStepLog?: OpenBodyStepLog;
 };
 
 const DRAWER_WIDTH_STORAGE_KEY = 'dagu.stepDetailsDrawer.width';
@@ -74,13 +79,20 @@ function formatRunTimestamp(value: string | undefined): string | null {
 
 function StepRuntimeSection({
   node,
+  dagName,
+  dagRun,
   onViewLog,
   onOpenSubRun,
+  onViewBodyStepLog,
 }: {
   node: Node;
+  dagName?: string;
+  dagRun?: DAGRunDetails;
   onViewLog?: (stream: LogStream) => void;
   onOpenSubRun?: (subRunIndex: number) => void;
+  onViewBodyStepLog?: OpenBodyStepLog;
 }) {
+  const isForeach = node.step.executorConfig?.type === 'foreach';
   const errorMessage = node.error || node.rejectionReason;
   const startedAt = formatRunTimestamp(node.startedAt);
   const finishedAt = formatRunTimestamp(node.finishedAt);
@@ -159,6 +171,18 @@ function StepRuntimeSection({
           </button>
         </div>
       )}
+      {isForeach && dagRun && (
+        <ForeachItemsSection
+          stepRef={{
+            dagName: dagName || dagRun.name,
+            dagRunId: dagRun.dagRunId,
+            stepName: node.step.name,
+            dagRun,
+          }}
+          stepStatus={node.status}
+          onOpenLog={onViewBodyStepLog}
+        />
+      )}
       {subRuns.length > 0 && (
         <div className="space-y-1">
           <div className="text-xs font-medium uppercase text-muted-foreground">
@@ -198,8 +222,10 @@ export function StepDetailsDrawer({
   onClose,
   step,
   node,
+  dagRun,
   onViewLog,
   onOpenSubRun,
+  onViewBodyStepLog,
 }: StepDetailsDrawerProps) {
   const [drawerWidth, setDrawerWidth] = React.useState(getStoredDrawerWidth);
   const [shouldRender, setShouldRender] = React.useState(false);
@@ -481,6 +507,16 @@ export function StepDetailsDrawer({
           {renderedNode && (
             <StepRuntimeSection
               node={renderedNode}
+              dagName={dagName}
+              dagRun={dagRun}
+              onViewBodyStepLog={
+                onViewBodyStepLog
+                  ? (bodyStepName, foreach, stream) => {
+                      onClose();
+                      onViewBodyStepLog(bodyStepName, foreach, stream);
+                    }
+                  : undefined
+              }
               onViewLog={
                 onViewLog
                   ? (stream) => {

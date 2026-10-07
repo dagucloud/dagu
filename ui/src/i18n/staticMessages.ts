@@ -2325,6 +2325,17 @@ const english = {
   'Revoke Profile Token': 'Revoke Profile Token',
   'Applications using this token will immediately lose access.':
     'Applications using this token will immediately lose access.',
+  'Items': 'Items',
+  'Not started': 'Not started',
+  'Loading items…': 'Loading items…',
+  'Waiting for items…': 'Waiting for items…',
+  'No item records for this run.': 'No item records for this run.',
+  'No items match this filter.': 'No items match this filter.',
+  'Loading item…': 'Loading item…',
+  'No record for this item.': 'No record for this item.',
+  'Open in log viewer': 'Open in log viewer',
+  '{done} of {total} done': '{done} of {total} done',
+  'Item {index}': 'Item {index}',
 } as const;
 
 export type StaticMessage = keyof typeof english;
@@ -4592,6 +4603,17 @@ const chinese = {
   'Revoke Profile Token': '撤销配置文件令牌',
   'Applications using this token will immediately lose access.':
     '使用此令牌的应用将立即失去访问权限。',
+  'Items': '项目',
+  'Not started': '未开始',
+  'Loading items…': '正在加载项目…',
+  'Waiting for items…': '等待项目…',
+  'No item records for this run.': '此运行没有项目记录。',
+  'No items match this filter.': '没有符合此筛选的项目。',
+  'Loading item…': '正在加载项目…',
+  'No record for this item.': '此项目没有记录。',
+  'Open in log viewer': '在日志查看器中打开',
+  '{done} of {total} done': '已完成 {done} / {total}',
+  'Item {index}': '项目 {index}',
 } as const satisfies Record<StaticMessage, string>;
 
 const japanese = {
@@ -6940,6 +6962,17 @@ const japanese = {
   'Revoke Profile Token': 'プロファイルトークンを失効',
   'Applications using this token will immediately lose access.':
     'このトークンを使っているアプリケーションは直ちにアクセスできなくなります。',
+  'Items': 'アイテム',
+  'Not started': '未開始',
+  'Loading items…': 'アイテムを読み込み中…',
+  'Waiting for items…': 'アイテムを待機中…',
+  'No item records for this run.': 'この実行にはアイテムの記録がありません。',
+  'No items match this filter.': 'このフィルターに一致するアイテムはありません。',
+  'Loading item…': 'アイテムを読み込み中…',
+  'No record for this item.': 'このアイテムの記録はありません。',
+  'Open in log viewer': 'ログビューアで開く',
+  '{done} of {total} done': '{done} / {total} 完了',
+  'Item {index}': 'アイテム {index}',
 } as const satisfies Record<StaticMessage, string>;
 
 export const staticMessages = {
