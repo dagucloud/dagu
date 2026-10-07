@@ -42,7 +42,7 @@ func TestReadForeachDrillDown(t *testing.T) {
       steps:
         - id: body
           run: |
-            echo item ${foreach.item}
+            echo "item ${foreach.item}"
             exit ${foreach.item}
 `)
 	dagRunID := server.StartDAG(t, "mcp_foreach")
