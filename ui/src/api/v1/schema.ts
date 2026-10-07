@@ -5803,6 +5803,8 @@ export interface components {
             };
             /** @description List of step names that must complete before this step can start */
             depends?: string[];
+            /** @description Step names this step depends on because it references their outputs, in addition to depends */
+            inferredDepends?: string[];
             repeatPolicy?: components["schemas"]["RepeatPolicy"];
             /** @description Whether to send email notifications on step failure */
             mailOnError?: boolean;
@@ -20070,7 +20072,6 @@ export enum DAGDetailsType {
 export enum ValueReferenceNoticeReason {
     unknown_step_id = "unknown_step_id",
     unknown_output_name = "unknown_output_name",
-    missing_dependency = "missing_dependency",
     self_reference = "self_reference",
     namespace_unavailable = "namespace_unavailable",
     unknown_context_field = "unknown_context_field",

@@ -20,7 +20,6 @@ type ValueReferenceNotice = components['schemas']['ValueReferenceNotice'];
 const REASON_LABELS: Record<string, string> = {
   unknown_step_id: 'Step id does not exist',
   unknown_output_name: 'Output name is not declared',
-  missing_dependency: 'Producing step is not a dependency',
   self_reference: 'Step references its own output',
   unknown_context_field: 'Context field is not defined',
   unknown_const_name: 'Const is not declared',
@@ -33,7 +32,6 @@ const REASON_LABELS: Record<string, string> = {
 export const DEFECT_REASONS = new Set([
   'unknown_step_id',
   'unknown_output_name',
-  'missing_dependency',
   'self_reference',
   'unknown_context_field',
   'unknown_const_name',

@@ -297,4 +297,46 @@ describe('Graph', () => {
 
     expect(container.querySelector('.custom-scrollbar')).toHaveClass('pt-14');
   });
+  it('draws inferred dependencies as dashed arrows after explicit ones', async () => {
+    mermaidRenderMock.mockResolvedValueOnce({
+      svg: '<svg></svg>',
+      bindFunctions: vi.fn(),
+    });
+
+    const consumer = node('deploy', NodeStatus.Success, ['prepare']);
+    consumer.step.inferredDepends = ['build'];
+
+    render(
+      <Graph
+        type="status"
+        steps={[
+          node('prepare', NodeStatus.Success),
+          node('build', NodeStatus.Success),
+          consumer,
+        ]}
+      />
+    );
+
+    await waitFor(() => {
+      expect(mermaidRenderMock).toHaveBeenCalled();
+    });
+
+    const firstCall = mermaidRenderMock.mock.calls[0];
+    if (!firstCall) {
+      throw new Error('Expected mermaid.render to be called');
+    }
+    const definition = firstCall[1] as string;
+    expect(definition).toContain(
+      `${toMermaidNodeId('prepare')} --> ${toMermaidNodeId('deploy')};`
+    );
+    expect(definition).toContain(
+      `${toMermaidNodeId('build')} -.-> ${toMermaidNodeId('deploy')};`
+    );
+    expect(definition).toContain(
+      'linkStyle 0 stroke:#3fa76b,stroke-width:1.8px'
+    );
+    expect(definition).toContain(
+      'linkStyle 1 stroke:#3fa76b,stroke-width:1.8px,stroke-dasharray:6 3'
+    );
+  });
 });

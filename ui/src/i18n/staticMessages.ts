@@ -581,6 +581,9 @@ const english = {
   'Denied audit entries': 'Denied audit entries',
   Dependencies: 'Dependencies',
   'Depends on': 'Depends on',
+  'Inferred from': 'Inferred from',
+  'Inferred from a step output reference':
+    'Inferred from a step output reference',
   Dequeue: 'Dequeue',
   'Dequeue action only available at root dagRun level':
     'Dequeue action only available at root dagRun level',
@@ -2897,6 +2900,8 @@ const chinese = {
   'Denied audit entries': '被拒绝的审计条目',
   Dependencies: '依赖',
   'Depends on': '依赖于',
+  'Inferred from': '推断自',
+  'Inferred from a step output reference': '从步骤输出引用推断',
   Dequeue: '出队',
   'Dequeue action only available at root dagRun level':
     '出队操作仅在根 dagRun 层级可用',
@@ -5175,6 +5180,8 @@ const japanese = {
   'Denied audit entries': '拒否された監査エントリ',
   Dependencies: '依存関係',
   'Depends on': '依存先',
+  'Inferred from': '推論元',
+  'Inferred from a step output reference': 'ステップ出力参照から推論',
   Dequeue: 'キューから取り出す',
   'Dequeue action only available at root dagRun level':
     'キュー削除アクションはルート dagRun レベルでのみ利用可能です',

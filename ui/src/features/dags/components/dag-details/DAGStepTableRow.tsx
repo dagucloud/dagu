@@ -27,6 +27,7 @@ import { TableCell, TableRow } from '@/components/ui/table';
 import HarnessStepSummary from './HarnessStepSummary';
 import { LogStepMessage } from './LogStepMessage';
 import { I18nText } from '@/i18n/I18nText';
+import { useI18n } from '@/i18n/I18nProvider';
 
 /**
  * Props for the DAGStepTableRow component
@@ -42,6 +43,7 @@ type Props = {
  * DAGStepTableRow displays information about a single step in a DAG
  */
 function DAGStepTableRow({ step, index }: Props) {
+  const { ts } = useI18n();
   const subDagName = step.call;
   const logMessage = getLogStepMessage(step);
   // Format preconditions as a list
@@ -193,13 +195,24 @@ function DAGStepTableRow({ step, index }: Props) {
 
       {/* Dependencies */}
       <TableCell>
-        {step.depends && step.depends.length > 0 ? (
+        {(step.depends && step.depends.length > 0) ||
+        (step.inferredDepends && step.inferredDepends.length > 0) ? (
           <div className="flex flex-wrap gap-1">
-            {step.depends.map((dep, idx) => (
+            {step.depends?.map((dep, idx) => (
               <Badge
                 key={idx}
                 variant="outline"
                 className="bg-muted text-foreground/90 px-1.5 py-0.5 text-wrap break-all text-xs"
+              >
+                {dep}
+              </Badge>
+            ))}
+            {step.inferredDepends?.map((dep, idx) => (
+              <Badge
+                key={`inferred-${idx}`}
+                variant="outline"
+                className="border-dashed text-muted-foreground px-1.5 py-0.5 text-wrap break-all text-xs"
+                title={ts('Inferred from a step output reference')}
               >
                 {dep}
               </Badge>

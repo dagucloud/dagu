@@ -839,6 +839,13 @@ function DAGSpecReadOnly({
                                   {step.depends.join(', ')}
                                 </div>
                               )}
+                              {step.inferredDepends &&
+                                step.inferredDepends.length > 0 && (
+                                  <div className="text-xs text-muted-foreground">
+                                    <I18nText text={'Inferred from'} />{' '}
+                                    {step.inferredDepends.join(', ')}
+                                  </div>
+                                )}
                               {!canReuse && ineligibleReason && (
                                 <div className="text-xs text-muted-foreground">
                                   {ineligibleReason}
