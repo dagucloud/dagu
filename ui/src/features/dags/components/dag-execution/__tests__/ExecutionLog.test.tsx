@@ -35,6 +35,7 @@ const logs = vi.hoisted(() => ({
     offset?: number;
     limit?: number;
   }>,
+  paths: [] as string[],
 }));
 vi.mock('@/contexts/ConfigContext', () => ({
   useConfig: () => ({ apiURL: '/api/v1' }),
@@ -54,7 +55,7 @@ vi.mock('@/hooks/useDAGRunLogsSSE', () => ({
 }));
 vi.mock('@/hooks/api', () => ({
   useQuery: (
-    _path: string,
+    path: string,
     options?: {
       params: {
         query: { head?: number; tail?: number; offset?: number; limit?: number };
@@ -63,6 +64,7 @@ vi.mock('@/hooks/api', () => ({
   ) => {
     if (options?.params?.query) {
       logs.queries.push(options.params.query);
+      logs.paths.push(path);
     }
     return {
       data: options?.params.query.head && logs.head ? logs.head : logs.data,
@@ -96,6 +98,7 @@ beforeEach(() => {
   logs.sse = null;
   logs.connected = false;
   logs.queries = [];
+  logs.paths = [];
 });
 
 describe('ActivityLine', () => {
@@ -134,6 +137,35 @@ describe('ActivityLine', () => {
 });
 
 describe('StepLog', () => {
+  it('reads and downloads a foreach body step log through the foreach route', async () => {
+    render(
+      <StepLog
+        dagName="example"
+        dagRunId="run"
+        stepName="body"
+        stream={Stream.stderr}
+        foreach={{ stepName: 'each', item: '2.inner.0' }}
+        node={{ status: NodeStatus.Failed } as never}
+      />,
+      { wrapper: UserPreferencesProvider }
+    );
+    expect(new Set(logs.paths)).toEqual(
+      new Set([
+        '/dag-runs/{name}/{dagRunId}/steps/{stepName}/foreach/{item}/steps/{bodyStepName}/log',
+      ])
+    );
+    expect(screen.getByText('first output')).toBeVisible();
+
+    fireEvent.click(screen.getByTitle('Download full log'));
+    await vi.waitFor(() => expect(downloadFromUrl).toHaveBeenCalled());
+    const [url, filename] = vi.mocked(downloadFromUrl).mock.calls[0]!;
+    expect(url).toContain(
+      '/api/v1/dag-runs/example/run/steps/each/foreach/2.inner.0/steps/body/log/download'
+    );
+    expect(url).toContain('stream=stderr');
+    expect(filename).toBe('example-run-each-2.inner.0-body-stderr.log');
+  });
+
   it('shows the beginning of an active log when requested', async () => {
     const props = {
       dagName: 'example',

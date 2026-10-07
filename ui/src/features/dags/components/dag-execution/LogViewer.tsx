@@ -3,6 +3,7 @@ import { components, Stream } from '../../../../api/v1/schema';
 import ExecutionLog from './ExecutionLog';
 import LogSideModal from './LogSideModal';
 import StepLog from './StepLog';
+import type { ForeachLogTarget } from '../../hooks/useStepLogQuery';
 
 type LogViewerProps = {
   isOpen: boolean;
@@ -15,6 +16,8 @@ type LogViewerProps = {
   dagRun?: components['schemas']['DAGRunDetails'];
   stream?: Stream;
   node?: components['schemas']['Node'];
+  /** Shows a body step log of a foreach item; stepName is then the body step */
+  foreach?: ForeachLogTarget;
 };
 
 /**
@@ -32,12 +35,16 @@ const LogViewer: React.FC<LogViewerProps> = ({
   dagRun,
   stream = Stream.stdout,
   node,
+  foreach,
 }) => {
   // Determine the title based on the log type
+  const stepTitle = foreach
+    ? `${foreach.stepName} › #${foreach.item} › ${stepName}`
+    : stepName;
   const title =
     logType === 'execution'
       ? `Execution Log: ${dagName}`
-      : `Step Log (${stream}): ${stepName}`;
+      : `Step Log (${stream}): ${stepTitle}`;
 
   return (
     <LogSideModal
@@ -47,7 +54,7 @@ const LogViewer: React.FC<LogViewerProps> = ({
       isInModal={isInModal}
       dagName={dagName}
       dagRunId={dagRunId}
-      stepName={stepName}
+      stepName={foreach ? undefined : stepName}
       logType={logType}
     >
       <div className="h-full">
@@ -66,6 +73,7 @@ const LogViewer: React.FC<LogViewerProps> = ({
               dagRun={dagRun}
               stream={stream}
               node={node}
+              foreach={foreach}
             />
           )
         )}

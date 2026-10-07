@@ -1,12 +1,13 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useRemoteNode } from '@/contexts/RemoteNodeContext';
-import { useQuery } from '@/hooks/api';
-import { whenEnabled } from '@/hooks/queryUtils';
 import { AnsiLine } from '@/lib/ansi';
 import { components, Stream } from '../../../../api/v1/schema';
 import { I18nText } from '@/i18n/I18nText';
+import {
+  type ForeachLogTarget,
+  useStepLogQuery,
+} from '../../hooks/useStepLogQuery';
 
 /**
  * Simple inline log viewer - no controls, just logs
@@ -17,71 +18,27 @@ export function InlineLogViewer({
   stepName,
   stream,
   dagRun,
+  foreach,
+  live = true,
 }: {
   dagName: string;
   dagRunId: string;
   stepName: string;
   stream: components['schemas']['Stream'];
   dagRun?: components['schemas']['DAGRunDetails'];
+  /** Reads a body step log of a foreach item instead of a run step log. */
+  foreach?: ForeachLogTarget;
+  /** Whether to keep polling for new output. */
+  live?: boolean;
 }) {
-  const remoteNode = useRemoteNode();
-
-  // Determine if this is a sub DAG run - check both rootDAGRunId AND rootDAGRunName
-  const isSubDAGRun =
-    dagRun &&
-    dagRun.rootDAGRunId &&
-    dagRun.rootDAGRunName &&
-    dagRun.rootDAGRunId !== dagRun.dagRunId;
-
-  // Fetch sub-DAG-run step log (only when isSubDAGRun is true)
-  const subDAGQuery = useQuery(
-    '/dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/steps/{stepName}/log',
-    whenEnabled(!!isSubDAGRun, {
-      params: {
-        query: {
-          remoteNode,
-          stream,
-          tail: 100,
-        },
-        path: {
-          name: dagRun?.rootDAGRunName as string,
-          dagRunId: dagRun?.rootDAGRunId as string,
-          subDAGRunId: dagRun?.dagRunId as string,
-          stepName,
-        },
-      },
-    }),
+  const { data, isLoading } = useStepLogQuery(
+    { dagName, dagRunId, stepName, dagRun, foreach },
+    { stream, tail: 100 },
     {
-      refreshInterval: 2000,
+      refreshInterval: live ? 2000 : 0,
       revalidateOnFocus: false,
     }
   );
-
-  // Fetch regular DAG-run step log (only when isSubDAGRun is false)
-  const dagRunQuery = useQuery(
-    '/dag-runs/{name}/{dagRunId}/steps/{stepName}/log',
-    whenEnabled(!isSubDAGRun, {
-      params: {
-        query: {
-          remoteNode,
-          stream,
-          tail: 100,
-        },
-        path: {
-          name: dagName,
-          dagRunId,
-          stepName,
-        },
-      },
-    }),
-    {
-      refreshInterval: 2000,
-      revalidateOnFocus: false,
-    }
-  );
-
-  // Use the appropriate query based on whether this is a sub-DAG-run
-  const { data, isLoading } = isSubDAGRun ? subDAGQuery : dagRunQuery;
 
   // Process log content
   const content = data?.content || '';
