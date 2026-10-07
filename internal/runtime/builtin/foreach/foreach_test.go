@@ -4,10 +4,15 @@
 package foreach
 
 import (
+	"context"
+	"os"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
+	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/command"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestForeachStatusDetailsIdentifyItems(t *testing.T) {
@@ -54,4 +59,28 @@ func TestSummarizeLeavesUnstartedItemsOutOfTheFailedCount(t *testing.T) {
 
 	allFailed := summarize(results[1:2], nil)
 	assert.EqualError(t, allFailed.err, "all 1 item bodies failed; first error: exit status 1")
+}
+
+// A run without a log directory keeps body logs in a scratch directory that
+// must not outlive the item: nothing records its path, so nothing else
+// could ever remove it.
+func TestRunItemRemovesScratchLogDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	for _, key := range []string{"TMPDIR", "TMP", "TEMP"} {
+		t.Setenv(key, tmpDir)
+	}
+
+	e := &foreachExecutor{step: ir.Step{
+		Name: "each",
+		Foreach: &ir.ForeachConfig{
+			Steps: []ir.Step{{Name: "body", ID: "body", Command: "true"}},
+		},
+	}}
+	ctx := runtime.NewContext(context.Background(), &ir.DAG{Name: "each"}, "run-1", "")
+	result := e.runItem(ctx, expandedItem{index: 0, key: "0", value: "a"})
+	require.Equal(t, ir.NodeSucceeded.String(), result.Status, result.Error)
+
+	entries, err := os.ReadDir(tmpDir)
+	require.NoError(t, err)
+	assert.Empty(t, entries, "the scratch log directory should be removed")
 }

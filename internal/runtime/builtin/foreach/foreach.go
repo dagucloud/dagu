@@ -345,9 +345,15 @@ func (e *foreachExecutor) runItem(ctx context.Context, item expandedItem) itemRe
 		return itemResult{Index: item.index, Key: item.key, Status: ir.NodeFailed.String(), Error: err.Error()}
 	}
 
+	logDir, cleanup, err := bodyLogDir(ctx, item.index)
+	if err != nil {
+		return itemResult{Index: item.index, Key: item.key, Status: ir.NodeFailed.String(), Error: err.Error()}
+	}
+	defer cleanup()
+
 	bodyRunID := bodyDAGRunID(ctx, item.index)
 	runner := runtime.New(&runtime.Config{
-		LogDir:   bodyLogDir(ctx, item.index),
+		LogDir:   logDir,
 		DAGRunID: bodyRunID,
 	})
 	err = runner.Run(itemCtx, plan, nil)
@@ -484,19 +490,28 @@ func (e *foreachExecutor) writeAggregate(results []itemResult) error {
 	return err
 }
 
-func bodyLogDir(ctx context.Context, index int) string {
+// bodyLogDir returns the directory an item's body logs are written to.
+// Body logs belong to the parent step's log directory, where run removal
+// finds them. A run without a log directory gets a scratch directory that
+// the returned cleanup removes once the body has finished.
+func bodyLogDir(ctx context.Context, index int) (string, func(), error) {
 	itemDir := strconv.Itoa(index)
+	keep := func() {}
 	env := runtime.GetEnv(ctx)
 	if env.Scope != nil {
 		if stdout, ok := env.Scope.Get(runenv.EnvKeyDAGRunStepStdoutFile); ok && stdout != "" {
-			return filepath.Join(filepath.Dir(stdout), logpath.ForeachLogDirName, itemDir)
+			return filepath.Join(filepath.Dir(stdout), logpath.ForeachLogDirName, itemDir), keep, nil
 		}
 	}
 	rCtx := runtime.GetDAGContext(ctx)
 	if rCtx.DAGRunLogDir != "" {
-		return filepath.Join(rCtx.DAGRunLogDir, logpath.ForeachLogDirName, itemDir)
+		return filepath.Join(rCtx.DAGRunLogDir, logpath.ForeachLogDirName, itemDir), keep, nil
 	}
-	return filepath.Join(os.TempDir(), "dagu-foreach", itemDir)
+	dir, err := os.MkdirTemp("", "dagu-foreach-")
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to create scratch log directory for item %d: %w", index, err)
+	}
+	return dir, func() { _ = os.RemoveAll(dir) }, nil
 }
 
 func bodyDAGRunID(ctx context.Context, index int) string {
