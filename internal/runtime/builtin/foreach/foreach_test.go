@@ -5,7 +5,9 @@ package foreach
 
 import (
 	"context"
+	"encoding/json"
 	"io"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -85,4 +87,34 @@ func TestRunItemRemovesScratchLogDir(t *testing.T) {
 	leftover, err := filepath.Glob(filepath.Join(tmpDir, scratchLogDirPrefix+"*"))
 	require.NoError(t, err)
 	assert.Empty(t, leftover, "the scratch log directory should be removed")
+}
+
+// An item whose body cannot even be planned has no body logs, but its
+// record must still say it failed, or the item list shows it as not started
+// while the aggregate counts it as failed.
+func TestRunItemRecordsFailureBeforeBodyRuns(t *testing.T) {
+	t.Parallel()
+
+	e := &foreachExecutor{
+		step: ir.Step{
+			Name: "each",
+			Foreach: &ir.ForeachConfig{
+				Steps: []ir.Step{{Name: "body", Command: "true", Depends: []string{"missing"}}},
+			},
+		},
+		stepDir: t.TempDir(),
+	}
+	ctx := runtime.NewContext(context.Background(), &ir.DAG{Name: "each"}, "run-1", "")
+	result := e.runItem(ctx, expandedItem{index: 0, key: "0", value: "a"})
+	require.Equal(t, ir.NodeFailed.String(), result.Status)
+	require.NotEmpty(t, result.Error)
+
+	data, err := os.ReadFile(filepath.Join(e.stepDir, "0", "status.json"))
+	require.NoError(t, err)
+	var record ir.ForeachItemStatus
+	require.NoError(t, json.Unmarshal(data, &record))
+	assert.Equal(t, ir.NodeFailed, record.Status)
+	assert.Equal(t, result.Error, record.Error)
+	assert.NotEmpty(t, record.FinishedAt)
+	assert.Empty(t, record.Steps)
 }

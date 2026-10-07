@@ -20,7 +20,8 @@ import (
 )
 
 // Item records are observability only: a failure to write one is logged
-// and never fails the item or the step.
+// and never fails the item or the step, and they are not fsynced, so a body
+// step transition never waits on the disk.
 
 // writeItems records the expanded items of the step in its foreach directory.
 func writeItems(ctx context.Context, stepDir string, items []expandedItem) {
@@ -32,6 +33,8 @@ func writeItems(ctx context.Context, stepDir string, items []expandedItem) {
 }
 
 // itemRecorder keeps an item's status file current while its body runs.
+// The plan is set once the body is planned; until then the record lists no
+// body steps.
 type itemRecorder struct {
 	dir       string
 	item      expandedItem
@@ -39,20 +42,22 @@ type itemRecorder struct {
 	startedAt time.Time
 }
 
-func newItemRecorder(dir string, item expandedItem, plan *runtime.Plan) *itemRecorder {
-	return &itemRecorder{dir: dir, item: item, plan: plan, startedAt: time.Now()}
+func newItemRecorder(dir string, item expandedItem) *itemRecorder {
+	return &itemRecorder{dir: dir, item: item, startedAt: time.Now()}
 }
 
 // started records the item as running before its first body step starts.
-func (r *itemRecorder) started(ctx context.Context) {
+func (r *itemRecorder) started(ctx context.Context, plan *runtime.Plan) {
+	r.plan = plan
 	r.write(ctx, ir.NodeRunning, "", time.Time{})
 }
 
-// progress records body step changes and releases the runner after each one.
+// progress records body step changes. The runner is released before the
+// write so the record never holds up the body.
 func (r *itemRecorder) progress(ctx context.Context, updates <-chan runtime.ProgressUpdate) {
 	for update := range updates {
-		r.write(ctx, ir.NodeRunning, "", time.Time{})
 		update.Ack(nil)
+		r.write(ctx, ir.NodeRunning, "", time.Time{})
 	}
 }
 
@@ -75,7 +80,10 @@ func (r *itemRecorder) write(ctx context.Context, status ir.NodeStatus, errMessa
 }
 
 func bodyStepStatuses(plan *runtime.Plan) []ir.ForeachBodyStepStatus {
-	nodes := plan.Nodes()
+	var nodes []*runtime.Node
+	if plan != nil {
+		nodes = plan.Nodes()
+	}
 	steps := make([]ir.ForeachBodyStepStatus, 0, len(nodes))
 	for _, node := range nodes {
 		data := node.NodeData()
@@ -105,13 +113,35 @@ func bodyStepStatuses(plan *runtime.Plan) []ir.ForeachBodyStepStatus {
 func writeRecord(ctx context.Context, path string, record any) {
 	data, err := json.Marshal(record)
 	if err == nil {
-		if err = os.MkdirAll(filepath.Dir(path), 0750); err == nil {
-			err = fileutil.WriteFileAtomic(path, data, 0600)
-		}
+		err = replaceFile(path, data)
 	}
 	if err != nil {
 		logger.Warn(ctx, "Failed to write foreach item record",
 			tag.Error(err),
 			tag.File(path))
 	}
+}
+
+// replaceFile swaps in the new contents through a temp file and rename, so
+// a reader never sees a partial record. It does not fsync.
+func replaceFile(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0750); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp.*")
+	if err != nil {
+		return err
+	}
+	_, err = tmp.Write(data)
+	if closeErr := tmp.Close(); err == nil {
+		err = closeErr
+	}
+	if err == nil {
+		err = fileutil.ReplaceFile(tmp.Name(), path)
+	}
+	if err != nil {
+		_ = os.Remove(tmp.Name())
+	}
+	return err
 }

@@ -349,19 +349,25 @@ dispatch:
 }
 
 func (e *foreachExecutor) runItem(ctx context.Context, item expandedItem) itemResult {
+	logDir := filepath.Join(e.stepDir, strconv.Itoa(item.index))
+	recorder := newItemRecorder(logDir, item)
+	// An item that fails before its body runs is still recorded, so the
+	// record and the aggregate agree on it.
+	failed := func(err error) itemResult {
+		recorder.finished(ctx, ir.NodeFailed, err.Error())
+		return itemResult{Index: item.index, Key: item.key, Status: ir.NodeFailed.String(), Error: err.Error()}
+	}
+
 	itemCtx, err := contextWithItemScope(ctx, e.step.Foreach.As, item.index, item.key, item.value)
 	if err != nil {
-		return itemResult{Index: item.index, Key: item.key, Status: ir.NodeFailed.String(), Error: err.Error()}
+		return failed(err)
 	}
 
 	plan, err := runtime.NewPlan(cloneSteps(e.step.Foreach.Steps)...)
 	if err != nil {
-		return itemResult{Index: item.index, Key: item.key, Status: ir.NodeFailed.String(), Error: err.Error()}
+		return failed(err)
 	}
-
-	logDir := filepath.Join(e.stepDir, strconv.Itoa(item.index))
-	recorder := newItemRecorder(logDir, item, plan)
-	recorder.started(ctx)
+	recorder.started(ctx, plan)
 
 	runner := runtime.New(&runtime.Config{
 		LogDir:   logDir,
