@@ -1441,6 +1441,40 @@ func TestDispatchTaskStore_NoMatchCacheDistinguishesSeparatorCharacters(t *testi
 	assert.Equal(t, "run-label-collision", claimed.Task.DAGRunID)
 }
 
+// A worker ID that embeds the label encoding must not share a cache entry
+// with a different worker whose labels spell the same bytes.
+func TestDispatchTaskStore_NoMatchCacheDistinguishesWorkerIDFromLabels(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := store.NewDispatchTaskStore(testutil.NewMemoryBackend().Collection("dispatch_tasks"))
+
+	require.NoError(t, s.Enqueue(ctx, &dispatch.DispatchTask{
+		DAGRunID:       "run-worker-collision",
+		Target:         "dag-worker-collision",
+		AttemptID:      "attempt-worker-collision",
+		AttemptKey:     "attempt-key-worker-collision",
+		TargetWorkerID: "b",
+	}))
+
+	claimed, err := s.ClaimNext(ctx, dispatch.DispatchTaskClaim{
+		WorkerID: "b\x001:a1:",
+		Labels:   map[string]string{"os": "linux"},
+		Owner:    dispatch.CoordinatorEndpoint{ID: "coord-a"},
+	})
+	require.NoError(t, err)
+	require.Nil(t, claimed)
+
+	claimed, err = s.ClaimNext(ctx, dispatch.DispatchTaskClaim{
+		WorkerID: "b",
+		Labels:   map[string]string{"a": "\x00", "os": "linux"},
+		Owner:    dispatch.CoordinatorEndpoint{ID: "coord-a"},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, claimed)
+	assert.Equal(t, "run-worker-collision", claimed.Task.DAGRunID)
+}
+
 func TestDispatchTaskStore_RepeatedNoMatchWithClaimsUsesIndexedMetadata(t *testing.T) {
 	t.Parallel()
 

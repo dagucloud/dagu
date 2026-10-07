@@ -352,14 +352,12 @@ func dispatchTaskIndexEntryFromRecord(rec *persis.Record, payload dispatchTaskPa
 }
 
 // dispatchNoMatchKey identifies a worker and label set in the no-match
-// cache. Length prefixes keep label boundaries unambiguous regardless of the
-// characters in keys and values.
+// cache. Every field is length-prefixed so boundaries stay unambiguous
+// regardless of the bytes in the worker ID, keys, and values.
 func dispatchNoMatchKey(workerID string, labels map[string]string) string {
-	if len(labels) == 0 {
-		return workerID + "\x00"
-	}
+	workerIDLength := strconv.Itoa(len(workerID))
 	keys := make([]string, 0, len(labels))
-	size := len(workerID) + 1
+	size := len(workerIDLength) + 1 + len(workerID)
 	for key, value := range labels {
 		keys = append(keys, key)
 		size += len(key) + len(value) + 8
@@ -367,8 +365,9 @@ func dispatchNoMatchKey(workerID string, labels map[string]string) string {
 	sort.Strings(keys)
 	var b strings.Builder
 	b.Grow(size)
+	b.WriteString(workerIDLength)
+	b.WriteByte(':')
 	b.WriteString(workerID)
-	b.WriteByte(0)
 	for _, key := range keys {
 		value := labels[key]
 		b.WriteString(strconv.Itoa(len(key)))
