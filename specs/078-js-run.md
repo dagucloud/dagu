@@ -47,17 +47,18 @@ timeout, and a stop request interrupt the engine and fail the step.
 
 ## Errors
 
-`dagu validate` rejects a missing `with.script` and configurations that set
-both `with.input` and `with.input_file`. It exits nonzero with an error
-identifying the invalid configuration.
+`dagu validate` rejects a missing `with.script`, configurations that set
+both `with.input` and `with.input_file`, and a script that does not compile.
+It exits nonzero with an error identifying the invalid configuration; a
+compile error names the script line.
 
 An invalid `with.format`, an invalid `with.timeout`, a missing or unreadable
-`input_file`, invalid JSON under `format: json`, and a syntax error in the
-script fail executor setup.
+`input_file`, and invalid JSON under `format: json` fail executor setup.
 
-A thrown value fails the step. The error names the exception, and the
-JavaScript stack trace, which includes the script line number, is written to
-stderr. A script that exceeds `with.timeout` fails the step.
+A thrown value fails the step. The error names the exception and the script
+line, and the JavaScript stack trace is written to stderr. A script that
+returns `undefined` succeeds with empty stdout and a notice on stderr. A
+script that exceeds `with.timeout` fails the step.
 
 Memory use is not bounded, and the interrupt takes effect between JavaScript
 instructions only, so a single long-running builtin call cannot be stopped.

@@ -56,6 +56,8 @@ const (
 	wrapperSuffix = "\n})"
 
 	jsonIndent = 2
+
+	undefinedNotice = "js: script returned undefined, nothing written to stdout"
 )
 
 // interruptReason is the value handed to goja.Runtime.Interrupt so Run can
@@ -121,9 +123,9 @@ func newJS(ctx context.Context, step ir.Step) (executor.Executor, error) {
 		return nil, err
 	}
 
-	program, err := goja.Compile(programName, wrapperPrefix+step.Script+wrapperSuffix, false)
+	program, err := compileScript(step.Script)
 	if err != nil {
-		return nil, fmt.Errorf("js: compile error: %w", err)
+		return nil, err
 	}
 
 	return &js{
@@ -133,6 +135,26 @@ func newJS(ctx context.Context, step ir.Step) (executor.Executor, error) {
 		input:   input,
 		timeout: timeout,
 	}, nil
+}
+
+func compileScript(script string) (*goja.Program, error) {
+	program, err := goja.Compile(programName, wrapperPrefix+script+wrapperSuffix, false)
+	if err != nil {
+		return nil, fmt.Errorf("js: compile error: %w", err)
+	}
+	return program, nil
+}
+
+// validateStep compiles the script at load time so dagu validate and the
+// editor report syntax errors before a run exists.
+func validateStep(step ir.Step) error {
+	if strings.TrimSpace(step.Script) == "" {
+		return nil
+	}
+	if _, err := compileScript(step.Script); err != nil {
+		return ir.NewValidationError("with.script", nil, err)
+	}
+	return nil
 }
 
 func loadInput(ctx context.Context, cfg jsConfig, hasInput bool, format string) (scriptInput, error) {
@@ -248,7 +270,7 @@ func (e *js) Run(ctx context.Context) error {
 	if err != nil {
 		return e.classify(ctx, err)
 	}
-	return writeResult(e.stdout, vm, stringify, result)
+	return e.writeResult(vm, stringify, result)
 }
 
 func (e *js) inputValue(vm *goja.Runtime, parse goja.Callable) (goja.Value, error) {
@@ -265,13 +287,15 @@ func (e *js) inputValue(vm *goja.Runtime, parse goja.Callable) (goja.Value, erro
 // writeResult publishes the returned value. Strings are written as-is so
 // downstream output capture sees plain text; other values are serialized by
 // the VM's own JSON.stringify so Date, toJSON, and circular references behave
-// as they do in JavaScript.
-func writeResult(w io.Writer, vm *goja.Runtime, stringify goja.Callable, value goja.Value) error {
+// as they do in JavaScript. An undefined result leaves stdout empty and says
+// so on stderr, since a missing return is the usual cause.
+func (e *js) writeResult(vm *goja.Runtime, stringify goja.Callable, value goja.Value) error {
 	if goja.IsUndefined(value) {
+		_, _ = fmt.Fprintln(e.stderr, undefinedNotice)
 		return nil
 	}
 	if text, ok := value.Export().(string); ok {
-		_, err := fmt.Fprintln(w, text)
+		_, err := fmt.Fprintln(e.stdout, text)
 		return err
 	}
 	encoded, err := stringify(goja.Undefined(), value, goja.Null(), vm.ToValue(jsonIndent))
@@ -279,9 +303,10 @@ func writeResult(w io.Writer, vm *goja.Runtime, stringify goja.Callable, value g
 		return classifyException(err, nil)
 	}
 	if goja.IsUndefined(encoded) {
+		_, _ = fmt.Fprintln(e.stderr, undefinedNotice)
 		return nil
 	}
-	_, err = fmt.Fprintln(w, encoded.String())
+	_, err = fmt.Fprintln(e.stdout, encoded.String())
 	return err
 }
 
@@ -311,12 +336,24 @@ func classifyException(err error, stderr io.Writer) error {
 		return fmt.Errorf("js: %w", err)
 	}
 	thrown := exception.Value()
+	location := scriptLocation(exception)
 	if obj, ok := thrown.(*goja.Object); ok && obj.ClassName() == "Error" {
 		writeStack(stderr, obj.Get("stack").String())
-		return fmt.Errorf("js: %s: %s", obj.Get("name").String(), obj.Get("message").String())
+		return fmt.Errorf("js: %s: %s%s", obj.Get("name").String(), obj.Get("message").String(), location)
 	}
 	writeStack(stderr, exception.String())
-	return fmt.Errorf("js: %s", thrown.String())
+	return fmt.Errorf("js: %s%s", thrown.String(), location)
+}
+
+// scriptLocation names the innermost script line on the exception's stack,
+// skipping native frames, so the step error itself points at the line.
+func scriptLocation(exception *goja.Exception) string {
+	for _, frame := range exception.Stack() {
+		if pos := frame.Position(); pos.Filename == programName && pos.Line > 0 {
+			return fmt.Sprintf(" (script line %d)", pos.Line)
+		}
+	}
+	return ""
 }
 
 func writeStack(w io.Writer, stack string) {
@@ -367,5 +404,5 @@ func installURL(vm *goja.Runtime) {
 }
 
 func init() {
-	executor.RegisterExecutor("js", newJS, nil, registry.ExecutorCapabilities{Script: true})
+	executor.RegisterExecutor("js", newJS, validateStep, registry.ExecutorCapabilities{Script: true})
 }

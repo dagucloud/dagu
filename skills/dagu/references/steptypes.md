@@ -613,7 +613,7 @@ steps:
 
 Output rules: `undefined` writes nothing, a string is written as-is, any other value is written as JSON. Capture it with `output:`.
 
-The sandbox exposes the ECMAScript builtins, `console.*` (written to step stderr), `URL`, and `URLSearchParams`. There is no `require`, `fetch`, filesystem, `process`, timers, or `async`. `with.timeout` defaults to `60s`. A thrown error fails the step and writes the stack trace, including the script line number, to stderr. Use `node-script@v1` when a script needs real Node.js.
+The sandbox exposes the ECMAScript builtins, `console.*` (written to step stderr), `URL`, and `URLSearchParams`. There is no `require`, `fetch`, filesystem, `process`, timers, or `async`. `with.timeout` defaults to `60s`. `dagu validate` reports syntax errors with the script line. A thrown error fails the step with the exception and script line in the error, and the stack trace on stderr. A script that returns `undefined` leaves stdout empty and notes that on stderr. Use `node-script@v1` when a script needs real Node.js.
 
 `with` fields: `script`, `input`, `input_file`, `format`, `timeout`.
 

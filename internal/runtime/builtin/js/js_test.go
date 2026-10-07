@@ -178,6 +178,29 @@ func TestJS_ConfigErrors(t *testing.T) {
 	}
 }
 
+func TestJS_UndefinedNotice(t *testing.T) {
+	t.Parallel()
+
+	got := run(t, context.Background(), `const x = 1;`, nil)
+	require.NoError(t, got.err)
+	assert.Empty(t, got.stdout)
+	assert.Equal(t, "js: script returned undefined, nothing written to stdout\n", got.stderr)
+
+	got = run(t, context.Background(), `return "ok"`, nil)
+	require.NoError(t, got.err)
+	assert.Empty(t, got.stderr)
+}
+
+func TestValidateStep(t *testing.T) {
+	t.Parallel()
+
+	require.NoError(t, validateStep(newStep("return 1", nil)))
+	require.NoError(t, validateStep(newStep("", nil)))
+	err := validateStep(newStep("const a = 1;\nconst x = ;", nil))
+	require.ErrorContains(t, err, "js: compile error: SyntaxError")
+	require.ErrorContains(t, err, "Line 2")
+}
+
 func TestJS_Console(t *testing.T) {
 	t.Parallel()
 
@@ -220,11 +243,13 @@ func TestJS_RuntimeErrors(t *testing.T) {
 		wantErr    string
 		wantStderr string
 	}{
-		{name: "Error", script: `throw new Error("boom")`, wantErr: "js: Error: boom", wantStderr: "script:1"},
+		{name: "Error", script: `throw new Error("boom")`, wantErr: "js: Error: boom (script line 1)", wantStderr: "script:1"},
 		{name: "TypeError", script: `null.x`, wantErr: "js: TypeError:", wantStderr: "TypeError"},
 		{name: "ReferenceError", script: `return nope()`, wantErr: "js: ReferenceError: nope is not defined"},
 		{name: "ThrowString", script: `throw "str"`, wantErr: "js: str"},
-		{name: "LineNumber", script: "const a = 1;\nconst b = 2;\nthrow new Error('line3')", wantErr: "js: Error: line3", wantStderr: "script:3"},
+		{name: "LineNumber", script: "const a = 1;\nconst b = 2;\nthrow new Error('line3')", wantErr: "js: Error: line3 (script line 3)", wantStderr: "script:3"},
+		{name: "ThrowStringLine", script: "\nthrow 'str'", wantErr: "js: str (script line 2)"},
+		{name: "NativeFrameSkipped", script: "\n[1].map(() => { throw new RangeError('inner') })", wantErr: "js: RangeError: inner (script line 2)"},
 		{name: "Recursion", script: `function f() { return f() + 1 } return f()`, wantErr: "Maximum call stack size exceeded"},
 		{name: "Circular", script: `const o = {}; o.self = o; return o`, wantErr: "js: TypeError:"},
 		{name: "BigInt", script: `return 1n`, wantErr: "js: TypeError:"},

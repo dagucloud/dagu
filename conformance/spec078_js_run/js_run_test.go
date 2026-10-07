@@ -57,7 +57,9 @@ func TestJSRunFailures(t *testing.T) {
 		t.Parallel()
 
 		dagu := harness.NewRunner(t)
-		dagu.Run("start", "throw.yaml").ExpectNonZeroExitCode()
+		result := dagu.Run("start", "throw.yaml")
+		result.ExpectNonZeroExitCode()
+		require.Contains(t, result.Stdout()+result.Stderr(), "js: Error: boom (script line 1)")
 		dagu.ExpectFileContains("err.out", "Error: boom", "script:1")
 	})
 
@@ -78,6 +80,7 @@ func TestJSRunConfig(t *testing.T) {
 	}{
 		{"missing_script.yaml", "with.script is required"},
 		{"both_inputs.yaml", "does not allow both with.input and with.input_file"},
+		{"syntax_error.yaml", "js: compile error"},
 	} {
 		t.Run(tc.fixture, func(t *testing.T) {
 			t.Parallel()
