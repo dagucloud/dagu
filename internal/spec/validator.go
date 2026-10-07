@@ -46,6 +46,7 @@ func ValidateSteps(dag *ir.DAG) error {
 	resolveStepDependencies(dag)
 	resolveForeachStepDependencies(dag.Steps)
 	validateDependenciesExist(dag, stepNames, &errs)
+	inferStepOutputDependencies(dag, &errs)
 	validateApprovalRewindTargets(dag, stepNames, &errs)
 	validateHumanTaskRewindTargets(dag, stepNames, &errs)
 	validateBuildSteps(dag, &errs)
@@ -459,29 +460,10 @@ func validateHumanTaskRewindTargets(dag *ir.DAG, stepNames map[string]struct{}, 
 }
 
 func isUpstreamDependency(stepByName map[string]ir.Step, stepName, target string) bool {
-	start, ok := stepByName[stepName]
-	if !ok {
-		return false
-	}
-
-	queue := append([]string(nil), start.Depends...)
-	visited := make(map[string]struct{}, len(queue))
-	for len(queue) > 0 {
-		current := queue[0]
-		queue = queue[1:]
-		if current == target {
-			return true
-		}
-		if _, ok := visited[current]; ok {
-			continue
-		}
-		visited[current] = struct{}{}
-		if step, ok := stepByName[current]; ok {
-			queue = append(queue, step.Depends...)
-		}
-	}
-
-	return false
+	return reachesStep(func(name string) (ir.Step, bool) {
+		step, ok := stepByName[name]
+		return step, ok
+	}, stepName, target)
 }
 
 func validateStep(step ir.Step) ir.ErrorList {

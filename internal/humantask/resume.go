@@ -302,12 +302,13 @@ func hasPendingPushBack(nodes []*ir.Node) bool {
 
 // nodeRunnable reports whether a not-started step will run once resumed
 // because every dependency lets it proceed. Steps with build inputs are
-// excluded because their inferred producer edges are not stored with the run.
+// excluded because their path-derived producer edges are not stored with the
+// run.
 func nodeRunnable(node *ir.Node, byName map[string]*ir.Node) bool {
 	if node == nil || node.Status != ir.NodeNotStarted || len(node.Step.Inputs) > 0 {
 		return false
 	}
-	for _, name := range node.Step.Depends {
+	for _, name := range node.Step.AllDepends() {
 		if dep := byName[name]; dep == nil || !dependencyAllowsRun(dep) {
 			return false
 		}
@@ -316,7 +317,7 @@ func nodeRunnable(node *ir.Node, byName map[string]*ir.Node) bool {
 }
 
 func dependsOnCompletedHumanTask(node *ir.Node, byName map[string]*ir.Node) bool {
-	for _, name := range node.Step.Depends {
+	for _, name := range node.Step.AllDepends() {
 		if dep := byName[name]; dep != nil && dep.Step.HumanTask != nil && nodeCompleted(dep) {
 			return true
 		}

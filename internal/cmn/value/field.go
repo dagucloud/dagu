@@ -199,6 +199,10 @@ func ExecutorConfigField(path string) Field { return newField(path, fieldExecuto
 // TemplateScriptField returns the policy for template executor scripts.
 func TemplateScriptField(path string) Field { return newField(path, fieldTemplateScript) }
 
+// IsTemplateScript reports whether the field is a template executor script,
+// whose text is rendered by the executor rather than value-resolved.
+func (f Field) IsTemplateScript() bool { return f.kind == fieldTemplateScript }
+
 // TemplateConfigField returns the policy for template executor configuration.
 func TemplateConfigField(path string) Field {
 	return newField(path, fieldTemplateConfig)

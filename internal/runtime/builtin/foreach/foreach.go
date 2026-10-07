@@ -390,6 +390,7 @@ func cloneSteps(steps []ir.Step) []ir.Step {
 			maps.Copy(cloned[i].ExecutorConfig.Config, step.ExecutorConfig.Config)
 		}
 		cloned[i].Depends = append([]string(nil), step.Depends...)
+		cloned[i].InferredDepends = append([]ir.InferredDependency(nil), step.InferredDepends...)
 		cloned[i].Env = append([]string(nil), step.Env...)
 		cloned[i].Commands = append([]ir.CommandEntry(nil), step.Commands...)
 		cloned[i].Outputs = append([]ir.StepOutputDeclaration(nil), step.Outputs...)

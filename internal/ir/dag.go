@@ -479,7 +479,7 @@ func (d *DAG) Validate() error {
 	}
 
 	for _, step := range d.Steps {
-		for _, dep := range step.Depends {
+		for _, dep := range step.AllDepends() {
 			if !stepExists[dep] {
 				errs = append(errs, NewValidationError("depends", dep,
 					fmt.Errorf("step %s depends on non-existent step", step.Name)))

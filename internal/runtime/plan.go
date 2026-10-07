@@ -322,6 +322,13 @@ func (p *Plan) buildEdges() error {
 	if p.isCyclic() {
 		return ErrCyclicPlan
 	}
+	for _, node := range p.nodes {
+		for _, dep := range node.Step().InferredDepends {
+			if err := p.AddInferredDependency(dep.Step, node.Name()); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 
@@ -374,7 +381,8 @@ func (p *Plan) addEdge(from, to *Node) bool {
 	return true
 }
 
-// AddInferredDependency adds one file-derived dependency before execution starts.
+// AddInferredDependency adds one data-derived dependency, from a matching
+// build path or a step-output reference, before execution starts.
 func (p *Plan) AddInferredDependency(producerName, consumerName string) error {
 	producer := p.GetNodeByName(producerName)
 	consumer := p.GetNodeByName(consumerName)
@@ -407,7 +415,8 @@ func removeNodeID(ids []int, target int) []int {
 	return ids
 }
 
-// IsInferredDependency reports whether an edge was derived from matching paths.
+// IsInferredDependency reports whether an edge was derived from data rather
+// than from depends.
 // It may be called concurrently after planning is complete.
 func (p *Plan) IsInferredDependency(producerID, consumerID int) bool {
 	_, ok := p.inferredEdges[[2]int{producerID, consumerID}]

@@ -2100,12 +2100,14 @@ steps:
 	require.NotEmpty(t, notice.Message)
 }
 
-func TestGetDAGSpecIncludesValueReferenceNoticeReason(t *testing.T) {
+// A step-output reference without depends is reported as an inferred
+// dependency on the step, not as a value-reference notice.
+func TestGetDAGDetailsIncludesInferredDepends(t *testing.T) {
 	t.Parallel()
 
 	helper := test.Setup(t, test.WithStatusPersistence())
 	dag := helper.DAG(t, `
-name: spec-step-value-resolution-notice
+name: dag-details-inferred-depends
 steps:
   - id: build
     run: printf 'image=v1\n' >> "$DAGU_OUTPUT_FILE"
@@ -2134,11 +2136,21 @@ steps:
 	require.NoError(t, err)
 
 	specResp := asGetDAGSpecResp(t, specRespObj)
-	require.Len(t, specResp.ValueReferenceNotices, 1)
+	require.Empty(t, specResp.ValueReferenceNotices)
 
-	notice := specResp.ValueReferenceNotices[0]
-	require.NotNil(t, notice.Reason)
-	require.Equal(t, api.ValueReferenceNoticeReasonMissingDependency, *notice.Reason)
+	detailsRespObj, err := apiImpl.GetDAGDetails(context.Background(), api.GetDAGDetailsRequestObject{
+		FileName: dag.FileName(),
+	})
+	require.NoError(t, err)
+	detailsResp, ok := detailsRespObj.(api.GetDAGDetails200JSONResponse)
+	require.True(t, ok, "expected 200 response, got %T", detailsRespObj)
+
+	require.NotNil(t, detailsResp.Dag.Steps)
+	steps := *detailsResp.Dag.Steps
+	require.Len(t, steps, 2)
+	require.Empty(t, steps[1].Depends)
+	require.NotNil(t, steps[1].InferredDepends)
+	require.Equal(t, []string{"build"}, *steps[1].InferredDepends)
 }
 
 func TestGetDAGSpecIncludesValueReferenceNoticeClassWithoutReason(t *testing.T) {

@@ -80,6 +80,9 @@ type Step struct {
 	Dependencies []string `json:"dependencies,omitempty"`
 	// Depends contains the list of step names to depend on.
 	Depends []string `json:"depends,omitempty"`
+	// InferredDepends lists producers derived from step-output references.
+	// Entries order execution like Depends but are reported separately.
+	InferredDepends []InferredDependency `json:"inferredDepends,omitempty"`
 	// ExplicitlyNoDeps indicates the depends field was explicitly set to empty
 	ExplicitlyNoDeps bool `json:"-"`
 	// ContinueOn contains the conditions to continue on failure or skipped.
@@ -214,6 +217,38 @@ func (s Step) ValueOutputs() []StepOutputDeclaration {
 		}
 	}
 	return outputs
+}
+
+// InferredDependency records a producer step that a step-output reference
+// made a dependency, and the field path holding that reference.
+type InferredDependency struct {
+	Step  string `json:"step"`
+	Field string `json:"field,omitempty"`
+}
+
+// AllDepends returns the explicit dependencies followed by the inferred ones,
+// without duplicates.
+func (s *Step) AllDepends() []string {
+	if len(s.InferredDepends) == 0 {
+		return s.Depends
+	}
+	seen := make(map[string]struct{}, len(s.Depends)+len(s.InferredDepends))
+	all := make([]string, 0, len(s.Depends)+len(s.InferredDepends))
+	for _, dep := range s.Depends {
+		if _, ok := seen[dep]; ok {
+			continue
+		}
+		seen[dep] = struct{}{}
+		all = append(all, dep)
+	}
+	for _, dep := range s.InferredDepends {
+		if _, ok := seen[dep.Step]; ok {
+			continue
+		}
+		seen[dep.Step] = struct{}{}
+		all = append(all, dep.Step)
+	}
+	return all
 }
 
 // String returns a formatted string representation of the step

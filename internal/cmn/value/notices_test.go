@@ -17,7 +17,6 @@ func TestReportStepOutputReferenceNoticeUsesFallbackFieldLabel(t *testing.T) {
 	reasons := []value.ValueReferenceNoticeReason{
 		value.ValueReferenceReasonUnknownStepID,
 		value.ValueReferenceReasonUnknownOutputName,
-		value.ValueReferenceReasonMissingDependency,
 		value.ValueReferenceReasonSelfReference,
 		value.ValueReferenceReasonNamespaceUnavailable,
 	}
@@ -44,7 +43,6 @@ func TestValueReferenceNoticeReasonClass(t *testing.T) {
 	defects := []value.ValueReferenceNoticeReason{
 		value.ValueReferenceReasonUnknownStepID,
 		value.ValueReferenceReasonUnknownOutputName,
-		value.ValueReferenceReasonMissingDependency,
 		value.ValueReferenceReasonSelfReference,
 		value.ValueReferenceReasonUnknownContextField,
 		value.ValueReferenceReasonUnknownConstName,

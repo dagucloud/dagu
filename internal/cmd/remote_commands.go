@@ -122,6 +122,9 @@ func mapAPIStep(step api.Step) ir.Step {
 		Inputs:      mapAPIStepInputs(step.Inputs),
 		Outputs:     mapAPIStepOutputs(step.Outputs),
 	}
+	for _, dep := range derefStringSlice(step.InferredDepends) {
+		mapped.InferredDepends = append(mapped.InferredDepends, ir.InferredDependency{Step: dep})
+	}
 	if step.Id != nil {
 		mapped.ID = *step.Id
 	}

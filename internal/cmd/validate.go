@@ -101,8 +101,19 @@ func runValidate(ctx *Context, args []string, showUnresolved bool) error {
 
 	logValidationWarnings(ctx, args[0], append(dag.BuildWarnings, collectDeprecatedSyntaxWarnings(dag)...))
 	logValueReferenceNotices(ctx, args[0], loadResult.ValueReferenceNotices, showUnresolved)
+	logInferredDependencies(ctx, args[0], dag)
 
 	return nil
+}
+
+// logInferredDependencies reports each edge that a step-output reference added
+// to the dependency graph, so the schedule is visible without reading values.
+func logInferredDependencies(ctx *Context, file string, dag *ir.DAG) {
+	for _, step := range dag.Steps {
+		for _, dep := range step.InferredDepends {
+			logger.Info(ctx, fmt.Sprintf("inferred: %s -> %s (%s)", dep.Step, step.Name, dep.Field), tag.File(file))
+		}
+	}
 }
 
 // logValueReferenceNotices reports value-reference notices, separating the ones

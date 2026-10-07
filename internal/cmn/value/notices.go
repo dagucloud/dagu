@@ -24,7 +24,6 @@ type ValueReferenceNoticeReason string
 const (
 	ValueReferenceReasonUnknownStepID        ValueReferenceNoticeReason = "unknown_step_id"
 	ValueReferenceReasonUnknownOutputName    ValueReferenceNoticeReason = "unknown_output_name"
-	ValueReferenceReasonMissingDependency    ValueReferenceNoticeReason = "missing_dependency"
 	ValueReferenceReasonSelfReference        ValueReferenceNoticeReason = "self_reference"
 	ValueReferenceReasonNamespaceUnavailable ValueReferenceNoticeReason = "namespace_unavailable"
 	ValueReferenceReasonUnknownContextField  ValueReferenceNoticeReason = "unknown_context_field"
@@ -54,7 +53,6 @@ func (r ValueReferenceNoticeReason) Class() ValueReferenceNoticeClass {
 	switch r {
 	case ValueReferenceReasonUnknownStepID,
 		ValueReferenceReasonUnknownOutputName,
-		ValueReferenceReasonMissingDependency,
 		ValueReferenceReasonSelfReference,
 		ValueReferenceReasonUnknownContextField,
 		ValueReferenceReasonUnknownConstName:
@@ -182,8 +180,6 @@ func ReportStepOutputReferenceNotice(sink ValueReferenceNoticeSink, field, token
 		message = fmt.Sprintf("%s was left unchanged because the referenced step id does not exist when %s was evaluated.", token, evaluatedField)
 	case ValueReferenceReasonUnknownOutputName:
 		message = fmt.Sprintf("%s was left unchanged because the referenced output name is not declared when %s was evaluated.", token, evaluatedField)
-	case ValueReferenceReasonMissingDependency:
-		message = fmt.Sprintf("%s was left unchanged because the owning step does not depend on the producing step when %s was evaluated.", token, evaluatedField)
 	case ValueReferenceReasonSelfReference:
 		message = fmt.Sprintf("%s was left unchanged because a step cannot reference its own output when %s was evaluated.", token, evaluatedField)
 	case ValueReferenceReasonNamespaceUnavailable:

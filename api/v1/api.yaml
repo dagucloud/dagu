@@ -13452,7 +13452,6 @@ components:
           enum:
             - unknown_step_id
             - unknown_output_name
-            - missing_dependency
             - self_reference
             - namespace_unavailable
             - unknown_context_field
@@ -14642,6 +14641,11 @@ components:
         depends:
           type: array
           description: "List of step names that must complete before this step can start"
+          items:
+            type: string
+        inferredDepends:
+          type: array
+          description: "Step names this step depends on because it references their outputs, in addition to depends"
           items:
             type: string
         repeatPolicy:

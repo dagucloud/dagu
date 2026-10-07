@@ -706,7 +706,7 @@ func (a *API) readHistoryData(_ context.Context, dag *ir.DAG, statusList []ir.DA
 					inDegree[step.Name] = 0
 				}
 				for _, step := range dag.Steps {
-					for _, dep := range step.Depends {
+					for _, dep := range step.AllDepends() {
 						adj[dep] = append(adj[dep], step.Name)
 						inDegree[step.Name]++
 					}

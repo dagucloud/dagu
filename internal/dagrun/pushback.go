@@ -268,10 +268,10 @@ func dependentNodes(nodes []*ir.Node, stepName string) []*ir.Node {
 	return result
 }
 
-// stepDependencies returns each step's declared dependencies plus the build
-// producers whose output paths it consumes, since build steps link through
-// declared paths without declaring depends. Stored steps carry the paths the
-// run resolved.
+// stepDependencies returns each step's declared and inferred dependencies plus
+// the build producers whose output paths it consumes, since build steps link
+// through declared paths without declaring depends. Stored steps carry the
+// paths the run resolved.
 func stepDependencies(nodes []*ir.Node) map[string][]string {
 	dependencies := make(map[string][]string, len(nodes))
 	hasInputs := false
@@ -279,7 +279,7 @@ func stepDependencies(nodes []*ir.Node) map[string][]string {
 		if node == nil {
 			continue
 		}
-		dependencies[node.Step.Name] = node.Step.Depends
+		dependencies[node.Step.Name] = node.Step.AllDepends()
 		hasInputs = hasInputs || len(node.Step.Inputs) > 0
 	}
 	if !hasInputs {
