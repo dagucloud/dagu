@@ -53,6 +53,19 @@ describe('formatLogStepOutput', () => {
 });
 
 describe('getExecutorCommand', () => {
+  it('labels a js step and shows its input file', () => {
+    const step = (config: Record<string, unknown>) =>
+      ({
+        name: 'links',
+        executorConfig: { type: 'js', config },
+      }) as components['schemas']['Step'];
+
+    expect(getExecutorCommand(step({ input: { a: 1 } }))).toBe('js');
+    expect(getExecutorCommand(step({ input_file: 'page.html' }))).toBe(
+      'js: page.html'
+    );
+  });
+
   it('shows the start URL of a browser step', () => {
     const step = {
       name: 'checkout',
