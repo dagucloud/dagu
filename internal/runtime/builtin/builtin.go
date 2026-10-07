@@ -22,6 +22,7 @@ import (
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/harness"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/http"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/jq"
+	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/js"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/kubernetes"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/log"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/mail"
