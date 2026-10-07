@@ -585,7 +585,7 @@ steps:
     output: RESULT
 ```
 
-Reference `with.data` keys with a leading dot: `{{ .name }}`. A bare `{{ name }}` is a function call in Go templates and fails validation. Set exactly one of `with.template` or `with.template_ref`. `with.template` is literal template text. `with.template_ref` must be one complete canonical Dagu reference such as `${env.TEMPLATE}` or `${steps.fetch.outputs.template}`; it resolves once to a non-empty string, and references inside the resulting template remain literal. The selected text is rendered as a template, not executed as shell. `with.output` writes rendered content to a file; top-level `output:` captures or publishes step output.
+Reference `with.data` keys with a leading dot: `{{ .name }}`. A bare `{{ name }}` is a function call in Go templates; `dagu validate` rejects it in inline `with.template` text, and a `with.template_ref` template fails the same way when the step runs. Set exactly one of `with.template` or `with.template_ref`. `with.template` is literal template text. `with.template_ref` must be one complete canonical Dagu reference such as `${env.TEMPLATE}` or `${steps.fetch.outputs.template}`; it resolves once to a non-empty string, and references inside the resulting template remain literal. The selected text is rendered as a template, not executed as shell. `with.output` writes rendered content to a file; top-level `output:` captures or publishes step output.
 
 ## file.stat / file.read / file.write / file.copy / file.move / file.delete / file.mkdir / file.list
 
