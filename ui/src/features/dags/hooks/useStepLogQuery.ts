@@ -131,11 +131,18 @@ export function stepLogDownloadPath(
   source: StepLogSource
 ): string {
   const { dagName, dagRunId, stepName, dagRun, foreach } = source;
-  const run = isSubDAGRun(dagRun)
-    ? `${apiURL}/dag-runs/${dagRun?.rootDAGRunName}/${dagRun?.rootDAGRunId}/sub-dag-runs/${dagRun?.dagRunId}`
-    : `${apiURL}/dag-runs/${dagName}/${dagRunId}`;
-  const step = foreach
-    ? `/steps/${encodeURIComponent(foreach.stepName)}/foreach/${foreach.item}/steps/${encodeURIComponent(stepName)}`
-    : `/steps/${stepName}`;
-  return `${run}${step}/log/download`;
+  const segments = isSubDAGRun(dagRun)
+    ? [
+        'dag-runs',
+        dagRun?.rootDAGRunName ?? '',
+        dagRun?.rootDAGRunId ?? '',
+        'sub-dag-runs',
+        dagRun?.dagRunId ?? '',
+      ]
+    : ['dag-runs', dagName, dagRunId];
+  if (foreach) {
+    segments.push('steps', foreach.stepName, 'foreach', foreach.item);
+  }
+  segments.push('steps', stepName, 'log', 'download');
+  return `${apiURL}/${segments.map(encodeURIComponent).join('/')}`;
 }

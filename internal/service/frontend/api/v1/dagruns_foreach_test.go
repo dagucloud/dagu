@@ -22,9 +22,9 @@ import (
 )
 
 // foreachFixture seeds a root run and a child run whose single step is a
-// foreach over three items, with the records and body logs the executor
-// writes: item 0 failed, item 1 succeeded and holds a nested foreach, and
-// item 2 never started.
+// foreach over four items, with the records and body logs the executor
+// writes: item 0 failed, item 1 succeeded and holds a nested foreach, item 2
+// never started, and item 3 is retrying a body step.
 type foreachFixture struct {
 	server  test.Server
 	dagName string
@@ -50,9 +50,13 @@ func seedForeachRun(t *testing.T) foreachFixture {
 		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
 	}
 
-	writeJSON(filepath.Join(stepDir, logpath.ForeachItemsFile), ir.ForeachItems{Total: 3, Items: []ir.ForeachItemRef{
-		{Index: 0, Key: "a"}, {Index: 1, Key: "b"}, {Index: 2, Key: "c"},
+	writeJSON(filepath.Join(stepDir, logpath.ForeachItemsFile), ir.ForeachItems{Total: 4, Items: []ir.ForeachItemRef{
+		{Index: 0, Key: "a"}, {Index: 1, Key: "b"}, {Index: 2, Key: "c"}, {Index: 3, Key: "d"},
 	}})
+	writeJSON(filepath.Join(stepDir, "3", logpath.ForeachItemStatusFile), ir.ForeachItemStatus{
+		Index: 3, Key: "d", Status: ir.NodeRunning, StartedAt: "2026-10-07T00:00:00Z",
+		Steps: []ir.ForeachBodyStepStatus{{Name: "body", ID: "body", Status: ir.NodeRetrying, RetryCount: 1}},
+	})
 	writeJSON(filepath.Join(stepDir, "0", logpath.ForeachItemStatusFile), ir.ForeachItemStatus{
 		Index: 0, Key: "a", Status: ir.NodeFailed, Error: "exit status 3",
 		StartedAt: "2026-10-07T00:00:00Z", FinishedAt: "2026-10-07T00:00:02Z",
@@ -82,7 +86,7 @@ func seedForeachRun(t *testing.T) foreachFixture {
 	dag := &ir.DAG{Name: "foreach-api", Steps: []ir.Step{{
 		Name:           "each",
 		ExecutorConfig: ir.ExecutorConfig{Type: ir.ExecutorTypeForeach},
-		Foreach:        &ir.ForeachConfig{Items: []any{"a", "b", "c"}},
+		Foreach:        &ir.ForeachConfig{Items: []any{"a", "b", "c", "d"}},
 	}}}
 	root := ir.NewDAGRunRef(dag.Name, "root")
 	for _, runID := range []string{root.ID, "child"} {
@@ -118,27 +122,39 @@ func (f foreachFixture) get(t *testing.T, path string, want int) *test.Response 
 func TestForeachItems(t *testing.T) {
 	f := seedForeachRun(t)
 
-	t.Run("failed items lead and unstarted items show as not started", func(t *testing.T) {
+	t.Run("failed items lead, then running, and unstarted items show as not started", func(t *testing.T) {
 		var list api.ForeachItemList
 		f.get(t, "/steps/each/foreach?remoteNode=local", http.StatusOK).Unmarshal(t, &list)
-		require.Equal(t, 3, list.Total)
-		require.Equal(t, api.ForeachItemCounts{NotStarted: 1, Succeeded: 1, Failed: 1}, list.Counts)
-		require.Len(t, list.Items, 3)
+		require.Equal(t, 4, list.Total)
+		require.Equal(t, api.ForeachItemCounts{NotStarted: 1, Running: 1, Succeeded: 1, Failed: 1}, list.Counts)
+		require.Len(t, list.Items, 4)
 		require.Equal(t, "0", list.Items[0].Item)
 		require.Equal(t, api.NodeStatusLabelFailed, list.Items[0].StatusLabel)
 		require.Equal(t, "exit status 3", *list.Items[0].Error)
-		require.Equal(t, "b", list.Items[1].Key)
-		require.Equal(t, api.NodeStatusLabelNotStarted, list.Items[2].StatusLabel)
+		require.Equal(t, api.NodeStatusLabelRunning, list.Items[1].StatusLabel)
+		require.Equal(t, "b", list.Items[2].Key)
+		require.Equal(t, api.NodeStatusLabelNotStarted, list.Items[3].StatusLabel)
 	})
 
-	t.Run("status filter and paging", func(t *testing.T) {
+	t.Run("status filter uses the same buckets as the counts", func(t *testing.T) {
 		var list api.ForeachItemList
 		f.get(t, "/steps/each/foreach?remoteNode=local&status=succeeded", http.StatusOK).Unmarshal(t, &list)
-		require.Equal(t, 3, list.Total)
+		require.Equal(t, 4, list.Total)
 		require.Len(t, list.Items, 1)
 		require.Equal(t, 1, list.Items[0].Index)
 
-		f.get(t, "/steps/each/foreach?remoteNode=local&page=2&perPage=2", http.StatusOK).Unmarshal(t, &list)
+		f.get(t, "/steps/each/foreach?remoteNode=local&status=running", http.StatusOK).Unmarshal(t, &list)
+		require.Len(t, list.Items, 1)
+		require.Equal(t, 3, list.Items[0].Index)
+
+		f.get(t, "/steps/each/foreach?remoteNode=local&status=not_started", http.StatusOK).Unmarshal(t, &list)
+		require.Len(t, list.Items, 1)
+		require.Equal(t, 2, list.Items[0].Index)
+	})
+
+	t.Run("paging", func(t *testing.T) {
+		var list api.ForeachItemList
+		f.get(t, "/steps/each/foreach?remoteNode=local&page=2&perPage=3", http.StatusOK).Unmarshal(t, &list)
 		require.Len(t, list.Items, 1)
 		require.Equal(t, 2, list.Items[0].Index)
 	})
@@ -201,7 +217,7 @@ func TestForeachItems(t *testing.T) {
 	t.Run("sub dag-run routes", func(t *testing.T) {
 		var list api.ForeachItemList
 		f.get(t, "/sub-dag-runs/child/steps/each/foreach?remoteNode=local", http.StatusOK).Unmarshal(t, &list)
-		require.Len(t, list.Items, 3)
+		require.Len(t, list.Items, 4)
 
 		var item api.ForeachItem
 		f.get(t, "/sub-dag-runs/child/steps/each/foreach/0?remoteNode=local", http.StatusOK).Unmarshal(t, &item)

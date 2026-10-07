@@ -2336,6 +2336,7 @@ const english = {
   'Open in log viewer': 'Open in log viewer',
   '{done} of {total} done': '{done} of {total} done',
   'Item {index}': 'Item {index}',
+  'Open {step} in log viewer': 'Open {step} in log viewer',
 } as const;
 
 export type StaticMessage = keyof typeof english;
@@ -4614,6 +4615,7 @@ const chinese = {
   'Open in log viewer': '在日志查看器中打开',
   '{done} of {total} done': '已完成 {done} / {total}',
   'Item {index}': '项目 {index}',
+  'Open {step} in log viewer': '在日志查看器中打开 {step}',
 } as const satisfies Record<StaticMessage, string>;
 
 const japanese = {
@@ -6973,6 +6975,7 @@ const japanese = {
   'Open in log viewer': 'ログビューアで開く',
   '{done} of {total} done': '{done} / {total} 完了',
   'Item {index}': 'アイテム {index}',
+  'Open {step} in log viewer': '{step} をログビューアで開く',
 } as const satisfies Record<StaticMessage, string>;
 
 export const staticMessages = {

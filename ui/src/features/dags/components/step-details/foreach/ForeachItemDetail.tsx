@@ -7,6 +7,7 @@ import { isActiveNodeStatus } from '@/lib/status-utils';
 import { cn } from '@/lib/utils';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
+import { useI18n } from '@/i18n/I18nProvider';
 import { Maximize2 } from 'lucide-react';
 import React, { useState } from 'react';
 import { InlineLogViewer } from '../../common/InlineLogViewer';
@@ -89,6 +90,7 @@ function BodyStepRow({
   depth: number;
   onOpenLog?: OpenBodyStepLog;
 }) {
+  const { ts } = useI18n();
   const [stream, setStream] = useState<Stream | null>(null);
   const live = isActiveNodeStatus(step.status);
   const duration =
@@ -144,7 +146,9 @@ function BodyStepRow({
                 type="button"
                 className="rounded border border-border bg-background p-1 text-muted-foreground hover:bg-muted"
                 title="Open in log viewer"
-                aria-label={`Open ${step.name} in log viewer`}
+                aria-label={ts('Open {step} in log viewer', {
+                  step: step.name,
+                })}
                 onClick={() =>
                   onOpenLog(step.name, foreach, stream ?? Stream.stdout)
                 }

@@ -219,7 +219,11 @@ func (a *API) GetForeachItemDataByRef(ctx context.Context, ref ir.DAGRunRef, sub
 	if err != nil {
 		return nil, err
 	}
-	return a.readForeachItem(node, item)
+	data, err := a.readForeachItem(node, item)
+	if err != nil {
+		return nil, foreachDataError(err, foreachItemNotFound(api.ForeachItemPath(item), stepName))
+	}
+	return data, nil
 }
 
 // GetForeachStepLogDataByRef returns the logs of one body step of a foreach
@@ -231,14 +235,23 @@ func (a *API) GetForeachStepLogDataByRef(ctx context.Context, ref ir.DAGRunRef, 
 	}
 	itemDir, record, err := a.foreachItemRecord(node, item)
 	if err != nil {
-		return nil, err
+		return nil, foreachDataError(err, foreachLogNotFound(api.ForeachItemPath(item), api.BodyStepName(bodyStepName)))
 	}
 	step, err := foreachBodyStep(record, bodyStepName)
 	if err != nil {
-		return nil, err
+		return nil, foreachDataError(err, foreachLogNotFound(api.ForeachItemPath(item), api.BodyStepName(bodyStepName)))
 	}
 	stdout, stderr := foreachBodyLogPath(itemDir, step.Stdout), foreachBodyLogPath(itemDir, step.Stderr)
 	return a.stepLogFromFiles(ctx, stdout, stderr, bodyStepName, opts)
+}
+
+// foreachDataError gives callers outside the HTTP layer the same not-found
+// answer the handlers return for a missing record.
+func foreachDataError(err error, notFound api.Error) error {
+	if errors.Is(err, errForeachItemNotFound) {
+		return &Error{HTTPStatus: http.StatusNotFound, Code: notFound.Code, Message: notFound.Message}
+	}
+	return err
 }
 
 func (a *API) foreachNodeByRef(ctx context.Context, ref ir.DAGRunRef, subRunID, stepName string) (*ir.Node, error) {
@@ -366,6 +379,9 @@ func (a *API) listForeachItems(node *ir.Node, query ForeachItemsQuery) (api.Fore
 			return list, err
 		}
 		list.Counts = countForeachItem(list.Counts, record.Status)
+		if query.Status != "" && string(foreachItemBucket(record.Status)) != query.Status {
+			continue
+		}
 		summaries = append(summaries, api.ForeachItemSummary{
 			Item:        logpath.ForeachItemPath(query.Parent, ref.Index),
 			Index:       ref.Index,
@@ -378,15 +394,6 @@ func (a *API) listForeachItems(node *ir.Node, query ForeachItemsQuery) (api.Fore
 		})
 	}
 
-	if query.Status != "" {
-		filtered := summaries[:0]
-		for _, summary := range summaries {
-			if string(summary.StatusLabel) == query.Status {
-				filtered = append(filtered, summary)
-			}
-		}
-		summaries = filtered
-	}
 	// Failed items first, then running ones, so the items worth a look
 	// lead on every page; index order within a group keeps paging stable.
 	sort.SliceStable(summaries, func(i, j int) bool {
@@ -396,19 +403,36 @@ func (a *API) listForeachItems(node *ir.Node, query ForeachItemsQuery) (api.Fore
 	return list, nil
 }
 
-// countForeachItem files an item under one of the five states an item body
-// run passes through. An item record never holds the remaining node states.
-func countForeachItem(counts api.ForeachItemCounts, status ir.NodeStatus) api.ForeachItemCounts {
+// foreachItemBucket files an item under one of the five states the status
+// filter and counts use. An item record never holds the remaining node
+// states, which fall back to not started.
+func foreachItemBucket(status ir.NodeStatus) api.ForeachItemStatusFilter {
 	switch status {
 	case ir.NodeSucceeded:
-		counts.Succeeded++
+		return api.ForeachItemStatusFilterSucceeded
 	case ir.NodeFailed:
-		counts.Failed++
+		return api.ForeachItemStatusFilterFailed
 	case ir.NodeAborted:
-		counts.Aborted++
+		return api.ForeachItemStatusFilterAborted
 	case ir.NodeRunning, ir.NodeRetrying:
-		counts.Running++
+		return api.ForeachItemStatusFilterRunning
 	case ir.NodeNotStarted, ir.NodeSkipped, ir.NodePartiallySucceeded, ir.NodeWaiting, ir.NodeRejected:
+		return api.ForeachItemStatusFilterNotStarted
+	}
+	return api.ForeachItemStatusFilterNotStarted
+}
+
+func countForeachItem(counts api.ForeachItemCounts, status ir.NodeStatus) api.ForeachItemCounts {
+	switch foreachItemBucket(status) {
+	case api.ForeachItemStatusFilterSucceeded:
+		counts.Succeeded++
+	case api.ForeachItemStatusFilterFailed:
+		counts.Failed++
+	case api.ForeachItemStatusFilterAborted:
+		counts.Aborted++
+	case api.ForeachItemStatusFilterRunning:
+		counts.Running++
+	case api.ForeachItemStatusFilterNotStarted:
 		counts.NotStarted++
 	}
 	return counts

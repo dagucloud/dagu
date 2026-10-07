@@ -162,7 +162,7 @@ absence of additional fields.
 Rules:
 
 - The `query` field is allowed only in target mode for `dags`, `wiki`,
-  `runs`, `run_logs`, and `step_log`.
+  `runs`, `run_logs`, `step_log`, and `foreach_items`.
 - The `query` field must not start with `?`.
 - The same parameter names are allowed in URI-mode collection and log URIs.
 - Query parameter order is not normative.

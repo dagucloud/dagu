@@ -4435,8 +4435,10 @@ paths:
         sub DAG-run only. Logs from nested DAG-runs are not included.
         Returns a streaming ZIP archive with no size limit. Each available log is
         stored as <index>-<step-name>/stdout.log or stderr.log, in run order.
-        Missing files are skipped. Each file includes only the bytes present when
-        it is opened; subsequent log growth is excluded.
+        The body logs and item records of a foreach step are stored under
+        <index>-<step-name>/foreach/. Missing files are skipped. Each file
+        includes only the bytes present when it is opened; subsequent log growth
+        is excluded.
       operationId: "downloadSubDAGRunStepLogs"
       tags:
         - "dag-runs"
