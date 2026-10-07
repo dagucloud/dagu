@@ -1,0 +1,6 @@
+working_dir: .
+steps:
+  - action: js.run
+    stdout: result.out
+    with:
+      script: return "World"

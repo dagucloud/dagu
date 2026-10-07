@@ -1,0 +1,9 @@
+working_dir: .
+steps:
+  - action: js.run
+    stdout: result.out
+    with:
+      input:
+        city: Metropolis
+        tags: [a, b]
+      script: return input.city + ":" + input.tags.length
