@@ -143,12 +143,14 @@ Addressing:
 
 Fields:
 
-- target: required in target mode. Values are references, reference, dags, dag, dag_spec, dag_profile, dag_search, wiki, wiki_page, wiki_search, workbook, runs, run, run_logs, and step_log.
-- name: DAG name or reference topic name. Required for dag, dag_spec, dag_profile, run, run_logs, and step_log. Optional for reference; defaults to authoring. Forbidden for references, dags, and runs.
-- dagRunId: required for run, run_logs, and step_log. Forbidden for other targets.
-- subRunId: optional child DAG-run ID for run and step_log. The name and dagRunId fields identify its root run.
-- stepName: required for step_log. Forbidden for other targets.
-- query: URL query string without a leading question mark. Allowed for dags, wiki, runs, run_logs, and step_log.
+- target: required in target mode. Values are references, reference, dags, dag, dag_spec, dag_profile, dag_search, wiki, wiki_page, wiki_search, workbook, runs, run, run_logs, step_log, foreach_items, and foreach_item.
+- name: DAG name or reference topic name. Required for dag, dag_spec, dag_profile, run, run_logs, step_log, foreach_items, and foreach_item. Optional for reference; defaults to authoring. Forbidden for references, dags, and runs.
+- dagRunId: required for run, run_logs, step_log, foreach_items, and foreach_item. Forbidden for other targets.
+- subRunId: optional child DAG-run ID for run, step_log, foreach_items, and foreach_item. The name and dagRunId fields identify its root run.
+- stepName: required for step_log, foreach_items, and foreach_item. Forbidden for other targets.
+- item: foreach item path. Required for foreach_item; optional for step_log together with bodyStepName. A top-level item is its index; an item of a nested foreach is the foreachParent its body step reports, a dot, and the index, such as 2.inner.0.
+- bodyStepName: body step inside a foreach item for step_log. Requires item. Forbidden for other targets.
+- query: URL query string without a leading question mark. Allowed for dags, wiki, runs, run_logs, step_log, and foreach_items.
 - workspace: all, default, or a workspace name. Optional for wiki, wiki_search, and dag_search; omitted means all accessible workspaces. Required for wiki_page, where all is not allowed.
 - path: Wiki page path without .md, required for wiki_page; or a workbook file path on the server, required for workbook.
 - search: search text. Required for wiki_search and dag_search.
@@ -173,7 +175,9 @@ Targets:
 - runs lists DAG-runs.
 - run reads one DAG-run. With subRunId, it reads the child run under the identified root run.
 - run_logs reads scheduler and step log metadata.
-- step_log reads stdout and stderr for one DAG-run step. With subRunId, it reads a child-run step. Use the stream, tail, head, offset, and limit query parameters to bound the returned lines; without positioning parameters the last 1000 lines are returned.
+- step_log reads stdout and stderr for one DAG-run step. With subRunId, it reads a child-run step. With item and bodyStepName, it reads one body step of a foreach item. Use the stream, tail, head, offset, and limit query parameters to bound the returned lines; without positioning parameters the last 1000 lines are returned.
+- foreach_items lists the items a foreach step expanded to, with total, counts per status, and one page of items sorted failed first. A run's step entry links here through foreachUri. Use status to keep one status, page and perPage to page, and parent to list the items of a nested foreach body step.
+- foreach_item reads one foreach item: its status, error, and each body step with status, timestamps, error, hasStdout, hasStderr, and for a nested foreach body step the foreachParent to pass to foreach_items.
 
 Query parameters:
 
@@ -182,6 +186,7 @@ Query parameters:
 - runs: name, dagRunId, status, fromDate, toDate, limit, cursor, labels. status may repeat.
 - run_logs: tail. Values from 1 to 10000 are honored.
 - step_log: tail, head, offset, limit, stream. tail, head, and limit accept 1 to 10000. Use at most one of tail, head, and offset; limit may be used alone or with offset. limit alone reads from the beginning of the log. stream is stdout or stderr; omitted means both.
+- foreach_items: parent, status, page, perPage. status is one of not_started, running, succeeded, failed, or aborted. perPage accepts 1 to 500 and defaults to 50.
 
 Output:
 

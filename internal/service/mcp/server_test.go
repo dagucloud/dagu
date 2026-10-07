@@ -1594,3 +1594,68 @@ func findResource(t *testing.T, resources []*mcpsdk.Resource, uri string) *mcpsd
 	t.Fatalf("resource %q not found", uri)
 	return nil
 }
+
+func TestForeachResourceURIs(t *testing.T) {
+	t.Parallel()
+
+	addr := runAddress{name: "demo dag", dagRunID: "run/1"}
+	for _, tc := range []struct {
+		uri        string
+		target     string
+		subRunID   string
+		item       string
+		bodyStep   string
+		linkName   string
+		queryAllow bool
+	}{
+		{uri: addr.foreachItemsURI("each"), target: readTargetForeachItems, linkName: "dag_run_foreach_items", queryAllow: true},
+		{uri: addr.foreachItemURI("each", "2.inner.0"), target: readTargetForeachItem, item: "2.inner.0", linkName: "dag_run_foreach_item"},
+		{uri: addr.foreachStepLogURI("each", "0", "body step"), target: readTargetStepLog, item: "0", bodyStep: "body step", linkName: "dag_run_foreach_step_log", queryAllow: true},
+		{uri: addr.subRunAddress("child").foreachItemsURI("each"), target: readTargetForeachItems, subRunID: "child", linkName: "sub_dag_run_foreach_items", queryAllow: true},
+		{uri: addr.subRunAddress("child").foreachStepLogURI("each", "0", "body"), target: readTargetStepLog, subRunID: "child", item: "0", bodyStep: "body", linkName: "sub_dag_run_foreach_step_log", queryAllow: true},
+	} {
+		input, readErr := parseReadResourceURI(tc.uri)
+		require.Nil(t, readErr, tc.uri)
+		require.Equal(t, tc.target, input.Target, tc.uri)
+		require.Equal(t, "demo dag", input.Name)
+		require.Equal(t, "run/1", input.DAGRunID)
+		require.Equal(t, tc.subRunID, input.SubRunID)
+		require.Equal(t, "each", input.StepName)
+		require.Equal(t, tc.item, input.Item)
+		require.Equal(t, tc.bodyStep, input.BodyStepName)
+		require.Equal(t, tc.uri, input.URI)
+
+		links := readResourceLinks(tc.uri)
+		require.Len(t, links, 1)
+		require.Equal(t, tc.linkName, links[0].name)
+
+		_, readErr = parseReadResourceURI(tc.uri + "?page=2")
+		require.Equal(t, tc.queryAllow && tc.target == readTargetForeachItems, readErr == nil, tc.uri)
+	}
+
+	// Target mode builds the same URIs and insists on item and bodyStepName together.
+	input, readErr := parseReadToolInput(json.RawMessage(`{"target":"foreach_items","name":"demo dag","dagRunId":"run/1","stepName":"each","query":"status=failed&perPage=10"}`))
+	require.Nil(t, readErr)
+	require.Equal(t, addr.foreachItemsURI("each")+"?status=failed&perPage=10", input.URI)
+	query := foreachItemsQuery(input.Query)
+	require.Equal(t, "failed", query.Status)
+	require.Equal(t, 10, query.PerPage)
+
+	input, readErr = parseReadToolInput(json.RawMessage(`{"target":"step_log","name":"demo dag","dagRunId":"run/1","stepName":"each","item":"0","bodyStepName":"body step"}`))
+	require.Nil(t, readErr)
+	require.Equal(t, addr.foreachStepLogURI("each", "0", "body step"), input.URI)
+
+	for _, raw := range []string{
+		`{"target":"step_log","name":"demo","dagRunId":"run-1","stepName":"each","item":"0"}`,
+		`{"target":"step_log","name":"demo","dagRunId":"run-1","stepName":"each","bodyStepName":"body"}`,
+		`{"target":"foreach_item","name":"demo","dagRunId":"run-1","stepName":"each"}`,
+		`{"target":"foreach_items","name":"demo","dagRunId":"run-1"}`,
+		`{"target":"foreach_items","name":"demo","dagRunId":"run-1","stepName":"each","query":"status=weird"}`,
+		`{"target":"foreach_items","name":"demo","dagRunId":"run-1","stepName":"each","query":"perPage=501"}`,
+		`{"target":"run","name":"demo","dagRunId":"run-1","item":"0"}`,
+	} {
+		_, readErr := parseReadToolInput(json.RawMessage(raw))
+		require.NotNil(t, readErr, raw)
+		require.Equal(t, readErrorInvalidToolInput, readErr.Code, raw)
+	}
+}

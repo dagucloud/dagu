@@ -122,6 +122,10 @@ Supported resource families:
 | Step log | `dagu://runs/{name}/{dagRunId}/steps/{stepName}/logs` | `application/json` | Current stdout and stderr data for one DAG-run step. |
 | Child run details | `dagu://runs/{name}/{dagRunId}/sub/{subRunId}` | `application/json` | Current details for a child DAG run addressed under its root run. |
 | Child step log | `dagu://runs/{name}/{dagRunId}/sub/{subRunId}/steps/{stepName}/logs` | `application/json` | Current stdout and stderr data for one child-run step. |
+| Foreach items | `dagu://runs/{name}/{dagRunId}/steps/{stepName}/foreach` | `application/json` | Items of a foreach step with the status each body run reached. |
+| Foreach item | `dagu://runs/{name}/{dagRunId}/steps/{stepName}/foreach/{item}` | `application/json` | One foreach item with the status of each body step. |
+| Foreach step log | `dagu://runs/{name}/{dagRunId}/steps/{stepName}/foreach/{item}/steps/{bodyStepName}/logs` | `application/json` | Current stdout and stderr data for one body step of a foreach item. |
+| Child foreach items, item, and step log | The three foreach shapes under `dagu://runs/{name}/{dagRunId}/sub/{subRunId}` | `application/json` | The same for a foreach step of a child run. |
 | Wiki collection | `dagu://wiki` and `dagu://wiki/{workspace}` | `application/json` | Wiki pages visible to the caller. |
 | Wiki page | `dagu://wiki/{workspace}/{path}` | `text/markdown` | Current Markdown content for the named Wiki page. |
 

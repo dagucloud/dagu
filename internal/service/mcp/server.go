@@ -288,6 +288,33 @@ func registerResources(server *mcpsdk.Server, svc *Service) {
 		Description: "Standard output and standard error for a child DAG-run step. Supports tail, head, offset, limit, and stream query parameters.",
 		MIMEType:    resourceMIMEJSON,
 	}, svc.readResource)
+
+	for _, prefix := range []struct{ uri, name, title, run string }{
+		{"dagu://runs/{name}/{dagRunId}", "dag_run_", "DAG-run ", "a DAG-run"},
+		{"dagu://runs/{name}/{dagRunId}/sub/{subRunId}", "sub_dag_run_", "Sub DAG-run ", "a child DAG-run"},
+	} {
+		server.AddResourceTemplate(&mcpsdk.ResourceTemplate{
+			URITemplate: prefix.uri + "/steps/{stepName}/foreach",
+			Name:        prefix.name + "foreach_items",
+			Title:       prefix.title + "foreach items",
+			Description: "Items of a foreach step in " + prefix.run + ", with the status each body run reached. Supports parent, status, page, and perPage query parameters.",
+			MIMEType:    resourceMIMEJSON,
+		}, svc.readResource)
+		server.AddResourceTemplate(&mcpsdk.ResourceTemplate{
+			URITemplate: prefix.uri + "/steps/{stepName}/foreach/{item}",
+			Name:        prefix.name + "foreach_item",
+			Title:       prefix.title + "foreach item",
+			Description: "One item of a foreach step in " + prefix.run + ", with the status of each body step.",
+			MIMEType:    resourceMIMEJSON,
+		}, svc.readResource)
+		server.AddResourceTemplate(&mcpsdk.ResourceTemplate{
+			URITemplate: prefix.uri + "/steps/{stepName}/foreach/{item}/steps/{bodyStepName}/logs",
+			Name:        prefix.name + "foreach_step_log",
+			Title:       prefix.title + "foreach step log",
+			Description: "Standard output and standard error for one body step of a foreach item in " + prefix.run + ". Supports tail, head, offset, limit, and stream query parameters.",
+			MIMEType:    resourceMIMEJSON,
+		}, svc.readResource)
+	}
 }
 
 func registerPrompts(server *mcpsdk.Server) {
@@ -819,6 +846,9 @@ func (svc *Service) readResourceText(ctx context.Context, rawURI string) (string
 			}
 			return text, resourceMIMEJSON, nil
 		}
+		if foreach, ok := parseForeachResource(segments); ok {
+			return svc.readForeachResource(ctx, rawURI, foreach, parsed.RawQuery)
+		}
 		if !isRunResourceSegments(segments) && !isStepLogResourceSegments(segments) &&
 			!isSubRunResourceSegments(segments) && !isSubStepLogResourceSegments(segments) {
 			return "", "", mcpsdk.ResourceNotFoundError(rawURI)
@@ -873,6 +903,42 @@ func (svc *Service) readResourceText(ctx context.Context, rawURI string) (string
 	default:
 		return "", "", mcpsdk.ResourceNotFoundError(rawURI)
 	}
+}
+
+// readForeachResource serves the foreach item resources of a run.
+func (svc *Service) readForeachResource(ctx context.Context, rawURI string, resource runResource, rawQuery string) (string, string, error) {
+	if resource.queryTarget() == "" && rawQuery != "" {
+		return "", "", mcpsdk.ResourceNotFoundError(rawURI)
+	}
+	if readErr := validateReadQuery(resource.queryTarget(), rawQuery, true, rawURI); readErr != nil {
+		return "", "", mcpsdk.ResourceNotFoundError(rawURI)
+	}
+	if err := svc.requireAPI(); err != nil {
+		return "", "", err
+	}
+	ref := ir.NewDAGRunRef(resource.addr.name, resource.addr.dagRunID)
+	var (
+		data any
+		err  error
+	)
+	switch resource.kind {
+	case runResourceForeachItems:
+		data, err = svc.api.GetForeachItemsDataByRef(ctx, ref, resource.addr.subRunID, resource.stepName, foreachItemsQuery(rawQuery))
+	case runResourceForeachItem:
+		data, err = svc.api.GetForeachItemDataByRef(ctx, ref, resource.addr.subRunID, resource.stepName, resource.item)
+	case runResourceForeachStepLog:
+		data, err = svc.api.GetForeachStepLogDataByRef(ctx, ref, resource.addr.subRunID, resource.stepName, resource.item, resource.bodyStepName, stepLogReadOptions(rawQuery))
+	case runResourceOther:
+		return "", "", mcpsdk.ResourceNotFoundError(rawURI)
+	}
+	if err != nil {
+		return "", "", err
+	}
+	text, err := jsonText(data)
+	if err != nil {
+		return "", "", err
+	}
+	return text, resourceMIMEJSON, nil
 }
 
 func (svc *Service) subscribe(ctx context.Context, req *mcpsdk.SubscribeRequest) error {
