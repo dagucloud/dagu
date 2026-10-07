@@ -113,6 +113,40 @@ func TestCloseBrowserWaitsForRuntimeOnWindows(t *testing.T) {
 	}
 }
 
+// A browser still running after the runtime returned, as after a reattached
+// close that only asks the browser to close, is left to finish on its own.
+// Its helpers are ended once the browser has gone.
+func TestCloseBrowserLeavesRunningBrowserToExit(t *testing.T) {
+	t.Parallel()
+
+	browser, helperPID := startSleeperTree(t)
+	startedAt, ok := procutil.StartTime(browser.Process.Pid)
+	require.True(t, ok)
+	closed := make(chan error, 1)
+	go func() {
+		closed <- closeBrowser(context.Background(), browser.Process.Pid, startedAt, func(context.Context) error { return nil })
+	}()
+
+	time.Sleep(helperExitGrace + time.Second)
+	select {
+	case err := <-closed:
+		t.Fatalf("returned while the browser was running: %v", err)
+	default:
+	}
+	require.True(t, procutil.IsAlive(browser.Process.Pid), "the browser keeps running")
+	require.True(t, procutil.IsAlive(helperPID), "the helper keeps running with it")
+
+	require.NoError(t, browser.Process.Kill())
+	_ = browser.Wait()
+	select {
+	case err := <-closed:
+		assert.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("did not return after the browser exited")
+	}
+	assert.False(t, procutil.IsAlive(helperPID), "the helper is ended")
+}
+
 // profileHolders reports the processes whose command line names dir, and
 // every Chrome process, since Chrome helpers do not all name the profile.
 func profileHolders(dir string) string {

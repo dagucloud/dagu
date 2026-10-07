@@ -31,7 +31,11 @@ const (
 // apart, and they can keep the profile open after the browser process has
 // exited, so each one is tracked by process ID and start time.
 type browserProcessTree struct {
-	// startedAt maps each process ID to its start time, or 0 when unknown.
+	// browser is the browser process ID, or 0 once the browser has exited.
+	// The browser is waited for but never ended here, so a browser still
+	// writing its profile after the runtime returns finishes on its own.
+	browser int
+	// startedAt maps each recorded process ID to its start time.
 	startedAt map[int]int64
 }
 
@@ -49,6 +53,7 @@ func recordBrowserProcessTree(pid int, startedAt int64) *browserProcessTree {
 	children := childProcesses()
 	switch {
 	case processRunning(pid, startedAt):
+		tree.browser = pid
 		tree.startedAt[pid] = startedAt
 	case procutil.IsAlive(pid):
 		return nil
@@ -125,35 +130,46 @@ func processRunning(pid int, startedAt int64) bool {
 // awaitExit waits for the recorded processes to exit after the runtime has
 // closed the browser. The runtime ends the tree it finds at that moment, so
 // a helper whose parent exited first can be left behind; helpers still
-// running after helperExitGrace are ended here.
+// running helperExitGrace after the browser has gone are ended here.
 func (t *browserProcessTree) awaitExit(ctx context.Context) error {
 	ticker := time.NewTicker(exitPollInterval)
 	defer ticker.Stop()
-	endHelpers := time.After(helperExitGrace)
+	grace := time.After(helperExitGrace)
 	timeout := time.After(helperExitTimeout)
+	graceOver, helpersEnded := false, false
 	for {
 		if t.exited() {
 			return nil
 		}
+		if graceOver && !helpersEnded && !t.browserRunning() {
+			t.endHelpers()
+			helpersEnded = true
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-endHelpers:
-			t.terminate()
-			endHelpers = nil
+		case <-grace:
+			graceOver = true
+			grace = nil
 		case <-timeout:
-			return fmt.Errorf("browser helpers still running: %v", t.running())
+			return fmt.Errorf("browser processes still running: %v", t.running())
 		case <-ticker.C:
 		}
 	}
 }
 
-// terminate ends every recorded process that is still running. Each process
+func (t *browserProcessTree) browserRunning() bool {
+	return t.browser != 0 && processRunning(t.browser, t.startedAt[t.browser])
+}
+
+// endHelpers ends every recorded helper that is still running. Each process
 // is checked and ended through one handle, so an ID reused between the check
 // and the end cannot name another process.
-func (t *browserProcessTree) terminate() {
+func (t *browserProcessTree) endHelpers() {
 	for pid, startedAt := range t.startedAt {
-		terminateProcess(pid, startedAt)
+		if pid != t.browser {
+			terminateProcess(pid, startedAt)
+		}
 	}
 }
 
@@ -165,11 +181,7 @@ func terminateProcess(pid int, startedAt int64) {
 		return
 	}
 	defer windows.CloseHandle(handle) //nolint:errcheck
-	var creation, exit, kernel, user windows.Filetime
-	if err := windows.GetProcessTimes(handle, &creation, &exit, &kernel, &user); err != nil {
-		return
-	}
-	if creation.Nanoseconds()/int64(time.Millisecond) != startedAt {
+	if actual, ok := procutil.HandleStartTime(handle); !ok || actual != startedAt {
 		return
 	}
 	_ = windows.TerminateProcess(handle, 1)

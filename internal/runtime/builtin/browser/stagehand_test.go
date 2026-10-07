@@ -27,7 +27,6 @@ import (
 
 	stagehand "github.com/browserbase/stagehand/packages/sdk-go/v4"
 	"github.com/dagucloud/dagu/v2/internal/browserhost"
-	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -664,14 +663,14 @@ func TestStagehandBoundsUnresponsivePage(t *testing.T) {
 }
 
 // A runtime close that fails while the browser is still running is
-// reported.
+// reported. The browser's start time is unknown here, so closing relies on
+// the runtime alone.
 func TestCloseBrowserReportsRuntimeError(t *testing.T) {
 	t.Parallel()
 
 	browser := startSleeper(t)
-	startedAt, _ := procutil.StartTime(browser.Process.Pid)
 	closeErr := errors.New("close failed")
-	err := closeBrowser(t.Context(), browser.Process.Pid, startedAt, func(context.Context) error { return closeErr })
+	err := closeBrowser(t.Context(), browser.Process.Pid, 0, func(context.Context) error { return closeErr })
 	require.ErrorIs(t, err, closeErr)
 }
 

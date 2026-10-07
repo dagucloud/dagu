@@ -45,7 +45,13 @@ func startTime(pid int) (int64, bool) {
 		return 0, false
 	}
 	defer windows.CloseHandle(handle) //nolint:errcheck
+	return HandleStartTime(handle)
+}
 
+// HandleStartTime returns the creation time of the process behind handle as
+// Unix milliseconds, in the same form as StartTime. The handle needs
+// PROCESS_QUERY_LIMITED_INFORMATION access.
+func HandleStartTime(handle windows.Handle) (int64, bool) {
 	var creationTime windows.Filetime
 	var exitTime windows.Filetime
 	var kernelTime windows.Filetime
