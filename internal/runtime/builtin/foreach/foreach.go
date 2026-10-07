@@ -17,6 +17,8 @@ import (
 	"sync"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 
@@ -516,7 +518,14 @@ func bodyLogDir(ctx context.Context, index int) (string, func(), error) {
 	if err != nil {
 		return "", keep, fmt.Errorf("failed to create scratch log directory for item %d: %w", index, err)
 	}
-	return dir, func() { _ = fileutil.RemoveAll(dir) }, nil
+	cleanup := func() {
+		if err := fileutil.RemoveAll(dir); err != nil {
+			logger.Warn(ctx, "Failed to remove scratch log directory",
+				tag.Error(err),
+				tag.Dir(dir))
+		}
+	}
+	return dir, cleanup, nil
 }
 
 func bodyDAGRunID(ctx context.Context, index int) string {
