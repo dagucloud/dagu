@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"text/template"
 
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
@@ -85,12 +86,9 @@ func (*templateExec) Kill(_ os.Signal) error {
 }
 
 func (e *templateExec) Run(_ context.Context) error {
-	tmpl, err := template.New("template").
-		Option("missingkey=error").
-		Funcs(funcMap).
-		Parse(e.script)
+	tmpl, err := parseTemplate(e.script, e.data)
 	if err != nil {
-		return fmt.Errorf("template: parse error: %w", err)
+		return err
 	}
 
 	var buf bytes.Buffer
@@ -133,6 +131,9 @@ func validateTemplate(step ir.Step) error {
 		return ir.NewValidationError("with.template_ref", refValue, fmt.Errorf("template step cannot use both script and with.template_ref"))
 	}
 	if step.Script != "" {
+		if _, err := parseTemplate(step.Script, dataFromConfig(step.ExecutorConfig.Config)); err != nil {
+			return ir.NewValidationError("with.template", nil, err)
+		}
 		return nil
 	}
 	if !hasRef {
@@ -143,6 +144,36 @@ func validateTemplate(step ir.Step) error {
 		return ir.NewValidationError("with.template_ref", refValue, fmt.Errorf("must be one complete scoped value reference such as ${env.NAME}"))
 	}
 	return nil
+}
+
+// undefinedFuncPattern matches the text/template parse error for a bare
+// identifier. The package reports it only as a string.
+var undefinedFuncPattern = regexp.MustCompile(`function "([^"]+)" not defined`)
+
+// parseTemplate parses script against the template function map. A bare
+// identifier that matches a data key gets a hint about the missing dot, since
+// {{ key }} is the most common way to misspell {{ .key }}.
+func parseTemplate(script string, data map[string]any) (*template.Template, error) {
+	tmpl, err := template.New("template").
+		Option("missingkey=error").
+		Funcs(funcMap).
+		Parse(script)
+	if err == nil {
+		return tmpl, nil
+	}
+	if m := undefinedFuncPattern.FindStringSubmatch(err.Error()); m != nil {
+		if _, isDataKey := data[m[1]]; isDataKey {
+			return nil, fmt.Errorf("template: parse error: %w: did you mean %q?", err, "{{ ."+m[1]+" }}")
+		}
+	}
+	return nil, fmt.Errorf("template: parse error: %w", err)
+}
+
+// dataFromConfig returns with.data when it is already a map. Before a run it
+// may still be an unresolved reference string, which carries no keys.
+func dataFromConfig(config map[string]any) map[string]any {
+	data, _ := config["data"].(map[string]any)
+	return data
 }
 
 // funcMap provides template functions for pipeline-compatible usage.
