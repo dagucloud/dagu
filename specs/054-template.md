@@ -83,7 +83,7 @@ when the step runs.
 Template data is addressed through the dot: `{{ .key }}`. A bare
 `{{ key }}` is a function call in Go templates. When the parse error names
 an undefined function whose name is a `with.data` key, the error adds a
-hint such as `did you mean "{{ .key }}"?`.
+hint that the key needs a leading dot.
 
 ### Rendering
 
@@ -115,7 +115,8 @@ validate`), not only when the step runs:
   value reference"`.
 - `with.template` text with invalid `{{ }}` syntax: an error containing
   `"template: parse error"`. When the undefined function name is a
-  `with.data` key, the error also contains `did you mean "{{ .key }}"?`.
+  `with.data` key, the error also contains `is a with.data key and needs a
+  leading dot`.
 
 ### Runtime
 

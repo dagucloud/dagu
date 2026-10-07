@@ -100,7 +100,17 @@ func TestValidateTemplateParsesInlineTemplate(t *testing.T) {
 					Config: map[string]any{"data": map[string]any{"report": "x"}},
 				},
 			},
-			wantErr: `function "report" not defined: did you mean "{{ .report }}"?`,
+			wantErr: `function "report" not defined: "report" is a with.data key and needs a leading dot (.report)`,
+		},
+		{
+			name: "nested access without dot",
+			step: ir.Step{
+				Script: "{{ report.name }}",
+				ExecutorConfig: ir.ExecutorConfig{
+					Config: map[string]any{"data": map[string]any{"report": map[string]any{"name": "x"}}},
+				},
+			},
+			wantErr: `"report" is a with.data key and needs a leading dot (.report)`,
 		},
 		{
 			name:    "unknown function is not a data key",
@@ -132,7 +142,7 @@ func TestValidateTemplateParsesInlineTemplate(t *testing.T) {
 			}
 			require.ErrorContains(t, err, tt.wantErr)
 			if tt.noHint {
-				assert.NotContains(t, err.Error(), "did you mean")
+				assert.NotContains(t, err.Error(), "needs a leading dot")
 			}
 		})
 	}
@@ -258,7 +268,7 @@ func TestTemplateExec_DataKeyWithoutDotHint(t *testing.T) {
 
 	err := e.Run(context.Background())
 	require.ErrorContains(t, err, `template: parse error`)
-	require.ErrorContains(t, err, `did you mean "{{ .report }}"?`)
+	require.ErrorContains(t, err, `"report" is a with.data key and needs a leading dot (.report)`)
 }
 
 func TestTemplateExec_InvalidSyntax(t *testing.T) {

@@ -152,7 +152,8 @@ var undefinedFuncPattern = regexp.MustCompile(`function "([^"]+)" not defined`)
 
 // parseTemplate parses script against the template function map. A bare
 // identifier that matches a data key gets a hint about the missing dot, since
-// {{ key }} is the most common way to misspell {{ .key }}.
+// {{ key }} is the most common way to misspell {{ .key }}. The hint names the
+// key only, because the full expression may continue past it.
 func parseTemplate(script string, data map[string]any) (*template.Template, error) {
 	tmpl, err := template.New("template").
 		Option("missingkey=error").
@@ -163,7 +164,7 @@ func parseTemplate(script string, data map[string]any) (*template.Template, erro
 	}
 	if m := undefinedFuncPattern.FindStringSubmatch(err.Error()); m != nil {
 		if _, isDataKey := data[m[1]]; isDataKey {
-			return nil, fmt.Errorf("template: parse error: %w: did you mean %q?", err, "{{ ."+m[1]+" }}")
+			return nil, fmt.Errorf("template: parse error: %w: %q is a with.data key and needs a leading dot (.%s)", err, m[1], m[1])
 		}
 	}
 	return nil, fmt.Errorf("template: parse error: %w", err)
