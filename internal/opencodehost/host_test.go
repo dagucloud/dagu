@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/stretchr/testify/assert"
@@ -74,6 +75,18 @@ func TestCloseIsIdempotent(t *testing.T) {
 	require.NoError(t, host.Close(t.Context()))
 }
 
+// Startup output can contain lines longer than bufio.Scanner's default 64 KiB
+// limit; endpoint discovery must still find the listening line.
+func TestScanEndpointLongLines(t *testing.T) {
+	t.Parallel()
+
+	ready := make(chan string, 1)
+	stdout := strings.Repeat("x", 200*1024) + "\nopencode server listening on http://127.0.0.1:4096\n"
+	scanEndpoint(strings.NewReader(stdout), ready)
+	require.Len(t, ready, 1, "listening endpoint was not found")
+	require.Equal(t, "http://127.0.0.1:4096", <-ready)
+}
+
 func TestValidateRequiresManagedCredentials(t *testing.T) {
 	t.Parallel()
 
@@ -88,6 +101,45 @@ func TestStartupErrorIncludesProcessDiagnostics(t *testing.T) {
 	err := startupError("OpenCode server exited before startup", errors.New("exit status 1"), "provider configuration failed\n")
 	assert.Contains(t, err.Error(), "exit status 1")
 	assert.Contains(t, err.Error(), "provider configuration failed")
+}
+
+func TestSanitizeErrorKeepsValidUTF8(t *testing.T) {
+	t.Parallel()
+
+	// The byte cap can land inside a multibyte rune; the sanitized message
+	// travels through an env var into step errors, so it must stay valid.
+	err := errors.New(strings.Repeat("a", 1023) + "界")
+	message := sanitizeError(err)
+	assert.LessOrEqual(t, len(message), 1024)
+	assert.True(t, utf8.ValidString(message))
+}
+
+func TestStartupErrorKeepsValidUTF8(t *testing.T) {
+	t.Parallel()
+
+	// The stderr tail cut can leave a partial rune at the start and raw
+	// process output can carry invalid bytes; the error must stay valid.
+	tail := strings.Repeat("x", 3) + "界" + strings.Repeat("y", 1023)
+	require.Greater(t, len(tail), 1024)
+	err := startupError("OpenCode server exited before startup", nil, tail)
+	assert.True(t, utf8.ValidString(err.Error()))
+
+	err = startupError("OpenCode server exited before startup", nil, "oops\xff\xfe")
+	assert.True(t, utf8.ValidString(err.Error()))
+}
+
+func TestStartupErrorCapsExpandedUTF8Tail(t *testing.T) {
+	t.Parallel()
+
+	// Invalid bytes expand to multi-byte replacement runes during
+	// normalization, so the cap must apply after it.
+	err := startupError("OpenCode server exited before startup", nil, strings.Repeat("\xff", 1024))
+
+	const prefix = "OpenCode server exited before startup; stderr: "
+	require.True(t, strings.HasPrefix(err.Error(), prefix))
+	stderr := strings.TrimPrefix(err.Error(), prefix)
+	assert.LessOrEqual(t, len(stderr), 1024)
+	assert.True(t, utf8.ValidString(stderr))
 }
 
 func TestSessionAvailableUsesPersistedProviderState(t *testing.T) {

@@ -48,6 +48,22 @@ The sandbox exposes the ECMAScript builtins, `console` (whose methods write to
 the step's stderr), `URL`, and `URLSearchParams`. It has no `require`,
 `fetch`, filesystem access, `process`, or timers.
 
+### Language Level
+
+The engine implements ECMAScript 5.1 in full and the ES2015 through ES2022
+syntax and builtins: classes with private fields and static blocks,
+destructuring, spread, generators, `async`/`await`, optional chaining,
+nullish coalescing, logical assignment, `BigInt`, typed arrays, `Proxy`,
+regular expressions with named groups, lookbehind, and the `s`, `u`, and `y`
+flags, plus later additions such as `Array.prototype.toSorted` and the
+ES2025 `Set` methods.
+
+Absent: ES modules (`import`, `export`, dynamic `import()`), `Object.groupBy`
+and `Map.groupBy`, `Promise.withResolvers`, `Array.fromAsync`, the regular
+expression `v` flag, `WeakRef`, and `FinalizationRegistry`. Host APIs that
+are not part of ECMAScript, including `Intl`, `structuredClone`,
+`TextEncoder`, `TextDecoder`, `atob`, and `btoa`, are also absent.
+
 `with.timeout` bounds script execution, as integer seconds or a duration
 string. When it is unset, a step `timeout` governs alone; without either,
 `60s` applies. Expiry, step timeout, and a stop request interrupt the engine

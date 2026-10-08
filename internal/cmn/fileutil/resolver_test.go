@@ -4,8 +4,11 @@
 package fileutil
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -119,6 +122,64 @@ func TestFileResolver(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFileResolverHomeTilde(t *testing.T) {
+	homeDir := t.TempDir()
+	target := filepath.Join(homeDir, "dotenv")
+	if err := os.WriteFile(target, []byte("x"), 0600); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+	t.Setenv("HOME", homeDir)
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", homeDir)
+	}
+
+	resolver := NewFileResolver(nil)
+
+	resolved, err := resolver.ResolveFilePath("~/dotenv")
+	if err != nil {
+		t.Fatalf("unexpected error resolving ~/ path: %v", err)
+	}
+	if resolved != target {
+		t.Errorf("expected %s, got %s", target, resolved)
+	}
+}
+
+func TestFileResolverUserTildeError(t *testing.T) {
+	// A ~name path cannot be resolved portably; the resolution error must
+	// surface instead of collapsing into FileNotFoundError.
+	resolver := NewFileResolver(nil)
+
+	assertTildeUserError := func(t *testing.T, err error) {
+		t.Helper()
+		if err == nil {
+			t.Fatal("expected error for ~name path, got none")
+		}
+		if _, ok := errors.AsType[*FileNotFoundError](err); ok {
+			t.Fatalf("expected resolution error, got FileNotFoundError: %v", err)
+		}
+		if !strings.Contains(err.Error(), "~alice/missing.txt") {
+			t.Errorf("error should mention the offending path, got: %v", err)
+		}
+	}
+
+	for _, resolve := range []func(string) (string, error){
+		resolver.ResolveFilePath,
+		resolver.ResolveFilePathLiteral,
+	} {
+		// Leading whitespace must not push a ~name path into search mode.
+		for _, path := range []string{"~alice/missing.txt", " ~alice/missing.txt"} {
+			_, err := resolve(path)
+			assertTildeUserError(t, err)
+		}
+	}
+
+	// An environment variable that expands to a ~name path hits the same
+	// rejection; the literal resolver never expands it.
+	t.Setenv("TILDE_USER", "~alice")
+	_, err := resolver.ResolveFilePath("$TILDE_USER/missing.txt")
+	assertTildeUserError(t, err)
 }
 
 func TestFileNotFoundError(t *testing.T) {

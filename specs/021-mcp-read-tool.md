@@ -55,6 +55,7 @@ Tool input is a JSON object. Fields outside this table fail with
 | `query` | string | Target mode only. | Optional only for `dags`, `wiki`, `runs`, `run_logs`, `step_log`, and `foreach_items`; forbidden for all other targets. | URL query string without a leading `?`. |
 | `workspace` | string | Target mode only. | Required for `wiki_page`, where `all` is not allowed; optional for `wiki`, `wiki_search`, and `dag_search`, defaulting to `all`; forbidden for all other targets. | Workspace selector. |
 | `path` | string | Target mode only. | Required for `wiki_page` and `workbook`; forbidden for all other targets. | Wiki page path without the `.md` extension, or for `workbook` a file path on the server. |
+| `password` | string | Target mode only. | Optional for `workbook`; forbidden for all other targets. | Password of a protected workbook, kept exactly as supplied. It is not recorded in the audit log. |
 | `search` | string | Target mode only. | Required for `wiki_search` and `dag_search`; forbidden for all other targets. | Search text. |
 | `prefix` | string | Target mode only. | Optional for `wiki` and `wiki_search`; forbidden for all other targets. | Wiki page path prefix. |
 | `cursor` | string | Target mode only. | Optional for `wiki_search` and `dag_search`; forbidden for all other targets. | Opaque continuation cursor returned by the same search target. |
@@ -63,11 +64,14 @@ Tool input is a JSON object. Fields outside this table fail with
 
 Supported fields other than `limit`, when present and not `null`, must be
 strings, and `limit` must be an integer. `null` is treated as absent. String
-field values are trimmed of leading and trailing whitespace. The trimmed value
-is the effective value used for mode selection, resource lookup, returned
-`target`, returned `uri`, and error fields. A string that is empty after
-trimming is treated as absent. A forbidden field fails when its trimmed value
-is non-empty. Supported target names are case-sensitive.
+field values other than `password` are trimmed of leading and trailing
+whitespace. The trimmed value is the effective value used for mode selection,
+resource lookup, returned `target`, returned `uri`, and error fields. A string
+that is empty after trimming is treated as absent. A forbidden field fails
+when its trimmed value is non-empty. `password` is kept exactly as supplied,
+including leading and trailing spaces and a value that is only spaces. An
+empty `password` and `null` are absent, and a forbidden `password` fails when
+the supplied value is non-empty. Supported target names are case-sensitive.
 
 The `docs`, `doc`, and `doc_search` target values are deprecated aliases that
 resolve to `wiki`, `wiki_page`, and `wiki_search`. They are accepted but not
@@ -125,7 +129,7 @@ Rules:
 | `wiki` | None. | `workspace`, `query`, `prefix`. | `dagu://wiki` or `dagu://wiki/{workspace}`, plus query when present. | Wiki collection model. |
 | `wiki_page` | `workspace`, `path`. | None. | `dagu://wiki/{workspace}/{path}`. | Wiki page model. |
 | `wiki_search` | `search`. | `workspace`, `prefix`, `cursor`, `limit`. | Omitted. | Wiki search model. |
-| `workbook` | `path`. | None. | Omitted. | Workbook model. The output also carries `path` as supplied. |
+| `workbook` | `path`. | `password`. | Omitted. | Workbook model. The output also carries `path` as supplied. |
 | `runs` | None. | `query`. | Omitted in target mode; `dagu://runs` plus query in URI mode. | Run collection model. |
 | `run` | `name`, `dagRunId`. | `subRunId`. | `dagu://runs/{name}/{dagRunId}` or its `/sub/{subRunId}` child URI. | Run detail model. |
 | `run_logs` | `name`, `dagRunId`. | `query`. | `dagu://runs/{name}/{dagRunId}/logs`, with the supplied query appended when present. | Run-log model. |
@@ -149,7 +153,7 @@ Minimum `data` models:
 | Foreach items | `data.total` is the number of items the step expanded to. `data.counts` is an object with `notStarted`, `running`, `succeeded`, `failed`, and `aborted` numbers. `data.items` is one page of items sorted failed first, then running, then the rest in index order; each has `item` string, `index` number, `key` string, `status` number, and `statusLabel` string, and carries `error`, `startedAt`, and `finishedAt` strings once recorded. |
 | Foreach item | `data.item`, `data.key`, `data.statusLabel` are strings, `data.index` and `data.status` numbers, and `data.error` a string when the body run failed. `data.steps` is an array in execution order; each entry has `name` string, `status` number, `statusLabel` string, `hasStdout` and `hasStderr` booleans, carries `error`, `startedAt`, and `finishedAt` strings once recorded, and for a body step that is itself a foreach carries `foreachParent`, the `parent` query value that lists its items. |
 | DAG search | `data.results` is an array. Each result has `name` string, `uri` string set to the canonical `dagu://dags/{name}/spec` URI, `matches` array of line-level snippets, and `hasMoreMatches` boolean. `data.hasMore` is a boolean, and `data.nextCursor` is an opaque cursor string when another page is available. |
-| Workbook | `data.path` is the resolved file path string and `data.date_system` is a string, `1900` or `1904`. `data.sheets` is an array with one entry per sheet, each with `name` string, `hidden` boolean `true` for a hidden or very hidden sheet, `used_range` string, `range` string, `header_row` number (0 for an empty sheet), `headers` array of strings, `types` object mapping header to `string`, `number`, `integer`, `boolean`, `date`, or `datetime`, `row_count` number, `hidden_rows` number of data rows hidden by a filter or by hand when there are any, `columns` array profiling each column in header order, `profile_truncated` boolean `true` when the table holds more data rows than the profile reads, `tables` array of `{name, range}`, and, for a sheet with a header row, `sample` array of up to five typed rows keyed by header, each carrying `_row`. Each `columns` entry has `name` string, `type` string, and `filled`, `blank`, and `distinct` numbers, and may carry `values` array of strings, `min` and `max`, `odd` number, and `odd_cells` array of `{cell, text}`; Spec 077 defines the profile. `data.named_ranges` is an array of `{name, refers_to, scope}` and `data.warnings` an array of strings. The path is any workbook the server process can read, the same trust as DAG authoring, and the audit record carries it as `workbook_path`. A path that is not `.xlsx` or `.xlsm` is `invalid_tool_input` on `path`, a missing file is `resource_not_found`, and a file another program holds or that is not a workbook is `resource_unavailable`. |
+| Workbook | `data.path` is the resolved file path string and `data.date_system` is a string, `1900` or `1904`. `data.sheets` is an array with one entry per sheet, each with `name` string, `hidden` boolean `true` for a hidden or very hidden sheet, `used_range` string, `range` string, `header_row` number (0 for an empty sheet), `headers` array of strings, `types` object mapping header to `string`, `number`, `integer`, `boolean`, `date`, or `datetime`, `row_count` number, `hidden_rows` number of data rows hidden by a filter or by hand when there are any, `columns` array profiling each column in header order, `profile_truncated` boolean `true` when the table holds more data rows than the profile reads, `tables` array of `{name, range}`, and, for a sheet with a header row, `sample` array of up to five typed rows keyed by header, each carrying `_row`. Each `columns` entry has `name` string, `type` string, and `filled`, `blank`, and `distinct` numbers, and may carry `values` array of strings, `min` and `max`, `odd` number, and `odd_cells` array of `{cell, text}`; Spec 077 defines the profile. `data.named_ranges` is an array of `{name, refers_to, scope}` and `data.warnings` an array of strings. The path is any workbook the server process can read, the same trust as DAG authoring, and the audit record carries it as `workbook_path`. A path that is not `.xlsx` or `.xlsm` is `invalid_tool_input` on `path`, a missing file is `resource_not_found`, and a file another program holds or that is not a workbook is `resource_unavailable`. A protected workbook needs `password`; a missing or wrong password is `invalid_tool_input` on `password`, with `<name>: workbook password is missing or incorrect`, and a workbook whose encryption is not supported is `resource_unavailable`. The password is not recorded in the audit log. |
 | Wiki collection | `data.pagination` is an object describing the returned page. Tree mode returns `data.tree`, and flat mode returns `data.items`; entries carry `id` strings and canonical `dagu://wiki/{workspace}/{path}` URIs for pages. |
 | Wiki page | `data.id` is the page path string. `data.content` is the Markdown string. `data.mimeType` is `text/markdown`. `data.uri` is the canonical `dagu://wiki/{workspace}/{path}` URI. |
 | Wiki search | `data.results` is an array. Each result has `id` string, `uri` string, `matches` array of snippets, and `hasMoreMatches` boolean. `data.hasMore` is a boolean, and `data.nextCursor` is an opaque cursor string when another page is available. |

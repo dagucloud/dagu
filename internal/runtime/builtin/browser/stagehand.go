@@ -19,6 +19,7 @@ import (
 
 	stagehand "github.com/browserbase/stagehand/packages/sdk-go/v4"
 	"github.com/dagucloud/dagu/v2/internal/browserhost"
+	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
 )
 
 // extractBatchSource runs an extract with a schema chosen at run time. The
@@ -144,6 +145,7 @@ func (stagehandLauncher) Launch(ctx context.Context, opts launchOptions) (engine
 	eng.handle.ExtensionDir = extension.Path
 	// Without a process ID, a browser that stops answering cannot be ended.
 	eng.handle.BrowserPID, _ = browserhost.BrowserProcessID(ctx, cdpURL)
+	eng.handle.BrowserStartedAt, _ = procutil.StartTime(eng.handle.BrowserPID)
 	if err := eng.handleDownloads(ctx, opts.DownloadsDir); err != nil {
 		return nil, errors.Join(err, eng.Close(context.WithoutCancel(ctx)))
 	}
@@ -550,20 +552,30 @@ func (e *stagehandEngine) Detach(ctx context.Context) error {
 }
 
 func (e *stagehandEngine) Close(ctx context.Context) error {
-	return errors.Join(e.release(ctx), closeBrowser(ctx, e.handle.BrowserPID, e.browser.Close))
+	return errors.Join(e.release(ctx), closeBrowser(ctx, e.handle.BrowserPID, e.handle.BrowserStartedAt, e.browser.Close))
 }
 
-// closeBrowser terminates a launched browser with closeRuntime. Besides the
-// browser, closeRuntime waits for every process that inherited the browser's
-// output, such as the Chrome updater on macOS, which can outlive the browser
-// by minutes; that wait continues in the background once the browser with
-// process ID pid has exited where browserExited can tell. Otherwise, and
-// without a process ID, it waits for closeRuntime.
-func closeBrowser(ctx context.Context, pid int, closeRuntime func(context.Context) error) error {
+// closeBrowser terminates a launched browser with closeRuntime. The browser's
+// process tree is recorded before closing from process ID pid and its start
+// time startedAt. Besides the browser, closeRuntime waits for every process
+// that inherited the browser's output, such as the Chrome updater on macOS,
+// which can outlive the browser by minutes; where the tree exiting ends the
+// close, that wait continues in the background once the tree has exited.
+// Once closeRuntime returns, the tree is given time to finish exiting where
+// helpers outlive the browser. Without a trackable process, closing waits
+// for closeRuntime alone.
+func closeBrowser(ctx context.Context, pid int, startedAt int64, closeRuntime func(context.Context) error) error {
+	var tree *browserProcessTree
+	if pid > 0 {
+		tree = recordBrowserProcessTree(pid, startedAt)
+	}
+	if tree != nil {
+		defer tree.release()
+	}
 	closed := make(chan error, 1)
 	go func() { closed <- closeRuntime(ctx) }()
 	var exitChecks <-chan time.Time
-	if pid > 0 {
+	if tree != nil && tree.exitEndsClose() {
 		ticker := time.NewTicker(exitPollInterval)
 		defer ticker.Stop()
 		exitChecks = ticker.C
@@ -571,11 +583,14 @@ func closeBrowser(ctx context.Context, pid int, closeRuntime func(context.Contex
 	for {
 		select {
 		case err := <-closed:
-			return err
+			if tree == nil {
+				return err
+			}
+			return errors.Join(err, tree.awaitExit(ctx))
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-exitChecks:
-			if browserExited(pid) {
+			if tree.exited() {
 				return nil
 			}
 		}

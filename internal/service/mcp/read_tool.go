@@ -60,6 +60,7 @@ const (
 	readFieldQuery     = "query"
 	readFieldWorkspace = "workspace"
 	readFieldPath      = "path"
+	readFieldPassword  = "password"
 	readFieldSearch    = "search"
 	readFieldPrefix    = "prefix"
 	readFieldCursor    = "cursor"
@@ -88,6 +89,7 @@ type readInput struct {
 	Query        string `json:"query,omitempty" jsonschema:"URL query string for list targets, for example page=1&perPage=100 or status=running."`
 	Workspace    string `json:"workspace,omitempty" jsonschema:"Workspace: all, default, or a workspace name. Required for wiki_page and optional for wiki, wiki_search, and dag_search."`
 	Path         string `json:"path,omitempty" jsonschema:"Wiki page path without the .md extension (required for wiki_page), or a workbook file path the server can read (required for workbook)."`
+	Password     string `json:"password,omitempty" jsonschema:"Password of a protected workbook. Optional for workbook; not recorded in the audit log."`
 	Search       string `json:"search,omitempty" jsonschema:"Search text. Required for wiki_search and dag_search."`
 	Prefix       string `json:"prefix,omitempty" jsonschema:"Wiki page path prefix. Optional for wiki and wiki_search."`
 	Cursor       string `json:"cursor,omitempty" jsonschema:"Opaque cursor returned by wiki_search or dag_search."`
@@ -139,6 +141,10 @@ func readToolInputSchema() json.RawMessage {
 			"path": {
 				"type": "string",
 				"description": "Wiki page path without the .md extension (required for wiki_page), or a workbook file path the server can read (required for workbook)."
+			},
+			"password": {
+				"type": "string",
+				"description": "Password of a protected workbook. Optional for the workbook target. It is not recorded in the audit log."
 			},
 			"search": {
 				"type": "string",
@@ -445,7 +451,11 @@ func parseReadToolInput(raw json.RawMessage) (readInput, *readToolError) {
 		if err := json.Unmarshal(value, &text); err != nil {
 			return readInput{}, invalidToolInput("Field "+field+" must be a string.", field)
 		}
-		text = strings.TrimSpace(text)
+		// A password is significant in full, including surrounding spaces.
+		// Every other string field is trimmed, and an empty result is absent.
+		if field != readFieldPassword {
+			text = strings.TrimSpace(text)
+		}
 		if text == "" {
 			if field == readFieldTarget {
 				emptyTarget = true
@@ -468,6 +478,7 @@ func parseReadToolInput(raw json.RawMessage) (readInput, *readToolError) {
 			readFieldQuery,
 			readFieldWorkspace,
 			readFieldPath,
+			readFieldPassword,
 			readFieldSearch,
 			readFieldPrefix,
 			readFieldCursor,
@@ -514,6 +525,7 @@ func parseReadToolInput(raw json.RawMessage) (readInput, *readToolError) {
 		Query:        values[readFieldQuery],
 		Workspace:    values[readFieldWorkspace],
 		Path:         values[readFieldPath],
+		Password:     values[readFieldPassword],
 		Search:       values[readFieldSearch],
 		Prefix:       values[readFieldPrefix],
 		Cursor:       values[readFieldCursor],
@@ -537,6 +549,7 @@ func isReadInputField(field string) bool {
 		readFieldQuery,
 		readFieldWorkspace,
 		readFieldPath,
+		readFieldPassword,
 		readFieldSearch,
 		readFieldPrefix,
 		readFieldCursor,
@@ -784,6 +797,9 @@ func validateTargetReadInput(input *readInput) *readToolError {
 	}
 	if input.Path != "" && input.Target != readTargetWikiPage && input.Target != readTargetWorkbook {
 		return invalidTargetField(input.Target, readFieldPath)
+	}
+	if input.Password != "" && input.Target != readTargetWorkbook {
+		return invalidTargetField(input.Target, readFieldPassword)
 	}
 	if input.Search != "" && !searchTarget {
 		return invalidTargetField(input.Target, readFieldSearch)

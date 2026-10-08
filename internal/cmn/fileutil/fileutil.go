@@ -125,26 +125,26 @@ const (
 var ValidYAMLExtensions = []string{yamlExtension, ymlExtension}
 
 // IsYAMLFile checks if a file has a valid YAML extension (.yaml or .yml).
-// Returns false for empty strings or files without extensions.
+// The extension match is case-insensitive. Returns false for empty strings
+// or files without extensions.
 func IsYAMLFile(filename string) bool {
 	if filename == "" {
 		return false
 	}
-	return slices.Contains(ValidYAMLExtensions, filepath.Ext(filename))
+	return slices.Contains(ValidYAMLExtensions, strings.ToLower(filepath.Ext(filename)))
 }
 
 // TrimYAMLFileExtension trims the .yml or .yaml extension from a filename.
+// The extension match is case-insensitive.
 func TrimYAMLFileExtension(filename string) string {
 	if filename == "" {
 		return ""
 	}
 
 	ext := filepath.Ext(filename)
-	switch ext {
-	case ymlExtension:
-		return strings.TrimSuffix(filename, ymlExtension)
-	case yamlExtension:
-		return strings.TrimSuffix(filename, yamlExtension)
+	switch strings.ToLower(ext) {
+	case ymlExtension, yamlExtension:
+		return strings.TrimSuffix(filename, ext)
 	default:
 		return filename
 	}
@@ -167,7 +167,7 @@ func EnsureYAMLExtension(filename string) string {
 	}
 
 	ext := filepath.Ext(filename)
-	switch ext {
+	switch strings.ToLower(ext) {
 	case ymlExtension, yamlExtension:
 		return filename
 
@@ -191,12 +191,9 @@ func ResolvePath(path string) (string, error) {
 	path = os.ExpandEnv(path)
 
 	// Expand tilde to user's home directory
-	if strings.HasPrefix(path, "~") {
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("failed to get user home directory: %w", err)
-		}
-		path = filepath.Join(homeDir, path[1:])
+	path, err := expandHomeDir(path)
+	if err != nil {
+		return "", err
 	}
 
 	// Convert to absolute path
@@ -209,6 +206,26 @@ func ResolvePath(path string) (string, error) {
 	cleanPath := filepath.Clean(absPath)
 
 	return cleanPath, nil
+}
+
+// expandHomeDir expands a leading "~" or "~/..." to the current user's home
+// directory. The shell-style "~name" form is rejected because Go offers no
+// portable way to resolve another user's home directory. A "~" anywhere else
+// in the path is left untouched.
+func expandHomeDir(path string) (string, error) {
+	if !strings.HasPrefix(path, "~") {
+		return path, nil
+	}
+	if len(path) > 1 && path[1] != '/' && path[1] != '\\' {
+		return "", fmt.Errorf("cannot expand %q: ~name refers to another user's home directory, which is not supported", path)
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get user home directory: %w", err)
+	}
+	// Both separators are accepted after "~"; strip them so a path like
+	// ~\dotenv does not join the backslash into the filename on Unix.
+	return filepath.Join(homeDir, strings.TrimLeft(path[1:], `/\`)), nil
 }
 
 // ResolvePathOrBlank works like ResolvePath but returns original path on error.
@@ -240,7 +257,7 @@ func CreateTempDAGFile(subDir, dagName string, yamlData []byte, extraDocs ...[]b
 	patternName := strings.TrimSpace(dagName)
 	if patternName != "" {
 		patternName = filepath.Base(patternName)
-		if ext := strings.ToLower(filepath.Ext(patternName)); ext == ".yaml" || ext == ".yml" {
+		if IsYAMLFile(patternName) {
 			patternName = strings.TrimSuffix(patternName, filepath.Ext(patternName))
 		}
 	}

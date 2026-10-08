@@ -102,6 +102,38 @@ func TestUpload_AppliesConfiguredHeaders(t *testing.T) {
 	assert.Equal(t, "test-key-id", requestHeaders.Get("X-Amz-Server-Side-Encryption-Aws-Kms-Key-Id"))
 }
 
+func TestUpload_DetectsContentTypeCaseInsensitive(t *testing.T) {
+	t.Parallel()
+
+	headers := make(chan http.Header, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headers <- r.Header.Clone()
+		w.Header().Set("ETag", `"test-etag"`)
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(server.Close)
+
+	// mime.TypeByExtension only knows lowercase extensions, so an
+	// uppercase source extension must still resolve a content type.
+	source := filepath.Join(t.TempDir(), "report.JSON")
+	require.NoError(t, os.WriteFile(source, []byte(`{"a":1}`), 0o600))
+	impl := newS3TestExecutor(t, server.URL, opUpload, map[string]any{
+		"source": source,
+		"key":    "daily/report.json",
+	})
+
+	var stdout bytes.Buffer
+	impl.SetStdout(&stdout)
+	require.NoError(t, impl.Run(context.Background()))
+
+	requestHeaders := <-headers
+	assert.Equal(t, "application/json", requestHeaders.Get("Content-Type"))
+
+	var result UploadResult
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &result))
+	assert.Equal(t, "application/json", result.ContentType)
+}
+
 func TestDownload_PathPrefixedEndpoint(t *testing.T) {
 	t.Parallel()
 

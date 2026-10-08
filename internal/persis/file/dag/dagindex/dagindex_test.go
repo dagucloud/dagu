@@ -522,6 +522,7 @@ func TestSuspendFlagName(t *testing.T) {
 		{"NameWithSpaces", "my dag", "my-dag.suspend"},
 		{"NameWithSpecialChars", "my<dag>", "my-dag-.suspend"},
 		{"EmptyName", "", ".suspend"},
+		{"ReservedDeviceMultiDot", "con.foo.txt", "-.foo.txt.suspend"},
 	}
 
 	for _, tt := range tests {

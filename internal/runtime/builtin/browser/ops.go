@@ -327,22 +327,22 @@ func (r *run) startSession(ctx context.Context) (int, error) {
 	r.eng = eng
 	handle := eng.Handle()
 	r.record = browserhost.Record{
-		ID:              recordID,
-		DAGName:         r.dagName,
-		DAGRunID:        r.dagRunID,
-		StepName:        r.stepName,
-		Generation:      generation,
-		State:           browserhost.StateRunning,
-		CDPURL:          handle.CDPURL,
-		ExtensionID:     handle.ExtensionID,
-		ExtensionDir:    handle.ExtensionDir,
-		UserDataDir:     opts.UserDataDir,
-		OwnsUserDataDir: r.profile == nil,
-		Profile:         r.cfg.Browser.Profile,
-		DownloadsDir:    opts.DownloadsDir,
-		BrowserPID:      handle.BrowserPID,
+		ID:               recordID,
+		DAGName:          r.dagName,
+		DAGRunID:         r.dagRunID,
+		StepName:         r.stepName,
+		Generation:       generation,
+		State:            browserhost.StateRunning,
+		CDPURL:           handle.CDPURL,
+		ExtensionID:      handle.ExtensionID,
+		ExtensionDir:     handle.ExtensionDir,
+		UserDataDir:      opts.UserDataDir,
+		OwnsUserDataDir:  r.profile == nil,
+		Profile:          r.cfg.Browser.Profile,
+		DownloadsDir:     opts.DownloadsDir,
+		BrowserPID:       handle.BrowserPID,
+		BrowserStartedAt: handle.BrowserStartedAt,
 	}
-	r.record.BrowserStartedAt, _ = procutil.StartTime(handle.BrowserPID)
 	if err := r.saveRunningRecord(); err != nil {
 		return 0, err
 	}

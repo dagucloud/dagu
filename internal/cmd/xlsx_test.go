@@ -191,6 +191,38 @@ func TestXlsxTextOutputReportsWriteErrors(t *testing.T) {
 	}
 }
 
+func TestXlsxProtectedWorkbook(t *testing.T) {
+	// The environment variable is process-wide, so this test stays sequential.
+	path := filepath.Join(t.TempDir(), "protected.xlsx")
+	f := excelize.NewFile()
+	require.NoError(t, f.SetCellValue("Sheet1", "A1", "Invoice No"))
+	require.NoError(t, f.SetCellValue("Sheet1", "A2", "INV-1"))
+	require.NoError(t, f.SaveAs(path, excelize.Options{Password: "secret"}))
+	require.NoError(t, f.Close())
+
+	const want = "protected.xlsx: workbook password is missing or incorrect"
+	t.Setenv("DAGU_XLSX_PASSWORD", "")
+	_, err := runXlsx(t, "inspect", path)
+	require.ErrorContains(t, err, want)
+	_, err = runXlsx(t, "read", path, "--password", "nope")
+	require.ErrorContains(t, err, want)
+
+	out, err := runXlsx(t, "inspect", path, "--password", "secret", "--format", "json")
+	require.NoError(t, err)
+	assert.Contains(t, out, "INV-1")
+
+	t.Setenv("DAGU_XLSX_PASSWORD", "secret")
+	out, err = runXlsx(t, "read", path, "--format", "json")
+	require.NoError(t, err)
+	assert.Contains(t, out, "INV-1")
+
+	// The flag wins, including when it is empty and the environment is set.
+	_, err = runXlsx(t, "read", path, "--password", "nope")
+	require.ErrorContains(t, err, want)
+	_, err = runXlsx(t, "inspect", path, "--password", "")
+	require.ErrorContains(t, err, want)
+}
+
 func TestXlsxErrors(t *testing.T) {
 	t.Parallel()
 	_, err := runXlsx(t, "read", filepath.Join(t.TempDir(), "missing.xlsx"))

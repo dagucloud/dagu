@@ -612,7 +612,7 @@ steps:
 
 Output rules: `undefined` writes nothing, a string is written as-is, any other value is written as JSON. Capture it with `output:`.
 
-The sandbox exposes the ECMAScript builtins, `console.*` (written to step stderr), `URL`, and `URLSearchParams`. `await` works for promises that resolve synchronously; there is no `require`, `fetch`, filesystem, `process`, or timers. `with.timeout` takes seconds or a duration and defaults to the step timeout, or `60s` without one. `dagu validate` reports syntax errors with the script line. A thrown error fails the step with the exception and script line in the error, and the stack trace on stderr. A script that returns `undefined` leaves stdout empty and notes that on stderr. Use `node-script@v1` when a script needs real Node.js.
+The sandbox exposes the ECMAScript builtins, `console.*` (written to step stderr), `URL`, and `URLSearchParams`. The language level is ES2022 (classes, destructuring, generators, `async`/`await`, optional chaining, `BigInt`, regex named groups and lookbehind) plus `toSorted` and the ES2025 `Set` methods; absent are ES modules, `Object.groupBy`, `WeakRef`, and host APIs such as `Intl`, `structuredClone`, `TextEncoder`, and `atob`. `await` works for promises that resolve synchronously; there is no `require`, `fetch`, filesystem, `process`, or timers. `with.timeout` takes seconds or a duration and defaults to the step timeout, or `60s` without one. `dagu validate` reports syntax errors with the script line. A thrown error fails the step with the exception and script line in the error, and the stack trace on stderr. A script that returns `undefined` leaves stdout empty and notes that on stderr. Use `node-script@v1` when a script needs real Node.js.
 
 `with` fields: `script`, `input`, `input_file`, `format`, `timeout`.
 
@@ -927,7 +927,9 @@ and date columns), `odd` (cells the type cannot read even when pinned, such as
 `未定` in a number column; `１２` or `令和8年10月3日` are not odd), and
 `odd_cells` (the first three as `{cell, text}`). Before writing a workflow for a
 workbook, read it with `dagu xlsx inspect <path>` or the MCP `workbook` target
-to learn its sheets, headers, and types, and use the profile to choose `where`
+to learn its sheets, headers, and types. A protected workbook takes `--password`
+or `DAGU_XLSX_PASSWORD` on the command, and `password` on the workbook target.
+Use the profile to choose `where`
 values, `types`, and `on_type_error`.
 
 `xlsx.write` `with` fields: `path`, `sheet` (created when missing), `rows` (a

@@ -21,8 +21,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -264,8 +267,14 @@ func startupError(message string, waitErr error, stderr string) error {
 		details = append(details, "process: "+sanitizeError(waitErr))
 	}
 	stderr = strings.ReplaceAll(strings.TrimSpace(stderr), "\n", " ")
+	// ToValidUTF8 can expand the string, so the tail cap runs after it.
+	stderr = strings.ToValidUTF8(stderr, string(utf8.RuneError))
 	if len(stderr) > 1024 {
 		stderr = stderr[len(stderr)-1024:]
+		// A byte-level tail cut can leave a partial rune at the start.
+		for len(stderr) > 0 && !utf8.RuneStart(stderr[0]) {
+			stderr = stderr[1:]
+		}
 	}
 	if stderr != "" {
 		details = append(details, "stderr: "+stderr)
@@ -275,6 +284,7 @@ func startupError(message string, waitErr error, stderr string) error {
 
 func scanEndpoint(stdout io.Reader, ready chan<- string) {
 	scanner := bufio.NewScanner(stdout)
+	fileutil.ConfigureScanner(scanner)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if endpoint, ok := strings.CutPrefix(line, "opencode server listening on "); ok {
@@ -473,10 +483,7 @@ func sanitizeError(err error) string {
 		return ""
 	}
 	message := strings.ReplaceAll(strings.TrimSpace(err.Error()), "\n", " ")
-	if len(message) > 1024 {
-		message = message[:1024]
-	}
-	return message
+	return stringutil.TruncUTF8Bytes(message, 1024)
 }
 
 type tailBuffer struct {

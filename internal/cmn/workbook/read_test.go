@@ -5,15 +5,19 @@ package workbook
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/richardlehane/mscfb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/xuri/excelize/v2"
@@ -773,6 +777,179 @@ func TestOpenErrors(t *testing.T) {
 	require.NoError(t, os.WriteFile(bad, []byte("not a zip"), 0o600))
 	_, err = Read(context.Background(), bad, ReadOptions{})
 	require.ErrorIs(t, err, ErrNotWorkbook)
+	// A password, such as one exported in DAGU_XLSX_PASSWORD, does not turn
+	// a corrupt unprotected file into a password error.
+	_, err = Read(context.Background(), bad, ReadOptions{Password: "secret"})
+	require.ErrorIs(t, err, ErrNotWorkbook)
+	assert.Equal(t, "bad.xlsx: not a valid .xlsx workbook", err.Error())
+
+	// A compound file whose directory has no EncryptionInfo stream is not a
+	// protected workbook, so a renamed .xls stays "not a valid .xlsx workbook".
+	ole := filepath.Join(dir, "ole.xlsx")
+	raw := renamedEncryptionInfo(t, protectedWorkbookBytes(t))
+	require.NoError(t, os.WriteFile(ole, raw, 0o600))
+	_, err = Read(context.Background(), ole, ReadOptions{Password: "secret"})
+	require.ErrorIs(t, err, ErrNotWorkbook)
+}
+
+// protectedWorkbookBytes returns a one-sheet workbook saved with the
+// password "secret".
+func protectedWorkbookBytes(t *testing.T) []byte {
+	t.Helper()
+	f := excelize.NewFile()
+	require.NoError(t, f.SetCellValue("Sheet1", "A1", "Invoice No"))
+	require.NoError(t, f.SetCellValue("Sheet1", "A2", "INV-1"))
+	var buf bytes.Buffer
+	require.NoError(t, f.Write(&buf, excelize.Options{Password: "secret"}))
+	require.NoError(t, f.Close())
+	return buf.Bytes()
+}
+
+// renamedEncryptionInfo renames the EncryptionInfo directory entry of an
+// encrypted package. The UTF-16LE name occurs only in the directory, so the
+// result is a compound file that is not a protected workbook.
+func renamedEncryptionInfo(t *testing.T, raw []byte) []byte {
+	t.Helper()
+	utf16 := func(s string) []byte {
+		b := make([]byte, 0, 2*len(s))
+		for _, c := range []byte(s) {
+			b = append(b, c, 0)
+		}
+		return b
+	}
+	name := utf16("EncryptionInfo")
+	require.Equal(t, 1, bytes.Count(raw, name))
+	return bytes.ReplaceAll(raw, name, utf16("EncryptionXnfo"))
+}
+
+func TestProtectedWorkbook(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "protected.xlsx")
+	require.NoError(t, os.WriteFile(path, protectedWorkbookBytes(t), 0o600))
+
+	ctx := context.Background()
+	const want = "protected.xlsx: workbook password is missing or incorrect"
+	_, err := Read(ctx, path, ReadOptions{})
+	require.ErrorIs(t, err, ErrPassword)
+	assert.Equal(t, want, err.Error())
+	_, err = Inspect(ctx, path, InspectOptions{Password: "nope"})
+	require.ErrorIs(t, err, ErrPassword)
+	assert.Equal(t, want, err.Error())
+
+	got, err := Read(ctx, path, ReadOptions{Password: "secret"})
+	require.NoError(t, err)
+	require.Equal(t, 1, got.Count)
+	assert.Equal(t, "INV-1", got.Rows[0]["Invoice No"])
+}
+
+// A protected workbook that the right password decrypts but whose contents
+// are broken, or whose EncryptionInfo is cut short, is not a workbook; the
+// password is not at fault.
+func TestCorruptProtectedWorkbook(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	ctx := context.Background()
+
+	broken := filepath.Join(dir, "broken.xlsx")
+	require.NoError(t, os.WriteFile(broken, encryptedBrokenWorkbook(t), 0o600))
+	_, err := Read(ctx, broken, ReadOptions{Password: "secret"})
+	require.ErrorIs(t, err, ErrNotWorkbook)
+	require.NotErrorIs(t, err, ErrPassword)
+
+	short := filepath.Join(dir, "short.xlsx")
+	require.NoError(t, os.WriteFile(short, shortEncryptionInfo(t, protectedWorkbookBytes(t)), 0o600))
+	_, err = Read(ctx, short, ReadOptions{Password: "secret"})
+	require.ErrorIs(t, err, ErrNotWorkbook)
+	require.NotErrorIs(t, err, ErrUnsupportedEncryption)
+}
+
+// encryptedBrokenWorkbook returns a workbook whose xl/workbook.xml is cut
+// off mid-tag, encrypted with the password "secret".
+func encryptedBrokenWorkbook(t *testing.T) []byte {
+	t.Helper()
+	f := excelize.NewFile()
+	var plain bytes.Buffer
+	require.NoError(t, f.Write(&plain))
+	require.NoError(t, f.Close())
+	zr, err := zip.NewReader(bytes.NewReader(plain.Bytes()), int64(plain.Len()))
+	require.NoError(t, err)
+
+	var out bytes.Buffer
+	zw := zip.NewWriter(&out)
+	for _, entry := range zr.File {
+		w, err := zw.Create(entry.Name)
+		require.NoError(t, err)
+		if entry.Name == "xl/workbook.xml" {
+			_, err = w.Write([]byte("<workbook"))
+			require.NoError(t, err)
+			continue
+		}
+		r, err := entry.Open()
+		require.NoError(t, err)
+		_, err = io.Copy(w, r)
+		require.NoError(t, err)
+		require.NoError(t, r.Close())
+	}
+	require.NoError(t, zw.Close())
+	raw, err := excelize.Encrypt(out.Bytes(), &excelize.Options{Password: "secret"})
+	require.NoError(t, err)
+	return raw
+}
+
+// shortEncryptionInfo sets the EncryptionInfo stream size in its directory
+// entry to two bytes, too short to hold the version.
+func shortEncryptionInfo(t *testing.T, raw []byte) []byte {
+	t.Helper()
+	name := []byte{}
+	for _, c := range []byte("EncryptionInfo") {
+		name = append(name, c, 0)
+	}
+	at := bytes.Index(raw, name)
+	require.GreaterOrEqual(t, at, 0)
+	// A directory entry starts with its name; the stream size is at byte 120.
+	binary.LittleEndian.PutUint64(raw[at+120:], 2)
+	return raw
+}
+
+// A mechanism excelize cannot decrypt is reported as such, not as a wrong
+// password, whatever password is supplied.
+func TestUnsupportedEncryption(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "protected.xlsx")
+	require.NoError(t, os.WriteFile(path, protectedWorkbookBytes(t), 0o600))
+	setEncryptionInfoVersion(t, path, 3, 3)
+
+	ctx := context.Background()
+	const want = "protected.xlsx: workbook encryption is not supported"
+	_, err := Read(ctx, path, ReadOptions{Password: "secret"})
+	require.ErrorIs(t, err, ErrUnsupportedEncryption)
+	assert.Equal(t, want, err.Error())
+	_, err = Inspect(ctx, path, InspectOptions{})
+	require.ErrorIs(t, err, ErrUnsupportedEncryption)
+	assert.Equal(t, want, err.Error())
+}
+
+// setEncryptionInfoVersion rewrites the version words of the EncryptionInfo
+// stream in place. Version 3.3 is the extensible mechanism.
+func setEncryptionInfoVersion(t *testing.T, path string, major, minor uint16) {
+	t.Helper()
+	f, err := os.OpenFile(path, os.O_RDWR, 0)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, f.Close()) }()
+	doc, err := mscfb.New(f)
+	require.NoError(t, err)
+	for entry, err := doc.Next(); err == nil; entry, err = doc.Next() {
+		if entry.Name != "EncryptionInfo" {
+			continue
+		}
+		var version [4]byte
+		binary.LittleEndian.PutUint16(version[:2], major)
+		binary.LittleEndian.PutUint16(version[2:], minor)
+		_, err := entry.WriteAt(version[:], 0)
+		require.NoError(t, err)
+		return
+	}
+	t.Fatal("no EncryptionInfo stream")
 }
 
 func TestLockFile(t *testing.T) {

@@ -133,6 +133,14 @@ func (s *cliContextStore) ValidateContext(ctx *cliContext) error {
 	if u.Host == "" {
 		return errors.New("server URL must include a host")
 	}
+	if u.User != nil {
+		return errors.New("server URL must not include credentials")
+	}
+	// url.Parse records a bare trailing ? only as ForceQuery and drops a bare #
+	// entirely, so reject either delimiter in the raw string.
+	if strings.ContainsAny(ctx.ServerURL, "?#") {
+		return errors.New("server URL must not include query parameters or fragments")
+	}
 	if ctx.TimeoutSeconds < 0 {
 		return errors.New("timeout must not be negative")
 	}

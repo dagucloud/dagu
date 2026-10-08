@@ -1062,10 +1062,11 @@ func PreviewSecret(value string) string {
 	if value == "" {
 		return ""
 	}
-	if len(value) <= 8 {
+	runes := []rune(value)
+	if len(runes) <= 8 {
 		return "********"
 	}
-	return value[:4] + "..." + value[len(value)-4:]
+	return string(runes[:4]) + "..." + string(runes[len(runes)-4:])
 }
 
 func previewHeaderValues(headers map[string]string) map[string]string {

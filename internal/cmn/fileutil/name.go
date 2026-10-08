@@ -4,7 +4,6 @@
 package fileutil
 
 import (
-	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -39,15 +38,19 @@ func SafeName(str string) string {
 }
 
 // NormalizeFilename replaces OS-reserved characters and Windows reserved
-// names in a filename with the given replacement string.
+// device names in a filename with the given replacement string.
 func NormalizeFilename(name, replacement string) string {
 	s := filenameReservedRegex.ReplaceAllString(name, replacement)
 	s = strings.ReplaceAll(s, " ", replacement)
 
-	ext := filepath.Ext(s)
-	stem := strings.TrimSuffix(s, ext)
-	if filenameReservedWindowsNamesRegex.MatchString(stem) {
-		stem = replacement
+	// Windows reserves device names regardless of any extension, so the
+	// segment before the first dot is what matters.
+	device, rest, hasDot := strings.Cut(s, ".")
+	if filenameReservedWindowsNamesRegex.MatchString(device) {
+		device = replacement
 	}
-	return stem + ext
+	if hasDot {
+		return device + "." + rest
+	}
+	return device
 }

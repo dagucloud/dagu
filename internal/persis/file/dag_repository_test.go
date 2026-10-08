@@ -123,6 +123,101 @@ func TestNewDAGRepositoryWithoutLegacySuspendFlags(t *testing.T) {
 	assert.False(t, suspended)
 }
 
+// Flags written under earlier normalization rules are renamed on migration
+// so DAGs whose file stem starts with a reserved device name followed by two
+// or more dots stay suspended across upgrades.
+func TestMigrationRenamesStaleSuspendFlags(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	homeDir := t.TempDir()
+	dataDir := filepath.Join(homeDir, "data")
+	flagsDir := filepath.Join(dataDir, "suspend")
+
+	require.NoError(t, os.MkdirAll(flagsDir, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(flagsDir, "con.foo.txt.suspend"), []byte{}, 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(flagsDir, "aux.tar.gz.suspend"), []byte{}, 0o600))
+
+	repo, err := persisfile.NewDAGRepository(
+		suspendFlagsTestConfig(homeDir, dataDir, flagsDir, ""),
+		persisfile.WithDAGSkipExamples(true),
+	)
+	require.NoError(t, err)
+
+	for range 2 {
+		require.NoError(t, repo.MigrateSuspensionState(ctx))
+		assert.FileExists(t, filepath.Join(flagsDir, "-.foo.txt.suspend"))
+		assert.FileExists(t, filepath.Join(flagsDir, "-.tar.gz.suspend"))
+		assert.NoFileExists(t, filepath.Join(flagsDir, "con.foo.txt.suspend"))
+		assert.NoFileExists(t, filepath.Join(flagsDir, "aux.tar.gz.suspend"))
+	}
+	for _, id := range []string{"con.foo.txt", "aux.tar.gz"} {
+		suspended, err := repo.IsSuspended(ctx, id)
+		require.NoError(t, err)
+		assert.True(t, suspended, "expected %q to stay suspended after migration", id)
+	}
+}
+
+func TestMigrationMergesStaleAndCurrentSuspendFlags(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	homeDir := t.TempDir()
+	dataDir := filepath.Join(homeDir, "data")
+	flagsDir := filepath.Join(dataDir, "suspend")
+
+	require.NoError(t, os.MkdirAll(flagsDir, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(flagsDir, "con.foo.txt.suspend"), []byte{}, 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(flagsDir, "-.foo.txt.suspend"), []byte("existing"), 0o600))
+
+	repo, err := persisfile.NewDAGRepository(
+		suspendFlagsTestConfig(homeDir, dataDir, flagsDir, ""),
+		persisfile.WithDAGSkipExamples(true),
+	)
+	require.NoError(t, err)
+
+	require.NoError(t, repo.MigrateSuspensionState(ctx))
+	assert.NoFileExists(t, filepath.Join(flagsDir, "con.foo.txt.suspend"))
+	contents, err := os.ReadFile(filepath.Join(flagsDir, "-.foo.txt.suspend"))
+	require.NoError(t, err)
+	assert.Equal(t, "existing", string(contents))
+}
+
+// A stale-named legacy flag is renamed in place so resuming the DAG removes
+// it and a later scheduler start does not suspend the DAG again.
+func TestMigrationRenamesLegacyFlagAndKeepsResume(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	homeDir := t.TempDir()
+	dataDir := filepath.Join(homeDir, "data")
+	flagsDir := filepath.Join(dataDir, "suspend")
+	legacyDir := filepath.Join(homeDir, "suspend")
+
+	require.NoError(t, os.MkdirAll(legacyDir, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(legacyDir, "con.foo.txt.suspend"), []byte{}, 0o600))
+
+	repo, err := persisfile.NewDAGRepository(
+		suspendFlagsTestConfig(homeDir, dataDir, flagsDir, legacyDir),
+		persisfile.WithDAGSkipExamples(true),
+	)
+	require.NoError(t, err)
+
+	require.NoError(t, repo.MigrateSuspensionState(ctx))
+	assert.FileExists(t, filepath.Join(flagsDir, "-.foo.txt.suspend"))
+	assert.FileExists(t, filepath.Join(legacyDir, "-.foo.txt.suspend"))
+	assert.NoFileExists(t, filepath.Join(legacyDir, "con.foo.txt.suspend"))
+	suspended, err := repo.IsSuspended(ctx, "con.foo.txt")
+	require.NoError(t, err)
+	assert.True(t, suspended)
+
+	require.NoError(t, repo.SetSuspended(ctx, "con.foo.txt", false))
+	assert.NoFileExists(t, filepath.Join(flagsDir, "-.foo.txt.suspend"))
+	assert.NoFileExists(t, filepath.Join(legacyDir, "-.foo.txt.suspend"))
+
+	require.NoError(t, repo.MigrateSuspensionState(ctx))
+	suspended, err = repo.IsSuspended(ctx, "con.foo.txt")
+	require.NoError(t, err)
+	assert.False(t, suspended, "resumed DAG must stay resumed across scheduler restarts")
+}
+
 // The index is kept under the data directory so a read-only DAGs directory
 // still gets a persisted index. An index left in the DAGs directory by an
 // earlier version is removed.

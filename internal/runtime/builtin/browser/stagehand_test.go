@@ -4,6 +4,7 @@
 package browser
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -36,6 +37,9 @@ import (
 // call, and reattaching to a browser left running by an exited process.
 
 const detachHelperEnv = "DAGU_BROWSER_DETACH_HELPER"
+
+// sleeperHelperEnv selects the role of TestSleeperHelper in a child process.
+const sleeperHelperEnv = "DAGU_BROWSER_SLEEPER_HELPER"
 
 const shopPage = `<!doctype html><html><head><title>Shop</title></head><body>
 <h1>Widget Shop</h1>
@@ -188,10 +192,71 @@ func browserProfileDir(t *testing.T) string {
 	dir, err := os.MkdirTemp("", "dagu-browser-test-")
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		require.Eventually(t, func() bool { return os.RemoveAll(dir) == nil },
-			10*time.Second, 200*time.Millisecond, "remove the browser profile")
+		var removeErr error
+		removed := assert.Eventually(t, func() bool {
+			removeErr = os.RemoveAll(dir)
+			return removeErr == nil
+		}, 10*time.Second, 200*time.Millisecond, "remove the browser profile")
+		if !removed {
+			t.Logf("last removal error: %v\n%s", removeErr, profileHolders(dir))
+		}
 	})
 	return dir
+}
+
+// TestSleeperHelper runs in a child process and waits to be ended. As
+// "tree" it first starts a "sleeper" child and prints its process ID, so a
+// test gets a process tree whose child outlives its parent.
+func TestSleeperHelper(t *testing.T) {
+	role := os.Getenv(sleeperHelperEnv)
+	if role == "" {
+		t.Skip("helper process")
+	}
+	if role == "tree" {
+		child := exec.Command(os.Args[0], "-test.run=^TestSleeperHelper$")
+		child.Env = append(os.Environ(), sleeperHelperEnv+"=sleeper")
+		require.NoError(t, child.Start())
+		fmt.Printf("SLEEPER %d\n", child.Process.Pid)
+	}
+	time.Sleep(time.Minute)
+}
+
+// startSleeper starts a process that stands in for a running browser and
+// ends it when the test ends.
+func startSleeper(t *testing.T) *exec.Cmd {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestSleeperHelper$")
+	cmd.Env = append(os.Environ(), sleeperHelperEnv+"=sleeper")
+	require.NoError(t, cmd.Start())
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
+	return cmd
+}
+
+// startSleeperTree starts a process that stands in for a browser and a child
+// of it that stands in for a helper, and returns the child's process ID.
+func startSleeperTree(t *testing.T) (*exec.Cmd, int) {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestSleeperHelper$")
+	cmd.Env = append(os.Environ(), sleeperHelperEnv+"=tree")
+	stdout, err := cmd.StdoutPipe()
+	require.NoError(t, err)
+	require.NoError(t, cmd.Start())
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
+	var helperPID int
+	_, err = fmt.Fscanf(bufio.NewReader(stdout), "SLEEPER %d\n", &helperPID)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		if helper, err := os.FindProcess(helperPID); err == nil {
+			_ = helper.Kill()
+		}
+	})
+	return cmd, helperPID
 }
 
 func TestStagehandExtractWithRuntimeSchema(t *testing.T) {
@@ -598,12 +663,14 @@ func TestStagehandBoundsUnresponsivePage(t *testing.T) {
 }
 
 // A runtime close that fails while the browser is still running is
-// reported.
+// reported. The browser's start time is unknown here, so closing relies on
+// the runtime alone.
 func TestCloseBrowserReportsRuntimeError(t *testing.T) {
 	t.Parallel()
 
+	browser := startSleeper(t)
 	closeErr := errors.New("close failed")
-	err := closeBrowser(t.Context(), os.Getpid(), func(context.Context) error { return closeErr })
+	err := closeBrowser(t.Context(), browser.Process.Pid, 0, func(context.Context) error { return closeErr })
 	require.ErrorIs(t, err, closeErr)
 }
 

@@ -68,6 +68,7 @@ require (
 	github.com/prometheus/client_model v0.6.3
 	github.com/redis/go-redis/v9 v9.7.3
 	github.com/rhysd/changelog-from-release/v3 v3.9.1
+	github.com/richardlehane/mscfb v1.0.7
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/samber/slog-multi v1.6.0
 	github.com/segmentio/golines v0.12.2
@@ -430,7 +431,6 @@ require (
 	github.com/quasilyte/stdinfo v0.0.0-20220114132959-f7386bf02567 // indirect
 	github.com/raeperd/recvcheck v0.3.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
-	github.com/richardlehane/mscfb v1.0.7 // indirect
 	github.com/richardlehane/msoleps v1.0.6 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/rogpeppe/go-internal v1.16.0 // indirect

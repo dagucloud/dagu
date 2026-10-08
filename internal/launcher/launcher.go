@@ -13,6 +13,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 
@@ -431,8 +432,8 @@ func Run(ctx context.Context, spec CmdSpec) error {
 func buildCommandError(err error, stdout, stderr *cappedBuffer) error {
 	return &CommandError{
 		Err:    err,
-		Stdout: strings.TrimSpace(stdout.String()),
-		Stderr: strings.TrimSpace(stderr.String()),
+		Stdout: strings.TrimSpace(strings.ToValidUTF8(stdout.String(), string(utf8.RuneError))),
+		Stderr: strings.TrimSpace(strings.ToValidUTF8(stderr.String(), string(utf8.RuneError))),
 	}
 }
 

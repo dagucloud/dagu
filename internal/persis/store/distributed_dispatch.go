@@ -270,16 +270,26 @@ func (idx *dispatchTaskIndex) invalidateDerivedState() {
 	clear(idx.noMatch)
 }
 
+// candidatePendingIDs returns a copy of the matching pending IDs so callers
+// may mutate the index while iterating. The copy is allocated lazily so a
+// scan with no match costs nothing.
 func (idx *dispatchTaskIndex) candidatePendingIDs(workerID string, workerLabels map[string]string) []string {
-	ids := make([]string, 0, len(idx.pendingIDs))
-	for _, id := range idx.pendingIDs {
+	var ids []string
+	for i, id := range idx.pendingIDs {
 		entry, ok := idx.pending[id]
 		if !ok {
 			continue
 		}
-		if (entry.targetWorkerID == "" || entry.targetWorkerID == workerID) && matchesDispatchSelector(workerLabels, entry.workerSelector) {
-			ids = append(ids, id)
+		if entry.targetWorkerID != "" && entry.targetWorkerID != workerID {
+			continue
 		}
+		if !matchesDispatchSelector(workerLabels, entry.workerSelector) {
+			continue
+		}
+		if ids == nil {
+			ids = make([]string, 0, len(idx.pendingIDs)-i)
+		}
+		ids = append(ids, id)
 	}
 	return ids
 }
@@ -303,22 +313,26 @@ func (idx *dispatchTaskIndex) hasExpired(now time.Time, ttl time.Duration) bool 
 	return false
 }
 
-func (idx *dispatchTaskIndex) rememberNoMatch(workerID string, labels map[string]string) {
+// rememberNoMatch records that no pending task matches the claim shape key
+// until the pending set changes. The cache is cleared when it reaches
+// dispatchNoMatchCacheLimit entries.
+func (idx *dispatchTaskIndex) rememberNoMatch(key string) {
 	if idx == nil {
 		return
 	}
-	key := workerID + "\x00" + dispatchClaimLabelsKey(labels)
 	if _, ok := idx.noMatch[key]; !ok && len(idx.noMatch) >= dispatchNoMatchCacheLimit {
 		clear(idx.noMatch)
 	}
 	idx.noMatch[key] = struct{}{}
 }
 
-func (idx *dispatchTaskIndex) hasNoMatch(workerID string, labels map[string]string) bool {
+// hasNoMatch reports whether the claim shape key is known to match no
+// pending task.
+func (idx *dispatchTaskIndex) hasNoMatch(key string) bool {
 	if idx == nil {
 		return false
 	}
-	_, ok := idx.noMatch[workerID+"\x00"+dispatchClaimLabelsKey(labels)]
+	_, ok := idx.noMatch[key]
 	return ok
 }
 
@@ -342,16 +356,23 @@ func dispatchTaskIndexEntryFromRecord(rec *persis.Record, payload dispatchTaskPa
 	return entry
 }
 
-func dispatchClaimLabelsKey(labels map[string]string) string {
-	if len(labels) == 0 {
-		return ""
-	}
+// dispatchNoMatchKey identifies a worker and label set in the no-match
+// cache. Every field is length-prefixed so boundaries stay unambiguous
+// regardless of the bytes in the worker ID, keys, and values.
+func dispatchNoMatchKey(workerID string, labels map[string]string) string {
+	workerIDLength := strconv.Itoa(len(workerID))
 	keys := make([]string, 0, len(labels))
-	for key := range labels {
+	size := len(workerIDLength) + 1 + len(workerID)
+	for key, value := range labels {
 		keys = append(keys, key)
+		size += len(key) + len(value) + 8
 	}
 	sort.Strings(keys)
 	var b strings.Builder
+	b.Grow(size)
+	b.WriteString(workerIDLength)
+	b.WriteByte(':')
+	b.WriteString(workerID)
 	for _, key := range keys {
 		value := labels[key]
 		b.WriteString(strconv.Itoa(len(key)))
@@ -583,18 +604,27 @@ func (s *DispatchTaskStore) ClaimNext(ctx context.Context, claim dispatch.Dispat
 	return nil, nil
 }
 
+// claimNextPending claims the oldest indexed pending task that matches claim.
+// The second result reports a stale index, which the caller rebuilds before
+// trying again.
 func (s *DispatchTaskStore) claimNextPending(ctx context.Context, claim dispatch.DispatchTaskClaim) (*dispatch.ClaimedDispatchTask, bool, error) {
 	if s.index == nil {
 		if err := s.rebuildDispatchIndex(ctx); err != nil {
 			return nil, false, err
 		}
 	}
-	if s.index.hasNoMatch(claim.WorkerID, claim.Labels) {
+	// Idle pollers hit this path on every fallback tick; every change to the
+	// pending set invalidates the no-match cache, so skipping it here is safe.
+	if len(s.index.pendingIDs) == 0 {
+		return nil, false, nil
+	}
+	noMatchKey := dispatchNoMatchKey(claim.WorkerID, claim.Labels)
+	if s.index.hasNoMatch(noMatchKey) {
 		return nil, false, nil
 	}
 	ids := s.index.candidatePendingIDs(claim.WorkerID, claim.Labels)
 	if len(ids) == 0 {
-		s.index.rememberNoMatch(claim.WorkerID, claim.Labels)
+		s.index.rememberNoMatch(noMatchKey)
 		return nil, false, nil
 	}
 
@@ -688,7 +718,7 @@ func (s *DispatchTaskStore) claimNextPending(ctx context.Context, claim dispatch
 		}
 		return claimed, stale, err
 	}
-	s.index.rememberNoMatch(claim.WorkerID, claim.Labels)
+	s.index.rememberNoMatch(noMatchKey)
 	return nil, false, nil
 }
 
@@ -986,8 +1016,10 @@ func (s *DispatchTaskStore) releaseClaimRecord(ctx context.Context, rec *persis.
 	return nil
 }
 
+// removePendingRecordsWithActiveClaims deletes pending records whose task is
+// already held by a live claim, so a recycled task is never dispatched twice.
 func (s *DispatchTaskStore) removePendingRecordsWithActiveClaims(ctx context.Context) error {
-	if s.index == nil {
+	if s.index == nil || len(s.index.claims) == 0 {
 		return nil
 	}
 	now := time.Now().UTC()

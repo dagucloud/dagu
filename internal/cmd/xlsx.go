@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -16,6 +17,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/workbook"
 	"github.com/spf13/cobra"
 )
+
+// xlsxPasswordEnv supplies a workbook password when --password is omitted.
+const xlsxPasswordEnv = "DAGU_XLSX_PASSWORD" //nolint:gosec // This is an environment variable name, not a credential.
 
 // Xlsx returns the command group for workbooks. inspect and read open a file
 // directly, need no configuration or engine, and create no run, so a host
@@ -61,6 +65,11 @@ column name:
 This is what xlsx.info publishes, read straight from the file. Nothing is
 written and no run is created.
 
+A protected workbook needs a password. Set DAGU_XLSX_PASSWORD rather
+than --password where other users share the host: a flag value shows in
+the process list and stays in shell history. The flag wins when both are
+set.
+
 With --format json, the result is one JSON object: path, date_system,
 sheets (each with name, hidden, used_range, range, header_row, headers,
 types, row_count, hidden_rows, columns, profile_truncated, tables, and
@@ -76,6 +85,7 @@ blank, distinct, values, min, max, odd, and odd_cells.
 	}
 	cmd.Flags().IntP("rows", "n", 5, "Typed sample rows to show per sheet")
 	cmd.Flags().String("sheet", "", "Describe this sheet only")
+	cmd.Flags().String("password", "", "Password of a protected workbook; prefer DAGU_XLSX_PASSWORD, which stays out of the process list and shell history")
 	cmd.Flags().StringP("format", "f", "text", "Output format: text or json (default: text)")
 	return cmd
 }
@@ -92,6 +102,11 @@ are read unless --skip-hidden leaves them out.
 With --format json, the result is one JSON object: rows, count, headers,
 sheet, range, warnings, and truncated. The text format prints a tab-separated
 header line and one line per row.
+
+A protected workbook needs a password. Set DAGU_XLSX_PASSWORD rather
+than --password where other users share the host: a flag value shows in
+the process list and stays in shell history. The flag wins when both are
+set.
 `,
 		Example: `  dagu xlsx read orders.xlsx
   dagu xlsx read orders.xlsx --sheet Orders --range A2:F --header false
@@ -107,8 +122,19 @@ header line and one line per row.
 	cmd.Flags().String("columns", "", "Columns to keep, comma-separated, with optional name:alias renames")
 	cmd.Flags().Int("max-rows", 0, "Most rows to print (default 5000)")
 	cmd.Flags().Bool("skip-hidden", false, "Leave out rows hidden by a filter or by hand")
+	cmd.Flags().String("password", "", "Password of a protected workbook; prefer DAGU_XLSX_PASSWORD, which stays out of the process list and shell history")
 	cmd.Flags().StringP("format", "f", "text", "Output format: text or json (default: text)")
 	return cmd
+}
+
+// xlsxPassword returns the workbook password. A --password that was set,
+// including an empty one, wins over DAGU_XLSX_PASSWORD.
+func xlsxPassword(cmd *cobra.Command) string {
+	if cmd.Flags().Changed("password") {
+		password, _ := cmd.Flags().GetString("password")
+		return password
+	}
+	return os.Getenv(xlsxPasswordEnv)
 }
 
 func xlsxFormat(cmd *cobra.Command) (string, error) {
@@ -143,7 +169,11 @@ func runXlsxInspect(cmd *cobra.Command, args []string) error {
 	rows, _ := cmd.Flags().GetInt("rows")
 	sheet, _ := cmd.Flags().GetString("sheet")
 
-	info, err := workbook.Inspect(cmd.Context(), path, workbook.InspectOptions{Sheet: sheet, SampleRows: max(rows, 0)})
+	info, err := workbook.Inspect(cmd.Context(), path, workbook.InspectOptions{
+		Password:   xlsxPassword(cmd),
+		Sheet:      sheet,
+		SampleRows: max(rows, 0),
+	})
 	if err != nil {
 		return err
 	}
@@ -163,7 +193,7 @@ func runXlsxRead(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	opts := workbook.ReadOptions{}
+	opts := workbook.ReadOptions{Password: xlsxPassword(cmd)}
 	opts.Sheet, _ = cmd.Flags().GetString("sheet")
 	opts.Range, _ = cmd.Flags().GetString("range")
 	opts.MaxRows, _ = cmd.Flags().GetInt("max-rows")

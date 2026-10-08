@@ -5,11 +5,13 @@ package cli_test
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
 	"github.com/stretchr/testify/require"
+	"github.com/xuri/excelize/v2"
 )
 
 func TestXlsxInspectAndReadCommands(t *testing.T) {
@@ -163,4 +165,42 @@ func TestXlsxInspectCommandSheet(t *testing.T) {
 	require.Equal(t, "  Row 2: Invoice No=INV-1  Amount=10  Due=2026-10-01", lines[3])
 	require.Equal(t, `Sheet "Second": used A1:B4, table Second!A1:B4, header row 1, 3 rows`, lines[4])
 	require.Equal(t, `  Columns: Quarterly report (string), Q3 (integer; 3..5; 1 odd: B2 "Qty")`, lines[5])
+}
+
+func TestXlsxProtectedWorkbookCommands(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	path := filepath.Join(t.TempDir(), "protected.xlsx")
+	f := excelize.NewFile()
+	require.NoError(t, f.SetCellValue("Sheet1", "A1", "Invoice No"))
+	require.NoError(t, f.SetCellValue("Sheet1", "A2", "INV-1"))
+	require.NoError(t, f.SaveAs(path, excelize.Options{Password: "secret"}))
+	require.NoError(t, f.Close())
+
+	const want = "protected.xlsx: workbook password is missing or incorrect"
+	missing := dagu.Run("xlsx", "inspect", path)
+	missing.ExpectNonZeroExitCode()
+	missing.ExpectStderrContains(want)
+
+	wrong := dagu.Run("xlsx", "read", path, "--password", "nope")
+	wrong.ExpectNonZeroExitCode()
+	wrong.ExpectStderrContains(want)
+
+	byFlag := dagu.Run("xlsx", "inspect", path, "--password", "secret", "--format", "json")
+	byFlag.ExpectExitCode(0)
+	require.Contains(t, byFlag.Stdout(), "INV-1")
+
+	byEnv := dagu.RunWithEnv([]string{"DAGU_XLSX_PASSWORD=secret"}, "xlsx", "read", path, "--format", "json")
+	byEnv.ExpectExitCode(0)
+	require.Contains(t, byEnv.Stdout(), "INV-1")
+
+	// The flag wins over the environment variable, including when it is empty.
+	flagWins := dagu.RunWithEnv([]string{"DAGU_XLSX_PASSWORD=nope"}, "xlsx", "read", path, "--password", "secret", "--format", "json")
+	flagWins.ExpectExitCode(0)
+	require.Contains(t, flagWins.Stdout(), "INV-1")
+
+	emptyFlag := dagu.RunWithEnv([]string{"DAGU_XLSX_PASSWORD=secret"}, "xlsx", "inspect", path, "--password", "")
+	emptyFlag.ExpectNonZeroExitCode()
+	emptyFlag.ExpectStderrContains(want)
 }

@@ -63,3 +63,8 @@ func (n *Node) SetPushBackPreviousStdout(path string) {
 	defer n.Data.mu.Unlock()
 	n.inner.State.PushBackPreviousStdout = path
 }
+
+// ChildRunSummary exports childRunSummary for testing.
+func ChildRunSummary(ctx context.Context, childRunID string, outputsReported bool) string {
+	return childRunSummary(ctx, childRunID, outputsReported)
+}

@@ -6,6 +6,7 @@ package notification
 import (
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauthconfig"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
@@ -518,4 +519,16 @@ func TestNormalizeRejectsInvalidTelegramTopicID(t *testing.T) {
 		}, "tester")
 		assert.ErrorIs(t, err, ErrInvalidSettings, "topicID=%q", topicID)
 	}
+}
+
+func TestPreviewSecretMultibyte(t *testing.T) {
+	t.Parallel()
+
+	// A byte-level head/tail cut must not split a multibyte rune.
+	got := PreviewSecret("ab界界界界界cd")
+	assert.True(t, utf8.ValidString(got))
+	assert.Equal(t, "ab界界...界界cd", got)
+
+	// Short multibyte secrets are fully masked.
+	assert.Equal(t, "********", PreviewSecret("ab界界cd"))
 }

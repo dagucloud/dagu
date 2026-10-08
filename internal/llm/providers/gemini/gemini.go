@@ -424,6 +424,7 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, event
 	defer func() { _ = body.Close() }()
 
 	scanner := bufio.NewScanner(body)
+	scanner.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
 	var usage *llm.Usage
 
 	for scanner.Scan() {

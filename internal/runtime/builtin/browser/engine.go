@@ -86,6 +86,10 @@ type browserHandle struct {
 	ExtensionDir string
 	// BrowserPID is the browser process ID, or zero when it is unknown.
 	BrowserPID int
+	// BrowserStartedAt is the browser process start time in Unix
+	// milliseconds, or zero when it is unknown. With BrowserPID it tells the
+	// browser apart from a later process that reuses its ID.
+	BrowserStartedAt int64
 }
 
 // dialog is a JavaScript dialog the browser accepted.

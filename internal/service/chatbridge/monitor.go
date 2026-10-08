@@ -28,6 +28,12 @@ const (
 	DefaultNotificationLockHeartbeatInterval = time.Second
 	DefaultNotificationLockRetryInterval     = 50 * time.Millisecond
 	DefaultNotificationLockStaleThreshold    = 45 * time.Second
+
+	// DefaultNotificationLockStandbyRetryInterval paces a standby monitor
+	// in another process while it waits for the lease. It bounds the idle
+	// cost of standing by rather than startup latency, so it is far longer
+	// than DefaultNotificationLockRetryInterval.
+	DefaultNotificationLockStandbyRetryInterval = 5 * time.Second
 )
 
 var defaultInterestedNotificationEventTypes = []eventstore.EventType{

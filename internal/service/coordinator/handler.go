@@ -65,9 +65,13 @@ const defaultStaleHeartbeatThreshold = dispatch.DefaultStaleWorkerHeartbeatThres
 // distributed run's lease is considered stale.
 const defaultStaleLeaseThreshold = dagrun.DefaultStaleLeaseThreshold
 
+// Dispatch wakes every waiting poller immediately, so the poll wait is only a
+// fallback for pending records that arrive without an in-process wake, such
+// as reservations recycled after expiry or tasks enqueued through another
+// coordinator instance. The cap bounds idle timer wakeups per poller.
 const (
 	defaultDispatchPollInitialWait = 250 * time.Millisecond
-	defaultDispatchPollMaxWait     = time.Second
+	defaultDispatchPollMaxWait     = 5 * time.Second
 	workspaceBundleTTL             = time.Hour
 	workspaceBundleCleanupInterval = time.Hour
 )

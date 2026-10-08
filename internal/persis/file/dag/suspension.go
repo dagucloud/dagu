@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
@@ -68,34 +69,103 @@ func (store *Store) IsSuspended(_ context.Context, id string) (bool, error) {
 }
 
 // MigrateSuspensionState copies legacy suspension state into primary storage
-// while retaining legacy flags and existing primary flags.
+// while retaining legacy flags, and renames flags in both directories that
+// were written under earlier normalization rules to their current names.
 func (store *Store) MigrateSuspensionState(ctx context.Context) error {
 	legacyDir, err := store.legacySuspendFlagsDir()
-	if err != nil || legacyDir == "" {
+	if err != nil {
 		return err
 	}
+	if legacyDir == "" {
+		// Nothing to copy and nothing to rename; avoid creating the flags dir.
+		exists, err := suspendFlagsDirExists(store.flagsBaseDir)
+		if err != nil || !exists {
+			return err
+		}
+	}
 	return store.withSuspendFlagsLock(ctx, func() error {
-		entries, err := os.ReadDir(legacyDir)
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-		if err != nil {
-			return fmt.Errorf("read legacy suspend flags: %w", err)
-		}
-		for _, entry := range entries {
-			if err := ctx.Err(); err != nil {
+		if legacyDir != "" {
+			// Legacy names must be current before the copy so a later resume
+			// removes the same legacy file that the copy came from.
+			if err := renameStaleSuspendFlags(ctx, legacyDir); err != nil {
 				return err
 			}
-			if !entry.Type().IsRegular() || filepath.Ext(entry.Name()) != suspendFlagExtension {
-				continue
-			}
-			err := fileutil.WriteFileAtomicExclusive(filepath.Join(store.flagsBaseDir, entry.Name()), nil, flagPermission)
-			if err != nil && !errors.Is(err, os.ErrExist) {
-				return fmt.Errorf("copy suspend flag %s: %w", entry.Name(), err)
+			if err := store.copyLegacySuspendFlags(ctx, legacyDir); err != nil {
+				return err
 			}
 		}
-		return nil
+		return renameStaleSuspendFlags(ctx, store.flagsBaseDir)
 	})
+}
+
+func (store *Store) copyLegacySuspendFlags(ctx context.Context, legacyDir string) error {
+	entries, err := os.ReadDir(legacyDir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read legacy suspend flags: %w", err)
+	}
+	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if !isSuspendFlagEntry(entry) {
+			continue
+		}
+		err := fileutil.WriteFileAtomicExclusive(filepath.Join(store.flagsBaseDir, entry.Name()), nil, flagPermission)
+		if err != nil && !errors.Is(err, os.ErrExist) {
+			return fmt.Errorf("copy suspend flag %s: %w", entry.Name(), err)
+		}
+	}
+	return nil
+}
+
+// renameStaleSuspendFlags moves each flag in dir to the name the current
+// normalization produces for its stem. A flag already present under the
+// current name wins and the stale one is dropped.
+func renameStaleSuspendFlags(ctx context.Context, dir string) error {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read suspend flags %s: %w", dir, err)
+	}
+	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if !isSuspendFlagEntry(entry) {
+			continue
+		}
+		name := entry.Name()
+		want := fileName(strings.TrimSuffix(name, suspendFlagExtension))
+		if want == name {
+			continue
+		}
+		if err := renameSuspendFlag(filepath.Join(dir, name), filepath.Join(dir, want)); err != nil {
+			return fmt.Errorf("rename suspend flag %s in %s: %w", name, dir, err)
+		}
+	}
+	return nil
+}
+
+// renameSuspendFlag moves stale to target unless target already exists, in
+// which case stale is removed.
+func renameSuspendFlag(stale, target string) error {
+	_, err := os.Stat(target)
+	if err == nil {
+		return removeSuspendFlag(stale)
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return fileutil.Rename(stale, target)
+}
+
+func isSuspendFlagEntry(entry os.DirEntry) bool {
+	return !entry.IsDir() && filepath.Ext(entry.Name()) == suspendFlagExtension
 }
 
 func (store *Store) withSuspendFlagsLock(ctx context.Context, fn func() error) error {
@@ -171,7 +241,7 @@ func (store *Store) readSuspendFlags(ctx context.Context) (dagindex.SuspendFlags
 			return nil, fmt.Errorf("read suspend flags directory %s: %w", dir, err)
 		}
 		for _, entry := range entries {
-			if !entry.IsDir() && filepath.Ext(entry.Name()) == suspendFlagExtension {
+			if isSuspendFlagEntry(entry) {
 				flags[entry.Name()] = struct{}{}
 			}
 		}

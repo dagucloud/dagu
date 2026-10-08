@@ -20,6 +20,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/opencodehost"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/sql"
@@ -355,11 +356,7 @@ func cleanupErrorMessage(err error) string {
 	if err == nil {
 		return ""
 	}
-	message := err.Error()
-	if len(message) > 1024 {
-		message = message[:1024]
-	}
-	return message
+	return stringutil.TruncUTF8Bytes(err.Error(), 1024)
 }
 
 // Stop gracefully shuts down the worker.

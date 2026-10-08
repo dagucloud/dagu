@@ -151,4 +151,46 @@ func TestReadWorkbookTarget(t *testing.T) {
 		output := requireReadError(t, result, "invalid_tool_input")
 		require.Equal(t, "name", output["field"])
 	})
+
+	t.Run("password is forbidden on other targets", func(t *testing.T) {
+		result := callRead(t, session, map[string]any{"target": "dags", "password": "secret"})
+		output := requireReadError(t, result, "invalid_tool_input")
+		require.Equal(t, "password", output["field"])
+	})
+
+	t.Run("opens a protected workbook", func(t *testing.T) {
+		f := excelize.NewFile()
+		require.NoError(t, f.SetCellValue("Sheet1", "A1", "Invoice No"))
+		require.NoError(t, f.SetCellValue("Sheet1", "A2", "INV-1"))
+		protected := filepath.Join(t.TempDir(), "protected.xlsx")
+		require.NoError(t, f.SaveAs(protected, excelize.Options{Password: "secret"}))
+		require.NoError(t, f.Close())
+
+		const want = "protected.xlsx: workbook password is missing or incorrect"
+		missing := callRead(t, session, map[string]any{"target": "workbook", "path": protected})
+		output := requireReadError(t, missing, "invalid_tool_input")
+		require.Equal(t, "password", output["field"])
+		require.Contains(t, output["message"], want)
+
+		wrong := callRead(t, session, map[string]any{"target": "workbook", "path": protected, "password": "nope"})
+		output = requireReadError(t, wrong, "invalid_tool_input")
+		require.Equal(t, "password", output["field"])
+		require.Contains(t, output["message"], want)
+		require.NotContains(t, output["message"], "nope", "the supplied password is not echoed")
+
+		result := callRead(t, session, map[string]any{"target": "workbook", "path": protected, "password": "secret"})
+		require.False(t, result.IsError)
+		data := requireData(t, mcptest.StructuredMap(t, result))
+		sheets, ok := data["sheets"].([]any)
+		require.True(t, ok)
+		require.Len(t, sheets, 1)
+		sheet, ok := sheets[0].(map[string]any)
+		require.True(t, ok)
+		sample, ok := sheet["sample"].([]any)
+		require.True(t, ok)
+		require.NotEmpty(t, sample)
+		row, ok := sample[0].(map[string]any)
+		require.True(t, ok)
+		require.Equal(t, "INV-1", row["Invoice No"])
+	})
 }

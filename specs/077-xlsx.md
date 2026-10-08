@@ -37,7 +37,8 @@ fixture.
 
 Conformance exceptions, behavior that a black-box run cannot observe or
 set up and that unit tests of `internal/cmn/workbook` cover instead:
-`password` (nothing in Dagu writes a protected workbook); the styles,
+`with.password` on an xlsx step (nothing in Dagu writes a protected workbook;
+opening one is covered by `dagu xlsx` and the workbook read target); the styles,
 hyperlinks, merged regions, and tables that `mode: replace` clears,
 `style: table` formatting, style copying, and column widths (not readable
 through `xlsx.read`; that a replace empties the values is covered); the
@@ -102,7 +103,11 @@ step's `stdout:` and `stderr:` file redirects (Spec 013) capture them.
 
 Only `.xlsx` and `.xlsm` paths are accepted. `path` resolves like the file
 actions: absolute and `~` paths as written, relative paths against the step
-working directory. A `password` opens a protected workbook.
+working directory. A `password` opens a protected workbook. A protected
+workbook opened without that password, or with the wrong one, fails with
+`<name>: workbook password is missing or incorrect`. Only ECMA-376 agile
+and standard encryption can be opened; any other mechanism fails with
+`<name>: workbook encryption is not supported`.
 
 ### Addressing
 
@@ -472,14 +477,22 @@ not repeat a write that already happened.
 
 ### CLI
 
-`dagu xlsx inspect <path> [--rows N] [--sheet NAME] [--format text|json]`
+`dagu xlsx inspect <path> [--rows N] [--sheet NAME] [--password P]
+[--format text|json]`
 prints what `xlsx.info` publishes plus up to N typed sample rows per sheet;
 `--sheet` describes one sheet, matched as `sheet` matches, and a name that
 is not in the workbook fails with `sheet "Nope" not found; sheets present:
 ...`. `dagu xlsx read <path>
 [--sheet] [--range] [--header] [--columns] [--max-rows] [--skip-hidden]
-[--format]` prints what `xlsx.read` publishes, the flags taking the values
-the fields take.
+[--password P] [--format]` prints what `xlsx.read` publishes, the flags
+taking the values the fields take.
+`--password` is the password of a protected workbook. When the flag is
+omitted, `DAGU_XLSX_PASSWORD` supplies it; when both are set, the flag
+wins, including when the flag is empty. The variable is the recommended
+form, since a flag value is visible in the process list and kept in
+shell history. A protected workbook opened
+without the right password fails with `<name>: workbook password is
+missing or incorrect`.
 Both read the file directly, create no run, and exit non-zero with the
 error on stderr. The `text` format of `inspect` prints a heading,
 `orders.xlsx: 2 sheets, 1900 date system`, then one line per sheet,
@@ -505,9 +518,10 @@ and is a later addition.
 ### MCP
 
 The `dagu_read` target `workbook` takes `path`, any workbook the server
-process can read, and returns the `inspect` description with five sample
-rows per sheet. The path is recorded in the audit log as `workbook_path`.
-Spec 021 defines the target's fields and errors.
+process can read, and an optional `password` that opens a protected
+workbook. It returns the `inspect` description with five sample
+rows per sheet. The path is recorded in the audit log as `workbook_path`;
+the password is not. Spec 021 defines the target's fields and errors.
 
 ### Validating
 
@@ -886,6 +900,10 @@ Every one of these is rejected by `dagu validate`:
 - A path that is not `.xlsx` or `.xlsm`: an error containing
   `only .xlsx and .xlsm workbooks are supported; save as .xlsx`.
 - A missing workbook: `<name>: workbook not found`.
+- A protected workbook opened with no password or the wrong one:
+  `<name>: workbook password is missing or incorrect`.
+- A protected workbook whose encryption is not agile or standard:
+  `<name>: workbook encryption is not supported`.
 - A missing sheet: `sheet "Order" not found; sheets present: Orders, Summary`.
 - A range that is none of the accepted forms:
   `range "Totals" is not a cell range, named range, or table`.

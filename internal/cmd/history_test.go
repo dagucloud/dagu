@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
@@ -638,6 +639,12 @@ func TestFormatParams(t *testing.T) {
 			input:    "key1=value1 key2=value2 key3=value3 key4=value4",
 			expected: "key1=value1 key2=value2 key3=value3 k...",
 		},
+		{
+			// The byte cut must not split a multibyte rune.
+			name:     "multibyte rune at cut boundary",
+			input:    strings.Repeat("a", 36) + "界界",
+			expected: strings.Repeat("a", 36) + "...",
+		},
 	}
 
 	for _, tt := range tests {
@@ -646,6 +653,7 @@ func TestFormatParams(t *testing.T) {
 
 			got := formatParams(tt.input)
 			assert.Equal(t, tt.expected, got)
+			assert.True(t, utf8.ValidString(got))
 		})
 	}
 }

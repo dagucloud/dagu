@@ -21,6 +21,10 @@ import (
 
 const schemaHTTPTimeout = 30 * time.Second
 
+// schemaMaxResponseBytes bounds a downloaded schema. JSON schemas are small
+// documents, so a generous cap still prevents unbounded memory use.
+const schemaMaxResponseBytes = 10 << 20 // 10 MiB
+
 // errSchemaUnavailable marks a remote schema that could not be fetched, as
 // opposed to one that was fetched but is invalid.
 var errSchemaUnavailable = errors.New("schema source unavailable")
@@ -134,9 +138,12 @@ func loadSchemaFromURL(schemaURL string) (data []byte, err error) {
 		return nil, fmt.Errorf("%w: HTTP %d: %s", errSchemaUnavailable, resp.StatusCode, resp.Status)
 	}
 
-	data, err = io.ReadAll(resp.Body)
+	data, err = io.ReadAll(io.LimitReader(resp.Body, schemaMaxResponseBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errSchemaUnavailable, err)
+	}
+	if len(data) > schemaMaxResponseBytes {
+		return nil, fmt.Errorf("schema exceeds the %d MiB size limit", schemaMaxResponseBytes/(1<<20))
 	}
 	return data, nil
 }

@@ -8,10 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -1075,4 +1077,15 @@ func TestWorkerCancellation(t *testing.T) {
 		cancel()
 		_ = w.Stop(context.Background())
 	})
+}
+
+func TestCleanupErrorMessageKeepsValidUTF8(t *testing.T) {
+	t.Parallel()
+
+	// The byte cap can land inside a multibyte rune; the message reported to
+	// the coordinator must stay valid UTF-8.
+	err := errors.New(strings.Repeat("a", 1023) + "界")
+	message := worker.CleanupErrorMessageForTest(err)
+	assert.LessOrEqual(t, len(message), 1024)
+	assert.True(t, utf8.ValidString(message))
 }
