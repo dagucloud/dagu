@@ -1125,7 +1125,7 @@ func (a *API) GetDAGRunStepLog(ctx context.Context, request api.GetDAGRunStepLog
 	if err != nil {
 		return nil, err
 	}
-	logFile := selectLogFile(node, *request.Params.Stream)
+	logFile := selectLogFile(node, valueOf(request.Params.Stream))
 
 	content, lineCount, totalLines, hasMore, isEstimate, err := fileutil.ReadLogContent(logFile, options)
 	if err != nil {
@@ -2666,7 +2666,7 @@ func (a *API) GetSubDAGRunStepLog(ctx context.Context, request api.GetSubDAGRunS
 	if err != nil {
 		return nil, err
 	}
-	logFile := selectLogFile(node, *request.Params.Stream)
+	logFile := selectLogFile(node, valueOf(request.Params.Stream))
 
 	content, lineCount, totalLines, hasMore, isEstimate, err := fileutil.ReadLogContent(logFile, options)
 	if err != nil {
