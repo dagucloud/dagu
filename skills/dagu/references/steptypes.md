@@ -573,6 +573,8 @@ Output: `apple`
 
 Run a JavaScript function body in an embedded sandbox. No Node.js or other interpreter is needed on the host.
 
+Use it for data transformation between steps instead of inline Python, Node, or `awk`/`sed`/`jq` pipelines. Use `run:` when the work needs a CLI, the network, the filesystem, or a library.
+
 ```yaml
 steps:
   - id: fetch

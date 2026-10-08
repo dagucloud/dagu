@@ -52,6 +52,7 @@ Authoring rules:
 - Use shell $NAME only when the target shell or process should read the variable at execution time.
 - Single-line run values are shell commands. Array-form run entries run one by one. Multi-line run values are scripts.
 - Dagu does not split shell syntax such as pipes, redirects, &&, or ; into separate Dagu commands.
+- For data transformation between steps (parsing, filtering, reshaping, regex extraction, computing values), use js.run instead of python -c, Python or Node heredocs, or awk, sed, and jq pipelines in run. It needs no interpreter on the host or worker, its script is passed as written so ${...} and $ need no escaping, and dagu_change preview reports script syntax errors with the line. Keep run for CLIs and for work that needs the network, files, environment variables, or a library. A single jq path is fine in jq.filter.
 - DAG YAML does not contain the server-side default runtime profile. A schedule profile is an activation filter: the schedule runs only when it matches the DAG's effective default profile. Read it with dagu_read target=dag_profile. Set or clear it with dagu_change type=set_dag_profile or clear_dag_profile.
 - A DAG profile change is visible to the scheduler on its next minute tick. Time spent under a non-matching profile is not scheduler downtime, so catch-up does not replay those schedule slots.
 - Declared value outputs use a step-level outputs field and write records to DAGU_OUTPUT_FILE. Later steps read them as ${steps.step_id.outputs.name}.
