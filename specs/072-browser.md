@@ -47,6 +47,12 @@ Each operation sets exactly one of:
 - `screenshot`: a name; the page is saved as a PNG run artifact.
 - `ask`: `{prompt, as, timeout}` waits for a person's answer (see Human input).
 
+A `goto`, or an `act` performed or replayed, ends once the page settles, so the
+next operation reads what it brought: a page it loaded waits until its network
+is idle, and a page it changed in place until its requests end and it stops
+changing for half a second. A page that has not settled after five seconds is
+read as it is.
+
 Any operation may set `when`, a condition checked once before the operation;
 the operation is skipped unless it holds. Any operation may set `timeout`, a
 duration such as `30s`; the default is two minutes. A browser that stops
