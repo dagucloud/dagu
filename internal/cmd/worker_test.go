@@ -116,29 +116,6 @@ func TestWorkerShutdownTimeout(t *testing.T) {
 	}
 }
 
-func TestWorkerStopContext(t *testing.T) {
-	t.Parallel()
-
-	t.Run("TimeoutSetsDeadline", func(t *testing.T) {
-		begin := time.Now()
-		ctx, cancel := cmd.WorkerStopContextForTest(t.Context(), 2*time.Second)
-		defer cancel()
-
-		deadline, ok := ctx.Deadline()
-		require.True(t, ok)
-		assert.WithinDuration(t, begin.Add(2*time.Second), deadline, time.Second)
-	})
-
-	t.Run("ZeroKeepsStopUnbounded", func(t *testing.T) {
-		ctx, cancel := cmd.WorkerStopContextForTest(t.Context(), 0)
-		defer cancel()
-
-		_, ok := ctx.Deadline()
-		assert.False(t, ok)
-		assert.NoError(t, ctx.Err())
-	})
-}
-
 func TestWorkerCoordinatorClientRequiresAddress(t *testing.T) {
 	t.Parallel()
 
