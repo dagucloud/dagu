@@ -14,7 +14,10 @@ import { InlineLogViewer } from '../../common/InlineLogViewer';
 import NodeStatusChip from '../../common/NodeStatusChip';
 import type { ForeachLogTarget } from '../../../hooks/useStepLogQuery';
 import { ForeachItemsSection } from './ForeachItemsSection';
-import { type ForeachStepRef, useForeachItem } from './useForeachQueries';
+import {
+  type ForeachStepRef,
+  useForeachItem,
+} from '../../../hooks/useForeachQueries';
 
 type ForeachBodyStep = components['schemas']['ForeachBodyStep'];
 
@@ -22,7 +25,8 @@ type ForeachBodyStep = components['schemas']['ForeachBodyStep'];
 export type OpenBodyStepLog = (
   bodyStepName: string,
   foreach: ForeachLogTarget,
-  stream: Stream
+  stream: Stream,
+  status: NodeStatus
 ) => void;
 
 type Props = {
@@ -132,7 +136,8 @@ function BodyStepRow({
                   stream === candidate
                     ? 'border-primary/40 bg-primary/10 text-primary'
                     : 'border-border bg-background text-muted-foreground hover:bg-muted',
-                  !available && 'cursor-not-allowed opacity-40 hover:bg-background'
+                  !available &&
+                    'cursor-not-allowed opacity-40 hover:bg-background'
                 )}
                 onClick={() => toggleStream(candidate)}
               >
@@ -150,7 +155,12 @@ function BodyStepRow({
                   step: step.name,
                 })}
                 onClick={() =>
-                  onOpenLog(step.name, foreach, stream ?? Stream.stdout)
+                  onOpenLog(
+                    step.name,
+                    foreach,
+                    stream ?? Stream.stdout,
+                    step.status
+                  )
                 }
               >
                 <Maximize2 className="h-3 w-3" />

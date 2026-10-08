@@ -14,7 +14,7 @@ import React, {
   useState,
 } from 'react';
 import { ChevronDown, ChevronUp, Download, Search, X } from 'lucide-react';
-import { components, Stream } from '../../../../api/v1/schema';
+import { components, NodeStatus, Stream } from '../../../../api/v1/schema';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ReloadButton } from '@/components/ui/reload-button';
@@ -70,6 +70,8 @@ type Props = {
   stream?: Stream;
   /** Node information (optional) - contains repeated log files */
   node?: components['schemas']['Node'];
+  /** Status of the step whose log is shown, when no node describes it */
+  status?: NodeStatus;
   /** Reads a body step log of a foreach item; stepName is then the body step */
   foreach?: ForeachLogTarget;
   followTail?: boolean;
@@ -105,6 +107,7 @@ function StepLogContent({
   dagRun,
   stream = Stream.stdout,
   node,
+  status,
   foreach,
   followTail,
   onFollowTailChange,
@@ -124,7 +127,7 @@ function StepLogContent({
   const [navigationOpen, setNavigationOpen] = useState(false);
   const controlledFollowTail = followTail !== undefined;
   const showNavigation = !controlledFollowTail || navigationOpen;
-  const isActive = isActiveNodeStatus(node?.status);
+  const isActive = isActiveNodeStatus(status ?? node?.status);
 
   const [localLiveMode, setLocalLiveMode] = useState(isActive);
   const [localFollowing, setLocalFollowing] = useState(true);

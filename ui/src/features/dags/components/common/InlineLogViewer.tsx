@@ -36,6 +36,8 @@ export function InlineLogViewer({
     { stream, tail: 100 },
     {
       refreshInterval: live ? 2000 : 0,
+      // Shorter than the interval, or SWR skips every other refresh.
+      dedupingInterval: 1000,
       revalidateOnFocus: false,
     }
   );

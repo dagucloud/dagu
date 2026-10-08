@@ -185,7 +185,8 @@ describe('ForeachItemsSection', () => {
     expect(onOpenLog).toHaveBeenCalledWith(
       'body',
       { stepName: 'each', item: '1' },
-      Stream.stderr
+      Stream.stderr,
+      NodeStatus.Failed
     );
 
     // A nested foreach body step that ran lists its own items by parent; one

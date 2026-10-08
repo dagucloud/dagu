@@ -5,7 +5,7 @@ import { components, ForeachItemStatusFilter } from '@/api/v1/schema';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useQuery } from '@/hooks/api';
 import { whenEnabled } from '@/hooks/queryUtils';
-import { isSubDAGRun } from '../../../hooks/useStepLogQuery';
+import { isSubDAGRun } from './useStepLogQuery';
 
 type DAGRunDetails = components['schemas']['DAGRunDetails'];
 
@@ -21,6 +21,17 @@ export const FOREACH_ITEMS_PER_PAGE = 50;
 
 /** Polling cadence while the step or item is still running. */
 const LIVE_REFRESH_MS = 2000;
+
+// SWR skips a refresh that lands inside its dedupe window, so a window as
+// long as the interval would halve the polling rate.
+function liveOptions(live: boolean) {
+  return {
+    refreshInterval: live ? LIVE_REFRESH_MS : 0,
+    dedupingInterval: LIVE_REFRESH_MS / 2,
+    keepPreviousData: true,
+    revalidateOnFocus: false,
+  };
+}
 
 function routeOf(ref: ForeachStepRef) {
   const sub = isSubDAGRun(ref.dagRun);
@@ -50,11 +61,7 @@ export function useForeachItems(
     page: query.page,
     perPage: FOREACH_ITEMS_PER_PAGE,
   };
-  const options = {
-    refreshInterval: live ? LIVE_REFRESH_MS : 0,
-    keepPreviousData: true,
-    revalidateOnFocus: false,
-  };
+  const options = liveOptions(live);
   const rootQuery = useQuery(
     '/dag-runs/{name}/{dagRunId}/steps/{stepName}/foreach',
     whenEnabled(!sub, { params: { query: queryParams, path } }),
@@ -71,14 +78,14 @@ export function useForeachItems(
 }
 
 /** Reads one foreach item with its body steps, polling while live. */
-export function useForeachItem(ref: ForeachStepRef, item: string, live: boolean) {
+export function useForeachItem(
+  ref: ForeachStepRef,
+  item: string,
+  live: boolean
+) {
   const remoteNode = useRemoteNode();
   const { sub, path, subDAGRunId } = routeOf(ref);
-  const options = {
-    refreshInterval: live ? LIVE_REFRESH_MS : 0,
-    keepPreviousData: true,
-    revalidateOnFocus: false,
-  };
+  const options = liveOptions(live);
   const rootQuery = useQuery(
     '/dag-runs/{name}/{dagRunId}/steps/{stepName}/foreach/{item}',
     whenEnabled(!sub, {

@@ -20,7 +20,7 @@ import {
   FOREACH_ITEMS_PER_PAGE,
   type ForeachStepRef,
   useForeachItems,
-} from './useForeachQueries';
+} from '../../../hooks/useForeachQueries';
 
 type ForeachItemSummary = components['schemas']['ForeachItemSummary'];
 type ForeachItemCounts = components['schemas']['ForeachItemCounts'];
@@ -33,11 +33,31 @@ const FILTERS: Array<{
   label: string;
   count: (counts: ForeachItemCounts) => number;
 }> = [
-  { value: ForeachItemStatusFilter.failed, label: 'Failed', count: (c) => c.failed },
-  { value: ForeachItemStatusFilter.aborted, label: 'Aborted', count: (c) => c.aborted },
-  { value: ForeachItemStatusFilter.running, label: 'Running', count: (c) => c.running },
-  { value: ForeachItemStatusFilter.succeeded, label: 'Succeeded', count: (c) => c.succeeded },
-  { value: ForeachItemStatusFilter.not_started, label: 'Not started', count: (c) => c.notStarted },
+  {
+    value: ForeachItemStatusFilter.failed,
+    label: 'Failed',
+    count: (c) => c.failed,
+  },
+  {
+    value: ForeachItemStatusFilter.aborted,
+    label: 'Aborted',
+    count: (c) => c.aborted,
+  },
+  {
+    value: ForeachItemStatusFilter.running,
+    label: 'Running',
+    count: (c) => c.running,
+  },
+  {
+    value: ForeachItemStatusFilter.succeeded,
+    label: 'Succeeded',
+    count: (c) => c.succeeded,
+  },
+  {
+    value: ForeachItemStatusFilter.not_started,
+    label: 'Not started',
+    count: (c) => c.notStarted,
+  },
 ];
 
 type Props = {
@@ -129,10 +149,7 @@ export function ForeachItemsSection({
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         {depth === 0 ? <SectionHeading /> : <span />}
         <span className="tabular-nums text-xs text-muted-foreground">
-          <I18nText
-            text={'{done} of {total} done'}
-            values={{ done, total }}
-          />
+          <I18nText text={'{done} of {total} done'} values={{ done, total }} />
         </span>
       </div>
       {live && (
@@ -150,7 +167,11 @@ export function ForeachItemsSection({
         </div>
       )}
       {visibleFilters.length > 1 && (
-        <div className="flex flex-wrap gap-1" role="group" aria-label={ts('Items')}>
+        <div
+          className="flex flex-wrap gap-1"
+          role="group"
+          aria-label={ts('Items')}
+        >
           <FilterChip
             active={filter === 'all'}
             onClick={() => selectFilter('all')}
@@ -229,8 +250,7 @@ function FilterChip({
           : 'border-border bg-background text-muted-foreground hover:bg-muted'
       )}
     >
-      <I18nText text={label} />{' '}
-      <span className="tabular-nums">{count}</span>
+      <I18nText text={label} /> <span className="tabular-nums">{count}</span>
     </button>
   );
 }
@@ -270,7 +290,10 @@ function ItemRow({
           #{item.index}
         </span>
         {showKey && (
-          <span className="min-w-0 flex-1 truncate font-medium" title={item.key}>
+          <span
+            className="min-w-0 flex-1 truncate font-medium"
+            title={item.key}
+          >
             {item.key}
           </span>
         )}

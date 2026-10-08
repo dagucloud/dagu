@@ -188,6 +188,7 @@ function DAGStatus({
     stream: Stream;
     node?: components['schemas']['Node'];
     foreach?: ForeachLogTarget;
+    bodyStepStatus?: NodeStatus;
   }>({
     isOpen: false,
     logType: 'step',
@@ -1095,7 +1096,7 @@ function DAGStatus({
               node
             )
           }
-          onViewBodyStepLog={(bodyStepName, foreach, stream) =>
+          onViewBodyStepLog={(bodyStepName, foreach, stream, bodyStepStatus) =>
             setLogViewer({
               isOpen: true,
               logType: 'step',
@@ -1103,6 +1104,7 @@ function DAGStatus({
               dagRunId: displayDAGRun.dagRunId,
               stream,
               foreach,
+              bodyStepStatus,
             })
           }
           onOpenSubRun={(node, subRunIndex) => openSubRunAt(node, subRunIndex)}
@@ -1120,6 +1122,7 @@ function DAGStatus({
           stream={logViewer.stream}
           node={logViewer.node}
           foreach={logViewer.foreach}
+          bodyStepStatus={logViewer.bodyStepStatus}
         />
 
         {/* Parallel execution selection modal */}

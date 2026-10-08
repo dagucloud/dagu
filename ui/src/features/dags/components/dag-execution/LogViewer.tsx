@@ -1,7 +1,8 @@
 import React from 'react';
-import { components, Stream } from '../../../../api/v1/schema';
+import { components, NodeStatus, Stream } from '../../../../api/v1/schema';
 import ExecutionLog from './ExecutionLog';
 import LogSideModal from './LogSideModal';
+import ForeachBodyStepLog from './ForeachBodyStepLog';
 import StepLog from './StepLog';
 import type { ForeachLogTarget } from '../../hooks/useStepLogQuery';
 
@@ -18,6 +19,8 @@ type LogViewerProps = {
   node?: components['schemas']['Node'];
   /** Shows a body step log of a foreach item; stepName is then the body step */
   foreach?: ForeachLogTarget;
+  /** Status of the foreach body step when the viewer opened */
+  bodyStepStatus?: NodeStatus;
 };
 
 /**
@@ -36,6 +39,7 @@ const LogViewer: React.FC<LogViewerProps> = ({
   stream = Stream.stdout,
   node,
   foreach,
+  bodyStepStatus,
 }) => {
   // Determine the title based on the log type
   const stepTitle = foreach
@@ -59,13 +63,20 @@ const LogViewer: React.FC<LogViewerProps> = ({
     >
       <div className="h-full">
         {logType === 'execution' ? (
-          <ExecutionLog
-            name={dagName}
-            dagRunId={dagRunId}
-            dagRun={dagRun}
-          />
+          <ExecutionLog name={dagName} dagRunId={dagRunId} dagRun={dagRun} />
         ) : (
-          stepName && (
+          stepName &&
+          (foreach ? (
+            <ForeachBodyStepLog
+              dagName={dagName}
+              dagRunId={dagRunId}
+              dagRun={dagRun}
+              bodyStepName={stepName}
+              foreach={foreach}
+              stream={stream}
+              initialStatus={bodyStepStatus}
+            />
+          ) : (
             <StepLog
               dagName={dagName}
               dagRunId={dagRunId}
@@ -73,9 +84,8 @@ const LogViewer: React.FC<LogViewerProps> = ({
               dagRun={dagRun}
               stream={stream}
               node={node}
-              foreach={foreach}
             />
-          )
+          ))
         )}
       </div>
     </LogSideModal>

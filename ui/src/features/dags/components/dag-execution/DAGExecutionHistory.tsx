@@ -137,6 +137,7 @@ function DAGHistoryTable({
     dagRunId: string;
     stream: Stream;
     foreach?: ForeachLogTarget;
+    bodyStepStatus?: NodeStatus;
   }>({
     isOpen: false,
     logType: 'step',
@@ -544,6 +545,7 @@ function DAGHistoryTable({
                 dagRun={selectedDAGRun}
                 stream={logViewer.stream}
                 foreach={logViewer.foreach}
+                bodyStepStatus={logViewer.bodyStepStatus}
               />
             </React.Fragment>
           ) : null}
@@ -574,7 +576,12 @@ function DAGHistoryTable({
                 stream: stream === 'stderr' ? Stream.stderr : Stream.stdout,
               });
             }}
-            onViewBodyStepLog={(bodyStepName, foreach, stream) => {
+            onViewBodyStepLog={(
+              bodyStepName,
+              foreach,
+              stream,
+              bodyStepStatus
+            ) => {
               if (!selectedDAGRun) {
                 return;
               }
@@ -585,6 +592,7 @@ function DAGHistoryTable({
                 dagRunId: selectedDAGRun.dagRunId,
                 stream,
                 foreach,
+                bodyStepStatus,
               });
             }}
             onOpenSubRun={(node, subRunIndex) => {

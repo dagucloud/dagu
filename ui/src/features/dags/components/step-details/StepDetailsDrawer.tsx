@@ -511,9 +511,9 @@ export function StepDetailsDrawer({
               dagRun={dagRun}
               onViewBodyStepLog={
                 onViewBodyStepLog
-                  ? (bodyStepName, foreach, stream) => {
+                  ? (bodyStepName, foreach, stream, status) => {
                       onClose();
-                      onViewBodyStepLog(bodyStepName, foreach, stream);
+                      onViewBodyStepLog(bodyStepName, foreach, stream, status);
                     }
                   : undefined
               }
