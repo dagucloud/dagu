@@ -85,7 +85,7 @@ blank, distinct, values, min, max, odd, and odd_cells.
 	}
 	cmd.Flags().IntP("rows", "n", 5, "Typed sample rows to show per sheet")
 	cmd.Flags().String("sheet", "", "Describe this sheet only")
-	cmd.Flags().String("password", "", "Password of a protected workbook; prefer DAGU_XLSX_PASSWORD, which stays out of the process list and shell history")
+	cmd.Flags().String("password", "", "Password of a protected workbook; prefer DAGU_XLSX_PASSWORD, which keeps it out of the process list")
 	cmd.Flags().StringP("format", "f", "text", "Output format: text or json (default: text)")
 	return cmd
 }
@@ -122,7 +122,7 @@ set.
 	cmd.Flags().String("columns", "", "Columns to keep, comma-separated, with optional name:alias renames")
 	cmd.Flags().Int("max-rows", 0, "Most rows to print (default 5000)")
 	cmd.Flags().Bool("skip-hidden", false, "Leave out rows hidden by a filter or by hand")
-	cmd.Flags().String("password", "", "Password of a protected workbook; prefer DAGU_XLSX_PASSWORD, which stays out of the process list and shell history")
+	cmd.Flags().String("password", "", "Password of a protected workbook; prefer DAGU_XLSX_PASSWORD, which keeps it out of the process list")
 	cmd.Flags().StringP("format", "f", "text", "Output format: text or json (default: text)")
 	return cmd
 }
