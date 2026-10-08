@@ -54,10 +54,10 @@ const (
 	settlePoll    = 100 * time.Millisecond
 )
 
-// watchExpression counts the page's requests in flight and notes when its
-// document last changed, once per document, so the end of what an action
-// starts on the page, such as a list the page fetches and draws, can be
-// told.
+// watchExpression counts the page's requests in flight, including reads of
+// their answers, and notes when its document last changed, once per document,
+// so the end of what an action starts on the page, such as a list the page
+// fetches and draws, can be told.
 const watchExpression = `(() => {
   if (window.__daguSettle) return true;
   const s = window.__daguSettle = {pending: 0, changed: Date.now()};
@@ -65,8 +65,16 @@ const watchExpression = `(() => {
   const done = () => { s.pending--; s.changed = Date.now(); };
   const fetch = window.fetch;
   if (fetch) window.fetch = function (...args) { start(); return fetch.apply(window, args).finally(done); };
+  for (const name of ['arrayBuffer', 'blob', 'bytes', 'formData', 'json', 'text']) {
+    const read = Response.prototype[name];
+    if (read) Response.prototype[name] = function (...args) { start(); return read.apply(this, args).finally(done); };
+  }
   const send = XMLHttpRequest.prototype.send;
-  XMLHttpRequest.prototype.send = function (...args) { start(); this.addEventListener('loadend', done, {once: true}); return send.apply(this, args); };
+  XMLHttpRequest.prototype.send = function (...args) {
+    start();
+    this.addEventListener('loadend', done, {once: true});
+    try { return send.apply(this, args); } catch (e) { done(); throw e; }
+  };
   new MutationObserver(() => { s.changed = Date.now(); }).observe(document, {subtree: true, childList: true, attributes: true, characterData: true});
   return true;
 })()`

@@ -313,11 +313,13 @@ func TestStagehandReplayHiddenElement(t *testing.T) {
 
 // servePager serves a page that draws its list from a request it makes on
 // load and again for each press of Next, as pages paged by buttons do. Each
-// answer takes a moment to arrive.
+// answer sends its headers at once and its body a moment later.
 func servePager(t *testing.T) string {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/rows" {
+			w.WriteHeader(http.StatusOK)
+			w.(http.Flusher).Flush()
 			time.Sleep(800 * time.Millisecond)
 			_, _ = fmt.Fprintf(w, "Row of page %s", r.URL.Query().Get("page"))
 			return
