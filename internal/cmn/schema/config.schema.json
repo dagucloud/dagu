@@ -1164,7 +1164,7 @@
         },
         "shutdown_timeout": {
           "type": "string",
-          "description": "How long a worker stopping on SIGINT or SIGTERM drains running DAG runs before it cancels them. Default: '60s'. Set to '0' to wait without a bound. Keep the supervisor's stop timeout above this value (systemd TimeoutStopSec defaults to 90s, docker stop to 10s, Kubernetes terminationGracePeriodSeconds to 30s)."
+          "description": "How long a worker stopping on SIGINT or SIGTERM drains running DAG runs before it cancels them. Default: '60s'. Set to '0' to wait without a bound. Set the supervisor's stop timeout at least 15s above this value (systemd TimeoutStopSec defaults to 90s, docker stop to 10s, Kubernetes terminationGracePeriodSeconds to 30s)."
         },
         "labels": {
           "oneOf": [

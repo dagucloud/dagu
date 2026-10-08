@@ -65,10 +65,10 @@ Example:
 This process runs continuously in the foreground until terminated. On SIGINT or
 SIGTERM it stops polling and lets running DAG runs finish their cleanup and
 lifecycle handlers. Once --worker.shutdown-timeout has passed, it cancels the
-runs that are still going. Keep the supervisor's stop timeout above this value
-(systemd TimeoutStopSec defaults to 90s, docker stop to 10s, Kubernetes
-terminationGracePeriodSeconds to 30s), or the process is killed before the
-canceled runs report their final status.
+runs that are still going. Set the supervisor's stop timeout at least 15s above
+this value (systemd TimeoutStopSec defaults to 90s, docker stop to 10s,
+Kubernetes terminationGracePeriodSeconds to 30s), or the process is killed
+before the canceled runs report their final status.
 `,
 		}, workerFlags, runWorker,
 	)

@@ -311,8 +311,9 @@ func (w *Worker) Start(ctx context.Context) error {
 // SIGTERM and Stop blocks until it finishes its cleanup window
 // (max_clean_up_time_sec) and lifecycle handlers, so Stop can take that long
 // plus handler time. The ctx deadline bounds the wait: when it is reached, Stop
-// cancels the remaining runs and allows them up to 10 seconds to exit and report
-// their final status. Without a deadline, Stop waits for every run.
+// cancels the remaining runs, allows them up to 10 seconds to exit and report
+// their final status, then up to 5 seconds to release its resources. Without a
+// deadline, Stop waits for every run.
 func (w *Worker) Stop(ctx context.Context) error {
 	if w == nil || w.inner == nil {
 		return nil
