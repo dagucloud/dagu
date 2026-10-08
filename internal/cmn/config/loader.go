@@ -1347,10 +1347,15 @@ func (l *ConfigLoader) loadWorkerConfig(cfg *Config, def Definition) {
 	l.setPostgresPoolDefaults(&cfg.Worker.PostgresPool)
 }
 
-// loadWorkerShutdownTimeout sets worker.shutdown_timeout. It defaults to 60s,
-// also when the value is not a valid duration, and 0 disables the bound.
+// defaultWorkerShutdownTimeout sits under the 90s systemd TimeoutStopSec
+// default with room for the worker's post-deadline cleanup.
+const defaultWorkerShutdownTimeout = 60 * time.Second
+
+// loadWorkerShutdownTimeout sets worker.shutdown_timeout. It defaults to
+// defaultWorkerShutdownTimeout, also when the value is not a valid duration,
+// and 0 disables the bound.
 func (l *ConfigLoader) loadWorkerShutdownTimeout(cfg *Config, def Definition) {
-	cfg.Worker.ShutdownTimeout = 60 * time.Second
+	cfg.Worker.ShutdownTimeout = defaultWorkerShutdownTimeout
 	if def.Worker == nil || def.Worker.ShutdownTimeout == "" {
 		return
 	}
