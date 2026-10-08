@@ -29,6 +29,9 @@ import (
 
 var errNoCommandSpecified = fmt.Errorf("no command specified")
 
+// errStoppedBeforeStart reports a step stopped before its command started.
+var errStoppedBeforeStart = errors.New("step stopped before its command started")
+
 var _ executor.Executor = (*commandExecutor)(nil)
 var _ executor.Stopper = (*commandExecutor)(nil)
 var _ executor.ExitCoder = (*commandExecutor)(nil)
@@ -39,6 +42,9 @@ type commandExecutor struct {
 	process    *cmdutil.ManagedProcess
 	scriptFile string
 	exitCode   int
+	// stoppedBeforeStart records a termination requested before the process
+	// existed, so Run does not start the command afterwards.
+	stoppedBeforeStart bool
 	// stderrTail stores a rolling tail of recent stderr lines
 	stderrTail *executor.TailWriter
 }
@@ -50,6 +56,13 @@ func (e *commandExecutor) ExitCode() int {
 
 func (e *commandExecutor) Run(ctx context.Context) error {
 	e.mu.Lock()
+
+	// Run holds the lock until the process exists, so a stop either lands
+	// here or reaches the started process.
+	if e.stoppedBeforeStart {
+		e.mu.Unlock()
+		return errStoppedBeforeStart
+	}
 
 	if e.config.Script != "" {
 		scriptFile, err := setupScriptForExecution(e.config.Dir, e.config.Script, e.config.Command, e.config.Shell, e.config.UserSpecifiedShell)
@@ -172,6 +185,11 @@ func (e *commandExecutor) stop(req cmdutil.StopRequest) error {
 	defer e.mu.Unlock()
 
 	if e.process == nil {
+		// A signal for a process that does not exist yet cannot be
+		// delivered; only a termination is kept, as a reason not to start.
+		if req.Intent.IsTermination() {
+			e.stoppedBeforeStart = true
+		}
 		return nil
 	}
 	_, err := e.process.Stop(req)

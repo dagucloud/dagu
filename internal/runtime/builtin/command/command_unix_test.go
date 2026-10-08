@@ -6,6 +6,7 @@
 package command
 
 import (
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -19,6 +20,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/stretchr/testify/require"
 )
 
@@ -141,4 +143,61 @@ func isSIGKILLExitError(err error) bool {
 	}
 	status, ok := exitErr.Sys().(syscall.WaitStatus)
 	return ok && status.Signaled() && status.Signal() == syscall.SIGKILL
+}
+
+// A step can be stopped after its executor exists but before its process
+// starts, for example when the coordinator rejects the attempt while the
+// step is being set up. That stop must not be lost: the command must not
+// start and run to completion as if nothing had been asked.
+func TestCommandExecutor_StopBeforeStart(t *testing.T) {
+	newSleep := func(t *testing.T) (context.Context, executor.Executor) {
+		t.Helper()
+		ctx := setupTestContext(t, nil, ir.Step{})
+		exec, err := NewCommand(ctx, ir.Step{
+			Name:     "sleep",
+			Commands: []ir.CommandEntry{{Command: "sleep", Args: []string{"30"}, CmdWithArgs: "sleep 30"}},
+		})
+		require.NoError(t, err)
+		return ctx, exec
+	}
+
+	t.Run("TerminationSkipsTheCommand", func(t *testing.T) {
+		ctx, exec := newSleep(t)
+		require.NoError(t, exec.(executor.Stopper).Stop(cmdutil.TerminationFromSignal(syscall.SIGTERM)))
+
+		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		err := exec.Run(ctx)
+		require.ErrorIs(t, err, errStoppedBeforeStart)
+		require.NoError(t, ctx.Err(), "the command ran instead of honouring the stop")
+	})
+
+	t.Run("TerminationSkipsRemainingCommands", func(t *testing.T) {
+		marker := filepath.Join(t.TempDir(), "second-ran")
+		ctx := setupTestContext(t, nil, ir.Step{})
+		exec, err := NewCommand(ctx, ir.Step{
+			Name: "two",
+			Commands: []ir.CommandEntry{
+				{Command: "true", CmdWithArgs: "true"},
+				{Command: "touch", Args: []string{marker}, CmdWithArgs: "touch " + marker},
+			},
+		})
+		require.NoError(t, err)
+		require.NoError(t, exec.Kill(syscall.SIGTERM))
+
+		err = exec.Run(ctx)
+		require.ErrorIs(t, err, errStoppedBeforeStart)
+		require.NoFileExists(t, marker)
+	})
+
+	t.Run("NonTerminationSignalStillRuns", func(t *testing.T) {
+		ctx := setupTestContext(t, nil, ir.Step{})
+		exec, err := NewCommand(ctx, ir.Step{
+			Name:     "true",
+			Commands: []ir.CommandEntry{{Command: "true", CmdWithArgs: "true"}},
+		})
+		require.NoError(t, err)
+		require.NoError(t, exec.Kill(syscall.SIGWINCH))
+		require.NoError(t, exec.Run(ctx))
+	})
 }
