@@ -367,7 +367,7 @@ func (e *foreachExecutor) runItem(ctx context.Context, item expandedItem) itemRe
 	if err != nil {
 		return failed(err)
 	}
-	recorder.started(ctx, plan)
+	recorder.planned(plan)
 
 	runner := runtime.New(&runtime.Config{
 		LogDir:   logDir,

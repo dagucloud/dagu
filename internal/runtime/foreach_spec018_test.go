@@ -199,6 +199,49 @@ func TestForeachRuntimeRecordsItems(t *testing.T) {
 	assert.FileExists(t, filepath.Join(base, "1", item.Steps[0].Stderr))
 }
 
+// A running item's record follows its body while the item is still going,
+// so it can be inspected before the step finishes.
+func TestForeachRuntimeRecordsRunningItem(t *testing.T) {
+	probeType, _ := registerForeachProbeExecutor(t)
+	r := setupRunner(t)
+	release := filepath.Join(t.TempDir(), "release")
+
+	parent := foreachRuntimeStep(probeType, []any{map[string]any{"slug": "one", "url": "one"}}, 1)
+	parent.Foreach.Steps[0].ExecutorConfig.Config["wait_for_file"] = release
+	ph := r.newPlan(t, parent)
+	recordPath := filepath.Join(ph.cfg.LogDir, "foreach", "each", "0", "status.json")
+
+	// The body stays blocked until the running record is seen or the wait
+	// gives up; the record observed is checked once the run is over.
+	observed := make(chan ir.ForeachItemStatus, 1)
+	go func() {
+		defer func() { _ = os.WriteFile(release, nil, 0600) }()
+		deadline := time.Now().Add(platformTestDuration(10*time.Second, 20*time.Second))
+		for time.Now().Before(deadline) {
+			var record ir.ForeachItemStatus
+			if data, err := os.ReadFile(recordPath); err == nil && json.Unmarshal(data, &record) == nil &&
+				len(record.Steps) == 1 && record.Steps[0].Status == ir.NodeRunning {
+				observed <- record
+				return
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		close(observed)
+	}()
+
+	ph.assertRun(t, ir.Succeeded)
+
+	record, ok := <-observed
+	require.True(t, ok, "the item record never showed the running body step")
+	assert.Equal(t, ir.NodeRunning, record.Status)
+	assert.Empty(t, record.FinishedAt)
+
+	var final ir.ForeachItemStatus
+	readJSONFile(t, recordPath, &final)
+	assert.Equal(t, ir.NodeSucceeded, final.Status)
+	assert.Equal(t, ir.NodeSucceeded, final.Steps[0].Status)
+}
+
 func readJSONFile(t *testing.T, path string, v any) {
 	t.Helper()
 	data, err := os.ReadFile(path)
@@ -375,6 +418,22 @@ func (e *foreachProbeExecutor) Run(ctx context.Context) error {
 		}
 		if err := e.state.waitForActive(ctx, minimum); err != nil {
 			return err
+		}
+	}
+
+	// wait_for_file holds the body until the named file exists.
+	if path := stringConfigValue(e.cfg["wait_for_file"]); path != "" {
+		ticker := time.NewTicker(10 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			if _, err := os.Stat(path); err == nil {
+				break
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-ticker.C:
+			}
 		}
 	}
 

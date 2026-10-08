@@ -23,6 +23,11 @@ import (
 // and never fails the item or the step, and they are not fsynced, so a body
 // step transition never waits on the disk.
 
+// recordInterval bounds how often a running item's record is rewritten.
+// Readers poll every few seconds, so a fast item is written once, when it
+// finishes, and a slow one at most once per interval while it changes.
+const recordInterval = time.Second
+
 // writeItems records the expanded items of the step in its foreach directory.
 func writeItems(ctx context.Context, stepDir string, items []expandedItem) {
 	record := ir.ForeachItems{Total: len(items), Items: make([]ir.ForeachItemRef, len(items))}
@@ -46,18 +51,31 @@ func newItemRecorder(dir string, item expandedItem) *itemRecorder {
 	return &itemRecorder{dir: dir, item: item, startedAt: time.Now()}
 }
 
-// started records the item as running before its first body step starts.
-func (r *itemRecorder) started(ctx context.Context, plan *runtime.Plan) {
+// planned gives the recorder the body plan whose steps it records.
+func (r *itemRecorder) planned(plan *runtime.Plan) {
 	r.plan = plan
-	r.write(ctx, ir.NodeRunning, "", time.Time{})
 }
 
-// progress records body step changes. The runner is released before the
-// write so the record never holds up the body.
+// progress releases the runner on every body step change and rewrites the
+// record at most once per recordInterval, so writes never pace the body.
 func (r *itemRecorder) progress(ctx context.Context, updates <-chan runtime.ProgressUpdate) {
-	for update := range updates {
-		update.Ack(nil)
-		r.write(ctx, ir.NodeRunning, "", time.Time{})
+	ticker := time.NewTicker(recordInterval)
+	defer ticker.Stop()
+	changed := false
+	for {
+		select {
+		case update, ok := <-updates:
+			if !ok {
+				return
+			}
+			update.Ack(nil)
+			changed = true
+		case <-ticker.C:
+			if changed {
+				r.write(ctx, ir.NodeRunning, "", time.Time{})
+				changed = false
+			}
+		}
 	}
 }
 
