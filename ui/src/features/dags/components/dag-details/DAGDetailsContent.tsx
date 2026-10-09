@@ -68,6 +68,9 @@ type DAGDetailsContentProps = {
   fillHeight?: boolean;
 };
 
+// Form-like tabs keep a readable line length on wide screens.
+const FORM_TAB_MAX_WIDTH = 'w-full max-w-5xl';
+
 type LogViewerState = {
   isOpen: boolean;
   logType: 'execution' | 'step';
@@ -547,25 +550,31 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
           ) : null}
           {activeTab === 'settings' ? (
             <>
-              <DAGSettingsTab fileName={fileName || ''} />
+              <div className={FORM_TAB_MAX_WIDTH}>
+                <DAGSettingsTab fileName={fileName || ''} />
+              </div>
               <div className="h-6 flex-shrink-0" />
             </>
           ) : null}
           {activeTab === 'notifications' ? (
             <>
-              <NotificationsTab
-                fileName={fileName || ''}
-                workspaceName={dagWorkspaceName}
-              />
+              <div className={FORM_TAB_MAX_WIDTH}>
+                <NotificationsTab
+                  fileName={fileName || ''}
+                  workspaceName={dagWorkspaceName}
+                />
+              </div>
               <div className="h-6 flex-shrink-0" />
             </>
           ) : null}
           {activeTab === 'incidents' ? (
             <>
-              <IncidentsTab
-                fileName={fileName || ''}
-                workspaceName={dagWorkspaceName}
-              />
+              <div className={FORM_TAB_MAX_WIDTH}>
+                <IncidentsTab
+                  fileName={fileName || ''}
+                  workspaceName={dagWorkspaceName}
+                />
+              </div>
               <div className="h-6 flex-shrink-0" />
             </>
           ) : null}
