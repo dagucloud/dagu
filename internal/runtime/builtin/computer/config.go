@@ -218,6 +218,27 @@ func (o operation) promptTexts() []string {
 	return texts
 }
 
+// subject is what an operation's timeline event names it by.
+func (o operation) subject() string {
+	switch {
+	case o.Launch != nil:
+		return strings.Join(append([]string{o.Launch.Command}, o.Launch.Args...), " ")
+	case o.Act != nil:
+		return o.Act.Instruction
+	case o.Extract != nil:
+		return o.Extract.Instruction
+	case o.Expect != nil:
+		return o.Expect.Statement
+	case o.Wait != "":
+		return o.Wait
+	case o.Screenshot != "":
+		return o.Screenshot
+	case o.Ask != nil:
+		return o.Ask.Prompt
+	}
+	return ""
+}
+
 func (o operation) timeout() time.Duration {
 	if d, err := time.ParseDuration(o.Timeout); err == nil && d > 0 {
 		return d

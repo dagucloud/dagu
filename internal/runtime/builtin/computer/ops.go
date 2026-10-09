@@ -136,7 +136,9 @@ func (r *run) execute(ctx context.Context) error {
 			began, before := time.Now(), r.usage
 			holds, reason, err := r.await(ctx, *op.When, op.timeout())
 			if err != nil {
-				return r.fail(ctx, i, op.kind(), fmt.Errorf("evaluate when: %w", err))
+				err = fmt.Errorf("evaluate when: %w", err)
+				r.reportFailure(i, op.kind(), op.When.Statement, err, began, before)
+				return r.fail(ctx, i, op.kind(), err)
 			}
 			if !holds {
 				r.timeline.Operation(agentstep.Report{
@@ -149,11 +151,31 @@ func (r *run) execute(ctx context.Context) error {
 		if op.Ask != nil {
 			return r.waitForInput(ctx, i, *op.Ask)
 		}
+		began, before := time.Now(), r.usage
 		if err := r.runOperation(ctx, i, op); err != nil {
+			r.reportFailure(i, op.kind(), op.subject(), err, began, before)
 			return r.fail(ctx, i, op.kind(), err)
 		}
 	}
 	return r.succeed(ctx)
+}
+
+// reportFailure records the operation that failed with how it ran and what
+// it cost, so a run attributes the model turns a failure used to it. The
+// step's failure that follows carries the screenshot.
+func (r *run) reportFailure(index int, kind, subject string, cause error, began time.Time, before tokenUsage) {
+	tokens := r.usage.sub(before).total()
+	via := ""
+	switch {
+	case tokens > 0:
+		via = agentstep.ViaModel
+	case errors.As(cause, new(replayMiss)):
+		via = agentstep.ViaScreen
+	}
+	r.timeline.Operation(agentstep.Report{
+		Index: index, Kind: kind, Subject: subject, Status: agentstep.StatusFailed, Via: via,
+		Detail: cause.Error(), Tokens: tokens, Duration: time.Since(began),
+	})
 }
 
 // start takes the desktop and returns the first operation to run.

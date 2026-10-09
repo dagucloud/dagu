@@ -293,6 +293,11 @@ func TestNeverReplaysOrFails(t *testing.T) {
 	require.ErrorContains(t, failed.err, "the act cannot run without AI: the screen differs from the recording at turn 1 of 1")
 	assert.Empty(t, run.backend.inputs(), "nothing is replayed on a screen that differs")
 	assert.Equal(t, ir.AgentSessionFailed, failed.exec.GetAgentSession().State)
+	missed := operationEvents(failed.exec.GetAgentSession())
+	require.Len(t, missed, 1)
+	assert.Equal(t, agentstep.StatusFailed, missed[0].Status)
+	assert.Equal(t, agentstep.ViaScreen, missed[0].Via, "a miss ran without AI")
+	assert.Zero(t, missed[0].Tokens)
 
 	run.llm = &ir.LLMConfig{Provider: "openai", Model: "test-model"}
 	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(50, 60)), done("Opened")}}}
@@ -430,7 +435,12 @@ func TestReplayKeptOnlyWhenStepSucceeds(t *testing.T) {
 	run.vision.truths = nil
 	failed := run.execute(steps, nil)
 	require.ErrorContains(t, failed.err, "expectation not met")
-	assert.Equal(t, []string{"act:cache-hit"}, eventNames(failed.exec.GetAgentSession()))
+	assert.Equal(t, []string{"act:cache-hit", "expect:failed"}, eventNames(failed.exec.GetAgentSession()))
+	// The failed check records what it cost, like any other operation.
+	events := operationEvents(failed.exec.GetAgentSession())
+	assert.Equal(t, agentstep.ViaModel, events[1].Via)
+	assert.Equal(t, int64(6), events[1].Tokens)
+	assert.Contains(t, events[1].Content, "expectation not met")
 
 	run.vision.truths = shown
 	uncached := run.execute(steps, nil)
@@ -453,7 +463,7 @@ func TestReplayKeptWhenModelFails(t *testing.T) {
 	run.sessions = []*scriptedSession{{err: errors.New("overloaded")}}
 	failed := run.execute(steps, nil)
 	require.ErrorContains(t, failed.err, "overloaded")
-	assert.Equal(t, []string{"act:cache-hit"}, eventNames(failed.exec.GetAgentSession()))
+	assert.Equal(t, []string{"act:cache-hit", "act:failed"}, eventNames(failed.exec.GetAgentSession()))
 
 	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{done("Printed")}}}
 	replayed := run.execute(steps, nil)

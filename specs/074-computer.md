@@ -210,7 +210,9 @@ that does not set its own `ai`.
 
 Each operation's timeline event records `via`, how it ran: `screen` for a
 replay, `model` for a model request, and nothing for an operation that
-decides nothing, such as `launch`; with `durationMs` and `tokens`.
+decides nothing, such as `launch`; with `durationMs` and `tokens`. An
+operation that fails records its event the same way, with the failure as
+its detail, before the step's failure event that carries the screenshot.
 
 ### Replay cache
 
