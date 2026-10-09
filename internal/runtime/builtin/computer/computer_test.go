@@ -833,7 +833,8 @@ func TestWaitingForPersonIsNotTaskTime(t *testing.T) {
 	fresh.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(1, 1)), done("Clicked")}}}
 	fresh.backend.personKeepsUsing(100000)
 	gaveUp := fresh.execute(with, nil)
-	require.ErrorContains(t, gaveUp.err, "a person kept using the desktop for 50ms")
+	require.EqualError(t, gaveUp.err, "computer: do[0] act failed: "+
+		"a person kept using the desktop for 50ms, so the step gave up waiting")
 	assert.Empty(t, fresh.backend.inputs())
 }
 

@@ -120,7 +120,7 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 
 // drive runs the task with the models in order, after spent actions a
 // replay performed. A later model takes over only when an earlier one failed
-// before touching the desktop.
+// before touching the desktop, not when a person kept using it.
 func (r *run) drive(ctx context.Context, index int, spec actSpec, spent int) (actOutcome, error) {
 	if len(r.models) == 0 {
 		return actOutcome{}, errors.New("no model is configured")
@@ -131,7 +131,7 @@ func (r *run) drive(ctx context.Context, index int, spec actSpec, spent int) (ac
 		if err == nil {
 			return outcome, nil
 		}
-		if touched || ctx.Err() != nil {
+		if touched || ctx.Err() != nil || errors.Is(err, errDesktopInUse) {
 			return actOutcome{}, err
 		}
 		errs = append(errs, fmt.Errorf("%s: %w", m.label(), err))
