@@ -24,8 +24,8 @@ type Props = {
 };
 
 /**
- * DAGAttributes displays the metadata and configuration of a DAG
- * including name, schedule, description, and other properties
+ * DAGAttributes displays the configuration of a DAG, such as its schedule,
+ * parameters and run limits.
  */
 function DAGAttributes({ dag }: Props) {
   const { locale } = useI18n();
@@ -33,12 +33,6 @@ function DAGAttributes({ dag }: Props) {
 
   return (
     <div>
-      <h2 className="text-xl font-semibold text-foreground mb-4">{dag.name}</h2>
-
-      {dag.description && (
-        <p className="text-muted-foreground mb-6">{dag.description}</p>
-      )}
-
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Schedule */}
         <div className="space-y-1 md:col-span-2">

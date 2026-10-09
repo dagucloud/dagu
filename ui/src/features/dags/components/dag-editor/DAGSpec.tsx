@@ -685,6 +685,12 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
 
             {!fillGraph && (
               <>
+                {/* The page header describes only the parent DAG. */}
+                {activeTab !== 'parent' && dag.description && (
+                  <p className="whitespace-pre-line break-words text-muted-foreground">
+                    {dag.description}
+                  </p>
+                )}
                 <DAGAttributes dag={dag} />
 
                 {dag.steps ? (

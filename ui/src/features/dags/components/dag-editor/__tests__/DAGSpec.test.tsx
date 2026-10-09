@@ -181,7 +181,7 @@ function specData(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function renderSpec() {
+function renderSpec(props: Partial<React.ComponentProps<typeof DAGSpec>> = {}) {
   return render(
     <UserPreferencesProvider>
       <AppBarContext.Provider value={appBarValue}>
@@ -192,7 +192,7 @@ function renderSpec() {
             fileName: 'example.yaml',
           }}
         >
-          <DAGSpec fileName="example.yaml" />
+          <DAGSpec fileName="example.yaml" {...props} />
         </DAGContext.Provider>
       </AppBarContext.Provider>
     </UserPreferencesProvider>
@@ -648,5 +648,36 @@ describe('DAGSpec views', () => {
     expect(
       screen.queryByRole('button', { name: /save/i })
     ).not.toBeInTheDocument();
+  });
+
+  // The page header shows the parent's description but not a local DAG's.
+  it('describes a local DAG in its graph preview', () => {
+    mocks.useQuery.mockReturnValue(
+      specData({
+        dag: {
+          name: 'example',
+          description: 'Parent summary',
+          steps: [{ name: 'extract' }],
+        },
+      })
+    );
+    renderSpec({
+      localDags: [
+        {
+          name: 'child',
+          dag: {
+            name: 'child',
+            description: 'Child summary',
+            steps: [{ name: 'load' }],
+          },
+          errors: [],
+        },
+      ],
+    });
+    fireEvent.click(viewButton('Graph'));
+
+    expect(screen.queryByText('Parent summary')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'child' }));
+    expect(screen.getByText('Child summary')).toBeInTheDocument();
   });
 });

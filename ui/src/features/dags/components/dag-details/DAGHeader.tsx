@@ -67,6 +67,9 @@ const DAGHeader: React.FC<DAGHeaderProps> = ({
   const dagRunToDisplay = rootDAGRunContext.data || currentDAGRun;
 
   const displayName = dagRunToDisplay?.name || dag.name;
+  // A sub DAG run shown in this header is not described by this DAG.
+  const description =
+    displayName === dag.name ? dag.description?.trim() : undefined;
 
   // Calculate duration between start and end times
   const calculateDuration = React.useCallback(() => {
@@ -282,6 +285,14 @@ const DAGHeader: React.FC<DAGHeaderProps> = ({
               )}
             </span>
           </div>
+          {description && (
+            <p
+              className="mt-1 line-clamp-2 whitespace-pre-line break-words text-sm text-muted-foreground"
+              title={description}
+            >
+              {description}
+            </p>
+          )}
         </div>
 
         {showActions && (
