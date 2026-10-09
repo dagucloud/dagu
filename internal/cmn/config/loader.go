@@ -314,6 +314,7 @@ func (l *ConfigLoader) buildConfig(def Definition) (*Config, error) {
 		{SectionGitSync, func() { l.loadGitSyncConfig(&cfg, def) }},
 		{SectionTunnel, func() { l.loadTunnelConfig(&cfg, def) }},
 		{SectionLicense, func() { l.loadLicenseConfig(&cfg, def) }},
+		{SectionLicense, func() { l.loadCloudConfig(&cfg, def) }},
 	}
 
 	for _, sl := range sectionLoaders {
@@ -1732,6 +1733,13 @@ func (l *ConfigLoader) loadLicenseConfig(cfg *Config, def Definition) {
 	cfg.License.ServerName = def.License.ServerName
 }
 
+func (l *ConfigLoader) loadCloudConfig(cfg *Config, def Definition) {
+	cfg.Cloud.Report = true
+	if def.Cloud != nil && def.Cloud.Report != nil {
+		cfg.Cloud.Report = *def.Cloud.Report
+	}
+}
+
 func (l *ConfigLoader) loadExecutionModeConfig(cfg *Config, _ Definition) {
 	mode := ExecutionMode(l.v.GetString("default_execution_mode"))
 	if mode == "" {
@@ -2093,6 +2101,9 @@ func (l *ConfigLoader) setViperDefaultValues(paths Paths) {
 	// Webhooks
 	l.v.SetDefault("webhooks.max_payload_size", DefaultWebhookMaxPayloadSize)
 
+	// Dagu Console
+	l.v.SetDefault("cloud.report", true)
+
 	// Terminal
 	l.v.SetDefault("terminal.max_sessions", 5)
 
@@ -2332,6 +2343,9 @@ var envBindings = []envBinding{
 	{key: "license.key", env: "LICENSE_KEY"},
 	{key: "license.cloud_url", env: "LICENSE_CLOUD_URL"},
 	{key: "license.server_name", env: "LICENSE_SERVER_NAME"},
+
+	// Dagu Console
+	{key: "cloud.report", env: "CLOUD_REPORT"},
 
 	// GitSync
 	{key: "git_sync.enabled", env: "GITSYNC_ENABLED"},

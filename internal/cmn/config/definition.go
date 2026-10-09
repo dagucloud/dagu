@@ -100,6 +100,7 @@ type Definition struct {
 	GitSync    *GitSyncDef    `mapstructure:"git_sync"`
 	Tunnel     *TunnelDef     `mapstructure:"tunnel"`
 	License    *LicenseDef    `mapstructure:"license"`
+	Cloud      *CloudDef      `mapstructure:"cloud"`
 }
 
 // OpenCodeDef configures the process-local managed OpenCode service.
@@ -562,4 +563,9 @@ type LicenseDef struct {
 	Key        string `mapstructure:"key"`
 	CloudURL   string `mapstructure:"cloud_url"`
 	ServerName string `mapstructure:"server_name"`
+}
+
+// CloudDef configures what a licensed server shares with Dagu Console.
+type CloudDef struct {
+	Report *bool `mapstructure:"report"` // Default: true
 }

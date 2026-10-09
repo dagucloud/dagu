@@ -391,6 +391,7 @@ func TestLoad_Env(t *testing.T) {
 				BlockDurationSeconds: 1800,
 			},
 		},
+		Cloud:           CloudConfig{Report: true},
 		DefaultExecMode: ExecutionModeLocal,
 		Warnings: []string{fmt.Sprintf(
 			"paths.suspend_flags_dir %q is outside paths.data_dir %q; suspension state may diverge across Dagu processes",
@@ -629,6 +630,27 @@ license:
 	t.Run("Env", func(t *testing.T) {
 		t.Setenv("DAGU_LICENSE_SERVER_NAME", "prod-eu-1")
 		require.Equal(t, "prod-eu-1", testLoad(t).License.ServerName)
+	})
+}
+
+func TestLoad_CloudReport(t *testing.T) {
+	t.Run("Default", func(t *testing.T) {
+		t.Setenv("DAGU_CLOUD_REPORT", "")
+		require.True(t, testLoad(t).Cloud.Report)
+	})
+
+	t.Run("YAML", func(t *testing.T) {
+		t.Setenv("DAGU_CLOUD_REPORT", "")
+		cfg := loadFromYAML(t, `
+cloud:
+  report: false
+`)
+		require.False(t, cfg.Cloud.Report)
+	})
+
+	t.Run("Env", func(t *testing.T) {
+		t.Setenv("DAGU_CLOUD_REPORT", "false")
+		require.False(t, testLoad(t).Cloud.Report)
 	})
 }
 
@@ -952,6 +974,7 @@ scheduler:
 			Retention: 24 * time.Hour,
 			Interval:  5 * time.Second,
 		},
+		Cloud:           CloudConfig{Report: true},
 		DefaultExecMode: ExecutionModeLocal,
 		Warnings: []string{fmt.Sprintf(
 			"paths.suspend_flags_dir %q is outside paths.data_dir %q; suspension state may diverge across Dagu processes",

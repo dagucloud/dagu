@@ -41,6 +41,7 @@ type Config struct {
 	GitSync         GitSyncConfig
 	Tunnel          TunnelConfig
 	License         LicenseConfig
+	Cloud           CloudConfig
 	Notices         []string
 	Warnings        []string
 }
@@ -136,6 +137,13 @@ type LicenseConfig struct {
 	// ServerName identifies this server in Dagu Console. Empty means the
 	// hostname.
 	ServerName string
+}
+
+// CloudConfig holds what a server with an online license shares with Dagu
+// Console.
+type CloudConfig struct {
+	// Report sends the server's health to Dagu Console.
+	Report bool
 }
 
 // ExecutionMode represents the default execution mode for DAGs.
