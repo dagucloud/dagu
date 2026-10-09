@@ -172,10 +172,10 @@ after the screenshot the model answered, the step waits for the idle period
 again. If the screen then still looks like the one the model saw, overall
 and where each action lands, the actions run; otherwise they are not run,
 and the new screenshot is sent with a note saying why. Skipped actions do
-not count toward `max_actions`. The waiting
-counts toward the operation timeout; an operation whose timeout passes while
-a person keeps using the desktop fails. `idle: 0` turns the waiting and the
-skipping off.
+not count toward `max_actions`. The waiting does not count toward the
+operation timeout, which bounds what the step does, not what it waits for;
+a person who keeps using the desktop for an hour fails the operation.
+`idle: 0` turns the waiting and the skipping off.
 
 ### Variables and secrets
 

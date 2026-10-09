@@ -30,8 +30,10 @@ const (
 	// exactPollInterval spaces the looks of an exact check, which reads
 	// the window's elements and costs no model turn.
 	exactPollInterval = 250 * time.Millisecond
-	// defaultIdlePoll spaces the checks for a person using the desktop.
-	defaultIdlePoll = 500 * time.Millisecond
+	// defaultIdlePoll spaces the checks for a person using the desktop, and
+	// defaultPersonWait bounds how long a step waits for one to stop.
+	defaultIdlePoll   = 500 * time.Millisecond
+	defaultPersonWait = time.Hour
 	// artifactLongEdge keeps saved screenshots readable at a modest size.
 	artifactLongEdge = 1920
 	finalShotLabel   = "final"
@@ -63,8 +65,11 @@ type run struct {
 	driver      *desktop.Driver
 	// elements reads the front window for exact checks, opened on the
 	// first one.
-	elements  desktop.Elements
-	lease     *desktopLease
+	elements desktop.Elements
+	lease    *desktopLease
+	// clock is the working-time bound of the operation running, paused
+	// while the step waits for a person.
+	clock     *activeContext
 	variables map[string]string
 	// answers holds the values people gave to ask operations.
 	answers map[string]string
@@ -273,7 +278,7 @@ func (r *run) runOperation(ctx context.Context, index int, op operation) error {
 func (r *run) launch(ctx context.Context, index int, spec launchSpec, timeout time.Duration) error {
 	began := time.Now()
 	// A new window takes the keyboard focus from a person who is typing.
-	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	waitCtx, cancel := r.operationContext(ctx, timeout)
 	defer cancel()
 	if err := r.awaitPerson(waitCtx); err != nil {
 		return err
@@ -594,21 +599,40 @@ func (r *run) fail(ctx context.Context, index int, kind string, cause error) err
 	return errors.New("computer: " + message)
 }
 
-// errDesktopInUse reports a person who kept using the desktop until the
-// operation timed out.
-var errDesktopInUse = errors.New("a person kept using the desktop until the operation timed out")
+// errDesktopInUse reports a person who kept using the desktop for the
+// whole wait the step allows.
+var errDesktopInUse = errors.New("a person kept using the desktop for an hour, so the step gave up waiting")
+
+// operationContext bounds an operation by its working time: waiting for a
+// person does not count, so a task is not failed for someone typing in
+// another window.
+func (r *run) operationContext(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	clock, cancel := withActiveTimeout(ctx, timeout)
+	r.clock = clock
+	return clock, func() {
+		r.clock = nil
+		cancel()
+	}
+}
 
 // awaitPerson waits until nobody has used the desktop for the idle period,
-// so the step's input does not collide with a person's.
+// so the step's input does not collide with a person's. The wait is the
+// person's time, not the operation's, and has its own cap.
 func (r *run) awaitPerson(ctx context.Context) error {
 	idle := r.cfg.idle()
 	if idle <= 0 {
 		return nil
 	}
-	err := r.driver.WaitForIdle(ctx, idle, r.exec.idlePoll, func() {
+	if r.clock != nil {
+		r.clock.pause()
+		defer r.clock.resume()
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, r.exec.personWait)
+	defer cancel()
+	err := r.driver.WaitForIdle(waitCtx, idle, r.exec.idlePoll, func() {
 		r.timeline.Waiting(waitReasonPerson, fmt.Sprintf("Waiting until nobody has used the desktop for %s", idle))
 	})
-	if errors.Is(err, context.DeadlineExceeded) {
+	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
 		return errDesktopInUse
 	}
 	return err

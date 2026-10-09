@@ -810,6 +810,33 @@ func TestWaitsForIdleDesktop(t *testing.T) {
 	}
 }
 
+// Waiting for a person is not the task's time: an act whose time limit is
+// shorter than the wait still completes, and only a person who never stops
+// fails it, after the wait the step allows.
+func TestWaitingForPersonIsNotTaskTime(t *testing.T) {
+	t.Parallel()
+
+	const with = `{"idle": "100ms", "do": [{"act": {"instruction": "Click", "max_actions": 5}, "timeout": "300ms"}]}`
+	run := newTestRun(t)
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(1, 1)), done("Clicked")}}}
+	// Each check finds the person at the desktop, so the wait outlasts the
+	// time limit by itself.
+	run.backend.personKeepsUsing(600)
+	execution := run.execute(with, nil)
+	require.NoError(t, execution.err)
+	assert.Equal(t, []string{"act:completed"}, eventNames(execution.exec.GetAgentSession()))
+
+	// A step that has sent no input of its own takes every input for the
+	// person's, and gives up once the wait it allows has passed.
+	fresh := newTestRun(t)
+	fresh.personWait = 50 * time.Millisecond
+	fresh.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(1, 1)), done("Clicked")}}}
+	fresh.backend.personKeepsUsing(100000)
+	gaveUp := fresh.execute(with, nil)
+	require.ErrorContains(t, gaveUp.err, "a person kept using the desktop")
+	assert.Empty(t, fresh.backend.inputs())
+}
+
 // Actions the model chose on a screen a person has since used are not run;
 // the model sees the new screen and why.
 func TestPersonInputSkipsStaleTurn(t *testing.T) {

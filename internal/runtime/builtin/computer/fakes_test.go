@@ -395,7 +395,9 @@ type testRun struct {
 	sessions []*scriptedSession
 	// sessionErrors fails session creation for the named models.
 	sessionErrors map[string]error
-	launches      [][]string
+	// personWait, when set, bounds how long a step waits for a person.
+	personWait time.Duration
+	launches   [][]string
 }
 
 func newTestRun(t *testing.T) *testRun {
@@ -464,6 +466,9 @@ func (r *testRun) execute(withJSON string, session *ir.AgentSession) *stepExecut
 	execution.exec.settle = settleTiming{timeout: time.Millisecond}
 	execution.exec.desktopLock = r.desktopLock
 	execution.exec.idlePoll = time.Millisecond
+	if r.personWait > 0 {
+		execution.exec.personWait = r.personWait
+	}
 	execution.exec.SetStdout(&execution.stdout)
 	execution.exec.SetStderr(&execution.stderr)
 	execution.exec.SetAgentSession(session)

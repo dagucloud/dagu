@@ -50,10 +50,12 @@ type computerExecutor struct {
 	// desktopLock is the directory of the lock that gives one step at a
 	// time the desktop; empty uses the data directory.
 	desktopLock string
-	// idlePoll spaces the checks for a person using the desktop.
-	idlePoll time.Duration
-	stdout   io.Writer
-	stderr   io.Writer
+	// idlePoll spaces the checks for a person using the desktop, and
+	// personWait is how long a step waits for one before giving up.
+	idlePoll   time.Duration
+	personWait time.Duration
+	stdout     io.Writer
+	stderr     io.Writer
 
 	mu            sync.Mutex
 	cancel        context.CancelFunc
@@ -80,6 +82,7 @@ func newExecutor(_ context.Context, step ir.Step) (executor.Executor, error) {
 		settle:       defaultSettle,
 		desktopLock:  userDesktopLock(),
 		idlePoll:     defaultIdlePoll,
+		personWait:   defaultPersonWait,
 		stdout:       os.Stdout,
 		stderr:       os.Stderr,
 	}, nil

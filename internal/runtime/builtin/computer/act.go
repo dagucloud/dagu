@@ -47,7 +47,7 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 			return fmt.Errorf("the instruction uses %%%s%%, but the ask that sets it did not run", name)
 		}
 	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	ctx, cancel := r.operationContext(ctx, timeout)
 	defer cancel()
 	began, before := time.Now(), r.usage
 
