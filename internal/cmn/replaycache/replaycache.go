@@ -4,8 +4,10 @@
 package replaycache
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -85,6 +87,29 @@ func (c *Store) Clear(dagName, stepKey string) ([]string, error) {
 		return nil, err
 	}
 	return steps, nil
+}
+
+// Drop removes the records of one step that drop accepts, under the lock a
+// run takes to change the file, and returns how many it removed. A step
+// without records has nothing to drop.
+func (c *Store) Drop(ctx context.Context, dagName, stepKey string, drop func(entry json.RawMessage) bool) (int, error) {
+	if dagName == "" || stepKey == "" {
+		return 0, errors.New("dag name and step are required")
+	}
+	path := c.Path(dagName, stepKey)
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return 0, nil
+	}
+	removed := 0
+	err := Open[json.RawMessage](path).update(ctx, func(entries map[string]json.RawMessage) {
+		for key, entry := range entries {
+			if drop(entry) {
+				delete(entries, key)
+				removed++
+			}
+		}
+	})
+	return removed, err
 }
 
 // dagDir keeps DAGs whose names differ only in characters SafeName replaces,

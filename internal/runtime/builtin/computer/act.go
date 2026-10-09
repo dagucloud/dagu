@@ -25,6 +25,10 @@ const continueNote = "Continue the task. " + computeruse.DoneInstruction
 // personNote tells a model why its actions were not run.
 const personNote = "A person used the computer after your last screenshot, so your last actions were not run. Continue the task from the current screen."
 
+// verifyNote asks a model that reported the task done in the same turn as
+// actions to look at what they did before the report is accepted.
+const verifyNote = "Your actions ran and you reported the task done, but you have not seen the result yet. Look at this screen. If the task is complete, report done again without any action; otherwise continue the task."
+
 // actOutcome is what a model-driven act did.
 type actOutcome struct {
 	summary   string
@@ -114,6 +118,7 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 		return err
 	}
 	outcome.recording.Turns = append(slices.Clone(replayed), outcome.recording.Turns...)
+	outcome.recording.Op = index
 	// A successful act records under every choice, so a later switch to
 	// replaying starts with a recording.
 	if len(outcome.recording.Turns) > 0 {
@@ -252,9 +257,12 @@ func (l *actLoop) run(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		// A model that finishes in the same turn as a failed action has not
-		// seen the failure yet, so it is shown the result first.
-		if turn.Done != nil && !stale && !anyFailed(results) {
+		// A model that finishes in the same turn as actions has not seen
+		// what they did, so it is shown the screen and asked again; one that
+		// finishes beside a failed action likewise sees the failure first. A
+		// report without actions is believed.
+		verify := turn.Done != nil && !stale && !anyFailed(results)
+		if verify && len(turn.Actions) == 0 {
 			return l.finish(ctx, turn)
 		}
 		note, err := l.reminder(turn)
@@ -263,6 +271,9 @@ func (l *actLoop) run(ctx context.Context) error {
 		}
 		if stale {
 			note = personNote
+		}
+		if verify {
+			note = verifyNote
 		}
 		if l.seen, err = l.r.observe(ctx, l.limit); err != nil {
 			return err

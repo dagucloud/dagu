@@ -38,6 +38,9 @@ const recordingVersion = 2
 // recording is what an act did, so a later run can repeat it without a
 // model when the screens, or the elements, match.
 type recording struct {
+	// Op is the position of the act in with.do, from 0, so one task's
+	// recording can be forgotten on its own.
+	Op      int                 `json:"op"`
 	Version int                 `json:"version"`
 	Width   int                 `json:"width"`
 	Height  int                 `json:"height"`

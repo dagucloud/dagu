@@ -149,7 +149,10 @@ positions back to display pixels. After each round of actions the step waits
 for the screen to stop changing and sends the new screenshot with the results.
 An action that fails skips the rest of the round and is reported to the model.
 
-The act ends when the model reports the task done. It fails when:
+The act ends when the model reports the task done. A report made in the
+same turn as actions is not taken yet: the actions run, the model is shown
+the screen they produced with a note, and the act ends only on a report
+without actions. It fails when:
 
 - the model reports that the task cannot be done, with its summary;
 - the model twice answers without an action or a report;
@@ -252,11 +255,11 @@ no form that reads the screen without one, so a step whose `ai` is `never`
 fails validation with an `expect` or `when` that is a statement, or an
 `extract` that does not set its own `ai`. An exact check is allowed.
 
-Each operation's timeline event records `via`, how it ran: `element` for
-a replay by the window's elements, `screen` for a replay by the pixels of
-the screen, `model` for a model request, `exact` for an exact check, and
-nothing for an operation that decides nothing, such as `launch`; with
-`durationMs` and `tokens`. An
+Each operation's timeline event records `position`, its place in `do` from
+1, and `via`, how it ran: `element` for a replay by the window's elements,
+`screen` for a replay by the pixels of the screen, `model` for a model
+request, `exact` for an exact check, and nothing for an operation that
+decides nothing, such as `launch`; with `durationMs` and `tokens`. An
 operation that fails records its event the same way, with the failure as
 its detail, before the step's failure event that carries the screenshot.
 
@@ -323,8 +326,11 @@ the screen capture, a launch, or an `ask`, a canceled run, or a miss under
 Typed text is recorded with its `%name%` placeholders, never the values.
 
 `dagu computer cache clear <dag>` removes the recordings of every step of the
-DAG, or of one step with `--step <id>`. Removing all of a DAG's history with
-`dagu rm --history` also clears them. Each clears the cache on its own host.
+DAG, or of one step with `--step <id>`, or of one task of a step with
+`--step <id> --op <position>`, the position in `do` counted from 1 as the
+run log does; the next run asks the model for that task and replays the
+rest. Removing all of a DAG's history with `dagu rm --history` also clears
+them. Each clears the cache on its own host.
 
 ### Human input
 

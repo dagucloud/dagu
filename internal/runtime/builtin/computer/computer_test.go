@@ -62,6 +62,29 @@ func TestActDrivesDesktop(t *testing.T) {
 	assert.GreaterOrEqual(t, events[1].DurationMs, int64(0))
 }
 
+// A model that reports the task done in the same turn as its actions is
+// shown the screen those actions produced and asked again, so a task is
+// never finished on a claim the model could not have checked.
+func TestDoneWithActionsIsVerified(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	session := &scriptedSession{turns: []*computeruse.Turn{
+		{Actions: []computeruse.Action{clickAt(10, 20)}, Done: &computeruse.Done{Success: true, Summary: "Closed it"}, Usage: llmpkg.Usage{PromptTokens: 10, CompletionTokens: 2}},
+		done("Closed it"),
+	}}
+	run.sessions = []*scriptedSession{session}
+	execution := run.execute(`{"do": [{"act": "Close the window"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	assert.Equal(t, []string{"move 10,20", "left down #1"}, run.backend.inputs(), "the actions ran before the question")
+	require.Len(t, session.observations, 2)
+	assert.Equal(t, verifyNote, session.observations[1].Note)
+	assert.Equal(t, []computeruse.Result{{CallID: "c"}}, session.observations[1].Results)
+	events := operationEvents(execution.exec.GetAgentSession())
+	assert.Equal(t, 1, events[0].Position)
+}
+
 // Variables reach the desktop only when typed; the model and the log see
 // the placeholder.
 func TestActTypesVariables(t *testing.T) {

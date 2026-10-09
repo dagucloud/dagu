@@ -5996,6 +5996,8 @@ export interface components {
             name?: string;
             status?: string;
             files?: string[];
+            /** @description The operation's place in the step's list, from 1; absent for an event that is not one operation */
+            position?: number;
             /** @description How an operation ran: screen for a replayed recording, model for a model request; absent for one that decides nothing */
             via?: string;
             /**

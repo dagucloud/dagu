@@ -109,12 +109,13 @@ func (t *Timeline) Operation(report Report) {
 		content += "\n" + detail
 	}
 	t.AppendEvent(ir.AgentSessionEvent{
-		Type:    EventOperation,
-		Name:    report.Kind,
-		Status:  report.Status,
-		Content: content,
-		Files:   report.Files,
-		Via:     report.Via,
+		Type:     EventOperation,
+		Name:     report.Kind,
+		Status:   report.Status,
+		Content:  content,
+		Files:    report.Files,
+		Position: max(report.Index+1, 0),
+		Via:      report.Via,
 		// Milliseconds suit a timeline; a sub-millisecond operation reads
 		// as instant.
 		DurationMs: report.Duration.Milliseconds(),

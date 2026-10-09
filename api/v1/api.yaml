@@ -15145,6 +15145,9 @@ components:
           type: array
           items:
             type: string
+        position:
+          type: integer
+          description: "The operation's place in the step's list, from 1; absent for an event that is not one operation"
         via:
           type: string
           description: "How an operation ran: screen for a replayed recording, model for a model request; absent for one that decides nothing"
