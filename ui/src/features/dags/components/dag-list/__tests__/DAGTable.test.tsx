@@ -51,6 +51,9 @@ function renderTable(
     canRenameDAGs?: boolean;
     onDeleteDAGs?: React.ComponentProps<typeof DAGTable>['onDeleteDAGs'];
     onRenameDAG?: (fileName: string, newFileName: string) => Promise<void>;
+    canPinDAGs?: boolean;
+    selectedDAG?: string;
+    onSelectDAG?: (fileName: string, title: string) => void;
   } = {}
 ) {
   const onShowAllWorkflows = vi.fn();
@@ -64,6 +67,7 @@ function renderTable(
       );
   const onRenameDAG =
     options.onRenameDAG ?? vi.fn().mockResolvedValue(undefined);
+  const onSetDAGPinned = vi.fn().mockResolvedValue(undefined);
   const result = render(
     <MemoryRouter>
       <AppBarContext.Provider
@@ -120,6 +124,10 @@ function renderTable(
             onDeleteWorkflowView={vi.fn()}
             onDeleteDAGs={onDeleteDAGs}
             onRenameDAG={onRenameDAG}
+            canPinDAGs={options.canPinDAGs ?? true}
+            onSetDAGPinned={onSetDAGPinned}
+            selectedDAG={options.selectedDAG}
+            onSelectDAG={options.onSelectDAG}
           />
         </PanelWidthContext.Provider>
       </AppBarContext.Provider>
@@ -130,8 +138,38 @@ function renderTable(
     handleActiveOnlyChange,
     onDeleteDAGs,
     onRenameDAG,
+    onSetDAGPinned,
     onShowAllWorkflows,
   };
+}
+
+function workflow({
+  name,
+  group,
+  pinned = false,
+  status = Status.Success,
+}: {
+  name: string;
+  group?: string;
+  pinned?: boolean;
+  status?: Status;
+}): React.ComponentProps<typeof DAGTable>['dags'][number] {
+  return {
+    fileName: `${name}.yaml`,
+    dag: { name, group },
+    latestDAGRun: { status, statusLabel: Status[status] },
+    suspended: false,
+    pinned,
+    errors: [],
+  } as never;
+}
+
+// Text of each body row, so tests can check the order rows appear in.
+function bodyRowTexts(table: HTMLElement): string[] {
+  return within(table)
+    .getAllByRole('row')
+    .slice(1)
+    .map((row) => row.textContent ?? '');
 }
 
 describe('DAGTable', () => {
@@ -463,5 +501,126 @@ describe('DAGTable', () => {
       within(cardView).getByRole('button', { name: 'Show all workflows' })
     );
     expect(onShowAllWorkflows).toHaveBeenCalledOnce();
+  });
+
+  // A pinned workflow leaves its group so it stays visible at the top.
+  it('lists pinned workflows first in their own section', () => {
+    renderTable('', {
+      dags: [
+        workflow({ name: 'reports', group: 'nightly', pinned: true }),
+        workflow({ name: 'alpha' }),
+        workflow({ name: 'cleanup', group: 'nightly' }),
+      ],
+    });
+
+    const table = screen.getByRole('table');
+    const texts = bodyRowTexts(table);
+    const position = (text: string) =>
+      texts.findIndex((rowText) => rowText.includes(text));
+    expect(position('Pinned')).toBe(0);
+    expect(position('reports')).toBe(1);
+    expect(position('nightly')).toBeGreaterThan(position('reports'));
+    expect(position('alpha')).toBeGreaterThan(position('nightly'));
+    expect(
+      within(table).getAllByRole('link', { name: 'reports' })
+    ).toHaveLength(1);
+  });
+
+  it('shows no pinned section when no visible workflow is pinned', () => {
+    renderTable();
+
+    expect(
+      within(screen.getByRole('table')).queryByText('Pinned')
+    ).not.toBeInTheDocument();
+  });
+
+  // Ascending status order alone would put the failed workflow first.
+  it('keeps pinned workflows on top when sorting by status', () => {
+    renderTable('', {
+      dags: [
+        workflow({ name: 'zeta', pinned: true, status: Status.Success }),
+        workflow({ name: 'alpha', status: Status.Failed }),
+      ],
+    });
+    const table = screen.getByRole('table');
+
+    fireEvent.click(within(table).getByRole('button', { name: /^Status/ }));
+
+    const texts = bodyRowTexts(table);
+    expect(texts.findIndex((text) => text.includes('zeta'))).toBeLessThan(
+      texts.findIndex((text) => text.includes('alpha'))
+    );
+  });
+
+  it('pins and unpins workflows from their rows', () => {
+    const { onSetDAGPinned } = renderTable('', {
+      dags: [
+        workflow({ name: 'reports', pinned: true }),
+        workflow({ name: 'alpha' }),
+      ],
+    });
+    const table = screen.getByRole('table');
+
+    const pinAlpha = within(table).getByRole('button', {
+      name: 'Pin workflow alpha',
+    });
+    expect(pinAlpha).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(pinAlpha);
+    fireEvent.click(
+      within(table).getByRole('button', { name: 'Pin workflow reports' })
+    );
+
+    expect(onSetDAGPinned).toHaveBeenNthCalledWith(1, 'alpha.yaml', true);
+    expect(onSetDAGPinned).toHaveBeenNthCalledWith(2, 'reports.yaml', false);
+  });
+
+  it('marks pinned workflows without a pin button for read-only users', () => {
+    renderTable('', {
+      canPinDAGs: false,
+      dags: [workflow({ name: 'reports', pinned: true })],
+    });
+    const table = screen.getByRole('table');
+
+    expect(within(table).getByRole('img', { name: 'Pinned' })).toBeVisible();
+    expect(
+      within(table).queryByRole('button', { name: 'Pin workflow reports' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('shows the pinned section and pin buttons in the card view', () => {
+    renderTable('', {
+      panelWidth: 600,
+      dags: [
+        workflow({ name: 'reports', pinned: true }),
+        workflow({ name: 'alpha' }),
+      ],
+    });
+    const cards = screen.getByTestId('workflow-card-view');
+
+    expect(within(cards).getByText('Pinned')).toBeInTheDocument();
+    expect(
+      within(cards).getByRole('button', { name: 'Pin workflow reports' })
+    ).toHaveAttribute('aria-pressed', 'true');
+    expect(
+      within(cards).getByRole('button', { name: 'Pin workflow alpha' })
+    ).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  // The pinned workflow belongs to a collapsed group, so it is only reachable
+  // because it is listed outside the group.
+  it('moves from the last pinned workflow to the next one with ArrowDown', () => {
+    const onSelectDAG = vi.fn();
+    renderTable('', {
+      selectedDAG: 'reports.yaml',
+      onSelectDAG,
+      dags: [
+        workflow({ name: 'reports', group: 'nightly', pinned: true }),
+        workflow({ name: 'alpha' }),
+      ],
+    });
+
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+
+    expect(onSelectDAG).toHaveBeenCalledWith('alpha.yaml', 'alpha');
   });
 });

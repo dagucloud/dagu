@@ -12,6 +12,7 @@ import {
   ViewSpecType,
 } from '../../api/v1/schema';
 import { Button } from '@/components/ui/button';
+import { useErrorModal } from '@/components/ui/error-modal';
 import { AppBarContext } from '../../contexts/AppBarContext';
 import { useCanWriteForWorkspace } from '../../contexts/AuthContext';
 import { useSearchState } from '../../contexts/SearchStateContext';
@@ -31,6 +32,7 @@ import {
   viewMatchesScope,
   viewScopeForSelection,
 } from '../../features/views/viewScope';
+import { setDAGPinned } from '../../features/dags/lib/dagPins';
 import { useClient, useQuery } from '../../hooks/api';
 import { useDAGsListSSE } from '../../hooks/useDAGsListSSE';
 import {
@@ -250,6 +252,7 @@ function DAGsContent() {
   const appBarContext = React.useContext(AppBarContext);
   const searchState = useSearchState();
   const client = useClient();
+  const { showError } = useErrorModal();
   const remoteNode = appBarContext.selectedRemoteNode || 'local';
   const workspaceSelection = appBarContext.workspaceSelection;
   const workspaceQuery = React.useMemo(
@@ -791,6 +794,24 @@ function DAGsContent() {
     ]
   );
 
+  const handleSetDAGPinned = React.useCallback(
+    async (fileName: string, pinned: boolean): Promise<void> => {
+      try {
+        await setDAGPinned(client, { fileName, pinned, remoteNode });
+      } catch (error) {
+        showError(
+          error instanceof Error ? error.message : String(error),
+          'Please try again or check the server connection.'
+        );
+        return;
+      }
+      // Pinning moves the workflow across pages, so reload from the first page.
+      resetLoadedPages();
+      await mutate();
+    },
+    [client, mutate, remoteNode, resetLoadedPages, showError]
+  );
+
   const handleSelectDAG = React.useCallback(
     (fileName: string) => updateSelectedDAG(fileName),
     [updateSelectedDAG]
@@ -1156,6 +1177,8 @@ function DAGsContent() {
             onDeleteWorkflowView={handleDeleteWorkflowView}
             onDeleteDAGs={handleDeleteDAGs}
             onRenameDAG={handleRenameDAG}
+            canPinDAGs={canManageWorkflowViews}
+            onSetDAGPinned={handleSetDAGPinned}
             resultCount={data.pagination.totalRecords}
             selectedDAG={selectedDAG}
             onSelectDAG={handleSelectDAG}

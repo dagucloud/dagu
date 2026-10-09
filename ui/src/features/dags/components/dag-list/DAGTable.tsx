@@ -10,6 +10,7 @@ import {
   getCoreRowModel,
   getExpandedRowModel,
   getFilteredRowModel,
+  Row,
   RowData,
   Updater,
   useReactTable,
@@ -21,6 +22,7 @@ import {
   ChevronDown,
   ChevronUp,
   PencilLine,
+  Pin,
   Search,
   Trash2,
 } from 'lucide-react';
@@ -49,6 +51,7 @@ import VisuallyHidden from '@/components/ui/visually-hidden';
 import { CreateDAGModal, DAGPagination } from '../common';
 import DAGActions from '../common/DAGActions';
 import LiveSwitch from '../common/LiveSwitch';
+import PinToggle from '../common/PinToggle';
 
 declare const getConfig: () => Config;
 
@@ -127,6 +130,9 @@ interface DAGCardProps {
   canRenameDAGs: boolean;
   onRenameDAG: (dag: components['schemas']['DAGFile']) => void;
   onDeleteDAG: (dag: components['schemas']['DAGFile']) => void;
+  canPinDAGs: boolean;
+  isPinPending: boolean;
+  onTogglePin: (dag: components['schemas']['DAGFile']) => void;
   className?: string;
 }
 
@@ -189,6 +195,9 @@ function DAGCard({
   canRenameDAGs,
   onRenameDAG,
   onDeleteDAG,
+  canPinDAGs,
+  isPinPending,
+  onTogglePin,
   className = '',
 }: DAGCardProps) {
   const fileName = dag.fileName;
@@ -237,9 +246,19 @@ function DAGCard({
             {title}
           </Link>
         </div>
-        <StatusChip status={status} size="xs">
-          {statusLabel}
-        </StatusChip>
+        <div className="flex flex-shrink-0 items-center gap-1">
+          <PinToggle
+            name={title}
+            pinned={dag.pinned}
+            canToggle={canPinDAGs}
+            pending={isPinPending}
+            onToggle={() => onTogglePin(dag)}
+            className="size-6"
+          />
+          <StatusChip status={status} size="xs">
+            {statusLabel}
+          </StatusChip>
+        </div>
       </div>
 
       {/* Description */}
@@ -362,6 +381,31 @@ function DAGCard({
   );
 }
 
+// Pinned DAGs lead the rows; the "Pinned" header and a divider frame them.
+function countLeadingPinnedRows(rows: Row<Data>[]): number {
+  let count = 0;
+  for (const row of rows) {
+    if (
+      row.depth !== 0 ||
+      row.original.kind !== ItemKind.DAG ||
+      !(row.original as DAGRow).dag.pinned
+    ) {
+      break;
+    }
+    count++;
+  }
+  return count;
+}
+
+function PinnedSectionLabel() {
+  return (
+    <span className="inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+      <Pin className="h-3 w-3" aria-hidden="true" />
+      <I18nText text={'Pinned'} />
+    </span>
+  );
+}
+
 /**
  * Props for the DAGTable component
  */
@@ -437,6 +481,10 @@ type Props = {
   onDeleteWorkflowView: (viewId: string) => Promise<void>;
   onDeleteDAGs: (fileNames: string[]) => Promise<DAGDeleteResult[]>;
   onRenameDAG: (fileName: string, newFileName: string) => Promise<void>;
+  /** Whether the current user can pin workflows for everyone in this scope */
+  canPinDAGs: boolean;
+  /** Pins or unpins a workflow for all users */
+  onSetDAGPinned: (fileName: string, pinned: boolean) => Promise<void>;
   /** Total workflows matching the server-side filters */
   resultCount?: number;
   /** Currently selected DAG file name */
@@ -484,6 +532,9 @@ declare module '@tanstack/react-table' {
     onOpenRenameDAG?: (dag: components['schemas']['DAGFile']) => void;
     canDeleteDAGs?: boolean;
     onOpenDeleteDAG?: (dag: components['schemas']['DAGFile']) => void;
+    canPinDAGs?: boolean;
+    isPinPending?: (fileName: string) => boolean;
+    onTogglePin?: (dag: components['schemas']['DAGFile']) => void;
   }
 }
 
@@ -564,7 +615,7 @@ const defaultColumns = [
         )}
       </div>
     ),
-    cell: ({ row }) => {
+    cell: ({ row, table }) => {
       if (row.getCanExpand()) {
         return (
           <div
@@ -591,7 +642,23 @@ const defaultColumns = [
           </div>
         );
       }
-      return null;
+      if (row.original.kind !== ItemKind.DAG) {
+        return null;
+      }
+      const dag = (row.original as DAGRow).dag;
+      const meta = table.options.meta;
+      return (
+        <div className="flex min-h-[2.5rem] items-center justify-center">
+          <PinToggle
+            name={dag.dag.name}
+            pinned={dag.pinned}
+            canToggle={meta?.canPinDAGs ?? false}
+            pending={meta?.isPinPending?.(dag.fileName)}
+            revealOnHover
+            onToggle={() => meta?.onTogglePin?.(dag)}
+          />
+        </div>
+      );
     },
     size: 32,
     minSize: 32,
@@ -1212,6 +1279,8 @@ function DAGTable({
   onDeleteWorkflowView,
   onDeleteDAGs,
   onRenameDAG,
+  canPinDAGs,
+  onSetDAGPinned,
   resultCount,
   selectedDAG = null,
   onSelectDAG,
@@ -1245,6 +1314,24 @@ function DAGTable({
   >(null);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameError, setRenameError] = useState<string | null>(null);
+  const [pendingPins, setPendingPins] = useState<Set<string>>(() => new Set());
+
+  const togglePin = useCallback(
+    async (dag: components['schemas']['DAGFile']) => {
+      const { fileName } = dag;
+      setPendingPins((current) => new Set(current).add(fileName));
+      try {
+        await onSetDAGPinned(fileName, !dag.pinned);
+      } finally {
+        setPendingPins((current) => {
+          const next = new Set(current);
+          next.delete(fileName);
+          return next;
+        });
+      }
+    },
+    [onSetDAGPinned]
+  );
   const [expanded, setExpanded] = useState<ExpandedState>(() => {
     try {
       const saved = localStorage.getItem('dagu_dag_table_expanded');
@@ -1522,7 +1609,8 @@ function DAGTable({
     [getSortValue, clientOrder]
   );
 
-  // Transform the flat list of DAGs into a hierarchical structure with groups
+  // Transform the flat list of DAGs into a hierarchical structure with groups.
+  // Pinned DAGs lead as flat rows, even when they belong to a group.
   const data = useMemo(() => {
     const sortedDags = [...dags];
 
@@ -1530,8 +1618,13 @@ function DAGTable({
       sortedDags.sort(compareDags);
     }
 
+    const pinnedRows: Data[] = sortedDags
+      .filter((dag) => dag.pinned)
+      .map((dag) => ({ kind: ItemKind.DAG, name: dag.dag.name, dag }));
+    const unpinnedDags = sortedDags.filter((dag) => !dag.pinned);
+
     const groups: { [key: string]: Data } = {};
-    sortedDags.forEach((dag) => {
+    unpinnedDags.forEach((dag) => {
       const groupName = dag.dag.group;
       if (groupName) {
         if (!groups[groupName]) {
@@ -1562,9 +1655,9 @@ function DAGTable({
       });
     }
 
-    const hierarchicalData: Data[] = Object.values(groups);
+    const hierarchicalData: Data[] = [...pinnedRows, ...Object.values(groups)];
     // Add DAGs without a group
-    sortedDags
+    unpinnedDags
       .filter((dag) => !dag.dag.group)
       .forEach((dag) => {
         hierarchicalData.push({
@@ -1649,10 +1742,14 @@ function DAGTable({
       onOpenRenameDAG: openRenameDAG,
       canDeleteDAGs,
       onOpenDeleteDAG: openDeleteDAG,
+      canPinDAGs,
+      isPinPending: (fileName) => pendingPins.has(fileName),
+      onTogglePin: (dag) => void togglePin(dag),
     },
   });
 
   tableInstanceRef.current = instance as ReturnType<typeof useReactTable>;
+  const pinnedRowCount = countLeadingPinnedRows(instance.getRowModel().rows);
   const filteredDAGFileNames = new Set(getFilteredDAGFileNames());
   const selectedDAGsForDelete = dags.filter(
     (dag) =>
@@ -1947,10 +2044,20 @@ function DAGTable({
             ))}
           </TableHeader>
           <TableBody>
+            {pinnedRowCount > 0 && (
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={columns.length} className="px-2 pb-1 pt-2">
+                  <PinnedSectionLabel />
+                </TableCell>
+              </TableRow>
+            )}
             {instance.getRowModel().rows.length ? (
-              instance.getRowModel().rows.map((row) => {
+              instance.getRowModel().rows.map((row, index) => {
                 // For DAG rows, make the entire row clickable
                 const isDAGRow = row.original?.kind === ItemKind.DAG;
+                const endsPinnedSection =
+                  index === pinnedRowCount - 1 &&
+                  index < instance.getRowModel().rows.length - 1;
                 const isDeleteSelected =
                   isDAGRow &&
                   'dag' in row.original &&
@@ -1970,7 +2077,7 @@ function DAGTable({
                               (row.original as DAGRow).dag.fileName
                           ? 'cursor-pointer hover:bg-muted/50 shadow-[inset_3px_0_0_0_var(--primary)]'
                           : 'cursor-pointer hover:bg-muted/50'
-                    } ${isDAGRow && 'dag' in row.original && (row.original as DAGRow).dag.latestDAGRun?.status === Status.Running ? 'animate-running-row' : ''}`}
+                    } ${isDAGRow && 'dag' in row.original && (row.original as DAGRow).dag.latestDAGRun?.status === Status.Running ? 'animate-running-row' : ''} ${isDAGRow ? 'group/row' : ''} ${endsPinnedSection ? 'border-b-2' : ''}`}
                     onClick={(e) => {
                       // Handle group row clicks - toggle expanded state
                       if ((row.original as Data)?.kind === ItemKind.Group) {
@@ -2031,8 +2138,13 @@ function DAGTable({
         data-testid="workflow-card-view"
         className={`space-y-2 ${useCardView ? 'block' : 'md:hidden'}`}
       >
+        {pinnedRowCount > 0 && (
+          <div className="px-1">
+            <PinnedSectionLabel />
+          </div>
+        )}
         {instance.getRowModel().rows.length ? (
-          instance.getRowModel().rows.map((row) => {
+          instance.getRowModel().rows.map((row, index) => {
             // Render group rows with collapsible header
             if (row.original?.kind === ItemKind.Group) {
               const groupRow = row.original as GroupRow;
@@ -2090,6 +2202,11 @@ function DAGTable({
                               canRenameDAGs={canRenameDAGs}
                               onRenameDAG={openRenameDAG}
                               onDeleteDAG={openDeleteDAG}
+                              canPinDAGs={canPinDAGs}
+                              isPinPending={pendingPins.has(
+                                dagRow.dag.fileName
+                              )}
+                              onTogglePin={(dag) => void togglePin(dag)}
                               className="ml-2"
                             />
                           );
@@ -2110,21 +2227,31 @@ function DAGTable({
               row.depth === 0
             ) {
               const dagRow = row.original as DAGRow;
+              const endsPinnedSection =
+                index === pinnedRowCount - 1 &&
+                index < instance.getRowModel().rows.length - 1;
               return (
-                <DAGCard
-                  key={row.id}
-                  dag={dagRow.dag}
-                  isSelected={selectedDAG === dagRow.dag.fileName}
-                  onSelect={handleSelectDAG}
-                  onLabelClick={handleLabelClick}
-                  refreshFn={refreshFn}
-                  canDeleteDAGs={canDeleteDAGs}
-                  isDeleteSelected={deleteSelection.has(dagRow.dag.fileName)}
-                  onToggleDeleteSelection={toggleDeleteSelection}
-                  canRenameDAGs={canRenameDAGs}
-                  onRenameDAG={openRenameDAG}
-                  onDeleteDAG={openDeleteDAG}
-                />
+                <React.Fragment key={row.id}>
+                  <DAGCard
+                    dag={dagRow.dag}
+                    isSelected={selectedDAG === dagRow.dag.fileName}
+                    onSelect={handleSelectDAG}
+                    onLabelClick={handleLabelClick}
+                    refreshFn={refreshFn}
+                    canDeleteDAGs={canDeleteDAGs}
+                    isDeleteSelected={deleteSelection.has(dagRow.dag.fileName)}
+                    onToggleDeleteSelection={toggleDeleteSelection}
+                    canRenameDAGs={canRenameDAGs}
+                    onRenameDAG={openRenameDAG}
+                    onDeleteDAG={openDeleteDAG}
+                    canPinDAGs={canPinDAGs}
+                    isPinPending={pendingPins.has(dagRow.dag.fileName)}
+                    onTogglePin={(dag) => void togglePin(dag)}
+                  />
+                  {endsPinnedSection && (
+                    <div className="border-t-2 border-border" />
+                  )}
+                </React.Fragment>
               );
             }
 
