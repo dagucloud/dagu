@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/license"
+	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPrintLicenseStatus(t *testing.T) {
@@ -56,4 +58,15 @@ func TestPrintLicenseStatus(t *testing.T) {
 
 		assert.Equal(t, "License: Community mode (no license)\n", out.String())
 	})
+}
+
+// Without a key, activate waits for a browser approval, which only makes sense
+// in a terminal; a script that lost its key fails instead of waiting.
+func TestLicenseActivateWithoutKeyNeedsTerminal(t *testing.T) {
+	t.Parallel()
+
+	th := test.SetupCommand(t)
+	err := th.RunCommandWithError(t, License(), test.CmdTest{Args: []string{"license", "activate"}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "a license key is required when not running in a terminal")
 }
