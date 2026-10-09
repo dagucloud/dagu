@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -218,20 +219,44 @@ func TestManager_Connect(t *testing.T) {
 
 	t.Run("cancel stops polling", func(t *testing.T) {
 		clearLicenseEnv(t)
+		// The console holds the first poll open, and the poller waits for
+		// its answer, so no request is on its way uncounted when the test
+		// cancels. Answering it afterwards lets a poller that kept running
+		// poll again.
 		var polls atomic.Int32
+		arrived := make(chan struct{}, 1)
+		release := make(chan struct{})
+		answer := sync.OnceFunc(func() { close(release) })
 		m, _, _ := newConnectManager(t, mockCloudServerConfig{
-			connectHandler: connectAnswers(&polls, make(chan struct{}), nil),
+			connectHandler: func(w http.ResponseWriter, r *http.Request) {
+				polls.Add(1)
+				select {
+				case arrived <- struct{}{}:
+				default:
+				}
+				select {
+				case <-release:
+				case <-r.Context().Done():
+				}
+				_, _ = w.Write([]byte(`{"status":"pending"}`))
+			},
 		}, nil)
+		t.Cleanup(answer)
 
 		_, err := m.Connect()
 		require.NoError(t, err)
-		require.Eventually(t, func() bool { return polls.Load() > 0 }, 5*time.Second, 5*time.Millisecond)
+		select {
+		case <-arrived:
+		case <-time.After(5 * time.Second):
+			t.Fatal("the first poll never reached the console")
+		}
 
 		m.CancelConnect()
+		answer()
 		assert.Equal(t, ConnectIdle, m.ConnectStatus().State)
-		stopped := polls.Load()
-		time.Sleep(50 * time.Millisecond)
-		assert.Equal(t, stopped, polls.Load())
+		// Give a poller that kept running several poll intervals to show up.
+		time.Sleep(5 * m.connectPoll)
+		assert.Equal(t, int32(1), polls.Load())
 	})
 
 	t.Run("key activation cancels a pending request", func(t *testing.T) {
