@@ -14,6 +14,9 @@ import (
 // controls.
 var ErrNoElements = errors.New("the application exposes no accessible elements")
 
+// ErrElementsUnsupported reports a system that cannot read elements.
+var ErrElementsUnsupported = errors.New("accessible elements are supported on 64-bit Windows only")
+
 // Roles an element can have. Each system maps its control types onto them.
 const (
 	RoleButton    = "button"
@@ -98,11 +101,13 @@ type Elements interface {
 }
 
 // treeNode is an element with its children, as a system exposes a
-// window's tree. element fills everything but Window and Path.
+// window's tree. element fills everything but Window and Path; placed
+// tells the node the path the walk gave it.
 type treeNode interface {
 	element() Element
 	visible() bool
 	children() []treeNode
+	placed(path []PathStep)
 }
 
 // outlineTree lists root's descendants in preorder, with Window and Path
@@ -127,6 +132,7 @@ func outlineTree(root treeNode, window string, limit int) []Element {
 			indexes[e.Role]++
 			e.Path = append(slices.Clone(path), step)
 			e.Window = window
+			child.placed(e.Path)
 			if child.visible() {
 				out = append(out, e)
 			}

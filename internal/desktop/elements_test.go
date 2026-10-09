@@ -19,8 +19,9 @@ type fakeNode struct {
 	kids   []*fakeNode
 }
 
-func (n *fakeNode) element() Element { return n.el }
-func (n *fakeNode) visible() bool    { return !n.hidden }
+func (n *fakeNode) element() Element    { return n.el }
+func (n *fakeNode) visible() bool       { return !n.hidden }
+func (n *fakeNode) placed(p []PathStep) { n.el.Path = p }
 func (n *fakeNode) children() []treeNode {
 	out := make([]treeNode, len(n.kids))
 	for i, kid := range n.kids {
