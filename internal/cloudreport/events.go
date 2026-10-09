@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"slices"
 	"time"
+	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
@@ -26,7 +27,12 @@ const (
 	// that call for an early report.
 	eventCheckInterval = 5 * time.Second
 	maxReportEvents    = 500
-	maxFailedSteps     = 50
+	// maxReportEventBytes bounds the encoded events of one report, leaving
+	// room for the rest of it under the 1 MiB that Dagu Console accepts.
+	maxReportEventBytes = 512 << 10
+	maxFailedSteps      = 50
+	// maxStepNameBytes is the longest failed step name Dagu Console keeps.
+	maxStepNameBytes = 512
 	// caughtUpSaveInterval is how often an idle reporter records that it has
 	// seen every event, so that a restart does not take idleness for a gap.
 	caughtUpSaveInterval = time.Hour
@@ -151,12 +157,23 @@ func failedSteps(status *ir.DAGRunStatus) []string {
 		if node.Status != ir.NodeFailed || node.Step.Name == "" {
 			continue
 		}
-		names = append(names, node.Step.Name)
+		names = append(names, truncateBytes(node.Step.Name, maxStepNameBytes))
 		if len(names) == maxFailedSteps {
 			break
 		}
 	}
 	return names
+}
+
+// truncateBytes shortens s to at most n bytes without splitting a character.
+func truncateBytes(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
 }
 
 func formatTime(t time.Time) string {
@@ -213,6 +230,8 @@ type eventBatch struct {
 	token string
 	// capped reports that more events wait after the batch.
 	capped bool
+	// size is the encoded size of events.
+	size   int
 	readAt time.Time
 	// lastEventAt is when the latest event in the batch occurred.
 	lastEventAt time.Time
@@ -220,8 +239,18 @@ type eventBatch struct {
 	urgent []string
 }
 
-func (b *eventBatch) add(event *eventstore.Event, reported reportEvent) {
+// fits reports whether reported, encoded in size bytes, can join the batch.
+// The first event always fits, so an event can never hold reporting back.
+func (b *eventBatch) fits(size int) bool {
+	if len(b.events) == 0 {
+		return true
+	}
+	return len(b.events) < maxReportEvents && b.size+size <= maxReportEventBytes
+}
+
+func (b *eventBatch) add(event *eventstore.Event, reported reportEvent, size int) {
 	b.events = append(b.events, reported)
+	b.size += size
 	if reportedEventTypes[event.Type].urgent {
 		b.urgent = append(b.urgent, event.ID)
 	}
@@ -424,11 +453,12 @@ func (f *eventFeed) read(ctx context.Context) bool {
 		if !ok {
 			continue
 		}
-		if len(batch.events) == maxReportEvents {
+		size := encodedSize(reported)
+		if !batch.fits(size) {
 			batch.capped = true
 			break
 		}
-		batch.add(event, reported)
+		batch.add(event, reported, size)
 	}
 
 	if !unacked {
@@ -444,6 +474,12 @@ func (f *eventFeed) read(ctx context.Context) bool {
 		_, ok := f.notified[id]
 		return !ok
 	})
+}
+
+// encodedSize is how many bytes reported adds to a report's events.
+func encodedSize(reported reportEvent) int {
+	data, _ := json.Marshal(reported)
+	return len(data) + len(",")
 }
 
 // advance moves the position past changes in the store that hold no event to

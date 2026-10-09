@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
@@ -340,6 +341,51 @@ func TestReportEventsBacklog(t *testing.T) {
 
 	assert.Equal(t, [][]string{ids[:maxReportEvents], ids[maxReportEvents : 2*maxReportEvents], ids[2*maxReportEvents:], nil}, batches)
 	assert.Equal(t, []time.Duration{maxStartDelay / 2, 5 * time.Second, 5 * time.Second, time.Minute}, waits)
+}
+
+// Failed runs with many long step names fill a report by size before count,
+// and every report stays well under what Dagu Console accepts.
+func TestReportEventsSizeCap(t *testing.T) {
+	t.Parallel()
+
+	dir := newEventDir(t)
+	console := newFakeConsole(t)
+	clock := startEventReporter(t, console, dir, testClockStart)
+	longName := strings.Repeat("あ", 300) // 900 bytes
+	var ids []string
+	for i := range 45 {
+		run := etlRun(ir.Failed)
+		run.DAGRunID = fmt.Sprintf("run-%d", i)
+		for j := range maxFailedSteps {
+			run.Nodes = append(run.Nodes, &ir.Node{
+				Step:   ir.Step{Name: fmt.Sprintf("%02d-%s", j, longName)},
+				Status: ir.NodeFailed,
+			})
+		}
+		ids = append(ids, dir.emit(eventstore.TypeDAGRunFailed, run))
+	}
+	dir.collect()
+
+	var delivered []string
+	for len(delivered) < len(ids) {
+		report, _ := clock.nextReport(console)
+		require.Less(t, len(report.body), 1<<20, "a report fits what Dagu Console accepts")
+		events := decodeEvents(t, report)
+		require.LessOrEqual(t, len(events.Events), maxReportEventBytes)
+		var batch []reportEvent
+		require.NoError(t, json.Unmarshal(events.Events, &batch))
+		require.NotEmpty(t, batch)
+		require.Less(t, len(batch), len(ids), "a batch of large events is capped by size")
+		for _, event := range batch {
+			require.Len(t, event.FailedSteps, maxFailedSteps)
+			for _, name := range event.FailedSteps {
+				require.LessOrEqual(t, len(name), maxStepNameBytes)
+				require.True(t, utf8.ValidString(name), "a step name is cut between characters")
+			}
+			delivered = append(delivered, event.ID)
+		}
+	}
+	assert.ElementsMatch(t, ids, delivered, "each event is reported once")
 }
 
 // Of the processes that share a data directory, the one holding the lease
