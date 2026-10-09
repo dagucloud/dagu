@@ -143,9 +143,11 @@ for its first actions, a step waits until nobody has used the desktop's
 pointer or keyboard for `with.idle` (default `15s`), and logs that it is
 waiting in an event named `person`. Input the step itself sent does not count, including input sent by
 the step that held the desktop before it. When a person uses the desktop
-after the screenshot the model answered, the model's actions are not run: the
-step waits for the idle period again and sends the new screenshot with a note
-saying why. Skipped actions do not count toward `max_actions`. The waiting
+after the screenshot the model answered, the step waits for the idle period
+again. If the screen then still looks like the one the model saw, overall
+and where each action lands, the actions run; otherwise they are not run,
+and the new screenshot is sent with a note saying why. Skipped actions do
+not count toward `max_actions`. The waiting
 counts toward the operation timeout; an operation whose timeout passes while
 a person keeps using the desktop fails. `idle: 0` turns the waiting and the
 skipping off.

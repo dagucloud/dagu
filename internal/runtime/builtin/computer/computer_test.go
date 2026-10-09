@@ -648,26 +648,50 @@ func TestWaitsForIdleDesktop(t *testing.T) {
 func TestPersonInputSkipsStaleTurn(t *testing.T) {
 	t.Parallel()
 
-	run := newTestRun(t)
-	used := false
-	session := &scriptedSession{
-		turns: []*computeruse.Turn{actions(clickAt(10, 10)), actions(clickAt(20, 20)), done("Clicked")},
-		onNext: func() {
-			if !used {
-				used = true
-				run.backend.personUses()
+	for _, tc := range []struct {
+		name    string
+		changed bool
+		inputs  []string
+	}{
+		{name: "screen changed", changed: true, inputs: []string{"move 20,20", "left down #1"}},
+		// A person who only touched the mouse leaves the screen as the model
+		// saw it, so the actions run without another model turn.
+		{name: "screen unchanged", changed: false, inputs: []string{"move 10,10", "left down #1", "move 20,20", "left down #1"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			run := newTestRun(t)
+			used := false
+			session := &scriptedSession{
+				turns: []*computeruse.Turn{actions(clickAt(10, 10)), actions(clickAt(20, 20)), done("Clicked")},
+				onNext: func() {
+					if !used {
+						used = true
+						run.backend.personUses()
+						if tc.changed {
+							run.backend.show(pattern(400, 200, 150))
+						}
+					}
+				},
 			}
-		},
-	}
-	run.sessions = []*scriptedSession{session}
-	execution := run.execute(`{"idle": "100ms", "do": [{"act": "Click the button"}]}`, nil)
-	require.NoError(t, execution.err)
+			run.sessions = []*scriptedSession{session}
+			execution := run.execute(`{"idle": "100ms", "do": [{"act": "Click the button"}]}`, nil)
+			require.NoError(t, execution.err)
 
-	assert.Equal(t, []string{"move 20,20", "left down #1"}, run.backend.inputs())
-	require.Len(t, session.observations, 3)
-	assert.Equal(t, []computeruse.Result{{CallID: "c", Skipped: true}}, session.observations[1].Results)
-	assert.Equal(t, personNote, session.observations[1].Note)
-	assert.Contains(t, execution.stderr.String(), "Clicked (1 actions)")
+			assert.Equal(t, tc.inputs, run.backend.inputs())
+			require.Len(t, session.observations, 3)
+			if tc.changed {
+				assert.Equal(t, []computeruse.Result{{CallID: "c", Skipped: true}}, session.observations[1].Results)
+				assert.Equal(t, personNote, session.observations[1].Note)
+				assert.Contains(t, execution.stderr.String(), "Clicked (1 actions)")
+				return
+			}
+			assert.Equal(t, []computeruse.Result{{CallID: "c"}}, session.observations[1].Results)
+			assert.Empty(t, session.observations[1].Note)
+			assert.Contains(t, execution.stderr.String(), "the screen still looks the same")
+			assert.Contains(t, execution.stderr.String(), "Clicked (2 actions)")
+		})
+	}
 }
 
 // The step that last held the desktop leaves when it sent input, so the next

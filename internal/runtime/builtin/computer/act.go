@@ -205,6 +205,20 @@ func (l *actLoop) run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		if stale {
+			// The person has stopped. A screen that still looks like the one
+			// the model saw runs the actions it chose, so a person's brief
+			// use of the desktop costs no model turn; a changed screen goes
+			// back to the model.
+			same, err := l.unchanged(ctx, turn)
+			if err != nil {
+				return err
+			}
+			if same {
+				logAction(l.r.timeline, l.index, "a person used the desktop, but the screen still looks the same")
+				stale = false
+			}
+		}
 		var results []computeruse.Result
 		if stale {
 			logAction(l.r.timeline, l.index, "a person used the desktop; the model's actions were not run")
@@ -250,6 +264,24 @@ func (l *actLoop) stale(ctx context.Context, turn *computeruse.Turn) (bool, erro
 		return false, err
 	}
 	return l.r.driver.PersonInputSince(l.seen.capturedAt), nil
+}
+
+// unchanged reports whether the screen still looks like the one the model
+// chose the turn's actions on, overall and where each action lands, after a
+// person used the desktop.
+func (l *actLoop) unchanged(ctx context.Context, turn *computeruse.Turn) (bool, error) {
+	current, err := l.r.settle(ctx)
+	if err != nil {
+		return false, err
+	}
+	chosen := recordedTurn{Screen: desktop.FingerprintOf(l.seen.full)}
+	for _, action := range turn.Actions {
+		if display, ok := toDisplay(action, l.seen); ok {
+			chosen.Actions = append(chosen.Actions, recordAction(display, l.seen.full))
+		}
+	}
+	entry := recording{Width: l.seen.full.Bounds().Dx(), Height: l.seen.full.Bounds().Dy()}
+	return matches(current, entry, chosen), nil
 }
 
 // admit rejects a turn whose actions the step may not run.
