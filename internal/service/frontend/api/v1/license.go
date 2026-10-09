@@ -5,6 +5,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 
@@ -74,7 +75,7 @@ func (a *API) ActivateLicense(ctx context.Context, request api.ActivateLicenseRe
 		slog.Warn("License activation failed", "error", err)
 		return nil, &Error{
 			Code:       api.ErrorCodeBadRequest,
-			Message:    "License activation failed. Please verify your license key and try again.",
+			Message:    activationFailureMessage(err),
 			HTTPStatus: http.StatusBadRequest,
 		}
 	}
@@ -90,6 +91,21 @@ func (a *API) ActivateLicense(ctx context.Context, request api.ActivateLicenseRe
 		Features: &result.Features,
 		Expiry:   expiry,
 	}, nil
+}
+
+// activationFailureMessage returns Dagu Console's explanation for a rejected
+// activation, which tells the user what to fix, and a generic message for
+// network or server failures.
+func activationFailureMessage(err error) string {
+	if cloudErr, ok := errors.AsType[*license.CloudError](err); ok {
+		switch {
+		case cloudErr.StatusCode == http.StatusNotFound:
+			return "Dagu Console does not recognize this license key."
+		case cloudErr.StatusCode == http.StatusBadRequest && cloudErr.Message != "":
+			return cloudErr.Message
+		}
+	}
+	return "License activation failed. Please verify your license key and try again."
 }
 
 // DeactivateLicense handles license deactivation from the frontend.
