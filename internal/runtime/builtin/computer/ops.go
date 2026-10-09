@@ -16,6 +16,7 @@ import (
 	cmnconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/computerhost"
 	"github.com/dagucloud/dagu/v2/internal/desktop"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -599,7 +600,7 @@ func (r *run) fail(ctx context.Context, index int, kind string, cause error) err
 
 // errDesktopInUse reports a person who kept using the desktop for the
 // whole wait the step allows.
-var errDesktopInUse = errors.New("a person kept using the desktop for an hour, so the step gave up waiting")
+var errDesktopInUse = errors.New("a person kept using the desktop")
 
 // operationContext bounds an operation by its working time: waiting for a
 // person does not count, so a task is not failed for someone typing in
@@ -631,7 +632,7 @@ func (r *run) awaitPerson(ctx context.Context) error {
 		r.timeline.Waiting(waitReasonPerson, fmt.Sprintf("Waiting until nobody has used the desktop for %s", idle))
 	})
 	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
-		return errDesktopInUse
+		return fmt.Errorf("%w for %s, so the step gave up waiting", errDesktopInUse, stringutil.FormatDuration(r.exec.personWait))
 	}
 	return err
 }
