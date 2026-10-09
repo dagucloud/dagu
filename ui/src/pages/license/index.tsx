@@ -6,12 +6,15 @@ import { Input } from '@/components/ui/input';
 import ConfirmModal from '@/components/ui/confirm-dialog';
 import { LicenseStatusBadge } from '@/components/LicenseStatusBadge';
 import { LicenseActions } from '@/components/LicenseActions';
+import { ConnectSection } from './ConnectSection';
 import { ServerIdentity } from './ServerIdentity';
+import { useLicenseConnect } from './useLicenseConnect';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { LicenseContext } from '@/contexts/LicenseContext';
 import { useConfig, type LicenseStatus } from '@/contexts/ConfigContext';
 import { useClient } from '@/hooks/api';
 import { useLicenseState } from '@/hooks/useLicense';
+import { LicenseConnectStatusState } from '@/api/v1/schema';
 import { useI18n } from '@/i18n/I18nProvider';
 import {
   hasActiveLicense,
@@ -37,10 +40,26 @@ export default function LicensePage() {
   const [showDeactivateConfirm, setShowDeactivateConfirm] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const connect = useLicenseConnect(remoteNode);
+  const granted = connect.status?.state === LicenseConnectStatusState.granted;
 
   useEffect(() => {
     setTitle(ts('Plan & features'));
   }, [setTitle, ts]);
+
+  useEffect(() => {
+    if (!granted) return;
+    setError(null);
+    void mutate().then((next) =>
+      setSuccessMessage(
+        next && hasActiveLicense(next)
+          ? ts('{plan} connected. Explore your included features below.', {
+              plan: licensePlanName(next),
+            })
+          : ts('License status updated.')
+      )
+    );
+  }, [granted, mutate, ts]);
 
   async function handleActivate(e: React.FormEvent) {
     e.preventDefault();
@@ -216,6 +235,13 @@ export default function LicensePage() {
           {error}
         </p>
       )}
+      {known && license.community && (
+        <ConnectSection
+          connect={connect}
+          managedByEnv={license.source === 'env'}
+          disabled={Boolean(pendingAction)}
+        />
+      )}
       {known && !license.community && (
         <ServerIdentity
           license={license}
@@ -316,7 +342,7 @@ export default function LicensePage() {
           </Button>
         </form>
         <p className="text-xs text-muted-foreground">
-          {ts('Enter a license or trial key for this server.')}
+          {ts('Enter a server key or license key from Dagu Console.')}
         </p>
       </section>
       <ConfirmModal

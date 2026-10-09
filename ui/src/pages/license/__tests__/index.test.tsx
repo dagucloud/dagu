@@ -419,6 +419,153 @@ describe('LicensePage', () => {
     ).toBeInTheDocument();
   });
 
+  describe('connecting to Dagu Console', () => {
+    const community = () =>
+      makeConfig({
+        valid: false,
+        community: true,
+        plan: '',
+        features: [],
+        expiry: '',
+        source: '',
+      }).license;
+    const pending = {
+      state: 'pending',
+      connectUrl: 'https://console.dagu.sh/servers/connect?code=abc',
+      code: 'ABCD1234',
+      expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+    };
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('opens the approval page and installs the license once approved', async () => {
+      const tab = { opener: {}, location: { href: '' }, close: vi.fn() };
+      vi.spyOn(window, 'open').mockReturnValue(tab as unknown as Window);
+      let approved = false;
+      const get = vi.fn((path: string) =>
+        Promise.resolve({
+          data:
+            path === '/license/connect'
+              ? approved
+                ? { state: 'granted' }
+                : pending
+              : approved
+                ? makeConfig({ plan: 'team' }).license
+                : community(),
+        })
+      );
+      const post = vi.fn().mockResolvedValue({ data: pending });
+      useClientMock.mockReturnValue({ POST: post, GET: get } as never);
+      renderPage(community());
+
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Connect to Dagu Console' })
+      );
+
+      expect(post).toHaveBeenCalledWith('/license/connect', {
+        params: { query: { remoteNode: 'local' } },
+      });
+      expect(window.open).toHaveBeenCalledWith('about:blank', '_blank');
+      expect(tab.opener).toBeNull();
+      expect(tab.location.href).toBe(pending.connectUrl);
+      expect(await screen.findByText('ABCD1234')).toBeVisible();
+      expect(
+        screen.getByRole('link', { name: 'Open Dagu Console' })
+      ).toHaveAttribute('href', pending.connectUrl);
+
+      approved = true;
+      expect(
+        await screen.findByText(
+          'Team connected. Explore your included features below.',
+          undefined,
+          { timeout: 5000 }
+        )
+      ).toBeVisible();
+      expect(screen.getByText('Team · Active')).toBeVisible();
+    });
+
+    it('offers a link when the browser blocks the new tab', async () => {
+      vi.spyOn(window, 'open').mockReturnValue(null);
+      useClientMock.mockReturnValue({
+        POST: vi.fn().mockResolvedValue({ data: pending }),
+        GET: vi.fn().mockReturnValue(new Promise(() => {})),
+      } as never);
+      renderPage(community());
+
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Connect to Dagu Console' })
+      );
+
+      expect(
+        await screen.findByText(
+          'Your browser blocked the new tab. Open Dagu Console to continue.'
+        )
+      ).toBeVisible();
+      expect(
+        screen.getByRole('link', { name: 'Open Dagu Console' })
+      ).toHaveAttribute('href', pending.connectUrl);
+    });
+
+    it('shows why a request could not start and closes the blank tab', async () => {
+      const tab = { opener: {}, location: { href: '' }, close: vi.fn() };
+      vi.spyOn(window, 'open').mockReturnValue(tab as unknown as Window);
+      useClientMock.mockReturnValue({
+        POST: vi.fn().mockResolvedValue({
+          error: { message: 'this server already has an active license' },
+        }),
+        GET: vi.fn().mockReturnValue(new Promise(() => {})),
+      } as never);
+      renderPage(community());
+
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Connect to Dagu Console' })
+      );
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'this server already has an active license'
+      );
+      expect(tab.close).toHaveBeenCalled();
+      expect(screen.getByRole('button', { name: 'Try again' })).toBeEnabled();
+    });
+
+    it('cancels a pending request', async () => {
+      vi.spyOn(window, 'open').mockReturnValue(null);
+      const del = vi.fn().mockResolvedValue({ data: { state: 'idle' } });
+      useClientMock.mockReturnValue({
+        POST: vi.fn().mockResolvedValue({ data: pending }),
+        GET: vi.fn().mockReturnValue(new Promise(() => {})),
+        DELETE: del,
+      } as never);
+      renderPage(community());
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Connect to Dagu Console' })
+      );
+      await screen.findByText('ABCD1234');
+
+      await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+      expect(del).toHaveBeenCalledWith('/license/connect', {
+        params: { query: { remoteNode: 'local' } },
+      });
+      expect(
+        screen.getByRole('button', { name: 'Connect to Dagu Console' })
+      ).toBeVisible();
+    });
+
+    it('explains that an environment license blocks connecting', () => {
+      renderPage({ ...community(), source: 'env', error: 'activation failed' });
+
+      expect(
+        screen.getByText(/license is set by DAGU_LICENSE or DAGU_LICENSE_KEY/)
+      ).toBeVisible();
+      expect(
+        screen.queryByRole('button', { name: 'Connect to Dagu Console' })
+      ).not.toBeInTheDocument();
+    });
+  });
+
   it('waits for authoritative activation status and preserves warnings', async () => {
     const community = makeConfig({
       community: true,
