@@ -217,7 +217,7 @@ describe('Graph', () => {
 
   it('exports the rendered graph as a self-contained SVG', async () => {
     mermaidRenderMock.mockResolvedValueOnce({
-      svg: '<svg viewBox="0 0 200 100" style="transform: scale(1.5)"><g class="node done"><rect></rect><foreignObject x="10" y="6" width="60" height="20"><div xmlns="http://www.w3.org/1999/xhtml">prepare</div></foreignObject></g></svg>',
+      svg: '<svg viewBox="0 0 200 100"><g class="node done"><rect></rect><foreignObject x="10" y="6" width="60" height="20"><div xmlns="http://www.w3.org/1999/xhtml">prepare</div></foreignObject></g></svg>',
       bindFunctions: vi.fn(),
     });
 
@@ -247,7 +247,14 @@ describe('Graph', () => {
     expect(markup).toContain('width="200"');
     expect(markup).toContain('height="100"');
     expect(markup).toContain('<rect');
-    expect(markup).not.toContain('transform: scale');
+    // The on-screen zoom size is not part of the exported image.
+    const exported = new DOMParser().parseFromString(
+      markup,
+      'image/svg+xml'
+    ).documentElement;
+    expect(exported.getAttribute('style') ?? '').not.toMatch(
+      /(^|;)\s*(width|height):/
+    );
     // HTML labels become native text so PNG rasterization is not tainted
     // and non-browser SVG tools render the labels.
     expect(markup).toContain('>prepare</text>');

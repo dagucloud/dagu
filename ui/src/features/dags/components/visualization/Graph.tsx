@@ -91,6 +91,7 @@ const GRAPH_STATUS_STROKES = {
 } as const;
 
 const GRAPH_SUCCESS_LINK_STROKE = '#3fa76b';
+const GRAPH_DEFAULT_HEIGHT = 380;
 const GRAPH_RENDERED_NODE_SHAPE_SELECTOR =
   'rect, polygon, path, circle, ellipse';
 
@@ -184,34 +185,7 @@ function Graph({
     setScale(isExpandedView ? 0.4 : 0.3);
   };
 
-  // Calculate width based on flowchart type and graph breadth
-  const width = React.useMemo(() => {
-    if (!steps) return '100%';
-
-    if (flowchart === 'LR') {
-      return `${steps.length * 240}px`;
-    } else {
-      // For TD layout, calculate based on maximum breadth
-      const maxBreadth = calculateGraphBreadth(steps);
-      // Assuming each node needs about 200px of width, plus some padding
-      return `${Math.max(maxBreadth * 300, 600)}px`;
-    }
-  }, [steps, flowchart]);
-
   const mermaidStyle: React.CSSProperties = React.useMemo(() => {
-    const defaultHeight = '380px';
-
-    function getHeightValue(): string {
-      if (isExpandedView) {
-        return '100%';
-      }
-      if (height === undefined) {
-        return defaultHeight;
-      }
-      return typeof height === 'number' ? `${height}px` : height;
-    }
-
-    const heightValue = getHeightValue();
     const gridBackground = isDarkMode
       ? `linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px),
          linear-gradient(180deg, rgba(255,255,255,0.05) 1px, transparent 1px)`
@@ -220,17 +194,13 @@ function Graph({
 
     return {
       display: 'flex',
-      alignItems: 'flex-start',
-      justifyContent: 'flex-start',
-      width: width,
-      minWidth: '100%',
-      minHeight: heightValue,
-      height: heightValue,
+      alignItems: 'center',
+      justifyContent: 'center',
       borderRadius: '0.5em',
       background: gridBackground,
       backgroundSize: '20px 20px',
     };
-  }, [width, isExpandedView, height, isDarkMode]);
+  }, [isDarkMode]);
 
   const mermaidNodeIds = React.useMemo(() => {
     return (steps ?? []).map((stepOrNode) => {
@@ -429,10 +399,10 @@ function Graph({
 
   return (
     <div
-      className={cn(
-        'relative',
-        isExpandedView ? 'flex h-full min-h-0 flex-col' : ''
-      )}
+      className="relative flex min-h-0 flex-col"
+      style={{
+        height: height ?? (isExpandedView ? '100%' : GRAPH_DEFAULT_HEIGHT),
+      }}
       ref={containerRef}
     >
       <div className="absolute inset-x-2 top-2 z-10 max-w-[calc(100%-1rem)] overflow-x-auto rounded-md border border-border/50 bg-card shadow-sm sm:left-auto sm:right-4">
@@ -562,10 +532,8 @@ function Graph({
 
       <div
         className={cn(
-          'custom-scrollbar overflow-auto pt-14 sm:pt-0',
-          isExpandedView
-            ? 'min-h-0 flex-1 rounded-lg border border-border/30 bg-muted/5'
-            : ''
+          'custom-scrollbar min-h-0 flex-1 overflow-hidden pt-14 sm:pt-0',
+          isExpandedView ? 'rounded-lg border border-border/30 bg-muted/5' : ''
         )}
       >
         <Mermaid
@@ -892,66 +860,6 @@ function fallbackStatusDotClassName(status: NodeStatus): string {
     default:
       return 'bg-muted-foreground/60';
   }
-}
-
-/**
- * Calculate the maximum breadth of the graph
- * This helps determine the appropriate width for the graph container
- */
-function calculateGraphBreadth(steps: Steps): number {
-  // Create a map of nodes and their dependencies
-  const nodeMap = new Map<string, string[]>();
-  const parentMap = new Map<string, string[]>();
-
-  // Initialize maps
-  steps.forEach((node) => {
-    const step = 'step' in node ? node.step : node;
-    const depends = allDepends(step);
-    nodeMap.set(step.name, depends);
-    depends.forEach((dep) => {
-      if (!parentMap.has(dep)) {
-        parentMap.set(dep, []);
-      }
-      parentMap.get(dep)?.push(step.name);
-    });
-  });
-
-  // Calculate levels for each node
-  const nodeLevels = new Map<string, number>();
-  const visited = new Set<string>();
-
-  function calculateLevel(nodeName: string, level = 0): void {
-    if (visited.has(nodeName)) return;
-    visited.add(nodeName);
-
-    nodeLevels.set(nodeName, Math.max(level, nodeLevels.get(nodeName) || 0));
-
-    // Process children
-    const children = parentMap.get(nodeName) || [];
-    children.forEach((child) => calculateLevel(child, level + 1));
-  }
-
-  // Start from nodes with no dependencies
-  steps.forEach((node) => {
-    const step = 'step' in node ? node.step : node;
-    if (allDepends(step).length === 0) {
-      calculateLevel(step.name);
-    }
-  });
-
-  // Count nodes at each level
-  const levelCounts = new Map<number, number>();
-  nodeLevels.forEach((level) => {
-    levelCounts.set(level, (levelCounts.get(level) || 0) + 1);
-  });
-
-  // Find maximum breadth
-  let maxBreadth = 0;
-  levelCounts.forEach((count) => {
-    maxBreadth = Math.max(maxBreadth, count);
-  });
-
-  return maxBreadth;
 }
 
 export default Graph;

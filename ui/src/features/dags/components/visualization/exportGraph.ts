@@ -68,7 +68,7 @@ function replaceForeignObjectLabels(
 
 /**
  * Serializes the rendered graph SVG for export: strips the on-screen zoom
- * transform, pins explicit dimensions from the viewBox, converts HTML labels
+ * size, pins explicit dimensions from the viewBox, converts HTML labels
  * to SVG text, and paints an opaque background rect. Mermaid embeds its
  * styles inside the SVG, so the clone is self-contained.
  */
@@ -77,8 +77,8 @@ export function serializeGraphSvg(
   background: string
 ): { blob: Blob; width: number; height: number } {
   const clone = svg.cloneNode(true) as SVGSVGElement;
-  clone.style.transform = '';
-  clone.style.transformOrigin = '';
+  clone.style.removeProperty('width');
+  clone.style.removeProperty('height');
   replaceForeignObjectLabels(clone, svg);
 
   const viewBox = clone.viewBox.baseVal;

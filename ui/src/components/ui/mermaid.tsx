@@ -11,7 +11,13 @@ type Props = {
   onRightClick?: (id: string) => void;
   onRender?: (container: HTMLDivElement) => void;
   fallback?: React.ReactNode;
+  /** Receives the scrollable viewport that wraps the diagram. */
+  viewportRef?: React.RefObject<HTMLDivElement | null>;
+  /** Called after each render with the unscaled diagram size, or null when rendering fails. */
+  onContentSize?: (size: DiagramSize | null) => void;
 };
+
+type DiagramSize = { width: number; height: number };
 
 // Helper function to get computed CSS variable value with fallback
 function getCSSVariable(name: string, fallback: string): string {
@@ -156,6 +162,37 @@ function applyNodeInteractionStyles(
   });
 }
 
+// Mermaid writes the padded drawing size into the viewBox; the width and
+// height attributes are the fallback for SVGs without one.
+function readSvgNaturalSize(svg: SVGSVGElement): DiagramSize | null {
+  const viewBox = svg
+    .getAttribute('viewBox')
+    ?.trim()
+    .split(/[\s,]+/);
+  const [, , viewBoxWidth, viewBoxHeight] = (viewBox ?? []).map(Number);
+  if (viewBoxWidth && viewBoxWidth > 0 && viewBoxHeight && viewBoxHeight > 0) {
+    return { width: viewBoxWidth, height: viewBoxHeight };
+  }
+  const width = Number(svg.getAttribute('width'));
+  const height = Number(svg.getAttribute('height'));
+  return width > 0 && height > 0 ? { width, height } : null;
+}
+
+// Sizing the SVG element itself, rather than transforming it, keeps the
+// scrollable area equal to the visible drawing.
+function applySvgScale(
+  svg: SVGSVGElement,
+  size: DiagramSize | null,
+  scale: number
+): void {
+  if (!size) {
+    return;
+  }
+  svg.style.width = `${size.width * scale}px`;
+  svg.style.height = `${size.height * scale}px`;
+  svg.style.flex = 'none';
+}
+
 // Initialize on load
 initializeMermaid();
 
@@ -169,10 +206,16 @@ function Mermaid({
   onRightClick,
   onRender,
   fallback,
+  viewportRef,
+  onContentSize,
 }: Props) {
   const mermaidRef = React.useRef<HTMLDivElement>(null); // Ref for the inner div holding the SVG
-  const scrollContainerRef = React.useRef<HTMLDivElement>(null); // Ref for the outer scrollable div
+  const ownScrollContainerRef = React.useRef<HTMLDivElement>(null);
+  const scrollContainerRef = viewportRef ?? ownScrollContainerRef; // Ref for the outer scrollable div
   const scrollPosRef = React.useRef({ top: 0, left: 0 }); // Ref to store scroll position
+  const scaleRef = React.useRef(scale);
+  const naturalSizeRef = React.useRef<DiagramSize | null>(null);
+  const onContentSizeRef = React.useRef(onContentSize);
   const handlersRef = React.useRef({ onClick, onDoubleClick, onRightClick });
   const knownNodeIds = React.useMemo(() => normalizeNodeIds(nodeIds), [nodeIds]);
   const knownNodeIdsRef = React.useRef(knownNodeIds);
@@ -204,14 +247,22 @@ function Mermaid({
   };
 
   const mStyle: CSSProperties = {
-    ...contentStyle,
     padding: '2em',
-    minHeight: '100%', // Ensure inner div also takes full height
+    ...contentStyle,
+    // Grow with the drawing so the viewport scrolls over all of it, and fill
+    // the viewport when the drawing is smaller.
+    width: 'max-content',
+    minWidth: '100%',
+    minHeight: '100%',
   };
 
   React.useEffect(() => {
     handlersRef.current = { onClick, onDoubleClick, onRightClick };
   }, [onClick, onDoubleClick, onRightClick]);
+
+  React.useEffect(() => {
+    onContentSizeRef.current = onContentSize;
+  }, [onContentSize]);
 
   React.useEffect(() => {
     knownNodeIdsRef.current = knownNodeIds;
@@ -337,25 +388,11 @@ function Mermaid({
         hasNodeInteractionsRef.current
       );
 
-      // Apply scale transform immediately after SVG is rendered
+      // The scale may have changed while this render was in flight.
       const svgEl = mermaidRef.current.querySelector('svg');
+      naturalSizeRef.current = svgEl ? readSvgNaturalSize(svgEl) : null;
       if (svgEl) {
-        svgEl.style.overflow = 'visible';
-        svgEl.style.transform = `scale(${scale})`;
-        svgEl.style.transformOrigin = 'top left';
-
-        // Adjust the SVG's wrapper div to account for the scale
-        // This ensures the horizontal scrollbar properly reflects the scaled size
-        const parent = svgEl.parentElement;
-        if (parent && scale !== 1) {
-          const bbox = svgEl.getBBox();
-          parent.style.width = `${bbox.width * scale}px`;
-          parent.style.height = `${bbox.height * scale}px`;
-        } else if (parent && scale === 1) {
-          // Reset to auto when scale is 1
-          parent.style.width = 'auto';
-          parent.style.height = 'auto';
-        }
+        applySvgScale(svgEl, naturalSizeRef.current, scaleRef.current);
       }
 
       // Restore scroll position *after* SVG is rendered
@@ -363,6 +400,7 @@ function Mermaid({
         scrollContainerRef.current.scrollTop = scrollPosRef.current.top;
         scrollContainerRef.current.scrollLeft = scrollPosRef.current.left;
       }
+      onContentSizeRef.current?.(naturalSizeRef.current);
 
       // Bind standard Mermaid event handlers
       // This is still needed for other functionality
@@ -388,6 +426,8 @@ function Mermaid({
       if (mermaidRef.current) {
         mermaidRef.current.innerHTML = '';
       }
+      naturalSizeRef.current = null;
+      onContentSizeRef.current?.(null);
     }
   };
 
@@ -413,31 +453,15 @@ function Mermaid({
     );
   }, [knownNodeIds, hasNodeInteractions]);
 
-  React.useEffect(() => {
-    // Apply scale transformation when scale prop changes
-    if (mermaidRef.current) {
-      const svg = mermaidRef.current.querySelector('svg');
-      if (svg) {
-        // Ensure the SVG itself doesn't cause overflow issues conflicting with the container
-        svg.style.overflow = 'visible';
-        svg.style.transform = `scale(${scale})`;
-        svg.style.transformOrigin = 'top left'; // Keep origin consistent
-
-        // Adjust the SVG's wrapper div to account for the scale
-        // This ensures the horizontal scrollbar properly reflects the scaled size
-        const parent = svg.parentElement;
-        if (parent && scale !== 1) {
-          const bbox = svg.getBBox();
-          parent.style.width = `${bbox.width * scale}px`;
-          parent.style.height = `${bbox.height * scale}px`;
-        } else if (parent && scale === 1) {
-          // Reset to auto when scale is 1
-          parent.style.width = 'auto';
-          parent.style.height = 'auto';
-        }
-      }
+  // Layout effect so the new size is in place before an owner adjusts scroll
+  // after a zoom.
+  React.useLayoutEffect(() => {
+    scaleRef.current = scale;
+    const svg = mermaidRef.current?.querySelector('svg');
+    if (svg) {
+      applySvgScale(svg, naturalSizeRef.current, scale);
     }
-  }, [scale]); // Apply scale separately
+  }, [scale]);
 
   // Cleanup timeouts on unmount or when def changes
   React.useEffect(() => {
