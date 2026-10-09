@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/agentsession"
+	"github.com/dagucloud/dagu/v2/internal/cloudreport"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
@@ -102,8 +103,12 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 	startBrowserReaper(signalCtx, ctx.Config.Paths.DataDir, ctx.Persistence.DAGRunRepository)
 	var tunnelService *tunnel.Service
 	var resourceService *resource.Service
+	var cloudReporter *cloudreport.Reporter
 	defer func() {
 		stop()
+		if cloudReporter != nil {
+			cloudReporter.Stop()
+		}
 		if resourceService != nil {
 			if err := resourceService.Stop(ctx); err != nil {
 				logger.Error(ctx, "Failed to stop resource service", tag.Error(err))
@@ -177,6 +182,8 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 			logTunnelStatus(serviceCtx, tunnelService)
 		}
 	}
+
+	cloudReporter = startCloudReport(serviceCtx)
 
 	err = server.Serve(serviceCtx)
 	stop() // Let a second SIGINT end deferred cleanup; SIGTERM stays absorbed.
@@ -255,6 +262,16 @@ func initTunnelService(cfg *config.Config) (*tunnel.Service, error) {
 	}
 
 	return tunnel.NewService(tunnelCfg, cfg.Paths.DataDir)
+}
+
+// startCloudReport reports this server's health to Dagu Console while it holds
+// an online license. It returns nil when cloud.report is off or no license
+// manager runs.
+func startCloudReport(ctx *Context) *cloudreport.Reporter {
+	if !ctx.Config.Cloud.Report || ctx.LicenseManager == nil {
+		return nil
+	}
+	return cloudreport.Start(ctx, ctx.LicenseManager.CloudCredentials, ctx.Persistence.ServiceRegistry)
 }
 
 // logTunnelStatus logs the tunnel status prominently to the console.

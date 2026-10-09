@@ -205,6 +205,10 @@ func runStartAll(ctx *Context, _ []string) error {
 		return fmt.Errorf("failed to start resource service: %w", err)
 	}
 
+	if cloudReporter := startCloudReport(serviceCtx); cloudReporter != nil {
+		defer cloudReporter.Stop()
+	}
+
 	// WaitGroup to track all services
 	var wg sync.WaitGroup
 	serviceCount := 2 // scheduler + server
