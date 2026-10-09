@@ -24,6 +24,13 @@ export const GRAPH_MAX_SCALE = 2;
 export const GRAPH_READABLE_MIN_SCALE = 0.6;
 export const GRAPH_ZOOM_STEP = 1.2;
 export const GRAPH_CONTENT_PADDING_PX = 32;
+export const GRAPH_DEFAULT_HEIGHT = 380;
+export const GRAPH_MIN_HEIGHT = 200;
+
+/** Content-sized graphs grow to this share of the window height. */
+const AUTO_MAX_HEIGHT_RATIO = 0.6;
+/** Room for a horizontal scrollbar under a drawing wider than its viewport. */
+const SCROLLBAR_ALLOWANCE_PX = 16;
 
 /** One mouse-wheel notch zooms about 10%; trackpad pinches send smaller deltas. */
 const WHEEL_MAX_DELTA_PX = 10;
@@ -58,6 +65,35 @@ export function fittedScale(
 ): number {
   const min = fit === 'readable' ? GRAPH_READABLE_MIN_SCALE : GRAPH_MIN_SCALE;
   return clampScale(fitScale(drawing, viewport), min, 1);
+}
+
+/** Tallest box a content-sized graph may take in a window of this height. */
+export function autoGraphMaxHeight(windowHeight: number): number {
+  return Math.max(
+    GRAPH_DEFAULT_HEIGHT,
+    Math.round(windowHeight * AUTO_MAX_HEIGHT_RATIO)
+  );
+}
+
+/**
+ * Box height that shows the drawing at `scale` without vertical scrolling,
+ * limited to [GRAPH_MIN_HEIGHT, maxHeight]. `chrome` is the part of the box
+ * outside the scrolling viewport.
+ */
+export function autoGraphHeight(
+  drawing: GraphSize,
+  scale: number,
+  viewportWidth: number,
+  chrome: number,
+  maxHeight: number
+): number {
+  const padding = 2 * GRAPH_CONTENT_PADDING_PX;
+  const scrollbar =
+    drawing.width * scale + padding > viewportWidth
+      ? SCROLLBAR_ALLOWANCE_PX
+      : 0;
+  const height = drawing.height * scale + padding + chrome + scrollbar;
+  return Math.round(Math.min(maxHeight, Math.max(GRAPH_MIN_HEIGHT, height)));
 }
 
 /**

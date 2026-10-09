@@ -7,6 +7,8 @@ import type { FlowchartType } from './Graph';
 import {
   alignedScroll,
   anchorScrollDelta,
+  autoGraphHeight,
+  autoGraphMaxHeight,
   clampScale,
   fittedScale,
   GRAPH_ZOOM_STEP,
@@ -16,12 +18,16 @@ import {
 } from './graphViewport';
 
 type Options = {
+  /** Graph box whose height includes the viewport and any inset around it. */
+  boxRef: React.RefObject<HTMLDivElement | null>;
   /** Scrollable element that contains the rendered SVG. */
   viewportRef: React.RefObject<HTMLDivElement | null>;
   layout: FlowchartType;
   /** Changes whenever the graph's shape changes; each change fits again. */
   structureKey: string;
   initialFit: GraphInitialFit;
+  /** Whether the box height follows `autoHeight` rather than a fixed height. */
+  sizeToContent: boolean;
 };
 
 type ScreenPoint = { x: number; y: number };
@@ -49,22 +55,28 @@ const PANNING_ATTRIBUTE = 'data-graph-panning';
  * Zoom and pan state for a rendered graph. The graph is fitted to its
  * viewport when it first renders and whenever its structure changes;
  * status-only updates keep the user's zoom and scroll position.
+ *
+ * Each fit also computes `autoHeight`, a box height that shows the fitted
+ * drawing without vertical scrolling, up to a share of the window height.
  */
 export function useGraphViewport({
+  boxRef,
   viewportRef,
   layout,
   structureKey,
   initialFit,
+  sizeToContent,
 }: Options) {
   const [scale, setScale] = React.useState(1);
+  const [autoHeight, setAutoHeight] = React.useState<number>();
   const scaleRef = React.useRef(1);
   const contentSizeRef = React.useRef<GraphSize | null>(null);
   const fitPendingRef = React.useRef(true);
-  const optionsRef = React.useRef({ layout, initialFit });
+  const optionsRef = React.useRef({ layout, initialFit, sizeToContent });
 
   React.useEffect(() => {
-    optionsRef.current = { layout, initialFit };
-  }, [layout, initialFit]);
+    optionsRef.current = { layout, initialFit, sizeToContent };
+  }, [layout, initialFit, sizeToContent]);
 
   React.useEffect(() => {
     fitPendingRef.current = true;
@@ -80,10 +92,12 @@ export function useGraphViewport({
   }, []);
 
   const fitTo = React.useCallback(
-    (fit: GraphInitialFit) => {
+    (fit: GraphInitialFit, sizeBox: boolean) => {
+      const box = boxRef.current;
       const viewport = viewportRef.current;
       const drawing = contentSizeRef.current;
       if (
+        !box ||
         !viewport ||
         !drawing ||
         viewport.clientWidth === 0 ||
@@ -91,23 +105,36 @@ export function useGraphViewport({
       ) {
         return false;
       }
-      commitScale(
-        fittedScale(
-          drawing,
-          { width: viewport.clientWidth, height: viewport.clientHeight },
-          fit
-        )
-      );
+      const width = viewport.clientWidth;
+      // Box height outside the viewport, such as the toolbar inset on
+      // narrow screens.
+      const chrome = box.clientHeight - viewport.offsetHeight;
+      const maxHeight = autoGraphMaxHeight(window.innerHeight);
+      // A content-sized box can still grow, so fit against its largest size.
+      const height =
+        sizeBox && optionsRef.current.sizeToContent
+          ? maxHeight - chrome
+          : viewport.clientHeight;
+      const next = fittedScale(drawing, { width, height }, fit);
+      scaleRef.current = next;
+      flushSync(() => {
+        setScale(next);
+        if (sizeBox) {
+          setAutoHeight(
+            autoGraphHeight(drawing, next, width, chrome, maxHeight)
+          );
+        }
+      });
       const { left, top } = alignedScroll(optionsRef.current.layout, viewport);
       viewport.scrollLeft = left;
       viewport.scrollTop = top;
       return true;
     },
-    [commitScale, viewportRef]
+    [boxRef, viewportRef]
   );
 
   const fitIfPending = React.useCallback(() => {
-    if (fitPendingRef.current && fitTo(optionsRef.current.initialFit)) {
+    if (fitPendingRef.current && fitTo(optionsRef.current.initialFit, true)) {
       fitPendingRef.current = false;
     }
   }, [fitTo]);
@@ -297,12 +324,13 @@ export function useGraphViewport({
 
   return {
     scale,
+    autoHeight,
     handleContentSize,
     zoomIn: () => zoomTo(scaleRef.current * GRAPH_ZOOM_STEP),
     zoomOut: () => zoomTo(scaleRef.current / GRAPH_ZOOM_STEP),
     resetZoom: () => zoomTo(1),
     fitToView: () => {
-      fitTo('full');
+      fitTo('full', false);
     },
   };
 }

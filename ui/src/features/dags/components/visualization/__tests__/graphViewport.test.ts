@@ -5,10 +5,14 @@ import { describe, expect, it } from 'vitest';
 import {
   alignedScroll,
   anchorScrollDelta,
+  autoGraphHeight,
+  autoGraphMaxHeight,
   clampScale,
   fitScale,
   fittedScale,
+  GRAPH_DEFAULT_HEIGHT,
   GRAPH_MAX_SCALE,
+  GRAPH_MIN_HEIGHT,
   GRAPH_MIN_SCALE,
   GRAPH_READABLE_MIN_SCALE,
   wheelZoomFactor,
@@ -51,6 +55,37 @@ describe('fittedScale', () => {
       GRAPH_READABLE_MIN_SCALE
     );
     expect(fittedScale(drawing, VIEWPORT, 'full')).toBe(GRAPH_MIN_SCALE);
+  });
+});
+
+describe('autoGraphMaxHeight', () => {
+  it('grows with the window but never below the default height', () => {
+    expect(autoGraphMaxHeight(1000)).toBe(600);
+    expect(autoGraphMaxHeight(400)).toBe(GRAPH_DEFAULT_HEIGHT);
+  });
+});
+
+describe('autoGraphHeight', () => {
+  it('fits the drawing plus padding and inset', () => {
+    // 300 drawing + 64 padding + 56 inset.
+    expect(autoGraphHeight({ width: 400, height: 300 }, 1, 800, 56, 600)).toBe(
+      420
+    );
+  });
+
+  it('leaves room for a horizontal scrollbar when the drawing is wider', () => {
+    expect(autoGraphHeight({ width: 2000, height: 300 }, 1, 800, 0, 600)).toBe(
+      380
+    );
+  });
+
+  it('stays between the minimum and the cap', () => {
+    expect(autoGraphHeight({ width: 100, height: 20 }, 1, 800, 0, 600)).toBe(
+      GRAPH_MIN_HEIGHT
+    );
+    expect(autoGraphHeight({ width: 400, height: 5000 }, 1, 800, 0, 600)).toBe(
+      600
+    );
   });
 });
 

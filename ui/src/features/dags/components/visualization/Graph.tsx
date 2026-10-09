@@ -23,7 +23,10 @@ import React, { useState } from 'react';
 import { components, NodeStatus } from '../../../../api/v1/schema';
 import Mermaid from '@/components/ui/mermaid';
 import { exportGraphPng, exportGraphSvg } from './exportGraph';
-import { GRAPH_CONTENT_PADDING_PX } from './graphViewport';
+import {
+  GRAPH_CONTENT_PADDING_PX,
+  GRAPH_DEFAULT_HEIGHT,
+} from './graphViewport';
 import { useGraphViewport } from './useGraphViewport';
 import { I18nProps } from '@/i18n/I18nProps';
 import { I18nText } from '@/i18n/I18nText';
@@ -73,7 +76,11 @@ type Props = {
   onRightClickNode?: onRightClickNode;
   /** Whether the graph is currently displayed in an expanded modal view */
   isExpandedView?: boolean;
-  /** Custom height for the graph container */
+  /**
+   * Graph box height: a number in pixels or any CSS height ('100%' fills a
+   * parent with a definite height). When omitted the box fits the graph,
+   * or fills its parent in the expanded view.
+   */
   height?: string | number;
   /** DAG name used for export filenames */
   name?: string;
@@ -93,7 +100,6 @@ const GRAPH_STATUS_STROKES = {
 } as const;
 
 const GRAPH_SUCCESS_LINK_STROKE = '#3fa76b';
-const GRAPH_DEFAULT_HEIGHT = 380;
 const GRAPH_RENDERED_NODE_SHAPE_SELECTOR =
   'rect, polygon, path, circle, ellipse';
 
@@ -192,13 +198,23 @@ function Graph({
     });
   }, [steps]);
 
-  const { scale, handleContentSize, zoomIn, zoomOut, resetZoom, fitToView } =
-    useGraphViewport({
-      viewportRef,
-      layout: flowchart,
-      structureKey: `${flowchart}:${mermaidNodeIds.join(',')}`,
-      initialFit: isExpandedView ? 'full' : 'readable',
-    });
+  const sizeToContent = height === undefined && !isExpandedView;
+  const {
+    scale,
+    autoHeight,
+    handleContentSize,
+    zoomIn,
+    zoomOut,
+    resetZoom,
+    fitToView,
+  } = useGraphViewport({
+    boxRef: containerRef,
+    viewportRef,
+    layout: flowchart,
+    structureKey: `${flowchart}:${mermaidNodeIds.join(',')}`,
+    initialFit: isExpandedView ? 'full' : 'readable',
+    sizeToContent,
+  });
 
   const graph = React.useMemo(() => {
     if (!steps || steps.length === 0) return '';
@@ -392,7 +408,9 @@ function Graph({
     <div
       className="relative flex min-h-0 flex-col"
       style={{
-        height: height ?? (isExpandedView ? '100%' : GRAPH_DEFAULT_HEIGHT),
+        height:
+          height ??
+          (isExpandedView ? '100%' : (autoHeight ?? GRAPH_DEFAULT_HEIGHT)),
       }}
       ref={containerRef}
     >

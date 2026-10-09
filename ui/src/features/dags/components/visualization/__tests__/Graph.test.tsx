@@ -352,8 +352,10 @@ describe('Graph zoom', () => {
   const LARGE_SVG = '<svg viewBox="0 0 4000 1000"></svg>';
   const SMALL_SVG = '<svg viewBox="0 0 200 100"></svg>';
 
-  // jsdom has no layout engine, so every element reports an 800x400 box.
+  // jsdom has no layout engine, so every element reports an 800x400 box
+  // with no inset around the viewport.
   beforeEach(() => {
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(400);
     vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(800);
     vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(400);
   });
@@ -365,6 +367,12 @@ describe('Graph zoom', () => {
   function svgWidth(container: HTMLElement): string {
     return (
       container.querySelector<SVGSVGElement>('.mermaid svg')?.style.width ?? ''
+    );
+  }
+
+  function boxHeight(container: HTMLElement): string {
+    return (
+      viewportOf(container).parentElement?.parentElement?.style.height ?? ''
     );
   }
 
@@ -482,5 +490,21 @@ describe('Graph zoom', () => {
     fireEvent.click(graphNode);
 
     await waitFor(() => expect(onClickNode).toHaveBeenCalledWith(nodeId));
+  });
+
+  // jsdom's 768px window caps a content-sized box at 60%, or 461px.
+  it('sizes the box to the graph up to a share of the window', async () => {
+    const small = await renderGraph(SMALL_SVG);
+    expect(boxHeight(small.container)).toBe('200px');
+    small.unmount();
+
+    const large = await renderGraph(LARGE_SVG);
+    expect(boxHeight(large.container)).toBe('461px');
+  });
+
+  it('keeps an explicit box height', async () => {
+    const { container } = await renderGraph(SMALL_SVG, { height: 300 });
+
+    expect(boxHeight(container)).toBe('300px');
   });
 });
