@@ -1543,6 +1543,7 @@ const english = {
   'Specific date, month, or year': 'Specific date, month, or year',
   'Specific date/month/year': 'Specific date/month/year',
   'Specific period': 'Specific period',
+  Split: 'Split',
   'Standard Output Log': 'Standard Output Log',
   'Star and add to the sidebar for everyone':
     'Star and add to the sidebar for everyone',
@@ -3850,6 +3851,7 @@ const chinese = {
   'Specific date, month, or year': '指定日期、月份或年份',
   'Specific date/month/year': '指定日期/月/年',
   'Specific period': '特定期间',
+  Split: '分屏',
   'Standard Output Log': '标准输出日志',
   'Star and add to the sidebar for everyone': '加星并添加到所有人的侧边栏',
   'Star shared sidebar shortcuts, choose the shared default, or remove views saved for this remote and workspace.':
@@ -6184,6 +6186,7 @@ const japanese = {
   'Specific date, month, or year': '特定の日付、月、または年',
   'Specific date/month/year': '特定の日付/月/年',
   'Specific period': '特定の期間',
+  Split: '分割',
   'Standard Output Log': '標準出力ログ',
   'Star and add to the sidebar for everyone':
     'スターリングして全員用のサイドバーに追加',

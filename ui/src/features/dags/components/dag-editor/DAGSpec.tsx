@@ -7,9 +7,13 @@
  * @module features/dags/components/dag-editor
  */
 import { useCanWriteForWorkspace } from '@/contexts/AuthContext';
+import {
+  type SpecViewMode,
+  useUserPreferences,
+} from '@/contexts/UserPreference';
 import { useCopyFeedback } from '@/hooks/useCopyFeedback';
 import { StepDetailsDrawer } from '@/features/dags/components/step-details';
-import { toMermaidNodeId } from '@/lib/utils';
+import { cn, toMermaidNodeId } from '@/lib/utils';
 import { workspaceNameFromLabels } from '@/lib/workspace';
 import BorderedBox from '@/components/ui/bordered-box';
 import {
@@ -64,10 +68,15 @@ import DAGEditorWithDocs from './DAGEditorWithDocs';
 import { parseValidationMarkers } from './validationMarkers';
 import { AgentSpecOverview } from './AgentSpecOverview';
 import ExternalChangeDialog from './ExternalChangeDialog';
-import { useEditorScrollAnchor } from './useEditorScrollAnchor';
+import SpecViewSwitcher from './SpecViewSwitcher';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 import { useI18n } from '@/i18n/I18nProvider';
+
+/** Narrowest spec tab, in pixels, that shows the graph beside the editor. */
+const SPLIT_VIEW_MIN_WIDTH = 1024;
+/** View shown instead of Split where it does not fit. */
+const SPLIT_FALLBACK_VIEW: SpecViewMode = 'graph';
 
 /**
  * Props for the DAGSpec component
@@ -93,8 +102,10 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
   const { showError } = useErrorModal();
   const { showToast } = useSimpleToast();
   const { setHasUnsavedChanges } = useUnsavedChanges();
+  const { preferences, updatePreference } = useUserPreferences();
+  const [specRoot, setSpecRoot] = React.useState<HTMLDivElement | null>(null);
+  const specWidth = useElementWidth(specRoot);
 
-  const [scrollPosition, setScrollPosition] = React.useState(0);
   const [activeTab, setActiveTab] = React.useState('parent');
   const [selectedSpecStepName, setSelectedSpecStepName] = React.useState<
     string | null
@@ -118,13 +129,6 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
   // Flowchart direction preference stored in cookies
   const [cookie, setCookie] = useCookies(['flowchart']);
   const [flowchart, setFlowchart] = React.useState(cookie['flowchart']);
-
-  // Reference to the main container div
-  const containerRef = React.useRef<HTMLDivElement>(null);
-
-  // Keeps the YAML editor still while the live preview above it resizes
-  const { anchorRef: editorSectionRef, contentRef: previewRef } =
-    useEditorScrollAnchor();
 
   // Reference to save function and refresh callback for keyboard shortcut
   const saveHandlerRef = React.useRef<(() => Promise<void>) | null>(null);
@@ -211,8 +215,8 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
 
   // Live server-side validation of the edited buffer. Cleared whenever the
   // buffer stops being dirty (save or discard), which also clears the markers.
-  // Kept while the next check is pending so the preview above the editor does
-  // not flip back to the saved spec on every keystroke.
+  // Kept while the next check is pending so the preview does not flip back to
+  // the saved spec on every keystroke.
   const [liveValidation, setLiveValidation] = React.useState<{
     errors: string[];
     warnings: string[];
@@ -387,13 +391,6 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
     };
   }, [setHasUnsavedChanges]);
 
-  // Save scroll position before saving
-  const saveScrollPosition = React.useCallback(() => {
-    if (containerRef.current) {
-      setScrollPosition(window.scrollY);
-    }
-  }, []);
-
   // Save handler function
   const handleSave = React.useCallback(async () => {
     if (isSaving) {
@@ -404,8 +401,6 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
       return;
     }
 
-    // Save current scroll position before any operations that might cause re-render
-    saveScrollPosition();
     beginSave(currentValue);
 
     setIsSaving(true);
@@ -473,7 +468,6 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
     fileName,
     remoteNode,
     client,
-    saveScrollPosition,
     showError,
     showToast,
     beginSave,
@@ -481,21 +475,6 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
     markAsSaved,
     mutateSpec,
   ]);
-
-  // Restore scroll position after render
-  useEffect(() => {
-    if (scrollPosition > 0) {
-      // Use a small timeout to ensure the DOM has updated before scrolling
-      const timer = setTimeout(() => {
-        window.scrollTo({
-          top: scrollPosition,
-          behavior: 'auto', // Use 'auto' instead of 'smooth' to avoid animation
-        });
-      }, 100);
-
-      return () => clearTimeout(timer);
-    }
-  }, [scrollPosition]);
 
   // Update save handler ref when handleSave changes
   useEffect(() => {
@@ -546,10 +525,107 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
   // Check if we have local DAGs
   const hasLocalDags = localDags && localDags.length > 0;
 
-  // Helper function to render DAG content (Graph, Attributes, Steps, Errors)
+  // The saved type decides the layout, so typing does not reshape the tab.
+  const isAgentDag = data?.dag?.type === 'agent';
+  const canSplit =
+    !isAgentDag &&
+    (specWidth === undefined || specWidth >= SPLIT_VIEW_MIN_WIDTH);
+  // A stored Split choice survives narrow windows and returns on wide ones.
+  const view: SpecViewMode =
+    preferences.specViewMode === 'split' && !canSplit
+      ? SPLIT_FALLBACK_VIEW
+      : preferences.specViewMode;
+
+  const handleViewChange = (next: SpecViewMode) => {
+    if (next === view) {
+      return;
+    }
+    // The preview remounts in the next view and would reopen a stale drawer.
+    closeSpecStepDetails();
+    updatePreference('specViewMode', next);
+  };
+
+  // While the buffer is dirty, preview the live validation result instead of
+  // the saved spec. Local DAGs always preview their saved definition.
+  const parentErrors = liveValidation ? liveValidation.errors : data?.errors;
+  const selectedLocalDag =
+    activeTab === 'parent'
+      ? undefined
+      : localDags?.find(
+          (ld: components['schemas']['LocalDag']) => ld.name === activeTab
+        );
+  const preview =
+    activeTab === 'parent'
+      ? { dag: liveValidation?.dag ?? data?.dag, errors: parentErrors }
+      : { dag: selectedLocalDag?.dag, errors: selectedLocalDag?.errors };
+
+  const renderErrors = (errors?: string[]) =>
+    errors?.length ? (
+      <div className="space-y-3">
+        {errors.map((e, i) => (
+          <div
+            key={i}
+            className="p-3 bg-destructive/10 rounded-md text-destructive font-mono text-sm break-words flex items-start gap-2"
+          >
+            <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+            {e}
+          </div>
+        ))}
+      </div>
+    ) : null;
+
+  const warningsBanner =
+    warnings.length > 0 ? (
+      <div
+        role="status"
+        className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-800 dark:text-amber-200"
+      >
+        <div className="mb-2 flex items-center gap-2 font-medium">
+          <AlertTriangle className="h-4 w-4" aria-hidden="true" />
+          <I18nText text={'Warnings'} />
+        </div>
+        <ul className="list-disc space-y-1 pl-5">
+          {warnings.map((warning) => (
+            <li key={warning} className="whitespace-normal break-words">
+              {warning}
+            </li>
+          ))}
+        </ul>
+      </div>
+    ) : null;
+
+  const localDagTabs = hasLocalDags ? (
+    <div className="flex-shrink-0">
+      <div className="overflow-x-auto -mx-2 px-2 scrollbar-thin scrollbar-thumb-gray-300">
+        <Tabs className="w-max min-w-full">
+          <Tab
+            isActive={activeTab === 'parent'}
+            onClick={() => handleActiveTabChange('parent')}
+            className="cursor-pointer whitespace-nowrap"
+          >
+            {data?.dag?.name} <I18nText text={'(Parent)'} />
+          </Tab>
+          {localDags?.map((localDag: components['schemas']['LocalDag']) => (
+            <Tab
+              key={localDag.name}
+              isActive={activeTab === localDag.name}
+              onClick={() => handleActiveTabChange(localDag.name)}
+              className="cursor-pointer whitespace-nowrap"
+            >
+              {localDag.name}
+            </Tab>
+          ))}
+        </Tabs>
+      </div>
+    </div>
+  ) : null;
+
+  // Renders the preview: the graph alone filling its pane when `fillGraph` is
+  // set, otherwise the graph followed by attributes and step tables.
   const renderDAGContent = (
     dag: components['schemas']['DAGDetails'],
-    errors?: string[]
+    errors: string[] | undefined,
+    fillGraph: boolean
   ) => {
     const selectedStep = selectedSpecStepName
       ? dag.steps?.find((step) => step.name === selectedSpecStepName)
@@ -571,20 +647,12 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
     };
 
     return (
-      <div className="space-y-6">
-        {errors?.length ? (
-          <div className="space-y-3">
-            {errors.map((e, i) => (
-              <div
-                key={i}
-                className="p-3 bg-destructive/10 rounded-md text-destructive font-mono text-sm break-words flex items-start gap-2"
-              >
-                <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                {e}
-              </div>
-            ))}
-          </div>
-        ) : null}
+      <div
+        className={
+          fillGraph ? 'flex min-h-0 flex-1 flex-col gap-4' : 'space-y-6'
+        }
+      >
+        {renderErrors(errors)}
 
         {dag.type === 'agent' ? (
           <AgentSpecOverview dag={dag} />
@@ -603,8 +671,14 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
                 </p>
               </div>
             ) : (
-              <div>
-                <BorderedBox className="py-4 px-4 flex flex-col overflow-x-auto">
+              <div className={fillGraph ? 'flex min-h-64 flex-1 flex-col' : ''}>
+                <BorderedBox
+                  className={
+                    fillGraph
+                      ? 'flex min-h-0 flex-1 flex-col p-4'
+                      : 'py-4 px-4 flex flex-col overflow-x-auto'
+                  }
+                >
                   <Graph
                     steps={dag.steps}
                     name={dag.name}
@@ -613,6 +687,7 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
                     onChangeFlowchart={onChangeFlowchart}
                     onClickNode={handleGraphNodeSelect}
                     selectOnClick
+                    height={fillGraph ? '100%' : undefined}
                   />
                 </BorderedBox>
                 <div className="mt-2 flex justify-end">
@@ -643,17 +718,21 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
               </div>
             )}
 
-            <DAGAttributes dag={dag} />
+            {!fillGraph && (
+              <>
+                <DAGAttributes dag={dag} />
 
-            {dag.steps ? (
-              <div className="overflow-hidden">
-                <DAGStepTable steps={dag.steps} />
-              </div>
-            ) : null}
+                {dag.steps ? (
+                  <div className="overflow-hidden">
+                    <DAGStepTable steps={dag.steps} />
+                  </div>
+                ) : null}
+              </>
+            )}
           </>
         )}
 
-        {getHandlers(dag)?.length ? (
+        {!fillGraph && getHandlers(dag)?.length ? (
           <div className="overflow-hidden">
             <DAGStepTable steps={getHandlers(dag)} />
           </div>
@@ -691,7 +770,7 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
       {(props) => {
         // Update refresh callback ref directly (safe in render)
         refreshCallbackRef.current = props.refresh;
-        const editorHeaderActions = (
+        const specActions = (
           <div className="flex items-center gap-2">
             {editable && localHasUnsavedChanges && (
               <span
@@ -771,122 +850,81 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
               />
 
               <div
-                className="flex min-h-0 flex-1 flex-col space-y-6 pb-8"
-                ref={containerRef}
+                ref={setSpecRoot}
+                className="flex min-h-0 flex-1 flex-col gap-3"
               >
-                <div ref={previewRef} className="flex-shrink-0 space-y-6">
-                  {warnings.length > 0 && (
-                    <div
-                      role="status"
-                      className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-800 dark:text-amber-200"
-                    >
-                      <div className="mb-2 flex items-center gap-2 font-medium">
-                        <AlertTriangle className="h-4 w-4" aria-hidden="true" />
-                        <I18nText text={'Warnings'} />
-                      </div>
-                      <ul className="list-disc space-y-1 pl-5">
-                        {warnings.map((warning) => (
-                          <li
-                            key={warning}
-                            className="whitespace-normal break-words"
-                          >
-                            {warning}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {hasLocalDags && (
-                    <div className="flex-shrink-0">
-                      <div className="overflow-x-auto -mx-2 px-2 scrollbar-thin scrollbar-thumb-gray-300">
-                        <Tabs className="w-max min-w-full">
-                          <Tab
-                            isActive={activeTab === 'parent'}
-                            onClick={() => handleActiveTabChange('parent')}
-                            className="cursor-pointer whitespace-nowrap"
-                          >
-                            {data?.dag?.name} <I18nText text={'(Parent)'} />
-                          </Tab>
-                          {localDags?.map(
-                            (localDag: components['schemas']['LocalDag']) => (
-                              <Tab
-                                key={localDag.name}
-                                isActive={activeTab === localDag.name}
-                                onClick={() =>
-                                  handleActiveTabChange(localDag.name)
-                                }
-                                className="cursor-pointer whitespace-nowrap"
-                              >
-                                {localDag.name}
-                              </Tab>
-                            )
-                          )}
-                        </Tabs>
-                      </div>
-                    </div>
-                  )}
-
-                  {(() => {
-                    if (activeTab === 'parent') {
-                      // While the buffer is dirty, preview the live validation
-                      // result instead of the saved spec.
-                      const previewDag = liveValidation?.dag ?? data?.dag;
-                      const previewErrors = liveValidation
-                        ? liveValidation.errors
-                        : data?.errors;
-                      return (
-                        previewDag && (
-                          <div className="flex-shrink-0">
-                            {renderDAGContent(previewDag, previewErrors)}
-                          </div>
-                        )
-                      );
-                    }
-                    const selectedLocalDag = localDags?.find(
-                      (ld: components['schemas']['LocalDag']) =>
-                        ld.name === activeTab
-                    );
-                    return (
-                      selectedLocalDag?.dag && (
-                        <div className="flex-shrink-0">
-                          {renderDAGContent(
-                            selectedLocalDag.dag,
-                            selectedLocalDag.errors
-                          )}
-                        </div>
-                      )
-                    );
-                  })()}
+                <div className="flex flex-shrink-0 flex-wrap items-center justify-between gap-2">
+                  <SpecViewSwitcher
+                    value={view}
+                    onChange={handleViewChange}
+                    canSplit={canSplit}
+                    isAgent={isAgentDag}
+                  />
+                  {specActions}
                 </div>
 
-                <section
-                  ref={editorSectionRef}
-                  className="flex-shrink-0 space-y-3"
+                <div
+                  className={cn(
+                    'flex min-h-80 flex-1 gap-4',
+                    view === 'split' ? 'flex-row' : 'flex-col'
+                  )}
                 >
-                  <h2 className="text-lg font-semibold text-foreground">
-                    <I18nText text={'YAML'} />
-                  </h2>
-                  <DAGEditorWithDocs
-                    value={
-                      editable
-                        ? (currentValue ?? serverSpec ?? '')
-                        : (serverSpec ?? '')
-                    }
-                    readOnly={!editable}
-                    onChange={
-                      editable
-                        ? (newValue) => {
-                            setCurrentValue(newValue ?? '');
-                          }
-                        : undefined
-                    }
-                    className="min-h-[640px]"
-                    modelUri={editorModelUri}
-                    schema={editorSchema}
-                    markers={liveMarkers}
-                    headerActions={editorHeaderActions}
-                  />
-                </section>
+                  {view !== 'yaml' && (
+                    <div
+                      className={
+                        view === 'split'
+                          ? 'flex min-h-0 min-w-0 shrink-0 basis-2/5 flex-col gap-4 overflow-y-auto'
+                          : 'min-h-0 min-w-0 flex-1 space-y-6 overflow-y-auto'
+                      }
+                    >
+                      {warningsBanner}
+                      {localDagTabs}
+                      {preview.dag &&
+                        renderDAGContent(
+                          preview.dag,
+                          preview.errors,
+                          view === 'split'
+                        )}
+                    </div>
+                  )}
+
+                  {/* Stays mounted in every view so the editor keeps its
+                      undo history, cursor and scroll position. */}
+                  <section
+                    hidden={view === 'graph'}
+                    aria-label={ts('YAML')}
+                    className="flex min-h-0 min-w-0 flex-1 flex-col gap-3"
+                  >
+                    <DAGEditorWithDocs
+                      value={
+                        editable
+                          ? (currentValue ?? serverSpec ?? '')
+                          : (serverSpec ?? '')
+                      }
+                      readOnly={!editable}
+                      onChange={
+                        editable
+                          ? (newValue) => {
+                              setCurrentValue(newValue ?? '');
+                            }
+                          : undefined
+                      }
+                      className="h-auto min-h-0 flex-1"
+                      modelUri={editorModelUri}
+                      schema={editorSchema}
+                      markers={liveMarkers}
+                    />
+                    {/* Below the editor so validation messages never push it
+                        down while typing. */}
+                    {view === 'yaml' &&
+                      (warningsBanner || parentErrors?.length) && (
+                        <div className="max-h-40 flex-shrink-0 space-y-3 overflow-y-auto">
+                          {warningsBanner}
+                          {renderErrors(parentErrors)}
+                        </div>
+                      )}
+                  </section>
+                </div>
               </div>
             </React.Fragment>
           )
@@ -930,6 +968,31 @@ function useStableLegacyDefinitionHints(
     stableRef.current = hints;
   }
   return stableRef.current;
+}
+
+/** Tracks the rendered width of `element`, or undefined before it mounts. */
+function useElementWidth(element: HTMLElement | null): number | undefined {
+  const [width, setWidth] = React.useState<number>();
+
+  // Layout effect so the first paint already uses the measured width.
+  React.useLayoutEffect(() => {
+    if (!element) {
+      return;
+    }
+    setWidth(element.getBoundingClientRect().width);
+    if (typeof ResizeObserver === 'undefined') {
+      return;
+    }
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) {
+        setWidth(entry.contentRect.width);
+      }
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [element]);
+
+  return width;
 }
 
 function useStableCustomActionHints(
