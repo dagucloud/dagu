@@ -224,6 +224,34 @@ func TestReportServerErrorsBackOff(t *testing.T) {
 		}, waits)
 	})
 
+	t.Run("any answer from the console ends the failures", func(t *testing.T) {
+		t.Parallel()
+
+		failure := consoleResponse{status: http.StatusServiceUnavailable}
+		console := newFakeConsole(t,
+			failure, failure, failure,
+			consoleResponse{status: http.StatusUnauthorized, body: `{"message":"unauthorized"}`},
+			failure,
+			consoleResponse{status: http.StatusTooManyRequests, retryAfter: "7"},
+			failure,
+		)
+		clock := startReporter(t.Context(), t, newReporter(console.credentials, nil), noJitter)
+
+		clock.wait()
+		var waits []time.Duration
+		for range 7 {
+			waits = append(waits, clock.next())
+		}
+
+		assert.Equal(t, []time.Duration{
+			time.Minute, 2 * time.Minute, 4 * time.Minute,
+			time.Minute,
+			time.Minute,
+			7 * time.Second,
+			time.Minute,
+		}, waits)
+	})
+
 	t.Run("unreachable console", func(t *testing.T) {
 		t.Parallel()
 

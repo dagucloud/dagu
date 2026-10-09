@@ -160,6 +160,8 @@ func (r *Reporter) report(ctx context.Context) time.Duration {
 		return r.jitter(r.nextBackoff())
 
 	case res.status == http.StatusTooManyRequests:
+		// Backoff counts only consecutive failures to reach the console.
+		r.backoff = 0
 		wait := retryAfter(res.retryAfter)
 		if r.changed(outcome{kind: outcomeThrottled}) {
 			logger.Info(ctx, "Dagu Console asked to delay the server report", tag.Interval(wait))
@@ -169,6 +171,7 @@ func (r *Reporter) report(ctx context.Context) time.Duration {
 	case res.status < http.StatusOK || res.status >= http.StatusMultipleChoices:
 		// The license manager acts on rejected activations through its own
 		// heartbeat, so the reporter keeps its schedule.
+		r.backoff = 0
 		if r.changed(outcome{kind: outcomeRejected, status: res.status}) {
 			logger.Warn(ctx, "Dagu Console rejected the server report",
 				slog.Int("status", res.status), tag.Error(res.message()))
