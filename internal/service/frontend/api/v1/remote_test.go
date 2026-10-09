@@ -141,6 +141,60 @@ func TestRemoteSyncAuthorization(t *testing.T) {
 	}
 }
 
+func TestRemoteLicenseAuthorization(t *testing.T) {
+	viewer := &auth.User{Role: auth.RoleViewer, WorkspaceAccess: auth.AllWorkspaceAccess()}
+	admin := &auth.User{Role: auth.RoleAdmin, WorkspaceAccess: auth.AllWorkspaceAccess()}
+	tests := []struct {
+		name     string
+		method   string
+		path     string
+		user     *auth.User
+		wantCall bool
+	}{
+		{name: "viewer reads status", method: http.MethodGet, path: "/api/v1/license/status", user: viewer, wantCall: true},
+		{name: "viewer cannot deactivate", method: http.MethodPost, path: "/api/v1/license/deactivate", user: viewer},
+		{name: "viewer cannot start a connection", method: http.MethodPost, path: "/api/v1/license/connect", user: viewer},
+		{name: "viewer cannot read a connection", method: http.MethodGet, path: "/api/v1/license/connect", user: viewer},
+		{name: "admin can start a connection", method: http.MethodPost, path: "/api/v1/license/connect", user: admin, wantCall: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var remoteCalled atomic.Bool
+			remoteServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				remoteCalled.Store(true)
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{}`))
+			}))
+			t.Cleanup(remoteServer.Close)
+
+			a := &API{
+				config: &config.Config{Server: config.Server{
+					APIBasePath: "/api/v1",
+					Auth:        config.Auth{Mode: config.AuthModeBuiltin},
+				}},
+				authService: remoteSyncAuthService{user: test.user},
+				remoteNodeResolver: remotenode.NewResolver([]config.RemoteNode{{
+					Name:       "edge",
+					APIBaseURL: remoteServer.URL + "/api/v1",
+				}}, nil),
+			}
+			router := chi.NewRouter()
+			require.NoError(t, a.ConfigureRoutes(t.Context(), router, time.Second))
+
+			request := httptest.NewRequest(test.method, test.path+"?remoteNode=edge", nil)
+			request.Header.Set("Authorization", "Bearer caller-token")
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, request)
+
+			assert.Equal(t, test.wantCall, remoteCalled.Load())
+			if !test.wantCall {
+				assert.Equal(t, http.StatusForbidden, recorder.Code)
+			}
+		})
+	}
+}
+
 func TestRemoteNodeProxyPreservesHumanTaskCompletionRequest(t *testing.T) {
 	const rawBody = "{\n  \"count\": 9007199254740993\n}\n"
 	type receivedRequest struct {

@@ -8251,6 +8251,136 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /license/connect:
+    post:
+      summary: "Connect this server to Dagu Console"
+      description: "Starts a request for a license from Dagu Console, or returns the pending one. Open connectUrl to approve it; the license is installed once a workspace owner approves. Admin only."
+      operationId: "startLicenseConnect"
+      tags:
+        - "system"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "Current connection request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LicenseConnectStatus"
+        "403":
+          description: "Insufficient permissions"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "The license is set outside Dagu or the server already has an active license"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    get:
+      summary: "Get the Dagu Console connection request"
+      description: "Returns the state of the latest request to connect this server to Dagu Console. Admin only."
+      operationId: "getLicenseConnect"
+      tags:
+        - "system"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "Current connection request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LicenseConnectStatus"
+        "403":
+          description: "Insufficient permissions"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      summary: "Cancel the Dagu Console connection request"
+      description: "Abandons the pending request to connect this server to Dagu Console. Admin only."
+      operationId: "cancelLicenseConnect"
+      tags:
+        - "system"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "Current connection request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LicenseConnectStatus"
+        "403":
+          description: "Insufficient permissions"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /license/refresh:
+    post:
+      summary: "Check in with Dagu Console now"
+      description: "Refreshes the license from Dagu Console instead of waiting for the next hourly check-in. Admin only."
+      operationId: "refreshLicense"
+      tags:
+        - "system"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "License status after the check-in"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LicenseStatusResponse"
+        "400":
+          description: "The license does not check in with Dagu Console"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Insufficient permissions"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: "Dagu Console could not be reached"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /wiki:
     get:
       summary: "List Wiki pages"
@@ -16271,6 +16401,29 @@ components:
         - source
         - warningCode
         - error
+
+    LicenseConnectStatus:
+      type: object
+      description: "Request to connect this server to Dagu Console"
+      properties:
+        state:
+          type: string
+          enum: [idle, pending, granted, failed, expired]
+          description: "Progress of the request"
+        connectUrl:
+          type: string
+          description: "Dagu Console page that approves the request"
+        code:
+          type: string
+          description: "Short code Dagu Console shows so the approver can confirm the request"
+        expiresAt:
+          type: string
+          description: "When the request expires unless approved"
+        error:
+          type: string
+          description: "Why the request failed"
+      required:
+        - state
 
     ChangePasswordRequest:
       type: object
