@@ -269,8 +269,7 @@ func writeElementsError(ctx *Context, format string, err error) error {
 
 // readError maps an error from reading elements onto a code.
 func readError(err error) *elementsError {
-	var elementsErr *elementsError
-	if errors.As(err, &elementsErr) {
+	if elementsErr, ok := errors.AsType[*elementsError](err); ok {
 		return elementsErr
 	}
 	code := elementsCodeFailed
@@ -294,13 +293,15 @@ func outlineElements(ctx *Context, opts elementsOptions, els desktop.Elements) e
 	if err != nil {
 		return writeElementsError(ctx, opts.format, readError(err))
 	}
-	result := elementsOutline{Window: window, Elements: elements, Count: len(elements)}
+	// One element past the limit says the outline was cut, not how much.
+	result := elementsOutline{Window: window, Elements: elements}
 	if len(elements) > opts.limit {
 		result.Elements, result.Truncated = elements[:opts.limit], true
 	}
 	if result.Elements == nil {
 		result.Elements = []desktop.Element{}
 	}
+	result.Count = len(result.Elements)
 	out := ctx.Command.OutOrStdout()
 	if opts.format == "json" {
 		return writeIndentedJSON(out, result)
@@ -311,7 +312,7 @@ func outlineElements(ctx *Context, opts elementsOptions, els desktop.Elements) e
 		writer.printf("%s[%d] %s\n", strings.Repeat("  ", max(len(e.Path)-1, 0)), i+1, describeElement(e))
 	}
 	if result.Truncated {
-		writer.printf("… %d more; raise --limit to list them\n", len(elements)-opts.limit)
+		writer.printf("… more elements; raise --limit to list them\n")
 	}
 	return writer.err
 }
@@ -321,7 +322,7 @@ func elementAtPointer(ctx *Context, opts elementsOptions, els desktop.Elements) 
 		select {
 		case <-time.After(opts.after):
 		case <-ctx.Done():
-			return ctx.Err()
+			return writeElementsError(ctx, opts.format, ctx.Err())
 		}
 	}
 	driver, err := desktop.Open()

@@ -41,8 +41,6 @@ func ids(elements []Element) []string {
 	return out
 }
 
-func intPtr(n int) *int { return &n }
-
 func TestSelectorValidate(t *testing.T) {
 	t.Parallel()
 
@@ -60,7 +58,7 @@ func TestSelectorValidate(t *testing.T) {
 		{"role alone", Selector{Role: RoleButton}, "set name, id, or near"},
 		{"near without label", Selector{Role: RoleButton, Near: &Near{Side: SideRight}}, "near.label is required"},
 		{"bad side", Selector{Role: RoleButton, Near: &Near{Label: "x", Side: "beside"}}, "near.side must be one of"},
-		{"negative nth", Selector{Role: RoleButton, Name: "x", Nth: intPtr(-1)}, "nth must be 0 or more"},
+		{"negative nth", Selector{Role: RoleButton, Name: "x", Nth: new(-1)}, "nth must be 0 or more"},
 		{"bad container", Selector{Role: RoleButton, Name: "x", In: &Selector{Role: RoleGroup}}, "selector.in: set name, id, or near"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -118,11 +116,11 @@ func TestMatch(t *testing.T) {
 		{name: "container missing", sel: Selector{Role: RoleButton, Name: "保存", In: &Selector{Role: RoleGroup, Name: "請求"}}, err: `container {"role":"group","name":"請求"}: no element matches`},
 		{name: "container ambiguous", sel: Selector{Role: RoleTextField, Near: &Near{Label: "金額", Side: SideRight}, In: &Selector{Role: RoleText, Name: "金額"}}, err: `container {"role":"text","name":"金額"}: 2 elements match`},
 		{name: "near twice", sel: Selector{Role: RoleTextField, Near: &Near{Label: "金額", Side: SideRight}}, want: []string{"amountBox", "paymentAmountBox"}},
-		{name: "near and nth", sel: Selector{Role: RoleTextField, Near: &Near{Label: "金額", Side: SideRight}, Nth: intPtr(0)}, want: []string{"amountBox"}},
+		{name: "near and nth", sel: Selector{Role: RoleTextField, Near: &Near{Label: "金額", Side: SideRight}, Nth: new(0)}, want: []string{"amountBox"}},
 		{name: "near wrong side", sel: Selector{Role: RoleTextField, Near: &Near{Label: "金額", Side: SideBelow}}, want: nil},
 		{name: "near above", sel: Selector{Role: RoleTextField, Near: &Near{Label: "金額", Side: SideAbove}}, want: []string{"amountBox"}},
-		{name: "nth", sel: Selector{Role: RoleButton, Name: "保存", Nth: intPtr(1)}, want: []string{"paymentSaveButton"}},
-		{name: "nth past the end", sel: Selector{Role: RoleButton, Name: "保存", Nth: intPtr(2)}, want: nil},
+		{name: "nth", sel: Selector{Role: RoleButton, Name: "保存", Nth: new(1)}, want: []string{"paymentSaveButton"}},
+		{name: "nth past the end", sel: Selector{Role: RoleButton, Name: "保存", Nth: new(2)}, want: nil},
 		{name: "window contains", sel: Selector{Window: "elements", Role: RoleComboBox, Name: "支払方法"}, want: []string{"methodBox"}},
 		{name: "window wildcard", sel: Selector{Window: "Dagu*test", Role: RoleComboBox, Name: "支払方法"}, want: []string{"methodBox"}},
 		{name: "other window", sel: Selector{Window: "経費精算", Role: RoleComboBox, Name: "支払方法"}, want: nil},

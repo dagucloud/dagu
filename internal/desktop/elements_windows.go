@@ -91,8 +91,13 @@ type uiaElements struct {
 }
 
 type request struct {
-	fn     func(*uiaWorker) error
-	result chan error
+	fn     func(*uiaWorker) (any, error)
+	result chan response
+}
+
+type response struct {
+	value any
+	err   error
 }
 
 // uiaWorker is the automation thread's state.
@@ -140,25 +145,47 @@ func (e *uiaElements) serve(ready chan<- error) {
 		case <-e.quit:
 			return
 		case req := <-e.requests:
-			req.result <- req.fn(w)
+			value, err := req.fn(w)
+			req.result <- response{value: value, err: err}
 		}
 	}
 }
 
-// run performs fn on the automation thread and waits for its answer.
-func (e *uiaElements) run(what string, fn func(*uiaWorker) error) error {
-	req := request{fn: fn, result: make(chan error, 1)}
+// call performs fn on the automation thread and waits for its answer.
+// The answer travels only through the channel, so a call abandoned at the
+// deadline cannot write into anything its caller still holds. The send is
+// bounded too, since a hung application keeps the thread busy.
+func call[T any](e *uiaElements, what string, fn func(*uiaWorker) (T, error)) (T, error) {
+	var zero T
+	req := request{
+		fn:     func(w *uiaWorker) (any, error) { return fn(w) },
+		result: make(chan response, 1),
+	}
+	deadline := time.NewTimer(elementsTimeout)
+	defer deadline.Stop()
 	select {
 	case e.requests <- req:
 	case <-e.quit:
-		return errElementsClosed
+		return zero, errElementsClosed
+	case <-deadline.C:
+		return zero, fmt.Errorf("%s: the automation thread is still busy after %s: %w", what, elementsTimeout, context.DeadlineExceeded)
 	}
 	select {
-	case err := <-req.result:
-		return err
-	case <-time.After(elementsTimeout):
-		return fmt.Errorf("%s: no answer within %s: %w", what, elementsTimeout, context.DeadlineExceeded)
+	case res := <-req.result:
+		if res.err != nil {
+			return zero, res.err
+		}
+		value, _ := res.value.(T)
+		return value, nil
+	case <-deadline.C:
+		return zero, fmt.Errorf("%s: no answer within %s: %w", what, elementsTimeout, context.DeadlineExceeded)
 	}
+}
+
+// run performs fn on the automation thread for its error alone.
+func (e *uiaElements) run(what string, fn func(*uiaWorker) error) error {
+	_, err := call(e, what, func(w *uiaWorker) (struct{}, error) { return struct{}{}, fn(w) })
+	return err
 }
 
 func (e *uiaElements) Close() error {
@@ -172,83 +199,68 @@ func (e *uiaElements) Close() error {
 }
 
 func (e *uiaElements) At(x, y int) (Element, error) {
-	var found Element
-	err := e.run("element at point", func(w *uiaWorker) error {
+	return call(e, "element at point", func(w *uiaWorker) (Element, error) {
 		el, err := w.auto.elementFromPoint(x, y, w.cacheElement)
 		if err != nil {
-			return err
+			return Element{}, err
 		}
 		defer el.release()
-		found, err = w.place(el)
-		return err
+		return w.place(el)
 	})
-	return found, err
 }
 
 func (e *uiaElements) Focused() (Element, error) {
-	var found Element
-	err := e.run("focused element", func(w *uiaWorker) error {
+	return call(e, "focused element", func(w *uiaWorker) (Element, error) {
 		el, err := w.auto.focusedElement(w.cacheElement)
 		if err != nil {
-			return err
+			return Element{}, err
 		}
 		defer el.release()
-		found, err = w.place(el)
-		return err
+		return w.place(el)
 	})
-	return found, err
 }
 
 func (e *uiaElements) FrontWindow() (Element, error) {
-	var window Element
-	err := e.run("front window", func(w *uiaWorker) error {
+	return call(e, "front window", func(w *uiaWorker) (Element, error) {
 		top, err := w.frontWindow()
 		if err != nil {
-			return err
+			return Element{}, err
 		}
 		defer top.el.release()
-		window = top.window
-		return nil
+		return top.window, nil
 	})
-	return window, err
 }
 
 func (e *uiaElements) Find(sel Selector) ([]Element, error) {
-	var matches []Element
-	err := e.run("find", func(w *uiaWorker) error {
+	return call(e, "find", func(w *uiaWorker) ([]Element, error) {
 		top, err := w.frontWindow()
 		if err != nil {
-			return err
+			return nil, err
 		}
 		defer top.el.release()
 		tree, err := w.subtree(top, findLimit)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		defer tree.release()
-		matches, err = Match(top.window, tree.elements, sel)
-		return err
+		return Match(top.window, tree.elements, sel)
 	})
-	return matches, err
 }
 
 func (e *uiaElements) Outline(window Element, limit int) ([]Element, error) {
-	var elements []Element
-	err := e.run("outline", func(w *uiaWorker) error {
+	return call(e, "outline", func(w *uiaWorker) ([]Element, error) {
 		top, err := w.resolveWindow(window)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		defer top.el.release()
 		tree, err := w.subtree(top, limit)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		defer tree.release()
-		elements = tree.elements
-		return nil
+		return tree.elements, nil
 	})
-	return elements, err
 }
 
 // Focus finds the element again, under its centre first and then by its
