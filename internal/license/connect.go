@@ -45,6 +45,7 @@ const (
 	connectVerificationFailure = "Dagu Console returned a license this server could not verify."
 	connectExpiredFailure      = "The connection request expired before it was approved. Start a new one."
 	connectRejectedFailure     = "Dagu Console rejected the connection request."
+	connectLicensedFailure     = "This server got a license another way while the request waited for approval."
 )
 
 var (
@@ -58,6 +59,10 @@ var (
 	// ErrNoCheckIn is returned when refreshing a license that does not check
 	// in with Dagu Console.
 	ErrNoCheckIn = errors.New("this license does not check in with Dagu Console")
+
+	// errLicensedMeanwhile reports an approval that arrived after the server
+	// was licensed another way.
+	errLicensedMeanwhile = errors.New("licensed while the request waited")
 )
 
 // ConnectStatus reports the current request to connect to Dagu Console.
@@ -106,15 +111,11 @@ func (s *connectSession) stop() {
 // the pending one. An owner approves it by opening the returned URL; the
 // license is then installed in the background.
 func (m *Manager) Connect() (ConnectStatus, error) {
-	if m.licenseConfigured() {
-		return ConnectStatus{}, ErrManagedExternally
-	}
-	if HasActiveLicense(m.state) {
-		return ConnectStatus{}, ErrAlreadyLicensed
-	}
-
 	m.connectMu.Lock()
 	defer m.connectMu.Unlock()
+	if err := m.checkConnectable(); err != nil {
+		return ConnectStatus{}, err
+	}
 	if s := m.connect; s != nil {
 		if status := s.snapshot(); status.State == ConnectPending {
 			return status, nil
@@ -192,6 +193,20 @@ func (m *Manager) Refresh(ctx context.Context) error {
 	return m.checkIn(ctx, ad)
 }
 
+// checkConnectable reports why this server cannot request a license. It holds
+// transitionMu so that a license being installed concurrently is seen.
+func (m *Manager) checkConnectable() error {
+	m.transitionMu.Lock()
+	defer m.transitionMu.Unlock()
+	if m.licenseConfigured() {
+		return ErrManagedExternally
+	}
+	if HasActiveLicense(m.state) {
+		return ErrAlreadyLicensed
+	}
+	return nil
+}
+
 // licenseConfigured reports whether a license source that outranks a
 // connected license on restart is set.
 func (m *Manager) licenseConfigured() bool {
@@ -232,7 +247,11 @@ func (m *Manager) pollConnect(ctx context.Context, s *connectSession) {
 		}
 
 		if err := m.completeConnect(ctx, s, resp); err != nil {
-			if ctx.Err() == nil {
+			switch {
+			case ctx.Err() != nil:
+			case errors.Is(err, errLicensedMeanwhile):
+				s.finish(ConnectFailed, connectLicensedFailure)
+			default:
 				m.logger.Warn("Failed to install the license from Dagu Console", slog.String("error", err.Error()))
 				s.finish(ConnectFailed, connectVerificationFailure)
 			}
@@ -268,14 +287,42 @@ func (m *Manager) completeConnect(ctx context.Context, s *connectSession, resp *
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	_, err := m.installActivation(&ActivationData{
+	ad := &ActivationData{
 		Token:           resp.Token,
 		HeartbeatSecret: resp.HeartbeatSecret,
 		ServerID:        s.serverID,
 		Via:             ConnectedViaConsole,
 		CheckedInAt:     time.Now(),
-	})
+	}
+	if current := m.state.Claims(); current != nil && HasActiveLicense(m.state) {
+		granted, err := VerifyToken(m.pubKey, resp.Token)
+		if err != nil {
+			return err
+		}
+		// A grant for the license already in use replaced that activation's
+		// credentials, so it must be installed. A grant for another license
+		// would hold a second slot; give it back.
+		if granted.ID != current.ID {
+			m.releaseGrant(ctx, granted.ID, ad)
+			return errLicensedMeanwhile
+		}
+	}
+	_, err := m.installActivation(ad)
 	return err
+}
+
+// releaseGrant gives back a slot granted to a request that was not installed.
+func (m *Manager) releaseGrant(ctx context.Context, licenseID string, ad *ActivationData) {
+	ctx, cancel := context.WithTimeout(ctx, releaseTimeout)
+	defer cancel()
+	err := m.client.Release(ctx, ReleaseRequest{
+		LicenseID:       licenseID,
+		ServerID:        ad.ServerID,
+		HeartbeatSecret: ad.HeartbeatSecret,
+	})
+	if err != nil {
+		m.logger.Warn("Failed to give back an unused slot in Dagu Console", slog.String("error", err.Error()))
+	}
 }
 
 // connectionCode is the public identifier of a connection request: the

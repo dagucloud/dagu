@@ -253,6 +253,65 @@ func TestManager_Connect(t *testing.T) {
 		assert.Equal(t, ConnectedViaKey, m.Status().ConnectedVia)
 	})
 
+	// A license can arrive another way after the request started, for example
+	// from a second administrator. The approval must not replace it.
+	t.Run("approval after another license gives its slot back", func(t *testing.T) {
+		clearLicenseEnv(t)
+		grant := make(chan struct{})
+		var granted string
+		var released atomic.Value
+		m, _, priv := newConnectManager(t, mockCloudServerConfig{
+			connectHandler: connectAnswers(new(atomic.Int32), grant, func(w http.ResponseWriter, r *http.Request) { grantWith(granted)(w, r) }),
+			releaseHandler: func(w http.ResponseWriter, r *http.Request) {
+				var req ReleaseRequest
+				_ = json.NewDecoder(r.Body).Decode(&req)
+				released.Store(req.LicenseID)
+				_, _ = w.Write([]byte(`{"status":"released"}`))
+			},
+		}, nil)
+		console := validClaims()
+		console.ID = "lic-workspace"
+		granted = signToken(t, priv, console)
+		key := validClaims()
+		key.ID = "lic-key"
+
+		_, err := m.Connect()
+		require.NoError(t, err)
+		m.state.Update(key, signToken(t, priv, key))
+		close(grant)
+
+		status := waitConnectState(t, m, ConnectFailed)
+		assert.Equal(t, connectLicensedFailure, status.Error)
+		assert.Equal(t, "lic-key", m.Checker().Claims().ID, "the license already in use stays")
+		require.Eventually(t, func() bool { return released.Load() == "lic-workspace" }, 5*time.Second, 5*time.Millisecond)
+	})
+
+	t.Run("approval for the license in use is installed", func(t *testing.T) {
+		clearLicenseEnv(t)
+		grant := make(chan struct{})
+		var token string
+		m, store, priv := newConnectManager(t, mockCloudServerConfig{
+			connectHandler:   connectAnswers(new(atomic.Int32), grant, func(w http.ResponseWriter, r *http.Request) { grantWith(token)(w, r) }),
+			heartbeatHandler: func(w http.ResponseWriter, r *http.Request) { heartbeatHandlerFn(token)(w, r) },
+		}, nil)
+		claims := validClaims()
+		claims.ID = "lic-workspace"
+		token = signToken(t, priv, claims)
+
+		_, err := m.Connect()
+		require.NoError(t, err)
+		// The server key joined this server to the same workspace license, and
+		// the approval then replaced that activation's credentials.
+		m.state.Update(claims, token)
+		close(grant)
+
+		waitConnectState(t, m, ConnectGranted)
+		saved, err := store.Load()
+		require.NoError(t, err)
+		require.NotNil(t, saved)
+		assert.Equal(t, "hb", saved.HeartbeatSecret)
+	})
+
 	t.Run("licenses set outside Dagu cannot be replaced", func(t *testing.T) {
 		clearLicenseEnv(t)
 		m, _, _ := newConnectManager(t, mockCloudServerConfig{}, func(c *ManagerConfig) { c.ConfigKey = "DAGU-KEY" })

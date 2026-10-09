@@ -179,7 +179,11 @@ func activateFromConsole(ctx *Context) error {
 			printLicenseStatus(os.Stdout, mgr.Status())
 			return nil
 		case license.ConnectIdle, license.ConnectFailed, license.ConnectExpired:
-			return fmt.Errorf("activation failed: %s", status.Error)
+			reason := status.Error
+			if reason == "" {
+				reason = "the request to Dagu Console ended"
+			}
+			return fmt.Errorf("activation failed: %s", reason)
 		}
 	}
 }
