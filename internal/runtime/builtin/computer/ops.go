@@ -391,10 +391,8 @@ func (r *run) succeed(ctx context.Context) error {
 		}
 	}
 	r.shutdown()
-	if r.cache != nil {
-		if err := r.cache.Commit(ctx); err != nil {
-			_, _ = fmt.Fprintf(r.timeline.Log, "warning: keep replay recordings: %s\n", r.masker.MaskString(err.Error()))
-		}
+	if err := r.cache.Commit(ctx); err != nil {
+		_, _ = fmt.Fprintf(r.timeline.Log, "warning: keep replay recordings: %s\n", r.masker.MaskString(err.Error()))
 	}
 	summary := fmt.Sprintf("Completed %d operations using %d tokens", len(r.cfg.Do), r.usage.total())
 	r.timeline.AppendEvent(ir.AgentSessionEvent{Type: agentstep.EventLifecycle, Status: agentstep.StatusCompleted, Content: summary, Files: files})

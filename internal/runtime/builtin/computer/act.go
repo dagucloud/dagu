@@ -84,6 +84,7 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 			if choice == aiNever {
 				return replayMiss{errors.New(replay.reason)}
 			}
+			logAction(r.timeline, index, "replay stopped: "+replay.reason)
 			status = agentstep.StatusHealed
 			// The recording is dropped unless the act that heals it records
 			// what it did.

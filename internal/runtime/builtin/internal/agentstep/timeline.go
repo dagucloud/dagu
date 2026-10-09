@@ -94,11 +94,11 @@ func (t *Timeline) Operation(report Report) {
 	if detail != "" {
 		line += " → " + detail
 	}
-	line += fmt.Sprintf(" (%s, %d tokens, %s)", report.Status, report.Tokens, report.Duration.Round(100*time.Millisecond))
+	facts := []string{report.Status, fmt.Sprintf("%d tokens", report.Tokens), report.Duration.Round(100 * time.Millisecond).String()}
 	if report.Via != "" {
-		line = strings.TrimSuffix(line, ")") + ", via " + report.Via + ")"
+		facts = append(facts, "via "+report.Via)
 	}
-	_, _ = fmt.Fprintln(t.Log, line)
+	_, _ = fmt.Fprintf(t.Log, "%s (%s)\n", line, strings.Join(facts, ", "))
 
 	content := subject
 	if detail != "" {
