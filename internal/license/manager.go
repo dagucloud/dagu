@@ -353,18 +353,10 @@ func (m *Manager) ActivateWithKey(ctx context.Context, key string) (*ActivationR
 		return nil, err
 	}
 
-	claims, verifyErr := VerifyToken(m.pubKey, ad.Token)
-	if verifyErr != nil {
-		return nil, fmt.Errorf("activated token verification failed: %w", verifyErr)
+	claims, err := m.installActivation(ad)
+	if err != nil {
+		return nil, err
 	}
-
-	m.stopHeartbeat()
-	m.saveActivation(ad)
-	m.setSource(SourceActivationFile)
-	m.state.Update(claims, ad.Token)
-	m.setFailure("")
-
-	m.startHeartbeat(ad)
 
 	result := &ActivationResult{
 		Plan:     claims.Plan,
@@ -374,6 +366,24 @@ func (m *Manager) ActivateWithKey(ctx context.Context, key string) (*ActivationR
 		result.Expiry = claims.ExpiresAt.Time
 	}
 	return result, nil
+}
+
+// installActivation verifies ad's token, persists ad, and makes it the
+// current license. The caller must hold transitionMu.
+func (m *Manager) installActivation(ad *ActivationData) (*LicenseClaims, error) {
+	claims, err := VerifyToken(m.pubKey, ad.Token)
+	if err != nil {
+		return nil, fmt.Errorf("activated token verification failed: %w", err)
+	}
+
+	m.stopHeartbeat()
+	m.saveActivation(ad)
+	m.setSource(SourceActivationFile)
+	m.state.Update(claims, ad.Token)
+	m.setFailure("")
+
+	m.startHeartbeat(ad)
+	return claims, nil
 }
 
 func (m *Manager) activate(ctx context.Context, key string) (*ActivationData, error) {
