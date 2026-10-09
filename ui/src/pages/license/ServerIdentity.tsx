@@ -65,6 +65,14 @@ export function ServerIdentity({
   const fromConsole = via === 'console' || via === 'key';
   const managedByEnv = via ? via === 'env' : license.source === 'env';
   const restartNote = via ? restartNotes[via] : undefined;
+  // Servers older than the identity fields report none of them.
+  const hasDetails = Boolean(
+    license.serverName ||
+      license.workspace ||
+      viaLabel ||
+      license.serverId ||
+      license.licenseId
+  );
 
   async function checkNow() {
     setChecking(true);
@@ -94,59 +102,61 @@ export function ServerIdentity({
       <h2 id="license-this-server" className="text-sm font-medium">
         {ts('This server')}
       </h2>
-      <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-sm">
-        {license.serverName && (
-          <Row label={ts('Name')}>{license.serverName}</Row>
-        )}
-        {license.workspace && (
-          <Row label={ts('Workspace')}>{license.workspace}</Row>
-        )}
-        {viaLabel && <Row label={ts('Connection')}>{ts(viaLabel)}</Row>}
-        {license.serverId && (
-          <Row label={ts('Last check-in')}>
-            <span className="inline-flex flex-wrap items-center gap-2">
-              <RelativeTime
-                timestamp={license.lastCheckIn}
-                fallback={ts('Not yet')}
-              />
-              <Button
-                size="sm"
-                variant="link"
-                className="h-auto p-0"
-                disabled={checking || busy}
-                onClick={() => void checkNow()}
-              >
-                {ts(checking ? 'Checking…' : 'Check now')}
-              </Button>
-            </span>
-          </Row>
-        )}
-        {license.serverId && (
-          <Row label={ts('Server ID')}>
-            <span className="inline-flex items-center gap-1">
-              <code className="font-mono text-xs">{license.serverId}</code>
-              <Button
-                size="icon"
-                variant="ghost"
-                className="h-6 w-6"
-                aria-label={ts('Copy server ID')}
-                onClick={() => void copy(license.serverId ?? '')}
-              >
-                {copied ? (
-                  <Check className="h-3.5 w-3.5" />
-                ) : (
-                  <Copy className="h-3.5 w-3.5" />
-                )}
-              </Button>
-            </span>
-          </Row>
-        )}
-        {license.licenseId && (
-          <Row label={ts('License ID')}>
-            <code className="font-mono text-xs">{license.licenseId}</code>
-          </Row>
-        )}
-      </dl>
+      {hasDetails && (
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-sm">
+          {license.serverName && (
+            <Row label={ts('Name')}>{license.serverName}</Row>
+          )}
+          {license.workspace && (
+            <Row label={ts('Workspace')}>{license.workspace}</Row>
+          )}
+          {viaLabel && <Row label={ts('Connection')}>{ts(viaLabel)}</Row>}
+          {license.serverId && (
+            <Row label={ts('Last check-in')}>
+              <span className="inline-flex flex-wrap items-center gap-2">
+                <RelativeTime
+                  timestamp={license.lastCheckIn}
+                  fallback={ts('Not yet')}
+                />
+                <Button
+                  size="sm"
+                  variant="link"
+                  className="h-auto p-0"
+                  disabled={checking || busy}
+                  onClick={() => void checkNow()}
+                >
+                  {ts(checking ? 'Checking…' : 'Check now')}
+                </Button>
+              </span>
+            </Row>
+          )}
+          {license.serverId && (
+            <Row label={ts('Server ID')}>
+              <span className="inline-flex items-center gap-1">
+                <code className="font-mono text-xs">{license.serverId}</code>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-6 w-6"
+                  aria-label={ts('Copy server ID')}
+                  onClick={() => void copy(license.serverId ?? '')}
+                >
+                  {copied ? (
+                    <Check className="h-3.5 w-3.5" />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+              </span>
+            </Row>
+          )}
+          {license.licenseId && (
+            <Row label={ts('License ID')}>
+              <code className="font-mono text-xs">{license.licenseId}</code>
+            </Row>
+          )}
+        </dl>
+      )}
       {checkError && (
         <p role="alert" className="text-sm text-destructive">
           {checkError}
