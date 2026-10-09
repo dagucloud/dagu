@@ -113,12 +113,14 @@ func TestListDAGsPinnedFirst(t *testing.T) {
 	assert.Equal(t, listedFileNames(first.Dags), listedFileNames(sse.Dags))
 	assert.Equal(t, listedPinned(first.Dags), listedPinned(sse.Dags))
 
-	// MCP lists through the alternate-directory path, whose order ignores pins.
+	// MCP lists through the alternate-directory path, whose order ignores
+	// pins while still reporting them.
 	mcpAny, err := apiImpl.GetDAGsListDataIncludingAltDirs(ctx, "perPage=3")
 	require.NoError(t, err)
 	mcp, ok := mcpAny.(api.ListDAGs200JSONResponse)
 	require.True(t, ok)
 	assert.Equal(t, []string{"alpha", "beta", "gamma"}, listedFileNames(mcp.Dags))
+	assert.Equal(t, []bool{false, false, true}, listedPinned(mcp.Dags))
 
 	details, err := apiImpl.GetDAGDetails(ctx, api.GetDAGDetailsRequestObject{FileName: "gamma"})
 	require.NoError(t, err)

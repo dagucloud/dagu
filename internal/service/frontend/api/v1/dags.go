@@ -840,7 +840,6 @@ func (a *API) ListDAGs(ctx context.Context, request api.ListDAGsRequestObject) (
 		Sort:            sortField,
 		Order:           sortOrder,
 		WorkspaceFilter: workspaceFilter,
-		PinnedIDs:       a.pinnedDAGIDs(ctx),
 	})
 	if err != nil {
 		return nil, err
@@ -2025,7 +2024,7 @@ func (a *API) GetDAGsListDataIncludingAltDirs(ctx context.Context, queryString s
 }
 
 // dagListSource selects which DAGs a list includes and whether pinned DAGs
-// come first.
+// come first. Every list reports which DAGs are pinned.
 type dagListSource struct {
 	includeSearchPaths bool
 	pinnedFirst        bool
@@ -2039,10 +2038,7 @@ func (a *API) getDAGsListData(ctx context.Context, queryString string, source da
 		if err != nil {
 			return nil, err
 		}
-		if source.pinnedFirst {
-			listOpts.PinnedIDs = a.pinnedDAGIDs(readCtx)
-		}
-		return a.listDAGsDataWithSearchPaths(readCtx, listOpts, source.includeSearchPaths)
+		return a.listDAGsDataWithSearchPaths(readCtx, listOpts, source)
 	})
 }
 
@@ -2104,25 +2100,29 @@ func (a *API) buildDAGListOptions(ctx context.Context, queryString string) (pers
 }
 
 func (a *API) listDAGsData(ctx context.Context, listOpts persis.DAGListOptions) (api.ListDAGs200JSONResponse, error) {
-	return a.listDAGsDataWithSearchPaths(ctx, listOpts, false)
+	return a.listDAGsDataWithSearchPaths(ctx, listOpts, dagListSource{pinnedFirst: true})
 }
 
-// listDAGsDataWithSearchPaths lists DAGs and, when includeSearchPaths is true,
-// also includes DAGs found under the configured alternate directory
+// listDAGsDataWithSearchPaths lists DAGs and, when source.includeSearchPaths
+// is true, also includes DAGs found under the configured alternate directory
 // (paths.alt_dags_dir). Query semantics are applied to the combined collection.
-func (a *API) listDAGsDataWithSearchPaths(ctx context.Context, listOpts persis.DAGListOptions, includeSearchPaths bool) (api.ListDAGs200JSONResponse, error) {
+func (a *API) listDAGsDataWithSearchPaths(ctx context.Context, listOpts persis.DAGListOptions, source dagListSource) (api.ListDAGs200JSONResponse, error) {
 	projectionTime := time.Now()
 	nextRunProjection := a.nextRunProjection(ctx)
 
 	listOpts.Time = &projectionTime
 	listOpts.NextRunProjection = nextRunProjection
+	pinnedIDs := a.pinnedDAGIDs(ctx)
+	if source.pinnedFirst {
+		listOpts.PinnedIDs = pinnedIDs
+	}
 
 	var (
 		result  pagination.PaginatedResult[persis.DAGListItem]
 		errList []string
 		err     error
 	)
-	if includeSearchPaths {
+	if source.includeSearchPaths {
 		result, errList, err = a.dagRepository.ListIncludingSearchPaths(ctx, listOpts)
 	} else {
 		result, errList, err = a.dagRepository.List(ctx, listOpts)
@@ -2143,7 +2143,7 @@ func (a *API) listDAGsDataWithSearchPaths(ctx context.Context, listOpts persis.D
 			nextRunAt = &nextRun
 		}
 
-		_, pinned := listOpts.PinnedIDs[item.ID]
+		_, pinned := pinnedIDs[item.ID]
 		dagFile := api.DAGFile{
 			FileName:     item.ID,
 			LatestDAGRun: toDAGRunSummary(dagStatus),
