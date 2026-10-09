@@ -19,6 +19,8 @@ type LicenseClaims struct {
 	ActivationID  string   `json:"activation_id"`
 	WarningCode   string   `json:"wc,omitempty"`
 	GraceDays     *int     `json:"grace_days,omitempty"`
+	// Workspace names the Dagu Console workspace that owns the license.
+	Workspace string `json:"workspace,omitempty"`
 }
 
 // HasFeature returns true if the given feature is included in the license claims.

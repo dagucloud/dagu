@@ -25,16 +25,23 @@ func (a *API) GetLicenseStatus(_ context.Context, _ api.GetLicenseStatusRequestO
 
 func toLicenseStatusResponse(status license.Status) api.LicenseStatusResponse {
 	return api.LicenseStatusResponse{
-		Valid:       status.Valid,
-		Plan:        status.Plan,
-		Expiry:      stringutil.FormatTime(status.Expiry),
-		Features:    status.Features,
-		GracePeriod: status.GracePeriod,
-		GraceEndsAt: stringutil.FormatTime(status.GraceEndsAt),
-		Community:   status.Community,
-		Source:      publicLicenseSource(status.Source),
-		WarningCode: status.WarningCode,
-		Error:       status.Failure,
+		Valid:        status.Valid,
+		Plan:         status.Plan,
+		Expiry:       stringutil.FormatTime(status.Expiry),
+		Features:     status.Features,
+		GracePeriod:  status.GracePeriod,
+		GraceEndsAt:  stringutil.FormatTime(status.GraceEndsAt),
+		Community:    status.Community,
+		Source:       publicLicenseSource(status.Source),
+		WarningCode:  status.WarningCode,
+		Error:        status.Failure,
+		ServerName:   ptrOf(status.ServerName),
+		LicenseId:    ptrOf(status.LicenseID),
+		Workspace:    ptrOf(status.Workspace),
+		ConnectedVia: ptrOf(api.LicenseStatusResponseConnectedVia(status.ConnectedVia)),
+		ServerId:     ptrOf(status.ServerID),
+		LastCheckIn:  ptrOf(stringutil.FormatTime(status.LastCheckIn)),
+		ConsoleUrl:   ptrOf(status.ConsoleURL),
 	}
 }
 

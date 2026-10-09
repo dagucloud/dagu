@@ -52,6 +52,9 @@ func TestGetLicenseStatus(t *testing.T) {
 		assert.Equal(t, "pro", status.Plan)
 		assert.ElementsMatch(t, []string{"rbac", "audit"}, status.Features)
 		assert.Empty(t, status.Error)
+		require.NotNil(t, status.ServerName)
+		assert.NotEmpty(t, *status.ServerName)
+		assert.Nil(t, status.ServerId, "a license that never checks in has no server ID")
 	})
 }
 

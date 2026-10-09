@@ -6573,6 +6573,23 @@ export interface components {
             warningCode: string;
             /** @description User-facing explanation when a configured license is unusable */
             error: string;
+            /** @description Name that identifies this server in Dagu Console */
+            serverName?: string;
+            /** @description Identifier of the loaded license */
+            licenseId?: string;
+            /** @description Dagu Console workspace that owns the license */
+            workspace?: string;
+            /**
+             * @description How the license reached this server
+             * @enum {string}
+             */
+            connectedVia?: LicenseStatusResponseConnectedVia;
+            /** @description Identifier of this server in Dagu Console, for licenses that check in */
+            serverId?: string;
+            /** @description Last time Dagu Console accepted this server's check-in */
+            lastCheckIn?: string;
+            /** @description Dagu Console page for this server */
+            consoleUrl?: string;
         };
         /** @description Request body for changing password */
         ChangePasswordRequest: {
@@ -20913,6 +20930,13 @@ export enum UserAuthProvider {
     builtin = "builtin",
     oidc = "oidc",
     proxy = "proxy"
+}
+export enum LicenseStatusResponseConnectedVia {
+    console = "console",
+    key = "key",
+    env = "env",
+    config = "config",
+    file = "file"
 }
 export enum APIKeyAllowedSurfaces {
     rest_api = "rest_api",

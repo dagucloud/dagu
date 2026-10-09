@@ -689,7 +689,7 @@ func TestManager_ServerName(t *testing.T) {
 
 		m := NewManager(ManagerConfig{LicenseDir: t.TempDir()}, pub, nil, slog.Default())
 
-		assert.Equal(t, hostname, m.serverName)
+		assert.Equal(t, hostname, m.Status().ServerName)
 	})
 }
 

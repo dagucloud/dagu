@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -140,6 +141,21 @@ func TestLicenseStore_File_ReadsReleasedFile(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, loaded)
 	assert.Equal(t, *ad, *loaded)
+}
+
+func TestLicenseStore_File_RoundTripsConnectionDetails(t *testing.T) {
+	t.Parallel()
+	s := newFileLicenseStore(t, t.TempDir())
+
+	ad := sampleActivation()
+	ad.Via = license.ConnectedViaConsole
+	ad.CheckedInAt = time.Date(2026, 10, 9, 12, 30, 0, 0, time.UTC)
+	require.NoError(t, s.Save(ad))
+
+	loaded, err := s.Load()
+	require.NoError(t, err)
+	assert.Equal(t, license.ConnectedViaConsole, loaded.Via)
+	assert.True(t, ad.CheckedInAt.Equal(loaded.CheckedInAt))
 }
 
 func TestLicenseStore_File_FilePermissions(t *testing.T) {

@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	heartbeatInterval = 24 * time.Hour
+	heartbeatInterval = time.Hour
 
 	licenseDiscoveryFailure    = "License discovery failed. Check the configured license file and server logs."
 	licenseActivationFailure   = "License activation failed. Check the configured license key, network access, and server logs."
@@ -59,6 +59,9 @@ type Manager struct {
 	statusMu sync.RWMutex
 	source   DiscoverySource
 	failure  string
+	// activation is the cloud activation behind the current license, or nil
+	// when the license never checks in.
+	activation *ActivationData
 
 	transitionMu sync.Mutex
 
@@ -138,6 +141,27 @@ func (m *Manager) setFailure(failure string) {
 	m.failure = failure
 }
 
+func (m *Manager) setActivation(ad *ActivationData) {
+	var cp *ActivationData
+	if ad != nil {
+		c := *ad
+		cp = &c
+	}
+	m.statusMu.Lock()
+	defer m.statusMu.Unlock()
+	m.activation = cp
+}
+
+func (m *Manager) currentActivation() *ActivationData {
+	m.statusMu.RLock()
+	defer m.statusMu.RUnlock()
+	if m.activation == nil {
+		return nil
+	}
+	c := *m.activation
+	return &c
+}
+
 // Start performs discovery, optional activation, JWT verification, and starts the heartbeat loop.
 // It always returns nil for graceful degradation: license errors are logged but never prevent
 // the application from starting.
@@ -146,6 +170,7 @@ func (m *Manager) Start(ctx context.Context) error {
 	defer m.transitionMu.Unlock()
 
 	m.setFailure("")
+	m.setActivation(nil)
 	var activationToPersist *ActivationData
 	result, err := Discover(m.cfg.LicenseDir, m.cfg.ConfigKey, m.store)
 	if err != nil {
@@ -261,6 +286,7 @@ func (m *Manager) Deactivate(_ context.Context) error {
 	m.state.Update(nil, "")
 	m.setSource(SourceNone)
 	m.setFailure("")
+	m.setActivation(nil)
 
 	if m.store != nil {
 		if err := m.store.Remove(); err != nil {
@@ -326,6 +352,8 @@ func (m *Manager) activate(ctx context.Context, key string) (*ActivationData, er
 		HeartbeatSecret: resp.HeartbeatSecret,
 		LicenseKey:      key,
 		ServerID:        serverID,
+		Via:             ConnectedViaKey,
+		CheckedInAt:     time.Now(),
 	}
 
 	return ad, nil
@@ -356,6 +384,7 @@ func (m *Manager) loadCachedActivation(licenseKey string) *ActivationData {
 }
 
 func (m *Manager) startHeartbeat(ad *ActivationData) {
+	m.setActivation(ad)
 	m.cancelMu.Lock()
 	defer m.cancelMu.Unlock()
 	if m.heartbeatRunning {
@@ -441,9 +470,11 @@ func (m *Manager) doHeartbeat(ctx context.Context, ad *ActivationData) {
 	m.setFailure("")
 
 	// Persist the refreshed token using a copy to avoid mutating the shared ActivationData.
+	updated := *ad
+	updated.Token = resp.Token
+	updated.CheckedInAt = time.Now()
+	m.setActivation(&updated)
 	if m.store != nil {
-		updated := *ad
-		updated.Token = resp.Token
 		if err := m.store.Save(&updated); err != nil {
 			m.logger.Warn("Failed to persist refreshed token",
 				slog.String("error", err.Error()))

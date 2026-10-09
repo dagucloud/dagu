@@ -16235,6 +16235,28 @@ components:
         error:
           type: string
           description: "User-facing explanation when a configured license is unusable"
+        serverName:
+          type: string
+          description: "Name that identifies this server in Dagu Console"
+        licenseId:
+          type: string
+          description: "Identifier of the loaded license"
+        workspace:
+          type: string
+          description: "Dagu Console workspace that owns the license"
+        connectedVia:
+          type: string
+          enum: [console, key, env, config, file]
+          description: "How the license reached this server"
+        serverId:
+          type: string
+          description: "Identifier of this server in Dagu Console, for licenses that check in"
+        lastCheckIn:
+          type: string
+          description: "Last time Dagu Console accepted this server's check-in"
+        consoleUrl:
+          type: string
+          description: "Dagu Console page for this server"
       required:
         - valid
         - plan
