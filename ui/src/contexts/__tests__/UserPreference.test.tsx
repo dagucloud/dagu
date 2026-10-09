@@ -62,6 +62,28 @@ describe('UserPreferencesProvider', () => {
     expect(result.current.preferences.wikiSortOrder).toBe('asc');
   });
 
+  it('loads a saved spec view', () => {
+    localStorage.setItem(
+      'user_preferences',
+      JSON.stringify({ specViewMode: 'yaml' })
+    );
+
+    const { result } = renderHook(() => useUserPreferences(), { wrapper });
+
+    expect(result.current.preferences.specViewMode).toBe('yaml');
+  });
+
+  it('shows the split spec view when the saved view is unknown', () => {
+    localStorage.setItem(
+      'user_preferences',
+      JSON.stringify({ specViewMode: 'diagram' })
+    );
+
+    const { result } = renderHook(() => useUserPreferences(), { wrapper });
+
+    expect(result.current.preferences.specViewMode).toBe('split');
+  });
+
   it('loads a saved Japanese locale', () => {
     localStorage.setItem('user_preferences', JSON.stringify({ locale: 'ja' }));
 

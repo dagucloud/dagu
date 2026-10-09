@@ -6,6 +6,8 @@ export type Locale = 'en' | 'zh-CN' | 'ja';
 
 export type WikiSortField = 'name' | 'type' | 'mtime';
 export type WikiSortOrder = 'asc' | 'desc';
+/** Which panes the DAG spec tab shows: the preview, the YAML, or both. */
+export type SpecViewMode = 'graph' | 'yaml' | 'split';
 
 export type UserPreferences = {
   pageLimit: number;
@@ -17,6 +19,7 @@ export type UserPreferences = {
   wikiSortField: WikiSortField;
   wikiSortOrder: WikiSortOrder;
   pinnedViewOrder: Record<string, string[]>;
+  specViewMode: SpecViewMode;
 };
 
 const UserPreferencesContext = createContext<{
@@ -37,6 +40,7 @@ const defaultPreferences: UserPreferences = {
   wikiSortField: 'type',
   wikiSortOrder: 'asc',
   pinnedViewOrder: {},
+  specViewMode: 'split',
 };
 
 function isWikiSortField(value: unknown): value is WikiSortField {
@@ -49,6 +53,10 @@ function isWikiSortOrder(value: unknown): value is WikiSortOrder {
 
 function isLocale(value: unknown): value is Locale {
   return value === 'en' || value === 'zh-CN' || value === 'ja';
+}
+
+function isSpecViewMode(value: unknown): value is SpecViewMode {
+  return value === 'graph' || value === 'yaml' || value === 'split';
 }
 
 function loadPreferences(): UserPreferences {
@@ -75,6 +83,9 @@ function loadPreferences(): UserPreferences {
         : isWikiSortOrder(preferences.docSortOrder)
           ? preferences.docSortOrder
           : defaultPreferences.wikiSortOrder,
+      specViewMode: isSpecViewMode(preferences.specViewMode)
+        ? preferences.specViewMode
+        : defaultPreferences.specViewMode,
     } as UserPreferences;
     writeLocalStorage(
       'user_preferences',
