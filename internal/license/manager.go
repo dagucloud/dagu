@@ -73,6 +73,12 @@ type Manager struct {
 	cancel           context.CancelFunc
 	wg               sync.WaitGroup
 	heartbeatRunning bool
+
+	// connectMu guards connect. Lock order: connectMu, then transitionMu.
+	connectMu   sync.Mutex
+	connect     *connectSession
+	connectPoll time.Duration
+	connectTTL  time.Duration
 }
 
 // NewManager creates a new license manager.
@@ -81,13 +87,15 @@ func NewManager(cfg ManagerConfig, pubKey ed25519.PublicKey, store ActivationSto
 		logger = slog.Default()
 	}
 	return &Manager{
-		cfg:        cfg,
-		state:      &State{},
-		store:      store,
-		client:     NewCloudClient(cfg.CloudURL),
-		pubKey:     pubKey,
-		logger:     logger,
-		serverName: resolveServerName(cfg.ServerName, logger),
+		cfg:         cfg,
+		state:       &State{},
+		store:       store,
+		client:      NewCloudClient(cfg.CloudURL),
+		pubKey:      pubKey,
+		logger:      logger,
+		serverName:  resolveServerName(cfg.ServerName, logger),
+		connectPoll: connectPollInterval,
+		connectTTL:  connectTTL,
 	}
 }
 
@@ -253,8 +261,10 @@ func (m *Manager) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop cancels the heartbeat goroutine and waits for completion.
+// Stop cancels the heartbeat goroutine and any pending Dagu Console
+// connection request, and waits for both to finish.
 func (m *Manager) Stop() {
+	m.CancelConnect()
 	m.transitionMu.Lock()
 	defer m.transitionMu.Unlock()
 	m.stopHeartbeat()
@@ -286,6 +296,7 @@ type DeactivateResult struct {
 // an environment variable (the user must remove the env var instead) or if
 // there is no active license to deactivate.
 func (m *Manager) Deactivate(ctx context.Context) (DeactivateResult, error) {
+	m.CancelConnect()
 	m.transitionMu.Lock()
 	defer m.transitionMu.Unlock()
 
@@ -345,6 +356,7 @@ func (m *Manager) release(ctx context.Context, ad *ActivationData) bool {
 // ActivateWithKey performs activation with the given key and updates internal state.
 // This is used by the API handler for frontend-initiated activation.
 func (m *Manager) ActivateWithKey(ctx context.Context, key string) (*ActivationResult, error) {
+	m.CancelConnect()
 	m.transitionMu.Lock()
 	defer m.transitionMu.Unlock()
 
@@ -471,10 +483,19 @@ func (m *Manager) heartbeatLoop(ctx context.Context, ad *ActivationData) {
 	}
 }
 
+// doHeartbeat checks in with Dagu Console; failures are logged and reflected
+// in the license state.
 func (m *Manager) doHeartbeat(ctx context.Context, ad *ActivationData) {
+	_ = m.checkIn(ctx, ad)
+}
+
+// checkIn sends a heartbeat and applies the console's answer. It returns an
+// error only when the console could not be reached or answered with a token
+// that does not verify; rejections are applied to the license state instead.
+func (m *Manager) checkIn(ctx context.Context, ad *ActivationData) error {
 	claims := m.state.Claims()
 	if claims == nil {
-		return
+		return nil
 	}
 
 	resp, err := m.client.Heartbeat(ctx, HeartbeatRequest{
@@ -491,26 +512,26 @@ func (m *Manager) doHeartbeat(ctx context.Context, ad *ActivationData) {
 				m.logger.Error("License has been revoked, clearing in-memory state")
 				m.state.Update(nil, "")
 				m.setFailure(licenseRevokedFailure)
-				return
+				return nil
 			case 401: // Unauthorized - deactivated or credentials invalid
 				m.logger.Error("License heartbeat unauthorized, license may have been deactivated",
 					slog.String("error", cloudErr.Message))
 				m.state.Update(nil, "")
 				m.setFailure(licenseUnauthorizedFailure)
-				return
+				return nil
 			case 400: // Expired - keep cached token so runtime can enforce expiry/grace locally
 				m.logger.Warn("License heartbeat reported an expired license, continuing with cached token",
 					slog.String("error", cloudErr.Message))
 				if !m.state.IsGracePeriod() {
 					m.setFailure(licenseExpiredFailure)
 				}
-				return
+				return nil
 			}
 		}
 		// Network error or other transient failure - continue with cached JWT
 		m.logger.Warn("License heartbeat failed, continuing with cached token",
 			slog.String("error", err.Error()))
-		return
+		return err
 	}
 
 	// Verify the refreshed token
@@ -518,7 +539,7 @@ func (m *Manager) doHeartbeat(ctx context.Context, ad *ActivationData) {
 	if verifyErr != nil {
 		m.logger.Warn("Refreshed token verification failed",
 			slog.String("error", verifyErr.Error()))
-		return
+		return fmt.Errorf("refreshed token verification failed: %w", verifyErr)
 	}
 
 	m.state.Update(newClaims, resp.Token)
@@ -538,4 +559,5 @@ func (m *Manager) doHeartbeat(ctx context.Context, ad *ActivationData) {
 
 	m.logger.Debug("License heartbeat successful",
 		slog.String("plan", newClaims.Plan))
+	return nil
 }
