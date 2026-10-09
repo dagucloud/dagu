@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -19,6 +20,9 @@ import (
 
 const (
 	heartbeatInterval = time.Hour
+	// releaseTimeout bounds the console call made while disconnecting, which
+	// runs inside an API request.
+	releaseTimeout = 10 * time.Second
 
 	licenseDiscoveryFailure    = "License discovery failed. Check the configured license file and server logs."
 	licenseActivationFailure   = "License activation failed. Check the configured license key, network access, and server logs."
@@ -268,21 +272,35 @@ func (m *Manager) stopHeartbeat() {
 	m.wg.Wait()
 }
 
-// Deactivate stops the heartbeat, clears in-memory state, and removes persisted activation data.
-// It returns an error if the license was configured via an environment variable (the user must
-// remove the env var instead) or if there is no active license to deactivate.
-func (m *Manager) Deactivate(_ context.Context) error {
+// DeactivateResult describes a completed deactivation.
+type DeactivateResult struct {
+	// ReleaseFailed reports that Dagu Console could not be told, so the
+	// server's slot stays in use until it is disconnected in the console.
+	ReleaseFailed bool
+}
+
+// Deactivate frees the server's slot in Dagu Console, stops the heartbeat,
+// clears in-memory state, and removes persisted activation data. Failing to
+// reach the console does not stop the local deactivation; it is reported in
+// the result instead. It returns an error if the license was configured via
+// an environment variable (the user must remove the env var instead) or if
+// there is no active license to deactivate.
+func (m *Manager) Deactivate(ctx context.Context) (DeactivateResult, error) {
 	m.transitionMu.Lock()
 	defer m.transitionMu.Unlock()
 
 	if m.Source().IsEnv() {
-		return fmt.Errorf("cannot deactivate: license is configured via environment variable; remove DAGU_LICENSE or DAGU_LICENSE_KEY instead")
+		return DeactivateResult{}, fmt.Errorf("cannot deactivate: license is configured via environment variable; remove DAGU_LICENSE or DAGU_LICENSE_KEY instead")
 	}
 	if m.state.IsCommunity() {
-		return fmt.Errorf("no active license to deactivate")
+		return DeactivateResult{}, fmt.Errorf("no active license to deactivate")
 	}
 
 	m.stopHeartbeat()
+	var result DeactivateResult
+	if ad := m.currentActivation(); ad != nil && m.Source().NeedsHeartbeat() {
+		result.ReleaseFailed = !m.release(ctx, ad)
+	}
 	m.state.Update(nil, "")
 	m.setSource(SourceNone)
 	m.setFailure("")
@@ -290,11 +308,38 @@ func (m *Manager) Deactivate(_ context.Context) error {
 
 	if m.store != nil {
 		if err := m.store.Remove(); err != nil {
-			return fmt.Errorf("failed to remove activation data: %w", err)
+			return result, fmt.Errorf("failed to remove activation data: %w", err)
 		}
 	}
 
-	return nil
+	return result, nil
+}
+
+// release tells Dagu Console that the server no longer uses its slot and
+// reports whether the slot is free.
+func (m *Manager) release(ctx context.Context, ad *ActivationData) bool {
+	claims := m.state.Claims()
+	if claims == nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(ctx, releaseTimeout)
+	defer cancel()
+
+	err := m.client.Release(ctx, ReleaseRequest{
+		LicenseID:       claims.ID,
+		ServerID:        ad.ServerID,
+		HeartbeatSecret: ad.HeartbeatSecret,
+	})
+	if err == nil {
+		return true
+	}
+	// The console already dropped an activation it no longer accepts.
+	if cloudErr, ok := errors.AsType[*CloudError](err); ok &&
+		(cloudErr.StatusCode == http.StatusUnauthorized || cloudErr.StatusCode == http.StatusGone) {
+		return true
+	}
+	m.logger.Warn("Failed to release the server in Dagu Console", slog.String("error", err.Error()))
+	return false
 }
 
 // ActivateWithKey performs activation with the given key and updates internal state.

@@ -129,7 +129,8 @@ func (a *API) DeactivateLicense(ctx context.Context, _ api.DeactivateLicenseRequ
 		}
 	}
 
-	if err := a.licenseManager.Deactivate(ctx); err != nil {
+	result, err := a.licenseManager.Deactivate(ctx)
+	if err != nil {
 		slog.Warn("License deactivation failed", "error", err)
 		return nil, &Error{
 			Code:       api.ErrorCodeBadRequest,
@@ -139,5 +140,8 @@ func (a *API) DeactivateLicense(ctx context.Context, _ api.DeactivateLicenseRequ
 	}
 
 	msg := "License deactivated"
-	return api.DeactivateLicense200JSONResponse{Message: &msg}, nil
+	return api.DeactivateLicense200JSONResponse{
+		Message:       &msg,
+		ReleaseFailed: &result.ReleaseFailed,
+	}, nil
 }

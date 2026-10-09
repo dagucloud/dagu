@@ -29,6 +29,8 @@ import (
 type mockCloudServerConfig struct {
 	activateHandler  http.HandlerFunc
 	heartbeatHandler http.HandlerFunc
+	connectHandler   http.HandlerFunc
+	releaseHandler   http.HandlerFunc
 }
 
 // newMockCloudServer starts an httptest.Server that dispatches to the given
@@ -41,6 +43,12 @@ func newMockCloudServer(t *testing.T, cfg mockCloudServerConfig) *httptest.Serve
 	}
 	if cfg.heartbeatHandler != nil {
 		mux.HandleFunc("/api/v1/licenses/heartbeat", cfg.heartbeatHandler)
+	}
+	if cfg.connectHandler != nil {
+		mux.HandleFunc("/api/v1/licenses/connect", cfg.connectHandler)
+	}
+	if cfg.releaseHandler != nil {
+		mux.HandleFunc("/api/v1/licenses/release", cfg.releaseHandler)
 	}
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
@@ -1402,7 +1410,7 @@ func TestManager_Deactivate(t *testing.T) {
 
 		assert.False(t, m.Checker().IsCommunity())
 
-		err := m.Deactivate(context.Background())
+		_, err := m.Deactivate(context.Background())
 		require.NoError(t, err)
 
 		assert.True(t, m.Checker().IsCommunity(), "state must be cleared after deactivate")
@@ -1423,7 +1431,7 @@ func TestManager_Deactivate(t *testing.T) {
 
 		assert.False(t, m.Checker().IsCommunity())
 
-		err := m.Deactivate(context.Background())
+		_, err := m.Deactivate(context.Background())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "environment variable")
 		assert.False(t, m.Checker().IsCommunity(), "state must not be cleared on env deactivate error")
@@ -1439,7 +1447,7 @@ func TestManager_Deactivate(t *testing.T) {
 		m := NewManager(ManagerConfig{LicenseDir: t.TempDir()}, pub, nil, slog.Default())
 		require.NoError(t, m.Start(context.Background()))
 
-		err := m.Deactivate(context.Background())
+		_, err := m.Deactivate(context.Background())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no active license")
 	})
@@ -1465,13 +1473,99 @@ func TestManager_Deactivate(t *testing.T) {
 		}, pub, store, slog.Default())
 		require.NoError(t, m.Start(context.Background()))
 
-		err := m.Deactivate(context.Background())
+		_, err := m.Deactivate(context.Background())
 		require.NoError(t, err)
 
 		// Second call should return "no active license" error
-		err = m.Deactivate(context.Background())
+		_, err = m.Deactivate(context.Background())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no active license")
+	})
+
+	t.Run("frees the server's slot in Dagu Console", func(t *testing.T) {
+		pub, priv := testKeyPair(t)
+		claims := validClaims()
+		claims.ID = "lic-1"
+		token := signToken(t, priv, claims)
+		released := make(chan ReleaseRequest, 1)
+		srv := newMockCloudServer(t, mockCloudServerConfig{
+			heartbeatHandler: heartbeatHandlerFn(token),
+			releaseHandler: func(w http.ResponseWriter, r *http.Request) {
+				var req ReleaseRequest
+				_ = json.NewDecoder(r.Body).Decode(&req)
+				released <- req
+				_, _ = w.Write([]byte(`{"status":"released"}`))
+			},
+		})
+		store := &mockActivationStore{data: &ActivationData{
+			Token:           token,
+			HeartbeatSecret: "hb",
+			LicenseKey:      "key",
+			ServerID:        "srv",
+		}}
+		t.Setenv("DAGU_LICENSE", "")
+		t.Setenv("DAGU_LICENSE_KEY", "")
+		t.Setenv("DAGU_LICENSE_FILE", "")
+
+		m := NewManager(ManagerConfig{LicenseDir: t.TempDir(), CloudURL: srv.URL}, pub, store, slog.Default())
+		require.NoError(t, m.Start(context.Background()))
+
+		result, err := m.Deactivate(context.Background())
+		require.NoError(t, err)
+
+		assert.False(t, result.ReleaseFailed)
+		assert.Equal(t, ReleaseRequest{LicenseID: "lic-1", ServerID: "srv", HeartbeatSecret: "hb"}, <-released)
+		assert.True(t, m.Checker().IsCommunity())
+	})
+
+	t.Run("an unreachable console still deactivates locally", func(t *testing.T) {
+		for name, handler := range map[string]http.HandlerFunc{
+			"older console": func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNotFound) },
+			"server error":  errorHandlerFn(http.StatusInternalServerError, "boom"),
+		} {
+			t.Run(name, func(t *testing.T) {
+				pub, priv := testKeyPair(t)
+				token := signToken(t, priv, validClaims())
+				srv := newMockCloudServer(t, mockCloudServerConfig{
+					heartbeatHandler: heartbeatHandlerFn(token),
+					releaseHandler:   handler,
+				})
+				store := &mockActivationStore{data: &ActivationData{Token: token, HeartbeatSecret: "hb", ServerID: "srv"}}
+				t.Setenv("DAGU_LICENSE", "")
+				t.Setenv("DAGU_LICENSE_KEY", "")
+				t.Setenv("DAGU_LICENSE_FILE", "")
+
+				m := NewManager(ManagerConfig{LicenseDir: t.TempDir(), CloudURL: srv.URL}, pub, store, slog.Default())
+				require.NoError(t, m.Start(context.Background()))
+
+				result, err := m.Deactivate(context.Background())
+				require.NoError(t, err)
+
+				assert.True(t, result.ReleaseFailed)
+				assert.True(t, m.Checker().IsCommunity())
+				assert.Equal(t, 1, store.removeCalls)
+			})
+		}
+	})
+
+	t.Run("an activation the console already dropped counts as released", func(t *testing.T) {
+		pub, priv := testKeyPair(t)
+		token := signToken(t, priv, validClaims())
+		srv := newMockCloudServer(t, mockCloudServerConfig{
+			heartbeatHandler: heartbeatHandlerFn(token),
+			releaseHandler:   errorHandlerFn(http.StatusUnauthorized, "unauthorized"),
+		})
+		store := &mockActivationStore{data: &ActivationData{Token: token, HeartbeatSecret: "hb", ServerID: "srv"}}
+		t.Setenv("DAGU_LICENSE", "")
+		t.Setenv("DAGU_LICENSE_KEY", "")
+		t.Setenv("DAGU_LICENSE_FILE", "")
+
+		m := NewManager(ManagerConfig{LicenseDir: t.TempDir(), CloudURL: srv.URL}, pub, store, slog.Default())
+		require.NoError(t, m.Start(context.Background()))
+
+		result, err := m.Deactivate(context.Background())
+		require.NoError(t, err)
+		assert.False(t, result.ReleaseFailed)
 	})
 
 	t.Run("nil store does not cause error", func(t *testing.T) {
@@ -1491,7 +1585,7 @@ func TestManager_Deactivate(t *testing.T) {
 
 		assert.False(t, m.Checker().IsCommunity())
 
-		err := m.Deactivate(context.Background())
+		_, err := m.Deactivate(context.Background())
 		require.NoError(t, err)
 		assert.True(t, m.Checker().IsCommunity())
 	})

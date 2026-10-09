@@ -77,11 +77,16 @@ func licenseDeactivate() *cobra.Command {
 			}
 			defer mgr.Stop()
 
-			if err := mgr.Deactivate(ctx); err != nil {
+			consoleURL := mgr.Status().ConsoleURL
+			result, err := mgr.Deactivate(ctx)
+			if err != nil {
 				return fmt.Errorf("deactivation failed: %w", err)
 			}
 
 			fmt.Println("License deactivated. Running in community mode.")
+			if result.ReleaseFailed && consoleURL != "" {
+				fmt.Printf("Dagu Console could not be reached; this server still uses a slot until you disconnect it at %s\n", consoleURL)
+			}
 			return nil
 		},
 	)

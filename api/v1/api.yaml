@@ -8213,7 +8213,7 @@ paths:
   /license/deactivate:
     post:
       summary: "Deactivate the current license"
-      description: "Removes local activation data and returns to community mode. Admin only."
+      description: "Frees the server's slot in Dagu Console, removes local activation data, and returns to community mode. Admin only."
       operationId: "deactivateLicense"
       tags:
         - "system"
@@ -8229,6 +8229,9 @@ paths:
                 properties:
                   message:
                     type: string
+                  releaseFailed:
+                    type: boolean
+                    description: "Dagu Console could not be told, so the server's slot stays in use until it is disconnected there"
         "400":
           description: "No active license or license configured via env var"
           content:

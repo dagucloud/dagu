@@ -3211,7 +3211,7 @@ export interface paths {
         put?: never;
         /**
          * Deactivate the current license
-         * @description Removes local activation data and returns to community mode. Admin only.
+         * @description Frees the server's slot in Dagu Console, removes local activation data, and returns to community mode. Admin only.
          */
         post: operations["deactivateLicense"];
         delete?: never;
@@ -17499,6 +17499,8 @@ export interface operations {
                 content: {
                     "application/json": {
                         message?: string;
+                        /** @description Dagu Console could not be told, so the server's slot stays in use until it is disconnected there */
+                        releaseFailed?: boolean;
                     };
                 };
             };
