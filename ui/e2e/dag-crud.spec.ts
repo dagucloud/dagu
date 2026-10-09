@@ -278,6 +278,62 @@ steps:
     expect(response.ok()).toBeFalsy();
   });
 
+  // Pins are shared by every user of the server, so the test always unpins.
+  test('pins and unpins a workflow', async ({ page, request }) => {
+    const stack = await loadStack();
+    const token = await loginViaAPI(
+      request,
+      stack.auth.adminUsername,
+      stack.auth.adminPassword
+    );
+    const headers = { Authorization: `Bearer ${token}` };
+
+    const dagName = uniqueName('e2e-pin');
+    const fileName = await writeLocalDAG(
+      dagName,
+      `
+name: ${dagName}
+steps:
+  - name: echo
+    run: echo "pin test"
+`
+    );
+    await waitForDAGAvailable(request, token, fileName);
+    const isPinned = async () => {
+      const resp = await request.get(
+        `/api/v1/dags/${encodeURIComponent(fileName)}?remoteNode=local`,
+        { headers }
+      );
+      return ((await resp.json()) as { pinned: boolean }).pinned;
+    };
+
+    try {
+      await page.goto('/dags/');
+      const dagEntry = dagDefinitionsEntry(page, dagName);
+      await expect(dagEntry).toBeVisible();
+      await dagEntry
+        .getByRole('button', { name: `Pin workflow ${dagName}` })
+        .click();
+      await expect.poll(isPinned, { timeout: 15_000 }).toBe(true);
+      await expect(
+        page.getByText('Pinned', { exact: true }).first()
+      ).toBeVisible();
+
+      await page.goto(`/dags/${encodeURIComponent(fileName)}`);
+      const headerPin = page.getByRole('button', {
+        name: `Pin workflow ${dagName}`,
+      });
+      await expect(headerPin).toHaveAttribute('aria-pressed', 'true');
+      await headerPin.click();
+      await expect.poll(isPinned, { timeout: 15_000 }).toBe(false);
+    } finally {
+      await request.delete(
+        `/api/v1/dags/${encodeURIComponent(fileName)}/pin?remoteNode=local`,
+        { headers }
+      );
+    }
+  });
+
   test('suspends and resumes a DAG schedule', async ({ page, request }) => {
     const stack = await loadStack();
     const token = await loginViaAPI(
