@@ -5930,12 +5930,12 @@ export interface components {
             via?: string;
             /**
              * Format: int64
-             * @description How long the operation took
+             * @description How long the operation took, in milliseconds; absent when under one
              */
             durationMs?: number;
             /**
              * Format: int64
-             * @description Model tokens the operation used
+             * @description Model tokens the operation used; absent when none
              */
             tokens?: number;
         };

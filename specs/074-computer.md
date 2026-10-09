@@ -197,8 +197,9 @@ that operation:
   screenshot leaves the host and no model is called. The failure names the
   reason: no recording of the act on this host, the turn at which the screen
   differed from the recording, the action that failed, or the screen after
-  the last turn that differed. The recording is kept, so a later run under
-  `on_miss` repairs it.
+  the last turn that differed. The turns replayed before the miss have
+  already run on the desktop, which is left as it is. The recording is kept,
+  so a later run under `on_miss` repairs it.
 
 `with.cache: false` and `act.cache: false`, from before the choice existed,
 mean `every_run`. Setting both `ai` and `cache` on the step, or on an act,
