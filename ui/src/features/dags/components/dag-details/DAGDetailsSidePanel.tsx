@@ -51,6 +51,8 @@ type Props = {
   renderInPortal?: boolean;
   forceEnqueue?: boolean;
   onEnqueue?: EnqueueHandler;
+  /** Called after the user pins or unpins the DAG */
+  onPinnedChange?: () => void;
 };
 
 const CLOSE_ANIMATION_MS = 200;
@@ -121,6 +123,7 @@ function DAGDetailsSidePanel({
   renderInPortal = false,
   forceEnqueue = false,
   onEnqueue,
+  onPinnedChange,
 }: Props): React.ReactElement | null {
   const navigate = useNavigate();
   const remoteNode = useRemoteNode();
@@ -385,6 +388,8 @@ function DAGDetailsSidePanel({
                       forceEnqueue={forceEnqueue}
                       autoOpenStartModal={false}
                       fillHeight
+                      pinned={data.pinned}
+                      onPinnedChange={onPinnedChange}
                     />
                   )}
                 </div>

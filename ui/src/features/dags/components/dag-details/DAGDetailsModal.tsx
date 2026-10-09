@@ -6,18 +6,22 @@ type Props = {
   fileName: string;
   isOpen: boolean;
   onClose: () => void;
+  /** Called after the user pins or unpins the DAG */
+  onPinnedChange?: () => void;
 };
 
 function DAGDetailsModal({
   fileName,
   isOpen,
   onClose,
+  onPinnedChange,
 }: Props): React.ReactElement | null {
   return (
     <DAGDetailsSidePanel
       fileName={fileName}
       isOpen={isOpen}
       onClose={onClose}
+      onPinnedChange={onPinnedChange}
       initialTab="status"
       toolbarHint={
         <I18nTemplate

@@ -14,9 +14,18 @@ vi.mock('@/contexts/ConfigContext', () => ({
 
 vi.mock('../../common', () => ({ DAGActions: () => null }));
 
+vi.mock('../DAGPinButton', () => ({
+  default: ({ pinned }: { pinned: boolean }) => (
+    <span data-testid="pin-button">{pinned ? 'pinned' : 'not pinned'}</span>
+  ),
+}));
+
 const description = 'Loads nightly sales into the warehouse.';
 
-function renderHeader(currentDAGRun?: components['schemas']['DAGRunDetails']) {
+function renderHeader(
+  currentDAGRun?: components['schemas']['DAGRunDetails'],
+  pinned?: boolean
+) {
   return render(
     <MemoryRouter>
       <DAGHeader
@@ -25,6 +34,7 @@ function renderHeader(currentDAGRun?: components['schemas']['DAGRunDetails']) {
         fileName="etl"
         refreshFn={vi.fn()}
         formatDuration={() => '--'}
+        pinned={pinned}
       />
     </MemoryRouter>
   );
@@ -46,5 +56,27 @@ describe('DAGHeader', () => {
       screen.getByRole('heading', { name: 'load-partition' })
     ).toBeInTheDocument();
     expect(screen.queryByText(description)).not.toBeInTheDocument();
+  });
+
+  it('shows whether the DAG is pinned', () => {
+    renderHeader(undefined, true);
+
+    expect(screen.getByTestId('pin-button')).toHaveTextContent('pinned');
+  });
+
+  it('offers no pin button for a sub DAG run', () => {
+    renderHeader(
+      { name: 'load-partition' } as components['schemas']['DAGRunDetails'],
+      true
+    );
+
+    expect(screen.queryByTestId('pin-button')).not.toBeInTheDocument();
+  });
+
+  // Remote nodes running an older version do not report pins.
+  it('offers no pin button when the pin state is unknown', () => {
+    renderHeader();
+
+    expect(screen.queryByTestId('pin-button')).not.toBeInTheDocument();
   });
 });

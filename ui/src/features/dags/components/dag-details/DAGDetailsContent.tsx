@@ -66,6 +66,10 @@ type DAGDetailsContentProps = {
   autoOpenStartModal?: boolean;
   buildScopedUrl?: (path: string) => string;
   fillHeight?: boolean;
+  /** Whether the DAG is pinned, shown in the header */
+  pinned?: boolean;
+  /** Called after the user pins or unpins the DAG */
+  onPinnedChange?: () => void;
 };
 
 // Form-like tabs keep a readable line length on wide screens.
@@ -96,6 +100,8 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
   autoOpenStartModal = false,
   buildScopedUrl,
   fillHeight = false,
+  pinned,
+  onPinnedChange,
 }) => {
   const baseUrl = isModal ? '#' : `/dags/${fileName}`;
   const scopedUrl = React.useCallback(
@@ -162,6 +168,8 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
             refreshFn={refreshFn}
             formatDuration={formatDuration}
             buildScopedUrl={buildScopedUrl}
+            pinned={pinned}
+            onPinnedChange={onPinnedChange}
           />
         )}
         <div className="mb-4 mt-3 flex min-w-0 flex-col items-center justify-between gap-3 lg:flex-row 2xl:gap-0">

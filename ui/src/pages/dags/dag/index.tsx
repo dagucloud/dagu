@@ -280,6 +280,7 @@ function DAGDetails() {
                     refreshFn={refreshData}
                     formatDuration={formatDuration}
                     buildScopedUrl={buildUrl}
+                    pinned={dagData.pinned}
                   />
                   <div className="min-h-0 flex-1">
                     <DAGDetailsContent

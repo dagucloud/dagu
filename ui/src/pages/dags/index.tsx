@@ -794,6 +794,12 @@ function DAGsContent() {
     ]
   );
 
+  // Pinning moves a workflow across pages, so the list reloads from page one.
+  const reloadDAGList = React.useCallback(async () => {
+    resetLoadedPages();
+    await mutate();
+  }, [mutate, resetLoadedPages]);
+
   const handleSetDAGPinned = React.useCallback(
     async (fileName: string, pinned: boolean): Promise<void> => {
       try {
@@ -805,11 +811,9 @@ function DAGsContent() {
         );
         return;
       }
-      // Pinning moves the workflow across pages, so reload from the first page.
-      resetLoadedPages();
-      await mutate();
+      await reloadDAGList();
     },
-    [client, mutate, remoteNode, resetLoadedPages, showError]
+    [client, reloadDAGList, remoteNode, showError]
   );
 
   const handleSelectDAG = React.useCallback(
@@ -1225,6 +1229,7 @@ function DAGsContent() {
           fileName={selectedDAG}
           isOpen={!!selectedDAG}
           onClose={() => updateSelectedDAG(null, true)}
+          onPinnedChange={reloadDAGList}
         />
       )}
     </div>
