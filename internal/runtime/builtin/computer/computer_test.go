@@ -893,8 +893,10 @@ func TestPersonInputSkipsStaleTurn(t *testing.T) {
 func TestNextStepIgnoresEarlierInput(t *testing.T) {
 	t.Parallel()
 
-	const with = `{"idle": "1h", "cache": false, "do": [{"act": "Click", "timeout": "2s"}]}`
+	const with = `{"idle": "1h", "cache": false, "do": [{"act": "Click"}]}`
 	run := newTestRun(t)
+	// A step that waits gives up quickly instead of hanging for the hour.
+	run.personWait = time.Second
 	for range 2 {
 		run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(1, 1)), done("Clicked")}}}
 		require.NoError(t, run.execute(with, nil).err)
