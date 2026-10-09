@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
@@ -15,10 +16,12 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/agentsession"
 	"github.com/dagucloud/dagu/v2/internal/cloudreport"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/opencodehost"
+	filemonitor "github.com/dagucloud/dagu/v2/internal/persis/file/monitor"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
 	apiv1 "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	frontendfile "github.com/dagucloud/dagu/v2/internal/service/frontend/file"
@@ -264,14 +267,35 @@ func initTunnelService(cfg *config.Config) (*tunnel.Service, error) {
 	return tunnel.NewService(tunnelCfg, cfg.Paths.DataDir)
 }
 
-// startCloudReport reports this server's health to Dagu Console while it holds
-// an online license. It returns nil unless cloud.report is health, or when no
-// license manager runs.
+// startCloudReport reports to Dagu Console while the server holds an online
+// license: health at cloud.report health, and DAG-run events too at runs. It
+// returns nil unless cloud.report asks for reports, or when no license
+// manager runs.
 func startCloudReport(ctx *Context) *cloudreport.Reporter {
 	if !ctx.Config.Cloud.Report.Reports() || ctx.LicenseManager == nil {
 		return nil
 	}
-	return cloudreport.Start(ctx, ctx.LicenseManager.CloudCredentials, ctx.Persistence.ServiceRegistry)
+	return cloudreport.Start(ctx, ctx.LicenseManager.CloudCredentials, ctx.Persistence.ServiceRegistry, cloudReportEvents(ctx))
+}
+
+// cloudReportLeaseStaleThreshold outlasts the longest pause between the
+// reporter's lease heartbeats: an event check followed by a report request.
+const cloudReportLeaseStaleThreshold = time.Minute
+
+// cloudReportEvents configures the DAG-run events that reports to Dagu Console
+// carry. They carry none unless cloud.report is runs, or while the event store
+// is disabled.
+func cloudReportEvents(ctx *Context) cloudreport.Events {
+	if ctx.Config.Cloud.Report != config.ReportRuns || ctx.event == nil {
+		return cloudreport.Events{}
+	}
+	stateFile := filepath.Join(ctx.Config.Paths.DataDir, "cloud", "report-state.json")
+	return cloudreport.Events{
+		Reader:        ctx.event,
+		RetentionDays: ctx.Config.EventStore.RetentionDays,
+		State:         filemonitor.NewStateStore(stateFile),
+		Lease:         filemonitor.NewLease(stateFile, &dirlock.LockOptions{StaleThreshold: cloudReportLeaseStaleThreshold}),
+	}
 }
 
 // logTunnelStatus logs the tunnel status prominently to the console.

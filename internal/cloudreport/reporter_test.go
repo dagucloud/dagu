@@ -29,7 +29,10 @@ import (
 
 const testTimeout = 5 * time.Second
 
-var testStartedAt = time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
+var (
+	testStartedAt  = time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
+	testClockStart = time.Date(2026, 10, 10, 9, 30, 0, 0, time.UTC)
+)
 
 func TestReportPayload(t *testing.T) {
 	t.Parallel()
@@ -303,21 +306,34 @@ func noJitter() float64 { return 0.5 }
 // startReporter runs r with fixed randomness and a clock the test controls.
 func startReporter(ctx context.Context, t *testing.T, r *Reporter, random func() float64) *fakeClock {
 	t.Helper()
-	clock := &fakeClock{t: t, waits: make(chan time.Duration, 16), fire: make(chan time.Time)}
+	return startReporterAt(ctx, t, r, random, testClockStart)
+}
+
+// startReporterAt is startReporter with a clock that starts at start.
+func startReporterAt(ctx context.Context, t *testing.T, r *Reporter, random func() float64, start time.Time) *fakeClock {
+	t.Helper()
+	clock := &fakeClock{t: t, waits: make(chan time.Duration, 16), fire: make(chan time.Time), at: start}
 	r.after = clock.after
 	r.random = random
 	r.startedAt = testStartedAt
+	if r.events != nil {
+		r.events.now = clock.now
+	}
 	r.start(ctx)
 	t.Cleanup(r.Stop)
 	return clock
 }
 
 // fakeClock hands each wait the reporter asks for to the test, and ends it
-// only when the test says so.
+// only when the test says so. Its time moves only by the waits that end.
 type fakeClock struct {
 	t     *testing.T
 	waits chan time.Duration
 	fire  chan time.Time
+
+	mu      sync.Mutex
+	current time.Duration
+	at      time.Time
 }
 
 func (c *fakeClock) after(d time.Duration) <-chan time.Time {
@@ -325,11 +341,20 @@ func (c *fakeClock) after(d time.Duration) <-chan time.Time {
 	return c.fire
 }
 
+func (c *fakeClock) now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.at
+}
+
 // wait returns the reporter's current wait.
 func (c *fakeClock) wait() time.Duration {
 	c.t.Helper()
 	select {
 	case d := <-c.waits:
+		c.mu.Lock()
+		c.current = d
+		c.mu.Unlock()
 		return d
 	case <-time.After(testTimeout):
 		c.t.Fatal("reporter did not wait")
@@ -340,6 +365,9 @@ func (c *fakeClock) wait() time.Duration {
 // elapse ends the reporter's current wait.
 func (c *fakeClock) elapse() {
 	c.t.Helper()
+	c.mu.Lock()
+	c.at = c.at.Add(c.current)
+	c.mu.Unlock()
 	select {
 	case c.fire <- time.Time{}:
 	case <-time.After(testTimeout):
@@ -368,7 +396,8 @@ type receivedReport struct {
 }
 
 // fakeConsole stands in for Dagu Console. It answers reports with the queued
-// responses in order, then with 200 and an empty object.
+// responses in order, then with 200 and an acknowledgement of the report's
+// cursor.
 type fakeConsole struct {
 	url     string
 	reports chan receivedReport
@@ -390,7 +419,12 @@ func (c *fakeConsole) serve(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(r.Body)
 	c.reports <- receivedReport{method: r.Method, path: r.URL.Path, header: r.Header.Clone(), body: string(body)}
 
-	resp := consoleResponse{status: http.StatusOK, body: `{}`}
+	var report struct {
+		Cursor string `json:"cursor"`
+	}
+	_ = json.Unmarshal(body, &report)
+	ack, _ := json.Marshal(map[string]string{"ack": report.Cursor})
+	resp := consoleResponse{status: http.StatusOK, body: string(ack)}
 	c.mu.Lock()
 	if len(c.responses) > 0 {
 		resp, c.responses = c.responses[0], c.responses[1:]
