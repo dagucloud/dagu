@@ -11,6 +11,7 @@ import {
   GRAPH_MAX_SCALE,
   GRAPH_MIN_SCALE,
   GRAPH_READABLE_MIN_SCALE,
+  wheelZoomFactor,
 } from '../graphViewport';
 
 // A 864x464 viewport leaves 800x400 inside the 32px content padding.
@@ -50,6 +51,22 @@ describe('fittedScale', () => {
       GRAPH_READABLE_MIN_SCALE
     );
     expect(fittedScale(drawing, VIEWPORT, 'full')).toBe(GRAPH_MIN_SCALE);
+  });
+});
+
+describe('wheelZoomFactor', () => {
+  it('zooms in on scroll up and out on scroll down', () => {
+    expect(wheelZoomFactor(-4, WheelEvent.DOM_DELTA_PIXEL)).toBeGreaterThan(1);
+    expect(wheelZoomFactor(4, WheelEvent.DOM_DELTA_PIXEL)).toBeLessThan(1);
+  });
+
+  it('limits a mouse-wheel notch to one step', () => {
+    expect(wheelZoomFactor(100, WheelEvent.DOM_DELTA_PIXEL)).toBe(
+      wheelZoomFactor(10, WheelEvent.DOM_DELTA_PIXEL)
+    );
+    expect(wheelZoomFactor(1, WheelEvent.DOM_DELTA_LINE)).toBe(
+      wheelZoomFactor(10, WheelEvent.DOM_DELTA_PIXEL)
+    );
   });
 });
 

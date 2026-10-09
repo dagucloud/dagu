@@ -905,6 +905,14 @@ function DAGStatus({
                                 />
                               </p>
                             )}
+                            <p>
+                              <I18nText text={'Drag: Pan the graph'} />
+                            </p>
+                            <p>
+                              <I18nText
+                                text={'Ctrl/Cmd + scroll or pinch: Zoom'}
+                              />
+                            </p>
                           </div>
                         </TooltipContent>
                       </Tooltip>

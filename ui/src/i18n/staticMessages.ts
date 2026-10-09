@@ -2147,6 +2147,8 @@ const english = {
   'Wiki page management is not available on this server.':
     'Wiki page management is not available on this server.',
   'Graph interactions': 'Graph interactions',
+  'Drag: Pan the graph': 'Drag: Pan the graph',
+  'Ctrl/Cmd + scroll or pinch: Zoom': 'Ctrl/Cmd + scroll or pinch: Zoom',
   '<No log output>': '<No log output>',
   LIVE: 'LIVE',
   'More actions': 'More actions',
@@ -4432,6 +4434,8 @@ const chinese = {
   'Wiki page management is not available on this server.':
     '此服务器不提供 Wiki 页面管理功能。',
   'Graph interactions': '图表交互',
+  'Drag: Pan the graph': '拖动：平移图表',
+  'Ctrl/Cmd + scroll or pinch: Zoom': 'Ctrl/Cmd + 滚轮或触控板捏合：缩放',
   '<No log output>': '<无日志输出>',
   LIVE: '实时',
   'More actions': '更多操作',
@@ -6785,6 +6789,9 @@ const japanese = {
   'Wiki page management is not available on this server.':
     'このサーバーでは Wiki ページ管理を利用できません。',
   'Graph interactions': 'グラフ操作',
+  'Drag: Pan the graph': 'ドラッグ: グラフを移動',
+  'Ctrl/Cmd + scroll or pinch: Zoom':
+    'Ctrl/Cmd + スクロールまたはピンチ: ズーム',
   '<No log output>': '<ログ出力なし>',
   LIVE: 'ライブ',
   'More actions': 'その他の操作',

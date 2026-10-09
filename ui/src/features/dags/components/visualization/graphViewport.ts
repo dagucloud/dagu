@@ -25,6 +25,10 @@ export const GRAPH_READABLE_MIN_SCALE = 0.6;
 export const GRAPH_ZOOM_STEP = 1.2;
 export const GRAPH_CONTENT_PADDING_PX = 32;
 
+/** One mouse-wheel notch zooms about 10%; trackpad pinches send smaller deltas. */
+const WHEEL_MAX_DELTA_PX = 10;
+const WHEEL_ZOOM_DIVISOR = 100;
+
 export function clampScale(
   scale: number,
   min = GRAPH_MIN_SCALE,
@@ -54,6 +58,18 @@ export function fittedScale(
 ): number {
   const min = fit === 'readable' ? GRAPH_READABLE_MIN_SCALE : GRAPH_MIN_SCALE;
   return clampScale(fitScale(drawing, viewport), min, 1);
+}
+
+/**
+ * Zoom factor for one Ctrl/Cmd+wheel event. Line and page deltas count as a
+ * full wheel notch.
+ */
+export function wheelZoomFactor(deltaY: number, deltaMode: number): number {
+  const delta =
+    deltaMode === WheelEvent.DOM_DELTA_PIXEL
+      ? Math.min(WHEEL_MAX_DELTA_PX, Math.max(-WHEEL_MAX_DELTA_PX, deltaY))
+      : Math.sign(deltaY) * WHEEL_MAX_DELTA_PX;
+  return Math.exp(-delta / WHEEL_ZOOM_DIVISOR);
 }
 
 /**

@@ -626,9 +626,17 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
                       </div>
                     </TooltipTrigger>
                     <TooltipContent>
-                      <p>
-                        <I18nText text={'Click: Inspect step details'} />
-                      </p>
+                      <div className="space-y-1">
+                        <p>
+                          <I18nText text={'Click: Inspect step details'} />
+                        </p>
+                        <p>
+                          <I18nText text={'Drag: Pan the graph'} />
+                        </p>
+                        <p>
+                          <I18nText text={'Ctrl/Cmd + scroll or pinch: Zoom'} />
+                        </p>
+                      </div>
                     </TooltipContent>
                   </Tooltip>
                 </div>

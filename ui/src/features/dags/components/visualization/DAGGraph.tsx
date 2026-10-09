@@ -145,6 +145,12 @@ function DAGGraph({
                       <I18nText text={'Right-click: Update node status'} />
                     </p>
                   )}
+                  <p>
+                    <I18nText text={'Drag: Pan the graph'} />
+                  </p>
+                  <p>
+                    <I18nText text={'Ctrl/Cmd + scroll or pinch: Zoom'} />
+                  </p>
                 </div>
               </TooltipContent>
             </Tooltip>

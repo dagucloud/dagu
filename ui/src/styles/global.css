@@ -461,6 +461,13 @@
   }
 }
 
+/* Clickable graph nodes set their cursor inline, so the pan cursor needs
+   !important to stay visible while dragging across them. */
+[data-graph-panning],
+[data-graph-panning] * {
+  cursor: grabbing !important;
+}
+
 /* Toast Shadow Utility */
 .shadow-toast {
   box-shadow: var(--shadow-lg);

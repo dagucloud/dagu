@@ -178,6 +178,8 @@ function Graph({
       justifyContent: 'center',
       padding: GRAPH_CONTENT_PADDING_PX,
       borderRadius: '0.5em',
+      cursor: 'grab',
+      userSelect: 'none',
       background: gridBackground,
       backgroundSize: '20px 20px',
     };

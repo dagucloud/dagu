@@ -368,6 +368,14 @@ describe('Graph zoom', () => {
     );
   }
 
+  function viewportOf(container: HTMLElement): HTMLElement {
+    const viewport = container.querySelector('.mermaid')?.parentElement;
+    if (!viewport) {
+      throw new Error('Expected the graph viewport');
+    }
+    return viewport;
+  }
+
   async function renderGraph(
     svg: string,
     props: Partial<React.ComponentProps<typeof Graph>> = {}
@@ -429,5 +437,50 @@ describe('Graph zoom', () => {
     rerender(<Graph type="status" steps={steps} flowchart="LR" />);
 
     await waitFor(() => expect(svgWidth(container)).toBe('2400px'));
+  });
+
+  it('zooms with Ctrl+wheel and leaves plain wheel scrolling alone', async () => {
+    const { container } = await renderGraph(LARGE_SVG);
+    const viewport = viewportOf(container);
+
+    expect(fireEvent.wheel(viewport, { deltaY: 100 })).toBe(true);
+    expect(svgWidth(container)).toBe('2400px');
+
+    expect(fireEvent.wheel(viewport, { deltaY: -100, ctrlKey: true })).toBe(
+      false
+    );
+    expect(parseFloat(svgWidth(container))).toBeGreaterThan(2400);
+  });
+
+  it('pans on mouse drag without selecting the node under the cursor', async () => {
+    const onClickNode = vi.fn();
+    const nodeId = toMermaidNodeId('prepare');
+    const { container } = await renderGraph(
+      `<svg viewBox="0 0 4000 1000"><g class="node" id="flowchart-${nodeId}-0"></g></svg>`,
+      { onClickNode, selectOnClick: true }
+    );
+    const viewport = viewportOf(container);
+    const graphNode = container.querySelector('.node');
+    if (!graphNode) {
+      throw new Error('Expected a rendered node');
+    }
+    const pointer = { pointerType: 'mouse', pointerId: 1, button: 0 };
+    viewport.scrollLeft = 200;
+
+    fireEvent.pointerDown(graphNode, { ...pointer, clientX: 100, clientY: 50 });
+    fireEvent.pointerMove(graphNode, { ...pointer, clientX: 160, clientY: 50 });
+    fireEvent.pointerUp(graphNode, { ...pointer, clientX: 160, clientY: 50 });
+    fireEvent.click(graphNode);
+
+    expect(viewport.scrollLeft).toBe(140);
+    // Node clicks fire after a 250ms double-click window.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(onClickNode).not.toHaveBeenCalled();
+
+    fireEvent.pointerDown(graphNode, { ...pointer, clientX: 100, clientY: 50 });
+    fireEvent.pointerUp(graphNode, { ...pointer, clientX: 100, clientY: 50 });
+    fireEvent.click(graphNode);
+
+    await waitFor(() => expect(onClickNode).toHaveBeenCalledWith(nodeId));
   });
 });
