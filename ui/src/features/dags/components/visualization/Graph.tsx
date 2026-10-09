@@ -23,6 +23,8 @@ import React, { useState } from 'react';
 import { components, NodeStatus } from '../../../../api/v1/schema';
 import Mermaid from '@/components/ui/mermaid';
 import { exportGraphPng, exportGraphSvg } from './exportGraph';
+import { GRAPH_CONTENT_PADDING_PX } from './graphViewport';
+import { useGraphViewport } from './useGraphViewport';
 import { I18nProps } from '@/i18n/I18nProps';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -140,28 +142,13 @@ function Graph({
   height,
   name,
 }: Props): React.JSX.Element {
-  const [scale, setScale] = useState(isExpandedView ? 0.8 : 1);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const containerRef = React.useRef<HTMLDivElement>(null);
+  const viewportRef = React.useRef<HTMLDivElement>(null);
   const { preferences } = useUserPreferences();
   const isDarkMode = preferences.theme !== 'light';
   const applyGraphStyles = React.useCallback(applyRenderedGraphStyles, []);
   const graphControlButtonClass = 'h-8 w-9 shrink-0 px-0 sm:w-auto sm:px-4';
-
-  /** Increase zoom level */
-  const zoomIn = () => {
-    setScale((prevScale) => Math.min(prevScale + 0.1, 2));
-  };
-
-  /** Decrease zoom level */
-  const zoomOut = () => {
-    setScale((prevScale) => Math.max(prevScale - 0.1, 0.1));
-  };
-
-  /** Reset zoom to default */
-  const resetZoom = () => {
-    setScale(1);
-  };
 
   const handleExport = (format: 'png' | 'svg') => {
     // Scope to the mermaid wrapper; the control bar renders its own icon SVGs.
@@ -178,13 +165,6 @@ function Graph({
     }
   };
 
-  /** Fit graph to container - zoom out to show entire graph */
-  const fitToScreen = () => {
-    // Simple approach: set to a small scale that typically shows the full graph
-    // This is more reliable than trying to calculate exact dimensions
-    setScale(isExpandedView ? 0.4 : 0.3);
-  };
-
   const mermaidStyle: React.CSSProperties = React.useMemo(() => {
     const gridBackground = isDarkMode
       ? `linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px),
@@ -196,6 +176,7 @@ function Graph({
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
+      padding: GRAPH_CONTENT_PADDING_PX,
       borderRadius: '0.5em',
       background: gridBackground,
       backgroundSize: '20px 20px',
@@ -208,6 +189,14 @@ function Graph({
       return toMermaidNodeId(step.name);
     });
   }, [steps]);
+
+  const { scale, handleContentSize, zoomIn, zoomOut, resetZoom, fitToView } =
+    useGraphViewport({
+      viewportRef,
+      layout: flowchart,
+      structureKey: `${flowchart}:${mermaidNodeIds.join(',')}`,
+      initialFit: isExpandedView ? 'full' : 'readable',
+    });
 
   const graph = React.useMemo(() => {
     if (!steps || steps.length === 0) return '';
@@ -466,7 +455,7 @@ function Graph({
             <I18nProps>
               <ToggleButton
                 value="fit"
-                onClick={() => fitToScreen()}
+                onClick={() => fitToView()}
                 aria-label="Fit to screen"
                 position="middle"
                 className={graphControlButtonClass}
@@ -483,6 +472,9 @@ function Graph({
                 className={graphControlButtonClass}
               >
                 <RotateCcw className="h-4 w-4" />
+                <span className="ml-1.5 hidden tabular-nums sm:inline">
+                  {Math.round(scale * 100)}%
+                </span>
               </ToggleButton>
             </I18nProps>
 
@@ -540,6 +532,8 @@ function Graph({
           style={mermaidStyle}
           def={graph}
           scale={scale}
+          viewportRef={viewportRef}
+          onContentSize={handleContentSize}
           nodeIds={mermaidNodeIds}
           onClick={selectOnClick ? onClickNode : undefined}
           onDoubleClick={onDoubleClickNode ?? onClickNode}

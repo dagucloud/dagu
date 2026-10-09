@@ -3,7 +3,7 @@
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { components, NodeStatus, NodeStatusLabel } from '@/api/v1/schema';
 import { toMermaidNodeId } from '@/lib/utils';
 import Graph from '../Graph';
@@ -345,5 +345,89 @@ describe('Graph', () => {
     expect(definition).toContain(
       'linkStyle 1 stroke:#3fa76b,stroke-width:1.8px,stroke-dasharray:6 3'
     );
+  });
+});
+
+describe('Graph zoom', () => {
+  const LARGE_SVG = '<svg viewBox="0 0 4000 1000"></svg>';
+  const SMALL_SVG = '<svg viewBox="0 0 200 100"></svg>';
+
+  // jsdom has no layout engine, so every element reports an 800x400 box.
+  beforeEach(() => {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(800);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(400);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function svgWidth(container: HTMLElement): string {
+    return (
+      container.querySelector<SVGSVGElement>('.mermaid svg')?.style.width ?? ''
+    );
+  }
+
+  async function renderGraph(
+    svg: string,
+    props: Partial<React.ComponentProps<typeof Graph>> = {}
+  ) {
+    mermaidRenderMock.mockResolvedValue({ svg, bindFunctions: vi.fn() });
+    const steps = [node('prepare', NodeStatus.Running)];
+    const view = render(<Graph type="status" steps={steps} {...props} />);
+    await waitFor(() => expect(svgWidth(view.container)).not.toBe(''));
+    return view;
+  }
+
+  // The 736x336 area inside the padding would need 18% to show 4000x1000;
+  // the first view stops at the readable minimum instead.
+  it('opens a large graph at a readable zoom and fits it on request', async () => {
+    const { container } = await renderGraph(LARGE_SVG);
+
+    expect(svgWidth(container)).toBe('2400px');
+    expect(
+      screen.getByRole('button', { name: 'Reset zoom' })
+    ).toHaveTextContent('60%');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fit to screen' }));
+    expect(svgWidth(container)).toBe('736px');
+  });
+
+  it('never enlarges a small graph to fit', async () => {
+    const { container } = await renderGraph(SMALL_SVG);
+
+    expect(svgWidth(container)).toBe('200px');
+  });
+
+  it('keeps the zoom when only step statuses change', async () => {
+    const { container, rerender } = await renderGraph(LARGE_SVG);
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
+    expect(svgWidth(container)).toBe('2880px');
+
+    mermaidRenderMock.mockResolvedValue({
+      svg: '<svg data-render="update" viewBox="0 0 4000 1000"></svg>',
+      bindFunctions: vi.fn(),
+    });
+    rerender(
+      <Graph type="status" steps={[node('prepare', NodeStatus.Success)]} />
+    );
+
+    await waitFor(() =>
+      expect(
+        container.querySelector('svg[data-render="update"]')
+      ).not.toBeNull()
+    );
+    expect(svgWidth(container)).toBe('2880px');
+  });
+
+  it('fits again when the layout direction changes', async () => {
+    const steps = [node('prepare', NodeStatus.Running)];
+    const { container, rerender } = await renderGraph(LARGE_SVG, { steps });
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
+    expect(svgWidth(container)).toBe('2880px');
+
+    rerender(<Graph type="status" steps={steps} flowchart="LR" />);
+
+    await waitFor(() => expect(svgWidth(container)).toBe('2400px'));
   });
 });
