@@ -90,8 +90,8 @@ func TestSelectorJSON(t *testing.T) {
 	require.NoError(t, err)
 	assert.JSONEq(t, text, string(data))
 
-	_, err = ParseSelector([]byte(`{"role":"button","nmae":"保存"}`))
-	require.ErrorContains(t, err, "nmae")
+	_, err = ParseSelector([]byte(`{"role":"button","title":"保存"}`))
+	require.ErrorContains(t, err, "title")
 	_, err = ParseSelector([]byte(`{"role":"button"}`))
 	require.ErrorContains(t, err, "set name, id, or near")
 	_, err = ParseSelector([]byte(`{`))

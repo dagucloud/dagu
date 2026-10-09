@@ -46,7 +46,7 @@ var hresultNames = map[hresult]string{
 	0x80131509: "UIA_E_INVALIDOPERATION",
 }
 
-func (hr hresult) failed() bool { return int32(hr) < 0 }
+func (hr hresult) failed() bool { return int32(hr) < 0 } //nolint:gosec // The sign bit is the failure flag.
 
 func (hr hresult) Error() string {
 	if name, ok := hresultNames[hr]; ok {
@@ -69,18 +69,19 @@ func (o *comObject) call(index int, args ...uintptr) hresult {
 	all = append(all, uintptr(unsafe.Pointer(o))) //nolint:gosec // COM takes the object as its first argument.
 	all = append(all, args...)
 	r, _, _ := syscall.SyscallN(o.vtbl[index], all...)
-	return hresult(r)
+	return hresult(r) //nolint:gosec // An HRESULT is the low 32 bits of the result.
 }
 
 // addRef takes another reference, for a caller that will release one.
+// AddRef and Release return a count, not a result code.
 func (o *comObject) addRef() {
-	o.call(1)
+	_ = o.call(1)
 }
 
 // release drops the caller's reference. It is safe on nil.
 func (o *comObject) release() {
 	if o != nil {
-		o.call(2)
+		_ = o.call(2)
 	}
 }
 
@@ -95,7 +96,7 @@ func out[T any](v *T) uintptr {
 func coCreateInstance(clsid, iid *windows.GUID) (*comObject, error) {
 	var obj *comObject
 	r, _, _ := procCoCreateInstance.Call(out(clsid), 0, clsctxInprocServer, out(iid), out(&obj))
-	if hr := hresult(r); hr.failed() {
+	if hr := hresult(r); hr.failed() { //nolint:gosec // An HRESULT is the low 32 bits of the result.
 		return nil, hr
 	}
 	return obj, nil
@@ -113,7 +114,7 @@ func bstrString(b *uint16) string {
 	if n == 0 {
 		return ""
 	}
-	return string(utf16.Decode(unsafe.Slice(b, n)))
+	return string(utf16.Decode(unsafe.Slice(b, n))) //nolint:gosec // n is the length SysStringLen reports.
 }
 
 // bstrFree releases a BSTR. It is safe on nil.

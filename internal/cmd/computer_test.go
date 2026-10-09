@@ -64,6 +64,69 @@ func TestComputerCheckJSON(t *testing.T) {
 	assert.Contains(t, result.Problems[0].Message, "macOS and Windows only")
 }
 
+// Flags that cannot run are refused before the desktop is touched, as the
+// JSON error object when asked.
+func TestComputerElementsInvalidInput(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"format", []string{"--format", "yaml"}, `--format "yaml": use text or json`},
+		{"limit", []string{"--format", "json", "--limit", "0"}, `--limit "0": use a positive number`},
+		{"two modes", []string{"--format", "json", "--at-pointer", "--watch"}, "use one of --at-pointer, --watch, or --match"},
+		{"after alone", []string{"--format", "json", "--after", "1s"}, "--after needs --at-pointer"},
+		{"bad after", []string{"--format", "json", "--at-pointer", "--after", "soon"}, `--after "soon": use a duration such as 3s`},
+		{"bad selector json", []string{"--format", "json", "--match", "{"}, "--match: selector:"},
+		{"bad selector", []string{"--format", "json", "--match", `{"role": "knob", "name": "x"}`}, `unknown role "knob"`},
+		{"selector without name", []string{"--format", "json", "--match", `{"role": "button"}`}, "set name, id, or near"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			th := test.SetupCommand(t)
+			out, err := runCommand(th, cmd.Computer(), append([]string{"computer", "elements"}, tc.args...)...)
+			require.ErrorContains(t, err, tc.want)
+			if tc.name == "format" {
+				assert.Empty(t, out, "a text-mode failure prints nothing on stdout")
+				return
+			}
+			var result struct {
+				Error struct {
+					Code    string `json:"code"`
+					Message string `json:"message"`
+				} `json:"error"`
+			}
+			require.NoError(t, json.Unmarshal([]byte(out), &result), out)
+			assert.Equal(t, "invalid_input", result.Error.Code)
+			assert.Contains(t, result.Error.Message, tc.want)
+		})
+	}
+}
+
+// A system that cannot read elements says so with a code.
+func TestComputerElementsUnsupported(t *testing.T) {
+	if goruntime.GOOS == "windows" {
+		t.Skip("the result depends on the desktop session")
+	}
+	t.Parallel()
+
+	th := test.SetupCommand(t)
+	out, err := runCommand(th, cmd.Computer(), "computer", "elements", "--format", "json")
+	require.Error(t, err)
+	var result struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(out), &result), out)
+	assert.Contains(t, []string{"unsupported", "no_session", "other_session", "screen_locked", "no_display", "screen_recording", "accessibility", "load_failed"}, result.Error.Code)
+	if goruntime.GOOS != "darwin" {
+		assert.Equal(t, "unsupported", result.Error.Code)
+	}
+}
+
 func computerReplayCache(th test.Command) *replaycache.Store {
 	return replaycache.New(filepath.Join(th.Config.Paths.DataDir, computerhost.DataDirName))
 }

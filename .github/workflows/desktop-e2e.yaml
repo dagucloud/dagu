@@ -14,6 +14,7 @@ on:
       - internal/desktop/**
       - internal/llm/computeruse/**
       - internal/runtime/builtin/computer/**
+      - internal/cmd/computer*.go
       - conformance/spec074_computer/**
       - .github/workflows/desktop-e2e.yaml
   push:
@@ -23,6 +24,7 @@ on:
       - internal/desktop/**
       - internal/llm/computeruse/**
       - internal/runtime/builtin/computer/**
+      - internal/cmd/computer*.go
       - conformance/spec074_computer/**
       - .github/workflows/desktop-e2e.yaml
   workflow_dispatch:
@@ -65,13 +67,17 @@ jobs:
 
       - name: Test the desktop driver
         shell: bash
-        run: go test -count=1 -run 'TestWindowsDesktop|TestInputMatchesWin32Layout' ./internal/desktop/
+        run: go test -count=1 -v -run 'TestWindowsDesktop|TestInputMatchesWin32Layout|TestWindowsElements|TestVariantLayout|TestPointArg|TestRoleOf|TestOpenElementsCloses' ./internal/desktop/
+
+      - name: List the elements of the window in front
+        shell: bash
+        run: ./.local/bin/dagu.exe computer elements --format json --limit 20 || true
 
       - name: Test a computer step
         shell: bash
         env:
           DESKTOP_E2E_ARTIFACTS: ${{ runner.temp }}/desktop-artifacts
-        run: DAGU_BIN="$PWD/.local/bin/dagu.exe" go test -count=1 -run TestComputerTypesIntoWindow -v ./conformance/spec074_computer/
+        run: DAGU_BIN="$PWD/.local/bin/dagu.exe" go test -count=1 -run 'TestComputerTypesIntoWindow|TestComputerElements' -v ./conformance/spec074_computer/
 
       - name: Upload screenshots
         if: failure()

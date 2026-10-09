@@ -387,9 +387,17 @@ func (w *uiaWorker) asWindow(el *element) (*topWindow, error) {
 	}
 	window.Window = window.Name
 	hwnd, _ := el.cachedInt(uiaNativeWindowHandleProperty)
-	window.App = appName(windows.HWND(hwnd))
+	window.App = appName(windows.HWND(hwnd)) //nolint:gosec // A window handle fits in 32 bits.
 	className, _ := el.cachedClassName()
 	return &topWindow{el: el, window: window, className: className}, nil
+}
+
+// placement is where an element sits: its top-level window, which the
+// holder releases, the path down from it, and the window's title.
+type placement struct {
+	top   *element
+	path  []PathStep
+	title string
 }
 
 // resolveWindow finds the window an element describes: the one in front,
@@ -412,14 +420,14 @@ func (w *uiaWorker) resolveWindow(window Element) (*topWindow, error) {
 		return nil, err
 	}
 	defer at.release()
-	top, _, _, err := w.ancestry(at)
+	place, err := w.ancestry(at)
 	if err != nil {
 		return nil, err
 	}
-	defer top.release()
+	defer place.top.release()
 	// The walk cached only what places an element; the window needs
 	// everything.
-	full, err := top.buildUpdatedCache(w.cacheElement)
+	full, err := place.top.buildUpdatedCache(w.cacheElement)
 	if err != nil {
 		return nil, err
 	}
@@ -438,12 +446,12 @@ func (w *uiaWorker) resolveWindow(window Element) (*topWindow, error) {
 // place describes an element whose properties are cached, with its window
 // and path.
 func (w *uiaWorker) place(el *element) (Element, error) {
-	top, path, title, err := w.ancestry(el)
+	place, err := w.ancestry(el)
 	if err != nil {
 		return Element{}, err
 	}
-	defer top.release()
-	if len(path) == 0 {
+	defer place.top.release()
+	if len(place.path) == 0 {
 		window, err := w.asWindow(el)
 		if err != nil {
 			return Element{}, err
@@ -454,14 +462,14 @@ func (w *uiaWorker) place(el *element) (Element, error) {
 	if err != nil {
 		return Element{}, err
 	}
-	found.Path, found.Window = path, title
+	found.Path, found.Window = place.path, place.title
 	return found, nil
 }
 
-// ancestry walks from an element up to its top-level window. It returns
-// that window, which the caller releases, the path down from it, and its
-// title. An element that is itself a window has an empty path.
-func (w *uiaWorker) ancestry(el *element) (*element, []PathStep, string, error) {
+// ancestry walks from an element up to its top-level window. The caller
+// releases the window it returns. An element that is itself a window has
+// an empty path.
+func (w *uiaWorker) ancestry(el *element) (placement, error) {
 	var steps []PathStep
 	current, owned := el, false
 	drop := func() {
@@ -473,24 +481,24 @@ func (w *uiaWorker) ancestry(el *element) (*element, []PathStep, string, error) 
 		parent, err := w.walker.parent(current, w.cacheParent)
 		if err != nil {
 			drop()
-			return nil, nil, "", err
+			return placement{}, err
 		}
 		if parent == nil {
 			drop()
-			return nil, nil, "", errors.New("the element has no window")
+			return placement{}, errors.New("the element has no window")
 		}
 		isRoot, err := w.auto.compareElements(parent, w.root)
 		if err != nil {
 			parent.release()
 			drop()
-			return nil, nil, "", err
+			return placement{}, err
 		}
 		if isRoot {
 			parent.release()
 			title, err := current.cachedName()
 			if err != nil {
 				drop()
-				return nil, nil, "", err
+				return placement{}, err
 			}
 			if !owned {
 				// The caller's element is its own window; give the caller a
@@ -498,20 +506,20 @@ func (w *uiaWorker) ancestry(el *element) (*element, []PathStep, string, error) 
 				current.com().addRef()
 			}
 			slices.Reverse(steps)
-			return current, steps, title, nil
+			return placement{top: current, path: steps, title: title}, nil
 		}
 		step, err := w.stepOf(parent, current)
 		if err != nil {
 			parent.release()
 			drop()
-			return nil, nil, "", err
+			return placement{}, err
 		}
 		steps = append(steps, step)
 		drop()
 		current, owned = parent, true
 	}
 	drop()
-	return nil, nil, "", errors.New("the element is nested too deep")
+	return placement{}, errors.New("the element is nested too deep")
 }
 
 // stepOf describes child's place among parent's cached children.
@@ -733,7 +741,7 @@ func appName(hwnd windows.HWND) string {
 	}
 	defer func() { _ = windows.CloseHandle(process) }()
 	buf := make([]uint16, windows.MAX_LONG_PATH)
-	size := uint32(len(buf))
+	size := uint32(len(buf)) //nolint:gosec // The buffer is small.
 	if err := windows.QueryFullProcessImageName(process, 0, &buf[0], &size); err != nil {
 		return ""
 	}
