@@ -43,6 +43,14 @@ const (
 	screenshotsNever = "never"
 )
 
+// How much AI decides for an act or an extract: the model every run, the
+// model only when a replay misses, or never.
+const (
+	aiEveryRun = "every_run"
+	aiOnMiss   = "on_miss"
+	aiNever    = "never"
+)
+
 // Responses to a model provider asking a person to confirm actions.
 const (
 	confirmationFail  = "fail"
@@ -66,6 +74,7 @@ type config struct {
 	Mode           string            `json:"mode,omitempty"`
 	Variables      map[string]string `json:"variables,omitempty"`
 	Screenshots    string            `json:"screenshots,omitempty"`
+	AI             string            `json:"ai,omitempty"`
 	Cache          *bool             `json:"cache,omitempty"`
 	MaxActions     int               `json:"max_actions,omitempty"`
 	OnConfirmation string            `json:"on_confirmation,omitempty"`
@@ -93,12 +102,14 @@ type launchSpec struct {
 
 type actSpec struct {
 	Instruction string `json:"instruction"`
+	AI          string `json:"ai,omitempty"`
 	Cache       *bool  `json:"cache,omitempty"`
 	MaxActions  int    `json:"max_actions,omitempty"`
 }
 
 type extractSpec struct {
 	Instruction string         `json:"instruction"`
+	AI          string         `json:"ai,omitempty"`
 	Schema      map[string]any `json:"schema"`
 }
 
@@ -207,6 +218,27 @@ func (o operation) promptTexts() []string {
 	return texts
 }
 
+// subject is what an operation's timeline event names it by.
+func (o operation) subject() string {
+	switch {
+	case o.Launch != nil:
+		return strings.Join(append([]string{o.Launch.Command}, o.Launch.Args...), " ")
+	case o.Act != nil:
+		return o.Act.Instruction
+	case o.Extract != nil:
+		return o.Extract.Instruction
+	case o.Expect != nil:
+		return o.Expect.Statement
+	case o.Wait != "":
+		return o.Wait
+	case o.Screenshot != "":
+		return o.Screenshot
+	case o.Ask != nil:
+		return o.Ask.Prompt
+	}
+	return ""
+}
+
 func (o operation) timeout() time.Duration {
 	if d, err := time.ParseDuration(o.Timeout); err == nil && d > 0 {
 		return d
@@ -228,8 +260,56 @@ func (c config) mode() computeruse.Mode {
 	return computeruse.Mode(c.Mode)
 }
 
-func (c config) cacheEnabled() bool {
-	return c.Cache == nil || *c.Cache
+// choice returns the step's choice of how much AI decides. cache: false,
+// from before the choice existed, means every run.
+func (c config) choice() string {
+	switch {
+	case c.AI != "":
+		return c.AI
+	case c.Cache != nil && !*c.Cache:
+		return aiEveryRun
+	default:
+		return aiOnMiss
+	}
+}
+
+// actChoice returns how much AI decides for an act: its own setting, or
+// the step's.
+func (c config) actChoice(spec actSpec) string {
+	switch {
+	case spec.AI != "":
+		return spec.AI
+	case spec.Cache != nil && !*spec.Cache:
+		return aiEveryRun
+	default:
+		return c.choice()
+	}
+}
+
+// extractChoice returns how much AI decides for an extract.
+func (c config) extractChoice(spec extractSpec) string {
+	if spec.AI != "" {
+		return spec.AI
+	}
+	return c.choice()
+}
+
+// modelOperation returns the first operation that can call the model under
+// its choice, which is what makes the step need one.
+func (c config) modelOperation() (index int, kind string, found bool) {
+	for i, op := range c.Do {
+		switch {
+		case op.When != nil:
+			return i, "when", true
+		case op.Expect != nil:
+			return i, opExpect, true
+		case op.Act != nil && c.actChoice(*op.Act) != aiNever:
+			return i, opAct, true
+		case op.Extract != nil && c.extractChoice(*op.Extract) != aiNever:
+			return i, opExtract, true
+		}
+	}
+	return 0, "", false
 }
 
 // idle returns how long nobody may have used the desktop before the step
@@ -283,20 +363,28 @@ func parseConfig(raw map[string]any) (config, error) {
 	return cfg, nil
 }
 
-var errNoModel = errors.New("computer actions need a model: set llm at the DAG level or with.llm on the step")
-
 func validateStep(step ir.Step) error {
-	if step.LLM == nil {
-		return errNoModel
-	}
+	_, err := checkStep(step)
+	return err
+}
+
+// checkStep parses and validates a step's configuration. A model is
+// required only when some operation can call one.
+func checkStep(step ir.Step) (config, error) {
 	cfg, err := parseConfig(step.ExecutorConfig.Config)
 	if err != nil {
-		return err
+		return cfg, err
 	}
 	if err := cfg.validate(); err != nil {
-		return err
+		return cfg, err
 	}
-	return cfg.validateModels(step.LLM.GetModels())
+	if step.LLM == nil {
+		if index, kind, found := cfg.modelOperation(); found {
+			return cfg, fmt.Errorf("computer actions need a model for do[%d] %s: set llm at the DAG level or with.llm on the step", index, kind)
+		}
+		return cfg, nil
+	}
+	return cfg, cfg.validateModels(step.LLM.GetModels())
 }
 
 // validateModels rejects native mode for providers without a native
@@ -320,6 +408,9 @@ func (c config) validate() error {
 	if len(c.Do) == 0 {
 		return errors.New("computer: with.do must list at least one operation")
 	}
+	if c.AI != "" && c.Cache != nil {
+		return errors.New("computer: set ai or cache, not both; cache: false means ai: every_run")
+	}
 	if c.Idle != "" && !strings.Contains(c.Idle, "$") {
 		if d, err := time.ParseDuration(c.Idle); err != nil || d < 0 {
 			return fmt.Errorf("computer: idle %q must be a duration such as 15s, or 0 to not wait", c.Idle)
@@ -334,6 +425,9 @@ func (c config) validate() error {
 	asks := make(map[string]int)
 	for i, op := range c.Do {
 		if err := op.validate(); err != nil {
+			return fmt.Errorf("computer: do[%d]: %w", i, err)
+		}
+		if err := c.validateChoice(op); err != nil {
 			return fmt.Errorf("computer: do[%d]: %w", i, err)
 		}
 		if op.Act != nil {
@@ -363,6 +457,27 @@ func (c config) validate() error {
 			}
 			asks[op.Ask.As] = i
 		}
+	}
+	return nil
+}
+
+// validateChoice rejects an operation that cannot run under its choice of
+// how much AI decides. A statement is a judgment only the model can make,
+// and an extract has no form that reads the screen without one.
+func (c config) validateChoice(o operation) error {
+	if c.choice() == aiNever {
+		if o.When != nil {
+			return errors.New("when is judged by AI, which ai: never on the step does not allow")
+		}
+		if o.Expect != nil {
+			return errors.New("expect is judged by AI, which ai: never on the step does not allow")
+		}
+	}
+	switch {
+	case o.Act != nil && o.Act.AI != "" && o.Act.Cache != nil:
+		return errors.New("act: set ai or cache, not both; cache: false means ai: every_run")
+	case o.Extract != nil && c.extractChoice(*o.Extract) == aiNever:
+		return errors.New("extract needs AI; set ai: on_miss or ai: every_run on it")
 	}
 	return nil
 }
@@ -432,6 +547,11 @@ func positiveInteger() *jsonschema.Schema {
 	return &jsonschema.Schema{Type: "integer", Minimum: new(1.0)}
 }
 
+// aiSchema accepts a choice of how much AI decides.
+func aiSchema() *jsonschema.Schema {
+	return &jsonschema.Schema{Type: "string", Enum: []any{aiEveryRun, aiOnMiss, aiNever}}
+}
+
 // conditionSchema accepts a statement or an object with a statement.
 func conditionSchema() *jsonschema.Schema {
 	return &jsonschema.Schema{
@@ -467,6 +587,7 @@ var operationSchema = &jsonschema.Schema{
 			Required:             []string{"instruction"},
 			Properties: map[string]*jsonschema.Schema{
 				"instruction": agentstep.NonEmptyString(),
+				"ai":          aiSchema(),
 				"cache":       {Type: "boolean"},
 				"max_actions": positiveInteger(),
 			},
@@ -477,6 +598,7 @@ var operationSchema = &jsonschema.Schema{
 			Required:             []string{"instruction", "schema"},
 			Properties: map[string]*jsonschema.Schema{
 				"instruction": agentstep.NonEmptyString(),
+				"ai":          aiSchema(),
 				"schema":      {Type: "object"},
 			},
 		},
@@ -515,6 +637,7 @@ var configSchema = &jsonschema.Schema{
 		"mode":            {Type: "string", Enum: []any{string(computeruse.ModeAuto), string(computeruse.ModeNative), string(computeruse.ModeGeneric)}},
 		"variables":       {Type: "object", AdditionalProperties: agentstep.StringSchema()},
 		"screenshots":     {Type: "string", Enum: []any{screenshotsOnFailure, screenshotsFinal, screenshotsEach, screenshotsNever}},
+		"ai":              aiSchema(),
 		"cache":           {Type: "boolean"},
 		"max_actions":     positiveInteger(),
 		"on_confirmation": {Type: "string", Enum: []any{confirmationFail, confirmationAllow}},

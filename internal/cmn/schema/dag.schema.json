@@ -7824,10 +7824,11 @@
           "description": "Values referenced as %name% in act instructions. The model sees only the names; the values are typed for it."
         },
         "screenshots": { "$ref": "#/definitions/computerScreenshots" },
+        "ai": { "$ref": "#/definitions/computerAI" },
         "cache": {
           "type": "boolean",
           "default": true,
-          "description": "Record the act operations of a step that succeeds and replay them on later runs without a model call while the screens match."
+          "description": "Set false to ask the model every run, the same as ai: every_run. Set ai or cache, not both."
         },
         "max_actions": {
           "type": "integer",
@@ -7864,6 +7865,12 @@
       "enum": ["on_failure", "final", "each", "never"],
       "default": "on_failure",
       "description": "Automatic screenshots stored as run artifacts, unmasked: on_failure only when the step fails, final also at the end of a successful step, each also after every operation, never none."
+    },
+    "computerAI": {
+      "type": "string",
+      "enum": ["every_run", "on_miss", "never"],
+      "default": "on_miss",
+      "description": "How much the model decides: every_run asks it every run; on_miss replays the acts of a step that succeeded while the screens match and lets the model repair the recording from the first screen that differs; never replays only, fails the step when the screen differs or there is no recording, and needs no llm when nothing in the step can call the model."
     },
     "computerCondition": {
       "oneOf": [
@@ -7927,9 +7934,13 @@
               "required": ["instruction"],
               "properties": {
                 "instruction": { "type": "string", "minLength": 1 },
+                "ai": {
+                  "$ref": "#/definitions/computerAI",
+                  "description": "How much the model decides for this act, in place of with.ai."
+                },
                 "cache": {
                   "type": "boolean",
-                  "description": "Set false to disable the replay cache for this operation. Has no effect when with.cache is false."
+                  "description": "Set false to ask the model every run for this act, the same as ai: every_run. Set ai or cache, not both."
                 },
                 "max_actions": {
                   "type": "integer",
@@ -7947,6 +7958,10 @@
           "required": ["instruction", "schema"],
           "properties": {
             "instruction": { "type": "string", "minLength": 1 },
+            "ai": {
+              "$ref": "#/definitions/computerAI",
+              "description": "How much the model decides for this extract, in place of with.ai. An extract needs the model, so never is refused."
+            },
             "schema": { "$ref": "#/definitions/extractSchema" }
           },
           "description": "Read structured data from the screen into step outputs."

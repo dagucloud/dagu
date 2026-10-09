@@ -285,6 +285,7 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, event
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
 	var usage *llm.Usage
+	var finishReason string
 
 	for scanner.Scan() {
 		select {
@@ -305,7 +306,7 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, event
 
 		data := strings.TrimPrefix(line, streamPrefix)
 		if data == streamDoneMarker {
-			events <- llm.StreamEvent{Done: true, Usage: usage}
+			events <- llm.StreamEvent{Done: true, Usage: usage, FinishReason: finishReason}
 			return
 		}
 
@@ -323,18 +324,23 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, event
 			}
 		}
 
-		if len(chunk.Choices) > 0 && chunk.Choices[0].Delta.Content != "" {
-			events <- llm.StreamEvent{Delta: chunk.Choices[0].Delta.Content}
+		if len(chunk.Choices) > 0 {
+			if chunk.Choices[0].FinishReason != "" {
+				finishReason = chunk.Choices[0].FinishReason
+			}
+			if chunk.Choices[0].Delta.Content != "" {
+				events <- llm.StreamEvent{Delta: chunk.Choices[0].Delta.Content}
+			}
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
-		events <- llm.StreamEvent{Error: llm.WrapError(providerName, err), Done: true}
+		events <- llm.StreamEvent{Error: llm.WrapError(providerName, err), Done: true, FinishReason: finishReason}
 		return
 	}
 
 	// If we get here without [DONE], still signal completion
-	events <- llm.StreamEvent{Done: true, Usage: usage}
+	events <- llm.StreamEvent{Done: true, Usage: usage, FinishReason: finishReason}
 }
 
 // API request/response types (OpenAI-compatible)

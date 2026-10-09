@@ -368,6 +368,17 @@ func (r *testRun) context() context.Context {
 	})
 }
 
+// operationEvents lists the step's operation events, in order.
+func operationEvents(session *ir.AgentSession) []ir.AgentSessionEvent {
+	var events []ir.AgentSessionEvent
+	for _, event := range session.Events {
+		if event.Type == agentstep.EventOperation {
+			events = append(events, event)
+		}
+	}
+	return events
+}
+
 func eventNames(session *ir.AgentSession) []string {
 	names := make([]string, 0, len(session.Events))
 	for _, event := range session.Events {

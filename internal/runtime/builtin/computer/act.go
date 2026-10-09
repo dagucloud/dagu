@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image"
 	"runtime"
 	"slices"
 	"time"
@@ -30,6 +31,14 @@ type actOutcome struct {
 	recording recording
 }
 
+// replayMiss is the failure of an act that may not call the model: its
+// recording is missing or no longer fits the screen. The recording is kept
+// for a run that lets the model repair it.
+type replayMiss struct{ err error }
+
+func (m replayMiss) Error() string { return "the act cannot run without AI: " + m.err.Error() }
+func (m replayMiss) Unwrap() error { return m.err }
+
 func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Duration) error {
 	// Validation guarantees every reference names a variable or an earlier
 	// ask, so a missing value means that ask was skipped.
@@ -42,31 +51,40 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 	defer cancel()
 	began, before := time.Now(), r.usage
 
-	useCache := r.cache != nil && (spec.Cache == nil || *spec.Cache)
+	choice := r.cfg.actChoice(spec)
 	status := agentstep.StatusCompleted
 	key := ""
 	// replayed holds the recorded turns a partial replay completed, which
 	// the healed recording keeps, and spent the actions it performed.
 	var replayed []recordedTurn
 	spent := 0
-	if useCache {
+	if choice != aiEveryRun {
 		current, err := r.settle(ctx)
 		if err != nil {
 			return err
 		}
 		key = replayKey(index, spec.Instruction, current.Bounds().Size())
-		if entry, ok := r.cache.Lookup(key); ok && len(entry.Turns) > 0 {
+		entry, ok := r.cache.Lookup(key)
+		if !ok || len(entry.Turns) == 0 {
+			if choice == aiNever {
+				return replayMiss{errors.New("there is no recording of it on this host")}
+			}
+		} else {
 			replay, err := r.replay(ctx, index, entry, r.cfg.maxActions(spec))
 			if err != nil {
 				return err
 			}
 			if replay.complete {
 				r.report(ctx, agentstep.Report{
-					Index: index, Kind: opAct, Subject: spec.Instruction, Status: agentstep.StatusCacheHit,
+					Index: index, Kind: opAct, Subject: spec.Instruction, Status: agentstep.StatusCacheHit, Via: agentstep.ViaScreen,
 					Detail: fmt.Sprintf("replayed %d turns", len(entry.Turns)), Duration: time.Since(began),
 				})
 				return nil
 			}
+			if choice == aiNever {
+				return replayMiss{errors.New(replay.reason)}
+			}
+			logAction(r.timeline, index, "replay stopped: "+replay.reason)
 			status = agentstep.StatusHealed
 			// The recording is dropped unless the act that heals it records
 			// what it did.
@@ -83,11 +101,16 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 		return err
 	}
 	outcome.recording.Turns = append(slices.Clone(replayed), outcome.recording.Turns...)
-	if useCache && len(outcome.recording.Turns) > 0 {
+	// A successful act records under every choice, so a later switch to
+	// replaying starts with a recording.
+	if len(outcome.recording.Turns) > 0 {
+		if key == "" {
+			key = replayKey(index, spec.Instruction, image.Pt(outcome.recording.Width, outcome.recording.Height))
+		}
 		r.cache.Stage(key, outcome.recording)
 	}
 	r.report(ctx, agentstep.Report{
-		Index: index, Kind: opAct, Subject: spec.Instruction, Status: status,
+		Index: index, Kind: opAct, Subject: spec.Instruction, Status: status, Via: agentstep.ViaModel,
 		Detail:   fmt.Sprintf("%s (%d actions)", outcome.summary, outcome.actions),
 		Tokens:   r.usage.sub(before).total(),
 		Duration: time.Since(began),
@@ -99,6 +122,9 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 // replay performed. A later model takes over only when an earlier one failed
 // before touching the desktop.
 func (r *run) drive(ctx context.Context, index int, spec actSpec, spent int) (actOutcome, error) {
+	if len(r.models) == 0 {
+		return actOutcome{}, errors.New("no model is configured")
+	}
 	var errs []error
 	for _, m := range r.models {
 		outcome, touched, err := r.driveModel(ctx, index, spec, m, spent)
@@ -179,6 +205,20 @@ func (l *actLoop) run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		if stale {
+			// The person has stopped. A screen that still looks like the one
+			// the model saw runs the actions it chose, so a person's brief
+			// use of the desktop costs no model turn; a changed screen goes
+			// back to the model.
+			same, err := l.unchanged(ctx, turn)
+			if err != nil {
+				return err
+			}
+			if same {
+				logAction(l.r.timeline, l.index, "a person used the desktop, but the screen still looks the same")
+				stale = false
+			}
+		}
 		var results []computeruse.Result
 		if stale {
 			logAction(l.r.timeline, l.index, "a person used the desktop; the model's actions were not run")
@@ -224,6 +264,24 @@ func (l *actLoop) stale(ctx context.Context, turn *computeruse.Turn) (bool, erro
 		return false, err
 	}
 	return l.r.driver.PersonInputSince(l.seen.capturedAt), nil
+}
+
+// unchanged reports whether the screen still looks like the one the model
+// chose the turn's actions on, overall and where each action lands, after a
+// person used the desktop.
+func (l *actLoop) unchanged(ctx context.Context, turn *computeruse.Turn) (bool, error) {
+	current, err := l.r.settle(ctx)
+	if err != nil {
+		return false, err
+	}
+	chosen := recordedTurn{Screen: desktop.FingerprintOf(l.seen.full)}
+	for _, action := range turn.Actions {
+		if display, ok := toDisplay(action, l.seen); ok {
+			chosen.Actions = append(chosen.Actions, recordAction(display, l.seen.full))
+		}
+	}
+	entry := recording{Width: l.seen.full.Bounds().Dx(), Height: l.seen.full.Bounds().Dy()}
+	return matches(current, entry, chosen), nil
 }
 
 // admit rejects a turn whose actions the step may not run.

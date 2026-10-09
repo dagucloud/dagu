@@ -608,6 +608,7 @@ func toAgentSessionEvent(event ir.AgentSessionEvent) api.AgentSessionEvent {
 		Sequence: event.Sequence, Id: event.ID, Type: event.Type,
 		Timestamp: ptrOf(event.Timestamp), Role: ptrOf(event.Role), Content: ptrOf(event.Content),
 		Name: ptrOf(event.Name), Status: ptrOf(event.Status), Files: ptrOf(event.Files),
+		Via: ptrOf(event.Via), DurationMs: ptrOf(event.DurationMs), Tokens: ptrOf(event.Tokens),
 	}
 }
 

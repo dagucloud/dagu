@@ -104,7 +104,7 @@ from the console has the same effect on the next report (`401`).
 
 | Part | Fields | When |
 | --- | --- | --- |
-| Health | Dagu version, OS and architecture, uptime, services from the service registry (scheduler, coordinator, workers: count and last heartbeat), queue depth per queue, event lag, remote access level | Every report |
+| Health | Dagu version, OS and architecture, process start time, services from the service registry (scheduler, coordinator, workers: count and last heartbeat), queue depth per queue, event lag, remote access level | Every report |
 | Inventory | Per DAG: name, schedules (cron and time zone), suspended, last run status and time | When its hash changes, and at least daily |
 | Runs | Per `dag.run.*` event: event ID, type, DAG name, DAG-run ID, attempt ID, status, `occurred_at`, and `run_created_at` (when the DAG run was created, the same in every event of the run and its retries); on terminal events, failed step names and exit codes | Batched with each report |
 
@@ -161,7 +161,10 @@ activation's credentials, as the heartbeat is.
   "server_id": "…",
   "heartbeat_secret": "…",
   "health": { "version": "3.0.0", "os": "linux", "arch": "amd64",
-              "uptime_seconds": 86400, "services": [], "queues": [],
+              "started_at": "2026-10-09T12:00:00Z",
+              "services": [{ "name": "scheduler", "instances": 1 },
+                           { "name": "coordinator", "instances": 0 }],
+              "queues": [{ "name": "default", "queued": 3, "running": 1 }],
               "event_lag_seconds": 2, "remote_access": "off" },
   "inventory": { "hash": "…", "dags": [] },
   "events": [],
@@ -170,7 +173,9 @@ activation's credentials, as the heartbeat is.
 }
 ```
 
-`inventory` is omitted when unchanged. The response is:
+`inventory` is omitted when unchanged. A scheduler count of zero means no
+scheduler holds the lock; leaving `services` out means the count is unknown.
+The response is:
 
 ```json
 { "ack": "opaque", "next_report_seconds": 60, "inventory_wanted": false }

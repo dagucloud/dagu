@@ -546,6 +546,10 @@ func TestToAgentSession(t *testing.T) {
 			{ID: "ask-1-1", Kind: ir.AgentInteractionQuestion, Status: ir.AgentInteractionPending, ExpiresAt: "2026-09-24T12:00:00Z"},
 			{ID: "perm-1", Kind: ir.AgentInteractionPermission, Status: ir.AgentInteractionPending},
 		},
+		Events: []ir.AgentSessionEvent{
+			{Sequence: 1, ID: "computer-1-1", Type: "tool", Name: "launch", DurationMs: 40},
+			{Sequence: 2, ID: "computer-1-2", Type: "tool", Name: "act", Via: "screen", DurationMs: 300, Tokens: 0},
+		},
 	})
 
 	require.NotNil(t, session.Interactions)
@@ -554,6 +558,18 @@ func TestToAgentSession(t *testing.T) {
 	require.NotNil(t, interactions[0].ExpiresAt)
 	assert.Equal(t, "2026-09-24T12:00:00Z", *interactions[0].ExpiresAt)
 	assert.Nil(t, interactions[1].ExpiresAt)
+
+	// An operation that decides nothing has no via, and a replay that used
+	// no tokens has none, as every zero-valued optional field is omitted.
+	require.NotNil(t, session.Events)
+	events := *session.Events
+	require.Len(t, events, 2)
+	assert.Nil(t, events[0].Via)
+	require.NotNil(t, events[1].Via)
+	assert.Equal(t, "screen", *events[1].Via)
+	assert.Nil(t, events[1].Tokens)
+	require.NotNil(t, events[1].DurationMs)
+	assert.Equal(t, int64(300), *events[1].DurationMs)
 }
 
 func TestToDAGIncludesTypedSchedules(t *testing.T) {

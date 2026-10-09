@@ -27,6 +27,101 @@ func orders() Table {
 	}
 }
 
+func TestWriteNestedPath(t *testing.T) {
+	t.Parallel()
+	for _, inPlace := range []bool{false, true} {
+		name := "atomic"
+		if inPlace {
+			name = "in-place"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "reports", "monthly", "out.xlsx")
+			result, err := Write(context.Background(), path, orders(), WriteOptions{
+				Sheet: "Orders", Header: true, InPlace: inPlace,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, path, result.Path)
+			back, err := Read(context.Background(), path, ReadOptions{})
+			require.NoError(t, err)
+			assert.Equal(t, 2, back.Count)
+			assert.Equal(t, int64(10), back.Rows[0]["Amount"])
+		})
+	}
+}
+
+func TestWriteNoDirectoriesWithoutSave(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		call        func(string) error
+		wantErr     bool
+		expectedErr error
+	}{
+		{
+			name: "dry run",
+			call: func(path string) error {
+				_, err := Write(context.Background(), path, orders(), WriteOptions{Header: true, DryRun: true})
+				return err
+			},
+			wantErr: false,
+		},
+		{
+			name: "canceled context",
+			call: func(path string) error {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				_, err := Write(ctx, path, orders(), WriteOptions{Header: true})
+				return err
+			},
+			wantErr:     true,
+			expectedErr: context.Canceled,
+		},
+		{
+			name: "invalid input",
+			call: func(path string) error {
+				bad := Table{Columns: []string{"amount"}, Rows: [][]any{{"N/A"}}}
+				_, err := Write(context.Background(), path, bad, WriteOptions{
+					Header: true, Types: map[string]ColumnType{"amount": TypeNumber},
+				})
+				return err
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "nested", "output.xlsx")
+			err := tt.call(path)
+			if !tt.wantErr {
+				require.NoError(t, err)
+			} else if tt.expectedErr != nil {
+				require.ErrorIs(t, err, tt.expectedErr)
+			} else {
+				require.Error(t, err)
+			}
+			_, statErr := os.Stat(filepath.Dir(path))
+			require.ErrorIs(t, statErr, os.ErrNotExist)
+		})
+	}
+}
+
+func TestWriteRejectsFileAsParent(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	parent := filepath.Join(root, "parent")
+	original := []byte("keep this file")
+	require.NoError(t, os.WriteFile(parent, original, 0o600))
+
+	path := filepath.Join(parent, "output.xlsx")
+	_, err := Write(context.Background(), path, orders(), WriteOptions{Header: true})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not a directory")
+	after, readErr := os.ReadFile(parent)
+	require.NoError(t, readErr)
+	assert.Equal(t, original, after)
+}
+
 func TestWriteNewWorkbookTableStyle(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "out.xlsx")

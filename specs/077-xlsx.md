@@ -305,8 +305,10 @@ own order as the header; an append onto a sheet that already has rows
 matches each field to the header row by name (see below), so a named row's
 key order does not matter there.
 
-A missing workbook is created in a directory that must exist; no writer
-creates directories. A `sheet` that does not exist is created; an
+Missing parent directories are created after validation for an actual workbook
+write, not during a dry run. An input rejected before save does not create
+directories. A missing workbook is created; a `sheet` that does not exist is
+created; an
 existing sheet is replaced (`mode: replace`, the default) or extended
 (`mode: append`). A replaced sheet is cleared in place: its merged regions
 and tables are removed, and every cell holding a value or formula is

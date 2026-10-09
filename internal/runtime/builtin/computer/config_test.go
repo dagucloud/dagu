@@ -30,7 +30,16 @@ func TestValidateStep(t *testing.T) {
 		want string
 	}{
 		{name: "valid", with: `{"do": [{"launch": "notepad.exe"}, {"act": "Type hello"}, {"wait": "2s"}, {"screenshot": "done"}]}`, llm: model},
-		{name: "missing model", with: `{"do": [{"act": "Type hello"}]}`, want: "computer actions need a model"},
+		{name: "missing model", with: `{"do": [{"act": "Type hello"}]}`, want: "computer actions need a model for do[0] act"},
+		{name: "never needs no model", with: `{"ai": "never", "do": [{"launch": "notepad.exe"}, {"act": "Type hello"}, {"wait": "1s"}]}`},
+		{name: "act that overrides never needs a model", with: `{"ai": "never", "do": [{"act": {"instruction": "x", "ai": "on_miss"}}]}`, want: "need a model for do[0] act"},
+		{name: "never with expect", with: `{"ai": "never", "do": [{"expect": "Saved"}]}`, llm: model, want: "do[0]: expect is judged by AI"},
+		{name: "never with when", with: `{"ai": "never", "do": [{"act": "x", "when": "Saved"}]}`, llm: model, want: "do[0]: when is judged by AI"},
+		{name: "never with extract", with: `{"ai": "never", "do": [{"extract": {"instruction": "a", "schema": {"type": "object"}}}]}`, llm: model, want: "do[0]: extract needs AI"},
+		{name: "extract that overrides never", with: `{"ai": "never", "do": [{"extract": {"instruction": "a", "ai": "on_miss", "schema": {"type": "object"}}}]}`, llm: model},
+		{name: "ai and cache", with: `{"ai": "never", "cache": true, "do": [{"act": "x"}]}`, llm: model, want: "set ai or cache, not both"},
+		{name: "ai and cache on act", with: `{"do": [{"act": {"instruction": "x", "ai": "never", "cache": false}}]}`, llm: model, want: "act: set ai or cache, not both"},
+		{name: "unknown ai", with: `{"ai": "sometimes", "do": [{"act": "x"}]}`, llm: model, want: "ai"},
 		{name: "empty do", with: `{"do": []}`, llm: model, want: "do"},
 		{name: "unknown field", with: `{"url": "https://example.com", "do": [{"act": "x"}]}`, llm: model, want: "url"},
 		{name: "two operations", with: `{"do": [{"act": "x", "wait": "1s"}]}`, llm: model, want: "do"},
@@ -80,4 +89,23 @@ func TestConfigShorthands(t *testing.T) {
 	assert.Equal(t, defaultMaxActions, cfg.maxActions(actSpec{}))
 	assert.Equal(t, "Saved", cfg.Do[2].Expect.Statement)
 	assert.Equal(t, "30s", cfg.Do[2].Expect.Within)
+}
+
+// An act's own choice wins over the step's, and cache: false on either
+// still means every run.
+func TestChoice(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct{ with, step, act string }{
+		{`{"do": [{"act": "x"}]}`, aiOnMiss, aiOnMiss},
+		{`{"cache": false, "do": [{"act": "x"}]}`, aiEveryRun, aiEveryRun},
+		{`{"ai": "never", "do": [{"act": {"instruction": "x", "cache": false}}]}`, aiNever, aiEveryRun},
+		{`{"cache": false, "do": [{"act": {"instruction": "x", "ai": "never"}}]}`, aiEveryRun, aiNever},
+		{`{"ai": "every_run", "do": [{"act": {"instruction": "x", "cache": true}}]}`, aiEveryRun, aiEveryRun},
+	} {
+		cfg, err := parseConfig(stepWith(t, tc.with, nil).ExecutorConfig.Config)
+		require.NoError(t, err, tc.with)
+		assert.Equal(t, tc.step, cfg.choice(), tc.with)
+		assert.Equal(t, tc.act, cfg.actChoice(*cfg.Do[0].Act), tc.with)
+	}
 }

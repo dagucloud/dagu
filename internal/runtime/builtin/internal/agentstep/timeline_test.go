@@ -30,17 +30,20 @@ func TestTimelineOperation(t *testing.T) {
 		Provider: "computer",
 	}
 	timeline.Operation(agentstep.Report{
-		Index: 1, Kind: "act", Subject: "Type tok-12345", Status: agentstep.StatusCompleted,
+		Index: 1, Kind: "act", Subject: "Type tok-12345", Status: agentstep.StatusCompleted, Via: agentstep.ViaModel,
 		Detail: "Done", Tokens: 12, Duration: 1500 * time.Millisecond, Files: []string{"computer/post/01-act.png"},
 	})
 
-	assert.Equal(t, "[2/3] act \"Type *******\" → Done (completed, 12 tokens, 1.5s)\n", log.String())
+	assert.Equal(t, "[2/3] act \"Type *******\" → Done (completed, 12 tokens, 1.5s, via model)\n", log.String())
 	require.Len(t, session.Events, 1)
 	event := session.Events[0]
 	assert.Equal(t, "computer-2-1", event.ID)
 	assert.Equal(t, agentstep.EventOperation, event.Type)
 	assert.Equal(t, "Type *******\nDone", event.Content)
 	assert.Equal(t, []string{"computer/post/01-act.png"}, event.Files)
+	assert.Equal(t, agentstep.ViaModel, event.Via)
+	assert.Equal(t, int64(1500), event.DurationMs)
+	assert.Equal(t, int64(12), event.Tokens)
 }
 
 // Numbering continues across step executions, so a retry keeps the

@@ -39,6 +39,38 @@ var _ executor.ToolDefinitionProvider = (*Executor)(nil)
 // providerFactory builds a provider for one resolved model configuration.
 type providerFactory func(ctx context.Context, cfg *ir.LLMConfig) (llmpkg.Provider, error)
 
+// retryingChatProvider turns an empty final answer into a retryable error for
+// the logical request helper. Tool-call turns are valid even when their text
+// content is empty when the request offered tools.
+type retryingChatProvider struct {
+	llmpkg.Provider
+}
+
+func (p retryingChatProvider) Chat(ctx context.Context, req *llmpkg.ChatRequest) (*llmpkg.ChatResponse, error) {
+	resp, err := p.Provider.Chat(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if resp == nil {
+		return nil, fmt.Errorf("chat provider returned nil response: %w", llmpkg.ErrInvalidRequest)
+	}
+	if resp.Content == "" && (len(resp.ToolCalls) == 0 || len(req.Tools) == 0) {
+		return nil, emptyChatResponseError(resp.FinishReason, &resp.Usage)
+	}
+	return resp, nil
+}
+
+func emptyChatResponseError(finishReason string, usage *llmpkg.Usage) error {
+	diagnostic := fmt.Sprintf("empty chat response (finish reason: %s", finishReason)
+	if usage == nil {
+		diagnostic += ", usage unavailable"
+	} else {
+		diagnostic += fmt.Sprintf(", prompt tokens: %d, completion tokens: %d, total tokens: %d",
+			usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens)
+	}
+	return fmt.Errorf("%s): %w", diagnostic, llmpkg.ErrServerError)
+}
+
 // Executor implements the executor.Executor interface for chat steps.
 type Executor struct {
 	stdout            io.Writer
@@ -482,7 +514,7 @@ func (e *Executor) runSimpleForModel(ctx context.Context, provider llmpkg.Provid
 			return err
 		}
 	} else {
-		resp, err := llmpkg.ChatWithRetry(ctx, provider, req, llmpkg.DefaultLogicalRetryConfig())
+		resp, err := llmpkg.ChatWithRetry(ctx, retryingChatProvider{Provider: provider}, req, llmpkg.DefaultLogicalRetryConfig())
 		if err != nil {
 			return fmt.Errorf("chat request failed: %w", err)
 		}
@@ -595,7 +627,7 @@ func (e *Executor) executeToolStep(
 	}
 
 	// Execute request
-	resp, err := llmpkg.ChatWithRetry(ctx, provider, req, llmpkg.DefaultLogicalRetryConfig())
+	resp, err := llmpkg.ChatWithRetry(ctx, retryingChatProvider{Provider: provider}, req, llmpkg.DefaultLogicalRetryConfig())
 	if err != nil {
 		return false, fmt.Errorf("chat request failed: %w", err)
 	}
@@ -633,6 +665,7 @@ func (e *Executor) runStreamForModel(ctx context.Context, provider llmpkg.Provid
 
 		var responseContent string
 		var usage *llmpkg.Usage
+		var finishReason string
 		emittedDelta := false
 
 		for event := range events {
@@ -657,6 +690,20 @@ func (e *Executor) runStreamForModel(ctx context.Context, provider llmpkg.Provid
 			if event.Usage != nil {
 				usage = event.Usage
 			}
+			if event.FinishReason != "" {
+				finishReason = event.FinishReason
+			}
+		}
+
+		if responseContent == "" {
+			emptyErr := emptyChatResponseError(finishReason, usage)
+			if attempt < retryCfg.MaxAttempts && llmpkg.ShouldRetryRequest(ctx, emptyErr) {
+				if waitErr := waitForStreamRetry(ctx, retryCfg, attempt); waitErr != nil {
+					return "", nil, waitErr
+				}
+				goto retryStream
+			}
+			return "", usage, fmt.Errorf("chat stream request failed: %w", emptyErr)
 		}
 
 		if _, err := e.stdout.Write([]byte("\n")); err != nil {

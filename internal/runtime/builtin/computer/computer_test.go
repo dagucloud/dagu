@@ -52,6 +52,13 @@ func TestActDrivesDesktop(t *testing.T) {
 	assert.Equal(t, []string{"launch:completed", "act:completed"}, eventNames(result))
 	assert.Equal(t, int64(24), result.Usage.TotalTokens)
 	assert.Contains(t, execution.stderr.String(), "Saved the document (2 actions)")
+
+	// Each operation event says how it ran and what it cost.
+	events := operationEvents(result)
+	assert.Empty(t, events[0].Via, "a launch decides nothing")
+	assert.Equal(t, agentstep.ViaModel, events[1].Via)
+	assert.Equal(t, int64(24), events[1].Tokens)
+	assert.GreaterOrEqual(t, events[1].DurationMs, int64(0))
 }
 
 // Variables reach the desktop only when typed; the model and the log see
@@ -251,6 +258,106 @@ func TestReplayCache(t *testing.T) {
 	require.ErrorContains(t, uncached.err, "no scripted session left")
 }
 
+// Under ai: never an act replays its recording without a model, and fails
+// when there is none or the screen no longer matches, without a model
+// request. The recording it missed is kept for a run that lets the model
+// repair it.
+func TestNeverReplaysOrFails(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"do": [{"act": "Open the report"}]}`
+	const never = `{"ai": "never", "do": [{"act": "Open the report"}]}`
+	run := newTestRun(t)
+
+	missing := run.execute(never, nil)
+	require.ErrorContains(t, missing.err, "the act cannot run without AI: there is no recording of it on this host")
+
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(30, 40)), done("Opened")}}}
+	require.NoError(t, run.execute(steps, nil).err)
+	recorded := run.backend.inputs()
+
+	run.backend.events = nil
+	run.llm = nil
+	replayed := run.execute(never, nil)
+	require.NoError(t, replayed.err, "the step runs with no model configured")
+	assert.Equal(t, recorded, run.backend.inputs())
+	events := operationEvents(replayed.exec.GetAgentSession())
+	require.Len(t, events, 1)
+	assert.Equal(t, agentstep.StatusCacheHit, events[0].Status)
+	assert.Equal(t, agentstep.ViaScreen, events[0].Via)
+	assert.Zero(t, events[0].Tokens)
+
+	run.backend.events = nil
+	run.backend.show(pattern(400, 200, 150))
+	failed := run.execute(never, nil)
+	require.ErrorContains(t, failed.err, "the act cannot run without AI: the screen differs from the recording at turn 1 of 1")
+	assert.Empty(t, run.backend.inputs(), "nothing is replayed on a screen that differs")
+	assert.Equal(t, ir.AgentSessionFailed, failed.exec.GetAgentSession().State)
+	missed := operationEvents(failed.exec.GetAgentSession())
+	require.Len(t, missed, 1)
+	assert.Equal(t, agentstep.StatusFailed, missed[0].Status)
+	assert.Equal(t, agentstep.ViaScreen, missed[0].Via, "a miss ran without AI")
+	assert.Zero(t, missed[0].Tokens)
+
+	run.llm = &ir.LLMConfig{Provider: "openai", Model: "test-model"}
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(50, 60)), done("Opened")}}}
+	healed := run.execute(steps, nil)
+	require.NoError(t, healed.err)
+	assert.Equal(t, []string{"act:healed"}, eventNames(healed.exec.GetAgentSession()), "the recording the never run missed was kept")
+}
+
+// A never act whose recording no longer fits at a later turn names that
+// turn, after the earlier turns replayed.
+func TestNeverMissNamesTurn(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"do": [{"act": "Post the invoice"}]}`
+	const never = `{"ai": "never", "do": [{"act": "Post the invoice"}]}`
+	start, form, changedForm, posted := stripes(400, 200, 2), stripes(400, 200, 6), stripes(400, 200, 12), stripes(400, 200, 30)
+	run := newTestRun(t)
+
+	run.backend.script(start, form, posted)
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(10, 10)), actions(clickAt(20, 20)), done("Posted")}}}
+	require.NoError(t, run.execute(steps, nil).err)
+
+	run.backend.script(start, changedForm, posted)
+	failed := run.execute(never, nil)
+	require.ErrorContains(t, failed.err, "the screen differs from the recording at turn 2 of 2")
+	assert.Equal(t, []string{"move 10,10", "left down #1"}, run.backend.inputs(), "the first turn replayed")
+}
+
+// Under ai: every_run the model decides every run, and a successful act
+// still records, so a later run under never has a recording to replay.
+// cache: false means the same.
+func TestEveryRunRecords(t *testing.T) {
+	t.Parallel()
+
+	for name, with := range map[string]string{
+		"ai":    `{"ai": "every_run", "do": [{"act": "Open the report"}]}`,
+		"cache": `{"cache": false, "do": [{"act": "Open the report"}]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			opens := func() *scriptedSession {
+				return &scriptedSession{turns: []*computeruse.Turn{actions(clickAt(30, 40)), done("Opened")}}
+			}
+			run := newTestRun(t)
+			run.sessions = []*scriptedSession{opens()}
+			require.NoError(t, run.execute(with, nil).err)
+
+			run.sessions = []*scriptedSession{opens()}
+			again := run.execute(with, nil)
+			require.NoError(t, again.err)
+			assert.Equal(t, []string{"act:completed"}, eventNames(again.exec.GetAgentSession()), "the model decided again")
+			assert.Empty(t, run.sessions)
+
+			replayed := run.execute(`{"ai": "never", "do": [{"act": "Open the report"}]}`, nil)
+			require.NoError(t, replayed.err)
+			assert.Equal(t, []string{"act:cache-hit"}, eventNames(replayed.exec.GetAgentSession()))
+		})
+	}
+}
+
 // When a replay diverges partway, the model continues from there, and the
 // stored recording keeps the turns that replayed, so the next run replays
 // the whole act again.
@@ -328,7 +435,12 @@ func TestReplayKeptOnlyWhenStepSucceeds(t *testing.T) {
 	run.vision.truths = nil
 	failed := run.execute(steps, nil)
 	require.ErrorContains(t, failed.err, "expectation not met")
-	assert.Equal(t, []string{"act:cache-hit"}, eventNames(failed.exec.GetAgentSession()))
+	assert.Equal(t, []string{"act:cache-hit", "expect:failed"}, eventNames(failed.exec.GetAgentSession()))
+	// The failed check records what it cost, like any other operation.
+	events := operationEvents(failed.exec.GetAgentSession())
+	assert.Equal(t, agentstep.ViaModel, events[1].Via)
+	assert.Equal(t, int64(6), events[1].Tokens)
+	assert.Contains(t, events[1].Content, "expectation not met")
 
 	run.vision.truths = shown
 	uncached := run.execute(steps, nil)
@@ -351,7 +463,7 @@ func TestReplayKeptWhenModelFails(t *testing.T) {
 	run.sessions = []*scriptedSession{{err: errors.New("overloaded")}}
 	failed := run.execute(steps, nil)
 	require.ErrorContains(t, failed.err, "overloaded")
-	assert.Equal(t, []string{"act:cache-hit"}, eventNames(failed.exec.GetAgentSession()))
+	assert.Equal(t, []string{"act:cache-hit", "act:failed"}, eventNames(failed.exec.GetAgentSession()))
 
 	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{done("Printed")}}}
 	replayed := run.execute(steps, nil)
@@ -536,26 +648,50 @@ func TestWaitsForIdleDesktop(t *testing.T) {
 func TestPersonInputSkipsStaleTurn(t *testing.T) {
 	t.Parallel()
 
-	run := newTestRun(t)
-	used := false
-	session := &scriptedSession{
-		turns: []*computeruse.Turn{actions(clickAt(10, 10)), actions(clickAt(20, 20)), done("Clicked")},
-		onNext: func() {
-			if !used {
-				used = true
-				run.backend.personUses()
+	for _, tc := range []struct {
+		name    string
+		changed bool
+		inputs  []string
+	}{
+		{name: "screen changed", changed: true, inputs: []string{"move 20,20", "left down #1"}},
+		// A person who only touched the mouse leaves the screen as the model
+		// saw it, so the actions run without another model turn.
+		{name: "screen unchanged", changed: false, inputs: []string{"move 10,10", "left down #1", "move 20,20", "left down #1"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			run := newTestRun(t)
+			used := false
+			session := &scriptedSession{
+				turns: []*computeruse.Turn{actions(clickAt(10, 10)), actions(clickAt(20, 20)), done("Clicked")},
+				onNext: func() {
+					if !used {
+						used = true
+						run.backend.personUses()
+						if tc.changed {
+							run.backend.show(pattern(400, 200, 150))
+						}
+					}
+				},
 			}
-		},
-	}
-	run.sessions = []*scriptedSession{session}
-	execution := run.execute(`{"idle": "100ms", "do": [{"act": "Click the button"}]}`, nil)
-	require.NoError(t, execution.err)
+			run.sessions = []*scriptedSession{session}
+			execution := run.execute(`{"idle": "100ms", "do": [{"act": "Click the button"}]}`, nil)
+			require.NoError(t, execution.err)
 
-	assert.Equal(t, []string{"move 20,20", "left down #1"}, run.backend.inputs())
-	require.Len(t, session.observations, 3)
-	assert.Equal(t, []computeruse.Result{{CallID: "c", Skipped: true}}, session.observations[1].Results)
-	assert.Equal(t, personNote, session.observations[1].Note)
-	assert.Contains(t, execution.stderr.String(), "Clicked (1 actions)")
+			assert.Equal(t, tc.inputs, run.backend.inputs())
+			require.Len(t, session.observations, 3)
+			if tc.changed {
+				assert.Equal(t, []computeruse.Result{{CallID: "c", Skipped: true}}, session.observations[1].Results)
+				assert.Equal(t, personNote, session.observations[1].Note)
+				assert.Contains(t, execution.stderr.String(), "Clicked (1 actions)")
+				return
+			}
+			assert.Equal(t, []computeruse.Result{{CallID: "c"}}, session.observations[1].Results)
+			assert.Empty(t, session.observations[1].Note)
+			assert.Contains(t, execution.stderr.String(), "the screen still looks the same")
+			assert.Contains(t, execution.stderr.String(), "Clicked (2 actions)")
+		})
+	}
 }
 
 // The step that last held the desktop leaves when it sent input, so the next

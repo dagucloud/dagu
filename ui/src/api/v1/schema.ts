@@ -5952,6 +5952,18 @@ export interface components {
             name?: string;
             status?: string;
             files?: string[];
+            /** @description How an operation ran: screen for a replayed recording, model for a model request; absent for one that decides nothing */
+            via?: string;
+            /**
+             * Format: int64
+             * @description How long the operation took, in milliseconds; absent when under one
+             */
+            durationMs?: number;
+            /**
+             * Format: int64
+             * @description Model tokens the operation used; absent when none
+             */
+            tokens?: number;
         };
         /** @description One push-back event recorded for an approval step or a human task */
         PushBackHistoryEntry: {

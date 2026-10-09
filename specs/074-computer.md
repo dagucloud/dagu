@@ -40,10 +40,10 @@ Each operation sets exactly one of:
   without a shell, the step does not wait for it, and it keeps running after
   the step ends.
 - `act`: a task described in natural language. The value is an instruction
-  string or an object with `instruction`, optional `cache`, and optional
+  string or an object with `instruction` and optional `ai`, `cache`, and
   `max_actions`.
-- `extract`: `{instruction, schema}`. The schema must be a JSON Schema with
-  `type: object`.
+- `extract`: `{instruction, schema}`, with optional `ai`. The schema must be
+  a JSON Schema with `type: object`.
 - `expect`: a statement about the screen that must hold; otherwise the step
   fails with the model's reason.
 - `wait`: a duration such as `2s`.
@@ -96,7 +96,10 @@ passes.
 ### Model
 
 A computer step uses the DAG-level `llm` block. `with.llm` replaces it
-entirely. A step with no model configuration fails validation.
+entirely. A step with no model configuration fails validation when some
+operation can call the model under its choice of how much AI decides: an
+`act` or an `extract` whose choice is not `never`, or any `expect` or
+`when`. A step none of whose operations can call the model runs without one.
 
 `with.mode` chooses how `act` talks to the model:
 
@@ -140,9 +143,11 @@ for its first actions, a step waits until nobody has used the desktop's
 pointer or keyboard for `with.idle` (default `15s`), and logs that it is
 waiting in an event named `person`. Input the step itself sent does not count, including input sent by
 the step that held the desktop before it. When a person uses the desktop
-after the screenshot the model answered, the model's actions are not run: the
-step waits for the idle period again and sends the new screenshot with a note
-saying why. Skipped actions do not count toward `max_actions`. The waiting
+after the screenshot the model answered, the step waits for the idle period
+again. If the screen then still looks like the one the model saw, overall
+and where each action lands, the actions run; otherwise they are not run,
+and the new screenshot is sent with a note saying why. Skipped actions do
+not count toward `max_actions`. The waiting
 counts toward the operation timeout; an operation whose timeout passes while
 a person keeps using the desktop fails. `idle: 0` turns the waiting and the
 skipping off.
@@ -179,20 +184,51 @@ A DAG with a computer action enables artifact storage unless it sets
 same values as for browser actions: `on_failure` (default), `final`, `each`,
 or `never`. With artifacts disabled, a `screenshot` operation fails.
 
+### How much AI decides
+
+`with.ai` chooses how much the model decides for the step's `act` and
+`extract` operations, and `ai` on an `act` or an `extract` replaces it for
+that operation:
+
+- `every_run`: the model decides every run. A successful `act` still
+  records what it did.
+- `on_miss` (the default): a recorded `act` replays without a model request
+  while every screen still matches, and the model takes the task over from
+  the first screen that differs and repairs the recording.
+- `never`: a recorded `act` replays, and a miss fails the step. No
+  screenshot leaves the host and no model is called. The failure names the
+  reason: no recording of the act on this host, the turn at which the screen
+  differed from the recording, the action that failed, or the screen after
+  the last turn that differed. The turns replayed before the miss have
+  already run on the desktop, which is left as it is. The recording is kept,
+  so a later run under `on_miss` repairs it.
+
+`with.cache: false` and `act.cache: false`, from before the choice existed,
+mean `every_run`. Setting both `ai` and `cache` on the step, or on an act,
+fails validation. `expect` and `when` are judged by the model, and an
+`extract` has no form that reads the screen without one, so a step whose
+`ai` is `never` fails validation with an `expect`, a `when`, or an `extract`
+that does not set its own `ai`.
+
+Each operation's timeline event records `via`, how it ran: `screen` for a
+replay, `model` for a model request, and nothing for an operation that
+decides nothing, such as `launch`; with `durationMs` and `tokens`. An
+operation that fails records its event the same way, with the failure as
+its detail, before the step's failure event that carries the screenshot.
+
 ### Replay cache
 
-With `with.cache` true (the default), a model-driven `act` records each
-screen the model saw and the actions it chose on it, and the recordings are
-kept when the step succeeds. A later run of the same step on the same host
-replays them without a model request when the operation position,
-instruction, and display size match and each screen, and the area around each
-pointer action, still looks as recorded. The screen after the last action must
-also match. When a screen differs or an action fails, the model continues the
-task from the current screen and the new actions are recorded; the timeline
-marks the operation `healed`. When the step succeeds, the turns that replayed
-and the new actions replace the recording; when there are none, the recording
-is removed unless another run of the step replaced it first. A full replay is
-marked `cache-hit`. `act.cache: false` disables the cache for one operation.
+A model-driven `act` records each screen the model saw and the actions it
+chose on it, and the recordings are kept when the step succeeds. A later run
+of the same step on the same host replays them without a model request when
+the operation position, instruction, and display size match and each screen,
+and the area around each pointer action, still looks as recorded. The screen
+after the last action must also match. When a screen differs or an action
+fails, the model continues the task from the current screen and the new
+actions are recorded; the timeline marks the operation `healed`. When the
+step succeeds, the turns that replayed and the new actions replace the
+recording; when there are none, the recording is removed unless another run
+of the step replaced it first. A full replay is marked `cache-hit`.
 
 Runs of a step share its recordings, and each `act` reads them when it runs. A
 recording that another run of the step replaced or removed meanwhile is not
@@ -205,7 +241,8 @@ the model provider asked a person to confirm while `on_confirmation` is not
 
 When an operation fails after a replay, the step drops the recordings it
 replayed, so the next run asks the model again. A failure of a model request,
-the screen capture, a launch, or an `ask`, or a canceled run, leaves them.
+the screen capture, a launch, or an `ask`, a canceled run, or a miss under
+`never` leaves them.
 
 Typed text is recorded with its `%name%` placeholders, never the values.
 
@@ -230,7 +267,8 @@ A missing `with.do`, `with.instruction` for `computer.extract`, or
 `with.schema` fails validation with a diagnostic naming the field. An operation
 that sets zero or several keys fails validation. A step fails when the desktop
 cannot be opened, an application cannot be launched, an `act` fails as
-described above, or an `expect` does not hold.
+described above, an `act` under `never` has no recording or misses, or an
+`expect` does not hold.
 
 ## Examples
 

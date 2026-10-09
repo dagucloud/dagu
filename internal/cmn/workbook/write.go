@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/xuri/excelize/v2"
@@ -249,10 +251,29 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 	if opts.DryRun {
 		return result, nil
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := ensureParentDir(path); err != nil {
+		return nil, err
+	}
 	if err := w.save(opts.InPlace); err != nil {
 		return nil, err
 	}
 	return result, nil
+}
+
+// ensureParentDir creates the output directory only after a write has been
+// validated. Existing directories keep their permissions.
+func ensureParentDir(path string) error {
+	dir := filepath.Dir(path)
+	if info, err := os.Stat(dir); err == nil && !info.IsDir() {
+		return fmt.Errorf("%s: parent path %q is not a directory", filepath.Base(path), dir)
+	}
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return fmt.Errorf("%s: create parent directory %q: %w", filepath.Base(path), dir, err)
+	}
+	return nil
 }
 
 // notMerged refuses an appended cell inside a merged cell.

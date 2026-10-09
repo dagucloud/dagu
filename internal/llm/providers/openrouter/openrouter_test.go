@@ -4,13 +4,45 @@
 package openrouter
 
 import (
+	"context"
 	"encoding/json"
+	"io"
+	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestStreamFinishReason(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		tail string
+	}{
+		{name: "done marker", tail: "data: [DONE]\n"},
+		{name: "end of input", tail: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			provider := &Provider{}
+			events := make(chan llm.StreamEvent, 2)
+			body := io.NopCloser(strings.NewReader("data: {\"choices\":[{\"delta\":{\"content\":\"answer\"},\"finish_reason\":\"stop\"}]}\n" + tc.tail))
+
+			provider.streamResponse(context.Background(), body, events)
+
+			var finishReason string
+			for event := range events {
+				if event.FinishReason != "" {
+					finishReason = event.FinishReason
+				}
+			}
+			assert.Equal(t, "stop", finishReason)
+		})
+	}
+}
 
 func TestBuildRequestBody_WebSearch(t *testing.T) {
 	t.Parallel()
