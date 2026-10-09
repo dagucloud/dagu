@@ -528,6 +528,9 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 	if stores.DAGSettings != nil {
 		apiOpts = append(apiOpts, apiv1.WithDAGSettingsStore(stores.DAGSettings))
 	}
+	if stores.DAGPins != nil {
+		apiOpts = append(apiOpts, apiv1.WithDAGPinStore(stores.DAGPins))
+	}
 
 	if stores.Wiki != nil {
 		apiOpts = append(apiOpts, apiv1.WithWikiStore(stores.Wiki))

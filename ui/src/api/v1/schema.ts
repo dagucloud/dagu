@@ -2708,6 +2708,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dags/{fileName}/pin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Pin a DAG
+         * @description Pins the DAG to the top of the DAG list for all users. Requires write access to the DAG's workspace; allowed when Git sync is read-only. Pinning an already pinned DAG succeeds.
+         */
+        put: operations["pinDAG"];
+        post?: never;
+        /**
+         * Unpin a DAG
+         * @description Removes the DAG's pin for all users. Requires write access to the DAG's workspace; allowed when Git sync is read-only. Unpinning a DAG that is not pinned succeeds.
+         */
+        delete: operations["unpinDAG"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dags/{fileName}/notifications": {
         parameters: {
             query?: never;
@@ -5143,6 +5167,8 @@ export interface components {
             nextRun?: string;
             /** @description Whether the DAG is suspended */
             suspended: boolean;
+            /** @description Whether the DAG is pinned to the top of the DAG list */
+            pinned: boolean;
             /** @description List of errors encountered during the request */
             errors: string[];
         };
@@ -8551,6 +8577,8 @@ export interface operations {
                 /** @description Field to sort by:
                  *     - `name`: Sort alphabetically by DAG name (case-insensitive)
                  *     - `nextRun`: Sort by next scheduled run time. DAGs with earlier next run times appear first in ascending order. DAGs without schedules appear last.
+                 *
+                 *     Pinned DAGs are listed before all others; `sort` and `order` apply within the pinned and unpinned parts.
                  *      */
                 sort?: PathsDagsGetParametersQuerySort;
                 /** @description Sort order (ascending or descending) */
@@ -8717,6 +8745,8 @@ export interface operations {
                         latestDAGRun: components["schemas"]["DAGRunDetails"];
                         /** @description Whether the DAG is suspended */
                         suspended: boolean;
+                        /** @description Whether the DAG is pinned to the top of the DAG list */
+                        pinned: boolean;
                         /** @description List of errors encountered during the request */
                         errors: string[];
                         /** @description Non-fatal spec warnings */
@@ -15916,6 +15946,108 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description DAG not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    pinDAG: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description the name of the DAG file */
+                fileName: components["parameters"]["DAGFileName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description DAG pinned */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden - insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description DAG not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    unpinDAG: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description the name of the DAG file */
+                fileName: components["parameters"]["DAGFileName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description DAG unpinned */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden - insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             /** @description DAG not found */
             404: {

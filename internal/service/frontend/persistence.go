@@ -6,6 +6,7 @@ package frontend
 import (
 	"github.com/dagucloud/dagu/v2/internal/audit"
 	authmodel "github.com/dagucloud/dagu/v2/internal/auth"
+	"github.com/dagucloud/dagu/v2/internal/dagpin"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/incident"
@@ -32,6 +33,7 @@ type Stores struct {
 	Secret               secret.Store
 	Profile              profile.Store
 	DAGSettings          dagsettings.Store
+	DAGPins              dagpin.Store
 	Wiki                 wiki.PageStore
 	Notification         notification.Store
 	NotificationState    chatbridge.StateStore

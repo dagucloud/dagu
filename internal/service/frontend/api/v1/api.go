@@ -22,6 +22,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
+	"github.com/dagucloud/dagu/v2/internal/dagpin"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
@@ -93,6 +94,7 @@ type API struct {
 	dagWritesDisabled    bool // True when git sync read-only mode is active
 	baseConfigStore      dagsettings.BaseConfigStore
 	dagSettingsStore     dagsettings.Store
+	dagPinStore          dagpin.Store
 	wikiStore            wiki.PageStore
 	workspaceWikiMu      sync.RWMutex
 	secretStore          secretpkg.Store
@@ -278,6 +280,13 @@ func WithViewStore(store view.Store) APIOption {
 func WithDAGSettingsStore(store dagsettings.Store) APIOption {
 	return func(a *API) {
 		a.dagSettingsStore = store
+	}
+}
+
+// WithDAGPinStore returns an APIOption that sets the store of pinned DAGs.
+func WithDAGPinStore(store dagpin.Store) APIOption {
+	return func(a *API) {
+		a.dagPinStore = store
 	}
 }
 

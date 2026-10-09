@@ -116,6 +116,12 @@ func initStores(ctx context.Context, cfg *config.Config, backend persis.Backend,
 
 	stores.View = store.NewViewStore(backend.Collection(persis.CollectionViews))
 
+	dagPinStore, err := store.NewDAGPinStore(backend.Collection(persis.CollectionDAGPins))
+	if err != nil {
+		return fmt.Errorf("failed to create DAG pin store: %w", err)
+	}
+	stores.DAGPins = dagPinStore
+
 	if cfg.Server.CheckUpdates {
 		upgradeStore, err := persisfile.NewUpgradeCheckStore(
 			cfg,

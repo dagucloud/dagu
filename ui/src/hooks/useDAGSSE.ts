@@ -12,6 +12,7 @@ interface DAGSSEResponse {
   dag: DAGDetails;
   latestDAGRun: DAGRunDetails;
   suspended: boolean;
+  pinned: boolean;
   localDags: LocalDag[];
   errors: string[];
   warnings?: string[];

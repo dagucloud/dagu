@@ -835,6 +835,8 @@ paths:
             Field to sort by:
             - `name`: Sort alphabetically by DAG name (case-insensitive)
             - `nextRun`: Sort by next scheduled run time. DAGs with earlier next run times appear first in ascending order. DAGs without schedules appear last.
+
+            Pinned DAGs are listed before all others; `sort` and `order` apply within the pinned and unpinned parts.
         - name: "order"
           in: "query"
           required: false
@@ -1014,6 +1016,9 @@ paths:
                   suspended:
                     type: boolean
                     description: "Whether the DAG is suspended"
+                  pinned:
+                    type: boolean
+                    description: "Whether the DAG is pinned to the top of the DAG list"
                   errors:
                     type: array
                     description: "List of errors encountered during the request"
@@ -1033,6 +1038,7 @@ paths:
                 required:
                   - latestDAGRun
                   - suspended
+                  - pinned
                   - localDags
                   - errors
         default:
@@ -6831,6 +6837,69 @@ paths:
       responses:
         "204":
           description: "DAG settings deleted"
+        "404":
+          description: "DAG not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dags/{fileName}/pin:
+    put:
+      summary: "Pin a DAG"
+      description: "Pins the DAG to the top of the DAG list for all users. Requires write access to the DAG's workspace; allowed when Git sync is read-only. Pinning an already pinned DAG succeeds."
+      operationId: "pinDAG"
+      tags:
+        - "dags"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGFileName"
+      responses:
+        "204":
+          description: "DAG pinned"
+        "403":
+          description: "Forbidden - insufficient permissions"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "DAG not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    delete:
+      summary: "Unpin a DAG"
+      description: "Removes the DAG's pin for all users. Requires write access to the DAG's workspace; allowed when Git sync is read-only. Unpinning a DAG that is not pinned succeeds."
+      operationId: "unpinDAG"
+      tags:
+        - "dags"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGFileName"
+      responses:
+        "204":
+          description: "DAG unpinned"
+        "403":
+          description: "Forbidden - insufficient permissions"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "404":
           description: "DAG not found"
           content:
@@ -13505,6 +13574,9 @@ components:
         suspended:
           type: boolean
           description: "Whether the DAG is suspended"
+        pinned:
+          type: boolean
+          description: "Whether the DAG is pinned to the top of the DAG list"
         errors:
           type: array
           description: "List of errors encountered during the request"
@@ -13515,6 +13587,7 @@ components:
         - dag
         - latestDAGRun
         - suspended
+        - pinned
         - errors
 
     DAG:
