@@ -20,6 +20,7 @@ const (
 	CollectionAPIKeys               = "api_keys"
 	CollectionActiveDistributedRuns = "active_distributed_runs"
 	CollectionAgentSessionCleanups  = "agent_session_cleanups"
+	CollectionDAGPins               = "dag_pins"
 	CollectionDAGRunLeases          = "dag_run_leases"
 	CollectionDAGSettings           = "dag_settings"
 	CollectionDAGState              = "dag_state"
