@@ -4,6 +4,7 @@
 import { expect, test } from '@playwright/test';
 import { loadStack, loginViaUI } from './helpers/e2e';
 import type { LicenseStatus } from '../src/contexts/ConfigContext';
+import { LicenseStatusResponseConnectedVia } from '../src/api/v1/schema';
 
 const community: LicenseStatus = {
   valid: false,
@@ -135,6 +136,65 @@ test('shows activation, benefits, and deactivation on desktop and mobile', async
   await expect(
     page.getByRole('link', { name: 'Activate a key' })
   ).toHaveAttribute('href', '/license#activate');
+});
+
+test('connects a community server through Dagu Console', async ({
+  page,
+  context,
+}) => {
+  const stack = await loadStack();
+  const connectUrl = 'https://console.dagu.test/servers/connect?code=abc';
+  let license = community;
+  let approved = false;
+  await context.route('https://console.dagu.test/**', (route) =>
+    route.fulfill({ contentType: 'text/html', body: '<h1>Approve</h1>' })
+  );
+  // Keep license mutations inside this browser context; the shared stack is unchanged.
+  await page.route('**/api/v1/license/**', async (route) => {
+    const url = new URL(route.request().url());
+    expect(url.searchParams.get('remoteNode')).toBe('local');
+    if (url.pathname.endsWith('/connect')) {
+      await route.fulfill({
+        json: approved
+          ? { state: 'granted' }
+          : {
+              state: 'pending',
+              connectUrl,
+              code: 'ABCD1234',
+              expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+            },
+      });
+      return;
+    }
+    await route.fulfill({ json: license });
+  });
+  await loginViaUI(page, stack.auth.adminUsername, stack.auth.adminPassword);
+  await page.goto('/license');
+
+  const popup = page.waitForEvent('popup');
+  await page.getByRole('button', { name: 'Connect to Dagu Console' }).click();
+  await expect(await popup).toHaveURL(connectUrl);
+  await expect(page.getByText('ABCD1234')).toBeVisible();
+
+  license = {
+    ...team,
+    connectedVia: LicenseStatusResponseConnectedVia.console,
+    serverName: 'build-01',
+    workspace: 'acme',
+    serverId: 'srv-123',
+    lastCheckIn: new Date().toISOString(),
+    consoleUrl: 'https://console.dagu.test/servers?server=srv-123',
+  };
+  approved = true;
+  await expect(
+    page.getByText('Team connected. Explore your included features below.')
+  ).toBeVisible();
+  const panel = page.getByRole('region', { name: 'This server' });
+  await expect(panel).toContainText('build-01');
+  await expect(panel).toContainText('acme');
+  await expect(
+    panel.getByRole('link', { name: 'Manage in Dagu Console' })
+  ).toHaveAttribute('href', 'https://console.dagu.test/servers?server=srv-123');
 });
 
 test('gives non-admins status and administrator guidance', async ({ page }) => {
