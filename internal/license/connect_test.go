@@ -74,9 +74,9 @@ func waitConnectState(t *testing.T, m *Manager, want ConnectState) ConnectStatus
 }
 
 func TestConnectionCode(t *testing.T) {
-	// Dagu Console derives the same code from the secret it receives.
-	assert.Equal(t, "271a413bd339c5709fdceaec41f14f11e9fbfb5042d72d331c65f32b284cd09a",
-		connectionCode(strings.Repeat("ab", 32)))
+	// Dagu Console asserts the same vector, so both sides derive the same code.
+	assert.Equal(t, "6c86c6aac5fb24bcf5d9939cb7d7d5645ce39418f449e03b262dd4fa14b4b92b",
+		connectionCode("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"))
 }
 
 func TestManager_Connect(t *testing.T) {
