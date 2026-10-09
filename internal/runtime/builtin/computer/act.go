@@ -92,6 +92,12 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 				return err
 			}
 			if replay.complete {
+				// A recording made before recordings knew their position is
+				// written back with it, so it can be forgotten on its own.
+				if entry.Op != index {
+					entry.Op = index
+					r.cache.Stage(key, entry)
+				}
 				r.report(ctx, agentstep.Report{
 					Index: index, Kind: opAct, Subject: spec.Instruction, Status: agentstep.StatusCacheHit, Via: replay.via(),
 					Detail: fmt.Sprintf("replayed %d turns", len(entry.Turns)), Duration: time.Since(began),

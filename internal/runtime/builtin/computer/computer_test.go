@@ -62,6 +62,32 @@ func TestActDrivesDesktop(t *testing.T) {
 	assert.GreaterOrEqual(t, events[1].DurationMs, int64(0))
 }
 
+// A recording from before recordings carried their position gains it on
+// its next full replay, so it can then be forgotten on its own.
+func TestReplayUpgradesRecordingPosition(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"do": [{"wait": "1ms"}, {"act": "Open the report"}]}`
+	run := newTestRun(t)
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(30, 40)), done("Opened")}}}
+	require.NoError(t, run.execute(steps, nil).err)
+
+	cache := openReplayCache(filepath.Join(run.dataDir, computerhost.DataDirName), "invoices", "post")
+	key, entry, ok := cache.Find(func(string, recording) bool { return true })
+	require.True(t, ok)
+	assert.Equal(t, 1, entry.Op)
+	entry.Op = 0
+	cache.Stage(key, entry)
+	require.NoError(t, cache.Commit(t.Context()))
+
+	replayed := run.execute(steps, nil)
+	require.NoError(t, replayed.err)
+	assert.Equal(t, []string{"wait:completed", "act:cache-hit"}, eventNames(replayed.exec.GetAgentSession()))
+	_, upgraded, ok := openReplayCache(filepath.Join(run.dataDir, computerhost.DataDirName), "invoices", "post").Find(func(string, recording) bool { return true })
+	require.True(t, ok)
+	assert.Equal(t, 1, upgraded.Op)
+}
+
 // A model that reports the task done in the same turn as its actions is
 // shown the screen those actions produced and asked again, so a task is
 // never finished on a claim the model could not have checked.
