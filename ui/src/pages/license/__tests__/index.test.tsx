@@ -20,6 +20,7 @@ import { useClient } from '@/hooks/api';
 import { LicenseProvider } from '@/components/LicenseProvider';
 import { SWRConfig } from 'swr';
 import { MemoryRouter } from 'react-router-dom';
+import { LicenseStatusResponseConnectedVia } from '@/api/v1/schema';
 
 vi.mock('@/hooks/api', async () => {
   const { default: useSWR } = await import('swr');
@@ -326,6 +327,98 @@ describe('LicensePage', () => {
       ).toBeEnabled()
     );
   });
+  it('identifies this server and links to it in Dagu Console', () => {
+    renderPage({
+      source: 'file',
+      serverName: 'build-01',
+      workspace: 'acme',
+      connectedVia: LicenseStatusResponseConnectedVia.console,
+      serverId: 'srv-123',
+      licenseId: 'lic-456',
+      lastCheckIn: new Date().toISOString(),
+      consoleUrl: 'https://console.dagu.sh/servers?server=srv-123',
+    });
+
+    const panel = screen
+      .getByRole('heading', { name: 'This server' })
+      .closest('section')!;
+    expect(within(panel).getByText('build-01')).toBeVisible();
+    expect(within(panel).getByText('acme')).toBeVisible();
+    expect(within(panel).getByText('Connected via Dagu Console')).toBeVisible();
+    expect(within(panel).getByText('srv-123')).toBeVisible();
+    expect(within(panel).getByText('lic-456')).toBeVisible();
+    expect(
+      within(panel).getByRole('link', { name: 'Manage in Dagu Console' })
+    ).toHaveAttribute('href', 'https://console.dagu.sh/servers?server=srv-123');
+    expect(screen.getByText('Server: build-01')).toBeVisible();
+  });
+
+  it('checks in with Dagu Console on demand', async () => {
+    const checkedIn = makeConfig({
+      connectedVia: LicenseStatusResponseConnectedVia.key,
+      serverId: 'srv-123',
+      lastCheckIn: new Date().toISOString(),
+    }).license;
+    const post = vi.fn().mockResolvedValue({ data: checkedIn });
+    useClientMock.mockReturnValue({
+      POST: post,
+      GET: vi.fn().mockReturnValue(new Promise(() => {})),
+    } as never);
+    renderPage({
+      connectedVia: LicenseStatusResponseConnectedVia.key,
+      serverId: 'srv-123',
+      lastCheckIn: '2026-01-01T00:00:00Z',
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Check now' }));
+
+    expect(post).toHaveBeenCalledWith('/license/refresh', {
+      params: { query: { remoteNode: 'local' } },
+    });
+  });
+
+  it('warns when disconnecting could not free the console slot', async () => {
+    const post = vi.fn().mockResolvedValue({
+      data: { message: 'License deactivated', releaseFailed: true },
+    });
+    useClientMock.mockReturnValue({
+      POST: post,
+      GET: vi.fn().mockReturnValue(new Promise(() => {})),
+    } as never);
+    renderPage({
+      connectedVia: LicenseStatusResponseConnectedVia.console,
+      serverId: 'srv-123',
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Disconnect' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(
+      within(dialog).getByText('Disconnect this server')
+    ).toBeInTheDocument();
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Disconnect' })
+    );
+
+    expect(
+      await screen.findByText(
+        'Disconnected here, but Dagu Console could not be reached. Disconnect this server in Dagu Console to free its slot.'
+      )
+    ).toBeVisible();
+  });
+
+  it('explains that a config key returns after restart', () => {
+    renderPage({ connectedVia: LicenseStatusResponseConnectedVia.config });
+
+    expect(
+      screen.getByText(
+        /license.key in the config file activates this license again/
+      )
+    ).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'Deactivate License' })
+    ).toBeInTheDocument();
+  });
+
   it('waits for authoritative activation status and preserves warnings', async () => {
     const community = makeConfig({
       community: true,

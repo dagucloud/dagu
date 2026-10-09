@@ -32,6 +32,14 @@ export type LicenseStatus = {
   source: string;
   warningCode: string;
   error?: string;
+  // Identity fields are absent when the server predates them.
+  serverName?: string;
+  licenseId?: string;
+  workspace?: string;
+  connectedVia?: components['schemas']['LicenseStatusResponse']['connectedVia'];
+  serverId?: string;
+  lastCheckIn?: string;
+  consoleUrl?: string;
 };
 
 export type WorkspaceResponse = components['schemas']['WorkspaceResponse'];

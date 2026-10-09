@@ -29,7 +29,9 @@ export function LicenseBadge({ onNavigate }: { onNavigate?: () => void }) {
   const details = (
     <div className="space-y-2 max-w-64">
       <LicenseStatusBadge />
-      <p className="break-all">{ts('Server: {name}', { name: remoteNode })}</p>
+      <p className="break-all">
+        {ts('Server: {name}', { name: license.serverName || remoteNode })}
+      </p>
       {!loading &&
         !error &&
         license.expiry &&
