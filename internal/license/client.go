@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -29,6 +30,7 @@ type CloudClient struct {
 // NewCloudClient creates a client for the given Cloud API base URL.
 // If baseURL is empty, the production URL is used.
 func NewCloudClient(baseURL string) *CloudClient {
+	baseURL = strings.TrimRight(baseURL, "/")
 	if baseURL == "" {
 		baseURL = defaultCloudURL
 	}
@@ -60,11 +62,41 @@ type HeartbeatRequest struct {
 	ServerID        string `json:"server_id"`
 	HeartbeatSecret string `json:"heartbeat_secret"`
 	ClientVersion   string `json:"client_version,omitempty"`
+	ServerName      string `json:"server_name,omitempty"`
 }
 
 // HeartbeatResponse is the response body from heartbeat.
 type HeartbeatResponse struct {
 	Token string `json:"token"`
+}
+
+// ConnectRequest polls Dagu Console for the approval of a connection request.
+type ConnectRequest struct {
+	ConnectionSecret string `json:"connection_secret"`
+	ServerID         string `json:"server_id"`
+	ServerName       string `json:"server_name,omitempty"`
+	ClientVersion    string `json:"client_version,omitempty"`
+}
+
+// Connection request states reported by Dagu Console.
+const (
+	connectResponsePending = "pending"
+	connectResponseGranted = "granted"
+)
+
+// ConnectResponse reports whether a connection request was approved. Token and
+// HeartbeatSecret are set once the status is granted.
+type ConnectResponse struct {
+	Status          string `json:"status"`
+	Token           string `json:"token,omitempty"`
+	HeartbeatSecret string `json:"heartbeat_secret,omitempty"`
+}
+
+// ReleaseRequest frees the server's slot in Dagu Console.
+type ReleaseRequest struct {
+	LicenseID       string `json:"license_id"`
+	ServerID        string `json:"server_id"`
+	HeartbeatSecret string `json:"heartbeat_secret"`
 }
 
 // CloudError represents an error response from the Cloud API.
@@ -95,6 +127,20 @@ func (c *CloudClient) Heartbeat(ctx context.Context, req HeartbeatRequest) (*Hea
 	return &resp, nil
 }
 
+// Connect asks whether a connection request has been approved in Dagu Console.
+func (c *CloudClient) Connect(ctx context.Context, req ConnectRequest) (*ConnectResponse, error) {
+	var resp ConnectResponse
+	if err := c.doJSON(ctx, http.MethodPost, "/api/v1/licenses/connect", req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// Release frees the server's slot so another server can use it.
+func (c *CloudClient) Release(ctx context.Context, req ReleaseRequest) error {
+	return c.doJSON(ctx, http.MethodPost, "/api/v1/licenses/release", req, nil)
+}
+
 func (c *CloudClient) doJSON(ctx context.Context, method, path string, reqBody, respBody any) error {
 	body, err := json.Marshal(reqBody)
 	if err != nil {
@@ -121,12 +167,17 @@ func (c *CloudClient) doJSON(ctx context.Context, method, path string, reqBody, 
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		msg := string(respData)
-		// Try to extract a message from JSON error response
+		// Prefer the message from a JSON error response over the raw body.
 		var errResp struct {
 			Message string `json:"message"`
+			Error   string `json:"error"`
 		}
-		if json.Unmarshal(respData, &errResp) == nil && errResp.Message != "" {
-			msg = errResp.Message
+		if json.Unmarshal(respData, &errResp) == nil {
+			if errResp.Message != "" {
+				msg = errResp.Message
+			} else if errResp.Error != "" {
+				msg = errResp.Error
+			}
 		}
 		return &CloudError{
 			StatusCode: resp.StatusCode,
@@ -134,6 +185,9 @@ func (c *CloudClient) doJSON(ctx context.Context, method, path string, reqBody, 
 		}
 	}
 
+	if respBody == nil {
+		return nil
+	}
 	if err := json.Unmarshal(respData, respBody); err != nil {
 		return fmt.Errorf("failed to unmarshal response: %w", err)
 	}

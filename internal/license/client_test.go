@@ -53,6 +53,14 @@ func TestNewCloudClient(t *testing.T) {
 		assert.Equal(t, customURL, client.baseURL)
 		assert.NotNil(t, client.client)
 	})
+
+	t.Run("trailing slash is trimmed", func(t *testing.T) {
+		t.Parallel()
+
+		client := NewCloudClient("https://my-custom-cloud.example.com/")
+
+		assert.Equal(t, "https://my-custom-cloud.example.com", client.baseURL)
+	})
 }
 
 // TestCloudError_Error verifies the error message formatting.
@@ -133,6 +141,25 @@ func TestCloudClient_Activate(t *testing.T) {
 		require.True(t, errors.As(err, &cloudErr), "error should be *CloudError")
 		assert.Equal(t, http.StatusInternalServerError, cloudErr.StatusCode)
 		assert.Equal(t, "server error", cloudErr.Message)
+	})
+
+	t.Run("400 with an error field returns its text as the message", func(t *testing.T) {
+		t.Parallel()
+
+		handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "all servers are in use"})
+		})
+
+		_, client := newTestCloudClient(t, handler)
+
+		_, err := client.Activate(context.Background(), ActivateRequest{Key: "key", ServerID: "srv"})
+
+		var cloudErr *CloudError
+		require.ErrorAs(t, err, &cloudErr)
+		assert.Equal(t, http.StatusBadRequest, cloudErr.StatusCode)
+		assert.Equal(t, "all servers are in use", cloudErr.Message)
 	})
 
 	t.Run("500 with plain text body returns CloudError with raw body as message", func(t *testing.T) {
@@ -219,6 +246,7 @@ func TestCloudClient_Heartbeat(t *testing.T) {
 			assert.Equal(t, "license-id-123", req.LicenseID)
 			assert.Equal(t, "server-id-xyz", req.ServerID)
 			assert.Equal(t, "heartbeat-secret-value", req.HeartbeatSecret)
+			assert.Equal(t, "build-01", req.ServerName)
 
 			// Write successful response.
 			w.Header().Set("Content-Type", "application/json")
@@ -234,6 +262,7 @@ func TestCloudClient_Heartbeat(t *testing.T) {
 			LicenseID:       "license-id-123",
 			ServerID:        "server-id-xyz",
 			HeartbeatSecret: "heartbeat-secret-value",
+			ServerName:      "build-01",
 		})
 
 		require.NoError(t, err)
@@ -368,5 +397,89 @@ func TestCloudClient_RequestHeaders(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, strings.HasPrefix(capturedUserAgent, "dagu-oss/"),
 			"User-Agent %q should start with \"dagu-oss/\"", capturedUserAgent)
+	})
+}
+
+func TestCloudClient_Connect(t *testing.T) {
+	t.Parallel()
+
+	t.Run("sends the connection request and parses a grant", func(t *testing.T) {
+		t.Parallel()
+
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "/api/v1/licenses/connect", r.URL.Path)
+			var req ConnectRequest
+			assert.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+			assert.Equal(t, ConnectRequest{
+				ConnectionSecret: "secret",
+				ServerID:         "srv",
+				ServerName:       "build-01",
+				ClientVersion:    "1.2.3",
+			}, req)
+			_ = json.NewEncoder(w).Encode(ConnectResponse{
+				Status:          connectResponseGranted,
+				Token:           "jwt",
+				HeartbeatSecret: "hb",
+			})
+		})
+		_, client := newTestCloudClient(t, handler)
+
+		resp, err := client.Connect(context.Background(), ConnectRequest{
+			ConnectionSecret: "secret",
+			ServerID:         "srv",
+			ServerName:       "build-01",
+			ClientVersion:    "1.2.3",
+		})
+
+		require.NoError(t, err)
+		assert.Equal(t, &ConnectResponse{Status: connectResponseGranted, Token: "jwt", HeartbeatSecret: "hb"}, resp)
+	})
+
+	t.Run("pending response has no credentials", func(t *testing.T) {
+		t.Parallel()
+
+		_, client := newTestCloudClient(t, func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(`{"status":"pending"}`))
+		})
+
+		resp, err := client.Connect(context.Background(), ConnectRequest{ConnectionSecret: "secret", ServerID: "srv"})
+
+		require.NoError(t, err)
+		assert.Equal(t, connectResponsePending, resp.Status)
+		assert.Empty(t, resp.Token)
+	})
+}
+
+func TestCloudClient_Release(t *testing.T) {
+	t.Parallel()
+
+	t.Run("sends the activation credentials", func(t *testing.T) {
+		t.Parallel()
+
+		_, client := newTestCloudClient(t, func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "/api/v1/licenses/release", r.URL.Path)
+			var req ReleaseRequest
+			assert.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+			assert.Equal(t, ReleaseRequest{LicenseID: "lic", ServerID: "srv", HeartbeatSecret: "hb"}, req)
+			_, _ = w.Write([]byte(`{"status":"released"}`))
+		})
+
+		err := client.Release(context.Background(), ReleaseRequest{LicenseID: "lic", ServerID: "srv", HeartbeatSecret: "hb"})
+
+		require.NoError(t, err)
+	})
+
+	t.Run("404 from an older console is a CloudError", func(t *testing.T) {
+		t.Parallel()
+
+		_, client := newTestCloudClient(t, func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		})
+
+		err := client.Release(context.Background(), ReleaseRequest{LicenseID: "lic", ServerID: "srv", HeartbeatSecret: "hb"})
+
+		var cloudErr *CloudError
+		require.ErrorAs(t, err, &cloudErr)
+		assert.Equal(t, http.StatusNotFound, cloudErr.StatusCode)
 	})
 }
