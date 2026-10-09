@@ -83,6 +83,9 @@ type DAGListOptions struct {
 	Time              *time.Time
 	NextRunProjection func(*ir.DAG, time.Time) time.Time
 	WorkspaceFilter   *workspace.WorkspaceFilter
+	// PinnedIDs holds DAG IDs listed before all other DAGs. Sort and Order
+	// apply within the pinned and unpinned parts. Nil disables pinning.
+	PinnedIDs map[string]struct{}
 }
 
 // DAGSearchOptions contains parameters for cursor-based DAG search.

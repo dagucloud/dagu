@@ -8,8 +8,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -113,6 +115,98 @@ func TestDAGRepositoryListsByBackendIdentity(t *testing.T) {
 	assert.Equal(t, "alpha-file", result.Items[0].ID)
 	assert.Equal(t, "beta-file", result.Items[1].ID)
 	assert.True(t, result.Items[1].Suspended)
+}
+
+// Pinned DAGs come first in every sort, filters still apply to them, and
+// pagination counts both parts together.
+func TestDAGRepositoryListsPinnedFirst(t *testing.T) {
+	at := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	nextRuns := map[string]time.Time{
+		"beta":  at.Add(2 * time.Hour),
+		"gamma": at.Add(time.Hour),
+	}
+	repository := NewDAGRepository(dagDefinitionStoreStub{
+		catalog: DAGCatalog{Items: []DAGListItem{
+			{ID: "delta", DAG: &ir.DAG{Name: "delta"}},
+			{ID: "beta", DAG: &ir.DAG{Name: "beta"}},
+			{ID: "alpha", DAG: &ir.DAG{Name: "alpha"}},
+			{ID: "gamma", DAG: &ir.DAG{Name: "gamma"}},
+		}},
+	}, DAGRepositoryOptions{})
+	pins := func(ids ...string) map[string]struct{} {
+		set := make(map[string]struct{}, len(ids))
+		for _, id := range ids {
+			set[id] = struct{}{}
+		}
+		return set
+	}
+	page := func(number, size int) *pagination.Paginator {
+		paginator := pagination.NewPaginator(number, size)
+		return &paginator
+	}
+
+	tests := []struct {
+		name string
+		opts DAGListOptions
+		want []string
+	}{
+		{
+			name: "NameAscending",
+			opts: DAGListOptions{PinnedIDs: pins("gamma")},
+			want: []string{"gamma", "alpha", "beta", "delta"},
+		},
+		{
+			name: "NameDescending",
+			opts: DAGListOptions{Order: "desc", PinnedIDs: pins("alpha", "gamma")},
+			want: []string{"gamma", "alpha", "delta", "beta"},
+		},
+		{
+			name: "NextRunKeepsPinnedWithoutNextRunFirst",
+			opts: DAGListOptions{
+				Sort:      "nextRun",
+				Time:      &at,
+				PinnedIDs: pins("alpha"),
+				NextRunProjection: func(dag *ir.DAG, _ time.Time) time.Time {
+					return nextRuns[dag.Name]
+				},
+			},
+			want: []string{"alpha", "gamma", "beta", "delta"},
+		},
+		{
+			name: "SecondPageAfterPinned",
+			opts: DAGListOptions{Paginator: page(2, 2), PinnedIDs: pins("delta", "gamma")},
+			want: []string{"alpha", "beta"},
+		},
+		{
+			name: "FilterExcludesPinned",
+			opts: DAGListOptions{Name: "bet", PinnedIDs: pins("gamma")},
+			want: []string{"beta"},
+		},
+		{
+			name: "StalePinIgnored",
+			opts: DAGListOptions{PinnedIDs: pins("removed")},
+			want: []string{"alpha", "beta", "delta", "gamma"},
+		},
+		{
+			name: "NoPins",
+			opts: DAGListOptions{},
+			want: []string{"alpha", "beta", "delta", "gamma"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, _, err := repository.List(context.Background(), tt.opts)
+			require.NoError(t, err)
+			ids := make([]string, 0, len(result.Items))
+			for _, item := range result.Items {
+				ids = append(ids, item.ID)
+			}
+			assert.Equal(t, tt.want, ids)
+			if tt.opts.Paginator != nil {
+				assert.Equal(t, 4, result.TotalCount)
+			}
+		})
+	}
 }
 
 func TestDAGRepositorySearchOrdersBackendResultsByIdentity(t *testing.T) {
