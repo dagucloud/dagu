@@ -145,17 +145,24 @@ func TestRemoteLicenseAuthorization(t *testing.T) {
 	viewer := &auth.User{Role: auth.RoleViewer, WorkspaceAccess: auth.AllWorkspaceAccess()}
 	admin := &auth.User{Role: auth.RoleAdmin, WorkspaceAccess: auth.AllWorkspaceAccess()}
 	tests := []struct {
-		name     string
-		method   string
-		path     string
-		user     *auth.User
-		wantCall bool
+		name       string
+		method     string
+		path       string
+		user       *auth.User
+		wantCall   bool
+		wantStatus int
 	}{
 		{name: "viewer reads status", method: http.MethodGet, path: "/api/v1/license/status", user: viewer, wantCall: true},
 		{name: "viewer cannot deactivate", method: http.MethodPost, path: "/api/v1/license/deactivate", user: viewer},
 		{name: "viewer cannot start a connection", method: http.MethodPost, path: "/api/v1/license/connect", user: viewer},
 		{name: "viewer cannot read a connection", method: http.MethodGet, path: "/api/v1/license/connect", user: viewer},
 		{name: "admin can start a connection", method: http.MethodPost, path: "/api/v1/license/connect", user: admin, wantCall: true},
+		// The proxy forwards paths in clean form, so these would otherwise reach
+		// the remote node's license endpoints without the local check.
+		{name: "doubled slash", method: http.MethodPost, path: "/api/v1//license/deactivate", user: viewer, wantStatus: http.StatusBadRequest},
+		{name: "dot segment", method: http.MethodPost, path: "/api/v1/x/../license/deactivate", user: viewer, wantStatus: http.StatusBadRequest},
+		{name: "encoded slash", method: http.MethodPost, path: "/api/v1/%2Flicense/deactivate", user: viewer, wantStatus: http.StatusBadRequest},
+		{name: "doubled slash to sync", method: http.MethodPost, path: "/api/v1//sync/push", user: viewer, wantStatus: http.StatusBadRequest},
 	}
 
 	for _, test := range tests {
@@ -189,9 +196,27 @@ func TestRemoteLicenseAuthorization(t *testing.T) {
 
 			assert.Equal(t, test.wantCall, remoteCalled.Load())
 			if !test.wantCall {
-				assert.Equal(t, http.StatusForbidden, recorder.Code)
+				want := test.wantStatus
+				if want == 0 {
+					want = http.StatusForbidden
+				}
+				assert.Equal(t, want, recorder.Code)
 			}
 		})
+	}
+}
+
+func TestIsCleanPath(t *testing.T) {
+	for p, want := range map[string]bool{
+		"/api/v1/license/status":  true,
+		"/api/v1/dags/":           true,
+		"/":                       true,
+		"/api/v1//license/status": false,
+		"/api/v1/./license":       false,
+		"/api/v1/x/../license":    false,
+		"/api/v1/dags//":          false,
+	} {
+		assert.Equal(t, want, isCleanPath(p), p)
 	}
 }
 

@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"strings"
 	"time"
 
@@ -35,6 +36,17 @@ func WithRemoteNode(resolver *remotenode.Resolver, apiBasePath string) func(next
 			remoteNodeName := r.URL.Query().Get("remoteNode")
 			if remoteNodeName == "" || remoteNodeName == "local" {
 				next.ServeHTTP(w, r)
+				return
+			}
+			// Local permission checks match the path as written, and the proxy
+			// forwards it in clean form, so a path like /api/v1//license/... would
+			// reach the remote node without them.
+			if !isCleanPath(r.URL.Path) {
+				WriteErrorResponse(w, &Error{
+					HTTPStatus: http.StatusBadRequest,
+					Code:       api.ErrorCodeBadRequest,
+					Message:    "invalid request path",
+				})
 				return
 			}
 
@@ -312,6 +324,16 @@ func (h *remoteNodeProxy) doRequest(body io.Reader, r *http.Request) (*http.Resp
 	}
 
 	return resp, nil
+}
+
+// isCleanPath reports whether p has no empty, "." or ".." segments. A single
+// trailing slash is allowed.
+func isCleanPath(p string) bool {
+	clean := path.Clean(p)
+	if p != "/" && strings.HasSuffix(p, "/") {
+		clean += "/"
+	}
+	return clean == p
 }
 
 func buildRemoteNodeProxyURL(baseURL, requestPath, apiBasePath string, query url.Values) (string, error) {
