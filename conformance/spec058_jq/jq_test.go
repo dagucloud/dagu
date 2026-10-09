@@ -61,3 +61,29 @@ func TestJQConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestJQFailures(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ name, filter, message string }{
+		{"syntax", `{税: .x}`, "unexpected token"},
+		{"evaluation", ".amount + 1.1", "cannot add"},
+		{"compile", "undefined_function", "function not defined"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dagu := harness.NewRunner(t)
+			dagu.WriteFile("failure.yaml", `steps:
+  - id: transform
+    action: jq.filter
+    with:
+      filter: '`+tc.filter+`'
+      data: {amount: bad, x: 1}
+    output:
+      result: {from: stdout, decode: json}
+`)
+			result := dagu.Run("start", "failure.yaml")
+			result.ExpectNonZeroExitCode()
+			result.ExpectStderrContains(tc.message)
+		})
+	}
+}

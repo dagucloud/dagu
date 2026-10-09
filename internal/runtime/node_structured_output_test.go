@@ -879,3 +879,30 @@ func TestOutputLiterals(t *testing.T) {
 		}
 	}
 }
+
+func TestFailedCapture(t *testing.T) {
+	t.Parallel()
+	for _, kind := range []string{"structured", "stdout"} {
+		for _, data := range []string{"", "not-json", `{"value":1}`} {
+			t.Run(kind+"/"+data, func(t *testing.T) {
+				t.Parallel()
+				step := ir.Step{Output: "RAW"}
+				fields := map[string]ir.StepOutputEntry{"value": {From: ir.StepOutputSourceStdout, Decode: ir.StepOutputDecodeJSON}}
+				if kind == "structured" {
+					step.StructuredOutput = fields
+				} else {
+					step.StdoutOutputs = &ir.StepOutputsConfig{Fields: fields}
+				}
+				node := NodeWithData(NodeData{Step: step})
+				node.outputs.outputCaptured = true
+				node.outputs.outputData = data
+				execErr := errors.New("jq parse failed")
+				node.SetError(execErr)
+				require.NoError(t, node.captureOutput(structuredOutputTestContext(t, nil, t.TempDir())))
+				assert.ErrorIs(t, node.Error(), execErr)
+				assert.Equal(t, data, node.OutputVariablesMap()["RAW"])
+				assert.Nil(t, node.State().StepOutputsValue)
+			})
+		}
+	}
+}
