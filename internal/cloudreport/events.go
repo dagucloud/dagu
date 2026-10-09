@@ -35,7 +35,8 @@ const (
 	maxStepNameBytes = 512
 	// maxNameBytes and maxIDBytes are the longest DAG name and run or event
 	// ID Dagu Console keeps; it leaves out an event with a longer one. With
-	// them, an event encodes to at most about 28 KiB, well inside a batch.
+	// them, an event encodes to about 28 KiB at most, and about 160 KiB even
+	// if JSON escapes every byte: always inside a batch.
 	maxNameBytes = 512
 	maxIDBytes   = 256
 	// caughtUpSaveInterval is how often an idle reporter records that it has
