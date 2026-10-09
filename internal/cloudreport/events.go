@@ -33,6 +33,11 @@ const (
 	maxFailedSteps      = 50
 	// maxStepNameBytes is the longest failed step name Dagu Console keeps.
 	maxStepNameBytes = 512
+	// maxNameBytes and maxIDBytes are the longest DAG name and run or event
+	// ID Dagu Console keeps; it leaves out an event with a longer one. With
+	// them, an event encodes to at most about 28 KiB, well inside a batch.
+	maxNameBytes = 512
+	maxIDBytes   = 256
 	// caughtUpSaveInterval is how often an idle reporter records that it has
 	// seen every event, so that a restart does not take idleness for a gap.
 	caughtUpSaveInterval = time.Hour
@@ -116,8 +121,9 @@ type reportGap struct {
 }
 
 // newReportEvent describes event for Dagu Console. It reports false for an
-// event that reports leave out: an unreported type, a sub-DAG run, or an
-// event without a valid status snapshot.
+// event that reports leave out: an unreported type, a sub-DAG run, an event
+// without a valid status snapshot, or one with a name or ID longer than Dagu
+// Console keeps.
 func newReportEvent(event *eventstore.Event) (reportEvent, bool) {
 	traits, ok := reportedEventTypes[event.Type]
 	if !ok {
@@ -129,6 +135,10 @@ func newReportEvent(event *eventstore.Event) (reportEvent, bool) {
 	}
 	status := snapshot.DAGRunStatus()
 	if !status.Parent.Zero() {
+		return reportEvent{}, false
+	}
+	if len(status.Name) > maxNameBytes || len(event.ID) > maxIDBytes ||
+		len(status.DAGRunID) > maxIDBytes || len(status.AttemptID) > maxIDBytes {
 		return reportEvent{}, false
 	}
 
@@ -239,12 +249,8 @@ type eventBatch struct {
 	urgent []string
 }
 
-// fits reports whether reported, encoded in size bytes, can join the batch.
-// The first event always fits, so an event can never hold reporting back.
+// fits reports whether an event encoded in size bytes can join the batch.
 func (b *eventBatch) fits(size int) bool {
-	if len(b.events) == 0 {
-		return true
-	}
 	return len(b.events) < maxReportEvents && b.size+size <= maxReportEventBytes
 }
 

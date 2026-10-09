@@ -388,6 +388,31 @@ func TestReportEventsSizeCap(t *testing.T) {
 	assert.ElementsMatch(t, ids, delivered, "each event is reported once")
 }
 
+// An event with a name or ID longer than Dagu Console keeps is left out like
+// other unreported events, so it cannot hold the events after it back.
+func TestReportEventsOversizedIdentifiers(t *testing.T) {
+	t.Parallel()
+
+	dir := newEventDir(t)
+	console := newFakeConsole(t)
+	clock := startEventReporter(t, console, dir, testClockStart)
+	longRunID := etlRun(ir.Failed)
+	longRunID.DAGRunID = strings.Repeat("r", maxIDBytes+1)
+	longName := etlRun(ir.Failed)
+	longName.DAGRunID, longName.Name = "run-2", strings.Repeat("n", maxNameBytes+1)
+	dir.emit(eventstore.TypeDAGRunFailed, longRunID)
+	dir.emit(eventstore.TypeDAGRunFailed, longName)
+	kept := etlRun(ir.Failed)
+	kept.DAGRunID = "run-3"
+	keptID := dir.emit(eventstore.TypeDAGRunFailed, kept)
+	dir.collect()
+
+	first := decodeEvents(t, nextReport(t, clock, console))
+	assert.Equal(t, []string{keptID}, first.ids(t))
+	assert.NotEmpty(t, first.Cursor)
+	assert.Nil(t, decodeEvents(t, nextReport(t, clock, console)).ids(t), "the position moved past all three")
+}
+
 // Of the processes that share a data directory, the one holding the lease
 // reports events; the others report health until it lets go.
 func TestReportEventsLease(t *testing.T) {
