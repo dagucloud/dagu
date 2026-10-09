@@ -816,12 +816,12 @@ func TestWaitsForIdleDesktop(t *testing.T) {
 func TestWaitingForPersonIsNotTaskTime(t *testing.T) {
 	t.Parallel()
 
-	const with = `{"idle": "100ms", "do": [{"act": {"instruction": "Click", "max_actions": 5}, "timeout": "300ms"}]}`
+	const with = `{"idle": "100ms", "do": [{"act": {"instruction": "Click", "max_actions": 5}, "timeout": "2s"}]}`
 	run := newTestRun(t)
 	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(1, 1)), done("Clicked")}}}
-	// Each check finds the person at the desktop, so the wait outlasts the
-	// time limit by itself.
-	run.backend.personKeepsUsing(600)
+	// Each check finds the person at the desktop, and checks are at least a
+	// millisecond apart, so the wait outlasts the time limit by itself.
+	run.backend.personKeepsUsing(2500)
 	execution := run.execute(with, nil)
 	require.NoError(t, execution.err)
 	assert.Equal(t, []string{"act:completed"}, eventNames(execution.exec.GetAgentSession()))
