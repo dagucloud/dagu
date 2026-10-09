@@ -14952,6 +14952,17 @@ components:
           type: array
           items:
             type: string
+        via:
+          type: string
+          description: "How an operation ran: screen for a replayed recording, model for a model request; absent for one that decides nothing"
+        durationMs:
+          type: integer
+          format: int64
+          description: "How long the operation took"
+        tokens:
+          type: integer
+          format: int64
+          description: "Model tokens the operation used"
       required:
         - sequence
         - id

@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"image"
 	"strconv"
 
@@ -91,6 +92,9 @@ type replayOutcome struct {
 	// complete reports that every turn replayed and the final screen
 	// matched.
 	complete bool
+	// reason says why the replay stopped short, for a step that cannot
+	// hand the task to the model.
+	reason string
 }
 
 // replay repeats a recording while every screen matches what the model saw.
@@ -100,8 +104,14 @@ type replayOutcome struct {
 // not allow. The model then continues from there under the same settings.
 func (r *run) replay(ctx context.Context, index int, entry recording, budget int) (replayOutcome, error) {
 	var outcome replayOutcome
-	for _, turn := range entry.Turns {
-		if outcome.actions+len(turn.Actions) > budget || (turn.Confirmed && r.cfg.OnConfirmation != confirmationAllow) {
+	total := len(entry.Turns)
+	for i, turn := range entry.Turns {
+		switch {
+		case outcome.actions+len(turn.Actions) > budget:
+			outcome.reason = fmt.Sprintf("turn %d of %d needs more than max_actions (%d) actions", i+1, total, budget)
+			return outcome, nil
+		case turn.Confirmed && r.cfg.OnConfirmation != confirmationAllow:
+			outcome.reason = fmt.Sprintf("turn %d of %d needs a person's confirmation", i+1, total)
 			return outcome, nil
 		}
 		if err := r.awaitPerson(ctx); err != nil {
@@ -112,12 +122,14 @@ func (r *run) replay(ctx context.Context, index int, entry recording, budget int
 			return outcome, err
 		}
 		if !matches(current, entry, turn) {
+			outcome.reason = fmt.Sprintf("the screen differs from the recording at turn %d of %d", i+1, total)
 			return outcome, nil
 		}
 		for _, recorded := range turn.Actions {
 			logAction(r.timeline, index, "replay "+describeAction(recorded.Action))
 			outcome.actions++
 			if result := r.runAction(ctx, recorded.Action, identity, nil, computeruse.ImageLimit{}); result.Failed() {
+				outcome.reason = fmt.Sprintf("%s failed at turn %d of %d: %s", describeAction(recorded.Action), i+1, total, result.Error)
 				return outcome, ctx.Err()
 			}
 		}
@@ -128,6 +140,9 @@ func (r *run) replay(ctx context.Context, index int, entry recording, budget int
 		return outcome, err
 	}
 	outcome.complete = desktop.FingerprintOf(final).Distance(entry.Final) <= replayScreenDistance
+	if !outcome.complete {
+		outcome.reason = "the screen after the last turn differs from the recording"
+	}
 	return outcome, nil
 }
 

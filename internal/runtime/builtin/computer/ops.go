@@ -88,9 +88,14 @@ func newRun(ctx context.Context, e *computerExecutor) (*run, error) {
 	if stepKey == "" {
 		stepKey = e.step.Name
 	}
-	models, err := newModels(ctx, e.step.LLM, e.newProvider)
-	if err != nil {
-		return nil, err
+	// A step whose operations never call the model has none configured.
+	var models []model
+	if e.step.LLM != nil {
+		resolved, err := newModels(ctx, e.step.LLM, e.newProvider)
+		if err != nil {
+			return nil, err
+		}
+		models = resolved
 	}
 	masker := agentstep.NewMasker(secrets, nil)
 	computerDir := filepath.Join(dataDir, computerhost.DataDirName)
@@ -115,9 +120,7 @@ func newRun(ctx context.Context, e *computerExecutor) (*run, error) {
 	if r.variables == nil {
 		r.variables = map[string]string{}
 	}
-	if e.cfg.cacheEnabled() {
-		r.cache = openReplayCache(computerDir, dagName, stepKey)
-	}
+	r.cache = openReplayCache(computerDir, dagName, stepKey)
 	r.timeline = &agentstep.Timeline{Log: e.stderr, Masker: masker, Total: len(e.cfg.Do), Update: e.updateSession, Provider: providerName}
 	return r, nil
 }
@@ -137,7 +140,7 @@ func (r *run) execute(ctx context.Context) error {
 			}
 			if !holds {
 				r.timeline.Operation(agentstep.Report{
-					Index: i, Kind: op.kind(), Subject: op.When.Statement, Status: agentstep.StatusSkipped, Detail: reason,
+					Index: i, Kind: op.kind(), Subject: op.When.Statement, Status: agentstep.StatusSkipped, Via: agentstep.ViaModel, Detail: reason,
 					Tokens: r.usage.sub(before).total(), Duration: time.Since(began),
 				})
 				continue
@@ -182,7 +185,9 @@ func (r *run) start(ctx context.Context) (int, error) {
 			s.PromptSent = true
 			s.OwnerWorkerID = r.workerID
 			s.LastError = ""
-			s.Model = r.models[0].label()
+			if len(r.models) > 0 {
+				s.Model = r.models[0].label()
+			}
 		})
 	}
 
@@ -274,7 +279,7 @@ func (r *run) extract(ctx context.Context, index int, spec extractSpec, timeout 
 		r.outputs[name] = value
 	}
 	r.report(ctx, agentstep.Report{
-		Index: index, Kind: opExtract, Subject: spec.Instruction, Status: agentstep.StatusCompleted,
+		Index: index, Kind: opExtract, Subject: spec.Instruction, Status: agentstep.StatusCompleted, Via: agentstep.ViaModel,
 		Detail: string(data), Tokens: r.usage.sub(before).total(), Duration: time.Since(began),
 	})
 	return nil
@@ -291,7 +296,7 @@ func (r *run) expect(ctx context.Context, index int, c condition, timeout time.D
 		return fmt.Errorf("expectation not met: %s", reason)
 	}
 	r.report(ctx, agentstep.Report{
-		Index: index, Kind: opExpect, Subject: c.Statement, Status: agentstep.StatusCompleted, Detail: reason,
+		Index: index, Kind: opExpect, Subject: c.Statement, Status: agentstep.StatusCompleted, Via: agentstep.ViaModel, Detail: reason,
 		Tokens: r.usage.sub(before).total(), Duration: time.Since(began),
 	})
 	return nil
@@ -460,14 +465,14 @@ func (r *run) awaitPerson(ctx context.Context) error {
 // failed on the screen may have followed a replay that did the wrong thing,
 // so the recordings the step replayed are dropped. A failure of the model,
 // the screen capture, a launch, an ask, a person using the desktop, or the
-// run itself says nothing about them, so they stay. What the step recorded
+// run itself says nothing about them, so they stay. So does a replay that
+// stopped because it no longer fit the screen under ai: never: the
+// recording is what a run under ai: on_miss repairs. What the step recorded
 // is never kept.
 func (r *run) forgetReplays(ctx context.Context, index int, kind string, cause error) {
-	if r.cache == nil {
-		return
-	}
 	if index < 0 || ctx.Err() != nil || kind == opAsk || kind == opLaunch ||
-		errors.Is(cause, errCapture) || errors.Is(cause, errDesktopInUse) || errors.As(cause, new(modelFailure)) {
+		errors.Is(cause, errCapture) || errors.Is(cause, errDesktopInUse) ||
+		errors.As(cause, new(modelFailure)) || errors.As(cause, new(replayMiss)) {
 		r.cache.Discard()
 		return
 	}

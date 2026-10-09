@@ -32,7 +32,7 @@ steps:
     action: computer.run
     with:
       mode: native
-      cache: true
+      ai: on_miss
       max_actions: 40
       on_confirmation: allow
       screenshots: each
@@ -45,11 +45,13 @@ steps:
           when: A login form is visible
         - act: {instruction: Open billing, cache: false, max_actions: 10}
           timeout: 2m
+        - act: {instruction: Save it, ai: never}
         - ask: {prompt: Enter the code, as: otp, timeout: 10m}
         - expect: The invoice is posted
         - expect: {statement: A document number is shown, within: 30s}
         - extract:
             instruction: The document number
+            ai: every_run
             schema: {type: object, properties: {doc: {type: string}}}
         - wait: 2s
         - screenshot: posted
@@ -62,6 +64,8 @@ steps:
 		{"two operations in one item", "        - screenshot: posted", "        - {screenshot: posted, wait: 1s}"},
 		{"browser operation", "        - wait: 2s", "        - goto: https://example.com"},
 		{"unknown mode", "mode: native", "mode: fast"},
+		{"unknown ai", "ai: on_miss", "ai: sometimes"},
+		{"unknown ai on act", "ai: never", "ai: always"},
 		{"unknown confirmation policy", "on_confirmation: allow", "on_confirmation: ask"},
 		{"zero max actions", "max_actions: 40", "max_actions: 0"},
 		{"launch without command", "{command: open, args: [-a, TextEdit]}", "{args: [-a, TextEdit]}"},

@@ -62,14 +62,8 @@ type computerExecutor struct {
 }
 
 func newExecutor(_ context.Context, step ir.Step) (executor.Executor, error) {
-	if step.LLM == nil {
-		return nil, errNoModel
-	}
-	cfg, err := parseConfig(step.ExecutorConfig.Config)
+	cfg, err := checkStep(step)
 	if err != nil {
-		return nil, err
-	}
-	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
 	return &computerExecutor{
