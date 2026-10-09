@@ -42,6 +42,7 @@ export default function LicensePage() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const connect = useLicenseConnect(remoteNode);
   const granted = connect.status?.state === LicenseConnectStatusState.granted;
+  const { clear: clearConnect } = connect;
 
   useEffect(() => {
     setTitle(ts('Plan & features'));
@@ -49,6 +50,8 @@ export default function LicensePage() {
 
   useEffect(() => {
     if (!granted) return;
+    // Handle each approval once, even if this effect runs again later.
+    clearConnect();
     setError(null);
     void mutate().then((next) =>
       setSuccessMessage(
@@ -59,7 +62,7 @@ export default function LicensePage() {
           : ts('License status updated.')
       )
     );
-  }, [granted, mutate, ts]);
+  }, [granted, clearConnect, mutate, ts]);
 
   async function handleActivate(e: React.FormEvent) {
     e.preventDefault();

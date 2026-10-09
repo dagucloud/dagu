@@ -29,10 +29,14 @@ export function useLicenseConnect(remoteNode: string) {
     if (!pending) return;
     let stopped = false;
     const timer = window.setInterval(async () => {
-      const { data } = await client.GET('/license/connect', {
-        params: { query: { remoteNode } },
-      });
-      if (!stopped && data) setStatus(data);
+      try {
+        const { data } = await client.GET('/license/connect', {
+          params: { query: { remoteNode } },
+        });
+        if (!stopped && data) setStatus(data);
+      } catch {
+        // A failed poll is retried on the next tick.
+      }
     }, POLL_INTERVAL_MS);
     return () => {
       stopped = true;
@@ -82,5 +86,7 @@ export function useLicenseConnect(remoteNode: string) {
     });
   }, [client, remoteNode]);
 
-  return { status, starting, error, popupBlocked, start, cancel };
+  const clear = useCallback(() => setStatus(null), []);
+
+  return { status, starting, error, popupBlocked, start, cancel, clear };
 }
