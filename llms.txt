@@ -1974,6 +1974,14 @@ Check that computer steps can capture the screen and send input in the current s
 dagu computer check [--format json]
 ```
 
+### dagu computer elements
+
+List the accessible elements of the window in front on 64-bit Windows: each with `role`, `name`, `id`, `value`, `label`, `bounds` in display pixels, `window`, and `path` from the window down. `--at-pointer` reports the element under the pointer after `--after`; `--watch` reports it whenever it changes, one JSON object per line, until stdin closes; `--match` reports the elements a selector matches and succeeds only on exactly one, with `-` reading the selector from stdin. A selector is JSON with `role` and `name`, `id`, or `near` (`{label, side}`), optionally `app`, `window`, `in`, and `nth`; names take `*`. `--format json` prints one object; a failure prints `{"error": {"code", "message"}}` and exits 1, with `invalid_input`, `unsupported`, `no_elements`, `not_found`, `ambiguous`, or a `check` problem code.
+
+```sh
+dagu computer elements [--format json] [--limit N] [--at-pointer [--after 3s] | --watch | --match '<selector JSON>' | --match -]
+```
+
 ### dagu computer cache clear
 
 Clear the recorded `act` operations that computer steps replay, so the next run asks the model again. Without `--step`, every step of the DAG is cleared. The cache lives on the host that ran the step; in distributed mode, run it on the worker.

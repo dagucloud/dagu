@@ -6,8 +6,10 @@ Partially implemented.
 
 Conformance covers validation, the secret check, the unsupported-platform
 error, and, on an interactive Windows desktop, a run that finds a test window
-in screenshots, clicks it and types into it through a scripted model. Model loops, replay, human input,
-and the desktop lease are covered by executor tests.
+in screenshots, clicks it and types into it through a scripted model, and
+the elements command's outline and selector matching on a window with named
+controls. Model loops, replay, human input, and the desktop lease are
+covered by executor tests.
 
 ## Scope
 
@@ -261,6 +263,61 @@ after `ask.timeout` (default one hour) fails the step. The pending question
 carries that deadline as `expiresAt`. Restarting the session runs the step
 from its first operation.
 
+### Elements
+
+This is the first step of element support: a step cannot yet act on, wait
+for, or check an element. Conditions and replay by element are deferred.
+
+An element is an accessible element of a window: its `role`, `name`, the
+`id` the application gives it, its `value`, the `label` it is linked to,
+its `bounds` in display pixels, its `window`'s title, and its `path` from
+the window down, each step a role, a name, and the element's position among
+its parent's children of that role. Roles are `button`, `text_field`,
+`text`, `checkbox`, `radio`, `combo_box`, `list_item`, `menu_item`, `tab`,
+`link`, `cell`, `group`, `window`, and `other`. A password field has no
+value.
+
+`dagu computer elements` lists the visible elements of the window in front
+in tree order, with the window itself, up to `--limit` of them (default
+400). With `--at-pointer`, after `--after`, it reports the element under
+the pointer. With `--watch`, it reports the element under the pointer
+whenever it changes, as one JSON object per line, until stdin closes or
+the command is interrupted. With `--match`, it reports the elements a
+selector matches and succeeds only when exactly one does; `-` reads the
+selector from stdin. With `--format json` the result is one object; a
+failing command prints `{"error": {"code", "message"}}` and exits nonzero,
+where the code is `invalid_input`, `unsupported`, `load_failed`,
+`no_elements`, `not_found`, `ambiguous`, `failed`, or a problem code of
+`dagu computer check`. The matches are still listed when a selector fails,
+so a person can see what to narrow. The command takes no desktop lease.
+
+A selector is JSON with `role` and at least one of `name`, `id`, or
+`near`, and optionally `app` (the process image name without its
+extension, compared ignoring case), `window` (text the title contains),
+`in` (a selector for a container), `near` (`{label, side}`, with `side`
+one of `right`, `below`, `left`, `above`), and `nth` (which of several
+equal matches, in reading order, from 0). `name` and `window` take `*` for
+any run of characters; a `%name%` placeholder is matched as written. An
+unknown key is refused.
+
+Matching runs in a fixed order: `in` narrows the search to the container's
+descendants, and the container itself must match exactly one element; an
+`id` wins when it is unique there, and an id that matches nothing is a miss
+whatever the name; otherwise `role` and `name` select the candidates;
+`near` keeps the candidates the application links to the label, or, when
+it links none, for each text element with the label's name, the nearest
+candidate on that side of it that overlaps it in the other direction; then
+`nth` picks one, in reading order. Reading order places elements in rows,
+top to bottom, and left to right within a row; an element starts a new row
+when its top is below the middle of the row's first element. More than one
+candidate left is a miss, never a guess.
+
+Elements are read on 64-bit Windows through UI Automation, so Win32,
+WinForms, WPF, UWP, Office, and Chromium windows expose them; a Chromium
+window builds its tree when first asked. A window of a process run as
+administrator, or one that draws its own controls, gives `no_elements`.
+Other systems give `unsupported`.
+
 ## Errors
 
 A missing `with.do`, `with.instruction` for `computer.extract`, or
@@ -268,7 +325,8 @@ A missing `with.do`, `with.instruction` for `computer.extract`, or
 that sets zero or several keys fails validation. A step fails when the desktop
 cannot be opened, an application cannot be launched, an `act` fails as
 described above, an `act` under `never` has no recording or misses, or an
-`expect` does not hold.
+`expect` does not hold. `dagu computer elements --match` exits nonzero when
+the selector matches no element or several.
 
 ## Examples
 
