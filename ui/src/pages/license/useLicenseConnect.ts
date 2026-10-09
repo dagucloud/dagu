@@ -79,12 +79,22 @@ export function useLicenseConnect(remoteNode: string) {
     }
   }, [client, remoteNode, ts]);
 
+  // The request stays pending here until the server confirms the cancel;
+  // otherwise an approval could still install a license after "Cancel".
   const cancel = useCallback(async () => {
-    setStatus(null);
-    await client.DELETE('/license/connect', {
-      params: { query: { remoteNode } },
-    });
-  }, [client, remoteNode]);
+    setError(null);
+    const failed = ts('Could not cancel the request. Try again.');
+    try {
+      const { data, error: apiError } = await client.DELETE(
+        '/license/connect',
+        { params: { query: { remoteNode } } }
+      );
+      if (apiError || !data) throw new Error(apiError?.message || failed);
+      setStatus(data);
+    } catch (err) {
+      setError(err instanceof Error && err.message ? err.message : failed);
+    }
+  }, [client, remoteNode, ts]);
 
   const clear = useCallback(() => setStatus(null), []);
 

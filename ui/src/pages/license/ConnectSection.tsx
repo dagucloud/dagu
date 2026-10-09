@@ -79,6 +79,11 @@ export function ConnectSection({
               )}
             </p>
           )}
+          {error && (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          )}
           <div className="flex flex-wrap items-center gap-2">
             <Button asChild size="sm">
               <a

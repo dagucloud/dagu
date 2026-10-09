@@ -554,6 +554,30 @@ describe('LicensePage', () => {
       ).toBeVisible();
     });
 
+    it('keeps waiting when the cancel does not reach the server', async () => {
+      vi.spyOn(window, 'open').mockReturnValue(null);
+      useClientMock.mockReturnValue({
+        POST: vi.fn().mockResolvedValue({ data: pending }),
+        GET: vi.fn().mockReturnValue(new Promise(() => {})),
+        DELETE: vi.fn().mockRejectedValue(new TypeError('Failed to fetch')),
+      } as never);
+      renderPage(community());
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Connect to Dagu Console' })
+      );
+      await screen.findByText('ABCD1234');
+
+      await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'Failed to fetch'
+      );
+      expect(screen.getByText('ABCD1234')).toBeVisible();
+      expect(
+        screen.queryByRole('button', { name: 'Connect to Dagu Console' })
+      ).not.toBeInTheDocument();
+    });
+
     it('explains that an environment license blocks connecting', () => {
       renderPage({ ...community(), source: 'env', error: 'activation failed' });
 
@@ -586,11 +610,9 @@ describe('LicensePage', () => {
       .mockResolvedValueOnce({ data: community })
       .mockReturnValue(pending);
     useClientMock.mockReturnValue({
-      POST: vi
-        .fn()
-        .mockResolvedValue({
-          data: { plan: 'team', features: status.features },
-        }),
+      POST: vi.fn().mockResolvedValue({
+        data: { plan: 'team', features: status.features },
+      }),
       GET: get,
     } as never);
     renderPage(community);
