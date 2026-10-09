@@ -16,14 +16,7 @@ import { StepDetailsDrawer } from '@/features/dags/components/step-details';
 import { cn, toMermaidNodeId } from '@/lib/utils';
 import { workspaceNameFromLabels } from '@/lib/workspace';
 import BorderedBox from '@/components/ui/bordered-box';
-import {
-  AlertTriangle,
-  Check,
-  Copy,
-  MousePointerClick,
-  Save,
-  Undo2,
-} from 'lucide-react';
+import { AlertTriangle, Check, Copy, Save, Undo2 } from 'lucide-react';
 import React, { useEffect } from 'react';
 import { useCookies } from 'react-cookie';
 import { components } from '../../../../api/v1/schema';
@@ -31,11 +24,6 @@ import { Button } from '@/components/ui/button';
 import { useErrorModal } from '@/components/ui/error-modal';
 import { useSimpleToast } from '@/components/ui/simple-toast';
 import { Tab, Tabs } from '@/components/ui/tabs';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
 import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import { useSchema } from '../../../../contexts/SchemaContext';
 import { useUnsavedChanges } from '../../../../contexts/UnsavedChangesContext';
@@ -51,6 +39,7 @@ import { DAGContext } from '../../contexts/DAGContext';
 import { DAGStepTable } from '../dag-details';
 import { ValueReferenceNoticesButton } from '../value-reference-notices';
 import { FlowchartType, Graph } from '../visualization';
+import { GraphInteractionsHint } from '../visualization/GraphInteractionsHint';
 import {
   buildAugmentedDAGSchema,
   customActionHintsEqual,
@@ -690,31 +679,7 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
                     height={fillGraph ? '100%' : undefined}
                   />
                 </BorderedBox>
-                <div className="mt-2 flex justify-end">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div
-                        className="flex h-7 w-7 items-center justify-center rounded bg-muted text-muted-foreground cursor-help"
-                        aria-label={ts('Graph interactions')}
-                      >
-                        <MousePointerClick className="h-3.5 w-3.5" />
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <div className="space-y-1">
-                        <p>
-                          <I18nText text={'Click: Inspect step details'} />
-                        </p>
-                        <p>
-                          <I18nText text={'Drag: Pan the graph'} />
-                        </p>
-                        <p>
-                          <I18nText text={'Ctrl/Cmd + scroll or pinch: Zoom'} />
-                        </p>
-                      </div>
-                    </TooltipContent>
-                  </Tooltip>
-                </div>
+                <GraphInteractionsHint className="mt-2" inspect />
               </div>
             )}
 

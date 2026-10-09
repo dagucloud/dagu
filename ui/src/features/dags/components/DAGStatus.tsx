@@ -4,11 +4,6 @@
 import { useErrorModal } from '@/components/ui/error-modal';
 import { Tab, Tabs } from '@/components/ui/tabs';
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
-import {
   ActivitySquare,
   AlertTriangle,
   Archive,
@@ -18,7 +13,6 @@ import {
   ListChecks,
   GanttChart,
   MessageSquare,
-  MousePointerClick,
   Package,
   ShieldCheck,
   ScrollText,
@@ -59,6 +53,7 @@ import {
   StatusUpdateModal,
 } from './dag-execution';
 import { FlowchartType, Graph, TimelineChart } from './visualization';
+import { GraphInteractionsHint } from './visualization/GraphInteractionsHint';
 import {
   GraphResizeHandle,
   useResizableGraphHeight,
@@ -867,45 +862,12 @@ function DAGStatus({
               displayDAGRun.nodes.length > 0 && (
                 <div className="flex flex-col">
                   <BorderedBox className="pt-4 px-4 pb-0 flex flex-col items-stretch overflow-hidden">
-                    <div className="flex justify-end mb-2">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <div
-                            className="flex h-7 w-7 items-center justify-center rounded bg-muted text-muted-foreground cursor-help"
-                            aria-label={ts('Graph interactions')}
-                          >
-                            <MousePointerClick className="h-3.5 w-3.5" />
-                          </div>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <div className="space-y-1">
-                            <p>
-                              <I18nText text={'Click: Inspect step details'} />
-                            </p>
-                            <p>
-                              <I18nText
-                                text={'Double-click: Navigate to sub dagRun'}
-                              />
-                            </p>
-                            {config.permissions.runDags && (
-                              <p>
-                                <I18nText
-                                  text={'Right-click: Update node status'}
-                                />
-                              </p>
-                            )}
-                            <p>
-                              <I18nText text={'Drag: Pan the graph'} />
-                            </p>
-                            <p>
-                              <I18nText
-                                text={'Ctrl/Cmd + scroll or pinch: Zoom'}
-                              />
-                            </p>
-                          </div>
-                        </TooltipContent>
-                      </Tooltip>
-                    </div>
+                    <GraphInteractionsHint
+                      className="mb-2"
+                      inspect
+                      openSubRun
+                      updateStatus={config.permissions.runDags}
+                    />
                     <div ref={graphBoxRef} className="w-full min-w-0">
                       <Graph
                         steps={displayDAGRun.nodes}

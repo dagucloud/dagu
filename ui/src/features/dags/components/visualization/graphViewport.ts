@@ -4,6 +4,7 @@
 import type { FlowchartType } from './Graph';
 
 export type GraphSize = { width: number; height: number };
+export type ScreenPoint = { x: number; y: number };
 
 /**
  * How far a newly shown graph may shrink to fit: `readable` keeps labels
