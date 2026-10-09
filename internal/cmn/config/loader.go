@@ -1729,6 +1729,7 @@ func (l *ConfigLoader) loadLicenseConfig(cfg *Config, def Definition) {
 	}
 	cfg.License.Key = def.License.Key
 	cfg.License.CloudURL = def.License.CloudURL
+	cfg.License.ServerName = def.License.ServerName
 }
 
 func (l *ConfigLoader) loadExecutionModeConfig(cfg *Config, _ Definition) {
@@ -2330,6 +2331,7 @@ var envBindings = []envBinding{
 	// License
 	{key: "license.key", env: "LICENSE_KEY"},
 	{key: "license.cloud_url", env: "LICENSE_CLOUD_URL"},
+	{key: "license.server_name", env: "LICENSE_SERVER_NAME"},
 
 	// GitSync
 	{key: "git_sync.enabled", env: "GITSYNC_ENABLED"},

@@ -638,6 +638,61 @@ func TestManager_Stop(t *testing.T) {
 // ActivateWithKey
 // ---------------------------------------------------------------------------
 
+func TestManager_ServerName(t *testing.T) {
+	t.Parallel()
+
+	t.Run("configured name is sent on activation and heartbeat", func(t *testing.T) {
+		t.Parallel()
+
+		pub, priv := testKeyPair(t)
+		token := signToken(t, priv, validClaims())
+		activated := make(chan ActivateRequest, 1)
+		heartbeats := make(chan HeartbeatRequest, 1)
+		srv := newMockCloudServer(t, mockCloudServerConfig{
+			activateHandler: func(w http.ResponseWriter, r *http.Request) {
+				var req ActivateRequest
+				_ = json.NewDecoder(r.Body).Decode(&req)
+				activated <- req
+				activateHandlerFn(token, "hb-secret")(w, r)
+			},
+			heartbeatHandler: func(w http.ResponseWriter, r *http.Request) {
+				var req HeartbeatRequest
+				_ = json.NewDecoder(r.Body).Decode(&req)
+				select {
+				case heartbeats <- req:
+				default:
+				}
+				heartbeatHandlerFn(token)(w, r)
+			},
+		})
+
+		m := NewManager(ManagerConfig{
+			LicenseDir: t.TempDir(),
+			CloudURL:   srv.URL,
+			ServerName: "  build-01  ",
+		}, pub, nil, slog.Default())
+		t.Cleanup(func() { stopWithTimeout(t, m, 5*time.Second) })
+
+		_, err := m.ActivateWithKey(context.Background(), "key")
+		require.NoError(t, err)
+
+		assert.Equal(t, "build-01", (<-activated).MachineName)
+		assert.Equal(t, "build-01", (<-heartbeats).ServerName)
+	})
+
+	t.Run("hostname is the default", func(t *testing.T) {
+		t.Parallel()
+
+		hostname, err := os.Hostname()
+		require.NoError(t, err)
+		pub, _ := testKeyPair(t)
+
+		m := NewManager(ManagerConfig{LicenseDir: t.TempDir()}, pub, nil, slog.Default())
+
+		assert.Equal(t, hostname, m.serverName)
+	})
+}
+
 func TestManager_ActivateWithKey(t *testing.T) {
 	t.Parallel()
 

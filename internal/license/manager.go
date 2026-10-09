@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -32,6 +33,9 @@ type ManagerConfig struct {
 	LicenseDir string
 	ConfigKey  string
 	CloudURL   string
+	// ServerName identifies this server in Dagu Console. Empty means the
+	// hostname.
+	ServerName string
 }
 
 // ActivationResult is returned after a successful activation.
@@ -49,6 +53,8 @@ type Manager struct {
 	client *CloudClient
 	pubKey ed25519.PublicKey
 	logger *slog.Logger
+	// serverName is resolved once because Status is read on every page load.
+	serverName string
 
 	statusMu sync.RWMutex
 	source   DiscoverySource
@@ -68,13 +74,28 @@ func NewManager(cfg ManagerConfig, pubKey ed25519.PublicKey, store ActivationSto
 		logger = slog.Default()
 	}
 	return &Manager{
-		cfg:    cfg,
-		state:  &State{},
-		store:  store,
-		client: NewCloudClient(cfg.CloudURL),
-		pubKey: pubKey,
-		logger: logger,
+		cfg:        cfg,
+		state:      &State{},
+		store:      store,
+		client:     NewCloudClient(cfg.CloudURL),
+		pubKey:     pubKey,
+		logger:     logger,
+		serverName: resolveServerName(cfg.ServerName, logger),
 	}
+}
+
+// resolveServerName returns the configured server name, falling back to the
+// hostname.
+func resolveServerName(configured string, logger *slog.Logger) string {
+	if name := strings.TrimSpace(configured); name != "" {
+		return name
+	}
+	hostname, err := os.Hostname()
+	if err != nil || hostname == "" {
+		logger.Warn("Failed to get hostname", slog.Any("error", err))
+		return "unknown"
+	}
+	return hostname
 }
 
 // Checker returns the Checker interface backed by the manager's state.
@@ -290,16 +311,10 @@ func (m *Manager) activate(ctx context.Context, key string) (*ActivationData, er
 		return nil, fmt.Errorf("failed to get server ID: %w", err)
 	}
 
-	hostname, err := os.Hostname()
-	if err != nil {
-		m.logger.Warn("Failed to get hostname", slog.String("error", err.Error()))
-		hostname = "unknown"
-	}
-
 	resp, err := m.client.Activate(ctx, ActivateRequest{
 		Key:           key,
 		ServerID:      serverID,
-		MachineName:   hostname,
+		MachineName:   m.serverName,
 		ClientVersion: config.Version,
 	})
 	if err != nil {
@@ -383,6 +398,7 @@ func (m *Manager) doHeartbeat(ctx context.Context, ad *ActivationData) {
 		ServerID:        ad.ServerID,
 		HeartbeatSecret: ad.HeartbeatSecret,
 		ClientVersion:   config.Version,
+		ServerName:      m.serverName,
 	})
 	if err != nil {
 		if cloudErr, ok := errors.AsType[*CloudError](err); ok {

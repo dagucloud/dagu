@@ -140,5 +140,6 @@ func newLicenseManager(ctx *Context, configKey string) (*license.Manager, error)
 		LicenseDir: licenseDir,
 		ConfigKey:  configKey,
 		CloudURL:   ctx.Config.License.CloudURL,
+		ServerName: ctx.Config.License.ServerName,
 	}, pubKey, store, slog.Default()), nil
 }

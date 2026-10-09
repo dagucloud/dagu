@@ -133,6 +133,9 @@ const TunnelProviderTailscale = "tailscale"
 type LicenseConfig struct {
 	Key      string
 	CloudURL string
+	// ServerName identifies this server in Dagu Console. Empty means the
+	// hostname.
+	ServerName string
 }
 
 // ExecutionMode represents the default execution mode for DAGs.

@@ -1628,6 +1628,11 @@
         "cloud_url": {
           "type": "string",
           "description": "License service URL."
+        },
+        "server_name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Name that identifies this server in Dagu Console. Default: the hostname."
         }
       }
     }

@@ -559,6 +559,7 @@ type TunnelRateLimitDef struct {
 
 // LicenseDef configures license activation.
 type LicenseDef struct {
-	Key      string `mapstructure:"key"`
-	CloudURL string `mapstructure:"cloud_url"`
+	Key        string `mapstructure:"key"`
+	CloudURL   string `mapstructure:"cloud_url"`
+	ServerName string `mapstructure:"server_name"`
 }

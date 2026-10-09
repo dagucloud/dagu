@@ -349,6 +349,7 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 			LicenseDir: licenseDir,
 			ConfigKey:  cfg.License.Key,
 			CloudURL:   cfg.License.CloudURL,
+			ServerName: cfg.License.ServerName,
 		}, pubKey, licStore, slog.Default())
 		if err := licMgr.Start(ctx); err != nil {
 			logger.Warn(ctx, "License manager initialization failed", tag.Error(err))

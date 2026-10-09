@@ -616,6 +616,22 @@ opencode:
 	require.Equal(t, []string{"OPENAI_API_KEY"}, cfg.OpenCode.EnvPassthrough)
 }
 
+func TestLoad_LicenseServerName(t *testing.T) {
+	t.Run("YAML", func(t *testing.T) {
+		t.Setenv("DAGU_LICENSE_SERVER_NAME", "")
+		cfg := loadFromYAML(t, `
+license:
+  server_name: build-01
+`)
+		require.Equal(t, "build-01", cfg.License.ServerName)
+	})
+
+	t.Run("Env", func(t *testing.T) {
+		t.Setenv("DAGU_LICENSE_SERVER_NAME", "prod-eu-1")
+		require.Equal(t, "prod-eu-1", testLoad(t).License.ServerName)
+	})
+}
+
 func TestLoad_OpenCodeConfigFromEnv(t *testing.T) {
 	t.Setenv("DAGU_OPENCODE_EXECUTABLE", "/opt/opencode")
 	t.Setenv("DAGU_OPENCODE_ENV_PASSTHROUGH", "OPENAI_API_KEY,ANTHROPIC_API_KEY")
