@@ -174,6 +174,32 @@ func (m *Manager) currentActivation() *ActivationData {
 	return &c
 }
 
+// CloudCredentials identify this server's activation to Dagu Console.
+type CloudCredentials struct {
+	// CloudURL is the Dagu Console base URL, without a trailing slash.
+	CloudURL        string
+	LicenseID       string
+	ServerID        string
+	HeartbeatSecret string
+}
+
+// CloudCredentials returns the credentials of the current activation. It
+// reports false unless the license is an online activation that checks in
+// with Dagu Console.
+func (m *Manager) CloudCredentials() (CloudCredentials, bool) {
+	ad := m.currentActivation()
+	claims := m.state.Claims()
+	if ad == nil || claims == nil {
+		return CloudCredentials{}, false
+	}
+	return CloudCredentials{
+		CloudURL:        m.client.baseURL,
+		LicenseID:       claims.ID,
+		ServerID:        ad.ServerID,
+		HeartbeatSecret: ad.HeartbeatSecret,
+	}, true
+}
+
 // Start performs discovery, optional activation, JWT verification, and starts the heartbeat loop.
 // It always returns nil for graceful degradation: license errors are logged but never prevent
 // the application from starting.

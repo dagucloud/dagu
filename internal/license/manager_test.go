@@ -701,6 +701,72 @@ func TestManager_ServerName(t *testing.T) {
 	})
 }
 
+func TestManager_CloudCredentials(t *testing.T) {
+	// Subtests use t.Setenv so the parent must not call t.Parallel.
+
+	t.Run("online activation", func(t *testing.T) {
+		pub, priv := testKeyPair(t)
+		claims := validClaims()
+		claims.ID = "lic-1"
+		token := signToken(t, priv, claims)
+		srv := newMockCloudServer(t, mockCloudServerConfig{
+			activateHandler:  activateHandlerFn(token, "hb-secret"),
+			heartbeatHandler: heartbeatHandlerFn(token),
+		})
+		dir := t.TempDir()
+		m := NewManager(ManagerConfig{LicenseDir: dir, CloudURL: srv.URL + "/"}, pub, nil, slog.Default())
+		t.Cleanup(func() { stopWithTimeout(t, m, 5*time.Second) })
+
+		_, err := m.ActivateWithKey(context.Background(), "key")
+		require.NoError(t, err)
+		serverID, err := GetOrCreateServerID(dir)
+		require.NoError(t, err)
+
+		creds, ok := m.CloudCredentials()
+		require.True(t, ok)
+		assert.Equal(t, CloudCredentials{
+			CloudURL:        srv.URL,
+			LicenseID:       "lic-1",
+			ServerID:        serverID,
+			HeartbeatSecret: "hb-secret",
+		}, creds)
+	})
+
+	offline := map[string]func(t *testing.T, licenseDir, token string){
+		"inline JWT": func(t *testing.T, _, token string) {
+			t.Setenv("DAGU_LICENSE", token)
+		},
+		"license file": func(t *testing.T, licenseDir, token string) {
+			require.NoError(t, os.WriteFile(filepath.Join(licenseDir, "license.jwt"), []byte(token), 0600))
+		},
+	}
+	for name, install := range offline {
+		t.Run(name, func(t *testing.T) {
+			pub, priv := testKeyPair(t)
+			dir := t.TempDir()
+			t.Setenv("DAGU_LICENSE", "")
+			t.Setenv("DAGU_LICENSE_KEY", "")
+			t.Setenv("DAGU_LICENSE_FILE", "")
+			install(t, dir, signToken(t, priv, validClaims()))
+
+			m := NewManager(ManagerConfig{LicenseDir: dir}, pub, nil, slog.Default())
+			require.NoError(t, m.Start(context.Background()))
+			require.False(t, m.Checker().IsCommunity())
+
+			_, ok := m.CloudCredentials()
+			assert.False(t, ok)
+		})
+	}
+
+	t.Run("community", func(t *testing.T) {
+		pub, _ := testKeyPair(t)
+		m := NewManager(ManagerConfig{LicenseDir: t.TempDir()}, pub, nil, slog.Default())
+
+		_, ok := m.CloudCredentials()
+		assert.False(t, ok)
+	})
+}
+
 func TestManager_ActivateWithKey(t *testing.T) {
 	t.Parallel()
 
