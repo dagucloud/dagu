@@ -48,13 +48,14 @@ describe('fittedScale', () => {
     expect(fittedScale({ width: 200, height: 100 }, VIEWPORT, 'full')).toBe(1);
   });
 
+  // A full view must show the whole drawing, even below the zoom floor.
   it('stops at the readable minimum unless a full view is requested', () => {
-    const drawing = { width: 8000, height: 400 };
+    const drawing = { width: 16000, height: 400 };
 
     expect(fittedScale(drawing, VIEWPORT, 'readable')).toBe(
       GRAPH_READABLE_MIN_SCALE
     );
-    expect(fittedScale(drawing, VIEWPORT, 'full')).toBe(GRAPH_MIN_SCALE);
+    expect(fittedScale(drawing, VIEWPORT, 'full')).toBe(0.05);
   });
 });
 

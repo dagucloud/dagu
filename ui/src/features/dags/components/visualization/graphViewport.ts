@@ -19,6 +19,7 @@ type ScrollMetrics = {
   clientHeight: number;
 };
 
+/** Smallest zoom reached by zooming out; a full fit may go lower. */
 export const GRAPH_MIN_SCALE = 0.1;
 export const GRAPH_MAX_SCALE = 2;
 /** Mermaid draws labels at 16px, so this keeps them at roughly 10px. */
@@ -58,14 +59,17 @@ export function fitScale(drawing: GraphSize, viewport: GraphSize): number {
   return Math.min(width / drawing.width, height / drawing.height);
 }
 
-/** Fitted scale that never enlarges the drawing. */
+/**
+ * Fitted scale that never enlarges the drawing. A readable fit stops at
+ * GRAPH_READABLE_MIN_SCALE; a full fit goes as low as the drawing needs.
+ */
 export function fittedScale(
   drawing: GraphSize,
   viewport: GraphSize,
   fit: GraphInitialFit
 ): number {
-  const min = fit === 'readable' ? GRAPH_READABLE_MIN_SCALE : GRAPH_MIN_SCALE;
-  return clampScale(fitScale(drawing, viewport), min, 1);
+  const scale = Math.min(1, fitScale(drawing, viewport));
+  return fit === 'readable' ? Math.max(GRAPH_READABLE_MIN_SCALE, scale) : scale;
 }
 
 /** Tallest box a content-sized graph may take in a window of this height. */

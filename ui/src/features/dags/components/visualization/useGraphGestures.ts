@@ -31,6 +31,8 @@ type Drag = {
 /** Mouse travel before a press becomes a pan instead of a click. */
 const DRAG_THRESHOLD_PX = 4;
 const PANNING_ATTRIBUTE = 'data-graph-panning';
+/** `PointerEvent.buttons` bit for the primary (left) button. */
+const PRIMARY_BUTTON = 1;
 
 /**
  * Gesture input for a graph viewport: Ctrl/Cmd+wheel and pinch zoom at the
@@ -111,6 +113,13 @@ export function useGraphGestures({
     };
     const onPointerMove = (event: PointerEvent) => {
       if (!drag || event.pointerId !== drag.pointerId) {
+        return;
+      }
+      // A release outside the graph never reaches it before the pointer is
+      // captured, so a move without the primary button ends the press.
+      if ((event.buttons & PRIMARY_BUTTON) === 0) {
+        drag = null;
+        viewport.removeAttribute(PANNING_ATTRIBUTE);
         return;
       }
       const dx = event.clientX - drag.start.x;

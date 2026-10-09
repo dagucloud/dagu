@@ -198,6 +198,18 @@ function Graph({
     });
   }, [steps]);
 
+  // Nodes and dependency edges decide the layout; status updates do not.
+  const structureKey = React.useMemo(
+    () =>
+      JSON.stringify([
+        flowchart,
+        (steps ?? []).map((stepOrNode) => {
+          const step = isRuntimeNode(stepOrNode) ? stepOrNode.step : stepOrNode;
+          return [step.name, allDepends(step)];
+        }),
+      ]),
+    [flowchart, steps]
+  );
   const sizeToContent = height === undefined && !isExpandedView;
   const {
     scale,
@@ -211,7 +223,7 @@ function Graph({
     boxRef: containerRef,
     viewportRef,
     layout: flowchart,
-    structureKey: `${flowchart}:${mermaidNodeIds.join(',')}`,
+    structureKey,
     initialFit: isExpandedView ? 'full' : 'readable',
     sizeToContent,
   });

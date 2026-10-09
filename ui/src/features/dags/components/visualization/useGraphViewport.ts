@@ -11,6 +11,7 @@ import {
   autoGraphMaxHeight,
   clampScale,
   fittedScale,
+  GRAPH_MIN_SCALE,
   GRAPH_ZOOM_STEP,
   type GraphInitialFit,
   type GraphSize,
@@ -148,8 +149,10 @@ export function useGraphViewport({
   /** Zooms while keeping the drawing under `anchor` (default: viewport centre) in place. */
   const zoomTo = React.useCallback(
     (target: number, anchor?: ScreenPoint) => {
-      const next = clampScale(target);
       const previous = scaleRef.current;
+      // After a full fit below the floor, zooming out stays put instead of
+      // jumping back up to the floor.
+      const next = clampScale(target, Math.min(GRAPH_MIN_SCALE, previous));
       if (next === previous) {
         return;
       }

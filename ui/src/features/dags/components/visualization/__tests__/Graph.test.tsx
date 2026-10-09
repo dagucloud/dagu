@@ -475,8 +475,18 @@ describe('Graph zoom', () => {
     const pointer = { pointerType: 'mouse', pointerId: 1, button: 0 };
     viewport.scrollLeft = 200;
 
-    fireEvent.pointerDown(graphNode, { ...pointer, clientX: 100, clientY: 50 });
-    fireEvent.pointerMove(graphNode, { ...pointer, clientX: 160, clientY: 50 });
+    fireEvent.pointerDown(graphNode, {
+      ...pointer,
+      buttons: 1,
+      clientX: 100,
+      clientY: 50,
+    });
+    fireEvent.pointerMove(graphNode, {
+      ...pointer,
+      buttons: 1,
+      clientX: 160,
+      clientY: 50,
+    });
     fireEvent.pointerUp(graphNode, { ...pointer, clientX: 160, clientY: 50 });
     fireEvent.click(graphNode);
 
@@ -506,5 +516,65 @@ describe('Graph zoom', () => {
     const { container } = await renderGraph(SMALL_SVG, { height: 300 });
 
     expect(boxHeight(container)).toBe('300px');
+  });
+
+  // The release happened outside the graph, so the graph only sees the
+  // mouse coming back with no button held.
+  it('does not pan after the button was released outside the graph', async () => {
+    const { container } = await renderGraph(LARGE_SVG);
+    const viewport = viewportOf(container);
+    const pointer = { pointerType: 'mouse', pointerId: 1, button: 0 };
+    viewport.scrollLeft = 200;
+
+    fireEvent.pointerDown(viewport, {
+      ...pointer,
+      buttons: 1,
+      clientX: 100,
+      clientY: 50,
+    });
+    fireEvent.pointerMove(viewport, {
+      ...pointer,
+      buttons: 0,
+      clientX: 300,
+      clientY: 50,
+    });
+
+    expect(viewport.scrollLeft).toBe(200);
+  });
+
+  // 40000px wide needs 1.84% to fit the 736px inside the padding.
+  it('fits a very long graph below the zoom floor and stays there', async () => {
+    const { container } = await renderGraph(
+      '<svg viewBox="0 0 40000 1000"></svg>'
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fit to screen' }));
+    expect(svgWidth(container)).toBe('736px');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom out' }));
+    expect(svgWidth(container)).toBe('736px');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
+    expect(parseFloat(svgWidth(container))).toBeCloseTo(883.2);
+  });
+
+  it('fits again when a dependency changes', async () => {
+    const steps = [
+      node('a', NodeStatus.Running),
+      node('b', NodeStatus.Running, ['a']),
+      node('c', NodeStatus.Running, ['b']),
+    ];
+    const { container, rerender } = await renderGraph(LARGE_SVG, { steps });
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
+    expect(svgWidth(container)).toBe('2880px');
+
+    rerender(
+      <Graph
+        type="status"
+        steps={[steps[0]!, steps[1]!, node('c', NodeStatus.Running, ['a'])]}
+      />
+    );
+
+    await waitFor(() => expect(svgWidth(container)).toBe('2400px'));
   });
 });
