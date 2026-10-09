@@ -51,7 +51,7 @@ function renderTable(
     canRenameDAGs?: boolean;
     onDeleteDAGs?: React.ComponentProps<typeof DAGTable>['onDeleteDAGs'];
     onRenameDAG?: (fileName: string, newFileName: string) => Promise<void>;
-    canPinDAGs?: boolean;
+    canPinDAG?: React.ComponentProps<typeof DAGTable>['canPinDAG'];
     selectedDAG?: string;
     onSelectDAG?: (fileName: string, title: string) => void;
   } = {}
@@ -124,7 +124,7 @@ function renderTable(
             onDeleteWorkflowView={vi.fn()}
             onDeleteDAGs={onDeleteDAGs}
             onRenameDAG={onRenameDAG}
-            canPinDAGs={options.canPinDAGs ?? true}
+            canPinDAG={options.canPinDAG ?? (() => true)}
             onSetDAGPinned={onSetDAGPinned}
             selectedDAG={options.selectedDAG}
             onSelectDAG={options.onSelectDAG}
@@ -576,8 +576,11 @@ describe('DAGTable', () => {
 
   it('marks pinned workflows without a pin button for read-only users', () => {
     renderTable('', {
-      canPinDAGs: false,
-      dags: [workflow({ name: 'reports', pinned: true })],
+      canPinDAG: (dag) => dag.fileName === 'alpha.yaml',
+      dags: [
+        workflow({ name: 'reports', pinned: true }),
+        workflow({ name: 'alpha' }),
+      ],
     });
     const table = screen.getByRole('table');
 
@@ -585,6 +588,9 @@ describe('DAGTable', () => {
     expect(
       within(table).queryByRole('button', { name: 'Pin workflow reports' })
     ).not.toBeInTheDocument();
+    expect(
+      within(table).getByRole('button', { name: 'Pin workflow alpha' })
+    ).toBeInTheDocument();
   });
 
   it('shows the pinned section and pin buttons in the card view', () => {

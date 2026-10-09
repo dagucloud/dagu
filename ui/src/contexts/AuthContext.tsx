@@ -242,13 +242,30 @@ export function useCanWrite(): boolean {
 }
 
 export function useCanWriteForWorkspace(workspace?: string | null): boolean {
+  return useWorkspaceWriteCheck()(workspace);
+}
+
+/**
+ * Returns a check for whether the current user can write in a workspace, for
+ * lists whose items belong to different workspaces.
+ */
+export function useWorkspaceWriteCheck(): (
+  workspace?: string | null
+) => boolean {
   const { user } = useAuth();
   const config = useConfig();
-  if (config.authMode !== 'builtin') return config.permissions.writeDags;
-  if (!user) return false;
-  return roleAtLeast(
-    effectiveWorkspaceRole(user, workspace ?? ''),
-    UserRole.developer
+  const { authMode } = config;
+  const { writeDags } = config.permissions;
+  return useCallback(
+    (workspace?: string | null) => {
+      if (authMode !== 'builtin') return writeDags;
+      if (!user) return false;
+      return roleAtLeast(
+        effectiveWorkspaceRole(user, workspace ?? ''),
+        UserRole.developer
+      );
+    },
+    [authMode, user, writeDags]
   );
 }
 

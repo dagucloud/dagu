@@ -130,7 +130,7 @@ interface DAGCardProps {
   canRenameDAGs: boolean;
   onRenameDAG: (dag: components['schemas']['DAGFile']) => void;
   onDeleteDAG: (dag: components['schemas']['DAGFile']) => void;
-  canPinDAGs: boolean;
+  canPin: boolean;
   isPinPending: boolean;
   onTogglePin: (dag: components['schemas']['DAGFile']) => void;
   className?: string;
@@ -195,7 +195,7 @@ function DAGCard({
   canRenameDAGs,
   onRenameDAG,
   onDeleteDAG,
-  canPinDAGs,
+  canPin,
   isPinPending,
   onTogglePin,
   className = '',
@@ -250,7 +250,7 @@ function DAGCard({
           <PinToggle
             name={title}
             pinned={dag.pinned}
-            canToggle={canPinDAGs}
+            canToggle={canPin}
             pending={isPinPending}
             onToggle={() => onTogglePin(dag)}
             className="size-6"
@@ -481,8 +481,8 @@ type Props = {
   onDeleteWorkflowView: (viewId: string) => Promise<void>;
   onDeleteDAGs: (fileNames: string[]) => Promise<DAGDeleteResult[]>;
   onRenameDAG: (fileName: string, newFileName: string) => Promise<void>;
-  /** Whether the current user can pin workflows for everyone in this scope */
-  canPinDAGs: boolean;
+  /** Whether the current user can pin a workflow for everyone */
+  canPinDAG: (dag: components['schemas']['DAGFile']) => boolean;
   /** Pins or unpins a workflow for all users */
   onSetDAGPinned: (fileName: string, pinned: boolean) => Promise<void>;
   /** Total workflows matching the server-side filters */
@@ -532,7 +532,7 @@ declare module '@tanstack/react-table' {
     onOpenRenameDAG?: (dag: components['schemas']['DAGFile']) => void;
     canDeleteDAGs?: boolean;
     onOpenDeleteDAG?: (dag: components['schemas']['DAGFile']) => void;
-    canPinDAGs?: boolean;
+    canPinDAG?: (dag: components['schemas']['DAGFile']) => boolean;
     isPinPending?: (fileName: string) => boolean;
     onTogglePin?: (dag: components['schemas']['DAGFile']) => void;
   }
@@ -652,7 +652,7 @@ const defaultColumns = [
           <PinToggle
             name={dag.dag.name}
             pinned={dag.pinned}
-            canToggle={meta?.canPinDAGs ?? false}
+            canToggle={meta?.canPinDAG?.(dag) ?? false}
             pending={meta?.isPinPending?.(dag.fileName)}
             revealOnHover
             onToggle={() => meta?.onTogglePin?.(dag)}
@@ -1279,7 +1279,7 @@ function DAGTable({
   onDeleteWorkflowView,
   onDeleteDAGs,
   onRenameDAG,
-  canPinDAGs,
+  canPinDAG,
   onSetDAGPinned,
   resultCount,
   selectedDAG = null,
@@ -1742,7 +1742,7 @@ function DAGTable({
       onOpenRenameDAG: openRenameDAG,
       canDeleteDAGs,
       onOpenDeleteDAG: openDeleteDAG,
-      canPinDAGs,
+      canPinDAG,
       isPinPending: (fileName) => pendingPins.has(fileName),
       onTogglePin: (dag) => void togglePin(dag),
     },
@@ -2202,7 +2202,7 @@ function DAGTable({
                               canRenameDAGs={canRenameDAGs}
                               onRenameDAG={openRenameDAG}
                               onDeleteDAG={openDeleteDAG}
-                              canPinDAGs={canPinDAGs}
+                              canPin={canPinDAG(dagRow.dag)}
                               isPinPending={pendingPins.has(
                                 dagRow.dag.fileName
                               )}
@@ -2244,7 +2244,7 @@ function DAGTable({
                     canRenameDAGs={canRenameDAGs}
                     onRenameDAG={openRenameDAG}
                     onDeleteDAG={openDeleteDAG}
-                    canPinDAGs={canPinDAGs}
+                    canPin={canPinDAG(dagRow.dag)}
                     isPinPending={pendingPins.has(dagRow.dag.fileName)}
                     onTogglePin={(dag) => void togglePin(dag)}
                   />

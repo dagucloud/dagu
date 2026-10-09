@@ -43,6 +43,7 @@ const {
   showErrorMock,
   updateViewMock,
   userPreferences,
+  workspaceWriteCheckMock,
 } = vi.hoisted(() => ({
   clientDeleteMock: vi.fn(),
   clientGetMock: vi.fn(),
@@ -59,6 +60,7 @@ const {
   userPreferences: {
     pageLimit: 200,
   },
+  workspaceWriteCheckMock: vi.fn(),
 }));
 
 vi.mock('@/contexts/UserPreference', () => ({
@@ -70,6 +72,7 @@ vi.mock('@/contexts/UserPreference', () => ({
 
 vi.mock('@/contexts/AuthContext', () => ({
   useCanWriteForWorkspace: () => true,
+  useWorkspaceWriteCheck: () => workspaceWriteCheckMock,
 }));
 
 vi.mock('@/components/ui/error-modal', () => ({
@@ -130,8 +133,12 @@ vi.mock('@/features/dags/components/dag-list', () => ({
     onDeleteDAGs,
     onRenameDAG,
     onSetDAGPinned,
+    canPinDAG,
   }: {
-    dags: Array<{ fileName: string; dag: { name: string } }>;
+    dags: Array<{
+      fileName: string;
+      dag: { name: string; workspace?: string };
+    }>;
     searchText: string;
     handleSearchTextChange: (value: string) => void;
     activeOnly: boolean;
@@ -156,6 +163,10 @@ vi.mock('@/features/dags/components/dag-list', () => ({
     ) => Promise<Array<{ fileName: string; error?: string }>>;
     onRenameDAG: (fileName: string, newFileName: string) => Promise<void>;
     onSetDAGPinned: (fileName: string, pinned: boolean) => Promise<void>;
+    canPinDAG?: (dag: {
+      fileName: string;
+      dag: { name: string; workspace?: string };
+    }) => boolean;
   }) => (
     <div>
       <input
@@ -262,7 +273,9 @@ vi.mock('@/features/dags/components/dag-list', () => ({
       </button>
       <ul>
         {dags.map((dag) => (
-          <li key={dag.fileName}>{dag.fileName}</li>
+          <li key={dag.fileName} data-can-pin={String(canPinDAG?.(dag))}>
+            {dag.fileName}
+          </li>
         ))}
       </ul>
     </div>
@@ -473,6 +486,8 @@ describe('DagsPage', () => {
     clientPutMock.mockResolvedValue({});
     listMutateMock.mockReset();
     showErrorMock.mockReset();
+    workspaceWriteCheckMock.mockReset();
+    workspaceWriteCheckMock.mockReturnValue(true);
     renameErrorMock.mockReset();
     sharedWorkflowViewState.views = [];
     createViewMock.mockReset();
@@ -1096,6 +1111,31 @@ describe('DagsPage', () => {
     expect(clientDeleteMock).toHaveBeenCalledWith(
       '/dags/{fileName}/pin',
       request
+    );
+  });
+
+  // In an all-workspaces view, write access differs between workflows.
+  it('checks pin permission against each workflow workspace', () => {
+    dagsPageResponse.dags = [
+      { fileName: 'demo.yaml', dag: { name: 'demo' }, latestDAGRun: {} },
+      {
+        fileName: 'ops.yaml',
+        dag: { name: 'ops', workspace: 'ops' } as { name: string },
+        latestDAGRun: {},
+      },
+    ];
+    workspaceWriteCheckMock.mockImplementation(
+      (workspace?: string) => workspace === 'ops'
+    );
+    renderPage();
+
+    expect(screen.getByText('ops.yaml')).toHaveAttribute(
+      'data-can-pin',
+      'true'
+    );
+    expect(screen.getByText('demo.yaml')).toHaveAttribute(
+      'data-can-pin',
+      'false'
     );
   });
 

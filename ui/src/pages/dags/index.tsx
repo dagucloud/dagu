@@ -14,7 +14,10 @@ import {
 import { Button } from '@/components/ui/button';
 import { useErrorModal } from '@/components/ui/error-modal';
 import { AppBarContext } from '../../contexts/AppBarContext';
-import { useCanWriteForWorkspace } from '../../contexts/AuthContext';
+import {
+  useCanWriteForWorkspace,
+  useWorkspaceWriteCheck,
+} from '../../contexts/AuthContext';
 import { useSearchState } from '../../contexts/SearchStateContext';
 import { useUserPreferences } from '../../contexts/UserPreference';
 import { DAGDetailsModal } from '../../features/dags/components/dag-details';
@@ -271,6 +274,13 @@ function DAGsContent() {
   );
   const canManageWorkflowViews = useCanWriteForWorkspace(
     workflowViewScope.workspace
+  );
+  const canWriteWorkspace = useWorkspaceWriteCheck();
+  // The server authorizes a pin against the workflow's own workspace.
+  const canPinDAG = React.useCallback(
+    (dag: components['schemas']['DAGFile']) =>
+      canWriteWorkspace(dag.dag.workspace),
+    [canWriteWorkspace]
   );
   const {
     views: sharedWorkflowViews,
@@ -1181,7 +1191,7 @@ function DAGsContent() {
             onDeleteWorkflowView={handleDeleteWorkflowView}
             onDeleteDAGs={handleDeleteDAGs}
             onRenameDAG={handleRenameDAG}
-            canPinDAGs={canManageWorkflowViews}
+            canPinDAG={canPinDAG}
             onSetDAGPinned={handleSetDAGPinned}
             resultCount={data.pagination.totalRecords}
             selectedDAG={selectedDAG}
