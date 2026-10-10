@@ -104,7 +104,7 @@ export function MonitoringDialog({
           <DialogTitle>
             {ts(
               prompt
-                ? 'Get an email when a workflow fails'
+                ? 'Monitor this server from Dagu Console'
                 : 'Choose what this server reports'
             )}
           </DialogTitle>

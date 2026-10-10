@@ -569,7 +569,7 @@ describe('LicensePage', () => {
 
       const dialog = await screen.findByRole(
         'dialog',
-        { name: 'Get an email when a workflow fails' },
+        { name: 'Monitor this server from Dagu Console' },
         { timeout: 5000 }
       );
       await userEvent.click(
@@ -592,7 +592,7 @@ describe('LicensePage', () => {
 
       const dialog = await screen.findByRole(
         'dialog',
-        { name: 'Get an email when a workflow fails' },
+        { name: 'Monitor this server from Dagu Console' },
         { timeout: 5000 }
       );
       await userEvent.click(

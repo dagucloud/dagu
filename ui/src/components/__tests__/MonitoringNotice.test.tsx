@@ -65,7 +65,7 @@ const unchosen: LicenseMonitoring = {
   noticeDismissed: false,
 };
 
-const notice = 'Get an email when a workflow on this server fails.';
+const notice = 'Monitor this server from Dagu Console';
 
 // Serves monitoring the way the server does: PUT chooses a level and POST
 // dismisses the notice.
@@ -129,7 +129,7 @@ describe('MonitoringNotice', () => {
       await screen.findByRole('button', { name: 'Choose what to report' })
     );
     const dialog = await screen.findByRole('dialog', {
-      name: 'Get an email when a workflow fails',
+      name: 'Monitor this server from Dagu Console',
     });
     await userEvent.click(
       within(dialog).getByRole('button', { name: 'Turn on' })

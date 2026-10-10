@@ -59,7 +59,7 @@ export function MonitoringNotice() {
     >
       <span className="flex items-center gap-2">
         <BellRing className="h-4 w-4 shrink-0" aria-hidden="true" />
-        {ts('Get an email when a workflow on this server fails.')}
+        {ts('Monitor this server from Dagu Console')}
       </span>
       <span className="flex shrink-0 items-center gap-2">
         <button
