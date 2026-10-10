@@ -48,6 +48,9 @@ type fakeBackend struct {
 	// focus is the window with the keyboard focus, and under is the window
 	// under any position; zero means the system does not say.
 	focus, under desktop.WindowID
+	// windowAt, when set, reports the window under a given position, so a
+	// test can place different windows at different points.
+	windowAt func(x, y int) desktop.WindowID
 	// captures counts the screenshots taken.
 	captures int
 }
@@ -304,9 +307,12 @@ func (b *fakeBackend) FocusedWindow() desktop.WindowID {
 	return b.focus
 }
 
-func (b *fakeBackend) WindowAt(int, int) desktop.WindowID {
+func (b *fakeBackend) WindowAt(x, y int) desktop.WindowID {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.windowAt != nil {
+		return b.windowAt(x, y)
+	}
 	return b.under
 }
 

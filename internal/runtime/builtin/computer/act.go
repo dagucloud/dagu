@@ -274,16 +274,17 @@ func (l *actLoop) unchanged(ctx context.Context, turn *computeruse.Turn) (bool, 
 	// shows, but keys and typing now go there. The focus must be the
 	// window the model saw; where the system does not report it, a turn
 	// that types or presses keys goes back to the model.
-	if focus := l.r.driver.FocusedWindow(); focus.Known() && l.seen.focus.Known() {
-		if focus != l.seen.focus {
-			return false, nil
-		}
-	} else if usesKeyboard(turn.Actions) {
+	if l.focusLeftModel(turn) {
 		return false, nil
 	}
 	current, err := l.r.settle(ctx)
 	if err != nil {
 		return false, err
+	}
+	// The focus may have moved again while the screen settled, so a turn
+	// never runs its keys against a window the model did not see.
+	if l.focusLeftModel(turn) {
+		return false, nil
 	}
 	chosen := recordedTurn{Screen: desktop.FingerprintOf(l.seen.full)}
 	for _, action := range turn.Actions {
@@ -295,13 +296,29 @@ func (l *actLoop) unchanged(ctx context.Context, turn *computeruse.Turn) (bool, 
 	return matches(current, entry, chosen), nil
 }
 
-// usesKeyboard reports a turn that types or presses keys, which go to
-// whatever window has the focus.
+// focusLeftModel reports that the focus is no longer the window the model
+// saw, or is unknown while the turn uses the keyboard, in which case the
+// turn's keys would go to a window the model did not choose.
+func (l *actLoop) focusLeftModel(turn *computeruse.Turn) bool {
+	focus := l.r.driver.FocusedWindow()
+	if focus.Known() && l.seen.focus.Known() {
+		return focus != l.seen.focus
+	}
+	return usesKeyboard(turn.Actions)
+}
+
+// usesKeyboard reports a turn that sends keys to whatever window has the
+// focus: typing or key presses, or a pointer action that holds modifiers,
+// whose key-down reaches the focus wherever the pointer is.
 func usesKeyboard(actions []computeruse.Action) bool {
 	for _, action := range actions {
 		switch action.Kind {
 		case computeruse.KindType, computeruse.KindKey, computeruse.KindHoldKey:
 			return true
+		case computeruse.KindClick, computeruse.KindMove, computeruse.KindDrag, computeruse.KindScroll:
+			if len(action.Modifiers) > 0 {
+				return true
+			}
 		}
 	}
 	return false

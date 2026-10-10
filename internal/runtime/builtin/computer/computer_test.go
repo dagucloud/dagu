@@ -834,6 +834,61 @@ func TestOwnApplicationIsNeverOperated(t *testing.T) {
 	assert.Contains(t, session.observations[2].Results[0].Error, "never operates")
 }
 
+// The own-application guard covers every window an action reaches: the
+// window under the cursor for a button press that moves nothing, a later
+// point a drag crosses, and the focused window for a click that holds a
+// modifier while the pointer is elsewhere.
+func TestOwnApplicationGuardCoversEveryReach(t *testing.T) {
+	t.Parallel()
+
+	own := desktop.WindowID{Handle: 5, Title: "Kitewell", PID: 99}
+	other := desktop.WindowID{Handle: 6, Title: "Notepad", PID: 7}
+
+	cases := []struct {
+		name  string
+		setup func(*fakeBackend)
+		turn  *computeruse.Turn
+	}{
+		{
+			name:  "button press at the cursor over an owned window",
+			setup: func(b *fakeBackend) { b.under = own },
+			turn:  actions(computeruse.Action{CallID: "a", Kind: computeruse.KindMouseDown, Button: "left"}),
+		},
+		{
+			name: "a drag crosses an owned window after its first point",
+			setup: func(b *fakeBackend) {
+				b.windowAt = func(x, _ int) desktop.WindowID {
+					if x >= 100 {
+						return own
+					}
+					return other
+				}
+			},
+			turn: actions(computeruse.Action{CallID: "a", Kind: computeruse.KindDrag, Path: []computeruse.Point{{X: 10, Y: 10}, {X: 150, Y: 10}}}),
+		},
+		{
+			name:  "a modifier click while an owned window has the focus",
+			setup: func(b *fakeBackend) { b.under = other; b.focus = own },
+			turn:  actions(computeruse.Action{CallID: "a", Kind: computeruse.KindClick, Button: "left", Modifiers: []string{"alt"}, Point: &computeruse.Point{X: 10, Y: 10}}),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			run := newTestRun(t)
+			run.protect = []uint32{99}
+			tc.setup(run.backend)
+			session := &scriptedSession{turns: []*computeruse.Turn{tc.turn, done("Gave up")}}
+			run.sessions = []*scriptedSession{session}
+			execution := run.execute(`{"do": [{"act": "Operate"}]}`, nil)
+			require.NoError(t, execution.err)
+			assert.Empty(t, run.backend.inputs(), "nothing reached the desktop")
+			require.GreaterOrEqual(t, len(session.observations), 2)
+			assert.Contains(t, session.observations[1].Results[0].Error, "never operates")
+		})
+	}
+}
+
 // A wait for a person ends with an event, so a view knows the step is at
 // work again before its operation finishes.
 func TestWaitEndsWithAnEvent(t *testing.T) {
