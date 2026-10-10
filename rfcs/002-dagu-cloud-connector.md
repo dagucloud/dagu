@@ -116,7 +116,11 @@ events were lost, the time they were lost from.
 | Level | Fields | When |
 | --- | --- | --- |
 | `health` | Dagu version, OS, architecture, process start time, and service counts: schedulers holding the scheduler lock, and registered coordinators | Every report |
-| `runs` | The `health` fields, plus each status change of a top-level DAG run: event ID, type, DAG name, run ID, attempt ID, status, the event's time, and the run's queued, started, and finished times; on a finished run, up to 50 failed step names | At most 500 events and 512 KiB of them per report, with the next report; within 5 seconds of a failure or a step waiting for a person |
+| `runs` | The `health` fields, plus each reportable status change of a top-level DAG run: event ID, type, DAG name, run ID, attempt ID, status, the event's time, and the run's queued, started, and finished times; on a finished run, up to 50 failed step names | At most 500 events and 512 KiB of them per report, with the next report; within 5 seconds of a failure or a step waiting for a person |
+
+A status change is reportable unless its event has no valid status snapshot,
+or names a DAG longer than 512 bytes or a run, attempt, or event ID longer than
+256 bytes, which Dagu Cloud would not keep. Those events are left out.
 
 **Planned, not sent by any level yet:** queue depth, worker counts, the list
 of DAGs, and the remote access level. Each joins the table above, under its
