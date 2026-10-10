@@ -567,5 +567,5 @@ type LicenseDef struct {
 
 // CloudDef configures what a licensed server shares with Dagu Console.
 type CloudDef struct {
-	Report string `mapstructure:"report"` // off, health, or runs; unset reports nothing
+	Report string `mapstructure:"report"` // off or health; unset reports nothing
 }

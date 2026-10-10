@@ -644,9 +644,9 @@ func TestLoad_CloudReport(t *testing.T) {
 		t.Setenv("DAGU_CLOUD_REPORT", "")
 		cfg := loadFromYAML(t, `
 cloud:
-  report: runs
+  report: health
 `)
-		require.Equal(t, ReportRuns, cfg.Cloud.Report)
+		require.Equal(t, ReportHealth, cfg.Cloud.Report)
 		require.True(t, cfg.Cloud.Report.Reports())
 	})
 
@@ -662,11 +662,10 @@ cloud:
 
 	t.Run("Invalid", func(t *testing.T) {
 		t.Setenv("DAGU_CLOUD_REPORT", "")
-		err := loadWithErrorFromYAML(t, `
-cloud:
-  report: true
-`)
-		require.ErrorContains(t, err, "invalid cloud.report")
+		for _, value := range []string{"true", "runs"} {
+			err := loadWithErrorFromYAML(t, "cloud:\n  report: "+value+"\n")
+			require.ErrorContains(t, err, "invalid cloud.report", value)
+		}
 	})
 }
 
