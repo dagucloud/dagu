@@ -140,6 +140,54 @@ func TestMatch(t *testing.T) {
 	}
 }
 
+// Names and labels match after width folding, whitespace collapsing, and
+// without a label's trailing colon.
+func TestMatchNormalizes(t *testing.T) {
+	t.Parallel()
+
+	elements := formElements()
+	for i := range elements {
+		switch elements[i].ID {
+		case "saveButton":
+			elements[i].Name = "　保存 "
+		case "lblAmount":
+			elements[i].Name = "金額："
+		case "agreeBox":
+			elements[i].Name = "同意する（必須）"
+		}
+	}
+	matches, err := Match(formWindow, elements, Selector{Role: RoleButton, Name: "保存"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"saveButton", "paymentSaveButton"}, ids(matches))
+
+	matches, err = Match(formWindow, elements, Selector{Role: RoleTextField, Near: &Near{Label: "金額", Side: SideRight}, Nth: new(0)})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"amountBox"}, ids(matches), "a label's colon is not part of its name")
+
+	matches, err = Match(formWindow, elements, Selector{Role: RoleCheckbox, Name: "同意する(必須)"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"agreeBox"}, ids(matches), "full-width punctuation folds")
+
+	matches, err = Match(formWindow, elements, Selector{Role: RoleButton, ID: "saveButton "})
+	require.NoError(t, err)
+	assert.Empty(t, matches, "ids stay exact")
+}
+
+// A recorded path breaks a tie between equal matches, and only a tie.
+func TestMatchPath(t *testing.T) {
+	t.Parallel()
+
+	saves, err := Match(formWindow, formElements(), Selector{Role: RoleButton, Name: "保存"})
+	require.NoError(t, err)
+	require.Len(t, saves, 2)
+	grouped := []PathStep{{Role: RoleGroup, Name: "支払情報", Index: 0}, {Role: RoleButton, Name: "保存", Index: 0}}
+
+	assert.Equal(t, []string{"paymentSaveButton"}, ids(MatchPath(saves, grouped)))
+	assert.Equal(t, []string{"saveButton", "paymentSaveButton"}, ids(MatchPath(saves, []PathStep{{Role: RoleButton, Name: "保存", Index: 7}})), "a stale path leaves the tie")
+	assert.Equal(t, []string{"saveButton", "paymentSaveButton"}, ids(MatchPath(saves, nil)))
+	assert.Equal(t, []string{"paymentSaveButton"}, ids(MatchPath(saves[1:], []PathStep{{Role: RoleButton, Name: "保存", Index: 0}})), "one match is kept wherever it sits")
+}
+
 // The declared label relation wins over geometry.
 func TestMatchNearRelation(t *testing.T) {
 	t.Parallel()

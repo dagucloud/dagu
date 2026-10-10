@@ -145,6 +145,11 @@ type fakeElements struct {
 	after  int
 	then   []desktop.Element
 	closed bool
+	// focused is the element with the keyboard focus, once one has it.
+	focused  desktop.Element
+	hasFocus bool
+	// onFocus sees every element the executor focuses.
+	onFocus func(desktop.Element)
 }
 
 // expenseWindow and expenseElements are a form in an expense app: a saved
@@ -170,11 +175,11 @@ func newFakeElements() *fakeElements {
 }
 
 // arriveAfter makes the window show elements once it has been read reads
-// times.
+// more times.
 func (f *fakeElements) arriveAfter(reads int, elements []desktop.Element) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.after, f.then = reads, elements
+	f.after, f.then = f.reads+reads, elements
 }
 
 // FrontWindow counts one look at the window, which the elements read
@@ -218,15 +223,78 @@ func (f *fakeElements) Outline(_ desktop.Element, limit int) ([]desktop.Element,
 	return elements, nil
 }
 
-func (f *fakeElements) At(int, int) (desktop.Element, error) {
-	return desktop.Element{}, errors.New("not used")
+// At returns the innermost element under the point: the one with the
+// longest path, as a group precedes its button in tree order.
+func (f *fakeElements) At(x, y int) (desktop.Element, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var found *desktop.Element
+	for i := range f.elements {
+		e := &f.elements[i]
+		if image.Pt(x, y).In(e.Bounds) && (found == nil || len(e.Path) >= len(found.Path)) {
+			found = e
+		}
+	}
+	if found == nil {
+		return desktop.Element{}, errors.New("nothing is under the point")
+	}
+	e := *found
+	e.Window = f.window.Name
+	return e, nil
 }
 
 func (f *fakeElements) Focused() (desktop.Element, error) {
-	return desktop.Element{}, errors.New("not used")
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.hasFocus {
+		return desktop.Element{}, errors.New("nothing has the focus")
+	}
+	return f.focused, nil
 }
 
-func (f *fakeElements) Focus(desktop.Element) error { return nil }
+func (f *fakeElements) Focus(e desktop.Element) error {
+	f.mu.Lock()
+	f.focused, f.hasFocus = e, true
+	onFocus := f.onFocus
+	f.mu.Unlock()
+	if onFocus != nil {
+		onFocus(e)
+	}
+	return nil
+}
+
+// shift moves the window and everything in it, as a person dragging it
+// would.
+func (f *fakeElements) shift(dx, dy int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	offset := image.Pt(dx, dy)
+	f.window.Bounds = f.window.Bounds.Add(offset)
+	for i := range f.elements {
+		f.elements[i].Bounds = f.elements[i].Bounds.Add(offset)
+	}
+	for i := range f.then {
+		f.then[i].Bounds = f.then[i].Bounds.Add(offset)
+	}
+}
+
+// retitle changes the window's title.
+func (f *fakeElements) retitle(name string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.window.Name, f.window.Window = name, name
+	for i := range f.elements {
+		f.elements[i].Window = name
+	}
+}
+
+// focusedID names the element the executor focused, for the input log.
+func focusedID(e desktop.Element) string {
+	if e.ID != "" {
+		return e.ID
+	}
+	return e.Name
+}
 
 func (f *fakeElements) Close() error {
 	f.mu.Lock()
@@ -476,9 +544,15 @@ func (r *testRun) execute(withJSON string, session *ir.AgentSession) *stepExecut
 		}
 		r.elements.mu.Lock()
 		r.elements.opens++
+		if r.elements.onFocus == nil {
+			r.elements.onFocus = func(e desktop.Element) { r.backend.record("focus " + focusedID(e)) }
+		}
 		r.elements.mu.Unlock()
 		return r.elements, nil
 	}
+	// A replay looks once for what it needs, so a miss is quick; a test
+	// that wants waiting sets find_within.
+	execution.exec.findWithin = 0
 	execution.exec.launch = func(dir, command string, args []string) error {
 		r.launches = append(r.launches, append([]string{dir, command}, args...))
 		return nil

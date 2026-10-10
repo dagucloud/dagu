@@ -28,11 +28,13 @@ const (
 	StatusHealed    = "healed"
 
 	// How an operation ran, carried as the via of its event: a recording
-	// replayed on the screen without a model, the model, or an exact check
-	// that read the window's elements without one.
-	ViaScreen = "screen"
-	ViaModel  = "model"
-	ViaExact  = "exact"
+	// replayed by the window's elements, a recording replayed by the
+	// pixels of the screen, the model, or an exact check that read the
+	// window's elements without one.
+	ViaElement = "element"
+	ViaScreen  = "screen"
+	ViaModel   = "model"
+	ViaExact   = "exact"
 )
 
 const (
@@ -62,8 +64,8 @@ type Report struct {
 	Kind    string
 	Subject string
 	Status  string
-	// Via is how the operation ran, ViaScreen, ViaModel, or ViaExact, or
-	// empty for one that decides nothing, such as a wait.
+	// Via is how the operation ran, ViaElement, ViaScreen, ViaModel, or
+	// ViaExact, or empty for one that decides nothing, such as a wait.
 	Via      string
 	Detail   string
 	Tokens   int

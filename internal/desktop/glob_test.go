@@ -16,6 +16,7 @@ func TestWindowMatches(t *testing.T) {
 	assert.True(t, WindowMatches("経費精算 - 請求書 1042", "請求書 *"))
 	assert.True(t, WindowMatches("経費精算 - 請求書 1042", ""))
 	assert.False(t, WindowMatches("経費精算 - 請求書 1042", "給与"))
+	assert.True(t, WindowMatches("経費精算　-　請求書　１０４２", "請求書 1042"), "width and spacing are folded")
 }
 
 func TestGlobMatch(t *testing.T) {

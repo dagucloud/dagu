@@ -37,6 +37,13 @@ func (r *run) perform(ctx context.Context, index int, actions []computeruse.Acti
 			continue
 		}
 		logAction(r.timeline, index, describeAction(action))
+		// The element the action lands on is read before the action
+		// changes the screen; the pointer has not moved yet either.
+		display, replayable := r.toDisplay(action, seen)
+		var element *recordedElement
+		if replayable {
+			element = r.elementOf(display)
+		}
 		result := r.runAction(ctx, action, seen.toFull, &seen, limit)
 		results = append(results, result)
 		if result.Failed() {
@@ -44,11 +51,29 @@ func (r *run) perform(ctx context.Context, index int, actions []computeruse.Acti
 			logAction(r.timeline, index, "  failed: "+result.Error)
 			continue
 		}
-		if display, ok := toDisplay(action, seen); ok {
-			recorded = append(recorded, recordAction(display, seen.full))
+		if replayable {
+			recorded = append(recorded, recordAction(display, seen.full, element))
 		}
 	}
 	return results, recorded
+}
+
+// elementOf reads the element a replayable action lands on, in display
+// pixels, or types into, when the host can read elements.
+func (r *run) elementOf(display computeruse.Action) *recordedElement {
+	if at, pointer := target(display); pointer {
+		if e, err := r.elementAt(at); err == nil {
+			return r.recordElement(e, &at)
+		}
+		return nil
+	}
+	switch display.Kind {
+	case computeruse.KindType, computeruse.KindKey, computeruse.KindHoldKey:
+		if e, err := r.focusedElement(); err == nil {
+			return r.recordElement(e, nil)
+		}
+	}
+	return nil
 }
 
 // runAction performs one action. seen is the screen positions refer to; it
@@ -222,14 +247,18 @@ func (r *run) substitute(text string) string {
 }
 
 // toDisplay returns a completed action in display pixels, or false for
-// actions that only read the screen and need no replay.
-func toDisplay(action computeruse.Action, seen screen) (computeruse.Action, bool) {
+// actions that only read the screen and need no replay. Typed text equal
+// to a variable's value is kept as its placeholder.
+func (r *run) toDisplay(action computeruse.Action, seen screen) (computeruse.Action, bool) {
 	switch action.Kind {
 	case computeruse.KindScreenshot, computeruse.KindZoom, computeruse.KindCursorPosition:
 		return computeruse.Action{}, false
 	}
 	display := action
 	display.CallID = ""
+	if action.Kind == computeruse.KindType {
+		display.Text = r.placeholder(action.Text)
+	}
 	if action.Point != nil {
 		p := seen.toFull(*action.Point)
 		display.Point = &computeruse.Point{X: p.X, Y: p.Y}

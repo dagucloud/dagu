@@ -168,6 +168,27 @@ func Match(window Element, elements []Element, sel Selector) ([]Element, error) 
 	return candidates, nil
 }
 
+// MatchPath narrows several matches by the path an element had when it
+// was recorded: when exactly one of them sits at that path, it is the
+// one. A single match is kept wherever it sits, since an element may move
+// in the tree; several that none or more than one of sit at the path stay
+// ambiguous, never a guess.
+func MatchPath(matches []Element, path []PathStep) []Element {
+	if len(matches) <= 1 || len(path) == 0 {
+		return matches
+	}
+	var at []Element
+	for _, e := range matches {
+		if slices.Equal(e.Path, path) {
+			at = append(at, e)
+		}
+	}
+	if len(at) == 1 {
+		return at
+	}
+	return matches
+}
+
 // One returns the single match, ErrNotFound, or an *AmbiguousError.
 func One(matches []Element, sel Selector) (Element, error) {
 	switch len(matches) {
@@ -194,10 +215,10 @@ func (s Selector) candidates(scope []Element) []Element {
 		if len(out) <= 1 || s.Name == "" {
 			return out
 		}
-		return slices.DeleteFunc(out, func(e Element) bool { return !globMatch(s.Name, e.Name) })
+		return slices.DeleteFunc(out, func(e Element) bool { return !nameMatches(s.Name, e.Name) })
 	}
 	for _, e := range scope {
-		if e.Role == s.Role && (s.Name == "" || globMatch(s.Name, e.Name)) {
+		if e.Role == s.Role && (s.Name == "" || nameMatches(s.Name, e.Name)) {
 			out = append(out, e)
 		}
 	}
@@ -220,9 +241,10 @@ func within(elements []Element, container Element) []Element {
 // with the label's name, the nearest candidate on that side of it that
 // overlaps it in the other direction is kept, so two labels keep two.
 func near(candidates, scope []Element, n Near) []Element {
+	wanted := normalizeLabel(n.Label)
 	var byRelation []Element
 	for _, e := range candidates {
-		if e.Label == n.Label {
+		if e.Label != "" && normalizeLabel(e.Label) == wanted {
 			byRelation = append(byRelation, e)
 		}
 	}
@@ -231,7 +253,7 @@ func near(candidates, scope []Element, n Near) []Element {
 	}
 	var kept []Element
 	for _, label := range scope {
-		if label.Role != RoleText || label.Name != n.Label {
+		if label.Role != RoleText || normalizeLabel(label.Name) != wanted {
 			continue
 		}
 		var best Element

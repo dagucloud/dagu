@@ -33,6 +33,7 @@ steps:
     with:
       mode: native
       ai: on_miss
+      find_within: 5s
       max_actions: 40
       on_confirmation: allow
       screenshots: each
@@ -45,7 +46,7 @@ steps:
           when: A login form is visible
         - act: {instruction: Open billing, cache: false, max_actions: 10}
           timeout: 2m
-        - act: {instruction: Save it, ai: never}
+        - act: {instruction: Save it, ai: never, find_within: "0"}
         - ask: {prompt: Enter the code, as: otp, timeout: 10m}
         - expect: The invoice is posted
         - expect: {statement: A document number is shown, within: 30s}

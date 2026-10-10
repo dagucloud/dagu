@@ -7847,6 +7847,11 @@
           "default": "15s",
           "description": "How long nobody may have used the desktop before the step sends input or launches an application, such as 30s. Actions the model chose on a screen a person has since used are not run. 0 turns this off."
         },
+        "find_within": {
+          "type": "string",
+          "default": "10s",
+          "description": "How long a replayed action waits for its element, or a replayed turn for its screen, before it is a miss, such as 10s. 0 looks once. The wait counts toward the operation timeout."
+        },
         "llm": {
           "$ref": "#/definitions/standardLLMConfig",
           "description": "Model for this step. Replaces the DAG-level llm block entirely."
@@ -8031,6 +8036,10 @@
                   "type": "integer",
                   "minimum": 1,
                   "description": "Most desktop actions this act may take. Defaults to with.max_actions."
+                },
+                "find_within": {
+                  "type": "string",
+                  "description": "How long a replay of this act waits for an element or its screen, in place of with.find_within."
                 }
               }
             }
