@@ -634,6 +634,43 @@ func TestReplaysByElementWhenPixelsChanged(t *testing.T) {
 	assert.Contains(t, replayed.stderr.String(), `replay by element: click button "保存" at 272,205`)
 }
 
+// A replay brings the recorded window to the front when it lost the focus,
+// rather than counting the step a miss.
+func TestReplayBringsTheWindowForward(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"do": [{"act": "Save the invoice"}]}`
+	run := elementRun(t)
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(235, 194)), done("Saved")}}}
+	require.NoError(t, run.execute(steps, nil).err)
+
+	// Before the replay another window is in front, with the recorded one
+	// behind it; raising the recorded window brings its elements back.
+	const title = "経費精算 - 請求書 1042"
+	run.elements.retitle("別のウィンドウ")
+	run.backend.focus = desktop.WindowID{Handle: 1, Title: "別のウィンドウ"}
+	run.backend.windows = []desktop.WindowID{
+		{Handle: 1, Title: "別のウィンドウ"},
+		{Handle: 2, Title: title},
+	}
+	run.backend.onRaise = func(w desktop.WindowID) {
+		if w.Handle == 2 {
+			run.elements.retitle(title)
+		}
+	}
+	run.backend.events = nil
+
+	replayed := run.execute(steps, nil)
+	require.NoError(t, replayed.err, "the recorded window was raised, so the replay resolved its button")
+	events := operationEvents(replayed.exec.GetAgentSession())
+	require.Len(t, events, 1)
+	assert.Equal(t, agentstep.StatusCacheHit, events[0].Status)
+	assert.Equal(t, agentstep.ViaElement, events[0].Via)
+	require.Len(t, run.backend.raised, 1)
+	assert.Equal(t, uint64(2), run.backend.raised[0].Handle, "the recorded window was brought forward")
+	assert.Equal(t, []string{"move 235,194", "left down #1"}, run.backend.inputs())
+}
+
 // The display size is not part of the recording's key, so an element
 // replay runs on another display.
 func TestReplaysOnAnotherDisplaySize(t *testing.T) {
@@ -1127,7 +1164,7 @@ func TestWaitsForIdleDesktop(t *testing.T) {
 			require.NoError(t, execution.err)
 			session := execution.exec.GetAgentSession()
 			assert.Equal(t, tc.want, eventNames(session))
-			assert.Contains(t, lifecycleMessages(session), "Waiting until nobody has used the desktop for 100ms")
+			assert.Contains(t, strings.Join(lifecycleMessages(session), "\n"), "Waiting until nobody has used the desktop for 100ms")
 			assert.Equal(t, []string{waitReasonPerson}, waitReasons(session))
 		})
 	}
@@ -1222,7 +1259,7 @@ func TestWaitEndsWithAnEvent(t *testing.T) {
 	run.backend.personKeepsUsing(2)
 	execution := run.execute(`{"idle": "100ms", "do": [{"act": "Click"}]}`, nil)
 	require.NoError(t, execution.err)
-	messages := lifecycleMessages(execution.exec.GetAgentSession())
+	messages := strings.Join(lifecycleMessages(execution.exec.GetAgentSession()), "\n")
 	assert.Contains(t, messages, "Waiting until nobody has used the desktop for 100ms")
 	assert.Contains(t, messages, "Nobody has used the desktop for 100ms; continuing")
 }
@@ -1345,6 +1382,42 @@ func TestIdleZeroIgnoresPerson(t *testing.T) {
 
 	assert.Equal(t, []string{"move 10,10", "left down #1"}, run.backend.inputs())
 	assert.NotContains(t, strings.Join(lifecycleMessages(execution.exec.GetAgentSession()), "\n"), "Waiting until nobody")
+}
+
+// In a remote desktop session the connection feeds the desktop input of its
+// own and nobody at the keyboard shares it, so a step does not wait for a
+// person unless idle is set, and says so once.
+func TestRemoteSessionDoesNotWaitForAPerson(t *testing.T) {
+	t.Parallel()
+
+	t.Run("default idle skips the wait", func(t *testing.T) {
+		t.Parallel()
+		run := newTestRun(t)
+		run.remote = true
+		run.backend.personKeepsUsing(50)
+		run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(10, 10)), done("Clicked")}}}
+		execution := run.execute(`{"do": [{"launch": "app"}, {"act": "Click the button"}]}`, nil)
+		require.NoError(t, execution.err)
+
+		messages := strings.Join(lifecycleMessages(execution.exec.GetAgentSession()), "\n")
+		assert.NotContains(t, messages, "Waiting until nobody")
+		assert.Equal(t, 1, strings.Count(messages, "Running in a remote session, so not waiting for a person"), "said once, not per operation")
+		assert.Equal(t, []string{"move 10,10", "left down #1"}, run.backend.inputs())
+	})
+
+	t.Run("an explicit idle still waits", func(t *testing.T) {
+		t.Parallel()
+		run := newTestRun(t)
+		run.remote = true
+		run.backend.personKeepsUsing(2)
+		run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(10, 10)), done("Clicked")}}}
+		execution := run.execute(`{"idle": "100ms", "do": [{"act": "Click the button"}]}`, nil)
+		require.NoError(t, execution.err)
+
+		messages := strings.Join(lifecycleMessages(execution.exec.GetAgentSession()), "\n")
+		assert.Contains(t, messages, "Waiting until nobody has used the desktop for 100ms")
+		assert.NotContains(t, messages, "Running in a remote session")
+	})
 }
 
 // A later model takes over only while the desktop is untouched.
@@ -1480,4 +1553,46 @@ func TestOpenDesktopFailure(t *testing.T) {
 	exec.SetStderr(io.Discard)
 	err = exec.Run(run.context())
 	require.ErrorContains(t, err, "open the desktop: Screen Recording permission is missing")
+}
+
+// The model may click an element the observation lists by id, which the
+// executor finds exactly and clicks at its centre, instead of a pixel.
+func TestModelActsOnElementById(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	run.elements = newFakeElements()
+	session := &scriptedSession{turns: []*computeruse.Turn{
+		actions(computeruse.Action{CallID: "x", Kind: computeruse.KindClick, ElementID: "e1"}),
+		done("Clicked save"),
+	}}
+	run.sessions = []*scriptedSession{session}
+	execution := run.execute(`{"idle": "0", "do": [{"act": "Save the form"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	require.NotEmpty(t, session.observations)
+	assert.Contains(t, session.observations[0].Elements, computeruse.Element{ID: "e1", Role: desktop.RoleButton, Name: "保存"},
+		"the observation offers the button as an element")
+	// e1 is the 保存 button at (190,180)-(280,208); its centre is 235,194.
+	assert.Equal(t, []string{"move 235,194", "left down #1"}, run.backend.inputs())
+}
+
+// An element id the latest observation did not offer fails that action and
+// nothing reaches the desktop, so the model can look again.
+func TestModelElementIdNotOffered(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	run.elements = newFakeElements()
+	session := &scriptedSession{turns: []*computeruse.Turn{
+		actions(computeruse.Action{CallID: "x", Kind: computeruse.KindClick, ElementID: "e99"}),
+		done("Gave up"),
+	}}
+	run.sessions = []*scriptedSession{session}
+	execution := run.execute(`{"idle": "0", "do": [{"act": "Save the form"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	assert.Empty(t, run.backend.inputs(), "nothing reached the desktop")
+	require.GreaterOrEqual(t, len(session.observations), 2)
+	assert.Contains(t, session.observations[1].Results[0].Error, `no element "e99" is on the screen`)
 }

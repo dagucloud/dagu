@@ -92,6 +92,9 @@ type Action struct {
 	CallID    string        `json:"call_id,omitempty"`
 	Kind      Kind          `json:"kind"`
 	Point     *Point        `json:"point,omitempty"`
+	// ElementID names an element from the observation to act on. The
+	// executor resolves it to a point before the action runs.
+	ElementID string        `json:"element_id,omitempty"`
 	Path      []Point       `json:"path,omitempty"`
 	Button    string        `json:"button,omitempty"`
 	Count     int           `json:"count,omitempty"`
@@ -145,6 +148,18 @@ type Observation struct {
 	// Note is an instruction for the model, such as a reminder to report
 	// the task done.
 	Note string
+	// Elements are the actionable elements of the front window the model
+	// may target by id, more reliable than aiming at a pixel. Empty when
+	// the desktop exposes no elements.
+	Elements []Element
+}
+
+// Element is an actionable control the model can target by id, resolved to
+// its position by the executor.
+type Element struct {
+	ID   string
+	Role string
+	Name string
 }
 
 // Result reports how one action went.

@@ -551,6 +551,8 @@ func (b *darwinBackend) LastInput() time.Time {
 // unknown there and a step treats it conservatively.
 func (b *darwinBackend) FocusedWindow() WindowID    { return WindowID{} }
 func (b *darwinBackend) WindowAt(int, int) WindowID { return WindowID{} }
+func (b *darwinBackend) Windows() []WindowID        { return nil }
+func (b *darwinBackend) Raise(WindowID) error       { return nil }
 
 func (b *darwinBackend) Close() error {
 	b.wake()

@@ -7,8 +7,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image"
 	"runtime"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/desktop"
@@ -185,8 +187,15 @@ type actLoop struct {
 	// elements are the elements the act's actions landed on, in order,
 	// from which the recording's landmarks are chosen.
 	elements []recordedElement
+	// choices maps the ids offered to the model this turn to the elements
+	// they name, so click_element resolves to a position.
+	choices  map[string]desktop.Element
 	reminded bool
 }
+
+// maxModelElements bounds how many actionable elements an observation
+// offers the model, so a large tree does not bloat the prompt.
+const maxModelElements = 40
 
 // run loops between the model and the desktop until the model reports the
 // task done.
@@ -199,7 +208,7 @@ func (l *actLoop) run(ctx context.Context) error {
 		return err
 	}
 	l.outcome.recording.Width, l.outcome.recording.Height = l.seen.full.Bounds().Dx(), l.seen.full.Bounds().Dy()
-	obs := computeruse.Observation{Screen: l.seen.forModel()}
+	obs := computeruse.Observation{Screen: l.seen.forModel(), Elements: l.offerElements()}
 	for {
 		turn, err := l.session.Next(ctx, obs)
 		if err != nil {
@@ -263,8 +272,91 @@ func (l *actLoop) run(ctx context.Context) error {
 			Results:      results,
 			Acknowledged: turn.Confirmation != "",
 			Note:         note,
+			Elements:     l.offerElements(),
 		}
 	}
+}
+
+// offerElements lists the actionable elements of the front window for the
+// model to target by id, and remembers which element each id names. It is
+// empty when the desktop exposes no elements, so a host without them keeps
+// working by pixels.
+func (l *actLoop) offerElements() []computeruse.Element {
+	l.choices = nil
+	els, err := l.r.elementsIfAvailable()
+	if err != nil {
+		return nil
+	}
+	front, err := els.FrontWindow()
+	if err != nil {
+		return nil
+	}
+	outline, err := els.Outline(front, 0)
+	if err != nil {
+		return nil
+	}
+	var list []computeruse.Element
+	choices := make(map[string]desktop.Element)
+	for _, e := range outline {
+		if !actionableRole(e.Role) || strings.TrimSpace(e.Name) == "" || e.Bounds.Empty() {
+			continue
+		}
+		id := fmt.Sprintf("e%d", len(list)+1)
+		list = append(list, computeruse.Element{ID: id, Role: e.Role, Name: e.Name})
+		choices[id] = e
+		if len(list) >= maxModelElements {
+			break
+		}
+	}
+	l.choices = choices
+	return list
+}
+
+// actionableRole reports whether the model may usefully click an element of
+// this role by id.
+func actionableRole(role string) bool {
+	switch role {
+	case desktop.RoleButton, desktop.RoleTextField, desktop.RoleCheckbox, desktop.RoleRadio,
+		desktop.RoleComboBox, desktop.RoleListItem, desktop.RoleMenuItem, desktop.RoleTab,
+		desktop.RoleLink, desktop.RoleCell:
+		return true
+	}
+	return false
+}
+
+// resolveElements turns each click aimed at an element id into a click at
+// the element's centre. An id the latest observation did not offer fails
+// that action and skips the rest, so the model is told and can look again.
+func (l *actLoop) resolveElements(turn *computeruse.Turn) []computeruse.Result {
+	unknown := -1
+	for i := range turn.Actions {
+		a := &turn.Actions[i]
+		if a.ElementID == "" {
+			continue
+		}
+		e, ok := l.choices[a.ElementID]
+		if !ok {
+			unknown = i
+			break
+		}
+		centre := image.Pt((e.Bounds.Min.X+e.Bounds.Max.X)/2, (e.Bounds.Min.Y+e.Bounds.Max.Y)/2)
+		point := l.seen.toModel(centre)
+		a.Point = &point
+		logAction(l.r.timeline, l.index, fmt.Sprintf("element %s is %s %q", a.ElementID, e.Role, e.Name))
+		a.ElementID = ""
+	}
+	if unknown < 0 {
+		return nil
+	}
+	results := make([]computeruse.Result, len(turn.Actions))
+	for i := range turn.Actions {
+		if i == unknown {
+			results[i] = computeruse.Result{CallID: turn.Actions[i].CallID, Error: fmt.Sprintf("no element %q is on the screen now; look at the latest list and choose one of its ids", turn.Actions[i].ElementID)}
+		} else {
+			results[i] = computeruse.Result{CallID: turn.Actions[i].CallID, Skipped: true}
+		}
+	}
+	return results
 }
 
 // stale waits until nobody has used the desktop for the idle period and
@@ -351,6 +443,11 @@ func (l *actLoop) admit(turn *computeruse.Turn) error {
 
 // apply performs a turn's actions and records the ones that completed.
 func (l *actLoop) apply(ctx context.Context, turn *computeruse.Turn) []computeruse.Result {
+	if early := l.resolveElements(turn); early != nil {
+		l.touched = true
+		l.outcome.actions += len(turn.Actions)
+		return early
+	}
 	results, recorded := l.r.perform(ctx, l.index, turn.Actions, l.seen, l.limit)
 	l.touched = l.touched || len(turn.Actions) > 0
 	l.outcome.actions += len(turn.Actions)

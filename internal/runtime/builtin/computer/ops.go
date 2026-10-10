@@ -76,8 +76,11 @@ type run struct {
 	lease       *desktopLease
 	// clock is the working-time bound of the operation running, paused
 	// while the step waits for a person.
-	clock     *activeContext
-	variables map[string]string
+	clock *activeContext
+	// remoteNoted records that the step has said once why it does not wait
+	// for a person in a remote session.
+	remoteNoted bool
+	variables   map[string]string
 	// answers holds the values people gave to ask operations.
 	answers map[string]string
 	outputs map[string]any
@@ -635,6 +638,17 @@ func (r *run) awaitPerson(ctx context.Context) error {
 	if idle <= 0 {
 		return nil
 	}
+	// A remote session has no person at the keyboard to avoid, and its
+	// connection feeds the desktop synthetic input of its own, so the
+	// desktop never looks idle there: the wait is skipped unless the step
+	// asked for one.
+	if r.cfg.Idle == "" && r.exec.onConsole != nil && !r.exec.onConsole() {
+		if !r.remoteNoted {
+			r.remoteNoted = true
+			r.timeline.Lifecycle(agentstep.StatusRunning, "Running in a remote session, so not waiting for a person; set idle to wait")
+		}
+		return nil
+	}
 	if r.clock != nil {
 		r.clock.pause()
 		defer r.clock.resume()
@@ -642,9 +656,13 @@ func (r *run) awaitPerson(ctx context.Context) error {
 	waitCtx, cancel := context.WithTimeout(ctx, r.exec.personWait)
 	defer cancel()
 	waited := false
-	err := r.driver.WaitForIdle(waitCtx, idle, r.exec.idlePoll, func() {
+	err := r.driver.WaitForIdle(waitCtx, idle, r.exec.idlePoll, func(lastUsed time.Duration) {
 		waited = true
-		r.timeline.Waiting(waitReasonPerson, fmt.Sprintf("Waiting until nobody has used the desktop for %s", idle))
+		message := fmt.Sprintf("Waiting until nobody has used the desktop for %s", idle)
+		if lastUsed > 0 {
+			message += fmt.Sprintf(" (last input %s ago)", stringutil.FormatDuration(lastUsed))
+		}
+		r.timeline.Waiting(waitReasonPerson, message)
 	})
 	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
 		return fmt.Errorf("%w for %s, so the step gave up waiting", errDesktopInUse, stringutil.FormatDuration(r.exec.personWait))

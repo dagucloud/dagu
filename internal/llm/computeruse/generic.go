@@ -22,6 +22,8 @@ const (
 	genericType   = "type"
 	genericKey    = "key"
 	genericWait   = "wait"
+
+	genericClickElement = "click_element"
 )
 
 // The done tool is how a model reports the task finished, in every mode.
@@ -44,7 +46,7 @@ const (
 var genericImageLimit = ImageLimit{LongEdge: 1568, MaxPixels: 1_150_000}
 
 const genericSystemPrompt = `You operate a computer by calling tools. After each round of tool calls you receive a screenshot of the screen. Coordinates are pixels in that screenshot, measured from its top-left corner.
-Work in small steps and check each new screenshot before continuing. Close a window with its close button or the application's own menu, never with Alt+F4 or Cmd+Q, which act on whichever window has the focus. Key names follow common spelling, such as "Return", "Tab", "ctrl+c" or "cmd+space".
+Work in small steps and check each new screenshot before continuing. When the control you need is listed as an element, target it with click_element by its id instead of guessing a pixel position, which is far more reliable for buttons and menu items. To close a window, press Alt+F4 (on macOS, Cmd+Q) while it has the focus, which is more reliable than aiming at a small close button; these keys act on the focused window, so when another window may have the focus, click the target window first. This step refuses to operate the application that runs it, so these keys cannot close it. When a dialog asks whether to save, choose not to save. Key names follow common spelling, such as "Return", "Tab", "ctrl+c" or "cmd+space".
 ` + DoneInstruction
 
 // genericSession drives a model through plain function tools.
@@ -156,6 +158,12 @@ func (s *genericSession) appendObservation(obs Observation) {
 		text.WriteString(obs.Note + "\n\n")
 	}
 	fmt.Fprintf(&text, "Current screen (%dx%d pixels).", obs.Screen.Width, obs.Screen.Height)
+	if len(obs.Elements) > 0 {
+		text.WriteString("\nElements you can target with click_element by id:")
+		for _, e := range obs.Elements {
+			fmt.Fprintf(&text, "\n- %s: %s %q", e.ID, e.Role, e.Name)
+		}
+	}
 	s.dropOldScreenshots()
 	s.messages = append(s.messages, llm.Message{
 		Role:    llm.RoleUser,
@@ -219,6 +227,7 @@ type genericArgs struct {
 	Keys      string   `json:"keys"`
 	Repeat    int      `json:"repeat"`
 	Seconds   float64  `json:"seconds"`
+	ElementID string   `json:"element_id"`
 }
 
 func parseGenericAction(call llm.ToolCall) (Action, error) {
@@ -235,6 +244,15 @@ func parseGenericAction(call llm.ToolCall) (Action, error) {
 		}
 		action.Kind = KindClick
 		action.Point = point
+		action.Button = args.Button
+		action.Count = args.Count
+		action.Modifiers = args.Modifiers
+	case genericClickElement:
+		if strings.TrimSpace(args.ElementID) == "" {
+			return Action{}, fmt.Errorf("element_id is required")
+		}
+		action.Kind = KindClick
+		action.ElementID = args.ElementID
 		action.Button = args.Button
 		action.Count = args.Count
 		action.Modifiers = args.Modifiers
@@ -327,6 +345,12 @@ var genericTools = []llm.Tool{
 		"count":     map[string]any{"type": "integer", "minimum": 1, "maximum": 3, "description": "Number of clicks; 2 for a double click."},
 		"modifiers": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Keys held during the click, such as shift or ctrl."},
 	}, "x", "y"),
+	genericTool(genericClickElement, "Click an element listed by id in the latest observation, which the computer finds exactly. Prefer this over click for buttons, menu items, and other named controls.", map[string]any{
+		"element_id": map[string]any{"type": "string", "description": "The id of an element from the observation, such as e3."},
+		"button":     map[string]any{"type": "string", "enum": []string{ButtonLeft, ButtonRight, ButtonMiddle}, "description": "Mouse button; left by default."},
+		"count":      map[string]any{"type": "integer", "minimum": 1, "maximum": 3, "description": "Number of clicks; 2 for a double click."},
+		"modifiers":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Keys held during the click, such as shift or ctrl."},
+	}, "element_id"),
 	genericTool(genericMove, "Move the pointer without clicking.", map[string]any{
 		"x": integerProperty("Horizontal pixel position."),
 		"y": integerProperty("Vertical pixel position."),
