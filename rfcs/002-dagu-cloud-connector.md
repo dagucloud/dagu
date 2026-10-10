@@ -116,7 +116,11 @@ events were lost, the time they were lost from.
 | Level | Fields | When |
 | --- | --- | --- |
 | `health` | Dagu version, OS, architecture, process start time, and service counts: schedulers holding the scheduler lock, and registered coordinators | Every report |
-| `runs` | The `health` fields, plus each status change of a top-level DAG run: event ID, type, DAG name, run ID, attempt ID, status, the event's time, and the run's queued, started, and finished times; on a finished run, up to 50 failed step names | With the next report; within 5 seconds of a failure or a step waiting for a person |
+| `runs` | The `health` fields, plus each reportable status change of a top-level DAG run: event ID, type, DAG name, run ID, attempt ID, status, the event's time, and the run's queued, started, and finished times; on a finished run, up to 50 failed step names | At most 500 events and 512 KiB of them per report, with the next report; within 5 seconds of a failure or a step waiting for a person |
+
+A status change is reportable unless its event has no valid status snapshot,
+or names a DAG longer than 512 bytes or a run, attempt, or event ID longer than
+256 bytes, which Dagu Cloud would not keep. Those events are left out.
 
 **Planned, not sent by any level yet:** queue depth, worker counts, the list
 of DAGs, and the remote access level. Each joins the table above, under its
@@ -135,9 +139,6 @@ them sensitive chooses `health`, which sends neither.
 | unset or `off` (default) | Nothing beyond the license check-in |
 | `health` | Dagu version, OS, architecture, start time, and which services run |
 | `runs` | Also run status changes: DAG names, run IDs, status, times, failed step names |
-
-`runs` arrives with DAG-run reporting. Until a release ships it,
-configuration accepts only `off` and `health`, and rejects `runs`.
 
 - **Upgrading changes nothing.** A server licensed before reporting existed
   keeps sending only its license check-in.
@@ -201,15 +202,25 @@ activation's credentials, as the heartbeat is.
               "started_at": "2026-10-09T12:00:00Z",
               "services": [{ "name": "scheduler", "instances": 1 },
                            { "name": "coordinator", "instances": 0 }] },
-  "events": [],
-  "gap": null,
-  "cursor": "opaque"
+  "events": [{ "id": "dag_…", "type": "dag.run.failed", "dag_name": "etl",
+               "dag_run_id": "…", "attempt_id": "…", "status": "failed",
+               "occurred_at": "2026-10-10T01:02:03Z",
+               "queued_at": "…", "started_at": "…", "finished_at": "…",
+               "failed_steps": ["load", "notify"] }],
+  "cursor": "opaque",
+  "gap": { "since": "2026-10-08T00:00:00Z" }
 }
 ```
 
 A scheduler count of zero means no scheduler holds the lock; leaving
 `services` out means the count is unknown.
-The response is:
+
+`events` are oldest first. `cursor`, at most 4096 bytes, identifies the
+position after them; it comes with every `events`, which is empty when the
+cursor moves only past events that reports leave out. `gap` comes after
+events were lost, with the time of the last acknowledged event, and always
+with a cursor; it repeats until the console acknowledges that cursor.
+Reporting continues from the newest event. The response is:
 
 ```json
 { "ack": "opaque", "next_report_seconds": 60 }
@@ -217,7 +228,7 @@ The response is:
 
 | Response | Reporter behavior |
 | --- | --- |
-| `200` | Persist `ack` as the cursor. |
+| `200` | Persist the cursor when `ack` equals the cursor sent. |
 | `401`, `410` | Stop. The license manager handles the activation as it does for heartbeats. |
 | `413` | Halve the batch and retry. |
 | `429` | Wait for `Retry-After`, keeping the cursor. |

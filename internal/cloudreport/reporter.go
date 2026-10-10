@@ -1,8 +1,8 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package cloudreport reports the health of a server with an online license
-// to Dagu Console.
+// Package cloudreport reports the health and DAG-run events of a server with
+// an online license to Dagu Console.
 package cloudreport
 
 import (
@@ -48,12 +48,14 @@ const (
 // processStartedAt approximates when this process started.
 var processStartedAt = time.Now()
 
-// Reporter sends health reports to Dagu Console until stopped.
+// Reporter sends reports to Dagu Console until stopped.
 type Reporter struct {
 	credentials func() (license.CloudCredentials, bool)
 	registry    serviceregistry.ServiceRegistry
-	client      *http.Client
-	startedAt   time.Time
+	// events is nil when reports carry no events.
+	events    *eventFeed
+	client    *http.Client
+	startedAt time.Time
 
 	// after and random decide when reports are sent; tests replace them.
 	after  func(time.Duration) <-chan time.Time
@@ -66,18 +68,22 @@ type Reporter struct {
 	interval time.Duration
 	backoff  time.Duration
 	last     outcome
+	// noEventsLogged records that reports were said to carry no events.
+	noEventsLogged bool
 }
 
 // Start reports in the background until Stop is called or ctx is done.
 // Reports authenticate with what credentials returns and are skipped while it
 // returns false. Services are counted in registry; a nil registry leaves them
-// out of reports.
+// out of reports. Reports carry the DAG-run events that events configures.
 func Start(
 	ctx context.Context,
 	credentials func() (license.CloudCredentials, bool),
 	registry serviceregistry.ServiceRegistry,
+	events Events,
 ) *Reporter {
 	r := newReporter(credentials, registry)
+	r.events = newEventFeed(events)
 	r.start(ctx)
 	return r
 }
@@ -108,15 +114,42 @@ func (r *Reporter) start(ctx context.Context) {
 
 func (r *Reporter) run(ctx context.Context) {
 	defer close(r.done)
-	wait := time.Duration(r.random() * float64(maxStartDelay))
+	defer r.events.close(ctx)
+	// until is the time left before the next scheduled report.
+	until := time.Duration(r.random() * float64(maxStartDelay))
+	r.pollEvents(ctx, false)
 	for {
+		wait := until
+		if r.events != nil {
+			wait = min(wait, eventCheckInterval)
+		}
 		select {
 		case <-ctx.Done():
 			return
 		case <-r.after(wait):
 		}
-		wait = r.report(ctx)
+		until -= wait
+		if early := r.pollEvents(ctx, until <= 0); until > 0 && !early {
+			continue
+		}
+		until = r.report(ctx)
 	}
+}
+
+// pollEvents prepares the events of the next report and reports whether one
+// calls for an early report. It reads the event store only when the report is
+// due or could be sent early, so that a console that fails or throttles
+// reports does not cause a read every few seconds.
+func (r *Reporter) pollEvents(ctx context.Context, due bool) bool {
+	if r.events == nil {
+		return false
+	}
+	creds, ok := r.credentials()
+	if !ok {
+		return false
+	}
+	early := r.last.kind == outcomeNone || r.last.kind == outcomeAccepted
+	return r.events.poll(ctx, creds.ServerID, due || early) && early
 }
 
 // outcome classifies a report so that each change is logged once.
@@ -180,9 +213,20 @@ func (r *Reporter) report(ctx context.Context) time.Duration {
 
 	default:
 		r.backoff = 0
-		r.interval = nextInterval(res.body)
+		var accepted acceptance
+		// A body that is not JSON asks for nothing.
+		_ = json.Unmarshal(res.body, &accepted)
+		r.interval = accepted.interval()
+		more := r.events.acknowledge(ctx, accepted.Ack)
 		if r.changed(outcome{kind: outcomeAccepted}) {
 			logger.Info(ctx, "Reporting server health to Dagu Console", tag.URL(creds.CloudURL))
+		}
+		if r.events == nil && !r.noEventsLogged {
+			r.noEventsLogged = true
+			logger.Info(ctx, "Reports to Dagu Console carry no DAG-run events because the event store is disabled")
+		}
+		if more {
+			return eventCheckInterval
 		}
 		return r.jitter(r.interval)
 	}
@@ -209,16 +253,20 @@ func (r *Reporter) jitter(d time.Duration) time.Duration {
 	return d + time.Duration((2*r.random()-1)*intervalJitter*float64(d))
 }
 
-// nextInterval returns the interval a successful response asks for, within
+// acceptance is the body of a successful response.
+type acceptance struct {
+	NextReportSeconds float64 `json:"next_report_seconds"`
+	// Ack is the cursor that Dagu Console stored.
+	Ack string `json:"ack"`
+}
+
+// interval returns the interval the response asks for, within
 // [minInterval, maxInterval], or defaultInterval when it asks for none.
-func nextInterval(body []byte) time.Duration {
-	var resp struct {
-		NextReportSeconds float64 `json:"next_report_seconds"`
-	}
-	if json.Unmarshal(body, &resp) != nil || resp.NextReportSeconds <= 0 {
+func (a acceptance) interval() time.Duration {
+	if a.NextReportSeconds <= 0 {
 		return defaultInterval
 	}
-	seconds := min(resp.NextReportSeconds, maxInterval.Seconds())
+	seconds := min(a.NextReportSeconds, maxInterval.Seconds())
 	return max(time.Duration(seconds*float64(time.Second)), minInterval)
 }
 
@@ -239,6 +287,12 @@ type reportRequest struct {
 	ServerID        string `json:"server_id"`
 	HeartbeatSecret string `json:"heartbeat_secret"`
 	Health          health `json:"health"`
+	// Events is set whenever Cursor is; it is empty when the report moves
+	// past events that reports leave out.
+	Events []reportEvent `json:"events,omitzero"`
+	// Cursor identifies the position after Events.
+	Cursor string     `json:"cursor,omitempty"`
+	Gap    *reportGap `json:"gap,omitempty"`
 }
 
 type health struct {
@@ -278,7 +332,7 @@ func (r *response) message() string {
 }
 
 func (r *Reporter) send(ctx context.Context, creds license.CloudCredentials) (*response, error) {
-	body, err := json.Marshal(reportRequest{
+	report := reportRequest{
 		Protocol:        protocolVersion,
 		LicenseID:       creds.LicenseID,
 		ServerID:        creds.ServerID,
@@ -290,7 +344,9 @@ func (r *Reporter) send(ctx context.Context, creds license.CloudCredentials) (*r
 			StartedAt: r.startedAt.UTC().Format(time.RFC3339),
 			Services:  r.services(ctx),
 		},
-	})
+	}
+	r.events.fill(&report)
+	body, err := json.Marshal(report)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal report: %w", err)
 	}
