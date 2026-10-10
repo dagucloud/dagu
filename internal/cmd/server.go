@@ -265,10 +265,10 @@ func initTunnelService(cfg *config.Config) (*tunnel.Service, error) {
 }
 
 // startCloudReport reports this server's health to Dagu Console while it holds
-// an online license. It returns nil when cloud.report is off or no license
-// manager runs.
+// an online license. It returns nil unless cloud.report asks for reports, or
+// when no license manager runs.
 func startCloudReport(ctx *Context) *cloudreport.Reporter {
-	if !ctx.Config.Cloud.Report || ctx.LicenseManager == nil {
+	if !ctx.Config.Cloud.Report.Reports() || ctx.LicenseManager == nil {
 		return nil
 	}
 	return cloudreport.Start(ctx, ctx.LicenseManager.CloudCredentials, ctx.Persistence.ServiceRegistry)

@@ -142,8 +142,27 @@ type LicenseConfig struct {
 // CloudConfig holds what a server with an online license shares with Dagu
 // Console.
 type CloudConfig struct {
-	// Report sends the server's health to Dagu Console.
-	Report bool
+	// Report is how much the server reports to Dagu Console. Empty means it
+	// is not set, and the server reports nothing.
+	Report ReportLevel
+}
+
+// ReportLevel is how much a server reports to Dagu Console, beyond the
+// license check-in every licensed server makes.
+type ReportLevel string
+
+const (
+	// ReportOff reports nothing.
+	ReportOff ReportLevel = "off"
+	// ReportHealth reports the server's version and which services run.
+	ReportHealth ReportLevel = "health"
+	// ReportRuns also reports DAG-run status changes.
+	ReportRuns ReportLevel = "runs"
+)
+
+// Reports reports whether the level sends anything.
+func (l ReportLevel) Reports() bool {
+	return l == ReportHealth || l == ReportRuns
 }
 
 // ExecutionMode represents the default execution mode for DAGs.
@@ -667,6 +686,9 @@ func (c *Config) Validate() error {
 		return err
 	}
 	if err := c.validateExecutionMode(); err != nil {
+		return err
+	}
+	if err := c.validateCloudReport(); err != nil {
 		return err
 	}
 	if err := c.validateGitSync(); err != nil {
@@ -1226,6 +1248,16 @@ func (c *Config) validateExecutionMode() error {
 		return nil
 	default:
 		return fmt.Errorf("invalid default_execution_mode: %q (must be one of: local, distributed)", c.DefaultExecMode)
+	}
+}
+
+// validateCloudReport validates what the server reports to Dagu Console.
+func (c *Config) validateCloudReport() error {
+	switch c.Cloud.Report {
+	case "", ReportOff, ReportHealth, ReportRuns:
+		return nil
+	default:
+		return fmt.Errorf("invalid cloud.report: %q (must be one of: off, health, runs)", c.Cloud.Report)
 	}
 }
 

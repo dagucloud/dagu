@@ -33,7 +33,7 @@ func TestStopLocalAgentSessionCleanupHonorsShutdownContext(t *testing.T) {
 }
 
 func TestStartCloudReport(t *testing.T) {
-	newContext := func(report bool) *Context {
+	newContext := func(report config.ReportLevel) *Context {
 		return &Context{
 			Context:        t.Context(),
 			Config:         &config.Config{Cloud: config.CloudConfig{Report: report}},
@@ -41,13 +41,17 @@ func TestStartCloudReport(t *testing.T) {
 		}
 	}
 
-	t.Run("on", func(t *testing.T) {
-		reporter := startCloudReport(newContext(true))
-		require.NotNil(t, reporter)
-		reporter.Stop()
-	})
+	for _, level := range []config.ReportLevel{config.ReportHealth, config.ReportRuns} {
+		t.Run(string(level), func(t *testing.T) {
+			reporter := startCloudReport(newContext(level))
+			require.NotNil(t, reporter)
+			reporter.Stop()
+		})
+	}
 
-	t.Run("off", func(t *testing.T) {
-		require.Nil(t, startCloudReport(newContext(false)))
-	})
+	for _, level := range []config.ReportLevel{"", config.ReportOff} {
+		t.Run("not "+string(level), func(t *testing.T) {
+			require.Nil(t, startCloudReport(newContext(level)))
+		})
+	}
 }

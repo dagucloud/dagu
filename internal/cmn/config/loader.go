@@ -1734,9 +1734,8 @@ func (l *ConfigLoader) loadLicenseConfig(cfg *Config, def Definition) {
 }
 
 func (l *ConfigLoader) loadCloudConfig(cfg *Config, def Definition) {
-	cfg.Cloud.Report = true
-	if def.Cloud != nil && def.Cloud.Report != nil {
-		cfg.Cloud.Report = *def.Cloud.Report
+	if def.Cloud != nil {
+		cfg.Cloud.Report = ReportLevel(strings.ToLower(strings.TrimSpace(def.Cloud.Report)))
 	}
 }
 
@@ -2100,9 +2099,6 @@ func (l *ConfigLoader) setViperDefaultValues(paths Paths) {
 
 	// Webhooks
 	l.v.SetDefault("webhooks.max_payload_size", DefaultWebhookMaxPayloadSize)
-
-	// Dagu Console
-	l.v.SetDefault("cloud.report", true)
 
 	// Terminal
 	l.v.SetDefault("terminal.max_sessions", 5)
