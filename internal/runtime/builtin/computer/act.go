@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"image"
 	"runtime"
 	"slices"
 	"time"
@@ -34,7 +33,11 @@ type actOutcome struct {
 // replayMiss is the failure of an act that may not call the model: its
 // recording is missing or no longer fits the screen. The recording is kept
 // for a run that lets the model repair it.
-type replayMiss struct{ err error }
+type replayMiss struct {
+	err error
+	// via is how the replay ran before it missed.
+	via string
+}
 
 func (m replayMiss) Error() string { return "the act cannot run without AI: " + m.err.Error() }
 func (m replayMiss) Unwrap() error { return m.err }
@@ -59,30 +62,34 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 	var replayed []recordedTurn
 	spent := 0
 	if choice != aiEveryRun {
-		current, err := r.settle(ctx)
-		if err != nil {
-			return err
-		}
-		key = replayKey(index, spec.Instruction, current.Bounds().Size())
+		key = replayKey(index, spec.Instruction)
 		entry, ok := r.cache.Lookup(key)
-		if !ok || len(entry.Turns) == 0 {
+		switch {
+		case !ok || len(entry.Turns) == 0:
 			if choice == aiNever {
-				return replayMiss{errors.New("there is no recording of it on this host")}
+				return replayMiss{err: errors.New("there is no recording of it on this host"), via: agentstep.ViaScreen}
 			}
-		} else {
-			replay, err := r.replay(ctx, index, entry, r.cfg.maxActions(spec))
+		case entry.Version != recordingVersion:
+			// An older recording is ignored once; what this run records
+			// replaces it.
+			r.cache.Drop(key)
+			if choice == aiNever {
+				return replayMiss{err: errors.New("its recording on this host is from an older version and was ignored"), via: agentstep.ViaScreen}
+			}
+		default:
+			replay, err := r.replay(ctx, index, entry, r.cfg.maxActions(spec), r.cfg.findWithin(spec, r.exec.findWithin))
 			if err != nil {
 				return err
 			}
 			if replay.complete {
 				r.report(ctx, agentstep.Report{
-					Index: index, Kind: opAct, Subject: spec.Instruction, Status: agentstep.StatusCacheHit, Via: agentstep.ViaScreen,
+					Index: index, Kind: opAct, Subject: spec.Instruction, Status: agentstep.StatusCacheHit, Via: replay.via(),
 					Detail: fmt.Sprintf("replayed %d turns", len(entry.Turns)), Duration: time.Since(began),
 				})
 				return nil
 			}
 			if choice == aiNever {
-				return replayMiss{errors.New(replay.reason)}
+				return replayMiss{err: errors.New(replay.reason), via: replay.via()}
 			}
 			logAction(r.timeline, index, "replay stopped: "+replay.reason)
 			status = agentstep.StatusHealed
@@ -105,7 +112,7 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 	// replaying starts with a recording.
 	if len(outcome.recording.Turns) > 0 {
 		if key == "" {
-			key = replayKey(index, spec.Instruction, image.Pt(outcome.recording.Width, outcome.recording.Height))
+			key = replayKey(index, spec.Instruction)
 		}
 		r.cache.Stage(key, outcome.recording)
 	}
@@ -168,9 +175,12 @@ type actLoop struct {
 	// over, which count toward budget.
 	spent int
 	// seen is the screen the model last saw.
-	seen     screen
-	outcome  actOutcome
-	touched  bool
+	seen    screen
+	outcome actOutcome
+	touched bool
+	// elements are the elements the act's actions landed on, in order,
+	// from which the recording's landmarks are chosen.
+	elements []recordedElement
 	reminded bool
 }
 
@@ -288,8 +298,8 @@ func (l *actLoop) unchanged(ctx context.Context, turn *computeruse.Turn) (bool, 
 	}
 	chosen := recordedTurn{Screen: desktop.FingerprintOf(l.seen.full)}
 	for _, action := range turn.Actions {
-		if display, ok := toDisplay(action, l.seen); ok {
-			chosen.Actions = append(chosen.Actions, recordAction(display, l.seen.full))
+		if display, ok := l.r.toDisplay(action, l.seen); ok {
+			chosen.Actions = append(chosen.Actions, recordAction(display, l.seen.full, nil))
 		}
 	}
 	entry := recording{Width: l.seen.full.Bounds().Dx(), Height: l.seen.full.Bounds().Dy()}
@@ -346,6 +356,11 @@ func (l *actLoop) apply(ctx context.Context, turn *computeruse.Turn) []computeru
 			Actions:   recorded,
 			Confirmed: turn.Confirmation != "",
 		})
+		for _, rec := range recorded {
+			if rec.Element != nil {
+				l.elements = append(l.elements, *rec.Element)
+			}
+		}
 	}
 	return results
 }
@@ -363,6 +378,10 @@ func (l *actLoop) finish(ctx context.Context, turn *computeruse.Turn) error {
 		}
 	}
 	l.outcome.recording.Final = desktop.FingerprintOf(final)
+	l.outcome.recording.Version = recordingVersion
+	if len(l.elements) > 0 {
+		l.r.landmarks(&l.outcome.recording, l.elements)
+	}
 	l.outcome.summary = turn.Done.Summary
 	return nil
 }

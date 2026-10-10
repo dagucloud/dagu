@@ -31,6 +31,10 @@ const (
 	// exactPollInterval spaces the looks of an exact check, which reads
 	// the window's elements and costs no model turn.
 	exactPollInterval = 250 * time.Millisecond
+	// exactWhenWait is how long an exact when keeps looking when it says
+	// nothing, since the screen is often still catching up when a check
+	// follows an action. A statement is judged once.
+	exactWhenWait = 2 * time.Second
 	// defaultIdlePoll spaces the checks for a person using the desktop, and
 	// defaultPersonWait bounds how long a step waits for one to stop.
 	defaultIdlePoll   = 500 * time.Millisecond
@@ -64,10 +68,12 @@ type run struct {
 	artifacts   *agentstep.ArtifactStore
 	timeline    *agentstep.Timeline
 	driver      *desktop.Driver
-	// elements reads the front window for exact checks, opened on the
-	// first one.
-	elements desktop.Elements
-	lease    *desktopLease
+	// elements reads the front window for exact checks and for recording
+	// and replaying by element, opened on first use. elementsErr remembers
+	// a host that cannot read them, which records pixels alone.
+	elements    desktop.Elements
+	elementsErr error
+	lease       *desktopLease
 	// clock is the working-time bound of the operation running, paused
 	// while the step waits for a person.
 	clock     *activeContext
@@ -146,12 +152,17 @@ func (r *run) execute(ctx context.Context) error {
 		op := r.cfg.Do[i]
 		if op.When != nil {
 			began, before := time.Now(), r.usage
-			// A when reads once unless it says how long to keep looking.
+			// A statement is judged once; an exact check keeps looking for a
+			// moment, unless either says how long.
 			c, err := r.resolve(*op.When)
 			var holds bool
 			var reason string
 			if err == nil {
-				holds, reason, err = r.await(ctx, c, c.window(0), op.timeout())
+				fallback := time.Duration(0)
+				if !c.judged() {
+					fallback = exactWhenWait
+				}
+				holds, reason, err = r.await(ctx, c, c.window(fallback), op.timeout())
 			}
 			if err != nil {
 				err = fmt.Errorf("evaluate when: %w", err)
@@ -185,11 +196,12 @@ func (r *run) reportFailure(index int, kind, subject string, cause error, began 
 	tokens := r.usage.sub(before).total()
 	via := ""
 	var unmet *conditionFailure
+	var miss replayMiss
 	switch {
 	case tokens > 0:
 		via = agentstep.ViaModel
-	case errors.As(cause, new(replayMiss)):
-		via = agentstep.ViaScreen
+	case errors.As(cause, &miss):
+		via = miss.via
 	case errors.As(cause, &unmet):
 		via = unmet.via
 	}

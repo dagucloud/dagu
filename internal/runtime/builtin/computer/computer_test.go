@@ -197,14 +197,19 @@ func TestExactConditions(t *testing.T) {
 		assert.GreaterOrEqual(t, run.elements.reads, 4)
 	})
 
-	t.Run("when reads once", func(t *testing.T) {
+	t.Run("when keeps looking for a moment", func(t *testing.T) {
 		t.Parallel()
 		run := newTestRun(t)
 		run.elements = newFakeElements()
 		run.elements.arriveAfter(1, append(expenseElements(), desktop.Element{Role: desktop.RoleText, Name: "完了"}))
 		execution := run.execute(`{"do": [{"wait": "1ms", "when": {"text": "完了"}}]}`, nil)
 		require.NoError(t, execution.err)
-		assert.Equal(t, []string{"wait:skipped"}, eventNames(execution.exec.GetAgentSession()))
+		assert.Equal(t, []string{"wait:completed"}, eventNames(execution.exec.GetAgentSession()), "the text arrived on the second look")
+
+		run.elements.arriveAfter(30, append(expenseElements(), desktop.Element{Role: desktop.RoleText, Name: "終了"}))
+		gaveUp := run.execute(`{"do": [{"wait": "1ms", "when": {"text": "終了", "within": "300ms"}}]}`, nil)
+		require.NoError(t, gaveUp.err)
+		assert.Equal(t, []string{"wait:skipped"}, eventNames(gaveUp.exec.GetAgentSession()), "within bounds the looking")
 	})
 
 	t.Run("no elements is a miss until the window passes", func(t *testing.T) {
@@ -523,6 +528,279 @@ func TestEveryRunRecords(t *testing.T) {
 			assert.Equal(t, []string{"act:cache-hit"}, eventNames(replayed.exec.GetAgentSession()))
 		})
 	}
+}
+
+// elementRun is a desktop with the expense form, on a screen big enough
+// to hold it, for recording and replaying by element.
+func elementRun(t *testing.T) *testRun {
+	t.Helper()
+	run := newTestRun(t)
+	run.backend = newFakeBackend(800, 600)
+	run.elements = newFakeElements()
+	return run
+}
+
+// focusOn gives an element of the fake window the keyboard focus, as a
+// click would in a real application.
+func (r *testRun) focusOn(id string) {
+	r.elements.mu.Lock()
+	defer r.elements.mu.Unlock()
+	for _, e := range r.elements.elements {
+		if e.ID == id {
+			r.elements.focused, r.elements.hasFocus = e, true
+			return
+		}
+	}
+	panic("no element " + id)
+}
+
+// lookupRecording reads what the step recorded for its first act.
+func lookupRecording(t *testing.T, run *testRun, instruction string) recording {
+	t.Helper()
+	cache := openReplayCache(filepath.Join(run.dataDir, computerhost.DataDirName), "invoices", "post")
+	entry, ok := cache.Lookup(replayKey(0, instruction))
+	require.True(t, ok, "no recording for %q", instruction)
+	return entry
+}
+
+func typing(text string) computeruse.Action {
+	return computeruse.Action{Kind: computeruse.KindType, Text: text}
+}
+
+func withoutElement(elements []desktop.Element, id string) []desktop.Element {
+	var out []desktop.Element
+	for _, e := range elements {
+		if e.ID != id {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// A recording keeps the element each action landed on or typed into,
+// beside the pixels, and the landmarks of the screen it ended on.
+func TestRecordsElementsBesidePixels(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"do": [{"act": "Post the invoice"}]}`
+	run := elementRun(t)
+	run.focusOn("amountBox")
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(290, 152)), actions(typing("12,000")), actions(clickAt(235, 194)), done("Posted")}}}
+	require.NoError(t, run.execute(steps, nil).err)
+
+	entry := lookupRecording(t, run, "Post the invoice")
+	assert.Equal(t, recordingVersion, entry.Version)
+	require.Len(t, entry.Turns, 3)
+	field := entry.Turns[0].Actions[0]
+	require.NotNil(t, field.Element)
+	assert.Equal(t, desktop.Selector{Role: desktop.RoleTextField, ID: "amountBox"}, field.Element.Selector)
+	assert.InDelta(t, 0.5, field.Element.FractionX, 0.01)
+	assert.InDelta(t, 0.5, field.Element.FractionY, 0.01)
+	assert.Equal(t, []desktop.PathStep{{Role: desktop.RoleTextField, Index: 0}}, field.Element.Path)
+	assert.Equal(t, "経費精算 - 請求書 1042", field.Element.Window)
+	assert.NotNil(t, field.Target, "the pixels are kept too")
+	typed := entry.Turns[1].Actions[0]
+	require.NotNil(t, typed.Element, "typing records the focused element")
+	assert.Equal(t, "amountBox", typed.Element.Selector.ID)
+	assert.Zero(t, typed.Element.FractionX)
+	button := entry.Turns[2].Actions[0]
+	require.NotNil(t, button.Element)
+	assert.Equal(t, desktop.Selector{Role: desktop.RoleButton, Name: "保存", ID: "saveButton"}, button.Element.Selector)
+	assert.Equal(t, "経費精算 - 請求書 1042", entry.Window)
+	require.NotEmpty(t, entry.Landmarks)
+	assert.Equal(t, "saveButton", entry.Landmarks[0].Selector.ID, "the element touched last comes first")
+}
+
+// A replay finds its elements where they are now, so a moved window and
+// changed pixels still replay, by element.
+func TestReplaysByElementWhenPixelsChanged(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"do": [{"act": "Save the invoice"}]}`
+	run := elementRun(t)
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(235, 194)), done("Saved")}}}
+	require.NoError(t, run.execute(steps, nil).err)
+
+	run.backend.show(pattern(800, 600, 150))
+	run.elements.shift(37, 11)
+	run.backend.events = nil
+	replayed := run.execute(steps, nil)
+	require.NoError(t, replayed.err, "no session is left, so a model call would fail")
+	events := operationEvents(replayed.exec.GetAgentSession())
+	require.Len(t, events, 1)
+	assert.Equal(t, agentstep.StatusCacheHit, events[0].Status)
+	assert.Equal(t, agentstep.ViaElement, events[0].Via)
+	assert.Equal(t, []string{"move 272,205", "left down #1"}, run.backend.inputs(), "the click follows the button")
+	assert.Contains(t, replayed.stderr.String(), `replay by element: click button "保存" at 272,205`)
+}
+
+// The display size is not part of the recording's key, so an element
+// replay runs on another display.
+func TestReplaysOnAnotherDisplaySize(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"do": [{"act": "Save the invoice"}]}`
+	run := elementRun(t)
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(235, 194)), done("Saved")}}}
+	require.NoError(t, run.execute(steps, nil).err)
+
+	run.backend = newFakeBackend(1024, 768)
+	replayed := run.execute(steps, nil)
+	require.NoError(t, replayed.err)
+	assert.Equal(t, []string{"act:cache-hit"}, eventNames(replayed.exec.GetAgentSession()))
+	assert.Equal(t, []string{"move 235,194", "left down #1"}, run.backend.inputs())
+}
+
+// A replay waits up to find_within for an element that is not there yet.
+func TestReplayWaitsForElement(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"do": [{"act": {"instruction": "Save the invoice", "find_within": "2s"}}]}`
+	run := elementRun(t)
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(235, 194)), done("Saved")}}}
+	require.NoError(t, run.execute(steps, nil).err)
+
+	all := expenseElements()
+	run.elements.elements = withoutElement(all, "saveButton")
+	run.elements.arriveAfter(2, all)
+	replayed := run.execute(steps, nil)
+	require.NoError(t, replayed.err)
+	assert.Equal(t, []string{"act:cache-hit"}, eventNames(replayed.exec.GetAgentSession()))
+	assert.GreaterOrEqual(t, run.elements.reads, 3)
+}
+
+// Under never, a missing element fails the act naming the element, the
+// wait, the turn, and why.
+func TestNeverMissNamesElement(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"do": [{"act": "Save the invoice"}]}`
+	run := elementRun(t)
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(235, 194)), done("Saved")}}}
+	require.NoError(t, run.execute(steps, nil).err)
+
+	run.elements.elements = withoutElement(expenseElements(), "saveButton")
+	run.backend.events = nil
+	failed := run.execute(`{"ai": "never", "do": [{"act": "Save the invoice"}]}`, nil)
+	require.ErrorContains(t, failed.err, `the act cannot run without AI: button "保存" was not found within 0s at turn 1 of 1: it is not there`)
+	events := operationEvents(failed.exec.GetAgentSession())
+	assert.Equal(t, agentstep.ViaElement, events[0].Via)
+	assert.Empty(t, run.backend.inputs(), "nothing is clicked")
+
+	run.elements.elements = expenseElements()
+	run.elements.elements = append(run.elements.elements, desktop.Element{Role: desktop.RoleButton, Name: "保存", ID: "thirdSave", Bounds: image.Rect(500, 180, 590, 208), Path: []desktop.PathStep{{Role: desktop.RoleButton, Name: "保存", Index: 5}}})
+	ambiguous := run.execute(`{"ai": "never", "do": [{"act": "Save the invoice"}]}`, nil)
+	require.NoError(t, ambiguous.err, "the recorded path picks the button where it was")
+}
+
+// A turn whose actions landed on no element replays by pixels, as before.
+func TestReplayFallsBackToPixelsWithoutElements(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"do": [{"act": "Click the canvas"}]}`
+	run := elementRun(t)
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(10, 10)), done("Clicked")}}}
+	require.NoError(t, run.execute(steps, nil).err)
+	entry := lookupRecording(t, run, "Click the canvas")
+	assert.Nil(t, entry.Turns[0].Actions[0].Element, "nothing is under the point")
+
+	replayed := run.execute(steps, nil)
+	require.NoError(t, replayed.err)
+	events := operationEvents(replayed.exec.GetAgentSession())
+	assert.Equal(t, agentstep.ViaScreen, events[0].Via)
+
+	run.backend.show(pattern(800, 600, 150))
+	failed := run.execute(`{"ai": "never", "do": [{"act": "Click the canvas"}]}`, nil)
+	require.ErrorContains(t, failed.err, "the screen differs from the recording at turn 1 of 1")
+}
+
+// Typing replays into the field that had the focus, which is focused
+// again first.
+func TestReplayFocusesRecordedField(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"do": [{"act": "Enter the amount"}]}`
+	run := elementRun(t)
+	run.focusOn("amountBox")
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(290, 152), typing("12,000")), done("Entered")}}}
+	require.NoError(t, run.execute(steps, nil).err)
+
+	run.elements.shift(37, 11)
+	run.backend.events = nil
+	replayed := run.execute(steps, nil)
+	require.NoError(t, replayed.err)
+	assert.Equal(t, []string{"move 327,163", "left down #1", "focus amountBox", "type 12,000"}, run.backend.inputs())
+}
+
+// An element named by a variable's value is recorded by the placeholder,
+// so the next run, with another value, clicks the element named by it.
+func TestReplayRecordsPlaceholderForElementName(t *testing.T) {
+	t.Parallel()
+
+	month := func(name string) desktop.Element {
+		return desktop.Element{Role: desktop.RoleListItem, Name: name, Bounds: image.Rect(120, 420, 300, 444), Path: []desktop.PathStep{{Role: desktop.RoleListItem, Name: name, Index: 0}}}
+	}
+	run := elementRun(t)
+	run.elements.elements = append(expenseElements(), month("2026-03"))
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(210, 432)), done("Opened")}}}
+	require.NoError(t, run.execute(`{"variables": {"month": "2026-03"}, "do": [{"act": "Open the month"}]}`, nil).err)
+	entry := lookupRecording(t, run, "Open the month")
+	assert.Equal(t, "%month%", entry.Turns[0].Actions[0].Element.Selector.Name)
+
+	run.elements.elements = append(expenseElements(), month("2026-04"))
+	run.backend.events = nil
+	replayed := run.execute(`{"variables": {"month": "2026-04"}, "do": [{"act": "Open the month"}]}`, nil)
+	require.NoError(t, replayed.err)
+	assert.Equal(t, []string{"act:cache-hit"}, eventNames(replayed.exec.GetAgentSession()))
+	assert.Equal(t, []string{"move 210,432", "left down #1"}, run.backend.inputs())
+}
+
+// An element replay ends by checking its landmarks: the window in front
+// and the elements the act touched last.
+func TestElementReplayNeedsLandmarks(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"do": [{"act": "Save the invoice"}]}`
+	run := elementRun(t)
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(235, 194)), done("Saved")}}}
+	require.NoError(t, run.execute(steps, nil).err)
+
+	// The button is there for the click and gone for the final check.
+	run.elements.arriveAfter(1, withoutElement(expenseElements(), "saveButton"))
+	failed := run.execute(`{"ai": "never", "do": [{"act": "Save the invoice"}]}`, nil)
+	require.ErrorContains(t, failed.err, `button "保存" is not there after the last turn`)
+
+	run.elements.elements = expenseElements()
+	run.elements.arriveAfter(1, withoutElement(expenseElements(), "saveButton"))
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{done("Already saved")}}}
+	healed := run.execute(steps, nil)
+	require.NoError(t, healed.err)
+	assert.Equal(t, []string{"act:healed"}, eventNames(healed.exec.GetAgentSession()))
+}
+
+// A recording of an older format is ignored once and replaced.
+func TestOldRecordingIgnoredOnce(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"do": [{"act": "Open the report"}]}`
+	run := newTestRun(t)
+	cache := openReplayCache(filepath.Join(run.dataDir, computerhost.DataDirName), "invoices", "post")
+	old := recording{Width: 400, Height: 200, Turns: []recordedTurn{{Screen: desktop.FingerprintOf(run.backend.screen), Actions: []recordedAction{{Action: clickAt(30, 40)}}}}}
+	cache.Stage(replayKey(0, "Open the report"), old)
+	require.NoError(t, cache.Commit(t.Context()))
+
+	ignored := run.execute(`{"ai": "never", "do": [{"act": "Open the report"}]}`, nil)
+	require.ErrorContains(t, ignored.err, "its recording on this host is from an older version and was ignored")
+
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(30, 40)), done("Opened")}}}
+	fresh := run.execute(steps, nil)
+	require.NoError(t, fresh.err)
+	assert.Equal(t, []string{"act:completed"}, eventNames(fresh.exec.GetAgentSession()))
+	assert.Equal(t, recordingVersion, lookupRecording(t, run, "Open the report").Version)
+
+	replayed := run.execute(`{"ai": "never", "do": [{"act": "Open the report"}]}`, nil)
+	require.NoError(t, replayed.err)
+	assert.Equal(t, []string{"act:cache-hit"}, eventNames(replayed.exec.GetAgentSession()))
 }
 
 // When a replay diverges partway, the model continues from there, and the

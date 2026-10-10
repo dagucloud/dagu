@@ -54,6 +54,9 @@ type computerExecutor struct {
 	// personWait is how long a step waits for one before giving up.
 	idlePoll   time.Duration
 	personWait time.Duration
+	// findWithin is how long a replay waits for an element or a screen
+	// when the step sets nothing.
+	findWithin time.Duration
 	stdout     io.Writer
 	stderr     io.Writer
 
@@ -83,6 +86,7 @@ func newExecutor(_ context.Context, step ir.Step) (executor.Executor, error) {
 		desktopLock:  userDesktopLock(),
 		idlePoll:     defaultIdlePoll,
 		personWait:   defaultPersonWait,
+		findWithin:   defaultFindWithin,
 		stdout:       os.Stdout,
 		stderr:       os.Stderr,
 	}, nil

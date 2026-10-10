@@ -63,6 +63,7 @@ const (
 	defaultAskTimeout       = time.Hour
 	defaultMaxActions       = 50
 	defaultIdle             = 15 * time.Second
+	defaultFindWithin       = 10 * time.Second
 )
 
 func init() {
@@ -80,7 +81,10 @@ type config struct {
 	MaxActions     int               `json:"max_actions,omitempty"`
 	OnConfirmation string            `json:"on_confirmation,omitempty"`
 	Idle           string            `json:"idle,omitempty"`
-	Do             []operation       `json:"do"`
+	// FindWithin is how long a replayed action waits for its element, or a
+	// replayed turn for its screen, before it is a miss.
+	FindWithin string      `json:"find_within,omitempty"`
+	Do         []operation `json:"do"`
 }
 
 // operation is one item of with.do. Exactly one operation field is set.
@@ -106,6 +110,7 @@ type actSpec struct {
 	AI          string `json:"ai,omitempty"`
 	Cache       *bool  `json:"cache,omitempty"`
 	MaxActions  int    `json:"max_actions,omitempty"`
+	FindWithin  string `json:"find_within,omitempty"`
 }
 
 type extractSpec struct {
@@ -296,6 +301,20 @@ func (c config) idle() time.Duration {
 	return d
 }
 
+// findWithin returns how long a replay of an act waits for an element or
+// a screen: the act's setting, the step's, or fallback.
+func (c config) findWithin(spec actSpec, fallback time.Duration) time.Duration {
+	for _, value := range []string{spec.FindWithin, c.FindWithin} {
+		if value == "" {
+			continue
+		}
+		if d, err := time.ParseDuration(value); err == nil && d >= 0 {
+			return d
+		}
+	}
+	return fallback
+}
+
 // maxActions returns the action budget of an act.
 func (c config) maxActions(spec actSpec) int {
 	switch {
@@ -389,6 +408,9 @@ func (c config) validate() error {
 		if d, err := time.ParseDuration(c.Idle); err != nil || d < 0 {
 			return fmt.Errorf("computer: idle %q must be a duration such as 15s, or 0 to not wait", c.Idle)
 		}
+	}
+	if err := validateFindWithin(c.FindWithin); err != nil {
+		return fmt.Errorf("computer: %w", err)
 	}
 	for name := range c.Variables {
 		if !agentstep.IdentifierPattern.MatchString(name) {
@@ -487,6 +509,9 @@ func (o operation) validate() error {
 		if strings.TrimSpace(o.Act.Instruction) == "" {
 			return errors.New("act instruction must not be empty")
 		}
+		if err := validateFindWithin(o.Act.FindWithin); err != nil {
+			return fmt.Errorf("act: %w", err)
+		}
 	case o.Extract != nil:
 		if strings.TrimSpace(o.Extract.Instruction) == "" {
 			return errors.New("extract instruction must not be empty")
@@ -516,6 +541,18 @@ func (o operation) validate() error {
 		if err := agentstep.ValidateDuration("ask.timeout", o.Ask.Timeout); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// validateFindWithin checks a find_within value, which may be 0 to look
+// once. A value holding a reference resolves at run time.
+func validateFindWithin(value string) error {
+	if value == "" || strings.Contains(value, "$") {
+		return nil
+	}
+	if d, err := time.ParseDuration(value); err != nil || d < 0 {
+		return fmt.Errorf("find_within %q must be a duration such as 10s, or 0 to look once", value)
 	}
 	return nil
 }
@@ -616,6 +653,7 @@ var operationSchema = &jsonschema.Schema{
 				"ai":          aiSchema(),
 				"cache":       {Type: "boolean"},
 				"max_actions": positiveInteger(),
+				"find_within": agentstep.StringSchema(),
 			},
 		},
 		opExtract: {
@@ -668,6 +706,7 @@ var configSchema = &jsonschema.Schema{
 		"max_actions":     positiveInteger(),
 		"on_confirmation": {Type: "string", Enum: []any{confirmationFail, confirmationAllow}},
 		"idle":            agentstep.StringSchema(),
+		"find_within":     agentstep.StringSchema(),
 		"do":              {Type: "array", MinItems: new(1), Items: operationSchema},
 	},
 	Defs: map[string]*jsonschema.Schema{"selector": selectorSchema()},

@@ -58,6 +58,9 @@ func TestValidateStep(t *testing.T) {
 		{name: "ai and cache", with: `{"ai": "never", "cache": true, "do": [{"act": "x"}]}`, llm: model, want: "set ai or cache, not both"},
 		{name: "ai and cache on act", with: `{"do": [{"act": {"instruction": "x", "ai": "never", "cache": false}}]}`, llm: model, want: "act: set ai or cache, not both"},
 		{name: "unknown ai", with: `{"ai": "sometimes", "do": [{"act": "x"}]}`, llm: model, want: "ai"},
+		{name: "find within", with: `{"find_within": "5s", "do": [{"act": {"instruction": "x", "find_within": "0"}}]}`, llm: model},
+		{name: "bad find within", with: `{"find_within": "soon", "do": [{"act": "x"}]}`, llm: model, want: `find_within "soon" must be a duration`},
+		{name: "negative find within on act", with: `{"do": [{"act": {"instruction": "x", "find_within": "-1s"}}]}`, llm: model, want: `act: find_within "-1s"`},
 		{name: "empty do", with: `{"do": []}`, llm: model, want: "do"},
 		{name: "unknown field", with: `{"url": "https://example.com", "do": [{"act": "x"}]}`, llm: model, want: "url"},
 		{name: "two operations", with: `{"do": [{"act": "x", "wait": "1s"}]}`, llm: model, want: "do"},
@@ -105,6 +108,9 @@ func TestConfigShorthands(t *testing.T) {
 	assert.Equal(t, launchSpec{Command: "open", Args: []string{"-a", "TextEdit"}}, *cfg.Do[0].Launch)
 	assert.Equal(t, 5, cfg.maxActions(*cfg.Do[1].Act))
 	assert.Equal(t, defaultMaxActions, cfg.maxActions(actSpec{}))
+	assert.Equal(t, 10*time.Second, cfg.findWithin(actSpec{}, 10*time.Second), "the fallback applies when nothing is set")
+	assert.Equal(t, 3*time.Second, config{FindWithin: "3s"}.findWithin(actSpec{}, 10*time.Second))
+	assert.Equal(t, time.Duration(0), config{FindWithin: "3s"}.findWithin(actSpec{FindWithin: "0"}, 10*time.Second), "the act's setting wins")
 	assert.Equal(t, "Saved", cfg.Do[2].Expect.Statement)
 	assert.Equal(t, "30s", cfg.Do[2].Expect.Within)
 

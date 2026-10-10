@@ -10,10 +10,12 @@ import (
 	"fmt"
 	"image"
 	"strconv"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/replaycache"
 	"github.com/dagucloud/dagu/v2/internal/desktop"
 	"github.com/dagucloud/dagu/v2/internal/llm/computeruse"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
 )
 
 const (
@@ -29,13 +31,23 @@ const (
 	targetRadiusDivisor = 40
 )
 
+// recordingVersion is the format of the recordings written now. A
+// recording of another version is ignored once and replaced.
+const recordingVersion = 2
+
 // recording is what an act did, so a later run can repeat it without a
-// model when the screens match.
+// model when the screens, or the elements, match.
 type recording struct {
-	Width  int                 `json:"width"`
-	Height int                 `json:"height"`
-	Turns  []recordedTurn      `json:"turns"`
-	Final  desktop.Fingerprint `json:"final"`
+	Version int                 `json:"version"`
+	Width   int                 `json:"width"`
+	Height  int                 `json:"height"`
+	Turns   []recordedTurn      `json:"turns"`
+	Final   desktop.Fingerprint `json:"final"`
+	// Window is the title of the front window when the act ended, and
+	// Landmarks up to three elements the act touched that were still there,
+	// which a replay by elements checks in place of the final screen.
+	Window    string            `json:"window,omitempty"`
+	Landmarks []recordedElement `json:"landmarks,omitempty"`
 }
 
 // recordedTurn is a screen the model saw and the actions it chose.
@@ -52,10 +64,13 @@ type recordedAction struct {
 	Action computeruse.Action `json:"action"`
 	// Target fingerprints the area the action lands on.
 	Target *desktop.Fingerprint `json:"target,omitempty"`
+	// Element is the element the action landed on or typed into, when the
+	// host could read it.
+	Element *recordedElement `json:"element,omitempty"`
 }
 
-func recordAction(action computeruse.Action, full *image.RGBA) recordedAction {
-	recorded := recordedAction{Action: action}
+func recordAction(action computeruse.Action, full *image.RGBA, element *recordedElement) recordedAction {
+	recorded := recordedAction{Action: action, Element: element}
 	if at, ok := target(action); ok {
 		fingerprint := desktop.FingerprintAround(full, at, targetRadius(full))
 		recorded.Target = &fingerprint
@@ -68,17 +83,17 @@ func targetRadius(full *image.RGBA) int {
 }
 
 // replayCache stores the recordings of act operations. Entries are keyed by
-// operation position, instruction and screen size, so an edited
-// instruction or a different display misses.
+// operation position and instruction, so an edited instruction misses. A
+// recording keeps its display size, which only its pixel turns require.
 type replayCache = replaycache.Recordings[recording]
 
 func openReplayCache(computerDir, dagName, stepKey string) *replayCache {
 	return replaycache.Open[recording](replaycache.New(computerDir).Path(dagName, stepKey))
 }
 
-// replayKey identifies an act operation on a display size.
-func replayKey(index int, instruction string, size image.Point) string {
-	sum := sha256.Sum256([]byte(strconv.Itoa(index) + "\x00" + instruction + "\x00" + size.String()))
+// replayKey identifies an act operation.
+func replayKey(index int, instruction string) string {
+	sum := sha256.Sum256([]byte(strconv.Itoa(index) + "\x00" + instruction))
 	return hex.EncodeToString(sum[:])
 }
 
@@ -95,16 +110,33 @@ type replayOutcome struct {
 	// reason says why the replay stopped short, for a step that cannot
 	// hand the task to the model.
 	reason string
+	// elementTurns and pixelTurns count the turns tried each way,
+	// including one that missed.
+	elementTurns, pixelTurns int
 }
 
-// replay repeats a recording while every screen matches what the model saw.
-// It stops, leaving the desktop as it is, when a screen differs, an action
-// fails, or the step's settings would stop a model's turn: the turn needs
-// more than budget actions in all, or a confirmation on_confirmation does
-// not allow. The model then continues from there under the same settings.
-func (r *run) replay(ctx context.Context, index int, entry recording, budget int) (replayOutcome, error) {
+// via is how the replay ran: by elements when every turn was, else by the
+// screen.
+func (o replayOutcome) via() string {
+	if o.elementTurns > 0 && o.pixelTurns == 0 {
+		return agentstep.ViaElement
+	}
+	return agentstep.ViaScreen
+}
+
+// replay repeats a recording while its elements or screens are found. A
+// turn whose pointer actions all landed on elements replays on those
+// elements, wherever they are now; any other turn replays on the pixels
+// it recorded, which need the same display. Each waits up to findWithin
+// for what it needs. The replay stops, leaving the desktop as it is, when
+// a turn misses, an action fails, or the step's settings would stop a
+// model's turn: the turn needs more than budget actions in all, or a
+// confirmation on_confirmation does not allow. The model then continues
+// from there under the same settings.
+func (r *run) replay(ctx context.Context, index int, entry recording, budget int, findWithin time.Duration) (replayOutcome, error) {
 	var outcome replayOutcome
 	total := len(entry.Turns)
+	var els desktop.Elements
 	for i, turn := range entry.Turns {
 		switch {
 		case outcome.actions+len(turn.Actions) > budget:
@@ -117,16 +149,32 @@ func (r *run) replay(ctx context.Context, index int, entry recording, budget int
 		if err := r.awaitPerson(ctx); err != nil {
 			return outcome, err
 		}
-		current, err := r.settle(ctx)
+		if elementTurn(turn) {
+			if els == nil {
+				els, _ = r.elementsIfAvailable()
+			}
+			if els != nil {
+				outcome.elementTurns++
+				reason, err := r.replayByElement(ctx, index, i, total, turn, els, findWithin, &outcome)
+				if err != nil || reason != "" {
+					outcome.reason = reason
+					return outcome, err
+				}
+				outcome.turns++
+				continue
+			}
+		}
+		outcome.pixelTurns++
+		current, err := r.awaitScreen(ctx, entry, turn, findWithin)
 		if err != nil {
 			return outcome, err
 		}
-		if !matches(current, entry, turn) {
+		if current == nil {
 			outcome.reason = fmt.Sprintf("the screen differs from the recording at turn %d of %d", i+1, total)
 			return outcome, nil
 		}
 		for _, recorded := range turn.Actions {
-			logAction(r.timeline, index, "replay "+describeAction(recorded.Action))
+			logAction(r.timeline, index, "replay by pixels: "+describeAction(recorded.Action))
 			outcome.actions++
 			if result := r.runAction(ctx, recorded.Action, identity, nil, computeruse.ImageLimit{}); result.Failed() {
 				outcome.reason = fmt.Sprintf("%s failed at turn %d of %d: %s", describeAction(recorded.Action), i+1, total, result.Error)
@@ -134,6 +182,14 @@ func (r *run) replay(ctx context.Context, index int, entry recording, budget int
 			}
 		}
 		outcome.turns++
+	}
+	if outcome.elementTurns > 0 && entry.Window != "" && els != nil {
+		reason, err := r.awaitLandmarks(ctx, els, entry, findWithin)
+		if err != nil {
+			return outcome, err
+		}
+		outcome.complete, outcome.reason = reason == "", reason
+		return outcome, nil
 	}
 	final, err := r.settle(ctx)
 	if err != nil {
@@ -144,6 +200,28 @@ func (r *run) replay(ctx context.Context, index int, entry recording, budget int
 		outcome.reason = "the screen after the last turn differs from the recording"
 	}
 	return outcome, nil
+}
+
+// awaitScreen waits for the screen to look like a recorded turn's,
+// capturing again until it does or findWithin passes. It returns nil when
+// the screen still differs.
+func (r *run) awaitScreen(ctx context.Context, entry recording, turn recordedTurn, findWithin time.Duration) (*image.RGBA, error) {
+	deadline := time.Now().Add(findWithin)
+	for {
+		current, err := r.settle(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if matches(current, entry, turn) {
+			return current, nil
+		}
+		if !time.Now().Before(deadline) {
+			return nil, nil
+		}
+		if err := sleep(ctx, min(exactPollInterval, time.Until(deadline))); err != nil {
+			return nil, err
+		}
+	}
 }
 
 // matches reports whether a screen looks like the one a recorded turn was
