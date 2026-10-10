@@ -4,9 +4,9 @@
 package desktop
 
 // WindowMatches reports whether a window title contains pattern, where *
-// matches any run of characters.
+// matches any run of characters, comparing both as NormalizeText does.
 func WindowMatches(title, pattern string) bool {
-	return globMatch("*"+pattern+"*", title)
+	return globMatch("*"+NormalizeText(pattern)+"*", NormalizeText(title))
 }
 
 // globMatch reports whether s matches pattern in full, where * matches any

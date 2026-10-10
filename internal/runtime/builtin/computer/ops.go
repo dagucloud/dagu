@@ -436,8 +436,9 @@ func (r *run) evaluate(ctx context.Context, c condition) (bool, string, error) {
 		if err != nil {
 			return false, "", err
 		}
+		wanted := desktop.NormalizeText(c.Text)
 		for _, e := range elements {
-			if strings.Contains(e.Name, c.Text) || strings.Contains(e.Value, c.Text) {
+			if strings.Contains(desktop.NormalizeText(e.Name), wanted) || strings.Contains(desktop.NormalizeText(e.Value), wanted) {
 				return true, fmt.Sprintf("the window shows %q", c.Text), nil
 			}
 		}
