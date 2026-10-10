@@ -12,9 +12,10 @@ Dagu Cloud, and let the server's administrator open it to remote access from
 Dagu Cloud without inbound ports, VPN, SSH, or remote desktop.
 
 Activating an online license is the connection. There is no separate connect
-command. Reporting starts with the license and sends metadata only. Remote
-access is off until an administrator of the server turns it on, on the server
-itself, and it never exceeds the role they choose.
+command. Reporting is off until an administrator of the server turns it on,
+seeing exactly what is sent, and then sends metadata only. Remote access is
+off until an administrator of the server turns it on, on the server itself,
+and it never exceeds the role they choose.
 
 Workflows never depend on Dagu Cloud. Losing the connection stops reports and
 remote access, nothing else.
@@ -36,8 +37,10 @@ Today they:
 ## Goals
 
 1. **One step.** Activating an online license connects the server.
-2. **Metadata by default.** Health, version, workflow list, and run status
-   transitions. No logs, outputs, parameters, or secrets.
+2. **Nothing without consent.** Upgrading or connecting sends nothing new.
+   Reporting starts only when the server's admin chooses it, and then sends
+   metadata only: health, version, and run status transitions. No logs,
+   outputs, parameters, or secrets.
 3. **Outbound only.** Remote access rides a connection the server opens.
 4. **The server decides.** Remote access is opt-in per server, capped by a
    local role, and can be paused from the server at any time.
@@ -102,19 +105,53 @@ from the console has the same effect on the next report (`401`).
 
 ### What is sent
 
-| Part | Fields | When |
+This table lists what `cloud.report` chooses to send about the server and its
+runs. A field is listed here, under its level, before any release sends it.
+
+Every report also carries what identifies and authenticates the server, as
+its license check-in does: the protocol version, license ID, server ID, and
+heartbeat secret. At `runs` it also carries the reporter's cursor and, after
+events were lost, the time they were lost from.
+
+| Level | Fields | When |
 | --- | --- | --- |
-| Health | Dagu version, OS and architecture, process start time, services from the service registry (scheduler, coordinator, workers: count and last heartbeat), queue depth per queue, event lag, remote access level | Every report |
-| Inventory | Per DAG: name, schedules (cron and time zone), suspended, last run status and time | When its hash changes, and at least daily |
-| Runs | Per `dag.run.*` event: event ID, type, DAG name, DAG-run ID, attempt ID, status, `occurred_at`, and `run_created_at` (when the DAG run was created, the same in every event of the run and its retries); on terminal events, failed step names and exit codes | Batched with each report |
+| `health` | Dagu version, OS, architecture, process start time, and service counts: schedulers holding the scheduler lock, and registered coordinators | Every report |
+| `runs` | The `health` fields, plus each status change of a top-level DAG run: event ID, type, DAG name, run ID, attempt ID, status, the event's time, and the run's queued, started, and finished times; on a finished run, up to 50 failed step names | With the next report; within 5 seconds of a failure or a step waiting for a person |
+
+**Planned, not sent by any level yet:** queue depth, worker counts, the list
+of DAGs, and the remote access level. Each joins the table above, under its
+level, before it is sent.
 
 **Never sent:** logs, outputs, parameters, environment, step commands, DAG YAML,
-secret values, and error message text. Error text is opt-in
-(`cloud.report_error_messages`) because it often contains hosts, paths, or
-data.
+the values of workflow secrets, and error message text.
 
-DAG names and step names are sent. An administrator who considers them
-sensitive turns reporting off.
+DAG names and step names are sent at `runs`. An administrator who considers
+them sensitive chooses `health`, which sends neither.
+
+### Choosing what to report
+
+| `cloud.report` | Sends |
+| --- | --- |
+| unset or `off` (default) | Nothing beyond the license check-in |
+| `health` | Dagu version, OS, architecture, start time, and which services run |
+| `runs` | Also run status changes: DAG names, run IDs, status, times, failed step names |
+
+`runs` arrives with DAG-run reporting. Until a release ships it,
+configuration accepts only `off` and `health`, and rejects `runs`.
+
+- **Upgrading changes nothing.** A server licensed before reporting existed
+  keeps sending only its license check-in.
+- **The admin chooses in the UI**, at a moment it is useful: right after the
+  server connects to Dagu Cloud, or from a one-time notice on a server that
+  was already licensed. The dialog lists what each level sends and what is
+  never sent, before anything is.
+- **Config wins.** Set in configuration, `cloud.report` fixes the level for
+  servers managed as code, and the UI shows it read-only.
+- **Inspectable and reversible.** The license settings page shows the level,
+  when the last report was sent, and the exact last report. Turning it off
+  takes effect at once, and Dagu Cloud can delete what a server reported.
+- **The server decides.** Dagu Cloud cannot turn reporting on; it shows a
+  server that checks in without reporting as not monitored.
 
 ### Cadence
 
@@ -147,7 +184,7 @@ Dagu Cloud de-duplicates by ID.
 (`event_store.retention_days`). A server cut off for longer loses the events in
 between. The reporter detects a cursor older than retention and reports a gap;
 Dagu Cloud shows the gap rather than guessing runs. If the event store is
-disabled, reports carry health and inventory only.
+disabled, reports carry health only.
 
 ### Wire contract
 
@@ -163,27 +200,24 @@ activation's credentials, as the heartbeat is.
   "health": { "version": "3.0.0", "os": "linux", "arch": "amd64",
               "started_at": "2026-10-09T12:00:00Z",
               "services": [{ "name": "scheduler", "instances": 1 },
-                           { "name": "coordinator", "instances": 0 }],
-              "queues": [{ "name": "default", "queued": 3, "running": 1 }],
-              "event_lag_seconds": 2, "remote_access": "off" },
-  "inventory": { "hash": "…", "dags": [] },
+                           { "name": "coordinator", "instances": 0 }] },
   "events": [],
   "gap": null,
   "cursor": "opaque"
 }
 ```
 
-`inventory` is omitted when unchanged. A scheduler count of zero means no
-scheduler holds the lock; leaving `services` out means the count is unknown.
+A scheduler count of zero means no scheduler holds the lock; leaving
+`services` out means the count is unknown.
 The response is:
 
 ```json
-{ "ack": "opaque", "next_report_seconds": 60, "inventory_wanted": false }
+{ "ack": "opaque", "next_report_seconds": 60 }
 ```
 
 | Response | Reporter behavior |
 | --- | --- |
-| `200` | Persist `ack` as the cursor. Send inventory next time if `inventory_wanted`. |
+| `200` | Persist `ack` as the cursor. |
 | `401`, `410` | Stop. The license manager handles the activation as it does for heartbeats. |
 | `413` | Halve the batch and retry. |
 | `429` | Wait for `Retry-After`, keeping the cursor. |
@@ -230,8 +264,7 @@ highest role any remote user gets.
 
 ```yaml
 cloud:
-  report: true                   # health, workflow list, run status
-  report_error_messages: false
+  report: off                    # off | health | runs; omit to choose in the UI
   remote_access: off             # off | viewer | operator | developer | manager | admin
                                  # omit to set it in the UI
 ```
@@ -362,8 +395,8 @@ Older servers keep working as they do: they heartbeat and never report.
 
 ## Consequences
 
-- A licensed server sends metadata to Dagu Cloud by default. This is stated at
-  approval, documented, and switchable.
+- Fewer servers report than with reporting on by default; in exchange, no
+  server sends anything its admin did not choose.
 - The tunnel ingress is new attack surface. It is bounded by the local role
   cap, blocked admin endpoints, short-lived server-bound assertions, and a
   separate origin per server.
@@ -371,7 +404,6 @@ Older servers keep working as they do: they heartbeat and never report.
 
 ## Open questions
 
-1. Should reporting default to on for activations made before v2.19, or wait
-   for an admin to turn it on?
-2. Is error text worth sending by default, for more useful alerts?
-3. Should remote access ship in a v2 minor rather than wait for v3.0?
+1. Should error text ever be offered, as its own choice, for more useful
+   alerts? It often contains hosts, paths, or data.
+2. Should remote access ship in a v2 minor rather than wait for v3.0?

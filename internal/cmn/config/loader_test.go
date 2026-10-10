@@ -391,7 +391,6 @@ func TestLoad_Env(t *testing.T) {
 				BlockDurationSeconds: 1800,
 			},
 		},
-		Cloud:           CloudConfig{Report: true},
 		DefaultExecMode: ExecutionModeLocal,
 		Warnings: []string{fmt.Sprintf(
 			"paths.suspend_flags_dir %q is outside paths.data_dir %q; suspension state may diverge across Dagu processes",
@@ -634,23 +633,39 @@ license:
 }
 
 func TestLoad_CloudReport(t *testing.T) {
-	t.Run("Default", func(t *testing.T) {
+	t.Run("DefaultReportsNothing", func(t *testing.T) {
 		t.Setenv("DAGU_CLOUD_REPORT", "")
-		require.True(t, testLoad(t).Cloud.Report)
+		report := testLoad(t).Cloud.Report
+		require.Equal(t, ReportLevel(""), report)
+		require.False(t, report.Reports())
 	})
 
 	t.Run("YAML", func(t *testing.T) {
 		t.Setenv("DAGU_CLOUD_REPORT", "")
 		cfg := loadFromYAML(t, `
 cloud:
-  report: false
+  report: health
 `)
-		require.False(t, cfg.Cloud.Report)
+		require.Equal(t, ReportHealth, cfg.Cloud.Report)
+		require.True(t, cfg.Cloud.Report.Reports())
 	})
 
 	t.Run("Env", func(t *testing.T) {
-		t.Setenv("DAGU_CLOUD_REPORT", "false")
-		require.False(t, testLoad(t).Cloud.Report)
+		t.Setenv("DAGU_CLOUD_REPORT", "Health")
+		require.Equal(t, ReportHealth, testLoad(t).Cloud.Report)
+	})
+
+	t.Run("Off", func(t *testing.T) {
+		t.Setenv("DAGU_CLOUD_REPORT", "off")
+		require.False(t, testLoad(t).Cloud.Report.Reports())
+	})
+
+	t.Run("Invalid", func(t *testing.T) {
+		t.Setenv("DAGU_CLOUD_REPORT", "")
+		for _, value := range []string{"true", "runs"} {
+			err := loadWithErrorFromYAML(t, "cloud:\n  report: "+value+"\n")
+			require.ErrorContains(t, err, "invalid cloud.report", value)
+		}
 	})
 }
 
@@ -974,7 +989,6 @@ scheduler:
 			Retention: 24 * time.Hour,
 			Interval:  5 * time.Second,
 		},
-		Cloud:           CloudConfig{Report: true},
 		DefaultExecMode: ExecutionModeLocal,
 		Warnings: []string{fmt.Sprintf(
 			"paths.suspend_flags_dir %q is outside paths.data_dir %q; suspension state may diverge across Dagu processes",
