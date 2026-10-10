@@ -1518,3 +1518,45 @@ func TestOpenDesktopFailure(t *testing.T) {
 	err = exec.Run(run.context())
 	require.ErrorContains(t, err, "open the desktop: Screen Recording permission is missing")
 }
+
+// The model may click an element the observation lists by id, which the
+// executor finds exactly and clicks at its centre, instead of a pixel.
+func TestModelActsOnElementById(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	run.elements = newFakeElements()
+	session := &scriptedSession{turns: []*computeruse.Turn{
+		actions(computeruse.Action{CallID: "x", Kind: computeruse.KindClick, ElementID: "e1"}),
+		done("Clicked save"),
+	}}
+	run.sessions = []*scriptedSession{session}
+	execution := run.execute(`{"idle": "0", "do": [{"act": "Save the form"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	require.NotEmpty(t, session.observations)
+	assert.Contains(t, session.observations[0].Elements, computeruse.Element{ID: "e1", Role: desktop.RoleButton, Name: "保存"},
+		"the observation offers the button as an element")
+	// e1 is the 保存 button at (190,180)-(280,208); its centre is 235,194.
+	assert.Equal(t, []string{"move 235,194", "left down #1"}, run.backend.inputs())
+}
+
+// An element id the latest observation did not offer fails that action and
+// nothing reaches the desktop, so the model can look again.
+func TestModelElementIdNotOffered(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	run.elements = newFakeElements()
+	session := &scriptedSession{turns: []*computeruse.Turn{
+		actions(computeruse.Action{CallID: "x", Kind: computeruse.KindClick, ElementID: "e99"}),
+		done("Gave up"),
+	}}
+	run.sessions = []*scriptedSession{session}
+	execution := run.execute(`{"idle": "0", "do": [{"act": "Save the form"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	assert.Empty(t, run.backend.inputs(), "nothing reached the desktop")
+	require.GreaterOrEqual(t, len(session.observations), 2)
+	assert.Contains(t, session.observations[1].Results[0].Error, `no element "e99" is on the screen`)
+}
