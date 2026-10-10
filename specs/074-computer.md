@@ -152,11 +152,15 @@ An action that fails skips the rest of the round and is reported to the model.
 The act ends when the model reports the task done. A report made in the
 same turn as actions is not taken yet: the actions run, the model is shown
 the screen they produced with a note, and the act ends only on a report
-without actions. It fails when:
+without actions. A round that repeats the previous one and leaves the
+screen as it was is answered with a note saying so. When a round would take
+the act past `max_actions` (`with.max_actions`, default 50), its actions are
+not run and the model is shown the screen with a note asking for its report.
+The act fails when:
 
 - the model reports that the task cannot be done, with its summary;
 - the model twice answers without an action or a report;
-- the actions would exceed `max_actions` (`with.max_actions`, default 50);
+- the model acts again after being told the task has no actions left;
 - the model provider asks a person to confirm the next actions and
   `with.on_confirmation` is `fail` (the default); with `allow` the actions run
   and the approval is sent with the next screenshot; or

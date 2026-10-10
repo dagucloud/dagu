@@ -1120,9 +1120,13 @@ func TestReplayCountsCutShortTurn(t *testing.T) {
 	require.NoError(t, run.execute(steps, nil).err)
 
 	run.backend.typeErr = errors.New("input blocked")
-	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(typeText("acme")), done("Filled")}}}
-	failed := run.execute(steps, nil)
-	require.ErrorContains(t, failed.err, "more than max_actions (2)")
+	session := &scriptedSession{turns: []*computeruse.Turn{actions(typeText("acme")), done("Filled")}}
+	run.sessions = []*scriptedSession{session}
+	capped := run.execute(steps, nil)
+	require.NoError(t, capped.err)
+	require.Len(t, session.observations, 2)
+	assert.Equal(t, capNote, session.observations[1].Note, "the replay's two actions used the budget")
+	assert.Equal(t, []computeruse.Result{{Skipped: true}}, session.observations[1].Results)
 }
 
 // Dagu processes with different data directories operate one desktop, so a
@@ -1501,9 +1505,11 @@ func TestActLimits(t *testing.T) {
 		want  string
 	}{
 		{
+			// Told that the task has no actions left, a model that acts again
+			// ends the act.
 			name:  "max actions",
 			with:  `{"max_actions": 2, "cache": false, "do": [{"act": "Click around"}]}`,
-			turns: []*computeruse.Turn{actions(clickAt(1, 1), clickAt(2, 2)), actions(clickAt(3, 3))},
+			turns: []*computeruse.Turn{actions(clickAt(1, 1), clickAt(2, 2)), actions(clickAt(3, 3)), actions(clickAt(4, 4))},
 			want:  "more than max_actions (2)",
 		},
 		{
@@ -1534,6 +1540,41 @@ func TestActLimits(t *testing.T) {
 			assert.Equal(t, ir.AgentSessionFailed, execution.exec.GetAgentSession().State)
 		})
 	}
+}
+
+// A task that reaches its action budget asks the model for its report before
+// failing, so a task that was in fact done is not thrown away.
+func TestCapAsksForReport(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	session := &scriptedSession{turns: []*computeruse.Turn{actions(clickAt(1, 1), clickAt(2, 2)), actions(clickAt(3, 3)), done("Clicked around")}}
+	run.sessions = []*scriptedSession{session}
+	execution := run.execute(`{"max_actions": 2, "cache": false, "do": [{"act": "Click around"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	assert.Equal(t, []string{"move 1,1", "left down #1", "move 2,2", "left down #1"}, run.backend.inputs(), "the third click was not run")
+	require.Len(t, session.observations, 3)
+	assert.Equal(t, capNote, session.observations[2].Note)
+	assert.Equal(t, []computeruse.Result{{CallID: "c", Skipped: true}}, session.observations[2].Results)
+	assert.Contains(t, execution.stderr.String(), "Clicked around (2 actions)")
+}
+
+// A model that repeats its previous round on a screen that did not change is
+// told so, before it tries a third time.
+func TestRepeatedRoundIsNoted(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	session := &scriptedSession{turns: []*computeruse.Turn{actions(clickAt(5, 5)), actions(clickAt(5, 5)), done("Done")}}
+	run.sessions = []*scriptedSession{session}
+	execution := run.execute(`{"cache": false, "do": [{"act": "Press the button"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	require.Len(t, session.observations, 3)
+	assert.Empty(t, session.observations[1].Note, "one round is not a repeat")
+	assert.Equal(t, repeatNote, session.observations[2].Note)
+	assert.Contains(t, execution.stderr.String(), "repeated its previous actions")
 }
 
 // A model provider's confirmation request is approved with
