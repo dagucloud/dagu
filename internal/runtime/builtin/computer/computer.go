@@ -40,10 +40,13 @@ type computerExecutor struct {
 	step        ir.Step
 	cfg         config
 	openDesktop func() (*desktop.Driver, error)
-	launch      func(dir, command string, args []string) error
-	newProvider providerFactory
-	newSession  sessionFactory
-	settle      settleTiming
+	// openElements reads the front window's elements for exact checks. It
+	// is called on the first one.
+	openElements func() (desktop.Elements, error)
+	launch       func(dir, command string, args []string) error
+	newProvider  providerFactory
+	newSession   sessionFactory
+	settle       settleTiming
 	// desktopLock is the directory of the lock that gives one step at a
 	// time the desktop; empty uses the data directory.
 	desktopLock string
@@ -67,17 +70,18 @@ func newExecutor(_ context.Context, step ir.Step) (executor.Executor, error) {
 		return nil, err
 	}
 	return &computerExecutor{
-		step:        step,
-		cfg:         cfg,
-		openDesktop: desktop.Open,
-		launch:      desktop.Launch,
-		newProvider: runtime.NewLLMProvider,
-		newSession:  computeruse.New,
-		settle:      defaultSettle,
-		desktopLock: userDesktopLock(),
-		idlePoll:    defaultIdlePoll,
-		stdout:      os.Stdout,
-		stderr:      os.Stderr,
+		step:         step,
+		cfg:          cfg,
+		openDesktop:  desktop.Open,
+		openElements: desktop.OpenElements,
+		launch:       desktop.Launch,
+		newProvider:  runtime.NewLLMProvider,
+		newSession:   computeruse.New,
+		settle:       defaultSettle,
+		desktopLock:  userDesktopLock(),
+		idlePoll:     defaultIdlePoll,
+		stdout:       os.Stdout,
+		stderr:       os.Stderr,
 	}, nil
 }
 

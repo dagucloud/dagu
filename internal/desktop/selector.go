@@ -139,7 +139,7 @@ func Match(window Element, elements []Element, sel Selector) ([]Element, error) 
 	if sel.App != "" && !strings.EqualFold(sel.App, window.App) {
 		return nil, nil
 	}
-	if sel.Window != "" && !globMatch("*"+sel.Window+"*", window.Name) {
+	if sel.Window != "" && !WindowMatches(window.Name, sel.Window) {
 		return nil, nil
 	}
 	scope := elements

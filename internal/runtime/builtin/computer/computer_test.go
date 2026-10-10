@@ -6,6 +6,7 @@ package computer
 import (
 	"context"
 	"errors"
+	"image"
 	"io"
 	"os"
 	"path/filepath"
@@ -109,6 +110,156 @@ func TestExpectAndWhen(t *testing.T) {
 
 	failed := run.execute(`{"do": [{"expect": "An error dialog is shown"}]}`, nil)
 	require.ErrorContains(t, failed.err, "do[0] expect failed: expectation not met")
+	assert.Nil(t, run.elements, "a statement never opens the elements reader")
+}
+
+// An exact check reads the front window's elements, calls no model, takes
+// no screenshot, and reports how it was decided.
+func TestExactConditions(t *testing.T) {
+	t.Parallel()
+
+	t.Run("text holds", func(t *testing.T) {
+		t.Parallel()
+		run := newTestRun(t)
+		run.elements = newFakeElements()
+		run.llm = nil
+		execution := run.execute(`{"ai": "never", "screenshots": "never", "do": [{"expect": {"text": "保存しました"}}, {"expect": {"text": "12,000"}}]}`, nil)
+		require.NoError(t, execution.err)
+		events := operationEvents(execution.exec.GetAgentSession())
+		require.Len(t, events, 2)
+		assert.Equal(t, agentstep.StatusCompleted, events[0].Status)
+		assert.Equal(t, agentstep.ViaExact, events[0].Via)
+		assert.Zero(t, events[0].Tokens)
+		assert.Contains(t, events[0].Content, `text "保存しました"`)
+		assert.Contains(t, events[0].Content, `the window shows "保存しました"`)
+		assert.Contains(t, events[1].Content, "12,000", "a field's value counts as shown")
+		assert.Empty(t, run.vision.requests, "no model request")
+		assert.Equal(t, 1, run.elements.opens)
+		assert.Zero(t, run.backend.captures, "no screenshot")
+		assert.True(t, run.elements.closed, "the reader is closed with the desktop")
+	})
+
+	t.Run("text fails with the reason", func(t *testing.T) {
+		t.Parallel()
+		run := newTestRun(t)
+		run.elements = newFakeElements()
+		execution := run.execute(`{"do": [{"expect": {"text": "エラー"}, "timeout": "300ms"}]}`, nil)
+		require.EqualError(t, execution.err, `computer: do[0] expect failed: expectation not met: no element of "経費精算 - 請求書 1042" shows "エラー"`)
+		events := operationEvents(execution.exec.GetAgentSession())
+		require.Len(t, events, 1)
+		assert.Equal(t, agentstep.StatusFailed, events[0].Status)
+		assert.Equal(t, agentstep.ViaExact, events[0].Via)
+		assert.GreaterOrEqual(t, run.elements.reads, 2, "an expect keeps looking until the operation timeout")
+	})
+
+	t.Run("element when skips", func(t *testing.T) {
+		t.Parallel()
+		run := newTestRun(t)
+		run.elements = newFakeElements()
+		execution := run.execute(`{"do": [{"wait": "1ms", "when": {"element": {"role": "button", "name": "削除"}}}, {"wait": "1ms", "when": {"element": {"role": "button", "name": "保存", "in": {"role": "group", "name": "支払情報"}}}}]}`, nil)
+		require.NoError(t, execution.err)
+		events := operationEvents(execution.exec.GetAgentSession())
+		require.Len(t, events, 2)
+		assert.Equal(t, agentstep.StatusSkipped, events[0].Status)
+		assert.Equal(t, agentstep.ViaExact, events[0].Via)
+		assert.Contains(t, events[0].Content, `{"role":"button","name":"削除"} is not there`)
+		assert.Equal(t, agentstep.StatusCompleted, events[1].Status, "the button in the group is there, so the wait ran")
+	})
+
+	t.Run("ambiguity is a miss", func(t *testing.T) {
+		t.Parallel()
+		run := newTestRun(t)
+		run.elements = newFakeElements()
+		execution := run.execute(`{"do": [{"expect": {"element": {"role": "button", "name": "保存"}}, "timeout": "200ms"}]}`, nil)
+		require.ErrorContains(t, execution.err, `{"role":"button","name":"保存"} is not there; 2 elements match`)
+	})
+
+	t.Run("window holds and fails", func(t *testing.T) {
+		t.Parallel()
+		run := newTestRun(t)
+		run.elements = newFakeElements()
+		execution := run.execute(`{"do": [{"expect": {"window": "請求書 *"}}]}`, nil)
+		require.NoError(t, execution.err)
+		assert.Contains(t, operationEvents(execution.exec.GetAgentSession())[0].Content, `the window "経費精算 - 請求書 1042" is in front`)
+
+		failed := run.execute(`{"do": [{"expect": {"window": "給与"}, "timeout": "200ms"}]}`, nil)
+		require.ErrorContains(t, failed.err, `"経費精算 - 請求書 1042" is in front, not "給与"`)
+	})
+
+	t.Run("within keeps looking", func(t *testing.T) {
+		t.Parallel()
+		run := newTestRun(t)
+		run.elements = newFakeElements()
+		run.elements.arriveAfter(3, append(expenseElements(), desktop.Element{Role: desktop.RoleText, Name: "完了", Bounds: image.Rect(120, 460, 200, 480), Path: []desktop.PathStep{{Role: desktop.RoleText, Name: "完了", Index: 2}}}))
+		execution := run.execute(`{"do": [{"wait": "1ms", "when": {"text": "完了", "within": "5s"}}]}`, nil)
+		require.NoError(t, execution.err)
+		assert.Equal(t, []string{"wait:completed"}, eventNames(execution.exec.GetAgentSession()), "the text arrived within the window")
+		assert.GreaterOrEqual(t, run.elements.reads, 4)
+	})
+
+	t.Run("when reads once", func(t *testing.T) {
+		t.Parallel()
+		run := newTestRun(t)
+		run.elements = newFakeElements()
+		run.elements.arriveAfter(1, append(expenseElements(), desktop.Element{Role: desktop.RoleText, Name: "完了"}))
+		execution := run.execute(`{"do": [{"wait": "1ms", "when": {"text": "完了"}}]}`, nil)
+		require.NoError(t, execution.err)
+		assert.Equal(t, []string{"wait:skipped"}, eventNames(execution.exec.GetAgentSession()))
+	})
+
+	t.Run("no elements is a miss until the window passes", func(t *testing.T) {
+		t.Parallel()
+		run := newTestRun(t)
+		run.elements = newFakeElements()
+		run.elements.err = desktop.ErrNoElements
+		execution := run.execute(`{"do": [{"expect": {"text": "完了"}, "timeout": "200ms"}]}`, nil)
+		require.ErrorContains(t, execution.err, "expectation not met")
+	})
+
+	t.Run("unsupported host", func(t *testing.T) {
+		t.Parallel()
+		run := newTestRun(t)
+		execution := run.execute(`{"do": [{"expect": {"text": "完了"}}]}`, nil)
+		require.ErrorContains(t, execution.err, "exact checks need 64-bit Windows: accessible elements are supported on 64-bit Windows only")
+	})
+
+	t.Run("placeholders from a variable and an ask", func(t *testing.T) {
+		t.Parallel()
+		run := newTestRun(t)
+		run.elements = newFakeElements()
+		const steps = `{"variables": {"doc": "1042"}, "do": [
+			{"expect": {"window": "請求書 %doc%"}},
+			{"ask": {"prompt": "Section?", "as": "section"}},
+			{"expect": {"element": {"role": "button", "name": "保存", "in": {"role": "group", "name": "%section%"}}}}
+		]}`
+		waiting := run.execute(steps, nil)
+		require.NoError(t, waiting.err)
+		session := waiting.exec.GetAgentSession()
+		assert.Contains(t, operationEvents(session)[0].Content, `window "請求書 %doc%"`, "the subject shows the check as written")
+		assert.Contains(t, operationEvents(session)[0].Content, "請求書 1042", "the reason shows the value")
+		session.Interactions[0].Status = ir.AgentInteractionAnswered
+		session.Interactions[0].Answers = [][]string{{"支払情報"}}
+		resumed := run.execute(steps, session)
+		require.NoError(t, resumed.err)
+		events := operationEvents(resumed.exec.GetAgentSession())
+		last := events[len(events)-1]
+		assert.Contains(t, last.Content, `"%section%"`, "the subject keeps the placeholder")
+		assert.NotContains(t, last.Content, "支払情報", "the answer is masked in the reason")
+	})
+
+	t.Run("a secret in a selector stays on the host", func(t *testing.T) {
+		t.Parallel()
+		run := newTestRun(t)
+		run.elements = newFakeElements()
+		run.secrets = map[string]string{"BOT": "paymentSaveButton"}
+		execution := run.execute(`{"do": [{"expect": {"element": {"role": "button", "id": "paymentSaveButton"}}}]}`, nil)
+		require.NoError(t, execution.err, "the selector never reaches the model")
+		assert.Empty(t, run.vision.requests)
+		assert.NotContains(t, execution.stderr.String(), "paymentSaveButton", "the value is masked in the log")
+
+		statement := run.execute(`{"do": [{"expect": "The paymentSaveButton is shown"}]}`, nil)
+		require.ErrorContains(t, statement.err, "contains the value of secret BOT")
+	})
 }
 
 // An ask pauses the step and frees the desktop; the answer resumes at the

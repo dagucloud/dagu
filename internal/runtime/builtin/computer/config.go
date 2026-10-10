@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/desktop"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
@@ -119,15 +120,6 @@ type askSpec struct {
 	Timeout string `json:"timeout,omitempty"`
 }
 
-// condition is the value of expect or when: a statement the model judges
-// against the screen, optionally rechecked until within passes.
-type condition struct {
-	Statement string `json:"statement"`
-	// Within is how long the statement is rechecked before it is taken as
-	// false, such as 30s.
-	Within string `json:"within,omitempty"`
-}
-
 // UnmarshalJSON accepts a command string or an object.
 func (l *launchSpec) UnmarshalJSON(data []byte) error {
 	var command string
@@ -148,24 +140,6 @@ func (a *actSpec) UnmarshalJSON(data []byte) error {
 	}
 	type plain actSpec
 	return json.Unmarshal(data, (*plain)(a))
-}
-
-// UnmarshalJSON accepts a statement string or an object.
-func (c *condition) UnmarshalJSON(data []byte) error {
-	var statement string
-	if err := json.Unmarshal(data, &statement); err == nil {
-		c.Statement = statement
-		return nil
-	}
-	type plain condition
-	return json.Unmarshal(data, (*plain)(c))
-}
-
-// window returns how long the statement is rechecked, or zero to check
-// once.
-func (c condition) window() time.Duration {
-	d, _ := time.ParseDuration(c.Within)
-	return max(d, 0)
 }
 
 // kind returns the operation name.
@@ -202,7 +176,7 @@ func (c config) operationTexts() []agentstep.OperationTexts {
 // promptTexts returns the operation texts that reach the model.
 func (o operation) promptTexts() []string {
 	texts := make([]string, 0, 2)
-	if o.When != nil {
+	if o.When != nil && o.When.judged() {
 		texts = append(texts, o.When.Statement)
 	}
 	switch {
@@ -210,7 +184,7 @@ func (o operation) promptTexts() []string {
 		texts = append(texts, o.Act.Instruction)
 	case o.Extract != nil:
 		texts = append(texts, o.Extract.Instruction)
-	case o.Expect != nil:
+	case o.Expect != nil && o.Expect.judged():
 		texts = append(texts, o.Expect.Statement)
 	case o.Ask != nil:
 		texts = append(texts, o.Ask.Prompt)
@@ -228,7 +202,7 @@ func (o operation) subject() string {
 	case o.Extract != nil:
 		return o.Extract.Instruction
 	case o.Expect != nil:
-		return o.Expect.Statement
+		return o.Expect.String()
 	case o.Wait != "":
 		return o.Wait
 	case o.Screenshot != "":
@@ -299,9 +273,9 @@ func (c config) extractChoice(spec extractSpec) string {
 func (c config) modelOperation() (index int, kind string, found bool) {
 	for i, op := range c.Do {
 		switch {
-		case op.When != nil:
+		case op.When != nil && op.When.judged():
 			return i, "when", true
-		case op.Expect != nil:
+		case op.Expect != nil && op.Expect.judged():
 			return i, opExpect, true
 		case op.Act != nil && c.actChoice(*op.Act) != aiNever:
 			return i, opAct, true
@@ -430,12 +404,22 @@ func (c config) validate() error {
 		if err := c.validateChoice(op); err != nil {
 			return fmt.Errorf("computer: do[%d]: %w", i, err)
 		}
+		references := map[string][]string{}
 		if op.Act != nil {
-			for _, name := range agentstep.VariableReferences(op.Act.Instruction) {
+			references[opAct] = agentstep.VariableReferences(op.Act.Instruction)
+		}
+		if op.When != nil {
+			references["when"] = op.When.references()
+		}
+		if op.Expect != nil {
+			references[opExpect] = op.Expect.references()
+		}
+		for kind, names := range references {
+			for _, name := range names {
 				_, isVariable := c.Variables[name]
 				_, isEarlierAsk := asks[name]
 				if !isVariable && !isEarlierAsk {
-					return fmt.Errorf("computer: do[%d]: act references %%%s%%, which is not in with.variables or an earlier ask", i, name)
+					return fmt.Errorf("computer: do[%d]: %s references %%%s%%, which is not in with.variables or an earlier ask", i, kind, name)
 				}
 			}
 		}
@@ -466,11 +450,11 @@ func (c config) validate() error {
 // and an extract has no form that reads the screen without one.
 func (c config) validateChoice(o operation) error {
 	if c.choice() == aiNever {
-		if o.When != nil {
-			return errors.New("when is judged by AI, which ai: never on the step does not allow")
+		if o.When != nil && o.When.judged() {
+			return errors.New("when is judged by AI, which ai: never on the step does not allow; use an exact check: {text}, {element}, or {window}")
 		}
-		if o.Expect != nil {
-			return errors.New("expect is judged by AI, which ai: never on the step does not allow")
+		if o.Expect != nil && o.Expect.judged() {
+			return errors.New("expect is judged by AI, which ai: never on the step does not allow; use an exact check: {text}, {element}, or {window}")
 		}
 	}
 	switch {
@@ -536,13 +520,6 @@ func (o operation) validate() error {
 	return nil
 }
 
-func (c condition) validate() error {
-	if strings.TrimSpace(c.Statement) == "" {
-		return errors.New("statement must not be empty")
-	}
-	return agentstep.ValidateDuration("within", c.Within)
-}
-
 func positiveInteger() *jsonschema.Schema {
 	return &jsonschema.Schema{Type: "integer", Minimum: new(1.0)}
 }
@@ -552,16 +529,65 @@ func aiSchema() *jsonschema.Schema {
 	return &jsonschema.Schema{Type: "string", Enum: []any{aiEveryRun, aiOnMiss, aiNever}}
 }
 
-// conditionSchema accepts a statement or an object with a statement.
+// conditionSchema accepts a statement or an object with exactly one of a
+// statement, a text, an element, or a window.
 func conditionSchema() *jsonschema.Schema {
+	return &jsonschema.Schema{AnyOf: []*jsonschema.Schema{
+		agentstep.NonEmptyString(),
+		{
+			Type:                 "object",
+			AdditionalProperties: agentstep.NoExtraProperties(),
+			Properties: map[string]*jsonschema.Schema{
+				"statement": agentstep.NonEmptyString(),
+				"text":      agentstep.NonEmptyString(),
+				"element":   {Ref: "#/$defs/selector"},
+				"window":    agentstep.NonEmptyString(),
+				"within":    agentstep.StringSchema(),
+			},
+			OneOf: []*jsonschema.Schema{
+				{Required: []string{"statement"}},
+				{Required: []string{"text"}},
+				{Required: []string{"element"}},
+				{Required: []string{"window"}},
+			},
+		},
+	}}
+}
+
+// selectorSchema accepts a selector as a condition names an element. A
+// container is a selector too, through the definition the step's schema
+// holds.
+func selectorSchema() *jsonschema.Schema {
+	roles := make([]any, 0, len(desktop.Roles))
+	for _, role := range desktop.Roles {
+		roles = append(roles, role)
+	}
 	return &jsonschema.Schema{
-		Types:                []string{"string", "object"},
-		MinLength:            new(1),
+		Type:                 "object",
 		AdditionalProperties: agentstep.NoExtraProperties(),
-		Required:             []string{"statement"},
+		Required:             []string{"role"},
 		Properties: map[string]*jsonschema.Schema{
-			"statement": agentstep.NonEmptyString(),
-			"within":    agentstep.StringSchema(),
+			"role":   {Type: "string", Enum: roles},
+			"name":   agentstep.NonEmptyString(),
+			"id":     agentstep.NonEmptyString(),
+			"app":    agentstep.NonEmptyString(),
+			"window": agentstep.NonEmptyString(),
+			"in":     {Ref: "#/$defs/selector"},
+			"near": {
+				Type:                 "object",
+				AdditionalProperties: agentstep.NoExtraProperties(),
+				Required:             []string{"label", "side"},
+				Properties: map[string]*jsonschema.Schema{
+					"label": agentstep.NonEmptyString(),
+					"side":  {Type: "string", Enum: []any{desktop.SideRight, desktop.SideBelow, desktop.SideLeft, desktop.SideAbove}},
+				},
+			},
+			"nth": {Type: "integer", Minimum: new(0.0)},
+		},
+		AnyOf: []*jsonschema.Schema{
+			{Required: []string{"name"}},
+			{Required: []string{"id"}},
+			{Required: []string{"near"}},
 		},
 	}
 }
@@ -644,4 +670,5 @@ var configSchema = &jsonschema.Schema{
 		"idle":            agentstep.StringSchema(),
 		"do":              {Type: "array", MinItems: new(1), Items: operationSchema},
 	},
+	Defs: map[string]*jsonschema.Schema{"selector": selectorSchema()},
 }

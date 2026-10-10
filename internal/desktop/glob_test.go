@@ -9,6 +9,15 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestWindowMatches(t *testing.T) {
+	t.Parallel()
+
+	assert.True(t, WindowMatches("経費精算 - 請求書 1042", "経費精算"))
+	assert.True(t, WindowMatches("経費精算 - 請求書 1042", "請求書 *"))
+	assert.True(t, WindowMatches("経費精算 - 請求書 1042", ""))
+	assert.False(t, WindowMatches("経費精算 - 請求書 1042", "給与"))
+}
+
 func TestGlobMatch(t *testing.T) {
 	t.Parallel()
 

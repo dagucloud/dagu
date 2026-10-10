@@ -3,6 +3,12 @@
 
 package desktop
 
+// WindowMatches reports whether a window title contains pattern, where *
+// matches any run of characters.
+func WindowMatches(title, pattern string) bool {
+	return globMatch("*"+pattern+"*", title)
+}
+
 // globMatch reports whether s matches pattern in full, where * matches any
 // run of characters, including none. Every other character matches itself.
 func globMatch(pattern, s string) bool {

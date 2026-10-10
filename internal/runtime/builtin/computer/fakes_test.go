@@ -45,6 +45,8 @@ type fakeBackend struct {
 	// personChecks is how many more checks find a person using the desktop
 	// at that moment.
 	personChecks int
+	// captures counts the screenshots taken.
+	captures int
 }
 
 func newFakeBackend(width, height int) *fakeBackend {
@@ -118,7 +120,113 @@ func (b *fakeBackend) inputs() []string {
 func (b *fakeBackend) Capture() (*image.RGBA, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.captures++
 	return b.screen, nil
+}
+
+// fakeElements is a window whose elements a test lists by hand. The list
+// can change after a number of reads, as a screen does.
+type fakeElements struct {
+	mu       sync.Mutex
+	window   desktop.Element
+	elements []desktop.Element
+	// err fails every read when set.
+	err error
+	// opens counts how often the executor opened the reader; reads counts
+	// the looks at the window.
+	opens, reads int
+	// then replaces elements once reads reaches after.
+	after  int
+	then   []desktop.Element
+	closed bool
+}
+
+// expenseWindow and expenseElements are a form in an expense app: a saved
+// notice, a labelled amount field, and two 保存 buttons, one in a group.
+func expenseWindow() desktop.Element {
+	return desktop.Element{Role: desktop.RoleWindow, Name: "経費精算 - 請求書 1042", App: "expense", Window: "経費精算 - 請求書 1042", Bounds: image.Rect(100, 100, 700, 500)}
+}
+
+func expenseElements() []desktop.Element {
+	group := []desktop.PathStep{{Role: desktop.RoleGroup, Name: "支払情報", Index: 0}}
+	return []desktop.Element{
+		{Role: desktop.RoleText, Name: "保存しました", Bounds: image.Rect(120, 110, 300, 130), Path: []desktop.PathStep{{Role: desktop.RoleText, Name: "保存しました", Index: 0}}},
+		{Role: desktop.RoleText, Name: "金額", Bounds: image.Rect(120, 140, 180, 164), Path: []desktop.PathStep{{Role: desktop.RoleText, Name: "金額", Index: 1}}},
+		{Role: desktop.RoleTextField, ID: "amountBox", Value: "12,000", Bounds: image.Rect(190, 140, 390, 164), Path: []desktop.PathStep{{Role: desktop.RoleTextField, Index: 0}}},
+		{Role: desktop.RoleButton, Name: "保存", ID: "saveButton", Bounds: image.Rect(190, 180, 280, 208), Path: []desktop.PathStep{{Role: desktop.RoleButton, Name: "保存", Index: 0}}},
+		{Role: desktop.RoleGroup, Name: "支払情報", ID: "paymentGroup", Bounds: image.Rect(120, 300, 660, 450), Path: group},
+		{Role: desktop.RoleButton, Name: "保存", ID: "paymentSaveButton", Bounds: image.Rect(210, 370, 300, 398), Path: append(group[:1:1], desktop.PathStep{Role: desktop.RoleButton, Name: "保存", Index: 0})},
+	}
+}
+
+func newFakeElements() *fakeElements {
+	return &fakeElements{window: expenseWindow(), elements: expenseElements()}
+}
+
+// arriveAfter makes the window show elements once it has been read reads
+// times.
+func (f *fakeElements) arriveAfter(reads int, elements []desktop.Element) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.after, f.then = reads, elements
+}
+
+// FrontWindow counts one look at the window, which the elements read
+// after it belong to.
+func (f *fakeElements) FrontWindow() (desktop.Element, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reads++
+	if f.then != nil && f.reads > f.after {
+		f.elements, f.then = f.then, nil
+	}
+	return f.window, nil
+}
+
+// current returns the window's elements, or the error the window gives.
+func (f *fakeElements) current() (desktop.Element, []desktop.Element, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.err != nil {
+		return desktop.Element{}, nil, f.err
+	}
+	return f.window, f.elements, nil
+}
+
+func (f *fakeElements) Find(sel desktop.Selector) ([]desktop.Element, error) {
+	window, elements, err := f.current()
+	if err != nil {
+		return nil, err
+	}
+	return desktop.Match(window, elements, sel)
+}
+
+func (f *fakeElements) Outline(_ desktop.Element, limit int) ([]desktop.Element, error) {
+	_, elements, err := f.current()
+	if err != nil {
+		return nil, err
+	}
+	if limit > 0 && len(elements) > limit {
+		elements = elements[:limit]
+	}
+	return elements, nil
+}
+
+func (f *fakeElements) At(int, int) (desktop.Element, error) {
+	return desktop.Element{}, errors.New("not used")
+}
+
+func (f *fakeElements) Focused() (desktop.Element, error) {
+	return desktop.Element{}, errors.New("not used")
+}
+
+func (f *fakeElements) Focus(desktop.Element) error { return nil }
+
+func (f *fakeElements) Close() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.closed = true
+	return nil
 }
 
 func (b *fakeBackend) MoveTo(x, y int) error {
@@ -277,9 +385,12 @@ type testRun struct {
 	// it share a desktop.
 	desktopLock string
 	backend     *fakeBackend
-	vision      *visionModel
-	secrets     map[string]string
-	llm         *ir.LLMConfig
+	// elements is the window exact checks read; nil means the host cannot
+	// read elements.
+	elements *fakeElements
+	vision   *visionModel
+	secrets  map[string]string
+	llm      *ir.LLMConfig
 	// sessions supplies the session for each act, in order.
 	sessions []*scriptedSession
 	// sessionErrors fails session creation for the named models.
@@ -323,6 +434,15 @@ func (r *testRun) execute(withJSON string, session *ir.AgentSession) *stepExecut
 	require.NoError(r.t, err)
 	execution := &stepExecution{exec: created.(*computerExecutor)}
 	execution.exec.openDesktop = func() (*desktop.Driver, error) { return desktop.New(r.backend), nil }
+	execution.exec.openElements = func() (desktop.Elements, error) {
+		if r.elements == nil {
+			return nil, desktop.ErrElementsUnsupported
+		}
+		r.elements.mu.Lock()
+		r.elements.opens++
+		r.elements.mu.Unlock()
+		return r.elements, nil
+	}
 	execution.exec.launch = func(dir, command string, args []string) error {
 		r.launches = append(r.launches, append([]string{dir, command}, args...))
 		return nil

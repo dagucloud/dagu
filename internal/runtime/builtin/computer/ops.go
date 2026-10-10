@@ -27,6 +27,9 @@ import (
 const (
 	// conditionPollInterval spaces the checks of a statement with within.
 	conditionPollInterval = 2 * time.Second
+	// exactPollInterval spaces the looks of an exact check, which reads
+	// the window's elements and costs no model turn.
+	exactPollInterval = 250 * time.Millisecond
 	// defaultIdlePoll spaces the checks for a person using the desktop.
 	defaultIdlePoll = 500 * time.Millisecond
 	// artifactLongEdge keeps saved screenshots readable at a modest size.
@@ -58,8 +61,11 @@ type run struct {
 	artifacts   *agentstep.ArtifactStore
 	timeline    *agentstep.Timeline
 	driver      *desktop.Driver
-	lease       *desktopLease
-	variables   map[string]string
+	// elements reads the front window for exact checks, opened on the
+	// first one.
+	elements  desktop.Elements
+	lease     *desktopLease
+	variables map[string]string
 	// answers holds the values people gave to ask operations.
 	answers map[string]string
 	outputs map[string]any
@@ -134,15 +140,17 @@ func (r *run) execute(ctx context.Context) error {
 		op := r.cfg.Do[i]
 		if op.When != nil {
 			began, before := time.Now(), r.usage
-			holds, reason, err := r.await(ctx, *op.When, op.timeout())
+			// A when reads once unless it says how long to keep looking.
+			c := op.When.substituted(r.variables)
+			holds, reason, err := r.await(ctx, c, c.window(0), op.timeout())
 			if err != nil {
 				err = fmt.Errorf("evaluate when: %w", err)
-				r.reportFailure(i, op.kind(), op.When.Statement, err, began, before)
+				r.reportFailure(i, op.kind(), op.When.String(), err, began, before)
 				return r.fail(ctx, i, op.kind(), err)
 			}
 			if !holds {
 				r.timeline.Operation(agentstep.Report{
-					Index: i, Kind: op.kind(), Subject: op.When.Statement, Status: agentstep.StatusSkipped, Via: agentstep.ViaModel, Detail: reason,
+					Index: i, Kind: op.kind(), Subject: op.When.String(), Status: agentstep.StatusSkipped, Via: c.via(), Detail: reason,
 					Tokens: r.usage.sub(before).total(), Duration: time.Since(began),
 				})
 				continue
@@ -166,11 +174,14 @@ func (r *run) execute(ctx context.Context) error {
 func (r *run) reportFailure(index int, kind, subject string, cause error, began time.Time, before tokenUsage) {
 	tokens := r.usage.sub(before).total()
 	via := ""
+	var unmet *conditionFailure
 	switch {
 	case tokens > 0:
 		via = agentstep.ViaModel
 	case errors.As(cause, new(replayMiss)):
 		via = agentstep.ViaScreen
+	case errors.As(cause, &unmet):
+		via = unmet.via
 	}
 	r.timeline.Operation(agentstep.Report{
 		Index: index, Kind: kind, Subject: subject, Status: agentstep.StatusFailed, Via: via,
@@ -307,30 +318,69 @@ func (r *run) extract(ctx context.Context, index int, spec extractSpec, timeout 
 	return nil
 }
 
-// expect fails unless the statement holds within its window.
-func (r *run) expect(ctx context.Context, index int, c condition, timeout time.Duration) error {
+// conditionFailure is an expect that did not hold, with how it was decided.
+type conditionFailure struct {
+	reason string
+	via    string
+}
+
+func (f *conditionFailure) Error() string { return "expectation not met: " + f.reason }
+
+// expect fails unless the condition holds. A statement is judged once
+// unless it says how long to keep rechecking; an exact check keeps looking
+// until its within or the operation timeout, since the screen may still be
+// changing.
+func (r *run) expect(ctx context.Context, index int, spec condition, timeout time.Duration) error {
 	began, before := time.Now(), r.usage
-	holds, reason, err := r.await(ctx, c, timeout)
+	c := spec.substituted(r.variables)
+	fallback := time.Duration(0)
+	if !c.judged() {
+		fallback = timeout
+	}
+	holds, reason, err := r.await(ctx, c, c.window(fallback), timeout)
 	if err != nil {
 		return err
 	}
 	if !holds {
-		return fmt.Errorf("expectation not met: %s", reason)
+		return &conditionFailure{reason: reason, via: c.via()}
 	}
 	r.report(ctx, agentstep.Report{
-		Index: index, Kind: opExpect, Subject: c.Statement, Status: agentstep.StatusCompleted, Via: agentstep.ViaModel, Detail: reason,
+		Index: index, Kind: opExpect, Subject: spec.String(), Status: agentstep.StatusCompleted, Via: c.via(), Detail: reason,
 		Tokens: r.usage.sub(before).total(), Duration: time.Since(began),
 	})
 	return nil
 }
 
-// await judges a statement against the screen, rechecking it until it holds
-// or its within window passes.
-func (r *run) await(ctx context.Context, c condition, timeout time.Duration) (bool, string, error) {
+// await evaluates a condition until it holds or window passes, within the
+// operation timeout. When the timeout cuts an exact check short, the last
+// reason stands as the answer rather than the deadline.
+func (r *run) await(ctx context.Context, c condition, window, timeout time.Duration) (bool, string, error) {
+	deadline := time.Now().Add(window)
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	deadline := time.Now().Add(c.window())
+	interval := conditionPollInterval
+	if !c.judged() {
+		interval = exactPollInterval
+	}
 	for {
+		holds, reason, err := r.evaluate(ctx, c)
+		if err != nil || holds || !time.Now().Before(deadline) {
+			return holds, reason, err
+		}
+		if err := sleep(ctx, min(interval, time.Until(deadline))); err != nil {
+			if errors.Is(err, context.DeadlineExceeded) && !c.judged() {
+				return false, reason, nil
+			}
+			return false, "", err
+		}
+	}
+}
+
+// evaluate reports whether a condition holds now, and why. A statement is
+// judged against a screenshot; an exact check reads the front window's
+// elements and takes no screenshot.
+func (r *run) evaluate(ctx context.Context, c condition) (bool, string, error) {
+	if c.judged() {
 		full, err := r.settle(ctx)
 		if err != nil {
 			return false, "", err
@@ -339,14 +389,74 @@ func (r *run) await(ctx context.Context, c condition, timeout time.Duration) (bo
 		if err != nil {
 			return false, "", err
 		}
-		holds, reason, err := r.judge(ctx, c.Statement, shot.image())
-		if err != nil || holds || !time.Now().Before(deadline) {
-			return holds, reason, err
+		return r.judge(ctx, c.Statement, shot.image())
+	}
+	els, err := r.elementsReader()
+	if err != nil {
+		return false, "", err
+	}
+	front, err := els.FrontWindow()
+	if err != nil {
+		return false, "", err
+	}
+	switch {
+	case c.Text != "":
+		elements, err := els.Outline(front, 0)
+		if errors.Is(err, desktop.ErrNoElements) {
+			return false, fmt.Sprintf("%q exposes no elements", front.Name), nil
 		}
-		if err := sleep(ctx, conditionPollInterval); err != nil {
+		if err != nil {
 			return false, "", err
 		}
+		for _, e := range elements {
+			if strings.Contains(e.Name, c.Text) || strings.Contains(e.Value, c.Text) {
+				return true, fmt.Sprintf("the window shows %q", c.Text), nil
+			}
+		}
+		return false, fmt.Sprintf("no element of %q shows %q", front.Name, c.Text), nil
+	case c.Element != nil:
+		sel := *c.Element
+		matches, err := els.Find(sel)
+		switch {
+		case errors.Is(err, desktop.ErrNoElements):
+			return false, fmt.Sprintf("%q exposes no elements", front.Name), nil
+		case errors.Is(err, desktop.ErrNotFound) || errors.Is(err, desktop.ErrAmbiguous):
+			// The container the selector names is the trouble.
+			return false, fmt.Sprintf("%s is not there: %v", sel, err), nil
+		case err != nil:
+			return false, "", err
+		}
+		if _, err := desktop.One(matches, sel); err != nil {
+			var ambiguous *desktop.AmbiguousError
+			if errors.As(err, &ambiguous) {
+				return false, fmt.Sprintf("%s is not there; %d elements match", sel, ambiguous.Count), nil
+			}
+			return false, fmt.Sprintf("%s is not there", sel), nil
+		}
+		return true, fmt.Sprintf("%s is there", sel), nil
+	default:
+		if desktop.WindowMatches(front.Name, c.Window) {
+			return true, fmt.Sprintf("the window %q is in front", front.Name), nil
+		}
+		return false, fmt.Sprintf("%q is in front, not %q", front.Name, c.Window), nil
 	}
+}
+
+// elementsReader opens the elements reader on the first exact check and
+// keeps it for the run.
+func (r *run) elementsReader() (desktop.Elements, error) {
+	if r.elements != nil {
+		return r.elements, nil
+	}
+	els, err := r.exec.openElements()
+	if err != nil {
+		if errors.Is(err, desktop.ErrElementsUnsupported) {
+			return nil, fmt.Errorf("exact checks need 64-bit Windows: %w", err)
+		}
+		return nil, fmt.Errorf("open the elements: %w", err)
+	}
+	r.elements = els
+	return els, nil
 }
 
 func (r *run) wait(ctx context.Context, index int, value string) error {
@@ -491,7 +601,7 @@ func (r *run) awaitPerson(ctx context.Context) error {
 // is never kept.
 func (r *run) forgetReplays(ctx context.Context, index int, kind string, cause error) {
 	if index < 0 || ctx.Err() != nil || kind == opAsk || kind == opLaunch ||
-		errors.Is(cause, errCapture) || errors.Is(cause, errDesktopInUse) ||
+		errors.Is(cause, errCapture) || errors.Is(cause, errDesktopInUse) || errors.Is(cause, desktop.ErrElementsUnsupported) ||
 		errors.As(cause, new(modelFailure)) || errors.As(cause, new(replayMiss)) {
 		r.cache.Discard()
 		return
@@ -503,6 +613,10 @@ func (r *run) forgetReplays(ctx context.Context, index int, kind string, cause e
 
 // shutdown closes the desktop and lets other steps use it.
 func (r *run) shutdown() {
+	if r.elements != nil {
+		_ = r.elements.Close()
+		r.elements = nil
+	}
 	if r.driver != nil {
 		r.lease.recordInput(r.driver.InputSentAt())
 		_ = r.driver.Close()
