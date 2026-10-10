@@ -141,8 +141,12 @@ func (r *run) execute(ctx context.Context) error {
 		if op.When != nil {
 			began, before := time.Now(), r.usage
 			// A when reads once unless it says how long to keep looking.
-			c := op.When.substituted(r.variables)
-			holds, reason, err := r.await(ctx, c, c.window(0), op.timeout())
+			c, err := r.resolve(*op.When)
+			var holds bool
+			var reason string
+			if err == nil {
+				holds, reason, err = r.await(ctx, c, c.window(0), op.timeout())
+			}
 			if err != nil {
 				err = fmt.Errorf("evaluate when: %w", err)
 				r.reportFailure(i, op.kind(), op.When.String(), err, began, before)
@@ -332,7 +336,10 @@ func (f *conditionFailure) Error() string { return "expectation not met: " + f.r
 // changing.
 func (r *run) expect(ctx context.Context, index int, spec condition, timeout time.Duration) error {
 	began, before := time.Now(), r.usage
-	c := spec.substituted(r.variables)
+	c, err := r.resolve(spec)
+	if err != nil {
+		return err
+	}
 	fallback := time.Duration(0)
 	if !c.judged() {
 		fallback = timeout
@@ -349,6 +356,23 @@ func (r *run) expect(ctx context.Context, index int, spec condition, timeout tim
 		Tokens: r.usage.sub(before).total(), Duration: time.Since(began),
 	})
 	return nil
+}
+
+// resolve replaces the placeholders of an exact check. Validation
+// guarantees every reference names a variable or an earlier ask, so a
+// missing value means that ask was skipped; an empty value would leave the
+// check with nothing to look for.
+func (r *run) resolve(spec condition) (condition, error) {
+	for _, name := range spec.references() {
+		value, ok := r.variables[name]
+		if !ok {
+			return condition{}, fmt.Errorf("the check uses %%%s%%, but the ask that sets it did not run", name)
+		}
+		if value == "" {
+			return condition{}, fmt.Errorf("the check uses %%%s%%, but its value is empty", name)
+		}
+	}
+	return spec.substituted(r.variables), nil
 }
 
 // await evaluates a condition until it holds or window passes, within the

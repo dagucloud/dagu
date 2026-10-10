@@ -247,6 +247,22 @@ func TestExactConditions(t *testing.T) {
 		assert.NotContains(t, last.Content, "支払情報", "the answer is masked in the reason")
 	})
 
+	t.Run("a placeholder without a value", func(t *testing.T) {
+		t.Parallel()
+		run := newTestRun(t)
+		run.elements = newFakeElements()
+		empty := run.execute(`{"variables": {"doc": ""}, "do": [{"expect": {"text": "%doc%"}}]}`, nil)
+		require.ErrorContains(t, empty.err, "the check uses %doc%, but its value is empty")
+
+		skipped := run.execute(`{"do": [
+			{"ask": {"prompt": "Code?", "as": "code"}, "when": {"window": "給与"}},
+			{"wait": "1ms", "when": {"text": "%code%"}}
+		]}`, nil)
+		require.ErrorContains(t, skipped.err, "evaluate when: the check uses %code%, but the ask that sets it did not run")
+		events := operationEvents(skipped.exec.GetAgentSession())
+		assert.Equal(t, agentstep.StatusFailed, events[len(events)-1].Status)
+	})
+
 	t.Run("a secret in a selector stays on the host", func(t *testing.T) {
 		t.Parallel()
 		run := newTestRun(t)
