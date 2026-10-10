@@ -270,6 +270,17 @@ func (l *actLoop) stale(ctx context.Context, turn *computeruse.Turn) (bool, erro
 // chose the turn's actions on, overall and where each action lands, after a
 // person used the desktop.
 func (l *actLoop) unchanged(ctx context.Context, turn *computeruse.Turn) (bool, error) {
+	// A person who clicked another window changed nothing a screenshot
+	// shows, but keys and typing now go there. The focus must be the
+	// window the model saw; where the system does not report it, a turn
+	// that types or presses keys goes back to the model.
+	if focus := l.r.driver.FocusedWindow(); focus.Known() && l.seen.focus.Known() {
+		if focus != l.seen.focus {
+			return false, nil
+		}
+	} else if usesKeyboard(turn.Actions) {
+		return false, nil
+	}
 	current, err := l.r.settle(ctx)
 	if err != nil {
 		return false, err
@@ -282,6 +293,18 @@ func (l *actLoop) unchanged(ctx context.Context, turn *computeruse.Turn) (bool, 
 	}
 	entry := recording{Width: l.seen.full.Bounds().Dx(), Height: l.seen.full.Bounds().Dy()}
 	return matches(current, entry, chosen), nil
+}
+
+// usesKeyboard reports a turn that types or presses keys, which go to
+// whatever window has the focus.
+func usesKeyboard(actions []computeruse.Action) bool {
+	for _, action := range actions {
+		switch action.Kind {
+		case computeruse.KindType, computeruse.KindKey, computeruse.KindHoldKey:
+			return true
+		}
+	}
+	return false
 }
 
 // admit rejects a turn whose actions the step may not run.

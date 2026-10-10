@@ -60,6 +60,12 @@ func (r *run) runAction(ctx context.Context, action computeruse.Action, toFull p
 		p := toFull(*action.Point)
 		at = &p
 	}
+	// The step never operates the application that runs it: a keystroke
+	// to a window of its own a person just focused could close it.
+	if own, ok := r.ownWindow(action, at, toFull); ok {
+		result.Error = fmt.Sprintf("%q belongs to the application that runs this step, which it never operates", own.Title)
+		return result
+	}
 	var err error
 	switch action.Kind {
 	case computeruse.KindClick:
@@ -144,6 +150,30 @@ func (r *run) click(ctx context.Context, action computeruse.Action, at *image.Po
 		return err
 	}
 	return r.driver.Click(ctx, at, button, max(action.Count, 1), modifiers)
+}
+
+// ownWindow reports the window an action would operate when it belongs to
+// the application that runs the step: the focused window for keys and
+// typing, the window under the position for pointer actions.
+func (r *run) ownWindow(action computeruse.Action, at *image.Point, toFull positionMapper) (desktop.WindowID, bool) {
+	var window desktop.WindowID
+	switch action.Kind {
+	case computeruse.KindType, computeruse.KindKey, computeruse.KindHoldKey:
+		window = r.driver.FocusedWindow()
+	case computeruse.KindClick, computeruse.KindMove, computeruse.KindMouseDown, computeruse.KindMouseUp, computeruse.KindScroll:
+		if at == nil {
+			return window, false
+		}
+		window = r.driver.WindowAt(*at)
+	case computeruse.KindDrag:
+		if len(action.Path) == 0 {
+			return window, false
+		}
+		window = r.driver.WindowAt(toFull(action.Path[0]))
+	default:
+		return window, false
+	}
+	return window, r.driver.Owned(window)
 }
 
 // snapshot captures the screen, or a region of it, scaled to the model's

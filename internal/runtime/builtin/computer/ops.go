@@ -628,11 +628,18 @@ func (r *run) awaitPerson(ctx context.Context) error {
 	}
 	waitCtx, cancel := context.WithTimeout(ctx, r.exec.personWait)
 	defer cancel()
+	waited := false
 	err := r.driver.WaitForIdle(waitCtx, idle, r.exec.idlePoll, func() {
+		waited = true
 		r.timeline.Waiting(waitReasonPerson, fmt.Sprintf("Waiting until nobody has used the desktop for %s", idle))
 	})
 	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
 		return fmt.Errorf("%w for %s, so the step gave up waiting", errDesktopInUse, stringutil.FormatDuration(r.exec.personWait))
+	}
+	// The end of a wait is an event too, so a view knows the step is at
+	// work again before its operation finishes.
+	if err == nil && waited {
+		r.timeline.Lifecycle(agentstep.StatusRunning, fmt.Sprintf("Nobody has used the desktop for %s; continuing", idle))
 	}
 	return err
 }

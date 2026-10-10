@@ -547,6 +547,11 @@ func (b *darwinBackend) LastInput() time.Time {
 	return time.Now().Add(-time.Duration(seconds * float64(time.Second)))
 }
 
+// FocusedWindow and WindowAt are not yet read on macOS, so the focus is
+// unknown there and a step treats it conservatively.
+func (b *darwinBackend) FocusedWindow() WindowID    { return WindowID{} }
+func (b *darwinBackend) WindowAt(int, int) WindowID { return WindowID{} }
+
 func (b *darwinBackend) Close() error {
 	b.wake()
 	return nil
