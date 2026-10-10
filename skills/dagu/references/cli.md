@@ -27,6 +27,7 @@ Flags:
 - `--tags` — Deprecated alias for `--labels`
 - `--default-working-dir` — Default working directory for DAGs without explicit workingDir
 - `--no-reuse` — Recompute reusable build steps while preserving staged, atomic publication
+- `--recursive-output` — Expand sub-DAG runs in the final summary tree, showing each child's steps and output inline
 - `--worker-id` — Worker ID executing this DAG run; auto-set in distributed mode and defaults to `local`
 - `--trigger-type` — Trigger source (`scheduler`, `manual`, `webhook`, `subdag`, `retry`, `catchup`); defaults to `manual`
 
@@ -147,7 +148,9 @@ Validate DAG YAML without executing: `dagu validate <dag>`
 
 ### dagu status
 
-Show DAG run status: `dagu status <dag-name> [--run-id/-r <id>] [--sub-run-id/-s <id>]`
+Show DAG run status: `dagu status <dag-name> [--run-id/-r <id>] [--sub-run-id/-s <id>] [--recursive-output]`
+
+- `--recursive-output` — Expand sub-DAG runs in the status tree, showing each child's steps and output inline (nesting limited; works for local and remote contexts)
 
 ### dagu history
 
