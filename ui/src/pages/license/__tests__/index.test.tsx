@@ -569,7 +569,7 @@ describe('LicensePage', () => {
 
       const dialog = await screen.findByRole(
         'dialog',
-        { name: 'Get an email when this server or its workflows fail' },
+        { name: 'Get an email when a workflow fails' },
         { timeout: 5000 }
       );
       await userEvent.click(
@@ -592,7 +592,7 @@ describe('LicensePage', () => {
 
       const dialog = await screen.findByRole(
         'dialog',
-        { name: 'Get an email when this server or its workflows fail' },
+        { name: 'Get an email when a workflow fails' },
         { timeout: 5000 }
       );
       await userEvent.click(

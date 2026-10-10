@@ -65,7 +65,7 @@ const unchosen: LicenseMonitoring = {
   noticeDismissed: false,
 };
 
-const notice = 'Get an email when this server or its workflows fail.';
+const notice = 'Get an email when a workflow on this server fails.';
 
 // Serves monitoring the way the server does: PUT chooses a level and POST
 // dismisses the notice.
@@ -129,7 +129,7 @@ describe('MonitoringNotice', () => {
       await screen.findByRole('button', { name: 'Choose what to report' })
     );
     const dialog = await screen.findByRole('dialog', {
-      name: 'Get an email when this server or its workflows fail',
+      name: 'Get an email when a workflow fails',
     });
     await userEvent.click(
       within(dialog).getByRole('button', { name: 'Turn on' })

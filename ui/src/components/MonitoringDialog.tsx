@@ -104,13 +104,13 @@ export function MonitoringDialog({
           <DialogTitle>
             {ts(
               prompt
-                ? 'Get an email when this server or its workflows fail'
+                ? 'Get an email when a workflow fails'
                 : 'Choose what this server reports'
             )}
           </DialogTitle>
           <DialogDescription>
             {ts(
-              'Dagu Console emails you when this server stops reporting. With run status, it also emails you when a workflow fails.'
+              "Dagu Console shows this server's health on its Servers page. With run status, it also emails the workspace's owners and admins when a workflow fails."
             )}
           </DialogDescription>
         </DialogHeader>

@@ -231,7 +231,7 @@ test('connects a community server through Dagu Console', async ({
 
   // A server just connected is offered failure emails.
   const dialog = page.getByRole('dialog', {
-    name: 'Get an email when this server or its workflows fail',
+    name: 'Get an email when a workflow fails',
   });
   await expect(dialog).toBeVisible();
   await expect(

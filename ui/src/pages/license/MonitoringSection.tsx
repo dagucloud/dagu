@@ -98,7 +98,7 @@ export function MonitoringSection({
       </div>
       <p className="text-sm text-muted-foreground">
         {ts(
-          'Dagu Console emails you when this server stops reporting. With run status, it also emails you when a workflow fails.'
+          "Dagu Console shows this server's health on its Servers page. With run status, it also emails the workspace's owners and admins when a workflow fails."
         )}
       </p>
       {loadError && !monitoring ? (
