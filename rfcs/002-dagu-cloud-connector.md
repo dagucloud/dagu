@@ -136,9 +136,6 @@ them sensitive chooses `health`, which sends neither.
 | `health` | Dagu version, OS, architecture, start time, and which services run |
 | `runs` | Also run status changes: DAG names, run IDs, status, times, failed step names |
 
-`runs` arrives with DAG-run reporting. Until a release ships it,
-configuration accepts only `off` and `health`, and rejects `runs`.
-
 - **Upgrading changes nothing.** A server licensed before reporting existed
   keeps sending only its license check-in.
 - **The admin chooses in the UI**, at a moment it is useful: right after the
