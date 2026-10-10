@@ -12,8 +12,9 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strings"
+
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 )
 
 // Snapshot hashes a stable regular-file snapshot.
@@ -99,36 +100,13 @@ func ResolvePath(raw, base string, output bool) (string, error) {
 		}
 		return path, nil
 	}
-	return resolveExistingAncestor(path)
-}
-
-func resolveExistingAncestor(path string) (string, error) {
-	suffix := make([]string, 0)
-	current := path
-	for {
-		resolved, err := filepath.EvalSymlinks(current)
-		if err == nil {
-			for _, s := range slices.Backward(suffix) {
-				resolved = filepath.Join(resolved, s)
-			}
-			return filepath.Clean(resolved), nil
-		}
-		if !errors.Is(err, os.ErrNotExist) {
-			return "", err
-		}
-		parent := filepath.Dir(current)
-		if parent == current {
-			return "", err
-		}
-		suffix = append(suffix, filepath.Base(current))
-		current = parent
-	}
+	return fileutil.ResolveExistingAncestor(path)
 }
 
 // IdentityKey returns the canonical path used to identify one materialization.
 func IdentityKey(path string) string {
 	path = filepath.Clean(path)
-	if resolved, err := resolveExistingAncestor(path); err == nil {
+	if resolved, err := fileutil.ResolveExistingAncestor(path); err == nil {
 		path = resolved
 	}
 	if runtime.GOOS == "windows" {
@@ -159,59 +137,11 @@ func (r *PathKeyResolver) ComparisonKey(path string) string {
 	dir := filepath.Dir(path)
 	caseInsensitive, ok := r.caseInsensitive[dir]
 	if !ok {
-		caseInsensitive = filesystemIsCaseInsensitive(path)
+		caseInsensitive = fileutil.IsCaseInsensitiveFS(path)
 		r.caseInsensitive[dir] = caseInsensitive
 	}
 	if caseInsensitive {
 		path = strings.ToLower(path)
 	}
 	return path
-}
-
-func filesystemIsCaseInsensitive(path string) bool {
-	dir := filepath.Dir(path)
-	for {
-		info, err := os.Lstat(dir)
-		if errors.Is(err, os.ErrNotExist) {
-			parent := filepath.Dir(dir)
-			if parent == dir {
-				break
-			}
-			dir = parent
-			continue
-		}
-		if err == nil {
-			name := filepath.Base(dir)
-			if alternate, ok := alternateASCIICase(name); ok {
-				alternateInfo, alternateErr := os.Lstat(filepath.Join(filepath.Dir(dir), alternate))
-				switch {
-				case alternateErr == nil:
-					return os.SameFile(info, alternateInfo)
-				case errors.Is(alternateErr, os.ErrNotExist):
-					return false
-				}
-			}
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
-	}
-	return runtime.GOOS == "windows" || runtime.GOOS == "darwin"
-}
-
-func alternateASCIICase(value string) (string, bool) {
-	bytes := []byte(value)
-	for idx, ch := range bytes {
-		switch {
-		case ch >= 'a' && ch <= 'z':
-			bytes[idx] = ch - ('a' - 'A')
-			return string(bytes), true
-		case ch >= 'A' && ch <= 'Z':
-			bytes[idx] = ch + ('a' - 'A')
-			return string(bytes), true
-		}
-	}
-	return value, false
 }

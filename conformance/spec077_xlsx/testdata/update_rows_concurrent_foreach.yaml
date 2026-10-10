@@ -1,0 +1,72 @@
+working_dir: .
+steps:
+  - id: write
+    action: xlsx.write
+    with:
+      path: orders.xlsx
+      sheet: Orders
+      columns: [ID, Status]
+      rows:
+        - {ID: "row-00", Status: ""}
+        - {ID: "row-01", Status: ""}
+        - {ID: "row-02", Status: ""}
+        - {ID: "row-03", Status: ""}
+        - {ID: "row-04", Status: ""}
+        - {ID: "row-05", Status: ""}
+        - {ID: "row-06", Status: ""}
+        - {ID: "row-07", Status: ""}
+        - {ID: "row-08", Status: ""}
+        - {ID: "row-09", Status: ""}
+        - {ID: "row-10", Status: ""}
+        - {ID: "row-11", Status: ""}
+        - {ID: "row-12", Status: ""}
+        - {ID: "row-13", Status: ""}
+        - {ID: "row-14", Status: ""}
+        - {ID: "row-15", Status: ""}
+        - {ID: "row-16", Status: ""}
+        - {ID: "row-17", Status: ""}
+        - {ID: "row-18", Status: ""}
+        - {ID: "row-19", Status: ""}
+        - {ID: "row-20", Status: ""}
+        - {ID: "row-21", Status: ""}
+        - {ID: "row-22", Status: ""}
+        - {ID: "row-23", Status: ""}
+        - {ID: "row-24", Status: ""}
+        - {ID: "row-25", Status: ""}
+        - {ID: "row-26", Status: ""}
+        - {ID: "row-27", Status: ""}
+        - {ID: "row-28", Status: ""}
+        - {ID: "row-29", Status: ""}
+  - id: read
+    depends: write
+    action: xlsx.read
+    with:
+      path: orders.xlsx
+      sheet: Orders
+  - id: each
+    depends: read
+    foreach:
+      items: ${steps.read.outputs.rows}
+      max_concurrent: 30
+      steps:
+        - id: mark
+          action: xlsx.update_rows
+          with:
+            path: orders.xlsx
+            sheet: Orders
+            key: ID
+            rows: '${foreach.item}'
+            set:
+              Status: {value: done}
+  - id: after
+    depends: each
+    action: xlsx.read
+    with:
+      path: orders.xlsx
+      sheet: Orders
+  - id: out
+    depends: after
+    action: file.write
+    with:
+      path: out.json
+      content: '{"rows": ${steps.after.outputs.rows}}'
