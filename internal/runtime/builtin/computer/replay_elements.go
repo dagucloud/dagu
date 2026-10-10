@@ -36,7 +36,15 @@ type recordedElement struct {
 	// Path is where the element sat in its window, to break a tie between
 	// equal matches.
 	Path []desktop.PathStep `json:"path"`
-	// Window is the title of the element's window.
+	// App is the application of the element's window when the action ran:
+	// the process image name, which a replay matches the window in front
+	// by, since a title often shows the document's contents and changes
+	// every run. It is read when the action is recorded, not at the end of
+	// the act, so an act that closes its window still records the window it
+	// acted on, not whatever was behind it. Window is that window's title,
+	// kept to tell apart several windows of one application and as a
+	// fallback when the application cannot be read.
+	App    string `json:"app,omitempty"`
 	Window string `json:"window"`
 	Label  string `json:"label,omitempty"`
 	// FractionX and FractionY are where a pointer action landed inside the
@@ -48,13 +56,14 @@ type recordedElement struct {
 // recordElement describes an element for a recording, or returns nil for
 // one a later run could not find again: a window, an element without
 // bounds, or one with neither a name nor an id.
-func (r *run) recordElement(e desktop.Element, at *image.Point) *recordedElement {
+func (r *run) recordElement(e desktop.Element, at *image.Point, app string) *recordedElement {
 	if e.Role == desktop.RoleWindow || e.Bounds.Empty() || (e.Name == "" && e.ID == "") {
 		return nil
 	}
 	rec := &recordedElement{
 		Selector: desktop.Selector{Role: e.Role, Name: r.placeholder(e.Name), ID: e.ID},
 		Path:     e.Path,
+		App:      app,
 		Window:   r.placeholderIn(e.Window),
 		Label:    e.Label,
 	}
@@ -189,6 +198,7 @@ func (r *run) landmarks(rec *recording, touched []recordedElement) {
 	if err != nil {
 		return
 	}
+	rec.App = front.App
 	rec.Window = r.placeholderIn(front.Name)
 	seen := map[string]bool{}
 	for i := len(touched) - 1; i >= 0 && len(rec.Landmarks) < maxLandmarks; i-- {
@@ -198,22 +208,51 @@ func (r *run) landmarks(rec *recording, touched []recordedElement) {
 		}
 		seen[key] = true
 		if _, reason, err := r.lookRecorded(els, touched[i]); err == nil && reason == "" {
-			rec.Landmarks = append(rec.Landmarks, recordedElement{Selector: touched[i].Selector, Path: touched[i].Path, Window: touched[i].Window})
+			rec.Landmarks = append(rec.Landmarks, recordedElement{Selector: touched[i].Selector, Path: touched[i].Path, App: touched[i].App, Window: touched[i].Window})
 		}
 	}
 }
 
+// frontMatches reports whether the window in front is the recorded one. It
+// matches by application when both apps are known, since a title often
+// shows the document's contents and changes every run; it falls back to the
+// title when either app is unknown. It returns why it did not match.
+func (r *run) frontMatches(front desktop.Element, app, window string) (bool, string) {
+	if app != "" && front.App != "" {
+		if strings.EqualFold(front.App, app) {
+			return true, ""
+		}
+		return false, fmt.Sprintf("the app in front is %q, not %q", front.App, app)
+	}
+	title := r.substitute(window)
+	if desktop.WindowMatches(front.Name, title) {
+		return true, ""
+	}
+	return false, fmt.Sprintf("the window in front is %q, not %q", front.Name, title)
+}
+
+// windowMatchesRecorded reports whether a top-level window is the recorded
+// one, by application when known, else by title. title is already
+// substituted. It is used to find a window to raise and to tell whether the
+// right one is already in front.
+func windowMatchesRecorded(w desktop.WindowID, app, title string) bool {
+	if app != "" && w.App != "" {
+		return strings.EqualFold(w.App, app)
+	}
+	return title != "" && desktop.WindowMatches(w.Title, title)
+}
+
 // lookRecorded finds a recorded element on the screen now, or says why it
-// is not there.
+// is not there. The window in front must be the application the element was
+// recorded in.
 func (r *run) lookRecorded(els desktop.Elements, rec recordedElement) (desktop.Element, string, error) {
 	sel := substituteSelector(rec.Selector, r.variables)
-	title := r.substitute(rec.Window)
 	front, err := els.FrontWindow()
 	if err != nil {
 		return desktop.Element{}, "", err
 	}
-	if !desktop.WindowMatches(front.Name, title) {
-		return desktop.Element{}, fmt.Sprintf("the window in front is %q, not %q", front.Name, title), nil
+	if ok, reason := r.frontMatches(front, rec.App, rec.Window); !ok {
+		return desktop.Element{}, reason, nil
 	}
 	matches, err := els.Find(sel)
 	switch {
@@ -238,11 +277,11 @@ func (r *run) lookRecorded(els desktop.Elements, rec recordedElement) (desktop.E
 // there or findWithin passes.
 func (r *run) resolveElement(ctx context.Context, index int, els desktop.Elements, rec recordedElement, findWithin time.Duration) (desktop.Element, string, error) {
 	deadline := time.Now().Add(findWithin)
-	want := r.substitute(rec.Window)
+	title := r.substitute(rec.Window)
 	for {
 		// A window that slipped behind another is brought forward rather
 		// than counted a miss, so a replay survives a focus change.
-		r.bringForward(ctx, index, want)
+		r.bringForward(ctx, index, rec.App, title)
 		found, reason, err := r.lookRecorded(els, rec)
 		if err != nil || reason == "" {
 			return found, reason, err
@@ -260,28 +299,52 @@ func (r *run) resolveElement(ctx context.Context, index int, els desktop.Element
 // the step looks at it again.
 const foregroundSettle = 200 * time.Millisecond
 
-// bringForward raises the window whose title matches want when it is not
-// already in front, so a replay acts on it even after it lost the focus. It
-// never raises the step's own application, and is a best effort: the look
-// that follows still checks the front window.
-func (r *run) bringForward(ctx context.Context, index int, want string) {
-	if want == "" {
+// bringForward raises the recorded window when it is not already in front,
+// so a replay acts on it even after it lost the focus. The window is matched
+// by its application; among several windows of that application the one whose
+// title still matches is preferred. It never raises the step's own
+// application, and is a best effort: the look that follows still checks the
+// front window. title is already substituted.
+func (r *run) bringForward(ctx context.Context, index int, app, title string) {
+	if app == "" && title == "" {
 		return
 	}
-	if front := r.driver.FocusedWindow(); front.Known() && desktop.WindowMatches(front.Title, want) {
-		return
-	}
-	for _, w := range r.driver.Windows() {
-		if r.driver.Owned(w) || !desktop.WindowMatches(w.Title, want) {
+	// Choose the best window before looking at the focused one: a window of
+	// the recorded app whose title still matches is preferred, so a second
+	// document of the same application does not win just by holding the
+	// focus; any window of the app is the fallback.
+	windows := r.driver.Windows()
+	var best, any *desktop.WindowID
+	for i := range windows {
+		w := windows[i]
+		if r.driver.Owned(w) || !windowMatchesRecorded(w, app, title) {
 			continue
 		}
-		if err := r.driver.Raise(w); err != nil {
-			return
+		if any == nil {
+			any = &windows[i]
 		}
-		logAction(r.timeline, index, fmt.Sprintf("bringing %q to the front", w.Title))
-		_ = sleep(ctx, foregroundSettle)
+		if title != "" && desktop.WindowMatches(w.Title, title) {
+			best = &windows[i]
+			break
+		}
+	}
+	target := best
+	if target == nil {
+		target = any
+	}
+	if target == nil {
 		return
 	}
+	// Already acting on the best window? Leave it; only raise when a better
+	// window than the one in front is open.
+	if front := r.driver.FocusedWindow(); front.Known() && front.Handle == target.Handle {
+		return
+	}
+	if err := r.driver.Raise(*target); err != nil {
+		return
+	}
+	logAction(r.timeline, index, fmt.Sprintf("bringing %q to the front", target.Title))
+	_ = sleep(ctx, foregroundSettle)
 }
 
 // replayByElement replays one turn on the elements it recorded. It returns
@@ -348,13 +411,15 @@ func (r *run) awaitLandmarks(ctx context.Context, els desktop.Elements, entry re
 }
 
 func (r *run) lookLandmarks(els desktop.Elements, entry recording) (string, error) {
-	title := r.substitute(entry.Window)
 	front, err := els.FrontWindow()
 	if err != nil {
 		return "", err
 	}
-	if !desktop.WindowMatches(front.Name, title) {
-		return fmt.Sprintf("the window after the last turn is %q, not %q", front.Name, title), nil
+	if ok, _ := r.frontMatches(front, entry.App, entry.Window); !ok {
+		if entry.App != "" && front.App != "" {
+			return fmt.Sprintf("the app after the last turn is %q, not %q", front.App, entry.App), nil
+		}
+		return fmt.Sprintf("the window after the last turn is %q, not %q", front.Name, r.substitute(entry.Window)), nil
 	}
 	for _, landmark := range entry.Landmarks {
 		if _, reason, err := r.lookRecorded(els, landmark); err != nil {

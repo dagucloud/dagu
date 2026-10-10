@@ -48,6 +48,10 @@ type fakeBackend struct {
 	// focus is the window with the keyboard focus, and under is the window
 	// under any position; zero means the system does not say.
 	focus, under desktop.WindowID
+	// app is the application the front window reports to WindowAt and
+	// FocusedWindow when no explicit window is set, so a recording captures
+	// an application; "" is a host that does not report one.
+	app string
 	// windowAt, when set, reports the window under a given position, so a
 	// test can place different windows at different points.
 	windowAt func(x, y int) desktop.WindowID
@@ -295,6 +299,14 @@ func (f *fakeElements) retitle(name string) {
 	}
 }
 
+// asApp sets the front window's application, as a different program in front
+// would report.
+func (f *fakeElements) asApp(app string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.window.App = app
+}
+
 // focusedID names the element the executor focused, for the input log.
 func focusedID(e desktop.Element) string {
 	if e.ID != "" {
@@ -379,7 +391,10 @@ func (b *fakeBackend) Type(text string) error {
 func (b *fakeBackend) FocusedWindow() desktop.WindowID {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.focus
+	if b.focus.Known() {
+		return b.focus
+	}
+	return desktop.WindowID{App: b.app}
 }
 
 func (b *fakeBackend) WindowAt(x, y int) desktop.WindowID {
@@ -388,7 +403,10 @@ func (b *fakeBackend) WindowAt(x, y int) desktop.WindowID {
 	if b.windowAt != nil {
 		return b.windowAt(x, y)
 	}
-	return b.under
+	if b.under.Known() {
+		return b.under
+	}
+	return desktop.WindowID{App: b.app}
 }
 
 func (b *fakeBackend) Windows() []desktop.WindowID {

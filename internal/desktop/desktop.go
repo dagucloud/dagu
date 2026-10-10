@@ -146,6 +146,10 @@ type WindowID struct {
 	Handle uint64
 	Title  string
 	PID    uint32
+	// App is the window's process image name without its extension, the
+	// stable identity a replay raises a window by, since a title often
+	// shows the document's contents. Empty where the system does not say.
+	App string
 }
 
 // Known reports a window the system named.

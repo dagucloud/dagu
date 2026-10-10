@@ -536,6 +536,7 @@ func elementRun(t *testing.T) *testRun {
 	t.Helper()
 	run := newTestRun(t)
 	run.backend = newFakeBackend(800, 600)
+	run.backend.app = "expense" // the application a recording's actions land on
 	run.elements = newFakeElements()
 	return run
 }
@@ -644,31 +645,147 @@ func TestReplayBringsTheWindowForward(t *testing.T) {
 	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(235, 194)), done("Saved")}}}
 	require.NoError(t, run.execute(steps, nil).err)
 
-	// Before the replay another window is in front, with the recorded one
-	// behind it; raising the recorded window brings its elements back.
-	const title = "経費精算 - 請求書 1042"
-	run.elements.retitle("別のウィンドウ")
-	run.backend.focus = desktop.WindowID{Handle: 1, Title: "別のウィンドウ"}
+	// Before the replay a different application is in front, with the
+	// recorded one behind it; the recorded window is found by its app among
+	// the open windows and raised, which brings its elements back.
+	run.elements.asApp("other")
+	run.elements.retitle("別のアプリ")
+	run.backend.focus = desktop.WindowID{Handle: 1, Title: "別のアプリ", App: "other"}
 	run.backend.windows = []desktop.WindowID{
-		{Handle: 1, Title: "別のウィンドウ"},
-		{Handle: 2, Title: title},
+		{Handle: 1, Title: "別のアプリ", App: "other"},
+		{Handle: 2, Title: "経費精算 - 請求書 1042", App: "expense"},
 	}
 	run.backend.onRaise = func(w desktop.WindowID) {
 		if w.Handle == 2 {
-			run.elements.retitle(title)
+			run.elements.asApp("expense")
+			run.elements.retitle("経費精算 - 請求書 1042")
 		}
 	}
 	run.backend.events = nil
 
 	replayed := run.execute(steps, nil)
-	require.NoError(t, replayed.err, "the recorded window was raised, so the replay resolved its button")
+	require.NoError(t, replayed.err, "the recorded window was raised by its app, so the replay resolved its button")
 	events := operationEvents(replayed.exec.GetAgentSession())
 	require.Len(t, events, 1)
 	assert.Equal(t, agentstep.StatusCacheHit, events[0].Status)
 	assert.Equal(t, agentstep.ViaElement, events[0].Via)
 	require.Len(t, run.backend.raised, 1)
-	assert.Equal(t, uint64(2), run.backend.raised[0].Handle, "the recorded window was brought forward")
+	assert.Equal(t, uint64(2), run.backend.raised[0].Handle, "the window of the recorded app was brought forward")
 	assert.Equal(t, []string{"move 235,194", "left down #1"}, run.backend.inputs())
+}
+
+// When two windows of the recorded application are open, the one whose title
+// still matches the recording is raised, even if a different document of the
+// same application has the focus, so a replay acts on the right one.
+func TestReplayPrefersRecordedTitleAmongSameApp(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"do": [{"act": "Save the invoice"}]}`
+	run := elementRun(t)
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(235, 194)), done("Saved")}}}
+	require.NoError(t, run.execute(steps, nil).err)
+
+	// A second document of the same application has the focus; the recorded
+	// one is behind it with its recorded title.
+	const recorded = "経費精算 - 請求書 1042"
+	run.elements.retitle("経費精算 - 請求書 9999")
+	run.backend.focus = desktop.WindowID{Handle: 1, Title: "経費精算 - 請求書 9999", App: "expense"}
+	run.backend.windows = []desktop.WindowID{
+		{Handle: 1, Title: "経費精算 - 請求書 9999", App: "expense"},
+		{Handle: 2, Title: recorded, App: "expense"},
+	}
+	run.backend.onRaise = func(w desktop.WindowID) {
+		if w.Handle == 2 {
+			run.elements.retitle(recorded)
+		}
+	}
+	run.backend.events = nil
+
+	replayed := run.execute(steps, nil)
+	require.NoError(t, replayed.err)
+	events := operationEvents(replayed.exec.GetAgentSession())
+	require.Len(t, events, 1)
+	assert.Equal(t, agentstep.StatusCacheHit, events[0].Status)
+	assert.Equal(t, agentstep.ViaElement, events[0].Via)
+	require.Len(t, run.backend.raised, 1)
+	assert.Equal(t, uint64(2), run.backend.raised[0].Handle, "the recorded-title window was raised, not the focused one")
+}
+
+// A replay matches the recorded window by its application, so a title that
+// changed since the recording — a document name, a per-run id — still
+// replays without the model.
+func TestReplayMatchesWindowByApp(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"do": [{"act": "Save the invoice"}]}`
+	run := elementRun(t)
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(235, 194)), done("Saved")}}}
+	require.NoError(t, run.execute(steps, nil).err)
+
+	// The window shows a different number now; its title no longer contains
+	// what was recorded, but it is the same application.
+	run.elements.retitle("経費精算 - 請求書 9999")
+	run.backend.events = nil
+
+	replayed := run.execute(steps, nil)
+	require.NoError(t, replayed.err, "the app still matches, so the element resolved")
+	events := operationEvents(replayed.exec.GetAgentSession())
+	require.Len(t, events, 1)
+	assert.Equal(t, agentstep.StatusCacheHit, events[0].Status)
+	assert.Equal(t, agentstep.ViaElement, events[0].Via)
+	assert.Empty(t, run.backend.raised, "the window was already in front")
+	assert.Equal(t, []string{"move 235,194", "left down #1"}, run.backend.inputs())
+}
+
+// A replay that finds a different application in front, with no window of
+// the recorded app to raise, misses and names the app rather than acting in
+// the wrong program.
+func TestReplayMissesOnDifferentApp(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"do": [{"act": "Save the invoice"}]}`
+	run := elementRun(t)
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(235, 194)), done("Saved")}}}
+	require.NoError(t, run.execute(steps, nil).err)
+
+	// A different application is in front and there is nothing of the
+	// recorded app to bring forward.
+	run.elements.asApp("other")
+	run.elements.retitle(" browser ")
+	run.backend.events = nil
+
+	failed := run.execute(`{"ai": "never", "do": [{"act": "Save the invoice"}]}`, nil)
+	require.ErrorContains(t, failed.err, `the app in front is "other", not "expense"`)
+	assert.Empty(t, run.backend.inputs(), "nothing was clicked in the wrong app")
+}
+
+// A recording from before window matching knew the application — or a host
+// that cannot read it — has no app, and still replays by matching the
+// window title, so older recordings keep working without re-authoring.
+func TestReplayFallsBackToTitleWithoutApp(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"do": [{"act": "Save the invoice"}]}`
+	run := elementRun(t)
+	// The host reports no application, for the recording and for replay.
+	run.backend.app = ""
+	run.elements.asApp("")
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(235, 194)), done("Saved")}}}
+	require.NoError(t, run.execute(steps, nil).err)
+
+	run.backend.events = nil
+	replayed := run.execute(steps, nil)
+	require.NoError(t, replayed.err, "with no app, the title still matches")
+	events := operationEvents(replayed.exec.GetAgentSession())
+	require.Len(t, events, 1)
+	assert.Equal(t, agentstep.StatusCacheHit, events[0].Status)
+	assert.Equal(t, agentstep.ViaElement, events[0].Via)
+	assert.Equal(t, []string{"move 235,194", "left down #1"}, run.backend.inputs())
+
+	// With the app unknown, a changed title now misses, as before.
+	run.elements.retitle("経費精算 - 請求書 9999")
+	failed := run.execute(`{"ai": "never", "do": [{"act": "Save the invoice"}]}`, nil)
+	require.ErrorContains(t, failed.err, "the window in front is")
 }
 
 // The display size is not part of the recording's key, so an element

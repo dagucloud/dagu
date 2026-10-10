@@ -112,7 +112,7 @@ func (windowsBackend) WindowAt(x, y int) WindowID {
 	return windowID(windows.HWND(hwnd))
 }
 
-// windowID names a window by its handle, title, and process.
+// windowID names a window by its handle, title, process, and application.
 func windowID(hwnd windows.HWND) WindowID {
 	if hwnd == 0 {
 		return WindowID{}
@@ -121,5 +121,5 @@ func windowID(hwnd windows.HWND) WindowID {
 	_, _ = windows.GetWindowThreadProcessId(hwnd, &pid)
 	title := make([]uint16, 256)
 	n, _, _ := procGetWindowTextW.Call(uintptr(hwnd), uintptr(unsafe.Pointer(&title[0])), uintptr(len(title))) //nolint:gosec // Win32 takes the buffer address as uintptr
-	return WindowID{Handle: uint64(hwnd), Title: windows.UTF16ToString(title[:n]), PID: pid}
+	return WindowID{Handle: uint64(hwnd), Title: windows.UTF16ToString(title[:n]), PID: pid, App: appName(hwnd)}
 }
