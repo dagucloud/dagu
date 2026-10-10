@@ -7,8 +7,8 @@ Partially implemented.
 ## Scope
 
 This spec covers `jq.filter` input selection, named arguments, scalar output,
-and configuration and execution errors. The jq language, other value-resolution permutations,
-object formatting, and per-value error iteration belong to executor tests.
+and configuration and execution errors. The jq language, other value-resolution
+permutations, object formatting, and `halt` semantics belong to executor tests.
 
 ## Goal
 
