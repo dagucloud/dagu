@@ -147,25 +147,29 @@ func TestLoadTableEncodingsAndDelimiter(t *testing.T) {
 	require.ErrorContains(t, err, `unknown encoding "latin1": use utf-8, utf-8-bom, or shift_jis`)
 }
 
+// Rows text that still holds a ${...} reference after substitution names the
+// reference instead of reporting invalid JSON.
 func TestRowsReportUnresolvedReference(t *testing.T) {
 	t.Parallel()
-	for _, rows := range []string{
-		`[{"_row": ${foreach.row._row}, "s": "done"}]`,
-		`${steps.read.outputs.rows}`,
+	for _, tc := range []struct{ rows, ref string }{
+		{`[{"_row": ${foreach.row._row}, "s": "done"}]`, "${foreach.row._row}"},
+		{`[{${foreach.row.key}: 1}]`, "${foreach.row.key}"},
+		{`${steps.read.outputs.rows}`, "${steps.read.outputs.rows}"},
 	} {
-		_, err := DecodeUpdateRows(rows)
-		require.Error(t, err, rows)
-		assert.NotContains(t, err.Error(), "invalid JSON", rows)
-		assert.Contains(t, err.Error(), "rows: ${", rows)
-		assert.Contains(t, err.Error(), "was not resolved", rows)
-
-		_, err = DecodeRows(rows, nil)
-		require.Error(t, err, rows)
-		assert.Contains(t, err.Error(), "was not resolved", rows)
+		want := "rows: " + tc.ref + " was not resolved; check that the value it names exists"
+		_, err := DecodeUpdateRows(tc.rows)
+		require.EqualError(t, err, want, tc.rows)
+		_, err = DecodeRows(tc.rows, nil)
+		require.EqualError(t, err, want, tc.rows)
 	}
 
-	_, err := DecodeUpdateRows(`[{"_row": ${foreach.row._row}}]`)
-	require.EqualError(t, err, "rows: ${foreach.row._row} was not resolved; check that the value it names exists")
+	// Text that is more than a reference keeps the generic error.
+	for _, tc := range []struct{ rows, want string }{
+		{`note ${x}`, "rows must be a JSON array of objects"},
+	} {
+		_, err := DecodeUpdateRows(tc.rows)
+		require.EqualError(t, err, tc.want, tc.rows)
+	}
 
 	// A reference inside a JSON string is data, not an error.
 	rows, err := DecodeUpdateRows(`[{"note": "${HOME}"}]`)

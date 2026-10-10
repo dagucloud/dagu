@@ -25,8 +25,8 @@ func rowList(value any, shape string) (list []any, jsonText string, err error) {
 	if text, ok := value.(string); ok {
 		trimmed := strings.TrimSpace(text)
 		if !looksLikeJSON(trimmed) {
-			if ref := referencePattern.FindString(trimmed); ref != "" {
-				return nil, "", unresolvedRowsError(ref)
+			if isReference(trimmed) {
+				return nil, "", unresolvedRowsError(trimmed)
 			}
 			return nil, "", fmt.Errorf("rows must be a JSON array of %s", shape)
 		}

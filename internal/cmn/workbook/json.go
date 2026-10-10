@@ -18,6 +18,11 @@ import (
 // path the parser does not accept.
 var referencePattern = regexp.MustCompile(`\$\{[^{}]+\}`)
 
+// isReference reports whether text is one ${...} reference and nothing else.
+func isReference(text string) bool {
+	return text != "" && referencePattern.FindString(text) == text
+}
+
 // unresolvedReference returns the reference JSON decoding of text stopped
 // on, so the error names it instead of the '$' the decoder saw.
 func unresolvedReference(text string, err error) (string, bool) {
