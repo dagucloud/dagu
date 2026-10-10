@@ -146,3 +146,48 @@ func TestLoadTableEncodingsAndDelimiter(t *testing.T) {
 	_, err = ParseEncoding("latin1")
 	require.ErrorContains(t, err, `unknown encoding "latin1": use utf-8, utf-8-bom, or shift_jis`)
 }
+
+// Rows text that still holds a ${...} reference after substitution names the
+// reference instead of reporting invalid JSON.
+func TestRowsReportUnresolvedReference(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ rows, ref string }{
+		{`[{"_row": ${foreach.row._row}, "s": "done"}]`, "${foreach.row._row}"},
+		{`[{${foreach.row.key}: 1}]`, "${foreach.row.key}"},
+		{`${steps.read.outputs.rows}`, "${steps.read.outputs.rows}"},
+		{`[{"a": 1}] ${steps.more.outputs.rows}`, "${steps.more.outputs.rows}"},
+	} {
+		want := "rows: " + tc.ref + " was not resolved; check that the value it names exists"
+		_, err := DecodeUpdateRows(tc.rows)
+		require.EqualError(t, err, want, tc.rows)
+		_, err = DecodeRows(tc.rows, nil)
+		require.EqualError(t, err, want, tc.rows)
+	}
+
+	// Text that is more than a reference, or a ${ that never closes, keeps
+	// the generic error.
+	for _, tc := range []struct{ rows, want string }{
+		{`note ${x}`, "rows must be a JSON array of objects"},
+		{`[${foo, "x": 1}]`, "rows: invalid JSON: invalid character '$' looking for beginning of value"},
+	} {
+		_, err := DecodeUpdateRows(tc.rows)
+		require.EqualError(t, err, tc.want, tc.rows)
+	}
+
+	// A reference inside a JSON string is data, not an error.
+	rows, err := DecodeUpdateRows(`[{"note": "${HOME}"}]`)
+	require.NoError(t, err)
+	assert.Equal(t, []Row{{"note": "${HOME}"}}, rows)
+
+	// An input file never goes through substitution, so ${...} in it is
+	// only text that is not valid JSON.
+	path := filepath.Join(t.TempDir(), "rows.json")
+	for _, tc := range []struct{ content, want string }{
+		{`[{"a": ${x}}]`, "rows: invalid JSON: invalid character '$' looking for beginning of value"},
+		{`${x}`, "rows must be a JSON array of objects or arrays"},
+	} {
+		require.NoError(t, os.WriteFile(path, []byte(tc.content), 0o600))
+		_, err := LoadTable(path, LoadOptions{})
+		require.EqualError(t, err, tc.want, tc.content)
+	}
+}

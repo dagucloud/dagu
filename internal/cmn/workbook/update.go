@@ -115,7 +115,7 @@ func ParseSet(v any) (map[string]SetValue, error) {
 // objects, as a step output or a loop item arrives. A _row value becomes
 // an int.
 func DecodeUpdateRows(value any) ([]Row, error) {
-	list, _, err := rowList(value, "objects")
+	list, _, err := rowList(value, "objects", true)
 	if err != nil {
 		return nil, err
 	}
@@ -132,6 +132,9 @@ func DecodeUpdateRows(value any) ([]Row, error) {
 		if n, ok := row[RowNumberKey]; ok && n != nil {
 			r, ok := toRowNumber(n)
 			if !ok {
+				if ref, ok := n.(string); ok && isReference(ref) {
+					return nil, unresolvedError(fmt.Sprintf("rows[%d]._row", i), ref)
+				}
 				return nil, fmt.Errorf("rows[%d]: _row must be a row number", i)
 			}
 			row[RowNumberKey] = r

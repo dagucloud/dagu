@@ -233,6 +233,11 @@ func TestParseSetAndDecodeUpdateRows(t *testing.T) {
 	require.Error(t, err)
 	_, err = DecodeUpdateRows(`[{"_row": "two"}]`)
 	require.Error(t, err)
+	unresolved := "rows[0]._row: ${foreach.row._row} was not resolved; check that the value it names exists"
+	_, err = DecodeUpdateRows(`[{"_row": "${foreach.row._row}"}]`)
+	require.EqualError(t, err, unresolved)
+	_, err = DecodeUpdateRows([]any{map[string]any{"_row": "${foreach.row._row}"}})
+	require.EqualError(t, err, unresolved)
 	_, err = DecodeUpdateRows("nope")
 	require.Error(t, err)
 }
