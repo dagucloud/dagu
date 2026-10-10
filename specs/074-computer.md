@@ -333,11 +333,20 @@ from its first operation.
 
 A step checks elements through exact conditions (see Conditions), and a
 replay acts on the elements the model's actions landed on and waits for
-them (see Replay cache). Names, labels, window titles, and the text a
+them (see Replay cache). When the recorded window is not in front, a
+replay brings it forward before it looks again, never the step's own
+application, so a window that lost the focus is raised rather than counted
+a miss. Names, labels, window titles, and the text a
 check looks for are compared after folding full-width characters to
 half-width, collapsing whitespace, and dropping a label's trailing colon,
 so a selector a person types matches what a form shows without reproducing
 its spelling; ids are compared as written.
+
+In generic mode the model is also offered the front window's actionable
+elements by id beside the screenshot and may click one with `click_element`,
+which the step resolves to the element's centre, more reliable than aiming
+at a pixel for a small control. The click records its element like any other,
+so the next run replays it by element.
 
 An element is an accessible element of a window: its `role`, `name`, the
 `id` the application gives it, its `value`, the `label` it is linked to,

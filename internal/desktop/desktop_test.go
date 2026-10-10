@@ -62,6 +62,8 @@ func (b *recordingBackend) LastInput() time.Time { return b.personInputAt }
 
 func (b *recordingBackend) FocusedWindow() desktop.WindowID    { return desktop.WindowID{} }
 func (b *recordingBackend) WindowAt(int, int) desktop.WindowID { return desktop.WindowID{} }
+func (b *recordingBackend) Windows() []desktop.WindowID        { return nil }
+func (b *recordingBackend) Raise(desktop.WindowID) error       { return nil }
 
 func (b *recordingBackend) Close() error { return nil }
 

@@ -236,9 +236,13 @@ func (r *run) lookRecorded(els desktop.Elements, rec recordedElement) (desktop.E
 
 // resolveElement finds a recorded element, looking again until it is
 // there or findWithin passes.
-func (r *run) resolveElement(ctx context.Context, els desktop.Elements, rec recordedElement, findWithin time.Duration) (desktop.Element, string, error) {
+func (r *run) resolveElement(ctx context.Context, index int, els desktop.Elements, rec recordedElement, findWithin time.Duration) (desktop.Element, string, error) {
 	deadline := time.Now().Add(findWithin)
+	want := r.substitute(rec.Window)
 	for {
+		// A window that slipped behind another is brought forward rather
+		// than counted a miss, so a replay survives a focus change.
+		r.bringForward(ctx, index, want)
 		found, reason, err := r.lookRecorded(els, rec)
 		if err != nil || reason == "" {
 			return found, reason, err
@@ -252,6 +256,34 @@ func (r *run) resolveElement(ctx context.Context, els desktop.Elements, rec reco
 	}
 }
 
+// foregroundSettle gives a raised window a moment to reach the front before
+// the step looks at it again.
+const foregroundSettle = 200 * time.Millisecond
+
+// bringForward raises the window whose title matches want when it is not
+// already in front, so a replay acts on it even after it lost the focus. It
+// never raises the step's own application, and is a best effort: the look
+// that follows still checks the front window.
+func (r *run) bringForward(ctx context.Context, index int, want string) {
+	if want == "" {
+		return
+	}
+	if front := r.driver.FocusedWindow(); front.Known() && desktop.WindowMatches(front.Title, want) {
+		return
+	}
+	for _, w := range r.driver.Windows() {
+		if r.driver.Owned(w) || !desktop.WindowMatches(w.Title, want) {
+			continue
+		}
+		if err := r.driver.Raise(w); err != nil {
+			return
+		}
+		logAction(r.timeline, index, fmt.Sprintf("bringing %q to the front", w.Title))
+		_ = sleep(ctx, foregroundSettle)
+		return
+	}
+}
+
 // replayByElement replays one turn on the elements it recorded. It returns
 // the reason the turn missed, or "" when every action ran.
 func (r *run) replayByElement(ctx context.Context, index, position, total int, turn recordedTurn, els desktop.Elements, findWithin time.Duration, outcome *replayOutcome) (string, error) {
@@ -260,7 +292,7 @@ func (r *run) replayByElement(ctx context.Context, index, position, total int, t
 		if rec.Element == nil {
 			logAction(r.timeline, index, "replay "+describeAction(action))
 		} else {
-			found, reason, err := r.resolveElement(ctx, els, *rec.Element, findWithin)
+			found, reason, err := r.resolveElement(ctx, index, els, *rec.Element, findWithin)
 			if err != nil {
 				return "", err
 			}

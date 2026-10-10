@@ -634,6 +634,43 @@ func TestReplaysByElementWhenPixelsChanged(t *testing.T) {
 	assert.Contains(t, replayed.stderr.String(), `replay by element: click button "保存" at 272,205`)
 }
 
+// A replay brings the recorded window to the front when it lost the focus,
+// rather than counting the step a miss.
+func TestReplayBringsTheWindowForward(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"do": [{"act": "Save the invoice"}]}`
+	run := elementRun(t)
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(235, 194)), done("Saved")}}}
+	require.NoError(t, run.execute(steps, nil).err)
+
+	// Before the replay another window is in front, with the recorded one
+	// behind it; raising the recorded window brings its elements back.
+	const title = "経費精算 - 請求書 1042"
+	run.elements.retitle("別のウィンドウ")
+	run.backend.focus = desktop.WindowID{Handle: 1, Title: "別のウィンドウ"}
+	run.backend.windows = []desktop.WindowID{
+		{Handle: 1, Title: "別のウィンドウ"},
+		{Handle: 2, Title: title},
+	}
+	run.backend.onRaise = func(w desktop.WindowID) {
+		if w.Handle == 2 {
+			run.elements.retitle(title)
+		}
+	}
+	run.backend.events = nil
+
+	replayed := run.execute(steps, nil)
+	require.NoError(t, replayed.err, "the recorded window was raised, so the replay resolved its button")
+	events := operationEvents(replayed.exec.GetAgentSession())
+	require.Len(t, events, 1)
+	assert.Equal(t, agentstep.StatusCacheHit, events[0].Status)
+	assert.Equal(t, agentstep.ViaElement, events[0].Via)
+	require.Len(t, run.backend.raised, 1)
+	assert.Equal(t, uint64(2), run.backend.raised[0].Handle, "the recorded window was brought forward")
+	assert.Equal(t, []string{"move 235,194", "left down #1"}, run.backend.inputs())
+}
+
 // The display size is not part of the recording's key, so an element
 // replay runs on another display.
 func TestReplaysOnAnotherDisplaySize(t *testing.T) {

@@ -9,3 +9,5 @@ package desktop
 // does not say, and a step treats the focus as unknown.
 func (windowsBackend) FocusedWindow() WindowID    { return WindowID{} }
 func (windowsBackend) WindowAt(int, int) WindowID { return WindowID{} }
+func (windowsBackend) Windows() []WindowID        { return nil }
+func (windowsBackend) Raise(WindowID) error       { return nil }

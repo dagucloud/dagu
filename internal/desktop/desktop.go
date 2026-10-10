@@ -70,6 +70,12 @@ type Backend interface {
 	// WindowAt reports the top-level window under a physical pixel
 	// position, or a zero WindowID where the system does not say.
 	WindowAt(x, y int) WindowID
+	// Windows lists the visible top-level windows, the front of the
+	// Z-order first. It is empty where the system does not enumerate them.
+	Windows() []WindowID
+	// Raise brings a window to the foreground. It is a best effort: the
+	// system may refuse a foreground change asked by a background process.
+	Raise(w WindowID) error
 	// LastInput reports when the desktop last received pointer or keyboard
 	// input from any source, the driver included, or the zero time when it
 	// cannot tell.
@@ -181,6 +187,13 @@ func (d *Driver) FocusedWindow() WindowID { return d.backend.FocusedWindow() }
 
 // WindowAt reports the top-level window under a display position.
 func (d *Driver) WindowAt(at image.Point) WindowID { return d.backend.WindowAt(at.X, at.Y) }
+
+// Windows lists the visible top-level windows, the front of the Z-order
+// first, so a step can find one to bring forward.
+func (d *Driver) Windows() []WindowID { return d.backend.Windows() }
+
+// Raise brings a window to the foreground, a best effort.
+func (d *Driver) Raise(w WindowID) error { return d.backend.Raise(w) }
 
 // Protect adds processes whose windows the driver never operates.
 func (d *Driver) Protect(pids ...uint32) {

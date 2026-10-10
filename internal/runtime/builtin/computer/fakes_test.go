@@ -51,6 +51,13 @@ type fakeBackend struct {
 	// windowAt, when set, reports the window under a given position, so a
 	// test can place different windows at different points.
 	windowAt func(x, y int) desktop.WindowID
+	// windows are the visible top-level windows, front of the Z-order
+	// first, that Windows reports; raised records the ones Raise brought
+	// forward, and onRaise runs when one is raised, so a test can make the
+	// elements reader reflect it.
+	windows []desktop.WindowID
+	raised  []desktop.WindowID
+	onRaise func(desktop.WindowID)
 	// captures counts the screenshots taken.
 	captures int
 }
@@ -382,6 +389,24 @@ func (b *fakeBackend) WindowAt(x, y int) desktop.WindowID {
 		return b.windowAt(x, y)
 	}
 	return b.under
+}
+
+func (b *fakeBackend) Windows() []desktop.WindowID {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]desktop.WindowID(nil), b.windows...)
+}
+
+func (b *fakeBackend) Raise(w desktop.WindowID) error {
+	b.mu.Lock()
+	b.raised = append(b.raised, w)
+	b.focus, b.under = w, w
+	onRaise := b.onRaise
+	b.mu.Unlock()
+	if onRaise != nil {
+		onRaise(w)
+	}
+	return nil
 }
 
 // focusOn moves the keyboard focus to a window.
