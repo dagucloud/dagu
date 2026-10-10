@@ -42,8 +42,8 @@ Each operation sets exactly one of:
   without a shell, the step does not wait for it, and it keeps running after
   the step ends.
 - `act`: a task described in natural language. The value is an instruction
-  string or an object with `instruction` and optional `ai`, `cache`, and
-  `max_actions`.
+  string or an object with `instruction` and optional `ai`, `cache`,
+  `max_actions`, and `find_within`.
 - `extract`: `{instruction, schema}`, with optional `ai`. The schema must be
   a JSON Schema with `type: object`.
 - `expect`: a statement about the screen that must hold; otherwise the step
@@ -106,8 +106,8 @@ exactly one visible element; several matches are a miss, never a guess.
 for any run of characters. A window that exposes no elements is a miss
 while it is in front. An exact `expect` keeps looking every quarter second
 until it holds, `within` passes, or, without `within`, the operation
-timeout passes; an exact `when` reads once unless `within` says how long to
-keep looking. The event of an exact check records `via: exact`.
+timeout passes; an exact `when` keeps looking for two seconds unless
+`within` says how long. The event of an exact check records `via: exact`.
 
 `%name%` placeholders in `text`, `window`, and a selector's `name`,
 `window`, `near.label`, and container are replaced from `with.variables`
@@ -244,8 +244,9 @@ no form that reads the screen without one, so a step whose `ai` is `never`
 fails validation with an `expect` or `when` that is a statement, or an
 `extract` that does not set its own `ai`. An exact check is allowed.
 
-Each operation's timeline event records `via`, how it ran: `screen` for a
-replay, `model` for a model request, `exact` for an exact check, and
+Each operation's timeline event records `via`, how it ran: `element` for
+a replay by the window's elements, `screen` for a replay by the pixels of
+the screen, `model` for a model request, `exact` for an exact check, and
 nothing for an operation that decides nothing, such as `launch`; with
 `durationMs` and `tokens`. An
 operation that fails records its event the same way, with the failure as
@@ -254,16 +255,47 @@ its detail, before the step's failure event that carries the screenshot.
 ### Replay cache
 
 A model-driven `act` records each screen the model saw and the actions it
-chose on it, and the recordings are kept when the step succeeds. A later run
-of the same step on the same host replays them without a model request when
-the operation position, instruction, and display size match and each screen,
-and the area around each pointer action, still looks as recorded. The screen
-after the last action must also match. When a screen differs or an action
-fails, the model continues the task from the current screen and the new
-actions are recorded; the timeline marks the operation `healed`. When the
-step succeeds, the turns that replayed and the new actions replace the
+chose on it, and the recordings are kept when the step succeeds. Beside the
+pixels of each action, a recording keeps the element the action landed on,
+or typed into, when the host can read elements (see Elements): its role,
+its name or id, its path in the window, and where in it the pointer went.
+An element with neither a name nor an id is recorded by its pixels alone.
+A name or a typed text equal to a variable's value or an `ask` answer of
+two or more characters is recorded as the `%name%` placeholder, and a
+window title containing such a value likewise, so a recording made on one
+record replays on the next. The recording ends with its landmarks: the
+title of the window in front and up to three of the elements the act
+touched last that were still there.
+
+A later run of the same step on the same host replays a recording without
+a model request when the operation position and instruction match. Each
+turn replays by its elements when every pointer action of the turn has one
+and the window in front is the recorded one: each element is found again,
+with the recorded path breaking a tie between equal matches, and the action
+runs where it is now, typing into it after focusing it. Otherwise the turn
+replays by its pixels, which need the recorded display size and each
+screen, and the area around each pointer action, to look as recorded. A
+replayed action waits for its element, and a pixel turn for its screen,
+looking again every quarter second until `find_within` passes: 10 seconds
+unless `with.find_within` or `act.find_within` says otherwise, 0 to look
+once. The wait counts toward the operation timeout. After the last turn, a
+replay by elements needs its landmarks in front; a replay by pixels needs
+the screen to look as recorded.
+
+When an element or a screen is not found, or an action fails, the model
+continues the task from the current screen and the new actions are
+recorded; the timeline marks the operation `healed`. When the step
+succeeds, the turns that replayed and the new actions replace the
 recording; when there are none, the recording is removed unless another run
-of the step replaced it first. A full replay is marked `cache-hit`.
+of the step replaced it first. A full replay is marked `cache-hit`, with
+`via: element` when every turn replayed by elements and `via: screen`
+otherwise. Under `never`, a miss names the element, the wait, the turn, and
+why, such as `button "保存" was not found within 10s at turn 2 of 5: 3
+elements match`.
+
+Recordings carry a format version. A recording of another version is
+ignored once: the run asks the model, or fails under `never` saying so,
+and what it records replaces the old one.
 
 Runs of a step share its recordings, and each `act` reads them when it runs. A
 recording that another run of the step replaced or removed meanwhile is not
@@ -298,8 +330,13 @@ from its first operation.
 
 ### Elements
 
-A step checks elements through exact conditions (see Conditions). It
-cannot yet act on or wait for an element: replay by element is deferred.
+A step checks elements through exact conditions (see Conditions), and a
+replay acts on the elements the model's actions landed on and waits for
+them (see Replay cache). Names, labels, window titles, and the text a
+check looks for are compared after folding full-width characters to
+half-width, collapsing whitespace, and dropping a label's trailing colon,
+so a selector a person types matches what a form shows without reproducing
+its spelling; ids are compared as written.
 
 An element is an accessible element of a window: its `role`, `name`, the
 `id` the application gives it, its `value`, the `label` it is linked to,
