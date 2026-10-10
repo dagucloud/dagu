@@ -215,7 +215,7 @@ func (e *jq) Run(_ context.Context) error {
 			break
 		}
 		if err, ok := v.(error); ok {
-			if halt, ok := err.(*gojq.HaltError); ok && halt.Value() == nil {
+			if halt, ok := err.(*gojq.HaltError); ok && halt.ExitCode() == 0 {
 				return nil
 			}
 			return fmt.Errorf("failed to run jq query: %w", err)
