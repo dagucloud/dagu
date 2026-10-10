@@ -9,8 +9,29 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 )
+
+// referencePattern matches a ${...} reference that substitution left in a
+// value: a field missing from the item, a step that published nothing, or a
+// path the parser does not accept.
+var referencePattern = regexp.MustCompile(`\$\{[^{}]+\}`)
+
+// unresolvedReference returns the reference JSON decoding of text stopped
+// on, so the error names it instead of the '$' the decoder saw.
+func unresolvedReference(text string, err error) (string, bool) {
+	var syntaxErr *json.SyntaxError
+	if !errors.As(err, &syntaxErr) || syntaxErr.Offset < 1 || int(syntaxErr.Offset) > len(text) {
+		return "", false
+	}
+	start := int(syntaxErr.Offset) - 1
+	loc := referencePattern.FindStringIndex(text[start:])
+	if loc == nil || loc[0] != 0 {
+		return "", false
+	}
+	return text[start : start+loc[1]], true
+}
 
 // decodeJSON parses one JSON value with numbers as float64.
 func decodeJSON(text string) (any, error) {

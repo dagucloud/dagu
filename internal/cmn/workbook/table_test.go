@@ -146,3 +146,29 @@ func TestLoadTableEncodingsAndDelimiter(t *testing.T) {
 	_, err = ParseEncoding("latin1")
 	require.ErrorContains(t, err, `unknown encoding "latin1": use utf-8, utf-8-bom, or shift_jis`)
 }
+
+func TestRowsReportUnresolvedReference(t *testing.T) {
+	t.Parallel()
+	for _, rows := range []string{
+		`[{"_row": ${foreach.row._row}, "s": "done"}]`,
+		`${steps.read.outputs.rows}`,
+	} {
+		_, err := DecodeUpdateRows(rows)
+		require.Error(t, err, rows)
+		assert.NotContains(t, err.Error(), "invalid JSON", rows)
+		assert.Contains(t, err.Error(), "rows: ${", rows)
+		assert.Contains(t, err.Error(), "was not resolved", rows)
+
+		_, err = DecodeRows(rows, nil)
+		require.Error(t, err, rows)
+		assert.Contains(t, err.Error(), "was not resolved", rows)
+	}
+
+	_, err := DecodeUpdateRows(`[{"_row": ${foreach.row._row}}]`)
+	require.EqualError(t, err, "rows: ${foreach.row._row} was not resolved; check that the value it names exists")
+
+	// A reference inside a JSON string is data, not an error.
+	rows, err := DecodeUpdateRows(`[{"note": "${HOME}"}]`)
+	require.NoError(t, err)
+	assert.Equal(t, []Row{{"note": "${HOME}"}}, rows)
+}
