@@ -521,6 +521,9 @@ type testRun struct {
 	// protect names processes whose windows the step must not operate.
 	protect  []uint32
 	launches [][]string
+	// remote runs the step as if in a remote desktop session rather than
+	// at the console, where it does not wait for a person by default.
+	remote bool
 }
 
 func newTestRun(t *testing.T) *testRun {
@@ -578,6 +581,9 @@ func (r *testRun) execute(withJSON string, session *ir.AgentSession) *stepExecut
 	// A replay looks once for what it needs, so a miss is quick; a test
 	// that wants waiting sets find_within.
 	execution.exec.findWithin = 0
+	// Tests run as if at the console, so the person-guard behaves as it
+	// does for a local desktop; a test of a remote session sets remote.
+	execution.exec.onConsole = func() bool { return !r.remote }
 	execution.exec.launch = func(dir, command string, args []string) error {
 		r.launches = append(r.launches, append([]string{dir, command}, args...))
 		return nil

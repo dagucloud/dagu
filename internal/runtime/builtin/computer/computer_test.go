@@ -1384,6 +1384,42 @@ func TestIdleZeroIgnoresPerson(t *testing.T) {
 	assert.NotContains(t, strings.Join(lifecycleMessages(execution.exec.GetAgentSession()), "\n"), "Waiting until nobody")
 }
 
+// In a remote desktop session the connection feeds the desktop input of its
+// own and nobody at the keyboard shares it, so a step does not wait for a
+// person unless idle is set, and says so once.
+func TestRemoteSessionDoesNotWaitForAPerson(t *testing.T) {
+	t.Parallel()
+
+	t.Run("default idle skips the wait", func(t *testing.T) {
+		t.Parallel()
+		run := newTestRun(t)
+		run.remote = true
+		run.backend.personKeepsUsing(50)
+		run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(10, 10)), done("Clicked")}}}
+		execution := run.execute(`{"do": [{"launch": "app"}, {"act": "Click the button"}]}`, nil)
+		require.NoError(t, execution.err)
+
+		messages := strings.Join(lifecycleMessages(execution.exec.GetAgentSession()), "\n")
+		assert.NotContains(t, messages, "Waiting until nobody")
+		assert.Equal(t, 1, strings.Count(messages, "Running in a remote session, so not waiting for a person"), "said once, not per operation")
+		assert.Equal(t, []string{"move 10,10", "left down #1"}, run.backend.inputs())
+	})
+
+	t.Run("an explicit idle still waits", func(t *testing.T) {
+		t.Parallel()
+		run := newTestRun(t)
+		run.remote = true
+		run.backend.personKeepsUsing(2)
+		run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(10, 10)), done("Clicked")}}}
+		execution := run.execute(`{"idle": "100ms", "do": [{"act": "Click the button"}]}`, nil)
+		require.NoError(t, execution.err)
+
+		messages := strings.Join(lifecycleMessages(execution.exec.GetAgentSession()), "\n")
+		assert.Contains(t, messages, "Waiting until nobody has used the desktop for 100ms")
+		assert.NotContains(t, messages, "Running in a remote session")
+	})
+}
+
 // A later model takes over only while the desktop is untouched.
 func TestModelFallback(t *testing.T) {
 	t.Parallel()

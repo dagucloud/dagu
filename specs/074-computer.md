@@ -186,6 +186,14 @@ operation timeout, which bounds what the step does, not what it waits for;
 a person who keeps using the desktop for an hour fails the operation.
 `idle: 0` turns the waiting and the skipping off.
 
+A step that runs in a remote desktop session rather than the one attached
+to the physical console does not wait for a person unless `with.idle` is
+set: nobody at the keyboard shares that desktop, and the remote connection
+feeds it pointer and keyboard updates of its own, so it never looks idle.
+The step says so once, in a `running` lifecycle event. On Windows the
+console session is the one `WTSGetActiveConsoleSessionId` names; elsewhere
+every session counts as the console.
+
 ### Variables and secrets
 
 `with.variables` maps names to values. An `act` instruction references them as

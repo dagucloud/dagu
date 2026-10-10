@@ -57,8 +57,13 @@ type computerExecutor struct {
 	// findWithin is how long a replay waits for an element or a screen
 	// when the step sets nothing.
 	findWithin time.Duration
-	stdout     io.Writer
-	stderr     io.Writer
+	// onConsole reports whether a person at the keyboard could collide
+	// with the step's input; a remote session has none, and its connection
+	// feeds the desktop input of its own, so a step there does not wait
+	// for a person unless idle is set.
+	onConsole func() bool
+	stdout    io.Writer
+	stderr    io.Writer
 
 	mu            sync.Mutex
 	cancel        context.CancelFunc
@@ -87,6 +92,7 @@ func newExecutor(_ context.Context, step ir.Step) (executor.Executor, error) {
 		idlePoll:     defaultIdlePoll,
 		personWait:   defaultPersonWait,
 		findWithin:   defaultFindWithin,
+		onConsole:    desktop.OnConsoleSession,
 		stdout:       os.Stdout,
 		stderr:       os.Stderr,
 	}, nil

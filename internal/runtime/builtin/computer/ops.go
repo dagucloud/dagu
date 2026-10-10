@@ -76,8 +76,11 @@ type run struct {
 	lease       *desktopLease
 	// clock is the working-time bound of the operation running, paused
 	// while the step waits for a person.
-	clock     *activeContext
-	variables map[string]string
+	clock *activeContext
+	// remoteNoted records that the step has said once why it does not wait
+	// for a person in a remote session.
+	remoteNoted bool
+	variables   map[string]string
 	// answers holds the values people gave to ask operations.
 	answers map[string]string
 	outputs map[string]any
@@ -633,6 +636,17 @@ func (r *run) operationContext(ctx context.Context, timeout time.Duration) (cont
 func (r *run) awaitPerson(ctx context.Context) error {
 	idle := r.cfg.idle()
 	if idle <= 0 {
+		return nil
+	}
+	// A remote session has no person at the keyboard to avoid, and its
+	// connection feeds the desktop synthetic input of its own, so the
+	// desktop never looks idle there: the wait is skipped unless the step
+	// asked for one.
+	if r.cfg.Idle == "" && r.exec.onConsole != nil && !r.exec.onConsole() {
+		if !r.remoteNoted {
+			r.remoteNoted = true
+			r.timeline.Lifecycle(agentstep.StatusRunning, "Running in a remote session, so not waiting for a person; set idle to wait")
+		}
 		return nil
 	}
 	if r.clock != nil {
