@@ -378,7 +378,7 @@ func (n *Node) captureOutput(ctx context.Context) error {
 				schemaOutput = value
 			}
 		}
-		if schemaErr != nil && n.Error() == nil {
+		if schemaErr != nil {
 			return schemaErr
 		}
 	}

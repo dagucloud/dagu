@@ -901,6 +901,8 @@ func TestFailedCapture(t *testing.T) {
 				require.NoError(t, node.captureOutput(structuredOutputTestContext(t, nil, t.TempDir())))
 				assert.ErrorIs(t, node.Error(), execErr)
 				assert.Equal(t, data, node.OutputVariablesMap()["RAW"])
+				assert.Nil(t, node.State().OutputValue)
+				assert.Nil(t, node.State().OutputsValue)
 				assert.Nil(t, node.State().StepOutputsValue)
 			})
 		}
