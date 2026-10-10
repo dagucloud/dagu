@@ -12,9 +12,10 @@ Dagu Cloud, and let the server's administrator open it to remote access from
 Dagu Cloud without inbound ports, VPN, SSH, or remote desktop.
 
 Activating an online license is the connection. There is no separate connect
-command. Reporting starts with the license and sends metadata only. Remote
-access is off until an administrator of the server turns it on, on the server
-itself, and it never exceeds the role they choose.
+command. Reporting is off until an administrator of the server turns it on,
+seeing exactly what is sent, and then sends metadata only. Remote access is
+off until an administrator of the server turns it on, on the server itself,
+and it never exceeds the role they choose.
 
 Workflows never depend on Dagu Cloud. Losing the connection stops reports and
 remote access, nothing else.
@@ -36,8 +37,10 @@ Today they:
 ## Goals
 
 1. **One step.** Activating an online license connects the server.
-2. **Metadata by default.** Health, version, workflow list, and run status
-   transitions. No logs, outputs, parameters, or secrets.
+2. **Nothing without consent.** Upgrading or connecting sends nothing new.
+   Reporting starts only when the server's admin chooses it, and then sends
+   metadata only: health, version, and run status transitions. No logs,
+   outputs, parameters, or secrets.
 3. **Outbound only.** Remote access rides a connection the server opens.
 4. **The server decides.** Remote access is opt-in per server, capped by a
    local role, and can be paused from the server at any time.
@@ -113,8 +116,30 @@ secret values, and error message text. Error text is opt-in
 (`cloud.report_error_messages`) because it often contains hosts, paths, or
 data.
 
-DAG names and step names are sent. An administrator who considers them
-sensitive turns reporting off.
+DAG names and step names are sent at `runs`. An administrator who considers
+them sensitive chooses `health`, which sends neither.
+
+### Choosing what to report
+
+| `cloud.report` | Sends |
+| --- | --- |
+| unset or `off` (default) | Nothing beyond the license check-in |
+| `health` | Dagu version, OS, architecture, start time, and which services run |
+| `runs` | Also run status changes: DAG names, run IDs, status, times, failed step names |
+
+- **Upgrading changes nothing.** A server licensed before reporting existed
+  keeps sending only its license check-in.
+- **The admin chooses in the UI**, at a moment it is useful: right after the
+  server connects to Dagu Cloud, or from a one-time notice on a server that
+  was already licensed. The dialog lists what each level sends and what is
+  never sent, before anything is.
+- **Config wins.** Set in configuration, `cloud.report` fixes the level for
+  servers managed as code, and the UI shows it read-only.
+- **Inspectable and reversible.** The license settings page shows the level,
+  when the last report was sent, and the exact last report. Turning it off
+  takes effect at once, and Dagu Cloud can delete what a server reported.
+- **The server decides.** Dagu Cloud cannot turn reporting on; it shows a
+  server that checks in without reporting as not monitored.
 
 ### Cadence
 
@@ -230,7 +255,7 @@ highest role any remote user gets.
 
 ```yaml
 cloud:
-  report: true                   # health, workflow list, run status
+  report: off                    # off | health | runs; omit to choose in the UI
   report_error_messages: false
   remote_access: off             # off | viewer | operator | developer | manager | admin
                                  # omit to set it in the UI
@@ -362,8 +387,8 @@ Older servers keep working as they do: they heartbeat and never report.
 
 ## Consequences
 
-- A licensed server sends metadata to Dagu Cloud by default. This is stated at
-  approval, documented, and switchable.
+- Fewer servers report than with reporting on by default; in exchange, no
+  server sends anything its admin did not choose.
 - The tunnel ingress is new attack surface. It is bounded by the local role
   cap, blocked admin endpoints, short-lived server-bound assertions, and a
   separate origin per server.
@@ -371,7 +396,5 @@ Older servers keep working as they do: they heartbeat and never report.
 
 ## Open questions
 
-1. Should reporting default to on for activations made before v2.19, or wait
-   for an admin to turn it on?
-2. Is error text worth sending by default, for more useful alerts?
-3. Should remote access ship in a v2 minor rather than wait for v3.0?
+1. Is error text worth sending by default, for more useful alerts?
+2. Should remote access ship in a v2 minor rather than wait for v3.0?
