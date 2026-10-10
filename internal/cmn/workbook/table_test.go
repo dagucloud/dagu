@@ -155,6 +155,7 @@ func TestRowsReportUnresolvedReference(t *testing.T) {
 		{`[{"_row": ${foreach.row._row}, "s": "done"}]`, "${foreach.row._row}"},
 		{`[{${foreach.row.key}: 1}]`, "${foreach.row.key}"},
 		{`${steps.read.outputs.rows}`, "${steps.read.outputs.rows}"},
+		{`[{"a": 1}] ${steps.more.outputs.rows}`, "${steps.more.outputs.rows}"},
 	} {
 		want := "rows: " + tc.ref + " was not resolved; check that the value it names exists"
 		_, err := DecodeUpdateRows(tc.rows)

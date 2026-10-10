@@ -47,9 +47,13 @@ func decodeJSON(text string) (any, error) {
 		return nil, fmt.Errorf("invalid JSON: %w", err)
 	}
 	// More only looks for another element of the current array or object,
-	// so trailing text such as "[]]" needs a second decode to be seen.
+	// so trailing text such as "[]]" needs a second decode to be seen. Its
+	// syntax error is kept so the offset of the trailing text stays known.
 	var trailing any
 	if err := dec.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err != nil {
+			return nil, fmt.Errorf("invalid JSON: expected one value: %w", err)
+		}
 		return nil, fmt.Errorf("invalid JSON: expected one value")
 	}
 	return v, nil
