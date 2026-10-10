@@ -105,8 +105,13 @@ from the console has the same effect on the next report (`401`).
 
 ### What is sent
 
-This table is the whole payload. A field is listed here, under its level,
-before any release sends it.
+This table lists what `cloud.report` chooses to send about the server and its
+runs. A field is listed here, under its level, before any release sends it.
+
+Every report also carries what identifies and authenticates the server, as
+its license check-in does: the protocol version, license ID, server ID, and
+heartbeat secret. At `runs` it also carries the reporter's cursor and, after
+events were lost, the time they were lost from.
 
 | Level | Fields | When |
 | --- | --- | --- |
@@ -118,7 +123,7 @@ of DAGs, and the remote access level. Each joins the table above, under its
 level, before it is sent.
 
 **Never sent:** logs, outputs, parameters, environment, step commands, DAG YAML,
-secret values, and error message text.
+the values of workflow secrets, and error message text.
 
 DAG names and step names are sent at `runs`. An administrator who considers
 them sensitive chooses `health`, which sends neither.

@@ -1647,7 +1647,7 @@
         "report": {
           "type": "string",
           "enum": ["off", "health"],
-          "description": "What this server reports to Dagu Console beyond its license check-in. off (default) reports nothing; health reports the Dagu version, OS, architecture, start time, and how many schedulers and coordinators run. Logs, outputs, parameters, commands, error messages, DAG files, and secrets are never sent."
+          "description": "What this server reports to Dagu Console beyond its license check-in. off (default) reports nothing; health reports the Dagu version, OS, architecture, start time, and how many schedulers and coordinators run. Logs, outputs, parameters, commands, error messages, DAG files, and the values of workflow secrets are never sent. Every report also carries the license and server IDs and the heartbeat secret, as the license check-in does."
         }
       }
     }
