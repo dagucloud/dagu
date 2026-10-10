@@ -170,7 +170,7 @@ The step log lists each action; the timeline records one event per operation.
 
 Before it launches an application, replays a recorded turn, or asks the model
 for its first actions, a step waits until nobody has used the desktop's
-pointer or keyboard for `with.idle` (default `15s`), and logs that it is
+pointer or keyboard for `with.idle` (default `5s`), and logs that it is
 waiting in an event named `person`. Input the step itself sent does not count, including input sent by
 the step that held the desktop before it. When a person uses the desktop
 after the screenshot the model answered, the step waits for the idle period

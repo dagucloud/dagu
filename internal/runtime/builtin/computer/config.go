@@ -62,8 +62,10 @@ const (
 	defaultOperationTimeout = 5 * time.Minute
 	defaultAskTimeout       = time.Hour
 	defaultMaxActions       = 50
-	defaultIdle             = 15 * time.Second
-	defaultFindWithin       = 10 * time.Second
+	// defaultIdle is short enough that a person who pauses to watch the step
+	// does not hold it long, and long enough to finish a word or a click.
+	defaultIdle       = 5 * time.Second
+	defaultFindWithin = 10 * time.Second
 )
 
 func init() {
@@ -410,7 +412,7 @@ func (c config) validate() error {
 	}
 	if c.Idle != "" && !strings.Contains(c.Idle, "$") {
 		if d, err := time.ParseDuration(c.Idle); err != nil || d < 0 {
-			return fmt.Errorf("computer: idle %q must be a duration such as 15s, or 0 to not wait", c.Idle)
+			return fmt.Errorf("computer: idle %q must be a duration such as 5s, or 0 to not wait", c.Idle)
 		}
 	}
 	if err := validateFindWithin(c.FindWithin); err != nil {

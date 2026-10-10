@@ -1316,7 +1316,7 @@ Computer behavior:
 - When a model provider asks for confirmation before sensitive actions, the step fails unless `on_confirmation: allow`. Put an `ask` before such an act instead.
 - `ask: {prompt, as}` puts the step in Waiting and leaves the desktop as it is; the answer becomes `%<as>%` and the step resumes at the next operation.
 - One computer step at a time uses a user's desktop, across Dagu processes with different data directories; others wait. While a step holds the desktop, the display stays awake; a locked screen fails the step. Screenshots are saved under `computer/<step id>/` in the run artifacts on failure by default and are not masked.
-- Before sending input, a step waits until nobody has touched the desktop for `with.idle` (default `15s`). Actions the model chose on a screen a person has since used are not run; the model gets the new screen instead. `idle: 0` turns this off, for example on a dedicated host.
+- Before sending input, a step waits until nobody has touched the desktop for `with.idle` (default `5s`). Actions the model chose on a screen a person has since used are not run; the model gets the new screen instead. `idle: 0` turns this off, for example on a dedicated host.
 
 ## router.route
 

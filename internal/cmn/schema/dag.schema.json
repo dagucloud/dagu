@@ -7844,7 +7844,7 @@
         },
         "idle": {
           "type": "string",
-          "default": "15s",
+          "default": "5s",
           "description": "How long nobody may have used the desktop before the step sends input or launches an application, such as 30s. Actions the model chose on a screen a person has since used are not run. 0 turns this off."
         },
         "find_within": {
