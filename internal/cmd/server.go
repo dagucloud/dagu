@@ -160,6 +160,9 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 		serverOpts = append(serverOpts, frontend.WithTunnelService(tunnelService))
 	}
 	cloudMonitoring := newCloudReportMonitoring(serviceCtx)
+	if cloudMonitoring != nil {
+		serverOpts = append(serverOpts, frontend.WithAPIOption(apiv1.WithCloudReport(cloudMonitoring)))
+	}
 
 	// Initialize server (includes auth setup). Use serviceCtx so auth providers can
 	// respond to termination signals during potentially slow network operations.

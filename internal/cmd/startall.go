@@ -176,9 +176,14 @@ func runStartAll(ctx *Context, _ []string) error {
 	// Initialize resource monitoring service
 	resourceService := resource.NewService(ctx.Config)
 
-	// Use serviceCtx so auth initialization can respond to termination signals
+	serverOpts := []frontend.ServerOption{frontend.WithAPIOption(apiv1.WithOpenCodeHost(openCodeHost))}
 	cloudMonitoring := newCloudReportMonitoring(serviceCtx)
-	server, err := newServer(serviceCtx, resourceService, stores, frontend.WithAPIOption(apiv1.WithOpenCodeHost(openCodeHost)))
+	if cloudMonitoring != nil {
+		serverOpts = append(serverOpts, frontend.WithAPIOption(apiv1.WithCloudReport(cloudMonitoring)))
+	}
+
+	// Use serviceCtx so auth initialization can respond to termination signals
+	server, err := newServer(serviceCtx, resourceService, stores, serverOpts...)
 	if err != nil {
 		return fmt.Errorf("failed to initialize server: %w", err)
 	}

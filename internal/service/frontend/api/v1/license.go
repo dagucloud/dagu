@@ -11,6 +11,9 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/audit"
+	"github.com/dagucloud/dagu/v2/internal/cloudreport"
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/license"
 )
@@ -215,6 +218,109 @@ func (a *API) requireLicenseManagement(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// GetLicenseMonitoring returns what this server reports to Dagu Console.
+func (a *API) GetLicenseMonitoring(ctx context.Context, _ api.GetLicenseMonitoringRequestObject) (api.GetLicenseMonitoringResponseObject, error) {
+	if err := a.requireCloudReport(ctx); err != nil {
+		return nil, err
+	}
+	status, err := a.licenseMonitoring(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return api.GetLicenseMonitoring200JSONResponse(status), nil
+}
+
+// UpdateLicenseMonitoring chooses what this server reports to Dagu Console.
+func (a *API) UpdateLicenseMonitoring(ctx context.Context, request api.UpdateLicenseMonitoringRequestObject) (api.UpdateLicenseMonitoringResponseObject, error) {
+	if err := a.requireCloudReport(ctx); err != nil {
+		return nil, err
+	}
+	if request.Body == nil {
+		return nil, &Error{Code: api.ErrorCodeBadRequest, Message: "level is required", HTTPStatus: http.StatusBadRequest}
+	}
+	previous, err := a.cloudReport.Status(ctx)
+	if err != nil {
+		return nil, internalError(err)
+	}
+
+	level := config.ReportLevel(request.Body.Level)
+	err = a.cloudReport.SetLevel(ctx, level)
+	switch {
+	case errors.Is(err, cloudreport.ErrLevelConfigured):
+		return nil, &Error{
+			Code:       api.ErrorCodeConflict,
+			Message:    "cloud.report in the configuration sets what this server reports.",
+			HTTPStatus: http.StatusConflict,
+		}
+	case errors.Is(err, cloudreport.ErrUnknownLevel):
+		return nil, &Error{
+			Code:       api.ErrorCodeBadRequest,
+			Message:    "level must be one of: off, health, runs",
+			HTTPStatus: http.StatusBadRequest,
+		}
+	case err != nil:
+		return nil, internalError(err)
+	}
+	a.logAudit(ctx, audit.CategorySystem, "cloud_report_update", map[string]any{
+		"level":          level,
+		"previous_level": previous.Level,
+	})
+
+	status, err := a.licenseMonitoring(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return api.UpdateLicenseMonitoring200JSONResponse(status), nil
+}
+
+// DismissLicenseMonitoringNotice stops asking administrators what this server
+// reports to Dagu Console.
+func (a *API) DismissLicenseMonitoringNotice(ctx context.Context, _ api.DismissLicenseMonitoringNoticeRequestObject) (api.DismissLicenseMonitoringNoticeResponseObject, error) {
+	if err := a.requireCloudReport(ctx); err != nil {
+		return nil, err
+	}
+	if err := a.cloudReport.DismissNotice(ctx); err != nil {
+		return nil, internalError(err)
+	}
+	status, err := a.licenseMonitoring(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return api.DismissLicenseMonitoringNotice200JSONResponse(status), nil
+}
+
+func (a *API) requireCloudReport(ctx context.Context) error {
+	if err := a.requireAdmin(ctx); err != nil {
+		return err
+	}
+	if a.cloudReport == nil {
+		return &Error{
+			Code:       api.ErrorCodeBadRequest,
+			Message:    "License management is not available",
+			HTTPStatus: http.StatusBadRequest,
+		}
+	}
+	return nil
+}
+
+func (a *API) licenseMonitoring(ctx context.Context) (api.LicenseMonitoring, error) {
+	status, err := a.cloudReport.Status(ctx)
+	if err != nil {
+		return api.LicenseMonitoring{}, internalError(err)
+	}
+	monitoring := api.LicenseMonitoring{
+		Level:           api.LicenseMonitoringLevel(status.Level),
+		Configured:      status.Configured,
+		Chosen:          status.Chosen,
+		NoticeDismissed: status.NoticeDismissed,
+	}
+	if !status.LastReportAt.IsZero() {
+		monitoring.LastReportAt = ptrOf(stringutil.FormatTime(status.LastReportAt))
+		monitoring.LastReport = ptrOf(string(status.LastReport))
+	}
+	return monitoring, nil
 }
 
 func toLicenseConnectStatus(status license.ConnectStatus) api.LicenseConnectStatus {
