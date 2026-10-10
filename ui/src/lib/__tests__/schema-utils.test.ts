@@ -2,7 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { dereferenceSchema, type JSONSchema } from '@/lib/schema-utils';
+import {
+  dereferenceSchema,
+  getSchemaAtPath,
+  type JSONSchema,
+} from '@/lib/schema-utils';
 
 describe('dereferenceSchema', () => {
   it('handles recursive internal references without overflowing the stack', () => {
@@ -55,9 +59,17 @@ describe('dereferenceSchema', () => {
     };
 
     expect(() => dereferenceSchema(schema)).not.toThrow();
-    const selector = dereferenceSchema(schema).properties?.selector;
+    const dereferenced = dereferenceSchema(schema);
+    const selector = dereferenced.properties?.selector;
     expect(selector?.description).toBe('Where to act');
     expect(selector?.properties?.name?.type).toBe('string');
+    // The inner self reference stays a $ref and resolves on lookup.
+    expect(getSchemaAtPath(dereferenced, ['selector', 'in'])?.description).toBe(
+      'Parent element'
+    );
+    expect(
+      getSchemaAtPath(dereferenced, ['selector', 'in', 'name'])?.type
+    ).toBe('string');
   });
 
   it('dereferences a sibling key that points at the same definition', () => {

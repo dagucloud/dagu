@@ -132,8 +132,8 @@ export function dereferenceSchema(schema: JSONSchema): JSONSchema {
         return resolved;
       }
       // resolved is already dereferenced, so only the sibling keys need
-      // processing. Processing the merged node again would walk back into a
-      // value that refers to itself (computerSelector.in) without end.
+      // processing. Processing it again would expand the self references it
+      // keeps as $ref and never terminate.
       return { ...resolved, ...(processNode(rest) as Record<string, unknown>) };
     }
 
