@@ -198,7 +198,7 @@ func TestDriverWaitForIdle(t *testing.T) {
 	backend := &recordingBackend{personInputAt: time.Now()}
 	driver := desktop.New(backend)
 	waits := 0
-	onWait := func() { waits++ }
+	onWait := func(time.Duration) { waits++ }
 
 	require.NoError(t, driver.WaitForIdle(context.Background(), idle, poll, onWait))
 	assert.Equal(t, 1, waits)

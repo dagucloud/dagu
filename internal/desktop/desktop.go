@@ -215,6 +215,19 @@ func (d *Driver) InputSentAt() time.Time {
 	return d.lastInput
 }
 
+// sinceLastUse reports how long ago the desktop last saw any input, the
+// driver's own included. It is zero when the clock cannot be read.
+func (d *Driver) sinceLastUse() time.Duration {
+	last := d.backend.LastInput()
+	if last.IsZero() {
+		return 0
+	}
+	if since := time.Since(last); since > 0 {
+		return since
+	}
+	return 0
+}
+
 // AssumeInputSent records that input was sent at, such as by an earlier
 // driver on the same desktop, so the desktop reporting it is not taken for a
 // person's.
@@ -237,11 +250,12 @@ func (d *Driver) PersonInputSince(since time.Time) bool {
 }
 
 // WaitForIdle returns once nobody but the driver has used the desktop for
-// idle, checking every poll. onWait runs once if the driver has to wait.
-func (d *Driver) WaitForIdle(ctx context.Context, idle, poll time.Duration, onWait func()) error {
+// idle, checking every poll. onWait runs once if the driver has to wait,
+// told how long ago the desktop was last used so a view can say why.
+func (d *Driver) WaitForIdle(ctx context.Context, idle, poll time.Duration, onWait func(lastUsed time.Duration)) error {
 	for waited := false; d.PersonInputSince(time.Now().Add(-idle)); waited = true {
 		if !waited {
-			onWait()
+			onWait(d.sinceLastUse())
 		}
 		if err := pause(ctx, poll); err != nil {
 			return err

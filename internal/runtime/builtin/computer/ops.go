@@ -642,9 +642,13 @@ func (r *run) awaitPerson(ctx context.Context) error {
 	waitCtx, cancel := context.WithTimeout(ctx, r.exec.personWait)
 	defer cancel()
 	waited := false
-	err := r.driver.WaitForIdle(waitCtx, idle, r.exec.idlePoll, func() {
+	err := r.driver.WaitForIdle(waitCtx, idle, r.exec.idlePoll, func(lastUsed time.Duration) {
 		waited = true
-		r.timeline.Waiting(waitReasonPerson, fmt.Sprintf("Waiting until nobody has used the desktop for %s", idle))
+		message := fmt.Sprintf("Waiting until nobody has used the desktop for %s", idle)
+		if lastUsed > 0 {
+			message += fmt.Sprintf(" (last input %s ago)", stringutil.FormatDuration(lastUsed))
+		}
+		r.timeline.Waiting(waitReasonPerson, message)
 	})
 	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
 		return fmt.Errorf("%w for %s, so the step gave up waiting", errDesktopInUse, stringutil.FormatDuration(r.exec.personWait))

@@ -1164,7 +1164,7 @@ func TestWaitsForIdleDesktop(t *testing.T) {
 			require.NoError(t, execution.err)
 			session := execution.exec.GetAgentSession()
 			assert.Equal(t, tc.want, eventNames(session))
-			assert.Contains(t, lifecycleMessages(session), "Waiting until nobody has used the desktop for 100ms")
+			assert.Contains(t, strings.Join(lifecycleMessages(session), "\n"), "Waiting until nobody has used the desktop for 100ms")
 			assert.Equal(t, []string{waitReasonPerson}, waitReasons(session))
 		})
 	}
@@ -1259,7 +1259,7 @@ func TestWaitEndsWithAnEvent(t *testing.T) {
 	run.backend.personKeepsUsing(2)
 	execution := run.execute(`{"idle": "100ms", "do": [{"act": "Click"}]}`, nil)
 	require.NoError(t, execution.err)
-	messages := lifecycleMessages(execution.exec.GetAgentSession())
+	messages := strings.Join(lifecycleMessages(execution.exec.GetAgentSession()), "\n")
 	assert.Contains(t, messages, "Waiting until nobody has used the desktop for 100ms")
 	assert.Contains(t, messages, "Nobody has used the desktop for 100ms; continuing")
 }
