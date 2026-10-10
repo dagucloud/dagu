@@ -33,10 +33,9 @@ type Monitoring struct {
 	configured config.ReportLevel
 	store      StateStore
 
-	// mu serializes changes to the stored choice in this process.
-	mu sync.Mutex
-
-	watchMu  sync.Mutex
+	// mu serializes changes to the stored choice in this process, and the
+	// notifications of them, so that they are delivered in the order saved.
+	mu       sync.Mutex
 	onChange func(config.ReportLevel)
 
 	sentMu sync.Mutex
@@ -118,15 +117,13 @@ func (m *Monitoring) SetLevel(ctx context.Context, level config.ReportLevel) err
 	default:
 		return fmt.Errorf("%w: %q", ErrUnknownLevel, level)
 	}
-	if err := m.update(ctx, func(c *choice) { c.Level = level }); err != nil {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.updateLocked(ctx, func(c *choice) { c.Level = level }); err != nil {
 		return err
 	}
-
-	m.watchMu.Lock()
-	onChange := m.onChange
-	m.watchMu.Unlock()
-	if onChange != nil {
-		onChange(level)
+	if m.onChange != nil {
+		m.onChange(level)
 	}
 	return nil
 }
@@ -158,8 +155,8 @@ func (m *Monitoring) level(ctx context.Context) (config.ReportLevel, error) {
 
 // watch calls fn with each level chosen in this process.
 func (m *Monitoring) watch(fn func(config.ReportLevel)) {
-	m.watchMu.Lock()
-	defer m.watchMu.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.onChange = fn
 }
 
@@ -174,6 +171,11 @@ func (m *Monitoring) recordSent(at time.Time, report reportRequest) {
 func (m *Monitoring) update(ctx context.Context, change func(*choice)) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.updateLocked(ctx, change)
+}
+
+// updateLocked is update with mu held.
+func (m *Monitoring) updateLocked(ctx context.Context, change func(*choice)) error {
 	c, err := m.load(ctx)
 	if err != nil {
 		return err

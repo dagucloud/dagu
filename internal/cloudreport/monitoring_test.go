@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -56,6 +57,47 @@ func TestMonitoringConfigured(t *testing.T) {
 	status, err := m.Status(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, Status{Level: config.ReportHealth, Configured: true}, status)
+}
+
+// A choice is announced before the next one is saved, so a late
+// announcement cannot undo a later choice, such as an off cancelling a
+// report that a later runs allowed.
+func TestMonitoringAnnouncesInSaveOrder(t *testing.T) {
+	t.Parallel()
+
+	m := chosenLevel(t)
+	announcing := make(chan struct{})
+	release := make(chan struct{})
+	var mu sync.Mutex
+	var announced []config.ReportLevel
+	m.watch(func(level config.ReportLevel) {
+		if level == config.ReportOff {
+			close(announcing)
+			<-release
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		announced = append(announced, level)
+	})
+
+	first := make(chan error, 1)
+	go func() { first <- m.SetLevel(t.Context(), config.ReportOff) }()
+	<-announcing
+	second := make(chan error, 1)
+	go func() { second <- m.SetLevel(t.Context(), config.ReportRuns) }()
+	select {
+	case err := <-second:
+		t.Fatalf("runs was chosen while off was still being announced: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(release)
+	require.NoError(t, <-first)
+	require.NoError(t, <-second)
+
+	assert.Equal(t, []config.ReportLevel{config.ReportOff, config.ReportRuns}, announced)
+	status, err := m.Status(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, config.ReportRuns, status.Level)
 }
 
 func TestMonitoringUnknownLevel(t *testing.T) {
