@@ -33,32 +33,41 @@ func TestStopLocalAgentSessionCleanupHonorsShutdownContext(t *testing.T) {
 	}
 }
 
+// The reporter runs whenever a license manager does, so that an
+// administrator can choose a level later, unless configuration fixes off.
 func TestStartCloudReport(t *testing.T) {
 	newContext := func(report config.ReportLevel) *Context {
-		return &Context{
-			Context:        t.Context(),
-			Config:         &config.Config{Cloud: config.CloudConfig{Report: report}},
-			LicenseManager: license.NewTestManager(),
-		}
+		cfg := &config.Config{Cloud: config.CloudConfig{Report: report}}
+		cfg.Paths.DataDir = t.TempDir()
+		return &Context{Context: t.Context(), Config: cfg, LicenseManager: license.NewTestManager()}
 	}
 
-	for _, level := range []config.ReportLevel{config.ReportHealth, config.ReportRuns} {
-		t.Run(string(level), func(t *testing.T) {
-			reporter := startCloudReport(newContext(level))
+	for _, level := range []config.ReportLevel{"", config.ReportHealth, config.ReportRuns} {
+		t.Run("level "+string(level), func(t *testing.T) {
+			ctx := newContext(level)
+			reporter := startCloudReport(ctx, newCloudReportMonitoring(ctx))
 			require.NotNil(t, reporter)
 			reporter.Stop()
 		})
 	}
 
-	for _, level := range []config.ReportLevel{"", config.ReportOff} {
-		t.Run("not "+string(level), func(t *testing.T) {
-			require.Nil(t, startCloudReport(newContext(level)))
-		})
-	}
+	t.Run("off", func(t *testing.T) {
+		ctx := newContext(config.ReportOff)
+		require.Nil(t, startCloudReport(ctx, newCloudReportMonitoring(ctx)))
+	})
+
+	t.Run("no license manager", func(t *testing.T) {
+		ctx := newContext("")
+		ctx.LicenseManager = nil
+		monitoring := newCloudReportMonitoring(ctx)
+		require.Nil(t, monitoring)
+		require.Nil(t, startCloudReport(ctx, monitoring))
+	})
 }
 
-// Reports carry DAG-run events only when the admin chose runs.
-func TestCloudReportEventsOnlyAtRuns(t *testing.T) {
+// The event store is prepared unless configuration fixes a level below runs,
+// because an administrator can choose runs at any time.
+func TestCloudReportEvents(t *testing.T) {
 	newContext := func(report config.ReportLevel) *Context {
 		cfg := &config.Config{Cloud: config.CloudConfig{Report: report}}
 		cfg.Paths.DataDir = t.TempDir()
@@ -66,5 +75,7 @@ func TestCloudReportEventsOnlyAtRuns(t *testing.T) {
 	}
 
 	require.NotNil(t, cloudReportEvents(newContext(config.ReportRuns)).Reader)
+	require.NotNil(t, cloudReportEvents(newContext("")).Reader)
 	require.Nil(t, cloudReportEvents(newContext(config.ReportHealth)).Reader)
+	require.Nil(t, cloudReportEvents(newContext(config.ReportOff)).Reader)
 }

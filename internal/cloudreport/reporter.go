@@ -17,6 +17,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -52,6 +53,7 @@ var processStartedAt = time.Now()
 type Reporter struct {
 	credentials func() (license.CloudCredentials, bool)
 	registry    serviceregistry.ServiceRegistry
+	monitoring  *Monitoring
 	// events is nil when reports carry no events.
 	events    *eventFeed
 	client    *http.Client
@@ -63,11 +65,21 @@ type Reporter struct {
 
 	cancel context.CancelFunc
 	done   chan struct{}
+	// changes wakes the report loop when an administrator changes the level.
+	changes chan struct{}
+
+	sendMu sync.Mutex
+	// stopSend cancels the report in flight; it is nil between reports.
+	stopSend context.CancelFunc
 
 	// The report loop owns the fields below.
 	interval time.Duration
 	backoff  time.Duration
 	last     outcome
+	// level is the level the loop last read.
+	level config.ReportLevel
+	// levelWarned records that the level could not be read.
+	levelWarned bool
 	// noEventsLogged records that reports were said to carry no events.
 	noEventsLogged bool
 }
@@ -75,14 +87,17 @@ type Reporter struct {
 // Start reports in the background until Stop is called or ctx is done.
 // Reports authenticate with what credentials returns and are skipped while it
 // returns false. Services are counted in registry; a nil registry leaves them
-// out of reports. Reports carry the DAG-run events that events configures.
+// out of reports. Each report sends what the level in monitoring allows at the
+// time: nothing at off, health at health, and also the DAG-run events that
+// events configures at runs. Choosing off stops a report in flight.
 func Start(
 	ctx context.Context,
 	credentials func() (license.CloudCredentials, bool),
 	registry serviceregistry.ServiceRegistry,
 	events Events,
+	monitoring *Monitoring,
 ) *Reporter {
-	r := newReporter(credentials, registry)
+	r := newReporter(credentials, registry, monitoring)
 	r.events = newEventFeed(events)
 	r.start(ctx)
 	return r
@@ -94,14 +109,20 @@ func (r *Reporter) Stop() {
 	<-r.done
 }
 
-func newReporter(credentials func() (license.CloudCredentials, bool), registry serviceregistry.ServiceRegistry) *Reporter {
+func newReporter(
+	credentials func() (license.CloudCredentials, bool),
+	registry serviceregistry.ServiceRegistry,
+	monitoring *Monitoring,
+) *Reporter {
 	return &Reporter{
 		credentials: credentials,
 		registry:    registry,
+		monitoring:  monitoring,
 		client:      &http.Client{Timeout: requestTimeout},
 		startedAt:   processStartedAt,
 		after:       time.After,
 		random:      rand.Float64,
+		changes:     make(chan struct{}, 1),
 		interval:    defaultInterval,
 	}
 }
@@ -109,7 +130,24 @@ func newReporter(credentials func() (license.CloudCredentials, bool), registry s
 func (r *Reporter) start(ctx context.Context) {
 	ctx, r.cancel = context.WithCancel(ctx)
 	r.done = make(chan struct{})
+	r.monitoring.watch(r.levelChanged)
 	go r.run(ctx)
+}
+
+// levelChanged stops a report in flight when level is off, and wakes the
+// report loop to apply level.
+func (r *Reporter) levelChanged(level config.ReportLevel) {
+	if !level.Reports() {
+		r.sendMu.Lock()
+		if r.stopSend != nil {
+			r.stopSend()
+		}
+		r.sendMu.Unlock()
+	}
+	select {
+	case r.changes <- struct{}{}:
+	default:
+	}
 }
 
 func (r *Reporter) run(ctx context.Context) {
@@ -117,31 +155,80 @@ func (r *Reporter) run(ctx context.Context) {
 	defer r.events.close(ctx)
 	// until is the time left before the next scheduled report.
 	until := time.Duration(r.random() * float64(maxStartDelay))
-	r.pollEvents(ctx, false)
+	r.pollEvents(ctx, r.readLevel(ctx), false)
 	for {
 		wait := until
-		if r.events != nil {
+		if r.events != nil && r.level == config.ReportRuns {
 			wait = min(wait, eventCheckInterval)
 		}
-		select {
-		case <-ctx.Done():
+		if !r.sleep(ctx, wait) {
 			return
-		case <-r.after(wait):
 		}
 		until -= wait
-		if early := r.pollEvents(ctx, until <= 0); until > 0 && !early {
+		if early := r.pollEvents(ctx, r.readLevel(ctx), until <= 0); until > 0 && !early {
 			continue
 		}
 		until = r.report(ctx)
 	}
 }
 
+// sleep waits for d and reports whether ctx is still live. A level changed
+// meanwhile is applied at once, without changing when the wait ends.
+func (r *Reporter) sleep(ctx context.Context, d time.Duration) bool {
+	timer := r.after(d)
+	for {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-timer:
+			return true
+		case <-r.changes:
+			r.readLevel(ctx)
+		}
+	}
+}
+
+// readLevel returns the level in effect, reading it as off when it cannot be
+// read. Below runs, it gives up the lease to report DAG-run events, and the
+// events that occur until runs is chosen again are never reported.
+func (r *Reporter) readLevel(ctx context.Context) config.ReportLevel {
+	level, err := r.monitoring.level(ctx)
+	switch {
+	case err != nil:
+		if !r.levelWarned {
+			logger.Warn(ctx, "Failed to read what to report to Dagu Console; reporting nothing", tag.Error(err))
+		}
+		r.levelWarned = true
+		level = config.ReportOff
+	case !level.Reports():
+		r.levelWarned = false
+		level = config.ReportOff
+	default:
+		r.levelWarned = false
+	}
+
+	if level != config.ReportRuns {
+		r.events.forget(ctx)
+	}
+	if level != r.level {
+		if r.level != "" {
+			logger.Info(ctx, "Changed what this server reports to Dagu Console", slog.String("level", string(level)))
+		}
+		r.level = level
+		if !level.Reports() {
+			// Reporting again later logs that it works.
+			r.last = outcome{kind: outcomeNone}
+		}
+	}
+	return level
+}
+
 // pollEvents prepares the events of the next report and reports whether one
 // calls for an early report. It reads the event store only when the report is
 // due or could be sent early, so that a console that fails or throttles
 // reports does not cause a read every few seconds.
-func (r *Reporter) pollEvents(ctx context.Context, due bool) bool {
-	if r.events == nil {
+func (r *Reporter) pollEvents(ctx context.Context, level config.ReportLevel, due bool) bool {
+	if r.events == nil || level != config.ReportRuns {
 		return false
 	}
 	creds, ok := r.credentials()
@@ -168,16 +255,35 @@ const (
 	outcomeUnavailable
 )
 
-// report sends one report and returns how long to wait before the next.
+// report sends one report, unless the level is off, and returns how long to
+// wait before the next.
 func (r *Reporter) report(ctx context.Context) time.Duration {
+	sendCtx, stop := context.WithCancel(ctx)
+	r.sendMu.Lock()
+	r.stopSend = stop
+	r.sendMu.Unlock()
+	defer func() {
+		r.sendMu.Lock()
+		r.stopSend = nil
+		r.sendMu.Unlock()
+		stop()
+	}()
+
+	// The level is read after stopSend is set, so that choosing off either
+	// comes before the read or stops the report.
+	level := r.readLevel(ctx)
 	creds, ok := r.credentials()
-	if !ok {
+	if !ok || !level.Reports() {
 		r.last = outcome{kind: outcomeNone}
 		return r.jitter(r.interval)
 	}
 
-	res, err := r.send(ctx, creds)
+	res, err := r.send(sendCtx, creds)
 	switch {
+	case err != nil && ctx.Err() == nil && sendCtx.Err() != nil:
+		// Reporting was turned off; nothing is retried.
+		return r.jitter(r.interval)
+
 	case err != nil:
 		// A report cut short by Stop is not a failure worth logging.
 		if ctx.Err() == nil && r.changed(outcome{kind: outcomeUnavailable}) {
@@ -221,7 +327,7 @@ func (r *Reporter) report(ctx context.Context) time.Duration {
 		if r.changed(outcome{kind: outcomeAccepted}) {
 			logger.Info(ctx, "Reporting server health to Dagu Console", tag.URL(creds.CloudURL))
 		}
-		if r.events == nil && !r.noEventsLogged {
+		if r.events == nil && level == config.ReportRuns && !r.noEventsLogged {
 			r.noEventsLogged = true
 			logger.Info(ctx, "Reports to Dagu Console carry no DAG-run events because the event store is disabled")
 		}
@@ -363,6 +469,7 @@ func (r *Reporter) send(ctx context.Context, creds license.CloudCredentials) (*r
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	r.monitoring.recordSent(time.Now(), report)
 
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {

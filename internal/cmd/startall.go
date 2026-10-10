@@ -177,6 +177,7 @@ func runStartAll(ctx *Context, _ []string) error {
 	resourceService := resource.NewService(ctx.Config)
 
 	// Use serviceCtx so auth initialization can respond to termination signals
+	cloudMonitoring := newCloudReportMonitoring(serviceCtx)
 	server, err := newServer(serviceCtx, resourceService, stores, frontend.WithAPIOption(apiv1.WithOpenCodeHost(openCodeHost)))
 	if err != nil {
 		return fmt.Errorf("failed to initialize server: %w", err)
@@ -205,7 +206,7 @@ func runStartAll(ctx *Context, _ []string) error {
 		return fmt.Errorf("failed to start resource service: %w", err)
 	}
 
-	if cloudReporter := startCloudReport(serviceCtx); cloudReporter != nil {
+	if cloudReporter := startCloudReport(serviceCtx, cloudMonitoring); cloudReporter != nil {
 		defer cloudReporter.Stop()
 	}
 

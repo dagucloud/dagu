@@ -159,6 +159,7 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 	if tunnelService != nil {
 		serverOpts = append(serverOpts, frontend.WithTunnelService(tunnelService))
 	}
+	cloudMonitoring := newCloudReportMonitoring(serviceCtx)
 
 	// Initialize server (includes auth setup). Use serviceCtx so auth providers can
 	// respond to termination signals during potentially slow network operations.
@@ -186,7 +187,7 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 		}
 	}
 
-	cloudReporter = startCloudReport(serviceCtx)
+	cloudReporter = startCloudReport(serviceCtx, cloudMonitoring)
 
 	err = server.Serve(serviceCtx)
 	stop() // Let a second SIGINT end deferred cleanup; SIGTERM stays absorbed.
@@ -267,15 +268,25 @@ func initTunnelService(cfg *config.Config) (*tunnel.Service, error) {
 	return tunnel.NewService(tunnelCfg, cfg.Paths.DataDir)
 }
 
-// startCloudReport reports to Dagu Console while the server holds an online
-// license: health at cloud.report health, and DAG-run events too at runs. It
-// returns nil unless cloud.report asks for reports, or when no license
-// manager runs.
-func startCloudReport(ctx *Context) *cloudreport.Reporter {
-	if !ctx.Config.Cloud.Report.Reports() || ctx.LicenseManager == nil {
+// newCloudReportMonitoring returns what the server reports to Dagu Console:
+// the level cloud.report fixes, or else the level an administrator chooses.
+// It returns nil when no license manager runs.
+func newCloudReportMonitoring(ctx *Context) *cloudreport.Monitoring {
+	if ctx.LicenseManager == nil {
 		return nil
 	}
-	return cloudreport.Start(ctx, ctx.LicenseManager.CloudCredentials, ctx.Persistence.ServiceRegistry, cloudReportEvents(ctx))
+	settingsFile := filepath.Join(ctx.Config.Paths.DataDir, "cloud", "report-settings.json")
+	return cloudreport.NewMonitoring(ctx.Config.Cloud.Report, filemonitor.NewStateStore(settingsFile))
+}
+
+// startCloudReport reports to Dagu Console at the level monitoring sets while
+// the server holds an online license. It returns nil when monitoring is nil
+// or cloud.report is off.
+func startCloudReport(ctx *Context, monitoring *cloudreport.Monitoring) *cloudreport.Reporter {
+	if monitoring == nil || ctx.Config.Cloud.Report == config.ReportOff {
+		return nil
+	}
+	return cloudreport.Start(ctx, ctx.LicenseManager.CloudCredentials, ctx.Persistence.ServiceRegistry, cloudReportEvents(ctx), monitoring)
 }
 
 // cloudReportLeaseStaleThreshold outlasts the longest pause between the
@@ -283,10 +294,11 @@ func startCloudReport(ctx *Context) *cloudreport.Reporter {
 const cloudReportLeaseStaleThreshold = time.Minute
 
 // cloudReportEvents configures the DAG-run events that reports to Dagu Console
-// carry. They carry none unless cloud.report is runs, or while the event store
-// is disabled.
+// carry at the runs level. It configures none when cloud.report fixes a lower
+// level, or while the event store is disabled.
 func cloudReportEvents(ctx *Context) cloudreport.Events {
-	if ctx.Config.Cloud.Report != config.ReportRuns || ctx.event == nil {
+	report := ctx.Config.Cloud.Report
+	if (report != "" && report != config.ReportRuns) || ctx.event == nil {
 		return cloudreport.Events{}
 	}
 	stateFile := filepath.Join(ctx.Config.Paths.DataDir, "cloud", "report-state.json")
