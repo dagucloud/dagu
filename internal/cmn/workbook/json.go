@@ -15,8 +15,9 @@ import (
 
 // referencePattern matches a ${...} reference that substitution left in a
 // value: a field missing from the item, a step that published nothing, or a
-// path the parser does not accept.
-var referencePattern = regexp.MustCompile(`\$\{[^{}]+\}`)
+// path the parser does not accept. A reference path never holds a quote or
+// a comma, so a ${ that never closes does not swallow the JSON after it.
+var referencePattern = regexp.MustCompile(`\$\{[^{}",]+\}`)
 
 // isReference reports whether text is one ${...} reference and nothing else.
 func isReference(text string) bool {

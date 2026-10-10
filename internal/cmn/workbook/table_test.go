@@ -163,9 +163,11 @@ func TestRowsReportUnresolvedReference(t *testing.T) {
 		require.EqualError(t, err, want, tc.rows)
 	}
 
-	// Text that is more than a reference keeps the generic error.
+	// Text that is more than a reference, or a ${ that never closes, keeps
+	// the generic error.
 	for _, tc := range []struct{ rows, want string }{
 		{`note ${x}`, "rows must be a JSON array of objects"},
+		{`[${foo, "x": 1}]`, "rows: invalid JSON: invalid character '$' looking for beginning of value"},
 	} {
 		_, err := DecodeUpdateRows(tc.rows)
 		require.EqualError(t, err, tc.want, tc.rows)
