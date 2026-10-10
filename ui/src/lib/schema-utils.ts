@@ -128,9 +128,18 @@ export function dereferenceSchema(schema: JSONSchema): JSONSchema {
       }
 
       const { $ref: _ref, ...rest } = obj;
-      return Object.keys(rest).length === 0
-        ? resolved
-        : processNode({ ...resolved, ...rest });
+      if (Object.keys(rest).length === 0) {
+        return resolved;
+      }
+      // A $ref with sibling keys is merged and processed again. Keep the ref
+      // marked as resolving while that happens, so a value that refers back to
+      // itself (computerSelector.in) stays a $ref instead of recursing forever.
+      resolving.add(ref);
+      try {
+        return processNode({ ...resolved, ...rest });
+      } finally {
+        resolving.delete(ref);
+      }
     }
 
     const result: Record<string, unknown> = {};
