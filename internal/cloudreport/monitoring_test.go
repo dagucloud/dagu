@@ -94,6 +94,30 @@ func TestLastReportRedacted(t *testing.T) {
 	assert.False(t, status.LastReportAt.IsZero())
 }
 
+// A report that Dagu Console does not accept is not shown as the last one.
+func TestLastReportOnlyWhenAccepted(t *testing.T) {
+	t.Parallel()
+
+	console := newFakeConsole(t, consoleResponse{status: http.StatusInternalServerError})
+	m := fixedLevel(config.ReportHealth)
+	clock := startReporter(t.Context(), t, newReporter(console.credentials, nil, m), noJitter)
+	clock.wait()
+
+	clock.next()
+	console.next(t)
+	status, err := m.Status(t.Context())
+	require.NoError(t, err)
+	assert.Nil(t, status.LastReport)
+
+	clock.next()
+	accepted := console.next(t)
+	status, err = m.Status(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t,
+		strings.Replace(accepted.body, `"heartbeat_secret":"hb-secret"`, `"heartbeat_secret":"[redacted]"`, 1),
+		string(status.LastReport))
+}
+
 // The reporter follows the level an administrator chooses. Off sends
 // nothing. Health sends no events and leaves the events lease to others.
 // Runs sends the events that occur once it is chosen, never those from

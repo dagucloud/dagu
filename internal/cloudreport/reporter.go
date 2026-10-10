@@ -469,7 +469,9 @@ func (r *Reporter) send(ctx context.Context, creds license.CloudCredentials) (*r
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	r.monitoring.recordSent(time.Now(), report)
+	if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
+		r.monitoring.recordSent(time.Now(), report)
+	}
 
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {

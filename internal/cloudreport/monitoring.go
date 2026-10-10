@@ -54,7 +54,7 @@ type Status struct {
 	// NoticeDismissed reports that an administrator dismissed the notice
 	// asking them to choose a level.
 	NoticeDismissed bool
-	// LastReportAt is when Dagu Console received the last report this
+	// LastReportAt is when Dagu Console accepted the last report this
 	// process sent, or zero before the first.
 	LastReportAt time.Time
 	// LastReport is the JSON body of that report, with the heartbeat secret
@@ -163,7 +163,7 @@ func (m *Monitoring) watch(fn func(config.ReportLevel)) {
 	m.onChange = fn
 }
 
-// recordSent keeps report as the last one Dagu Console received.
+// recordSent keeps report as the last one Dagu Console accepted.
 func (m *Monitoring) recordSent(at time.Time, report reportRequest) {
 	report.HeartbeatSecret = redacted
 	m.sentMu.Lock()

@@ -6751,7 +6751,7 @@ export interface components {
             chosen: boolean;
             /** @description Whether an administrator dismissed the notice that asks what to report */
             noticeDismissed: boolean;
-            /** @description When Dagu Console received the last report this server sent */
+            /** @description When Dagu Console accepted the last report this server sent */
             lastReportAt?: string;
             /** @description JSON body of the last report, as sent, with heartbeat_secret replaced by "[redacted]" */
             lastReport?: string;
