@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/audit"
 	"github.com/dagucloud/dagu/v2/internal/auth"
+	"github.com/dagucloud/dagu/v2/internal/cloudreport"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
@@ -101,6 +102,7 @@ type API struct {
 	profileStore         profilepkg.Store
 	viewStore            view.Store
 	licenseManager       *license.Manager
+	cloudReport          CloudReportService
 	apiKeyCreateMu       sync.Mutex
 	workspaceStore       workspace.Store
 	leaseStaleThreshold  time.Duration
@@ -147,6 +149,14 @@ type IncidentService interface {
 	SavePolicySet(ctx context.Context, policySet *incidentmodel.PolicySet, updatedBy string) (*incidentmodel.PolicySet, error)
 	DeletePolicySet(ctx context.Context, scope incidentmodel.PolicyScope, workspaceName, dagName string) error
 	SendProviderTest(ctx context.Context, providerID string) (*incidentservice.TestResult, error)
+}
+
+// CloudReportService lets administrators see and choose what the server
+// reports to Dagu Console.
+type CloudReportService interface {
+	Status(ctx context.Context) (cloudreport.Status, error)
+	SetLevel(ctx context.Context, level config.ReportLevel) error
+	DismissNotice(ctx context.Context) error
 }
 
 // AuthService defines the interface for authentication operations.
@@ -301,6 +311,13 @@ func WithWikiStore(store wiki.PageStore) APIOption {
 func WithLicenseManager(m *license.Manager) APIOption {
 	return func(a *API) {
 		a.licenseManager = m
+	}
+}
+
+// WithCloudReport sets what the server reports to Dagu Console.
+func WithCloudReport(s CloudReportService) APIOption {
+	return func(a *API) {
+		a.cloudReport = s
 	}
 }
 

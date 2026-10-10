@@ -1198,7 +1198,10 @@ By default, saves go through a temporary file renamed over the workbook;
 `atomic: false` saves in place. A workbook that Excel holds open on Windows
 fails with `is open in another program; close it and retry`; a `~$` lock file
 nobody holds is only a warning; `wait_for_unlock: 5m` retries with backoff
-instead of failing. `artifact: true` keeps a copy of the saved workbook with
+instead of failing. Writes to one workbook from the same Dagu process, such as
+concurrent foreach items, run one at a time; writes from another process or a
+distributed worker are not coordinated, so give each workbook one writer there.
+`artifact: true` keeps a copy of the saved workbook with
 the run's artifacts; a copy that fails after the save is a warning, not a
 failed step.
 

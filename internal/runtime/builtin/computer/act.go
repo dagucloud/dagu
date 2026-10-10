@@ -270,9 +270,21 @@ func (l *actLoop) stale(ctx context.Context, turn *computeruse.Turn) (bool, erro
 // chose the turn's actions on, overall and where each action lands, after a
 // person used the desktop.
 func (l *actLoop) unchanged(ctx context.Context, turn *computeruse.Turn) (bool, error) {
+	// A person who clicked another window changed nothing a screenshot
+	// shows, but keys and typing now go there. The focus must be the
+	// window the model saw; where the system does not report it, a turn
+	// that types or presses keys goes back to the model.
+	if l.focusLeftModel(turn) {
+		return false, nil
+	}
 	current, err := l.r.settle(ctx)
 	if err != nil {
 		return false, err
+	}
+	// The focus may have moved again while the screen settled, so a turn
+	// never runs its keys against a window the model did not see.
+	if l.focusLeftModel(turn) {
+		return false, nil
 	}
 	chosen := recordedTurn{Screen: desktop.FingerprintOf(l.seen.full)}
 	for _, action := range turn.Actions {
@@ -282,6 +294,34 @@ func (l *actLoop) unchanged(ctx context.Context, turn *computeruse.Turn) (bool, 
 	}
 	entry := recording{Width: l.seen.full.Bounds().Dx(), Height: l.seen.full.Bounds().Dy()}
 	return matches(current, entry, chosen), nil
+}
+
+// focusLeftModel reports that the focus is no longer the window the model
+// saw, or is unknown while the turn uses the keyboard, in which case the
+// turn's keys would go to a window the model did not choose.
+func (l *actLoop) focusLeftModel(turn *computeruse.Turn) bool {
+	focus := l.r.driver.FocusedWindow()
+	if focus.Known() && l.seen.focus.Known() {
+		return focus != l.seen.focus
+	}
+	return usesKeyboard(turn.Actions)
+}
+
+// usesKeyboard reports a turn that sends keys to whatever window has the
+// focus: typing or key presses, or a pointer action that holds modifiers,
+// whose key-down reaches the focus wherever the pointer is.
+func usesKeyboard(actions []computeruse.Action) bool {
+	for _, action := range actions {
+		switch action.Kind {
+		case computeruse.KindType, computeruse.KindKey, computeruse.KindHoldKey:
+			return true
+		case computeruse.KindClick, computeruse.KindMove, computeruse.KindDrag, computeruse.KindScroll:
+			if len(action.Modifiers) > 0 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // admit rejects a turn whose actions the step may not run.

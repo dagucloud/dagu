@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -237,6 +238,23 @@ func TestWriteCellsOutputLeavesTheTemplateAlone(t *testing.T) {
 
 	_, err = WriteCells(context.Background(), path, WriteCellsOptions{Output: filepath.Join(filepath.Dir(path), "out.csv"), Cells: map[string]CellValue{"B1": {Value: 1}}})
 	require.ErrorIs(t, err, ErrUnsupportedFormat)
+}
+
+func TestWriteCellsWaitsForOutput(t *testing.T) {
+	t.Parallel()
+	path := templateBook(t)
+	output := filepath.Join(t.TempDir(), "filled.xlsx")
+	holdWorkbook(t, output)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	_, err := WriteCells(ctx, path, WriteCellsOptions{
+		Output: output,
+		Cells:  map[string]CellValue{"B1": {Value: "Acme"}},
+	})
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	_, err = os.Stat(output)
+	assert.ErrorIs(t, err, os.ErrNotExist)
 }
 
 func TestWriteCellsDryRunAndErrors(t *testing.T) {

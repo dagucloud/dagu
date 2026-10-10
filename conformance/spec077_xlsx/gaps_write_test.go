@@ -5,6 +5,7 @@ package spec077_xlsx_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
@@ -148,6 +149,22 @@ func TestXlsxUpdateRowsForeach(t *testing.T) {
 	require.Nil(t, out.Rows[1]["Status"], "the row whose submission failed is untouched, so the next run retries it")
 	require.Equal(t, "Done", out.Rows[2]["Status"], "the row where left out is untouched")
 	require.Equal(t, "submitted", out.Rows[3]["Status"])
+}
+
+func TestXlsxUpdateRowsConcurrentForeach(t *testing.T) {
+	t.Parallel()
+	dagu := harness.NewRunner(t)
+	dagu.Run("start", "update_rows_concurrent_foreach.yaml").ExpectExitCode(0)
+
+	var out struct {
+		Rows []map[string]any `json:"rows"`
+	}
+	readJSON(t, dagu, "out.json", &out)
+	require.Len(t, out.Rows, 30)
+	for i, row := range out.Rows {
+		require.Equal(t, fmt.Sprintf("row-%02d", i), row["ID"])
+		require.Equal(t, "done", row["Status"], "row %d", i)
+	}
 }
 
 // TestXlsxUpdateRowsRules covers the matching and writing rules of

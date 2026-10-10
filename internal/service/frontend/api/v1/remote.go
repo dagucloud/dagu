@@ -6,6 +6,7 @@ package api
 import (
 	"compress/flate"
 	"compress/gzip"
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
@@ -17,6 +18,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"slices"
 	"strings"
 	"time"
 
@@ -79,8 +81,9 @@ func WithRemoteNode(resolver *remotenode.Resolver, apiBasePath string) func(next
 			// If the parameter is present, we need to handle the request differently
 			// Call the handleRemoteNodeProxy function to proxy the request
 			remoteNodeHandler := &remoteNodeProxy{
-				remoteNode:  node,
-				apiBasePath: apiBasePath,
+				remoteNode:     node,
+				apiBasePath:    apiBasePath,
+				logIdleTimeout: remoteProxyTimeout,
 			}
 			resp, err := remoteNodeHandler.proxy(r)
 			if err != nil {
@@ -95,15 +98,20 @@ func WithRemoteNode(resolver *remotenode.Resolver, apiBasePath string) func(next
 				}
 			}()
 
-			if isStepLogDownload(r, apiBasePath) && resp.StatusCode == http.StatusOK && resp.Header.Get("Content-Type") == stepLogArchiveContentType {
-				w.Header().Set("Content-Type", stepLogArchiveContentType)
-				w.Header().Set("Content-Disposition", resp.Header.Get("Content-Disposition"))
+			if isLogDownload(r, apiBasePath) && resp.StatusCode == http.StatusOK {
+				if contentType := resp.Header.Get("Content-Type"); contentType != "" {
+					w.Header().Set("Content-Type", contentType)
+				}
+				if disposition := resp.Header.Get("Content-Disposition"); disposition != "" {
+					w.Header().Set("Content-Disposition", disposition)
+				}
 				if encoding := resp.Header.Get("Content-Encoding"); encoding != "" {
 					w.Header().Set("Content-Encoding", encoding)
+					w.Header().Add("Vary", "Accept-Encoding")
 				}
 				w.WriteHeader(resp.StatusCode)
-				if _, err := io.Copy(w, resp.Body); err != nil {
-					logger.Error(r.Context(), "Failed to proxy step log archive", tag.Error(err))
+				if _, err := io.Copy(flushWriter{w}, resp.Body); err != nil {
+					logger.Error(r.Context(), "Failed to proxy log download", tag.Error(err))
 					panic(http.ErrAbortHandler)
 				}
 				return
@@ -172,6 +180,9 @@ func WithRemoteNode(resolver *remotenode.Resolver, apiBasePath string) func(next
 type remoteNodeProxy struct {
 	remoteNode  *remotenode.RemoteNode
 	apiBasePath string
+	// logIdleTimeout bounds each wait for log download bytes from the remote
+	// node. Zero disables it.
+	logIdleTimeout time.Duration
 }
 
 // handleRemoteNodeProxy checks if 'remoteNode' is present in the query parameters.
@@ -304,12 +315,25 @@ func (h *remoteNodeProxy) doRequest(body io.Reader, r *http.Request) (*http.Resp
 		Timeout:   remoteProxyTimeout,
 	}
 
-	if isStepLogDownload(r, h.apiBasePath) {
-		// ZIP responses are already compressed and can be forwarded unchanged.
-		req.Header.Set("Accept-Encoding", "identity")
-		// Log downloads have no total duration limit; connection setup remains bounded.
+	if isLogDownload(r, h.apiBasePath) {
+		// Encoded bodies are forwarded unchanged, so the remote may only use
+		// encodings the client accepts.
+		if encodings := r.Header.Values("Accept-Encoding"); len(encodings) > 0 {
+			req.Header["Accept-Encoding"] = slices.Clone(encodings)
+		} else {
+			req.Header.Set("Accept-Encoding", "identity")
+		}
+		// Log downloads have no total duration limit; connection setup and
+		// stalled transfers remain bounded.
 		client.Timeout = 0
-		transport.DialContext = (&net.Dialer{Timeout: remoteProxyTimeout}).DialContext
+		dialer := &net.Dialer{Timeout: remoteProxyTimeout}
+		transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+			conn, err := dialer.DialContext(ctx, network, address)
+			if err != nil || h.logIdleTimeout <= 0 {
+				return conn, err
+			}
+			return idleTimeoutConn{Conn: conn, timeout: h.logIdleTimeout}, nil
+		}
 		transport.TLSHandshakeTimeout = remoteProxyTimeout
 		transport.ResponseHeaderTimeout = remoteProxyTimeout
 	}
@@ -354,4 +378,35 @@ func buildRemoteNodeProxyURL(baseURL, requestPath, apiBasePath string, query url
 
 func doRemoteNodeProxyRequest(client *http.Client, req *http.Request) (*http.Response, error) {
 	return client.Do(req) //nolint:gosec // request URL is constrained by buildRemoteNodeProxyURL.
+}
+
+// idleTimeoutConn fails a read that waits longer than timeout for data.
+type idleTimeoutConn struct {
+	net.Conn
+	timeout time.Duration
+}
+
+func (c idleTimeoutConn) Read(p []byte) (int, error) {
+	if err := c.SetReadDeadline(time.Now().Add(c.timeout)); err != nil {
+		return 0, err
+	}
+	return c.Conn.Read(p)
+}
+
+// flushWriter flushes after every write so a proxied log download reaches the
+// client while the remote transfer is still in progress. Writers that cannot
+// flush are written to without flushing.
+type flushWriter struct {
+	w http.ResponseWriter
+}
+
+func (f flushWriter) Write(p []byte) (int, error) {
+	n, err := f.w.Write(p)
+	if err != nil {
+		return n, err
+	}
+	if err := http.NewResponseController(f.w).Flush(); !errors.Is(err, http.ErrNotSupported) {
+		return n, err
+	}
+	return n, nil
 }

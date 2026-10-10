@@ -13,8 +13,9 @@ table detection, typing, formulas and error cells, empty rows, `where`,
 `skip_hidden` on read, validate, and convert, `rows` and every
 `input` file kind with its encodings and the byte order mark, write modes
 and `types` on write, sheet preservation, append, update_rows with its
-matching rules, modes, shape checks, the foreach aggregate, and every
-error, the lock file, artifacts including a DAG with artifacts disabled,
+matching rules, modes, shape checks, the foreach aggregate, concurrent
+foreach items updating one workbook, and every error, the lock file,
+artifacts including a DAG with artifacts disabled,
 validate with every problem kind, `max_problems`, the stderr lines, and
 `on_problem: fail`, the human task that follows a validation, write_cells
 with its value forms, `merge`, into a copy, in a foreach, and every error,
@@ -44,8 +45,10 @@ hyperlinks, merged regions, and tables that `mode: replace` clears,
 through `xlsx.read`; that a replace empties the values is covered); the
 temporary file of an
 atomic save and symbolic links; a lock file another process holds,
-`wait_for_unlock` timing, and Windows sharing violations; the consequences
-of a rename or delete for formulas and defined names and what a copy
+`wait_for_unlock` timing, and Windows sharing violations; the line a write
+logs while it waits for another write of the same workbook, and aliases of
+one workbook through symbolic links or case; the consequences of a rename
+or delete for formulas and defined names and what a copy
 leaves behind (library behavior); the dry check leaving an unopenable
 workbook to the run; `.xls` and `.ods` beyond the extension check. Which
 cell a real model names is not a conformance matter: the scripted model answers
@@ -471,6 +474,18 @@ the system error. A refused rename leaves no temporary file behind.
 `wait_for_unlock: 5m` retries a locked workbook, waiting two seconds and
 doubling to one minute, and logs each wait; the whole open-modify-save
 sequence runs again on each try.
+
+Writes to one workbook from the same Dagu process run one at a time, so
+foreach items that update one workbook concurrently keep every change. A
+write that finds another write of the same workbook in progress logs
+`orders.xlsx is being written by another step; waiting for it to finish`
+and starts when that write ends; the wait is not limited by
+`wait_for_unlock`, and a step stopped while it waits leaves the workbook
+untouched. Paths that reach one file through a symbolic link, or that
+differ only in case on a filesystem that ignores case, are one workbook,
+and `xlsx.write_cells` with `output` holds both the template and the
+output. Writes from another process, such as another `dagu start` or a
+distributed worker, are not coordinated: the last save wins.
 
 ### Artifacts
 

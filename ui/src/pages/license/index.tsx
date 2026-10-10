@@ -6,7 +6,9 @@ import { Input } from '@/components/ui/input';
 import ConfirmModal from '@/components/ui/confirm-dialog';
 import { LicenseStatusBadge } from '@/components/LicenseStatusBadge';
 import { LicenseActions } from '@/components/LicenseActions';
+import { MonitoringDialog } from '@/components/MonitoringDialog';
 import { ConnectSection } from './ConnectSection';
+import { MonitoringSection } from './MonitoringSection';
 import { ServerIdentity } from './ServerIdentity';
 import { useLicenseConnect } from './useLicenseConnect';
 import { AppBarContext } from '@/contexts/AppBarContext';
@@ -14,7 +16,14 @@ import { LicenseContext } from '@/contexts/LicenseContext';
 import { useConfig, type LicenseStatus } from '@/contexts/ConfigContext';
 import { useClient } from '@/hooks/api';
 import { useLicenseState } from '@/hooks/useLicense';
-import { LicenseConnectStatusState } from '@/api/v1/schema';
+import {
+  shouldAskMonitoring,
+  useLicenseMonitoring,
+} from '@/hooks/useLicenseMonitoring';
+import {
+  LicenseConnectStatusState,
+  LicenseMonitoringLevel,
+} from '@/api/v1/schema';
 import { useI18n } from '@/i18n/I18nProvider';
 import {
   hasActiveLicense,
@@ -24,6 +33,9 @@ import {
   licensePlanName,
 } from '@/lib/license';
 import dayjs from '@/lib/dayjs';
+
+/** How often the time of the last report is refreshed. */
+const MONITORING_REFRESH_MS = 30_000;
 
 export default function LicensePage() {
   const { license, loading, error: statusError } = useLicenseState();
@@ -43,6 +55,15 @@ export default function LicensePage() {
   const connect = useLicenseConnect(remoteNode);
   const granted = connect.status?.state === LicenseConnectStatusState.granted;
   const { clear: clearConnect } = connect;
+  // Only a license that checks in with Dagu Console can report to it.
+  const online = !loading && !statusError && Boolean(license.serverId);
+  const monitoring = useLicenseMonitoring(remoteNode, {
+    enabled: online,
+    refreshInterval: MONITORING_REFRESH_MS,
+  });
+  const [monitoringDialog, setMonitoringDialog] = useState<
+    'choose' | 'prompt' | null
+  >(null);
 
   useEffect(() => {
     setTitle(ts('Plan & features'));
@@ -53,16 +74,26 @@ export default function LicensePage() {
     // Handle each approval once, even if this effect runs again later.
     clearConnect();
     setError(null);
-    void mutate().then((next) =>
+    void mutate().then(async (next) => {
       setSuccessMessage(
         next && hasActiveLicense(next)
           ? ts('{plan} connected. Explore your included features below.', {
               plan: licensePlanName(next),
             })
           : ts('License status updated.')
-      )
-    );
-  }, [granted, clearConnect, mutate, ts]);
+      );
+      if (!next?.serverId) return;
+      // A server just connected is the moment to offer failure emails.
+      try {
+        const { data } = await client.GET('/license/monitoring', {
+          params: { query: { remoteNode } },
+        });
+        if (shouldAskMonitoring(data)) setMonitoringDialog('prompt');
+      } catch {
+        // The notice asks later instead.
+      }
+    });
+  }, [granted, clearConnect, mutate, ts, client, remoteNode]);
 
   async function handleActivate(e: React.FormEvent) {
     e.preventDefault();
@@ -245,6 +276,15 @@ export default function LicensePage() {
           disabled={Boolean(pendingAction)}
         />
       )}
+      {online && (
+        <MonitoringSection
+          monitoring={monitoring.monitoring}
+          loadError={Boolean(monitoring.error)}
+          onRetry={() => void monitoring.refresh()}
+          onChoose={() => setMonitoringDialog('choose')}
+          onTurnOff={() => monitoring.setLevel(LicenseMonitoringLevel.off)}
+        />
+      )}
       {known && !license.community && (
         <ServerIdentity
           license={license}
@@ -348,6 +388,22 @@ export default function LicensePage() {
           {ts('Enter a server key or license key from Dagu Console.')}
         </p>
       </section>
+      <MonitoringDialog
+        open={monitoringDialog !== null}
+        level={monitoring.monitoring?.level}
+        prompt={monitoringDialog === 'prompt'}
+        onSave={async (level) => {
+          await monitoring.setLevel(level);
+          setMonitoringDialog(null);
+        }}
+        onCancel={() => {
+          // Declining the offer also stops the notice that repeats it.
+          if (monitoringDialog === 'prompt') {
+            void monitoring.dismissNotice().catch(() => undefined);
+          }
+          setMonitoringDialog(null);
+        }}
+      />
       <ConfirmModal
         title={ts(
           connectedToConsole ? 'Disconnect this server' : 'Deactivate License'

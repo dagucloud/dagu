@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
@@ -15,10 +16,12 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/agentsession"
 	"github.com/dagucloud/dagu/v2/internal/cloudreport"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/opencodehost"
+	filemonitor "github.com/dagucloud/dagu/v2/internal/persis/file/monitor"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
 	apiv1 "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	frontendfile "github.com/dagucloud/dagu/v2/internal/service/frontend/file"
@@ -156,6 +159,10 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 	if tunnelService != nil {
 		serverOpts = append(serverOpts, frontend.WithTunnelService(tunnelService))
 	}
+	cloudMonitoring := newCloudReportMonitoring(serviceCtx)
+	if cloudMonitoring != nil {
+		serverOpts = append(serverOpts, frontend.WithAPIOption(apiv1.WithCloudReport(cloudMonitoring)))
+	}
 
 	// Initialize server (includes auth setup). Use serviceCtx so auth providers can
 	// respond to termination signals during potentially slow network operations.
@@ -183,7 +190,7 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 		}
 	}
 
-	cloudReporter = startCloudReport(serviceCtx)
+	cloudReporter = startCloudReport(serviceCtx, cloudMonitoring)
 
 	err = server.Serve(serviceCtx)
 	stop() // Let a second SIGINT end deferred cleanup; SIGTERM stays absorbed.
@@ -264,14 +271,46 @@ func initTunnelService(cfg *config.Config) (*tunnel.Service, error) {
 	return tunnel.NewService(tunnelCfg, cfg.Paths.DataDir)
 }
 
-// startCloudReport reports this server's health to Dagu Console while it holds
-// an online license. It returns nil when cloud.report is off or no license
-// manager runs.
-func startCloudReport(ctx *Context) *cloudreport.Reporter {
-	if !ctx.Config.Cloud.Report || ctx.LicenseManager == nil {
+// newCloudReportMonitoring returns what the server reports to Dagu Console:
+// the level cloud.report fixes, or else the level an administrator chooses.
+// It returns nil when no license manager runs.
+func newCloudReportMonitoring(ctx *Context) *cloudreport.Monitoring {
+	if ctx.LicenseManager == nil {
 		return nil
 	}
-	return cloudreport.Start(ctx, ctx.LicenseManager.CloudCredentials, ctx.Persistence.ServiceRegistry)
+	settingsFile := filepath.Join(ctx.Config.Paths.DataDir, "cloud", "report-settings.json")
+	return cloudreport.NewMonitoring(ctx.Config.Cloud.Report, filemonitor.NewStateStore(settingsFile))
+}
+
+// startCloudReport reports to Dagu Console at the level monitoring sets while
+// the server holds an online license. It returns nil when monitoring is nil
+// or cloud.report is off.
+func startCloudReport(ctx *Context, monitoring *cloudreport.Monitoring) *cloudreport.Reporter {
+	if monitoring == nil || ctx.Config.Cloud.Report == config.ReportOff {
+		return nil
+	}
+	return cloudreport.Start(ctx, ctx.LicenseManager.CloudCredentials, ctx.Persistence.ServiceRegistry, cloudReportEvents(ctx), monitoring)
+}
+
+// cloudReportLeaseStaleThreshold outlasts the longest pause between the
+// reporter's lease heartbeats: an event check followed by a report request.
+const cloudReportLeaseStaleThreshold = time.Minute
+
+// cloudReportEvents configures the DAG-run events that reports to Dagu Console
+// carry at the runs level. It configures none when cloud.report fixes a lower
+// level, or while the event store is disabled.
+func cloudReportEvents(ctx *Context) cloudreport.Events {
+	report := ctx.Config.Cloud.Report
+	if (report != "" && report != config.ReportRuns) || ctx.event == nil {
+		return cloudreport.Events{}
+	}
+	stateFile := filepath.Join(ctx.Config.Paths.DataDir, "cloud", "report-state.json")
+	return cloudreport.Events{
+		Reader:        ctx.event,
+		RetentionDays: ctx.Config.EventStore.RetentionDays,
+		State:         filemonitor.NewStateStore(stateFile),
+		Lease:         filemonitor.NewLease(stateFile, &dirlock.LockOptions{StaleThreshold: cloudReportLeaseStaleThreshold}),
+	}
 }
 
 // logTunnelStatus logs the tunnel status prominently to the console.

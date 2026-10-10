@@ -1313,11 +1313,17 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	return lastErr
 }
 
+// shouldDelayTerminalStatus keeps local terminal snapshots behind Run's final
+// write so outputs are ready when completion becomes visible. Remote pushes
+// preserve their existing delays for pending finalizers.
 func (a *Agent) shouldDelayTerminalStatus(status ir.Status) bool {
 	switch status {
 	case ir.Waiting:
 		return true
 	case ir.Failed, ir.Aborted, ir.Succeeded, ir.PartiallySucceeded, ir.Rejected:
+		if a.statusPusher == nil {
+			return true
+		}
 		if a.reporter != nil && a.reporter.selectMailConfig(a.dag, ir.DAGRunStatus{Status: status}, nil) != nil {
 			return true
 		}

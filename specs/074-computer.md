@@ -159,6 +159,11 @@ The act ends when the model reports the task done. It fails when:
   and the approval is sent with the next screenshot; or
 - the operation timeout passes.
 
+A step never operates the application that runs it: an action aimed at one
+of its windows, or keys and typing while one has the focus, fails with a
+result naming the window, and the model is told. On Windows those are the
+windows of the Dagu process and the processes that started it.
+
 The step log lists each action; the timeline records one event per operation.
 
 ### A person using the desktop
@@ -170,8 +175,12 @@ waiting in an event named `person`. Input the step itself sent does not count, i
 the step that held the desktop before it. When a person uses the desktop
 after the screenshot the model answered, the step waits for the idle period
 again. If the screen then still looks like the one the model saw, overall
-and where each action lands, the actions run; otherwise they are not run,
-and the new screenshot is sent with a note saying why. Skipped actions do
+and where each action lands, and the keyboard focus is still on the window
+it was on, the actions run; otherwise they are not run, and the new
+screenshot is sent with a note saying why. Where the system does not report
+the focus, a turn that types or presses keys is not run either. The end of
+a wait is a lifecycle event of its own, `running`, so a view knows the step
+is at work again. Skipped actions do
 not count toward `max_actions`. The waiting does not count toward the
 operation timeout, which bounds what the step does, not what it waits for;
 a person who keeps using the desktop for an hour fails the operation.

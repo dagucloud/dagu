@@ -16,6 +16,7 @@ import (
 	"image"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -63,6 +64,12 @@ type Backend interface {
 	Key(key Key, down bool) error
 	// Type types text at the keyboard focus.
 	Type(text string) error
+	// FocusedWindow reports the window that has the keyboard focus, or a
+	// zero WindowID where the system does not say.
+	FocusedWindow() WindowID
+	// WindowAt reports the top-level window under a physical pixel
+	// position, or a zero WindowID where the system does not say.
+	WindowAt(x, y int) WindowID
 	// LastInput reports when the desktop last received pointer or keyboard
 	// input from any source, the driver included, or the zero time when it
 	// cannot tell.
@@ -126,11 +133,29 @@ const (
 	inputEcho = time.Second
 )
 
+// WindowID names a top-level window the way the system reports it, so a
+// step can tell whether the focus moved and whose window an action would
+// operate.
+type WindowID struct {
+	Handle uint64
+	Title  string
+	PID    uint32
+}
+
+// Known reports a window the system named.
+func (w WindowID) Known() bool { return w.Handle != 0 }
+
 // Driver performs desktop actions on a Backend.
 type Driver struct {
 	backend Backend
 	// lastInput is when the driver last sent input.
 	lastInput time.Time
+	// owned are the processes whose windows the driver never operates: its
+	// own, and the ones that started it, which is the automation's own
+	// application. Listing processes takes a moment, so it waits for the
+	// first action that needs it.
+	owned     map[uint32]bool
+	ownedOnce sync.Once
 }
 
 // New returns a driver for a backend.
@@ -139,6 +164,38 @@ func New(backend Backend) *Driver {
 	d.backend = inputClock{Backend: backend, last: &d.lastInput}
 	return d
 }
+
+func (d *Driver) family() map[uint32]bool {
+	d.ownedOnce.Do(func() {
+		family := ownProcessFamily()
+		for pid := range d.owned {
+			family[pid] = true
+		}
+		d.owned = family
+	})
+	return d.owned
+}
+
+// FocusedWindow reports the window that has the keyboard focus.
+func (d *Driver) FocusedWindow() WindowID { return d.backend.FocusedWindow() }
+
+// WindowAt reports the top-level window under a display position.
+func (d *Driver) WindowAt(at image.Point) WindowID { return d.backend.WindowAt(at.X, at.Y) }
+
+// Protect adds processes whose windows the driver never operates.
+func (d *Driver) Protect(pids ...uint32) {
+	if d.owned == nil {
+		d.owned = map[uint32]bool{}
+	}
+	for _, pid := range pids {
+		d.owned[pid] = true
+	}
+}
+
+// Owned reports a window of the automation's own application, which a step
+// never operates: a keystroke to it could close the application that runs
+// the step.
+func (d *Driver) Owned(w WindowID) bool { return w.PID != 0 && d.family()[w.PID] }
 
 // InputSentAt reports when the driver last sent input.
 func (d *Driver) InputSentAt() time.Time {

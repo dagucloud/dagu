@@ -655,6 +655,44 @@ func (a *observedRunStateAttempt) RecordStatus(ctx context.Context, status ir.DA
 	return a.Attempt.RecordStatus(ctx, status)
 }
 
+type blockedOutputRunStateStore struct {
+	runstate.Store
+	outputStarted chan struct{}
+	releaseOutput chan struct{}
+}
+
+func (s *blockedOutputRunStateStore) BeginAttempt(
+	ctx context.Context,
+	req runstate.BeginAttemptRequest,
+) (runstate.Attempt, error) {
+	attempt, err := s.Store.BeginAttempt(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return &blockedOutputRunStateAttempt{
+		Attempt:       attempt,
+		outputStarted: s.outputStarted,
+		releaseOutput: s.releaseOutput,
+	}, nil
+}
+
+type blockedOutputRunStateAttempt struct {
+	runstate.Attempt
+	outputStarted     chan struct{}
+	releaseOutput     <-chan struct{}
+	outputStartedOnce sync.Once
+}
+
+func (a *blockedOutputRunStateAttempt) RecordOutputs(ctx context.Context, outputs *ir.DAGRunOutputs) error {
+	a.outputStartedOnce.Do(func() { close(a.outputStarted) })
+	select {
+	case <-a.releaseOutput:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	return a.Attempt.RecordOutputs(ctx, outputs)
+}
+
 func TestAgent_Run(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Parallel()
@@ -726,6 +764,95 @@ func TestAgent_Run(t *testing.T) {
 		require.False(t, observer.observedInvalidContext())
 		dag.AssertLatestStatus(t, ir.Succeeded)
 	})
+	for _, tc := range []struct {
+		name       string
+		runID      string
+		command    string
+		finalState ir.Status
+		wantErr    bool
+	}{
+		{name: "Success", runID: "outputs-before-completion-success", command: `echo "result"`, finalState: ir.Succeeded},
+		{name: "Failure", runID: "outputs-before-completion-failure", command: `echo "result"; exit 1`, finalState: ir.Failed, wantErr: true},
+	} {
+		t.Run("PersistsOutputsBeforeTerminalStatus/"+tc.name, func(t *testing.T) {
+			th := test.Setup(t)
+			dag := th.DAG(t, fmt.Sprintf(`steps:
+  - name: emit
+    run: %q
+    output: RESULT
+`, tc.command))
+			outputStarted := make(chan struct{})
+			releaseOutput := make(chan struct{})
+			var releaseOutputOnce sync.Once
+			release := func() { releaseOutputOnce.Do(func() { close(releaseOutput) }) }
+			stateStore := &blockedOutputRunStateStore{
+				Store:         persis.NewRunStateStore(th.DAGRunRepository, nil),
+				outputStarted: outputStarted,
+				releaseOutput: releaseOutput,
+			}
+			dagAgent := dag.Agent(
+				test.WithDAGRunID(tc.runID),
+				test.WithAgentOptions(agent.Options{
+					RunStateStore:       stateStore,
+					SocketServerFactory: fakeSocketServerFactory(nil),
+				}),
+			)
+
+			runDone := make(chan error, 1)
+			runExited := make(chan struct{})
+			t.Cleanup(func() {
+				release()
+				select {
+				case <-runExited:
+				case <-time.After(agentRunCompletionTimeout()):
+					t.Error("timed out waiting for DAG run cleanup")
+				}
+			})
+			go func() {
+				defer close(runExited)
+				runDone <- dagAgent.Run(th.Context)
+			}()
+
+			select {
+			case <-outputStarted:
+			case <-time.After(agentRunCompletionTimeout()):
+				t.Fatal("timed out waiting for output write")
+			}
+
+			storedAttempt, err := th.DAGRunRepository.FindAttempt(th.Context, ir.NewDAGRunRef(dag.Name, tc.runID))
+			require.NoError(t, err)
+			storedStatus, err := storedAttempt.ReadStatus(th.Context)
+			require.NoError(t, err)
+			require.Equal(t, ir.Running, storedStatus.Status)
+			storedOutputs, err := storedAttempt.ReadOutputs(th.Context)
+			require.NoError(t, err)
+			require.Nil(t, storedOutputs)
+
+			release()
+			select {
+			case err := <-runDone:
+				if tc.wantErr {
+					require.Error(t, err)
+				} else {
+					require.NoError(t, err)
+				}
+			case <-time.After(agentRunCompletionTimeout()):
+				t.Fatal("timed out waiting for DAG run to finish")
+			}
+
+			storedStatus, err = storedAttempt.ReadStatus(th.Context)
+			require.NoError(t, err)
+			require.Equal(t, tc.finalState, storedStatus.Status)
+			storedOutputs, err = storedAttempt.ReadOutputs(th.Context)
+			require.NoError(t, err)
+			require.NotNil(t, storedOutputs)
+			require.Equal(t, dag.Name, storedOutputs.Metadata.DAGName)
+			require.Equal(t, tc.runID, storedOutputs.Metadata.DAGRunID)
+			require.Equal(t, storedStatus.AttemptID, storedOutputs.Metadata.AttemptID)
+			require.Equal(t, storedStatus.Status.String(), storedOutputs.Metadata.Status)
+			require.Equal(t, "result", storedOutputs.Outputs["result"])
+		})
+	}
 	t.Run("RecordsTriggerActor", func(t *testing.T) {
 		th := test.Setup(t)
 		dag := th.DAG(t, `steps:

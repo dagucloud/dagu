@@ -22,6 +22,10 @@ vi.mock('@/components/LicenseBanner', () => ({
   LicenseBanner: () => null,
 }));
 
+vi.mock('@/components/MonitoringNotice', () => ({
+  MonitoringNotice: () => null,
+}));
+
 vi.mock('@/components/UpdateBanner', () => ({
   UpdateBanner: () => null,
 }));

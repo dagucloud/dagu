@@ -138,7 +138,7 @@ type WriteCellsOptions struct {
 func WriteCells(ctx context.Context, path string, opts WriteCellsOptions) (*WriteResult, error) {
 	return withLock(ctx, path, opts.Lock, func() (*WriteResult, error) {
 		return writeCellsOnce(ctx, path, opts)
-	})
+	}, opts.Output)
 }
 
 func writeCellsOnce(ctx context.Context, path string, opts WriteCellsOptions) (*WriteResult, error) {

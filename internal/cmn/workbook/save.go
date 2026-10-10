@@ -112,10 +112,18 @@ func replaceAtomically(path, ext string, fill func(tmp string) error) error {
 }
 
 // withLock runs a whole open-modify-save sequence, retrying while the
-// workbook is held by another program and the lock options allow.
-func withLock[T any](ctx context.Context, path string, opts LockOptions, attempt func() (*T, error)) (*T, error) {
+// workbook is held by another program and the lock options allow. Other
+// sequences in this process that write path, or any of extraPaths such as
+// a separate output, wait until it ends.
+func withLock[T any](ctx context.Context, path string, opts LockOptions, attempt func() (*T, error), extraPaths ...string) (*T, error) {
+	release, err := acquireWorkbookPathLocks(ctx, opts.Log, append([]string{path}, extraPaths...)...)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
 	var result *T
-	err := withLockRetry(ctx, path, opts, func() error {
+	err = withLockRetry(ctx, path, opts, func() error {
 		var err error
 		result, err = attempt()
 		return err

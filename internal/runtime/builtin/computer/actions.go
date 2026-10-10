@@ -60,6 +60,12 @@ func (r *run) runAction(ctx context.Context, action computeruse.Action, toFull p
 		p := toFull(*action.Point)
 		at = &p
 	}
+	// The step never operates the application that runs it: a keystroke
+	// to a window of its own a person just focused could close it.
+	if own, ok := r.ownWindow(action, at, toFull); ok {
+		result.Error = fmt.Sprintf("%q belongs to the application that runs this step, which it never operates", own.Title)
+		return result
+	}
 	var err error
 	switch action.Kind {
 	case computeruse.KindClick:
@@ -144,6 +150,48 @@ func (r *run) click(ctx context.Context, action computeruse.Action, at *image.Po
 		return err
 	}
 	return r.driver.Click(ctx, at, button, max(action.Count, 1), modifiers)
+}
+
+// ownWindow reports a window an action would operate that belongs to the
+// application that runs the step. It gathers every window the action
+// reaches: the focused window for keys and typing, the window under the
+// position for pointer actions, the window under the cursor for a button
+// press that moves nothing, every point a drag crosses, and the focused
+// window for any pointer action that holds modifiers, whose key-down
+// reaches the focus wherever the pointer is. It reports the first of those
+// the step owns, so a keystroke or click never reaches the application.
+func (r *run) ownWindow(action computeruse.Action, at *image.Point, toFull positionMapper) (desktop.WindowID, bool) {
+	var windows []desktop.WindowID
+	switch action.Kind {
+	case computeruse.KindType, computeruse.KindKey, computeruse.KindHoldKey:
+		windows = append(windows, r.driver.FocusedWindow())
+	case computeruse.KindClick, computeruse.KindMove, computeruse.KindScroll:
+		if at != nil {
+			windows = append(windows, r.driver.WindowAt(*at))
+		}
+	case computeruse.KindMouseDown, computeruse.KindMouseUp:
+		// A button press acts at the cursor, which the action does not move.
+		if p, err := r.driver.CursorPosition(); err == nil {
+			windows = append(windows, r.driver.WindowAt(p))
+		}
+	case computeruse.KindDrag:
+		for _, p := range action.Path {
+			windows = append(windows, r.driver.WindowAt(toFull(p)))
+		}
+	default:
+		return desktop.WindowID{}, false
+	}
+	// A pointer action that holds modifiers sends key-downs to the focused
+	// window wherever the pointer is; a button press sends none.
+	if len(action.Modifiers) > 0 && action.Kind != computeruse.KindMouseDown && action.Kind != computeruse.KindMouseUp {
+		windows = append(windows, r.driver.FocusedWindow())
+	}
+	for _, window := range windows {
+		if r.driver.Owned(window) {
+			return window, true
+		}
+	}
+	return desktop.WindowID{}, false
 }
 
 // snapshot captures the screen, or a region of it, scaled to the model's

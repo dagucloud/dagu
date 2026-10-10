@@ -128,13 +128,11 @@ export function dereferenceSchema(schema: JSONSchema): JSONSchema {
       }
 
       const { $ref: _ref, ...rest } = obj;
-      if (Object.keys(rest).length === 0) {
-        return resolved;
-      }
-      // resolved is already dereferenced, so only the sibling keys need
-      // processing. Processing it again would expand the self references it
-      // keeps as $ref and never terminate.
-      return { ...resolved, ...(processNode(rest) as Record<string, unknown>) };
+      // resolved is already dereferenced; walking it again would expand the
+      // references it keeps to break cycles.
+      return Object.keys(rest).length === 0
+        ? resolved
+        : { ...resolved, ...(processNode(rest) as Record<string, unknown>) };
     }
 
     const result: Record<string, unknown> = {};

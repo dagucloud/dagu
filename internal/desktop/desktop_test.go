@@ -60,6 +60,9 @@ func (b *recordingBackend) Type(text string) error {
 
 func (b *recordingBackend) LastInput() time.Time { return b.personInputAt }
 
+func (b *recordingBackend) FocusedWindow() desktop.WindowID    { return desktop.WindowID{} }
+func (b *recordingBackend) WindowAt(int, int) desktop.WindowID { return desktop.WindowID{} }
+
 func (b *recordingBackend) Close() error { return nil }
 
 func upDown(down bool) string {
