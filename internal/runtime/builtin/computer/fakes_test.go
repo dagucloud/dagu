@@ -478,11 +478,9 @@ func (r *testRun) context() context.Context {
 	}
 	ctx := cmnconfig.WithConfig(r.t.Context(), &cmnconfig.Config{Paths: cmnconfig.PathsConfig{DataDir: r.dataDir}})
 	return runtime.WithEnv(ctx, runtime.Env{
-		Context: runtime.Context{
-			DAG:      &ir.DAG{Name: "invoices"},
-			DAGRunID: "run-1",
-			WorkerID: "worker-a",
-		},
+		DAG:        &ir.DAG{Name: "invoices"},
+		DAGRunID:   "run-1",
+		WorkerID:   "worker-a",
 		Scope:      scope,
 		WorkingDir: r.workDir,
 	})

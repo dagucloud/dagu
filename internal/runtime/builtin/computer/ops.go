@@ -427,8 +427,7 @@ func (r *run) evaluate(ctx context.Context, c condition) (bool, string, error) {
 			return false, "", err
 		}
 		if _, err := desktop.One(matches, sel); err != nil {
-			var ambiguous *desktop.AmbiguousError
-			if errors.As(err, &ambiguous) {
+			if ambiguous, ok := errors.AsType[*desktop.AmbiguousError](err); ok {
 				return false, fmt.Sprintf("%s is not there; %d elements match", sel, ambiguous.Count), nil
 			}
 			return false, fmt.Sprintf("%s is not there", sel), nil
