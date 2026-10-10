@@ -302,17 +302,21 @@ func (c config) idle() time.Duration {
 }
 
 // findWithin returns how long a replay of an act waits for an element or
-// a screen: the act's setting, the step's, or fallback.
-func (c config) findWithin(spec actSpec, fallback time.Duration) time.Duration {
+// a screen: the act's setting, the step's, or fallback. A setting that
+// still cannot be read when the act runs, such as a reference that did not
+// resolve, is an error.
+func (c config) findWithin(spec actSpec, fallback time.Duration) (time.Duration, error) {
 	for _, value := range []string{spec.FindWithin, c.FindWithin} {
 		if value == "" {
 			continue
 		}
-		if d, err := time.ParseDuration(value); err == nil && d >= 0 {
-			return d
+		d, err := time.ParseDuration(value)
+		if err != nil || d < 0 {
+			return 0, fmt.Errorf("find_within %q must be a duration such as 10s, or 0 to look once", value)
 		}
+		return d, nil
 	}
-	return fallback
+	return fallback, nil
 }
 
 // maxActions returns the action budget of an act.

@@ -747,12 +747,18 @@ func TestReplayRecordsPlaceholderForElementName(t *testing.T) {
 	entry := lookupRecording(t, run, "Open the month")
 	assert.Equal(t, "%month%", entry.Turns[0].Actions[0].Element.Selector.Name)
 
-	run.elements.elements = append(expenseElements(), month("2026-04"))
+	run.elements.elements = append(expenseElements(), month("２０２６-04 "))
 	run.backend.events = nil
 	replayed := run.execute(`{"variables": {"month": "2026-04"}, "do": [{"act": "Open the month"}]}`, nil)
-	require.NoError(t, replayed.err)
+	require.NoError(t, replayed.err, "the item's name is matched as a person reads it")
 	assert.Equal(t, []string{"act:cache-hit"}, eventNames(replayed.exec.GetAgentSession()))
 	assert.Equal(t, []string{"move 210,432", "left down #1"}, run.backend.inputs())
+
+	padded := elementRun(t)
+	padded.elements.elements = append(expenseElements(), month(" 2026-05"))
+	padded.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(210, 432)), done("Opened")}}}
+	require.NoError(t, padded.execute(`{"variables": {"month": "2026-05"}, "do": [{"act": "Open the month"}]}`, nil).err)
+	assert.Equal(t, "%month%", lookupRecording(t, padded, "Open the month").Turns[0].Actions[0].Element.Selector.Name, "a padded name still records the placeholder")
 }
 
 // An element replay ends by checking its landmarks: the window in front
@@ -776,6 +782,45 @@ func TestElementReplayNeedsLandmarks(t *testing.T) {
 	healed := run.execute(steps, nil)
 	require.NoError(t, healed.err)
 	assert.Equal(t, []string{"act:healed"}, eventNames(healed.exec.GetAgentSession()))
+}
+
+// Without landmarks, or with a turn that replayed by pixels, a replay ends
+// on the recorded final screen.
+func TestReplayWithoutLandmarksChecksTheScreen(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"do": [{"act": "Save the invoice"}]}`
+	run := elementRun(t)
+	// The button vanishes right after the click, so nothing is a landmark.
+	run.elements.arriveAfter(1, withoutElement(expenseElements(), "saveButton"))
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(235, 194)), done("Saved")}}}
+	require.NoError(t, run.execute(steps, nil).err)
+	entry := lookupRecording(t, run, "Save the invoice")
+	assert.Empty(t, entry.Landmarks)
+	assert.Equal(t, "経費精算 - 請求書 1042", entry.Window)
+
+	run.elements.elements = expenseElements()
+	replayed := run.execute(steps, nil)
+	require.NoError(t, replayed.err)
+	assert.Equal(t, []string{"act:cache-hit"}, eventNames(replayed.exec.GetAgentSession()), "the final screen still looks as recorded")
+
+	run.backend.show(pattern(800, 600, 150))
+	failed := run.execute(`{"ai": "never", "do": [{"act": "Save the invoice"}]}`, nil)
+	require.ErrorContains(t, failed.err, "the screen after the last turn differs from the recording")
+}
+
+// A find_within that cannot be read when the act runs fails the act rather
+// than waiting some other time.
+func TestFindWithinMustResolve(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"do": [{"act": "Save the invoice"}]}`
+	run := elementRun(t)
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(235, 194)), done("Saved")}}}
+	require.NoError(t, run.execute(steps, nil).err)
+
+	failed := run.execute(`{"find_within": "${WAIT}", "do": [{"act": "Save the invoice"}]}`, nil)
+	require.ErrorContains(t, failed.err, `find_within "${WAIT}" must be a duration`)
 }
 
 // A recording of an older format is ignored once and replaced.

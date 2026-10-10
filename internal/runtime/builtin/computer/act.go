@@ -77,7 +77,11 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 				return replayMiss{err: errors.New("its recording on this host is from an older version and was ignored"), via: agentstep.ViaScreen}
 			}
 		default:
-			replay, err := r.replay(ctx, index, entry, r.cfg.maxActions(spec), r.cfg.findWithin(spec, r.exec.findWithin))
+			findWithin, err := r.cfg.findWithin(spec, r.exec.findWithin)
+			if err != nil {
+				return err
+			}
+			replay, err := r.replay(ctx, index, entry, r.cfg.maxActions(spec), findWithin)
 			if err != nil {
 				return err
 			}

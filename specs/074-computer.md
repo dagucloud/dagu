@@ -279,8 +279,9 @@ replayed action waits for its element, and a pixel turn for its screen,
 looking again every quarter second until `find_within` passes: 10 seconds
 unless `with.find_within` or `act.find_within` says otherwise, 0 to look
 once. The wait counts toward the operation timeout. After the last turn, a
-replay by elements needs its landmarks in front; a replay by pixels needs
-the screen to look as recorded.
+replay whose turns all ran by elements needs its landmarks in front, when
+the recording has some; any other replay needs the screen to look as
+recorded.
 
 When an element or a screen is not found, or an action fails, the model
 continues the task from the current screen and the new actions are

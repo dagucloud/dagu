@@ -74,12 +74,15 @@ func fraction(offset, size int) float64 {
 
 // placeholder returns the %name% of the variable whose value is text, so
 // a recording made on one record replays on the next, or text as it is.
+// Values compare as names match, so a padded name still finds its
+// variable.
 func (r *run) placeholder(text string) string {
 	if len(text) < minPlaceholderValue {
 		return text
 	}
+	wanted := desktop.NormalizeText(text)
 	for _, name := range slices.Sorted(maps.Keys(r.variables)) {
-		if r.variables[name] == text {
+		if desktop.NormalizeText(r.variables[name]) == wanted {
 			return "%" + name + "%"
 		}
 	}
