@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	"github.com/stretchr/testify/require"
 )
@@ -52,4 +53,16 @@ func TestStartCloudReport(t *testing.T) {
 			require.Nil(t, startCloudReport(newContext(level)))
 		})
 	}
+}
+
+// Reports carry DAG-run events only when the admin chose runs.
+func TestCloudReportEventsOnlyAtRuns(t *testing.T) {
+	newContext := func(report config.ReportLevel) *Context {
+		cfg := &config.Config{Cloud: config.CloudConfig{Report: report}}
+		cfg.Paths.DataDir = t.TempDir()
+		return &Context{Context: t.Context(), Config: cfg, event: eventstore.New(nil)}
+	}
+
+	require.NotNil(t, cloudReportEvents(newContext(config.ReportRuns)).Reader)
+	require.Nil(t, cloudReportEvents(newContext(config.ReportHealth)).Reader)
 }
