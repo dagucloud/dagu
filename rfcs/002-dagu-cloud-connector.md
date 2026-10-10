@@ -105,16 +105,20 @@ from the console has the same effect on the next report (`401`).
 
 ### What is sent
 
-| Part | Fields | When |
+This table is the whole payload. A field is listed here, under its level,
+before any release sends it.
+
+| Level | Fields | When |
 | --- | --- | --- |
-| Health | Dagu version, OS and architecture, process start time, services from the service registry (scheduler, coordinator, workers: count and last heartbeat), queue depth per queue, event lag, remote access level | Every report |
-| Inventory | Per DAG: name, schedules (cron and time zone), suspended, last run status and time | When its hash changes, and at least daily |
-| Runs | Per `dag.run.*` event: event ID, type, DAG name, DAG-run ID, attempt ID, status, `occurred_at`, and `run_created_at` (when the DAG run was created, the same in every event of the run and its retries); on terminal events, failed step names and exit codes | Batched with each report |
+| `health` | Dagu version, OS, architecture, process start time, and service counts: schedulers holding the scheduler lock, and registered coordinators | Every report |
+| `runs` | The `health` fields, plus each status change of a top-level DAG run: event ID, type, DAG name, run ID, attempt ID, status, the event's time, and the run's queued, started, and finished times; on a finished run, up to 50 failed step names | With the next report; within 5 seconds of a failure or a step waiting for a person |
+
+**Planned, not sent by any level yet:** queue depth, worker counts, the list
+of DAGs, and the remote access level. Each joins the table above, under its
+level, before it is sent.
 
 **Never sent:** logs, outputs, parameters, environment, step commands, DAG YAML,
-secret values, and error message text. Error text is opt-in
-(`cloud.report_error_messages`) because it often contains hosts, paths, or
-data.
+secret values, and error message text.
 
 DAG names and step names are sent at `runs`. An administrator who considers
 them sensitive chooses `health`, which sends neither.
@@ -172,7 +176,7 @@ Dagu Cloud de-duplicates by ID.
 (`event_store.retention_days`). A server cut off for longer loses the events in
 between. The reporter detects a cursor older than retention and reports a gap;
 Dagu Cloud shows the gap rather than guessing runs. If the event store is
-disabled, reports carry health and inventory only.
+disabled, reports carry health only.
 
 ### Wire contract
 
@@ -188,27 +192,24 @@ activation's credentials, as the heartbeat is.
   "health": { "version": "3.0.0", "os": "linux", "arch": "amd64",
               "started_at": "2026-10-09T12:00:00Z",
               "services": [{ "name": "scheduler", "instances": 1 },
-                           { "name": "coordinator", "instances": 0 }],
-              "queues": [{ "name": "default", "queued": 3, "running": 1 }],
-              "event_lag_seconds": 2, "remote_access": "off" },
-  "inventory": { "hash": "…", "dags": [] },
+                           { "name": "coordinator", "instances": 0 }] },
   "events": [],
   "gap": null,
   "cursor": "opaque"
 }
 ```
 
-`inventory` is omitted when unchanged. A scheduler count of zero means no
-scheduler holds the lock; leaving `services` out means the count is unknown.
+A scheduler count of zero means no scheduler holds the lock; leaving
+`services` out means the count is unknown.
 The response is:
 
 ```json
-{ "ack": "opaque", "next_report_seconds": 60, "inventory_wanted": false }
+{ "ack": "opaque", "next_report_seconds": 60 }
 ```
 
 | Response | Reporter behavior |
 | --- | --- |
-| `200` | Persist `ack` as the cursor. Send inventory next time if `inventory_wanted`. |
+| `200` | Persist `ack` as the cursor. |
 | `401`, `410` | Stop. The license manager handles the activation as it does for heartbeats. |
 | `413` | Halve the batch and retry. |
 | `429` | Wait for `Retry-After`, keeping the cursor. |
@@ -256,7 +257,6 @@ highest role any remote user gets.
 ```yaml
 cloud:
   report: off                    # off | health | runs; omit to choose in the UI
-  report_error_messages: false
   remote_access: off             # off | viewer | operator | developer | manager | admin
                                  # omit to set it in the UI
 ```
@@ -396,5 +396,6 @@ Older servers keep working as they do: they heartbeat and never report.
 
 ## Open questions
 
-1. Is error text worth sending by default, for more useful alerts?
+1. Should error text ever be offered, as its own choice, for more useful
+   alerts? It often contains hosts, paths, or data.
 2. Should remote access ship in a v2 minor rather than wait for v3.0?
