@@ -468,7 +468,7 @@ func TestRejectedStatus(t *testing.T) {
 				waitForCancel(t, done, agentRunCompletionTimeout())
 			})
 			waitForCancel(t, pusher.rejected, agentRunStartTimeout())
-			waitForCancel(t, done, 3*time.Second)
+			waitForCancel(t, done, agentRunCompletionTimeout())
 			data, err := os.ReadFile(marker)
 			if nodeStatus == ir.NodeNotStarted {
 				require.ErrorIs(t, err, os.ErrNotExist, "handler ran before startup completed")
