@@ -974,6 +974,7 @@ func (n *Node) setupExecutor(ctx context.Context) (context.Context, executor.Exe
 }
 
 func (n *Node) setupStepOutputFile(ctx context.Context) (context.Context, error) {
+	n.clearOutputValue()
 	n.clearOutputsValue()
 	n.clearStepOutputsValue()
 	n.setStepOutputFile("")
