@@ -42,11 +42,13 @@ func TestStartCloudReport(t *testing.T) {
 		}
 	}
 
-	t.Run(string(config.ReportHealth), func(t *testing.T) {
-		reporter := startCloudReport(newContext(config.ReportHealth))
-		require.NotNil(t, reporter)
-		reporter.Stop()
-	})
+	for _, level := range []config.ReportLevel{config.ReportHealth, config.ReportRuns} {
+		t.Run(string(level), func(t *testing.T) {
+			reporter := startCloudReport(newContext(level))
+			require.NotNil(t, reporter)
+			reporter.Stop()
+		})
+	}
 
 	for _, level := range []config.ReportLevel{"", config.ReportOff} {
 		t.Run("not "+string(level), func(t *testing.T) {

@@ -140,7 +140,7 @@ func TestConfigSchemaCloudReport(t *testing.T) {
 	t.Parallel()
 
 	resolved := mustResolveConfigSchema(t)
-	for _, level := range []string{"off", "health"} {
+	for _, level := range []string{"off", "health", "runs"} {
 		require.NoError(t, resolved.Validate(mustParseYAMLDocument(t, "cloud:\n  report: "+level+"\n")), level)
 	}
 	require.Error(t, resolved.Validate(mustParseYAMLDocument(t, `
