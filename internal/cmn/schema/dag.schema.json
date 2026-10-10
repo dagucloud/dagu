@@ -7882,20 +7882,105 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["statement"],
+          "oneOf": [
+            { "required": ["statement"] },
+            { "required": ["text"] },
+            { "required": ["element"] },
+            { "required": ["window"] }
+          ],
           "properties": {
             "statement": {
               "type": "string",
               "minLength": 1,
               "description": "Statement about the screen, judged by the model."
             },
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Holds when the name or value of a visible element of the window in front contains this text. Read without a model."
+            },
+            "element": {
+              "$ref": "#/definitions/computerSelector",
+              "description": "Holds when this selector matches exactly one visible element of the window in front. Read without a model."
+            },
+            "window": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Holds when the title of the window in front contains this text; * matches any run of characters. Read without a model."
+            },
             "within": {
               "type": "string",
-              "description": "How long to keep rechecking a false statement, such as 30s."
+              "description": "How long to keep looking before deciding, such as 30s. A statement is judged once by default; an exact when reads once, and an exact expect keeps looking until the operation timeout."
             }
-          }
+          },
+          "description": "A statement the model judges, or an exact check that reads the window's elements without a model call, on 64-bit Windows."
         }
       ]
+    },
+    "computerSelector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role"],
+      "anyOf": [
+        { "required": ["name"] },
+        { "required": ["id"] },
+        { "required": ["near"] }
+      ],
+      "properties": {
+        "role": {
+          "type": "string",
+          "enum": ["button", "text_field", "text", "checkbox", "radio", "combo_box", "list_item", "menu_item", "tab", "link", "cell", "group", "window", "other"],
+          "description": "The element's role."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The accessible name, exact; * matches any run of characters, and %name% placeholders are replaced from variables and ask answers."
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The identifier the application gives the element, such as the UI Automation AutomationId."
+        },
+        "app": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The process image name without its extension, compared ignoring case."
+        },
+        "window": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Text the window title contains; * matches any run of characters."
+        },
+        "in": {
+          "$ref": "#/definitions/computerSelector",
+          "description": "A container the element sits in, such as a group; the search is narrowed to its descendants."
+        },
+        "near": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["label", "side"],
+          "properties": {
+            "label": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The label the element sits next to."
+            },
+            "side": {
+              "type": "string",
+              "enum": ["right", "below", "left", "above"],
+              "description": "Which side of the label the element is on."
+            }
+          },
+          "description": "Keeps the element the application links to the label, or the nearest one on that side of it."
+        },
+        "nth": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Which of several equal matches, in reading order, from 0."
+        }
+      },
+      "description": "Names an element: role with name, id, or near, narrowed by app, window, in, and nth. More than one match is a miss."
     },
     "computerOperation": {
       "type": "object",

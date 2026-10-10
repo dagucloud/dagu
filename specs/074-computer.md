@@ -8,8 +8,8 @@ Conformance covers validation, the secret check, the unsupported-platform
 error, and, on an interactive Windows desktop, a run that finds a test window
 in screenshots, clicks it and types into it through a scripted model, and
 the elements command's outline and selector matching on a window with named
-controls. Model loops, replay, human input, and the desktop lease are
-covered by executor tests.
+controls. Model loops, replay, exact conditions, human input, and the
+desktop lease are covered by executor tests.
 
 ## Scope
 
@@ -90,18 +90,41 @@ display and the system stay awake, as far as the operating system allows.
 
 ### Conditions
 
-`expect` and `when` take a statement string, or `{statement, within}`. The
-model judges the statement against a screenshot. With `within`, a false
-statement is checked again every few seconds until it holds or `within`
-passes.
+`expect` and `when` take a statement string, or an object with exactly one
+of `statement`, `text`, `element`, or `window`, and optionally `within`.
+
+A statement is judged by the model against a screenshot. With `within`, a
+false statement is checked again every few seconds until it holds or
+`within` passes.
+
+The other three are exact checks: they read the elements of the window in
+front (see Elements), take no screenshot, and call no model, so they give
+the same answer on every run. `text` holds when the name or value of a
+visible element contains it. `element` holds when the selector matches
+exactly one visible element; several matches are a miss, never a guess.
+`window` holds when the title of the window in front contains it, with `*`
+for any run of characters. A window that exposes no elements is a miss
+while it is in front. An exact `expect` keeps looking every quarter second
+until it holds, `within` passes, or, without `within`, the operation
+timeout passes; an exact `when` reads once unless `within` says how long to
+keep looking. The event of an exact check records `via: exact`.
+
+`%name%` placeholders in `text`, `window`, and a selector's `name`,
+`window`, `near.label`, and container are replaced from `with.variables`
+and earlier `ask` answers, which validation checks as it does for an
+`act`; a selector's `id` and `app` are identifiers and stay as written. An
+exact check never reaches the model, so the secret check does not apply to
+it, and its values are masked in the timeline as typed values are. Exact
+checks need 64-bit Windows; elsewhere the step fails at the first one.
 
 ### Model
 
 A computer step uses the DAG-level `llm` block. `with.llm` replaces it
 entirely. A step with no model configuration fails validation when some
 operation can call the model under its choice of how much AI decides: an
-`act` or an `extract` whose choice is not `never`, or any `expect` or
-`when`. A step none of whose operations can call the model runs without one.
+`act` or an `extract` whose choice is not `never`, or an `expect` or `when`
+that is a statement. A step none of whose operations can call the model
+runs without one.
 
 `with.mode` chooses how `act` talks to the model:
 
@@ -207,14 +230,15 @@ that operation:
 
 `with.cache: false` and `act.cache: false`, from before the choice existed,
 mean `every_run`. Setting both `ai` and `cache` on the step, or on an act,
-fails validation. `expect` and `when` are judged by the model, and an
-`extract` has no form that reads the screen without one, so a step whose
-`ai` is `never` fails validation with an `expect`, a `when`, or an `extract`
-that does not set its own `ai`.
+fails validation. A statement is judged by the model, and an `extract` has
+no form that reads the screen without one, so a step whose `ai` is `never`
+fails validation with an `expect` or `when` that is a statement, or an
+`extract` that does not set its own `ai`. An exact check is allowed.
 
 Each operation's timeline event records `via`, how it ran: `screen` for a
-replay, `model` for a model request, and nothing for an operation that
-decides nothing, such as `launch`; with `durationMs` and `tokens`. An
+replay, `model` for a model request, `exact` for an exact check, and
+nothing for an operation that decides nothing, such as `launch`; with
+`durationMs` and `tokens`. An
 operation that fails records its event the same way, with the failure as
 its detail, before the step's failure event that carries the screenshot.
 
@@ -265,8 +289,8 @@ from its first operation.
 
 ### Elements
 
-This is the first step of element support: a step cannot yet act on, wait
-for, or check an element. Conditions and replay by element are deferred.
+A step checks elements through exact conditions (see Conditions). It
+cannot yet act on or wait for an element: replay by element is deferred.
 
 An element is an accessible element of a window: its `role`, `name`, the
 `id` the application gives it, its `value`, the `label` it is linked to,
