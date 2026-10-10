@@ -132,6 +132,9 @@ func DecodeUpdateRows(value any) ([]Row, error) {
 		if n, ok := row[RowNumberKey]; ok && n != nil {
 			r, ok := toRowNumber(n)
 			if !ok {
+				if ref, ok := n.(string); ok && isReference(ref) {
+					return nil, unresolvedError(fmt.Sprintf("rows[%d]._row", i), ref)
+				}
 				return nil, fmt.Errorf("rows[%d]: _row must be a row number", i)
 			}
 			row[RowNumberKey] = r

@@ -24,6 +24,11 @@ func isReference(text string) bool {
 	return text != "" && referencePattern.FindString(text) == text
 }
 
+// unresolvedError reports that ref, found in field, was left unresolved.
+func unresolvedError(field, ref string) error {
+	return fmt.Errorf("%s: %s was not resolved; check that the value it names exists", field, ref)
+}
+
 // unresolvedReference returns the reference JSON decoding of text stopped
 // on, so the error names it instead of the '$' the decoder saw.
 func unresolvedReference(text string, err error) (string, bool) {

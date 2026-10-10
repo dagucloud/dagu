@@ -26,7 +26,7 @@ func rowList(value any, shape string) (list []any, jsonText string, err error) {
 		trimmed := strings.TrimSpace(text)
 		if !looksLikeJSON(trimmed) {
 			if isReference(trimmed) {
-				return nil, "", unresolvedRowsError(trimmed)
+				return nil, "", unresolvedError("rows", trimmed)
 			}
 			return nil, "", fmt.Errorf("rows must be a JSON array of %s", shape)
 		}
@@ -38,7 +38,7 @@ func rowList(value any, shape string) (list []any, jsonText string, err error) {
 		decoded, err := decodeJSON(trimmed)
 		if err != nil {
 			if ref, ok := unresolvedReference(trimmed, err); ok {
-				return nil, "", unresolvedRowsError(ref)
+				return nil, "", unresolvedError("rows", ref)
 			}
 			return nil, "", fmt.Errorf("rows: %w", err)
 		}
@@ -55,10 +55,6 @@ func rowList(value any, shape string) (list []any, jsonText string, err error) {
 	default:
 		return []any{x}, jsonText, nil
 	}
-}
-
-func unresolvedRowsError(ref string) error {
-	return fmt.Errorf("rows: %s was not resolved; check that the value it names exists", ref)
 }
 
 // foreachOutputs returns the outputs list of a decoded foreach aggregate.
