@@ -226,9 +226,35 @@ func TestReportEventsGap(t *testing.T) {
 	newID := dir.emit(eventstore.TypeDAGRunQueued, newRun)
 	after := decodeEvents(t, nextReport(t, clock, console))
 
-	assert.Equal(t, eventReport{Gap: &reportGap{Since: "2026-10-10T09:05:00Z"}}, gap)
+	assert.Equal(t, &reportGap{Since: "2026-10-10T09:05:00Z"}, gap.Gap)
+	assert.Nil(t, gap.ids(t))
+	assert.NotEmpty(t, gap.Cursor, "a gap carries a cursor to acknowledge")
 	assert.Equal(t, []string{newID}, after.ids(t))
 	assert.Nil(t, after.Gap, "a gap is reported once")
+}
+
+// A gap is reported again until Dagu Console acknowledges the report that
+// carried it.
+func TestReportEventsGapUntilAcknowledged(t *testing.T) {
+	t.Parallel()
+
+	dir := newEventDir(t)
+	first := newFakeConsole(t)
+	reporter, clock := newEventReporter(t, first.credentials, dir, testClockStart)
+	dir.emit(eventstore.TypeDAGRunSucceeded, etlRun(ir.Succeeded))
+	nextReport(t, clock, first)
+	reporter.Stop()
+
+	console := newFakeConsole(t, consoleResponse{status: http.StatusOK, body: `{}`})
+	_, clock = newEventReporter(t, console.credentials, dir, testClockStart.Add(72*time.Hour))
+
+	unacknowledged := decodeEvents(t, nextReport(t, clock, console))
+	again := decodeEvents(t, nextReport(t, clock, console))
+	after := decodeEvents(t, nextReport(t, clock, console))
+
+	require.NotNil(t, unacknowledged.Gap)
+	assert.Equal(t, unacknowledged.Gap, again.Gap, "an answer without the cursor confirms nothing")
+	assert.Nil(t, after.Gap)
 }
 
 // An idle reporter is not mistaken for one that missed events.

@@ -288,6 +288,9 @@ type eventFeed struct {
 	loaded bool
 	state  eventState
 	batch  *eventBatch
+	// sent is the cursor the last prepared report carried, which its
+	// acknowledgement must name.
+	sent string
 	// notified holds urgent events that accepted reports carried without
 	// moving the position, so that they call for no more early reports.
 	notified map[string]struct{}
@@ -514,7 +517,13 @@ func (f *eventFeed) fill(req *reportRequest) {
 	}
 	if !f.state.GapSince.IsZero() {
 		req.Gap = &reportGap{Since: formatTime(f.state.GapSince)}
+		if req.Cursor == "" {
+			// A gap carries the position it was found at, so that an
+			// acknowledgement can confirm Dagu Console recorded it.
+			req.Cursor = f.state.token()
+		}
 	}
+	f.sent = req.Cursor
 }
 
 // acknowledge applies Dagu Console's acceptance of a report that fill
@@ -524,9 +533,12 @@ func (f *eventFeed) acknowledge(ctx context.Context, ack string) bool {
 	if f == nil || !f.loaded {
 		return false
 	}
-	batch := f.batch
-	f.batch = nil
-	moved := batch != nil && ack == batch.token
+	batch, sent := f.batch, f.sent
+	f.batch, f.sent = nil, ""
+	// Only an acknowledgement of the cursor the report carried confirms its
+	// events and gap.
+	confirmed := sent != "" && ack == sent
+	moved := batch != nil && confirmed
 	if batch != nil && !moved {
 		if f.notified == nil {
 			f.notified = make(map[string]struct{})
@@ -535,7 +547,7 @@ func (f *eventFeed) acknowledge(ctx context.Context, ack string) bool {
 			f.notified[id] = struct{}{}
 		}
 	}
-	if !moved && f.state.GapSince.IsZero() {
+	if !confirmed {
 		return false
 	}
 
