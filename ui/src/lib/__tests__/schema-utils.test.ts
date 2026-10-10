@@ -2,7 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { dereferenceSchema, type JSONSchema } from '@/lib/schema-utils';
+import {
+  dereferenceSchema,
+  getSchemaAtPath,
+  type JSONSchema,
+} from '@/lib/schema-utils';
 
 describe('dereferenceSchema', () => {
   it('handles recursive internal references without overflowing the stack', () => {
@@ -59,6 +63,65 @@ describe('dereferenceSchema', () => {
     expect(dereferenced.properties?.second?.properties?.a?.description).toBe(
       'to a'
     );
+  });
+
+  it('handles a self reference that carries sibling keys', () => {
+    const schema: JSONSchema = {
+      type: 'object',
+      properties: {
+        selector: {
+          $ref: '#/definitions/selector',
+          description: 'Where to act',
+        },
+      },
+      definitions: {
+        selector: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            in: {
+              $ref: '#/definitions/selector',
+              description: 'Parent element',
+            },
+          },
+        },
+      },
+    };
+
+    expect(() => dereferenceSchema(schema)).not.toThrow();
+    const dereferenced = dereferenceSchema(schema);
+    const selector = dereferenced.properties?.selector;
+    expect(selector?.description).toBe('Where to act');
+    expect(selector?.properties?.name?.type).toBe('string');
+    // The inner self reference stays a $ref and resolves on lookup.
+    expect(getSchemaAtPath(dereferenced, ['selector', 'in'])?.description).toBe(
+      'Parent element'
+    );
+    expect(
+      getSchemaAtPath(dereferenced, ['selector', 'in', 'name'])?.type
+    ).toBe('string');
+  });
+
+  it('dereferences a sibling key that points at the same definition', () => {
+    const schema: JSONSchema = {
+      type: 'object',
+      properties: {
+        step: {
+          $ref: '#/definitions/base',
+          allOf: [{ $ref: '#/definitions/base' }],
+        },
+      },
+      definitions: {
+        base: {
+          type: 'object',
+          properties: { id: { type: 'string' } },
+        },
+      },
+    };
+
+    const step = dereferenceSchema(schema).properties?.step;
+    expect(step?.properties?.id?.type).toBe('string');
+    expect(step?.allOf?.[0]?.properties?.id?.type).toBe('string');
   });
 
   it('dereferences the bundled DAG schema used by the editor', () => {
