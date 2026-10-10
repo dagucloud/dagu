@@ -4,17 +4,22 @@
 package api_test
 
 import (
+	"context"
 	"crypto/ed25519"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/cloudreport"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/license"
+	filemonitor "github.com/dagucloud/dagu/v2/internal/persis/file/monitor"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
+	apiv1 "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
@@ -250,7 +255,10 @@ func TestLicenseEndpoints_RequireAdmin(t *testing.T) {
 			cfg.Server.Auth.Builtin.Token.Secret = "jwt-secret-license-endpoints"
 			cfg.Server.Auth.Builtin.Token.TTL = 24 * time.Hour
 		}),
-		test.WithServerOptions(frontend.WithLicenseManager(defaultTestLicenseManager())),
+		test.WithServerOptions(
+			frontend.WithLicenseManager(defaultTestLicenseManager()),
+			frontend.WithAPIOption(apiv1.WithCloudReport(newMonitoring(t, ""))),
+		),
 	)
 	server.Client().Post("/api/v1/auth/setup", api.SetupRequest{Username: "admin", Password: "adminpass"}).
 		ExpectStatus(http.StatusOK).Send(t)
@@ -270,6 +278,9 @@ func TestLicenseEndpoints_RequireAdmin(t *testing.T) {
 		client.Get("/api/v1/license/connect"),
 		client.Delete("/api/v1/license/connect"),
 		client.Post("/api/v1/license/refresh", nil),
+		client.Get("/api/v1/license/monitoring"),
+		client.Put("/api/v1/license/monitoring", map[string]string{"level": "runs"}),
+		client.Post("/api/v1/license/monitoring/dismiss-notice", nil),
 	} {
 		req.WithBearerToken(viewer.Token).ExpectStatus(http.StatusForbidden).Send(t)
 	}
@@ -612,4 +623,131 @@ func TestDeactivateLicense_AdminToken_NoLicenseManager(t *testing.T) {
 	resp.Unmarshal(t, &errResp)
 	assert.Equal(t, api.ErrorCodeBadRequest, errResp.Code)
 	assert.Contains(t, errResp.Message, "License management is not available")
+}
+
+// newMonitoring returns what a server reports to Dagu Console, with the
+// choice persisted in a temporary directory.
+func newMonitoring(t *testing.T, configured config.ReportLevel) *cloudreport.Monitoring {
+	t.Helper()
+	return cloudreport.NewMonitoring(configured, filemonitor.NewStateStore(filepath.Join(t.TempDir(), "report-settings.json")))
+}
+
+func TestLicenseMonitoring(t *testing.T) {
+	t.Parallel()
+
+	settings := filepath.Join(t.TempDir(), "report-settings.json")
+	server := test.SetupServer(t, test.WithServerOptions(frontend.WithAPIOption(apiv1.WithCloudReport(
+		cloudreport.NewMonitoring("", filemonitor.NewStateStore(settings)),
+	))))
+
+	var monitoring api.LicenseMonitoring
+	server.Client().Get("/api/v1/license/monitoring").ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &monitoring)
+	assert.Equal(t, api.LicenseMonitoring{Level: api.LicenseMonitoringLevelOff}, monitoring)
+
+	server.Client().Put("/api/v1/license/monitoring", map[string]string{"level": "runs"}).
+		ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &monitoring)
+	assert.Equal(t, api.LicenseMonitoring{Level: api.LicenseMonitoringLevelRuns, Chosen: true}, monitoring)
+
+	server.Client().Post("/api/v1/license/monitoring/dismiss-notice", nil).
+		ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &monitoring)
+	assert.True(t, monitoring.NoticeDismissed)
+
+	server.Client().Put("/api/v1/license/monitoring", map[string]string{"level": "everything"}).
+		ExpectStatus(http.StatusBadRequest).Send(t)
+
+	// The choice outlives the server.
+	status, err := cloudreport.NewMonitoring("", filemonitor.NewStateStore(settings)).Status(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, config.ReportRuns, status.Level)
+	assert.True(t, status.NoticeDismissed)
+}
+
+func TestLicenseMonitoring_Configured(t *testing.T) {
+	t.Parallel()
+
+	server := test.SetupServer(t, test.WithServerOptions(frontend.WithAPIOption(apiv1.WithCloudReport(
+		newMonitoring(t, config.ReportHealth),
+	))))
+
+	var errResp api.Error
+	server.Client().Put("/api/v1/license/monitoring", map[string]string{"level": "runs"}).
+		ExpectStatus(http.StatusConflict).Send(t).Unmarshal(t, &errResp)
+	assert.Equal(t, api.ErrorCodeConflict, errResp.Code)
+
+	var monitoring api.LicenseMonitoring
+	server.Client().Get("/api/v1/license/monitoring").ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &monitoring)
+	assert.Equal(t, api.LicenseMonitoring{Level: api.LicenseMonitoringLevelHealth, Configured: true}, monitoring)
+}
+
+func TestLicenseMonitoring_Unavailable(t *testing.T) {
+	t.Parallel()
+
+	server := test.SetupServer(t)
+
+	server.Client().Get("/api/v1/license/monitoring").ExpectStatus(http.StatusBadRequest).Send(t)
+}
+
+// stubCloudReport has sent one report.
+type stubCloudReport struct{}
+
+func (stubCloudReport) Status(context.Context) (cloudreport.Status, error) {
+	return cloudreport.Status{
+		Level:        config.ReportHealth,
+		Chosen:       true,
+		LastReportAt: time.Date(2026, 10, 10, 9, 0, 0, 0, time.UTC),
+		LastReport:   []byte(`{"protocol":1,"heartbeat_secret":"[redacted]"}`),
+	}, nil
+}
+
+func (stubCloudReport) SetLevel(context.Context, config.ReportLevel) error { return nil }
+
+func (stubCloudReport) DismissNotice(context.Context) error { return nil }
+
+func TestLicenseMonitoring_LastReport(t *testing.T) {
+	t.Parallel()
+
+	server := test.SetupServer(t, test.WithServerOptions(frontend.WithAPIOption(apiv1.WithCloudReport(stubCloudReport{}))))
+
+	var monitoring api.LicenseMonitoring
+	server.Client().Get("/api/v1/license/monitoring").ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &monitoring)
+	require.NotNil(t, monitoring.LastReport)
+	assert.Equal(t, `{"protocol":1,"heartbeat_secret":"[redacted]"}`, *monitoring.LastReport)
+	require.NotNil(t, monitoring.LastReportAt)
+	assert.Equal(t, "2026-10-10T09:00:00Z", *monitoring.LastReportAt)
+}
+
+// Changing the level is audited with the level it replaced.
+func TestLicenseMonitoring_Audit(t *testing.T) {
+	t.Parallel()
+
+	server := test.SetupServer(t,
+		test.WithConfigMutator(func(cfg *config.Config) {
+			cfg.Server.Auth.Mode = config.AuthModeBuiltin
+			cfg.Server.Auth.Builtin.Token.Secret = "jwt-secret-license-monitoring"
+			cfg.Server.Auth.Builtin.Token.TTL = 24 * time.Hour
+			cfg.Server.Audit.Enabled = true
+		}),
+		test.WithServerOptions(
+			frontend.WithLicenseManager(defaultTestLicenseManager()),
+			frontend.WithAPIOption(apiv1.WithCloudReport(newMonitoring(t, ""))),
+		),
+	)
+	server.Client().Post("/api/v1/auth/setup", api.SetupRequest{Username: "admin", Password: "adminpass"}).
+		ExpectStatus(http.StatusOK).Send(t)
+	adminToken := getAdminToken(t, server)
+
+	server.Client().Put("/api/v1/license/monitoring", map[string]string{"level": "health"}).
+		WithBearerToken(adminToken).ExpectStatus(http.StatusOK).Send(t)
+
+	var logs api.AuditLogsResponse
+	server.Client().Get("/api/v1/audit?category=system&action=cloud_report_update").
+		WithBearerToken(adminToken).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &logs)
+	require.Len(t, logs.Entries, 1)
+	entry := logs.Entries[0]
+	assert.Equal(t, "admin", entry.Username)
+	require.NotNil(t, entry.Details)
+	var details map[string]any
+	require.NoError(t, json.Unmarshal([]byte(*entry.Details), &details))
+	assert.Equal(t, "health", details["level"])
+	assert.Equal(t, "off", details["previous_level"])
 }

@@ -20,16 +20,21 @@ import { useClient } from '@/hooks/api';
 import { LicenseProvider } from '@/components/LicenseProvider';
 import { SWRConfig } from 'swr';
 import { MemoryRouter } from 'react-router-dom';
-import { LicenseStatusResponseConnectedVia } from '@/api/v1/schema';
+import {
+  LicenseMonitoringLevel,
+  LicenseStatusResponseConnectedVia,
+} from '@/api/v1/schema';
+import type { LicenseMonitoring } from '@/hooks/useLicenseMonitoring';
 
 vi.mock('@/hooks/api', async () => {
   const { default: useSWR } = await import('swr');
   const useClient = vi.fn();
   return {
     useClient,
+    // As in swr-openapi, null params skip the request.
     useQuery: (path: string, params: unknown, options: object) =>
       useSWR(
-        [path, params],
+        params === null ? null : [path, params],
         async () => {
           const result = await useClient().GET(path, params);
           if (result.error) throw result.error;
@@ -126,6 +131,27 @@ function renderPage(licenseOverrides: Partial<LicenseStatus> = {}) {
       </SWRConfig>
     </MemoryRouter>
   );
+}
+
+const online: Partial<LicenseStatus> = {
+  connectedVia: LicenseStatusResponseConnectedVia.console,
+  serverId: 'srv-123',
+  lastCheckIn: new Date().toISOString(),
+};
+
+const unchosen: LicenseMonitoring = {
+  level: LicenseMonitoringLevel.off,
+  configured: false,
+  chosen: false,
+  noticeDismissed: false,
+};
+
+function monitoringCard() {
+  return screen.getByRole('region', { name: 'Monitoring' });
+}
+
+function findMonitoringCard() {
+  return screen.findByRole('region', { name: 'Monitoring' });
 }
 
 describe('LicensePage', () => {
@@ -486,6 +512,117 @@ describe('LicensePage', () => {
       expect(screen.getByText('Team · Active')).toBeVisible();
     });
 
+    // After approval, the server checks in with Dagu Console and can report.
+    function approveAndConnect(monitoring: LicenseMonitoring) {
+      vi.spyOn(window, 'open').mockReturnValue(null);
+      let approved = false;
+      const get = vi.fn((path: string) =>
+        Promise.resolve({
+          data:
+            path === '/license/connect'
+              ? approved
+                ? { state: 'granted' }
+                : pending
+              : path === '/license/monitoring'
+                ? monitoring
+                : approved
+                  ? makeConfig({ plan: 'team', ...online }).license
+                  : community(),
+        })
+      );
+      const post = vi.fn((path: string) =>
+        Promise.resolve({
+          data:
+            path === '/license/connect'
+              ? pending
+              : { ...monitoring, noticeDismissed: true },
+        })
+      );
+      const put = vi.fn(
+        (_path: string, init: { body: { level: LicenseMonitoringLevel } }) =>
+          Promise.resolve({
+            data: { ...monitoring, level: init.body.level, chosen: true },
+          })
+      );
+      useClientMock.mockReturnValue({
+        POST: post,
+        GET: get,
+        PUT: put,
+      } as never);
+      renderPage(community());
+      return {
+        post,
+        put,
+        approve: async () => {
+          await userEvent.click(
+            screen.getByRole('button', { name: 'Connect to Dagu Console' })
+          );
+          await screen.findByText('ABCD1234');
+          approved = true;
+        },
+      };
+    }
+
+    it('offers failure emails right after connecting', async () => {
+      const { put, approve } = approveAndConnect(unchosen);
+      await approve();
+
+      const dialog = await screen.findByRole(
+        'dialog',
+        { name: 'Monitor this server from Dagu Console' },
+        { timeout: 5000 }
+      );
+      await userEvent.click(
+        within(dialog).getByRole('button', { name: 'Turn on' })
+      );
+
+      expect(put).toHaveBeenCalledWith('/license/monitoring', {
+        params: { query: { remoteNode: 'local' } },
+        body: { level: 'runs' },
+      });
+      await waitFor(() =>
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      );
+      expect(monitoringCard()).toHaveTextContent('Health and run status');
+    });
+
+    it('stops asking once the offer after connecting is declined', async () => {
+      const { post, approve } = approveAndConnect(unchosen);
+      await approve();
+
+      const dialog = await screen.findByRole(
+        'dialog',
+        { name: 'Monitor this server from Dagu Console' },
+        { timeout: 5000 }
+      );
+      await userEvent.click(
+        within(dialog).getByRole('button', { name: 'Not now' })
+      );
+
+      expect(post).toHaveBeenCalledWith('/license/monitoring/dismiss-notice', {
+        params: { query: { remoteNode: 'local' } },
+      });
+    });
+
+    it('does not ask after connecting when the configuration sets reporting', async () => {
+      const { approve } = approveAndConnect({
+        ...unchosen,
+        level: LicenseMonitoringLevel.health,
+        configured: true,
+      });
+      await approve();
+
+      expect(
+        await screen.findByText(
+          'Team connected. Explore your included features below.',
+          undefined,
+          { timeout: 5000 }
+        )
+      ).toBeVisible();
+      expect(await screen.findByText('Set in configuration')).toBeVisible();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+
     it('offers a link when the browser blocks the new tab', async () => {
       vi.spyOn(window, 'open').mockReturnValue(null);
       useClientMock.mockReturnValue({
@@ -587,6 +724,167 @@ describe('LicensePage', () => {
       expect(
         screen.queryByRole('button', { name: 'Connect to Dagu Console' })
       ).not.toBeInTheDocument();
+    });
+  });
+
+  describe('monitoring', () => {
+    // Serves an online license and the given monitoring state, which PUT
+    // changes the way the server does.
+    function serveMonitoring(initial: LicenseMonitoring) {
+      let monitoring = initial;
+      const get = vi.fn((path: string) =>
+        Promise.resolve({
+          data:
+            path === '/license/monitoring'
+              ? monitoring
+              : makeConfig(online).license,
+        })
+      );
+      const put = vi.fn(
+        (_path: string, init: { body: { level: LicenseMonitoringLevel } }) => {
+          monitoring = { ...monitoring, level: init.body.level, chosen: true };
+          return Promise.resolve({ data: monitoring });
+        }
+      );
+      useClientMock.mockReturnValue({
+        GET: get,
+        POST: vi.fn(),
+        PUT: put,
+      } as never);
+      renderPage(online);
+      return { get, put };
+    }
+
+    it('shows what the server reports and the last report', async () => {
+      serveMonitoring({
+        level: LicenseMonitoringLevel.runs,
+        configured: false,
+        chosen: true,
+        noticeDismissed: false,
+        lastReportAt: new Date().toISOString(),
+        lastReport: '{"protocol":1,"heartbeat_secret":"[redacted]"}',
+      });
+
+      const card = await findMonitoringCard();
+      expect(
+        await within(card).findByText('Health and run status')
+      ).toBeVisible();
+      expect(within(card).getByText('Last report')).toBeVisible();
+      expect(within(card).getByText(/ago/)).toBeVisible();
+      expect(
+        within(card).getByRole('button', { name: 'Change' })
+      ).toBeVisible();
+      expect(
+        within(card).getByRole('button', { name: 'Turn off' })
+      ).toBeVisible();
+
+      await userEvent.click(
+        within(card).getByRole('button', { name: 'View last report' })
+      );
+      const dialog = await screen.findByRole('dialog', { name: 'Last report' });
+      expect(dialog).toHaveTextContent('"heartbeat_secret": "[redacted]"');
+    });
+
+    it('turns reporting on with the chosen level', async () => {
+      const { put } = serveMonitoring(unchosen);
+      const card = await findMonitoringCard();
+      expect(await within(card).findByText('Off')).toBeVisible();
+      expect(within(card).queryByText('Last report')).not.toBeInTheDocument();
+
+      await userEvent.click(
+        within(card).getByRole('button', { name: 'Turn on' })
+      );
+      const dialog = await screen.findByRole('dialog', {
+        name: 'Choose what this server reports',
+      });
+      const health = within(dialog).getByRole('radio', { name: 'Health only' });
+      const runs = within(dialog).getByRole('radio', {
+        name: 'Health and run status (recommended)',
+      });
+      expect(runs).toBeChecked();
+      expect(health).toHaveAccessibleDescription(
+        'Sends the Dagu version, OS, architecture, process start time, and service counts: schedulers holding the scheduler lock, and registered coordinators.'
+      );
+      expect(runs).toHaveAccessibleDescription(
+        'Sends the health fields, plus each reportable status change of a top-level DAG run: event ID, type, DAG name, run ID, attempt ID, status, the event’s time, and the run’s queued, started, and finished times; on a finished run, up to 50 failed step names.'
+      );
+      expect(dialog).toHaveTextContent(
+        'Never sent: logs, outputs, parameters, environment, step commands, DAG YAML, the values of workflow secrets, and error message text.'
+      );
+      expect(dialog).toHaveTextContent(
+        'the protocol version, license ID, server ID, and heartbeat secret'
+      );
+
+      await userEvent.click(health);
+      await userEvent.click(
+        within(dialog).getByRole('button', { name: 'Turn on' })
+      );
+
+      expect(put).toHaveBeenCalledWith('/license/monitoring', {
+        params: { query: { remoteNode: 'local' } },
+        body: { level: 'health' },
+      });
+      expect(await within(card).findByText('Health only')).toBeVisible();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+
+    it('turns reporting off', async () => {
+      const { put } = serveMonitoring({
+        ...unchosen,
+        level: LicenseMonitoringLevel.health,
+        chosen: true,
+      });
+      const card = await findMonitoringCard();
+
+      await userEvent.click(
+        await within(card).findByRole('button', { name: 'Turn off' })
+      );
+
+      expect(put).toHaveBeenCalledWith('/license/monitoring', {
+        params: { query: { remoteNode: 'local' } },
+        body: { level: 'off' },
+      });
+      expect(
+        await within(card).findByRole('button', { name: 'Turn on' })
+      ).toBeVisible();
+    });
+
+    it('shows a level set in the configuration read-only', async () => {
+      serveMonitoring({
+        ...unchosen,
+        level: LicenseMonitoringLevel.health,
+        configured: true,
+      });
+      const card = await findMonitoringCard();
+
+      expect(
+        await within(card).findByText('Set in configuration')
+      ).toBeVisible();
+      expect(within(card).getByText('Health only')).toBeVisible();
+      expect(
+        within(card).getByText(
+          'cloud.report in the server configuration sets this. Change it there and restart Dagu.'
+        )
+      ).toBeVisible();
+      for (const name of ['Turn on', 'Change', 'Turn off']) {
+        expect(
+          within(card).queryByRole('button', { name })
+        ).not.toBeInTheDocument();
+      }
+    });
+
+    it('is not offered for a license that does not check in', () => {
+      const get = vi.fn().mockReturnValue(new Promise(() => {}));
+      useClientMock.mockReturnValue({ GET: get, POST: vi.fn() } as never);
+      renderPage();
+
+      expect(
+        screen.queryByRole('heading', { name: 'Monitoring' })
+      ).not.toBeInTheDocument();
+      expect(get).not.toHaveBeenCalledWith(
+        '/license/monitoring',
+        expect.anything()
+      );
     });
   });
 

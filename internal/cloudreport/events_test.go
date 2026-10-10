@@ -16,6 +16,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -485,7 +486,7 @@ func TestReportEventsUnreadable(t *testing.T) {
 	))
 	events := dir.events()
 	events.Reader = failingReader{}
-	r := newReporter(console.credentials, nil)
+	r := newReporter(console.credentials, nil, fixedLevel(config.ReportRuns))
 	r.events = newEventFeed(events)
 	clock := startReporterAt(ctx, t, r, noJitter, testClockStart)
 	clock.wait()
@@ -506,7 +507,7 @@ func TestReportWithoutEvents(t *testing.T) {
 		logger.WithWriter(&logs),
 		logger.WithQuiet(),
 	))
-	clock := startReporter(ctx, t, newReporter(console.credentials, nil), noJitter)
+	clock := startReporter(ctx, t, newReporter(console.credentials, nil, fixedLevel(config.ReportRuns)), noJitter)
 	clock.wait()
 
 	for range 3 {
@@ -626,7 +627,7 @@ func newEventReporter(
 	start time.Time,
 ) (*Reporter, *fakeClock) {
 	t.Helper()
-	r := newReporter(credentials, nil)
+	r := newReporter(credentials, nil, fixedLevel(config.ReportRuns))
 	r.events = newEventFeed(dir.events())
 	clock := startReporterAt(t.Context(), t, r, noJitter, start)
 	clock.wait()

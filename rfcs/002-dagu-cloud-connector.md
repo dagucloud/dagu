@@ -145,12 +145,17 @@ them sensitive chooses `health`, which sends neither.
 - **The admin chooses in the UI**, at a moment it is useful: right after the
   server connects to Dagu Cloud, or from a one-time notice on a server that
   was already licensed. The dialog lists what each level sends and what is
-  never sent, before anything is.
+  never sent, before anything is. The choice persists in the data directory
+  and applies without a restart.
 - **Config wins.** Set in configuration, `cloud.report` fixes the level for
   servers managed as code, and the UI shows it read-only.
 - **Inspectable and reversible.** The license settings page shows the level,
-  when the last report was sent, and the exact last report. Turning it off
-  takes effect at once, and Dagu Cloud can delete what a server reported.
+  when the last report was sent, and the exact last report, with its
+  heartbeat secret redacted. Turning it off takes effect at once and stops a
+  report in flight, and Dagu Cloud can delete what a server reported.
+- **No catching up.** When the level drops below `runs` while the server
+  runs, the reporter moves its cursor to the newest event, so choosing `runs`
+  again never sends the run status changes from the time in between.
 - **The server decides.** Dagu Cloud cannot turn reporting on; it shows a
   server that checks in without reporting as not monitored.
 

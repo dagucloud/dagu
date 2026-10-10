@@ -8450,6 +8450,126 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /license/monitoring:
+    get:
+      summary: "Get what this server reports to Dagu Console"
+      description: "Returns how much this server reports to Dagu Console, whether configuration fixes it, and the last report sent. Admin only."
+      operationId: "getLicenseMonitoring"
+      tags:
+        - "system"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "What this server reports"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LicenseMonitoring"
+        "400":
+          description: "License management is not available"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Insufficient permissions"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    put:
+      summary: "Choose what this server reports to Dagu Console"
+      description: "Sets how much this server reports to Dagu Console. The change applies at once; off stops a report in flight. Admin only."
+      operationId: "updateLicenseMonitoring"
+      tags:
+        - "system"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - level
+              properties:
+                level:
+                  $ref: "#/components/schemas/LicenseMonitoringLevel"
+      responses:
+        "200":
+          description: "What this server reports after the change"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LicenseMonitoring"
+        "400":
+          description: "Unknown level, or license management is not available"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Insufficient permissions"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "cloud.report in the configuration fixes the level"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /license/monitoring/dismiss-notice:
+    post:
+      summary: "Dismiss the notice that asks what to report"
+      description: "Stops asking administrators to choose what this server reports to Dagu Console. Admin only."
+      operationId: "dismissLicenseMonitoringNotice"
+      tags:
+        - "system"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "What this server reports"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LicenseMonitoring"
+        "400":
+          description: "License management is not available"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Insufficient permissions"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /wiki:
     get:
       summary: "List Wiki pages"
@@ -16508,6 +16628,38 @@ components:
           description: "Why the request failed"
       required:
         - state
+
+    LicenseMonitoringLevel:
+      type: string
+      enum: ["off", "health", "runs"]
+      description: "How much this server reports to Dagu Console: off sends nothing, health sends its version and which services run, and runs also sends DAG-run status changes"
+
+    LicenseMonitoring:
+      type: object
+      description: "What this server reports to Dagu Console"
+      properties:
+        level:
+          $ref: "#/components/schemas/LicenseMonitoringLevel"
+        configured:
+          type: boolean
+          description: "Whether cloud.report in the configuration fixes the level"
+        chosen:
+          type: boolean
+          description: "Whether an administrator chose the level on this server"
+        noticeDismissed:
+          type: boolean
+          description: "Whether an administrator dismissed the notice that asks what to report"
+        lastReportAt:
+          type: string
+          description: "When Dagu Console accepted the last report this server sent"
+        lastReport:
+          type: string
+          description: "JSON body of the last report, as sent, with heartbeat_secret replaced by \"[redacted]\""
+      required:
+        - level
+        - configured
+        - chosen
+        - noticeDismissed
 
     ChangePasswordRequest:
       type: object

@@ -589,6 +589,16 @@ func (f *eventFeed) save(ctx context.Context, next eventState) bool {
 	return true
 }
 
+// forget gives up the lease after moving the position to the newest event,
+// so that reporting events again later leaves out the events in between.
+func (f *eventFeed) forget(ctx context.Context) {
+	if f == nil || !f.held {
+		return
+	}
+	f.save(ctx, eventState{Version: eventStateVersion})
+	f.close(ctx)
+}
+
 // close gives up the lease.
 func (f *eventFeed) close(ctx context.Context) {
 	if f == nil || !f.held {

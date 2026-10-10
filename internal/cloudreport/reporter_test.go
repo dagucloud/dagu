@@ -45,7 +45,7 @@ func TestReportPayload(t *testing.T) {
 		},
 		serviceregistry.ServiceNameCoordinator: {{ID: "c1"}, {ID: "c2"}},
 	}}
-	clock := startReporter(t.Context(), t, newReporter(console.credentials, registry), noJitter)
+	clock := startReporter(t.Context(), t, newReporter(console.credentials, registry, fixedLevel(config.ReportRuns)), noJitter)
 
 	assert.Equal(t, maxStartDelay/2, clock.wait())
 	clock.elapse()
@@ -85,7 +85,7 @@ func TestReportWithoutServices(t *testing.T) {
 			t.Parallel()
 
 			console := newFakeConsole(t)
-			clock := startReporter(t.Context(), t, newReporter(console.credentials, registry), noJitter)
+			clock := startReporter(t.Context(), t, newReporter(console.credentials, registry, fixedLevel(config.ReportRuns)), noJitter)
 
 			clock.wait()
 			clock.elapse()
@@ -118,7 +118,7 @@ func TestReportNextInterval(t *testing.T) {
 			t.Parallel()
 
 			console := newFakeConsole(t, consoleResponse{status: http.StatusOK, body: tc.body})
-			clock := startReporter(t.Context(), t, newReporter(console.credentials, nil), noJitter)
+			clock := startReporter(t.Context(), t, newReporter(console.credentials, nil, fixedLevel(config.ReportRuns)), noJitter)
 
 			clock.wait()
 			assert.Equal(t, tc.want, clock.next())
@@ -143,7 +143,7 @@ func TestReportJitter(t *testing.T) {
 			t.Parallel()
 
 			console := newFakeConsole(t)
-			clock := startReporter(t.Context(), t, newReporter(console.credentials, nil),
+			clock := startReporter(t.Context(), t, newReporter(console.credentials, nil, fixedLevel(config.ReportRuns)),
 				func() float64 { return tc.random })
 
 			assert.Equal(t, tc.wantFirst, clock.wait())
@@ -163,7 +163,7 @@ func TestReportWithoutCredentials(t *testing.T) {
 		}
 		return console.credentials()
 	}
-	clock := startReporter(t.Context(), t, newReporter(credentials, nil), noJitter)
+	clock := startReporter(t.Context(), t, newReporter(credentials, nil, fixedLevel(config.ReportRuns)), noJitter)
 
 	clock.wait()
 	assert.Equal(t, time.Minute, clock.next())
@@ -191,7 +191,7 @@ func TestReportTooManyRequests(t *testing.T) {
 			t.Parallel()
 
 			console := newFakeConsole(t, consoleResponse{status: http.StatusTooManyRequests, retryAfter: tc.retryAfter})
-			clock := startReporter(t.Context(), t, newReporter(console.credentials, nil), noJitter)
+			clock := startReporter(t.Context(), t, newReporter(console.credentials, nil, fixedLevel(config.ReportRuns)), noJitter)
 
 			clock.wait()
 			assert.Equal(t, tc.want, clock.next())
@@ -211,7 +211,7 @@ func TestReportServerErrorsBackOff(t *testing.T) {
 			consoleResponse{status: http.StatusOK, body: `{"next_report_seconds": 120}`},
 			failure,
 		)
-		clock := startReporter(t.Context(), t, newReporter(console.credentials, nil), noJitter)
+		clock := startReporter(t.Context(), t, newReporter(console.credentials, nil, fixedLevel(config.ReportRuns)), noJitter)
 
 		clock.wait()
 		var waits []time.Duration
@@ -238,7 +238,7 @@ func TestReportServerErrorsBackOff(t *testing.T) {
 			consoleResponse{status: http.StatusTooManyRequests, retryAfter: "7"},
 			failure,
 		)
-		clock := startReporter(t.Context(), t, newReporter(console.credentials, nil), noJitter)
+		clock := startReporter(t.Context(), t, newReporter(console.credentials, nil, fixedLevel(config.ReportRuns)), noJitter)
 
 		clock.wait()
 		var waits []time.Duration
@@ -261,7 +261,7 @@ func TestReportServerErrorsBackOff(t *testing.T) {
 		credentials := func() (license.CloudCredentials, bool) {
 			return license.CloudCredentials{CloudURL: "http://127.0.0.1:0", LicenseID: "lic-1", ServerID: "srv-1"}, true
 		}
-		clock := startReporter(t.Context(), t, newReporter(credentials, nil), noJitter)
+		clock := startReporter(t.Context(), t, newReporter(credentials, nil, fixedLevel(config.ReportRuns)), noJitter)
 
 		clock.wait()
 		assert.Equal(t, time.Minute, clock.next())
@@ -288,7 +288,7 @@ func TestReportRejected(t *testing.T) {
 		logger.WithWriter(&logs),
 		logger.WithQuiet(),
 	))
-	clock := startReporter(ctx, t, newReporter(console.credentials, nil), noJitter)
+	clock := startReporter(ctx, t, newReporter(console.credentials, nil, fixedLevel(config.ReportRuns)), noJitter)
 
 	clock.wait()
 	for range 6 {
@@ -302,6 +302,11 @@ func TestReportRejected(t *testing.T) {
 // noJitter makes every wait exact and the first report wait half of
 // maxStartDelay.
 func noJitter() float64 { return 0.5 }
+
+// fixedLevel is monitoring whose level configuration fixes.
+func fixedLevel(level config.ReportLevel) *Monitoring {
+	return NewMonitoring(level, nil)
+}
 
 // startReporter runs r with fixed randomness and a clock the test controls.
 func startReporter(ctx context.Context, t *testing.T, r *Reporter, random func() float64) *fakeClock {

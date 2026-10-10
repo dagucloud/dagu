@@ -3292,6 +3292,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/license/monitoring": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get what this server reports to Dagu Console
+         * @description Returns how much this server reports to Dagu Console, whether configuration fixes it, and the last report sent. Admin only.
+         */
+        get: operations["getLicenseMonitoring"];
+        /**
+         * Choose what this server reports to Dagu Console
+         * @description Sets how much this server reports to Dagu Console. The change applies at once; off stops a report in flight. Admin only.
+         */
+        put: operations["updateLicenseMonitoring"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/license/monitoring/dismiss-notice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dismiss the notice that asks what to report
+         * @description Stops asking administrators to choose what this server reports to Dagu Console. Admin only.
+         */
+        post: operations["dismissLicenseMonitoringNotice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/wiki": {
         parameters: {
             query?: never;
@@ -6692,6 +6736,25 @@ export interface components {
             expiresAt?: string;
             /** @description Why the request failed */
             error?: string;
+        };
+        /**
+         * @description How much this server reports to Dagu Console: off sends nothing, health sends its version and which services run, and runs also sends DAG-run status changes
+         * @enum {string}
+         */
+        LicenseMonitoringLevel: LicenseMonitoringLevel;
+        /** @description What this server reports to Dagu Console */
+        LicenseMonitoring: {
+            level: components["schemas"]["LicenseMonitoringLevel"];
+            /** @description Whether cloud.report in the configuration fixes the level */
+            configured: boolean;
+            /** @description Whether an administrator chose the level on this server */
+            chosen: boolean;
+            /** @description Whether an administrator dismissed the notice that asks what to report */
+            noticeDismissed: boolean;
+            /** @description When Dagu Console accepted the last report this server sent */
+            lastReportAt?: string;
+            /** @description JSON body of the last report, as sent, with heartbeat_secret replaced by "[redacted]" */
+            lastReport?: string;
         };
         /** @description Request body for changing password */
         ChangePasswordRequest: {
@@ -17932,6 +17995,171 @@ export interface operations {
             };
         };
     };
+    getLicenseMonitoring: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What this server reports */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LicenseMonitoring"];
+                };
+            };
+            /** @description License management is not available */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateLicenseMonitoring: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    level: components["schemas"]["LicenseMonitoringLevel"];
+                };
+            };
+        };
+        responses: {
+            /** @description What this server reports after the change */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LicenseMonitoring"];
+                };
+            };
+            /** @description Unknown level, or license management is not available */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description cloud.report in the configuration fixes the level */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    dismissLicenseMonitoringNotice: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What this server reports */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LicenseMonitoring"];
+                };
+            };
+            /** @description License management is not available */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     listWikiPages: {
         parameters: {
             query?: {
@@ -21345,6 +21573,11 @@ export enum LicenseConnectStatusState {
     granted = "granted",
     failed = "failed",
     expired = "expired"
+}
+export enum LicenseMonitoringLevel {
+    off = "off",
+    health = "health",
+    runs = "runs"
 }
 export enum APIKeyAllowedSurfaces {
     rest_api = "rest_api",

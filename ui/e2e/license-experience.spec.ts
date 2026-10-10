@@ -1,10 +1,14 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { loadStack, loginViaUI } from './helpers/e2e';
 import type { LicenseStatus } from '../src/contexts/ConfigContext';
-import { LicenseStatusResponseConnectedVia } from '../src/api/v1/schema';
+import {
+  LicenseMonitoringLevel,
+  LicenseStatusResponseConnectedVia,
+} from '../src/api/v1/schema';
+import type { LicenseMonitoring } from '../src/hooks/useLicenseMonitoring';
 
 const community: LicenseStatus = {
   valid: false,
@@ -26,6 +30,14 @@ const team: LicenseStatus = {
   source: 'file',
   features: ['audit', 'rbac', 'sso'],
 };
+
+// settled waits for open and close animations, so screenshots show the end
+// state.
+async function settled(page: Page) {
+  await page.waitForFunction(() =>
+    document.getAnimations().every((a) => a.playState !== 'running')
+  );
+}
 
 test('shows activation, benefits, and deactivation on desktop and mobile', async ({
   page,
@@ -141,11 +153,17 @@ test('shows activation, benefits, and deactivation on desktop and mobile', async
 test('connects a community server through Dagu Console', async ({
   page,
   context,
-}) => {
+}, testInfo) => {
   const stack = await loadStack();
   const connectUrl = 'https://console.dagu.test/servers/connect?code=abc';
   let license = community;
   let approved = false;
+  let monitoring: LicenseMonitoring = {
+    level: LicenseMonitoringLevel.off,
+    configured: false,
+    chosen: false,
+    noticeDismissed: false,
+  };
   await context.route('https://console.dagu.test/**', (route) =>
     route.fulfill({ contentType: 'text/html', body: '<h1>Approve</h1>' })
   );
@@ -153,6 +171,27 @@ test('connects a community server through Dagu Console', async ({
   await page.route('**/api/v1/license/**', async (route) => {
     const url = new URL(route.request().url());
     expect(url.searchParams.get('remoteNode')).toBe('local');
+    if (url.pathname.endsWith('/license/monitoring')) {
+      if (route.request().method() === 'PUT') {
+        const { level } = route.request().postDataJSON();
+        // The server reports once the level allows it.
+        monitoring = {
+          ...monitoring,
+          level,
+          chosen: true,
+          lastReportAt: new Date().toISOString(),
+          lastReport: JSON.stringify({
+            protocol: 1,
+            license_id: 'lic-1',
+            server_id: 'srv-123',
+            heartbeat_secret: '[redacted]',
+            health: { version: '2.19.0', os: 'linux', arch: 'amd64' },
+          }),
+        };
+      }
+      await route.fulfill({ json: monitoring });
+      return;
+    }
     if (url.pathname.endsWith('/connect')) {
       await route.fulfill({
         json: approved
@@ -189,12 +228,42 @@ test('connects a community server through Dagu Console', async ({
   await expect(
     page.getByText('Team connected. Explore your included features below.')
   ).toBeVisible();
+
+  // A server just connected is offered failure emails.
+  const dialog = page.getByRole('dialog', {
+    name: 'Monitor this server from Dagu Console',
+  });
+  await expect(dialog).toBeVisible();
+  await expect(
+    dialog.getByRole('radio', { name: 'Health and run status (recommended)' })
+  ).toBeChecked();
+  await settled(page);
+  await page.screenshot({
+    path: testInfo.outputPath('monitoring-dialog.png'),
+    fullPage: true,
+  });
+  await dialog.getByRole('button', { name: 'Turn on' }).click();
+  await expect(dialog).toBeHidden();
+
   const panel = page.getByRole('region', { name: 'This server' });
   await expect(panel).toContainText('build-01');
   await expect(panel).toContainText('acme');
   await expect(
     panel.getByRole('link', { name: 'Manage in Dagu Console' })
   ).toHaveAttribute('href', 'https://console.dagu.test/servers?server=srv-123');
+
+  const card = page.getByRole('region', { name: 'Monitoring' });
+  await expect(card).toContainText('Health and run status');
+  await expect(card).toContainText('Last report');
+  await card.screenshot({ path: testInfo.outputPath('monitoring-card.png') });
+  await card.getByRole('button', { name: 'View last report' }).click();
+  const report = page.getByRole('dialog', { name: 'Last report' });
+  await expect(report).toContainText('"heartbeat_secret": "[redacted]"');
+  await settled(page);
+  await page.screenshot({
+    path: testInfo.outputPath('monitoring-last-report.png'),
+    fullPage: true,
+  });
 });
 
 test('gives non-admins status and administrator guidance', async ({ page }) => {
