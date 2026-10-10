@@ -178,4 +178,16 @@ func TestRowsReportUnresolvedReference(t *testing.T) {
 	rows, err := DecodeUpdateRows(`[{"note": "${HOME}"}]`)
 	require.NoError(t, err)
 	assert.Equal(t, []Row{{"note": "${HOME}"}}, rows)
+
+	// An input file never goes through substitution, so ${...} in it is
+	// only text that is not valid JSON.
+	path := filepath.Join(t.TempDir(), "rows.json")
+	for _, tc := range []struct{ content, want string }{
+		{`[{"a": ${x}}]`, "rows: invalid JSON: invalid character '$' looking for beginning of value"},
+		{`${x}`, "rows must be a JSON array of objects or arrays"},
+	} {
+		require.NoError(t, os.WriteFile(path, []byte(tc.content), 0o600))
+		_, err := LoadTable(path, LoadOptions{})
+		require.EqualError(t, err, tc.want, tc.content)
+	}
 }

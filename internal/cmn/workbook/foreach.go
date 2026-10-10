@@ -20,12 +20,14 @@ import (
 // decoded and returned as well, so the caller can take key order from it;
 // a foreach aggregate yields its outputs; a single object or scalar stands
 // alone for the caller to judge. shape names the accepted element kinds
-// in the error for text that is not JSON.
-func rowList(value any, shape string) (list []any, jsonText string, err error) {
+// in the error for text that is not JSON. substituted says the text went
+// through ${...} substitution, as a step's rows do and a file's contents
+// do not; only then is a reference left in it named in the error.
+func rowList(value any, shape string, substituted bool) (list []any, jsonText string, err error) {
 	if text, ok := value.(string); ok {
 		trimmed := strings.TrimSpace(text)
 		if !looksLikeJSON(trimmed) {
-			if isReference(trimmed) {
+			if substituted && isReference(trimmed) {
 				return nil, "", unresolvedError("rows", trimmed)
 			}
 			return nil, "", fmt.Errorf("rows must be a JSON array of %s", shape)
@@ -37,7 +39,7 @@ func rowList(value any, shape string) (list []any, jsonText string, err error) {
 		}
 		decoded, err := decodeJSON(trimmed)
 		if err != nil {
-			if ref, ok := unresolvedReference(trimmed, err); ok {
+			if ref, ok := unresolvedReference(trimmed, err); ok && substituted {
 				return nil, "", unresolvedError("rows", ref)
 			}
 			return nil, "", fmt.Errorf("rows: %w", err)
