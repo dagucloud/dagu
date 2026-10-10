@@ -44,7 +44,7 @@ const (
 var genericImageLimit = ImageLimit{LongEdge: 1568, MaxPixels: 1_150_000}
 
 const genericSystemPrompt = `You operate a computer by calling tools. After each round of tool calls you receive a screenshot of the screen. Coordinates are pixels in that screenshot, measured from its top-left corner.
-Work in small steps and check each new screenshot before continuing. Key names follow common spelling, such as "Return", "Tab", "ctrl+c" or "cmd+space".
+Work in small steps and check each new screenshot before continuing. Close a window with its close button or the application's own menu, never with Alt+F4 or Cmd+Q, which act on whichever window has the focus. Key names follow common spelling, such as "Return", "Tab", "ctrl+c" or "cmd+space".
 ` + DoneInstruction
 
 // genericSession drives a model through plain function tools.

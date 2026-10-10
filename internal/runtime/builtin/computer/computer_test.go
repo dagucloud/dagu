@@ -810,6 +810,100 @@ func TestWaitsForIdleDesktop(t *testing.T) {
 	}
 }
 
+// A step never operates the application that runs it: keys while one of
+// its windows has the focus, or a click on one, fail and the model is told.
+func TestOwnApplicationIsNeverOperated(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	run.protect = []uint32{99}
+	run.backend.focusOn(desktop.WindowID{Handle: 5, Title: "Kitewell", PID: 99})
+	run.backend.under = desktop.WindowID{Handle: 5, Title: "Kitewell", PID: 99}
+	session := &scriptedSession{turns: []*computeruse.Turn{
+		actions(computeruse.Action{CallID: "k", Kind: computeruse.KindKey, Keys: []string{"alt", "F4"}}),
+		actions(clickAt(10, 10)),
+		done("Gave up"),
+	}}
+	run.sessions = []*scriptedSession{session}
+	execution := run.execute(`{"do": [{"act": "Close the window"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	assert.Empty(t, run.backend.inputs(), "nothing reached the desktop")
+	require.Len(t, session.observations, 3)
+	assert.Contains(t, session.observations[1].Results[0].Error, `"Kitewell" belongs to the application that runs this step`)
+	assert.Contains(t, session.observations[2].Results[0].Error, "never operates")
+}
+
+// The own-application guard covers every window an action reaches: the
+// window under the cursor for a button press that moves nothing, a later
+// point a drag crosses, and the focused window for a click that holds a
+// modifier while the pointer is elsewhere.
+func TestOwnApplicationGuardCoversEveryReach(t *testing.T) {
+	t.Parallel()
+
+	own := desktop.WindowID{Handle: 5, Title: "Kitewell", PID: 99}
+	other := desktop.WindowID{Handle: 6, Title: "Notepad", PID: 7}
+
+	cases := []struct {
+		name  string
+		setup func(*fakeBackend)
+		turn  *computeruse.Turn
+	}{
+		{
+			name:  "button press at the cursor over an owned window",
+			setup: func(b *fakeBackend) { b.under = own },
+			turn:  actions(computeruse.Action{CallID: "a", Kind: computeruse.KindMouseDown, Button: "left"}),
+		},
+		{
+			name: "a drag crosses an owned window after its first point",
+			setup: func(b *fakeBackend) {
+				b.windowAt = func(x, _ int) desktop.WindowID {
+					if x >= 100 {
+						return own
+					}
+					return other
+				}
+			},
+			turn: actions(computeruse.Action{CallID: "a", Kind: computeruse.KindDrag, Path: []computeruse.Point{{X: 10, Y: 10}, {X: 150, Y: 10}}}),
+		},
+		{
+			name:  "a modifier click while an owned window has the focus",
+			setup: func(b *fakeBackend) { b.under = other; b.focus = own },
+			turn:  actions(computeruse.Action{CallID: "a", Kind: computeruse.KindClick, Button: "left", Modifiers: []string{"alt"}, Point: &computeruse.Point{X: 10, Y: 10}}),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			run := newTestRun(t)
+			run.protect = []uint32{99}
+			tc.setup(run.backend)
+			session := &scriptedSession{turns: []*computeruse.Turn{tc.turn, done("Gave up")}}
+			run.sessions = []*scriptedSession{session}
+			execution := run.execute(`{"do": [{"act": "Operate"}]}`, nil)
+			require.NoError(t, execution.err)
+			assert.Empty(t, run.backend.inputs(), "nothing reached the desktop")
+			require.GreaterOrEqual(t, len(session.observations), 2)
+			assert.Contains(t, session.observations[1].Results[0].Error, "never operates")
+		})
+	}
+}
+
+// A wait for a person ends with an event, so a view knows the step is at
+// work again before its operation finishes.
+func TestWaitEndsWithAnEvent(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(1, 1)), done("Clicked")}}}
+	run.backend.personKeepsUsing(2)
+	execution := run.execute(`{"idle": "100ms", "do": [{"act": "Click"}]}`, nil)
+	require.NoError(t, execution.err)
+	messages := lifecycleMessages(execution.exec.GetAgentSession())
+	assert.Contains(t, messages, "Waiting until nobody has used the desktop for 100ms")
+	assert.Contains(t, messages, "Nobody has used the desktop for 100ms; continuing")
+}
+
 // Waiting for a person is not the task's time: an act whose time limit is
 // shorter than the wait still completes, and only a person who never stops
 // fails it, after the wait the step allows.
@@ -846,16 +940,22 @@ func TestPersonInputSkipsStaleTurn(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		changed bool
+		focus   bool
 		inputs  []string
 	}{
 		{name: "screen changed", changed: true, inputs: []string{"move 20,20", "left down #1"}},
 		// A person who only touched the mouse leaves the screen as the model
 		// saw it, so the actions run without another model turn.
 		{name: "screen unchanged", changed: false, inputs: []string{"move 10,10", "left down #1", "move 20,20", "left down #1"}},
+		// A person who clicked another window changed nothing a screenshot
+		// shows, but moved where keys would go; the turn goes back to the
+		// model.
+		{name: "focus moved", focus: true, inputs: []string{"move 20,20", "left down #1"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			run := newTestRun(t)
+			run.backend.focusOn(desktop.WindowID{Handle: 1, Title: "Expense", PID: 7})
 			used := false
 			session := &scriptedSession{
 				turns: []*computeruse.Turn{actions(clickAt(10, 10)), actions(clickAt(20, 20)), done("Clicked")},
@@ -866,6 +966,9 @@ func TestPersonInputSkipsStaleTurn(t *testing.T) {
 						if tc.changed {
 							run.backend.show(pattern(400, 200, 150))
 						}
+						if tc.focus {
+							run.backend.focusOn(desktop.WindowID{Handle: 2, Title: "Mail", PID: 8})
+						}
 					}
 				},
 			}
@@ -875,7 +978,7 @@ func TestPersonInputSkipsStaleTurn(t *testing.T) {
 
 			assert.Equal(t, tc.inputs, run.backend.inputs())
 			require.Len(t, session.observations, 3)
-			if tc.changed {
+			if tc.changed || tc.focus {
 				assert.Equal(t, []computeruse.Result{{CallID: "c", Skipped: true}}, session.observations[1].Results)
 				assert.Equal(t, personNote, session.observations[1].Note)
 				assert.Contains(t, execution.stderr.String(), "Clicked (1 actions)")

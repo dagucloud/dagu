@@ -46,6 +46,8 @@ type screen struct {
 	png    []byte
 	// capturedAt is when the display was captured.
 	capturedAt time.Time
+	// focus is the window that had the keyboard focus then.
+	focus desktop.WindowID
 }
 
 // newScreen scales a capture to fit a model's image limit.
@@ -122,9 +124,9 @@ func (r *run) observe(ctx context.Context, limit computeruse.ImageLimit) (screen
 	if err != nil {
 		return screen{}, err
 	}
-	capturedAt := time.Now()
+	capturedAt, focus := time.Now(), r.driver.FocusedWindow()
 	shot, err := newScreen(full, limit)
-	shot.capturedAt = capturedAt
+	shot.capturedAt, shot.focus = capturedAt, focus
 	return shot, err
 }
 

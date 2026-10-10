@@ -45,6 +45,12 @@ type fakeBackend struct {
 	// personChecks is how many more checks find a person using the desktop
 	// at that moment.
 	personChecks int
+	// focus is the window with the keyboard focus, and under is the window
+	// under any position; zero means the system does not say.
+	focus, under desktop.WindowID
+	// windowAt, when set, reports the window under a given position, so a
+	// test can place different windows at different points.
+	windowAt func(x, y int) desktop.WindowID
 	// captures counts the screenshots taken.
 	captures int
 }
@@ -295,6 +301,28 @@ func (b *fakeBackend) Type(text string) error {
 	return nil
 }
 
+func (b *fakeBackend) FocusedWindow() desktop.WindowID {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.focus
+}
+
+func (b *fakeBackend) WindowAt(x, y int) desktop.WindowID {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.windowAt != nil {
+		return b.windowAt(x, y)
+	}
+	return b.under
+}
+
+// focusOn moves the keyboard focus to a window.
+func (b *fakeBackend) focusOn(window desktop.WindowID) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.focus = window
+}
+
 func (b *fakeBackend) Close() error { return nil }
 
 // scriptedSession answers each observation with the next scripted turn and
@@ -397,7 +425,9 @@ type testRun struct {
 	sessionErrors map[string]error
 	// personWait, when set, bounds how long a step waits for a person.
 	personWait time.Duration
-	launches   [][]string
+	// protect names processes whose windows the step must not operate.
+	protect  []uint32
+	launches [][]string
 }
 
 func newTestRun(t *testing.T) *testRun {
@@ -435,7 +465,11 @@ func (r *testRun) execute(withJSON string, session *ir.AgentSession) *stepExecut
 	created, err := newExecutor(r.t.Context(), step)
 	require.NoError(r.t, err)
 	execution := &stepExecution{exec: created.(*computerExecutor)}
-	execution.exec.openDesktop = func() (*desktop.Driver, error) { return desktop.New(r.backend), nil }
+	execution.exec.openDesktop = func() (*desktop.Driver, error) {
+		driver := desktop.New(r.backend)
+		driver.Protect(r.protect...)
+		return driver, nil
+	}
 	execution.exec.openElements = func() (desktop.Elements, error) {
 		if r.elements == nil {
 			return nil, desktop.ErrElementsUnsupported
