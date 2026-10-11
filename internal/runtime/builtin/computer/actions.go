@@ -63,14 +63,17 @@ func (r *run) perform(ctx context.Context, index int, actions []computeruse.Acti
 func (r *run) elementOf(display computeruse.Action) *recordedElement {
 	if at, pointer := target(display); pointer {
 		if e, err := r.elementAt(at); err == nil {
-			return r.recordElement(e, &at)
+			// The application comes from the window the action lands on, so
+			// an action in a second visible window records its own window,
+			// not the one the turn started in.
+			return r.recordElement(e, &at, r.driver.WindowAt(at).App)
 		}
 		return nil
 	}
 	switch display.Kind {
 	case computeruse.KindType, computeruse.KindKey, computeruse.KindHoldKey:
 		if e, err := r.focusedElement(); err == nil {
-			return r.recordElement(e, nil)
+			return r.recordElement(e, nil, r.driver.FocusedWindow().App)
 		}
 	}
 	return nil

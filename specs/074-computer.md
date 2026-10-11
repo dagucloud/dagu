@@ -271,14 +271,17 @@ An element with neither a name nor an id is recorded by its pixels alone.
 A name or a typed text equal to a variable's value or an `ask` answer of
 two or more characters is recorded as the `%name%` placeholder, and a
 window title containing such a value likewise, so a recording made on one
-record replays on the next. The recording ends with its landmarks: the
-title of the window in front and up to three of the elements the act
-touched last that were still there.
+record replays on the next. The recording keeps the application of the
+window the act ran on — the process image name — which a replay matches on,
+and each window's title only to tell apart several windows of one
+application and as a fallback when the application cannot be read. The
+recording ends with its landmarks: the window in front and up to three of
+the elements the act touched last that were still there.
 
 A later run of the same step on the same host replays a recording without
 a model request when the operation position and instruction match. Each
 turn replays by its elements when every pointer action of the turn has one
-and the window in front is the recorded one: each element is found again,
+and the application in front is the recorded one: each element is found again,
 with the recorded path breaking a tie between equal matches, and the action
 runs where it is now, typing into it after focusing it. Otherwise the turn
 replays by its pixels, which need the recorded display size and each
@@ -341,10 +344,14 @@ from its first operation.
 
 A step checks elements through exact conditions (see Conditions), and a
 replay acts on the elements the model's actions landed on and waits for
-them (see Replay cache). When the recorded window is not in front, a
-replay brings it forward before it looks again, never the step's own
-application, so a window that lost the focus is raised rather than counted
-a miss. Names, labels, window titles, and the text a
+them (see Replay cache). A replay identifies the recorded window by its
+**application** — the process image name — not by its title, since a title
+often shows the document's contents and changes every run; it falls back to
+the title only when the application cannot be read. When the recorded
+application is not in front, a replay brings a window of that application
+forward before it looks again, preferring one whose title still matches,
+never the step's own application, so a window that lost the focus is raised
+rather than counted a miss. Names, labels, window titles, and the text a
 check looks for are compared after folding full-width characters to
 half-width, collapsing whitespace, and dropping a label's trailing colon,
 so a selector a person types matches what a form shows without reproducing

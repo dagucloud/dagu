@@ -43,9 +43,15 @@ type recording struct {
 	Height  int                 `json:"height"`
 	Turns   []recordedTurn      `json:"turns"`
 	Final   desktop.Fingerprint `json:"final"`
-	// Window is the title of the front window when the act ended, and
-	// Landmarks up to three elements the act touched that were still there,
-	// which a replay by elements checks in place of the final screen.
+	// App is the application of the front window when the act ended: the
+	// process image name without its extension, which a replay by elements
+	// matches instead of the title, since a title often shows the
+	// document's contents and changes every run. Window is that window's
+	// title, kept to tell apart several windows of the same app and as a
+	// fallback when the app cannot be read; Landmarks are up to three
+	// elements the act touched that were still there, which a replay by
+	// elements checks in place of the final screen.
+	App       string            `json:"app,omitempty"`
 	Window    string            `json:"window,omitempty"`
 	Landmarks []recordedElement `json:"landmarks,omitempty"`
 }
