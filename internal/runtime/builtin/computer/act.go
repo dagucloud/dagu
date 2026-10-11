@@ -25,6 +25,18 @@ const continueNote = "Continue the task. " + computeruse.DoneInstruction
 // personNote tells a model why its actions were not run.
 const personNote = "A person used the computer after your last screenshot, so your last actions were not run. Continue the task from the current screen."
 
+// repeatNote tells a model that its last round repeated the one before it
+// and changed nothing on the screen.
+const repeatNote = "You repeated your previous round of actions, and the screen looks the same as it did before them. Repeating them again will not help. If the task is already complete, report done; otherwise take a different approach."
+
+// capNote tells a model that the task has no actions left, and asks for its
+// report instead of its next actions.
+const capNote = "This task has used all the actions it may take, so your last actions were not run. Do not act again. If the task is complete, report done with success; otherwise report done with success set to false and say what is left."
+
+// verifyNote asks a model that reported the task done in the same turn as
+// actions to look at what they did before the report is accepted.
+const verifyNote = "Your actions ran and you reported the task done, but you have not seen the result yet. Look at this screen. If the task is complete, report done again without any action; otherwise continue the task."
+
 // actOutcome is what a model-driven act did.
 type actOutcome struct {
 	summary   string
@@ -88,6 +100,12 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 				return err
 			}
 			if replay.complete {
+				// A recording made before recordings knew their position is
+				// written back with it, so it can be forgotten on its own.
+				if entry.Op != index {
+					entry.Op = index
+					r.cache.Stage(key, entry)
+				}
 				r.report(ctx, agentstep.Report{
 					Index: index, Kind: opAct, Subject: spec.Instruction, Status: agentstep.StatusCacheHit, Via: replay.via(),
 					Detail: fmt.Sprintf("replayed %d turns", len(entry.Turns)), Duration: time.Since(began),
@@ -114,6 +132,7 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 		return err
 	}
 	outcome.recording.Turns = append(slices.Clone(replayed), outcome.recording.Turns...)
+	outcome.recording.Op = index
 	// A successful act records under every choice, so a later switch to
 	// replaying starts with a recording.
 	if len(outcome.recording.Turns) > 0 {
@@ -191,6 +210,11 @@ type actLoop struct {
 	// they name, so click_element resolves to a position.
 	choices  map[string]desktop.Element
 	reminded bool
+	// capped records that the model was told the task has no actions left
+	// and asked for its report.
+	capped bool
+	// lastRound is the previous round of actions, for noticing a repeat.
+	lastRound string
 }
 
 // maxModelElements bounds how many actionable elements an observation
@@ -221,8 +245,24 @@ func (l *actLoop) run(ctx context.Context) error {
 		if turn.Text != "" {
 			logAction(l.r.timeline, l.index, "model: "+agentstep.QuoteShort(turn.Text))
 		}
-		if err := l.admit(turn); err != nil {
+		over, err := l.admit(turn)
+		if err != nil {
 			return err
+		}
+		if over {
+			// The task has no actions left. The model is told once, with the
+			// screen, and may still report the task done; one that acts
+			// again instead ends the act.
+			if l.capped {
+				return fmt.Errorf("the task needed more than max_actions (%d) actions", l.budget)
+			}
+			l.capped = true
+			logAction(l.r.timeline, l.index, "the task has used the actions it may take; asking the model to report")
+			if l.seen, err = l.r.observe(ctx, l.limit); err != nil {
+				return err
+			}
+			obs = computeruse.Observation{Screen: l.seen.forModel(), Results: skippedResults(turn.Actions), Note: capNote}
+			continue
 		}
 		stale, err := l.stale(ctx, turn)
 		if err != nil {
@@ -243,6 +283,7 @@ func (l *actLoop) run(ctx context.Context) error {
 			}
 		}
 		var results []computeruse.Result
+		before := desktop.FingerprintOf(l.seen.full)
 		if stale {
 			logAction(l.r.timeline, l.index, "a person used the desktop; the model's actions were not run")
 			results = skippedResults(turn.Actions)
@@ -252,9 +293,12 @@ func (l *actLoop) run(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		// A model that finishes in the same turn as a failed action has not
-		// seen the failure yet, so it is shown the result first.
-		if turn.Done != nil && !stale && !anyFailed(results) {
+		// A model that finishes in the same turn as actions has not seen
+		// what they did, so it is shown the screen and asked again; one that
+		// finishes beside a failed action likewise sees the failure first. A
+		// report without actions is believed.
+		verify := turn.Done != nil && !stale && !anyFailed(results)
+		if verify && len(turn.Actions) == 0 {
 			return l.finish(ctx, turn)
 		}
 		note, err := l.reminder(turn)
@@ -264,8 +308,23 @@ func (l *actLoop) run(ctx context.Context) error {
 		if stale {
 			note = personNote
 		}
+		if verify {
+			note = verifyNote
+		}
 		if l.seen, err = l.r.observe(ctx, l.limit); err != nil {
 			return err
+		}
+		// A round that repeats the previous one and leaves the screen as it
+		// was is going nowhere; the model is told before it tries a third
+		// time.
+		if round := describeRound(turn.Actions); !stale && len(turn.Actions) > 0 {
+			if round == l.lastRound && desktop.FingerprintOf(l.seen.full).Distance(before) <= replayScreenDistance {
+				logAction(l.r.timeline, l.index, "the model repeated its previous actions and the screen did not change")
+				if note == "" {
+					note = repeatNote
+				}
+			}
+			l.lastRound = round
 		}
 		obs = computeruse.Observation{
 			Screen:       l.seen.forModel(),
@@ -430,15 +489,22 @@ func usesKeyboard(actions []computeruse.Action) bool {
 	return false
 }
 
-// admit rejects a turn whose actions the step may not run.
-func (l *actLoop) admit(turn *computeruse.Turn) error {
+// admit rejects a turn whose actions the step may not run, and reports a
+// turn whose actions would take the task past its budget.
+func (l *actLoop) admit(turn *computeruse.Turn) (over bool, err error) {
 	if turn.Confirmation != "" && len(turn.Actions) > 0 && l.r.cfg.OnConfirmation != confirmationAllow {
-		return fmt.Errorf("the model provider asks a person to confirm the next actions (%s); add an ask operation before this act and set on_confirmation: allow", turn.Confirmation)
+		return false, fmt.Errorf("the model provider asks a person to confirm the next actions (%s); add an ask operation before this act and set on_confirmation: allow", turn.Confirmation)
 	}
-	if l.spent+l.outcome.actions+len(turn.Actions) > l.budget {
-		return fmt.Errorf("the task needed more than max_actions (%d) actions", l.budget)
+	return l.spent+l.outcome.actions+len(turn.Actions) > l.budget, nil
+}
+
+// describeRound summarizes a round of actions so two rounds can be compared.
+func describeRound(actions []computeruse.Action) string {
+	parts := make([]string, 0, len(actions))
+	for _, action := range actions {
+		parts = append(parts, describeAction(action))
 	}
-	return nil
+	return strings.Join(parts, "\n")
 }
 
 // apply performs a turn's actions and records the ones that completed.

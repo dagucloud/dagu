@@ -42,6 +42,7 @@ func TestTimelineOperation(t *testing.T) {
 	assert.Equal(t, "Type *******\nDone", event.Content)
 	assert.Equal(t, []string{"computer/post/01-act.png"}, event.Files)
 	assert.Equal(t, agentstep.ViaModel, event.Via)
+	assert.Equal(t, 2, event.Position)
 	assert.Equal(t, int64(1500), event.DurationMs)
 	assert.Equal(t, int64(12), event.Tokens)
 }
