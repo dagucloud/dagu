@@ -668,6 +668,13 @@ func (d *Data) setOutputValue(value string) {
 	d.inner.State.OutputValue = &v
 }
 
+func (d *Data) clearOutputValue() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	d.inner.State.OutputValue = nil
+}
+
 func (d *Data) setOutputsValue(value string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()

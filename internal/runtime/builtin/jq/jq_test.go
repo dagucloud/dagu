@@ -6,6 +6,7 @@ package jq
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -827,4 +828,39 @@ func TestJQExecutor_ArgsDuplicateName(t *testing.T) {
 	_, err := newJQ(context.Background(), step)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "duplicates variable $name")
+}
+
+// A bare halt stops successfully; any non-zero halt_error fails the step,
+// even when its value is null.
+func TestJQErrors(t *testing.T) {
+	t.Parallel()
+	for _, raw := range []bool{false, true} {
+		for _, tc := range []struct{ name, query, data, wantErr, wantStdout string }{
+			{"type", ".amount + 1.1", `{"amount":"bad"}`, "cannot add", ""},
+			{"after value", `.[] | if . == 2 then error("bad row") else . end`, `[1,2,3]`, "bad row", "1\n"},
+			{"syntax", `{税: .x}`, `{"x":1}`, "unexpected token", ""},
+			{"empty", `empty`, `{}`, "", ""},
+			{"success", `.amount * 2`, `{"amount":3}`, "", "6\n"},
+			{"halt", `1, halt, 2`, `{}`, "", "1\n"},
+			{"halt error", `1, ("stop" | halt_error(5)), 2`, `{}`, "stop", "1\n"},
+			{"null halt error", `null | halt_error(1)`, `{}`, "halt error", ""},
+		} {
+			t.Run(fmt.Sprintf("%s/raw=%v", tc.name, raw), func(t *testing.T) {
+				t.Parallel()
+				step := ir.Step{Script: tc.data, Commands: []ir.CommandEntry{{CmdWithArgs: tc.query}}, ExecutorConfig: ir.ExecutorConfig{Config: map[string]any{"raw": raw}}}
+				exec, err := newJQ(context.Background(), step)
+				require.NoError(t, err)
+				var stdout, stderr bytes.Buffer
+				exec.SetStdout(&stdout)
+				exec.SetStderr(&stderr)
+				err = exec.Run(context.Background())
+				if tc.wantErr != "" {
+					require.ErrorContains(t, err, tc.wantErr)
+				} else {
+					require.NoError(t, err)
+				}
+				assert.Equal(t, tc.wantStdout, stdout.String())
+			})
+		}
+	}
 }

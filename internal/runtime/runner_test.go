@@ -1970,6 +1970,31 @@ func TestRunner(t *testing.T) {
 		require.True(t, ok, "output variable not found")
 		require.Equal(t, "ERROR_MSG=error_output", output, "expected output %q, got %q", "error_output", output)
 	})
+	t.Run("RepeatFailureClearsOutput", func(t *testing.T) {
+		r := setupRunner(t)
+		counterFile := filepath.Join(t.TempDir(), "counter")
+
+		// The first attempt succeeds and publishes; the repeated attempt fails,
+		// so its output must not resolve to the earlier attempt's value.
+		plan := r.newPlan(t,
+			newStep("1",
+				withScript(retryOutputSequenceScript(counterFile, []string{`{"value":1}`, ""}, 1)),
+				func(step *ir.Step) {
+					step.StructuredOutput = map[string]ir.StepOutputEntry{
+						"value": {From: ir.StepOutputSourceStdout, Decode: ir.StepOutputDecodeJSON, Select: ".value"},
+					}
+					step.RepeatPolicy.RepeatMode = ir.RepeatModeWhile
+					step.RepeatPolicy.ExitCode = []int{0}
+					step.RepeatPolicy.Interval = 20 * time.Millisecond
+				},
+			),
+		)
+
+		result := plan.assertRun(t, ir.Failed)
+		node := result.nodeByName(t, "1")
+		require.Equal(t, 2, node.State().DoneCount)
+		require.Nil(t, node.State().OutputValue)
+	})
 	t.Run("RetryPolicySubDAGRunWithOutputCapture", func(t *testing.T) {
 		r := setupRunner(t)
 

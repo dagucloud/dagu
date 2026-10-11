@@ -7,8 +7,8 @@ Partially implemented.
 ## Scope
 
 This spec covers `jq.filter` input selection, named arguments, scalar output,
-and configuration errors. The jq language, other value-resolution permutations,
-object formatting, and per-value error iteration belong to executor tests.
+and configuration and execution errors. The jq language, other value-resolution
+permutations, object formatting, and `halt` semantics belong to executor tests.
 
 ## Goal
 
@@ -56,8 +56,10 @@ the invalid configuration.
 Duplicate normalized argument names fail executor setup. Invalid variable names
 and undeclared jq variables fail filter compilation at step execution.
 
-Other filter-language errors, missing files, timeout, and abort behavior are
-outside this conformance scope.
+Unhandled filter evaluation errors fail the step. Output decoding must not hide
+a filter syntax, compilation, or evaluation error.
+
+Missing files, timeout, and abort behavior are outside this conformance scope.
 
 ## Example
 

@@ -366,7 +366,7 @@ func (n *Node) captureOutput(ctx context.Context) error {
 
 	var schemaOutput string
 	var schemaErr error
-	if step.HasOutputSchema() {
+	if step.HasOutputSchema() && n.Error() == nil {
 		raw, err := captureStdout()
 		if err != nil {
 			schemaErr = fmt.Errorf("failed to capture stdout for output_schema: %w", err)
@@ -378,7 +378,7 @@ func (n *Node) captureOutput(ctx context.Context) error {
 				schemaOutput = value
 			}
 		}
-		if schemaErr != nil && n.Error() == nil {
+		if schemaErr != nil {
 			return schemaErr
 		}
 	}
@@ -395,6 +395,11 @@ func (n *Node) captureOutput(ctx context.Context) error {
 		}
 	}
 
+	// Failed attempts retain legacy variables but do not decode or publish named outputs.
+	if n.Error() != nil {
+		return nil
+	}
+
 	// The last mechanism to publish wins, matching the order the legacy outputs
 	// object is built below.
 	var capturedOutputs string
@@ -409,9 +414,6 @@ func (n *Node) captureOutput(ctx context.Context) error {
 		capturedOutputs = value
 	}
 
-	// A failed step leaves schemaOutput empty because the schema error is
-	// suppressed above in favor of the step's own error. Publishing it would
-	// make the output resolve as present and empty rather than absent.
 	if step.HasOutputSchema() && !step.HasStructuredOutput() && schemaOutput != "" {
 		n.setOutputValue(schemaOutput)
 		capturedOutputs = schemaOutput
@@ -972,6 +974,7 @@ func (n *Node) setupExecutor(ctx context.Context) (context.Context, executor.Exe
 }
 
 func (n *Node) setupStepOutputFile(ctx context.Context) (context.Context, error) {
+	n.clearOutputValue()
 	n.clearOutputsValue()
 	n.clearStepOutputsValue()
 	n.setStepOutputFile("")

@@ -215,8 +215,10 @@ func (e *jq) Run(_ context.Context) error {
 			break
 		}
 		if err, ok := v.(error); ok {
-			_, _ = fmt.Fprintf(e.stderr, "failed to run jq query: %v", err)
-			continue
+			if halt, ok := err.(*gojq.HaltError); ok && halt.ExitCode() == 0 {
+				return nil
+			}
+			return fmt.Errorf("failed to run jq query: %w", err)
 		}
 		if e.cfg.Raw {
 			// In raw mode, output values without JSON encoding
