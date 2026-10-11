@@ -89,9 +89,9 @@ type Rect struct {
 type Action struct {
 	// CallID identifies the model call the action belongs to; the result
 	// of the action carries the same ID.
-	CallID    string        `json:"call_id,omitempty"`
-	Kind      Kind          `json:"kind"`
-	Point     *Point        `json:"point,omitempty"`
+	CallID string `json:"call_id,omitempty"`
+	Kind   Kind   `json:"kind"`
+	Point  *Point `json:"point,omitempty"`
 	// ElementID names an element from the observation to act on. The
 	// executor resolves it to a point before the action runs.
 	ElementID string        `json:"element_id,omitempty"`
