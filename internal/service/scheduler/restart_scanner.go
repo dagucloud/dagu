@@ -23,6 +23,9 @@ const (
 	restartErrorLogInterval = 30 * time.Second
 )
 
+// StopRequestedFunc reports whether an operator asked to stop a run of a DAG.
+type StopRequestedFunc func(ctx context.Context, dag *ir.DAG, runID string) (bool, error)
+
 // RestartScannerConfig configures a RestartScanner.
 type RestartScannerConfig struct {
 	// Entries returns the loaded DAG definitions.
@@ -35,6 +38,8 @@ type RestartScannerConfig struct {
 	IsQueued IsQueuedFunc
 	// GetLatestStatus returns the status of the latest run of a DAG.
 	GetLatestStatus GetLatestStatusFunc
+	// IsStopRequested reports whether an operator stopped a run.
+	IsStopRequested StopRequestedFunc
 	// RunExists reports whether a run with the ID already has a record.
 	RunExists RunExistsFunc
 	// Enqueue queues a run. It is nil when queues are disabled.
@@ -45,16 +50,20 @@ type RestartScannerConfig struct {
 
 // RestartScanner keeps one run of every DAG that sets restart_policy alive: it
 // queues the first run of such a DAG, then a new run restart_wait_sec after the
-// previous one ends. See specs/080-restart-policy.md.
+// previous one ends. With unless-stopped, no run follows a run that an operator
+// stopped.
 //
-// The scanner keeps no state of its own besides log throttling. Whether a run is
-// due follows from the DAG's latest run, so a scheduler restart or failover
-// resumes where the previous scheduler stopped.
+// Whether a run is due follows from the DAG's latest run, so a scheduler restart
+// or failover resumes where the previous scheduler stopped. The scanner only
+// remembers what saves logs and store reads.
 type RestartScanner struct {
 	cfg RestartScannerConfig
 
 	warnedNoQueue map[string]struct{}
 	lastErrorLog  map[string]time.Time
+	// stoppedRuns maps a DAG name to its latest run, once an operator is known
+	// to have stopped that run.
+	stoppedRuns map[string]string
 }
 
 // NewRestartScanner creates a RestartScanner.
@@ -69,6 +78,7 @@ func NewRestartScanner(cfg RestartScannerConfig) *RestartScanner {
 		cfg:           cfg,
 		warnedNoQueue: make(map[string]struct{}),
 		lastErrorLog:  make(map[string]time.Time),
+		stoppedRuns:   make(map[string]string),
 	}
 }
 
@@ -94,6 +104,7 @@ func (s *RestartScanner) Start(ctx context.Context) {
 
 func (s *RestartScanner) scan(ctx context.Context) {
 	now := s.cfg.Clock()
+	services := make(map[string]struct{})
 	for _, entry := range s.cfg.Entries() {
 		if ctx.Err() != nil {
 			return
@@ -101,10 +112,12 @@ func (s *RestartScanner) scan(ctx context.Context) {
 		if entry.DAG == nil || !entry.DAG.RestartPolicy.Enabled() {
 			continue
 		}
+		services[entry.DAG.Name] = struct{}{}
 		if err := s.process(ctx, entry, now); err != nil {
 			s.logError(ctx, entry.DAG.Name, now, err)
 		}
 	}
+	s.forgetOthers(services)
 }
 
 func (s *RestartScanner) process(ctx context.Context, entry DAGEntry, now time.Time) error {
@@ -115,6 +128,7 @@ func (s *RestartScanner) process(ctx context.Context, entry DAGEntry, now time.T
 		return err
 	}
 	if suspended {
+		logNoRestart(ctx, dag, "suspended")
 		return nil
 	}
 
@@ -131,9 +145,15 @@ func (s *RestartScanner) process(ctx context.Context, entry DAGEntry, now time.T
 	// A live process or a queued item keeps the DAG busy. On error the DAG is
 	// assumed busy, so a failing store cannot lead to two runs.
 	if running, err := s.cfg.IsRunning(ctx, dag); err != nil || running {
+		if running {
+			logNoRestart(ctx, dag, "run_alive")
+		}
 		return err
 	}
 	if queued, err := s.cfg.IsQueued(ctx, dag); err != nil || queued {
+		if queued {
+			logNoRestart(ctx, dag, "run_queued")
+		}
 		return err
 	}
 
@@ -141,15 +161,29 @@ func (s *RestartScanner) process(ctx context.Context, entry DAGEntry, now time.T
 	if err != nil {
 		return err
 	}
-	decision := decideRestart(dag.RestartPolicy, dag.RestartWait, &status, now)
+	decision := decideRestart(dag.RestartWait, &status, now)
+	if decision.start && dag.RestartPolicy == ir.RestartPolicyUnlessStopped && status.Status == ir.Aborted {
+		stopped, err := s.stoppedByOperator(ctx, dag, status.DAGRunID)
+		if err != nil {
+			return err
+		}
+		if stopped {
+			decision = restartDecision{reason: "stopped"}
+		}
+	}
 	if !decision.start {
+		logNoRestart(ctx, dag, decision.reason)
 		return nil
 	}
 
-	runID := GenerateRestartRunID(dag.Name, status.DAGRunID, decision.at)
+	runID := GenerateRestartRunID(dag.Name, status.DAGRunID, decision.previousEnd)
 	exists, err := s.cfg.RunExists(ctx, dag, runID)
-	if err != nil || exists {
+	if err != nil {
 		return err
+	}
+	if exists {
+		logNoRestart(ctx, dag, "run_exists", tag.RunID(runID))
+		return nil
 	}
 
 	logger.Info(ctx, "Restarting DAG",
@@ -160,6 +194,44 @@ func (s *RestartScanner) process(ctx context.Context, entry DAGEntry, now time.T
 		slog.String("previous_status", status.Status.String()),
 	)
 	return s.cfg.Enqueue(ctx, entry, runID, ir.TriggerTypeRestart, now)
+}
+
+// stoppedByOperator reports whether an operator stopped the run. Other aborted
+// runs, such as a run whose DAG-level precondition was not met or a restart
+// dropped from the queue while the DAG was suspended, do not stop the DAG.
+func (s *RestartScanner) stoppedByOperator(ctx context.Context, dag *ir.DAG, runID string) (bool, error) {
+	if s.stoppedRuns[dag.Name] == runID {
+		return true, nil
+	}
+	if s.cfg.IsStopRequested == nil {
+		return true, nil
+	}
+	stopped, err := s.cfg.IsStopRequested(ctx, dag, runID)
+	if err != nil || !stopped {
+		return false, err
+	}
+	s.stoppedRuns[dag.Name] = runID
+	return true, nil
+}
+
+// forgetOthers drops what the scanner remembers about DAGs it no longer keeps
+// alive.
+func (s *RestartScanner) forgetOthers(services map[string]struct{}) {
+	for name := range s.warnedNoQueue {
+		if _, ok := services[name]; !ok {
+			delete(s.warnedNoQueue, name)
+		}
+	}
+	for name := range s.lastErrorLog {
+		if _, ok := services[name]; !ok {
+			delete(s.lastErrorLog, name)
+		}
+	}
+	for name := range s.stoppedRuns {
+		if _, ok := services[name]; !ok {
+			delete(s.stoppedRuns, name)
+		}
+	}
 }
 
 func (s *RestartScanner) logError(ctx context.Context, dagName string, now time.Time, err error) {
@@ -173,37 +245,37 @@ func (s *RestartScanner) logError(ctx context.Context, dagName string, now time.
 	)
 }
 
+func logNoRestart(ctx context.Context, dag *ir.DAG, reason string, attrs ...slog.Attr) {
+	attrs = append([]slog.Attr{tag.DAG(dag.Name), slog.String("reason", reason)}, attrs...)
+	logger.Debug(ctx, "Not restarting DAG", attrs...)
+}
+
 // restartDecision tells whether a service DAG is due for a new run.
 type restartDecision struct {
 	start  bool
 	reason string
-	// at is the time the new run's ID is derived from: the end of the previous
-	// run, or now for the first run.
-	at time.Time
+	// previousEnd is when the run the new run follows ended. It is zero for the
+	// first run of a DAG and when the end of the previous run is unknown.
+	previousEnd time.Time
 }
 
-// decideRestart applies the restart policy to the latest run of a DAG.
-func decideRestart(
-	policy ir.RestartPolicy,
-	wait time.Duration,
-	latest *ir.DAGRunStatus,
-	now time.Time,
-) restartDecision {
+// decideRestart tells whether the latest run of a DAG is followed by a new run.
+// The restart policy is applied by the caller, since unless-stopped needs to
+// know who aborted a run.
+func decideRestart(wait time.Duration, latest *ir.DAGRunStatus, now time.Time) restartDecision {
 	switch {
 	case latest.DAGRunID == "":
-		return restartDecision{start: true, reason: "first_run", at: now}
+		return restartDecision{start: true, reason: "first_run"}
 	case latest.Status == ir.NotStarted || latest.Status.IsActive():
 		return restartDecision{reason: "run_active"}
-	case policy == ir.RestartPolicyUnlessStopped && latest.Status == ir.Aborted:
-		return restartDecision{reason: "stopped"}
 	}
 
 	endedAt, ok := retryReferenceTime(latest)
 	if !ok {
-		return restartDecision{start: true, reason: "previous_run_end_unknown", at: now}
+		return restartDecision{start: true, reason: "previous_run_end_unknown"}
 	}
 	if now.Before(endedAt.Add(wait)) {
 		return restartDecision{reason: "waiting"}
 	}
-	return restartDecision{start: true, reason: "previous_run_ended", at: endedAt}
+	return restartDecision{start: true, reason: "previous_run_ended", previousEnd: endedAt}
 }

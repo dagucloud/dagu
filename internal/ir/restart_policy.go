@@ -21,7 +21,7 @@ const (
 	RestartPolicyAlways RestartPolicy = "always"
 
 	// RestartPolicyUnlessStopped behaves like RestartPolicyAlways, except that
-	// no run is started after a run that was aborted.
+	// no run is started after a run that an operator stopped.
 	RestartPolicyUnlessStopped RestartPolicy = "unless-stopped"
 )
 

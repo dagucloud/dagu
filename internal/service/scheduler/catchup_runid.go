@@ -43,9 +43,14 @@ func GenerateOneOffRunID(dagName, fingerprint string, scheduledTime time.Time) s
 // GenerateRestartRunID produces a deterministic run ID for a restart. It is
 // derived from the run the restart follows, so evaluating the same restart twice,
 // for example around a failover, names the same run. previousRunID is empty for
-// the first run of a DAG and then at is the time the run is started.
-func GenerateRestartRunID(dagName, previousRunID string, at time.Time) string {
-	return generateScheduledRunID(restartPrefix, dagName+":"+previousRunID, at)
+// the first run of a DAG. previousEnd is when the previous run ended; it is zero
+// when there is no previous run or its end is unknown, and the ID then has no
+// time part.
+func GenerateRestartRunID(dagName, previousRunID string, previousEnd time.Time) string {
+	if previousEnd.IsZero() {
+		return restartPrefix + scheduledRunIDHash(dagName+":"+previousRunID, hashLen)
+	}
+	return generateScheduledRunID(restartPrefix, dagName+":"+previousRunID, previousEnd)
 }
 
 func generateScheduledRunID(prefix, hashSource string, scheduledTime time.Time) string {
