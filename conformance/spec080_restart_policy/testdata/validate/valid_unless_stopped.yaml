@@ -1,0 +1,5 @@
+restart_policy: unless-stopped
+restart_wait_sec: 1
+hist_retention_runs: 50
+steps:
+  - run: echo serve
