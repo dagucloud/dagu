@@ -579,7 +579,7 @@
       "type": "string",
       "enum": ["no", "always", "unless-stopped"],
       "default": "no",
-      "description": "Keeps a run of the DAG alive, like a service. \"always\": the scheduler starts a new run restart_wait_sec after the previous one ends, whatever its status. \"unless-stopped\": same, except that no run is started after a run that was aborted (stopped). A suspended DAG gets no new run. Requires restart_wait_sec; cannot be combined with schedule or a DAG-level retry_policy. Cannot be set in the base configuration."
+      "description": "Keeps a run of the DAG alive, like a service. \"always\": the scheduler starts a new run restart_wait_sec after the previous one ends, whatever its status. \"unless-stopped\": same, except that no run follows a run that an operator stopped. A suspended DAG gets no new run. Requires restart_wait_sec; cannot be combined with schedule or a DAG-level retry_policy. Cannot be set in the base configuration."
     },
     "hist_retention_days": {
       "type": "integer",

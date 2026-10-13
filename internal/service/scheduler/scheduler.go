@@ -344,9 +344,18 @@ func newScheduler(
 		IsRunning:       isRunning,
 		IsQueued:        isQueued,
 		GetLatestStatus: drm.GetLatestStatus,
-		RunExists:       runExists,
-		Enqueue:         enqueueFunc,
-		Clock:           defaultClock,
+		// A stop from the CLI, the API or the coordinator leaves an abort request
+		// on the attempt; other aborted runs have none.
+		IsStopRequested: func(ctx context.Context, dag *ir.DAG, runID string) (bool, error) {
+			attempt, err := dagRunRepository.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, runID))
+			if err != nil {
+				return false, err
+			}
+			return attempt.IsAborting(ctx)
+		},
+		RunExists: runExists,
+		Enqueue:   enqueueFunc,
+		Clock:     defaultClock,
 	})
 
 	retryScanner, err := NewRetryScanner(
