@@ -77,13 +77,17 @@ func runRestart(ctx *Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to read status: %w", err)
 	}
-	if dagStatus.Status != ir.Running {
-		return fmt.Errorf("DAG %s is not running, current status: %s", name, dagStatus.Status)
-	}
 
 	dag, err := attempt.ReadDAG(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to read DAG from execution history: %w", err)
+	}
+	if dag.RestartPolicy.Enabled() {
+		return errRestartServiceDAG(name, dag.RestartPolicy)
+	}
+
+	if dagStatus.Status != ir.Running {
+		return fmt.Errorf("DAG %s is not running, current status: %s", name, dagStatus.Status)
 	}
 
 	dag, err = restoreDAGFromStatus(ctx.Context, dag, dagStatus, ctx.Persistence.DAGRunRepository)
@@ -97,6 +101,17 @@ func runRestart(ctx *Context, args []string) error {
 	}
 
 	return nil
+}
+
+// errRestartServiceDAG rejects the restart of a DAG that sets restart_policy:
+// the scheduler starts its runs, and a run started by the command next to them
+// would race with the scheduler's own restart.
+func errRestartServiceDAG(name string, policy ir.RestartPolicy) error {
+	return fmt.Errorf(
+		"DAG %s sets restart_policy %q, so the scheduler starts its runs: stop the running run instead "+
+			"(with unless-stopped, start the DAG again after the stop)",
+		name, policy,
+	)
 }
 
 func handleRestartProcess(
