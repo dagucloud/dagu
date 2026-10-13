@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
@@ -19,7 +20,8 @@ import (
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 )
 
-// EnqueueCatchupRun enqueues a catchup run for a DAG.
+// EnqueueCatchupRun enqueues a catchup run for a DAG. Restarts of a DAG with a
+// restart_policy are enqueued the same way, with their own trigger type.
 //
 // The function is idempotent: if a run with the same ID already exists
 // (checked via FindAttempt), it returns nil without creating a duplicate.
@@ -50,9 +52,10 @@ func EnqueueCatchupRun(
 
 	// Idempotency: skip if a run with this ID already exists.
 	if _, err := dagRunRepository.FindAttempt(ctx, dagRun); err == nil {
-		logger.Info(ctx, "Catchup run already exists; skipping",
+		logger.Info(ctx, "Run already exists; skipping",
 			tag.DAG(dag.Name),
 			tag.RunID(runID),
+			slog.String("trigger_type", triggerType.String()),
 		)
 		return nil
 	} else if !errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
@@ -88,9 +91,10 @@ func EnqueueCatchupRun(
 		return fmt.Errorf("failed to enqueue catchup run: %w", err)
 	}
 
-	logger.Info(ctx, "Catchup run enqueued",
+	logger.Info(ctx, "Run enqueued",
 		tag.DAG(dag.Name),
 		tag.RunID(runID),
+		slog.String("trigger_type", triggerType.String()),
 	)
 
 	return nil
