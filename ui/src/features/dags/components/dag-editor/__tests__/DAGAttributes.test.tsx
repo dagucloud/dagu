@@ -43,14 +43,16 @@ describe('DAGAttributes', () => {
       />
     );
 
-    expect(screen.getByText('Restart policy')).toBeInTheDocument();
-    expect(screen.getByText('unless-stopped · 15s')).toBeInTheDocument();
+    expect(
+      screen.getByText('restart: unless-stopped · 15s')
+    ).toBeInTheDocument();
+    expect(screen.getByText('Schedule')).toBeInTheDocument();
   });
 
   it('renders no restart policy for other DAGs', () => {
     render(<DAGAttributes dag={{ name: 'plain-dag' }} />);
 
-    expect(screen.queryByText('Restart policy')).not.toBeInTheDocument();
+    expect(screen.queryByText(/^restart:/)).not.toBeInTheDocument();
   });
 
   // The server writes the next run in the zone of the schedule: it shows

@@ -3,21 +3,14 @@
  *
  * @module features/dags/components/dag-editor
  */
-import {
-  Calendar,
-  CheckSquare,
-  RefreshCw,
-  Settings,
-  Tag,
-  Variable,
-} from 'lucide-react';
+import { Calendar, CheckSquare, Settings, Tag, Variable } from 'lucide-react';
 import { components } from '../../../../api/v1/schema';
 import { Badge } from '@/components/ui/badge';
 import { RelativeTime } from '@/components/ui/relative-time';
 import { useI18n } from '@/i18n/I18nProvider';
 import {
   formatFireTime,
-  getRestartValue,
+  getRestartLabel,
   getScheduleKey,
   getScheduleLabel,
   isServiceDAG,
@@ -99,19 +92,18 @@ function DAGAttributes({ dag }: Props) {
           </div>
         )}
 
-        {/* Restart policy */}
+        {/* Restart policy, in the place of a schedule */}
         {isServiceDAG(dag) && (
           <div className="space-y-1 md:col-span-2">
             <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mb-2">
-              <RefreshCw className="h-4 w-4" />
-              <span><I18nText text={"Restart policy"} /></span>
+              <Calendar className="h-4 w-4" />
+              <span>{ts('Schedule')}</span>
             </div>
-
             <Badge
               variant="outline"
-              className="max-w-full justify-start bg-primary/10 px-2.5 py-1 text-primary border-primary/30 whitespace-nowrap normal-case tracking-normal"
+              className="h-auto max-w-full justify-start whitespace-normal break-words bg-primary/10 px-2.5 py-1 text-primary border-primary/30 normal-case tracking-normal"
             >
-              {getRestartValue(dag)}
+              {getRestartLabel(dag)}
             </Badge>
           </div>
         )}

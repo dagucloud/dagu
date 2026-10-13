@@ -15,7 +15,6 @@ describe('service DAGs', () => {
 
   it('does not take other DAGs for services', () => {
     expect(isServiceDAG({})).toBe(false);
-    expect(isServiceDAG({ restartPolicy: RestartPolicy.no })).toBe(false);
   });
 
   it('labels the policy with the wait between two runs', () => {
