@@ -16,6 +16,8 @@ const (
 	catchupPrefix = "catchup-"
 	// oneOffPrefix is the scheme identifier for one-off scheduled run IDs.
 	oneOffPrefix = "oneoff-"
+	// restartPrefix is the scheme identifier for restart run IDs.
+	restartPrefix = "restart-"
 
 	// maxRunIDLen matches exec.maxDAGRunIDLen (64 chars).
 	maxRunIDLen = 64
@@ -36,6 +38,14 @@ func GenerateCatchupRunID(dagName string, scheduledTime time.Time) string {
 // GenerateOneOffRunID produces a deterministic run ID for a one-off schedule.
 func GenerateOneOffRunID(dagName, fingerprint string, scheduledTime time.Time) string {
 	return generateScheduledRunID(oneOffPrefix, dagName+":"+fingerprint, scheduledTime)
+}
+
+// GenerateRestartRunID produces a deterministic run ID for a restart. It is
+// derived from the run the restart follows, so evaluating the same restart twice,
+// for example around a failover, names the same run. previousRunID is empty for
+// the first run of a DAG and then at is the time the run is started.
+func GenerateRestartRunID(dagName, previousRunID string, at time.Time) string {
+	return generateScheduledRunID(restartPrefix, dagName+":"+previousRunID, at)
 }
 
 func generateScheduledRunID(prefix, hashSource string, scheduledTime time.Time) string {
