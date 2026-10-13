@@ -39,8 +39,10 @@ import { DAGNameInputModal } from '@/components/DAGNameInputModal';
 import { components, Status } from '../../../../api/v1/schema';
 import dayjs from '../../../../lib/dayjs';
 import {
+  getRestartLabel,
   getScheduleKey,
   getScheduleLabel,
+  isServiceDAG,
   parseNextRun,
 } from '../../../../lib/dagSchedule';
 import RelativeTime from '@/components/ui/relative-time';
@@ -191,6 +193,7 @@ function DAGCard({
   const description = dag.dag.description;
   const schedules = dag.dag.schedule || [];
   const hasSchedule = schedules.length > 0;
+  const isService = isServiceDAG(dag.dag);
   const nextRun = parseNextRun(dag.nextRun);
 
   const handleCardClick = (e: React.MouseEvent) => {
@@ -262,6 +265,14 @@ function DAGCard({
             {getScheduleLabel(schedule)}
           </Badge>
         ))}
+        {isService && (
+          <Badge
+            variant="outline"
+            className="text-xs font-normal px-1 py-0 h-3 normal-case tracking-normal"
+          >
+            {getRestartLabel(dag.dag)}
+          </Badge>
+        )}
         {dag.latestDAGRun.startedAt && dag.latestDAGRun.startedAt !== '-' && (
           <span className="flex items-center gap-0.5">
             <Calendar className="h-2.5 w-2.5" />
@@ -329,11 +340,13 @@ function DAGCard({
           className="flex items-center gap-1 flex-shrink-0 min-w-0"
           onClick={(e) => e.stopPropagation()}
         >
-          {hasSchedule && <LiveSwitch dag={dag} refresh={refreshFn} />}
+          {(hasSchedule || isService) && (
+            <LiveSwitch dag={dag} refresh={refreshFn} />
+          )}
           <span className="text-xs text-muted-foreground truncate">
             {dag.suspended ? (
               <I18nText text={'Suspended'} />
-            ) : hasSchedule ? (
+            ) : hasSchedule || isService ? (
               <I18nText text={'Live'} />
             ) : (
               <I18nText text={'No schedule'} />
@@ -892,7 +905,8 @@ const defaultColumns = [
       }
 
       const schedules = data.dag.dag.schedule || [];
-      if (schedules.length === 0) {
+      const isService = isServiceDAG(data.dag.dag);
+      if (schedules.length === 0 && !isService) {
         return (
           <span className="text-xs text-muted-foreground">
             <I18nText text={'No schedule'} />
@@ -908,6 +922,25 @@ const defaultColumns = [
           <LiveSwitch dag={data.dag} refresh={table.options.meta?.refreshFn} />
         </div>
       );
+
+      if (isService) {
+        return (
+          <div className="flex items-center gap-2">
+            {liveSwitch}
+            <div className="flex flex-col gap-0.5">
+              <Badge
+                variant="outline"
+                className="text-xs font-normal px-1 py-0 h-3.5 normal-case tracking-normal"
+              >
+                {getRestartLabel(data.dag.dag)}
+              </Badge>
+              <span className="text-xs text-muted-foreground font-normal leading-tight">
+                <I18nText text={data.dag.suspended ? 'Suspended' : 'Live'} />
+              </span>
+            </div>
+          </div>
+        );
+      }
 
       // Display schedule expressions
       const scheduleContent = (

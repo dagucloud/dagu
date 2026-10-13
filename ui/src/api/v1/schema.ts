@@ -277,7 +277,7 @@ export interface paths {
         };
         /**
          * List all available DAGs
-         * @description Retrieves DAG definitions with optional filtering by name, labels, and active status (scheduled and not suspended).
+         * @description Retrieves DAG definitions with optional filtering by name, labels, and active status (scheduled or restarted by a restart policy, and not suspended).
          */
         get: operations["listDAGs"];
         put?: never;
@@ -5561,6 +5561,9 @@ export interface components {
             workspace?: string;
             /** @description List of scheduling expressions defining when DAG-runs should be created from this DAG */
             schedule?: components["schemas"]["Schedule"][];
+            restartPolicy?: components["schemas"]["RestartPolicy"];
+            /** @description Seconds the scheduler waits after a run ends before it starts the next one. Used with restartPolicy. */
+            restartWaitSec?: number;
             /** @description Human-readable description of the DAG's purpose and behavior */
             description?: string;
             /** @description List of parameter names that can be passed to DAG-runs created from this DAG */
@@ -5626,6 +5629,11 @@ export interface components {
          * @enum {string}
          */
         TriggerType: TriggerType;
+        /**
+         * @description Restart policy of a DAG. With always or unless-stopped, the scheduler keeps a run of the DAG alive and starts the next run restartWaitSec seconds after the previous one ends. Omitted when the DAG has no restart policy.
+         * @enum {string}
+         */
+        RestartPolicy: RestartPolicy;
         /**
          * @description Numeric status code indicating current node state:
          *     0: "Not started"
@@ -5768,6 +5776,9 @@ export interface components {
             steps?: components["schemas"]["Step"][];
             /** @description Time in seconds to wait before starting a DAG-run */
             delay?: number;
+            restartPolicy?: components["schemas"]["RestartPolicy"];
+            /** @description Seconds the scheduler waits after a run ends before it starts the next one. Used with restartPolicy. */
+            restartWaitSec?: number;
             /** @description Number of days to retain historical logs */
             histRetentionDays?: number;
             /** @description Number of DAG runs to retain historical logs. Mutually exclusive with histRetentionDays. */
@@ -8992,7 +9003,7 @@ export interface operations {
                 name?: string;
                 /** @description Filter DAGs by labels (comma-separated). Returns DAGs that have ALL specified labels. Mutually exclusive with `tags`; the server returns HTTP 400 if both are set. */
                 labels?: string;
-                /** @description Filter to DAGs that have a schedule and are not suspended. */
+                /** @description Filter to DAGs that have a schedule or a restart policy and are not suspended. */
                 active?: boolean;
                 /**
                  * @deprecated
@@ -22179,7 +22190,13 @@ export enum TriggerType {
     webhook = "webhook",
     subdag = "subdag",
     retry = "retry",
-    catchup = "catchup"
+    catchup = "catchup",
+    restart = "restart"
+}
+export enum RestartPolicy {
+    no = "no",
+    always = "always",
+    unless_stopped = "unless-stopped"
 }
 export enum NodeStatus {
     NotStarted = 0,

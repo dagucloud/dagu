@@ -4,7 +4,7 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import React from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ScheduleKind } from '@/api/v1/schema';
+import { RestartPolicy, ScheduleKind } from '@/api/v1/schema';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import dayjs from '@/lib/dayjs';
@@ -34,6 +34,27 @@ describe('DAGAttributes', () => {
         `${dayjs(nextRun).format('YYYY-MM-DD HH:mm:ss')} (${dayjs(nextRun).fromNow()})`
       )
     ).toBeInTheDocument();
+  });
+
+  it('renders the restart policy of a service DAG', () => {
+    render(
+      <DAGAttributes
+        dag={{
+          name: 'service-dag',
+          restartPolicy: RestartPolicy.unless_stopped,
+          restartWaitSec: 15,
+        }}
+      />
+    );
+
+    expect(screen.getByText('Restart policy')).toBeInTheDocument();
+    expect(screen.getByText('unless-stopped · 15s')).toBeInTheDocument();
+  });
+
+  it('renders no restart policy for other DAGs', () => {
+    render(<DAGAttributes dag={{ name: 'plain-dag' }} />);
+
+    expect(screen.queryByText('Restart policy')).not.toBeInTheDocument();
   });
 
   it('renders no upcoming run when the next run is unavailable', () => {
