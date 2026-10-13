@@ -36,6 +36,8 @@ func TestRestartPolicy(t *testing.T) {
 		{name: "AbsentIsNo", authored: "", policy: ir.RestartPolicyNo},
 		{name: "NoNeedsNoWait", authored: "restart_policy: \"no\"\nschedule: \"* * * * *\"\n", policy: ir.RestartPolicyNo},
 		{name: "WaitAloneIsUnchanged", authored: "restart_wait_sec: 3\nschedule: \"* * * * *\"\n", policy: ir.RestartPolicyNo, wait: 3 * time.Second},
+		{name: "EmptySchedule", authored: "restart_policy: always\nrestart_wait_sec: 5\nschedule: \"\"\n", policy: ir.RestartPolicyAlways, wait: 5 * time.Second},
+		{name: "EmptyScheduleList", authored: "restart_policy: always\nrestart_wait_sec: 5\nschedule: []\n", policy: ir.RestartPolicyAlways, wait: 5 * time.Second},
 		{
 			name:     "KeepsQueueRetentionAndTimeout",
 			authored: "restart_policy: always\nrestart_wait_sec: 5\nqueue: services\ntimeout_sec: 60\nhist_retention_runs: 20\n",

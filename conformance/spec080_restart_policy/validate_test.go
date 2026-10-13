@@ -4,6 +4,7 @@
 package spec080_restart_policy_test
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
@@ -18,6 +19,7 @@ func TestRestartPolicyValidation(t *testing.T) {
 		"valid_mixed_case.yaml",
 		"valid_no.yaml",
 		"valid_probe.yaml",
+		"valid_empty_schedule.yaml",
 	}
 	for _, file := range valid {
 		t.Run(file, func(t *testing.T) {
@@ -71,4 +73,16 @@ func TestRestartPolicyInTheBaseConfigurationIsRejected(t *testing.T) {
 	result := dagu.RunWithEnv(env, "validate", "validate/plain.yaml")
 	result.ExpectNonZeroExitCode()
 	result.ExpectStderrContains("restart_policy", "base configuration")
+}
+
+func TestRestartCommandIsRefused(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	env := []string{"DAGU_HOME=" + filepath.Join(t.TempDir(), "dagu")}
+	dagu.RunWithEnv(env, "start", "validate/valid_always.yaml").ExpectExitCode(0)
+
+	result := dagu.RunWithEnv(env, "restart", "validate/valid_always.yaml")
+	result.ExpectNonZeroExitCode()
+	result.ExpectStderrContains("restart_policy")
 }

@@ -1,4 +1,0 @@
-restart_policy: always
-restart_wait_sec: 2
-steps:
-  - run: echo tick
