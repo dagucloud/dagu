@@ -4,7 +4,11 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ScheduleKind, type components } from '@/api/v1/schema';
+import {
+  RestartPolicy,
+  ScheduleKind,
+  type components,
+} from '@/api/v1/schema';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import { ScheduleLine } from '../ScheduleSummary';
@@ -39,10 +43,17 @@ function dagFile(overrides: {
   suspended?: boolean;
   nextRun?: string;
   fileName?: string;
+  restartPolicy?: RestartPolicy;
+  restartWaitSec?: number;
 }): DAGFile {
   return {
     fileName: overrides.fileName ?? 'etl',
-    dag: { name: 'etl', schedule: overrides.schedule ?? [] },
+    dag: {
+      name: 'etl',
+      schedule: overrides.schedule ?? [],
+      restartPolicy: overrides.restartPolicy,
+      restartWaitSec: overrides.restartWaitSec,
+    },
     latestDAGRun: {},
     suspended: overrides.suspended ?? false,
     pinned: false,
@@ -179,6 +190,15 @@ describe('ScheduleLine', () => {
   it('shows No schedule without a schedule', () => {
     renderLine(dagFile({}));
     expect(screen.getByTestId('schedule-line').textContent).toBe('No schedule');
+  });
+
+  it('shows the restart policy of a service DAG', () => {
+    renderLine(
+      dagFile({ restartPolicy: RestartPolicy.always, restartWaitSec: 5 })
+    );
+    expect(screen.getByTestId('schedule-line').textContent).toBe(
+      'restart: always · 5s'
+    );
   });
 });
 

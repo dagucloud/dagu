@@ -4,7 +4,7 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import React from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ScheduleKind } from '@/api/v1/schema';
+import { RestartPolicy, ScheduleKind } from '@/api/v1/schema';
 import DAGAttributes from '../DAGAttributes';
 
 afterEach(() => {
@@ -30,6 +30,27 @@ describe('DAGAttributes', () => {
     expect(screen.getByText('Next run:').parentElement).toHaveTextContent(
       '2026-04-03 12:00:00 +00:00'
     );
+  });
+
+  it('renders the restart policy of a service DAG', () => {
+    render(
+      <DAGAttributes
+        dag={{
+          name: 'service-dag',
+          restartPolicy: RestartPolicy.unless_stopped,
+          restartWaitSec: 15,
+        }}
+      />
+    );
+
+    expect(screen.getByText('Restart policy')).toBeInTheDocument();
+    expect(screen.getByText('unless-stopped · 15s')).toBeInTheDocument();
+  });
+
+  it('renders no restart policy for other DAGs', () => {
+    render(<DAGAttributes dag={{ name: 'plain-dag' }} />);
+
+    expect(screen.queryByText('Restart policy')).not.toBeInTheDocument();
   });
 
   // The server writes the next run in the zone of the schedule: it shows

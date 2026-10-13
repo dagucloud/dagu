@@ -9,6 +9,7 @@ export const triggerTypeLabels: Record<TriggerType, string> = {
   retry: 'Retry',
   catchup: 'Catch-up',
   file: 'File',
+  restart: 'Restart',
   unknown: 'Unknown',
 };
 
