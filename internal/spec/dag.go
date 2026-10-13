@@ -1198,7 +1198,7 @@ func validateRestartPolicyConfig(d *dag) []error {
 		return nil
 	}
 	var errs []error
-	if !d.Schedule.IsZero() {
+	if len(d.Schedule.Starts())+len(d.Schedule.Stops())+len(d.Schedule.Restarts()) > 0 {
 		errs = append(errs, ir.NewValidationError(
 			"restart_policy",
 			*d.RestartPolicy,
