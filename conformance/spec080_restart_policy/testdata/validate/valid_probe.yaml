@@ -1,0 +1,13 @@
+restart_policy: always
+restart_wait_sec: 15
+queue: services
+hist_retention_runs: 20
+steps:
+  - run: ./check.sh
+    repeat_policy:
+      repeat: while
+      exit_code: [0]
+      interval_sec: 10
+handler_on:
+  failure:
+    run: ./alert.sh

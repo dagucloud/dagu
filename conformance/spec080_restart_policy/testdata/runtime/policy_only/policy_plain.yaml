@@ -1,0 +1,2 @@
+steps:
+  - run: echo not-a-service
