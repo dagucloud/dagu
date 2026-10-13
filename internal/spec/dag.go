@@ -124,6 +124,8 @@ type dag struct {
 	DelaySec int `yaml:"delay_sec,omitempty"`
 	// RestartWaitSec is the wait in seconds to when the DAG is restarted.
 	RestartWaitSec int `yaml:"restart_wait_sec,omitempty"`
+	// RestartPolicy is no|always|unless-stopped: whether the scheduler keeps a run of the DAG alive.
+	RestartPolicy *string `yaml:"restart_policy,omitempty"`
 	// HistRetentionDays is the retention days of the dag-runs history.
 	HistRetentionDays *int `yaml:"hist_retention_days,omitempty"`
 	// HistRetentionRuns is the number of dag-runs to retain in history.
@@ -560,6 +562,7 @@ var metadataExecutionPlacementStage = transformStage{
 	dagField("timeout", buildTimeout, func(out *ir.DAG, v time.Duration) { out.Timeout = v }),
 	dagField("delay", buildDelay, func(out *ir.DAG, v time.Duration) { out.Delay = v }),
 	dagField("restart_wait", buildRestartWait, func(out *ir.DAG, v time.Duration) { out.RestartWait = v }),
+	dagField("restart_policy", buildRestartPolicy, func(out *ir.DAG, v ir.RestartPolicy) { out.RestartPolicy = v }),
 	dagField("max_active_runs", buildMaxActiveRuns, func(out *ir.DAG, v int) { out.MaxActiveRuns = v }),
 	dagField("max_active_steps", buildMaxActiveSteps, func(out *ir.DAG, v int) { out.MaxActiveSteps = v }),
 	dagField("queue", buildQueue, func(out *ir.DAG, v string) { out.Queue = v }),
@@ -698,6 +701,7 @@ func (s *dagBuildState) validateSpecShape() {
 	if err := validateHistoryRetentionConfig(s.spec); err != nil {
 		s.errs = append(s.errs, err)
 	}
+	s.errs = append(s.errs, validateRestartPolicyConfig(s.spec)...)
 }
 
 func (s *dagBuildState) prepareParamEnvStage() {
@@ -822,6 +826,12 @@ func (s *dagBuildState) collectWarnings() {
 		))
 	}
 
+	if s.result.RestartPolicy.Enabled() && !s.hasHistoryRetention() {
+		s.result.BuildWarnings = append(s.result.BuildWarnings,
+			"restart_policy starts a new run each time the previous one ends, so a DAG that keeps failing "+
+				"fills its history: set hist_retention_runs or hist_retention_days to bound it (the default keeps 30 days).")
+	}
+
 	for _, sched := range s.result.Schedule {
 		s.result.BuildWarnings = append(s.result.BuildWarnings, sched.Warnings...)
 	}
@@ -835,6 +845,16 @@ func (s *dagBuildState) collectWarnings() {
 		s.result.BuildWarnings = append(s.result.BuildWarnings, harnessWorkingDirWarnings(s.result)...)
 		s.result.BuildWarnings = append(s.result.BuildWarnings, executorConfigWarnings(s.result)...)
 	}
+}
+
+// hasHistoryRetention reports whether the DAG, or its base configuration, sets
+// how long the history of its runs is kept.
+func (s *dagBuildState) hasHistoryRetention() bool {
+	if s.spec.HistRetentionDays != nil || s.spec.HistRetentionRuns != nil {
+		return true
+	}
+	base := s.ctx.baseDAG
+	return base != nil && (base.HistRetentionDays > 0 || base.HistRetentionRuns > 0)
 }
 
 // harnessWorkingDirWarnings reports harness steps that leave the agent's
@@ -953,6 +973,14 @@ func (s *dagBuildState) validateResult() {
 		}
 	}
 
+	if s.result.RestartPolicy.Enabled() && s.result.RestartWait < time.Second {
+		s.errs = append(s.errs, ir.NewValidationError(
+			"restart_wait_sec",
+			s.result.RestartWait,
+			fmt.Errorf("restart_wait_sec must be at least 1 when restart_policy is %q", s.result.RestartPolicy),
+		))
+	}
+
 	if s.result.Name != "" {
 		if err := ir.ValidateDAGName(s.result.Name); err != nil {
 			s.errs = append(s.errs, ir.NewValidationError("name", s.result.Name, err))
@@ -1041,6 +1069,14 @@ func composeBuildDAGContext(base, current *ir.DAG, currentSpec *dag) (*ir.DAG, e
 	if currentSpec.Queue != nil {
 		effective.Queue = current.Queue
 	}
+	// A service DAG is neither scheduled nor retried at the DAG level, so what the
+	// base configuration adds is dropped.
+	if effective.RestartPolicy.Enabled() {
+		effective.Schedule = nil
+		effective.StopSchedule = nil
+		effective.RestartSchedule = nil
+		effective.RetryPolicy = nil
+	}
 
 	return effective, nil
 }
@@ -1119,6 +1155,64 @@ func buildDelay(_ buildContext, d *dag) (time.Duration, error) {
 
 func buildRestartWait(_ buildContext, d *dag) (time.Duration, error) {
 	return time.Second * time.Duration(d.RestartWaitSec), nil
+}
+
+func buildRestartPolicy(_ buildContext, d *dag) (ir.RestartPolicy, error) {
+	if d.RestartPolicy == nil {
+		return ir.RestartPolicyNo, nil
+	}
+	policy, err := ir.ParseRestartPolicy(*d.RestartPolicy)
+	if err != nil {
+		return ir.RestartPolicyNo, ir.NewValidationError("restart_policy", *d.RestartPolicy, err)
+	}
+	return policy, nil
+}
+
+// validateBaseRestartPolicy rejects a base configuration that sets a restart
+// policy: it applies to every DAG, so it would turn them all into services.
+func validateBaseRestartPolicy(d *dag) error {
+	if d.RestartPolicy == nil {
+		return nil
+	}
+	policy, err := ir.ParseRestartPolicy(*d.RestartPolicy)
+	if err != nil || !policy.Enabled() {
+		return nil
+	}
+	return ir.NewValidationError(
+		"restart_policy",
+		*d.RestartPolicy,
+		fmt.Errorf("restart_policy cannot be set in the base configuration: set it in the DAG that needs it"),
+	)
+}
+
+// validateRestartPolicyConfig rejects what a service DAG (one the scheduler
+// keeps alive) must not define itself: a schedule, which would start runs of its
+// own, and a DAG-level retry policy, which would restart a failed run next to
+// the restart policy. An invalid policy value is reported by buildRestartPolicy.
+func validateRestartPolicyConfig(d *dag) []error {
+	if d.RestartPolicy == nil {
+		return nil
+	}
+	policy, err := ir.ParseRestartPolicy(*d.RestartPolicy)
+	if err != nil || !policy.Enabled() {
+		return nil
+	}
+	var errs []error
+	if !d.Schedule.IsZero() {
+		errs = append(errs, ir.NewValidationError(
+			"restart_policy",
+			*d.RestartPolicy,
+			fmt.Errorf("restart_policy cannot be combined with schedule"),
+		))
+	}
+	if d.RetryPolicy != nil {
+		errs = append(errs, ir.NewValidationError(
+			"restart_policy",
+			*d.RestartPolicy,
+			fmt.Errorf("restart_policy cannot be combined with retry_policy"),
+		))
+	}
+	return errs
 }
 
 func buildLabels(_ buildContext, d *dag) (ir.Labels, error) {
