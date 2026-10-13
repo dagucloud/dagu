@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -152,6 +153,59 @@ func TestCompareAndSwapLatestAttemptStatusReturnsNormalizedConditions(t *testing
 	require.NotNil(t, updated)
 	require.Equal(t, ir.Failed, updated.Status)
 	require.Empty(t, updated.Conditions)
+}
+
+// A compare and swap must not change a status that other readers got from the
+// store's cache: they would see a status that is not on disk yet, while the
+// swap writes it.
+func TestCompareAndSwapLatestAttemptStatusLeavesCachedStatusAlone(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	baseDir := t.TempDir()
+	repository := persis.NewDAGRunRepository(
+		filedagrun.NewStore(baseDir, filedagrun.WithHistoryFileCache(
+			fileutil.NewCache[*ir.DAGRunStatus]("dag-run-status", 10, time.Minute),
+		)),
+		filedagrun.NewWorkDirStore(filepath.Join(baseDir, ".dag-run-work"), baseDir),
+		persis.DAGRunRepositoryOptions{},
+	)
+	dag := &ir.DAG{Name: "cas-cache"}
+
+	attempt, err := repository.CreateAttempt(ctx, dag, time.Now(), "run-cas", persis.DAGRunCreateAttemptOptions{})
+	require.NoError(t, err)
+	require.NoError(t, attempt.Open(ctx))
+	require.NoError(t, attempt.Write(ctx, ir.DAGRunStatus{
+		Name:      dag.Name,
+		DAGRunID:  "run-cas",
+		AttemptID: attempt.ID(),
+		Status:    ir.Queued,
+	}))
+	require.NoError(t, attempt.Close(ctx))
+
+	ref := ir.NewDAGRunRef(dag.Name, "run-cas")
+	found, err := repository.FindAttempt(ctx, ref)
+	require.NoError(t, err)
+	cached, err := found.ReadStatus(ctx)
+	require.NoError(t, err)
+
+	_, swapped, err := repository.CompareAndSwapLatestAttemptStatus(
+		ctx,
+		ref,
+		attempt.ID(),
+		ir.Queued,
+		func(latest *ir.DAGRunStatus) error {
+			latest.Status = ir.Aborted
+			return nil
+		}, persis.DAGRunCompareAndSwapOptions{},
+	)
+	require.NoError(t, err)
+	require.True(t, swapped)
+	require.Equal(t, ir.Queued, cached.Status, "the status read before the swap is unchanged")
+
+	reread, err := found.ReadStatus(ctx)
+	require.NoError(t, err)
+	require.Equal(t, ir.Aborted, reread.Status)
 }
 
 func newFileRepository(baseDir string, options persis.DAGRunRepositoryOptions) *persis.DAGRunRepository {
