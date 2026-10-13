@@ -277,7 +277,7 @@ export interface paths {
         };
         /**
          * List all available DAGs
-         * @description Retrieves DAG definitions with optional filtering by name, labels, and active status (scheduled or restarted by a restart policy, and not suspended).
+         * @description Retrieves DAG definitions with optional filtering by name, labels, and active status (scheduled or kept running by a restart policy of always or unless-stopped, and not suspended).
          */
         get: operations["listDAGs"];
         put?: never;
@@ -5630,7 +5630,7 @@ export interface components {
          */
         TriggerType: TriggerType;
         /**
-         * @description Restart policy of a DAG. With always or unless-stopped, the scheduler keeps a run of the DAG alive and starts the next run restartWaitSec seconds after the previous one ends. Omitted when the DAG has no restart policy.
+         * @description Restart policy of a DAG: the scheduler keeps a run of the DAG alive and starts the next run restartWaitSec seconds after the previous one ends. With unless-stopped, no run follows a run that an operator stopped. Omitted when the DAG has no restart policy.
          * @enum {string}
          */
         RestartPolicy: RestartPolicy;
@@ -9003,7 +9003,7 @@ export interface operations {
                 name?: string;
                 /** @description Filter DAGs by labels (comma-separated). Returns DAGs that have ALL specified labels. Mutually exclusive with `tags`; the server returns HTTP 400 if both are set. */
                 labels?: string;
-                /** @description Filter to DAGs that have a schedule or a restart policy and are not suspended. */
+                /** @description Filter to DAGs that are not suspended and have a schedule or a restart policy of always or unless-stopped. */
                 active?: boolean;
                 /**
                  * @deprecated
@@ -22194,7 +22194,6 @@ export enum TriggerType {
     restart = "restart"
 }
 export enum RestartPolicy {
-    no = "no",
     always = "always",
     unless_stopped = "unless-stopped"
 }

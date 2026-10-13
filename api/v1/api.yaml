@@ -789,7 +789,7 @@ paths:
   /dags:
     get:
       summary: "List all available DAGs"
-      description: "Retrieves DAG definitions with optional filtering by name, labels, and active status (scheduled or restarted by a restart policy, and not suspended)."
+      description: "Retrieves DAG definitions with optional filtering by name, labels, and active status (scheduled or kept running by a restart policy of always or unless-stopped, and not suspended)."
       operationId: "listDAGs"
       tags:
         - "dags"
@@ -816,7 +816,7 @@ paths:
           schema:
             type: "boolean"
             default: false
-          description: "Filter to DAGs that have a schedule or a restart policy and are not suspended."
+          description: "Filter to DAGs that are not suspended and have a schedule or a restart policy of always or unless-stopped."
         - name: "tags"
           in: "query"
           required: false
@@ -14499,8 +14499,8 @@ components:
 
     RestartPolicy:
       type: string
-      description: "Restart policy of a DAG. With always or unless-stopped, the scheduler keeps a run of the DAG alive and starts the next run restartWaitSec seconds after the previous one ends. Omitted when the DAG has no restart policy."
-      enum: ["no", "always", "unless-stopped"]
+      description: "Restart policy of a DAG: the scheduler keeps a run of the DAG alive and starts the next run restartWaitSec seconds after the previous one ends. With unless-stopped, no run follows a run that an operator stopped. Omitted when the DAG has no restart policy."
+      enum: ["always", "unless-stopped"]
 
     NodeStatus:
       type: integer

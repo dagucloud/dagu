@@ -1291,6 +1291,9 @@ func normalizeDAGList(raw any) (map[string]any, error) {
 		if schedules := scheduleStrings(dag.Dag.Schedule); len(schedules) > 0 {
 			item["schedule"] = schedules
 		}
+		if dag.Dag.RestartPolicy != nil {
+			item["restartPolicy"] = string(*dag.Dag.RestartPolicy)
+		}
 		if dag.Dag.Labels != nil && len(*dag.Dag.Labels) > 0 {
 			item["labels"] = *dag.Dag.Labels
 		}
@@ -1349,6 +1352,12 @@ func normalizeDAGDetails(raw any, fallbackName string) (map[string]any, error) {
 		}
 		if schedules := scheduleStrings(dag.Schedule); len(schedules) > 0 {
 			out["schedule"] = schedules
+		}
+		if dag.RestartPolicy != nil {
+			out["restartPolicy"] = string(*dag.RestartPolicy)
+			if dag.RestartWaitSec != nil {
+				out["restartWaitSec"] = *dag.RestartWaitSec
+			}
 		}
 		if dag.Labels != nil && len(*dag.Labels) > 0 {
 			out["labels"] = *dag.Labels

@@ -4,11 +4,11 @@
  * @module features/dags/components/dag-editor
  */
 import dayjs from '@/lib/dayjs';
-import { Calendar, CheckSquare, RefreshCw, Settings, Tag } from 'lucide-react';
+import { Calendar, CheckSquare, Settings, Tag } from 'lucide-react';
 import { components } from '../../../../api/v1/schema';
 import { Badge } from '@/components/ui/badge';
 import {
-  getRestartValue,
+  getRestartLabel,
   getScheduleKey,
   getScheduleLabel,
   isServiceDAG,
@@ -43,7 +43,14 @@ function DAGAttributes({ dag }: Props) {
             <span><I18nText text={"Schedule"} /></span>
           </div>
 
-          {!dag.schedule?.length ? (
+          {isServiceDAG(dag) ? (
+            <Badge
+              variant="outline"
+              className="max-w-full justify-start bg-primary/10 px-2.5 py-1 text-primary border-primary/30 whitespace-nowrap normal-case tracking-normal"
+            >
+              {getRestartLabel(dag)}
+            </Badge>
+          ) : !dag.schedule?.length ? (
             <div className="text-sm text-muted-foreground italic">
               <I18nText text={"No schedule defined"} />
             </div>
@@ -75,23 +82,6 @@ function DAGAttributes({ dag }: Props) {
             </div>
           )}
         </div>
-
-        {/* Restart policy */}
-        {isServiceDAG(dag) && (
-          <div className="space-y-1 md:col-span-2">
-            <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mb-2">
-              <RefreshCw className="h-4 w-4" />
-              <span><I18nText text={"Restart policy"} /></span>
-            </div>
-
-            <Badge
-              variant="outline"
-              className="max-w-full justify-start bg-primary/10 px-2.5 py-1 text-primary border-primary/30 whitespace-nowrap normal-case tracking-normal"
-            >
-              {getRestartValue(dag)}
-            </Badge>
-          </div>
-        )}
 
         {/* Parameters */}
         {dag.params && dag.params.length > 0 && (

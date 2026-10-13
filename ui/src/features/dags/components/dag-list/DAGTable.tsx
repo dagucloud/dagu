@@ -268,7 +268,7 @@ function DAGCard({
         {isService && (
           <Badge
             variant="outline"
-            className="text-xs font-normal px-1 py-0 h-3 normal-case tracking-normal"
+            className="h-[18px] rounded px-1.5 py-0 font-mono text-[11px] font-normal normal-case tracking-normal"
           >
             {getRestartLabel(dag.dag)}
           </Badge>
@@ -930,7 +930,7 @@ const defaultColumns = [
             <div className="flex flex-col gap-0.5">
               <Badge
                 variant="outline"
-                className="text-xs font-normal px-1 py-0 h-3.5 normal-case tracking-normal"
+                className="h-[18px] w-fit rounded px-1.5 py-0 font-mono text-[11px] font-normal normal-case tracking-normal"
               >
                 {getRestartLabel(data.dag.dag)}
               </Badge>
