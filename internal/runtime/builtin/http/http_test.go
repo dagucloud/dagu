@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
@@ -705,6 +706,65 @@ func TestHTTPExecutor_CmdWithArgsExpansion(t *testing.T) {
 		err = httpExec.Run(context.Background())
 		assert.NoError(t, err)
 	})
+}
+
+// A silent success prints only the body; status_code and headers stay in
+// the output when silent is off or the response is not a success.
+func TestHTTPExecutor_JSONOutputFields(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+		silent bool
+		keys   []string
+	}{
+		{"SilentSuccess", nethttp.StatusAccepted, true, []string{"body"}},
+		{"Success", nethttp.StatusAccepted, false, []string{"body", "headers", "status_code"}},
+		{"SilentError", nethttp.StatusServiceUnavailable, true, []string{"body", "headers", "status_code"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, _ *nethttp.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(`{"ok":true}`))
+			}))
+			defer server.Close()
+
+			step := ir.Step{
+				Commands: []ir.CommandEntry{{Command: "POST", Args: []string{server.URL}}},
+				ExecutorConfig: ir.ExecutorConfig{
+					Type: "http",
+					Config: map[string]any{
+						"format": "json",
+						"silent": tc.silent,
+					},
+				},
+			}
+
+			executor, err := newHTTP(context.Background(), step)
+			require.NoError(t, err)
+
+			out := &testWriter{}
+			httpExec, ok := executor.(*http)
+			require.True(t, ok)
+			httpExec.SetStdout(out)
+			httpExec.SetStderr(&testWriter{})
+
+			err = httpExec.Run(context.Background())
+			if tc.status >= 300 {
+				require.ErrorIs(t, err, errHTTPStatusCode)
+			} else {
+				require.NoError(t, err)
+			}
+
+			var result map[string]any
+			require.NoError(t, json.Unmarshal(out.data, &result))
+			assert.ElementsMatch(t, tc.keys, slices.Collect(maps.Keys(result)))
+			assert.Equal(t, map[string]any{"ok": true}, result["body"])
+			if _, ok := result["status_code"]; ok {
+				assert.InDelta(t, tc.status, result["status_code"], 0)
+			}
+		})
+	}
 }
 
 type testWriter struct {

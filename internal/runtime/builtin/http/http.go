@@ -53,9 +53,11 @@ type httpConfig struct {
 	SkipTLSVerify bool              `json:"skip_tls_verify" mapstructure:"skip_tls_verify"`
 }
 
+// httpJSONResult is the stdout of format: json. A silent success leaves
+// StatusCode and Headers unset, so the output holds only the body.
 type httpJSONResult struct {
-	StatusCode int                 `json:"status_code"`
-	Headers    map[string][]string `json:"headers"`
+	StatusCode int                 `json:"status_code,omitzero"`
+	Headers    map[string][]string `json:"headers,omitzero"`
 	Body       any                 `json:"body,omitempty"`
 	Output     string              `json:"output,omitempty"`
 }
