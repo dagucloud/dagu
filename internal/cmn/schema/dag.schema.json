@@ -3374,7 +3374,7 @@
         },
         "endpoint": {
           "type": "string",
-          "description": "OTLP endpoint URL for exporting traces. Supports both gRPC (e.g., http://localhost:4317) and HTTP (e.g., http://localhost:4318/v1/traces) protocols."
+          "description": "OTLP endpoint for exporting traces. An endpoint that ends with /v1/traces uses OTLP/HTTP (e.g., http://localhost:4318/v1/traces or localhost:4318/v1/traces); for a URL, the scheme selects HTTP or HTTPS. Any other value is a gRPC host:port (e.g., localhost:4317)."
         },
         "headers": {
           "type": "object",

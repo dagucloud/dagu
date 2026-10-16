@@ -7,7 +7,9 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"net/url"
 	"os"
+	"strings"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -87,32 +89,56 @@ func NewTracer(ctx context.Context, dag *ir.DAG, vars map[string]string) (*Trace
 
 // createExporter creates an OTLP exporter based on the endpoint
 func createExporter(ctx context.Context, config *ir.OTelConfig) (sdktrace.SpanExporter, error) {
-	endpoint := config.Endpoint
-	if endpoint == "" {
+	if config.Endpoint == "" {
 		return nil, fmt.Errorf("OTel endpoint is required")
 	}
-
-	// Determine if it's HTTP or gRPC based on the endpoint
-	isHTTP := len(endpoint) > 4 && endpoint[len(endpoint)-4:] == "/v1/traces"
-
-	if isHTTP {
+	if isHTTPEndpoint(config.Endpoint) {
 		return createHTTPExporter(ctx, config)
 	}
 	return createGRPCExporter(ctx, config)
 }
 
-// createHTTPExporter creates an OTLP HTTP exporter
+// isHTTPEndpoint reports whether the endpoint selects the OTLP/HTTP exporter.
+func isHTTPEndpoint(endpoint string) bool {
+	return strings.HasSuffix(endpoint, "/v1/traces")
+}
+
+// createHTTPExporter creates an OTLP HTTP exporter. The endpoint is either a
+// URL (http://host:4318/v1/traces) or host:port followed by the path
+// (host:4318/v1/traces). For a URL, the scheme selects HTTP or HTTPS.
 func createHTTPExporter(ctx context.Context, config *ir.OTelConfig) (sdktrace.SpanExporter, error) {
 	opts := []otlptracehttp.Option{
-		otlptracehttp.WithEndpoint(config.Endpoint),
 		otlptracehttp.WithHeaders(config.Headers),
+	}
+
+	insecure := config.Insecure
+	if strings.Contains(config.Endpoint, "://") {
+		u, err := url.Parse(config.Endpoint)
+		if err != nil {
+			return nil, fmt.Errorf("invalid OTel endpoint %q: %w", config.Endpoint, err)
+		}
+		switch u.Scheme {
+		case "http":
+			insecure = true
+		case "https":
+			insecure = false
+		default:
+			return nil, fmt.Errorf("invalid OTel endpoint %q: scheme must be http or https", config.Endpoint)
+		}
+		opts = append(opts, otlptracehttp.WithEndpointURL(config.Endpoint))
+	} else {
+		hostPort, path, _ := strings.Cut(config.Endpoint, "/")
+		opts = append(opts,
+			otlptracehttp.WithEndpoint(hostPort),
+			otlptracehttp.WithURLPath("/"+path),
+		)
 	}
 
 	if config.Timeout > 0 {
 		opts = append(opts, otlptracehttp.WithTimeout(config.Timeout))
 	}
 
-	if config.Insecure {
+	if insecure {
 		opts = append(opts, otlptracehttp.WithInsecure())
 	} else {
 		opts = append(opts, otlptracehttp.WithTLSClientConfig(&tls.Config{
