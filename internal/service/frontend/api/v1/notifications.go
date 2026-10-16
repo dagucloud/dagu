@@ -624,6 +624,11 @@ func notificationChannelFromRequest(id string, input api.NotificationChannelInpu
 			MessageTemplate: valueOf(input.Teams.MessageTemplate),
 		}
 	}
+	if input.Command != nil {
+		channel.Command = &notificationmodel.CommandTarget{
+			Command: input.Command.Command,
+		}
+	}
 	return channel
 }
 
@@ -874,6 +879,11 @@ func toAPINotificationChannel(channel *notificationmodel.Channel) api.Notificati
 			MessageTemplate:      ptrOf(pub.Teams.MessageTemplate),
 		}
 	}
+	if pub.Command != nil {
+		result.Command = &api.NotificationCommandTarget{
+			Command: pub.Command.Command,
+		}
+	}
 	return result
 }
 
@@ -897,7 +907,7 @@ func toAPINotificationTarget(target notificationmodel.PublicTarget) api.Notifica
 	result := api.NotificationTarget{
 		Id:      target.ID,
 		Name:    ptrOf(target.Name),
-		Type:    api.NotificationProviderType(target.Type),
+		Type:    api.NotificationTargetProviderType(target.Type),
 		Enabled: target.Enabled,
 	}
 	if len(target.Events) > 0 {

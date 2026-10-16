@@ -4845,6 +4845,11 @@ export interface components {
          */
         NotificationProviderType: NotificationProviderType;
         /**
+         * @description Provider for a DAG-local notification target. Local commands are reusable channels, not inline targets.
+         * @enum {string}
+         */
+        NotificationTargetProviderType: NotificationTargetProviderType;
+        /**
          * @description DAG run event that can trigger server-side notifications. Rules configured for dag.run.succeeded also match dag.run.partially_succeeded; rules configured only for dag.run.partially_succeeded do not match clean successes.
          * @enum {string}
          */
@@ -5107,13 +5112,18 @@ export interface components {
             /** @description Optional Teams message template. When omitted, Dagu sends the default notification text. */
             messageTemplate?: string;
         };
+        /** @description Local shell command run by the Dagu server when this channel delivers a notification. */
+        NotificationCommandTarget: {
+            /** @description Shell command. Tokens such as {{dag.name}} are inserted as one quoted shell word, so the value is not interpreted as shell syntax. The same fields are exported as environment variables, including DAG_NAME, STATUS, and ERROR. EXECUTION_LOG is the path of a temporary file containing up to 1 MiB of the run log; Dagu removes that file after the command exits. Unix shells expand $DAG_NAME. Windows cmd.exe expands %DAG_NAME%. */
+            command: string;
+        };
         /** @description Notification target input */
         NotificationTargetInput: {
             /** @description Stable target ID. Omit when creating a new target. */
             id?: string;
             /** @description Human-readable target name */
             name?: string;
-            type: components["schemas"]["NotificationProviderType"];
+            type: components["schemas"]["NotificationTargetProviderType"];
             /** @description Whether this target receives notifications */
             enabled: boolean;
             /** @description Optional target-level event filter. When omitted or empty, the target inherits DAG-level events. */
@@ -5130,7 +5140,7 @@ export interface components {
             id: string;
             /** @description Human-readable target name */
             name?: string;
-            type: components["schemas"]["NotificationProviderType"];
+            type: components["schemas"]["NotificationTargetProviderType"];
             /** @description Whether this target receives notifications */
             enabled: boolean;
             /** @description Target-level event filter. Empty means the target inherits DAG-level events. */
@@ -5153,6 +5163,7 @@ export interface components {
             slack?: components["schemas"]["NotificationSlackTargetInput"];
             telegram?: components["schemas"]["NotificationTelegramTargetInput"];
             teams?: components["schemas"]["NotificationTeamsTargetInput"];
+            command?: components["schemas"]["NotificationCommandTarget"];
         };
         /** @description Notification channel. Secrets are never returned. */
         NotificationChannel: {
@@ -5168,6 +5179,7 @@ export interface components {
             slack?: components["schemas"]["NotificationSlackTarget"];
             telegram?: components["schemas"]["NotificationTelegramTarget"];
             teams?: components["schemas"]["NotificationTeamsTarget"];
+            command?: components["schemas"]["NotificationCommandTarget"];
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
@@ -21997,6 +22009,14 @@ export enum WebhookHMACConfigureRequestAuthMode {
     hmac_only = "hmac_only"
 }
 export enum NotificationProviderType {
+    email = "email",
+    webhook = "webhook",
+    slack = "slack",
+    telegram = "telegram",
+    teams = "teams",
+    command = "command"
+}
+export enum NotificationTargetProviderType {
     email = "email",
     webhook = "webhook",
     slack = "slack",

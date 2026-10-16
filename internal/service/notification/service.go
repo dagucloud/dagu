@@ -39,13 +39,15 @@ import (
 )
 
 type Service struct {
-	store                   notificationmodel.Store
-	dagRepository           *persis.DAGRepository
-	http                    *http.Client
-	logger                  *slog.Logger
-	retry                   DeliveryRetryConfig
-	reusableChannelsEnabled func() bool
-	publicURL               func() string
+	store                      notificationmodel.Store
+	dagRepository              *persis.DAGRepository
+	http                       *http.Client
+	logger                     *slog.Logger
+	retry                      DeliveryRetryConfig
+	reusableChannelsEnabled    func() bool
+	publicURL                  func() string
+	notificationCommandTimeout time.Duration
+	notificationLogLimit       int
 }
 
 type TestResult struct {
@@ -944,6 +946,8 @@ func (s *Service) deliverTarget(ctx context.Context, target notificationmodel.Ta
 		return s.withRetry(ctx, func() error { return s.sendTelegram(ctx, target, events) })
 	case notificationmodel.ProviderTeams:
 		return s.withRetry(ctx, func() error { return s.sendTeams(ctx, target, events) })
+	case notificationmodel.ProviderCommand:
+		return s.sendCommand(ctx, target, events)
 	default:
 		return notificationmodel.ErrUnsupportedTarget
 	}

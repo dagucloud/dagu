@@ -24,6 +24,49 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestNotificationChannels_CreateCommandChannel(t *testing.T) {
+	t.Parallel()
+
+	server := test.SetupServer(t)
+	command := `notify-send "Dagu" "$DAG_NAME $STATUS"`
+	created := server.Client().Post("/api/v1/notification-channels", api.NotificationChannelInput{
+		Name:    "Desktop",
+		Type:    api.NotificationProviderTypeCommand,
+		Enabled: true,
+		Command: &api.NotificationCommandTarget{Command: command},
+	}).ExpectStatus(http.StatusCreated).Send(t)
+
+	var channel api.NotificationChannel
+	created.Unmarshal(t, &channel)
+	require.NotNil(t, channel.Command)
+	assert.Equal(t, command, channel.Command.Command)
+	assert.Equal(t, api.NotificationProviderTypeCommand, channel.Type)
+
+	listed := server.Client().Get("/api/v1/notification-channels").
+		ExpectStatus(http.StatusOK).Send(t)
+	var result api.NotificationChannelListResponse
+	listed.Unmarshal(t, &result)
+	require.Len(t, result.Channels, 1)
+	require.NotNil(t, result.Channels[0].Command)
+	assert.Equal(t, command, result.Channels[0].Command.Command)
+}
+
+func TestDAGNotifications_RejectCommandTarget(t *testing.T) {
+	t.Parallel()
+
+	server := test.SetupServer(t)
+	createTestDAG(t, server, "", "daily-report")
+	server.Client().Put("/api/v1/dags/daily-report/notifications", map[string]any{
+		"enabled": true,
+		"events":  []string{"dag.run.failed"},
+		"targets": []map[string]any{{
+			"name":    "Desktop",
+			"type":    "command",
+			"enabled": true,
+		}},
+	}).ExpectStatus(http.StatusBadRequest).Send(t)
+}
+
 func TestNotificationChannels_AvailableWithoutLicense(t *testing.T) {
 	t.Parallel()
 

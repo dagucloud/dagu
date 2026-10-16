@@ -532,3 +532,56 @@ func TestPreviewSecretMultibyte(t *testing.T) {
 	// Short multibyte secrets are fully masked.
 	assert.Equal(t, "********", PreviewSecret("ab界界cd"))
 }
+
+func TestNormalizeChannelAcceptsCommand(t *testing.T) {
+	t.Parallel()
+
+	channel, err := NormalizeChannel(&Channel{
+		Name:    "Desktop",
+		Type:    ProviderCommand,
+		Enabled: true,
+		Command: &CommandTarget{Command: "  notify-send \"$DAG_NAME\"  "},
+	}, "tester")
+	require.NoError(t, err)
+	require.NotNil(t, channel.Command)
+	assert.Equal(t, "notify-send \"$DAG_NAME\"", channel.Command.Command)
+
+	public := channel.ToPublic()
+	require.NotNil(t, public.Command)
+	assert.Equal(t, channel.Command.Command, public.Command.Command)
+}
+
+func TestNormalizeChannelRejectsEmptyCommand(t *testing.T) {
+	t.Parallel()
+
+	_, err := NormalizeChannel(&Channel{
+		Name:    "Desktop",
+		Type:    ProviderCommand,
+		Enabled: true,
+	}, "tester")
+	assert.ErrorIs(t, err, ErrInvalidSettings)
+
+	_, err = NormalizeChannel(&Channel{
+		Name:    "Desktop",
+		Type:    ProviderCommand,
+		Enabled: true,
+		Command: &CommandTarget{Command: "bad\x00command"},
+	}, "tester")
+	assert.ErrorIs(t, err, ErrInvalidSettings)
+}
+
+func TestNormalizeRejectsCommandTargetOnDAGSettings(t *testing.T) {
+	t.Parallel()
+
+	_, err := Normalize(&Settings{
+		DAGName: "daily-report",
+		Enabled: true,
+		Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
+		Targets: []Target{{
+			Type:    ProviderCommand,
+			Enabled: true,
+			Command: &CommandTarget{Command: "notify-send done"},
+		}},
+	}, "tester")
+	assert.ErrorIs(t, err, ErrUnsupportedTarget)
+}

@@ -27,18 +27,19 @@ type settingsRecord struct {
 }
 
 type channelRecord struct {
-	ID        string                    `json:"id"`
-	Name      string                    `json:"name"`
-	Type      notification.ProviderType `json:"type"`
-	Enabled   bool                      `json:"enabled"`
-	Email     *notification.EmailTarget `json:"email,omitempty"`
-	Webhook   *webhookTargetRecord      `json:"webhook,omitempty"`
-	Slack     *slackTargetRecord        `json:"slack,omitempty"`
-	Telegram  *telegramTargetRecord     `json:"telegram,omitempty"`
-	Teams     *teamsTargetRecord        `json:"teams,omitempty"`
-	CreatedAt string                    `json:"createdAt"`
-	UpdatedAt string                    `json:"updatedAt"`
-	UpdatedBy string                    `json:"updatedBy,omitempty"`
+	ID        string                      `json:"id"`
+	Name      string                      `json:"name"`
+	Type      notification.ProviderType   `json:"type"`
+	Enabled   bool                        `json:"enabled"`
+	Email     *notification.EmailTarget   `json:"email,omitempty"`
+	Webhook   *webhookTargetRecord        `json:"webhook,omitempty"`
+	Slack     *slackTargetRecord          `json:"slack,omitempty"`
+	Telegram  *telegramTargetRecord       `json:"telegram,omitempty"`
+	Teams     *teamsTargetRecord          `json:"teams,omitempty"`
+	Command   *notification.CommandTarget `json:"command,omitempty"`
+	CreatedAt string                      `json:"createdAt"`
+	UpdatedAt string                      `json:"updatedAt"`
+	UpdatedBy string                      `json:"updatedBy,omitempty"`
 }
 
 type workspaceSettingsRecord struct {
@@ -93,16 +94,17 @@ type subscriptionRecord struct {
 }
 
 type targetRecord struct {
-	ID       string                    `json:"id"`
-	Name     string                    `json:"name,omitempty"`
-	Type     notification.ProviderType `json:"type"`
-	Enabled  bool                      `json:"enabled"`
-	Events   []string                  `json:"events,omitempty"`
-	Email    *notification.EmailTarget `json:"email,omitempty"`
-	Webhook  *webhookTargetRecord      `json:"webhook,omitempty"`
-	Slack    *slackTargetRecord        `json:"slack,omitempty"`
-	Telegram *telegramTargetRecord     `json:"telegram,omitempty"`
-	Teams    *teamsTargetRecord        `json:"teams,omitempty"`
+	ID       string                      `json:"id"`
+	Name     string                      `json:"name,omitempty"`
+	Type     notification.ProviderType   `json:"type"`
+	Enabled  bool                        `json:"enabled"`
+	Events   []string                    `json:"events,omitempty"`
+	Email    *notification.EmailTarget   `json:"email,omitempty"`
+	Webhook  *webhookTargetRecord        `json:"webhook,omitempty"`
+	Slack    *slackTargetRecord          `json:"slack,omitempty"`
+	Telegram *telegramTargetRecord       `json:"telegram,omitempty"`
+	Teams    *teamsTargetRecord          `json:"teams,omitempty"`
+	Command  *notification.CommandTarget `json:"command,omitempty"`
 }
 
 type webhookTargetRecord struct {
@@ -182,6 +184,7 @@ func (s *NotificationStore) channelToRecord(channel *notification.Channel) (*cha
 		Slack:     target.Slack,
 		Telegram:  target.Telegram,
 		Teams:     target.Teams,
+		Command:   target.Command,
 		CreatedAt: channel.CreatedAt.Format(time.RFC3339Nano),
 		UpdatedAt: channel.UpdatedAt.Format(time.RFC3339Nano),
 		UpdatedBy: channel.UpdatedBy,
@@ -316,6 +319,9 @@ func (s *NotificationStore) targetToRecord(target notification.Target) (targetRe
 			return stored, err
 		}
 	}
+	if target.Command != nil {
+		stored.Command = &notification.CommandTarget{Command: target.Command.Command}
+	}
 	return stored, nil
 }
 
@@ -369,6 +375,7 @@ func (s *NotificationStore) channelFromRecord(rec *persis.Record) (*notification
 		Slack:    stored.Slack,
 		Telegram: stored.Telegram,
 		Teams:    stored.Teams,
+		Command:  stored.Command,
 	})
 	if err != nil {
 		return nil, err
@@ -385,6 +392,7 @@ func (s *NotificationStore) channelFromRecord(rec *persis.Record) (*notification
 		Slack:     target.Slack,
 		Telegram:  target.Telegram,
 		Teams:     target.Teams,
+		Command:   target.Command,
 		CreatedAt: createdAt,
 		UpdatedAt: updatedAt,
 		UpdatedBy: stored.UpdatedBy,
@@ -531,6 +539,9 @@ func (s *NotificationStore) targetFromRecord(stored targetRecord) (notification.
 		if err != nil {
 			return target, err
 		}
+	}
+	if stored.Command != nil {
+		target.Command = &notification.CommandTarget{Command: stored.Command.Command}
 	}
 	return target, nil
 }

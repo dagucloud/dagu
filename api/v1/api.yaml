@@ -12994,6 +12994,17 @@ components:
         - slack
         - telegram
         - teams
+        - command
+
+    NotificationTargetProviderType:
+      type: string
+      description: "Provider for a DAG-local notification target. Local commands are reusable channels, not inline targets."
+      enum:
+        - email
+        - webhook
+        - slack
+        - telegram
+        - teams
 
     NotificationEventType:
       type: string
@@ -13459,6 +13470,16 @@ components:
           type: string
           description: "Optional Teams message template. When omitted, Dagu sends the default notification text."
 
+    NotificationCommandTarget:
+      type: object
+      description: "Local shell command run by the Dagu server when this channel delivers a notification."
+      required:
+        - command
+      properties:
+        command:
+          type: string
+          description: "Shell command. Tokens such as {{dag.name}} are inserted as one quoted shell word, so the value is not interpreted as shell syntax. The same fields are exported as environment variables, including DAG_NAME, STATUS, and ERROR. EXECUTION_LOG is the path of a temporary file containing up to 1 MiB of the run log; Dagu removes that file after the command exits. Unix shells expand $DAG_NAME. Windows cmd.exe expands %DAG_NAME%."
+
     NotificationTargetInput:
       type: object
       description: "Notification target input"
@@ -13473,7 +13494,7 @@ components:
           type: string
           description: "Human-readable target name"
         type:
-          $ref: "#/components/schemas/NotificationProviderType"
+          $ref: "#/components/schemas/NotificationTargetProviderType"
         enabled:
           type: boolean
           description: "Whether this target receives notifications"
@@ -13508,7 +13529,7 @@ components:
           type: string
           description: "Human-readable target name"
         type:
-          $ref: "#/components/schemas/NotificationProviderType"
+          $ref: "#/components/schemas/NotificationTargetProviderType"
         enabled:
           type: boolean
           description: "Whether this target receives notifications"
@@ -13554,6 +13575,8 @@ components:
           $ref: "#/components/schemas/NotificationTelegramTargetInput"
         teams:
           $ref: "#/components/schemas/NotificationTeamsTargetInput"
+        command:
+          $ref: "#/components/schemas/NotificationCommandTarget"
 
     NotificationChannel:
       type: object
@@ -13587,6 +13610,8 @@ components:
           $ref: "#/components/schemas/NotificationTelegramTarget"
         teams:
           $ref: "#/components/schemas/NotificationTeamsTarget"
+        command:
+          $ref: "#/components/schemas/NotificationCommandTarget"
         createdAt:
           type: string
           format: date-time

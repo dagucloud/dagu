@@ -379,7 +379,7 @@ export default function NotificationsPage(): ReactElement {
           to: '/notification-channels',
           label: 'Channels',
           description:
-            'Manage Slack, email, webhook, and Telegram destinations.',
+            'Manage Slack, email, webhook, Telegram, and local command destinations.',
         },
       ],
     },

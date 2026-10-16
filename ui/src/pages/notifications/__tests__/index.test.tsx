@@ -181,7 +181,7 @@ describe('NotificationsPage', () => {
     ).toBeVisible();
     expect(
       screen.getByText(
-        'Manage Slack, email, webhook, and Telegram destinations.'
+        'Manage Slack, email, webhook, Telegram, and local command destinations.'
       )
     ).toBeVisible();
     expect(setTitle).toHaveBeenCalledWith('Notifications');
@@ -324,6 +324,44 @@ describe('NotificationChannelsPage', () => {
     expect(screen.getAllByRole('listitem')).toHaveLength(1);
     expect(mocks.client.PUT).not.toHaveBeenCalled();
     expect(mocks.client.POST).not.toHaveBeenCalled();
+  });
+
+  it('creates a custom command channel', async () => {
+    const user = userEvent.setup();
+    const command =
+      'notify-send "Dagu" "DAG $DAG_NAME finished with status $STATUS"';
+    mocks.client.POST.mockResolvedValue({
+      data: {
+        id: 'command',
+        name: 'Desktop',
+        type: 'command',
+        enabled: true,
+        command: { command },
+      },
+    });
+    renderChannelsPage({});
+    await user.click(screen.getByRole('button', { name: 'Add channel' }));
+    await user.click(screen.getByLabelText('Provider'));
+    await user.click(screen.getByRole('option', { name: 'Custom' }));
+    const editor = within(screen.getByRole('dialog'));
+    await user.clear(editor.getByLabelText('Channel name'));
+    await user.paste('Desktop');
+    await user.click(editor.getByLabelText('Command'));
+    await user.paste(command);
+    await user.click(editor.getByRole('button', { name: 'Create channel' }));
+    expect(mocks.client.POST).toHaveBeenCalledWith(
+      '/notification-channels',
+      expect.objectContaining({
+        body: expect.objectContaining({
+          type: 'command',
+          name: 'Desktop',
+          command: { command },
+        }),
+      })
+    );
+    expect(
+      await screen.findByRole('listitem', { name: 'Desktop' })
+    ).toBeVisible();
   });
 
   it('creates a channel with the selected provider', async () => {
