@@ -175,6 +175,18 @@ omits `name` and uses `id`, the effective runtime name is that `id`.
 `DAG_RUN_STATUS`, when present for a handler or status-aware surface, is an
 initial current-step Dagu-managed value for that surface.
 
+`TRACEPARENT` and `TRACESTATE`, when present for an executable step, are
+initial current-step Dagu-managed values. They carry the trace context of the
+step span defined by [Spec 017](017-built-in-run-context.md#trace-context-projection).
+They differ from the other initial current-step names in these ways:
+
+- They are not protected and not secret-reserved. They are standard names that
+  workflows and tools also set.
+- They replace a value of the same name from the root run environment scope.
+- A step-local source that sets either name shadows both names. Dagu then adds
+  neither name, so a step-local `TRACEPARENT` is never paired with the trace
+  state of the step span.
+
 Execution-attempt Dagu-managed environment names include:
 
 - `DAG_RUN_STEP_STDOUT_FILE`

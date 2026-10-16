@@ -1,0 +1,7 @@
+name: builtin_trace_context_disabled
+working_dir: .
+steps:
+  - id: capture
+    run: |
+      printf 'traceparent=%s\n' "${TRACEPARENT-UNSET}" > trace-context.txt
+      printf 'tracestate=%s\n' "${TRACESTATE-UNSET}" >> trace-context.txt

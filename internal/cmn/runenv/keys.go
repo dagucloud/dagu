@@ -82,6 +82,14 @@ const (
 // EnvKeyPWD holds the resolved working directory of the executing step.
 const EnvKeyPWD = "PWD"
 
+// Trace context keys of the OpenTelemetry environment carrier. Dagu sets them
+// for a step that runs inside a recorded span. A workflow may also set them, so
+// they are not reserved run names.
+const (
+	EnvKeyTraceParent = "TRACEPARENT"
+	EnvKeyTraceState  = "TRACESTATE"
+)
+
 // reservedRunEnvNames are the environment variable names Dagu generates for a
 // run or a step. They describe one run on one host, so an authored workflow may
 // neither define them nor carry them into another run.
