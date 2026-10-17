@@ -35,6 +35,11 @@ type Collection struct {
 	idPrefixes []string
 	indent     bool
 	mu         sync.RWMutex
+
+	// beforeHeldCheck is a test seam. When set, it runs just before a write
+	// verifies that the record lock is still held, so tests can lose the lock
+	// at that point.
+	beforeHeldCheck func()
 }
 
 var _ persis.Collection = (*Collection)(nil)
@@ -154,7 +159,7 @@ func (c *Collection) CompareAndDelete(ctx context.Context, expected *persis.Reco
 	if expected == nil {
 		return fmt.Errorf("file backend: nil record")
 	}
-	return c.withRecordLock(ctx, expected.ID, func() error {
+	return c.withHeldRecordLock(ctx, expected.ID, func(held func() error) error {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 
@@ -168,6 +173,9 @@ func (c *Collection) CompareAndDelete(ctx context.Context, expected *persis.Reco
 		}
 		if !sameRecord(rec, expected) {
 			return persis.ErrConflict
+		}
+		if err := held(); err != nil {
+			return err
 		}
 		if err := fileutil.Remove(path); err != nil {
 			if errors.Is(err, os.ErrNotExist) {
@@ -212,7 +220,13 @@ func (c *Collection) RecordVersion(_ context.Context, id string) (string, error)
 	return fmt.Sprintf("%d/%d", info.ModTime().UTC().UnixNano(), info.Size()), nil
 }
 
-func withDirLock(ctx context.Context, lockDir string, fn func() error) error {
+// withDirLock runs fn while holding the directory lock in lockDir. fn receives
+// a check that returns an error once the lock is no longer held by this
+// process, for example because stale-lock recovery handed it to another one.
+// A caller that writes shared state calls it right before the write. The
+// check followed by the write is not atomic, so it only narrows the window in
+// which a lost lock goes unnoticed; it does not close it.
+func withDirLock(ctx context.Context, lockDir string, fn func(held func() error) error) error {
 	lock := dirlock.New(lockDir, &dirlock.LockOptions{
 		StaleThreshold: 30 * time.Second,
 		RetryInterval:  50 * time.Millisecond,
@@ -223,7 +237,14 @@ func withDirLock(ctx context.Context, lockDir string, fn func() error) error {
 	defer func() {
 		_ = lock.Unlock()
 	}()
-	return fn()
+	return fn(func() error {
+		if !lock.IsHeldByMe() {
+			// Deliberately not persis.ErrConflict: callers treat that as
+			// "the record changed, drop it", but nothing was written here.
+			return fmt.Errorf("file backend: record lock lost before the write: %w", dirlock.ErrLockNotHeld)
+		}
+		return nil
+	})
 }
 
 func (c *Collection) List(_ context.Context, q persis.ListQuery) (*persis.Page, error) {
@@ -262,7 +283,7 @@ func (c *Collection) List(_ context.Context, q persis.ListQuery) (*persis.Page, 
 // CompareAndSwap atomically replaces the record's Data only when the current
 // Data equals expected. Returns [persis.ErrConflict] on mismatch.
 func (c *Collection) CompareAndSwap(ctx context.Context, id string, expected, next []byte) error {
-	return c.withRecordLock(ctx, id, func() error {
+	return c.withHeldRecordLock(ctx, id, func(held func() error) error {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 
@@ -276,6 +297,9 @@ func (c *Collection) CompareAndSwap(ctx context.Context, id string, expected, ne
 		}
 		if !bytes.Equal(rec.Data, expected) {
 			return persis.ErrConflict
+		}
+		if err := held(); err != nil {
+			return err
 		}
 		rec.Data = next
 		rec.UpdatedAt = time.Now().UTC()
@@ -353,6 +377,12 @@ func (c *Collection) acceptsID(id string) bool {
 }
 
 func (c *Collection) withRecordLock(ctx context.Context, id string, fn func() error) error {
+	return c.withHeldRecordLock(ctx, id, func(func() error) error { return fn() })
+}
+
+// withHeldRecordLock is like withRecordLock, but fn also receives the check
+// described on withDirLock.
+func (c *Collection) withHeldRecordLock(ctx context.Context, id string, fn func(held func() error) error) error {
 	if _, err := c.writePath(id); err != nil {
 		return err
 	}
@@ -360,7 +390,14 @@ func (c *Collection) withRecordLock(ctx context.Context, id string, fn func() er
 	// records across 256 buckets.
 	sum := sha256.Sum256([]byte(id))
 	lockDir := filepath.Join(c.dir, recordLockDirectoryName, fmt.Sprintf("%02x", sum[0]))
-	return withDirLock(ctx, lockDir, fn)
+	return withDirLock(ctx, lockDir, func(held func() error) error {
+		return fn(func() error {
+			if c.beforeHeldCheck != nil {
+				c.beforeHeldCheck()
+			}
+			return held()
+		})
+	})
 }
 
 func pathUnderRoot(root, id, kind string) (string, error) {
