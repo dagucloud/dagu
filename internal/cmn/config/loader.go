@@ -203,6 +203,90 @@ func (l *ConfigLoader) loadBrowserClientCertificates(defs []BrowserClientCertifi
 	return certificates, nil
 }
 
+// secretFile is a secret key whose value can also come from the file named
+// by the key with a _file suffix.
+type secretFile struct {
+	key   string
+	file  string
+	value *string
+}
+
+// loadSecretFiles replaces each secret that has a _file key with the content
+// of that file, so the section loaders see the value as if it were inline.
+// Only the sections the service loads are read.
+func (l *ConfigLoader) loadSecretFiles(def *Definition) error {
+	var secrets []secretFile
+	if def.Secrets != nil && def.Secrets.Vault != nil {
+		vault := def.Secrets.Vault
+		secrets = append(secrets, secretFile{"secrets.vault.token", vault.TokenFile, &vault.Token})
+	}
+	if l.requires(SectionServer) {
+		if auth := def.Auth; auth != nil {
+			if auth.Basic != nil {
+				secrets = append(secrets, secretFile{"auth.basic.password", auth.Basic.PasswordFile, &auth.Basic.Password})
+			}
+			if auth.OIDC != nil {
+				secrets = append(secrets, secretFile{"auth.oidc.client_secret", auth.OIDC.ClientSecretFile, &auth.OIDC.ClientSecret})
+			}
+			if auth.Builtin != nil && auth.Builtin.Token != nil {
+				token := auth.Builtin.Token
+				secrets = append(secrets, secretFile{"auth.builtin.token.secret", token.SecretFile, &token.Secret})
+			}
+			if auth.Builtin != nil && auth.Builtin.InitialAdmin != nil {
+				admin := auth.Builtin.InitialAdmin
+				secrets = append(secrets, secretFile{"auth.builtin.initial_admin.password", admin.PasswordFile, &admin.Password})
+			}
+		}
+		for i := range def.RemoteNodes {
+			node := &def.RemoteNodes[i]
+			field := fmt.Sprintf("remote_nodes[%d].", i)
+			secrets = append(secrets,
+				secretFile{field + "basic_auth_password", node.BasicAuthPasswordFile, &node.BasicAuthPassword},
+				secretFile{field + "auth_token", node.AuthTokenFile, &node.AuthToken},
+			)
+		}
+	}
+	if l.requires(SectionGitSync) && def.GitSync != nil && def.GitSync.Auth != nil {
+		auth := def.GitSync.Auth
+		secrets = append(secrets,
+			secretFile{"git_sync.auth.token", auth.TokenFile, &auth.Token},
+			secretFile{"git_sync.auth.ssh_passphrase", auth.SSHPassphraseFile, &auth.SSHPassphrase},
+		)
+	}
+	for _, secret := range secrets {
+		if err := l.readSecretFile(secret); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// readSecretFile sets the secret to the content of its file, without the
+// trailing line end. Setting both the key and its _file key is an error, as
+// is a file that cannot be read or holds nothing.
+func (l *ConfigLoader) readSecretFile(secret secretFile) error {
+	if secret.file == "" {
+		return nil
+	}
+	if *secret.value != "" {
+		return fmt.Errorf("set either %s or %s_file, not both", secret.key, secret.key)
+	}
+	path, err := l.resolvePath(secret.key+"_file", secret.file)
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(path) //nolint:gosec // the secret file is the configured input
+	if err != nil {
+		return fmt.Errorf("read %s_file: %w", secret.key, err)
+	}
+	value := strings.TrimRight(string(data), "\r\n")
+	if value == "" {
+		return fmt.Errorf("%s_file %s is empty", secret.key, path)
+	}
+	*secret.value = value
+	return nil
+}
+
 // parseDuration parses a duration string, returning zero and adding a warning if invalid.
 func (l *ConfigLoader) parseDuration(fieldName, value string) time.Duration {
 	if value == "" {
@@ -344,6 +428,9 @@ func (l *ConfigLoader) buildConfig(def Definition) (*Config, error) {
 		return nil, err
 	}
 	if err := l.loadPathsConfig(&cfg, def); err != nil {
+		return nil, err
+	}
+	if err := l.loadSecretFiles(&def); err != nil {
 		return nil, err
 	}
 	l.loadSecretsConfig(&cfg, def)
@@ -685,7 +772,17 @@ func (l *ConfigLoader) loadServerPermissions(cfg *Config, def Definition) {
 
 func (l *ConfigLoader) loadServerRemoteNodes(cfg *Config, def Definition) {
 	for _, node := range def.RemoteNodes {
-		cfg.Server.RemoteNodes = append(cfg.Server.RemoteNodes, RemoteNode(node))
+		cfg.Server.RemoteNodes = append(cfg.Server.RemoteNodes, RemoteNode{
+			Name:              node.Name,
+			Description:       node.Description,
+			APIBaseURL:        node.APIBaseURL,
+			AuthType:          node.AuthType,
+			BasicAuthUsername: node.BasicAuthUsername,
+			BasicAuthPassword: node.BasicAuthPassword,
+			AuthToken:         node.AuthToken,
+			SkipTLSVerify:     node.SkipTLSVerify,
+			Timeout:           node.Timeout,
+		})
 	}
 }
 
@@ -2251,6 +2348,7 @@ var envBindings = []envBinding{
 	// Secrets
 	{key: "secrets.vault.address", env: "SECRETS_VAULT_ADDRESS"},
 	{key: "secrets.vault.token", env: "SECRETS_VAULT_TOKEN"},
+	{key: "secrets.vault.token_file", env: "SECRETS_VAULT_TOKEN_FILE", isPath: true},
 	{key: "secrets.vault.ca_cert", env: "SECRETS_VAULT_CA_CERT", isPath: true},
 	{key: "secrets.vault.client_cert", env: "SECRETS_VAULT_CLIENT_CERT", isPath: true},
 	{key: "secrets.vault.client_key", env: "SECRETS_VAULT_CLIENT_KEY", isPath: true},
@@ -2297,9 +2395,11 @@ var envBindings = []envBinding{
 	{key: "auth.mode", env: "AUTH_MODE"},
 	{key: "auth.basic.username", env: "AUTH_BASIC_USERNAME"},
 	{key: "auth.basic.password", env: "AUTH_BASIC_PASSWORD"},
+	{key: "auth.basic.password_file", env: "AUTH_BASIC_PASSWORD_FILE", isPath: true},
 	// Auth OIDC
 	{key: "auth.oidc.client_id", env: "AUTH_OIDC_CLIENT_ID"},
 	{key: "auth.oidc.client_secret", env: "AUTH_OIDC_CLIENT_SECRET"},
+	{key: "auth.oidc.client_secret_file", env: "AUTH_OIDC_CLIENT_SECRET_FILE", isPath: true},
 	{key: "auth.oidc.client_url", env: "AUTH_OIDC_CLIENT_URL"},
 	{key: "auth.oidc.issuer", env: "AUTH_OIDC_ISSUER"},
 	{key: "auth.oidc.scopes", env: "AUTH_OIDC_SCOPES"},
@@ -2328,9 +2428,11 @@ var envBindings = []envBinding{
 	{key: "auth.proxy.role_mapping.skip_org_role_sync", env: "AUTH_PROXY_SKIP_ORG_ROLE_SYNC", requires: SectionServer},
 	// Auth (builtin)
 	{key: "auth.builtin.token.secret", env: "AUTH_TOKEN_SECRET"},
+	{key: "auth.builtin.token.secret_file", env: "AUTH_TOKEN_SECRET_FILE", isPath: true},
 	{key: "auth.builtin.token.ttl", env: "AUTH_TOKEN_TTL"},
 	{key: "auth.builtin.initial_admin.username", env: "AUTH_BUILTIN_INITIAL_ADMIN_USERNAME"},
 	{key: "auth.builtin.initial_admin.password", env: "AUTH_BUILTIN_INITIAL_ADMIN_PASSWORD"},
+	{key: "auth.builtin.initial_admin.password_file", env: "AUTH_BUILTIN_INITIAL_ADMIN_PASSWORD_FILE", isPath: true},
 
 	// TLS
 	{key: "tls.cert_file", env: "CERT_FILE"},
@@ -2434,8 +2536,10 @@ var envBindings = []envBinding{
 	{key: "git_sync.push_enabled", env: "GITSYNC_PUSH_ENABLED"},
 	{key: "git_sync.auth.type", env: "GITSYNC_AUTH_TYPE"},
 	{key: "git_sync.auth.token", env: "GITSYNC_AUTH_TOKEN"},
+	{key: "git_sync.auth.token_file", env: "GITSYNC_AUTH_TOKEN_FILE", isPath: true},
 	{key: "git_sync.auth.ssh_key_path", env: "GITSYNC_AUTH_SSH_KEY_PATH", isPath: true},
 	{key: "git_sync.auth.ssh_passphrase", env: "GITSYNC_AUTH_SSH_PASSPHRASE"},
+	{key: "git_sync.auth.ssh_passphrase_file", env: "GITSYNC_AUTH_SSH_PASSPHRASE_FILE", isPath: true},
 	{key: "git_sync.auto_sync.enabled", env: "GITSYNC_AUTOSYNC_ENABLED"},
 	{key: "git_sync.auto_sync.on_startup", env: "GITSYNC_AUTOSYNC_ON_STARTUP"},
 	{key: "git_sync.auto_sync.interval", env: "GITSYNC_AUTOSYNC_INTERVAL"},

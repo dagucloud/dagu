@@ -2222,6 +2222,155 @@ auth:
 	})
 }
 
+func writeSecretFile(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "secret")
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+	return path
+}
+
+func TestLoad_SecretFiles(t *testing.T) {
+	tests := []struct {
+		name string
+		yaml string
+		got  func(*Config) string
+	}{
+		{
+			name: "BasicPassword",
+			yaml: "auth:\n  mode: basic\n  basic:\n    username: admin\n    password_file: %s\n",
+			got:  func(cfg *Config) string { return cfg.Server.Auth.Basic.Password },
+		},
+		{
+			name: "OIDCClientSecret",
+			yaml: "auth:\n  mode: none\n  oidc:\n    client_secret_file: %s\n",
+			got:  func(cfg *Config) string { return cfg.Server.Auth.OIDC.ClientSecret },
+		},
+		{
+			name: "BuiltinTokenSecret",
+			yaml: "auth:\n  mode: builtin\n  builtin:\n    token:\n      secret_file: %s\n",
+			got:  func(cfg *Config) string { return cfg.Server.Auth.Builtin.Token.Secret },
+		},
+		{
+			name: "InitialAdminPassword",
+			yaml: "auth:\n  mode: builtin\n  builtin:\n    initial_admin:\n      username: admin\n      password_file: %s\n",
+			got:  func(cfg *Config) string { return cfg.Server.Auth.Builtin.InitialAdmin.Password },
+		},
+		{
+			name: "RemoteNodeBasicAuthPassword",
+			yaml: "remote_nodes:\n  - name: other\n    api_base_url: https://other.example.com/api/v1\n    auth_type: basic\n    basic_auth_username: admin\n    basic_auth_password_file: %s\n",
+			got:  func(cfg *Config) string { return cfg.Server.RemoteNodes[0].BasicAuthPassword },
+		},
+		{
+			name: "RemoteNodeAuthToken",
+			yaml: "remote_nodes:\n  - name: other\n    api_base_url: https://other.example.com/api/v1\n    auth_type: token\n    auth_token_file: %s\n",
+			got:  func(cfg *Config) string { return cfg.Server.RemoteNodes[0].AuthToken },
+		},
+		{
+			name: "GitSyncToken",
+			yaml: "git_sync:\n  enabled: true\n  repository: https://github.com/example/dags.git\n  auth:\n    token_file: %s\n",
+			got:  func(cfg *Config) string { return cfg.GitSync.Auth.Token },
+		},
+		{
+			name: "GitSyncSSHPassphrase",
+			yaml: "git_sync:\n  enabled: true\n  repository: git@github.com:example/dags.git\n  auth:\n    type: ssh\n    ssh_key_path: /keys/id_ed25519\n    ssh_passphrase_file: %s\n",
+			got:  func(cfg *Config) string { return cfg.GitSync.Auth.SSHPassphrase },
+		},
+		{
+			name: "VaultToken",
+			yaml: "secrets:\n  vault:\n    address: https://vault.example.com\n    token_file: %s\n",
+			got:  func(cfg *Config) string { return cfg.Secrets.Vault.Token },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := writeSecretFile(t, "s3cr3t-from-file\n")
+			cfg := loadFromYAML(t, fmt.Sprintf(tt.yaml, path))
+			assert.Equal(t, "s3cr3t-from-file", tt.got(cfg))
+		})
+	}
+}
+
+func TestLoad_SecretFileFromEnv(t *testing.T) {
+	path := writeSecretFile(t, "env-file-secret\r\n")
+	cfg := loadWithEnv(t, "# empty", map[string]string{
+		"DAGU_AUTH_MODE":              "builtin",
+		"DAGU_AUTH_TOKEN_SECRET_FILE": path,
+	})
+	assert.Equal(t, "env-file-secret", cfg.Server.Auth.Builtin.Token.Secret)
+}
+
+func TestLoad_SecretFileErrors(t *testing.T) {
+	t.Run("BothSet", func(t *testing.T) {
+		path := writeSecretFile(t, "from-file")
+		err := loadWithErrorFromYAML(t, fmt.Sprintf(`
+auth:
+  mode: builtin
+  builtin:
+    token:
+      secret: inline-secret
+      secret_file: %s
+`, path))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "set either auth.builtin.token.secret or auth.builtin.token.secret_file, not both")
+	})
+
+	t.Run("BothSetFromEnv", func(t *testing.T) {
+		path := writeSecretFile(t, "from-file")
+		t.Setenv("DAGU_GITSYNC_AUTH_TOKEN", "inline-token")
+		err := loadWithErrorFromYAML(t, fmt.Sprintf(`
+git_sync:
+  enabled: true
+  repository: https://github.com/example/dags.git
+  auth:
+    token_file: %s
+`, path))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "set either git_sync.auth.token or git_sync.auth.token_file, not both")
+	})
+
+	t.Run("MissingFile", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "missing")
+		err := loadWithErrorFromYAML(t, fmt.Sprintf(`
+remote_nodes:
+  - name: other
+    api_base_url: https://other.example.com/api/v1
+    auth_type: token
+    auth_token_file: %s
+`, path))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "read remote_nodes[0].auth_token_file:")
+		assert.Contains(t, err.Error(), path)
+	})
+
+	t.Run("EmptyFile", func(t *testing.T) {
+		path := writeSecretFile(t, "\n")
+		err := loadWithErrorFromYAML(t, fmt.Sprintf(`
+secrets:
+  vault:
+    token_file: %s
+`, path))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "secrets.vault.token_file "+path+" is empty")
+	})
+}
+
+func TestLoad_SecretFileSkippedForOtherServices(t *testing.T) {
+	configFile := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(configFile, []byte(`
+auth:
+  mode: basic
+  basic:
+    username: admin
+    password_file: /nonexistent/password
+`), 0o600))
+
+	_ = testLoad(t, WithConfigFile(configFile), WithService(ServiceWorker))
+	err := testLoadWithError(t, WithConfigFile(configFile), WithService(ServiceServer))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "read auth.basic.password_file:")
+}
+
 func TestLoad_MetricsAccess(t *testing.T) {
 	t.Run("MetricsAccessPublic", func(t *testing.T) {
 		cfg := loadFromYAML(t, `

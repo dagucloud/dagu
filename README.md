@@ -985,6 +985,8 @@ remain inside `paths.dags_dir` continue to work. A symlink configured as
 
 OIDC variables: `DAGU_AUTH_OIDC_CLIENT_ID`, `DAGU_AUTH_OIDC_CLIENT_SECRET`, `DAGU_AUTH_OIDC_ISSUER`, `DAGU_AUTH_OIDC_SCOPES`, `DAGU_AUTH_OIDC_WHITELIST`, `DAGU_AUTH_OIDC_AUTO_SIGNUP`, `DAGU_AUTH_OIDC_DEFAULT_ROLE`, `DAGU_AUTH_OIDC_ALLOWED_DOMAINS`.
 
+Secrets can also be read from files, such as mounted Kubernetes or Docker secrets. Each secret key has a `_file` key, and each secret variable a `_FILE` variable, that names the file: `DAGU_AUTH_BASIC_PASSWORD_FILE`, `DAGU_AUTH_TOKEN_SECRET_FILE`, `DAGU_AUTH_BUILTIN_INITIAL_ADMIN_PASSWORD_FILE`, `DAGU_AUTH_OIDC_CLIENT_SECRET_FILE`, `DAGU_GITSYNC_AUTH_TOKEN_FILE`, `DAGU_GITSYNC_AUTH_SSH_PASSPHRASE_FILE`, and `DAGU_SECRETS_VAULT_TOKEN_FILE`; `remote_nodes` entries take `basic_auth_password_file` and `auth_token_file`. Dagu reads the file at startup without its trailing newline. Setting a secret and its `_file` form together, or naming a file that cannot be read or is empty, stops the startup.
+
 ### Scheduler
 
 | Variable | Default | Description |
