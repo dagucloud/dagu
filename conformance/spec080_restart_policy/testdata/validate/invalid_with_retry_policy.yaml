@@ -1,0 +1,7 @@
+restart_policy: always
+restart_wait_sec: 5
+retry_policy:
+  limit: 3
+  interval_sec: 5
+steps:
+  - run: echo serve

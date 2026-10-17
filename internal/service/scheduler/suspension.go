@@ -12,7 +12,7 @@ import (
 
 func isSchedulerManagedTriggerType(triggerType ir.TriggerType) bool {
 	switch triggerType {
-	case ir.TriggerTypeScheduler, ir.TriggerTypeCatchUp, ir.TriggerTypeRetry:
+	case ir.TriggerTypeScheduler, ir.TriggerTypeCatchUp, ir.TriggerTypeRetry, ir.TriggerTypeRestart:
 		return true
 	case ir.TriggerTypeUnknown, ir.TriggerTypeManual, ir.TriggerTypeWebhook, ir.TriggerTypeSubDAG:
 		return false

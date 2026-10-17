@@ -1,9 +1,13 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { components } from '../api/v1/schema';
+import { components, RestartPolicy } from '../api/v1/schema';
 
 type Schedule = components['schemas']['Schedule'];
+type RestartPolicyFields = Pick<
+  components['schemas']['DAG'],
+  'restartPolicy' | 'restartWaitSec'
+>;
 
 export function getScheduleLabel(schedule: Schedule): string {
   if (schedule.kind === 'at') {
@@ -33,4 +37,25 @@ export function parseNextRun(nextRun?: string): Date | null {
   }
 
   return parsed;
+}
+
+/**
+ * A service DAG is kept alive by the scheduler (restart_policy) instead of
+ * following a schedule.
+ */
+export function isServiceDAG(dag: RestartPolicyFields): boolean {
+  return (
+    dag.restartPolicy === RestartPolicy.always ||
+    dag.restartPolicy === RestartPolicy.unless_stopped
+  );
+}
+
+/** The policy and the wait between two runs, such as "always · 5s". */
+export function getRestartValue(dag: RestartPolicyFields): string {
+  const wait = dag.restartWaitSec ? ` · ${dag.restartWaitSec}s` : '';
+  return `${dag.restartPolicy}${wait}`;
+}
+
+export function getRestartLabel(dag: RestartPolicyFields): string {
+  return `restart: ${getRestartValue(dag)}`;
 }

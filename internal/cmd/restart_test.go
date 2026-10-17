@@ -67,6 +67,24 @@ steps:
 	require.Equal(t, "2026-03-13T10:00:00Z", recentHistory[0].ScheduleTime)
 }
 
+// The scheduler starts the runs of a DAG with a restart_policy, so the restart
+// command, which starts a run of its own, is refused.
+func TestRestartCommand_RejectsServiceDAG(t *testing.T) {
+	t.Parallel()
+
+	th := test.SetupCommand(t)
+	dag := th.DAG(t, `restart_policy: always
+restart_wait_sec: 1
+steps:
+  - name: "1"
+    run: "echo ok"
+`)
+	th.RunCommand(t, cmd.Start(), test.CmdTest{Args: []string{"start", dag.Location}})
+
+	err := th.RunCommandWithError(t, cmd.Restart(), test.CmdTest{Args: []string{"restart", dag.Location}})
+	require.ErrorContains(t, err, `sets restart_policy "always"`)
+}
+
 func TestRestartCommand_BuiltExecutableRestoresExplicitEnv(t *testing.T) {
 	th := test.SetupCommand(t, test.WithBuiltExecutable())
 	t.Setenv("CMD_RESTART_EXPLICIT_ENV", "from-host")

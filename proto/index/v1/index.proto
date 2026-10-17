@@ -28,6 +28,8 @@ message DAGIndexEntry {
   string description = 9;
   string load_error = 10;
   string load_path = 11;
+  string restart_policy = 12;
+  int64 restart_wait_sec = 13;
 }
 
 // DAGRunIndex stores cached summaries for a single day's DAG runs.

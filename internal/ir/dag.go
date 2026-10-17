@@ -189,6 +189,9 @@ type DAG struct {
 	Delay time.Duration `json:"delay,omitempty"`
 	// RestartWait is the time to wait before restarting the DAG.
 	RestartWait time.Duration `json:"restartWait,omitempty"`
+	// RestartPolicy makes the scheduler keep a run of the DAG alive: a new run is
+	// started RestartWait after the previous one ends. See specs/080-restart-policy.md.
+	RestartPolicy RestartPolicy `json:"restartPolicy,omitempty"`
 	// MaxActiveSteps specifies the maximum concurrent steps to run in an execution.
 	MaxActiveSteps int `json:"maxActiveSteps,omitempty"`
 	// MaxActiveRuns specifies the maximum number of concurrent dag-runs.
