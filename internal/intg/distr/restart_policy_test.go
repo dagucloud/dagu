@@ -138,6 +138,42 @@ func TestDistributedRun_ServiceDAGRestartsOnAnotherWorkerAfterCrash(t *testing.T
 	assert.Len(t, f.serviceRuns(), 2, "one restart follows the crashed run")
 }
 
+// The scheduler that keeps a service DAG alive is replaced while a run is
+// active. The new scheduler takes over without starting a second run, and
+// restarts the DAG once the run has ended.
+func TestDistributedRun_ServiceDAGKeepsOneRunAcrossSchedulerFailover(t *testing.T) {
+	releaseFile := filepath.Join(t.TempDir(), "service.release")
+	f := newTestFixture(t, serviceWorkerDAGYAML("service-failover", releaseFile))
+	defer func() {
+		_ = os.WriteFile(releaseFile, []byte("ok"), 0o600)
+		f.cleanup()
+	}()
+
+	f.startScheduler(90 * time.Second)
+	runs := f.waitForServiceRuns("the first run", distrTestTimeout(20*time.Second), func(runs []ir.DAGRunStatus) bool {
+		return len(runs) == 1 && runs[0].Status == ir.Running
+	})
+	first := runs[0]
+
+	f.stopScheduler()
+	f.startScheduler(90 * time.Second)
+
+	time.Sleep(restartQuiet)
+	runs = f.serviceRuns()
+	require.Len(t, runs, 1, "the new scheduler starts no run while one is active")
+	require.Equal(t, first.DAGRunID, runs[0].DAGRunID)
+	require.Equal(t, ir.Running, runs[0].Status)
+
+	require.NoError(t, os.WriteFile(releaseFile, []byte("ok"), 0o600))
+	runs = f.waitForServiceRuns("a restart after the run ended", distrTestTimeout(30*time.Second), func(runs []ir.DAGRunStatus) bool {
+		return len(runs) >= 2
+	})
+	oldest := runs[len(runs)-1]
+	assert.Equal(t, first.DAGRunID, oldest.DAGRunID)
+	assert.Equal(t, ir.Succeeded, oldest.Status)
+	assert.Equal(t, ir.TriggerTypeRestart, runs[len(runs)-2].TriggerType)
+}
+
 // restartQuiet is long enough for a restart to be enqueued and dispatched once
 // the one second restart wait of the fixtures has elapsed.
 const restartQuiet = 5 * time.Second
