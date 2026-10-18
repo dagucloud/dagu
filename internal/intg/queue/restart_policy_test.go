@@ -228,6 +228,46 @@ steps:
 	})
 }
 
+// A run whose process is killed leaves a running status behind. The zombie
+// detector marks it failed, and the DAG is then restarted, once and only after
+// that: a stale status keeps the DAG busy until it is repaired.
+func TestRestartPolicyRestartsAfterRunProcessIsKilled(t *testing.T) {
+	release := filepath.Join(t.TempDir(), "release")
+	f := newFixture(t,
+		serviceDAGYAML("restart-killed", "unless-stopped", intgharness.PortableCommands().WaitForFile(release)),
+		WithProcConfig(queueTestProcHeartbeatInterval, queueTestProcStaleThreshold),
+		WithZombieConfig(50*time.Millisecond, 1),
+	).StartScheduler(60 * time.Second)
+	defer f.Stop()
+	defer func() { _ = os.WriteFile(release, nil, 0600) }()
+
+	runs := f.waitForRuns("a running run with a process", 20*time.Second, func(runs []ir.DAGRunStatus) bool {
+		return len(runs) >= 1 && runs[0].Status == ir.Running && runs[0].PID > 0
+	})
+	killed := runs[0]
+
+	process, err := os.FindProcess(int(killed.PID))
+	require.NoError(t, err)
+	require.NoError(t, process.Kill())
+
+	runs = f.waitForRuns("the killed run repaired and a restart running", 30*time.Second, func(runs []ir.DAGRunStatus) bool {
+		return len(runs) >= 2 && runs[0].Status == ir.Running && runs[0].DAGRunID != killed.DAGRunID
+	})
+	assert.Equal(t, ir.TriggerTypeRestart, runs[0].TriggerType)
+
+	var repaired *ir.DAGRunStatus
+	for i := range runs {
+		if runs[i].DAGRunID == killed.DAGRunID {
+			repaired = &runs[i]
+		}
+	}
+	require.NotNil(t, repaired)
+	assert.Equal(t, ir.Failed, repaired.Status, "the killed run is marked failed, not left running")
+
+	time.Sleep(restartQuiet)
+	assert.Len(t, f.runs(), 2, "one restart follows the killed run")
+}
+
 func TestRestartPolicyLeavesOtherDAGsAlone(t *testing.T) {
 	f := newFixture(t, `name: restart-plain
 steps:
