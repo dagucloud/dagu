@@ -121,6 +121,9 @@ type Dependencies struct {
 	DispatchTaskStore    dispatch.DispatchTaskStore
 	WorkerHeartbeatStore dispatch.WorkerHeartbeatStore
 	WorkerStaleAfter     time.Duration
+	// LeaseStaleAfter overrides how long a distributed run lease counts toward
+	// queue concurrency after its last heartbeat. Zero keeps the default.
+	LeaseStaleAfter      time.Duration
 	DAGSettingsStore     dagsettings.Store
 	ProfileStore         profile.Store
 	EventService         *eventstore.Service
@@ -189,6 +192,9 @@ func New(cfg *config.Config, deps Dependencies) (*Scheduler, error) {
 	scheduler.queueProcessor.workerHeartbeatStore = deps.WorkerHeartbeatStore
 	if deps.WorkerStaleAfter != 0 {
 		scheduler.queueProcessor.workerStaleAfter = deps.WorkerStaleAfter
+	}
+	if deps.LeaseStaleAfter != 0 {
+		scheduler.queueProcessor.leaseStaleThreshold = deps.LeaseStaleAfter
 	}
 	return scheduler, nil
 }
