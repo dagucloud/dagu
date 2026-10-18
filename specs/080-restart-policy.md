@@ -94,6 +94,37 @@ in its file or in the base configuration, reports a warning. The DAG loads.
 The `restart` command fails for a service DAG, without stopping or starting a
 run: the runs of a service DAG are started for it.
 
+### Scheduler Behavior
+
+This section describes the implementation. The conformance suite does not
+check it. Integration tests in `internal/intg/queue` and `internal/intg/distr`
+cover it.
+
+The scheduler that holds the scheduler lock keeps the service DAGs alive. It
+checks them every second and starts a run through the queue, once
+`restart_wait_sec` has passed since the previous run ended. A scheduler that
+waits for the lock does nothing.
+
+The scheduler decides from the latest run of the DAG, not from its own memory.
+It starts no run while the DAG has a live process, a queued item, or an active
+run. The run ID of a restart follows from the run that it replaces, so two
+schedulers that decide the same restart create one run.
+
+When the active scheduler stops or fails, the DAG keeps running. The
+next scheduler continues from the latest run. It takes over when the scheduler
+lock is released or stale (`scheduler.lock_stale_threshold`, 30 seconds by
+default). It starts no second run while one is active.
+
+When the process of a local run dies, the next read of the latest status marks
+the run as failed. The DAG restarts after that. In distributed mode, the
+coordinator marks the run as failed when the worker stops sending heartbeats
+and the run lease is stale (90 seconds by default). The queue can need up to 30
+more seconds to admit the restart. The restart runs on any worker that matches
+the `worker_selector`.
+
+A run that fails this way was not stopped by an operator. A DAG with
+`unless-stopped` restarts after it.
+
 ## Errors
 
 Rules:
