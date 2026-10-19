@@ -10,6 +10,8 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/xuri/excelize/v2"
@@ -56,6 +58,10 @@ type WriteOptions struct {
 	// become real dates, number strings become numbers, and string keeps
 	// ISO-looking text as text.
 	Types map[string]ColumnType
+	// Formats names the number format of a column, such as "#,##0", and
+	// wins over the format its kind would get. It applies where Style is
+	// table styles the sheet.
+	Formats map[string]string
 	// InPlace saves directly instead of through a temporary file.
 	InPlace bool
 	DryRun  bool
@@ -145,6 +151,14 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 	}
 
 	kinds := columnKinds(table, opts.Types)
+	for name, format := range opts.Formats {
+		if !slices.Contains(table.Columns, name) {
+			return nil, fmt.Errorf("%s: formats.%s: no such column", Base(path), name)
+		}
+		if strings.TrimSpace(format) == "" {
+			return nil, fmt.Errorf("%s: formats.%s: format must not be empty", Base(path), name)
+		}
+	}
 	// cols is the sheet column each table column is written to: its own
 	// position, or the column of the header cell with its name when rows
 	// are appended below a header row.
@@ -243,7 +257,7 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 	result.Changes.CellsChanged = cells
 
 	if fresh && opts.Style == StyleTable && len(table.Columns) > 0 {
-		if err := w.styleTable(sheet, table, kinds, startRow, writeHeader, lastRow); err != nil {
+		if err := w.styleTable(sheet, table, kinds, opts.Formats, startRow, writeHeader, lastRow); err != nil {
 			return nil, err
 		}
 	}
@@ -616,8 +630,8 @@ func (w *file) setCell(sheet string, col, row int, v any) error {
 
 // styleTable makes a fresh sheet look finished: bold header on a light
 // fill, frozen below the header, widths fitted to content, and number
-// formats by column kind.
-func (w *file) styleTable(sheet string, table Table, kinds []ColumnType, startRow int, header bool, lastRow int) error {
+// formats by column kind, or by name where formats gives one.
+func (w *file) styleTable(sheet string, table Table, kinds []ColumnType, formats map[string]string, startRow int, header bool, lastRow int) error {
 	if header {
 		id, err := w.f.NewStyle(&excelize.Style{
 			Font:      &excelize.Font{Bold: true},
@@ -655,6 +669,9 @@ func (w *file) styleTable(sheet string, table Table, kinds []ColumnType, startRo
 			continue
 		}
 		style := kindStyle(kinds[c])
+		if format, ok := formats[name]; ok {
+			style = &excelize.Style{CustomNumFmt: &format}
+		}
 		if style == nil {
 			continue
 		}
