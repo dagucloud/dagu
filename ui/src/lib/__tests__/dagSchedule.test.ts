@@ -2,8 +2,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { describe, expect, it } from 'vitest';
-import { RestartPolicy } from '@/api/v1/schema';
-import { getRestartLabel, getRestartValue, isServiceDAG } from '../dagSchedule';
+import { RestartPolicy, Status } from '@/api/v1/schema';
+import {
+  getRestartLabel,
+  getRestartValue,
+  isServiceDAG,
+  isStoppedService,
+} from '../dagSchedule';
 
 describe('service DAGs', () => {
   it('recognizes the DAGs kept alive by a restart policy', () => {
@@ -27,5 +32,20 @@ describe('service DAGs', () => {
     expect(
       getRestartLabel({ restartPolicy: RestartPolicy.unless_stopped })
     ).toBe('restart: unless-stopped');
+  });
+
+  // An operator's stop is what unless-stopped honors, so the DAG is not live.
+  it('tells an unless-stopped DAG that an operator stopped', () => {
+    const dag = { restartPolicy: RestartPolicy.unless_stopped };
+    expect(isStoppedService(dag, false, Status.Aborted)).toBe(true);
+    expect(isStoppedService(dag, false, Status.Running)).toBe(false);
+    expect(isStoppedService(dag, true, Status.Aborted)).toBe(false);
+    expect(
+      isStoppedService(
+        { restartPolicy: RestartPolicy.always },
+        false,
+        Status.Aborted
+      )
+    ).toBe(false);
   });
 });

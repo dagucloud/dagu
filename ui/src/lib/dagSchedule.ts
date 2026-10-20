@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { components, RestartPolicy } from '../api/v1/schema';
+import { components, RestartPolicy, Status } from '../api/v1/schema';
 import dayjs from './dayjs';
 
 type Schedule = components['schemas']['Schedule'];
@@ -78,6 +78,22 @@ export function isServiceDAG(dag: RestartPolicyFields): boolean {
 export function getRestartValue(dag: RestartPolicyFields): string {
   const wait = dag.restartWaitSec ? ` · ${dag.restartWaitSec}s` : '';
   return `${dag.restartPolicy}${wait}`;
+}
+
+/**
+ * Whether an unless-stopped DAG that is not suspended starts no new run: its
+ * latest run was aborted, and an operator's stop is what the policy honors.
+ */
+export function isStoppedService(
+  dag: RestartPolicyFields,
+  suspended: boolean | undefined,
+  latestStatus: Status | undefined
+): boolean {
+  return (
+    dag.restartPolicy === RestartPolicy.unless_stopped &&
+    !suspended &&
+    latestStatus === Status.Aborted
+  );
 }
 
 export function getRestartLabel(dag: RestartPolicyFields): string {

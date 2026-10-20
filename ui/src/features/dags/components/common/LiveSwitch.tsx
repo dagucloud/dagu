@@ -142,7 +142,7 @@ function LiveSwitch({ dag, refresh, 'aria-label': ariaLabel }: Props) {
             {isService
               ? ts(
                   pendingState
-                    ? 'Resume the restarts of "{name}"? Its next run starts after its restart wait.'
+                    ? 'Resume the restarts of "{name}"? The scheduler starts a run when one is due.'
                     : 'Suspend the restarts of "{name}"? A running run keeps running.',
                   { name: dag.fileName }
                 )

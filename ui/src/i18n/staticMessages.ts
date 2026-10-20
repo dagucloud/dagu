@@ -2185,8 +2185,8 @@ const baseEnglish = {
     "Allow callers to select an approved profile with {header}. Without the header, the DAG's default profile resolution is used.",
   'Are you sure you want to {action} the schedule for "{name}"?':
     'Are you sure you want to {action} the schedule for "{name}"?',
-  'Resume the restarts of "{name}"? Its next run starts after its restart wait.':
-    'Resume the restarts of "{name}"? Its next run starts after its restart wait.',
+  'Resume the restarts of "{name}"? The scheduler starts a run when one is due.':
+    'Resume the restarts of "{name}"? The scheduler starts a run when one is due.',
   'Suspend the restarts of "{name}"? A running run keeps running.':
     'Suspend the restarts of "{name}"? A running run keeps running.',
   'Are you sure you want to {action} the webhook for "{name}"?':
@@ -2947,6 +2947,8 @@ const baseEnglish = {
   Manual: 'Manual',
   'Sub-DAG': 'Sub-DAG',
   'Catch-up': 'Catch-up',
+  Restart: 'Restart',
+  Stopped: 'Stopped',
   'Run log': 'Run log',
   Stream: 'Stream',
   'Lines shown': 'Lines shown',
@@ -5272,8 +5274,8 @@ const baseChinese = {
     '允许调用方使用 {header} 选择已批准的配置。未提供该请求头时，将使用 DAG 的默认配置解析。',
   'Are you sure you want to {action} the schedule for "{name}"?':
     '确定要{action}“{name}”的计划吗？',
-  'Resume the restarts of "{name}"? Its next run starts after its restart wait.':
-    '恢复“{name}”的重启吗？下一次运行将在重启等待时间之后开始。',
+  'Resume the restarts of "{name}"? The scheduler starts a run when one is due.':
+    '恢复“{name}”的重启吗？调度器会在需要时启动运行。',
   'Suspend the restarts of "{name}"? A running run keeps running.':
     '暂停“{name}”的重启吗？正在进行的运行会继续运行。',
   'Are you sure you want to {action} the webhook for "{name}"?':
@@ -6012,6 +6014,8 @@ const baseChinese = {
   Manual: '手动',
   'Sub-DAG': '子工作流',
   'Catch-up': '补跑',
+  Restart: '重启',
+  Stopped: '已停止',
   'Run log': '运行日志',
   Stream: '输出流',
   'Lines shown': '显示的行',
@@ -8404,8 +8408,8 @@ const baseJapanese = {
     '呼び出し元は {header} を使って承認済みプロファイルを選択できます。このヘッダーがない場合は、DAG のデフォルトプロファイル解決が使用されます。',
   'Are you sure you want to {action} the schedule for "{name}"?':
     '「{name}」のスケジュールを{action}にしますか？',
-  'Resume the restarts of "{name}"? Its next run starts after its restart wait.':
-    '「{name}」の再起動を再開しますか？次の実行は再起動の待機時間の後に開始されます。',
+  'Resume the restarts of "{name}"? The scheduler starts a run when one is due.':
+    '「{name}」の再起動を再開しますか？実行が必要になると、スケジューラーが実行を開始します。',
   'Suspend the restarts of "{name}"? A running run keeps running.':
     '「{name}」の再起動を一時停止しますか？実行中の実行はそのまま続行されます。',
   'Are you sure you want to {action} the webhook for "{name}"?':
@@ -9173,6 +9177,8 @@ const baseJapanese = {
   Manual: '手動',
   'Sub-DAG': 'サブワークフロー',
   'Catch-up': 'キャッチアップ',
+  Restart: '再起動',
+  Stopped: '停止済み',
   'Run log': '実行ログ',
   Stream: '出力ストリーム',
   'Lines shown': '表示する行',

@@ -173,7 +173,12 @@ function DAGStatusOverview({
                   <I18nText text={'Trigger'} />{' '}
                 </span>
                 <span className="font-medium text-foreground">
-                  {triggerTypeLabels[status.triggerType] ?? status.triggerType}
+                  <I18nText
+                    text={
+                      triggerTypeLabels[status.triggerType] ??
+                      status.triggerType
+                    }
+                  />
                 </span>
               </span>
             )}

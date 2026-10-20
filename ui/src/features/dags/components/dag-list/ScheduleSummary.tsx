@@ -23,6 +23,7 @@ import type { components } from '@/api/v1/schema';
 import {
   getRestartLabel,
   isServiceDAG,
+  isStoppedService,
   parseNextRun,
 } from '../../../../lib/dagSchedule';
 import {
@@ -233,12 +234,15 @@ function ScheduleBody({ dag }: { dag: DAGFile }) {
 }
 
 function RestartText({ dag, ts }: { dag: DAGFile; ts: Translate }) {
+  const state = dag.suspended
+    ? ts('Suspended')
+    : isStoppedService(dag.dag, dag.suspended, dag.latestDAGRun?.status)
+      ? ts('Stopped')
+      : null;
   return (
-    <span
-      className={cn('min-w-0 truncate', dag.suspended && 'text-muted-foreground')}
-    >
+    <span className={cn('min-w-0 truncate', state && 'text-muted-foreground')}>
       <span className="font-mono text-[11px]">{getRestartLabel(dag.dag)}</span>
-      {dag.suspended && ` · ${ts('Suspended')}`}
+      {state && ` · ${state}`}
     </span>
   );
 }
