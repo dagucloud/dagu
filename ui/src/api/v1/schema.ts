@@ -5812,6 +5812,9 @@ export interface components {
             restartPolicy?: components["schemas"]["RestartPolicy"];
             /** @description Seconds the scheduler waits after a run ends before it starts the next one. Used with restartPolicy. */
             restartWaitSec?: number;
+            /** @description With restartPolicy, the run loops: after its steps end it waits this many seconds and runs them again in the same run. Omitted when the DAG does not loop. */
+            loopWaitSec?: number;
+            loopOnFailure?: components["schemas"]["LoopOnFailure"];
             /** @description Human-readable description of the DAG's purpose and behavior */
             description?: string;
             /** @description List of parameter names that can be passed to DAG-runs created from this DAG */
@@ -6042,6 +6045,11 @@ export interface components {
          */
         TriggerType: TriggerType;
         /**
+         * @description What a run that loops does when a cycle fails. restart: the run ends and the restart policy starts a new one. continue: the run goes on with the next cycle. Omitted when the DAG does not loop.
+         * @enum {string}
+         */
+        LoopOnFailure: LoopOnFailure;
+        /**
          * @description Restart policy of a DAG: the scheduler keeps a run of the DAG alive and starts the next run restartWaitSec seconds after the previous one ends. With unless-stopped, no run follows a run that an operator stopped. Omitted when the DAG has no restart policy.
          * @enum {string}
          */
@@ -6194,6 +6202,9 @@ export interface components {
             restartPolicy?: components["schemas"]["RestartPolicy"];
             /** @description Seconds the scheduler waits after a run ends before it starts the next one. Used with restartPolicy. */
             restartWaitSec?: number;
+            /** @description With restartPolicy, the run loops: after its steps end it waits this many seconds and runs them again in the same run. Omitted when the DAG does not loop. */
+            loopWaitSec?: number;
+            loopOnFailure?: components["schemas"]["LoopOnFailure"];
             /** @description Number of days to retain historical logs */
             histRetentionDays?: number;
             /** @description Number of DAG runs to retain historical logs. Mutually exclusive with histRetentionDays. */
@@ -6564,6 +6575,10 @@ export interface components {
         };
         /** @description Detailed status of a DAG-run including sub DAG-run nodes */
         DAGRunDetails: components["schemas"]["DAGRunSummary"] & {
+            /** @description For a run that loops, the cycle it is in, counted from 1. Omitted for a run that does not loop. */
+            cycle?: number;
+            /** @description For a run that loops, how many cycles ended unsuccessfully */
+            failedCycles?: number;
             /** @description Name of the root DAG-run */
             rootDAGRunName: string;
             rootDAGRunId: components["schemas"]["DAGRunId"] & unknown;
@@ -23904,6 +23919,10 @@ export enum TriggerType {
     catchup = "catchup",
     file = "file",
     restart = "restart"
+}
+export enum LoopOnFailure {
+    restart = "restart",
+    continue = "continue"
 }
 export enum RestartPolicy {
     always = "always",

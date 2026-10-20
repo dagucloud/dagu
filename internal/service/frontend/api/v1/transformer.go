@@ -77,6 +77,8 @@ func toDAG(dag *ir.DAG) api.DAG {
 
 		RestartPolicy:  toRestartPolicy(dag),
 		RestartWaitSec: toRestartWaitSec(dag),
+		LoopWaitSec:    toLoopWaitSec(dag),
+		LoopOnFailure:  toLoopOnFailure(dag),
 	}
 }
 
@@ -96,6 +98,41 @@ func toRestartWaitSec(dag *ir.DAG) *int {
 		return nil
 	}
 	return ptrOf(int(dag.RestartWait.Seconds()))
+}
+
+// toLoopWaitSec returns the wait between two cycles of a looping run, and nil
+// for a DAG that does not loop.
+func toLoopWaitSec(dag *ir.DAG) *int {
+	if dag.LoopWait <= 0 {
+		return nil
+	}
+	return ptrOf(int(dag.LoopWait.Seconds()))
+}
+
+// failedCyclesOrNil returns how many cycles of a looping run failed, and nil
+// for a run that does not loop. A looping run that never failed reports zero.
+func failedCyclesOrNil(s ir.DAGRunStatus) *int {
+	if s.Cycle <= 0 {
+		return nil
+	}
+	return &s.FailedCycles
+}
+
+// toLoopOnFailure returns what a looping run does when a cycle fails, and nil
+// for a DAG that does not loop.
+func toLoopOnFailure(dag *ir.DAG) *api.LoopOnFailure {
+	if dag.LoopWait <= 0 {
+		return nil
+	}
+	return ptrOf(api.LoopOnFailure(dag.LoopOnFailure.String()))
+}
+
+// positiveOrNil returns a pointer to v, or nil when v is not positive.
+func positiveOrNil(v int) *int {
+	if v <= 0 {
+		return nil
+	}
+	return &v
 }
 
 func toDAGResources(resources *ir.Resources) *api.DAGResources {
@@ -510,6 +547,8 @@ func ToDAGRunDetails(s ir.DAGRunStatus) api.DAGRunDetails {
 		QueuedAt:               ptrOf(s.QueuedAt),
 		AutoRetryCount:         s.AutoRetryCount,
 		AutoRetryLimit:         autoRetryLimit,
+		Cycle:                  positiveOrNil(s.Cycle),
+		FailedCycles:           failedCyclesOrNil(s),
 		Conditions:             toDAGRunConditions(s.Status, s.Conditions),
 		ScheduleTime:           ptrOf(s.ScheduleTime),
 		StartedAt:              s.StartedAt,
@@ -858,6 +897,8 @@ func toDAGDetails(dag *ir.DAG) *api.DAGDetails {
 		Delay:             ptrOf(int(dag.Delay.Seconds())),
 		RestartPolicy:     toRestartPolicy(dag),
 		RestartWaitSec:    toRestartWaitSec(dag),
+		LoopWaitSec:       toLoopWaitSec(dag),
+		LoopOnFailure:     toLoopOnFailure(dag),
 		Env:               ptrOf(dag.Env),
 		Group:             ptrOf(dag.Group),
 		HandlerOn:         ptrOf(handlerOn),

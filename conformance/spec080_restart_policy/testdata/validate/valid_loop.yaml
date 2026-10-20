@@ -1,0 +1,10 @@
+restart_policy: always
+restart_wait_sec: 5
+loop_wait_sec: 5
+hist_retention_runs: 50
+steps:
+  - name: fetch
+    run: echo fetch
+  - name: store
+    run: echo store
+    depends: [fetch]

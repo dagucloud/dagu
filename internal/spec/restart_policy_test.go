@@ -6,6 +6,7 @@ package spec_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -88,6 +89,126 @@ func TestRestartPolicy(t *testing.T) {
 			assert.Contains(t, err.Error(), tc.contains)
 		})
 	}
+}
+
+// loop_wait_sec makes one run repeat its steps. It belongs to a service
+// DAG, so it needs a restart policy.
+// The coordinator appends the status of a run on a worker and nothing compacts
+// it, so a loop on a worker grows its status file at each cycle. The author is
+// told when the DAG loads.
+func TestLoopWaitWarnsWhenARunLoopsOnAWorker(t *testing.T) {
+	t.Parallel()
+
+	steps := "steps:\n  - run: echo tick\n"
+	for _, tc := range []struct {
+		name     string
+		authored string
+		warns    bool
+	}{
+		{"LoopOnAWorker", "restart_policy: always\nrestart_wait_sec: 5\nloop_wait_sec: 5\nworker_selector:\n  gpu: \"true\"\n", true},
+		{"LoopOnTheLocalNode", "restart_policy: always\nrestart_wait_sec: 5\nloop_wait_sec: 5\n", false},
+		{"WorkerWithoutLoop", "restart_policy: always\nrestart_wait_sec: 5\nworker_selector:\n  gpu: \"true\"\n", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dag, err := spec.Load(t.Context(), createTempYAMLFile(t, tc.authored+steps), spec.WithoutEval())
+			require.NoError(t, err)
+			warnings := strings.Join(dag.BuildWarnings, "\n")
+			if tc.warns {
+				assert.Contains(t, warnings, "loop_wait_sec with worker_selector")
+			} else {
+				assert.NotContains(t, warnings, "loop_wait_sec with worker_selector")
+			}
+		})
+	}
+}
+
+func TestLoopWait(t *testing.T) {
+	t.Parallel()
+
+	steps := "steps:\n  - run: echo tick\n"
+
+	valid := []struct {
+		name     string
+		authored string
+		wait     time.Duration
+	}{
+		{name: "WithRestartPolicy", authored: "restart_policy: always\nrestart_wait_sec: 5\nloop_wait_sec: 7\n", wait: 7 * time.Second},
+		{name: "WithUnlessStopped", authored: "restart_policy: unless-stopped\nrestart_wait_sec: 1\nloop_wait_sec: 1\n", wait: time.Second},
+		{name: "ZeroMeansNoLoop", authored: "restart_policy: always\nrestart_wait_sec: 5\nloop_wait_sec: 0\n"},
+		{name: "AbsentMeansNoLoop", authored: "restart_policy: always\nrestart_wait_sec: 5\n"},
+		{name: "ZeroWithoutRestartPolicy", authored: "loop_wait_sec: 0\n"},
+	}
+	for _, tc := range valid {
+		t.Run("Valid"+tc.name, func(t *testing.T) {
+			t.Parallel()
+			path := createTempYAMLFile(t, tc.authored+steps)
+			dag, err := spec.Load(t.Context(), path, spec.WithoutEval())
+			require.NoError(t, err)
+			assert.Equal(t, tc.wait, dag.LoopWait)
+		})
+	}
+
+	onFailure := []struct {
+		name     string
+		authored string
+		want     ir.LoopOnFailure
+	}{
+		{name: "RestartByDefault", authored: "loop_wait_sec: 5\n", want: ir.LoopOnFailureRestart},
+		{name: "ExplicitRestart", authored: "loop_wait_sec: 5\nloop_on_failure: restart\n", want: ir.LoopOnFailureRestart},
+		{name: "Continue", authored: "loop_wait_sec: 5\nloop_on_failure: continue\n", want: ir.LoopOnFailureContinue},
+		{name: "CaseInsensitive", authored: "loop_wait_sec: 5\nloop_on_failure: CONTINUE\n", want: ir.LoopOnFailureContinue},
+	}
+	for _, tc := range onFailure {
+		t.Run("OnFailure"+tc.name, func(t *testing.T) {
+			t.Parallel()
+			path := createTempYAMLFile(t, "restart_policy: always\nrestart_wait_sec: 5\n"+tc.authored+steps)
+			dag, err := spec.Load(t.Context(), path, spec.WithoutEval())
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, dag.LoopOnFailure)
+		})
+	}
+
+	rejected := []struct {
+		name     string
+		authored string
+		contains string
+	}{
+		{name: "WithoutRestartPolicy", authored: "loop_wait_sec: 5\n", contains: "loop_wait_sec requires restart_policy"},
+		{name: "WithRestartPolicyNo", authored: "restart_policy: \"no\"\nloop_wait_sec: 5\n", contains: "loop_wait_sec requires restart_policy"},
+		{name: "Negative", authored: "restart_policy: always\nrestart_wait_sec: 5\nloop_wait_sec: -1\n", contains: "must not be negative"},
+		{name: "OnFailureUnknownValue", authored: "restart_policy: always\nrestart_wait_sec: 5\nloop_wait_sec: 5\nloop_on_failure: stop\n", contains: "loop_on_failure"},
+		{name: "OnFailureWithoutLoopWait", authored: "restart_policy: always\nrestart_wait_sec: 5\nloop_on_failure: continue\n", contains: "loop_on_failure requires loop_wait_sec"},
+	}
+	for _, tc := range rejected {
+		t.Run("Rejected"+tc.name, func(t *testing.T) {
+			t.Parallel()
+			path := createTempYAMLFile(t, tc.authored+steps)
+			_, err := spec.Load(t.Context(), path, spec.WithoutEval())
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.contains)
+		})
+	}
+
+	t.Run("RejectedInTheBaseConfiguration", func(t *testing.T) {
+		t.Parallel()
+		base := filepath.Join(t.TempDir(), "base.yaml")
+		require.NoError(t, os.WriteFile(base, []byte("loop_wait_sec: 5\n"), 0600))
+		path := createTempYAMLFile(t, "restart_policy: always\nrestart_wait_sec: 5\n"+steps)
+		_, err := spec.Load(t.Context(), path, spec.WithoutEval(), spec.WithBaseConfig(base))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "loop_wait_sec cannot be set in the base configuration")
+	})
+
+	t.Run("OnFailureRejectedInTheBaseConfiguration", func(t *testing.T) {
+		t.Parallel()
+		base := filepath.Join(t.TempDir(), "base.yaml")
+		require.NoError(t, os.WriteFile(base, []byte("loop_on_failure: continue\n"), 0600))
+		path := createTempYAMLFile(t, "restart_policy: always\nrestart_wait_sec: 5\nloop_wait_sec: 5\n"+steps)
+		_, err := spec.Load(t.Context(), path, spec.WithoutEval(), spec.WithBaseConfig(base))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "loop_on_failure cannot be set in the base configuration")
+	})
 }
 
 func TestRestartPolicyInTheBaseConfiguration(t *testing.T) {

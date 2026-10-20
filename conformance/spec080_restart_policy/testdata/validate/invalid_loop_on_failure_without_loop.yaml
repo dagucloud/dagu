@@ -1,0 +1,6 @@
+restart_policy: always
+restart_wait_sec: 5
+loop_on_failure: continue
+hist_retention_runs: 50
+steps:
+  - run: echo poll

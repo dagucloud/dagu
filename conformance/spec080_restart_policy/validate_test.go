@@ -21,6 +21,8 @@ func TestRestartPolicyValidation(t *testing.T) {
 		"valid_probe.yaml",
 		"valid_empty_schedule.yaml",
 		"valid_default_retention.yaml",
+		"valid_loop.yaml",
+		"valid_loop_continue.yaml",
 	}
 	for _, file := range valid {
 		t.Run(file, func(t *testing.T) {
@@ -44,6 +46,10 @@ func TestRestartPolicyValidation(t *testing.T) {
 		{"invalid_with_schedule.yaml", "restart_policy"},
 		{"invalid_with_start_stop_schedule.yaml", "restart_policy"},
 		{"invalid_with_retry_policy.yaml", "restart_policy"},
+		{"invalid_loop_without_policy.yaml", "loop_wait_sec"},
+		{"invalid_loop_negative.yaml", "loop_wait_sec"},
+		{"invalid_loop_on_failure_value.yaml", "loop_on_failure"},
+		{"invalid_loop_on_failure_without_loop.yaml", "loop_on_failure"},
 	}
 	for _, tc := range rejected {
 		t.Run(tc.file, func(t *testing.T) {
@@ -65,6 +71,26 @@ func TestRestartPolicyInTheBaseConfigurationIsRejected(t *testing.T) {
 	result := dagu.RunWithEnv(env, "validate", "validate/plain.yaml")
 	result.ExpectNonZeroExitCode()
 	result.ExpectStderrContains("restart_policy", "base configuration")
+}
+
+func TestLoopWaitInTheBaseConfigurationIsRejected(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	env := []string{"DAGU_BASE_CONFIG=" + dagu.ProjectPath("validate/base_with_loop.yaml")}
+	result := dagu.RunWithEnv(env, "validate", "validate/plain.yaml")
+	result.ExpectNonZeroExitCode()
+	result.ExpectStderrContains("loop_wait_sec", "base configuration")
+}
+
+func TestLoopOnFailureInTheBaseConfigurationIsRejected(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	env := []string{"DAGU_BASE_CONFIG=" + dagu.ProjectPath("validate/base_with_loop_on_failure.yaml")}
+	result := dagu.RunWithEnv(env, "validate", "validate/plain.yaml")
+	result.ExpectNonZeroExitCode()
+	result.ExpectStderrContains("loop_on_failure", "base configuration")
 }
 
 func TestRestartCommandIsRefused(t *testing.T) {

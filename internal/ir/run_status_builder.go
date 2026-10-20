@@ -156,6 +156,14 @@ func WithAutoRetryCount(autoRetryCount int) StatusOption {
 	}
 }
 
+// WithCycles sets the cycle a looping run is in and how many cycles failed.
+func WithCycles(cycle, failed int) StatusOption {
+	return func(status *DAGRunStatus) {
+		status.Cycle = cycle
+		status.FailedCycles = failed
+	}
+}
+
 // WithPendingStepRetries sets parent-managed step retries awaiting scheduling.
 func WithPendingStepRetries(retries []PendingStepRetry) StatusOption {
 	return func(status *DAGRunStatus) {

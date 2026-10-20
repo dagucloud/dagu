@@ -45,3 +45,42 @@ func TestParseRestartPolicy(t *testing.T) {
 		})
 	}
 }
+
+func TestParseLoopOnFailure(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		input   string
+		want    LoopOnFailure
+		wantErr bool
+	}{
+		{name: "empty is restart", input: "", want: LoopOnFailureRestart},
+		{name: "restart", input: "restart", want: LoopOnFailureRestart},
+		{name: "uppercase Restart", input: "Restart", want: LoopOnFailureRestart},
+		{name: "continue", input: "continue", want: LoopOnFailureContinue},
+		{name: "whitespace padded", input: "  CONTINUE ", want: LoopOnFailureContinue},
+		{name: "stop is not supported", input: "stop", wantErr: true},
+		{name: "invalid value", input: "bogus", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := ParseLoopOnFailure(tt.input)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestLoopOnFailureNames(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, "restart", LoopOnFailureRestart.String())
+	require.Equal(t, "continue", LoopOnFailureContinue.String())
+}
