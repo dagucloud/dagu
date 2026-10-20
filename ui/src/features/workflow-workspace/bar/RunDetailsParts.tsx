@@ -131,7 +131,11 @@ export function RunStatusSection({
           {ts('Show log')}
         </Button>
       </div>
-      <RunStatusMessage status={details.status} />
+      <RunStatusMessage
+        status={details.status}
+        cycle={details.cycle}
+        failedCycles={details.failedCycles}
+      />
       {details.error && (
         <p
           data-testid="ww-run-details-error"

@@ -3167,6 +3167,7 @@ const baseEnglish = {
   'No run in the last 7 days': 'No run in the last 7 days',
   'Last run failed': 'Last run failed',
   '{count} failures in a row': '{count} failures in a row',
+  'Cycle {cycle}': 'Cycle {cycle}',
 } as const;
 
 type BaseStaticMessage = keyof typeof baseEnglish;
@@ -6253,6 +6254,7 @@ const baseChinese = {
   'No run in the last 7 days': '最近 7 天没有运行',
   'Last run failed': '上次运行失败',
   '{count} failures in a row': '连续 {count} 次失败',
+  'Cycle {cycle}': '第 {cycle} 轮',
 } as const satisfies Record<BaseStaticMessage, string>;
 
 const baseJapanese = {
@@ -9451,6 +9453,7 @@ const baseJapanese = {
   'No run in the last 7 days': '過去 7 日間の実行なし',
   'Last run failed': '前回の実行が失敗',
   '{count} failures in a row': '{count} 回連続で失敗',
+  'Cycle {cycle}': 'サイクル {cycle}',
 } as const satisfies Record<BaseStaticMessage, string>;
 
 const chinese = {

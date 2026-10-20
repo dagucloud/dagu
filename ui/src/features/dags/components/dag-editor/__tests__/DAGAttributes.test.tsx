@@ -4,7 +4,7 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import React from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { RestartPolicy, ScheduleKind } from '@/api/v1/schema';
+import { LoopOnFailure, RestartPolicy, ScheduleKind } from '@/api/v1/schema';
 import DAGAttributes from '../DAGAttributes';
 
 afterEach(() => {
@@ -47,6 +47,25 @@ describe('DAGAttributes', () => {
       screen.getByText('Restart: unless-stopped · 15s')
     ).toBeInTheDocument();
     expect(screen.getByText('Schedule')).toBeInTheDocument();
+  });
+
+  // The DAG list keeps no loop, so the Spec tab, which has the whole DAG, shows it.
+  it('adds the loop of a service DAG that loops', () => {
+    render(
+      <DAGAttributes
+        dag={{
+          name: 'poller',
+          restartPolicy: RestartPolicy.always,
+          restartWaitSec: 5,
+          loopWaitSec: 7,
+          loopOnFailure: LoopOnFailure.continue,
+        }}
+      />
+    );
+
+    expect(
+      screen.getByText('Restart: always · 5s · loop 7s · continue')
+    ).toBeInTheDocument();
   });
 
   it('renders no restart policy for other DAGs', () => {

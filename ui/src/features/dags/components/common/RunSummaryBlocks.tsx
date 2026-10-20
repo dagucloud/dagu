@@ -188,20 +188,38 @@ export function RunProgress({
   );
 }
 
-/** The message of a run that runs, waits, is queued, aborted or rejected. */
+/**
+ * The message of a run that runs, waits, is queued, aborted or rejected, and
+ * for a run that loops, the cycle it is in and how many cycles failed.
+ */
 export function RunStatusMessage({
   status,
+  cycle,
+  failedCycles,
 }: {
   status: Status;
+  cycle?: number;
+  failedCycles?: number;
 }): React.JSX.Element | null {
+  const { ts } = useI18n();
   const config = EXECUTION_STATUS_CONFIG.find((c) => c.status === status);
-  if (!config) return null;
-  const Icon = config.icon;
+  const cycleText = cycle
+    ? [
+        ts('Cycle {cycle}', { cycle }),
+        ...(failedCycles
+          ? [ts('{count} failed', { count: failedCycles })]
+          : []),
+      ].join(' · ')
+    : '';
+  if (!config && !cycleText) return null;
+  const Icon = config?.icon;
   return (
     <div className="flex items-center gap-1 text-xs text-muted-foreground">
-      <Icon className={`h-3 w-3 ${config.iconClass}`} />
+      {config && Icon && <Icon className={`h-3 w-3 ${config.iconClass}`} />}
       <span>
-        <I18nText text={config.message} />
+        {config && <I18nText text={config.message} />}
+        {config && cycleText && ' · '}
+        {cycleText}
       </span>
     </div>
   );

@@ -98,6 +98,61 @@ describe('DAGStatusOverview', () => {
     expect(onViewLog).toHaveBeenCalledWith('run-9');
   });
 
+  // A run that loops lives for days, so the card says which cycle it is in.
+  it('shows the cycle of a run that loops and how many cycles failed', () => {
+    render(
+      <DAGStatusOverview
+        showRunMeta={false}
+        status={{
+          dagRunId: 'run-1',
+          name: 'poller',
+          rootDAGRunName: 'poller',
+          rootDAGRunId: 'run-1',
+          log: '/tmp/test.log',
+          artifactsAvailable: false,
+          nodes: [],
+          autoRetryCount: 0,
+          autoRetryLimit: 0,
+          startedAt: '2026-03-13T10:01:00Z',
+          finishedAt: '-',
+          status: Status.Running,
+          statusLabel: StatusLabel.running,
+          cycle: 842,
+          failedCycles: 3,
+        }}
+      />
+    );
+
+    expect(screen.getByText(/Cycle 842/)).toHaveTextContent(
+      'Cycle 842 · 3 failed'
+    );
+  });
+
+  it('shows no cycle for a run that does not loop', () => {
+    render(
+      <DAGStatusOverview
+        showRunMeta={false}
+        status={{
+          dagRunId: 'run-1',
+          name: 'plain',
+          rootDAGRunName: 'plain',
+          rootDAGRunId: 'run-1',
+          log: '/tmp/test.log',
+          artifactsAvailable: false,
+          nodes: [],
+          autoRetryCount: 0,
+          autoRetryLimit: 0,
+          startedAt: '2026-03-13T10:01:00Z',
+          finishedAt: '-',
+          status: Status.Running,
+          statusLabel: StatusLabel.running,
+        }}
+      />
+    );
+
+    expect(screen.queryByText(/Cycle/)).toBeNull();
+  });
+
   it('omits the scheduled label when schedule time is missing', () => {
     render(
       <DAGStatusOverview

@@ -213,6 +213,24 @@ describe('RunDetailsPopover', () => {
     expect(h.setTab).toHaveBeenCalledTimes(1);
   });
 
+  // A run of a service DAG that loops lives for days, so the popover says
+  // which cycle it is in.
+  it('shows the cycle of a run that loops', async () => {
+    renderButton(
+      details({
+        status: Status.Running,
+        statusLabel: StatusLabel.running,
+        cycle: 842,
+        failedCycles: 3,
+      }),
+      { isActive: true }
+    );
+    const dialog = await open();
+    expect(dialog).toHaveTextContent(
+      'Execution in progress · Cycle 842 · 3 failed'
+    );
+  });
+
   it('shows no progress for a finished run', async () => {
     renderButton(details(), { isActive: false });
     const dialog = await open();

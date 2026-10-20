@@ -217,6 +217,20 @@ describe('RunSummaryBlocks', () => {
     }
   );
 
+  // A run that loops lives for days, so the message says which cycle it is
+  // in, also once the run ended.
+  it('gives the cycle of a run that loops', () => {
+    const { container, rerender } = render(
+      <RunStatusMessage status={Status.Running} cycle={842} failedCycles={3} />
+    );
+    expect(container).toHaveTextContent(
+      'Execution in progress · Cycle 842 · 3 failed'
+    );
+
+    rerender(<RunStatusMessage status={Status.Failed} cycle={5} />);
+    expect(container).toHaveTextContent(/^Cycle 5$/);
+  });
+
   it('shows the error, the unmet conditions and the preconditions', () => {
     render(
       <Blocks

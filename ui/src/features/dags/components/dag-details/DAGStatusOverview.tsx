@@ -232,7 +232,11 @@ function DAGStatusOverview({
       <RunProgress status={status} onViewLog={onViewLog} />
 
       {/* Execution status message */}
-      <RunStatusMessage status={status.status} />
+      <RunStatusMessage
+        status={status.status}
+        cycle={status.cycle}
+        failedCycles={status.failedCycles}
+      />
 
       <RunError error={status.error} />
       <RuntimeConditions conditions={status.conditions} />
