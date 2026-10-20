@@ -137,17 +137,18 @@ func (r *DAGRunRepository) ListStatusesPage(ctx context.Context, options DAGRunL
 
 func (r *DAGRunRepository) statusQuery(options DAGRunListOptions) DAGRunStatusQuery {
 	query := DAGRunStatusQuery{
-		DAGRunID:        options.DAGRunID,
-		Name:            options.Name,
-		ExactName:       options.ExactName,
-		From:            options.From,
-		To:              options.To,
-		Statuses:        options.Statuses,
-		Limit:           options.Limit,
-		Cursor:          options.Cursor,
-		Labels:          options.Labels,
-		WorkspaceFilter: options.WorkspaceFilter,
-		FullStatus:      options.FullStatus,
+		DAGRunID:            options.DAGRunID,
+		Name:                options.Name,
+		ExactName:           options.ExactName,
+		From:                options.From,
+		To:                  options.To,
+		Statuses:            options.Statuses,
+		Limit:               options.Limit,
+		Cursor:              options.Cursor,
+		Labels:              options.Labels,
+		WorkspaceFilter:     options.WorkspaceFilter,
+		FullStatus:          options.FullStatus,
+		ExcludeTriggerTypes: options.ExcludeTriggerTypes,
 	}
 	if !options.AllHistory && query.From.IsZero() && query.To.IsZero() {
 		query.From = NewUTC(r.startOfDay())

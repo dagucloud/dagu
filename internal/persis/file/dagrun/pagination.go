@@ -487,6 +487,9 @@ func (it *dagRunStatusIterator) toListItem(ctx context.Context, run *DAGRun) (da
 	if status == nil {
 		return dagRunListItem{}, false
 	}
+	if slices.Contains(it.opts.ExcludeTriggerTypes, status.TriggerType) {
+		return dagRunListItem{}, false
+	}
 	if it.opts.Name != "" && !containsFold(status.Name, it.opts.Name) {
 		return dagRunListItem{}, false
 	}

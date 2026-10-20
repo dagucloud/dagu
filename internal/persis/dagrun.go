@@ -54,6 +54,8 @@ type DAGRunStatusQuery struct {
 	// FullStatus returns each status whole, with its nodes, where a run
 	// index would serve a summary.
 	FullStatus bool
+	// ExcludeTriggerTypes drops the runs that one of these triggers started.
+	ExcludeTriggerTypes []ir.TriggerType
 }
 
 // DAGRunStatusPage is one forward-only page of DAG-run statuses.
@@ -188,6 +190,8 @@ type DAGRunListOptions struct {
 	Cursor          string
 	Labels          []string
 	WorkspaceFilter *workspace.WorkspaceFilter
+	// ExcludeTriggerTypes drops the runs that one of these triggers started.
+	ExcludeTriggerTypes []ir.TriggerType
 	// AllHistory disables the implicit recent-time window when no range is set.
 	AllHistory bool
 	// Unbounded disables the repository's result limit.

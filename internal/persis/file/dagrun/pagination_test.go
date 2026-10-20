@@ -30,6 +30,7 @@ type seededRun struct {
 	status    ir.Status
 	labels    []string
 	attemptID string
+	trigger   ir.TriggerType
 }
 
 type oracleSeed struct {
@@ -54,6 +55,7 @@ func (s *oracleSeed) write(t *testing.T, run seededRun, retry bool) {
 	status.AttemptID = attempt.ID()
 	status.Status = run.status
 	status.Labels = run.labels
+	status.TriggerType = run.trigger
 	require.NoError(t, attempt.Write(ctx, status))
 	require.NoError(t, attempt.Close(ctx))
 	run.attemptID = attempt.ID()
@@ -105,7 +107,8 @@ func (s *oracleSeed) expected(query persis.DAGRunStatusQuery) []string {
 			query.ExactName != "" && run.name != query.ExactName,
 			!strings.Contains(run.id, query.DAGRunID),
 			!query.From.IsZero() && run.created.Before(query.From.Time),
-			!query.To.IsZero() && !run.created.Before(query.To.Time):
+			!query.To.IsZero() && !run.created.Before(query.To.Time),
+			slices.Contains(query.ExcludeTriggerTypes, run.trigger):
 			continue
 		}
 		matched = append(matched, run)
@@ -164,12 +167,17 @@ func seedOracleRuns(t *testing.T) *oracleSeed {
 		for day := range 3 {
 			// At least ten finished runs a day, so each day gets an index.
 			for i := range 12 {
+				trigger := ir.TriggerTypeManual
+				if name == "gamma" && i%3 != 0 {
+					trigger = ir.TriggerTypeRestart
+				}
 				seed.write(t, seededRun{
 					name:    name,
 					id:      fmt.Sprintf("%s-%d-%02d", name, day, i),
 					created: base.Add(time.Duration(day)*24*time.Hour + time.Duration(i)*7*time.Minute),
 					status:  terminal[i%len(terminal)],
 					labels:  dags[name],
+					trigger: trigger,
 				}, false)
 			}
 		}
@@ -215,13 +223,14 @@ func TestQueryStatusesMatchesOracle(t *testing.T) {
 	base := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
 
 	filters := map[string]persis.DAGRunStatusQuery{
-		"None":      {},
-		"Statuses":  {Statuses: []ir.Status{ir.Failed, ir.Running}},
-		"Labels":    {Labels: []string{"team=a"}},
-		"Name":      {Name: "ALP"},
-		"ExactName": {ExactName: "beta"},
-		"DAGRunID":  {DAGRunID: "-1-"},
-		"Workspace": {WorkspaceFilter: &workspace.WorkspaceFilter{Enabled: true, Workspaces: []string{"ops"}}},
+		"None":            {},
+		"Statuses":        {Statuses: []ir.Status{ir.Failed, ir.Running}},
+		"Labels":          {Labels: []string{"team=a"}},
+		"Name":            {Name: "ALP"},
+		"ExactName":       {ExactName: "beta"},
+		"DAGRunID":        {DAGRunID: "-1-"},
+		"ExcludeTriggers": {ExcludeTriggerTypes: []ir.TriggerType{ir.TriggerTypeRestart}},
+		"Workspace":       {WorkspaceFilter: &workspace.WorkspaceFilter{Enabled: true, Workspaces: []string{"ops"}}},
 		"Range": {
 			From: persis.NewUTC(base.Add(24*time.Hour + 30*time.Minute)),
 			To:   persis.NewUTC(base.Add(48*time.Hour + 2*time.Hour + time.Second)),
