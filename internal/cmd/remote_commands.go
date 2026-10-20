@@ -499,7 +499,7 @@ func remoteRunRestart(ctx *Context, args []string) error {
 		return err
 	}
 	if dag.Dag.RestartPolicy != nil {
-		return errRestartServiceDAG(dag.Dag.Name, ir.RestartPolicy(*dag.Dag.RestartPolicy))
+		return errRestartAlwaysOnDAG(dag.Dag.Name, ir.RestartPolicy(*dag.Dag.RestartPolicy))
 	}
 	runID, _ := ctx.StringParam("run-id")
 	if runID == "" {

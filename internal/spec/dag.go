@@ -1278,7 +1278,7 @@ func composeBuildDAGContext(base, current *ir.DAG, currentSpec *dag) (*ir.DAG, e
 	if currentSpec.Queue != nil {
 		effective.Queue = current.Queue
 	}
-	// A service DAG is neither scheduled nor retried at the DAG level, so what the
+	// An always-on DAG is neither scheduled nor retried at the DAG level, so what the
 	// base configuration adds is dropped.
 	if effective.RestartPolicy.Enabled() {
 		effective.Schedule = nil
@@ -1422,7 +1422,7 @@ func buildRestartPolicy(_ buildContext, d *dag) (ir.RestartPolicy, error) {
 }
 
 // validateBaseRestartPolicy rejects a base configuration that sets a restart
-// policy: it applies to every DAG, so it would turn them all into services.
+// policy: it applies to every DAG, so it would turn them all into always-on DAGs.
 func validateBaseRestartPolicy(d *dag) error {
 	if d.RestartPolicy == nil {
 		return nil
@@ -1438,7 +1438,7 @@ func validateBaseRestartPolicy(d *dag) error {
 	)
 }
 
-// validateRestartPolicyConfig rejects what a service DAG (one the scheduler
+// validateRestartPolicyConfig rejects what an always-on DAG (one the scheduler
 // keeps alive) must not define itself: a schedule, which would start runs of its
 // own, and a DAG-level retry policy, which would restart a failed run next to
 // the restart policy. An invalid policy value is reported by buildRestartPolicy.

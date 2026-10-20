@@ -80,7 +80,7 @@ func toDAG(dag *ir.DAG) api.DAG {
 	}
 }
 
-// toRestartPolicy returns the restart policy of a service DAG, and nil for any
+// toRestartPolicy returns the restart policy of an always-on DAG, and nil for any
 // other DAG so the field is omitted from the response.
 func toRestartPolicy(dag *ir.DAG) *api.RestartPolicy {
 	if !dag.RestartPolicy.Enabled() {
@@ -89,7 +89,7 @@ func toRestartPolicy(dag *ir.DAG) *api.RestartPolicy {
 	return ptrOf(api.RestartPolicy(dag.RestartPolicy))
 }
 
-// toRestartWaitSec returns the wait between two runs of a service DAG, and nil
+// toRestartWaitSec returns the wait between two runs of an always-on DAG, and nil
 // for any other DAG.
 func toRestartWaitSec(dag *ir.DAG) *int {
 	if !dag.RestartPolicy.Enabled() {

@@ -51,6 +51,12 @@ func newActivityFixture(t *testing.T) *activityFixture {
 // addRun saves a run that started at start and ran for duration.
 func (f *activityFixture) addRun(name, id string, status ir.Status, start time.Time, duration time.Duration, nodes ...*ir.Node) {
 	f.t.Helper()
+	f.addTriggeredRun(name, id, ir.TriggerTypeManual, status, start, duration, nodes...)
+}
+
+// addTriggeredRun saves a run that the trigger started.
+func (f *activityFixture) addTriggeredRun(name, id string, trigger ir.TriggerType, status ir.Status, start time.Time, duration time.Duration, nodes ...*ir.Node) {
+	f.t.Helper()
 	ctx := f.t.Context()
 	dag := &ir.DAG{Name: name}
 	attempt, err := f.repository.CreateAttempt(ctx, dag, start, id, persis.DAGRunCreateAttemptOptions{})
@@ -60,6 +66,7 @@ func (f *activityFixture) addRun(name, id string, status ir.Status, start time.T
 	runStatus.DAGRunID = id
 	runStatus.AttemptID = attempt.ID()
 	runStatus.Status = status
+	runStatus.TriggerType = trigger
 	runStatus.StartedAt = start.Format(time.RFC3339)
 	if duration > 0 {
 		runStatus.FinishedAt = start.Add(duration).Format(time.RFC3339)
@@ -262,6 +269,12 @@ func TestDAGRunActivityStreamTakesOnlyLiveWindows(t *testing.T) {
 // zero queuedAt saves the run without a queue time.
 func (f *activityFixture) queueRun(queueStore queue.QueueStore, name, id string, queuedAt time.Time, labels ...string) {
 	f.t.Helper()
+	f.queueTriggeredRun(queueStore, name, id, ir.TriggerTypeUnknown, queuedAt, labels...)
+}
+
+// queueTriggeredRun is queueRun for a run that the trigger started.
+func (f *activityFixture) queueTriggeredRun(queueStore queue.QueueStore, name, id string, trigger ir.TriggerType, queuedAt time.Time, labels ...string) {
+	f.t.Helper()
 	ctx := f.t.Context()
 	dag := &ir.DAG{Name: name}
 	createdAt := queuedAt
@@ -276,6 +289,7 @@ func (f *activityFixture) queueRun(queueStore queue.QueueStore, name, id string,
 	runStatus.AttemptID = attempt.ID()
 	runStatus.Status = ir.Queued
 	runStatus.ProcGroup = name
+	runStatus.TriggerType = trigger
 	runStatus.Labels = labels
 	if !queuedAt.IsZero() {
 		runStatus.QueuedAt = queuedAt.UTC().Format(time.RFC3339)
@@ -533,4 +547,71 @@ func TestDAGRunActivityWarnsOfANearlyFullDisk(t *testing.T) {
 	f.api.authService = struct{ AuthService }{}
 	viewer := auth.WithUser(t.Context(), &auth.User{Role: auth.RoleViewer, WorkspaceAccess: auth.AllWorkspaceAccess()})
 	assert.Nil(t, read(f, viewer), "a viewer cannot view system status")
+}
+
+// An always-on DAG restarts without end, so on request its runs stay out of the
+// timeline, the failing DAGs and the runs in progress.
+func TestDAGRunActivityLeavesOutAlwaysOnRunsOnRequest(t *testing.T) {
+	f := newActivityFixture(t)
+	day := time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC)
+	f.addRun("job", "job-1", ir.Succeeded, day.Add(time.Hour), time.Second)
+	f.addTriggeredRun("svc-a", "svc-a-1", ir.TriggerTypeRestart, ir.Failed, day.Add(2*time.Hour), time.Second)
+	f.addTriggeredRun("svc-b", "svc-b-1", ir.TriggerTypeRestart, ir.Running, day.Add(3*time.Hour), 0)
+
+	read := func(exclude bool) openapiv1.DAGRunActivity {
+		from, to := day.Unix(), day.Add(24*time.Hour).Unix()
+		resp, err := f.api.GetDAGRunActivity(t.Context(), openapiv1.GetDAGRunActivityRequestObject{
+			Params: openapiv1.GetDAGRunActivityParams{FromDate: &from, ToDate: &to, ExcludeAlwaysOnRuns: &exclude},
+		})
+		require.NoError(t, err)
+		activity, ok := resp.(openapiv1.GetDAGRunActivity200JSONResponse)
+		require.True(t, ok)
+		return openapiv1.DAGRunActivity(activity)
+	}
+
+	all := read(false)
+	assert.ElementsMatch(t, []string{"job-1", "svc-a-1", "svc-b-1"}, runIDs(all.Runs))
+	assert.Equal(t, []string{"svc-a-1"}, runIDs(all.Attention))
+	assert.Equal(t, []string{"svc-b-1"}, runIDs(all.Active))
+
+	without := read(true)
+	assert.Equal(t, []string{"job-1"}, runIDs(without.Runs))
+	assert.Empty(t, without.Attention)
+	assert.Empty(t, without.Active)
+
+	// The live stream takes the same switch.
+	data, err := f.api.GetDAGRunActivityData(t.Context(), "excludeAlwaysOnRuns=true")
+	require.NoError(t, err)
+	assert.IsType(t, openapiv1.DAGRunActivity{}, data)
+	_, err = f.api.GetDAGRunActivityData(t.Context(), "excludeAlwaysOnRuns=maybe")
+	require.Error(t, err)
+}
+
+// The queue of an always-on DAG flips between a run and a wait, so on request
+// the activity leaves it out of the queues that it lists.
+func TestDAGRunActivityLeavesOutTheQueuesOfAlwaysOnDAGsOnRequest(t *testing.T) {
+	f := newActivityFixture(t)
+	queueStore := store.NewQueueStore(file.NewCollection(filepath.Join(t.TempDir(), "queue")))
+	f.api.queueStore = queueStore
+	now := time.Now().Truncate(time.Second)
+	f.queueRun(queueStore, "etl", "etl-1", now.Add(-time.Minute))
+	f.queueTriggeredRun(queueStore, "svc", "svc-1", ir.TriggerTypeRestart, now.Add(-10*time.Second))
+
+	read := func(exclude bool) []string {
+		from, to := now.Add(-time.Hour).Unix(), now.Add(time.Hour).Unix()
+		resp, err := f.api.GetDAGRunActivity(t.Context(), openapiv1.GetDAGRunActivityRequestObject{
+			Params: openapiv1.GetDAGRunActivityParams{FromDate: &from, ToDate: &to, ExcludeAlwaysOnRuns: &exclude},
+		})
+		require.NoError(t, err)
+		activity, ok := resp.(openapiv1.GetDAGRunActivity200JSONResponse)
+		require.True(t, ok)
+		names := make([]string, 0, len(activity.Queues))
+		for _, queue := range activity.Queues {
+			names = append(names, queue.Name)
+		}
+		return names
+	}
+
+	assert.ElementsMatch(t, []string{"etl", "svc"}, read(false))
+	assert.Equal(t, []string{"etl"}, read(true))
 }

@@ -477,6 +477,9 @@ func (it *dagRunStatusIterator) toListItem(ctx context.Context, run *DAGRun) (da
 	if it.opts.DAGRunID != "" && !strings.Contains(run.dagRunID, it.opts.DAGRunID) {
 		return dagRunListItem{}, false
 	}
+	if run.summary != nil && slices.Contains(it.opts.ExcludeTriggerTypes, run.summary.TriggerType) {
+		return dagRunListItem{}, false
+	}
 	if it.opts.FullStatus && run.summary != nil {
 		// A summary of the run index has no nodes: read the status itself.
 		whole := *run

@@ -2128,6 +2128,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/RemoteNode"
         - $ref: "#/components/parameters/Workspace"
+        - $ref: "#/components/parameters/ExcludeAlwaysOnRuns"
         - $ref: "#/components/parameters/DateTimeFrom"
         - $ref: "#/components/parameters/DateTimeTo"
         - name: "hours"
@@ -2182,6 +2183,7 @@ paths:
         - $ref: "#/components/parameters/DAGRunListCursor"
         - $ref: "#/components/parameters/RemoteNode"
         - $ref: "#/components/parameters/Workspace"
+        - $ref: "#/components/parameters/ExcludeAlwaysOnRuns"
         - name: "name"
           in: "query"
           required: false
@@ -5262,6 +5264,89 @@ paths:
                 $ref: "#/components/schemas/Error"
         "404":
           description: "Sub DAG-run or step not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /always-on-dags:
+    get:
+      summary: "List the always-on DAGs"
+      description: "Returns the DAGs that set a restart policy, each with a compact state. An always-on DAG runs without end, so this list replaces its runs in the run lists. The state follows from the latest run, and the response holds nothing that changes at each restart cycle, so a steady always-on DAG adds no traffic to a live stream."
+      operationId: "listAlwaysOnDAGs"
+      tags:
+        - "dags"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/Workspace"
+      responses:
+        "200":
+          description: "A successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlwaysOnDAGsResponse"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /always-on-dags/history:
+    get:
+      summary: "Summarize the runs of the always-on DAGs over time"
+      description: |
+        Splits a time window into equal buckets and reports, for each always-on DAG,
+        how many runs started in each bucket, how many failed, how long a run was
+        alive, and how long the DAG waited between a run and the next one. An
+        always-on DAG restarts all the time, so this summary replaces the listing
+        of its runs. At most 20000 runs of one DAG are read; `capped` is set when
+        more exist, and the counts of that DAG are then lower bounds.
+      operationId: "getAlwaysOnDAGsHistory"
+      tags:
+        - "dags"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/Workspace"
+        - name: "fromDate"
+          in: "query"
+          required: true
+          schema:
+            type: "integer"
+            format: "int64"
+          description: "Start of the window as Unix seconds"
+        - name: "toDate"
+          in: "query"
+          required: true
+          schema:
+            type: "integer"
+            format: "int64"
+          description: "End of the window as Unix seconds. The window may span at most 31 days."
+        - name: "buckets"
+          in: "query"
+          required: false
+          schema:
+            type: "integer"
+            minimum: 1
+            maximum: 200
+            default: 96
+          description: "Number of buckets the window is split into"
+      responses:
+        "200":
+          description: "A successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlwaysOnHistory"
+        "400":
+          description: "Invalid window or bucket count"
           content:
             application/json:
               schema:
@@ -12144,6 +12229,15 @@ components:
         maxLength: 64
         pattern: "^[A-Za-z0-9_-]+$"
 
+    ExcludeAlwaysOnRuns:
+      name: excludeAlwaysOnRuns
+      in: query
+      description: "Leave out the runs that a restart policy started (trigger type restart). An always-on DAG runs without end, so these runs are better read from the always-on list. A run that someone started by hand stays in the result."
+      required: false
+      schema:
+        type: boolean
+        default: false
+
     WikiPagePrefix:
       name: prefix
       in: query
@@ -18572,6 +18666,162 @@ components:
         - dagRunId
         - dagName
         - startedAt
+
+    AlwaysOnDAGState:
+      type: string
+      description: |
+        What an always-on DAG does, as its latest run shows it:
+        - pending: no run is alive yet, or the latest run waits in the queue.
+        - running: a run is alive.
+        - restarting: the latest run succeeded and the next run is due.
+        - failing: the latest run did not succeed and the next run is due.
+        - suspended: the DAG gets no new run.
+        - stopped: an operator stopped the latest run of an unless-stopped DAG.
+      enum: ["pending", "running", "restarting", "failing", "suspended", "stopped"]
+
+    AlwaysOnDAGRun:
+      type: object
+      description: "The latest run of an always-on DAG"
+      properties:
+        dagRunId:
+          $ref: "#/components/schemas/DAGRunId"
+        status:
+          $ref: "#/components/schemas/Status"
+        startedAt:
+          type: string
+          format: date-time
+          description: "When the run started. Omitted until it starts."
+        finishedAt:
+          type: string
+          format: date-time
+          description: "When the run ended. Omitted while it is alive."
+      required:
+        - dagRunId
+        - status
+
+    AlwaysOnDAG:
+      type: object
+      description: "A DAG that sets a restart policy, with its state"
+      properties:
+        fileName:
+          type: string
+          description: "File ID of the DAG file"
+        name:
+          $ref: "#/components/schemas/DAGName"
+        restartPolicy:
+          $ref: "#/components/schemas/RestartPolicy"
+        restartWaitSec:
+          type: integer
+          description: "Seconds the scheduler waits after a run ends before it starts the next one."
+        state:
+          $ref: "#/components/schemas/AlwaysOnDAGState"
+        suspended:
+          type: boolean
+          description: "Whether the DAG is suspended"
+        latestRun:
+          $ref: "#/components/schemas/AlwaysOnDAGRun"
+      required:
+        - fileName
+        - name
+        - restartPolicy
+        - restartWaitSec
+        - state
+        - suspended
+
+    AlwaysOnBucket:
+      type: object
+      description: "What one always-on DAG did during one bucket of a window"
+      properties:
+        runs:
+          type: integer
+          description: "Runs that started in the bucket"
+        failed:
+          type: integer
+          description: "Runs among them that failed or were rejected"
+        runningSec:
+          type: integer
+          description: "Seconds of the bucket in which a run was alive"
+        waitSec:
+          type: integer
+          description: "Seconds the DAG waited between a run that ended in the bucket and the next run"
+        maxWaitSec:
+          type: integer
+          description: "Longest single wait among those"
+      required:
+        - runs
+        - failed
+        - runningSec
+        - waitSec
+        - maxWaitSec
+
+    AlwaysOnDAGHistory:
+      type: object
+      description: "The buckets of one always-on DAG"
+      properties:
+        fileName:
+          type: string
+          description: "File ID of the DAG file"
+        name:
+          $ref: "#/components/schemas/DAGName"
+        buckets:
+          type: array
+          items:
+            $ref: "#/components/schemas/AlwaysOnBucket"
+        capped:
+          type: boolean
+          description: "True when the read stopped at its run cap before it reached the start of the window. The buckets before coveredFrom are then incomplete."
+        coveredFrom:
+          type: integer
+          format: int64
+          description: "Unix time from which the buckets are complete. It is the start of the window unless the read was capped."
+      required:
+        - fileName
+        - name
+        - buckets
+        - capped
+        - coveredFrom
+
+    AlwaysOnHistory:
+      type: object
+      description: "The runs of the always-on DAGs over a window"
+      properties:
+        from:
+          type: integer
+          format: int64
+          description: "Window start as Unix seconds"
+        to:
+          type: integer
+          format: int64
+          description: "Window end as Unix seconds"
+        bucketSec:
+          type: integer
+          description: "Length of one bucket in seconds. Bucket i covers from + i * bucketSec up to the next one."
+        dags:
+          type: array
+          items:
+            $ref: "#/components/schemas/AlwaysOnDAGHistory"
+      required:
+        - from
+        - to
+        - bucketSec
+        - dags
+
+    AlwaysOnDAGsResponse:
+      type: object
+      description: "The always-on DAGs"
+      properties:
+        dags:
+          type: array
+          items:
+            $ref: "#/components/schemas/AlwaysOnDAG"
+        errors:
+          type: array
+          description: "Errors met while the response was built"
+          items:
+            type: string
+      required:
+        - dags
+        - errors
 
     QueuesResponse:
       type: object

@@ -64,6 +64,7 @@ type TopicType string
 //   - TopicTypeQueueItems: "queueName"
 //   - TopicTypeQueues: URL query string
 //   - TopicTypeDAGsList: URL query string (e.g., "page=1&perPage=100&name=mydag")
+//   - TopicTypeAlwaysOnDAGs: URL query string (e.g., "workspace=ops")
 //   - TopicTypeWikiPage: Wiki page path (e.g., "runbooks/deployment")
 //   - TopicTypeWikiTree: URL query string (e.g., "page=1&perPage=200")
 const (
@@ -80,8 +81,11 @@ const (
 	TopicTypeQueueItems     TopicType = "queueitems"
 	TopicTypeQueues         TopicType = "queues"
 	TopicTypeDAGsList       TopicType = "dagslist"
-	TopicTypeWikiPage       TopicType = "wikipage"
-	TopicTypeWikiTree       TopicType = "wikitree"
+	// TopicTypeAlwaysOnDAGs streams the DAGs that set a restart policy, with a
+	// compact state that stays the same while an always-on DAG keeps running.
+	TopicTypeAlwaysOnDAGs TopicType = "alwaysondags"
+	TopicTypeWikiPage     TopicType = "wikipage"
+	TopicTypeWikiTree     TopicType = "wikitree"
 	// TopicTypeLegacyDoc is the deprecated alias for TopicTypeWikiPage.
 	TopicTypeLegacyDoc TopicType = "doc"
 	// TopicTypeLegacyDocTree is the deprecated alias for TopicTypeWikiTree.

@@ -71,6 +71,7 @@ var _ api.StrictServerInterface = (*API)(nil)
 var loadBaseOpenAPISpec = sync.OnceValues(api.GetSpec)
 
 type API struct {
+	alwaysOnHistory      alwaysOnHistoryCache
 	dagRepository        *persis.DAGRepository
 	dagRunRepository     *persis.DAGRunRepository
 	artifactRepository   *persis.ArtifactRepository
