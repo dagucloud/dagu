@@ -36,10 +36,11 @@ import React, {
 } from 'react';
 import { Link } from 'react-router-dom';
 import { DAGNameInputModal } from '@/components/DAGNameInputModal';
-import { components, Status } from '../../../../api/v1/schema';
+import { components, ServiceDAGState, Status } from '../../../../api/v1/schema';
 import dayjs from '../../../../lib/dayjs';
 import { isServiceDAG } from '../../../../lib/dagSchedule';
 import RelativeTime from '@/components/ui/relative-time';
+import { useServiceDAGs } from '@/features/cockpit/hooks/useServiceDAGs';
 import { RunStatusChip } from '@/features/dag-runs/components/common/RunStatusChip';
 import VisuallyHidden from '@/components/ui/visually-hidden';
 import { CreateDAGButton, DAGPagination } from '../common';
@@ -215,6 +216,21 @@ function DeleteDAGButton({
  */
 const SHOWN_CARD = 'shadow-[inset_3px_0_0_0_var(--primary)]! bg-muted/20!';
 
+/**
+ * The state of a service DAG that is not suspended: Enabled, or Stopped after
+ * an operator's stop. The server tells it from the abort request of the latest
+ * run, so a run that the scheduler restarts does not show as Stopped.
+ */
+function ServiceDAGEnabledLabel({ fileName }: { fileName: string }) {
+  const { serviceDAGs } = useServiceDAGs();
+  const state = serviceDAGs.find((dag) => dag.fileName === fileName)?.state;
+  return (
+    <I18nText
+      text={state === ServiceDAGState.stopped ? 'Stopped' : 'Enabled'}
+    />
+  );
+}
+
 function DAGCard({
   dag,
   onOpen,
@@ -349,7 +365,7 @@ function DAGCard({
             {dag.suspended ? (
               <I18nText text={'Suspended'} />
             ) : isService ? (
-              <I18nText text={'Enabled'} />
+              <ServiceDAGEnabledLabel fileName={dag.fileName} />
             ) : hasSchedule ? (
               <I18nText text={'Live'} />
             ) : (

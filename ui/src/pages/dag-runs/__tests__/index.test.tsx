@@ -1,7 +1,13 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import dayjs from 'dayjs';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
@@ -26,6 +32,7 @@ const {
   deleteRunViewMock,
   readSearchStateMock,
   searchStateMock,
+  serviceDAGsState,
   sharedRunViewState,
   runViewMode,
   updateRunViewMock,
@@ -43,6 +50,7 @@ const {
     updateRunViewMock: vi.fn(),
     readSearchStateMock: readState,
     searchStateMock: { readState, writeState },
+    serviceDAGsState: { count: 0 },
     sharedRunViewState: { views: [] as View[] },
     runViewMode: { current: 'list' },
     viewsLoadingState: { current: false },
@@ -89,6 +97,21 @@ vi.mock('@/hooks/api', () => ({
           : path === '/dags'
             ? { dags: dagsListState.dags }
             : undefined,
+  }),
+}));
+
+vi.mock('@/features/cockpit/hooks/useServiceDAGs', () => ({
+  useServiceDAGs: () => ({
+    serviceDAGs: Array.from({ length: serviceDAGsState.count }, (_, index) => ({
+      fileName: `dag-${index}`,
+      name: `dag-${index}`,
+      restartPolicy: 'always',
+      restartWaitSec: 5,
+      state: 'running',
+      suspended: false,
+      consecutiveFailures: 0,
+    })),
+    error: null,
   }),
 }));
 
@@ -160,6 +183,7 @@ beforeEach(() => {
   deleteRunViewMock.mockReset();
   sharedRunViewState.views = [];
   dagsListState.dags = [];
+  serviceDAGsState.count = 0;
   usePaginatedDAGRunsMock.mockReset();
   usePaginatedDAGRunsMock.mockReturnValue({
     dagRuns: [],
@@ -259,6 +283,38 @@ function renderPage(
 }
 
 describe('DAGRuns page', () => {
+  // A service DAG restarts without end; its runs would fill the unfiltered list.
+  // A card for each service DAG stands in for them.
+  it('leaves the runs of service DAGs out of the unfiltered list', () => {
+    serviceDAGsState.count = 2;
+
+    renderPage();
+
+    expect(lastRunQuery()['excludeServiceDAGRuns']).toBe(true);
+    const serviceDAGs = screen.getByRole('region', { name: 'Service DAGs' });
+    expect(within(serviceDAGs).getByText('dag-0')).toBeInTheDocument();
+    expect(within(serviceDAGs).getByText('dag-1')).toBeInTheDocument();
+  });
+
+  it('shows no service DAG section when no DAG is one', () => {
+    renderPage();
+
+    expect(lastRunQuery()['excludeServiceDAGRuns']).toBe(true);
+    expect(screen.queryByRole('region', { name: 'Service DAGs' })).toBeNull();
+  });
+
+  it.each(['name=worker', 'dagRunId=run-1', 'status=2'])(
+    'shows the runs of service DAGs when the list is filtered by %s',
+    (filter) => {
+      serviceDAGsState.count = 2;
+
+      renderPage(vi.fn(), `/dag-runs?${filter}`);
+
+      expect(lastRunQuery()['excludeServiceDAGRuns']).toBeUndefined();
+      expect(screen.queryByRole('region', { name: 'Service DAGs' })).toBeNull();
+    }
+  );
+
   it('uses the Executions page title', () => {
     const setTitle = vi.fn();
 

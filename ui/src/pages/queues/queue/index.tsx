@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import React from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { components } from '@/api/v1/schema';
+import { components, QueueType } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -28,6 +28,12 @@ import {
   usePeekSequence,
   useRevealShownRow,
 } from '@/features/peek/usePeekOrOpen';
+import {
+  ServiceDAGStateBadge,
+  ServiceDAGStatusText,
+} from '@/features/cockpit/components/ServiceDAGState';
+import { idleServiceDAGQueue } from '@/features/queues/lib/idleServiceDAGQueue';
+import { useServiceDAGs } from '@/features/cockpit/hooks/useServiceDAGs';
 import { formatQueuedCount } from '@/features/queues/components/QueueCard';
 import QueueRunsTable from '@/features/queues/components/QueueRunsTable';
 import {
@@ -103,13 +109,14 @@ function QueueDetailsPage() {
   const remoteNode = appBarContext.selectedRemoteNode || 'local';
   const peekOrOpen = usePeekOrOpen(remoteNode);
   const sentinelRef = React.useRef<HTMLDivElement>(null);
+  const { serviceDAGs } = useServiceDAGs();
 
   React.useEffect(() => {
     appBarContext.setTitle(queueName ? `Queue ${queueName}` : 'Queue');
   }, [appBarContext, queueName]);
 
   const {
-    data: queue,
+    data: fetchedQueue,
     error,
     isLoading,
     isValidating,
@@ -135,6 +142,19 @@ function QueueDetailsPage() {
     }
   );
 
+  // A DAG without a queue of its own uses a queue named after it. A global
+  // queue that has the same name does not belong to the DAG. The server lists a
+  // DAG queue only while a run is alive or waiting, so for a service DAG that
+  // is between two runs the queue is missing, and the page shows it as idle.
+  const dag = fetchedQueue
+    ? fetchedQueue.type === QueueType.dag_based
+      ? serviceDAGs.find((candidate) => candidate.name === queueName)
+      : undefined
+    : error && isNotFoundQueryError(error)
+      ? serviceDAGs.find((candidate) => candidate.name === queueName)
+      : undefined;
+  const queue =
+    fetchedQueue ?? (dag ? idleServiceDAGQueue(dag.name) : undefined);
   const refreshToken = React.useMemo(() => queueRefreshToken(queue), [queue]);
   const mayHaveQueuedItems =
     (queue?.queuedCount ?? 0) > 0 || queue?.queuedCountCapped === true;
@@ -304,6 +324,15 @@ function QueueDetailsPage() {
               <span className="text-lg font-medium">
                 {queue?.name || queueName}
               </span>
+              {dag && (
+                <Link
+                  to={`/dags/${encodeURIComponent(dag.fileName)}`}
+                  className="flex items-center gap-2 rounded-md px-1.5 py-0.5 text-sm text-muted-foreground transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <ServiceDAGStateBadge state={dag.state} />
+                  <ServiceDAGStatusText dag={dag} />
+                </Link>
+              )}
             </div>
           </div>
 
@@ -334,7 +363,8 @@ function QueueDetailsPage() {
               <I18nText text={'queued'} />
             </span>
           </div>
-          {queue?.maxConcurrency && (
+          {/* A service DAG has one run at a time, so capacity says nothing. */}
+          {queue?.maxConcurrency && !dag && (
             <div className="flex items-baseline gap-1">
               <span className="text-lg font-light tabular-nums text-foreground">
                 {queue.runningCount || 0}/{queue.maxConcurrency}
@@ -344,7 +374,7 @@ function QueueDetailsPage() {
               </span>
             </div>
           )}
-          {utilization !== null && (
+          {utilization !== null && !dag && (
             <div className="flex items-baseline gap-1">
               <span className="text-lg font-light tabular-nums text-foreground">
                 {utilization}%
