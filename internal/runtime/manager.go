@@ -45,6 +45,13 @@ func WithLatestStatusAllHistory() ManagerOption {
 	}
 }
 
+// AllHistory returns a Manager whose latest-status lookups search all retained
+// runs, whatever the latest_status_today setting says.
+func (m Manager) AllHistory() Manager {
+	m.latestAttemptOptions.AllHistory = true
+	return m
+}
+
 // NewManager creates a new Manager instance.
 // The Manager is used to interact with the DAG.
 func NewManager(dagRunRepository *persis.DAGRunRepository, processes processRepository, cfg *config.Config, opts ...ManagerOption) Manager {

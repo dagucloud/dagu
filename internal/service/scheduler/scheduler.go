@@ -350,12 +350,17 @@ func newScheduler(
 		RunExists: runExists,
 	})
 
+	// The restart decision follows from the latest run, whatever its day. A
+	// lookup limited to today finds no run for a DAG that ran yesterday, takes
+	// it for a first run, and then finds the deterministic first-run ID taken:
+	// the DAG would never restart.
+	allHistory := drm.AllHistory()
 	restartScanner := NewRestartScanner(RestartScannerConfig{
 		Entries:         er.Entries,
 		IsSuspended:     isSuspended,
 		IsRunning:       isRunning,
 		IsQueued:        isQueued,
-		GetLatestStatus: drm.GetLatestStatus,
+		GetLatestStatus: allHistory.GetLatestStatus,
 		// A stop from the CLI, the API or the coordinator leaves an abort request
 		// on the attempt; other aborted runs have none.
 		IsStopRequested: func(ctx context.Context, dag *ir.DAG, runID string) (bool, error) {
