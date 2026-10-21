@@ -608,7 +608,7 @@
     "loop_wait_sec": {
       "type": "integer",
       "minimum": 0,
-      "description": "With restart_policy, makes one run loop: after the steps end, the run waits this many seconds and runs them again in the same run, as in a while-true loop. Each pass is a cycle. The run ends when it is stopped, when Dagu cannot keep it alive, or, with the default loop_on_failure, when a cycle fails; restart_policy then starts a new run. Handlers and timeout_sec apply to each cycle. Zero starts a new run for each pass instead. Cannot be set in the base configuration."
+      "description": "With restart_policy, makes a run loop: after the steps end, the run waits this many seconds and executes the steps again in the same run, as in a while-true loop. One execution of the steps is a cycle. The run ends when it is stopped, when Dagu cannot keep it alive, or, with the default loop_on_failure, when a cycle fails; restart_policy then starts a new run. Handlers and timeout_sec apply to each cycle. Zero ends the run after the steps, and restart_policy starts a new run. Cannot be set in the base configuration."
     },
     "loop_on_failure": {
       "type": "string",

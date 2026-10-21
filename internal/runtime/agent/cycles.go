@@ -20,8 +20,8 @@ import (
 )
 
 // cycleState tracks a run that loops. With loop_wait_sec, the steps of a
-// service DAG do not end the run: the run waits, then runs them again, so a
-// run ends only when it is stopped or the process that holds it is lost.
+// service DAG do not end the run: the run waits, then executes them again, so
+// a run ends only when it is stopped or the process that holds it is lost.
 //
 // The agent guards it with its lock.
 type cycleState struct {
@@ -46,12 +46,12 @@ type cycleState struct {
 	failedCycleLog []string
 }
 
-// loops tells whether a run of the DAG repeats its steps.
+// loops tells whether a run of the DAG loops.
 func (a *Agent) loops() bool {
 	return a.dag.LoopWait > 0
 }
 
-// runCycles runs the plan once, or, for a DAG with loop_wait_sec, again and
+// runCycles executes the plan once, or, for a DAG with loop_wait_sec, again and
 // again in the same run: after each cycle the run waits and starts a fresh plan.
 // A cycle that fails ends the run, so the restart policy starts a new one, unless
 // loop_on_failure is "continue", when the loop goes on as a while-true loop does.

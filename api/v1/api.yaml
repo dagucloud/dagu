@@ -15165,7 +15165,7 @@ components:
           description: "Seconds the scheduler waits after a run ends before it starts the next one. Used with restartPolicy."
         loopWaitSec:
           type: integer
-          description: "With restartPolicy, the run loops: after its steps end it waits this many seconds and runs them again in the same run. Omitted when the DAG does not loop."
+          description: "With restartPolicy, the run loops: after its steps end it waits this many seconds and executes them again in the same run. Omitted when the DAG does not loop."
         loopOnFailure:
           $ref: "#/components/schemas/LoopOnFailure"
         description:
@@ -15888,7 +15888,7 @@ components:
           description: "Seconds the scheduler waits after a run ends before it starts the next one. Used with restartPolicy."
         loopWaitSec:
           type: integer
-          description: "With restartPolicy, the run loops: after its steps end it waits this many seconds and runs them again in the same run. Omitted when the DAG does not loop."
+          description: "With restartPolicy, the run loops: after its steps end it waits this many seconds and executes them again in the same run. Omitted when the DAG does not loop."
         loopOnFailure:
           $ref: "#/components/schemas/LoopOnFailure"
         histRetentionDays:

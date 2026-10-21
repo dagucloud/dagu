@@ -194,9 +194,9 @@ type DAG struct {
 	// RestartPolicy makes the scheduler keep a run of the DAG alive: a new run is
 	// started RestartWait after the previous one ends. See specs/080-restart-policy.md.
 	RestartPolicy RestartPolicy `json:"restartPolicy,omitempty"`
-	// LoopWait, with a restart policy, makes one run repeat its steps: after
-	// the steps end, the run waits LoopWait and runs them again, as in a
-	// "while true" loop. Zero starts a new run instead. See specs/080-restart-policy.md.
+	// LoopWait, with a restart policy, makes a run loop: after the steps end,
+	// the run waits LoopWait and executes them again, as in a "while true"
+	// loop. Zero starts a new run instead. See specs/080-restart-policy.md.
 	LoopWait time.Duration `json:"loopWait,omitempty"`
 	// LoopOnFailure is what a run that loops does when a cycle fails: end, so
 	// the restart policy starts a new run, or go on with the next cycle.

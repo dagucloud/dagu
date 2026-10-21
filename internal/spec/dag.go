@@ -129,7 +129,7 @@ type dag struct {
 	// RestartPolicy is no|always|unless-stopped: whether the scheduler keeps a run of the DAG alive.
 	RestartPolicy *string `yaml:"restart_policy,omitempty"`
 	// LoopWaitSec is the wait in seconds between two cycles of one run. With a
-	// restart policy, the steps run again in the same run after it.
+	// restart policy, the steps execute again in the same run after it.
 	LoopWaitSec int `yaml:"loop_wait_sec,omitempty"`
 	// LoopOnFailure is restart|continue: what a run that loops does when a
 	// cycle fails.

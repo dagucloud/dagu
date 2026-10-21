@@ -16,7 +16,7 @@ This spec covers:
 - how `restart_policy` combines with `restart_wait_sec`, `schedule`,
   `retry_policy`, history retention, and the base configuration
 - the validation errors of a DAG that sets `restart_policy`
-- the `loop_wait_sec` DAG field, which makes one run repeat its steps, and
+- the `loop_wait_sec` DAG field, which makes a run loop, and
   `loop_on_failure`, which says what the run does when a cycle fails
 - the `restart` command for a DAG that sets `restart_policy`
 - runs started by hand next to an active run of a DAG that sets `restart_policy`
@@ -43,12 +43,27 @@ watchdog.
 - Built-in run context: [Spec 017](017-built-in-run-context.md), which defines
   the `restart` trigger type
 - Schedule descriptors: [Spec 063](063-schedule.md)
-- Repeat policy: [Spec 075](075-repeat-policy.md), which repeats a step inside
-  one run
+- Repeat policy: [Spec 075](075-repeat-policy.md), which repeats one step
+  inside one run. A loop executes all the steps again; see [Loop](#loop).
 
 ## Terms
 
 A service DAG is a DAG whose `restart_policy` is `always` or `unless-stopped`.
+
+In the text of this spec, each of these words has one meaning. The names of
+commands, fields, values and trigger types keep the spelling that they have in
+the product, such as the `restart` command, which stops a run and starts a new
+one for a DAG without a restart policy:
+
+| Word | Meaning |
+| --- | --- |
+| run | One execution of a DAG, with one run ID. |
+| restart | The scheduler starts a new run of a service DAG. |
+| loop | A run executes all the steps of its DAG again, in the same run. |
+| cycle | One execution of all the steps of a run that loops. |
+| repeat | A step executes again in the same run, as Spec 075 defines. |
+| retry | A failed attempt of a step executes again. |
+| attempt | One execution of a step. |
 
 ## Behavior
 
@@ -88,15 +103,15 @@ retention, `handler_on`, `preconditions`, and any other field.
 
 ### Loop
 
-`loop_wait_sec` is a DAG-level field. It makes one run repeat its steps, as in
-a `while true` loop, so that a run ends only when something interrupts it and
-not after each pass.
+`loop_wait_sec` is a DAG-level field. It makes a run loop, as in a `while true`
+loop: after the steps end, the run waits and executes the steps again. A run
+then ends only when something interrupts it, and not after each cycle.
 
 Rules:
 
 - `loop_wait_sec` is a whole number of seconds. Zero, or an absent field, means
-  the run does not loop: it ends after one pass, and the scheduler starts a new
-  run `restart_wait_sec` later.
+  the run does not loop: it ends after the steps, and the scheduler starts a
+  new run `restart_wait_sec` later.
 - A positive `loop_wait_sec` requires `restart_policy` to be `always` or
   `unless-stopped`.
 - A negative `loop_wait_sec` is an error.
@@ -156,10 +171,10 @@ This section describes the implementation. The conformance suite checks only
 the validation of `loop_wait_sec`; integration tests in `internal/intg` cover
 the rest.
 
-A pass of the steps is a cycle. A run that loops runs its first cycle as any
-run does. When a cycle ends, the run waits `loop_wait_sec` seconds, counted from
-the end of the cycle, and runs the steps again from a fresh plan, in the same
-run.
+A cycle is one execution of the steps. A run that loops executes its first
+cycle as any run does. When a cycle ends, the run waits `loop_wait_sec` seconds,
+counted from the end of the cycle, and executes the steps again from a fresh
+plan, in the same run.
 
 - A cycle that fails ends the run with the status of that cycle, and
   `restart_policy` starts a new run `restart_wait_sec` later. The run counts the
@@ -278,8 +293,9 @@ handler_on:
     run: ./alert.sh
 ```
 
-A poller whose steps run again every 5 seconds in one run. The run counts
-only the times it is interrupted, such as a stop of Dagu or a change of worker:
+A poller that loops: its steps execute again 5 seconds after each cycle, in one
+run. The run counts only the times it is interrupted, such as a stop of Dagu or
+a change of worker:
 
 ```yaml
 restart_policy: always
@@ -294,7 +310,7 @@ steps:
     depends: [fetch]
 ```
 
-A consumer that keeps polling after a failed pass, as a `while true` loop does:
+A consumer that keeps polling after a failed cycle, as a `while true` loop does:
 
 ```yaml
 restart_policy: always

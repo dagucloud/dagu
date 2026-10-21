@@ -5812,7 +5812,7 @@ export interface components {
             restartPolicy?: components["schemas"]["RestartPolicy"];
             /** @description Seconds the scheduler waits after a run ends before it starts the next one. Used with restartPolicy. */
             restartWaitSec?: number;
-            /** @description With restartPolicy, the run loops: after its steps end it waits this many seconds and runs them again in the same run. Omitted when the DAG does not loop. */
+            /** @description With restartPolicy, the run loops: after its steps end it waits this many seconds and executes them again in the same run. Omitted when the DAG does not loop. */
             loopWaitSec?: number;
             loopOnFailure?: components["schemas"]["LoopOnFailure"];
             /** @description Human-readable description of the DAG's purpose and behavior */
@@ -6202,7 +6202,7 @@ export interface components {
             restartPolicy?: components["schemas"]["RestartPolicy"];
             /** @description Seconds the scheduler waits after a run ends before it starts the next one. Used with restartPolicy. */
             restartWaitSec?: number;
-            /** @description With restartPolicy, the run loops: after its steps end it waits this many seconds and runs them again in the same run. Omitted when the DAG does not loop. */
+            /** @description With restartPolicy, the run loops: after its steps end it waits this many seconds and executes them again in the same run. Omitted when the DAG does not loop. */
             loopWaitSec?: number;
             loopOnFailure?: components["schemas"]["LoopOnFailure"];
             /** @description Number of days to retain historical logs */
