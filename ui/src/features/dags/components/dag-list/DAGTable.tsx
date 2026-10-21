@@ -38,7 +38,7 @@ import { Link } from 'react-router-dom';
 import { DAGNameInputModal } from '@/components/DAGNameInputModal';
 import { components, Status } from '../../../../api/v1/schema';
 import dayjs from '../../../../lib/dayjs';
-import { isServiceDAG, isStoppedService } from '../../../../lib/dagSchedule';
+import { isServiceDAG } from '../../../../lib/dagSchedule';
 import RelativeTime from '@/components/ui/relative-time';
 import { RunStatusChip } from '@/features/dag-runs/components/common/RunStatusChip';
 import VisuallyHidden from '@/components/ui/visually-hidden';
@@ -348,8 +348,6 @@ function DAGCard({
           <span className="text-xs text-muted-foreground truncate">
             {dag.suspended ? (
               <I18nText text={'Suspended'} />
-            ) : isStoppedService(dag.dag, dag.suspended, status) ? (
-              <I18nText text={'Stopped'} />
             ) : hasSchedule || isService ? (
               <I18nText text={'Live'} />
             ) : (
