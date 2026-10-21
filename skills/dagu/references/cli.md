@@ -84,7 +84,7 @@ Stop an active DAG run: `dagu stop <dag-name> [--run-id/-r <id>]`
 
 Stop and restart a DAG run: `dagu restart <dag-name> [--run-id/-r <id>]`
 
-A DAG with `restart_policy: always` or `unless-stopped` is refused: the scheduler starts its runs, so stop the running run instead.
+A DAG with `restart_policy: always` or `unless-stopped` is refused: the scheduler starts its runs, so stop the running run instead. With `unless-stopped`, the scheduler starts no run after a stop: start the DAG again with `dagu start`.
 
 ### dagu retry
 
