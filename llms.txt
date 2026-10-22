@@ -1196,8 +1196,10 @@ step output arrive with keys in alphabetical order, so pass
 `columns: ${steps.<id>.outputs.headers}` to keep the sheet's order), `header`,
 `mode` (`replace` the sheet, the default, or `append`), `style` (`table`, the
 default: bold frozen header, fitted widths, number formats by column; or
-`none`), `types`, `atomic` (default `true`), `dry_run`, `wait_for_unlock`,
-`artifact`. A replaced sheet is cleared in place, so its position, the defined
+`none`), `types`, `formats` (a number format per written column, such as
+`{Total: "#,##0", Rate: "0.0%"}`, winning over the format the column's kind
+gets; `style: table` only), `atomic` (default `true`), `dry_run`,
+`wait_for_unlock`, `artifact`. A replaced sheet is cleared in place, so its position, the defined
 names scoped to it, and formulas elsewhere that refer to it stay valid; its
 merged regions and tables are removed. Other sheets, widths, styles, and
 defined names are untouched. ISO date strings become real dates. `xlsx.append` adds rows below the last used row,
@@ -1922,7 +1924,9 @@ dagu human-task push-back --run-id=run-1 --step=review --input feedback="Add tes
 
 ### dagu dry
 
-Dry-run a DAG without executing commands: `dagu dry [--params/-p] [--name/-N] [--no-reuse] <dag> [-- params...]`
+Dry-run a DAG without executing commands: `dagu dry [--params/-p] [--name/-N] [--no-reuse] [--format/-f text|json] <dag> [-- params...]`
+
+`--format json` prints one JSON object on stdout, `{"checks":[...]}`, and omits the run summary. `text` is the default. A check does not change the exit status.
 
 For a build DAG, `--no-reuse` previews the decisions with manifest reuse disabled. Dry-run still creates no locks, staging files, manifests, or run history.
 

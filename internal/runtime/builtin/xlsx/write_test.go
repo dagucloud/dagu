@@ -121,6 +121,7 @@ func TestWriteValidation(t *testing.T) {
 		{"mode on append", opAppend, map[string]any{"path": "a.xlsx", "rows": "[]", "mode": "append"}, "with.mode is not valid for xlsx.append"},
 		{"bad mode", opWrite, map[string]any{"path": "a.xlsx", "rows": "[]", "mode": "upsert"}, "mode must be replace or append"},
 		{"bad style", opWrite, map[string]any{"path": "a.xlsx", "rows": "[]", "style": "fancy"}, "style must be table or none"},
+		{"formats with style none", opWrite, map[string]any{"path": "a.xlsx", "rows": "[]", "style": "none", "formats": map[string]any{"a": "0"}}, "formats applies to style: table only"},
 		{"bad format", opWrite, map[string]any{"path": "a.xlsx", "input": "x", "format": "xml"}, "format must be json, jsonl, or csv"},
 		{"bad wait", opWrite, map[string]any{"path": "a.xlsx", "rows": "[]", "wait_for_unlock": "soon"}, "wait_for_unlock must be a duration"},
 		{"row-number header", opWrite, map[string]any{"path": "a.xlsx", "rows": "[]", "header": 3}, "header must be true or false for write"},

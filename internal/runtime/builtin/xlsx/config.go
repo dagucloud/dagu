@@ -543,6 +543,9 @@ func validateWriterConfig(operation string, cfg *config) error {
 	default:
 		return fmt.Errorf("%w: style must be table or none", errConfig)
 	}
+	if cfg.provided("formats") && cfg.provided("style") && cfg.Style == string(workbook.StyleNone) {
+		return fmt.Errorf("%w: formats applies to style: table only", errConfig)
+	}
 	if strings.TrimSpace(cfg.WaitForUnlock) != "" {
 		wait, err := spec.ParseDuration(cfg.WaitForUnlock)
 		if err != nil || wait < 0 {

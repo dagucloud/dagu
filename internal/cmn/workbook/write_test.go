@@ -222,7 +222,7 @@ func TestWriteFormatsWinOverKind(t *testing.T) {
 	table := Table{Columns: []string{"Total", "Rate", "Year"}, Rows: [][]any{{17500, 0.125, 2026}, {2500, 0.5, 2027}}}
 	_, err := Write(context.Background(), path, table, WriteOptions{
 		Header:  true,
-		Formats: map[string]string{"Total": "#,##0", "Rate": "0.0%"},
+		Formats: map[string]string{"Total": " #,##0 ", "Rate": "0.0%"},
 	})
 	require.NoError(t, err)
 	f, err := excelize.OpenFile(path)

@@ -59,8 +59,9 @@ type WriteOptions struct {
 	// ISO-looking text as text.
 	Types map[string]ColumnType
 	// Formats names the number format of a column, such as "#,##0", and
-	// wins over the format its kind would get. It applies where Style is
-	// table styles the sheet.
+	// wins over the format its kind would get. It applies only to a sheet
+	// Style: table formats, so appended rows keep the style above them.
+	// The code is passed to Excel as-is, without a syntax check.
 	Formats map[string]string
 	// InPlace saves directly instead of through a temporary file.
 	InPlace bool
@@ -90,6 +91,11 @@ func Write(ctx context.Context, path string, table Table, opts WriteOptions) (*W
 	if opts.Style == "" {
 		opts.Style = StyleTable
 	}
+	formats, err := checkFormats(path, table, opts.Formats)
+	if err != nil {
+		return nil, err
+	}
+	opts.Formats = formats
 	return withLock(ctx, path, opts.Lock, func() (*WriteResult, error) {
 		return writeOnce(ctx, path, table, opts)
 	})
@@ -99,6 +105,27 @@ func Write(ctx context.Context, path string, table Table, opts WriteOptions) (*W
 func Append(ctx context.Context, path string, table Table, opts WriteOptions) (*WriteResult, error) {
 	opts.Mode = WriteAppend
 	return Write(ctx, path, table, opts)
+}
+
+// checkFormats returns formats with each code trimmed, or an error for a
+// name that is not a written column or an empty code. Names match the
+// columns written to the sheet, after columns has selected and renamed them.
+func checkFormats(path string, table Table, formats map[string]string) (map[string]string, error) {
+	if len(formats) == 0 {
+		return nil, nil
+	}
+	trimmed := make(map[string]string, len(formats))
+	for name, format := range formats {
+		if !slices.Contains(table.Columns, name) {
+			return nil, fmt.Errorf("%s: formats.%s: not a column written to the sheet", Base(path), name)
+		}
+		format = strings.TrimSpace(format)
+		if format == "" {
+			return nil, fmt.Errorf("%s: formats.%s: format must not be empty", Base(path), name)
+		}
+		trimmed[name] = format
+	}
+	return trimmed, nil
 }
 
 func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions) (*WriteResult, error) {
@@ -151,14 +178,6 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 	}
 
 	kinds := columnKinds(table, opts.Types)
-	for name, format := range opts.Formats {
-		if !slices.Contains(table.Columns, name) {
-			return nil, fmt.Errorf("%s: formats.%s: no such column", Base(path), name)
-		}
-		if strings.TrimSpace(format) == "" {
-			return nil, fmt.Errorf("%s: formats.%s: format must not be empty", Base(path), name)
-		}
-	}
 	// cols is the sheet column each table column is written to: its own
 	// position, or the column of the header cell with its name when rows
 	// are appended below a header row.
