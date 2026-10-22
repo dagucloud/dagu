@@ -46,22 +46,36 @@ steps:
 // runs returns the runs of the fixture DAG, newest first.
 func (f *fixture) runs() []ir.DAGRunStatus {
 	f.t.Helper()
-	runs, err := f.th.DAGRunRepository.RecentStatuses(f.th.Context, f.dag.Name, 100)
+	runs, err := f.readRuns()
 	require.NoError(f.t, err)
-	slices.SortStableFunc(runs, func(a, b ir.DAGRunStatus) int {
-		return cmp.Compare(b.CreatedAt, a.CreatedAt)
-	})
 	return runs
 }
 
-// waitForRuns waits until the runs of the fixture DAG satisfy cond.
+func (f *fixture) readRuns() ([]ir.DAGRunStatus, error) {
+	runs, err := f.th.DAGRunRepository.RecentStatuses(f.th.Context, f.dag.Name, 100)
+	if err != nil {
+		return nil, err
+	}
+	slices.SortStableFunc(runs, func(a, b ir.DAGRunStatus) int {
+		return cmp.Compare(b.CreatedAt, a.CreatedAt)
+	})
+	return runs, nil
+}
+
+// waitForRuns waits until the runs of the fixture DAG satisfy cond. The
+// condition runs on another goroutine, where a failing require would only stop
+// that goroutine, so a read error ends the wait and fails the test after it.
 func (f *fixture) waitForRuns(label string, timeout time.Duration, cond func([]ir.DAGRunStatus) bool) []ir.DAGRunStatus {
 	f.t.Helper()
-	var runs []ir.DAGRunStatus
+	var (
+		runs    []ir.DAGRunStatus
+		readErr error
+	)
 	f.h.Wait.EventuallyEveryWithin(label, queueTestTimeout(timeout), 100*time.Millisecond, func() bool {
-		runs = f.runs()
-		return cond(runs)
+		runs, readErr = f.readRuns()
+		return readErr != nil || cond(runs)
 	})
+	require.NoError(f.t, readErr)
 	return runs
 }
 
