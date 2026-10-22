@@ -280,7 +280,9 @@ func decideRestart(wait time.Duration, latest *ir.DAGRunStatus, now time.Time) r
 	if !ok {
 		return restartDecision{start: true, reason: "previous_run_end_unknown"}
 	}
-	if now.Before(endedAt.Add(wait)) {
+	// The end is stored to the second, so the run may have ended up to a second
+	// after it.
+	if now.Before(endedAt.Add(time.Second + wait)) {
 		return restartDecision{reason: "waiting"}
 	}
 	return restartDecision{start: true, reason: "previous_run_ended", previousEnd: endedAt}

@@ -46,9 +46,12 @@ func TestDecideRestart(t *testing.T) {
 		},
 		{
 			name:   "WaitJustElapsed",
-			latest: finished(ir.Succeeded, wait),
-			start:  true, reason: "previous_run_ended", previousEnd: now.Add(-wait),
+			latest: finished(ir.Succeeded, wait+time.Second),
+			start:  true, reason: "previous_run_ended", previousEnd: now.Add(-wait - time.Second),
 		},
+		// The end is stored to the second, so the run may have ended up to a
+		// second after it.
+		{name: "WaitWithinTheEndSecond", latest: finished(ir.Succeeded, wait), reason: "waiting"},
 		{name: "Waiting", latest: finished(ir.Failed, 5*time.Second), reason: "waiting"},
 		{
 			name:   "AfterOutage",
@@ -229,10 +232,10 @@ func TestRestartScanner(t *testing.T) {
 		assert.Empty(t, h.enqueued, "the wait has not elapsed")
 		assert.Contains(t, h.logs.String(), "reason=waiting")
 
-		h.now = h.now.Add(6 * time.Second)
+		h.now = h.now.Add(7 * time.Second)
 		h.scan()
 		require.Len(t, h.enqueued, 1)
-		assert.Equal(t, GenerateRestartRunID("svc", "run-1", h.now.Add(-10*time.Second)), h.enqueued[0].runID)
+		assert.Equal(t, GenerateRestartRunID("svc", "run-1", h.now.Add(-11*time.Second)), h.enqueued[0].runID)
 	})
 
 	t.Run("Succeeded", func(t *testing.T) {
