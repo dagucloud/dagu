@@ -42,8 +42,9 @@ func seedRun(t *testing.T, helper test.Helper, name, id string, status ir.Status
 	seedRunAt(t, helper, name, id, status, trigger, time.Now())
 }
 
-// seedRunAt saves a run that started at the given time.
-func seedRunAt(t *testing.T, helper test.Helper, name, id string, status ir.Status, trigger ir.TriggerType, now time.Time) {
+// seedRunAt saves a run that started at the given time, with the labels the
+// DAG had then.
+func seedRunAt(t *testing.T, helper test.Helper, name, id string, status ir.Status, trigger ir.TriggerType, now time.Time, labels ...string) {
 	t.Helper()
 	ctx := context.Background()
 	dag := &ir.DAG{Name: name}
@@ -55,6 +56,7 @@ func seedRunAt(t *testing.T, helper test.Helper, name, id string, status ir.Stat
 	runStatus.AttemptID = attempt.ID()
 	runStatus.Status = status
 	runStatus.TriggerType = trigger
+	runStatus.Labels = labels
 	runStatus.StartedAt = now.Format(time.RFC3339)
 	if !status.IsActive() {
 		runStatus.FinishedAt = now.Format(time.RFC3339)
@@ -83,6 +85,28 @@ func TestListAlwaysOnDAGsSeesTheLatestRunOfAnEarlierDay(t *testing.T) {
 	require.NotNil(t, list.Dags[0].LatestRun)
 	assert.Equal(t, "run-old", list.Dags[0].LatestRun.DagRunId)
 	assert.NotEqual(t, api.AlwaysOnDAGStatePending, list.Dags[0].State)
+}
+
+// A run keeps the workspace its DAG had when it started. After the DAG moves
+// to another workspace, a viewer of that workspace does not see the runs it
+// made in the previous one.
+func TestListAlwaysOnDAGsHidesRunsOfAnotherWorkspace(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	helper := test.Setup(t, test.WithStatusPersistence())
+	helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "svc-moved", []byte("labels:\n  - workspace=dev\n"+alwaysOnDAGSpec))
+	seedRunAt(t, helper, "svc-moved", "run-ops", ir.Running, ir.TriggerTypeRestart, time.Now(), "workspace=ops")
+
+	dev := api.Workspace("dev")
+	resp, err := newAlwaysOnDAGAPI(helper).ListAlwaysOnDAGs(ctx, api.ListAlwaysOnDAGsRequestObject{
+		Params: api.ListAlwaysOnDAGsParams{Workspace: &dev},
+	})
+	require.NoError(t, err)
+	list, ok := resp.(api.ListAlwaysOnDAGs200JSONResponse)
+	require.True(t, ok, "expected 200 response, got %T", resp)
+	require.Len(t, list.Dags, 1)
+	assert.Nil(t, list.Dags[0].LatestRun)
+	assert.Equal(t, api.AlwaysOnDAGStatePending, list.Dags[0].State)
 }
 
 func TestListAlwaysOnDAGs(t *testing.T) {

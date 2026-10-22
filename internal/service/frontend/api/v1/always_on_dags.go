@@ -77,6 +77,11 @@ func (a *API) listAlwaysOnDAGs(ctx context.Context, filter *workspace.WorkspaceF
 		if statusErr != nil {
 			errList = append(errList, statusErr.Error())
 		}
+		// A run keeps the workspace its DAG had when it started, so after a move
+		// the latest run may belong to a workspace the caller cannot see.
+		if !filter.MatchesLabels(ir.NewLabels(latest.Labels)) {
+			latest = ir.InitialStatus(item.DAG)
+		}
 		state, stateErr := scheduler.DescribeAlwaysOn(item.RestartPolicy, &latest, item.Suspended, func() (bool, error) {
 			return a.stopRequested(ctx, item.DAG, latest.DAGRunID)
 		})
