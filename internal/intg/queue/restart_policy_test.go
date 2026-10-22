@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmd"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/dagucloud/dagu/v2/internal/test/intgharness"
 	"github.com/stretchr/testify/assert"
@@ -167,24 +167,7 @@ func TestRestartPolicyStop(t *testing.T) {
 func TestRestartPolicyResumesDroppedRestart(t *testing.T) {
 	f := newFixture(t, serviceDAGYAML("restart-dropped", "unless-stopped", "echo ok"))
 	require.NoError(t, f.th.DAGRepository.SetSuspended(f.th.Context, f.dag.FileName(), true))
-
-	runID, err := ir.NewDAGRunID()
-	require.NoError(t, err)
-	require.NoError(t, scheduler.EnqueueCatchupRun(
-		f.th.Context,
-		f.th.DAGRunRepository,
-		f.th.QueueStore,
-		f.th.Config.Paths.LogDir,
-		f.th.Config.Paths.ArtifactDir,
-		f.th.Config.Paths.BaseConfig,
-		"",
-		f.dag.FileName(),
-		f.dag,
-		runID,
-		ir.TriggerTypeRestart,
-		time.Now(),
-		"",
-	))
+	runID := f.enqueueByScheduler(ir.TriggerTypeRestart, time.Now())
 
 	f.StartScheduler(60 * time.Second)
 	defer f.Stop()
@@ -197,6 +180,43 @@ func TestRestartPolicyResumesDroppedRestart(t *testing.T) {
 	f.waitForRuns("a run after the DAG is resumed", 20*time.Second, func(runs []ir.DAGRunStatus) bool {
 		return countStatus(runs, ir.Succeeded) >= 1
 	})
+}
+
+// Dequeuing a restart counts as an operator stop: an unless-stopped DAG stays
+// stopped, and an always DAG goes on with a new run.
+func TestRestartPolicyDequeue(t *testing.T) {
+	for _, tt := range []struct {
+		policy    string
+		restarted bool
+	}{
+		{"always", true},
+		{"unless-stopped", false},
+	} {
+		t.Run(tt.policy, func(t *testing.T) {
+			f := newFixture(t, serviceDAGYAML("restart-dequeue-"+tt.policy, tt.policy, "echo ok"))
+			runID := f.enqueueByScheduler(ir.TriggerTypeRestart, time.Now())
+			f.th.RunCommand(t, cmd.Dequeue(), test.CmdTest{
+				Args: []string{"dequeue", f.queue, "--dag-run", f.dag.Name + ":" + runID},
+			})
+
+			f.StartScheduler(60 * time.Second)
+			defer f.Stop()
+
+			var runs []ir.DAGRunStatus
+			if tt.restarted {
+				runs = f.waitForRuns("a run after the dequeued one", 20*time.Second, func(runs []ir.DAGRunStatus) bool {
+					return countStatus(runs, ir.Succeeded) >= 1
+				})
+			} else {
+				time.Sleep(restartQuiet)
+				runs = f.runs()
+				require.Len(t, runs, 1, "a dequeued restart is not queued again")
+			}
+			dequeued := runs[len(runs)-1]
+			assert.Equal(t, runID, dequeued.DAGRunID)
+			assert.Equal(t, ir.Aborted, dequeued.Status, "the dequeued run stays in the history")
+		})
+	}
 }
 
 // A run aborted because a DAG-level precondition is not met was not stopped by
