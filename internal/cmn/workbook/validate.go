@@ -158,7 +158,7 @@ func (w *file) validate(ctx context.Context, opts ValidateOptions) (*ValidateRes
 			return nil, err
 		}
 	}
-	headers := headerNames(reg, layout, grid, merges, warn)
+	headers := w.headerNames(reg, layout, grid, merges, warn)
 	readOpts := ReadOptions{Columns: opts.Columns, Merged: opts.Merged, Trim: opts.Trim, Formulas: opts.Formulas}
 	plan, err := w.planColumns(sheet, headers, readOpts)
 	if err != nil {

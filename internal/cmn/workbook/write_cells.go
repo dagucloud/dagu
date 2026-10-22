@@ -231,6 +231,11 @@ func writeCellsOnce(ctx context.Context, path string, opts WriteCellsOptions) (*
 	if opts.DryRun {
 		return result, nil
 	}
+	if result.Changes.CellsChanged > 0 || result.Changes.Merged > 0 {
+		if err := w.invalidateFormulaCaches(); err != nil {
+			return nil, err
+		}
+	}
 	if opts.Output != "" {
 		if err := ensureParentDir(opts.Output); err != nil {
 			return nil, err

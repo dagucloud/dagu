@@ -129,6 +129,7 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 	}
 	defer w.close()
 
+	sheetCount := len(w.sheets)
 	sheet, err := w.targetSheet(opts.Sheet, created)
 	if err != nil {
 		return nil, err
@@ -291,6 +292,11 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 	if opts.DryRun {
 		return result, nil
 	}
+	if !created && (cells > 0 || result.Changes.ColumnsAdded > 0 || len(w.sheets) > sheetCount || opts.Mode != WriteAppend) {
+		if err := w.invalidateFormulaCaches(); err != nil {
+			return nil, err
+		}
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -376,7 +382,7 @@ func (w *file) alignAppend(sheet string, table Table, header bool, warn func(str
 	if err != nil {
 		return targets, err
 	}
-	headers := headerNames(loc.reg, layout, loc.grid, merges, warn)
+	headers := w.headerNames(loc.reg, layout, loc.grid, merges, warn)
 	targets.headerRow = layout.rows[0]
 	next := loc.reg.C2
 	seen := make(map[string]bool, len(table.Columns))
