@@ -11,6 +11,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis/file"
+	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -505,6 +507,34 @@ func TestPushBackIdenticalRepeatRetriesQueue(t *testing.T) {
 	assert.False(t, result.ResumeRequested)
 	assert.False(t, result.Queued)
 	assert.Len(t, fixture.queue.enqueued, 1)
+}
+
+func TestPushBackInterruptedAdmission(t *testing.T) {
+	fixture, _, queueDir := fileServiceFixture(t, newPushBackFixture(t))
+	fixture.service.QueueStore = store.NewQueueStore(&interruptedQueueCollection{Collection: file.NewCollection(queueDir)})
+	feedback := map[string]any{"feedback": "add tests"}
+	require.Panics(t, func() { _, _ = fixture.pushBackReview(t, feedback, new(0)) })
+	fixture.service.QueueStore = store.NewQueueStore(file.NewCollection(queueDir))
+	result, err := fixture.pushBackReview(t, feedback, new(0))
+	require.NoError(t, err)
+	assert.True(t, result.AlreadyPushedBack)
+	assert.True(t, result.Queued)
+	attempt, err := fixture.service.DAGRunRepository.FindAttempt(t.Context(), fixture.status.DAGRun())
+	require.NoError(t, err)
+	status, err := attempt.ReadStatus(t.Context())
+	require.NoError(t, err)
+	node, err := findNodeByID(status.Nodes, "review")
+	require.NoError(t, err)
+	assert.Equal(t, 1, node.ApprovalIteration)
+	require.Len(t, node.PushBackHistory, 1)
+	assert.Equal(t, "alice", node.PushBackHistory[0].By)
+	assert.Equal(t, "add tests", node.PushBackHistory[0].Inputs["feedback"])
+	result, err = fixture.pushBackReview(t, feedback, new(0))
+	require.NoError(t, err)
+	assert.False(t, result.Queued)
+	count, err := fixture.service.QueueStore.Len(t.Context(), fixture.dag.ProcGroup())
+	require.NoError(t, err)
+	assert.Equal(t, 1, count)
 }
 
 func TestPushBackRepeatRejectsDifferentRequest(t *testing.T) {

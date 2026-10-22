@@ -31,6 +31,44 @@ func newQueueStore(t *testing.T) *store.QueueStore {
 	return store.NewQueueStore(testutil.NewMemoryBackend().Collection("queue"))
 }
 
+func TestRetryAdmissionIdentity(t *testing.T) {
+	root := t.TempDir()
+	identity := queue.RetryAdmissionIdentity{ID: "resume-1", AttemptID: "attempt-1", QueuedAt: "2026-10-22T01:02:03.123456789Z"}
+	ref := queueRef("dag", "run")
+	var created atomic.Int32
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			s := store.NewQueueStore(file.NewCollection(root))
+			added, err := s.EnsureRetryAdmission(t.Context(), "main", queue.QueuePriorityLow, ref, identity)
+			assert.NoError(t, err)
+			if added {
+				created.Add(1)
+			}
+		})
+	}
+	wg.Wait()
+	assert.EqualValues(t, 1, created.Load())
+	s := store.NewQueueStore(file.NewCollection(root))
+	page, err := s.ListCursor(t.Context(), "main", "", 10)
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+	assert.Equal(t, identity, *page.Items[0].(queue.RetryAdmissionItem).RetryAdmission())
+	assert.Equal(t, ref, requireQueuedRef(t, page.Items[0]))
+
+	changed := identity
+	changed.AttemptID = "new-attempt"
+	_, err = s.EnsureRetryAdmission(t.Context(), "main", queue.QueuePriorityLow, ref, changed)
+	require.ErrorContains(t, err, "conflicts with existing item")
+	_, err = s.EnsureRetryAdmission(t.Context(), "main", queue.QueuePriorityLow, queueRef("other", "run"), identity)
+	require.ErrorContains(t, err, "conflicts with existing item")
+	items, err := s.List(t.Context(), "main")
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.Equal(t, page.Items[0].ID(), items[0].ID())
+	assert.Equal(t, identity, *items[0].(queue.RetryAdmissionItem).RetryAdmission())
+}
+
 func queueRef(name, id string) ir.DAGRunRef {
 	return ir.NewDAGRunRef(name, id)
 }

@@ -206,12 +206,13 @@ type DAGRunStatus struct {
 	TriggerActor string            `json:"triggerActor,omitempty"`
 	// Resume marks a queued checkpoint resume. Retry planning honors it only
 	// while the attempt is queued, so retries of finished runs reset as usual.
-	Resume        bool                   `json:"resume,omitempty"`
-	WorkerID      string                 `json:"workerId,omitempty"`
-	PID           PID                    `json:"pid,omitempty"`
-	PIDStartedAt  int64                  `json:"pidStartedAt,omitempty"`
-	Nodes         []*Node                `json:"nodes,omitempty"`
-	AgentSessions []AgentSessionResource `json:"agentSessions,omitempty"`
+	Resume          bool                   `json:"resume,omitempty"`
+	ResumeAdmission *ResumeAdmission       `json:"resumeAdmission,omitempty"`
+	WorkerID        string                 `json:"workerId,omitempty"`
+	PID             PID                    `json:"pid,omitempty"`
+	PIDStartedAt    int64                  `json:"pidStartedAt,omitempty"`
+	Nodes           []*Node                `json:"nodes,omitempty"`
+	AgentSessions   []AgentSessionResource `json:"agentSessions,omitempty"`
 	// ModelUsageRecorded marks a status written by an engine that records
 	// each step's model usage, so a run that shows none used no model
 	// rather than ran before the engine recorded it.
@@ -311,6 +312,15 @@ type ReusedInput struct {
 	StartedAt  string         `json:"startedAt,omitempty"`
 	FinishedAt string         `json:"finishedAt,omitempty"`
 	Via        ReusedInputVia `json:"via"`
+}
+
+// ResumeAdmission identifies one checkpoint's queue publication. Admitted
+// means its item was durably published, not that execution has started or
+// succeeded. It is retained after dequeue so a repeated completion cannot
+// recreate an item already accepted by a dispatcher.
+type ResumeAdmission struct {
+	ID       string `json:"id"`
+	Admitted bool   `json:"admitted,omitempty"`
 }
 
 // EffectiveClaimKey returns ClaimKey, falling back to AttemptKey when no claim

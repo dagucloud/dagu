@@ -21,19 +21,21 @@ var (
 )
 
 type queueItemPayload struct {
-	FileName string       `json:"fileName"`
-	DAGRun   ir.DAGRunRef `json:"dagRun"`
-	QueuedAt time.Time    `json:"queuedAt"`
+	FileName  string                        `json:"fileName"`
+	DAGRun    ir.DAGRunRef                  `json:"dagRun"`
+	QueuedAt  time.Time                     `json:"queuedAt"`
+	Admission *queue.RetryAdmissionIdentity `json:"admission,omitempty"`
 }
 
 type queueItem struct {
-	id       string
-	queue    string
-	priority queue.QueuePriority
-	queuedAt time.Time
-	dagRun   ir.DAGRunRef
-	recordID string
-	dataErr  error
+	id        string
+	queue     string
+	priority  queue.QueuePriority
+	queuedAt  time.Time
+	dagRun    ir.DAGRunRef
+	recordID  string
+	dataErr   error
+	admission *queue.RetryAdmissionIdentity
 }
 
 var _ queue.QueuedItemData = (*queueItem)(nil)
@@ -43,6 +45,14 @@ func (i *queueItem) ID() string {
 		return ""
 	}
 	return i.id
+}
+
+func (i *queueItem) RetryAdmission() *queue.RetryAdmissionIdentity {
+	if i == nil || i.admission == nil {
+		return nil
+	}
+	identity := *i.admission
+	return &identity
 }
 
 func (i *queueItem) Data() (*ir.DAGRunRef, error) {
@@ -90,12 +100,13 @@ func queueItemFromRecord(rec *persis.Record) (*queueItem, error) {
 	}
 
 	return &queueItem{
-		id:       itemID,
-		queue:    queueName,
-		priority: priority,
-		queuedAt: queuedAt,
-		dagRun:   payload.DAGRun,
-		recordID: rec.ID,
+		id:        itemID,
+		queue:     queueName,
+		priority:  priority,
+		queuedAt:  queuedAt,
+		dagRun:    payload.DAGRun,
+		recordID:  rec.ID,
+		admission: payload.Admission,
 	}, nil
 }
 
