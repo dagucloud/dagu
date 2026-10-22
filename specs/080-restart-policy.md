@@ -110,7 +110,7 @@ waits for the lock does nothing.
 
 The scheduler decides from the latest run of the DAG, not from its own memory.
 It starts no run while the DAG has a live process, a queued item, or an active
-run. The run ID of a restart follows from the run that it replaces, so two
+run, or while its latest run cannot be read. The run ID of a restart follows from the run that it replaces, so two
 schedulers that decide the same restart create one run.
 
 When the active scheduler stops or fails, the DAG keeps running. The

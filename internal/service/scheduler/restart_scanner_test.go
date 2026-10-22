@@ -122,6 +122,7 @@ type restartHarness struct {
 	running    bool
 	queued     bool
 	latest     ir.DAGRunStatus
+	latestErr  error
 	stopped    map[string]bool
 	stopErr    error
 	stopChecks int
@@ -162,7 +163,7 @@ func newRestartHarness(t *testing.T, dags ...*ir.DAG) *restartHarness {
 		IsRunning: func(context.Context, *ir.DAG) (bool, error) { return h.running, nil },
 		IsQueued:  func(context.Context, *ir.DAG) (bool, error) { return h.queued, nil },
 		GetLatestStatus: func(context.Context, *ir.DAG) (ir.DAGRunStatus, error) {
-			return h.latest, nil
+			return h.latest, h.latestErr
 		},
 		IsStopRequested: func(_ context.Context, _ *ir.DAG, runID string) (bool, error) {
 			h.stopChecks++
@@ -323,6 +324,15 @@ func TestRestartScanner(t *testing.T) {
 		h.stopErr = errors.New("store unavailable")
 		h.scan()
 		assert.Empty(t, h.enqueued, "a run that may have been stopped is not restarted")
+		assert.Equal(t, 1, h.logged("Restart scanner failed to process DAG"))
+	})
+
+	t.Run("LatestStatusFails", func(t *testing.T) {
+		t.Parallel()
+		h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyAlways))
+		h.latestErr = errors.New("status unreadable")
+		h.scan()
+		assert.Empty(t, h.enqueued, "an unreadable latest run is not taken for no run")
 		assert.Equal(t, 1, h.logged("Restart scanner failed to process DAG"))
 	})
 

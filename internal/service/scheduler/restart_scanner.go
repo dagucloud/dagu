@@ -36,7 +36,9 @@ type RestartScannerConfig struct {
 	IsRunning IsRunningFunc
 	// IsQueued reports whether a DAG has queued items.
 	IsQueued IsQueuedFunc
-	// GetLatestStatus returns the status of the latest run of a DAG.
+	// GetLatestStatus returns the status of the latest run of a DAG, the
+	// initial status for a DAG without a run, and an error when the latest run
+	// cannot be read.
 	GetLatestStatus GetLatestStatusFunc
 	// IsStopRequested reports whether an operator stopped a run.
 	IsStopRequested StopRequestedFunc
