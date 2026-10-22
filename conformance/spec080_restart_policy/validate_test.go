@@ -77,4 +77,13 @@ func TestRestartCommandIsRefused(t *testing.T) {
 	result := dagu.RunWithEnv(env, "restart", "validate/valid_always.yaml")
 	result.ExpectNonZeroExitCode()
 	result.ExpectStderrContains("restart_policy")
+
+	t.Run("without a run", func(t *testing.T) {
+		t.Parallel()
+
+		env := []string{"DAGU_HOME=" + filepath.Join(t.TempDir(), "dagu")}
+		result := harness.NewRunner(t).RunWithEnv(env, "restart", "validate/valid_always.yaml")
+		result.ExpectNonZeroExitCode()
+		result.ExpectStderrContains("restart_policy")
+	})
 }

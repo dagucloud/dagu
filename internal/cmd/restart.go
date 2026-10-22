@@ -16,6 +16,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
+	"github.com/dagucloud/dagu/v2/internal/spec"
+	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -58,6 +60,18 @@ func runRestart(ctx *Context, args []string) error {
 
 	name := args[0]
 
+	// The scheduler follows the current definition, so it decides whether the
+	// DAG is a service. The snapshot of a run decides only once the definition
+	// is gone.
+	current, loadErr := spec.Load(ctx, args[0],
+		spec.WithBaseConfig(ctx.Config.Paths.BaseConfig),
+		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(ctx.Config.Paths.DAGsDir)),
+		spec.WithDAGsDir(ctx.Config.Paths.DAGsDir),
+	)
+	if loadErr == nil && current.RestartPolicy.Enabled() {
+		return errRestartServiceDAG(current.Name, current.RestartPolicy)
+	}
+
 	var attempt dagrun.Attempt
 	if dagRunID != "" {
 		// Retrieve the previous run for the specified dag-run ID.
@@ -82,8 +96,8 @@ func runRestart(ctx *Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to read DAG from execution history: %w", err)
 	}
-	if dag.RestartPolicy.Enabled() {
-		return errRestartServiceDAG(name, dag.RestartPolicy)
+	if loadErr != nil && dag.RestartPolicy.Enabled() {
+		return errRestartServiceDAG(dag.Name, dag.RestartPolicy)
 	}
 
 	if dagStatus.Status != ir.Running {

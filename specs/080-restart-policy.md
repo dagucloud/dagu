@@ -93,7 +93,9 @@ keep 30 days of runs.
 ### Restart Command
 
 The `restart` command fails for a service DAG, without stopping or starting a
-run: the runs of a service DAG are started for it.
+run: the runs of a service DAG are started for it. The command reads the
+current definition of the DAG, so it also fails for a DAG that has no run yet,
+or whose `restart_policy` was set after its latest run started.
 
 ### Scheduler Behavior
 
