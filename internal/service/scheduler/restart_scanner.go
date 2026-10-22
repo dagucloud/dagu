@@ -13,6 +13,20 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
+// Only the scheduler that holds the scheduler lock runs the scanner. A DAG gets
+// no new run while it has a live process, a queued item or an active run, or
+// while its latest run cannot be read. The ID of a restart follows from the run
+// it replaces, so two schedulers that decide the same restart around a failover
+// create one run.
+//
+// A run that an operator stopped carries a stop request on its attempt,
+// whatever status it ends with: a stopped distributed run whose worker is gone
+// ends as failed. Dequeuing a restart leaves the same request
+// (queue.AbortQueuedDAGRun). A run whose process died has none, so the DAG
+// restarts once the zombie detector or the coordinator marks the run failed. A
+// process killed while it writes its status can leave the run lock of the DAG
+// behind, which delays the restart until the lock is stale.
+
 const (
 	// restartScanInterval is how often service DAGs are checked. It bounds the
 	// delay a restart can add to restart_wait_sec.

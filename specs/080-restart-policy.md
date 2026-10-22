@@ -6,7 +6,7 @@ Implemented.
 
 This spec defines conformance behavior for the DAG-level `restart_policy`
 field: its values, how it combines with other DAG fields, and the validation
-errors and warnings it produces.
+errors it produces.
 
 ## Scope
 
@@ -14,8 +14,8 @@ This spec covers:
 
 - the `restart_policy` DAG field and its accepted values
 - how `restart_policy` combines with `restart_wait_sec`, `schedule`,
-  `retry_policy`, and the base configuration
-- the validation errors and warnings of a DAG that sets `restart_policy`
+  `retry_policy`, history retention, and the base configuration
+- the validation errors of a DAG that sets `restart_policy`
 - the `restart` command for a DAG that sets `restart_policy`
 
 This spec does not define:
@@ -96,48 +96,6 @@ The `restart` command fails for a service DAG, without stopping or starting a
 run: the runs of a service DAG are started for it. The command reads the
 current definition of the DAG, so it also fails for a DAG that has no run yet,
 or whose `restart_policy` was set after its latest run started.
-
-### Scheduler Behavior
-
-This section describes the implementation. The conformance suite does not
-check it. Integration tests in `internal/intg/queue` and `internal/intg/distr`
-cover it.
-
-The scheduler that holds the scheduler lock keeps the service DAGs alive. It
-checks them every second and starts a run through the queue, once
-`restart_wait_sec` has passed since the previous run ended. A scheduler that
-waits for the lock does nothing.
-
-The scheduler decides from the latest run of the DAG, not from its own memory.
-It starts no run while the DAG has a live process, a queued item, or an active
-run, or while its latest run cannot be read. The run ID of a restart follows from the run that it replaces, so two
-schedulers that decide the same restart create one run.
-
-When the active scheduler stops or fails, the DAG keeps running. The
-next scheduler continues from the latest run. It takes over when the scheduler
-lock is released or stale (`scheduler.lock_stale_threshold`, 30 seconds by
-default). It starts no second run while one is active.
-
-When the process of a local run dies, the next read of the latest status marks
-the run as failed. The DAG restarts after that. A process that dies while it
-writes the status of its run leaves the run lock of the DAG behind, and the
-restart then waits until the lock is stale, 30 seconds after it was taken. In distributed mode, the
-coordinator marks the run as failed when the worker stops sending heartbeats
-and the run lease is stale (90 seconds by default). The queue can need up to 30
-more seconds to admit the restart. The restart runs on any worker that matches
-the `worker_selector`.
-
-A run that fails this way was not stopped by an operator. A DAG with
-`unless-stopped` restarts after it.
-
-A run that an operator stopped, with `stop`, the API or the UI, counts as
-stopped whatever status it ends with. A stopped distributed run whose worker is
-gone ends as failed, and a DAG with `unless-stopped` starts no run after it.
-
-Removing a queued restart from its queue, with `dequeue`, the API or the UI,
-stops it as an operator would: the run stays in the history as aborted. A DAG
-with `unless-stopped` starts no run after it, and a DAG with `always` restarts
-after `restart_wait_sec`.
 
 ## Errors
 
