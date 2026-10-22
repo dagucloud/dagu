@@ -59,15 +59,15 @@ func EnqueueCatchupRun(
 		)
 		return nil
 	} else if !errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
-		return fmt.Errorf("failed to check existing catchup run: %w", err)
+		return fmt.Errorf("failed to check existing run: %w", err)
 	}
 
 	fullDAG, err := rehydrateExecutionDAG(ctx, dag, nil, baseConfig, workspaceBaseConfigDir)
 	if err != nil {
-		return fmt.Errorf("failed to load full DAG for catchup enqueue: %w", err)
+		return fmt.Errorf("failed to load full DAG for enqueue: %w", err)
 	}
 	if fullDAG == nil {
-		return fmt.Errorf("failed to load full DAG for catchup enqueue: DAG is nil")
+		return fmt.Errorf("failed to load full DAG for enqueue: DAG is nil")
 	}
 	// Clone to avoid mutating the shared planner entry.
 	// Location is cleared to prevent unix pipe conflicts for concurrent runs
@@ -88,7 +88,7 @@ func EnqueueCatchupRun(
 		DefinitionID:     definitionID,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to enqueue catchup run: %w", err)
+		return fmt.Errorf("failed to enqueue run: %w", err)
 	}
 
 	logger.Info(ctx, "Run enqueued",
