@@ -24,6 +24,11 @@ import (
 // the one second restart wait of the fixtures has elapsed.
 const restartQuiet = 5 * time.Second
 
+// runLockStale is when the run store of a DAG takes over a lock that a dead
+// process left behind. A run process holds that lock while it writes its
+// status, so a kill can leave it, and the restart of the DAG waits for it.
+const runLockStale = 30 * time.Second
+
 // serviceDAGYAML returns a DAG that the scheduler keeps alive. Each test uses
 // its own DAG name because the socket of a run is named after its DAG.
 func serviceDAGYAML(name, policy, script string) string {
@@ -250,14 +255,16 @@ steps:
 
 // A run whose process is killed leaves a running status behind. The zombie
 // detector marks it failed, and the DAG is then restarted, once and only after
-// that: a stale status keeps the DAG busy until it is repaired.
+// that: a stale status keeps the DAG busy until it is repaired. The kill comes
+// right after the run starts, while its process writes its status, so the
+// restart may wait for the run lock to go stale.
 func TestRestartPolicyRestartsAfterRunProcessIsKilled(t *testing.T) {
 	release := filepath.Join(t.TempDir(), "release")
 	f := newFixture(t,
 		serviceDAGYAML("restart-killed", "unless-stopped", intgharness.PortableCommands().WaitForFile(release)),
 		WithProcConfig(queueTestProcHeartbeatInterval, queueTestProcStaleThreshold),
 		WithZombieConfig(50*time.Millisecond, 1),
-	).StartScheduler(60 * time.Second)
+	).StartScheduler(runLockStale + 90*time.Second)
 	defer f.Stop()
 	defer func() { _ = os.WriteFile(release, nil, 0600) }()
 
@@ -270,7 +277,7 @@ func TestRestartPolicyRestartsAfterRunProcessIsKilled(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, process.Kill())
 
-	runs = f.waitForRuns("the killed run repaired and a restart running", 30*time.Second, func(runs []ir.DAGRunStatus) bool {
+	runs = f.waitForRuns("the killed run repaired and a restart running", runLockStale+30*time.Second, func(runs []ir.DAGRunStatus) bool {
 		return len(runs) >= 2 && runs[0].Status == ir.Running && runs[0].DAGRunID != killed.DAGRunID
 	})
 	assert.Equal(t, ir.TriggerTypeRestart, runs[0].TriggerType)

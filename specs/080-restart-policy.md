@@ -117,7 +117,9 @@ lock is released or stale (`scheduler.lock_stale_threshold`, 30 seconds by
 default). It starts no second run while one is active.
 
 When the process of a local run dies, the next read of the latest status marks
-the run as failed. The DAG restarts after that. In distributed mode, the
+the run as failed. The DAG restarts after that. A process that dies while it
+writes the status of its run leaves the run lock of the DAG behind, and the
+restart then waits until the lock is stale, 30 seconds after it was taken. In distributed mode, the
 coordinator marks the run as failed when the worker stops sending heartbeats
 and the run lease is stale (90 seconds by default). The queue can need up to 30
 more seconds to admit the restart. The restart runs on any worker that matches
