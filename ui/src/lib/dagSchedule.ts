@@ -79,7 +79,3 @@ export function getRestartValue(dag: RestartPolicyFields): string {
   const wait = dag.restartWaitSec ? ` · ${dag.restartWaitSec}s` : '';
   return `${dag.restartPolicy}${wait}`;
 }
-
-export function getRestartLabel(dag: RestartPolicyFields): string {
-  return `restart: ${getRestartValue(dag)}`;
-}

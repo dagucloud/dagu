@@ -3,11 +3,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { RestartPolicy } from '@/api/v1/schema';
-import {
-  getRestartLabel,
-  getRestartValue,
-  isServiceDAG,
-} from '../dagSchedule';
+import { getRestartValue, isServiceDAG } from '../dagSchedule';
 
 describe('service DAGs', () => {
   it('recognizes the DAGs kept alive by a restart policy', () => {
@@ -24,12 +20,11 @@ describe('service DAGs', () => {
   it('labels the policy with the wait between two runs', () => {
     const dag = { restartPolicy: RestartPolicy.always, restartWaitSec: 5 };
     expect(getRestartValue(dag)).toBe('always · 5s');
-    expect(getRestartLabel(dag)).toBe('restart: always · 5s');
   });
 
   it('labels the policy without a wait', () => {
     expect(
-      getRestartLabel({ restartPolicy: RestartPolicy.unless_stopped })
-    ).toBe('restart: unless-stopped');
+      getRestartValue({ restartPolicy: RestartPolicy.unless_stopped })
+    ).toBe('unless-stopped');
   });
 });

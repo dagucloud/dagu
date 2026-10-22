@@ -10,7 +10,7 @@ import { RelativeTime } from '@/components/ui/relative-time';
 import { useI18n } from '@/i18n/I18nProvider';
 import {
   formatFireTime,
-  getRestartLabel,
+  getRestartValue,
   getScheduleKey,
   getScheduleLabel,
   isServiceDAG,
@@ -103,7 +103,7 @@ function DAGAttributes({ dag }: Props) {
               variant="outline"
               className="h-auto max-w-full justify-start whitespace-normal break-words bg-primary/10 px-2.5 py-1 text-primary border-primary/30 normal-case tracking-normal"
             >
-              {getRestartLabel(dag)}
+              <I18nText text={'Restart'} />: {getRestartValue(dag)}
             </Badge>
           </div>
         )}

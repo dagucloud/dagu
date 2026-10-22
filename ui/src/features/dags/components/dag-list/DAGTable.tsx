@@ -348,7 +348,9 @@ function DAGCard({
           <span className="text-xs text-muted-foreground truncate">
             {dag.suspended ? (
               <I18nText text={'Suspended'} />
-            ) : hasSchedule || isService ? (
+            ) : isService ? (
+              <I18nText text={'Enabled'} />
+            ) : hasSchedule ? (
               <I18nText text={'Live'} />
             ) : (
               <I18nText text={'No schedule'} />

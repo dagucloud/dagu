@@ -4,11 +4,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  RestartPolicy,
-  ScheduleKind,
-  type components,
-} from '@/api/v1/schema';
+import { RestartPolicy, ScheduleKind, type components } from '@/api/v1/schema';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import { ScheduleLine } from '../ScheduleSummary';
@@ -197,7 +193,7 @@ describe('ScheduleLine', () => {
       dagFile({ restartPolicy: RestartPolicy.always, restartWaitSec: 5 })
     );
     expect(screen.getByTestId('schedule-line').textContent).toBe(
-      'restart: always · 5s'
+      'Restart: always · 5s'
     );
   });
 });
