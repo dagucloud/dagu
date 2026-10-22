@@ -232,6 +232,9 @@ func dagRunListTopicMatchesStatuses(identifier string, affected listWakeStatuses
 	if excludesAlwaysOnRuns(identifier) {
 		affectedStatuses = affected.withoutRuns
 	}
+	if len(affectedStatuses) == 0 {
+		return false
+	}
 	rawStatuses, hasStatusFilter := values["status"]
 	if !hasStatusFilter {
 		return true

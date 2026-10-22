@@ -363,11 +363,13 @@ func TestDAGRunInvalidatorSkipsAlwaysOnRunsForListsThatExcludeThem(t *testing.T)
 	const (
 		withServices    = "dagruns:status=1"
 		withoutServices = "dagruns:status=1&excludeAlwaysOnRuns=true"
+		// The default run list has no status filter.
+		withoutServicesAnyStatus = "dagruns:excludeAlwaysOnRuns=true"
 	)
 	result, err := mux.createSession(
 		context.Background(),
 		httptest.NewRecorder(),
-		[]string{withServices, withoutServices},
+		[]string{withServices, withoutServices, withoutServicesAnyStatus},
 		0,
 	)
 	require.NoError(t, err)
@@ -400,11 +402,13 @@ func TestDAGRunInvalidatorSkipsAlwaysOnRunsForListsThatExcludeThem(t *testing.T)
 
 	wakeTopicsForDAGRunEvents(mux, []*eventstore.Event{runningEvent(ir.TriggerTypeRestart, "run-1")})
 	require.Eventually(t, func() bool { return refreshes(withServices) == 1 }, time.Second, 10*time.Millisecond)
-	require.Never(t, func() bool { return refreshes(withoutServices) != 0 }, 200*time.Millisecond, 20*time.Millisecond)
+	require.Never(t, func() bool {
+		return refreshes(withoutServices) != 0 || refreshes(withoutServicesAnyStatus) != 0
+	}, 200*time.Millisecond, 20*time.Millisecond)
 
 	wakeTopicsForDAGRunEvents(mux, []*eventstore.Event{runningEvent(ir.TriggerTypeManual, "run-2")})
 	require.Eventually(t, func() bool {
-		return refreshes(withServices) == 2 && refreshes(withoutServices) == 1
+		return refreshes(withServices) == 2 && refreshes(withoutServices) == 1 && refreshes(withoutServicesAnyStatus) == 1
 	}, time.Second, 10*time.Millisecond)
 }
 
