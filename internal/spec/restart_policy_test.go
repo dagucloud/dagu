@@ -6,7 +6,6 @@ package spec_test
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -153,42 +152,39 @@ func TestRestartPolicyInTheBaseConfiguration(t *testing.T) {
 	})
 }
 
-func TestRestartPolicyWarnsWithoutHistoryRetention(t *testing.T) {
+// An always-on DAG adds a run at each restart, so without a retention of its
+// own it keeps a number of runs rather than the days of other DAGs.
+func TestRestartPolicyHistoryRetention(t *testing.T) {
 	t.Parallel()
 
 	steps := "steps:\n  - run: echo tick\n"
-	const warning = "restart_policy starts a new run each time"
 
 	for name, tc := range map[string]struct {
 		authored string
-		warns    bool
+		base     string
+		days     int
+		runs     int
 	}{
-		"NoRetention":      {authored: "restart_policy: always\nrestart_wait_sec: 5\n", warns: true},
-		"RetentionRuns":    {authored: "restart_policy: always\nrestart_wait_sec: 5\nhist_retention_runs: 50\n"},
-		"RetentionDays":    {authored: "restart_policy: always\nrestart_wait_sec: 5\nhist_retention_days: 2\n"},
-		"NoPolicyNoNeed":   {authored: "schedule: \"* * * * *\"\n"},
-		"PolicyNoDisabled": {authored: "restart_policy: \"no\"\n"},
+		"Default":          {authored: "restart_policy: always\nrestart_wait_sec: 5\n", runs: 100},
+		"RetentionRuns":    {authored: "restart_policy: always\nrestart_wait_sec: 5\nhist_retention_runs: 50\n", runs: 50},
+		"RetentionDays":    {authored: "restart_policy: always\nrestart_wait_sec: 5\nhist_retention_days: 2\n", days: 2},
+		"BaseRetention":    {authored: "restart_policy: always\nrestart_wait_sec: 5\n", base: "hist_retention_runs: 20\n", runs: 20},
+		"NoPolicy":         {authored: "schedule: \"* * * * *\"\n", days: 30},
+		"PolicyNoDisabled": {authored: "restart_policy: \"no\"\n", days: 30},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			dag, err := spec.Load(t.Context(), createTempYAMLFile(t, tc.authored+steps), spec.WithoutEval())
-			require.NoError(t, err)
-			warnings := strings.Join(dag.BuildWarnings, "\n")
-			if tc.warns {
-				assert.Contains(t, warnings, warning)
-			} else {
-				assert.NotContains(t, warnings, warning)
+			opts := []spec.LoadOption{spec.WithoutEval()}
+			if tc.base != "" {
+				base := filepath.Join(t.TempDir(), "base.yaml")
+				require.NoError(t, os.WriteFile(base, []byte(tc.base), 0600))
+				opts = append(opts, spec.WithBaseConfig(base))
 			}
+			dag, err := spec.Load(t.Context(), createTempYAMLFile(t, tc.authored+steps), opts...)
+			require.NoError(t, err)
+			assert.Equal(t, tc.days, dag.HistRetentionDays)
+			assert.Equal(t, tc.runs, dag.HistRetentionRuns)
+			assert.Empty(t, dag.BuildWarnings)
 		})
 	}
-
-	t.Run("RetentionFromTheBaseConfiguration", func(t *testing.T) {
-		t.Parallel()
-		base := filepath.Join(t.TempDir(), "base.yaml")
-		require.NoError(t, os.WriteFile(base, []byte("hist_retention_runs: 20\n"), 0600))
-		path := createTempYAMLFile(t, "restart_policy: always\nrestart_wait_sec: 5\n"+steps)
-		dag, err := spec.Load(t.Context(), path, spec.WithoutEval(), spec.WithBaseConfig(base))
-		require.NoError(t, err)
-		assert.NotContains(t, strings.Join(dag.BuildWarnings, "\n"), warning)
-	})
 }

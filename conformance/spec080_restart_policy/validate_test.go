@@ -20,6 +20,7 @@ func TestRestartPolicyValidation(t *testing.T) {
 		"valid_no.yaml",
 		"valid_probe.yaml",
 		"valid_empty_schedule.yaml",
+		"valid_default_retention.yaml",
 	}
 	for _, file := range valid {
 		t.Run(file, func(t *testing.T) {
@@ -31,15 +32,6 @@ func TestRestartPolicyValidation(t *testing.T) {
 			result.ExpectStderr("")
 		})
 	}
-
-	t.Run("warning_no_retention.yaml", func(t *testing.T) {
-		t.Parallel()
-
-		dagu := harness.NewRunner(t)
-		result := dagu.Run("validate", "validate/warning_no_retention.yaml")
-		result.ExpectExitCode(0)
-		result.ExpectStderrContains("hist_retention_runs")
-	})
 
 	rejected := []struct {
 		file  string
