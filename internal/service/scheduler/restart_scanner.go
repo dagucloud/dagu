@@ -63,8 +63,8 @@ type RestartScanner struct {
 
 	warnedNoQueue map[string]struct{}
 	lastErrorLog  map[string]time.Time
-	// stoppedRuns maps a DAG name to its latest run, once an operator is known
-	// to have stopped that run.
+	// stoppedRuns maps a DAG name to the attempt of its latest run, once an
+	// operator is known to have stopped that attempt.
 	stoppedRuns map[string]string
 }
 
@@ -164,8 +164,8 @@ func (s *RestartScanner) process(ctx context.Context, entry DAGEntry, now time.T
 		return err
 	}
 	decision := decideRestart(dag.RestartWait, &status, now)
-	if decision.start && dag.RestartPolicy == ir.RestartPolicyUnlessStopped && status.Status == ir.Aborted {
-		stopped, err := s.stoppedByOperator(ctx, dag, status.DAGRunID)
+	if decision.start && dag.RestartPolicy == ir.RestartPolicyUnlessStopped && status.DAGRunID != "" {
+		stopped, err := s.stoppedByOperator(ctx, dag, &status)
 		if err != nil {
 			return err
 		}
@@ -198,21 +198,25 @@ func (s *RestartScanner) process(ctx context.Context, entry DAGEntry, now time.T
 	return s.cfg.Enqueue(ctx, entry, runID, ir.TriggerTypeRestart, now)
 }
 
-// stoppedByOperator reports whether an operator stopped the run. Other aborted
-// runs, such as a run whose DAG-level precondition was not met or a restart
-// dropped from the queue while the DAG was suspended, do not stop the DAG.
-func (s *RestartScanner) stoppedByOperator(ctx context.Context, dag *ir.DAG, runID string) (bool, error) {
-	if s.stoppedRuns[dag.Name] == runID {
+// stoppedByOperator reports whether an operator stopped the run, whatever
+// status it ended with: a stopped distributed run whose worker is gone ends as
+// failed. Other runs, such as a run whose DAG-level precondition was not met or
+// a restart dropped from the queue while the DAG was suspended, do not stop the
+// DAG.
+func (s *RestartScanner) stoppedByOperator(ctx context.Context, dag *ir.DAG, status *ir.DAGRunStatus) (bool, error) {
+	if status.AttemptID != "" && s.stoppedRuns[dag.Name] == status.AttemptID {
 		return true, nil
 	}
 	if s.cfg.IsStopRequested == nil {
-		return true, nil
+		return status.Status == ir.Aborted, nil
 	}
-	stopped, err := s.cfg.IsStopRequested(ctx, dag, runID)
+	stopped, err := s.cfg.IsStopRequested(ctx, dag, status.DAGRunID)
 	if err != nil || !stopped {
 		return false, err
 	}
-	s.stoppedRuns[dag.Name] = runID
+	if status.AttemptID != "" {
+		s.stoppedRuns[dag.Name] = status.AttemptID
+	}
 	return true, nil
 }
 

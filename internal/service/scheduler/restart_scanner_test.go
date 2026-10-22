@@ -192,6 +192,7 @@ func (h *restartHarness) scan() {
 func (h *restartHarness) endRun(status ir.Status, ago time.Duration) {
 	h.latest = ir.DAGRunStatus{
 		DAGRunID:   "run-1",
+		AttemptID:  "attempt-1",
 		Status:     status,
 		FinishedAt: h.now.Add(-ago).Format(time.RFC3339),
 	}
@@ -281,17 +282,21 @@ func TestRestartScanner(t *testing.T) {
 		for _, tt := range []struct {
 			name      string
 			policy    ir.RestartPolicy
+			status    ir.Status
 			stopped   bool
 			restarted bool
 		}{
-			{"StoppedRunStaysStopped", ir.RestartPolicyUnlessStopped, true, false},
-			{"OtherAbortRestarts", ir.RestartPolicyUnlessStopped, false, true},
-			{"AlwaysIgnoresStops", ir.RestartPolicyAlways, true, true},
+			{"StoppedRunStaysStopped", ir.RestartPolicyUnlessStopped, ir.Aborted, true, false},
+			{"OtherAbortRestarts", ir.RestartPolicyUnlessStopped, ir.Aborted, false, true},
+			// A stopped distributed run whose worker is gone ends as failed.
+			{"StoppedFailedRunStaysStopped", ir.RestartPolicyUnlessStopped, ir.Failed, true, false},
+			{"FailedRunRestarts", ir.RestartPolicyUnlessStopped, ir.Failed, false, true},
+			{"AlwaysIgnoresStops", ir.RestartPolicyAlways, ir.Aborted, true, true},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				t.Parallel()
 				h := newRestartHarness(t, serviceDAG("svc", tt.policy))
-				h.endRun(ir.Aborted, time.Hour)
+				h.endRun(tt.status, time.Hour)
 				h.stopped["run-1"] = tt.stopped
 				h.scan()
 				assert.Equal(t, tt.restarted, len(h.enqueued) == 1)
@@ -315,6 +320,21 @@ func TestRestartScanner(t *testing.T) {
 		h.entries = []DAGEntry{{DefinitionID: "svc", DAG: serviceDAG("svc", ir.RestartPolicyUnlessStopped)}}
 		h.scan()
 		assert.Equal(t, 2, h.stopChecks, "a DAG that left the scheduler is forgotten")
+	})
+
+	t.Run("NewAttemptOfAStoppedRun", func(t *testing.T) {
+		t.Parallel()
+		h := newRestartHarness(t, serviceDAG("svc", ir.RestartPolicyUnlessStopped))
+		h.endRun(ir.Aborted, time.Hour)
+		h.stopped["run-1"] = true
+		h.scan()
+		assert.Empty(t, h.enqueued)
+
+		// A retry of the run adds an attempt, which ends aborted without a stop.
+		h.latest.AttemptID = "attempt-2"
+		h.stopped["run-1"] = false
+		h.scan()
+		assert.Len(t, h.enqueued, 1, "the stop of an earlier attempt does not hold")
 	})
 
 	t.Run("StopCheckFails", func(t *testing.T) {

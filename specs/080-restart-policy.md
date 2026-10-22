@@ -130,6 +130,10 @@ the `worker_selector`.
 A run that fails this way was not stopped by an operator. A DAG with
 `unless-stopped` restarts after it.
 
+A run that an operator stopped, with `stop`, the API or the UI, counts as
+stopped whatever status it ends with. A stopped distributed run whose worker is
+gone ends as failed, and a DAG with `unless-stopped` starts no run after it.
+
 Removing a queued restart from its queue, with `dequeue`, the API or the UI,
 stops it as an operator would: the run stays in the history as aborted. A DAG
 with `unless-stopped` starts no run after it, and a DAG with `always` restarts
