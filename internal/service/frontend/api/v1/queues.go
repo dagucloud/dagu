@@ -23,7 +23,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
-	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
 const (
@@ -86,7 +85,6 @@ func (a *API) ListQueues(ctx context.Context, _ api.ListQueuesRequestObject) (ap
 	if err != nil {
 		return nil, err
 	}
-	a.addAlwaysOnQueues(ctx, queueMap, "")
 
 	queues := make([]api.Queue, 0, len(queueMap))
 	queueNames := make([]string, 0, len(queueMap))
@@ -141,7 +139,6 @@ func (a *API) GetQueue(ctx context.Context, req api.GetQueueRequestObject) (api.
 	if err != nil {
 		return nil, err
 	}
-	a.addAlwaysOnQueues(ctx, queueMap, req.Name)
 
 	queueInfo, ok := queueMap[req.Name]
 	if !ok {
@@ -227,35 +224,6 @@ type queueInfo struct {
 }
 
 // getOrCreateQueue returns an existing queue from the map or creates a new one.
-// addAlwaysOnQueues adds the queue of every always-on DAG that the queue map does
-// not hold. A DAG-based queue exists only while a run is alive or waiting, so
-// without this the queue of an always-on DAG would vanish for the wait before each
-// restart, and open as not found. A failing read leaves the queues as they are.
-func (a *API) addAlwaysOnQueues(ctx context.Context, queueMap map[string]*queueInfo, onlyQueue string) {
-	if a.dagRepository == nil {
-		return
-	}
-	paginator := pagination.NewPaginator(1, int(^uint(0)>>1))
-	result, _, err := a.dagRepository.List(ctx, persis.DAGListOptions{
-		Paginator:    &paginator,
-		OnlyAlwaysOn: true,
-	})
-	if err != nil {
-		logger.Warn(ctx, "Failed to list always-on DAGs for the queues", tag.Error(err))
-		return
-	}
-	for _, item := range result.Items {
-		if !a.canAccessWorkspace(ctx, dagWorkspaceName(item.DAG)) {
-			continue
-		}
-		name := item.ProcGroup()
-		if onlyQueue != "" && name != onlyQueue {
-			continue
-		}
-		getOrCreateQueue(queueMap, name, a.config)
-	}
-}
-
 func getOrCreateQueue(queueMap map[string]*queueInfo, queueName string, cfg *config.Config) *queueInfo {
 	if queue, exists := queueMap[queueName]; exists {
 		return queue

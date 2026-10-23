@@ -204,36 +204,3 @@ func TestListDAGRunsExcludesAlwaysOnRuns(t *testing.T) {
 	err = apiImpl.ValidateDAGRunsListQuery(ctx, "excludeAlwaysOnRuns=maybe")
 	requireAPIErrorStatus(t, err, http.StatusBadRequest)
 }
-
-// A DAG-based queue exists only while a run is alive or waiting, so the queue
-// of a dag must be added for the wait before each restart.
-func TestQueuesKeepTheQueueOfAnIdleAlwaysOnDAG(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	helper := test.Setup(t, test.WithStatusPersistence())
-	dir := helper.Config.Paths.DAGsDir
-	helper.CreateDAGFile(t, dir, "plain", []byte("steps:\n  - run: echo plain\n"))
-	helper.CreateDAGFile(t, dir, "svc-idle", []byte(alwaysOnDAGSpec))
-	seedRun(t, helper, "svc-idle", "run-done", ir.Succeeded, ir.TriggerTypeRestart)
-	apiImpl := newAlwaysOnDAGAPI(helper)
-
-	resp, err := apiImpl.ListQueues(ctx, api.ListQueuesRequestObject{})
-	require.NoError(t, err)
-	list, ok := resp.(api.ListQueues200JSONResponse)
-	require.True(t, ok, "expected 200 response, got %T", resp)
-	names := make([]string, 0, len(list.Queues))
-	for _, queue := range list.Queues {
-		names = append(names, queue.Name)
-	}
-	assert.Equal(t, []string{"svc-idle"}, names)
-	assert.Equal(t, api.QueueTypeDagBased, list.Queues[0].Type)
-	assert.Zero(t, list.Queues[0].RunningCount)
-	assert.Zero(t, list.Queues[0].QueuedCount)
-
-	one, err := apiImpl.GetQueue(ctx, api.GetQueueRequestObject{Name: "svc-idle"})
-	require.NoError(t, err)
-	assert.Equal(t, "svc-idle", one.(api.GetQueue200JSONResponse).Name)
-
-	_, err = apiImpl.GetQueue(ctx, api.GetQueueRequestObject{Name: "plain"})
-	requireAPIErrorStatus(t, err, http.StatusNotFound)
-}
