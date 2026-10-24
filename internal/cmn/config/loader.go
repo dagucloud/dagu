@@ -2247,6 +2247,7 @@ var envBindings = []envBinding{
 	{key: "access_log_mode", env: "ACCESS_LOG_MODE"},
 	{key: "public_url", env: "PUBLIC_URL"},
 	{key: "base_path", env: "BASE_PATH"},
+	{key: "api_base_path", env: "API_BASE_PATH"},
 	{key: "api_base_url", env: "API_BASE_URL"},
 	{key: "tz", env: "TZ"},
 	{key: "host", env: "HOST"},
