@@ -181,10 +181,13 @@ func (r *run) execute(ctx context.Context) error {
 	for i := start; i < len(r.cfg.Do); i++ {
 		op := r.cfg.Do[i]
 		r.maximize = r.cfg.maximizes(op.maximize())
-		if op.looksAtScreen() {
-			began, before := time.Now(), r.usage
-			if err := r.fit(ctx, i); err != nil {
-				r.reportFailure(i, op.kind(), op.subject(), err, began, before)
+		// A when on the step's data is decided before the window is fitted,
+		// so an operation it skips leaves the windows as they are; a when
+		// that reads the screen reads the window as the operation will see
+		// it.
+		onData := op.When != nil && op.When.onValue()
+		if !onData {
+			if err := r.fitFor(ctx, i, op); err != nil {
 				return r.fail(ctx, i, op.kind(), err)
 			}
 		}
@@ -214,6 +217,11 @@ func (r *run) execute(ctx context.Context) error {
 					Tokens: r.usage.sub(before).total(), Duration: time.Since(began),
 				})
 				continue
+			}
+		}
+		if onData {
+			if err := r.fitFor(ctx, i, op); err != nil {
+				return r.fail(ctx, i, op.kind(), err)
 			}
 		}
 		if op.Ask != nil {
@@ -944,6 +952,20 @@ func (r *run) pollSleep(ctx context.Context, d time.Duration) error {
 			return nil
 		}
 	}
+}
+
+// fitFor fits the front window before an operation that looks at the
+// screen, reporting a failure as the operation's.
+func (r *run) fitFor(ctx context.Context, index int, op operation) error {
+	if !op.looksAtScreen() {
+		return nil
+	}
+	began, before := time.Now(), r.usage
+	if err := r.fit(ctx, index); err != nil {
+		r.reportFailure(index, op.kind(), op.subject(), err, began, before)
+		return err
+	}
+	return nil
 }
 
 // awaitUnlock waits while the desktop is unusable only until a person
