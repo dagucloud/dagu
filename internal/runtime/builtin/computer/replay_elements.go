@@ -403,6 +403,15 @@ func directInput(rec recordedAction) (desktop.Pattern, bool) {
 	return "", false
 }
 
+// applyPattern has an element perform a pattern. A pattern can send keys of
+// its own, as choosing an option of Chromium's list box does; they are the
+// step's input, so the desktop is not taken to be in a person's use.
+func (r *run) applyPattern(els desktop.Elements, e desktop.Element, pattern desktop.Pattern, value string) error {
+	err := els.Apply(e, pattern, value)
+	r.driver.AssumeInputSent(time.Now())
+	return err
+}
+
 // choosesOption reports an option of a list box's menu, which is chosen
 // through its own pattern under either input: on macOS the menu showing it
 // is drawn apart from the window, so the option has no place there that a
@@ -470,7 +479,7 @@ func (r *run) direct(ctx context.Context, index, position, total int, els deskto
 		if own, owned := r.elementOwner(found); owned {
 			return false, fmt.Sprintf("%s at turn %d of %d: %s", rec.Element.describe(), position+1, total, ownedMessage(own)), nil
 		}
-		err := els.Apply(found, pattern, value)
+		err := r.applyPattern(els, found, pattern, value)
 		switch {
 		case err == nil:
 			logAction(r.timeline, index, "replay by element: "+describeDirect(pattern, rec))

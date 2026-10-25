@@ -859,6 +859,26 @@ func TestPinnedOptionIsChosenThroughItsPattern(t *testing.T) {
 	assert.Equal(t, []string{"move 290,243", "left down #1", "invoke クレジット"}, run.backend.inputs())
 }
 
+// The keys a pattern sends, as choosing an option of Chromium's list box
+// does, are the step's own input: the next action does not wait for a
+// person to stop using the desktop.
+func TestPatternInputIsTheSteps(t *testing.T) {
+	t.Parallel()
+
+	run := elementRun(t)
+	run.elements.onApply = func(desktop.Element, desktop.Pattern, string) {
+		run.backend.mu.Lock()
+		run.backend.personInputAt = time.Now()
+		run.backend.mu.Unlock()
+	}
+	const steps = `{"ai": "never", "input": "direct", "idle": "1s", "do": [` +
+		`{"act": {"instruction": "Save", "recorded": {"windows": [{"click": {"role": "button", "id": "saveButton"}}]}}},` +
+		`{"act": {"instruction": "Save the payment", "recorded": {"windows": [{"click": {"role": "button", "id": "paymentSaveButton"}}]}}}]}`
+	replayed := run.execute(steps, nil)
+	require.NoError(t, replayed.err)
+	assert.NotContains(t, strings.Join(lifecycleMessages(replayed.exec.GetAgentSession()), "\n"), "Waiting until nobody")
+}
+
 // A pinned step that misses fails under never, naming why, and clicks
 // nothing.
 func TestPinnedActMissFailsUnderNever(t *testing.T) {
