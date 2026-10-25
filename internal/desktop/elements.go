@@ -18,6 +18,10 @@ var ErrNoElements = errors.New("the application exposes no accessible elements")
 // ErrElementsUnsupported reports a system that cannot read elements.
 var ErrElementsUnsupported = errors.New("accessible elements are supported on macOS and 64-bit Windows only")
 
+// ErrNoWindow reports that no application window is in front, as for a
+// moment between one window closing and the next one opening.
+var ErrNoWindow = errors.New("no window is in front")
+
 // ErrNoPattern reports an element that cannot perform a pattern itself, so
 // the action falls back to the pointer and keys.
 var ErrNoPattern = errors.New("the element offers no such pattern")

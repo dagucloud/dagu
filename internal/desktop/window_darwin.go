@@ -11,6 +11,7 @@ import (
 	"math"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/ebitengine/purego"
 	"github.com/ebitengine/purego/objc"
@@ -40,6 +41,14 @@ const (
 // work area and still count as maximized, and how far an Accessibility
 // frame may be from the window server's for the two to name one window.
 const frameTolerance = 2
+
+// raiseWait bounds how long a click waits for the window it lands on to
+// come forward, polling every raisePoll; a window that never does still
+// gets the click.
+const (
+	raiseWait = time.Second
+	raisePoll = 20 * time.Millisecond
+)
 
 // windowInfo is one window the window server lists.
 type windowInfo struct {
@@ -135,15 +144,70 @@ func (b *darwinBackend) Windows() []WindowID {
 }
 
 // WindowAt names the front window under a position, menus and the menu
-// bar included, and overlays left out.
+// bar included, and overlays and windows that let clicks through left out.
 func (b *darwinBackend) WindowAt(x, y int) WindowID {
-	at := image.Pt(x, y)
-	for _, w := range b.listWindows() {
-		if w.layer < overlayWindowLayer && at.In(w.id.Bounds) {
-			return w.id
+	w, _ := windowAt(b.listWindows(), image.Pt(x, y), b.holdsHit)
+	return w.id
+}
+
+// windowAt names the front window under a position among windows, the
+// front first, menus and the menu bar included and overlays left out. A
+// window above the applications' is passed over when holds tells that the
+// element under the position is in another window: Notification Center
+// covers the screen while a banner shows, and lets every click outside the
+// banner through. The menu bar, which the window server draws for the
+// front application, is taken as it is.
+func windowAt(windows []windowInfo, at image.Point, holds func(image.Point, windowInfo) (bool, bool)) (windowInfo, bool) {
+	for _, w := range windows {
+		if w.layer >= overlayWindowLayer || !at.In(w.id.Bounds) {
+			continue
 		}
+		if w.layer != normalWindowLayer && w.layer != mainMenuWindowLayer {
+			if in, known := holds(at, w); known && !in {
+				continue
+			}
+		}
+		return w, true
 	}
-	return WindowID{}
+	return windowInfo{}, false
+}
+
+// holdsHit reports whether a window holds the element the Accessibility hit
+// test finds under a position, through windows that let clicks through:
+// the window's process owns the element, and the window the element names,
+// if it names one, is this one. It is unknown when the hit test finds
+// nothing.
+func (b *darwinBackend) holdsHit(at image.Point, w windowInfo) (bool, bool) {
+	system := axUIElementCreateSystemWide()
+	if system == 0 {
+		return false, false
+	}
+	defer cfRelease(system)
+	point := b.display.points(at)
+	var element uintptr
+	if code := axUIElementCopyElementAtPosition(system, float32(point.X), float32(point.Y), &element); code != axErrorSuccess || element == 0 {
+		return false, false
+	}
+	defer cfRelease(element)
+	var pid int32
+	if axUIElementGetPid(element, &pid) != axErrorSuccess || pid <= 0 {
+		return false, false
+	}
+	if uint32(pid) != w.id.PID {
+		return false, true
+	}
+	window := element
+	if axString(element, "AXRole") != "AXWindow" {
+		if window = axCopy(element, "AXWindow"); window == 0 {
+			return true, true
+		}
+		defer cfRelease(window)
+	}
+	frame, ok := axFrame(window)
+	if !ok {
+		return true, true
+	}
+	return nearRect(b.toPixelRect(frame), w.id.Bounds, int(math.Ceil(frameTolerance*b.display.scale))), true
 }
 
 // FocusedWindow names the front window of the application that has the
@@ -196,6 +260,68 @@ func frontWindowOwner() int32 {
 		}
 	}
 	return 0
+}
+
+// clickTarget names the application window a click at a position lands on,
+// the front one there. A menu, the menu bar, or a panel above the
+// application windows takes the click itself, so none is named; overlays
+// and windows that let clicks through never take one, so the window under
+// them is.
+func clickTarget(windows []windowInfo, at image.Point, holds func(image.Point, windowInfo) (bool, bool)) (WindowID, bool) {
+	w, ok := windowAt(windows, at, holds)
+	if !ok || w.layer != normalWindowLayer {
+		return WindowID{}, false
+	}
+	return w.id, true
+}
+
+// bringForwardAt raises the application window under a position unless it
+// has the focus, and waits until it takes the focus. macOS hands a click on
+// a window in the background to it only when the application takes the
+// first click; Chromium-based applications, among many others, just come
+// forward, and the click is lost.
+func (b *darwinBackend) bringForwardAt(at image.Point) {
+	target, ok := clickTarget(b.listWindows(), at, b.holdsHit)
+	if !ok || b.hasFocus(target) {
+		return
+	}
+	_ = b.Raise(target)
+	deadline := time.Now().Add(raiseWait)
+	for !b.hasFocus(target) && time.Now().Before(deadline) {
+		time.Sleep(raisePoll)
+	}
+}
+
+// hasFocus reports whether a window has the focus as its application tells
+// it: the application is active and the window is its focused one. The
+// focused window the system names cannot stand in, since while the active
+// application shows no window, it names the owner of the front window. An
+// application that does not tell counts as focused, so its windows are
+// clicked as before.
+func (b *darwinBackend) hasFocus(w WindowID) bool {
+	app := axUIElementCreateApplication(int32(w.PID)) //nolint:gosec // process ids fit 32 bits
+	if app == 0 {
+		return true
+	}
+	defer cfRelease(app)
+	active, ok := axBool(app, "AXFrontmost")
+	if !ok {
+		return true
+	}
+	if !active {
+		return false
+	}
+	focused := axCopy(app, "AXFocusedWindow")
+	if focused == 0 {
+		return true
+	}
+	defer cfRelease(focused)
+	window := b.axWindow(app, w)
+	if window == 0 {
+		return true
+	}
+	defer cfRelease(window)
+	return cfEqual(focused, window)
 }
 
 // Raise brings a window's application to the front and the window above
