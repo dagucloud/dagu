@@ -156,7 +156,7 @@ func (s pinnedStep) validate() error {
 // instruction's, so a typo or a reference to a skipped ask is caught.
 func (s pinnedStep) references() []string {
 	var texts []string
-	for _, sel := range []*desktop.Selector{s.Click, s.DoubleClick, s.RightClick, s.Focus} {
+	for _, sel := range []*desktop.Selector{s.Click, s.DoubleClick, s.RightClick, s.Check, s.Uncheck, s.Focus} {
 		if sel != nil {
 			texts = append(texts, selectorTexts(*sel)...)
 		}

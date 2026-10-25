@@ -8219,8 +8219,14 @@
         "click": { "$ref": "#/definitions/computerSelector" },
         "double_click": { "$ref": "#/definitions/computerSelector" },
         "right_click": { "$ref": "#/definitions/computerSelector" },
-        "check": { "$ref": "#/definitions/computerSelector", "description": "A checkbox to leave checked: clicked only when it is unchecked, then confirmed checked." },
-        "uncheck": { "$ref": "#/definitions/computerSelector", "description": "A checkbox to leave unchecked: clicked only when it is checked, then confirmed unchecked." },
+        "check": {
+          "allOf": [{ "$ref": "#/definitions/computerSelector" }, { "required": ["role"], "properties": { "role": { "enum": ["checkbox"] } } }],
+          "description": "A checkbox to leave checked: clicked only when it is unchecked, then confirmed checked."
+        },
+        "uncheck": {
+          "allOf": [{ "$ref": "#/definitions/computerSelector" }, { "required": ["role"], "properties": { "role": { "enum": ["checkbox"] } } }],
+          "description": "A checkbox to leave unchecked: clicked only when it is checked, then confirmed unchecked."
+        },
         "type": {
           "type": "object",
           "additionalProperties": false,
