@@ -8255,7 +8255,10 @@
     "computerPinnedField": {
       "type": "object",
       "additionalProperties": false,
-      "description": "A pinned extract field: a selector for a scalar, or a container and columns for a table.",
+      "description": "A pinned extract field: a selector for a scalar, or a container and columns alone for a table, whose selector keys go inside container.",
+      "if": { "required": ["container"] },
+      "then": { "propertyNames": { "enum": ["container", "columns"] } },
+      "dependencies": { "columns": ["container"] },
       "properties": {
         "role": { "type": "string", "enum": ["button", "text_field", "text", "checkbox", "radio", "combo_box", "list_item", "menu_item", "tab", "link", "cell", "list", "group", "window", "other"] },
         "name": { "type": "string", "minLength": 1 },
