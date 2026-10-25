@@ -271,6 +271,9 @@ func (r *run) lookRecorded(els desktop.Elements, rec recordedElement) (desktop.E
 	}
 	found, err := desktop.One(desktop.MatchPath(matches, rec.Path), sel)
 	if err == nil {
+		if front.App != "" {
+			r.workApp = front.App
+		}
 		return found, "", nil
 	}
 	if ambiguous, ok := errors.AsType[*desktop.AmbiguousError](err); ok {
@@ -285,6 +288,14 @@ func (r *run) resolveElement(ctx context.Context, index int, els desktop.Element
 	deadline := time.Now().Add(findWithin)
 	title := r.substitute(rec.Window)
 	for {
+		// A person who used the desktop meanwhile may have left another
+		// window in front; the element is looked for again from when they
+		// stop.
+		if resumed, err := r.resumeAfterPerson(ctx, index); err != nil {
+			return desktop.Element{}, "", err
+		} else if resumed {
+			deadline = time.Now().Add(findWithin)
+		}
 		// A window that slipped behind another is brought forward rather
 		// than counted a miss, so a replay survives a focus change.
 		r.bringForward(ctx, index, rec.App, title)
@@ -498,6 +509,11 @@ func (r *run) direct(ctx context.Context, index, position, total int, els deskto
 // It returns the reason the turn missed, or "" when every action ran.
 func (r *run) replayByElement(ctx context.Context, index, position, total int, turn recordedTurn, els desktop.Elements, findWithin time.Duration, direct bool, outcome *replayOutcome) (string, error) {
 	for _, rec := range turn.Actions {
+		// Every action waits for a person using the desktop to stop, so a
+		// click or text never lands in their window.
+		if _, err := r.resumeAfterPerson(ctx, index); err != nil {
+			return "", err
+		}
 		action := rec.Action
 		if rec.Element == nil {
 			logAction(r.timeline, index, "replay "+describeAction(action))
@@ -554,9 +570,14 @@ func (r *run) replayByElement(ctx context.Context, index, position, total int, t
 // awaitLandmarks checks the screen an element replay ends on: the window
 // in front and the landmarks, looking again until they are there or
 // findWithin passes. It returns the reason they are not.
-func (r *run) awaitLandmarks(ctx context.Context, els desktop.Elements, entry recording, findWithin time.Duration) (string, error) {
+func (r *run) awaitLandmarks(ctx context.Context, index int, els desktop.Elements, entry recording, findWithin time.Duration) (string, error) {
 	deadline := time.Now().Add(findWithin)
 	for {
+		if resumed, err := r.resumeAfterPerson(ctx, index); err != nil {
+			return "", err
+		} else if resumed {
+			deadline = time.Now().Add(findWithin)
+		}
 		reason, err := r.lookLandmarks(els, entry)
 		if err != nil || reason == "" {
 			return reason, err

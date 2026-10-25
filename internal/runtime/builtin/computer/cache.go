@@ -210,7 +210,7 @@ func (r *run) replay(ctx context.Context, index int, entry recording, budget int
 			outcome.reason = fmt.Sprintf("turn %d of %d needs a person's confirmation", i+1, total)
 			return outcome, nil
 		}
-		if err := r.awaitPerson(ctx); err != nil {
+		if _, err := r.resumeAfterPerson(ctx, index); err != nil {
 			return outcome, err
 		}
 		if err := r.fit(ctx, index); err != nil {
@@ -258,7 +258,7 @@ func (r *run) replay(ctx context.Context, index int, entry recording, budget int
 	// has some; any other ends on the recorded final screen, which a
 	// pixel turn needs anyway.
 	if outcome.pixelTurns == 0 && outcome.elementTurns > 0 && len(entry.Landmarks) > 0 && els != nil {
-		reason, err := r.awaitLandmarks(ctx, els, entry, findWithin)
+		reason, err := r.awaitLandmarks(ctx, index, els, entry, findWithin)
 		if err != nil {
 			return outcome, err
 		}

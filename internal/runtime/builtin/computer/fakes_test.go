@@ -5,6 +5,7 @@ package computer
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -112,6 +113,16 @@ func (b *fakeBackend) personUses() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.personInputAt = time.Now().Add(time.Millisecond)
+}
+
+// personUsesAfterEcho records input from a person a moment after the
+// desktop could still be reporting the step's own input, which the driver
+// allows a second for, so the step tells the two apart however recently it
+// sent input.
+func (b *fakeBackend) personUsesAfterEcho() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.personInputAt = time.Now().Add(1100 * time.Millisecond)
 }
 
 // personKeepsUsing makes the next checks find a person using the desktop,
@@ -700,6 +711,8 @@ type testRun struct {
 	dataDir   string
 	artifacts string
 	workDir   string
+	// runID is the DAG run the steps belong to, run-1 when empty.
+	runID string
 	// desktopLock is the desktop lock the run's steps take; runs that share
 	// it share a desktop.
 	desktopLock string
@@ -864,7 +877,7 @@ func (r *testRun) context() context.Context {
 	ctx := cmnconfig.WithConfig(parent, &cmnconfig.Config{Paths: cmnconfig.PathsConfig{DataDir: r.dataDir}})
 	return runtime.WithEnv(ctx, runtime.Env{
 		DAG:        &ir.DAG{Name: "invoices"},
-		DAGRunID:   "run-1",
+		DAGRunID:   cmp.Or(r.runID, "run-1"),
 		WorkerID:   "worker-a",
 		Scope:      scope,
 		WorkingDir: r.workDir,

@@ -933,6 +933,124 @@ func TestPinnedActWaitsForIdleDesktop(t *testing.T) {
 	assert.Equal(t, []string{"move 235,194", "left down #1"}, run.backend.inputs(), "the pinned click lands once the person stops")
 }
 
+// A person who leaves another application in front partway through a
+// pinned act holds the act until they stop; the act then brings back the
+// application it was working in and carries on there. Without a person, a
+// change of application is the workflow's own, and the act leaves it.
+func TestPinnedActReturnsToItsApplicationAfterAPerson(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"ai": "never", "idle": "100ms", "input": "direct", "find_within": "300ms", "do": [{"act": {"instruction": "Save the invoice and the payment", "recorded": {"windows": [
+		{"click": {"role": "button", "id": "saveButton"}},
+		{"click": {"role": "button", "id": "paymentSaveButton"}}]}}}]}`
+	for _, tc := range []struct {
+		name   string
+		person bool
+	}{
+		{"after a person", true},
+		{"without a person", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			run := elementRun(t)
+			form := expenseWindow()
+			expense := desktop.WindowID{Handle: 2, Title: form.Name, App: "expense"}
+			notes := desktop.WindowID{Handle: 1, Title: "メモ", App: "notes"}
+			run.backend.windows = []desktop.WindowID{notes, expense}
+			var applied []string
+			run.elements.onApply = func(e desktop.Element, _ desktop.Pattern, _ string) {
+				applied = append(applied, e.ID)
+				if len(applied) > 1 {
+					return
+				}
+				// After the first save, another application comes to the front;
+				// its window shows none of the form's elements.
+				if tc.person {
+					run.backend.personUsesAfterEcho()
+				}
+				run.backend.focusOn(notes)
+				run.elements.asApp(notes.App)
+				run.elements.retitle(notes.Title)
+				run.elements.arriveAfter(0, []desktop.Element{})
+			}
+			run.backend.onRaise = func(w desktop.WindowID) {
+				if w.Handle == expense.Handle {
+					run.elements.asApp(expense.App)
+					run.elements.retitle(expense.Title)
+					run.elements.arriveAfter(0, expenseElements())
+				}
+			}
+
+			execution := run.execute(steps, nil)
+			if !tc.person {
+				require.Error(t, execution.err, "the payment's button is not in the window in front")
+				assert.Empty(t, run.backend.raised, "the step leaves the application its own click brought forward")
+				assert.Equal(t, []string{"saveButton"}, applied)
+				return
+			}
+			require.NoError(t, execution.err)
+			assert.Contains(t, strings.Join(lifecycleMessages(execution.exec.GetAgentSession()), "\n"), "Waiting until nobody has used the desktop for 100ms")
+			require.Len(t, run.backend.raised, 1)
+			assert.Equal(t, expense.Handle, run.backend.raised[0].Handle, "the application the act was working in came back")
+			assert.Equal(t, []string{"saveButton", "paymentSaveButton"}, applied)
+		})
+	}
+}
+
+// A person who leaves another application in front between two steps of a
+// run holds the second step until they stop; it then brings back the
+// application the first step worked in. A step of another run has no such
+// application to bring back.
+func TestNextStepReturnsToTheRunsApplicationAfterAPerson(t *testing.T) {
+	t.Parallel()
+
+	const first = `{"ai": "never", "idle": "100ms", "find_within": "300ms", "do": [{"act": {"instruction": "Save the invoice", "recorded": {"windows": [{"click": {"role": "button", "id": "saveButton"}}]}}}]}`
+	const second = `{"ai": "never", "idle": "100ms", "find_within": "300ms", "do": [{"act": {"instruction": "Save the payment", "recorded": {"windows": [{"click": {"role": "button", "id": "paymentSaveButton"}}]}}}]}`
+	for _, tc := range []struct {
+		name     string
+		otherRun bool
+	}{
+		{"in the same run", false},
+		{"in another run", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			run := elementRun(t)
+			form := expenseWindow()
+			expense := desktop.WindowID{Handle: 2, Title: form.Name, App: "expense"}
+			notes := desktop.WindowID{Handle: 1, Title: "メモ", App: "notes"}
+			run.backend.windows = []desktop.WindowID{notes, expense}
+			run.backend.onRaise = func(w desktop.WindowID) {
+				if w.Handle == expense.Handle {
+					run.elements.asApp(expense.App)
+					run.elements.retitle(expense.Title)
+					run.elements.arriveAfter(0, expenseElements())
+				}
+			}
+			require.NoError(t, run.execute(first, nil).err)
+
+			// Between the steps, a person works in another application.
+			run.backend.personUsesAfterEcho()
+			run.backend.focusOn(notes)
+			run.elements.asApp(notes.App)
+			run.elements.retitle(notes.Title)
+			run.elements.arriveAfter(0, []desktop.Element{})
+			if tc.otherRun {
+				run.runID = "run-2"
+			}
+			execution := run.execute(second, nil)
+			if tc.otherRun {
+				require.Error(t, execution.err, "the payment's button is not in the window in front")
+				assert.Empty(t, run.backend.raised)
+				return
+			}
+			require.NoError(t, execution.err)
+			require.Len(t, run.backend.raised, 1)
+			assert.Equal(t, expense.Handle, run.backend.raised[0].Handle, "the application the first step worked in came back")
+		})
+	}
+}
+
 func elementRun(t *testing.T) *testRun {
 	t.Helper()
 	run := newTestRun(t)

@@ -85,7 +85,13 @@ type run struct {
 	// remoteNoted records that the step has said once why it does not wait
 	// for a person in a remote session.
 	remoteNoted bool
-	variables   map[string]string
+	// workApp is the application whose window was in front when the step,
+	// or the run's step before it, last found an element or saw an exact
+	// check hold there, and personHandled is when the step last made way for
+	// a person; see resumeAfterPerson.
+	workApp       string
+	personHandled time.Time
+	variables     map[string]string
 	// system is which pinned block this device runs; see the executor field.
 	system string
 	// answers holds the values people gave to ask operations.
@@ -187,7 +193,7 @@ func (r *run) execute(ctx context.Context) error {
 				if !c.judged() {
 					fallback = exactWhenWait
 				}
-				holds, reason, err = r.await(ctx, c, c.window(fallback), op.timeout())
+				holds, reason, err = r.await(ctx, i, c, c.window(fallback), op.timeout())
 			}
 			if err != nil {
 				err = fmt.Errorf("evaluate when: %w", err)
@@ -293,6 +299,7 @@ func (r *run) start(ctx context.Context) (int, error) {
 	r.driver = driver
 	r.driver.ProtectApps(r.exec.protectedApps...)
 	r.driver.AssumeInputSent(r.lease.lastInput())
+	r.workApp = r.lease.workApp(r.dagRunID)
 	if cursor > 0 {
 		r.timeline.Lifecycle(agentstep.StatusRunning, "Resumed after input")
 	} else {
@@ -509,7 +516,7 @@ func (r *run) expect(ctx context.Context, index int, spec condition, timeout tim
 	if !c.judged() {
 		fallback = timeout
 	}
-	holds, reason, err := r.await(ctx, c, c.window(fallback), timeout)
+	holds, reason, err := r.await(ctx, index, c, c.window(fallback), timeout)
 	if err != nil {
 		return err
 	}
@@ -543,7 +550,7 @@ func (r *run) resolve(spec condition) (condition, error) {
 // await evaluates a condition until it holds or window passes, within the
 // operation timeout. When the timeout cuts an exact check short, the last
 // reason stands as the answer rather than the deadline.
-func (r *run) await(ctx context.Context, c condition, window, timeout time.Duration) (bool, string, error) {
+func (r *run) await(ctx context.Context, index int, c condition, window, timeout time.Duration) (bool, string, error) {
 	deadline := time.Now().Add(window)
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -552,6 +559,13 @@ func (r *run) await(ctx context.Context, c condition, window, timeout time.Durat
 		interval = exactPollInterval
 	}
 	for {
+		// A person who used the desktop meanwhile may have left another
+		// window in front; the check looks again from when they stop.
+		if resumed, err := r.resumeAfterPerson(ctx, index); err != nil {
+			return false, "", err
+		} else if resumed {
+			deadline = time.Now().Add(window)
+		}
 		holds, reason, err := r.evaluate(ctx, c)
 		if err != nil || holds || !time.Now().Before(deadline) {
 			return holds, reason, err
@@ -588,6 +602,16 @@ func (r *run) evaluate(ctx context.Context, c condition) (bool, string, error) {
 	if err != nil {
 		return false, "", err
 	}
+	holds, reason, err := evaluateFront(els, front, c)
+	if holds && front.App != "" {
+		r.workApp = front.App
+	}
+	return holds, reason, err
+}
+
+// evaluateFront reports whether an exact condition holds in the front
+// window, and why.
+func evaluateFront(els desktop.Elements, front desktop.Element, c condition) (bool, string, error) {
 	switch {
 	case c.Text != "":
 		elements, err := els.Outline(front, 0)
@@ -780,21 +804,10 @@ func (r *run) operationContext(ctx context.Context, timeout time.Duration) (cont
 // so the step's input does not collide with a person's. The wait is the
 // person's time, not the operation's, and has its own cap.
 func (r *run) awaitPerson(ctx context.Context) error {
+	if !r.guardsPerson() {
+		return nil
+	}
 	idle := r.cfg.idle()
-	if idle <= 0 {
-		return nil
-	}
-	// A remote session has no person at the keyboard to avoid, and its
-	// connection feeds the desktop synthetic input of its own, so the
-	// desktop never looks idle there: the wait is skipped unless the step
-	// asked for one.
-	if r.cfg.Idle == "" && r.exec.onConsole != nil && !r.exec.onConsole() {
-		if !r.remoteNoted {
-			r.remoteNoted = true
-			r.timeline.Lifecycle(agentstep.StatusRunning, "Running in a remote session, so not waiting for a person; set idle to wait")
-		}
-		return nil
-	}
 	if r.clock != nil {
 		r.clock.pause()
 		defer r.clock.resume()
@@ -819,6 +832,52 @@ func (r *run) awaitPerson(ctx context.Context) error {
 		r.timeline.Lifecycle(agentstep.StatusRunning, fmt.Sprintf("Nobody has used the desktop for %s; continuing", idle))
 	}
 	return err
+}
+
+// guardsPerson reports whether the step waits for a person using the
+// desktop, as idle sets. A remote session has no person at the keyboard to
+// avoid, and its connection feeds the desktop synthetic input of its own,
+// so the desktop never looks idle there: the step waits there only when it
+// asked to, and says once why it does not.
+func (r *run) guardsPerson() bool {
+	if r.cfg.idle() <= 0 {
+		return false
+	}
+	if r.cfg.Idle == "" && r.exec.onConsole != nil && !r.exec.onConsole() {
+		if !r.remoteNoted {
+			r.remoteNoted = true
+			r.timeline.Lifecycle(agentstep.StatusRunning, "Running in a remote session, so not waiting for a person; set idle to wait")
+		}
+		return false
+	}
+	return true
+}
+
+// resumeAfterPerson makes way for a person who used the desktop since the
+// step's last input or since the step last made way for one: it waits until
+// they stop, then brings the application the step was working in back to
+// the front, where they may have left another. It reports whether a person
+// used the desktop, so a caller looking for something on the screen starts
+// its wait again.
+func (r *run) resumeAfterPerson(ctx context.Context, index int) (bool, error) {
+	if !r.guardsPerson() {
+		return false, nil
+	}
+	since := r.driver.InputSentAt()
+	if r.personHandled.After(since) {
+		since = r.personHandled
+	}
+	if !r.driver.PersonInputSince(since) {
+		return false, nil
+	}
+	if err := r.awaitPerson(ctx); err != nil {
+		return true, err
+	}
+	r.personHandled = time.Now()
+	if r.workApp != "" {
+		r.bringForward(ctx, index, r.workApp, "")
+	}
+	return true, nil
 }
 
 // awaitUnlock waits while the desktop is unusable only until a person
@@ -880,6 +939,7 @@ func (r *run) shutdown() {
 	}
 	if r.driver != nil {
 		r.lease.recordInput(r.driver.InputSentAt())
+		r.lease.recordWorkApp(r.dagRunID, r.workApp)
 		_ = r.driver.Close()
 		r.driver = nil
 	}
