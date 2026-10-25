@@ -462,7 +462,8 @@ func (b *darwinBackend) location() cgPoint {
 
 // MoveTo moves the pointer and waits until the window server has put it
 // there, which it does a moment after the event is posted: a press made at
-// the pointer right after would otherwise land where the pointer was.
+// the pointer right after would otherwise land where the pointer was. A
+// pointer that does not get there within pointerWait is an error.
 func (b *darwinBackend) MoveTo(x, y int) error {
 	eventType, button := uint32(eventMouseMoved), uint32(mouseButtonLeft)
 	switch {
@@ -477,12 +478,15 @@ func (b *darwinBackend) MoveTo(x, y int) error {
 	if err := b.post(cgEventCreateMouseEvent(0, eventType, target, button)); err != nil {
 		return err
 	}
-	for deadline := time.Now().Add(pointerWait); time.Now().Before(deadline); time.Sleep(pointerPoll) {
+	for deadline := time.Now().Add(pointerWait); ; time.Sleep(pointerPoll) {
 		if at := b.location(); math.Abs(at.X-target.X) < 1 && math.Abs(at.Y-target.Y) < 1 {
-			break
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			px, py, _ := b.Position()
+			return fmt.Errorf("the pointer did not reach %d,%d within %s; it is at %d,%d", x, y, pointerWait, px, py)
 		}
 	}
-	return nil
 }
 
 func (b *darwinBackend) Position() (int, int, error) {
