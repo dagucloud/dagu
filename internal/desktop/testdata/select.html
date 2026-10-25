@@ -1,6 +1,8 @@
 <!doctype html>
-<!-- A web page's list box for the macOS Chromium tests. The page says the
-     option chosen, which the change event writes only for a real choice. -->
+<!-- Web page list boxes for the macOS Chromium tests. The page says the
+     option chosen, which the change event writes only for a real choice.
+     The second box is built again on every change, as pages that render
+     from their state do. -->
 <html lang="ja">
 <head><meta charset="utf-8"><title>Dagu select test</title></head>
 <body>
@@ -10,11 +12,29 @@
     <option>みかん</option>
     <option>その他</option>
   </select>
+  <label for="size">大きさ</label>
+  <span id="size-box"></span>
   <p id="status">未選択</p>
   <script>
+    const status = document.getElementById('status');
     document.getElementById('fruit').addEventListener('change', (e) => {
-      document.getElementById('status').textContent = '選択: ' + e.target.value;
+      status.textContent = '選択: ' + e.target.value;
     });
+    function renderSize(value) {
+      const box = document.getElementById('size-box');
+      box.textContent = '';
+      const select = document.createElement('select');
+      select.id = 'size';
+      for (const option of ['', '小', '中', '大']) {
+        select.append(new Option(option, option, false, option === value));
+      }
+      select.addEventListener('change', (e) => {
+        status.textContent = '大きさ: ' + e.target.value;
+        renderSize(e.target.value);
+      });
+      box.append(select);
+    }
+    renderSize('');
   </script>
 </body>
 </html>

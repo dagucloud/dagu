@@ -903,17 +903,23 @@ func chooseOption(option, menu, popup uintptr) (bool, error) {
 			cfRelease(event)
 		}
 	}
+	// A page that renders the box again on the change replaces it, and the
+	// one chosen on is gone; only a box still there can show another option.
 	deadline := time.Now().Add(menuCloseWait)
-	for menuHasFocus(pid, menu) || NormalizeText(axValueText(popup)) != want {
+	for {
+		open := menuHasFocus(pid, menu)
+		shown, there := axValueText(popup), axString(popup, "AXRole") != ""
+		if !open && (!there || NormalizeText(shown) == want) {
+			return true, nil
+		}
 		if !time.Now().Before(deadline) {
-			if menuHasFocus(pid, menu) {
+			if open {
 				return true, errors.New("the menu stayed open after its option was chosen")
 			}
-			return true, fmt.Errorf("the list box shows %q, not the option chosen, %q", axValueText(popup), want)
+			return true, fmt.Errorf("the list box shows %q, not the option chosen, %q", shown, want)
 		}
 		time.Sleep(menuClosePoll)
 	}
-	return true, nil
 }
 
 // itemText is what a menu item shows: its title, or, for an option of

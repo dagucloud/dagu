@@ -292,17 +292,27 @@ func TestDarwinChromiumListBox(t *testing.T) {
 	}
 
 	// A recent Chromium's list box offers no press and opens on a click.
-	centre := box[0].Bounds.Min.Add(box[0].Bounds.Size().Div(2))
-	if err := els.Apply(box[0], PatternExpand, ""); errors.Is(err, ErrNoPattern) {
-		require.NoError(t, New(backend).Click(t.Context(), &centre, ButtonLeft, 1, nil))
-	} else {
-		require.NoError(t, err)
+	open := func(box Element) {
+		t.Helper()
+		if err := els.Apply(box, PatternExpand, ""); errors.Is(err, ErrNoPattern) {
+			centre := box.Bounds.Min.Add(box.Bounds.Size().Div(2))
+			require.NoError(t, New(backend).Click(t.Context(), &centre, ButtonLeft, 1, nil))
+		} else {
+			require.NoError(t, err)
+		}
 	}
-	var orange []Element
-	require.Eventually(t, func() bool {
-		orange, err = els.Find(Selector{Role: RoleMenuItem, Name: "みかん", In: &Selector{Role: RoleComboBox, ID: "fruit"}})
-		return err == nil && len(orange) == 1
-	}, 3*time.Second, 100*time.Millisecond, "the list box did not open")
+	option := func(name, box string) Element {
+		t.Helper()
+		var found []Element
+		require.Eventually(t, func() bool {
+			found, err = els.Find(Selector{Role: RoleMenuItem, Name: name, In: &Selector{Role: RoleComboBox, ID: box}})
+			return err == nil && len(found) == 1
+		}, 3*time.Second, 100*time.Millisecond, "the list box %s did not open", box)
+		return found[0]
+	}
+	centre := box[0].Bounds.Min.Add(box[0].Bounds.Size().Div(2))
+	open(box[0])
+	orange := []Element{option("みかん", "fruit")}
 
 	// The open menu shows the chosen option over the box; it is read as the
 	// list box's option in the window, once Chromium has laid it out.
@@ -326,4 +336,15 @@ func TestDarwinChromiumListBox(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, chosen, 1)
 	assert.Equal(t, "みかん", chosen[0].Value)
+
+	// A box the page builds again on the change is chosen from all the same.
+	size, err := els.Find(Selector{Role: RoleComboBox, ID: "size"})
+	require.NoError(t, err)
+	require.Len(t, size, 1)
+	open(size[0])
+	require.NoError(t, els.Apply(option("中", "size"), PatternInvoke, ""))
+	assert.Eventually(t, func() bool {
+		rebuilt, err := els.Find(Selector{Role: RoleComboBox, ID: "size"})
+		return err == nil && len(rebuilt) == 1 && rebuilt[0].Value == "中"
+	}, 3*time.Second, 100*time.Millisecond, "the rebuilt box does not show the choice")
 }
