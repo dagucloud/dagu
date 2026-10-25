@@ -21,8 +21,16 @@ steps:
       path: orders.xlsx
       key: Invoice No
       rows: '[]'
-  - id: read
+  - id: new_column
     depends: default_set
+    action: xlsx.update_rows
+    with:
+      path: orders.xlsx
+      key: Invoice No
+      rows: '[]'
+      set: {Checked: checked}
+  - id: read
+    depends: new_column
     action: xlsx.read
     with:
       path: orders.xlsx
@@ -31,4 +39,4 @@ steps:
     action: file.write
     with:
       path: out.json
-      content: '{"by_row": ${steps.by_row.outputs.changes}, "default_set": ${steps.default_set.outputs.changes}, "headers": ${steps.read.outputs.headers}, "rows": ${steps.read.outputs.rows}}'
+      content: '{"by_row": ${steps.by_row.outputs.changes}, "default_set": ${steps.default_set.outputs.changes}, "new_column": ${steps.new_column.outputs.changes}, "headers": ${steps.read.outputs.headers}, "rows": ${steps.read.outputs.rows}}'

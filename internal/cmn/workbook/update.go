@@ -419,6 +419,9 @@ type rowTarget struct {
 // locateRows finds the sheet row of every input row and runs the second
 // shape check: a row addressed by _row must still hold its key there.
 func (w *file) locateRows(plan *updatePlan, opts UpdateOptions, warn func(string)) (targets, appends []rowTarget, err error) {
+	if len(opts.Rows) == 0 {
+		return nil, nil, nil
+	}
 	byKey := map[string][]int{}
 	if plan.keyCol > 0 {
 		for r := plan.layout.dataStart; r <= plan.reg.R2; r++ {

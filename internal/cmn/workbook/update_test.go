@@ -307,6 +307,19 @@ func TestUpdateRowsEmptyRowsChangesNothing(t *testing.T) {
 	}
 }
 
+func TestUpdateRowsEmptyRowsStillAddsMissingSetColumn(t *testing.T) {
+	t.Parallel()
+	path := ordersBook(t)
+	before := fileHash(t, path)
+	set, err := ParseSet(map[string]any{"Checked": "checked"})
+	require.NoError(t, err)
+	result, err := UpdateRows(context.Background(), path, UpdateOptions{Key: "Invoice No", Rows: []Row{}, Set: set})
+	require.NoError(t, err)
+	assert.Equal(t, 0, result.Changes.RowsUpdated)
+	assert.Equal(t, 1, result.Changes.ColumnsAdded)
+	assert.NotEqual(t, before, fileHash(t, path), "the header row gains the set column")
+}
+
 func TestUpdateRowsTypedLiteralReplacesTextThatReadsTheSame(t *testing.T) {
 	t.Parallel()
 	path := ordersBook(t)
