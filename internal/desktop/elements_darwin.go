@@ -355,6 +355,11 @@ func (e *axElements) asWindow(ref uintptr, pid int32) (axWindow, error) {
 	}
 	window := e.element(n, "")
 	window.Role, window.Window, window.App = RoleWindow, window.Name, processApp(pid)
+	// A sheet holds its window until it is answered, as a modal alert holds
+	// the whole application; a panel that is not modal holds nothing.
+	if modal, _ := axBool(ref, "AXModal"); modal || n.role == "AXSheet" {
+		window.Role = RoleDialog
+	}
 	return axWindow{ref: ref, pid: pid, window: window}, nil
 }
 

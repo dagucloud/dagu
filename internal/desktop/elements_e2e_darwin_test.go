@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"testing"
 	"time"
 
@@ -166,6 +167,35 @@ func TestDarwinElements(t *testing.T) {
 // An element whose parent names a window that holds it only through other
 // elements, as Electron's web area does, is placed at the path its window's
 // outline gives it.
+// A window that holds the window behind it until it is answered is a
+// dialog: a sheet, or a modal alert. A panel that is not modal holds
+// nothing, so it is a window.
+func TestDarwinDialogs(t *testing.T) {
+	_, els := e2eElements(t)
+	for _, tc := range []struct {
+		kind, shows, role string
+	}{
+		{"sheet", "Dagu sheet question", RoleDialog},
+		{"alert", "Dagu alert question", RoleDialog},
+		{"panel", "Dagu panel note", RoleWindow},
+	} {
+		t.Run(tc.kind, func(t *testing.T) {
+			startFixture(t, filepath.Join("testdata", "dialogs.js"), nil, tc.kind)
+			var front Element
+			require.Eventually(t, func() bool {
+				w, err := els.FrontWindow()
+				if err != nil || w.App != "osascript" {
+					return false
+				}
+				front = w
+				outline, err := els.Outline(w, 0)
+				return err == nil && slices.ContainsFunc(outline, func(e Element) bool { return e.Name == tc.shows })
+			}, 20*time.Second, 200*time.Millisecond, "the %s did not come to the front; %+v was there", tc.kind, front)
+			assert.Equal(t, tc.role, front.Role)
+		})
+	}
+}
+
 func TestDarwinElementUnderSkippedParent(t *testing.T) {
 	_, els := e2eElements(t)
 	window := fixtureWindow(t, els, filepath.Join("testdata", "skipped.js"), skippedWindowTitle)

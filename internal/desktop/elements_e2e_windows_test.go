@@ -280,11 +280,13 @@ func TestWindowsDirectInput(t *testing.T) {
 		front, err = els.FrontWindow()
 		return err == nil && front.Name == "確認"
 	}, 3*time.Second, 100*time.Millisecond, "the dialog is not in front: %+v %v", front, err)
+	assert.Equal(t, RoleDialog, front.Role, "a message box holds the window it belongs to")
 	require.NoError(t, driver.PressKeys(ctx, []Key{KeyEnter}, 1))
 	require.Eventually(t, func() bool {
 		front, err = els.FrontWindow()
 		return err == nil && front.Name == elementsWindowTitle
 	}, 3*time.Second, 100*time.Millisecond, "the window is not back in front: %+v %v", front, err)
+	assert.Equal(t, RoleWindow, front.Role)
 	require.NoError(t, els.Apply(byID["agreeBox"], PatternToggle, ""))
 	expectStatus("同意: True")
 }

@@ -32,6 +32,8 @@ var (
 	procSetWindowPos        = user32.NewProc("SetWindowPos")
 	procMonitorFromWindow   = user32.NewProc("MonitorFromWindow")
 	procMonitorFromPoint    = user32.NewProc("MonitorFromPoint")
+	procGetWindow           = user32.NewProc("GetWindow")
+	procIsWindowEnabled     = user32.NewProc("IsWindowEnabled")
 
 	dwmapi                    = windows.NewLazySystemDLL("dwmapi.dll")
 	procDwmGetWindowAttribute = dwmapi.NewProc("DwmGetWindowAttribute")
@@ -40,6 +42,8 @@ var (
 const (
 	// gaRoot asks GetAncestor for the top-level window.
 	gaRoot = 2
+	// gwOwner asks GetWindow for the window that owns a window.
+	gwOwner = 4
 	// swRestore un-minimizes a window; swShow shows it at its current size;
 	// swMaximize maximizes it.
 	swRestore  = 9
@@ -200,4 +204,15 @@ func windowBounds(hwnd windows.HWND) image.Rectangle {
 		}
 	}
 	return image.Rect(int(rect.Left), int(rect.Top), int(rect.Right), int(rect.Bottom))
+}
+
+// holdsOwner reports whether a window keeps the window that owns it
+// disabled, as a modal dialog or a message box does until it is answered.
+func holdsOwner(hwnd windows.HWND) bool {
+	owner, _, _ := procGetWindow.Call(uintptr(hwnd), gwOwner)
+	if owner == 0 {
+		return false
+	}
+	enabled, _, _ := procIsWindowEnabled.Call(owner)
+	return enabled == 0
 }

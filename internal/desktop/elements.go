@@ -86,6 +86,12 @@ const (
 	RoleOther     = "other"
 )
 
+// RoleDialog is the role of a window in front that holds the window behind
+// it until it is answered: a macOS sheet or modal alert, or a Windows
+// dialog that keeps its owner disabled. It is a window's role only, so no
+// selector names it.
+const RoleDialog = "dialog"
+
 // Roles lists every role a selector may name.
 var Roles = []string{
 	RoleButton, RoleTextField, RoleText, RoleCheckbox, RoleRadio, RoleComboBox,

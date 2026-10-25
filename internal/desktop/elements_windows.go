@@ -541,9 +541,13 @@ func (w *uiaWorker) asWindow(el *element) (*topWindow, error) {
 		return nil, err
 	}
 	window.Window = window.Name
-	hwnd, _ := el.cachedInt(uiaNativeWindowHandleProperty)
-	window.App = appName(windows.HWND(hwnd)) //nolint:gosec // A window handle fits in 32 bits.
+	native, _ := el.cachedInt(uiaNativeWindowHandleProperty)
+	hwnd := windows.HWND(native) //nolint:gosec // A window handle fits in 32 bits.
+	window.App = appName(hwnd)
 	className, _ := el.cachedClassName()
+	if holdsOwner(hwnd) {
+		window.Role = RoleDialog
+	}
 	return &topWindow{el: el, window: window, className: className}, nil
 }
 
