@@ -485,6 +485,13 @@ func (r *run) modelExtract(ctx context.Context, index int, spec extractSpec, key
 	if err := json.Unmarshal(data, &values); err != nil {
 		return fmt.Errorf("extract returned a non-object value: %w", err)
 	}
+	// A screen that came up while the model answered covers the elements
+	// its answer is bound to; it is cleared and the extract read again.
+	if handled, err := r.handleScreens(ctx, index); err != nil {
+		return err
+	} else if handled {
+		return r.modelExtract(ctx, index, spec, key, began, before)
+	}
 	out := unwrapAnswer(values, spec.Schema, wrapped)
 	if wrapped {
 		fields, bound := r.bindExtract(ctx, values, spec.Schema, outline, front, reader, r.cfg.maxRows(spec))

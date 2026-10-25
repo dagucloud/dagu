@@ -68,6 +68,9 @@ type fakeBackend struct {
 	onRaise func(desktop.WindowID)
 	// captures counts the screenshots taken.
 	captures int
+	// onPress runs on every left button press, so a test can make a click
+	// change what the elements reader sees.
+	onPress func()
 	// maximized records the windows Maximize changed. A window in
 	// fixedSize cannot be maximized; one maximized once stays so.
 	maximized []desktop.WindowID
@@ -502,9 +505,13 @@ func (b *fakeBackend) Button(button desktop.Button, down bool, clicks int) error
 	}
 	b.record(fmt.Sprintf("%s down #%d", button, clicks))
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	if button == desktop.ButtonLeft && len(b.afterClicks) > 0 {
 		b.screen, b.afterClicks = b.afterClicks[0], b.afterClicks[1:]
+	}
+	onPress := b.onPress
+	b.mu.Unlock()
+	if onPress != nil && button == desktop.ButtonLeft {
+		onPress()
 	}
 	return nil
 }
@@ -700,9 +707,15 @@ type visionModel struct {
 	extract  string
 	truths   map[string]bool
 	requests []*llmpkg.ChatRequest
+	// onChat runs at the start of every request, as the screen may change
+	// while the model answers.
+	onChat func()
 }
 
 func (m *visionModel) Chat(_ context.Context, req *llmpkg.ChatRequest) (*llmpkg.ChatResponse, error) {
+	if m.onChat != nil {
+		m.onChat()
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.requests = append(m.requests, req)

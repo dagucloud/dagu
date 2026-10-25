@@ -265,7 +265,7 @@ func (r *run) replay(ctx context.Context, index int, entry recording, budget int
 		outcome.complete, outcome.reason = reason == "", reason
 		return outcome, nil
 	}
-	final, err := r.settle(ctx)
+	final, err := r.settleClear(ctx, index)
 	if err != nil {
 		return outcome, err
 	}

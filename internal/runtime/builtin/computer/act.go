@@ -283,12 +283,12 @@ func (l *actLoop) run(ctx context.Context) error {
 	if err := l.r.awaitPerson(ctx); err != nil {
 		return err
 	}
-	var err error
-	if l.seen, err = l.look(ctx); err != nil {
+	offered, err := l.lookAndOffer(ctx)
+	if err != nil {
 		return err
 	}
 	l.outcome.recording.Width, l.outcome.recording.Height = l.seen.full.Bounds().Dx(), l.seen.full.Bounds().Dy()
-	obs := computeruse.Observation{Screen: l.seen.forModel(), Elements: l.offerElements()}
+	obs := computeruse.Observation{Screen: l.seen.forModel(), Elements: offered}
 	for {
 		turn, err := l.session.Next(ctx, obs)
 		if err != nil {
@@ -365,7 +365,8 @@ func (l *actLoop) run(ctx context.Context) error {
 		if verify {
 			note = verifyNote
 		}
-		if l.seen, err = l.look(ctx); err != nil {
+		offered, err := l.lookAndOffer(ctx)
+		if err != nil {
 			return err
 		}
 		// Scrolls that left every window they scroll as it was reached
@@ -393,7 +394,7 @@ func (l *actLoop) run(ctx context.Context) error {
 			Results:      results,
 			Acknowledged: turn.Confirmation != "",
 			Note:         note,
-			Elements:     l.offerElements(),
+			Elements:     offered,
 		}
 	}
 }
@@ -420,6 +421,23 @@ func (l *actLoop) look(ctx context.Context) (screen, error) {
 		handled, err := l.r.handleScreens(ctx, l.index)
 		if err != nil || !handled {
 			return shot, err
+		}
+	}
+}
+
+// lookAndOffer looks at the screen and lists its elements for the model,
+// both from one screen with no screen a handler clears: one that comes up
+// between the two is cleared, and both are taken again.
+func (l *actLoop) lookAndOffer(ctx context.Context) ([]computeruse.Element, error) {
+	for {
+		var err error
+		if l.seen, err = l.look(ctx); err != nil {
+			return nil, err
+		}
+		offered := l.offerElements()
+		handled, err := l.r.handleScreens(ctx, l.index)
+		if err != nil || !handled {
+			return offered, err
 		}
 	}
 }
@@ -614,7 +632,7 @@ func (l *actLoop) unchanged(ctx context.Context, turn *computeruse.Turn) (bool, 
 	if l.focusLeftModel(turn) {
 		return false, nil
 	}
-	current, err := l.r.settle(ctx)
+	current, err := l.r.settleClear(ctx, l.index)
 	if err != nil {
 		return false, err
 	}

@@ -1140,6 +1140,86 @@ func TestHandlerClearsAScreenThatComesUpWhileTheScreenSettles(t *testing.T) {
 	}
 }
 
+// A confirmation that comes up while the model decides is cleared before
+// the model's actions run, so they never land on it.
+func TestHandlerClearsAScreenThatComesUpWhileTheModelDecides(t *testing.T) {
+	t.Parallel()
+
+	run := elementRun(t)
+	_, dialogElements := confirmDialog()
+	pressingYesShows(run, 0)
+	shown := false
+	session := &scriptedSession{
+		turns: []*computeruse.Turn{actions(clickAt(235, 194)), done("Saved")},
+		onNext: func() {
+			if !shown {
+				shown = true
+				run.elements.show(expenseWindow(), append(expenseElements(), dialogElements...))
+			}
+		},
+	}
+	run.sessions = []*scriptedSession{session}
+	steps := `{"idle": "0", "input": "direct", "handle": ` + confirmHandler("") + `, "do": [{"act": "Save the form"}]}`
+	require.NoError(t, run.execute(steps, nil).err)
+	assert.Equal(t, []string{"invoke はい", "move 235,194", "left down #1"}, run.backend.inputs())
+}
+
+// A confirmation that comes up while the model reads the screen for an
+// extract is cleared, and the extract read again, so its answer binds to the
+// window it read rather than one the confirmation covers.
+func TestHandlerClearsAScreenThatComesUpWhileTheModelExtracts(t *testing.T) {
+	t.Parallel()
+
+	run := elementRun(t)
+	_, dialogElements := confirmDialog()
+	pressingYesShows(run, 0)
+	asked := 0
+	run.vision.onChat = func() {
+		asked++
+		if asked == 1 {
+			run.elements.show(expenseWindow(), append(expenseElements(), dialogElements...))
+		}
+	}
+	run.vision.extract = `{"amount": {"value": 12000, "element": "e3"}}`
+	steps := `{"idle": "0", "input": "direct", "handle": ` + confirmHandler("") + `, "do": [{"extract": {"instruction": "The amount", "schema": {"type": "object", "properties": {"amount": {"type": "number"}}}}}]}`
+	execution := run.execute(steps, nil)
+	require.NoError(t, execution.err)
+	assert.Equal(t, []string{"invoke はい"}, run.backend.inputs())
+	assert.Equal(t, 2, asked, "the extract was read again after the confirmation was cleared")
+	assert.EqualValues(t, 12000, execution.exec.GetOutputs()["amount"])
+}
+
+// A confirmation that a replayed click brings up is cleared before the
+// replay compares the screen it ended on with the recording.
+func TestHandlerClearsAScreenAReplayEndsOn(t *testing.T) {
+	t.Parallel()
+
+	const learn = `{"do": [{"act": "Click the canvas"}]}`
+	run := elementRun(t)
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(10, 10)), done("Clicked")}}}
+	require.NoError(t, run.execute(learn, nil).err)
+	require.Nil(t, lookupRecording(t, run, "Click the canvas").Turns[0].Actions[0].Element, "the turn replays by pixels")
+
+	recorded := pattern(800, 600, 0)
+	_, dialogElements := confirmDialog()
+	run.backend.onPress = func() {
+		run.backend.show(pattern(800, 600, 150))
+		run.elements.show(expenseWindow(), append(expenseElements(), dialogElements...))
+	}
+	pressingYesShows(run, 0)
+	onApply := run.elements.onApply
+	run.elements.onApply = func(e desktop.Element, p desktop.Pattern, v string) {
+		onApply(e, p, v)
+		if e.Name == "はい" {
+			run.backend.show(recorded)
+		}
+	}
+	run.backend.events = nil
+	steps := `{"ai": "never", "input": "direct", "handle": ` + confirmHandler("") + `, "do": [{"act": "Click the canvas"}]}`
+	require.NoError(t, run.execute(steps, nil).err)
+	assert.Equal(t, []string{"move 10,10", "left down #1", "invoke はい"}, run.backend.inputs())
+}
+
 // A confirmation is handled before a bound table is read from the window.
 func TestHandlerClearsAScreenBeforeATableIsRead(t *testing.T) {
 	t.Parallel()
