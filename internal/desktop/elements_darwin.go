@@ -27,6 +27,9 @@ const (
 	chromiumWait = 300 * time.Millisecond
 	// maxDepth bounds the walk from an element up to its window.
 	maxDepth = 64
+	// skippedLimit is how many elements are read looking for an element
+	// below the parent it names, when that parent does not hold it.
+	skippedLimit = 200
 )
 
 var (
@@ -525,14 +528,14 @@ func (e *axElements) place(ref uintptr) (Element, error) {
 		if err != nil {
 			return Element{}, err
 		}
-		if depth == 0 {
-			parentRole = parentNode.role
-		}
-		step, err := e.stepOf(parentNode, current, currentNode, &pool)
+		below, holder, err := e.stepsBelow(parentNode, current, currentNode, &pool)
 		if err != nil {
 			return Element{}, err
 		}
-		steps = append(steps, step)
+		if depth == 0 {
+			parentRole = holder
+		}
+		steps = append(steps, below...)
 		if parentNode.role == "AXWindow" {
 			title = e.element(parentNode, "").Name
 			break
@@ -546,6 +549,52 @@ func (e *axElements) place(ref uintptr) (Element, error) {
 	found := e.element(n, parentRole)
 	found.Path, found.Window = steps, title
 	return found, nil
+}
+
+// stepsBelow describes a child's place below its parent: the steps from the
+// parent down to it, the child's own first, and the role of the element
+// that holds it. Electron names the window as its web area's parent, though
+// the window holds the web area through groups of its own; a child that is
+// not among its parent's children is looked for further down, reading up to
+// skippedLimit elements.
+func (e *axElements) stepsBelow(parent axNode, child uintptr, childNode axNode, pool *[]uintptr) ([]PathStep, string, error) {
+	step, notAmong := e.stepOf(parent, child, childNode, pool)
+	if notAmong == nil {
+		return []PathStep{step}, parent.role, nil
+	}
+	// level is an element read on the way down, with the index of the
+	// level holding it; the parent holds the first levels.
+	type level struct {
+		ref  uintptr
+		node axNode
+		up   int
+	}
+	levels := []level{{node: parent, up: -1}}
+	for next := 0; next < len(levels); next++ {
+		holder := levels[next]
+		for _, ref := range holder.node.children {
+			if !cfEqual(ref, child) {
+				if len(levels) <= skippedLimit {
+					if node, err := e.read(ref, pool); err == nil {
+						levels = append(levels, level{ref: ref, node: node, up: next})
+					}
+				}
+				continue
+			}
+			var steps []PathStep
+			below, belowNode := child, childNode
+			for at := next; at >= 0; at = levels[at].up {
+				step, err := e.stepOf(levels[at].node, below, belowNode, pool)
+				if err != nil {
+					return nil, "", err
+				}
+				steps = append(steps, step)
+				below, belowNode = levels[at].ref, levels[at].node
+			}
+			return steps, holder.node.role, nil
+		}
+	}
+	return nil, "", notAmong
 }
 
 // stepOf describes a child's place among its parent's children: its role,
