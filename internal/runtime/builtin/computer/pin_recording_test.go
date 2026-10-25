@@ -130,6 +130,7 @@ func TestPinnedRecordingConvertsEachAction(t *testing.T) {
 	untitled := &recordedElement{Selector: desktop.Selector{Role: desktop.RoleButton, Name: "OK"}, Window: "確認 - %invoice%", FractionX: 0.7, FractionY: 0.3}
 	saveEdge := &recordedElement{Selector: save.Selector, App: "expense", FractionX: 0.95, FractionY: 0.5}
 	amount := &recordedElement{Selector: desktop.Selector{Role: desktop.RoleTextField, ID: "amountBox"}, App: "expense", FractionX: 0.05, FractionY: 0.5}
+	agree := &recordedElement{Selector: desktop.Selector{Role: desktop.RoleCheckbox, ID: "agreeBox"}, App: "expense", FractionX: 0.5, FractionY: 0.5}
 	at := &computeruse.Point{X: 235, Y: 194}
 	for _, tc := range []struct {
 		name       string
@@ -150,6 +151,8 @@ func TestPinnedRecordingConvertsEachAction(t *testing.T) {
 				{Action: computeruse.Action{Kind: computeruse.KindKey, Keys: []string{"shift", "tab"}, Repeat: 2}, Element: amount},
 				{Action: computeruse.Action{Kind: computeruse.KindWait, Duration: 1500 * time.Millisecond}},
 				{Action: computeruse.Action{Kind: computeruse.KindWait, Duration: 5 * time.Minute}},
+				{Action: computeruse.Action{Kind: computeruse.KindClick, Point: at}, Element: agree, Checked: new(true)},
+				{Action: computeruse.Action{Kind: computeruse.KindClick, Point: at}, Element: agree, Checked: new(false)},
 			},
 			steps: `[
 				{"click": {"app": "expense", "role": "button", "name": "保存", "id": "saveButton"}},
@@ -159,7 +162,9 @@ func TestPinnedRecordingConvertsEachAction(t *testing.T) {
 				{"key": "tab"}, {"key": "tab"},
 				{"click": {"app": "expense", "role": "text_field", "id": "amountBox"}},
 				{"key": "shift+tab", "focus": {"app": "expense", "role": "text_field", "id": "amountBox"}}, {"key": "shift+tab"},
-				{"wait": "1.5s"}, {"wait": "1m0s"}
+				{"wait": "1.5s"}, {"wait": "1m0s"},
+				{"check": {"app": "expense", "role": "checkbox", "id": "agreeBox"}},
+				{"uncheck": {"app": "expense", "role": "checkbox", "id": "agreeBox"}}
 			]`,
 		},
 		{

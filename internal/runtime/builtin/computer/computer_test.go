@@ -4,8 +4,10 @@
 package computer
 
 import (
+	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"image"
 	"io"
 	"os"
@@ -839,6 +841,59 @@ func TestPinnedActDirect(t *testing.T) {
 	replayed := run.execute(steps, nil)
 	require.NoError(t, replayed.err)
 	assert.Equal(t, []string{"invoke saveButton"}, run.backend.inputs())
+}
+
+// A pinned check or uncheck leaves a checkbox in its state, clicking it only
+// when it is in the other one and confirming the state after, so running the
+// step again changes nothing. A checkbox that does not change, or does not
+// say its state, is a miss.
+func TestPinnedCheckboxIsLeftInItsState(t *testing.T) {
+	t.Parallel()
+
+	agree := desktop.Element{Role: desktop.RoleCheckbox, Name: "同意する", ID: "agreeBox", Bounds: image.Rect(120, 220, 300, 240),
+		Path: []desktop.PathStep{{Role: desktop.RoleCheckbox, Name: "同意する", Index: 0}}}
+	for _, tc := range []struct {
+		name    string
+		verb    string
+		state   string
+		input   string
+		stuck   bool
+		inputs  []string
+		final   string
+		missing string
+	}{
+		{name: "check an unchecked box", verb: "check", state: "false", inputs: []string{"move 210,230", "left down #1"}, final: "true"},
+		{name: "check a checked box", verb: "check", state: "true", final: "true"},
+		{name: "uncheck a checked box directly", verb: "uncheck", state: "true", input: "direct", inputs: []string{"toggle agreeBox"}, final: "false"},
+		{name: "uncheck an unchecked box", verb: "uncheck", state: "false", final: "false"},
+		{name: "a box the click does not change", verb: "check", state: "false", stuck: true, inputs: []string{"move 210,230", "left down #1"}, missing: "is not checked after the click"},
+		{name: "a box that does not say its state", verb: "check", missing: "does not say whether it is checked"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			run := elementRun(t)
+			box := agree
+			box.Value = tc.state
+			run.elements.elements = append(expenseElements(), box)
+			if !tc.stuck {
+				run.backend.onPress = func() {
+					run.elements.setValue("agreeBox", map[string]string{"true": "false", "false": "true"}[tc.state])
+				}
+			}
+			steps := fmt.Sprintf(`{"ai": "never", "input": %q, "find_within": "200ms", "do": [{"act": {"instruction": "Agree", "recorded": {"windows": [{%q: {"role": "checkbox", "id": "agreeBox"}}]}}}]}`,
+				cmp.Or(tc.input, "screen"), tc.verb)
+			execution := run.execute(steps, nil)
+			assert.Equal(t, tc.inputs, run.backend.inputs())
+			if tc.missing != "" {
+				require.ErrorContains(t, execution.err, tc.missing)
+				return
+			}
+			require.NoError(t, execution.err)
+			found, err := run.elements.Find(desktop.Selector{Role: desktop.RoleCheckbox, ID: "agreeBox"})
+			require.NoError(t, err)
+			assert.Equal(t, tc.final, found[0].Value)
+		})
+	}
 }
 
 // A pinned step that misses fails under never, naming why, and clicks

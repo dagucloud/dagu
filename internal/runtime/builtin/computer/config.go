@@ -738,6 +738,8 @@ func pinnedStepSchema() *jsonschema.Schema {
 			"click":        selector(),
 			"double_click": selector(),
 			"right_click":  selector(),
+			"check":        selector(),
+			"uncheck":      selector(),
 			"type": {
 				Type:                 "object",
 				AdditionalProperties: agentstep.NoExtraProperties(),
@@ -756,6 +758,7 @@ func pinnedStepSchema() *jsonschema.Schema {
 		},
 		OneOf: []*jsonschema.Schema{
 			{Required: []string{"click"}}, {Required: []string{"double_click"}}, {Required: []string{"right_click"}},
+			{Required: []string{"check"}}, {Required: []string{"uncheck"}},
 			{Required: []string{"type"}}, {Required: []string{"key"}}, {Required: []string{"scroll"}}, {Required: []string{"wait"}},
 		},
 	}

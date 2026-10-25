@@ -131,6 +131,10 @@ type recordedAction struct {
 	// Element is the element the action landed on or typed into, when the
 	// host could read it.
 	Element *recordedElement `json:"element,omitempty"`
+	// Checked, when set, is the state a click leaves its checkbox in: the
+	// replay clicks only a checkbox in the other state, and confirms the
+	// state after.
+	Checked *bool `json:"checked,omitempty"`
 }
 
 // recordAction records an action in display pixels; its turn's view later

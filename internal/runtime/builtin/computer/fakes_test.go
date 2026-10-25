@@ -67,6 +67,9 @@ type fakeBackend struct {
 	onRaise func(desktop.WindowID)
 	// captures counts the screenshots taken.
 	captures int
+	// onPress runs on every left button press, so a test can make a click
+	// change what the elements reader sees.
+	onPress func()
 	// maximized records the windows Maximize changed. A window in
 	// fixedSize cannot be maximized; one maximized once stays so.
 	maximized []desktop.WindowID
@@ -370,11 +373,16 @@ func (f *fakeElements) Apply(e desktop.Element, pattern desktop.Pattern, value s
 		f.mu.Unlock()
 		return desktop.ErrNoPattern
 	}
-	if pattern == desktop.PatternSetValue {
-		for i := range f.elements {
-			if focusedID(f.elements[i]) == id {
-				f.elements[i].Value = value
-			}
+	for i := range f.elements {
+		if focusedID(f.elements[i]) != id {
+			continue
+		}
+		switch {
+		case pattern == desktop.PatternSetValue:
+			f.elements[i].Value = value
+		case pattern == desktop.PatternToggle:
+			// A toggle flips a checkbox's state, as a real one does.
+			f.elements[i].Value = map[string]string{"true": "false", "false": "true"}[f.elements[i].Value]
 		}
 	}
 	onApply := f.onApply
@@ -417,6 +425,17 @@ func (f *fakeElements) shift(dx, dy int) {
 	}
 	for i := range f.then {
 		f.then[i].Bounds = f.then[i].Bounds.Add(offset)
+	}
+}
+
+// setValue sets an element's value, such as a checkbox's state.
+func (f *fakeElements) setValue(id, value string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := range f.elements {
+		if focusedID(f.elements[i]) == id {
+			f.elements[i].Value = value
+		}
 	}
 }
 
@@ -466,9 +485,13 @@ func (b *fakeBackend) Button(button desktop.Button, down bool, clicks int) error
 	}
 	b.record(fmt.Sprintf("%s down #%d", button, clicks))
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	if button == desktop.ButtonLeft && len(b.afterClicks) > 0 {
 		b.screen, b.afterClicks = b.afterClicks[0], b.afterClicks[1:]
+	}
+	onPress := b.onPress
+	b.mu.Unlock()
+	if onPress != nil && button == desktop.ButtonLeft {
+		onPress()
 	}
 	return nil
 }
