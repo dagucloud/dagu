@@ -148,6 +148,9 @@ func TestDriverScrollAtPoint(t *testing.T) {
 	require.NoError(t, driver.Scroll(context.Background(), &at, 0, -3, nil))
 
 	assert.Equal(t, []string{"move 5,6", "wheel 0,-3"}, backend.events)
+
+	require.ErrorContains(t, driver.Scroll(context.Background(), &at, 0, 101, nil), "at most 100 notches")
+	assert.Len(t, backend.events, 2, "a scroll too long sends nothing")
 }
 
 func TestParseButton(t *testing.T) {
