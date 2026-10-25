@@ -85,7 +85,11 @@ type run struct {
 	// remoteNoted records that the step has said once why it does not wait
 	// for a person in a remote session.
 	remoteNoted bool
-	variables   map[string]string
+	// handling is set while a handler's steps run, and handled counts each
+	// handler's runs; see handleScreens.
+	handling  bool
+	handled   map[int]int
+	variables map[string]string
 	// system is which pinned block this device runs; see the executor field.
 	system string
 	// answers holds the values people gave to ask operations.
@@ -187,7 +191,7 @@ func (r *run) execute(ctx context.Context) error {
 				if !c.judged() {
 					fallback = exactWhenWait
 				}
-				holds, reason, err = r.await(ctx, c, c.window(fallback), op.timeout())
+				holds, reason, err = r.await(ctx, i, c, c.window(fallback), op.timeout())
 			}
 			if err != nil {
 				err = fmt.Errorf("evaluate when: %w", err)
@@ -509,7 +513,7 @@ func (r *run) expect(ctx context.Context, index int, spec condition, timeout tim
 	if !c.judged() {
 		fallback = timeout
 	}
-	holds, reason, err := r.await(ctx, c, c.window(fallback), timeout)
+	holds, reason, err := r.await(ctx, index, c, c.window(fallback), timeout)
 	if err != nil {
 		return err
 	}
@@ -543,7 +547,7 @@ func (r *run) resolve(spec condition) (condition, error) {
 // await evaluates a condition until it holds or window passes, within the
 // operation timeout. When the timeout cuts an exact check short, the last
 // reason stands as the answer rather than the deadline.
-func (r *run) await(ctx context.Context, c condition, window, timeout time.Duration) (bool, string, error) {
+func (r *run) await(ctx context.Context, index int, c condition, window, timeout time.Duration) (bool, string, error) {
 	deadline := time.Now().Add(window)
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -555,6 +559,13 @@ func (r *run) await(ctx context.Context, c condition, window, timeout time.Durat
 		holds, reason, err := r.evaluate(ctx, c)
 		if err != nil || holds || !time.Now().Before(deadline) {
 			return holds, reason, err
+		}
+		// A screen a handler clears, such as a confirmation, may stand in
+		// the way of the check.
+		if handled, err := r.handleScreens(ctx, index); err != nil {
+			return false, "", err
+		} else if handled {
+			continue
 		}
 		if err := sleep(ctx, min(interval, time.Until(deadline))); err != nil {
 			if errors.Is(err, context.DeadlineExceeded) && !c.judged() {

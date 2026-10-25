@@ -106,6 +106,16 @@ func (b *fakeBackend) record(event string) {
 	b.lastEvent = time.Now()
 }
 
+// recordAccessibility logs what the step did to an element through
+// Accessibility, a focus or a pattern, which reaches the application without
+// passing through the desktop's input, so the desktop does not report it as
+// input.
+func (b *fakeBackend) recordAccessibility(event string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.events = append(b.events, event)
+}
+
 // personUses records input from a person now. The time is a moment ahead,
 // so it follows every earlier reading of a clock as coarse as Windows'.
 func (b *fakeBackend) personUses() {
@@ -797,15 +807,15 @@ func (r *testRun) execute(withJSON string, session *ir.AgentSession) *stepExecut
 		r.elements.mu.Lock()
 		r.elements.opens++
 		if r.elements.onFocus == nil {
-			r.elements.onFocus = func(e desktop.Element) { r.backend.record("focus " + focusedID(e)) }
+			r.elements.onFocus = func(e desktop.Element) { r.backend.recordAccessibility("focus " + focusedID(e)) }
 		}
 		if r.elements.onApply == nil {
 			r.elements.onApply = func(e desktop.Element, pattern desktop.Pattern, value string) {
 				if pattern == desktop.PatternSetValue {
-					r.backend.record(fmt.Sprintf("set %s=%s", focusedID(e), value))
+					r.backend.recordAccessibility(fmt.Sprintf("set %s=%s", focusedID(e), value))
 					return
 				}
-				r.backend.record(string(pattern) + " " + focusedID(e))
+				r.backend.recordAccessibility(string(pattern) + " " + focusedID(e))
 			}
 		}
 		r.elements.mu.Unlock()

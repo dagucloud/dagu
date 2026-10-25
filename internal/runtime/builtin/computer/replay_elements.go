@@ -292,6 +292,14 @@ func (r *run) resolveElement(ctx context.Context, index int, els desktop.Element
 		if err != nil || reason == "" {
 			return found, reason, err
 		}
+		// A screen a handler clears, such as a confirmation, may hide the
+		// element; the look starts over once it is cleared.
+		if handled, err := r.handleScreens(ctx, index); err != nil {
+			return desktop.Element{}, "", err
+		} else if handled {
+			deadline = time.Now().Add(findWithin)
+			continue
+		}
 		if !time.Now().Before(deadline) {
 			return desktop.Element{}, reason, nil
 		}
@@ -498,6 +506,11 @@ func (r *run) direct(ctx context.Context, index, position, total int, els deskto
 // It returns the reason the turn missed, or "" when every action ran.
 func (r *run) replayByElement(ctx context.Context, index, position, total int, turn recordedTurn, els desktop.Elements, findWithin time.Duration, direct bool, outcome *replayOutcome) (string, error) {
 	for _, rec := range turn.Actions {
+		// A screen a handler clears is cleared before the action, so the
+		// action never lands on it, or through it on the element behind.
+		if _, err := r.handleScreens(ctx, index); err != nil {
+			return "", err
+		}
 		action := rec.Action
 		if rec.Element == nil {
 			logAction(r.timeline, index, "replay "+describeAction(action))
@@ -554,12 +567,18 @@ func (r *run) replayByElement(ctx context.Context, index, position, total int, t
 // awaitLandmarks checks the screen an element replay ends on: the window
 // in front and the landmarks, looking again until they are there or
 // findWithin passes. It returns the reason they are not.
-func (r *run) awaitLandmarks(ctx context.Context, els desktop.Elements, entry recording, findWithin time.Duration) (string, error) {
+func (r *run) awaitLandmarks(ctx context.Context, index int, els desktop.Elements, entry recording, findWithin time.Duration) (string, error) {
 	deadline := time.Now().Add(findWithin)
 	for {
 		reason, err := r.lookLandmarks(els, entry)
 		if err != nil || reason == "" {
 			return reason, err
+		}
+		if handled, err := r.handleScreens(ctx, index); err != nil {
+			return "", err
+		} else if handled {
+			deadline = time.Now().Add(findWithin)
+			continue
 		}
 		if !time.Now().Before(deadline) {
 			return reason, nil

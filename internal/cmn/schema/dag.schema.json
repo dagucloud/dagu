@@ -8125,6 +8125,28 @@
           "default": true,
           "description": "Maximize the front window before each operation looks at the screen, so the app is operated at one size every run and recordings replay. A dialog, a window of fixed size, and a window already maximized are left as they are. Set false to keep windows at their size."
         },
+        "handle": {
+          "type": "array",
+          "description": "Screens that may come up at any point of the step, such as a confirmation an application shows only sometimes. Before each replayed action, and whenever an element, a check, or the end of an act is not there yet, the first handler whose check holds in the front window runs its pinned steps, and the step carries on. A run that never meets the screen waits nothing for it. One handler runs at most 20 times in a step.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["when", "recorded"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1, "description": "A name for the screen, shown in the timeline when it is handled." },
+              "when": { "$ref": "#/definitions/computerCondition", "description": "An exact check (text, element, or window) without within that finds the screen in the front window." },
+              "recorded": {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "The pinned steps that clear the screen, keyed by system (windows or macos).",
+                "properties": {
+                  "windows": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/computerPinnedStep" } },
+                  "macos": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/computerPinnedStep" } }
+                }
+              }
+            }
+          }
+        },
         "llm": {
           "$ref": "#/definitions/standardLLMConfig",
           "description": "Model for this step. Replaces the DAG-level llm block entirely."

@@ -841,6 +841,91 @@ func TestPinnedActDirect(t *testing.T) {
 	assert.Equal(t, []string{"invoke saveButton"}, run.backend.inputs())
 }
 
+// confirmDialog is a confirmation an application shows only sometimes.
+func confirmDialog() (desktop.Element, []desktop.Element) {
+	window := desktop.Element{Role: desktop.RoleWindow, Name: "確認", App: "expense", Window: "確認", Bounds: image.Rect(250, 200, 550, 350)}
+	return window, []desktop.Element{
+		{Role: desktop.RoleText, Name: "すでに入力中のものがあります。クリアしていいですか？", Window: "確認", Bounds: image.Rect(270, 220, 530, 250), Path: []desktop.PathStep{{Role: desktop.RoleText, Index: 0}}},
+		{Role: desktop.RoleButton, Name: "はい", Window: "確認", Bounds: image.Rect(300, 300, 380, 330), Path: []desktop.PathStep{{Role: desktop.RoleButton, Name: "はい", Index: 0}}},
+	}
+}
+
+// A handler clears a screen that comes up only sometimes, whenever the step
+// meets it: after an action, while a check waits, or before an action, even
+// a modal drawn over the page, which leaves the elements behind it readable.
+// A run that never meets it pays nothing for it.
+func TestHandlerClearsAScreenThatComesUpSometimes(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"ai": "never", "input": "direct", "find_within": "300ms",
+		"handle": [{"name": "入力中クリアの確認", "when": {"text": "クリアしていいですか"}, "recorded": {"windows": [{"click": {"role": "button", "name": "はい"}}]}}],
+		"do": [
+			{"act": {"instruction": "Reset", "recorded": {"windows": [{"click": {"role": "button", "id": "saveButton"}}]}}},
+			{"expect": {"element": {"role": "text_field", "id": "amountBox"}, "within": "2s"}}
+		]}`
+	for _, tc := range []struct {
+		name    string
+		before  bool
+		after   bool
+		handled bool
+		inputs  []string
+	}{
+		{name: "after the click", after: true, handled: true, inputs: []string{"invoke saveButton", "invoke はい"}},
+		{name: "over the page before the click", before: true, handled: true, inputs: []string{"invoke はい", "invoke saveButton"}},
+		{name: "never", inputs: []string{"invoke saveButton"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			run := elementRun(t)
+			form := expenseWindow()
+			dialog, dialogElements := confirmDialog()
+			show := func(window desktop.Element, elements []desktop.Element) {
+				run.elements.mu.Lock()
+				run.elements.window = window
+				run.elements.mu.Unlock()
+				run.elements.arriveAfter(0, elements)
+			}
+			if tc.before {
+				show(form, append(expenseElements(), dialogElements...))
+			}
+			run.elements.onApply = func(e desktop.Element, pattern desktop.Pattern, _ string) {
+				run.backend.recordAccessibility(string(pattern) + " " + focusedID(e))
+				switch {
+				case e.Name == "はい":
+					show(form, expenseElements())
+				case tc.after && e.ID == "saveButton":
+					show(dialog, dialogElements)
+				}
+			}
+			began := time.Now()
+			execution := run.execute(steps, nil)
+			require.NoError(t, execution.err)
+			assert.Equal(t, tc.inputs, run.backend.inputs())
+			assert.Equal(t, tc.handled, strings.Contains(execution.stderr.String(), "handling 入力中クリアの確認"))
+			if !tc.handled {
+				assert.Less(t, time.Since(began), time.Second, "a run without the screen does not wait for it")
+			}
+		})
+	}
+}
+
+// A screen its handler does not clear fails the step after a bounded number
+// of tries instead of coming back forever.
+func TestHandlerThatDoesNotClearItsScreenFails(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"ai": "never", "input": "direct",
+		"handle": [{"name": "入力中クリアの確認", "when": {"text": "クリアしていいですか"}, "recorded": {"windows": [{"click": {"role": "button", "name": "はい"}}]}}],
+		"do": [{"expect": {"element": {"role": "text_field", "id": "amountBox"}, "within": "5s"}}]}`
+	run := elementRun(t)
+	dialog, dialogElements := confirmDialog()
+	run.elements.window = dialog
+	run.elements.elements = dialogElements
+	execution := run.execute(steps, nil)
+	require.ErrorContains(t, execution.err, `handle "入力中クリアの確認": the screen was still there after 20 times`)
+	assert.Len(t, run.backend.inputs(), maxHandled)
+}
+
 // A pinned step that misses fails under never, naming why, and clicks
 // nothing.
 func TestPinnedActMissFailsUnderNever(t *testing.T) {
