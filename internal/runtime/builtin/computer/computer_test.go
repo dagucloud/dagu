@@ -1193,13 +1193,44 @@ func TestActDoesNotReturnBehindADialogAfterAPerson(t *testing.T) {
 
 // A check that fails while a dialog is in front names the dialog, which is
 // often why what it looks for is not there.
+// The dialog's text is read from an element's name, or from its value
+// when the name is blank.
 func TestCheckNamesTheDialogInFront(t *testing.T) {
 	t.Parallel()
 
+	const question = "すでに入力中のものがあります。クリアしていいですか？"
+	for _, tc := range []struct {
+		name, textName, textValue string
+	}{
+		{"by its name", question, ""},
+		{"by its value", " ", question},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			run := elementRun(t)
+			dialog, _ := confirmDialog()
+			run.elements.show(dialog, []desktop.Element{{Role: desktop.RoleText, Name: tc.textName, Value: tc.textValue, Window: dialog.Name, Bounds: image.Rect(270, 220, 530, 250)}})
+			execution := run.execute(`{"ai": "never", "do": [{"expect": {"text": "保存しました", "within": "300ms"}}]}`, nil)
+			require.ErrorContains(t, execution.err, `the dialog "確認" is in front, showing "`+question+`"; no element of "確認" shows "保存しました"`)
+		})
+	}
+}
+
+// A window in front that cannot be read may be a dialog, so the step does
+// not raise its window over it.
+func TestUnreadableFrontWindowIsNotCoveredByARaise(t *testing.T) {
+	t.Parallel()
+
 	run := elementRun(t)
-	run.elements.show(confirmDialog())
-	execution := run.execute(`{"ai": "never", "do": [{"expect": {"text": "保存しました", "within": "300ms"}}]}`, nil)
-	require.ErrorContains(t, execution.err, `the dialog "確認" is in front, showing "すでに入力中のものがあります。クリアしていいですか？"; no element of "確認" shows "保存しました"`)
+	form := desktop.WindowID{Handle: 2, Title: expenseWindow().Name, App: "expense"}
+	run.backend.windows = []desktop.WindowID{{Handle: 3, Title: "確認", App: "expense"}, form}
+	run.backend.focusOn(run.backend.windows[0])
+	run.elements.frontErr = errors.New("the window did not answer")
+	steps := `{"ai": "never", "input": "direct", "find_within": "300ms",
+		"do": [{"act": {"instruction": "Save", "recorded": {"windows": [{"click": {"window": "経費精算*", "role": "button", "id": "saveButton"}}]}}}]}`
+	require.ErrorContains(t, run.execute(steps, nil).err, "the window did not answer")
+	assert.Empty(t, run.backend.raised)
 }
 
 // A confirmation over the window a learned pixel turn replays in is

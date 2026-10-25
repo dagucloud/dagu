@@ -463,10 +463,14 @@ func (r *run) recordedWindow(app, title string) *desktop.WindowID {
 }
 
 // heldByDialog reports whether a dialog in front holds the recorded
-// window; see dialogHolds.
+// window; see dialogHolds. A front window it cannot read may be such a
+// dialog, so it holds the window too; only no window in front holds none.
 func (r *run) heldByDialog(els desktop.Elements, target *desktop.WindowID, app, title string) bool {
 	front, err := els.FrontWindow()
-	return err == nil && r.dialogHolds(front, target, app, title)
+	if errors.Is(err, desktop.ErrNoWindow) {
+		return false
+	}
+	return err != nil || r.dialogHolds(front, target, app, title)
 }
 
 // dialogHolds reports whether the window in front is a dialog that holds
@@ -498,7 +502,7 @@ func describeDialog(els desktop.Elements, dialog desktop.Element) string {
 			if e.Role != desktop.RoleText {
 				continue
 			}
-			if text := strings.TrimSpace(cmp.Or(e.Name, e.Value)); text != "" {
+			if text := cmp.Or(strings.TrimSpace(e.Name), strings.TrimSpace(e.Value)); text != "" {
 				texts = append(texts, text)
 			}
 		}

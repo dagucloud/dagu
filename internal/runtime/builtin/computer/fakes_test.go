@@ -181,8 +181,10 @@ type fakeElements struct {
 	// err fails every read when set.
 	err error
 	// noWindow is how many reads find no window in front, as between one
-	// window closing and the next one opening.
+	// window closing and the next one opening; frontErr fails every read
+	// of the window in front, as a reader that cannot reach it does.
 	noWindow int
+	frontErr error
 	// opens counts how often the executor opened the reader; reads counts
 	// the looks at the window.
 	opens, reads int
@@ -285,6 +287,9 @@ func (f *fakeElements) FrontWindow() (desktop.Element, error) {
 	if f.noWindow > 0 {
 		f.noWindow--
 		return desktop.Element{}, desktop.ErrNoWindow
+	}
+	if f.frontErr != nil {
+		return desktop.Element{}, f.frontErr
 	}
 	f.reads++
 	if f.then != nil && f.reads > f.after {
