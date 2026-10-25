@@ -454,10 +454,7 @@ func (r *run) replayExtract(ctx context.Context, index int, spec extractSpec, ke
 // modelExtract reads an extract with the model and binds each field it read
 // to the element it came from, when the host can read elements.
 func (r *run) modelExtract(ctx context.Context, index int, spec extractSpec, key string, began time.Time, before tokenUsage) error {
-	if err := r.clearScreens(ctx, index); err != nil {
-		return err
-	}
-	full, err := r.settle(ctx)
+	full, err := r.settleClear(ctx, index)
 	if err != nil {
 		return err
 	}

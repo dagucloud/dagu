@@ -402,15 +402,26 @@ func (l *actLoop) run(ctx context.Context) error {
 // the step asks for it, then waits for a still screen and captures what the
 // model sees next.
 func (l *actLoop) look(ctx context.Context) (screen, error) {
-	// A screen a handler clears is cleared before the model sees the
-	// screen, so the model never acts on it.
-	if err := l.r.clearScreens(ctx, l.index); err != nil {
-		return screen{}, err
+	for {
+		// A screen a handler clears is cleared before the model sees the
+		// screen, so the model never acts on it.
+		if err := l.r.clearScreens(ctx, l.index); err != nil {
+			return screen{}, err
+		}
+		if err := l.r.fit(ctx, l.index); err != nil {
+			return screen{}, err
+		}
+		shot, err := l.r.observe(ctx, l.limit)
+		if err != nil {
+			return screen{}, err
+		}
+		// One that came up while the screen settled is cleared too, and
+		// the screen looked at again.
+		handled, err := l.r.handleScreens(ctx, l.index)
+		if err != nil || !handled {
+			return shot, err
+		}
 	}
-	if err := l.r.fit(ctx, l.index); err != nil {
-		return screen{}, err
-	}
-	return l.r.observe(ctx, l.limit)
 }
 
 // offerElements lists the actionable elements of the front window for the

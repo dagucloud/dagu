@@ -1105,6 +1105,41 @@ func TestHandlerThatDoesNotClearItsScreenStopsTheModel(t *testing.T) {
 	assert.Empty(t, session.observations, "the model never saw the screen")
 }
 
+// A confirmation that comes up while the screen settles, after the step
+// first checked for one, is still cleared before the model sees the screen,
+// whether the model acts on it or reads it for an extract.
+func TestHandlerClearsAScreenThatComesUpWhileTheScreenSettles(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		op   string
+	}{
+		{"the model's look", `{"act": "Save the form"}`},
+		{"a model extract", `{"extract": {"instruction": "The amount", "schema": {"type": "object", "properties": {"amount": {"type": "number"}}}}}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			run := elementRun(t)
+			_, dialogElements := confirmDialog()
+			// The confirmation is there from the second look at the window.
+			run.elements.arriveAfter(1, append(expenseElements(), dialogElements...))
+			pressingYesShows(run, 0)
+			session := &scriptedSession{turns: []*computeruse.Turn{done("Nothing left to do")}}
+			run.sessions = []*scriptedSession{session}
+			run.vision.extract = `{"amount": {"value": 12000, "element": "e3"}}`
+			steps := `{"idle": "0", "input": "direct", "handle": ` + confirmHandler("") + `, "do": [` + tc.op + `]}`
+			require.NoError(t, run.execute(steps, nil).err)
+			assert.Equal(t, []string{"invoke はい"}, run.backend.inputs(), "the confirmation was cleared")
+			for _, observation := range session.observations {
+				for _, e := range observation.Elements {
+					assert.NotEqual(t, "はい", e.Name, "the model never sees the confirmation")
+				}
+			}
+		})
+	}
+}
+
 // A confirmation is handled before a bound table is read from the window.
 func TestHandlerClearsAScreenBeforeATableIsRead(t *testing.T) {
 	t.Parallel()

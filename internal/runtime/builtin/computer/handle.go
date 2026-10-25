@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image"
 	"maps"
 	"slices"
 )
@@ -106,6 +107,25 @@ func (r *run) clearScreens(ctx context.Context, index int) error {
 		handled, err := r.handleScreens(ctx, index)
 		if err != nil || !handled {
 			return err
+		}
+	}
+}
+
+// settleClear waits for a still screen that shows no screen a handler
+// clears: one that comes up while the screen settles is cleared, and the
+// wait starts again.
+func (r *run) settleClear(ctx context.Context, index int) (*image.RGBA, error) {
+	for {
+		if err := r.clearScreens(ctx, index); err != nil {
+			return nil, err
+		}
+		full, err := r.settle(ctx)
+		if err != nil {
+			return nil, err
+		}
+		handled, err := r.handleScreens(ctx, index)
+		if err != nil || !handled {
+			return full, err
 		}
 	}
 }
