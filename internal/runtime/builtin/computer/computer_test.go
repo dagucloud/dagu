@@ -1086,6 +1086,49 @@ func TestPinnedStepStopsAtADialogItWasNotToldAbout(t *testing.T) {
 	}
 }
 
+// An element recorded in the window behind a dialog is not looked for in
+// the dialog, though a window matches by its application alone and the
+// dialog has a button that matches: pressing it would answer a question
+// the recording never saw.
+func TestRecordedElementIsNotLookedForInADialog(t *testing.T) {
+	t.Parallel()
+
+	run := elementRun(t)
+	run.elements.show(confirmDialog())
+	steps := `{"ai": "never", "input": "direct", "find_within": "300ms",
+		"do": [{"act": {"instruction": "Agree", "recorded": {"windows": [{"click": {"app": "expense", "window": "経費精算*", "role": "button", "name": "はい"}}]}}}]}`
+	execution := run.execute(steps, nil)
+	require.ErrorContains(t, execution.err, `the dialog "確認" is in front`)
+	assert.Empty(t, run.backend.inputs())
+}
+
+// A person who leaves a dialog of the step's application in front holds
+// the act until they stop; the act then leaves the dialog in front rather
+// than bring back the window behind it, and stops on the dialog.
+func TestActDoesNotReturnBehindADialogAfterAPerson(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"ai": "never", "idle": "100ms", "input": "direct", "find_within": "300ms", "do": [{"act": {"instruction": "Save the invoice and the payment", "recorded": {"windows": [
+		{"click": {"role": "button", "id": "saveButton"}},
+		{"click": {"role": "button", "id": "paymentSaveButton"}}]}}}]}`
+	run := elementRun(t)
+	dialog, dialogElements := confirmDialog()
+	expense := desktop.WindowID{Handle: 2, Title: expenseWindow().Name, App: "expense"}
+	confirm := desktop.WindowID{Handle: 3, Title: dialog.Name, App: "expense"}
+	run.backend.windows = []desktop.WindowID{expense, confirm}
+	run.elements.onApply = func(e desktop.Element, _ desktop.Pattern, _ string) {
+		if e.ID != "saveButton" {
+			return
+		}
+		run.backend.personUsesAfterEcho()
+		run.backend.focusOn(confirm)
+		run.elements.show(dialog, dialogElements)
+	}
+	execution := run.execute(steps, nil)
+	require.ErrorContains(t, execution.err, `the dialog "確認" is in front`)
+	assert.Empty(t, run.backend.raised, "the form stays behind the dialog")
+}
+
 // A check that fails while a dialog is in front names the dialog, which is
 // often why what it looks for is not there.
 func TestCheckNamesTheDialogInFront(t *testing.T) {

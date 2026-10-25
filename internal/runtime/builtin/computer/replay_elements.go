@@ -311,10 +311,18 @@ func (r *run) lookRecorded(els desktop.Elements, rec recordedElement) (desktop.E
 	if err != nil {
 		return desktop.Element{}, "", err
 	}
+	title := r.substitute(rec.Window)
+	held := front.Role == desktop.RoleDialog && r.dialogHolds(front, r.recordedWindow(rec.App, title))
+	// A dialog that holds the recorded window is not searched unless the
+	// recording names it: a window matches by its application alone, and a
+	// match in the dialog would answer a question the recording never saw.
+	if held && title != "" && !desktop.WindowMatches(front.Name, title) {
+		return desktop.Element{}, describeDialog(els, front), nil
+	}
 	found, reason, err := r.lookIn(els, front, rec)
-	// A dialog that holds the recorded window is why the element is not
-	// there, whatever else the look found.
-	if err == nil && reason != "" && r.dialogHolds(front, r.recordedWindow(rec.App, r.substitute(rec.Window))) {
+	// Such a dialog is why the element is not there, whatever else the
+	// look found.
+	if err == nil && reason != "" && held {
 		reason = describeDialog(els, front)
 	}
 	return found, reason, err
@@ -376,12 +384,8 @@ func (r *run) resolveElement(ctx context.Context, index int, els desktop.Element
 			deadline = time.Now().Add(findWithin)
 		}
 		// A window that slipped behind another is brought forward rather
-		// than counted a miss, so a replay survives a focus change, unless
-		// a dialog of its application holds it: raising it then would act
-		// past a question nobody answered.
-		if target := r.recordedWindow(rec.App, title); target != nil && !r.inFront(*target) && !r.heldByDialog(els, target) {
-			r.raise(ctx, index, *target)
-		}
+		// than counted a miss, so a replay survives a focus change.
+		r.bringForward(ctx, index, rec.App, title)
 		found, reason, err := r.lookRecorded(els, rec)
 		if err != nil || reason == "" {
 			return found, reason, err
@@ -406,12 +410,28 @@ const foregroundSettle = 200 * time.Millisecond
 // so a replay acts on it even after it lost the focus. The window is matched
 // by its application; among several windows of that application the one whose
 // title still matches is preferred. It never raises the step's own
-// application, and is a best effort: the look that follows still checks the
-// front window. title is already substituted.
+// application, nor a window a dialog of its application holds, since acting
+// in it would go past a question nobody answered. It is a best effort: the
+// look that follows still checks the front window. title is already
+// substituted.
 func (r *run) bringForward(ctx context.Context, index int, app, title string) {
-	if target := r.recordedWindow(app, title); target != nil {
-		r.raise(ctx, index, *target)
+	target := r.recordedWindow(app, title)
+	if target == nil {
+		return
 	}
+	// Already acting on the best window? Leave it; only raise when a better
+	// window than the one in front is open.
+	if front := r.driver.FocusedWindow(); front.Known() && front.Handle == target.Handle {
+		return
+	}
+	if els, err := r.elementsIfAvailable(); err == nil && r.heldByDialog(els, target) {
+		return
+	}
+	if err := r.driver.Raise(*target); err != nil {
+		return
+	}
+	logAction(r.timeline, index, fmt.Sprintf("bringing %q to the front", target.Title))
+	_ = sleep(ctx, foregroundSettle)
 }
 
 // recordedWindow chooses the window bringForward raises, or returns nil
@@ -439,26 +459,6 @@ func (r *run) recordedWindow(app, title string) *desktop.WindowID {
 		}
 	}
 	return any
-}
-
-// inFront reports whether a window is the one in front.
-func (r *run) inFront(w desktop.WindowID) bool {
-	front := r.driver.FocusedWindow()
-	return front.Known() && front.Handle == w.Handle
-}
-
-// raise brings a window to the front, unless it is there already.
-func (r *run) raise(ctx context.Context, index int, target desktop.WindowID) {
-	// Already acting on the best window? Leave it; only raise when a better
-	// window than the one in front is open.
-	if r.inFront(target) {
-		return
-	}
-	if err := r.driver.Raise(target); err != nil {
-		return
-	}
-	logAction(r.timeline, index, fmt.Sprintf("bringing %q to the front", target.Title))
-	_ = sleep(ctx, foregroundSettle)
 }
 
 // heldByDialog reports whether a dialog in front holds target; see
