@@ -78,7 +78,10 @@ type run struct {
 	// a host that cannot read them, which records pixels alone.
 	elements    desktop.Elements
 	elementsErr error
-	lease       *desktopLease
+	// operation is the context of the operation running now, which the
+	// element reader's waits end with.
+	operation context.Context
+	lease     *desktopLease
 	// clock is the working-time bound of the operation running, paused
 	// while the step waits for a person.
 	clock *activeContext
@@ -133,6 +136,7 @@ func newRun(ctx context.Context, e *computerExecutor) (*run, error) {
 	masker := agentstep.NewMasker(secrets, nil)
 	computerDir := filepath.Join(dataDir, computerhost.DataDirName)
 	r := &run{
+		operation:   ctx,
 		exec:        e,
 		cfg:         e.cfg,
 		dagName:     dagName,
@@ -342,6 +346,7 @@ func (r *run) launch(ctx context.Context, index int, spec launchSpec) error {
 func (r *run) extract(ctx context.Context, index int, spec extractSpec, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	defer r.during(ctx)()
 	began, before := time.Now(), r.usage
 	choice := r.cfg.extractChoice(spec)
 	key := replayKey(index, spec.Instruction)
@@ -547,6 +552,7 @@ func (r *run) await(ctx context.Context, c condition, window, timeout time.Durat
 	deadline := time.Now().Add(window)
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	defer r.during(ctx)()
 	interval := conditionPollInterval
 	if !c.judged() {
 		interval = exactPollInterval
@@ -631,6 +637,14 @@ func (r *run) evaluate(ctx context.Context, c condition) (bool, string, error) {
 	}
 }
 
+// during makes ctx the context of the operation running now, until the
+// returned function restores the one before.
+func (r *run) during(ctx context.Context) func() {
+	before := r.operation
+	r.operation = ctx
+	return func() { r.operation = before }
+}
+
 // elementsReader opens the elements reader on the first exact check and
 // keeps it for the run.
 func (r *run) elementsReader() (desktop.Elements, error) {
@@ -644,7 +658,7 @@ func (r *run) elementsReader() (desktop.Elements, error) {
 		}
 		return nil, fmt.Errorf("open the elements: %w", err)
 	}
-	r.elements = newSteadyElements(els, r.driver.Windows, r.driver.InputSentAt)
+	r.elements = newSteadyElements(els, r.driver.Windows, r.driver.InputSentAt, func() context.Context { return r.operation })
 	return r.elements, nil
 }
 

@@ -4,6 +4,7 @@
 package computer
 
 import (
+	"context"
 	"slices"
 	"sync"
 	"testing"
@@ -33,7 +34,11 @@ func (w *fakeWindows) set(list ...desktop.WindowID) {
 	w.list = list
 }
 
-func never() time.Time { return time.Time{} }
+// steadyOver wraps elements with a reader whose step sent its last input at
+// sent, within an operation that never ends.
+func steadyOver(els desktop.Elements, windows *fakeWindows, sent time.Time) *steadyElements {
+	return newSteadyElements(els, windows.get, func() time.Time { return sent }, context.Background)
+}
 
 // A read right after input waits until the screen has been left alone for a
 // moment, so a window the input closes is under way before it is read.
@@ -41,26 +46,32 @@ func TestSteadyReadWaitsAfterInput(t *testing.T) {
 	t.Parallel()
 
 	sent := time.Now()
-	els := newSteadyElements(newFakeElements(), (&fakeWindows{}).get, func() time.Time { return sent })
+	els := steadyOver(newFakeElements(), &fakeWindows{}, sent)
 	_, err := els.FrontWindow()
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, time.Since(sent), quietAfterInput)
 }
 
-// A pattern counts as input: the read after it waits too.
-func TestSteadyReadWaitsAfterAPattern(t *testing.T) {
+// A pattern or a focus counts as input: the read after it waits too.
+func TestSteadyReadWaitsAfterAPatternOrAFocus(t *testing.T) {
 	t.Parallel()
 
-	fake := newFakeElements()
-	els := newSteadyElements(fake, (&fakeWindows{}).get, never)
+	els := steadyOver(newFakeElements(), &fakeWindows{}, time.Time{})
 	save, err := els.Find(desktop.Selector{Role: desktop.RoleButton, ID: "saveButton"})
 	require.NoError(t, err)
 	require.Len(t, save, 1)
+
 	require.NoError(t, els.Apply(save[0], desktop.PatternInvoke, ""))
 	applied := time.Now()
 	_, err = els.FrontWindow()
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, time.Since(applied), quietAfterInput-windowSettlePoll)
+	assert.GreaterOrEqual(t, time.Since(applied), quietAfterInput-windowSettlePoll, "after a pattern")
+
+	require.NoError(t, els.Focus(save[0]))
+	focused := time.Now()
+	_, err = els.FrontWindow()
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, time.Since(focused), quietAfterInput-windowSettlePoll, "after a focus")
 }
 
 // A read after a window opened or closed waits until the windows have
@@ -69,7 +80,7 @@ func TestSteadyReadWaitsForTheWindowsToSettle(t *testing.T) {
 	t.Parallel()
 
 	windows := &fakeWindows{list: []desktop.WindowID{{Handle: 1}, {Handle: 2}}}
-	els := newSteadyElements(newFakeElements(), windows.get, never)
+	els := steadyOver(newFakeElements(), windows, time.Time{})
 	_, err := els.FrontWindow()
 	require.NoError(t, err)
 
@@ -83,4 +94,58 @@ func TestSteadyReadWaitsForTheWindowsToSettle(t *testing.T) {
 	_, err = els.Find(desktop.Selector{Role: desktop.RoleButton, ID: "saveButton"})
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, time.Since(began), windowSettle, "a window closed")
+}
+
+// Windows still changing when a wait reaches its limit leave the next read
+// waiting again, even when they look the same as at the limit.
+func TestSteadyReadWaitsAgainAfterUnsettledWindows(t *testing.T) {
+	t.Parallel()
+
+	windows := &fakeWindows{list: []desktop.WindowID{{Handle: 1}}}
+	els := steadyOver(newFakeElements(), windows, time.Time{})
+	els.settleFor, els.settleLimit = 100*time.Millisecond, 300*time.Millisecond
+	_, err := els.FrontWindow()
+	require.NoError(t, err)
+
+	windows.set(desktop.WindowID{Handle: 2})
+	stop := make(chan struct{})
+	changed := make(chan struct{})
+	go func() {
+		defer close(changed)
+		for handle := uint64(3); ; handle++ {
+			select {
+			case <-stop:
+				return
+			case <-time.After(windowSettlePoll / 2):
+				windows.set(desktop.WindowID{Handle: handle})
+			}
+		}
+	}()
+	_, err = els.FrontWindow()
+	require.NoError(t, err)
+	close(stop)
+	<-changed
+	require.True(t, els.unsettled, "the windows were still changing at the limit")
+
+	began := time.Now()
+	_, err = els.FrontWindow()
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, time.Since(began), els.settleFor, "the next read waits again")
+	assert.False(t, els.unsettled, "the windows settled")
+}
+
+// A read whose operation ends while it waits gives up with the operation's
+// error, reading nothing.
+func TestSteadyReadEndsWithItsOperation(t *testing.T) {
+	t.Parallel()
+
+	fake := newFakeElements()
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	sent := time.Now()
+	els := newSteadyElements(fake, (&fakeWindows{}).get, func() time.Time { return sent }, func() context.Context { return ctx })
+	_, err := els.FrontWindow()
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Less(t, time.Since(sent), quietAfterInput, "the wait ended with the operation")
+	assert.Zero(t, fake.reads, "nothing was read")
 }

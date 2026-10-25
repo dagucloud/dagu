@@ -35,86 +35,128 @@ const (
 // soon as an action is done, would.
 type steadyElements struct {
 	desktop.Elements
-	// windows lists the windows on the screen, and inputAt says when the
-	// step last sent input.
-	windows func() []desktop.WindowID
-	inputAt func() time.Time
-	mu      sync.Mutex
-	seen    []uint64
-	applied time.Time
+	// windows lists the windows on the screen, inputAt says when the step
+	// last sent input, and operation is the context of the operation
+	// running now, whose end cuts a wait short.
+	windows   func() []desktop.WindowID
+	inputAt   func() time.Time
+	operation func() context.Context
+	// quiet, settleFor, and settleLimit are quietAfterInput, windowSettle,
+	// and windowSettleLimit.
+	quiet, settleFor, settleLimit time.Duration
+	mu                            sync.Mutex
+	seen                          []uint64
+	// unsettled marks windows still changing when a wait reached its
+	// limit, so the next read waits again.
+	unsettled bool
+	acted     time.Time
 }
 
-func newSteadyElements(els desktop.Elements, windows func() []desktop.WindowID, inputAt func() time.Time) *steadyElements {
-	return &steadyElements{Elements: els, windows: windows, inputAt: inputAt}
+func newSteadyElements(els desktop.Elements, windows func() []desktop.WindowID, inputAt func() time.Time, operation func() context.Context) *steadyElements {
+	return &steadyElements{
+		Elements: els, windows: windows, inputAt: inputAt, operation: operation,
+		quiet: quietAfterInput, settleFor: windowSettle, settleLimit: windowSettleLimit,
+	}
 }
 
-// settle waits until the screen is steady.
-func (s *steadyElements) settle() {
+// settle waits until the screen is steady, or the operation ends.
+func (s *steadyElements) settle() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	last := s.applied
+	ctx := s.operation()
+	last := s.acted
 	if at := s.inputAt(); at.After(last) {
 		last = at
 	}
-	if wait := quietAfterInput - time.Since(last); wait > 0 {
-		time.Sleep(wait)
+	if wait := s.quiet - time.Since(last); wait > 0 {
+		if err := sleep(ctx, wait); err != nil {
+			return err
+		}
 	}
 	current := windowHandles(s.windows())
-	if s.seen != nil && !slices.Equal(current, s.seen) {
-		deadline := time.Now().Add(windowSettleLimit)
-		for stable := time.Now(); time.Since(stable) < windowSettle && time.Now().Before(deadline); {
-			time.Sleep(windowSettlePoll)
+	if s.seen != nil && (s.unsettled || !slices.Equal(current, s.seen)) {
+		deadline := time.Now().Add(s.settleLimit)
+		stable := time.Now()
+		for time.Since(stable) < s.settleFor && time.Now().Before(deadline) {
+			if err := sleep(ctx, windowSettlePoll); err != nil {
+				return err
+			}
 			if next := windowHandles(s.windows()); !slices.Equal(next, current) {
 				current, stable = next, time.Now()
 			}
 		}
+		s.unsettled = time.Since(stable) < s.settleFor
 	}
 	s.seen = current
+	return nil
+}
+
+// act records input the step gave through the reader.
+func (s *steadyElements) act() {
+	s.mu.Lock()
+	s.acted = time.Now()
+	s.mu.Unlock()
 }
 
 func (s *steadyElements) At(x, y int) (desktop.Element, error) {
-	s.settle()
+	if err := s.settle(); err != nil {
+		return desktop.Element{}, err
+	}
 	return s.Elements.At(x, y)
 }
 
 func (s *steadyElements) Focused() (desktop.Element, error) {
-	s.settle()
+	if err := s.settle(); err != nil {
+		return desktop.Element{}, err
+	}
 	return s.Elements.Focused()
 }
 
 func (s *steadyElements) Find(sel desktop.Selector) ([]desktop.Element, error) {
-	s.settle()
+	if err := s.settle(); err != nil {
+		return nil, err
+	}
 	return s.Elements.Find(sel)
 }
 
 func (s *steadyElements) FrontWindow() (desktop.Element, error) {
-	s.settle()
+	if err := s.settle(); err != nil {
+		return desktop.Element{}, err
+	}
 	return s.Elements.FrontWindow()
 }
 
 func (s *steadyElements) Outline(window desktop.Element, limit int) ([]desktop.Element, error) {
-	s.settle()
+	if err := s.settle(); err != nil {
+		return nil, err
+	}
 	return s.Elements.Outline(window, limit)
 }
 
+// Focus gives an element the keyboard focus on a steady screen, and
+// counts it as input the next read waits after.
 func (s *steadyElements) Focus(target desktop.Element) error {
-	s.settle()
+	if err := s.settle(); err != nil {
+		return err
+	}
+	defer s.act()
 	return s.Elements.Focus(target)
 }
 
 // Apply performs a pattern on a steady screen, and counts it as input the
 // next read waits after.
 func (s *steadyElements) Apply(target desktop.Element, pattern desktop.Pattern, value string) error {
-	s.settle()
-	err := s.Elements.Apply(target, pattern, value)
-	s.mu.Lock()
-	s.applied = time.Now()
-	s.mu.Unlock()
-	return err
+	if err := s.settle(); err != nil {
+		return err
+	}
+	defer s.act()
+	return s.Elements.Apply(target, pattern, value)
 }
 
 func (s *steadyElements) Rows(ctx context.Context, container desktop.Selector, columns []string, maxRows int) ([][]string, error) {
-	s.settle()
+	if err := s.settle(); err != nil {
+		return nil, err
+	}
 	return s.Elements.Rows(ctx, container, columns, maxRows)
 }
 
