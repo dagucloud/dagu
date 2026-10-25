@@ -35,10 +35,15 @@ func (h handler) title() string {
 }
 
 // validate checks a handler's check and pinned steps. The step's schema
-// admits only an exact check without within for when.
+// admits only an exact check without within for when, and so does this,
+// for a handler that reaches the step any other way: a statement would ask
+// the model at every look, and within would go unused.
 func (h handler) validate() error {
 	if err := h.When.validate(); err != nil {
 		return fmt.Errorf("when: %w", err)
+	}
+	if h.When.judged() || h.When.Within != "" {
+		return errors.New("when must be an exact check (text, element, or window) without within")
 	}
 	if len(h.Recorded) == 0 {
 		return errors.New("recorded must list the steps for at least one system")
