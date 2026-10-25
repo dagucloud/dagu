@@ -197,7 +197,7 @@ func (r *run) execute(ctx context.Context) error {
 			var reason string
 			if err == nil {
 				fallback := time.Duration(0)
-				if !c.judged() {
+				if !c.judged() && !c.onValue() {
 					fallback = exactWhenWait
 				}
 				holds, reason, err = r.await(ctx, i, c, c.window(fallback), op.timeout())
@@ -549,7 +549,9 @@ func (r *run) resolve(spec condition) (condition, error) {
 		if !ok {
 			return condition{}, fmt.Errorf("the check uses %%%s%%, but the ask that sets it did not run", name)
 		}
-		if value == "" {
+		// A check on data may ask whether a value is empty; one on the
+		// screen would look for nothing.
+		if value == "" && !spec.onValue() {
 			return condition{}, fmt.Errorf("the check uses %%%s%%, but its value is empty", name)
 		}
 	}
@@ -560,6 +562,11 @@ func (r *run) resolve(spec condition) (condition, error) {
 // operation timeout. When the timeout cuts an exact check short, the last
 // reason stands as the answer rather than the deadline.
 func (r *run) await(ctx context.Context, index int, c condition, window, timeout time.Duration) (bool, string, error) {
+	// A check on data has its answer at once and reads no screen.
+	if c.onValue() {
+		holds, reason := c.valueHolds()
+		return holds, reason, nil
+	}
 	deadline := time.Now().Add(window)
 	// A person's use of the desktop pauses the timeout, as it does an act's.
 	ctx, cancel := r.operationContext(ctx, timeout)

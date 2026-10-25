@@ -14,8 +14,9 @@ import (
 )
 
 // condition is the value of expect or when: a statement the model judges
-// against the screen, or an exact check that reads the front window's
-// elements without a model and gives the same answer on every run.
+// against the screen, an exact check that reads the front window's
+// elements without a model and gives the same answer on every run, or a
+// check on the step's data that reads no screen at all.
 type condition struct {
 	// Statement is judged by the model.
 	Statement string `json:"statement,omitempty"`
@@ -28,6 +29,13 @@ type condition struct {
 	// Window holds when the front window's title contains it. It takes *
 	// for any run of characters.
 	Window string `json:"window,omitempty"`
+	// Value is data the step was given, such as a parameter or a
+	// variable: the check holds when it equals Equals, or, with NotEquals
+	// instead, when it differs from that. It reads no screen and is decided
+	// at once.
+	Value     *string `json:"value,omitempty"`
+	Equals    *string `json:"equals,omitempty"`
+	NotEquals *string `json:"not_equals,omitempty"`
 	// Within is how long the check keeps looking before it is taken as
 	// false, such as 30s.
 	Within string `json:"within,omitempty"`
@@ -49,6 +57,11 @@ func (c condition) judged() bool {
 	return c.Statement != ""
 }
 
+// onValue reports a check on the step's data rather than the screen.
+func (c condition) onValue() bool {
+	return c.Value != nil
+}
+
 func (c condition) validate() error {
 	set := 0
 	for _, value := range []string{c.Statement, c.Text, c.Window} {
@@ -59,8 +72,23 @@ func (c condition) validate() error {
 	if c.Element != nil {
 		set++
 	}
+	if c.Value != nil {
+		set++
+	}
 	if set != 1 {
-		return errors.New("a condition is a statement, or an object with exactly one of statement, text, element, or window")
+		return errors.New("a condition is a statement, or an object with exactly one of statement, text, element, window, or value")
+	}
+	if c.onValue() {
+		if (c.Equals == nil) == (c.NotEquals == nil) {
+			return errors.New("value takes exactly one of equals or not_equals")
+		}
+		if c.Within != "" {
+			return errors.New("value is decided at once and takes no within")
+		}
+		return nil
+	}
+	if c.Equals != nil || c.NotEquals != nil {
+		return errors.New("equals and not_equals go with value")
 	}
 	if c.Element != nil {
 		if err := c.Element.Validate(); err != nil {
@@ -82,6 +110,10 @@ func (c condition) window(fallback time.Duration) time.Duration {
 // String describes the condition for logs and the timeline.
 func (c condition) String() string {
 	switch {
+	case c.onValue() && c.Equals != nil:
+		return fmt.Sprintf("value %q equals %q", *c.Value, *c.Equals)
+	case c.onValue():
+		return fmt.Sprintf("value %q differs from %q", *c.Value, *c.NotEquals)
 	case c.Text != "":
 		return fmt.Sprintf("text %q", c.Text)
 	case c.Element != nil:
@@ -111,6 +143,11 @@ func (c condition) references() []string {
 	if c.Element != nil {
 		texts = append(texts, selectorTexts(*c.Element)...)
 	}
+	for _, text := range []*string{c.Value, c.Equals, c.NotEquals} {
+		if text != nil {
+			texts = append(texts, *text)
+		}
+	}
 	var names []string
 	for _, text := range texts {
 		names = append(names, agentstep.VariableReferences(text)...)
@@ -131,7 +168,34 @@ func (c condition) substituted(values map[string]string) condition {
 		sel := substituteSelector(*c.Element, values)
 		out.Element = &sel
 	}
+	out.Value = substitutedText(c.Value, values)
+	out.Equals = substitutedText(c.Equals, values)
+	out.NotEquals = substitutedText(c.NotEquals, values)
 	return out
+}
+
+// substitutedText is text with its placeholders replaced, or nil for none.
+func substitutedText(text *string, values map[string]string) *string {
+	if text == nil {
+		return nil
+	}
+	return new(agentstep.SubstituteVariables(*text, values))
+}
+
+// valueHolds decides a check on the step's data, comparing the texts as an
+// element's name is compared, and says why.
+func (c condition) valueHolds() (bool, string) {
+	value := desktop.NormalizeText(*c.Value)
+	if c.Equals != nil {
+		if value == desktop.NormalizeText(*c.Equals) {
+			return true, fmt.Sprintf("%q is %q", *c.Value, *c.Equals)
+		}
+		return false, fmt.Sprintf("%q is not %q", *c.Value, *c.Equals)
+	}
+	if value != desktop.NormalizeText(*c.NotEquals) {
+		return true, fmt.Sprintf("%q is not %q", *c.Value, *c.NotEquals)
+	}
+	return false, fmt.Sprintf("%q is %q", *c.Value, *c.NotEquals)
 }
 
 // selectorTexts returns the texts of a selector that may hold placeholders:

@@ -133,7 +133,7 @@ func (o operation) maximize() *bool {
 // looksAtScreen reports an operation that reads or acts on the screen, or
 // checks it before running, which the front window is maximized for.
 func (o operation) looksAtScreen() bool {
-	return o.Act != nil || o.Extract != nil || o.Expect != nil || o.Screenshot != "" || o.When != nil
+	return o.Act != nil || o.Extract != nil || (o.Expect != nil && !o.Expect.onValue()) || o.Screenshot != "" || (o.When != nil && !o.When.onValue())
 }
 
 type launchSpec struct {
@@ -693,17 +693,21 @@ func conditionSchema() *jsonschema.Schema {
 			Type:                 "object",
 			AdditionalProperties: agentstep.NoExtraProperties(),
 			Properties: map[string]*jsonschema.Schema{
-				"statement": agentstep.NonEmptyString(),
-				"text":      agentstep.NonEmptyString(),
-				"element":   {Ref: "#/$defs/selector"},
-				"window":    agentstep.NonEmptyString(),
-				"within":    agentstep.StringSchema(),
+				"statement":  agentstep.NonEmptyString(),
+				"text":       agentstep.NonEmptyString(),
+				"element":    {Ref: "#/$defs/selector"},
+				"window":     agentstep.NonEmptyString(),
+				"value":      agentstep.StringSchema(),
+				"equals":     agentstep.StringSchema(),
+				"not_equals": agentstep.StringSchema(),
+				"within":     agentstep.StringSchema(),
 			},
 			OneOf: []*jsonschema.Schema{
 				{Required: []string{"statement"}},
 				{Required: []string{"text"}},
 				{Required: []string{"element"}},
 				{Required: []string{"window"}},
+				{Required: []string{"value"}},
 			},
 		},
 	}}

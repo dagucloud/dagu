@@ -387,6 +387,51 @@ func TestExpectAndWhen(t *testing.T) {
 
 // An exact check reads the front window's elements, calls no model, takes
 // no screenshot, and reports how it was decided.
+// A check on the step's data decides at once, reading no screen and calling
+// no model: a when on a value runs its operation or skips it, an empty value
+// can be asked about, values compare as names do, and an expect on a value
+// fails with the reason.
+func TestConditionsOnValues(t *testing.T) {
+	t.Parallel()
+
+	t.Run("when runs only the matching operation", func(t *testing.T) {
+		t.Parallel()
+		run := newTestRun(t)
+		run.elements = newFakeElements()
+		run.llm = nil
+		began := time.Now()
+		execution := run.execute(`{"ai": "never", "variables": {"same": "あり", "second": ""}, "do": [
+			{"wait": "1ms", "when": {"value": "%same%", "equals": "あり"}},
+			{"wait": "1ms", "when": {"value": "%same%", "equals": "なし"}},
+			{"wait": "1ms", "when": {"value": "%second%", "not_equals": ""}},
+			{"wait": "1ms", "when": {"value": "有", "equals": "有"}},
+			{"wait": "1ms", "when": {"value": "ＡＢＣ", "equals": "ABC"}}
+		]}`, nil)
+		require.NoError(t, execution.err)
+		events := operationEvents(execution.exec.GetAgentSession())
+		require.Len(t, events, 5)
+		assert.Equal(t, agentstep.StatusCompleted, events[0].Status)
+		assert.Equal(t, agentstep.StatusSkipped, events[1].Status)
+		assert.Equal(t, agentstep.ViaExact, events[1].Via)
+		assert.Contains(t, events[1].Content, `"あり" is not "なし"`)
+		assert.Equal(t, agentstep.StatusSkipped, events[2].Status, "an empty value is asked about, not refused")
+		assert.Contains(t, events[2].Content, `"" is ""`)
+		assert.Equal(t, agentstep.StatusCompleted, events[3].Status, "a value given as written, as a parameter arrives")
+		assert.Equal(t, agentstep.StatusCompleted, events[4].Status, "full-width and half-width letters compare equal")
+		assert.Less(t, time.Since(began), exactWhenWait, "nothing waits for a value")
+		assert.Zero(t, run.elements.opens, "no elements are read")
+		assert.Zero(t, run.backend.captures, "no screenshot")
+	})
+
+	t.Run("expect fails with the reason", func(t *testing.T) {
+		t.Parallel()
+		run := newTestRun(t)
+		run.elements = newFakeElements()
+		execution := run.execute(`{"ai": "never", "variables": {"same": "あり"}, "do": [{"expect": {"value": "%same%", "equals": "なし"}}]}`, nil)
+		require.ErrorContains(t, execution.err, `"あり" is not "なし"`)
+	})
+}
+
 func TestExactConditions(t *testing.T) {
 	t.Parallel()
 

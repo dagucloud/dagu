@@ -58,6 +58,12 @@ func TestValidateStep(t *testing.T) {
 		{name: "never with extract of an object field", with: `{"ai": "never", "do": [{"extract": {"instruction": "a", "schema": {"type": "object", "properties": {"total": {"type": "number"}, "lines": {"type": "object"}}}}}]}`, llm: model, want: `extract under never cannot read lines`},
 		{name: "extract that overrides never", with: `{"ai": "never", "do": [{"extract": {"instruction": "a", "ai": "on_miss", "schema": {"type": "object"}}}]}`, llm: model},
 		{name: "ai and cache", with: `{"ai": "never", "cache": true, "do": [{"act": "x"}]}`, llm: model, want: "set ai or cache, not both"},
+		{name: "when on a value needs no model", with: `{"ai": "never", "variables": {"same": "あり"}, "do": [{"wait": "1s", "when": {"value": "%same%", "equals": "あり"}}, {"wait": "1s", "when": {"value": "", "not_equals": ""}}]}`},
+		{name: "value without equals", with: `{"do": [{"wait": "1s", "when": {"value": "a"}}]}`, want: "value takes exactly one of equals or not_equals"},
+		{name: "value with equals and not_equals", with: `{"do": [{"wait": "1s", "when": {"value": "a", "equals": "a", "not_equals": "b"}}]}`, want: "value takes exactly one of equals or not_equals"},
+		{name: "value with within", with: `{"do": [{"wait": "1s", "when": {"value": "a", "equals": "a", "within": "5s"}}]}`, want: "value is decided at once and takes no within"},
+		{name: "equals without value", with: `{"do": [{"wait": "1s", "when": {"text": "a", "equals": "a"}}]}`, want: "equals and not_equals go with value"},
+		{name: "value with an unknown variable", with: `{"do": [{"wait": "1s", "when": {"value": "%nope%", "equals": "a"}}]}`, want: "when references %nope%"},
 		{name: "check a checkbox", with: `{"ai": "never", "do": [{"act": {"instruction": "x", "recorded": {"macos": [{"check": {"role": "checkbox", "id": "agree"}}, {"uncheck": {"role": "checkbox", "id": "news"}}]}}}]}`},
 		{name: "check a button", with: `{"ai": "never", "do": [{"act": {"instruction": "x", "recorded": {"macos": [{"check": {"role": "button", "id": "save"}}]}}}]}`, want: "/properties/check"},
 		{name: "check with an unknown variable", with: `{"ai": "never", "do": [{"act": {"instruction": "x", "recorded": {"macos": [{"check": {"role": "checkbox", "name": "%kasho%"}}]}}}]}`, want: "act references %kasho%"},
@@ -174,7 +180,7 @@ func TestConfigShorthands(t *testing.T) {
 	assert.False(t, exact.Do[2].When.judged())
 	assert.Equal(t, 5*time.Second, exact.Do[0].Expect.window(time.Minute))
 	assert.Equal(t, time.Minute, exact.Do[1].Expect.window(time.Minute), "without within the fallback applies")
-	require.ErrorContains(t, condition{Text: "a", Window: "b"}.validate(), "exactly one of statement, text, element, or window")
+	require.ErrorContains(t, condition{Text: "a", Window: "b"}.validate(), "exactly one of statement, text, element, window, or value")
 	require.ErrorContains(t, condition{}.validate(), "exactly one of")
 }
 
