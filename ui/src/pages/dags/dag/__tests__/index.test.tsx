@@ -244,4 +244,17 @@ describe('DAGDetails page', () => {
       );
     });
   });
+
+  // The old History tab maps to the Overview. Its redirect keeps the run as
+  // ?run=, and the redirect to the run page, which is for a run named on the
+  // Overview, must not win over it.
+  it('sends the old History link to the Overview with its run', async () => {
+    renderPage('/dags/release-notes/history?dagRunId=run-7&remoteNode=edge');
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location')).toHaveTextContent(
+        '/dags/release-notes?run=run-7&remoteNode=edge'
+      );
+    });
+  });
 });

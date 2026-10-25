@@ -8,8 +8,11 @@ import { Calendar, CheckSquare, Settings, Tag } from 'lucide-react';
 import { components } from '../../../../api/v1/schema';
 import { Badge } from '@/components/ui/badge';
 import {
+  getLoopValue,
+  getRestartValue,
   getScheduleKey,
   getScheduleLabel,
+  isAlwaysOnDAG,
   parseNextRun,
 } from '../../../../lib/dagSchedule';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -41,7 +44,15 @@ function DAGAttributes({ dag }: Props) {
             <span><I18nText text={"Schedule"} /></span>
           </div>
 
-          {!dag.schedule?.length ? (
+          {isAlwaysOnDAG(dag) ? (
+            <Badge
+              variant="outline"
+              className="max-w-full justify-start bg-primary/10 px-2.5 py-1 text-primary border-primary/30 whitespace-nowrap normal-case tracking-normal"
+            >
+              <I18nText text={'Restart'} />: {getRestartValue(dag)}
+              {getLoopValue(dag) ? ` · ${getLoopValue(dag)}` : ''}
+            </Badge>
+          ) : !dag.schedule?.length ? (
             <div className="text-sm text-muted-foreground italic">
               <I18nText text={"No schedule defined"} />
             </div>

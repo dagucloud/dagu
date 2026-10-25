@@ -573,7 +573,24 @@
     },
     "restart_wait_sec": {
       "type": "integer",
-      "description": "Number of seconds to wait before restarting a failed or stopped DAG. Typically used with a process supervisor."
+      "description": "Number of seconds to wait before restarting a failed or stopped DAG. Typically used with a process supervisor. With restart_policy, it is the wait between the end of a run and the start of the next one, and must be at least 1."
+    },
+    "loop_wait_sec": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "With restart_policy, makes one run loop: after the steps end, the run waits this many seconds and runs them again in the same run, as in a while-true loop. Each pass is a cycle. The run ends when it is stopped, when Dagu cannot keep it alive, or, with the default loop_on_failure, when a cycle fails; restart_policy then starts a new run. Handlers and timeout_sec apply to each cycle. Zero starts a new run for each pass instead. Cannot be set in the base configuration."
+    },
+    "loop_on_failure": {
+      "type": "string",
+      "enum": ["restart", "continue"],
+      "default": "restart",
+      "description": "With loop_wait_sec, what the run does when a cycle fails. \"restart\": the run ends with the status of the failed cycle, and restart_policy starts a new run after restart_wait_sec; the new run counts the interruption. \"continue\": the run goes on with the next cycle after loop_wait_sec, as a while-true loop does. Requires loop_wait_sec; cannot be set in the base configuration."
+    },
+    "restart_policy": {
+      "type": "string",
+      "enum": ["no", "always", "unless-stopped"],
+      "default": "no",
+      "description": "Keeps a run of the DAG alive: the DAG is always on. \"always\": the scheduler starts a new run restart_wait_sec after the previous one ends, whatever its status. \"unless-stopped\": same, except that no run follows a run that an operator stopped. A suspended DAG gets no new run. Requires restart_wait_sec; cannot be combined with schedule or a DAG-level retry_policy. Cannot be set in the base configuration."
     },
     "hist_retention_days": {
       "type": "integer",

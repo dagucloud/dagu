@@ -124,6 +124,16 @@ func (a runStateAttempt) RecordStatus(ctx context.Context, status ir.DAGRunStatu
 	return a.Write(ctx, status)
 }
 
+// Compact rewrites the status file so that it holds only the latest status. A
+// run that loops for weeks appends a status at each step, so without it the
+// file would grow without end.
+func (a runStateAttempt) Compact(ctx context.Context) error {
+	if compactor, ok := a.Attempt.(interface{ Compact(context.Context) error }); ok {
+		return compactor.Compact(ctx)
+	}
+	return nil
+}
+
 func (a runStateAttempt) RecordOutputs(ctx context.Context, outputs *ir.DAGRunOutputs) error {
 	return a.WriteOutputs(ctx, outputs)
 }

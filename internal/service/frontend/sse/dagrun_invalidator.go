@@ -82,25 +82,44 @@ func wakeTopicsForDAGRunEvents(mux *Multiplexer, events []*eventstore.Event) {
 		return
 	}
 
-	affectedStatuses := make(map[ir.Status]struct{})
+	affected := listWakeStatuses{
+		all:         make(map[ir.Status]struct{}),
+		withoutRuns: make(map[ir.Status]struct{}),
+	}
 	for _, event := range events {
-		for _, status := range wakeTopicsForDAGRunEvent(mux, event) {
-			affectedStatuses[status] = struct{}{}
+		statuses, alwaysOnRun := wakeTopicsForDAGRunEvent(mux, event)
+		for _, status := range statuses {
+			affected.all[status] = struct{}{}
+			if !alwaysOnRun {
+				affected.withoutRuns[status] = struct{}{}
+			}
 		}
 	}
 
-	wakeDAGRunListTopics(mux, affectedStatuses)
+	wakeDAGRunListTopics(mux, affected)
 }
 
-func wakeTopicsForDAGRunEvent(mux *Multiplexer, event *eventstore.Event) []ir.Status {
+// listWakeStatuses holds the statuses that a batch of events changed. A run
+// that a restart policy started changes a list only when the list shows
+// always-on runs, so those events count in all but not in withoutRuns.
+type listWakeStatuses struct {
+	all         map[ir.Status]struct{}
+	withoutRuns map[ir.Status]struct{}
+}
+
+// wakeTopicsForDAGRunEvent wakes the topics that show the run of an event. It
+// returns the statuses that the event changed in lists, and whether a restart
+// policy started the run.
+func wakeTopicsForDAGRunEvent(mux *Multiplexer, event *eventstore.Event) ([]ir.Status, bool) {
 	if event == nil {
-		return nil
+		return nil, false
 	}
 
 	snapshot, err := eventstore.DAGRunSnapshotFromEvent(event)
 	if err != nil || snapshot == nil {
-		return nil
+		return nil, false
 	}
+	alwaysOnRun := snapshot.TriggerType == ir.TriggerTypeRestart
 
 	if snapshot.Name != "" && snapshot.DAGRunID != "" {
 		mux.WakeTopic(TopicTypeDAGRun, snapshot.Name+"/"+snapshot.DAGRunID)
@@ -117,6 +136,7 @@ func wakeTopicsForDAGRunEvent(mux *Multiplexer, event *eventstore.Event) []ir.St
 
 	mux.WakeTopicType(TopicTypeQueues)
 	mux.WakeTopicType(TopicTypeDAGsList)
+	mux.WakeTopicType(TopicTypeAlwaysOnDAGs)
 
 	if snapshot.ProcGroup != "" {
 		mux.WakeTopic(TopicTypeQueueItems, snapshot.ProcGroup)
@@ -126,12 +146,12 @@ func wakeTopicsForDAGRunEvent(mux *Multiplexer, event *eventstore.Event) []ir.St
 	if snapshot.DAGFile != "" {
 		mux.WakeTopic(TopicTypeDAG, snapshot.DAGFile)
 		mux.WakeTopic(TopicTypeDAGHistory, snapshot.DAGFile)
-		return affectedStatuses
+		return affectedStatuses, alwaysOnRun
 	}
 
 	mux.WakeTopicType(TopicTypeDAG)
 	mux.WakeTopicType(TopicTypeDAGHistory)
-	return affectedStatuses
+	return affectedStatuses, alwaysOnRun
 }
 
 func affectedDAGRunListStatuses(eventType eventstore.EventType, current ir.Status) []ir.Status {
@@ -160,8 +180,8 @@ func affectedDAGRunListStatuses(eventType eventstore.EventType, current ir.Statu
 	}
 }
 
-func wakeDAGRunListTopics(mux *Multiplexer, affectedStatuses map[ir.Status]struct{}) {
-	if len(affectedStatuses) == 0 {
+func wakeDAGRunListTopics(mux *Multiplexer, affected listWakeStatuses) {
+	if len(affected.all) == 0 {
 		return
 	}
 
@@ -171,8 +191,8 @@ func wakeDAGRunListTopics(mux *Multiplexer, affectedStatuses map[ir.Status]struc
 		if topic == nil {
 			continue
 		}
-		if topic.topicType == TopicTypeDAGRunActivity ||
-			topic.topicType == TopicTypeDAGRuns && dagRunListTopicMatchesStatuses(topic.identifier, affectedStatuses) {
+		if topic.topicType == TopicTypeDAGRunActivity && dagRunActivityTopicMatches(topic.identifier, affected) ||
+			topic.topicType == TopicTypeDAGRuns && dagRunListTopicMatchesStatuses(topic.identifier, affected) {
 			topics = append(topics, topic)
 		}
 	}
@@ -184,10 +204,36 @@ func wakeDAGRunListTopics(mux *Multiplexer, affectedStatuses map[ir.Status]struc
 	}
 }
 
-func dagRunListTopicMatchesStatuses(identifier string, affectedStatuses map[ir.Status]struct{}) bool {
+// dagRunActivityTopicMatches reports whether the changes reach an activity
+// topic. Activity has no status filter, so any change does, except changes
+// that only concern always-on runs when the topic leaves them out.
+func dagRunActivityTopicMatches(identifier string, affected listWakeStatuses) bool {
+	if excludesAlwaysOnRuns(identifier) {
+		return len(affected.withoutRuns) > 0
+	}
+	return true
+}
+
+func excludesAlwaysOnRuns(identifier string) bool {
+	values, err := url.ParseQuery(identifier)
+	if err != nil {
+		return false
+	}
+	exclude, err := strconv.ParseBool(values.Get("excludeAlwaysOnRuns"))
+	return err == nil && exclude
+}
+
+func dagRunListTopicMatchesStatuses(identifier string, affected listWakeStatuses) bool {
 	values, err := url.ParseQuery(identifier)
 	if err != nil {
 		return true
+	}
+	affectedStatuses := affected.all
+	if excludesAlwaysOnRuns(identifier) {
+		affectedStatuses = affected.withoutRuns
+	}
+	if len(affectedStatuses) == 0 {
+		return false
 	}
 	rawStatuses, hasStatusFilter := values["status"]
 	if !hasStatusFilter {

@@ -5,6 +5,7 @@ package cmd_test
 
 import (
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -65,6 +66,68 @@ steps:
 	require.Len(t, recentHistory, 2)
 	require.Equal(t, recentHistory[0].Params, recentHistory[1].Params)
 	require.Equal(t, "2026-03-13T10:00:00Z", recentHistory[0].ScheduleTime)
+}
+
+// The scheduler starts the runs of a DAG with a restart_policy, so the restart
+// command, which starts a run of its own, is refused.
+func TestRestartCommand_RejectsAlwaysOnDAG(t *testing.T) {
+	t.Parallel()
+
+	th := test.SetupCommand(t)
+	dag := th.DAG(t, `restart_policy: always
+restart_wait_sec: 1
+steps:
+  - name: "1"
+    run: "echo ok"
+`)
+	th.RunCommand(t, cmd.Start(), test.CmdTest{Args: []string{"start", dag.Location}})
+
+	err := th.RunCommandWithError(t, cmd.Restart(), test.CmdTest{Args: []string{"restart", dag.Location}})
+	require.ErrorContains(t, err, `sets restart_policy "always"`)
+}
+
+// A DAG with a restart_policy that has no run yet is refused for its policy,
+// not for its missing history.
+func TestRestartCommand_RejectsServiceDAGWithoutRun(t *testing.T) {
+	t.Parallel()
+
+	th := test.SetupCommand(t)
+	dag := th.DAG(t, `restart_policy: always
+restart_wait_sec: 1
+steps:
+  - name: "1"
+    run: "echo ok"
+`)
+
+	err := th.RunCommandWithError(t, cmd.Restart(), test.CmdTest{Args: []string{"restart", dag.Location}})
+	require.ErrorContains(t, err, `sets restart_policy "always"`)
+}
+
+// The scheduler reads the current definition of a DAG, so a restart_policy
+// added while a run is alive already refuses the command, and that run is left
+// alone.
+func TestRestartCommand_RejectsPolicyAddedWhileRunning(t *testing.T) {
+	t.Parallel()
+
+	th := test.SetupCommand(t)
+	release := newHoldFile(t)
+	steps := fmt.Sprintf("steps:\n  - name: \"1\"\n    run: %q\n", holdUntilFileExistsCommand(release))
+	dag := th.DAG(t, steps)
+
+	done := make(chan struct{})
+	go func() {
+		th.RunCommand(t, cmd.Start(), test.CmdTest{Args: []string{"start", dag.Location}})
+		close(done)
+	}()
+	dag.AssertCurrentStatus(t, ir.Running)
+
+	require.NoError(t, os.WriteFile(dag.Location, []byte("restart_policy: always\nrestart_wait_sec: 1\n"+steps), 0o600))
+	err := th.RunCommandWithError(t, cmd.Restart(), test.CmdTest{Args: []string{"restart", dag.Location}})
+	require.ErrorContains(t, err, `sets restart_policy "always"`)
+	dag.AssertCurrentStatus(t, ir.Running)
+
+	releaseHoldFile(t, release)
+	<-done
 }
 
 func TestRestartCommand_BuiltExecutableRestoresExplicitEnv(t *testing.T) {

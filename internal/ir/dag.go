@@ -189,6 +189,16 @@ type DAG struct {
 	Delay time.Duration `json:"delay,omitempty"`
 	// RestartWait is the time to wait before restarting the DAG.
 	RestartWait time.Duration `json:"restartWait,omitempty"`
+	// RestartPolicy makes the scheduler keep a run of the DAG alive: a new run is
+	// started RestartWait after the previous one ends. See specs/080-restart-policy.md.
+	RestartPolicy RestartPolicy `json:"restartPolicy,omitempty"`
+	// LoopWait, with a restart policy, makes one run repeat its steps: after
+	// the steps end, the run waits LoopWait and runs them again, as in a
+	// "while true" loop. Zero starts a new run instead. See specs/080-restart-policy.md.
+	LoopWait time.Duration `json:"loopWait,omitempty"`
+	// LoopOnFailure is what a run that loops does when a cycle fails: end, so
+	// the restart policy starts a new run, or go on with the next cycle.
+	LoopOnFailure LoopOnFailure `json:"loopOnFailure,omitempty"`
 	// MaxActiveSteps specifies the maximum concurrent steps to run in an execution.
 	MaxActiveSteps int `json:"maxActiveSteps,omitempty"`
 	// MaxActiveRuns specifies the maximum number of concurrent dag-runs.
@@ -563,8 +573,11 @@ func (d *DAG) NextRun(now time.Time) time.Time {
 func (d *DAG) initializeDefaults() {
 	const (
 		defaultHistRetentionDays = 30
-		defaultMaxCleanUpTime    = 5 * time.Second
-		defaultMaxActiveRuns     = 1
+		// An always-on DAG adds a run at each restart, so it keeps a number of
+		// runs rather than days of them.
+		defaultAlwaysOnHistRetentionRuns = 100
+		defaultMaxCleanUpTime            = 5 * time.Second
+		defaultMaxActiveRuns             = 1
 	)
 
 	if d.Type == "" {
@@ -574,7 +587,11 @@ func (d *DAG) initializeDefaults() {
 		d.LogOutput = LogOutputSeparate
 	}
 	if d.HistRetentionDays == 0 && d.HistRetentionRuns == 0 {
-		d.HistRetentionDays = defaultHistRetentionDays
+		if d.RestartPolicy.Enabled() {
+			d.HistRetentionRuns = defaultAlwaysOnHistRetentionRuns
+		} else {
+			d.HistRetentionDays = defaultHistRetentionDays
+		}
 	}
 	if d.MaxCleanUpTime == 0 {
 		d.MaxCleanUpTime = defaultMaxCleanUpTime

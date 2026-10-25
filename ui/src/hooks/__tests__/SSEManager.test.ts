@@ -95,6 +95,10 @@ describe('endpointToTopic', () => {
       ],
       ['/events/queues?status=active&page=3', 'queues:page=3&status=active'],
       ['/events/queues/default/items', 'queueitems:default'],
+      [
+        '/events/always-on-dags?workspace=ops',
+        'alwaysondags:workspace=ops',
+      ],
       ['/events/wiki-tree?prefix=docs', 'wikitree:prefix=docs'],
       [
         '/events/wiki/docs/deploy?workspace=ops',

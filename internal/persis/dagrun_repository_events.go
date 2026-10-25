@@ -33,6 +33,15 @@ func newEventingAttempt(attempt dagrun.Attempt, dag *ir.DAG) dagrun.Attempt {
 	return &eventingAttempt{Attempt: attempt, dag: dag}
 }
 
+// Compact rewrites the status file of the attempt it wraps to the latest
+// status, when that attempt can.
+func (a *eventingAttempt) Compact(ctx context.Context) error {
+	if compactor, ok := a.Attempt.(interface{ Compact(context.Context) error }); ok {
+		return compactor.Compact(ctx)
+	}
+	return nil
+}
+
 func (a *eventingAttempt) Open(ctx context.Context) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()

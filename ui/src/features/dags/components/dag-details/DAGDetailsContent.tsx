@@ -10,14 +10,14 @@ import {
   Bell,
   BookOpen,
   FileCode,
-  History,
   PlayCircle,
   ScrollText,
   Settings as SettingsIcon,
   Webhook,
   type LucideIcon,
 } from 'lucide-react';
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { components, Stream } from '../../../../api/v1/schema';
 import { workspaceNameFromLabels } from '../../../../lib/workspace';
 import { DAGStatus } from '../../components';
@@ -26,16 +26,19 @@ import { LinkTab } from '../common';
 import ModalLinkTab from '../common/ModalLinkTab';
 import { DAGEditButtons, DAGSpec } from '../dag-editor';
 import {
-  DAGExecutionHistory,
   ExecutionLog,
   LogViewer,
+  RunHistoryGrid,
   StepLog,
 } from '../dag-execution';
+import { useDAGRunHistory } from '../../hooks/useDAGRunHistory';
+import { isAlwaysOnDAG } from '@/lib/dagSchedule';
 import { DAGHeader } from './';
 import DAGSettingsTab from './DAGSettingsTab';
 import DAGWikiTab from './DAGWikiTab';
 import IncidentsTab from './IncidentsTab';
 import NotificationsTab from './NotificationsTab';
+import { useOptionalDAGTabs } from './useOptionalDAGTabs';
 import WebhookTab from './WebhookTab';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
@@ -73,6 +76,14 @@ type DAGDetailsContentProps = {
   pinned?: boolean;
   /** Called after the user pins or unpins the DAG */
   onPinnedChange?: () => void;
+  /**
+   * Called with the run that the run picker selected, or undefined while the
+   * latest run is shown. A page that draws the header itself uses it to show
+   * the same run in the header.
+   */
+  onPickedRunChange?: (
+    run: components['schemas']['DAGRunDetails'] | undefined
+  ) => void;
 };
 
 type DetailTab = {
@@ -114,6 +125,7 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
   fillHeight = false,
   pinned,
   onPinnedChange,
+  onPickedRunChange,
 }) => {
   const baseUrl = isModal ? '#' : `/dags/${fileName}`;
   const scopedUrl = React.useCallback(
@@ -151,17 +163,77 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
   };
 
   const [tabRowRef, tabRowFade] = useScrollFade<HTMLDivElement>('x');
+  // The overview, history and spec tabs put their own controls in the tab
+  // row, so the graph of each starts at the same place.
+  const [toolbarSlot, setToolbarSlot] = useState<HTMLDivElement | null>(null);
+
+  // The overview shows the latest run, and the grid of the latest runs picks
+  // another one. A DAG that restarts all the time would stream its history
+  // every few seconds, so an always-on DAG reads it at a slow interval instead.
+  // The history holds the full details of up to 30 runs, so it is read once
+  // the grid is near the screen, or at once when the URL names a picked run.
+  const [gridWanted, setGridWanted] = useState(false);
+  useEffect(() => setGridWanted(false), [fileName]);
+  const wantGrid = useCallback(() => setGridWanted(true), []);
+  // On the DAG page the picked run is in the URL (?run=), so a reload, the back
+  // button and a shared link show the same run. In a panel over the DAG list it
+  // stays in the state of the panel: the query string is the one of the list,
+  // and a run named there would follow the person to the next DAG. No value
+  // means the latest run.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [panelRunId, setPanelRunId] = useState<string | null>(null);
+  useEffect(() => setPanelRunId(null), [fileName]);
+  const pickedRunId = isModal ? panelRunId : searchParams.get('run');
+  const history = useDAGRunHistory(fileName || '', {
+    enabled: activeTab === 'status' && (gridWanted || !!pickedRunId),
+    live: !isAlwaysOnDAG(dag),
+  });
+  const setPickedRunId = useCallback(
+    (dagRunId: string | null) => {
+      if (isModal) {
+        setPanelRunId(dagRunId);
+        return;
+      }
+      setSearchParams(
+        (current) => {
+          const next = new URLSearchParams(current);
+          if (dagRunId) {
+            next.set('run', dagRunId);
+          } else {
+            next.delete('run');
+          }
+          return next;
+        },
+        { replace: true }
+      );
+    },
+    [isModal, setSearchParams]
+  );
+  const pickedRun = pickedRunId
+    ? history.dagRuns.find((run) => run.dagRunId === pickedRunId)
+    : undefined;
+  const shownRun = pickedRun ?? currentDAGRun;
+  const onPickedRunChangeRef = React.useRef(onPickedRunChange);
+  onPickedRunChangeRef.current = onPickedRunChange;
+  useEffect(() => {
+    onPickedRunChangeRef.current?.(pickedRun);
+  }, [pickedRun]);
   const showLogTab = activeTab === 'log' || activeTab === 'dagRun-log';
+  const optionalTabs = useOptionalDAGTabs(activeTab);
   const tabs: DetailTab[] = [
     { value: 'status', label: 'Overview', icon: PlayCircle, path: '' },
     { value: 'spec', label: 'Spec', icon: FileCode, path: '/spec' },
     { value: 'webhook', label: 'Webhook', icon: Webhook, path: '/webhook' },
-    {
-      value: 'settings',
-      label: 'Settings',
-      icon: SettingsIcon,
-      path: '/settings',
-    },
+    ...(optionalTabs.settings
+      ? [
+          {
+            value: 'settings',
+            label: 'Settings',
+            icon: SettingsIcon,
+            path: '/settings',
+          },
+        ]
+      : []),
     {
       value: 'notifications',
       label: 'Notifications',
@@ -174,7 +246,6 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
       icon: AlertTriangle,
       path: '/incidents',
     },
-    { value: 'history', label: 'History', icon: History, path: '/history' },
     // The Wiki has its own page; only the modal shows it as a tab.
     ...(isModal
       ? [{ value: 'wiki', label: 'Wiki', icon: BookOpen, path: '/wiki' }]
@@ -219,7 +290,7 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
         {!skipHeader && (
           <DAGHeader
             dag={dag}
-            currentDAGRun={currentDAGRun}
+            currentDAGRun={shownRun}
             fileName={fileName || ''}
             refreshFn={refreshFn}
             buildScopedUrl={buildScopedUrl}
@@ -259,6 +330,10 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
             </Tabs>
           </div>
 
+          <div
+            ref={setToolbarSlot}
+            className="flex flex-wrap items-center justify-end gap-2 empty:hidden lg:shrink-0"
+          />
           <div className={activeTab === 'spec' ? 'visible shrink-0' : 'hidden'}>
             <DAGEditButtons
               fileName={fileName || ''}
@@ -273,15 +348,27 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
               <I18nText text="Loading run..." />
             </div>
           )}
-          {activeTab === 'status' && currentDAGRun ? (
+          {activeTab === 'status' && shownRun ? (
             <>
               <DAGStatus
-                dagRun={currentDAGRun}
+                dagRun={shownRun}
                 fileName={fileName || ''}
                 artifactEnabled={!!dag.artifacts?.enabled}
                 fillHeight={fillHeight}
                 summary
                 showRunMeta={false}
+                toolbarSlot={toolbarSlot}
+                afterGraph={
+                  <>
+                    <NearScreen key={fileName} onNear={wantGrid} />
+                    <RunHistoryGrid
+                      dagRuns={history.dagRuns}
+                      gridData={history.gridData}
+                      selectedRunId={pickedRunId}
+                      onSelect={setPickedRunId}
+                    />
+                  </>
+                }
               />
               <div className="h-6 flex-shrink-0" />
             </>
@@ -292,13 +379,8 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
               fileName={fileName}
               localDags={localDags}
               editorHints={editorHints}
+              toolbarSlot={toolbarSlot}
             />
-          ) : null}
-          {activeTab === 'history' ? (
-            <>
-              <DAGExecutionHistory fileName={fileName || ''} />
-              <div className="h-6 flex-shrink-0" />
-            </>
           ) : null}
           {activeTab === 'webhook' ? (
             <>
@@ -384,3 +466,30 @@ const DAGDetailsContent: React.FC<DAGDetailsContentProps> = ({
 };
 
 export default DAGDetailsContent;
+
+/**
+ * Calls onNear once, when this spot is within 200 px of the screen. Without
+ * IntersectionObserver it calls it at once.
+ */
+function NearScreen({ onNear }: { onNear: () => void }): React.ReactElement {
+  const ref = React.useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const node = ref.current;
+    if (!node || typeof IntersectionObserver === 'undefined') {
+      onNear();
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          onNear();
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '200px' }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [onNear]);
+  return <div ref={ref} aria-hidden="true" className="h-px" />;
+}

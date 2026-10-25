@@ -223,7 +223,9 @@ func (store *Store) CompareAndSwapLatestAttemptStatus(
 		return nil, false, err
 	}
 
-	status, err := attempt.ReadStatus(ctx)
+	// Mutate changes the status in place, so it must not be the one shared
+	// through the cache with other readers.
+	status, err := attempt.ReadStatusUncached(ctx)
 	if err != nil {
 		return nil, false, err
 	}

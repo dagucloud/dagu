@@ -277,7 +277,7 @@ export interface paths {
         };
         /**
          * List all available DAGs
-         * @description Retrieves DAG definitions with optional filtering by name, labels, and active status (scheduled and not suspended).
+         * @description Retrieves DAG definitions with optional filtering by name, labels, and active status (scheduled or kept running by a restart policy of always or unless-stopped, and not suspended).
          */
         get: operations["listDAGs"];
         put?: never;
@@ -1919,6 +1919,26 @@ export interface paths {
         put?: never;
         /** Restart a managed-agent session cleanly in a sub DAG-run */
         post: operations["restartSubDAGRunStepAgentSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/always-on-dags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the always-on DAGs
+         * @description Returns the DAGs that set a restart policy, each with a compact state. An always-on DAG runs without end, so this list replaces its runs in the run lists. The state follows from the latest run. The response has no list of runs, but the state and the latest run change at each restart, so a DAG that restarts every few seconds changes it that often, and the live stream sends it at most once every two seconds.
+         */
+        get: operations["listAlwaysOnDAGs"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -5637,6 +5657,12 @@ export interface components {
             workspace?: string;
             /** @description List of scheduling expressions defining when DAG-runs should be created from this DAG */
             schedule?: components["schemas"]["Schedule"][];
+            restartPolicy?: components["schemas"]["RestartPolicy"];
+            /** @description Seconds the scheduler waits after a run ends before it starts the next one. Used with restartPolicy. */
+            restartWaitSec?: number;
+            /** @description With restartPolicy, the run loops: after its steps end it waits this many seconds and runs them again in the same run. Omitted when the DAG does not loop. */
+            loopWaitSec?: number;
+            loopOnFailure?: components["schemas"]["LoopOnFailure"];
             /** @description Human-readable description of the DAG's purpose and behavior */
             description?: string;
             /** @description List of parameter names that can be passed to DAG-runs created from this DAG */
@@ -5702,6 +5728,16 @@ export interface components {
          * @enum {string}
          */
         TriggerType: TriggerType;
+        /**
+         * @description What a run that loops does when a cycle fails. restart: the run ends and the restart policy starts a new one. continue: the run goes on with the next cycle. Omitted when the DAG does not loop.
+         * @enum {string}
+         */
+        LoopOnFailure: LoopOnFailure;
+        /**
+         * @description Restart policy of a DAG: the scheduler keeps a run of the DAG alive and starts the next run restartWaitSec seconds after the previous one ends. With unless-stopped, no run follows a run that an operator stopped. Omitted when the DAG has no restart policy.
+         * @enum {string}
+         */
+        RestartPolicy: RestartPolicy;
         /**
          * @description Numeric status code indicating current node state:
          *     0: "Not started"
@@ -5844,6 +5880,12 @@ export interface components {
             steps?: components["schemas"]["Step"][];
             /** @description Time in seconds to wait before starting a DAG-run */
             delay?: number;
+            restartPolicy?: components["schemas"]["RestartPolicy"];
+            /** @description Seconds the scheduler waits after a run ends before it starts the next one. Used with restartPolicy. */
+            restartWaitSec?: number;
+            /** @description With restartPolicy, the run loops: after its steps end it waits this many seconds and runs them again in the same run. Omitted when the DAG does not loop. */
+            loopWaitSec?: number;
+            loopOnFailure?: components["schemas"]["LoopOnFailure"];
             /** @description Number of days to retain historical logs */
             histRetentionDays?: number;
             /** @description Number of DAG runs to retain historical logs. Mutually exclusive with histRetentionDays. */
@@ -6081,6 +6123,10 @@ export interface components {
         };
         /** @description Detailed status of a DAG-run including sub DAG-run nodes */
         DAGRunDetails: components["schemas"]["DAGRunSummary"] & {
+            /** @description For a run that loops, the cycle it is in, counted from 1. Omitted for a run that does not loop. */
+            cycle?: number;
+            /** @description For a run that loops, how many cycles ended unsuccessfully */
+            failedCycles?: number;
             /** @description Name of the root DAG-run */
             rootDAGRunName: string;
             rootDAGRunId: components["schemas"]["DAGRunId"] & unknown;
@@ -6962,6 +7008,52 @@ export interface components {
             rootDagRunId?: components["schemas"]["DAGRunId"];
             parentDagRunName?: components["schemas"]["DAGName"];
             parentDagRunId?: components["schemas"]["DAGRunId"];
+        };
+        /**
+         * @description What an always-on DAG does, as its latest run shows it:
+         *     - pending: no run is alive yet, or the latest run waits in the queue.
+         *     - running: a run is alive.
+         *     - restarting: the latest run succeeded and the next run is due.
+         *     - failing: the latest run did not succeed and the next run is due.
+         *     - suspended: the DAG gets no new run.
+         *     - stopped: an operator stopped the latest run of an unless-stopped DAG.
+         *
+         * @enum {string}
+         */
+        AlwaysOnDAGState: AlwaysOnDAGState;
+        /** @description The latest run of an always-on DAG */
+        AlwaysOnDAGRun: {
+            dagRunId: components["schemas"]["DAGRunId"];
+            status: components["schemas"]["Status"];
+            /**
+             * Format: date-time
+             * @description When the run started. Omitted until it starts.
+             */
+            startedAt?: string;
+            /**
+             * Format: date-time
+             * @description When the run ended. Omitted while it is alive.
+             */
+            finishedAt?: string;
+        };
+        /** @description A DAG that sets a restart policy, with its state */
+        AlwaysOnDAG: {
+            /** @description File ID of the DAG file */
+            fileName: string;
+            name: components["schemas"]["DAGName"];
+            restartPolicy: components["schemas"]["RestartPolicy"];
+            /** @description Seconds the scheduler waits after a run ends before it starts the next one. */
+            restartWaitSec: number;
+            state: components["schemas"]["AlwaysOnDAGState"];
+            /** @description Whether the DAG is suspended */
+            suspended: boolean;
+            latestRun?: components["schemas"]["AlwaysOnDAGRun"];
+        };
+        /** @description The always-on DAGs */
+        AlwaysOnDAGsResponse: {
+            dags: components["schemas"]["AlwaysOnDAG"][];
+            /** @description Errors met while the response was built */
+            errors: string[];
         };
         /** @description Response containing all queues with their active DAG-runs */
         QueuesResponse: {
@@ -7883,7 +7975,7 @@ export interface components {
             workspaceScope?: components["schemas"]["ViewWorkspaceScope"];
             sortField?: components["schemas"]["ViewSortField"];
             sortOrder?: components["schemas"]["ViewSortOrder"];
-            /** @description Whether the view only includes scheduled, unsuspended workflows. */
+            /** @description Whether the view only includes workflows that are scheduled or kept running by a restart policy of always or unless-stopped, and not suspended. */
             activeOnly?: boolean;
             /** @description Whether this is the default workflow view for its workspace scope. */
             isDefault?: boolean;
@@ -7904,7 +7996,7 @@ export interface components {
             workspaceScope?: components["schemas"]["ViewWorkspaceScope"];
             sortField?: components["schemas"]["ViewSortField"];
             sortOrder?: components["schemas"]["ViewSortOrder"];
-            /** @description Whether the view only includes scheduled, unsuspended workflows. */
+            /** @description Whether the view only includes workflows that are scheduled or kept running by a restart policy of always or unless-stopped, and not suspended. */
             activeOnly?: boolean;
             /** @description DAG run ID filter. Empty matches any. */
             dagRunId?: string;
@@ -7977,6 +8069,8 @@ export interface components {
         WikiPagesPerPage: number;
         /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
         Workspace: string;
+        /** @description Leave out the runs that a restart policy started (trigger type restart). An always-on DAG runs without end, so these runs are better read from the always-on list. A run that someone started by hand stays in the result. */
+        ExcludeAlwaysOnRuns: boolean;
         /** @description Optional Wiki page path prefix within the selected workspace */
         WikiPagePrefix: components["schemas"]["WikiPagePath"];
         /** @description Filter by DAG names containing this value */
@@ -9101,7 +9195,7 @@ export interface operations {
                 name?: string;
                 /** @description Filter DAGs by labels (comma-separated). Returns DAGs that have ALL specified labels. Mutually exclusive with `tags`; the server returns HTTP 400 if both are set. */
                 labels?: string;
-                /** @description Filter to DAGs that have a schedule and are not suspended. */
+                /** @description Filter to DAGs that are not suspended and have a schedule or a restart policy of always or unless-stopped. */
                 active?: boolean;
                 /**
                  * @deprecated
@@ -10395,6 +10489,8 @@ export interface operations {
                 remoteNode?: components["parameters"]["RemoteNode"];
                 /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
                 workspace?: components["parameters"]["Workspace"];
+                /** @description Leave out the runs that a restart policy started (trigger type restart). An always-on DAG runs without end, so these runs are better read from the always-on list. A run that someone started by hand stays in the result. */
+                excludeAlwaysOnRuns?: components["parameters"]["ExcludeAlwaysOnRuns"];
                 /** @description start of the time range for filtering DAG-runs, as a Unix timestamp in seconds */
                 fromDate?: components["parameters"]["DateTimeFrom"];
                 /** @description end of the time range for filtering DAG-runs, as a Unix timestamp in seconds */
@@ -10460,6 +10556,8 @@ export interface operations {
                 remoteNode?: components["parameters"]["RemoteNode"];
                 /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
                 workspace?: components["parameters"]["Workspace"];
+                /** @description Leave out the runs that a restart policy started (trigger type restart). An always-on DAG runs without end, so these runs are better read from the always-on list. A run that someone started by hand stays in the result. */
+                excludeAlwaysOnRuns?: components["parameters"]["ExcludeAlwaysOnRuns"];
                 /** @description Filter DAG-runs by name */
                 name?: string;
                 /** @description Filter DAG-runs by DAG labels (comma-separated). Returns runs from DAGs that have ALL specified labels. Mutually exclusive with `tags`; the server returns HTTP 400 if both are set. */
@@ -14018,6 +14116,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listAlwaysOnDAGs: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
+                workspace?: components["parameters"]["Workspace"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlwaysOnDAGsResponse"];
                 };
             };
             /** @description Generic error response */
@@ -22510,7 +22642,16 @@ export enum TriggerType {
     webhook = "webhook",
     subdag = "subdag",
     retry = "retry",
-    catchup = "catchup"
+    catchup = "catchup",
+    restart = "restart"
+}
+export enum LoopOnFailure {
+    restart = "restart",
+    continue = "continue"
+}
+export enum RestartPolicy {
+    always = "always",
+    unless_stopped = "unless-stopped"
 }
 export enum NodeStatus {
     NotStarted = 0,
@@ -22666,6 +22807,14 @@ export enum ForeachItemStatusFilter {
 export enum RepeatMode {
     While = "while",
     Until = "until"
+}
+export enum AlwaysOnDAGState {
+    pending = "pending",
+    running = "running",
+    restarting = "restarting",
+    failing = "failing",
+    suspended = "suspended",
+    stopped = "stopped"
 }
 export enum QueueType {
     global = "global",

@@ -31,6 +31,16 @@ describe('RunMetaLine', () => {
     expect(screen.getByText('region=eu')).toBeInTheDocument();
   });
 
+  // Items such as a running duration change width; the ID stays at the end.
+  it('keeps the run ID at the right edge of the line', () => {
+    render(<RunMetaLine dagRun={run} className="flex-1" />);
+
+    expect(screen.getByTitle('Run ID')).toHaveClass('ml-auto');
+    expect(screen.getByTitle('Run ID').closest('dl')?.parentElement).toHaveClass(
+      'flex-1'
+    );
+  });
+
   it('omits start and duration until a queued run starts', () => {
     render(
       <RunMetaLine

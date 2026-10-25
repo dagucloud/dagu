@@ -35,4 +35,22 @@ describe('LiveSwitch', () => {
       screen.getByRole('switch', { name: 'Schedule for nightly' })
     ).toBeChecked();
   });
+
+  it('names the switch after the restarts of an always-on DAG', () => {
+    render(
+      <LiveSwitch
+        dag={
+          {
+            fileName: 'worker',
+            suspended: true,
+            dag: { name: 'worker', restartPolicy: 'always' },
+          } as never
+        }
+      />
+    );
+
+    expect(
+      screen.getByRole('switch', { name: 'Restarts for worker' })
+    ).not.toBeChecked();
+  });
 });

@@ -124,6 +124,14 @@ type dag struct {
 	DelaySec int `yaml:"delay_sec,omitempty"`
 	// RestartWaitSec is the wait in seconds to when the DAG is restarted.
 	RestartWaitSec int `yaml:"restart_wait_sec,omitempty"`
+	// RestartPolicy is no|always|unless-stopped: whether the scheduler keeps a run of the DAG alive.
+	RestartPolicy *string `yaml:"restart_policy,omitempty"`
+	// LoopWaitSec is the wait in seconds between two cycles of one run. With a
+	// restart policy, the steps run again in the same run after it.
+	LoopWaitSec int `yaml:"loop_wait_sec,omitempty"`
+	// LoopOnFailure is restart|continue: what a run that loops does when a
+	// cycle fails.
+	LoopOnFailure *string `yaml:"loop_on_failure,omitempty"`
 	// HistRetentionDays is the retention days of the dag-runs history.
 	HistRetentionDays *int `yaml:"hist_retention_days,omitempty"`
 	// HistRetentionRuns is the number of dag-runs to retain in history.
@@ -560,6 +568,9 @@ var metadataExecutionPlacementStage = transformStage{
 	dagField("timeout", buildTimeout, func(out *ir.DAG, v time.Duration) { out.Timeout = v }),
 	dagField("delay", buildDelay, func(out *ir.DAG, v time.Duration) { out.Delay = v }),
 	dagField("restart_wait", buildRestartWait, func(out *ir.DAG, v time.Duration) { out.RestartWait = v }),
+	dagField("restart_policy", buildRestartPolicy, func(out *ir.DAG, v ir.RestartPolicy) { out.RestartPolicy = v }),
+	dagField("loop_wait", buildLoopWait, func(out *ir.DAG, v time.Duration) { out.LoopWait = v }),
+	dagField("loop_on_failure", buildLoopOnFailure, func(out *ir.DAG, v ir.LoopOnFailure) { out.LoopOnFailure = v }),
 	dagField("max_active_runs", buildMaxActiveRuns, func(out *ir.DAG, v int) { out.MaxActiveRuns = v }),
 	dagField("max_active_steps", buildMaxActiveSteps, func(out *ir.DAG, v int) { out.MaxActiveSteps = v }),
 	dagField("queue", buildQueue, func(out *ir.DAG, v string) { out.Queue = v }),
@@ -698,6 +709,7 @@ func (s *dagBuildState) validateSpecShape() {
 	if err := validateHistoryRetentionConfig(s.spec); err != nil {
 		s.errs = append(s.errs, err)
 	}
+	s.errs = append(s.errs, validateRestartPolicyConfig(s.spec)...)
 }
 
 func (s *dagBuildState) prepareParamEnvStage() {
@@ -820,6 +832,12 @@ func (s *dagBuildState) collectWarnings() {
 				"Use a global queue with 'queue:' field for concurrency control.",
 			s.result.MaxActiveRuns,
 		))
+	}
+
+	if s.result.LoopWait > 0 && s.spec.WorkerSelector != nil {
+		s.result.BuildWarnings = append(s.result.BuildWarnings,
+			"loop_wait_sec with worker_selector: the status file of a run on a worker is not compacted between "+
+				"cycles, so it grows with each cycle for as long as the run lives.")
 	}
 
 	for _, sched := range s.result.Schedule {
@@ -974,6 +992,14 @@ func (s *dagBuildState) validateResult() {
 		}
 	}
 
+	if s.result.RestartPolicy.Enabled() && s.result.RestartWait < time.Second {
+		s.errs = append(s.errs, ir.NewValidationError(
+			"restart_wait_sec",
+			s.result.RestartWait,
+			fmt.Errorf("restart_wait_sec must be at least 1 when restart_policy is %q", s.result.RestartPolicy),
+		))
+	}
+
 	if s.result.Name != "" {
 		if err := ir.ValidateDAGName(s.result.Name); err != nil {
 			s.errs = append(s.errs, ir.NewValidationError("name", s.result.Name, err))
@@ -1062,6 +1088,14 @@ func composeBuildDAGContext(base, current *ir.DAG, currentSpec *dag) (*ir.DAG, e
 	if currentSpec.Queue != nil {
 		effective.Queue = current.Queue
 	}
+	// An always-on DAG is neither scheduled nor retried at the DAG level, so what the
+	// base configuration adds is dropped.
+	if effective.RestartPolicy.Enabled() {
+		effective.Schedule = nil
+		effective.StopSchedule = nil
+		effective.RestartSchedule = nil
+		effective.RetryPolicy = nil
+	}
 
 	return effective, nil
 }
@@ -1140,6 +1174,122 @@ func buildDelay(_ buildContext, d *dag) (time.Duration, error) {
 
 func buildRestartWait(_ buildContext, d *dag) (time.Duration, error) {
 	return time.Second * time.Duration(d.RestartWaitSec), nil
+}
+
+func buildLoopWait(_ buildContext, d *dag) (time.Duration, error) {
+	return time.Second * time.Duration(d.LoopWaitSec), nil
+}
+
+func buildLoopOnFailure(_ buildContext, d *dag) (ir.LoopOnFailure, error) {
+	if d.LoopOnFailure == nil {
+		return ir.LoopOnFailureRestart, nil
+	}
+	mode, err := ir.ParseLoopOnFailure(*d.LoopOnFailure)
+	if err != nil {
+		return ir.LoopOnFailureRestart, ir.NewValidationError("loop_on_failure", *d.LoopOnFailure, err)
+	}
+	return mode, nil
+}
+
+func buildRestartPolicy(_ buildContext, d *dag) (ir.RestartPolicy, error) {
+	if d.RestartPolicy == nil {
+		return ir.RestartPolicyNo, nil
+	}
+	policy, err := ir.ParseRestartPolicy(*d.RestartPolicy)
+	if err != nil {
+		return ir.RestartPolicyNo, ir.NewValidationError("restart_policy", *d.RestartPolicy, err)
+	}
+	return policy, nil
+}
+
+// validateBaseRestartPolicy rejects a base configuration that sets a restart
+// policy: it applies to every DAG, so it would turn them all into always-on DAGs.
+func validateBaseRestartPolicy(d *dag) error {
+	if d.LoopOnFailure != nil {
+		return ir.NewValidationError(
+			"loop_on_failure",
+			*d.LoopOnFailure,
+			fmt.Errorf("loop_on_failure cannot be set in the base configuration: set it in the DAG that needs it"),
+		)
+	}
+	if d.LoopWaitSec != 0 {
+		return ir.NewValidationError(
+			"loop_wait_sec",
+			d.LoopWaitSec,
+			fmt.Errorf("loop_wait_sec cannot be set in the base configuration: set it in the DAG that needs it"),
+		)
+	}
+	if d.RestartPolicy == nil {
+		return nil
+	}
+	policy, err := ir.ParseRestartPolicy(*d.RestartPolicy)
+	if err != nil || !policy.Enabled() {
+		return nil
+	}
+	return ir.NewValidationError(
+		"restart_policy",
+		*d.RestartPolicy,
+		fmt.Errorf("restart_policy cannot be set in the base configuration: set it in the DAG that needs it"),
+	)
+}
+
+// validateRestartPolicyConfig rejects what an always-on DAG (one the scheduler
+// keeps alive) must not define itself: a schedule, which would start runs of its
+// own, and a DAG-level retry policy, which would restart a failed run next to
+// the restart policy. An invalid policy value is reported by buildRestartPolicy.
+func validateRestartPolicyConfig(d *dag) []error {
+	var loopErrs []error
+	if d.LoopWaitSec < 0 {
+		loopErrs = append(loopErrs, ir.NewValidationError(
+			"loop_wait_sec",
+			d.LoopWaitSec,
+			fmt.Errorf("loop_wait_sec must not be negative"),
+		))
+	}
+	if d.LoopWaitSec > 0 {
+		enabled := false
+		if d.RestartPolicy != nil {
+			policy, err := ir.ParseRestartPolicy(*d.RestartPolicy)
+			enabled = err == nil && policy.Enabled()
+		}
+		if !enabled {
+			loopErrs = append(loopErrs, ir.NewValidationError(
+				"loop_wait_sec",
+				d.LoopWaitSec,
+				fmt.Errorf("loop_wait_sec requires restart_policy to be always or unless-stopped"),
+			))
+		}
+	}
+	if d.LoopOnFailure != nil && d.LoopWaitSec <= 0 {
+		loopErrs = append(loopErrs, ir.NewValidationError(
+			"loop_on_failure",
+			*d.LoopOnFailure,
+			fmt.Errorf("loop_on_failure requires loop_wait_sec to be set"),
+		))
+	}
+	if d.RestartPolicy == nil {
+		return loopErrs
+	}
+	policy, err := ir.ParseRestartPolicy(*d.RestartPolicy)
+	if err != nil || !policy.Enabled() {
+		return loopErrs
+	}
+	errs := loopErrs
+	if len(d.Schedule.Starts())+len(d.Schedule.Stops())+len(d.Schedule.Restarts()) > 0 {
+		errs = append(errs, ir.NewValidationError(
+			"restart_policy",
+			*d.RestartPolicy,
+			fmt.Errorf("restart_policy cannot be combined with schedule"),
+		))
+	}
+	if d.RetryPolicy != nil {
+		errs = append(errs, ir.NewValidationError(
+			"restart_policy",
+			*d.RestartPolicy,
+			fmt.Errorf("restart_policy cannot be combined with retry_policy"),
+		))
+	}
+	return errs
 }
 
 func buildLabels(_ buildContext, d *dag) (ir.Labels, error) {
