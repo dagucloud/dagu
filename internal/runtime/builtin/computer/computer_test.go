@@ -1094,6 +1094,33 @@ func TestNextStepReturnsToTheRunsApplicationAfterAPerson(t *testing.T) {
 	}
 }
 
+// A person's use of the desktop does not count against a check's or an
+// extract's timeout: either waits for them and then reads, however long
+// they took beyond its timeout.
+func TestPersonDoesNotRunOutACheckOrAnExtract(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		op   string
+	}{
+		{"expect", `{"expect": {"element": {"role": "button", "id": "saveButton"}}, "timeout": "100ms"}`},
+		{"extract", `{"extract": {"instruction": "The amount", "schema": {"type": "object", "properties": {"amount": {"type": "string"}}}, "fields": {"windows": {"amount": {"role": "text_field", "id": "amountBox"}}}}, "timeout": "100ms"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			run := elementRun(t)
+			// The person keeps using the desktop for well over the timeout.
+			run.backend.personKeepsUsing(500)
+			began := time.Now()
+			execution := run.execute(`{"ai": "never", "idle": "20ms", "do": [`+tc.op+`]}`, nil)
+			require.NoError(t, execution.err)
+			require.Greater(t, time.Since(began), 200*time.Millisecond, "the person used the desktop beyond the timeout")
+			assert.Contains(t, strings.Join(lifecycleMessages(execution.exec.GetAgentSession()), "\n"), "Waiting until nobody has used the desktop")
+		})
+	}
+}
+
 func elementRun(t *testing.T) *testRun {
 	t.Helper()
 	run := newTestRun(t)

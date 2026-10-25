@@ -351,7 +351,8 @@ func (r *run) launch(ctx context.Context, index int, spec launchSpec) error {
 // reads the bindings first and asks the model only when one is missing;
 // never reads the bindings and fails when one is missing.
 func (r *run) extract(ctx context.Context, index int, spec extractSpec, timeout time.Duration) error {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	// A person's use of the desktop pauses the timeout, as it does an act's.
+	ctx, cancel := r.operationContext(ctx, timeout)
 	defer cancel()
 	defer r.during(ctx)()
 	began, before := time.Now(), r.usage
@@ -557,7 +558,8 @@ func (r *run) resolve(spec condition) (condition, error) {
 // reason stands as the answer rather than the deadline.
 func (r *run) await(ctx context.Context, index int, c condition, window, timeout time.Duration) (bool, string, error) {
 	deadline := time.Now().Add(window)
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	// A person's use of the desktop pauses the timeout, as it does an act's.
+	ctx, cancel := r.operationContext(ctx, timeout)
 	defer cancel()
 	defer r.during(ctx)()
 	interval := conditionPollInterval
