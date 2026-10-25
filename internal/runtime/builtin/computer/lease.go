@@ -104,9 +104,11 @@ func (l *desktopLease) workApp(runID string) string {
 }
 
 // recordWorkApp notes the application this step last worked in, for the
-// run's next step.
+// run's next step. An empty one still records the run, so an application
+// an earlier run worked in is not brought back after this run held the
+// desktop.
 func (l *desktopLease) recordWorkApp(runID, app string) {
-	if runID == "" || app == "" {
+	if runID == "" {
 		return
 	}
 	_ = os.WriteFile(filepath.Join(l.dir, workAppFile), []byte(runID+"\n"+app), lastInputFileMode)

@@ -311,7 +311,7 @@ func (r *run) resolveElement(ctx context.Context, index int, els desktop.Element
 		if !time.Now().Before(deadline) {
 			return desktop.Element{}, reason, nil
 		}
-		if err := sleep(ctx, min(exactPollInterval, time.Until(deadline))); err != nil {
+		if err := r.pollSleep(ctx, min(exactPollInterval, time.Until(deadline))); err != nil {
 			return desktop.Element{}, "", err
 		}
 	}
@@ -590,7 +590,7 @@ func (r *run) awaitLandmarks(ctx context.Context, index int, els desktop.Element
 		if !time.Now().Before(deadline) {
 			return reason, nil
 		}
-		if err := sleep(ctx, min(exactPollInterval, time.Until(deadline))); err != nil {
+		if err := r.pollSleep(ctx, min(exactPollInterval, time.Until(deadline))); err != nil {
 			return "", err
 		}
 	}

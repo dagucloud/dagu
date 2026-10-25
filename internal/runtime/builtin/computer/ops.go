@@ -37,7 +37,10 @@ const (
 	exactWhenWait = 2 * time.Second
 	// defaultIdlePoll spaces the checks for a person using the desktop, and
 	// defaultPersonWait bounds how long a step waits for one to stop.
-	defaultIdlePoll   = 500 * time.Millisecond
+	defaultIdlePoll = 500 * time.Millisecond
+	// personPoll spaces the checks for a person while a wait sleeps between
+	// two looks at the screen, so the wait makes way for them at once.
+	personPoll        = 20 * time.Millisecond
 	defaultPersonWait = time.Hour
 	// defaultScreenPoll spaces the checks of a screen waiting for a person
 	// to unlock it, and defaultScreenWait bounds that wait for a step with
@@ -578,7 +581,7 @@ func (r *run) await(ctx context.Context, index int, c condition, window, timeout
 		if err != nil || holds || !time.Now().Before(deadline) {
 			return holds, reason, err
 		}
-		if err := sleep(ctx, min(interval, time.Until(deadline))); err != nil {
+		if err := r.pollSleep(ctx, min(interval, time.Until(deadline))); err != nil {
 			if errors.Is(err, context.DeadlineExceeded) && !c.judged() {
 				return false, reason, nil
 			}
@@ -889,11 +892,7 @@ func (r *run) resumeAfterPerson(ctx context.Context, index int) (bool, error) {
 	if !r.guardsPerson() {
 		return false, nil
 	}
-	since := r.driver.InputSentAt()
-	if r.personHandled.After(since) {
-		since = r.personHandled
-	}
-	if !r.driver.PersonInputSince(since) {
+	if !r.driver.PersonInputSince(r.personSince()) {
 		return false, nil
 	}
 	if err := r.awaitPerson(ctx); err != nil {
@@ -904,6 +903,39 @@ func (r *run) resumeAfterPerson(ctx context.Context, index int) (bool, error) {
 		r.bringForward(ctx, index, r.workApp, "")
 	}
 	return true, nil
+}
+
+// personSince is when the step last sent input or made way for a person,
+// whichever came later: input after it is a person's the step has not made
+// way for yet.
+func (r *run) personSince() time.Time {
+	since := r.driver.InputSentAt()
+	if r.personHandled.After(since) {
+		since = r.personHandled
+	}
+	return since
+}
+
+// pollSleep waits between two looks at the screen, ending early when a
+// person starts using the desktop, so the next look makes way for them at
+// once rather than after the wait, which the operation's time would cover.
+func (r *run) pollSleep(ctx context.Context, d time.Duration) error {
+	if !r.guardsPerson() {
+		return sleep(ctx, d)
+	}
+	since := r.personSince()
+	for deadline := time.Now().Add(d); ; {
+		left := time.Until(deadline)
+		if left <= 0 {
+			return nil
+		}
+		if err := sleep(ctx, min(left, personPoll)); err != nil {
+			return err
+		}
+		if r.driver.PersonInputSince(since) {
+			return nil
+		}
+	}
 }
 
 // awaitUnlock waits while the desktop is unusable only until a person

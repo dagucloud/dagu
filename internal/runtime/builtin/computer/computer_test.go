@@ -1052,9 +1052,11 @@ func TestNextStepReturnsToTheRunsApplicationAfterAPerson(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		otherRun bool
+		between  bool
 	}{
-		{"in the same run", false},
-		{"in another run", true},
+		{"in the same run", false, false},
+		{"in another run", true, false},
+		{"after another run held the desktop", false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -1071,6 +1073,12 @@ func TestNextStepReturnsToTheRunsApplicationAfterAPerson(t *testing.T) {
 				}
 			}
 			require.NoError(t, run.execute(first, nil).err)
+			if tc.between {
+				// A step of another run holds the desktop and finds nothing.
+				run.runID = "run-2"
+				require.NoError(t, run.execute(`{"ai": "never", "do": [{"wait": "10ms"}]}`, nil).err)
+				run.runID = ""
+			}
 
 			// Between the steps, a person works in another application.
 			run.backend.personUsesAfterEcho()
@@ -1082,7 +1090,7 @@ func TestNextStepReturnsToTheRunsApplicationAfterAPerson(t *testing.T) {
 				run.runID = "run-2"
 			}
 			execution := run.execute(second, nil)
-			if tc.otherRun {
+			if tc.otherRun || tc.between {
 				require.Error(t, execution.err, "the payment's button is not in the window in front")
 				assert.Empty(t, run.backend.raised)
 				return
@@ -1117,6 +1125,37 @@ func TestPersonDoesNotRunOutACheckOrAnExtract(t *testing.T) {
 			require.NoError(t, execution.err)
 			require.Greater(t, time.Since(began), 200*time.Millisecond, "the person used the desktop beyond the timeout")
 			assert.Contains(t, strings.Join(lifecycleMessages(execution.exec.GetAgentSession()), "\n"), "Waiting until nobody has used the desktop")
+		})
+	}
+}
+
+// A wait between two looks at the screen ends as soon as a person starts
+// using the desktop, so the next look makes way for them at once; with
+// nobody there it waits its whole time.
+func TestPollSleepEndsWhenAPersonStarts(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name   string
+		person bool
+	}{
+		{"a person starts", true},
+		{"nobody", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			backend := newFakeBackend(800, 600)
+			r := &run{exec: &computerExecutor{}, cfg: config{Idle: "100ms"}, driver: desktop.New(backend)}
+			if tc.person {
+				time.AfterFunc(100*time.Millisecond, backend.personUsesAfterEcho)
+			}
+			began := time.Now()
+			require.NoError(t, r.pollSleep(t.Context(), 2*time.Second))
+			if tc.person {
+				assert.Less(t, time.Since(began), time.Second, "the wait ended when the person started")
+				return
+			}
+			assert.GreaterOrEqual(t, time.Since(began), 2*time.Second)
 		})
 	}
 }
