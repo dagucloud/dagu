@@ -821,11 +821,15 @@ func pinnedStepSchema() *jsonschema.Schema {
 }
 
 // pinnedFieldSchema accepts an extract's pinned field: a selector for a
-// scalar, or a container and columns for a table.
+// scalar, or a container and columns alone for a table, whose selector
+// keys go inside container.
 func pinnedFieldSchema() *jsonschema.Schema {
 	return &jsonschema.Schema{
 		Type:                 "object",
 		AdditionalProperties: agentstep.NoExtraProperties(),
+		If:                   &jsonschema.Schema{Required: []string{"container"}},
+		Then:                 &jsonschema.Schema{PropertyNames: &jsonschema.Schema{Enum: []any{"container", "columns"}}},
+		DependentRequired:    map[string][]string{"columns": {"container"}},
 		Properties: map[string]*jsonschema.Schema{
 			"role":      {Type: "string", Enum: roleValues()},
 			"name":      agentstep.NonEmptyString(),
@@ -835,6 +839,7 @@ func pinnedFieldSchema() *jsonschema.Schema {
 			"in":        {Ref: "#/$defs/selector"},
 			"near":      nearSchema(),
 			"nth":       {Type: "integer", Minimum: new(0.0)},
+			"enabled":   {Type: "boolean"},
 			"container": {Ref: "#/$defs/selector"},
 			"columns":   {Type: "object", AdditionalProperties: agentstep.NonEmptyString()},
 		},
@@ -869,14 +874,15 @@ func selectorSchema() *jsonschema.Schema {
 		AdditionalProperties: agentstep.NoExtraProperties(),
 		Required:             []string{"role"},
 		Properties: map[string]*jsonschema.Schema{
-			"role":   {Type: "string", Enum: roleValues()},
-			"name":   agentstep.NonEmptyString(),
-			"id":     agentstep.NonEmptyString(),
-			"app":    agentstep.NonEmptyString(),
-			"window": agentstep.NonEmptyString(),
-			"in":     {Ref: "#/$defs/selector"},
-			"near":   nearSchema(),
-			"nth":    {Type: "integer", Minimum: new(0.0)},
+			"role":    {Type: "string", Enum: roleValues()},
+			"name":    agentstep.NonEmptyString(),
+			"id":      agentstep.NonEmptyString(),
+			"app":     agentstep.NonEmptyString(),
+			"window":  agentstep.NonEmptyString(),
+			"in":      {Ref: "#/$defs/selector"},
+			"near":    nearSchema(),
+			"nth":     {Type: "integer", Minimum: new(0.0)},
+			"enabled": {Type: "boolean"},
 		},
 		AnyOf: []*jsonschema.Schema{
 			{Required: []string{"name"}},
