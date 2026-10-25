@@ -330,12 +330,13 @@ func (l *actLoop) run(ctx context.Context) error {
 		}
 		var results []computeruse.Result
 		// The screen the actions ran on, and for a turn of scrolls the
-		// window they scroll, tell whether the actions changed anything.
+		// windows they scroll, tell whether the actions changed anything.
 		before := l.seen.full
-		scrolls := runActions && onlyScrolls(turn.Actions)
-		var scrolled view
-		if scrolls {
-			scrolled = l.view(turn.Actions)
+		var scrolled []view
+		if runActions && onlyScrolls(turn.Actions) {
+			for _, action := range turn.Actions {
+				scrolled = append(scrolled, l.view([]computeruse.Action{action}))
+			}
 		}
 		if runActions {
 			results = l.apply(ctx, turn)
@@ -366,13 +367,12 @@ func (l *actLoop) run(ctx context.Context) error {
 		if l.seen, err = l.look(ctx); err != nil {
 			return err
 		}
-		// Scrolls that left their window as it was reached nothing that
-		// scrolls, which the model is told at once.
-		if scrolls && !anyFailed(results) && scrolled.still(before, l.seen.full) {
+		// Scrolls that left every window they scroll as it was reached
+		// nothing that scrolls, which the model is told at once, beside any
+		// request to check its report.
+		if len(scrolled) > 0 && !anyFailed(results) && allStill(scrolled, before, l.seen.full) {
 			logAction(l.r.timeline, l.index, "the scroll moved nothing on the screen")
-			if note == "" {
-				note = stillScrollNote
-			}
+			note = strings.TrimSpace(note + " " + stillScrollNote)
 		}
 		// A round that repeats the previous one and leaves the screen as it
 		// was is going nowhere; the model is told before it tries a third
@@ -699,6 +699,17 @@ func onlyScrolls(actions []computeruse.Action) bool {
 		}
 	}
 	return len(actions) > 0
+}
+
+// allStill reports whether every view shows the same picture in two
+// captures of the display.
+func allStill(views []view, before, after *image.RGBA) bool {
+	for _, v := range views {
+		if !v.still(before, after) {
+			return false
+		}
+	}
+	return true
 }
 
 // describeRound summarizes a round of actions so two rounds can be compared.

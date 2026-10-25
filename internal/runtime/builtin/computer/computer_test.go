@@ -2265,6 +2265,48 @@ func TestStillScrollIsNoted(t *testing.T) {
 	assert.Contains(t, execution.stderr.String(), "the scroll moved nothing")
 }
 
+// A scroll that moved nothing is reported beside the request to look at the
+// result of a turn that also reported the task done.
+func TestStillScrollIsNotedWithReport(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	scrolledAndDone := actions(scrollDownAt(5, 5))
+	scrolledAndDone.Done = &computeruse.Done{Success: true, Summary: "At the end"}
+	session := &scriptedSession{turns: []*computeruse.Turn{scrolledAndDone, done("At the end")}}
+	run.sessions = []*scriptedSession{session}
+	execution := run.execute(`{"cache": false, "do": [{"act": "Scroll to the end"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	require.Len(t, session.observations, 2)
+	assert.Equal(t, verifyNote+" "+stillScrollNote, session.observations[1].Note)
+}
+
+// A turn that scrolls two windows moved something when either window moved.
+func TestScrollOfASecondWindowMoved(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	left := desktop.WindowID{Handle: 1, App: "left", Bounds: image.Rect(0, 0, 200, 200)}
+	right := desktop.WindowID{Handle: 2, App: "right", Bounds: image.Rect(200, 0, 400, 200)}
+	run.backend.windows = []desktop.WindowID{left, right}
+	run.backend.windowAt = func(x, _ int) desktop.WindowID {
+		if x < 200 {
+			return left
+		}
+		return right
+	}
+	screen := run.backend.screen
+	run.backend.afterWheels = []*image.RGBA{screen, brightened(screen, image.Rect(300, 50, 340, 90), 2)}
+	session := &scriptedSession{turns: []*computeruse.Turn{actions(scrollDownAt(50, 50), scrollDownAt(300, 50)), done("Scrolled")}}
+	run.sessions = []*scriptedSession{session}
+	execution := run.execute(`{"cache": false, "do": [{"act": "Scroll both lists"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	require.Len(t, session.observations, 2)
+	assert.Empty(t, session.observations[1].Note)
+}
+
 // Scrolling down a list repeats one scroll, and a small list that moved
 // keeps the screen's fingerprint; neither makes the round a repeat that
 // changed nothing.
