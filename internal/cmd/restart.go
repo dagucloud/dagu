@@ -16,6 +16,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
+	"github.com/dagucloud/dagu/v2/internal/spec"
+	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -58,6 +60,18 @@ func runRestart(ctx *Context, args []string) error {
 
 	name := args[0]
 
+	// The scheduler follows the current definition, so it decides whether the
+	// DAG is always on. The snapshot of a run decides only once the definition
+	// is gone.
+	current, loadErr := spec.Load(ctx, args[0],
+		spec.WithBaseConfig(ctx.Config.Paths.BaseConfig),
+		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(ctx.Config.Paths.DAGsDir)),
+		spec.WithDAGsDir(ctx.Config.Paths.DAGsDir),
+	)
+	if loadErr == nil && current.RestartPolicy.Enabled() {
+		return errRestartAlwaysOnDAG(current.Name, current.RestartPolicy)
+	}
+
 	var attempt dagrun.Attempt
 	if dagRunID != "" {
 		// Retrieve the previous run for the specified dag-run ID.
@@ -77,13 +91,17 @@ func runRestart(ctx *Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to read status: %w", err)
 	}
-	if dagStatus.Status != ir.Running {
-		return fmt.Errorf("DAG %s is not running, current status: %s", name, dagStatus.Status)
-	}
 
 	dag, err := attempt.ReadDAG(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to read DAG from execution history: %w", err)
+	}
+	if loadErr != nil && dag.RestartPolicy.Enabled() {
+		return errRestartAlwaysOnDAG(dag.Name, dag.RestartPolicy)
+	}
+
+	if dagStatus.Status != ir.Running {
+		return fmt.Errorf("DAG %s is not running, current status: %s", name, dagStatus.Status)
 	}
 
 	dag, err = restoreDAGFromStatus(ctx.Context, dag, dagStatus, ctx.Persistence.DAGRunRepository)
@@ -97,6 +115,17 @@ func runRestart(ctx *Context, args []string) error {
 	}
 
 	return nil
+}
+
+// errRestartAlwaysOnDAG rejects the restart of a DAG that sets restart_policy:
+// the scheduler starts its runs, and a run started by the command next to them
+// would race with the scheduler's own restart.
+func errRestartAlwaysOnDAG(name string, policy ir.RestartPolicy) error {
+	return fmt.Errorf(
+		"DAG %s sets restart_policy %q, so the scheduler starts its runs: stop the running run instead "+
+			"(with unless-stopped, start the DAG again after the stop)",
+		name, policy,
+	)
 }
 
 func handleRestartProcess(

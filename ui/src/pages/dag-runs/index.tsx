@@ -28,6 +28,7 @@ import DAGRunBatchActions from '../../features/dag-runs/components/common/DAGRun
 import { DAGRunDetailsModal } from '../../features/dag-runs/components/dag-run-details';
 import DAGRunGroupedView from '../../features/dag-runs/components/dag-run-list/DAGRunGroupedView';
 import DAGRunTable from '../../features/dag-runs/components/dag-run-list/DAGRunTable';
+import { AlwaysOnStrip } from '../../features/cockpit/components/AlwaysOnStrip';
 import { usePaginatedDAGRuns } from '../../features/dag-runs/hooks/dagRunPagination';
 import {
   buildRunViewSpec,
@@ -821,6 +822,10 @@ function DAGRuns() {
     }
   );
 
+  // An always-on DAG restarts without end, so its runs would fill an unfiltered
+  // list. A search by name, run ID or status shows them.
+  const hideAlwaysOnRuns =
+    !apiSearchText && !apiDagRunId && apiStatus === 'all';
   const dagRunQuery = React.useMemo(
     () => ({
       remoteNode: appBarContext.selectedRemoteNode || 'local',
@@ -831,9 +836,11 @@ function DAGRuns() {
       fromDate: formatDateForApi(apiFromDate),
       toDate: formatDateForApi(apiToDate),
       limit: 100,
+      excludeAlwaysOnRuns: hideAlwaysOnRuns ? true : undefined,
       ...workspaceQuery,
     }),
     [
+      hideAlwaysOnRuns,
       apiDagRunId,
       apiFromDate,
       apiSearchText,
@@ -1638,6 +1645,9 @@ function DAGRuns() {
           onReplaceSelection={replaceSelection}
           onActionComplete={refreshDagRuns}
         />
+        {/* An always-on DAG restarts without end, so its runs are not in this list.
+            Each dag has a card that opens its latest runs instead. */}
+        {hideAlwaysOnRuns && <AlwaysOnStrip expandable className="px-0 pb-4" />}
         {dagRunsError && dagRuns.length === 0 && !isInitialLoading ? (
           <LoadErrorState
             title={ts("Couldn't load runs")}

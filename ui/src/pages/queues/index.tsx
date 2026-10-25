@@ -9,6 +9,7 @@ import { RefreshButton } from '@/components/ui/refresh-button';
 import { AppBarContext } from '../../contexts/AppBarContext';
 import { useSearchState } from '../../contexts/SearchStateContext';
 import QueueList from '../../features/queues/components/QueueList';
+import { useAlwaysOnDAGs } from '../../features/cockpit/hooks/useAlwaysOnDAGs';
 import { useQuery } from '../../hooks/api';
 import { useQueuesListSSE } from '../../hooks/useQueuesListSSE';
 import {
@@ -106,6 +107,7 @@ function Queues() {
     sseFallbackOptions(queuesSSE, 3000)
   );
   useSSECacheSync(queuesSSE, mutate);
+  const { alwaysOnDAGs } = useAlwaysOnDAGs();
 
   async function handleRefresh(): Promise<void> {
     await mutate();
@@ -179,7 +181,11 @@ function Queues() {
       </div>
 
       <div className="flex-1 min-h-0 overflow-auto pr-1">
-        <QueueList queues={filteredQueues} isLoading={isLoading && !data} />
+        <QueueList
+          queues={filteredQueues}
+          isLoading={isLoading && !data}
+          alwaysOnDAGs={alwaysOnDAGs}
+        />
       </div>
     </div>
   );

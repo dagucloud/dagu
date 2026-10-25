@@ -25,6 +25,12 @@ export type ActivityWindow =
   | { kind: 'live' }
   | { kind: 'fixed'; from: number; to: number };
 
+/**
+ * An always-on DAG restarts without end, so the summary leaves its runs out. The
+ * always-on list shows it instead.
+ */
+const ALWAYS_ON_RUNS = { excludeAlwaysOnRuns: true } as const;
+
 type WorkspaceQuery = {
   workspace?: components['parameters']['Workspace'];
 };
@@ -96,7 +102,7 @@ export function useDAGRunActivity(
   const unavailable = failedNode === remoteNode;
 
   const sse = useDAGRunActivitySSE(
-    { hours: LIVE_WINDOW_HOURS, ...workspaceQuery },
+    { hours: LIVE_WINDOW_HOURS, ...ALWAYS_ON_RUNS, ...workspaceQuery },
     live && visible && !unavailable,
     remoteNode
   );
@@ -107,7 +113,11 @@ export function useDAGRunActivity(
       : { fromDate: window.from, toDate: window.to };
   const { data, error, isLoading, mutate } = useQuery(
     '/dag-run-activity',
-    { params: { query: { ...query, ...workspaceQuery, remoteNode } } },
+    {
+      params: {
+        query: { ...query, ...ALWAYS_ON_RUNS, ...workspaceQuery, remoteNode },
+      },
+    },
     {
       ...(live && !unavailable
         ? sseFallbackOptions(sse, FALLBACK_INTERVAL_MS)
@@ -175,6 +185,7 @@ export function useDAGRunActivity(
             fromDate: base.from,
             toDate: base.to,
             cursor: base.cursor,
+            ...ALWAYS_ON_RUNS,
             ...workspaceQuery,
             remoteNode,
           },

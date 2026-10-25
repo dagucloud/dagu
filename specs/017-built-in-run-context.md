@@ -230,7 +230,9 @@ Rules:
 Rules:
 
 - Valid `context.trigger.type` values are `unknown`, `manual`, `scheduler`,
-  `webhook`, `subdag`, `retry`, and `catchup`.
+  `webhook`, `subdag`, `retry`, `catchup`, and `restart`. `restart` is the
+  trigger type of the runs started because of a DAG's `restart_policy`
+  ([Spec 080](080-restart-policy.md)).
 - `context.trigger.actor` must not contain credentials, bearer tokens, session IDs, or
   other authenticators.
 - Webhook payload and headers are object-valued trigger context and are exposed

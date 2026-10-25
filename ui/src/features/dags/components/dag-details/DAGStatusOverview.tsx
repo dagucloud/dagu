@@ -15,7 +15,9 @@ import {
 } from '@/features/dag-runs/components/common/runtimeConditions';
 import {
   AlertCircle,
+  AlertTriangle,
   Check,
+  CheckCircle2,
   Clock,
   Copy,
   Info,
@@ -24,6 +26,7 @@ import {
   SlidersHorizontal,
   StopCircle,
   Terminal,
+  XCircle,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -77,7 +80,33 @@ type ExecutionStatusConfig = {
   message: string;
 };
 
+// Every status has a line, so the card keeps its height when an always-on DAG moves
+// from one run to the next.
 const EXECUTION_STATUS_CONFIG: ExecutionStatusConfig[] = [
+  {
+    status: Status.NotStarted,
+    icon: Clock,
+    iconClass: 'text-[var(--status-neutral)]',
+    message: 'Execution has not started',
+  },
+  {
+    status: Status.Success,
+    icon: CheckCircle2,
+    iconClass: 'text-[var(--status-success)]',
+    message: 'Execution completed',
+  },
+  {
+    status: Status.PartialSuccess,
+    icon: AlertTriangle,
+    iconClass: 'text-[var(--status-warning)]',
+    message: 'Execution completed with some failures',
+  },
+  {
+    status: Status.Failed,
+    icon: XCircle,
+    iconClass: 'text-[var(--status-error)]',
+    message: 'Execution failed',
+  },
   {
     status: Status.Running,
     icon: PlayCircle,
@@ -421,7 +450,7 @@ function DAGStatusOverview({
               <span>
                 <span className="text-muted-foreground"><I18nText text={"Trigger"} /> </span>
                 <span className="font-medium text-foreground">
-                  {triggerTypeLabels[status.triggerType] ?? status.triggerType}
+                  {ts(triggerTypeLabels[status.triggerType] ?? status.triggerType)}
                 </span>
               </span>
             )}
@@ -505,12 +534,14 @@ function DAGStatusOverview({
         const config = EXECUTION_STATUS_CONFIG.find(
           (c) => c.status === status.status
         );
-        if (!config) return null;
+        if (!config) return <div className="h-4" aria-hidden="true" />;
         const Icon = config.icon;
         return (
-          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+          <div className="flex h-4 items-center gap-1 text-xs text-muted-foreground">
             <Icon className={`h-3 w-3 ${config.iconClass}`} />
-            <span>{config.message}</span>
+            <span>
+              <I18nText text={config.message} />
+            </span>
           </div>
         );
       })()}

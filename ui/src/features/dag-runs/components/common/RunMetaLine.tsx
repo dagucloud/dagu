@@ -23,6 +23,7 @@ import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
 import { formatRunDuration } from '@/lib/dagRunTiming';
 import dayjs from '@/lib/dayjs';
+import { cn } from '@/lib/utils';
 
 type RunFields = Pick<
   components['schemas']['DAGRunDetails'],
@@ -46,6 +47,11 @@ type Props = {
    */
   onCopyRunId?: () => void;
   runIdCopied?: boolean;
+  /**
+   * Classes of the root. A parent that lets the line grow to the end of its
+   * row keeps the run ID at the right edge.
+   */
+  className?: string;
 };
 
 /** Queue time shorter than this is noise, not waiting. */
@@ -54,15 +60,20 @@ const MIN_QUEUE_WAIT_SECONDS = 1;
 function MetaItem({
   icon: Icon,
   label,
+  className,
   children,
 }: {
   icon: LucideIcon;
   label: string;
+  className?: string;
   children: React.ReactNode;
 }) {
   const { ts } = useI18n();
   return (
-    <div className="flex min-w-0 items-center gap-1.5" title={ts(label)}>
+    <div
+      className={cn('flex min-w-0 items-center gap-1.5', className)}
+      title={ts(label)}
+    >
       <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
       <dt className="sr-only">{ts(label)}</dt>
       <dd className="min-w-0 text-foreground">{children}</dd>
@@ -92,6 +103,7 @@ export function RunMetaLine({
   dagRun,
   onCopyRunId,
   runIdCopied,
+  className,
 }: Props): React.ReactElement {
   const { ts } = useI18n();
   const ownCopy = useCopyFeedback();
@@ -108,7 +120,7 @@ export function RunMetaLine({
   const queueWait = queueWaitSeconds(dagRun.queuedAt, dagRun.startedAt);
 
   return (
-    <div className="flex min-w-0 flex-col gap-2">
+    <div className={cn('flex min-w-0 flex-col gap-2', className)}>
       <dl className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-muted-foreground">
         {dagRun.triggerType && (
           <MetaItem icon={Zap} label="Trigger">
@@ -160,7 +172,9 @@ export function RunMetaLine({
             <span className="font-mono text-xs">{dagRun.profileName}</span>
           </MetaItem>
         )}
-        <MetaItem icon={Hash} label="Run ID">
+        {/* At the right edge, so the items that change with the run, such as a
+            running duration, never move it. */}
+        <MetaItem icon={Hash} label="Run ID" className="ml-auto">
           <span className="inline-flex items-center gap-1">
             <code className="break-all font-mono text-xs">
               {dagRun.dagRunId}

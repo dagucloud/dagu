@@ -86,6 +86,7 @@ type Scheduler struct {
 	queueWatcher        queuedomain.QueueWatcher
 	retryScanner        *RetryScanner // DAG-level retry scanner
 	planner             *TickPlanner  // Unified scheduling decision module
+	restartScanner      *RestartScanner
 	stopOnce            sync.Once
 	lock                sync.Mutex
 	lifecycleMu         sync.Mutex
@@ -119,6 +120,9 @@ type Dependencies struct {
 	DispatchTaskStore    dispatch.DispatchTaskStore
 	WorkerHeartbeatStore dispatch.WorkerHeartbeatStore
 	WorkerStaleAfter     time.Duration
+	// LeaseStaleAfter overrides how long a distributed run lease counts toward
+	// queue concurrency after its last heartbeat. Zero keeps the default.
+	LeaseStaleAfter      time.Duration
 	DAGSettingsStore     dagsettings.Store
 	ProfileStore         profile.Store
 	EventService         *eventstore.Service
@@ -183,6 +187,9 @@ func New(cfg *config.Config, deps Dependencies) (*Scheduler, error) {
 	scheduler.queueProcessor.workerHeartbeatStore = deps.WorkerHeartbeatStore
 	if deps.WorkerStaleAfter != 0 {
 		scheduler.queueProcessor.workerStaleAfter = deps.WorkerStaleAfter
+	}
+	if deps.LeaseStaleAfter != 0 {
+		scheduler.queueProcessor.leaseStaleThreshold = deps.LeaseStaleAfter
 	}
 	return scheduler, nil
 }
@@ -283,17 +290,32 @@ func newScheduler(
 		}
 	}
 
+	isRunning := func(ctx context.Context, dag *ir.DAG) (bool, error) {
+		count, err := procRepository.CountAliveByDAGName(ctx, dag.ProcGroup(), dag.Name)
+		if err != nil {
+			return false, err
+		}
+		return count > 0, nil
+	}
+	runExists := func(ctx context.Context, dag *ir.DAG, runID string) (bool, error) {
+		_, err := dagRunRepository.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, runID))
+		switch {
+		case err == nil:
+			return true, nil
+		case errors.Is(err, dagrun.ErrDAGRunIDNotFound):
+			return false, nil
+		case errors.Is(err, dagrun.ErrNoStatusData):
+			return true, nil
+		default:
+			return false, err
+		}
+	}
+
 	planner := NewTickPlanner(TickPlannerConfig{
 		StateStore:      stateStore,
 		IsSuspended:     isSuspended,
 		GetLatestStatus: drm.GetLatestStatus,
-		IsRunning: func(ctx context.Context, dag *ir.DAG) (bool, error) {
-			count, err := procRepository.CountAliveByDAGName(ctx, dag.ProcGroup(), dag.Name)
-			if err != nil {
-				return false, err
-			}
-			return count > 0, nil
-		},
+		IsRunning:       isRunning,
 		GenRunID: func(context.Context) (string, error) {
 			return ir.NewDAGRunID()
 		},
@@ -319,20 +341,33 @@ func newScheduler(
 		HasGlobalQueue: func(dag *ir.DAG) bool {
 			return cfg.FindQueueConfig(dag.ProcGroup()) != nil
 		},
-		IsQueued: isQueued,
-		RunExists: func(ctx context.Context, dag *ir.DAG, runID string) (bool, error) {
-			_, err := dagRunRepository.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, runID))
-			switch {
-			case err == nil:
-				return true, nil
-			case errors.Is(err, dagrun.ErrDAGRunIDNotFound):
-				return false, nil
-			case errors.Is(err, dagrun.ErrNoStatusData):
-				return true, nil
-			default:
+		IsQueued:  isQueued,
+		RunExists: runExists,
+	})
+
+	// The restart decision follows from the latest run, whatever its day. A
+	// lookup limited to today finds no run for a DAG that ran yesterday, takes
+	// it for a first run, and then finds the deterministic first-run ID taken:
+	// the DAG would never restart.
+	allHistory := drm.AllHistory()
+	restartScanner := NewRestartScanner(RestartScannerConfig{
+		Entries:         er.Entries,
+		IsSuspended:     isSuspended,
+		IsRunning:       isRunning,
+		IsQueued:        isQueued,
+		GetLatestStatus: allHistory.ReadLatestStatus,
+		// A stop from the CLI, the API or the coordinator leaves an abort request
+		// on the attempt; other aborted runs have none.
+		IsStopRequested: func(ctx context.Context, dag *ir.DAG, runID string) (bool, error) {
+			attempt, err := dagRunRepository.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, runID))
+			if err != nil {
 				return false, err
 			}
+			return attempt.IsAborting(ctx)
 		},
+		RunExists: runExists,
+		Enqueue:   enqueueFunc,
+		Clock:     defaultClock,
 	})
 
 	retryScanner, err := NewRetryScanner(
@@ -361,6 +396,7 @@ func newScheduler(
 		serviceRegistry:  reg,
 		queueProcessor:   processor,
 		retryScanner:     retryScanner,
+		restartScanner:   restartScanner,
 		planner:          planner,
 		clock:            defaultClock,
 		wakeHold:         newWakeHold(cfg.Scheduler.WakeHold, pauseStore),
@@ -374,6 +410,9 @@ func (s *Scheduler) SetClock(clock Clock) {
 	s.planner.cfg.Clock = clock
 	if s.retryScanner != nil {
 		s.retryScanner.clock = clock
+	}
+	if s.restartScanner != nil {
+		s.restartScanner.cfg.Clock = clock
 	}
 }
 
@@ -683,6 +722,10 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	})
 
 	wg.Go(func() {
+		s.startRestartScanner(ctx)
+	})
+
+	wg.Go(func() {
 		s.startEventCollector(ctx)
 	})
 
@@ -847,6 +890,27 @@ func (s *Scheduler) startRetryScanner(ctx context.Context) {
 	}()
 
 	s.retryScanner.Start(scanCtx)
+}
+
+func (s *Scheduler) startRestartScanner(ctx context.Context) {
+	if s.restartScanner == nil {
+		return
+	}
+
+	logger.Info(ctx, "Started restart scanner", tag.Interval(restartScanInterval))
+	scanCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	go func() {
+		select {
+		case <-s.quit:
+			cancel()
+		case <-ctx.Done():
+			cancel()
+		}
+	}()
+
+	s.restartScanner.Start(scanCtx)
 }
 
 // cronLoop runs the main scheduler loop to invoke jobs at scheduled times.

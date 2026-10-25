@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useCockpitState } from '@/features/cockpit/hooks/useCockpitState';
 import { CockpitToolbar } from '@/features/cockpit/components/CockpitToolbar';
 import { DateKanbanList } from '@/features/cockpit/components/DateKanbanList';
+import { AlwaysOnStrip } from '@/features/cockpit/components/AlwaysOnStrip';
 import { AppBarContext } from '@/contexts/AppBarContext';
 
 export default function CockpitPage(): React.ReactElement {
@@ -24,6 +25,7 @@ export default function CockpitPage(): React.ReactElement {
         onSelectTemplate={selectTemplate}
         onTemplateSelectorOpenChange={setIsTemplateSelectorOpen}
       />
+      <AlwaysOnStrip className="px-2 pb-3" />
       <DateKanbanList
         selectedWorkspace={selectedWorkspace}
         workspaceKey={workspaceKey}

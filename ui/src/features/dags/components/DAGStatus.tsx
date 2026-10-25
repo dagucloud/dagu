@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import { useCookies } from 'react-cookie';
+import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
 import { components, NodeStatus, Status, Stream } from '../../../api/v1/schema';
 import { useConfig } from '../../../contexts/ConfigContext';
@@ -87,6 +88,13 @@ type Props = {
   onStepSelect?: (stepName: string | undefined) => void;
   /** Repeats run metadata above the steps; off where a header shows it. */
   showRunMeta?: boolean;
+  /**
+   * Element that receives the link of a summary to the run page, such as the
+   * tab row of the page. Without it the link sits above the graph.
+   */
+  toolbarSlot?: HTMLElement | null;
+  /** Content between the graph and the status card, such as the run picker. */
+  afterGraph?: React.ReactNode;
 };
 
 export type StatusTab =
@@ -119,11 +127,15 @@ function RunSummaryBar({
   dagRun,
   remoteNode,
   waitingAgentCount,
+  toolbarSlot,
 }: {
   dagRun: components['schemas']['DAGRunDetails'];
   remoteNode: string;
   waitingAgentCount: number;
+  /** Element that receives the link, such as the tab row of the page. */
+  toolbarSlot?: HTMLElement | null;
 }) {
+  const { ts } = useI18n();
   const subRun = isSubDAGRun(dagRun);
   const runURL = buildDAGRunPageURL({
     rootDAGRunName: subRun ? dagRun.rootDAGRunName : dagRun.name,
@@ -131,6 +143,31 @@ function RunSummaryBar({
     subDAGRunId: subRun ? dagRun.dagRunId : undefined,
     remoteNode,
   });
+  const runLink = (
+    <Link
+      to={runURL}
+      title={ts('Timeline, outputs, and artifacts are on the run page.')}
+      className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+    >
+      <I18nText text={'Open run'} />
+      <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+    </Link>
+  );
+
+  // In the tab row the link takes no room above the graph, so only the
+  // message of an agent that waits for an answer stays here.
+  if (toolbarSlot) {
+    return (
+      <>
+        {createPortal(runLink, toolbarSlot)}
+        {waitingAgentCount > 0 && (
+          <p className="text-sm text-muted-foreground">
+            <I18nText text={'An agent is waiting for an answer.'} />
+          </p>
+        )}
+      </>
+    );
+  }
   return (
     <div className="flex flex-wrap items-center justify-between gap-2">
       <p className="text-sm text-muted-foreground">
@@ -142,13 +179,7 @@ function RunSummaryBar({
           />
         )}
       </p>
-      <Link
-        to={runURL}
-        className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
-      >
-        <I18nText text={'Open run'} />
-        <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-      </Link>
+      {runLink}
     </div>
   );
 }
@@ -166,6 +197,8 @@ function DAGStatus({
   initialStepName,
   onStepSelect,
   showRunMeta = true,
+  toolbarSlot,
+  afterGraph,
 }: Props) {
   const { ts } = useI18n();
   const dagContext = React.useContext(DAGContext);
@@ -883,6 +916,7 @@ function DAGStatus({
             dagRun={displayDAGRun}
             remoteNode={remoteNode}
             waitingAgentCount={waitingAgentCount}
+            toolbarSlot={toolbarSlot}
           />
         )}
         {summary && (hasWaitingApprovals || hasHumanTaskWork) && (
@@ -1015,6 +1049,8 @@ function DAGStatus({
                   </BorderedBox>
                 </div>
               )}
+
+            {afterGraph}
 
             <div className="grid min-w-0 grid-cols-1 gap-6">
               {/* Status Overview */}

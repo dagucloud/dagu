@@ -24,6 +24,8 @@ import {
   useDAGRunActivity,
 } from '../features/activity/hooks/useDAGRunActivity';
 import { useGettingStarted } from '../features/activity/hooks/useGettingStarted';
+import { AlwaysOnStrip } from '../features/cockpit/components/AlwaysOnStrip';
+import { useAlwaysOnDAGs } from '../features/cockpit/hooks/useAlwaysOnDAGs';
 import {
   attentionItems,
   fitRange,
@@ -221,6 +223,9 @@ function Dashboard(): React.ReactElement {
     paused,
     resume,
   } = useDAGRunActivity(activityWindow, workspaceQuery, remoteNode);
+  // An always-on DAG restarts all the time, so the lists leave its runs out
+  // and a strip of cards shows it instead.
+  const { alwaysOnDAGs } = useAlwaysOnDAGs();
   // Shares the pause banner's request, so it costs nothing extra.
   const { schedulerRunning } = useSchedulerPause();
   const gettingStarted = useGettingStarted();
@@ -280,6 +285,7 @@ function Dashboard(): React.ReactElement {
   const isEmpty =
     !!activity &&
     laneRuns.length === 0 &&
+    alwaysOnDAGs.length === 0 &&
     (!live ||
       (activity.active.length === 0 &&
         activity.attention.length === 0 &&
@@ -392,6 +398,7 @@ function Dashboard(): React.ReactElement {
                 onChanged={() => void refresh()}
               />
             )}
+            <AlwaysOnStrip className="px-0" />
             <section className="flex min-w-0 flex-col gap-2">
               <div className="flex items-center justify-between gap-2">
                 <h2 className="text-sm font-medium text-foreground">

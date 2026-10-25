@@ -51,7 +51,7 @@ func canonicalizeTopicIdentifier(topicType TopicType, identifier string) (string
 	identifier = strings.TrimSpace(identifier)
 
 	switch topicType {
-	case TopicTypeDAGRuns, TopicTypeDAGRunActivity, TopicTypeQueues, TopicTypeDAGsList, TopicTypeWikiTree, TopicTypeLegacyDocTree:
+	case TopicTypeDAGRuns, TopicTypeDAGRunActivity, TopicTypeQueues, TopicTypeDAGsList, TopicTypeAlwaysOnDAGs, TopicTypeWikiTree, TopicTypeLegacyDocTree:
 		identifier = strings.TrimPrefix(identifier, "?")
 		return parseAndSanitizeQuery(identifier)
 	case TopicTypeDAGRunLogs, TopicTypeWikiPage, TopicTypeLegacyDoc:

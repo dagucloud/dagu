@@ -75,6 +75,33 @@ func TestAbortQueuedDAGRun_RejectsNonQueuedStatus(t *testing.T) {
 	assert.Equal(t, ir.Running, notQueuedErr.Status)
 }
 
+// A run that the restart policy queued stays in the history when it is
+// dequeued, as a run an operator stopped. Removing it would let the scheduler
+// queue the same run again.
+func TestAbortQueuedDAGRun_KeepsRestartRunAsStopped(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	repository := testutil.NewFileDAGRunRepository(filepath.Join(t.TempDir(), "dag-runs"), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
+	dag := testQueueAbortDAG()
+	runRef := ir.NewDAGRunRef(dag.Name, "run-4")
+
+	writeAttemptStatus(t, ctx, repository, dag, "run-4", ir.Queued, persis.DAGRunCreateAttemptOptions{}, time.Now(), func(status *ir.DAGRunStatus) {
+		status.TriggerType = ir.TriggerTypeRestart
+	})
+
+	require.NoError(t, queue.AbortQueuedDAGRun(ctx, repository, runRef))
+
+	attempt, err := repository.FindAttempt(ctx, runRef)
+	require.NoError(t, err)
+	status, err := attempt.ReadStatus(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, ir.Aborted, status.Status)
+	stopped, err := attempt.IsAborting(ctx)
+	require.NoError(t, err)
+	assert.True(t, stopped, "the dequeue is recorded as a stop request")
+}
+
 func testQueueAbortDAG() *ir.DAG {
 	return &ir.DAG{
 		Name: "queue-abort-test",
@@ -93,6 +120,7 @@ func writeAttemptStatus(
 	status ir.Status,
 	opts persis.DAGRunCreateAttemptOptions,
 	ts time.Time,
+	mutate ...func(*ir.DAGRunStatus),
 ) {
 	t.Helper()
 
@@ -112,6 +140,9 @@ func writeAttemptStatus(
 	}
 	if status == ir.Succeeded || status == ir.Aborted || status == ir.Failed {
 		runStatus.FinishedAt = ts.Add(time.Second).UTC().Format(time.RFC3339)
+	}
+	for _, fn := range mutate {
+		fn(&runStatus)
 	}
 
 	require.NoError(t, attempt.Write(ctx, runStatus))

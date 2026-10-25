@@ -207,3 +207,135 @@ func TestDAGRunInvalidatorBatchesAndTargetsLifecycleListRefreshes(t *testing.T) 
 		return false
 	}, 200*time.Millisecond, 20*time.Millisecond)
 }
+
+// A run that a restart policy started changes only the lists that show
+// always-on runs, so an always-on DAG that restarts all the time does not refresh the
+// lists that leave them out.
+func TestDAGRunInvalidatorSkipsAlwaysOnRunsForListsThatExcludeThem(t *testing.T) {
+	mux := NewMultiplexer(StreamConfig{}, nil)
+	t.Cleanup(mux.Shutdown)
+
+	var counts sync.Map
+	mux.RegisterFetcher(TopicTypeDAGRuns, func(_ context.Context, identifier string) (any, error) {
+		counter, _ := counts.LoadOrStore(identifier, &atomic.Int64{})
+		counter.(*atomic.Int64).Add(1)
+		return nil, nil
+	})
+	mux.SetRefreshMode(TopicTypeDAGRuns, TopicRefreshModeOnDemand)
+
+	const (
+		withServices    = "dagruns:status=1"
+		withoutServices = "dagruns:status=1&excludeAlwaysOnRuns=true"
+		// The default run list has no status filter.
+		withoutServicesAnyStatus = "dagruns:excludeAlwaysOnRuns=true"
+	)
+	result, err := mux.createSession(
+		context.Background(),
+		httptest.NewRecorder(),
+		[]string{withServices, withoutServices, withoutServicesAnyStatus},
+		0,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, result.session)
+	defer mux.removeSession(result.session)
+
+	refreshes := func(topic string) int64 {
+		parsed, err := ParseTopic(topic)
+		require.NoError(t, err)
+		counter, ok := counts.Load(parsed.Identifier)
+		if !ok {
+			return 0
+		}
+		return counter.(*atomic.Int64).Load()
+	}
+	runningEvent := func(trigger ir.TriggerType, runID string) *eventstore.Event {
+		return eventstore.NewDAGRunEvent(
+			eventstore.Source{Service: eventstore.SourceServiceServer},
+			eventstore.TypeDAGRunRunning,
+			&ir.DAGRunStatus{
+				Name:        "always-on",
+				DAGRunID:    runID,
+				AttemptID:   "attempt-1",
+				Status:      ir.Running,
+				TriggerType: trigger,
+			},
+			nil,
+		)
+	}
+
+	wakeTopicsForDAGRunEvents(mux, []*eventstore.Event{runningEvent(ir.TriggerTypeRestart, "run-1")})
+	require.Eventually(t, func() bool { return refreshes(withServices) == 1 }, time.Second, 10*time.Millisecond)
+	require.Never(t, func() bool {
+		return refreshes(withoutServices) != 0 || refreshes(withoutServicesAnyStatus) != 0
+	}, 200*time.Millisecond, 20*time.Millisecond)
+
+	wakeTopicsForDAGRunEvents(mux, []*eventstore.Event{runningEvent(ir.TriggerTypeManual, "run-2")})
+	require.Eventually(t, func() bool {
+		return refreshes(withServices) == 2 && refreshes(withoutServices) == 1 && refreshes(withoutServicesAnyStatus) == 1
+	}, time.Second, 10*time.Millisecond)
+}
+
+// The activity summary skips always-on runs on the same terms as the lists.
+func TestDAGRunInvalidatorSkipsAlwaysOnRunsForActivityThatExcludesThem(t *testing.T) {
+	mux := NewMultiplexer(StreamConfig{}, nil)
+	t.Cleanup(mux.Shutdown)
+
+	var counts sync.Map
+	mux.RegisterFetcher(TopicTypeDAGRunActivity, func(_ context.Context, identifier string) (any, error) {
+		counter, _ := counts.LoadOrStore(identifier, &atomic.Int64{})
+		counter.(*atomic.Int64).Add(1)
+		return nil, nil
+	})
+	mux.SetRefreshMode(TopicTypeDAGRunActivity, TopicRefreshModeOnDemand)
+
+	const (
+		withServices    = "dagrunactivity:hours=24"
+		withoutServices = "dagrunactivity:hours=24&excludeAlwaysOnRuns=true"
+	)
+	result, err := mux.createSession(
+		context.Background(),
+		httptest.NewRecorder(),
+		[]string{withServices, withoutServices},
+		0,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, result.session)
+	defer mux.removeSession(result.session)
+
+	refreshes := func(topic string) int64 {
+		parsed, err := ParseTopic(topic)
+		require.NoError(t, err)
+		counter, ok := counts.Load(parsed.Identifier)
+		if !ok {
+			return 0
+		}
+		return counter.(*atomic.Int64).Load()
+	}
+	event := func(trigger ir.TriggerType, runID string) *eventstore.Event {
+		return eventstore.NewDAGRunEvent(
+			eventstore.Source{Service: eventstore.SourceServiceServer},
+			eventstore.TypeDAGRunFailed,
+			&ir.DAGRunStatus{
+				Name:        "always-on",
+				DAGRunID:    runID,
+				AttemptID:   "attempt-1",
+				Status:      ir.Failed,
+				TriggerType: trigger,
+			},
+			nil,
+		)
+	}
+
+	// A batch that mixes both kinds still reaches the topic that excludes.
+	wakeTopicsForDAGRunEvents(mux, []*eventstore.Event{
+		event(ir.TriggerTypeRestart, "run-1"),
+		event(ir.TriggerTypeManual, "run-2"),
+	})
+	require.Eventually(t, func() bool {
+		return refreshes(withServices) == 1 && refreshes(withoutServices) == 1
+	}, time.Second, 10*time.Millisecond)
+
+	wakeTopicsForDAGRunEvents(mux, []*eventstore.Event{event(ir.TriggerTypeRestart, "run-3")})
+	require.Eventually(t, func() bool { return refreshes(withServices) == 2 }, time.Second, 10*time.Millisecond)
+	require.Never(t, func() bool { return refreshes(withoutServices) != 1 }, 200*time.Millisecond, 20*time.Millisecond)
+}
