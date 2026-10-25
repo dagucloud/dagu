@@ -144,7 +144,7 @@ func TestDarwinWindows(t *testing.T) {
 	t.Cleanup(func() { _ = backend.Close() })
 
 	fixture := startFixture(t, "testdata/windows.js", nil)
-	find :=func(title string) WindowID { return findWindow(t, backend, fixture, title) }
+	find := func(title string) WindowID { return findWindow(t, backend, fixture, title) }
 	window, fixed := find("dagu-window-e2e"), find("dagu-fixed-e2e")
 
 	assert.Equal(t, "osascript", window.App)
