@@ -533,7 +533,7 @@ func (r *run) readTable(ctx context.Context, els desktop.Elements, field fieldBi
 	}
 	read, err := els.Rows(ctx, substituteSelector(tbl.Container, r.variables), headers, maxRows)
 	switch {
-	case errors.Is(err, desktop.ErrNotFound):
+	case errors.Is(err, desktop.ErrNotFound) || errors.Is(err, desktop.ErrNoWindow):
 		return nil, fmt.Sprintf("table %q cannot be read: %s", field.Name, err.Error()), nil
 	case err != nil:
 		return nil, "", err

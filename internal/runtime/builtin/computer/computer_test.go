@@ -318,6 +318,22 @@ func TestExtractTableMissesOnAMovedHeader(t *testing.T) {
 	require.ErrorContains(t, failed.err, "no column is headed")
 }
 
+// A bound table read while no window is in front misses, so a step looks
+// again, rather than failing as an error.
+func TestExtractTableMissesWithNoWindowInFront(t *testing.T) {
+	t.Parallel()
+
+	run := elementRun(t)
+	withTable(run)
+	run.elements.tableRows = [][]string{{"りんご", "1,200"}}
+	run.vision.extract = `{"lines": {"container": {"role": "list", "name": "明細"}, "columns": {"item": "品目", "amount": "金額"}, "rows": [{"item": "りんご", "amount": 1200}]}}`
+	require.NoError(t, run.execute(extractTable, nil).err)
+
+	run.elements.tableErr = desktop.ErrNoWindow
+	failed := run.execute(extractTableNever, nil)
+	require.ErrorContains(t, failed.err, `table "lines" cannot be read: no window is in front`)
+}
+
 // A model that answers the plain value, ignoring the reading schema's
 // {value, element} wrapper, still publishes; the field just does not bind.
 func TestExtractToleratesAPlainAnswer(t *testing.T) {
