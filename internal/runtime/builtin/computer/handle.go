@@ -105,14 +105,17 @@ func (r *run) handleScreens(ctx context.Context, index int) (bool, error) {
 }
 
 // clearScreens runs handlers until none finds its screen, so what comes
-// next, such as the model's look at the screen, meets none. A screen its
-// handler does not clear ends the step through the handler's limit.
-func (r *run) clearScreens(ctx context.Context, index int) error {
+// next, such as the model's look at the screen, meets none, and reports
+// whether any ran. A screen its handler does not clear ends the step
+// through the handler's limit.
+func (r *run) clearScreens(ctx context.Context, index int) (bool, error) {
+	var ran bool
 	for {
 		handled, err := r.handleScreens(ctx, index)
 		if err != nil || !handled {
-			return err
+			return ran, err
 		}
+		ran = true
 	}
 }
 
@@ -121,7 +124,7 @@ func (r *run) clearScreens(ctx context.Context, index int) error {
 // wait starts again.
 func (r *run) settleClear(ctx context.Context, index int) (*image.RGBA, error) {
 	for {
-		if err := r.clearScreens(ctx, index); err != nil {
+		if _, err := r.clearScreens(ctx, index); err != nil {
 			return nil, err
 		}
 		full, err := r.settle(ctx)

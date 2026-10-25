@@ -621,7 +621,7 @@ func (r *run) replayByElement(ctx context.Context, index, position, total int, t
 		// action never lands on it, or through it on the element behind; an
 		// action on an element clears it as it looks for the element.
 		if rec.Element == nil {
-			if err := r.clearScreens(ctx, index); err != nil {
+			if _, err := r.clearScreens(ctx, index); err != nil {
 				return "", err
 			}
 		}

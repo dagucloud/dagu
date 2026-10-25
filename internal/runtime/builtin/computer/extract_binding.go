@@ -478,7 +478,7 @@ func (r *run) readBinding(ctx context.Context, index int, els desktop.Elements, 
 		if field.Table != nil {
 			// A table is read straight from the front window, so a screen a
 			// handler clears is cleared first.
-			if err := r.clearScreens(ctx, index); err != nil {
+			if _, err := r.clearScreens(ctx, index); err != nil {
 				return nil, "", err
 			}
 			rows, reason, err := r.readTable(ctx, els, field, maxRows)
