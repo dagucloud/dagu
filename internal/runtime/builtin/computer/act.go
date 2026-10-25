@@ -75,6 +75,7 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 	}
 	ctx, cancel := r.operationContext(ctx, timeout)
 	defer cancel()
+	defer r.during(ctx)()
 	began, before := time.Now(), r.usage
 
 	choice := r.cfg.actChoice(spec)

@@ -6,6 +6,7 @@
 package desktop
 
 import (
+	"image"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,7 +18,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const elementsWindowTitle = "Dagu elements test"
+const (
+	elementsWindowTitle = "Dagu elements test"
+	skippedWindowTitle  = "Dagu skipped parent test"
+)
 
 // e2eElements opens the elements reader on an interactive desktop with the
 // required permissions, when asked to with DAGU_DESKTOP_E2E=1.
@@ -43,6 +47,13 @@ func elementsWindow(t *testing.T, els Elements) Element {
 	_, file, _, ok := runtime.Caller(0)
 	require.True(t, ok)
 	script := filepath.Join(filepath.Dir(file), "..", "..", "conformance", "spec074_computer", "testdata", "elements.js")
+	return fixtureWindow(t, els, script, elementsWindowTitle)
+}
+
+// fixtureWindow runs a JXA fixture until the test ends and waits for its
+// window, titled title, to be in front.
+func fixtureWindow(t *testing.T, els Elements, script, title string) Element {
+	t.Helper()
 	fixture := exec.Command("/usr/bin/osascript", "-l", "JavaScript", script)
 	require.NoError(t, fixture.Start())
 	t.Cleanup(func() {
@@ -53,7 +64,7 @@ func elementsWindow(t *testing.T, els Elements) Element {
 	require.Eventually(t, func() bool {
 		w, err := els.FrontWindow()
 		window = w
-		return err == nil && w.Name == elementsWindowTitle
+		return err == nil && w.Name == title
 	}, 20*time.Second, 200*time.Millisecond, "the window did not come to the front; %+v was there", window)
 	return window
 }
@@ -149,6 +160,35 @@ func TestDarwinElements(t *testing.T) {
 		filled, err := els.At(field.X, field.Y)
 		return err == nil && filled.Value == "1200"
 	}, 3*time.Second, 100*time.Millisecond)
+}
+
+// An element whose parent names a window that holds it only through other
+// elements, as Electron's web area does, is placed at the path its window's
+// outline gives it.
+func TestDarwinElementUnderSkippedParent(t *testing.T) {
+	_, els := e2eElements(t)
+	window := fixtureWindow(t, els, filepath.Join("testdata", "skipped.js"), skippedWindowTitle)
+	_, byID := outlineByID(t, els, window)
+	require.Contains(t, byID, "content")
+	require.Contains(t, byID, "goButton")
+	// The outline reaches the content group through the window's two groups.
+	require.Len(t, byID["content"].Path, 3, "%+v", byID["content"].Path)
+	assert.Equal(t, RoleGroup, byID["content"].Path[0].Role)
+	assert.Equal(t, RoleGroup, byID["content"].Path[1].Role)
+
+	for _, tc := range []struct {
+		id string
+		at image.Point
+	}{
+		{"content", byID["content"].Bounds.Min.Add(image.Pt(10, 10))},
+		{"goButton", byID["goButton"].Bounds.Min.Add(byID["goButton"].Bounds.Size().Div(2))},
+	} {
+		at, err := els.At(tc.at.X, tc.at.Y)
+		require.NoError(t, err, tc.id)
+		assert.Equal(t, tc.id, at.ID)
+		assert.Equal(t, byID[tc.id].Path, at.Path, tc.id)
+		assert.Equal(t, skippedWindowTitle, at.Window, tc.id)
+	}
 }
 
 // Elements perform their patterns when asked: a button invokes, a checkbox
