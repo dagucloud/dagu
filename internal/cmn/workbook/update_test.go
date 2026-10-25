@@ -298,11 +298,16 @@ func TestUpdateRowsEmptyRowsChangesNothing(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			path := ordersBook(t)
-			before := fileHash(t, path)
+			before, err := Read(context.Background(), path, ReadOptions{})
+			require.NoError(t, err)
 			result, err := UpdateRows(context.Background(), path, opts)
 			require.NoError(t, err)
-			assert.Equal(t, 0, result.Changes.RowsUpdated)
-			assert.Equal(t, before, fileHash(t, path), "no cell changes")
+			assert.Equal(t, Changes{Sheet: "Orders", Range: "Orders!A2:D4"}, result.Changes)
+
+			back, err := Read(context.Background(), path, ReadOptions{})
+			require.NoError(t, err)
+			assert.Equal(t, before.Headers, back.Headers)
+			assert.Equal(t, before.Rows, back.Rows, "no cell values change")
 		})
 	}
 }
@@ -310,14 +315,24 @@ func TestUpdateRowsEmptyRowsChangesNothing(t *testing.T) {
 func TestUpdateRowsEmptyRowsStillAddsMissingSetColumn(t *testing.T) {
 	t.Parallel()
 	path := ordersBook(t)
-	before := fileHash(t, path)
+	before, err := Read(context.Background(), path, ReadOptions{})
+	require.NoError(t, err)
 	set, err := ParseSet(map[string]any{"Checked": "checked"})
 	require.NoError(t, err)
 	result, err := UpdateRows(context.Background(), path, UpdateOptions{Key: "Invoice No", Rows: []Row{}, Set: set})
 	require.NoError(t, err)
 	assert.Equal(t, 0, result.Changes.RowsUpdated)
 	assert.Equal(t, 1, result.Changes.ColumnsAdded)
-	assert.NotEqual(t, before, fileHash(t, path), "the header row gains the set column")
+	assert.Equal(t, 0, result.Changes.CellsChanged)
+
+	back, err := Read(context.Background(), path, ReadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, append(before.Headers, "Checked"), back.Headers, "the header row gains the set column")
+	for _, row := range back.Rows {
+		assert.Nil(t, row["Checked"])
+		delete(row, "Checked")
+	}
+	assert.Equal(t, before.Rows, back.Rows, "no data cell changes")
 }
 
 func TestUpdateRowsTypedLiteralReplacesTextThatReadsTheSame(t *testing.T) {
