@@ -886,6 +886,30 @@ func TestPinnedActDirect(t *testing.T) {
 	assert.Equal(t, []string{"invoke saveButton"}, run.backend.inputs())
 }
 
+// A checkbox that takes no input at first and reaches its state while the
+// step waits for it is left as it is, not toggled away from it.
+func TestPinnedCheckLeavesABoxThatReachedItsStateWhileDisabled(t *testing.T) {
+	t.Parallel()
+
+	run := elementRun(t)
+	box := desktop.Element{Role: desktop.RoleCheckbox, Name: "同意する", ID: "agreeBox", Value: "false", Bounds: image.Rect(120, 220, 300, 240),
+		Path: []desktop.PathStep{{Role: desktop.RoleCheckbox, Name: "同意する", Index: 0}}}
+	run.elements.elements = append(expenseElements(), box)
+	run.elements.failPattern("agreeBox", desktop.ErrDisabled)
+	time.AfterFunc(300*time.Millisecond, func() {
+		run.elements.mu.Lock()
+		delete(run.elements.applyErr, "agreeBox")
+		run.elements.mu.Unlock()
+		run.elements.setValue("agreeBox", "true")
+	})
+	steps := `{"ai": "never", "input": "direct", "find_within": "3s", "do": [{"act": {"instruction": "Agree", "recorded": {"windows": [{"check": {"role": "checkbox", "id": "agreeBox"}}]}}}]}`
+	require.NoError(t, run.execute(steps, nil).err)
+	assert.Empty(t, run.backend.inputs(), "the box already checked is not toggled")
+	found, err := run.elements.Find(desktop.Selector{Role: desktop.RoleCheckbox, ID: "agreeBox"})
+	require.NoError(t, err)
+	assert.Equal(t, "true", found[0].Value)
+}
+
 // A turn that clicks the same checkbox twice by id records each click with
 // the state it left the box in, read right before each click rather than when
 // the turn listed the box, so the act pins as check, then uncheck.

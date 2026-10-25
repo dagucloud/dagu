@@ -549,6 +549,18 @@ func (r *run) direct(ctx context.Context, index, position, total int, els deskto
 		if own, owned := r.elementOwner(found); owned {
 			return false, fmt.Sprintf("%s at turn %d of %d: %s", rec.Element.describe(), position+1, total, ownedMessage(own)), nil
 		}
+		// A checkbox found again may have reached its state meanwhile, and
+		// a toggle would then undo it.
+		if rec.Checked != nil {
+			state, known := checkedState(found)
+			if !known {
+				return false, fmt.Sprintf("%s does not say whether it is checked, at turn %d of %d", rec.Element.describe(), position+1, total), nil
+			}
+			if state == *rec.Checked {
+				logAction(r.timeline, index, fmt.Sprintf("replay by element: %s is already %s", rec.Element.describe(), checkedWord(state)))
+				return true, "", nil
+			}
+		}
 		err := r.applyPattern(els, found, pattern, value)
 		switch {
 		case err == nil:
