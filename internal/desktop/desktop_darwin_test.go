@@ -6,8 +6,12 @@
 package desktop
 
 import (
+	"image"
+	"io"
 	"os"
 	"os/exec"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -139,25 +143,8 @@ func TestDarwinWindows(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = backend.Close() })
 
-	fixture := exec.Command("/usr/bin/osascript", "-l", "JavaScript", "testdata/windows.js")
-	require.NoError(t, fixture.Start())
-	t.Cleanup(func() {
-		_ = fixture.Process.Kill()
-		_ = fixture.Wait()
-	})
-	find := func(title string) WindowID {
-		var found WindowID
-		require.Eventually(t, func() bool {
-			for _, w := range backend.Windows() {
-				if w.Title == title && w.PID == uint32(fixture.Process.Pid) { //nolint:gosec // process ids fit 32 bits
-					found = w
-					return true
-				}
-			}
-			return false
-		}, 15*time.Second, 100*time.Millisecond, "the window %q never appeared", title)
-		return found
-	}
+	fixture := startFixture(t, "testdata/windows.js", nil)
+	find :=func(title string) WindowID { return findWindow(t, backend, fixture, title) }
 	window, fixed := find("dagu-window-e2e"), find("dagu-fixed-e2e")
 
 	assert.Equal(t, "osascript", window.App)
@@ -182,6 +169,131 @@ func TestDarwinWindows(t *testing.T) {
 	maximized, err = backend.Maximize(find("dagu-window-e2e"))
 	require.NoError(t, err)
 	assert.False(t, maximized, "a maximized window is left as it is")
+}
+
+// A click on a window in the background reaches it, though the window takes
+// no first click and would otherwise only come forward.
+func TestDarwinClickReachesBackgroundWindow(t *testing.T) {
+	if os.Getenv("DAGU_DESKTOP_E2E") != "1" {
+		t.Skip("set DAGU_DESKTOP_E2E=1 to run on an interactive desktop")
+	}
+	require.NoError(t, Check().Err())
+	backend, err := newDarwinBackend()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = backend.Close() })
+
+	var presses pressLog
+	probe := startFixture(t, "testdata/click.js", &presses)
+	target := findWindow(t, backend, probe, "dagu-click-e2e")
+	// Another application takes the focus, its windows away from the probe's.
+	front := startFixture(t, "testdata/windows.js", nil)
+	require.NoError(t, backend.Raise(findWindow(t, backend, front, "dagu-fixed-e2e")))
+	require.Eventually(t, func() bool { return frontmost(front) && !frontmost(probe) }, 15*time.Second, 100*time.Millisecond,
+		"the other application never took the focus")
+
+	centre := image.Pt((target.Bounds.Min.X+target.Bounds.Max.X)/2, (target.Bounds.Min.Y+target.Bounds.Max.Y)/2)
+	require.NoError(t, backend.MoveTo(centre.X, centre.Y))
+	require.NoError(t, backend.Button(ButtonLeft, true, 1))
+	require.NoError(t, backend.Button(ButtonLeft, false, 1))
+
+	require.Eventually(t, func() bool { return presses.count() == 1 }, 5*time.Second, 50*time.Millisecond,
+		"the click never reached the window in the background")
+	assert.True(t, frontmost(probe), "the probe has the focus")
+}
+
+// A click lands on the front application window under it, through any
+// overlay; a menu or the menu bar takes the click itself.
+func TestClickTarget(t *testing.T) {
+	t.Parallel()
+
+	window := func(handle uint64, layer int64, bounds image.Rectangle) windowInfo {
+		return windowInfo{id: WindowID{Handle: handle, Bounds: bounds}, layer: layer}
+	}
+	front := window(1, normalWindowLayer, image.Rect(0, 30, 400, 300))
+	behind := window(2, normalWindowLayer, image.Rect(300, 30, 900, 600))
+	windows := []windowInfo{
+		window(3, overlayWindowLayer, image.Rect(0, 0, 2000, 2000)),
+		window(4, mainMenuWindowLayer, image.Rect(0, 0, 2000, 30)),
+		window(5, 101, image.Rect(500, 100, 700, 300)),
+		front,
+		behind,
+	}
+
+	for _, tc := range []struct {
+		name string
+		at   image.Point
+		want uint64
+	}{
+		{"where two windows overlap", image.Pt(350, 100), front.id.Handle},
+		{"on a window behind another", image.Pt(800, 500), behind.id.Handle},
+		{"on an open menu", image.Pt(600, 200), 0},
+		{"on the menu bar", image.Pt(1500, 10), 0},
+		{"on no window", image.Pt(1500, 1500), 0},
+	} {
+		got, ok := clickTarget(windows, tc.at)
+		assert.Equal(t, tc.want != 0, ok, tc.name)
+		assert.Equal(t, tc.want, got.Handle, tc.name)
+	}
+}
+
+// startFixture runs a JXA fixture until the test ends, its standard output
+// going to stdout when that is set.
+func startFixture(t *testing.T, script string, stdout io.Writer) *exec.Cmd {
+	t.Helper()
+	fixture := exec.Command("/usr/bin/osascript", "-l", "JavaScript", script)
+	fixture.Stdout = stdout
+	require.NoError(t, fixture.Start())
+	t.Cleanup(func() {
+		_ = fixture.Process.Kill()
+		_ = fixture.Wait()
+	})
+	return fixture
+}
+
+// findWindow waits for a fixture's window with a title to show.
+func findWindow(t *testing.T, backend *darwinBackend, fixture *exec.Cmd, title string) WindowID {
+	t.Helper()
+	var found WindowID
+	require.Eventually(t, func() bool {
+		for _, w := range backend.Windows() {
+			if w.Title == title && w.PID == uint32(fixture.Process.Pid) { //nolint:gosec // process ids fit 32 bits
+				found = w
+				return true
+			}
+		}
+		return false
+	}, 15*time.Second, 100*time.Millisecond, "the window %q never appeared", title)
+	return found
+}
+
+// frontmost reports whether a fixture's application is the active one, as
+// the application itself tells it.
+func frontmost(fixture *exec.Cmd) bool {
+	app := axUIElementCreateApplication(int32(fixture.Process.Pid)) //nolint:gosec // process ids fit 32 bits
+	if app == 0 {
+		return false
+	}
+	defer cfRelease(app)
+	active, _ := axBool(app, "AXFrontmost")
+	return active
+}
+
+// pressLog collects what the click fixture prints, a line for each press.
+type pressLog struct {
+	mu  sync.Mutex
+	out strings.Builder
+}
+
+func (l *pressLog) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.out.Write(p)
+}
+
+func (l *pressLog) count() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return strings.Count(l.out.String(), "clicked\n")
 }
 
 func TestRoleOf(t *testing.T) {

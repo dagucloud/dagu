@@ -484,6 +484,12 @@ func (b *darwinBackend) Button(button Button, down bool, clicks int) error {
 	default:
 		return fmt.Errorf("unknown mouse button %q", button)
 	}
+	// A press starting a click on a window in the background brings it
+	// forward first, so the click reaches the window.
+	if button == ButtonLeft && down && clicks == 1 {
+		x, y, _ := b.Position()
+		b.bringForwardAt(image.Pt(x, y))
+	}
 	event := cgEventCreateMouseEvent(0, eventType, b.location(), number)
 	if event == 0 {
 		return errors.New("create mouse event")

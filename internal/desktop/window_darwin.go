@@ -11,6 +11,7 @@ import (
 	"math"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/ebitengine/purego"
 	"github.com/ebitengine/purego/objc"
@@ -40,6 +41,14 @@ const (
 // work area and still count as maximized, and how far an Accessibility
 // frame may be from the window server's for the two to name one window.
 const frameTolerance = 2
+
+// raiseWait bounds how long a click waits for the window it lands on to
+// come forward, polling every raisePoll; a window that never does still
+// gets the click.
+const (
+	raiseWait = time.Second
+	raisePoll = 20 * time.Millisecond
+)
 
 // windowInfo is one window the window server lists.
 type windowInfo struct {
@@ -196,6 +205,72 @@ func frontWindowOwner() int32 {
 		}
 	}
 	return 0
+}
+
+// clickTarget names the application window a click at a position lands on,
+// the front one there. A menu, the menu bar, or a panel above the
+// application windows takes the click itself, so none is named; overlays
+// never take a click, so the window under them is.
+func clickTarget(windows []windowInfo, at image.Point) (WindowID, bool) {
+	for _, w := range windows {
+		if w.layer >= overlayWindowLayer || !at.In(w.id.Bounds) {
+			continue
+		}
+		if w.layer != normalWindowLayer {
+			return WindowID{}, false
+		}
+		return w.id, true
+	}
+	return WindowID{}, false
+}
+
+// bringForwardAt raises the application window under a position unless it
+// has the focus, and waits until it takes the focus. macOS hands a click on
+// a window in the background to it only when the application takes the
+// first click; Chromium-based applications, among many others, just come
+// forward, and the click is lost.
+func (b *darwinBackend) bringForwardAt(at image.Point) {
+	target, ok := clickTarget(b.listWindows(), at)
+	if !ok || b.hasFocus(target) {
+		return
+	}
+	_ = b.Raise(target)
+	deadline := time.Now().Add(raiseWait)
+	for !b.hasFocus(target) && time.Now().Before(deadline) {
+		time.Sleep(raisePoll)
+	}
+}
+
+// hasFocus reports whether a window has the focus as its application tells
+// it: the application is active and the window is its focused one. The
+// focused window the system names cannot stand in, since while the active
+// application shows no window, it names the owner of the front window. An
+// application that does not tell counts as focused, so its windows are
+// clicked as before.
+func (b *darwinBackend) hasFocus(w WindowID) bool {
+	app := axUIElementCreateApplication(int32(w.PID)) //nolint:gosec // process ids fit 32 bits
+	if app == 0 {
+		return true
+	}
+	defer cfRelease(app)
+	active, ok := axBool(app, "AXFrontmost")
+	if !ok {
+		return true
+	}
+	if !active {
+		return false
+	}
+	focused := axCopy(app, "AXFocusedWindow")
+	if focused == 0 {
+		return true
+	}
+	defer cfRelease(focused)
+	window := b.axWindow(app, w)
+	if window == 0 {
+		return true
+	}
+	defer cfRelease(window)
+	return cfEqual(focused, window)
 }
 
 // Raise brings a window's application to the front and the window above
