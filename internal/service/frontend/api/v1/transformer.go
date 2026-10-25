@@ -68,7 +68,28 @@ func toDAG(dag *ir.DAG) api.DAG {
 		Labels:        ptrOf(dag.Labels.Strings()),
 		Tags:          ptrOf(dag.Labels.Strings()),
 		Schedule:      ptrOf(schedules),
+
+		RestartPolicy:  toRestartPolicy(dag),
+		RestartWaitSec: toRestartWaitSec(dag),
 	}
+}
+
+// toRestartPolicy returns the restart policy of a service DAG, and nil for any
+// other DAG so the field is omitted from the response.
+func toRestartPolicy(dag *ir.DAG) *api.RestartPolicy {
+	if !dag.RestartPolicy.Enabled() {
+		return nil
+	}
+	return ptrOf(api.RestartPolicy(dag.RestartPolicy))
+}
+
+// toRestartWaitSec returns the wait between two runs of a service DAG, and nil
+// for any other DAG.
+func toRestartWaitSec(dag *ir.DAG) *int {
+	if !dag.RestartPolicy.Enabled() {
+		return nil
+	}
+	return ptrOf(int(dag.RestartWait.Seconds()))
 }
 
 func toDAGResources(resources *ir.Resources) *api.DAGResources {
@@ -742,6 +763,8 @@ func toDAGDetails(dag *ir.DAG) *api.DAGDetails {
 		Description:       ptrOf(dag.Description),
 		DefaultParams:     ptrOf(dag.DefaultParams),
 		Delay:             ptrOf(int(dag.Delay.Seconds())),
+		RestartPolicy:     toRestartPolicy(dag),
+		RestartWaitSec:    toRestartWaitSec(dag),
 		Env:               ptrOf(dag.Env),
 		Group:             ptrOf(dag.Group),
 		HandlerOn:         ptrOf(handlerOn),

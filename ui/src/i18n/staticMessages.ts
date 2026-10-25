@@ -1648,6 +1648,7 @@ const english = {
   "Open in fullscreen": "Open in fullscreen",
   "{selected} of {loaded} selected": "{selected} of {loaded} selected",
   "Schedule for {name}": "Schedule for {name}",
+  "Restarts for {name}": "Restarts for {name}",
   'Target name': 'Target name',
   'Target:': 'Target:',
   'Task input is safely stored, but the DAG-run still needs to be queued for resume.':
@@ -1889,6 +1890,10 @@ const english = {
     "Allow callers to select an approved profile with {header}. Without the header, the DAG's default profile resolution is used.",
   'Are you sure you want to {action} the schedule for "{name}"?':
     'Are you sure you want to {action} the schedule for "{name}"?',
+  'Resume the restarts of "{name}"? The scheduler starts a run when one is due.':
+    'Resume the restarts of "{name}"? The scheduler starts a run when one is due.',
+  'Suspend the restarts of "{name}"? A running run keeps running.':
+    'Suspend the restarts of "{name}"? A running run keeps running.',
   'Are you sure you want to {action} the webhook for "{name}"?':
     'Are you sure you want to {action} the webhook for "{name}"?',
   'Are you sure you want to delete remote node "{name}"? This action cannot be undone.':
@@ -2003,8 +2008,10 @@ const english = {
   retry: 'retry',
   reschedule: 'reschedule',
   "Disable schedule": "Disable schedule",
+  "Suspend restarts": "Suspend restarts",
   'Disable Webhook': 'Disable Webhook',
   "Enable schedule": "Enable schedule",
+  "Resume restarts": "Resume restarts",
   'Enable Webhook': 'Enable Webhook',
   '+{count} more': '+{count} more',
   '+{count} more step': '+{count} more step',
@@ -2555,6 +2562,7 @@ const english = {
   "Manual": "Manual",
   "Sub-DAG": "Sub-DAG",
   "Catch-up": "Catch-up",
+  "Restart": "Restart",
   "Run log": "Run log",
   "Stream": "Stream",
   "Lines shown": "Lines shown",
@@ -4237,6 +4245,7 @@ const chinese = {
   "Open in fullscreen": "全屏打开",
   "{selected} of {loaded} selected": "已选择 {loaded} 项中的 {selected} 项",
   "Schedule for {name}": "{name} 的调度",
+  "Restarts for {name}": "{name} 的重启",
   'Target name': '目标名称',
   'Target:': '目标:',
   'Task input is safely stored, but the DAG-run still needs to be queued for resume.':
@@ -4469,6 +4478,10 @@ const chinese = {
     '允许调用方使用 {header} 选择已批准的配置。未提供该请求头时，将使用 DAG 的默认配置解析。',
   'Are you sure you want to {action} the schedule for "{name}"?':
     '确定要{action}“{name}”的计划吗？',
+  'Resume the restarts of "{name}"? The scheduler starts a run when one is due.':
+    '恢复“{name}”的重启吗？调度器会在需要时启动运行。',
+  'Suspend the restarts of "{name}"? A running run keeps running.':
+    '暂停“{name}”的重启吗？正在进行的运行会继续运行。',
   'Are you sure you want to {action} the webhook for "{name}"?':
     '确定要{action}“{name}”的 Webhook 吗？',
   'Are you sure you want to delete remote node "{name}"? This action cannot be undone.':
@@ -4580,8 +4593,10 @@ const chinese = {
   retry: '重试',
   reschedule: '重新调度',
   "Disable schedule": "禁用计划",
+  "Suspend restarts": "暂停重启",
   'Disable Webhook': '禁用 Webhook',
   "Enable schedule": "启用计划",
+  "Resume restarts": "恢复重启",
   'Enable Webhook': '启用 Webhook',
   '+{count} more': '另有 {count} 个',
   '+{count} more step': '另有 {count} 个步骤',
@@ -5122,6 +5137,7 @@ const chinese = {
   "Manual": "手动",
   "Sub-DAG": "子工作流",
   "Catch-up": "补跑",
+  "Restart": "重启",
   "Run log": "运行日志",
   "Stream": "输出流",
   "Lines shown": "显示的行",
@@ -6854,6 +6870,7 @@ const japanese = {
   "Open in fullscreen": "全画面で開く",
   "{selected} of {loaded} selected": "{loaded} 件中 {selected} 件を選択",
   "Schedule for {name}": "{name} のスケジュール",
+  "Restarts for {name}": "{name} の再起動",
   'Target name': 'ターゲット名',
   'Target:': 'ターゲット:',
   'Task input is safely stored, but the DAG-run still needs to be queued for resume.':
@@ -7096,6 +7113,10 @@ const japanese = {
     '呼び出し元は {header} を使って承認済みプロファイルを選択できます。このヘッダーがない場合は、DAG のデフォルトプロファイル解決が使用されます。',
   'Are you sure you want to {action} the schedule for "{name}"?':
     '「{name}」のスケジュールを{action}にしますか？',
+  'Resume the restarts of "{name}"? The scheduler starts a run when one is due.':
+    '「{name}」の再起動を再開しますか？実行が必要になると、スケジューラーが実行を開始します。',
+  'Suspend the restarts of "{name}"? A running run keeps running.':
+    '「{name}」の再起動を一時停止しますか？実行中の実行はそのまま続行されます。',
   'Are you sure you want to {action} the webhook for "{name}"?':
     '「{name}」の Webhook を{action}にしますか？',
   'Are you sure you want to delete remote node "{name}"? This action cannot be undone.':
@@ -7210,8 +7231,10 @@ const japanese = {
   retry: '再試行',
   reschedule: '再スケジュール',
   "Disable schedule": "スケジュールを無効化",
+  "Suspend restarts": "再起動を一時停止",
   'Disable Webhook': 'Webhook を無効化',
   "Enable schedule": "スケジュールを有効化",
+  "Resume restarts": "再起動を再開",
   'Enable Webhook': 'Webhook を有効化',
   '+{count} more': '他 {count} 件',
   '+{count} more step': '他 {count} ステップ',
@@ -7765,6 +7788,7 @@ const japanese = {
   "Manual": "手動",
   "Sub-DAG": "サブワークフロー",
   "Catch-up": "キャッチアップ",
+  "Restart": "再起動",
   "Run log": "実行ログ",
   "Stream": "出力ストリーム",
   "Lines shown": "表示する行",

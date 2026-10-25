@@ -38,7 +38,7 @@ func parseTriggerTypeParam(ctx *Context) (ir.TriggerType, error) {
 	triggerType := ir.ParseTriggerType(triggerTypeStr)
 	if triggerType == ir.TriggerTypeUnknown {
 		return ir.TriggerTypeUnknown, fmt.Errorf(
-			"invalid trigger-type %q: must be one of scheduler, manual, webhook, subdag, retry, catchup",
+			"invalid trigger-type %q: must be one of scheduler, manual, webhook, subdag, retry, catchup, restart",
 			triggerTypeStr,
 		)
 	}

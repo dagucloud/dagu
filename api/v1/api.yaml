@@ -789,7 +789,7 @@ paths:
   /dags:
     get:
       summary: "List all available DAGs"
-      description: "Retrieves DAG definitions with optional filtering by name, labels, and active status (scheduled and not suspended)."
+      description: "Retrieves DAG definitions with optional filtering by name, labels, and active status (scheduled or kept running by a restart policy of always or unless-stopped, and not suspended)."
       operationId: "listDAGs"
       tags:
         - "dags"
@@ -816,7 +816,7 @@ paths:
           schema:
             type: "boolean"
             default: false
-          description: "Filter to DAGs that have a schedule and are not suspended."
+          description: "Filter to DAGs that are not suspended and have a schedule or a restart policy of always or unless-stopped."
         - name: "tags"
           in: "query"
           required: false
@@ -14560,6 +14560,11 @@ components:
           description: "List of scheduling expressions defining when DAG-runs should be created from this DAG"
           items:
             $ref: "#/components/schemas/Schedule"
+        restartPolicy:
+          $ref: "#/components/schemas/RestartPolicy"
+        restartWaitSec:
+          type: integer
+          description: "Seconds the scheduler waits after a run ends before it starts the next one. Used with restartPolicy."
         description:
           type: string
           description: "Human-readable description of the DAG's purpose and behavior"
@@ -14674,6 +14679,12 @@ components:
         - "subdag"
         - "retry"
         - "catchup"
+        - "restart"
+
+    RestartPolicy:
+      type: string
+      description: "Restart policy of a DAG: the scheduler keeps a run of the DAG alive and starts the next run restartWaitSec seconds after the previous one ends. With unless-stopped, no run follows a run that an operator stopped. Omitted when the DAG has no restart policy."
+      enum: ["always", "unless-stopped"]
 
     NodeStatus:
       type: integer
@@ -14908,6 +14919,11 @@ components:
         delay:
           type: integer
           description: "Time in seconds to wait before starting a DAG-run"
+        restartPolicy:
+          $ref: "#/components/schemas/RestartPolicy"
+        restartWaitSec:
+          type: integer
+          description: "Seconds the scheduler waits after a run ends before it starts the next one. Used with restartPolicy."
         histRetentionDays:
           type: integer
           description: "Number of days to retain historical logs"
