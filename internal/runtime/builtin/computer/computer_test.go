@@ -1112,17 +1112,56 @@ func TestPinnedStepStopsAtADialogItWasNotToldAbout(t *testing.T) {
 // An element recorded in the window behind a dialog is not looked for in
 // the dialog, though a window matches by its application alone and the
 // dialog has a button that matches: pressing it would answer a question
-// the recording never saw.
+// the recording never saw. That holds when the dialog is the only window
+// of the application listed, which a lookup by application alone finds.
 func TestRecordedElementIsNotLookedForInADialog(t *testing.T) {
 	t.Parallel()
 
-	run := elementRun(t)
-	run.elements.show(confirmDialog())
-	steps := `{"ai": "never", "input": "direct", "find_within": "300ms",
+	const steps = `{"ai": "never", "input": "direct", "find_within": "300ms",
 		"do": [{"act": {"instruction": "Agree", "recorded": {"windows": [{"click": {"app": "expense", "window": "経費精算*", "role": "button", "name": "はい"}}]}}}]}`
-	execution := run.execute(steps, nil)
-	require.ErrorContains(t, execution.err, `the dialog "確認" is in front`)
-	assert.Empty(t, run.backend.inputs())
+	for _, tc := range []struct {
+		name    string
+		windows []desktop.WindowID
+	}{
+		{"with no window listed", nil},
+		{"with only the dialog listed", []desktop.WindowID{{Handle: 3, Title: "確認", App: "expense"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			run := elementRun(t)
+			run.backend.windows = tc.windows
+			run.elements.show(confirmDialog())
+			execution := run.execute(steps, nil)
+			require.ErrorContains(t, execution.err, `the dialog "確認" is in front`)
+			assert.Empty(t, run.backend.inputs())
+		})
+	}
+}
+
+// A dialog of another application holds nothing of the recorded one, even
+// when the recorded window is found by its title alone because its
+// application cannot be read, so that window is raised and the step acts.
+func TestDialogOfAnotherApplicationDoesNotHoldAWindowFoundByTitle(t *testing.T) {
+	t.Parallel()
+
+	run := elementRun(t)
+	form := expenseWindow()
+	dialog, dialogElements := confirmDialog()
+	dialog.App = "notifier"
+	formWindow := desktop.WindowID{Handle: 2, Title: form.Name}
+	run.backend.windows = []desktop.WindowID{{Handle: 3, Title: dialog.Name, App: "notifier"}, formWindow}
+	run.backend.focusOn(run.backend.windows[0])
+	run.elements.show(dialog, dialogElements)
+	run.backend.onRaise = func(w desktop.WindowID) {
+		if w.Handle == formWindow.Handle {
+			run.elements.show(form, expenseElements())
+		}
+	}
+	steps := `{"ai": "never", "input": "direct", "find_within": "300ms",
+		"do": [{"act": {"instruction": "Save", "recorded": {"windows": [{"click": {"app": "expense", "window": "経費精算*", "role": "button", "id": "saveButton"}}]}}}]}`
+	require.NoError(t, run.execute(steps, nil).err)
+	assert.Equal(t, []string{"invoke saveButton"}, run.backend.inputs())
 }
 
 // A person who leaves a dialog of the step's application in front holds

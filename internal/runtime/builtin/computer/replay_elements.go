@@ -312,11 +312,12 @@ func (r *run) lookRecorded(els desktop.Elements, rec recordedElement) (desktop.E
 		return desktop.Element{}, "", err
 	}
 	title := r.substitute(rec.Window)
-	held := front.Role == desktop.RoleDialog && r.dialogHolds(front, r.recordedWindow(rec.App, title))
-	// A dialog that holds the recorded window is not searched unless the
-	// recording names it: a window matches by its application alone, and a
-	// match in the dialog would answer a question the recording never saw.
-	if held && title != "" && !desktop.WindowMatches(front.Name, title) {
+	held := front.Role == desktop.RoleDialog && r.dialogHolds(front, r.recordedWindow(rec.App, title), rec.App, title)
+	// A dialog that holds the recorded window is not searched when the
+	// recording names another window: a window matches by its application
+	// alone, and a match in the dialog would answer a question the
+	// recording never saw.
+	if held && title != "" {
 		return desktop.Element{}, describeDialog(els, front), nil
 	}
 	found, reason, err := r.lookIn(els, front, rec)
@@ -424,7 +425,7 @@ func (r *run) bringForward(ctx context.Context, index int, app, title string) {
 	if front := r.driver.FocusedWindow(); front.Known() && front.Handle == target.Handle {
 		return
 	}
-	if els, err := r.elementsIfAvailable(); err == nil && r.heldByDialog(els, target) {
+	if els, err := r.elementsIfAvailable(); err == nil && r.heldByDialog(els, target, app, title) {
 		return
 	}
 	if err := r.driver.Raise(*target); err != nil {
@@ -461,28 +462,30 @@ func (r *run) recordedWindow(app, title string) *desktop.WindowID {
 	return any
 }
 
-// heldByDialog reports whether a dialog in front holds target; see
-// dialogHolds.
-func (r *run) heldByDialog(els desktop.Elements, target *desktop.WindowID) bool {
+// heldByDialog reports whether a dialog in front holds the recorded
+// window; see dialogHolds.
+func (r *run) heldByDialog(els desktop.Elements, target *desktop.WindowID, app, title string) bool {
 	front, err := els.FrontWindow()
-	return err == nil && r.dialogHolds(front, target)
+	return err == nil && r.dialogHolds(front, target, app, title)
 }
 
 // dialogHolds reports whether the window in front is a dialog that holds
-// target, the window a step would bring forward, or, with no such window,
-// a window of the step's own application: a dialog of the same
-// application that is not target itself.
-func (r *run) dialogHolds(front desktop.Element, target *desktop.WindowID) bool {
+// the recorded window of app, titled title: a dialog of that application,
+// else of target's, the window a step would bring forward, else of the
+// step's own. Only its title makes the dialog the recorded window itself,
+// since target may be any window of the application when no title
+// matches. title is already substituted.
+func (r *run) dialogHolds(front desktop.Element, target *desktop.WindowID, app, title string) bool {
 	if front.Role != desktop.RoleDialog {
 		return false
 	}
-	app := r.workApp
-	if target != nil {
-		if target.Title == front.Name && strings.EqualFold(target.App, front.App) {
-			return false
-		}
+	if title != "" && desktop.WindowMatches(front.Name, title) {
+		return false
+	}
+	if app == "" && target != nil {
 		app = target.App
 	}
+	app = cmp.Or(app, r.workApp)
 	return app == "" || front.App == "" || strings.EqualFold(front.App, app)
 }
 
