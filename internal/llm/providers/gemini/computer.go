@@ -21,11 +21,13 @@ const (
 	desktopEnvironment = "ENVIRONMENT_DESKTOP"
 	// normalizedScale is the size of the coordinate grid Gemini computer use
 	// reports positions on, regardless of the screenshot size.
-	normalizedScale      = 1000
-	requireConfirmation  = "require_confirmation"
-	defaultWaitDuration  = time.Second
-	legacyWaitDuration   = 5 * time.Second
-	defaultScrollNotches = 3
+	normalizedScale     = 1000
+	requireConfirmation = "require_confirmation"
+	defaultWaitDuration = time.Second
+	legacyWaitDuration  = 5 * time.Second
+	// defaultScrollMagnitude is the scroll distance Gemini documents for a
+	// call that names none, on the grid.
+	defaultScrollMagnitude = 300
 )
 
 // computerImageLimit is the screen size Gemini computer use is tuned for.
@@ -416,11 +418,17 @@ func computerActions(callID, name string, args geminiArgs, screen computeruse.Sc
 				return nil, err
 			}
 		}
-		amount := computeruse.PixelsToNotches(max(args.MagnitudeInPixels, args.Magnitude))
-		if amount == 0 {
-			amount = defaultScrollNotches
+		magnitude := max(args.MagnitudeInPixels, args.Magnitude)
+		if magnitude == 0 {
+			magnitude = defaultScrollMagnitude
 		}
-		action.ScrollX, action.ScrollY, err = computeruse.ScrollDelta(args.Direction, amount)
+		// The distance is on the same grid as positions, along its axis.
+		var dx, dy int
+		if dx, dy, err = computeruse.ScrollDelta(args.Direction, magnitude); err != nil {
+			return nil, err
+		}
+		action.ScrollX = computeruse.PixelsToNotches(dx * screen.Width / normalizedScale)
+		action.ScrollY = computeruse.PixelsToNotches(dy * screen.Height / normalizedScale)
 	case "press_key":
 		action.Kind = computeruse.KindKey
 		action.Keys = computeruse.SplitKeys(args.Key)

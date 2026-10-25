@@ -69,7 +69,7 @@ func TestComputerSession(t *testing.T) {
 		{CallID: "f2", Kind: computeruse.KindType, Text: "Ada"},
 		{CallID: "f2", Kind: computeruse.KindKey, Keys: []string{"Return"}},
 		{CallID: "call-4", Kind: computeruse.KindKey, Keys: []string{"control", "s"}},
-		{CallID: "call-5", Kind: computeruse.KindScroll, Point: &computeruse.Point{}, ScrollY: 4},
+		{CallID: "call-5", Kind: computeruse.KindScroll, Point: &computeruse.Point{}, ScrollY: 2},
 	}, turn.Actions)
 
 	first := server.Requests()[0]
@@ -157,6 +157,27 @@ func TestComputerSessionDesktopActions(t *testing.T) {
 	assert.Equal(t, &computeruse.Point{X: 500, Y: 250}, turn.Actions[3].Point, "mouse_down moves to its position first")
 	assert.Equal(t, time.Second, turn.Actions[6].Duration, "wait defaults to one second")
 	assert.Equal(t, 3, turn.Actions[7].Count, "type_text_at clears the field by default")
+}
+
+// A scroll distance is on the grid positions are, along its own axis, so it
+// covers the same share of any screen.
+func TestComputerSessionScrollsOnTheGrid(t *testing.T) {
+	t.Parallel()
+
+	model := `{"role":"model","parts":[
+		{"functionCall":{"id":"a","name":"scroll","args":{"x":0,"y":0,"direction":"down","magnitude_in_pixels":400}}},
+		{"functionCall":{"id":"b","name":"scroll","args":{"x":0,"y":0,"direction":"right","magnitude_in_pixels":400}}},
+		{"functionCall":{"id":"c","name":"scroll","args":{"x":0,"y":0,"direction":"up"}}}
+	]}`
+	server := generateServer(`{"candidates":[{"content":` + model + `}]}`)
+	session := newComputerSession(t, server)
+
+	turn, err := session.Next(context.Background(), computeruse.Observation{Screen: testScreen("first")})
+	require.NoError(t, err)
+	require.Len(t, turn.Actions, 3)
+	assert.Equal(t, 2, turn.Actions[0].ScrollY, "400 of 1000 down a 500-pixel screen is 200 pixels")
+	assert.Equal(t, 4, turn.Actions[1].ScrollX, "400 of 1000 across a 1000-pixel screen is 400 pixels")
+	assert.Equal(t, -2, turn.Actions[2].ScrollY, "the documented default of 300 is 150 pixels")
 }
 
 // A call that cannot be performed stops the batch.
