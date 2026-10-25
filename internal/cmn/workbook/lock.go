@@ -47,6 +47,9 @@ func checkLockFile(path string) (warning string, err error) {
 	if resolved, resolveErr := filepath.EvalSymlinks(path); resolveErr == nil {
 		target = resolved
 	}
+	if workbookHeld(target) {
+		return "", &LockedError{Path: path}
+	}
 	lock := lockFilePath(target)
 	if _, statErr := os.Stat(lock); statErr != nil {
 		if errors.Is(statErr, fs.ErrNotExist) {

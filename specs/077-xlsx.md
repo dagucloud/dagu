@@ -491,6 +491,16 @@ Excel shares only reads, so the temporary file is written but the rename
 over the original is refused with access denied, and the step tells that
 hold apart from a read-only workbook or a permission problem, which keep
 the system error. A refused rename leaves no temporary file behind.
+
+On macOS, Dagu also asks `/usr/sbin/lsof` whether `Microsoft Excel` holds
+an open descriptor for the workbook itself. An observed Excel holder fails
+the write even when no `~$` owner file exists; other readers and a leftover
+owner file alone do not block it. This advisory probe has a two-second
+deadline and permits the write if the probe is unavailable, fails, or times
+out. It cannot detect a workbook that Excel has loaded without retaining
+an open descriptor, and it does not prevent another process from opening
+the workbook after the check.
+
 `wait_for_unlock: 5m` retries a locked workbook, waiting two seconds and
 doubling to one minute, and logs each wait; the whole open-modify-save
 sequence runs again on each try.

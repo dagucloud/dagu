@@ -67,3 +67,6 @@ func renameRefusedByHolder(target string, err error) bool {
 	_ = syscall.CloseHandle(handle)
 	return false
 }
+
+// Windows detects mandatory sharing restrictions through its existing probes.
+func workbookHeld(string) bool { return false }
