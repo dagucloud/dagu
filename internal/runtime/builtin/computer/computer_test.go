@@ -4,6 +4,7 @@
 package computer
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -3256,4 +3257,144 @@ func TestModelElementIdNotOffered(t *testing.T) {
 	assert.Empty(t, run.backend.inputs(), "nothing reached the desktop")
 	require.GreaterOrEqual(t, len(session.observations), 2)
 	assert.Contains(t, session.observations[1].Results[0].Error, `no element "e99" is on the screen`)
+}
+
+// A checkbox that takes no input at first and reaches its state while the
+// step waits for it is left as it is, not toggled away from it.
+func TestPinnedCheckLeavesABoxThatReachedItsStateWhileDisabled(t *testing.T) {
+	t.Parallel()
+
+	run := elementRun(t)
+	box := desktop.Element{Role: desktop.RoleCheckbox, Name: "同意する", ID: "agreeBox", Value: "false", Bounds: image.Rect(120, 220, 300, 240),
+		Path: []desktop.PathStep{{Role: desktop.RoleCheckbox, Name: "同意する", Index: 0}}}
+	run.elements.elements = append(expenseElements(), box)
+	run.elements.failPattern("agreeBox", desktop.ErrDisabled)
+	// The box is checked before it takes input again, so a retry never
+	// meets it enabled and unchecked.
+	time.AfterFunc(300*time.Millisecond, func() {
+		run.elements.setValue("agreeBox", "true")
+		run.elements.mu.Lock()
+		delete(run.elements.applyErr, "agreeBox")
+		run.elements.mu.Unlock()
+	})
+	steps := `{"ai": "never", "input": "direct", "find_within": "3s", "do": [{"act": {"instruction": "Agree", "recorded": {"windows": [{"check": {"role": "checkbox", "id": "agreeBox"}}]}}}]}`
+	require.NoError(t, run.execute(steps, nil).err)
+	assert.Empty(t, run.backend.inputs(), "the box already checked is not toggled")
+	found, err := run.elements.Find(desktop.Selector{Role: desktop.RoleCheckbox, ID: "agreeBox"})
+	require.NoError(t, err)
+	assert.Equal(t, "true", found[0].Value)
+}
+
+// A turn that clicks the same checkbox twice by id records each click with
+// the state it left the box in, read right before each click rather than when
+// the turn listed the box, so the act pins as check, then uncheck.
+func TestRecordingReadsACheckboxBeforeEachClick(t *testing.T) {
+	t.Parallel()
+
+	run := elementRun(t)
+	box := desktop.Element{Role: desktop.RoleCheckbox, Name: "同意する", ID: "agreeBox", Value: "false", Bounds: image.Rect(120, 220, 300, 240),
+		Path: []desktop.PathStep{{Role: desktop.RoleCheckbox, Name: "同意する", Index: 0}}}
+	run.elements.elements = append([]desktop.Element{box}, expenseElements()...)
+	click := computeruse.Action{CallID: "x", Kind: computeruse.KindClick, ElementID: "e1"}
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(click, click), done("Agreed, then not")}}}
+	require.NoError(t, run.execute(`{"idle": "0", "do": [{"act": "Toggle consent"}]}`, nil).err)
+
+	pinned := pinOf(t, lookupRecording(t, run, "Toggle consent"))
+	assert.JSONEq(t, `[
+		{"check": {"app": "expense", "role": "checkbox", "name": "同意する", "id": "agreeBox"}},
+		{"uncheck": {"app": "expense", "role": "checkbox", "name": "同意する", "id": "agreeBox"}}
+	]`, marshal(t, pinned.Recorded))
+}
+
+// A pinned check or uncheck leaves a checkbox in its state, clicking it only
+// when it is in the other one and confirming the state after, so running the
+// step again changes nothing. A checkbox that does not change, or does not
+// say its state, is a miss.
+func TestPinnedCheckboxIsLeftInItsState(t *testing.T) {
+	t.Parallel()
+
+	agree := desktop.Element{Role: desktop.RoleCheckbox, Name: "同意する", ID: "agreeBox", Bounds: image.Rect(120, 220, 300, 240),
+		Path: []desktop.PathStep{{Role: desktop.RoleCheckbox, Name: "同意する", Index: 0}}}
+	for _, tc := range []struct {
+		name    string
+		verb    string
+		state   string
+		input   string
+		stuck   bool
+		inputs  []string
+		final   string
+		missing string
+	}{
+		{name: "check an unchecked box", verb: "check", state: "false", inputs: []string{"move 210,230", "left down #1"}, final: "true"},
+		{name: "check a checked box", verb: "check", state: "true", final: "true"},
+		{name: "uncheck a checked box directly", verb: "uncheck", state: "true", input: "direct", inputs: []string{"toggle agreeBox"}, final: "false"},
+		{name: "uncheck an unchecked box", verb: "uncheck", state: "false", final: "false"},
+		{name: "a box the click does not change", verb: "check", state: "false", stuck: true, inputs: []string{"move 210,230", "left down #1"}, missing: "is not checked after the click"},
+		{name: "a box that does not say its state", verb: "check", missing: "does not say whether it is checked"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			run := elementRun(t)
+			box := agree
+			box.Value = tc.state
+			run.elements.elements = append(expenseElements(), box)
+			if !tc.stuck {
+				run.backend.onPress = func() {
+					run.elements.setValue("agreeBox", map[string]string{"true": "false", "false": "true"}[tc.state])
+				}
+			}
+			steps := fmt.Sprintf(`{"ai": "never", "input": %q, "find_within": "200ms", "do": [{"act": {"instruction": "Agree", "recorded": {"windows": [{%q: {"role": "checkbox", "id": "agreeBox"}}]}}}]}`,
+				cmp.Or(tc.input, "screen"), tc.verb)
+			execution := run.execute(steps, nil)
+			assert.Equal(t, tc.inputs, run.backend.inputs())
+			if tc.missing != "" {
+				require.ErrorContains(t, execution.err, tc.missing)
+				return
+			}
+			require.NoError(t, execution.err)
+			found, err := run.elements.Find(desktop.Selector{Role: desktop.RoleCheckbox, ID: "agreeBox"})
+			require.NoError(t, err)
+			assert.Equal(t, tc.final, found[0].Value)
+		})
+	}
+}
+
+// A model's click on a checkbox, at its position or on the element by id,
+// is recorded with the state it left the box in, so the learned act pins as
+// check or uncheck and replaying it never undoes a box already in that state.
+// A box the application updates a moment later is waited for; one the click
+// leaves as it was records a plain click.
+func TestRecordingKeepsTheStateACheckboxWasLeftIn(t *testing.T) {
+	t.Parallel()
+
+	box := desktop.Element{Role: desktop.RoleCheckbox, Name: "同意する", ID: "agreeBox", Value: "false", Bounds: image.Rect(120, 220, 300, 240),
+		Path: []desktop.PathStep{{Role: desktop.RoleCheckbox, Name: "同意する", Index: 0}}}
+	const checked = `[{"check": {"app": "expense", "role": "checkbox", "name": "同意する", "id": "agreeBox"}}]`
+	for _, tc := range []struct {
+		name   string
+		click  computeruse.Action
+		update func(run *testRun)
+		pinned string
+	}{
+		{"at its position", clickAt(210, 230), func(run *testRun) { run.elements.setValue("agreeBox", "true") }, checked},
+		{"on the element", computeruse.Action{CallID: "x", Kind: computeruse.KindClick, ElementID: "e1"}, nil, checked},
+		{"updated a moment later", clickAt(210, 230), func(run *testRun) {
+			time.AfterFunc(700*time.Millisecond, func() { run.elements.setValue("agreeBox", "true") })
+		}, checked},
+		{"left as it was", clickAt(210, 230), func(*testRun) {}, `[{"click": {"app": "expense", "role": "checkbox", "name": "同意する", "id": "agreeBox"}}]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			run := elementRun(t)
+			run.elements.elements = append([]desktop.Element{box}, expenseElements()...)
+			if tc.update != nil {
+				run.backend.onPress = func() { tc.update(run) }
+			}
+			run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(tc.click), done("Agreed")}}}
+			require.NoError(t, run.execute(`{"idle": "0", "do": [{"act": "Agree"}]}`, nil).err)
+
+			pinned := pinOf(t, lookupRecording(t, run, "Agree"))
+			assert.JSONEq(t, tc.pinned, marshal(t, pinned.Recorded))
+		})
+	}
 }

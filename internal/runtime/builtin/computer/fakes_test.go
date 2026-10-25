@@ -300,7 +300,8 @@ func (f *fakeElements) current() (desktop.Element, []desktop.Element, error) {
 	if f.err != nil {
 		return desktop.Element{}, nil, f.err
 	}
-	return f.window, f.elements, nil
+	// A reader gets the window as it is now, apart from later changes.
+	return f.window, slices.Clone(f.elements), nil
 }
 
 func (f *fakeElements) Find(sel desktop.Selector) ([]desktop.Element, error) {
@@ -401,11 +402,16 @@ func (f *fakeElements) Apply(e desktop.Element, pattern desktop.Pattern, value s
 		f.mu.Unlock()
 		return desktop.ErrNoPattern
 	}
-	if pattern == desktop.PatternSetValue {
-		for i := range f.elements {
-			if focusedID(f.elements[i]) == id {
-				f.elements[i].Value = value
-			}
+	for i := range f.elements {
+		if focusedID(f.elements[i]) != id {
+			continue
+		}
+		switch {
+		case pattern == desktop.PatternSetValue:
+			f.elements[i].Value = value
+		case pattern == desktop.PatternToggle:
+			// A toggle flips a checkbox's state, as a real one does.
+			f.elements[i].Value = map[string]string{"true": "false", "false": "true"}[f.elements[i].Value]
 		}
 	}
 	onApply := f.onApply
@@ -980,5 +986,16 @@ func blockRead(t *testing.T, dir string) (restore func()) {
 	return func() {
 		require.NoError(t, os.Remove(path))
 		require.NoError(t, os.WriteFile(path, data, 0o600))
+	}
+}
+
+// setValue sets an element's value, such as a checkbox's state.
+func (f *fakeElements) setValue(id, value string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := range f.elements {
+		if focusedID(f.elements[i]) == id {
+			f.elements[i].Value = value
+		}
 	}
 }

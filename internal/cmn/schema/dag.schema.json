@@ -8240,6 +8240,8 @@
         { "required": ["click"] },
         { "required": ["double_click"] },
         { "required": ["right_click"] },
+        { "required": ["check"] },
+        { "required": ["uncheck"] },
         { "required": ["type"] },
         { "required": ["key"] },
         { "required": ["scroll"] },
@@ -8249,6 +8251,14 @@
         "click": { "$ref": "#/definitions/computerSelector" },
         "double_click": { "$ref": "#/definitions/computerSelector" },
         "right_click": { "$ref": "#/definitions/computerSelector" },
+        "check": {
+          "allOf": [{ "$ref": "#/definitions/computerSelector" }, { "required": ["role"], "properties": { "role": { "enum": ["checkbox"] } } }],
+          "description": "A checkbox to leave checked: clicked only when it is unchecked, then confirmed checked."
+        },
+        "uncheck": {
+          "allOf": [{ "$ref": "#/definitions/computerSelector" }, { "required": ["role"], "properties": { "role": { "enum": ["checkbox"] } } }],
+          "description": "A checkbox to leave unchecked: clicked only when it is checked, then confirmed unchecked."
+        },
         "type": {
           "type": "object",
           "additionalProperties": false,
@@ -8272,7 +8282,7 @@
         "focus": { "$ref": "#/definitions/computerSelector", "description": "With key: the element to focus before pressing the keys." }
       },
       "dependencies": { "focus": ["key"] },
-      "description": "One pinned step of an act: exactly one of click, double_click, right_click (a selector), type (into, text), key (a chord, with an optional focus), scroll (on, dy), or wait."
+      "description": "One pinned step of an act: exactly one of click, double_click, right_click, check, uncheck (a selector), type (into, text), key (a chord, with an optional focus), scroll (on, dy), or wait."
     },
     "computerPinnedField": {
       "type": "object",
