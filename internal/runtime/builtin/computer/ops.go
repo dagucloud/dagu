@@ -646,6 +646,10 @@ func (r *run) evaluate(ctx context.Context, c condition) (bool, string, error) {
 	if holds && front.App != "" {
 		r.workApp = front.App
 	}
+	// A dialog in front is often why a check fails, so the reason names it.
+	if !holds && err == nil && front.Role == desktop.RoleDialog {
+		reason = describeDialog(els, front) + "; " + reason
+	}
 	return holds, reason, err
 }
 

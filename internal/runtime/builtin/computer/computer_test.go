@@ -888,7 +888,7 @@ func TestPinnedActDirect(t *testing.T) {
 
 // confirmDialog is a confirmation an application shows only sometimes.
 func confirmDialog() (desktop.Element, []desktop.Element) {
-	window := desktop.Element{Role: desktop.RoleWindow, Name: "確認", App: "expense", Window: "確認", Bounds: image.Rect(250, 200, 550, 350)}
+	window := desktop.Element{Role: desktop.RoleDialog, Name: "確認", App: "expense", Window: "確認", Bounds: image.Rect(250, 200, 550, 350)}
 	return window, []desktop.Element{
 		{Role: desktop.RoleText, Name: "すでに入力中のものがあります。クリアしていいですか？", Window: "確認", Bounds: image.Rect(270, 220, 530, 250), Path: []desktop.PathStep{{Role: desktop.RoleText, Index: 0}}},
 		{Role: desktop.RoleButton, Name: "はい", Window: "確認", Bounds: image.Rect(300, 300, 380, 330), Path: []desktop.PathStep{{Role: desktop.RoleButton, Name: "はい", Index: 0}}},
@@ -1039,6 +1039,62 @@ func TestHandlerRunsBeforeTheRecordedWindowComesBack(t *testing.T) {
 		"do": [{"act": {"instruction": "Save", "recorded": {"windows": [{"click": {"window": "経費精算*", "role": "button", "id": "saveButton"}}]}}}]}`
 	require.NoError(t, run.execute(steps, nil).err)
 	assert.Equal(t, []string{"invoke はい", "invoke saveButton"}, run.backend.inputs())
+}
+
+// A pinned step that meets a dialog no handler clears stops there and
+// says what the dialog asks, rather than raise its window over the dialog
+// and act past the question. A dialog of another application holds
+// nothing of this one, so the window is raised as usual.
+func TestPinnedStepStopsAtADialogItWasNotToldAbout(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"ai": "never", "input": "direct", "find_within": "300ms",
+		"do": [{"act": {"instruction": "Save", "recorded": {"windows": [{"click": {"window": "経費精算*", "role": "button", "id": "saveButton"}}]}}}]}`
+	for _, tc := range []struct {
+		name, app, err string
+	}{
+		{"of the application", "expense", `the dialog "確認" is in front, showing "すでに入力中のものがあります。クリアしていいですか？"`},
+		{"of another application", "notifier", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			run := elementRun(t)
+			form := expenseWindow()
+			dialog, dialogElements := confirmDialog()
+			dialog.App = tc.app
+			dialogWindow := desktop.WindowID{Handle: 3, Title: dialog.Name, App: tc.app}
+			formWindow := desktop.WindowID{Handle: 2, Title: form.Name, App: "expense"}
+			run.backend.windows = []desktop.WindowID{dialogWindow, formWindow}
+			run.backend.focusOn(dialogWindow)
+			run.elements.show(dialog, dialogElements)
+			run.backend.onRaise = func(w desktop.WindowID) {
+				if w.Handle == formWindow.Handle {
+					run.elements.show(form, expenseElements())
+				}
+			}
+			execution := run.execute(steps, nil)
+			if tc.err != "" {
+				require.ErrorContains(t, execution.err, tc.err)
+				assert.Empty(t, run.backend.raised, "the window stays behind the dialog")
+				assert.Empty(t, run.backend.inputs())
+				return
+			}
+			require.NoError(t, execution.err)
+			assert.Equal(t, []string{"invoke saveButton"}, run.backend.inputs())
+		})
+	}
+}
+
+// A check that fails while a dialog is in front names the dialog, which is
+// often why what it looks for is not there.
+func TestCheckNamesTheDialogInFront(t *testing.T) {
+	t.Parallel()
+
+	run := elementRun(t)
+	run.elements.show(confirmDialog())
+	execution := run.execute(`{"ai": "never", "do": [{"expect": {"text": "保存しました", "within": "300ms"}}]}`, nil)
+	require.ErrorContains(t, execution.err, `the dialog "確認" is in front, showing "すでに入力中のものがあります。クリアしていいですか？"; no element of "確認" shows "保存しました"`)
 }
 
 // A confirmation over the window a learned pixel turn replays in is
