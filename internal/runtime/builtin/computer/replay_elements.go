@@ -156,7 +156,57 @@ func describeRecorded(rec recordedAction, at image.Point) string {
 	case computeruse.KindKey, computeruse.KindHoldKey:
 		return fmt.Sprintf("%s %s in %s", rec.Action.Kind, strings.Join(rec.Action.Keys, "+"), rec.Element.describe())
 	default:
-		return fmt.Sprintf("%s %s at %d,%d", rec.Action.Kind, rec.Element.describe(), at.X, at.Y)
+		kind := string(rec.Action.Kind)
+		if rec.Checked != nil {
+			kind = map[bool]string{true: "check", false: "uncheck"}[*rec.Checked]
+		}
+		return fmt.Sprintf("%s %s at %d,%d", kind, rec.Element.describe(), at.X, at.Y)
+	}
+}
+
+// checkedState reads whether a checkbox is checked, from the state its
+// value holds; it is unknown for an element whose value says neither.
+func checkedState(e desktop.Element) (checked, known bool) {
+	switch e.Value {
+	case "true":
+		return true, true
+	case "false":
+		return false, true
+	}
+	return false, false
+}
+
+// checkedWord names a checkbox state.
+func checkedWord(checked bool) string {
+	if checked {
+		return "checked"
+	}
+	return "unchecked"
+}
+
+// awaitChecked waits until a checkbox a step clicked is in the state the
+// step leaves it in, looking again until findWithin passes, and says why
+// it is not.
+func (r *run) awaitChecked(ctx context.Context, els desktop.Elements, rec recordedElement, want bool, findWithin time.Duration) (string, error) {
+	deadline := time.Now().Add(findWithin)
+	for {
+		found, reason, err := r.lookRecorded(els, rec)
+		if err != nil {
+			return "", err
+		}
+		if reason == "" {
+			state, known := checkedState(found)
+			if known && state == want {
+				return "", nil
+			}
+			reason = fmt.Sprintf("it is not %s after the click", checkedWord(want))
+		}
+		if !time.Now().Before(deadline) {
+			return reason, nil
+		}
+		if err := sleep(ctx, min(exactPollInterval, time.Until(deadline))); err != nil {
+			return "", err
+		}
 	}
 }
 
@@ -499,6 +549,18 @@ func (r *run) direct(ctx context.Context, index, position, total int, els deskto
 		if own, owned := r.elementOwner(found); owned {
 			return false, fmt.Sprintf("%s at turn %d of %d: %s", rec.Element.describe(), position+1, total, ownedMessage(own)), nil
 		}
+		// A checkbox found again may have reached its state meanwhile, and
+		// a toggle would then undo it.
+		if rec.Checked != nil {
+			state, known := checkedState(found)
+			if !known {
+				return false, fmt.Sprintf("%s does not say whether it is checked, at turn %d of %d", rec.Element.describe(), position+1, total), nil
+			}
+			if state == *rec.Checked {
+				logAction(r.timeline, index, fmt.Sprintf("replay by element: %s is already %s", rec.Element.describe(), checkedWord(state)))
+				return true, "", nil
+			}
+		}
 		err := r.applyPattern(els, found, pattern, value)
 		switch {
 		case err == nil:
@@ -556,6 +618,16 @@ func (r *run) replayByElement(ctx context.Context, index, position, total int, t
 			if own, owned := r.elementOwner(found); owned {
 				return fmt.Sprintf("%s at turn %d of %d: %s", rec.Element.describe(), position+1, total, ownedMessage(own)), nil
 			}
+			if rec.Checked != nil {
+				state, known := checkedState(found)
+				if !known {
+					return fmt.Sprintf("%s does not say whether it is checked, at turn %d of %d", rec.Element.describe(), position+1, total), nil
+				}
+				if state == *rec.Checked {
+					logAction(r.timeline, index, fmt.Sprintf("replay by element: %s is already %s", rec.Element.describe(), checkedWord(state)))
+					continue
+				}
+			}
 			if direct || choosesOption(found) {
 				done, reason, err := r.direct(ctx, index, position, total, els, rec, found, findWithin)
 				if err != nil || reason != "" {
@@ -563,6 +635,9 @@ func (r *run) replayByElement(ctx context.Context, index, position, total int, t
 				}
 				if done {
 					outcome.actions++
+					if reason, err := r.confirmChecked(ctx, els, rec, position, total, findWithin); err != nil || reason != "" {
+						return reason, err
+					}
 					continue
 				}
 			}
@@ -591,8 +666,24 @@ func (r *run) replayByElement(ctx context.Context, index, position, total int, t
 		if result := r.runAction(ctx, action, identity, nil, computeruse.ImageLimit{}); result.Failed() {
 			return fmt.Sprintf("%s failed at turn %d of %d: %s", describeAction(action), position+1, total, result.Error), ctx.Err()
 		}
+		if reason, err := r.confirmChecked(ctx, els, rec, position, total, findWithin); err != nil || reason != "" {
+			return reason, err
+		}
 	}
 	return "", nil
+}
+
+// confirmChecked waits, for a click that leaves its checkbox in a state,
+// until the checkbox is in it, and says why it is not.
+func (r *run) confirmChecked(ctx context.Context, els desktop.Elements, rec recordedAction, position, total int, findWithin time.Duration) (string, error) {
+	if rec.Checked == nil || rec.Element == nil {
+		return "", nil
+	}
+	reason, err := r.awaitChecked(ctx, els, *rec.Element, *rec.Checked, findWithin)
+	if err != nil || reason == "" {
+		return "", err
+	}
+	return fmt.Sprintf("%s at turn %d of %d: %s", rec.Element.describe(), position+1, total, reason), nil
 }
 
 // awaitLandmarks checks the screen an element replay ends on: the window

@@ -503,6 +503,7 @@ func (l *actLoop) invokeElement(ctx context.Context, els desktop.Elements, actio
 		return false, nil, computeruse.Result{}
 	}
 	result = computeruse.Result{CallID: action.CallID}
+	var before *bool
 	// The element is acted on wherever it is now, so the step makes sure
 	// that is not a window it never operates, as a pointer action does.
 	if own, owned := l.r.elementOwner(e); owned {
@@ -516,6 +517,9 @@ func (l *actLoop) invokeElement(ctx context.Context, els desktop.Elements, actio
 		}
 		logAction(l.r.timeline, l.index, "focus "+describeElement(e))
 	} else {
+		// The box's state is read right before the click, since an earlier
+		// click of this turn may have changed it since the step listed it.
+		before = l.r.checkedNow(els, e)
 		switch err := l.r.applyPattern(els, e, pattern, ""); {
 		case err == nil:
 			logAction(l.r.timeline, l.index, string(pattern)+" "+describeElement(e))
@@ -527,18 +531,20 @@ func (l *actLoop) invokeElement(ctx context.Context, els desktop.Elements, actio
 		}
 	}
 	l.touched = true
-	recorded := l.recordInvoked(action, e)
+	recorded := l.recordInvoked(ctx, action, e, before)
 	return true, &recorded, result
 }
 
 // recordInvoked records an element the model invoked as the click it asked
 // for, landing at the element's centre, so a later run can replay it by the
 // element or, on a host without one, by that pixel.
-func (l *actLoop) recordInvoked(action computeruse.Action, e desktop.Element) recordedAction {
+func (l *actLoop) recordInvoked(ctx context.Context, action computeruse.Action, e desktop.Element, before *bool) recordedAction {
 	centre := elementCentre(e)
 	display := computeruse.Action{Kind: computeruse.KindClick, Count: action.Count, Button: action.Button, Point: &computeruse.Point{X: centre.X, Y: centre.Y}}
 	element := l.r.recordElement(e, &centre, l.r.driver.WindowAt(centre).App)
-	return recordAction(display, element)
+	rec := recordAction(display, element)
+	rec.Checked = l.r.checkedAfter(ctx, display, element, before)
+	return rec
 }
 
 // reconcile waits for a person using the desktop to pause, then reports

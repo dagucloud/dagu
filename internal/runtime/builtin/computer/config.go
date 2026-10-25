@@ -728,6 +728,15 @@ func pinnedStepsSchema() *jsonschema.Schema {
 	return &jsonschema.Schema{Type: "array", MinItems: new(1), Items: pinnedStepSchema()}
 }
 
+// checkboxSelector accepts a selector for a checkbox alone, as check and
+// uncheck take.
+func checkboxSelector() *jsonschema.Schema {
+	return &jsonschema.Schema{AllOf: []*jsonschema.Schema{
+		{Ref: "#/$defs/selector"},
+		{Required: []string{"role"}, Properties: map[string]*jsonschema.Schema{"role": {Enum: []any{desktop.RoleCheckbox}}}},
+	}}
+}
+
 // pinnedStepSchema accepts exactly one action of a pinned step.
 func pinnedStepSchema() *jsonschema.Schema {
 	selector := func() *jsonschema.Schema { return &jsonschema.Schema{Ref: "#/$defs/selector"} }
@@ -738,6 +747,8 @@ func pinnedStepSchema() *jsonschema.Schema {
 			"click":        selector(),
 			"double_click": selector(),
 			"right_click":  selector(),
+			"check":        checkboxSelector(),
+			"uncheck":      checkboxSelector(),
 			"type": {
 				Type:                 "object",
 				AdditionalProperties: agentstep.NoExtraProperties(),
@@ -756,6 +767,7 @@ func pinnedStepSchema() *jsonschema.Schema {
 		},
 		OneOf: []*jsonschema.Schema{
 			{Required: []string{"click"}}, {Required: []string{"double_click"}}, {Required: []string{"right_click"}},
+			{Required: []string{"check"}}, {Required: []string{"uncheck"}},
 			{Required: []string{"type"}}, {Required: []string{"key"}}, {Required: []string{"scroll"}}, {Required: []string{"wait"}},
 		},
 	}
