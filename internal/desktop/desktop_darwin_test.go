@@ -381,6 +381,19 @@ func TestRoleOf(t *testing.T) {
 	}
 }
 
+// An option of a web page's list box is named by its text, which Chromium
+// gives as its value; a titled menu item keeps its title.
+func TestMenuItemName(t *testing.T) {
+	t.Parallel()
+
+	var e axElements
+	option := e.element(axNode{role: "AXMenuItem", value: "お客さま"}, "AXMenu")
+	assert.Equal(t, RoleMenuItem, option.Role)
+	assert.Equal(t, "お客さま", option.Name)
+	titled := e.element(axNode{role: "AXMenuItem", title: "保存", value: "1"}, "AXMenu")
+	assert.Equal(t, "保存", titled.Name)
+}
+
 // An element's value reads as text whether the application gives a string
 // or a boolean, as a checkbox's state may come.
 func TestValueText(t *testing.T) {

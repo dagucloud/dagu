@@ -37,7 +37,10 @@ const (
 	exactWhenWait = 2 * time.Second
 	// defaultIdlePoll spaces the checks for a person using the desktop, and
 	// defaultPersonWait bounds how long a step waits for one to stop.
-	defaultIdlePoll   = 500 * time.Millisecond
+	defaultIdlePoll = 500 * time.Millisecond
+	// personPoll spaces the checks for a person while a wait sleeps between
+	// two looks at the screen, so the wait makes way for them at once.
+	personPoll        = 20 * time.Millisecond
 	defaultPersonWait = time.Hour
 	// defaultScreenPoll spaces the checks of a screen waiting for a person
 	// to unlock it, and defaultScreenWait bounds that wait for a step with
@@ -88,6 +91,12 @@ type run struct {
 	// remoteNoted records that the step has said once why it does not wait
 	// for a person in a remote session.
 	remoteNoted bool
+	// workApp is the application whose window was in front when the step,
+	// or the run's step before it, last found an element or saw an exact
+	// check hold there, and personHandled is when the step last made way for
+	// a person; see resumeAfterPerson.
+	workApp       string
+	personHandled time.Time
 	// handling is set while a handler's steps run, and handled counts each
 	// handler's runs; see handleScreens.
 	handling  bool
@@ -301,6 +310,7 @@ func (r *run) start(ctx context.Context) (int, error) {
 	r.driver = driver
 	r.driver.ProtectApps(r.exec.protectedApps...)
 	r.driver.AssumeInputSent(r.lease.lastInput())
+	r.workApp = r.lease.workApp(r.dagRunID)
 	if cursor > 0 {
 		r.timeline.Lifecycle(agentstep.StatusRunning, "Resumed after input")
 	} else {
@@ -348,7 +358,8 @@ func (r *run) launch(ctx context.Context, index int, spec launchSpec) error {
 // reads the bindings first and asks the model only when one is missing;
 // never reads the bindings and fails when one is missing.
 func (r *run) extract(ctx context.Context, index int, spec extractSpec, timeout time.Duration) error {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	// A person's use of the desktop pauses the timeout, as it does an act's.
+	ctx, cancel := r.operationContext(ctx, timeout)
 	defer cancel()
 	defer r.during(ctx)()
 	began, before := time.Now(), r.usage
@@ -557,7 +568,8 @@ func (r *run) resolve(spec condition) (condition, error) {
 // reason stands as the answer rather than the deadline.
 func (r *run) await(ctx context.Context, index int, c condition, window, timeout time.Duration) (bool, string, error) {
 	deadline := time.Now().Add(window)
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	// A person's use of the desktop pauses the timeout, as it does an act's.
+	ctx, cancel := r.operationContext(ctx, timeout)
 	defer cancel()
 	defer r.during(ctx)()
 	interval := conditionPollInterval
@@ -565,6 +577,13 @@ func (r *run) await(ctx context.Context, index int, c condition, window, timeout
 		interval = exactPollInterval
 	}
 	for {
+		// A person who used the desktop meanwhile may have left another
+		// window in front; the check looks again from when they stop.
+		if resumed, err := r.resumeAfterPerson(ctx, index); err != nil {
+			return false, "", err
+		} else if resumed {
+			deadline = time.Now().Add(window)
+		}
 		// A screen a handler clears, such as a confirmation, may stand in
 		// the way of the check or over what it reads; it is cleared before
 		// every look.
@@ -582,7 +601,7 @@ func (r *run) await(ctx context.Context, index int, c condition, window, timeout
 		if handled {
 			continue
 		}
-		if err := sleep(ctx, min(interval, time.Until(deadline))); err != nil {
+		if err := r.pollSleep(ctx, min(interval, time.Until(deadline))); err != nil {
 			if errors.Is(err, context.DeadlineExceeded) && !c.judged() {
 				return false, reason, nil
 			}
@@ -619,6 +638,16 @@ func (r *run) evaluate(ctx context.Context, c condition) (bool, string, error) {
 	if err != nil {
 		return false, "", err
 	}
+	holds, reason, err := evaluateFront(els, front, c)
+	if holds && front.App != "" {
+		r.workApp = front.App
+	}
+	return holds, reason, err
+}
+
+// evaluateFront reports whether an exact condition holds in the front
+// window, and why.
+func evaluateFront(els desktop.Elements, front desktop.Element, c condition) (bool, string, error) {
 	switch {
 	case c.Text != "":
 		elements, err := els.Outline(front, 0)
@@ -824,21 +853,10 @@ func (r *run) operationContext(ctx context.Context, timeout time.Duration) (cont
 // so the step's input does not collide with a person's. The wait is the
 // person's time, not the operation's, and has its own cap.
 func (r *run) awaitPerson(ctx context.Context) error {
+	if !r.guardsPerson() {
+		return nil
+	}
 	idle := r.cfg.idle()
-	if idle <= 0 {
-		return nil
-	}
-	// A remote session has no person at the keyboard to avoid, and its
-	// connection feeds the desktop synthetic input of its own, so the
-	// desktop never looks idle there: the wait is skipped unless the step
-	// asked for one.
-	if r.cfg.Idle == "" && r.exec.onConsole != nil && !r.exec.onConsole() {
-		if !r.remoteNoted {
-			r.remoteNoted = true
-			r.timeline.Lifecycle(agentstep.StatusRunning, "Running in a remote session, so not waiting for a person; set idle to wait")
-		}
-		return nil
-	}
 	if r.clock != nil {
 		r.clock.pause()
 		defer r.clock.resume()
@@ -863,6 +881,81 @@ func (r *run) awaitPerson(ctx context.Context) error {
 		r.timeline.Lifecycle(agentstep.StatusRunning, fmt.Sprintf("Nobody has used the desktop for %s; continuing", idle))
 	}
 	return err
+}
+
+// guardsPerson reports whether the step waits for a person using the
+// desktop, as idle sets. A remote session has no person at the keyboard to
+// avoid, and its connection feeds the desktop synthetic input of its own,
+// so the desktop never looks idle there: the step waits there only when it
+// asked to, and says once why it does not.
+func (r *run) guardsPerson() bool {
+	if r.cfg.idle() <= 0 {
+		return false
+	}
+	if r.cfg.Idle == "" && r.exec.onConsole != nil && !r.exec.onConsole() {
+		if !r.remoteNoted {
+			r.remoteNoted = true
+			r.timeline.Lifecycle(agentstep.StatusRunning, "Running in a remote session, so not waiting for a person; set idle to wait")
+		}
+		return false
+	}
+	return true
+}
+
+// resumeAfterPerson makes way for a person who used the desktop since the
+// step's last input or since the step last made way for one: it waits until
+// they stop, then brings the application the step was working in back to
+// the front, where they may have left another. It reports whether a person
+// used the desktop, so a caller looking for something on the screen starts
+// its wait again.
+func (r *run) resumeAfterPerson(ctx context.Context, index int) (bool, error) {
+	if !r.guardsPerson() {
+		return false, nil
+	}
+	if !r.driver.PersonInputSince(r.personSince()) {
+		return false, nil
+	}
+	if err := r.awaitPerson(ctx); err != nil {
+		return true, err
+	}
+	r.personHandled = time.Now()
+	if r.workApp != "" {
+		r.bringForward(ctx, index, r.workApp, "")
+	}
+	return true, nil
+}
+
+// personSince is when the step last sent input or made way for a person,
+// whichever came later: input after it is a person's the step has not made
+// way for yet.
+func (r *run) personSince() time.Time {
+	since := r.driver.InputSentAt()
+	if r.personHandled.After(since) {
+		since = r.personHandled
+	}
+	return since
+}
+
+// pollSleep waits between two looks at the screen, ending early when a
+// person starts using the desktop, so the next look makes way for them at
+// once rather than after the wait, which the operation's time would cover.
+func (r *run) pollSleep(ctx context.Context, d time.Duration) error {
+	if !r.guardsPerson() {
+		return sleep(ctx, d)
+	}
+	since := r.personSince()
+	for deadline := time.Now().Add(d); ; {
+		left := time.Until(deadline)
+		if left <= 0 {
+			return nil
+		}
+		if err := sleep(ctx, min(left, personPoll)); err != nil {
+			return err
+		}
+		if r.driver.PersonInputSince(since) {
+			return nil
+		}
+	}
 }
 
 // awaitUnlock waits while the desktop is unusable only until a person
@@ -924,6 +1017,7 @@ func (r *run) shutdown() {
 	}
 	if r.driver != nil {
 		r.lease.recordInput(r.driver.InputSentAt())
+		r.lease.recordWorkApp(r.dagRunID, r.workApp)
 		_ = r.driver.Close()
 		r.driver = nil
 	}

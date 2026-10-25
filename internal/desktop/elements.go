@@ -30,6 +30,25 @@ var ErrNoPattern = errors.New("the element offers no such pattern")
 // enables it.
 var ErrDisabled = errors.New("the element is disabled")
 
+// ErrRefused marks an error an element gave before it acted, such as a
+// read-only field asked for a value, so nothing reached the application.
+var ErrRefused = errors.New("the element refused before acting")
+
+// refusal is an error an element gives before it acts: it reads as its own
+// message and matches ErrRefused.
+type refusal string
+
+func (r refusal) Error() string { return string(r) }
+
+func (refusal) Is(target error) bool { return target == ErrRefused }
+
+// Refused reports an error from Apply that came before the element acted:
+// the element was not there, was disabled, lacked the pattern, or refused
+// it. Any other error may have come after the element acted.
+func Refused(err error) bool {
+	return errors.Is(err, ErrNotFound) || errors.Is(err, ErrDisabled) || errors.Is(err, ErrNoPattern) || errors.Is(err, ErrRefused)
+}
+
 // Pattern is something an element does by itself when asked through the
 // system's automation, with no pointer or key: the UI Automation control
 // patterns on Windows, and Accessibility actions and attributes on macOS.

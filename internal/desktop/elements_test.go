@@ -4,7 +4,10 @@
 package desktop
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"image"
 	"testing"
 
@@ -100,4 +103,26 @@ func TestElementJSON(t *testing.T) {
 	var back Element
 	require.NoError(t, json.Unmarshal(data, &back))
 	assert.Equal(t, field, back)
+}
+
+// An error is a refusal when it came before the element acted, so it
+// sent nothing to the application; any other may have come after.
+func TestRefused(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name    string
+		err     error
+		refused bool
+	}{
+		{"not there", fmt.Errorf("%w: the element went away", ErrNotFound), true},
+		{"disabled", ErrDisabled, true},
+		{"no such pattern", ErrNoPattern, true},
+		{"a read-only field", refusal("the field is read-only"), true},
+		{"nothing to expand", refusal("the element has nothing to expand"), true},
+		{"no answer in time", fmt.Errorf("AXPress: no answer within 2s: %w", context.DeadlineExceeded), false},
+		{"a choice that did not stick", errors.New("the menu stayed open after its option was chosen"), false},
+	} {
+		assert.Equal(t, tc.refused, Refused(tc.err), tc.name)
+	}
 }
