@@ -320,6 +320,22 @@ func TestExtractTableMissesOnAMovedHeader(t *testing.T) {
 	require.ErrorContains(t, failed.err, "no column is headed")
 }
 
+// A bound table read while no window is in front misses, so a step looks
+// again, rather than failing as an error.
+func TestExtractTableMissesWithNoWindowInFront(t *testing.T) {
+	t.Parallel()
+
+	run := elementRun(t)
+	withTable(run)
+	run.elements.tableRows = [][]string{{"りんご", "1,200"}}
+	run.vision.extract = `{"lines": {"container": {"role": "list", "name": "明細"}, "columns": {"item": "品目", "amount": "金額"}, "rows": [{"item": "りんご", "amount": 1200}]}}`
+	require.NoError(t, run.execute(extractTable, nil).err)
+
+	run.elements.tableErr = desktop.ErrNoWindow
+	failed := run.execute(extractTableNever, nil)
+	require.ErrorContains(t, failed.err, `table "lines" cannot be read: no window is in front`)
+}
+
 // A model that answers the plain value, ignoring the reading schema's
 // {value, element} wrapper, still publishes; the field just does not bind.
 func TestExtractToleratesAPlainAnswer(t *testing.T) {
@@ -440,6 +456,19 @@ func TestExactConditions(t *testing.T) {
 
 		failed := run.execute(`{"do": [{"expect": {"window": "給与"}, "timeout": "200ms"}]}`, nil)
 		require.ErrorContains(t, failed.err, `"経費精算 - 請求書 1042" is in front, not "給与"`)
+	})
+
+	t.Run("no window in front is looked at again", func(t *testing.T) {
+		t.Parallel()
+		run := newTestRun(t)
+		run.elements = newFakeElements()
+		run.elements.noWindow = 2
+		execution := run.execute(`{"do": [{"expect": {"window": "請求書 *", "within": "5s"}}]}`, nil)
+		require.NoError(t, execution.err, "the window opened while the check kept looking")
+
+		run.elements.noWindow = 1000
+		failed := run.execute(`{"do": [{"expect": {"window": "請求書 *", "within": "300ms"}}]}`, nil)
+		require.ErrorContains(t, failed.err, "no window is in front")
 	})
 
 	t.Run("within keeps looking", func(t *testing.T) {
@@ -830,6 +859,20 @@ func TestPinnedKeyFocusesItsElement(t *testing.T) {
 	missed := run.execute(`{"ai": "never", "do": [{"act": {"instruction": "Submit", "recorded": {"windows": [{"key": "enter", "focus": {"role": "text_field", "id": "noteBox"}}]}}}]}`, nil)
 	require.ErrorContains(t, missed.err, "was not found")
 	assert.Empty(t, run.backend.inputs(), "keys never go to whatever else has the focus")
+}
+
+// A pinned act waits for its element through a moment with no window in
+// front, as when the act before it closed one window and the next has yet
+// to open.
+func TestPinnedActWaitsForAWindowInFront(t *testing.T) {
+	t.Parallel()
+
+	run := elementRun(t)
+	run.elements.noWindow = 3
+	const steps = `{"ai": "never", "input": "direct", "find_within": "5s", "do": [{"act": {"instruction": "Save the invoice", "recorded": {"windows": [{"click": {"role": "button", "name": "保存", "id": "saveButton"}}]}}}]}`
+	replayed := run.execute(steps, nil)
+	require.NoError(t, replayed.err)
+	assert.Equal(t, []string{"invoke saveButton"}, run.backend.inputs())
 }
 
 // A pinned act under input: direct drives the element's pattern.

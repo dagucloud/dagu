@@ -11,6 +11,7 @@ import (
 	"image"
 	"image/draw"
 	"image/png"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -79,6 +80,13 @@ const (
 	notchPoints = 100
 	// maxUnicodeChunk is how many UTF-16 units one keyboard event carries.
 	maxUnicodeChunk = 20
+)
+
+// pointerWait bounds how long a move waits for the window server to put the
+// pointer where it was asked to, looked at every pointerPoll.
+const (
+	pointerWait = 500 * time.Millisecond
+	pointerPoll = 2 * time.Millisecond
 )
 
 // Modifier flags carried by every posted event.
@@ -456,6 +464,10 @@ func (b *darwinBackend) location() cgPoint {
 	return cgEventGetLocation(event)
 }
 
+// MoveTo moves the pointer and waits until the window server has put it
+// there, which it does a moment after the event is posted: a press made at
+// the pointer right after would otherwise land where the pointer was. A
+// pointer that does not get there within pointerWait is an error.
 func (b *darwinBackend) MoveTo(x, y int) error {
 	eventType, button := uint32(eventMouseMoved), uint32(mouseButtonLeft)
 	switch {
@@ -466,7 +478,19 @@ func (b *darwinBackend) MoveTo(x, y int) error {
 	case b.buttons[ButtonMiddle]:
 		eventType, button = eventOtherMouseDragged, mouseButtonCenter
 	}
-	return b.post(cgEventCreateMouseEvent(0, eventType, b.toPoints(x, y), button))
+	target := b.toPoints(x, y)
+	if err := b.post(cgEventCreateMouseEvent(0, eventType, target, button)); err != nil {
+		return err
+	}
+	for deadline := time.Now().Add(pointerWait); ; time.Sleep(pointerPoll) {
+		if at := b.location(); math.Abs(at.X-target.X) < 1 && math.Abs(at.Y-target.Y) < 1 {
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			px, py, _ := b.Position()
+			return fmt.Errorf("the pointer did not reach %d,%d within %s; it is at %d,%d", x, y, pointerWait, px, py)
+		}
+	}
 }
 
 func (b *darwinBackend) Position() (int, int, error) {
@@ -487,6 +511,12 @@ func (b *darwinBackend) Button(button Button, down bool, clicks int) error {
 		eventType, number = pick[uint32](down, eventOtherMouseDown, eventOtherMouseUp), mouseButtonCenter
 	default:
 		return fmt.Errorf("unknown mouse button %q", button)
+	}
+	// A press starting a click on a window in the background brings it
+	// forward first, so the click reaches the window.
+	if button == ButtonLeft && down && clicks == 1 {
+		x, y, _ := b.Position()
+		b.bringForwardAt(image.Pt(x, y))
 	}
 	event := cgEventCreateMouseEvent(0, eventType, b.location(), number)
 	if event == 0 {
