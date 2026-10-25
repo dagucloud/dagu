@@ -31,11 +31,13 @@ import (
 )
 
 // fakeBackend is a desktop that records input and shows a screen. Each
-// left click moves on to the next of afterClicks, if any remain.
+// left click moves on to the next of afterClicks, and each scroll to the
+// next of afterWheels, if any remain.
 type fakeBackend struct {
 	mu          sync.Mutex
 	screen      *image.RGBA
 	afterClicks []*image.RGBA
+	afterWheels []*image.RGBA
 	events      []string
 	// typeErr fails typing when set.
 	typeErr error
@@ -496,7 +498,35 @@ func stripes(width, height, n int) *image.RGBA {
 
 func (b *fakeBackend) Wheel(dx, dy int) error {
 	b.record(fmt.Sprintf("wheel %d,%d", dx, dy))
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.afterWheels) > 0 {
+		b.screen, b.afterWheels = b.afterWheels[0], b.afterWheels[1:]
+	}
 	return nil
+}
+
+// nudged brightens a small block of a screen by step, a change that keeps
+// the screen's fingerprint, as a short scroll of a small list does.
+func nudged(screen *image.RGBA, step uint8) *image.RGBA {
+	return brightened(screen, image.Rect(100, 50, 140, 90), step)
+}
+
+// withCaret draws a text caret on a screen, as one that blinks shows.
+func withCaret(screen *image.RGBA) *image.RGBA {
+	return brightened(screen, image.Rect(20, 20, 24, 54), 40)
+}
+
+func brightened(screen *image.RGBA, area image.Rectangle, step uint8) *image.RGBA {
+	out := image.NewRGBA(screen.Bounds())
+	copy(out.Pix, screen.Pix)
+	for y := area.Min.Y; y < area.Max.Y; y++ {
+		for x := area.Min.X; x < area.Max.X; x++ {
+			c := out.RGBAAt(x, y)
+			out.SetRGBA(x, y, color.RGBA{R: c.R + step, G: c.G + step, B: c.B + step, A: c.A})
+		}
+	}
+	return out
 }
 
 func (b *fakeBackend) Key(key desktop.Key, down bool) error {
@@ -621,6 +651,10 @@ func actions(list ...computeruse.Action) *computeruse.Turn {
 
 func clickAt(x, y int) computeruse.Action {
 	return computeruse.Action{CallID: "c", Kind: computeruse.KindClick, Point: &computeruse.Point{X: x, Y: y}}
+}
+
+func scrollDownAt(x, y int) computeruse.Action {
+	return computeruse.Action{CallID: "s", Kind: computeruse.KindScroll, Point: &computeruse.Point{X: x, Y: y}, ScrollY: 3}
 }
 
 // visionModel answers extract and judge requests with a respond tool call.

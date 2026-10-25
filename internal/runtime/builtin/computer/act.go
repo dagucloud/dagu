@@ -34,6 +34,10 @@ const divergedNote = "The screen changed after the screenshot you chose your act
 // and changed nothing on the screen.
 const repeatNote = "You repeated your previous round of actions, and the screen looks the same as it did before them. Repeating them again will not help. If the task is already complete, report done; otherwise take a different approach."
 
+// stillScrollNote tells a model that its scrolls left the window under the
+// pointer as it was.
+const stillScrollNote = "Your scroll moved nothing on the screen: the spot under the pointer does not scroll, or it is already at its end in that direction. Scroll over the content you mean to move, click inside it first, or use keys such as Page Down."
+
 // capNote tells a model that the task has no actions left, and asks for its
 // report instead of its next actions.
 const capNote = "This task has used all the actions it may take, so your last actions were not run. Do not act again. If the task is complete, report done with success; otherwise report done with success set to false and say what is left."
@@ -325,7 +329,14 @@ func (l *actLoop) run(ctx context.Context) error {
 			return err
 		}
 		var results []computeruse.Result
-		before := desktop.FingerprintOf(l.seen.full)
+		// The screen the actions ran on, and for a turn of scrolls the
+		// window they scroll, tell whether the actions changed anything.
+		before := l.seen.full
+		scrolls := runActions && onlyScrolls(turn.Actions)
+		var scrolled view
+		if scrolls {
+			scrolled = l.view(turn.Actions)
+		}
 		if runActions {
 			results = l.apply(ctx, turn)
 		} else {
@@ -355,11 +366,20 @@ func (l *actLoop) run(ctx context.Context) error {
 		if l.seen, err = l.look(ctx); err != nil {
 			return err
 		}
+		// Scrolls that left their window as it was reached nothing that
+		// scrolls, which the model is told at once.
+		if scrolls && !anyFailed(results) && scrolled.still(before, l.seen.full) {
+			logAction(l.r.timeline, l.index, "the scroll moved nothing on the screen")
+			if note == "" {
+				note = stillScrollNote
+			}
+		}
 		// A round that repeats the previous one and leaves the screen as it
 		// was is going nowhere; the model is told before it tries a third
-		// time.
+		// time. The screens are compared pixel by pixel, since a list that
+		// scrolled can keep the screen's fingerprint.
 		if round := describeRound(turn.Actions); runActions && len(turn.Actions) > 0 {
-			if round == l.lastRound && desktop.FingerprintOf(l.seen.full).Distance(before) <= replayScreenDistance {
+			if round == l.lastRound && displayView(before).still(before, l.seen.full) {
 				logAction(l.r.timeline, l.index, "the model repeated its previous actions and the screen did not change")
 				if note == "" {
 					note = repeatNote
@@ -669,6 +689,16 @@ func (l *actLoop) admit(turn *computeruse.Turn) (over bool, err error) {
 		return false, fmt.Errorf("the model provider asks a person to confirm the next actions (%s); add an ask operation before this act and set on_confirmation: allow", turn.Confirmation)
 	}
 	return l.spent+l.outcome.actions+len(turn.Actions) > l.budget, nil
+}
+
+// onlyScrolls reports a turn that does nothing but scroll.
+func onlyScrolls(actions []computeruse.Action) bool {
+	for _, action := range actions {
+		if action.Kind != computeruse.KindScroll {
+			return false
+		}
+	}
+	return len(actions) > 0
 }
 
 // describeRound summarizes a round of actions so two rounds can be compared.

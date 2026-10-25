@@ -2247,6 +2247,45 @@ func TestRepeatedRoundIsNoted(t *testing.T) {
 	assert.Contains(t, execution.stderr.String(), "repeated its previous actions")
 }
 
+// A scroll that moved nothing is reported at once, so the model scrolls
+// elsewhere instead of trying the same spot again. A caret that blinked
+// meanwhile is no movement.
+func TestStillScrollIsNoted(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	run.backend.afterWheels = []*image.RGBA{withCaret(run.backend.screen)}
+	session := &scriptedSession{turns: []*computeruse.Turn{actions(scrollDownAt(5, 5)), done("Scrolled")}}
+	run.sessions = []*scriptedSession{session}
+	execution := run.execute(`{"cache": false, "do": [{"act": "Scroll the list"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	require.Len(t, session.observations, 2)
+	assert.Equal(t, stillScrollNote, session.observations[1].Note)
+	assert.Contains(t, execution.stderr.String(), "the scroll moved nothing")
+}
+
+// Scrolling down a list repeats one scroll, and a small list that moved
+// keeps the screen's fingerprint; neither makes the round a repeat that
+// changed nothing.
+func TestRepeatedScrollThatMovedIsNoRepeat(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	list := run.backend.screen
+	moved, movedAgain := nudged(list, 2), nudged(list, 4)
+	require.Equal(t, desktop.FingerprintOf(list), desktop.FingerprintOf(movedAgain))
+	run.backend.afterWheels = []*image.RGBA{moved, movedAgain}
+	session := &scriptedSession{turns: []*computeruse.Turn{actions(scrollDownAt(5, 5)), actions(scrollDownAt(5, 5)), done("Scrolled")}}
+	run.sessions = []*scriptedSession{session}
+	execution := run.execute(`{"cache": false, "do": [{"act": "Scroll the list"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	require.Len(t, session.observations, 3)
+	assert.Empty(t, session.observations[1].Note)
+	assert.Empty(t, session.observations[2].Note)
+}
+
 // A model provider's confirmation request is approved with
 // on_confirmation: allow, and the approval is sent with the next screen.
 func TestConfirmationAllowed(t *testing.T) {
