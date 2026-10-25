@@ -1,0 +1,10 @@
+name: spec031_admission_recovery
+working_dir: .
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Continue?
+  - id: after
+    depends: review
+    run: printf 'resumed\n' >> resumed.txt

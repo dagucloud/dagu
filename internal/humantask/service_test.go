@@ -7,13 +7,19 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/persis/file"
+	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
@@ -122,6 +128,270 @@ func TestCompleteKeepsCheckpointRecoverableWhenEnqueueFails(t *testing.T) {
 	assert.True(t, result.Queued)
 	assert.Equal(t, ir.Queued, fixture.status.Status)
 	assert.Equal(t, []ir.DAGRunRef{fixture.status.DAGRun()}, fixture.queue.enqueued)
+}
+
+func TestInterruptedAdmission(t *testing.T) {
+	for _, phase := range []string{"before create", "after create"} {
+		for _, operation := range []string{"complete", "resume"} {
+			t.Run(phase+"/"+operation, func(t *testing.T) {
+				fixture, history, queueDir := newFileServiceFixture(t)
+				fixture.service.QueueStore = store.NewQueueStore(&interruptedQueueCollection{
+					Collection: file.NewCollection(queueDir), afterCreate: phase == "after create",
+				})
+				request := CompleteRequest{DAGName: fixture.dag.Name, DAGRunID: fixture.status.DAGRunID,
+					StepID: "review", CompletedBy: "alice", CompletedByID: "user-1", Input: Input{Values: map[string]any{}}}
+				// Interrupt the real queue write before it can return to rollback.
+				require.PanicsWithValue(t, "interrupted queue admission", func() {
+					_, _ = fixture.service.Complete(t.Context(), request)
+				})
+				attempt, err := fixture.service.DAGRunRepository.FindAttempt(t.Context(), fixture.status.DAGRun())
+				require.NoError(t, err)
+				stored, err := attempt.ReadStatusUncached(t.Context())
+				require.NoError(t, err)
+				require.True(t, queue.ResumeAdmissionPending(stored))
+				require.Equal(t, ir.NodeSucceeded, stored.Nodes[0].Status)
+				completedAt, admissionID := stored.Nodes[0].FinishedAt, stored.ResumeAdmission.ID
+
+				// Reopen both stores; recovery cannot rely on process-local memory.
+				fixture.service.DAGRunRepository = testutil.NewFileDAGRunRepository(history, persis.DAGRunRepositoryOptions{})
+				fixture.service.QueueStore = store.NewQueueStore(file.NewCollection(queueDir))
+				var result Result
+				if operation == "resume" {
+					result, err = fixture.service.Resume(t.Context(), fixture.dag.Name, fixture.status.DAGRunID)
+				} else {
+					request.CompletedBy, request.CompletedByID = "bob", "user-2"
+					result, err = fixture.service.Complete(t.Context(), request)
+				}
+				require.NoError(t, err)
+				assert.True(t, result.AlreadyCompleted)
+				assert.Equal(t, phase == "before create", result.Queued)
+				items, err := fixture.service.QueueStore.List(t.Context(), fixture.dag.ProcGroup())
+				require.NoError(t, err)
+				require.Len(t, items, 1)
+				stored, err = attempt.ReadStatusUncached(t.Context())
+				require.NoError(t, err)
+				assert.Equal(t, admissionID, stored.ResumeAdmission.ID)
+				assert.True(t, stored.ResumeAdmission.Admitted)
+				assert.Equal(t, completedAt, stored.Nodes[0].FinishedAt)
+				assert.Equal(t, "alice", stored.Nodes[0].HumanTaskCompletedBy)
+				assert.Equal(t, "user-1", stored.Nodes[0].HumanTaskCompletedByID)
+				assert.JSONEq(t, `{}`, string(stored.Nodes[0].HumanTaskInput))
+				_, err = fixture.completeReview(t)
+				require.NoError(t, err)
+				repeated, err := fixture.service.QueueStore.List(t.Context(), fixture.dag.ProcGroup())
+				require.NoError(t, err)
+				require.Len(t, repeated, 1)
+				assert.Equal(t, items[0].ID(), repeated[0].ID())
+			})
+		}
+	}
+}
+
+func TestConcurrentAdmissionRecovery(t *testing.T) {
+	fixture, history, queueDir := newFileServiceFixture(t)
+	fixture.service.QueueStore = store.NewQueueStore(&interruptedQueueCollection{Collection: file.NewCollection(queueDir)})
+	require.Panics(t, func() { _, _ = fixture.completeReview(t) })
+	var wg sync.WaitGroup
+	results := make(chan Result, 8)
+	for i := range 8 {
+		wg.Go(func() {
+			service := &Service{
+				DAGRunRepository: testutil.NewFileDAGRunRepository(history, persis.DAGRunRepositoryOptions{}),
+				QueueStore:       store.NewQueueStore(file.NewCollection(queueDir)), ProcRepository: serviceProcRepository{},
+			}
+			var result Result
+			var err error
+			if i%2 == 0 {
+				result, err = service.Resume(t.Context(), fixture.dag.Name, fixture.status.DAGRunID)
+			} else {
+				result, err = service.Complete(t.Context(), CompleteRequest{
+					DAGName: fixture.dag.Name, DAGRunID: fixture.status.DAGRunID, StepID: "review", Input: Input{Values: map[string]any{}},
+				})
+			}
+			assert.NoError(t, err)
+			results <- result
+		})
+	}
+	wg.Wait()
+	close(results)
+	created := 0
+	for result := range results {
+		if result.Queued {
+			created++
+		}
+	}
+	assert.Equal(t, 1, created)
+	items, err := store.NewQueueStore(file.NewCollection(queueDir)).List(t.Context(), fixture.dag.ProcGroup())
+	require.NoError(t, err)
+	assert.Len(t, items, 1)
+}
+
+func TestAdmissionIndexFailure(t *testing.T) {
+	fixture, _, queueDir := newFileServiceFixture(t)
+	fixture.service.QueueStore = store.NewQueueStore(&interruptedQueueCollection{Collection: file.NewCollection(queueDir)})
+	require.Panics(t, func() { _, _ = fixture.completeReview(t) })
+	queueStore := store.NewQueueStore(file.NewCollection(queueDir))
+	// Keep a valid older index that does not contain this admission. Failure
+	// to update and invalidate it must not acknowledge an undiscoverable item.
+	require.NoError(t, queueStore.Enqueue(t.Context(), fixture.dag.ProcGroup(), queue.QueuePriorityLow, ir.NewDAGRunRef("other", "other-run")))
+	fixture.service.QueueStore = store.NewQueueStore(&failedQueueIndexCollection{Collection: file.NewCollection(queueDir)})
+	_, err := fixture.service.Resume(t.Context(), fixture.dag.Name, fixture.status.DAGRunID)
+	var resumeError *ResumeError
+	require.ErrorAs(t, err, &resumeError)
+	require.ErrorContains(t, err, "queue index unavailable")
+	attempt, err := fixture.service.DAGRunRepository.FindAttempt(t.Context(), fixture.status.DAGRun())
+	require.NoError(t, err)
+	status, err := attempt.ReadStatus(t.Context())
+	require.NoError(t, err)
+	assert.True(t, queue.ResumeAdmissionPending(status))
+	page, err := queueStore.ListCursor(t.Context(), fixture.dag.ProcGroup(), "", 10)
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+
+	fixture.service.QueueStore = store.NewQueueStore(file.NewCollection(queueDir))
+	result, err := fixture.service.Resume(t.Context(), fixture.dag.Name, fixture.status.DAGRunID)
+	require.NoError(t, err)
+	assert.False(t, result.Queued, "reuse the already written item")
+	page, err = fixture.service.QueueStore.ListCursor(t.Context(), fixture.dag.ProcGroup(), "", 10)
+	require.NoError(t, err)
+	require.Len(t, page.Items, 2)
+	matches := 0
+	for _, item := range page.Items {
+		ref, err := item.Data()
+		require.NoError(t, err)
+		if *ref == fixture.status.DAGRun() {
+			matches++
+		}
+	}
+	assert.Equal(t, 1, matches)
+	status, err = attempt.ReadStatusUncached(t.Context())
+	require.NoError(t, err)
+	assert.True(t, status.ResumeAdmission.Admitted)
+}
+
+type failedQueueIndexCollection struct{ persis.Collection }
+
+func (c *failedQueueIndexCollection) CompareAndSwap(ctx context.Context, id string, expected, next []byte) error {
+	if strings.HasSuffix(id, "/.queue-index") {
+		return errors.New("queue index unavailable")
+	}
+	return c.Collection.CompareAndSwap(ctx, id, expected, next)
+}
+
+func (c *failedQueueIndexCollection) CompareAndDelete(ctx context.Context, record *persis.Record) error {
+	if strings.HasSuffix(record.ID, "/.queue-index") {
+		return errors.New("queue index unavailable")
+	}
+	return c.Collection.CompareAndDelete(ctx, record)
+}
+
+func TestAdmissionProcessExit(t *testing.T) {
+	const rootEnv = "DAGU_TEST_ADMISSION_ROOT"
+	if root := os.Getenv(rootEnv); root != "" {
+		service := &Service{
+			DAGRunRepository: testutil.NewFileDAGRunRepository(filepath.Join(root, "history"), persis.DAGRunRepositoryOptions{}),
+			QueueStore:       store.NewQueueStore(&exitingQueueCollection{Collection: file.NewCollection(filepath.Join(root, "queue"))}),
+		}
+		_, err := service.Complete(t.Context(), CompleteRequest{
+			DAGName: "deploy", DAGRunID: "run-1", StepID: "review", Input: Input{Values: map[string]any{}},
+		})
+		t.Fatalf("queue fault did not terminate the process: %v", err)
+	}
+	fixture, history, queueDir := newFileServiceFixture(t)
+	executable, err := os.Executable()
+	require.NoError(t, err)
+	// Execute this test's isolated helper process, then stop inside the actual
+	// Create boundary without unwinding the service or repository locks.
+	command := exec.CommandContext(t.Context(), executable, "-test.run=^TestAdmissionProcessExit$") //nolint:gosec // current test executable
+	command.Env = append(os.Environ(), rootEnv+"="+filepath.Dir(history))
+	output, err := command.CombinedOutput()
+	var exitError *exec.ExitError
+	require.ErrorAs(t, err, &exitError, "%s", output)
+	require.Equal(t, 73, exitError.ExitCode(), "%s", output)
+
+	fixture.service.DAGRunRepository = testutil.NewFileDAGRunRepository(history, persis.DAGRunRepositoryOptions{})
+	fixture.service.QueueStore = store.NewQueueStore(file.NewCollection(queueDir))
+	fixture.service.EnqueueTimeout = 200 * time.Millisecond
+	// The existing file-store lock lease lasts 30 seconds after an abrupt
+	// exit. Recovery retries it normally; the test never deletes the lock.
+	var result Result
+	require.Eventually(t, func() bool {
+		result, err = fixture.service.Resume(t.Context(), fixture.dag.Name, fixture.status.DAGRunID)
+		return err == nil
+	}, 40*time.Second, 100*time.Millisecond)
+	require.NoError(t, err)
+	assert.True(t, result.Queued)
+	items, err := fixture.service.QueueStore.List(t.Context(), fixture.dag.ProcGroup())
+	require.NoError(t, err)
+	assert.Len(t, items, 1)
+}
+
+type exitingQueueCollection struct{ persis.Collection }
+
+func (*exitingQueueCollection) Create(context.Context, *persis.Record) error {
+	os.Exit(73)
+	return nil
+}
+
+func TestAdmissionRecoveryDoesNotReviveRun(t *testing.T) {
+	for _, state := range []ir.Status{ir.Aborted, ir.Rejected, ir.Running, ir.Succeeded} {
+		t.Run(state.String(), func(t *testing.T) {
+			fixture, _, queueDir := newFileServiceFixture(t)
+			fixture.service.QueueStore = store.NewQueueStore(&interruptedQueueCollection{Collection: file.NewCollection(queueDir)})
+			require.Panics(t, func() { _, _ = fixture.completeReview(t) })
+			_, swapped, err := fixture.service.DAGRunRepository.CompareAndSwapLatestAttemptStatus(
+				t.Context(), fixture.status.DAGRun(), fixture.status.AttemptID, ir.Queued,
+				func(status *ir.DAGRunStatus) error { status.Status = state; return nil }, persis.DAGRunCompareAndSwapOptions{},
+			)
+			require.NoError(t, err)
+			require.True(t, swapped)
+			fixture.service.QueueStore = store.NewQueueStore(file.NewCollection(queueDir))
+			result, err := fixture.completeReview(t)
+			require.NoError(t, err)
+			assert.False(t, result.Queued)
+			result, err = fixture.service.Resume(t.Context(), fixture.dag.Name, fixture.status.DAGRunID)
+			require.NoError(t, err)
+			assert.False(t, result.Queued)
+			items, err := fixture.service.QueueStore.List(t.Context(), fixture.dag.ProcGroup())
+			require.NoError(t, err)
+			assert.Empty(t, items)
+		})
+	}
+}
+
+func newFileServiceFixture(t *testing.T) (*serviceFixture, string, string) {
+	t.Helper()
+	return fileServiceFixture(t, newServiceFixture(t, nil))
+}
+
+func fileServiceFixture(t *testing.T, fixture *serviceFixture) (*serviceFixture, string, string) {
+	t.Helper()
+	root := t.TempDir()
+	history, queueDir := filepath.Join(root, "history"), filepath.Join(root, "queue")
+	repository := testutil.NewFileDAGRunRepository(history, persis.DAGRunRepositoryOptions{})
+	attempt, err := repository.CreateAttempt(t.Context(), fixture.dag, time.Now(), fixture.status.DAGRunID, persis.DAGRunCreateAttemptOptions{})
+	require.NoError(t, err)
+	fixture.status.AttemptID = attempt.ID()
+	require.NoError(t, attempt.Open(t.Context()))
+	require.NoError(t, attempt.Write(t.Context(), *fixture.status))
+	require.NoError(t, attempt.Close(t.Context()))
+	fixture.service.DAGRunRepository = repository
+	fixture.service.QueueStore = store.NewQueueStore(file.NewCollection(queueDir))
+	return fixture, history, queueDir
+}
+
+type interruptedQueueCollection struct {
+	persis.Collection
+	afterCreate bool
+}
+
+func (c *interruptedQueueCollection) Create(ctx context.Context, record *persis.Record) error {
+	if c.afterCreate {
+		if err := c.Collection.Create(ctx, record); err != nil {
+			return err
+		}
+	}
+	panic("interrupted queue admission")
 }
 
 func TestResumeBoundsStatusVerificationAfterQueueFailure(t *testing.T) {

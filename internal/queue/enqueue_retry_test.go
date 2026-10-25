@@ -21,9 +21,9 @@ import (
 )
 
 func TestRetryAdmissionRollback(t *testing.T) {
-	for _, change := range []string{"none", "rejected", "running", "attempt", "admission"} {
+	for _, change := range []string{"none", "rejected", "running", "attempt", "attempt key", "admission", "identity", "published"} {
 		t.Run(change, func(t *testing.T) {
-			status := &ir.DAGRunStatus{Name: "manual", DAGRunID: "run", AttemptID: "attempt", Status: ir.Waiting}
+			status := &ir.DAGRunStatus{Name: "manual", DAGRunID: "run", AttemptID: "attempt", AttemptKey: "attempt-key", Status: ir.Waiting}
 			backend := &stubDAGRunStore{status: cloneDAGRunStatus(status)}
 			repository := persis.NewDAGRunRepository(backend, nil, persis.DAGRunRepositoryOptions{})
 			admission, err := queue.PrepareRetry(t.Context(), repository, nil, status, queue.EnqueueRetryOptions{})
@@ -40,8 +40,14 @@ func TestRetryAdmissionRollback(t *testing.T) {
 				backend.status.Status = ir.Running
 			case "attempt":
 				backend.status.AttemptID = "new-attempt"
+			case "attempt key":
+				backend.status.AttemptKey = "new-attempt-key"
 			case "admission":
 				backend.status.QueuedAt = "new-admission"
+			case "identity":
+				backend.status.ResumeAdmission = &ir.ResumeAdmission{ID: "new-admission"}
+			case "published":
+				backend.status.ResumeAdmission = &ir.ResumeAdmission{ID: "published-admission", Admitted: true}
 			}
 			before := cloneDAGRunStatus(backend.status)
 			err = admission.Rollback(t.Context())
@@ -638,6 +644,7 @@ type stubDAGRunStore struct {
 	secondErr error
 	casCalls  int
 	lastRoot  ir.DAGRunRef
+	beforeCAS func()
 }
 
 func (s *stubDAGRunStore) CompareAndSwapLatestAttemptStatus(
@@ -646,6 +653,9 @@ func (s *stubDAGRunStore) CompareAndSwapLatestAttemptStatus(
 ) (*ir.DAGRunStatus, bool, error) {
 	s.casCalls++
 	s.lastRoot = req.RootDAGRun
+	if s.beforeCAS != nil {
+		s.beforeCAS()
+	}
 	if s.casCalls == 1 && s.firstErr != nil {
 		return nil, false, s.firstErr
 	}
@@ -657,7 +667,8 @@ func (s *stubDAGRunStore) CompareAndSwapLatestAttemptStatus(
 		return nil, false, nil
 	}
 
-	if req.ExpectedAttemptID != s.status.AttemptID || req.ExpectedStatus != s.status.Status {
+	if req.ExpectedAttemptID != s.status.AttemptID || req.ExpectedStatus != s.status.Status ||
+		(req.ExpectedAttemptKey != "" && req.ExpectedAttemptKey != s.status.AttemptKey) {
 		return s.cloneStatus(), false, nil
 	}
 

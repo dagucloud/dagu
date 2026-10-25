@@ -462,7 +462,8 @@ Rules:
 - Downstream steps execute at most once because of duplicate or concurrent
   completion commands.
 - An identical repeat after the run leaves `waiting` never starts another
-  resume.
+  resume. It can finish publishing the same interrupted admission as
+  described below.
 
 ### Resume And Multiple Waiting Nodes
 
@@ -521,6 +522,43 @@ Only one successful resume can result from those retries.
 
 After queueing succeeds, dispatch, launch, and execution follow the same
 asynchronous behavior as any other queued DAG-run.
+
+### Interrupted Resume Admission
+
+With the built-in queue store, new checkpoint resumes record a durable
+admission identity when changing the latest attempt from `waiting` to `queued`.
+The identity belongs to that exact attempt and retry generation. Queue
+publication uses one deterministic item for the identity, followed by an
+acknowledgement in the attempt's status.
+Acknowledgement records publication, not successful dispatch or execution.
+
+If the completing process stops after the `queued` transition and before
+publication is acknowledged, repeating the identical completion or requesting
+resume finishes that same admission. It does not rewrite the completion input,
+outputs, actor, or completion time. Concurrent requests converge on one queue
+item, including when the original process wrote the item before stopping.
+Recovery works after reopening the stores; an abandoned filesystem lock may
+need to expire before a retry succeeds.
+
+A dispatcher acknowledges an existing item before dispatching or removing it.
+An acknowledged item remains eligible for normal dispatch and retries of a
+failed launch. Repeating completion does not recreate an acknowledged item
+after dispatch consumes it, even if a distributed handoff has left the source
+attempt `queued`. A later attempt, a different admission generation, or a run
+that has left `queued` cannot be revived by an older recovery request.
+
+The same publication recovery applies to a repeated identical push-back and
+to a resume request for its pending checkpoint. Synchronous publication errors
+still retain the stored completion or push-back and report failure; rollback
+cannot undo an admission another request has already acknowledged.
+
+This recovery contract applies to admissions written with a durable identity
+and requires completing clients and schedulers that implement it. Upgrade all
+processes sharing a run store before relying on the contract. Older queued
+records without an identity retain their existing behavior: a missing queue
+file alone does not authorize another admission, because a dispatcher may
+already have consumed it. External deletion or corruption of acknowledged
+queue/status records is not treated as an interrupted publication.
 
 ### Push-Back Command
 
@@ -645,6 +683,8 @@ Rules:
 - Until the task opens again, repeating its push-back with the same canonical
   feedback exits zero and does not change the push-back. It retries a pending
   resume, and never starts another resume after the run leaves `waiting`.
+  It can finish publishing the same interrupted admission under the recovery
+  contract above.
 - Until the task opens again, a push-back with different canonical feedback
   fails with a conflict.
 - After the task opens again, repeating a push-back pushes the task back again

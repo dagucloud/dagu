@@ -5,6 +5,7 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"sort"
@@ -26,6 +27,7 @@ const (
 )
 
 var _ queue.QueueStore = (*QueueStore)(nil)
+var _ queue.RetryAdmissionStore = (*QueueStore)(nil)
 
 // QueueStore implements [queue.QueueStore] on top of a [persis.Collection].
 // Records are keyed as "{queueName}/{itemID}", while item IDs exposed through
@@ -65,6 +67,56 @@ func (s *QueueStore) Enqueue(ctx context.Context, name string, priority queue.Qu
 	}
 	s.addQueueIndexItemLocked(ctx, name, priority, itemID)
 	return nil
+}
+
+// EnsureRetryAdmission creates a deterministic item with an atomic Create,
+// preserving the existing queue format and priority/time ordering. Reopening
+// the store or racing another publisher cannot create a second item.
+func (s *QueueStore) EnsureRetryAdmission(ctx context.Context, name string, priority queue.QueuePriority, dagRun ir.DAGRunRef, identity queue.RetryAdmissionIdentity) (bool, error) {
+	if name == "" || dagRun.Name == "" || dagRun.ID == "" || identity.ID == "" || identity.AttemptID == "" {
+		return false, errors.New("queue store: incomplete retry admission identity")
+	}
+	if priority != queue.QueuePriorityHigh && priority != queue.QueuePriorityLow {
+		return false, fmt.Errorf("queue store: invalid queue priority %d", priority)
+	}
+	queuedAt, err := time.Parse(time.RFC3339Nano, identity.QueuedAt)
+	if err != nil {
+		return false, fmt.Errorf("queue store: invalid admission time: %w", err)
+	}
+	itemID := newQueueItemID(priority, fmt.Sprintf("%x", sha256.Sum256([]byte(identity.ID))), queuedAt)
+	payload := queueItemPayload{FileName: itemID + ".json", DAGRun: dagRun, QueuedAt: queuedAt, Admission: &identity}
+	data, err := persis.Encode(payload)
+	if err != nil {
+		return false, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	recordID := queueRecordID(name, itemID)
+	err = s.col.Create(ctx, &persis.Record{ID: recordID, Data: data, CreatedAt: queuedAt, UpdatedAt: queuedAt})
+	created := err == nil
+	if errors.Is(err, persis.ErrConflict) {
+		record, readErr := s.col.Get(ctx, recordID)
+		if readErr != nil {
+			return false, readErr
+		}
+		var existing queueItemPayload
+		if err := persis.Decode(record, &existing); err != nil {
+			return false, err
+		}
+		if existing.FileName != payload.FileName || existing.DAGRun != dagRun ||
+			!existing.QueuedAt.Equal(queuedAt) || existing.Admission == nil || *existing.Admission != identity {
+			return false, errors.New("queue store: retry admission identity conflicts with existing item")
+		}
+	} else if err != nil {
+		return false, err
+	}
+	// Reconcile the index even when a previous publisher stopped after Create.
+	if err := s.mutateQueueIndexLocked(ctx, name, func(idx *queueReadIndex) bool {
+		return idx.append(priority, itemID)
+	}); err != nil {
+		return false, fmt.Errorf("queue store: index retry admission: %w", err)
+	}
+	return created, nil
 }
 
 func (s *QueueStore) createQueueItem(

@@ -710,6 +710,14 @@ func (d *queueDispatcher) dispatchQueuedItem(
 	runID := runRef.ID
 	ctx = logger.WithValues(ctx, tag.RunID(runID))
 	logger.Debug(ctx, "Processing queue item", tag.DAG(runRef.Name))
+	// The item is durable already. Acknowledge its publication before any
+	// path can remove it, including a handoff that leaves the run Queued.
+	// Acknowledgement does not claim execution: launch failures leave this
+	// same item runnable on the next pass.
+	if err := queuedomain.AcknowledgeRetryAdmission(ctx, d.dagRunRepository, item); err != nil {
+		logger.Error(ctx, "Failed to acknowledge resume admission", tag.Error(err))
+		return false
+	}
 
 	running, err := d.procRepository.IsRunAlive(ctx, queueName, runRef)
 	if err != nil {
@@ -748,6 +756,10 @@ func (d *queueDispatcher) dispatchQueuedItem(
 
 	if status.Status != ir.Queued {
 		logger.Info(ctx, "Status is not queued, skipping", tag.Status(status.Status.String()))
+		return true
+	}
+	if !queuedomain.MatchesRetryAdmission(item, status) {
+		logger.Info(ctx, "Resume admission was superseded, discarding")
 		return true
 	}
 

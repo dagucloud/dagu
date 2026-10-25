@@ -68,3 +68,27 @@ type QueuedItemData interface {
 	// Data returns the data of the queued item
 	Data() (*ir.DAGRunRef, error)
 }
+
+// RetryAdmissionIdentity binds a queue item to one persisted checkpoint and
+// retry generation. Legacy items do not carry this identity.
+type RetryAdmissionIdentity struct {
+	ID         string       `json:"id"`
+	AttemptID  string       `json:"attemptId"`
+	AttemptKey string       `json:"attemptKey,omitempty"`
+	QueuedAt   string       `json:"queuedAt"`
+	Root       ir.DAGRunRef `json:"root,omitzero"`
+}
+
+// RetryAdmissionStore atomically creates at most one item for an identity.
+// EnsureRetryAdmission must not replace an existing item with different data.
+// Success requires the item to be durably discoverable through queue listing.
+// The caller serializes publication and acknowledgement with the latest
+// attempt's status transition; this method alone cannot deduplicate a dequeue.
+type RetryAdmissionStore interface {
+	EnsureRetryAdmission(context.Context, string, QueuePriority, ir.DAGRunRef, RetryAdmissionIdentity) (bool, error)
+}
+
+// RetryAdmissionItem exposes the checkpoint identity on a recoverable item.
+type RetryAdmissionItem interface {
+	RetryAdmission() *RetryAdmissionIdentity
+}

@@ -252,7 +252,8 @@ func ownPushBackPending(node *ir.Node) bool {
 // enqueuePushBackResume queues the resume a stored push-back needs. A queue
 // failure leaves the push-back stored and the resume pending.
 func (s *Service) enqueuePushBackResume(ctx context.Context, target *target, result PushBackResult) (PushBackResult, error) {
-	if target.status.Status != ir.Waiting || !pushBackResumeReady(target.status.Nodes) {
+	if !queue.ResumeAdmissionPending(target.status) &&
+		(target.status.Status != ir.Waiting || !pushBackResumeReady(target.status.Nodes)) {
 		return result, nil
 	}
 	result.ResumeRequested = true

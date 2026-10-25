@@ -5,11 +5,17 @@ package spec031_human_task_test
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/persis/file"
+	"github.com/dagucloud/dagu/v2/internal/persis/store"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -37,6 +43,65 @@ func TestAcknowledgementCheckpointAndResume(t *testing.T) {
 	repeat.ExpectExitCode(0)
 	repeat.ExpectStdout("Human task maintenance_started was already completed.\n")
 	repeat.ExpectStderr("")
+}
+
+// Stage the two persisted publication boundaries with the scheduler stopped,
+// then use fresh CLI and scheduler processes to observe recovery end to end.
+func TestInterruptedResumeAdmission(t *testing.T) {
+	for _, phase := range []string{"before item", "after item"} {
+		t.Run(phase, func(t *testing.T) {
+			dagu := harness.NewRunner(t)
+			env := sharedEnv(t)
+			const runID, fixture = "spec031-admission", "admission_recovery.yaml"
+			scheduler := startWaitingWithScheduler(t, dagu, env, runID, fixture)
+			scheduler.Stop()
+			completed := complete(t, dagu, env, runID, "review", fixture)
+			completed.ExpectExitCode(0)
+			completed.ExpectStdout("Completed human task review; DAG-run queued for resume.\n")
+			home := strings.TrimPrefix(env[0], "DAGU_HOME=")
+			repository := testutil.NewFileDAGRunRepository(filepath.Join(home, "data", "dag-runs"), persis.DAGRunRepositoryOptions{})
+			queueStore := store.NewQueueStore(file.NewCollection(filepath.Join(home, "data", "queue")))
+			ref := ir.NewDAGRunRef(fixtureDAGName(fixture), runID)
+			attempt, err := repository.FindAttempt(t.Context(), ref)
+			require.NoError(t, err)
+			status, err := attempt.ReadStatus(t.Context())
+			require.NoError(t, err)
+			require.NotNil(t, status.ResumeAdmission)
+			require.True(t, status.ResumeAdmission.Admitted)
+			_, swapped, err := repository.CompareAndSwapLatestAttemptStatus(t.Context(), ref, status.AttemptID, ir.Queued,
+				func(latest *ir.DAGRunStatus) error {
+					latest.ResumeAdmission = &ir.ResumeAdmission{ID: latest.ResumeAdmission.ID}
+					return nil
+				}, persis.DAGRunCompareAndSwapOptions{})
+			require.NoError(t, err)
+			require.True(t, swapped)
+			if phase == "before item" {
+				_, err = queueStore.DequeueByDAGRunID(t.Context(), ref.Name, ref)
+				require.NoError(t, err)
+			}
+			dagu.ExpectNoFile("resumed.txt")
+			repeated := complete(t, dagu, env, runID, "review", fixture)
+			repeated.ExpectExitCode(0)
+			repeated.ExpectStderr("")
+			if phase == "before item" {
+				repeated.ExpectStdout("Human task review was already completed; DAG-run queued for resume.\n")
+			} else {
+				repeated.ExpectStdout("Human task review was already completed.\n")
+			}
+			count, err := queueStore.Len(t.Context(), ref.Name)
+			require.NoError(t, err)
+			require.Equal(t, 1, count)
+
+			scheduler = dagu.StartWithEnv(env, "scheduler", "--dags="+dagu.ProjectPath("."))
+			waitForStatus(t, dagu, env, runID, fixture, "Succeeded")
+			waitForFileContent(t, dagu.ProjectPath("resumed.txt"), "resumed\n")
+			repeated = complete(t, dagu, env, runID, "review", fixture)
+			repeated.ExpectExitCode(0)
+			repeated.ExpectStdout("Human task review was already completed.\n")
+			scheduler.Stop()
+			require.Equal(t, "resumed\n", readFileContent(t, dagu.ProjectPath("resumed.txt")))
+		})
+	}
 }
 
 // A partial foreach can leave an independent human checkpoint waiting while
