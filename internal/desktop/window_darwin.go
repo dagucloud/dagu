@@ -146,30 +146,24 @@ func (b *darwinBackend) Windows() []WindowID {
 // WindowAt names the front window under a position, menus and the menu
 // bar included, and overlays and windows that let clicks through left out.
 func (b *darwinBackend) WindowAt(x, y int) WindowID {
-	w, _ := windowAt(b.listWindows(), image.Pt(x, y), b.ownerAt)
+	w, _ := windowAt(b.listWindows(), image.Pt(x, y), b.holdsHit)
 	return w.id
 }
 
 // windowAt names the front window under a position among windows, the
 // front first, menus and the menu bar included and overlays left out. A
-// window above the applications' is passed over when the element under the
-// position belongs to another process, as ownerAt tells: Notification
-// Center covers the screen while a banner shows, and lets every click
-// outside the banner through. The menu bar, which the window server draws
-// for the front application, is taken as it is.
-func windowAt(windows []windowInfo, at image.Point, ownerAt func(image.Point) (uint32, bool)) (windowInfo, bool) {
-	var owner uint32
-	asked, known := false, false
+// window above the applications' is passed over when holds tells that the
+// element under the position is in another window: Notification Center
+// covers the screen while a banner shows, and lets every click outside the
+// banner through. The menu bar, which the window server draws for the
+// front application, is taken as it is.
+func windowAt(windows []windowInfo, at image.Point, holds func(image.Point, windowInfo) (bool, bool)) (windowInfo, bool) {
 	for _, w := range windows {
 		if w.layer >= overlayWindowLayer || !at.In(w.id.Bounds) {
 			continue
 		}
 		if w.layer != normalWindowLayer && w.layer != mainMenuWindowLayer {
-			if !asked {
-				owner, known = ownerAt(at)
-				asked = true
-			}
-			if known && owner != w.id.PID {
+			if in, known := holds(at, w); known && !in {
 				continue
 			}
 		}
@@ -178,26 +172,42 @@ func windowAt(windows []windowInfo, at image.Point, ownerAt func(image.Point) (u
 	return windowInfo{}, false
 }
 
-// ownerAt is the process that owns the element under a position, as the
-// Accessibility hit test finds it, through windows that let clicks
-// through. It is unknown when the hit test finds nothing.
-func (b *darwinBackend) ownerAt(at image.Point) (uint32, bool) {
+// holdsHit reports whether a window holds the element the Accessibility hit
+// test finds under a position, through windows that let clicks through:
+// the window's process owns the element, and the window the element names,
+// if it names one, is this one. It is unknown when the hit test finds
+// nothing.
+func (b *darwinBackend) holdsHit(at image.Point, w windowInfo) (bool, bool) {
 	system := axUIElementCreateSystemWide()
 	if system == 0 {
-		return 0, false
+		return false, false
 	}
 	defer cfRelease(system)
 	point := b.display.points(at)
 	var element uintptr
 	if code := axUIElementCopyElementAtPosition(system, float32(point.X), float32(point.Y), &element); code != axErrorSuccess || element == 0 {
-		return 0, false
+		return false, false
 	}
 	defer cfRelease(element)
 	var pid int32
 	if axUIElementGetPid(element, &pid) != axErrorSuccess || pid <= 0 {
-		return 0, false
+		return false, false
 	}
-	return uint32(pid), true
+	if uint32(pid) != w.id.PID {
+		return false, true
+	}
+	window := element
+	if axString(element, "AXRole") != "AXWindow" {
+		if window = axCopy(element, "AXWindow"); window == 0 {
+			return true, true
+		}
+		defer cfRelease(window)
+	}
+	frame, ok := axFrame(window)
+	if !ok {
+		return true, true
+	}
+	return nearRect(b.toPixelRect(frame), w.id.Bounds, int(math.Ceil(frameTolerance*b.display.scale))), true
 }
 
 // FocusedWindow names the front window of the application that has the
@@ -257,8 +267,8 @@ func frontWindowOwner() int32 {
 // application windows takes the click itself, so none is named; overlays
 // and windows that let clicks through never take one, so the window under
 // them is.
-func clickTarget(windows []windowInfo, at image.Point, ownerAt func(image.Point) (uint32, bool)) (WindowID, bool) {
-	w, ok := windowAt(windows, at, ownerAt)
+func clickTarget(windows []windowInfo, at image.Point, holds func(image.Point, windowInfo) (bool, bool)) (WindowID, bool) {
+	w, ok := windowAt(windows, at, holds)
 	if !ok || w.layer != normalWindowLayer {
 		return WindowID{}, false
 	}
@@ -271,7 +281,7 @@ func clickTarget(windows []windowInfo, at image.Point, ownerAt func(image.Point)
 // first click; Chromium-based applications, among many others, just come
 // forward, and the click is lost.
 func (b *darwinBackend) bringForwardAt(at image.Point) {
-	target, ok := clickTarget(b.listWindows(), at, b.ownerAt)
+	target, ok := clickTarget(b.listWindows(), at, b.holdsHit)
 	if !ok || b.hasFocus(target) {
 		return
 	}
