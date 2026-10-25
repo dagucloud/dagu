@@ -122,13 +122,13 @@ func TestDarwinDesktop(t *testing.T) {
 
 	backend, err := newDarwinBackend()
 	require.NoError(t, err)
+	// The pointer is where it was moved once the move returns, so a press
+	// made at the pointer lands there.
 	require.NoError(t, backend.MoveTo(200, 300))
-	// The window server applies a posted event a moment later.
-	var x, y int
-	assert.Eventually(t, func() bool {
-		x, y, err = backend.Position()
-		return err == nil && abs(x-200) <= 2 && abs(y-300) <= 2
-	}, time.Second, 10*time.Millisecond, "the pointer is at %d,%d, not 200,300", x, y)
+	x, y, err := backend.Position()
+	require.NoError(t, err)
+	assert.InDelta(t, 200, x, 2)
+	assert.InDelta(t, 300, y, 2)
 }
 
 // TestDarwinWindows opens windows of its own and changes their size and
