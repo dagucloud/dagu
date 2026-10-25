@@ -8709,6 +8709,11 @@
           "minLength": 1,
           "description": "Column that identifies a row for xlsx.update_rows, or _row to address rows by the _row each row carries. A key column that is no longer in the header row fails the step before any cell changes."
         },
+        "key_field": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Input field carrying the worksheet key for xlsx.update_rows; defaults to key. Not valid with key: _row."
+        },
         "set": {
           "type": "object",
           "additionalProperties": {
@@ -8725,7 +8730,7 @@
               }
             ]
           },
-          "description": "Columns to write for xlsx.update_rows: {Status: status} takes the status field of each row, {Reviewed: {value: yes}} writes one literal to every row; a literal that is text in the canonical form of a number is written as a number unless type: string pins it. Omitted: every field other than the key and _row goes to the column of the same name. A column missing from the header is added at the right."
+          "description": "Columns to write for xlsx.update_rows: {Status: status} takes the status field of each row, {Reviewed: {value: yes}} writes one literal to every row; a literal that is text in the canonical form of a number is written as a number unless type: string pins it. Omitted: every field other than the key, key_field, and _row goes to the column of the same name. A column missing from the header is added at the right."
         },
         "missing": {
           "type": "string",

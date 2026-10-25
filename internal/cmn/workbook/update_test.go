@@ -6,6 +6,7 @@ package workbook
 import (
 	"context"
 	"crypto/sha256"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -474,4 +475,131 @@ func TestUpdateRowsOutputLeavesTheWorkbookAlone(t *testing.T) {
 	_, err = UpdateRows(context.Background(), path, UpdateOptions{Key: "Invoice No", Rows: rows, Output: filepath.Join(filepath.Dir(path), "out.csv")})
 	require.ErrorIs(t, err, ErrUnsupportedFormat)
 	assert.Equal(t, before, fileHash(t, path))
+}
+
+func TestUpdateRowsAliasedKey(t *testing.T) {
+	t.Parallel()
+	for _, withRow := range []bool{false, true} {
+		t.Run(fmt.Sprint(withRow), func(t *testing.T) {
+			t.Parallel()
+			path := ordersBook(t)
+			columns, err := ParseColumns([]any{map[string]any{"Invoice No": "invoice_no"}, "Status"})
+			require.NoError(t, err)
+			rows, err := Read(context.Background(), path, ReadOptions{Columns: columns})
+			require.NoError(t, err)
+			row := rows.Rows[0]
+			if !withRow {
+				delete(row, RowNumberKey)
+			}
+			row["Status"] = "Submitted"
+			result, err := UpdateRows(context.Background(), path, UpdateOptions{
+				Key: "Invoice No", KeyField: "invoice_no", Rows: []Row{row},
+			})
+			require.NoError(t, err)
+			assert.Equal(t, 1, result.Changes.RowsUpdated)
+			assert.Zero(t, result.Changes.ColumnsAdded)
+			back, err := Read(context.Background(), path, ReadOptions{})
+			require.NoError(t, err)
+			assert.Equal(t, "Submitted", back.Rows[0]["Status"])
+			assert.Equal(t, "Done", back.Rows[1]["Status"])
+			assert.NotContains(t, back.Headers, "invoice_no")
+		})
+	}
+}
+
+func TestUpdateRowsAliasedKeyMissingModes(t *testing.T) {
+	t.Parallel()
+	for _, mode := range []MissingMode{MissingFail, MissingSkip, MissingAppend} {
+		t.Run(string(mode), func(t *testing.T) {
+			t.Parallel()
+			path := ordersBook(t)
+			before := fileHash(t, path)
+			result, err := UpdateRows(context.Background(), path, UpdateOptions{
+				Key: "Invoice No", KeyField: "invoice_no",
+				Rows: []Row{{"invoice_no": "INV-9", "status": "New"}},
+				Set:  map[string]SetValue{"Status": {Field: "status"}}, Missing: mode,
+			})
+			if mode == MissingFail {
+				require.Error(t, err)
+				assert.Equal(t, before, fileHash(t, path))
+				return
+			}
+			require.NoError(t, err)
+			back, err := Read(context.Background(), path, ReadOptions{})
+			require.NoError(t, err)
+			if mode == MissingAppend {
+				assert.Equal(t, 1, result.Changes.RowsAppended)
+				require.Len(t, back.Rows, 4)
+				assert.Equal(t, "INV-9", back.Rows[3]["Invoice No"])
+				assert.Equal(t, "New", back.Rows[3]["Status"])
+			} else {
+				assert.Zero(t, result.Changes.RowsAppended)
+				assert.Len(t, back.Rows, 3)
+			}
+		})
+	}
+}
+
+func TestUpdateRowsAliasedKeyShapeChecks(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		key   string
+		field string
+		rows  []Row
+		want  string
+	}{
+		{"missing field", "Invoice No", "invoice_no", []Row{{RowNumberKey: 2, "Status": "x"}}, "rows[0] has no invoice_no"},
+		{"stale row", "Invoice No", "invoice_no", []Row{{"invoice_no": "INV-1", RowNumberKey: 3, "Status": "x"}}, "expected key"},
+		{"duplicate input", "Invoice No", "invoice_no", []Row{{"invoice_no": "INV-1", "Status": "a"}, {"invoice_no": "INV-1", "Status": "b"}}, "both address row"},
+		{"row key", RowNumberKey, "invoice_no", []Row{{RowNumberKey: 2, "Status": "x"}}, "key_field needs a key column"},
+		{"blank field", "Invoice No", " ", []Row{{"Status": "x"}}, "key_field must not be blank"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			path := ordersBook(t)
+			before := fileHash(t, path)
+			_, err := UpdateRows(context.Background(), path, UpdateOptions{Key: tc.key, KeyField: tc.field, Rows: tc.rows})
+			require.ErrorContains(t, err, tc.want)
+			assert.Equal(t, before, fileHash(t, path))
+		})
+	}
+}
+
+func TestUpdateRowsSameKeyFieldAndDryRun(t *testing.T) {
+	t.Parallel()
+	path := ordersBook(t)
+	before := fileHash(t, path)
+	opts := UpdateOptions{Key: "Invoice No", KeyField: "Invoice No",
+		Rows: []Row{{"Invoice No": "INV-1", "Status": "Seen"}}, DryRun: true}
+	result, err := UpdateRows(context.Background(), path, opts)
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.Changes.RowsUpdated)
+	assert.Equal(t, before, fileHash(t, path))
+	opts.DryRun = false
+	_, err = UpdateRows(context.Background(), path, opts)
+	require.NoError(t, err)
+	back, err := Read(context.Background(), path, ReadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, "Seen", back.Rows[0]["Status"])
+}
+
+func TestUpdateRowsAliasedKeyOutput(t *testing.T) {
+	t.Parallel()
+	path := ordersBook(t)
+	before := fileHash(t, path)
+	output := filepath.Join(filepath.Dir(path), "aliased-output.xlsx")
+	result, err := UpdateRows(context.Background(), path, UpdateOptions{
+		Key: "Invoice No", KeyField: "invoice_no", Output: output,
+		Rows: []Row{{"invoice_no": "INV-1", "Status": "Submitted"}},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, output, result.Path)
+	assert.Equal(t, 1, result.Changes.RowsUpdated)
+	assert.Equal(t, before, fileHash(t, path))
+	back, err := Read(context.Background(), output, ReadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, "Submitted", back.Rows[0]["Status"])
+	assert.Equal(t, "Done", back.Rows[1]["Status"])
+	assert.NotContains(t, back.Headers, "invoice_no")
 }
