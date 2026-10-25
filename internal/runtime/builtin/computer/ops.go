@@ -644,8 +644,8 @@ func (r *run) elementsReader() (desktop.Elements, error) {
 		}
 		return nil, fmt.Errorf("open the elements: %w", err)
 	}
-	r.elements = els
-	return els, nil
+	r.elements = newSteadyElements(els, r.driver.Windows, r.driver.InputSentAt)
+	return r.elements, nil
 }
 
 func (r *run) wait(ctx context.Context, index int, value string) error {
