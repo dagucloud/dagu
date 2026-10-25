@@ -493,6 +493,9 @@ func remoteRunRestart(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if dag.Dag.RestartPolicy != nil {
+		return errRestartAlwaysOnDAG(dag.Dag.Name, ir.RestartPolicy(*dag.Dag.RestartPolicy))
+	}
 	runID, _ := ctx.StringParam("run-id")
 	if runID == "" {
 		runID = "latest"

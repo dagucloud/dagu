@@ -5,15 +5,62 @@ import { ChevronRight } from 'lucide-react';
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { components } from '@/api/v1/schema';
+import {
+  AlwaysOnStateBadge,
+  AlwaysOnStatusText,
+} from '@/features/cockpit/components/AlwaysOnState';
 import { cn } from '@/lib/utils';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 
 interface QueueCardProps {
   queue: components['schemas']['Queue'];
+  /**
+   * The always-on DAG that owns the queue. An always-on DAG restarts without end, so
+   * its counts only flip between zero and one; its state says more.
+   */
+  dag?: components['schemas']['AlwaysOnDAG'];
 }
 
-function QueueCard({ queue }: QueueCardProps) {
+/** A queue that an always-on DAG owns, shown as the always-on DAG rather than as counts. */
+function AlwaysOnQueueCard({
+  queue,
+  dag,
+}: {
+  queue: components['schemas']['Queue'];
+  dag: components['schemas']['AlwaysOnDAG'];
+}) {
+  return (
+    <Link
+      to={`/queues/${encodeURIComponent(queue.name)}`}
+      className="card-obsidian group flex h-full flex-col gap-4 px-4 py-4 transition-all duration-200 hover:border-border-strong hover:bg-muted/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="whitespace-normal break-words text-base font-semibold text-foreground">
+            {queue.name}
+          </h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            <I18nText text={'Always on'} />
+          </p>
+        </div>
+        <ChevronRight className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground transition-transform duration-200 group-hover:translate-x-0.5" />
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <AlwaysOnStatusText
+          dag={dag}
+          className="min-w-0 truncate text-sm text-muted-foreground"
+        />
+        <AlwaysOnStateBadge state={dag.state} />
+      </div>
+    </Link>
+  );
+}
+
+function QueueCard({ queue, dag }: QueueCardProps) {
+  if (dag) {
+    return <AlwaysOnQueueCard queue={queue} dag={dag} />;
+  }
   const runningCount = queue.runningCount || 0;
   const queuedCount = queue.queuedCount || 0;
   const queuedCapped = queue.queuedCountCapped === true;

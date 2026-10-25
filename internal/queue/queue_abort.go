@@ -30,7 +30,9 @@ func (e *DAGRunNotQueuedError) Error() string {
 }
 
 // AbortQueuedDAGRun marks the latest visible queued attempt as aborted, hides it,
-// and removes the dag-run record only when no visible attempts remain.
+// and removes the dag-run record only when no visible attempts remain. A run
+// that a restart policy queued stays visible instead, with a stop request, so
+// the dequeue counts as an operator stop.
 func AbortQueuedDAGRun(ctx context.Context, dagRunRepository *persis.DAGRunRepository, dagRun ir.DAGRunRef) error {
 	attempt, err := dagRunRepository.FindAttempt(ctx, dagRun)
 	if err != nil {
@@ -66,6 +68,15 @@ func AbortQueuedDAGRun(ctx context.Context, dagRunRepository *persis.DAGRunRepos
 	}
 	if !swapped {
 		return newDAGRunNotQueuedError(currentStatus)
+	}
+
+	// The scheduler derives the next restart from the latest visible run, so
+	// hiding this one would make it queue the same run again.
+	if status.TriggerType == ir.TriggerTypeRestart {
+		if err := attempt.Abort(ctx); err != nil {
+			return fmt.Errorf("record stop request: %w", err)
+		}
+		return nil
 	}
 
 	if err := attempt.Hide(ctx); err != nil {

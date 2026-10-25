@@ -139,6 +139,18 @@ describe('useDAGRunActivity', () => {
     expect(lastSSEEnabled()).toBe(true);
   });
 
+  // An always-on DAG restarts without end; the summary reads it from the always-on list.
+  it('leaves the runs of always-on DAGs out of the live window', () => {
+    renderHook(() => useDAGRunActivity({ kind: 'live' }, {}, 'local'));
+
+    expect(useSSEMock.mock.calls[useSSEMock.mock.calls.length - 1]?.[0]).toMatchObject({
+      excludeAlwaysOnRuns: true,
+    });
+    expect(useQueryMock.mock.calls[useQueryMock.mock.calls.length - 1]?.[1]).toMatchObject({
+      params: { query: { excludeAlwaysOnRuns: true } },
+    });
+  });
+
   it('loads older runs with the first page’s window and cursor', async () => {
     queryResult = { data: page([run('new')], 'cursor-1') };
     getMock.mockResolvedValue({ data: page([run('old')], 'cursor-2') });
@@ -154,6 +166,7 @@ describe('useDAGRunActivity', () => {
           fromDate: 100,
           toDate: 200,
           cursor: 'cursor-1',
+          excludeAlwaysOnRuns: true,
           remoteNode: 'local',
         },
       },
