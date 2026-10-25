@@ -110,6 +110,16 @@ func (b *fakeBackend) record(event string) {
 	b.lastEvent = time.Now()
 }
 
+// recordAccessibility logs what the step did to an element through
+// Accessibility, a focus or a pattern, which reaches the application without
+// passing through the desktop's input, so the desktop does not report it as
+// input.
+func (b *fakeBackend) recordAccessibility(event string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.events = append(b.events, event)
+}
+
 // personUses records input from a person now. The time is a moment ahead,
 // so it follows every earlier reading of a clock as coarse as Windows'.
 func (b *fakeBackend) personUses() {
@@ -447,15 +457,12 @@ func (f *fakeElements) shift(dx, dy int) {
 	}
 }
 
-// setValue sets an element's value, such as a checkbox's state.
-func (f *fakeElements) setValue(id, value string) {
+// show puts a window and its elements in front, as another window coming
+// up or the window changing would.
+func (f *fakeElements) show(window desktop.Element, elements []desktop.Element) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	for i := range f.elements {
-		if focusedID(f.elements[i]) == id {
-			f.elements[i].Value = value
-		}
-	}
+	f.window, f.elements, f.then = window, elements, nil
 }
 
 // retitle changes the window's title.
@@ -706,9 +713,15 @@ type visionModel struct {
 	extract  string
 	truths   map[string]bool
 	requests []*llmpkg.ChatRequest
+	// onChat runs at the start of every request, as the screen may change
+	// while the model answers.
+	onChat func()
 }
 
 func (m *visionModel) Chat(_ context.Context, req *llmpkg.ChatRequest) (*llmpkg.ChatResponse, error) {
+	if m.onChat != nil {
+		m.onChat()
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.requests = append(m.requests, req)
@@ -841,15 +854,15 @@ func (r *testRun) execute(withJSON string, session *ir.AgentSession) *stepExecut
 		r.elements.mu.Lock()
 		r.elements.opens++
 		if r.elements.onFocus == nil {
-			r.elements.onFocus = func(e desktop.Element) { r.backend.record("focus " + focusedID(e)) }
+			r.elements.onFocus = func(e desktop.Element) { r.backend.recordAccessibility("focus " + focusedID(e)) }
 		}
 		if r.elements.onApply == nil {
 			r.elements.onApply = func(e desktop.Element, pattern desktop.Pattern, value string) {
 				if pattern == desktop.PatternSetValue {
-					r.backend.record(fmt.Sprintf("set %s=%s", focusedID(e), value))
+					r.backend.recordAccessibility(fmt.Sprintf("set %s=%s", focusedID(e), value))
 					return
 				}
-				r.backend.record(string(pattern) + " " + focusedID(e))
+				r.backend.recordAccessibility(string(pattern) + " " + focusedID(e))
 			}
 		}
 		r.elements.mu.Unlock()
@@ -973,5 +986,16 @@ func blockRead(t *testing.T, dir string) (restore func()) {
 	return func() {
 		require.NoError(t, os.Remove(path))
 		require.NoError(t, os.WriteFile(path, data, 0o600))
+	}
+}
+
+// setValue sets an element's value, such as a checkbox's state.
+func (f *fakeElements) setValue(id, value string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := range f.elements {
+		if focusedID(f.elements[i]) == id {
+			f.elements[i].Value = value
+		}
 	}
 }

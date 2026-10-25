@@ -351,12 +351,25 @@ func (r *run) resolveElement(ctx context.Context, index int, els desktop.Element
 		} else if resumed {
 			deadline = time.Now().Add(findWithin)
 		}
+		// A screen a handler clears, such as a confirmation, may hide the
+		// element or stand over it; it is cleared before every look, while
+		// it is still in front, and the wait starts over.
+		handled, err := r.handleScreens(ctx, index)
+		if err != nil {
+			return desktop.Element{}, "", err
+		}
+		if handled {
+			deadline = time.Now().Add(findWithin)
+		}
 		// A window that slipped behind another is brought forward rather
 		// than counted a miss, so a replay survives a focus change.
 		r.bringForward(ctx, index, rec.App, title)
 		found, reason, err := r.lookRecorded(els, rec)
 		if err != nil || reason == "" {
 			return found, reason, err
+		}
+		if handled {
+			continue
 		}
 		if !time.Now().Before(deadline) {
 			return desktop.Element{}, reason, nil
@@ -604,6 +617,14 @@ func (r *run) replayByElement(ctx context.Context, index, position, total int, t
 		if _, err := r.resumeAfterPerson(ctx, index); err != nil {
 			return "", err
 		}
+		// A screen a handler clears is cleared before the action, so the
+		// action never lands on it, or through it on the element behind; an
+		// action on an element clears it as it looks for the element.
+		if rec.Element == nil {
+			if _, err := r.clearScreens(ctx, index); err != nil {
+				return "", err
+			}
+		}
 		action := rec.Action
 		if rec.Element == nil {
 			logAction(r.timeline, index, "replay "+describeAction(action))
@@ -697,9 +718,19 @@ func (r *run) awaitLandmarks(ctx context.Context, index int, els desktop.Element
 		} else if resumed {
 			deadline = time.Now().Add(findWithin)
 		}
+		handled, err := r.handleScreens(ctx, index)
+		if err != nil {
+			return "", err
+		}
+		if handled {
+			deadline = time.Now().Add(findWithin)
+		}
 		reason, err := r.lookLandmarks(els, entry)
 		if err != nil || reason == "" {
 			return reason, err
+		}
+		if handled {
+			continue
 		}
 		if !time.Now().Before(deadline) {
 			return reason, nil

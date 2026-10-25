@@ -932,144 +932,426 @@ func TestPinnedActDirect(t *testing.T) {
 	assert.Equal(t, []string{"invoke saveButton"}, run.backend.inputs())
 }
 
-// A checkbox that takes no input at first and reaches its state while the
-// step waits for it is left as it is, not toggled away from it.
-func TestPinnedCheckLeavesABoxThatReachedItsStateWhileDisabled(t *testing.T) {
-	t.Parallel()
-
-	run := elementRun(t)
-	box := desktop.Element{Role: desktop.RoleCheckbox, Name: "同意する", ID: "agreeBox", Value: "false", Bounds: image.Rect(120, 220, 300, 240),
-		Path: []desktop.PathStep{{Role: desktop.RoleCheckbox, Name: "同意する", Index: 0}}}
-	run.elements.elements = append(expenseElements(), box)
-	run.elements.failPattern("agreeBox", desktop.ErrDisabled)
-	// The box is checked before it takes input again, so a retry never
-	// meets it enabled and unchecked.
-	time.AfterFunc(300*time.Millisecond, func() {
-		run.elements.setValue("agreeBox", "true")
-		run.elements.mu.Lock()
-		delete(run.elements.applyErr, "agreeBox")
-		run.elements.mu.Unlock()
-	})
-	steps := `{"ai": "never", "input": "direct", "find_within": "3s", "do": [{"act": {"instruction": "Agree", "recorded": {"windows": [{"check": {"role": "checkbox", "id": "agreeBox"}}]}}}]}`
-	require.NoError(t, run.execute(steps, nil).err)
-	assert.Empty(t, run.backend.inputs(), "the box already checked is not toggled")
-	found, err := run.elements.Find(desktop.Selector{Role: desktop.RoleCheckbox, ID: "agreeBox"})
-	require.NoError(t, err)
-	assert.Equal(t, "true", found[0].Value)
+// confirmDialog is a confirmation an application shows only sometimes.
+func confirmDialog() (desktop.Element, []desktop.Element) {
+	window := desktop.Element{Role: desktop.RoleWindow, Name: "確認", App: "expense", Window: "確認", Bounds: image.Rect(250, 200, 550, 350)}
+	return window, []desktop.Element{
+		{Role: desktop.RoleText, Name: "すでに入力中のものがあります。クリアしていいですか？", Window: "確認", Bounds: image.Rect(270, 220, 530, 250), Path: []desktop.PathStep{{Role: desktop.RoleText, Index: 0}}},
+		{Role: desktop.RoleButton, Name: "はい", Window: "確認", Bounds: image.Rect(300, 300, 380, 330), Path: []desktop.PathStep{{Role: desktop.RoleButton, Name: "はい", Index: 0}}},
+	}
 }
 
-// A turn that clicks the same checkbox twice by id records each click with
-// the state it left the box in, read right before each click rather than when
-// the turn listed the box, so the act pins as check, then uncheck.
-func TestRecordingReadsACheckboxBeforeEachClick(t *testing.T) {
+// A handler clears a screen that comes up only sometimes, whenever the step
+// meets it: after an action, while a check waits, or before an action, even
+// a modal drawn over the page, which leaves the elements behind it readable
+// to an action or a check. A run that never meets it pays nothing for it.
+func TestHandlerClearsAScreenThatComesUpSometimes(t *testing.T) {
 	t.Parallel()
 
-	run := elementRun(t)
-	box := desktop.Element{Role: desktop.RoleCheckbox, Name: "同意する", ID: "agreeBox", Value: "false", Bounds: image.Rect(120, 220, 300, 240),
-		Path: []desktop.PathStep{{Role: desktop.RoleCheckbox, Name: "同意する", Index: 0}}}
-	run.elements.elements = append([]desktop.Element{box}, expenseElements()...)
-	click := computeruse.Action{CallID: "x", Kind: computeruse.KindClick, ElementID: "e1"}
-	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(click, click), done("Agreed, then not")}}}
-	require.NoError(t, run.execute(`{"idle": "0", "do": [{"act": "Toggle consent"}]}`, nil).err)
-
-	pinned := pinOf(t, lookupRecording(t, run, "Toggle consent"))
-	assert.JSONEq(t, `[
-		{"check": {"app": "expense", "role": "checkbox", "name": "同意する", "id": "agreeBox"}},
-		{"uncheck": {"app": "expense", "role": "checkbox", "name": "同意する", "id": "agreeBox"}}
-	]`, marshal(t, pinned.Recorded))
-}
-
-// A pinned check or uncheck leaves a checkbox in its state, clicking it only
-// when it is in the other one and confirming the state after, so running the
-// step again changes nothing. A checkbox that does not change, or does not
-// say its state, is a miss.
-func TestPinnedCheckboxIsLeftInItsState(t *testing.T) {
-	t.Parallel()
-
-	agree := desktop.Element{Role: desktop.RoleCheckbox, Name: "同意する", ID: "agreeBox", Bounds: image.Rect(120, 220, 300, 240),
-		Path: []desktop.PathStep{{Role: desktop.RoleCheckbox, Name: "同意する", Index: 0}}}
+	const steps = `{"ai": "never", "input": "direct", "find_within": "300ms",
+		"handle": [{"name": "入力中クリアの確認", "when": {"text": "クリアしていいですか"}, "recorded": {"windows": [{"click": {"role": "button", "name": "はい"}}]}}],
+		"do": [
+			{"act": {"instruction": "Reset", "recorded": {"windows": [{"click": {"role": "button", "id": "saveButton"}}]}}},
+			{"expect": {"element": {"role": "text_field", "id": "amountBox"}, "within": "2s"}}
+		]}`
 	for _, tc := range []struct {
-		name    string
-		verb    string
-		state   string
-		input   string
-		stuck   bool
-		inputs  []string
-		final   string
-		missing string
+		name      string
+		before    bool
+		after     bool
+		overCheck bool
+		handled   bool
+		inputs    []string
 	}{
-		{name: "check an unchecked box", verb: "check", state: "false", inputs: []string{"move 210,230", "left down #1"}, final: "true"},
-		{name: "check a checked box", verb: "check", state: "true", final: "true"},
-		{name: "uncheck a checked box directly", verb: "uncheck", state: "true", input: "direct", inputs: []string{"toggle agreeBox"}, final: "false"},
-		{name: "uncheck an unchecked box", verb: "uncheck", state: "false", final: "false"},
-		{name: "a box the click does not change", verb: "check", state: "false", stuck: true, inputs: []string{"move 210,230", "left down #1"}, missing: "is not checked after the click"},
-		{name: "a box that does not say its state", verb: "check", missing: "does not say whether it is checked"},
+		{name: "after the click", after: true, handled: true, inputs: []string{"invoke saveButton", "invoke はい"}},
+		{name: "over the page before the click", before: true, handled: true, inputs: []string{"invoke はい", "invoke saveButton"}},
+		{name: "over the page the check reads", overCheck: true, handled: true, inputs: []string{"invoke saveButton", "invoke はい"}},
+		{name: "never", inputs: []string{"invoke saveButton"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			run := elementRun(t)
-			box := agree
-			box.Value = tc.state
-			run.elements.elements = append(expenseElements(), box)
-			if !tc.stuck {
-				run.backend.onPress = func() {
-					run.elements.setValue("agreeBox", map[string]string{"true": "false", "false": "true"}[tc.state])
+			form := expenseWindow()
+			dialog, dialogElements := confirmDialog()
+			show := run.elements.show
+			if tc.before {
+				show(form, append(expenseElements(), dialogElements...))
+			}
+			run.elements.onApply = func(e desktop.Element, pattern desktop.Pattern, _ string) {
+				run.backend.recordAccessibility(string(pattern) + " " + focusedID(e))
+				switch {
+				case e.Name == "はい":
+					show(form, expenseElements())
+				case tc.after && e.ID == "saveButton":
+					show(dialog, dialogElements)
+				case tc.overCheck && e.ID == "saveButton":
+					show(form, append(expenseElements(), dialogElements...))
 				}
 			}
-			steps := fmt.Sprintf(`{"ai": "never", "input": %q, "find_within": "200ms", "do": [{"act": {"instruction": "Agree", "recorded": {"windows": [{%q: {"role": "checkbox", "id": "agreeBox"}}]}}}]}`,
-				cmp.Or(tc.input, "screen"), tc.verb)
+			began := time.Now()
 			execution := run.execute(steps, nil)
-			assert.Equal(t, tc.inputs, run.backend.inputs())
-			if tc.missing != "" {
-				require.ErrorContains(t, execution.err, tc.missing)
-				return
-			}
 			require.NoError(t, execution.err)
-			found, err := run.elements.Find(desktop.Selector{Role: desktop.RoleCheckbox, ID: "agreeBox"})
-			require.NoError(t, err)
-			assert.Equal(t, tc.final, found[0].Value)
+			assert.Equal(t, tc.inputs, run.backend.inputs())
+			assert.Equal(t, tc.handled, strings.Contains(execution.stderr.String(), "handling 入力中クリアの確認"))
+			if !tc.handled {
+				assert.Less(t, time.Since(began), time.Second, "a run without the screen does not wait for it")
+			}
 		})
 	}
 }
 
-// A model's click on a checkbox, at its position or on the element by id,
-// is recorded with the state it left the box in, so the learned act pins as
-// check or uncheck and replaying it never undoes a box already in that state.
-// A box the application updates a moment later is waited for; one the click
-// leaves as it was records a plain click.
-func TestRecordingKeepsTheStateACheckboxWasLeftIn(t *testing.T) {
+// A screen its handler does not clear fails the step after a bounded number
+// of tries instead of coming back forever. The check waits long enough for
+// every try, however long the step lets the screen settle after each.
+func TestHandlerThatDoesNotClearItsScreenFails(t *testing.T) {
 	t.Parallel()
 
-	box := desktop.Element{Role: desktop.RoleCheckbox, Name: "同意する", ID: "agreeBox", Value: "false", Bounds: image.Rect(120, 220, 300, 240),
-		Path: []desktop.PathStep{{Role: desktop.RoleCheckbox, Name: "同意する", Index: 0}}}
-	const checked = `[{"check": {"app": "expense", "role": "checkbox", "name": "同意する", "id": "agreeBox"}}]`
+	const steps = `{"ai": "never", "input": "direct",
+		"handle": [{"name": "入力中クリアの確認", "when": {"text": "クリアしていいですか"}, "recorded": {"windows": [{"click": {"role": "button", "name": "はい"}}]}}],
+		"do": [{"expect": {"element": {"role": "text_field", "id": "amountBox"}, "within": "1m"}}]}`
+	run := elementRun(t)
+	dialog, dialogElements := confirmDialog()
+	run.elements.window = dialog
+	run.elements.elements = dialogElements
+	execution := run.execute(steps, nil)
+	require.ErrorContains(t, execution.err, `handle "入力中クリアの確認": the screen was still there after 20 times`)
+	assert.Len(t, run.backend.inputs(), maxHandled)
+}
+
+// confirmHandler clears confirmDialog by pressing its はい, then waits
+// for wait when that is set.
+func confirmHandler(wait string) string {
+	steps := `[{"click": {"role": "button", "name": "はい"}}]`
+	if wait != "" {
+		steps = `[{"click": {"role": "button", "name": "はい"}}, {"wait": "` + wait + `"}]`
+	}
+	return `[{"name": "入力中クリアの確認", "when": {"text": "クリアしていいですか"}, "recorded": {"windows": ` + steps + `}}]`
+}
+
+// pressingYesShows makes pressing the dialog's はい show the form, after
+// reads more looks at the window when reads is set, and records each pattern.
+func pressingYesShows(run *testRun, reads int) {
+	run.elements.onApply = func(e desktop.Element, pattern desktop.Pattern, _ string) {
+		run.backend.recordAccessibility(string(pattern) + " " + focusedID(e))
+		if e.Name != "はい" {
+			return
+		}
+		run.backend.focusOn(desktop.WindowID{Handle: 2, Title: expenseWindow().Name, App: "expense"})
+		if reads == 0 {
+			run.elements.show(expenseWindow(), expenseElements())
+			return
+		}
+		run.elements.show(expenseWindow(), []desktop.Element{})
+		run.elements.arriveAfter(reads, expenseElements())
+	}
+}
+
+// A check keeps looking for its whole window after a handler ran, however
+// long the handler took, so a screen that settles a moment after the
+// confirmation closes still passes.
+func TestHandledCheckLooksForItsWholeWindowAgain(t *testing.T) {
+	t.Parallel()
+
+	run := elementRun(t)
+	dialog, dialogElements := confirmDialog()
+	run.elements.show(dialog, dialogElements)
+	pressingYesShows(run, 2)
+	steps := `{"ai": "never", "input": "direct", "handle": ` + confirmHandler("1200ms") + `,
+		"do": [{"expect": {"element": {"role": "text_field", "id": "amountBox"}, "within": "1s"}}]}`
+	require.NoError(t, run.execute(steps, nil).err)
+	assert.Equal(t, []string{"invoke はい"}, run.backend.inputs())
+}
+
+// A confirmation in front of the window a pinned step names is handled
+// before that window is brought forward, which would hide it.
+func TestHandlerRunsBeforeTheRecordedWindowComesBack(t *testing.T) {
+	t.Parallel()
+
+	run := elementRun(t)
+	form := expenseWindow()
+	dialog, dialogElements := confirmDialog()
+	dialogWindow := desktop.WindowID{Handle: 3, Title: dialog.Name, App: "expense"}
+	formWindow := desktop.WindowID{Handle: 2, Title: form.Name, App: "expense"}
+	run.backend.windows = []desktop.WindowID{dialogWindow, formWindow}
+	run.backend.focusOn(dialogWindow)
+	run.elements.show(dialog, dialogElements)
+	// Raising the form puts it over the confirmation.
+	run.backend.onRaise = func(w desktop.WindowID) {
+		if w.Handle == formWindow.Handle {
+			run.elements.show(form, expenseElements())
+		}
+	}
+	pressingYesShows(run, 0)
+	steps := `{"ai": "never", "input": "direct", "handle": ` + confirmHandler("") + `,
+		"do": [{"act": {"instruction": "Save", "recorded": {"windows": [{"click": {"window": "経費精算*", "role": "button", "id": "saveButton"}}]}}}]}`
+	require.NoError(t, run.execute(steps, nil).err)
+	assert.Equal(t, []string{"invoke はい", "invoke saveButton"}, run.backend.inputs())
+}
+
+// A confirmation over the window a learned pixel turn replays in is
+// handled while the turn waits for its screen.
+func TestHandlerClearsAScreenOverAPixelReplay(t *testing.T) {
+	t.Parallel()
+
+	const learn = `{"do": [{"act": "Click the canvas"}]}`
+	run := elementRun(t)
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(10, 10)), done("Clicked")}}}
+	require.NoError(t, run.execute(learn, nil).err)
+	require.Nil(t, lookupRecording(t, run, "Click the canvas").Turns[0].Actions[0].Element, "the turn replays by pixels")
+
+	recorded := pattern(800, 600, 0)
+	dialog, dialogElements := confirmDialog()
+	run.backend.show(pattern(800, 600, 150))
+	run.elements.show(dialog, dialogElements)
+	pressingYesShows(run, 0)
+	onApply := run.elements.onApply
+	run.elements.onApply = func(e desktop.Element, p desktop.Pattern, v string) {
+		onApply(e, p, v)
+		if e.Name == "はい" {
+			run.backend.show(recorded)
+		}
+	}
+	run.backend.events = nil
+	steps := `{"ai": "never", "input": "direct", "handle": ` + confirmHandler("") + `, "do": [{"act": "Click the canvas"}]}`
+	require.NoError(t, run.execute(steps, nil).err)
+	assert.Equal(t, []string{"invoke はい", "move 10,10", "left down #1"}, run.backend.inputs())
+}
+
+// A confirmation is handled before the model looks at the screen, so the
+// model never sees it or acts on it.
+func TestHandlerClearsAScreenBeforeTheModelLooks(t *testing.T) {
+	t.Parallel()
+
+	run := elementRun(t)
+	dialog, dialogElements := confirmDialog()
+	run.elements.show(dialog, dialogElements)
+	pressingYesShows(run, 0)
+	session := &scriptedSession{turns: []*computeruse.Turn{done("Nothing left to do")}}
+	run.sessions = []*scriptedSession{session}
+	steps := `{"idle": "0", "input": "direct", "handle": ` + confirmHandler("") + `, "do": [{"act": "Save the form"}]}`
+	require.NoError(t, run.execute(steps, nil).err)
+	assert.Equal(t, []string{"invoke はい"}, run.backend.inputs())
+	require.NotEmpty(t, session.observations)
+	for _, e := range session.observations[0].Elements {
+		assert.NotEqual(t, "はい", e.Name, "the model's first look shows no confirmation")
+	}
+}
+
+// A screen its handler does not clear stops an act before the model ever
+// sees it, through the handler's limit.
+func TestHandlerThatDoesNotClearItsScreenStopsTheModel(t *testing.T) {
+	t.Parallel()
+
+	run := elementRun(t)
+	dialog, dialogElements := confirmDialog()
+	run.elements.show(dialog, dialogElements)
+	session := &scriptedSession{turns: []*computeruse.Turn{done("Nothing left to do")}}
+	run.sessions = []*scriptedSession{session}
+	steps := `{"idle": "0", "input": "direct", "handle": ` + confirmHandler("") + `, "do": [{"act": "Save the form"}]}`
+	execution := run.execute(steps, nil)
+	require.ErrorContains(t, execution.err, `handle "入力中クリアの確認": the screen was still there after 20 times`)
+	assert.Empty(t, session.observations, "the model never saw the screen")
+}
+
+// A confirmation that comes up while the screen settles, after the step
+// first checked for one, is still cleared before the model sees the screen,
+// whether the model acts on it or reads it for an extract.
+func TestHandlerClearsAScreenThatComesUpWhileTheScreenSettles(t *testing.T) {
+	t.Parallel()
+
 	for _, tc := range []struct {
-		name   string
-		click  computeruse.Action
-		update func(run *testRun)
-		pinned string
+		name string
+		op   string
 	}{
-		{"at its position", clickAt(210, 230), func(run *testRun) { run.elements.setValue("agreeBox", "true") }, checked},
-		{"on the element", computeruse.Action{CallID: "x", Kind: computeruse.KindClick, ElementID: "e1"}, nil, checked},
-		{"updated a moment later", clickAt(210, 230), func(run *testRun) {
-			time.AfterFunc(700*time.Millisecond, func() { run.elements.setValue("agreeBox", "true") })
-		}, checked},
-		{"left as it was", clickAt(210, 230), func(*testRun) {}, `[{"click": {"app": "expense", "role": "checkbox", "name": "同意する", "id": "agreeBox"}}]`},
+		{"the model's look", `{"act": "Save the form"}`},
+		{"a model extract", `{"extract": {"instruction": "The amount", "schema": {"type": "object", "properties": {"amount": {"type": "number"}}}}}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			run := elementRun(t)
-			run.elements.elements = append([]desktop.Element{box}, expenseElements()...)
-			if tc.update != nil {
-				run.backend.onPress = func() { tc.update(run) }
+			_, dialogElements := confirmDialog()
+			// The confirmation is there from the second look at the window.
+			run.elements.arriveAfter(1, append(expenseElements(), dialogElements...))
+			pressingYesShows(run, 0)
+			session := &scriptedSession{turns: []*computeruse.Turn{done("Nothing left to do")}}
+			run.sessions = []*scriptedSession{session}
+			run.vision.extract = `{"amount": {"value": 12000, "element": "e3"}}`
+			steps := `{"idle": "0", "input": "direct", "handle": ` + confirmHandler("") + `, "do": [` + tc.op + `]}`
+			require.NoError(t, run.execute(steps, nil).err)
+			assert.Equal(t, []string{"invoke はい"}, run.backend.inputs(), "the confirmation was cleared")
+			for _, observation := range session.observations {
+				for _, e := range observation.Elements {
+					assert.NotEqual(t, "はい", e.Name, "the model never sees the confirmation")
+				}
 			}
-			run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(tc.click), done("Agreed")}}}
-			require.NoError(t, run.execute(`{"idle": "0", "do": [{"act": "Agree"}]}`, nil).err)
-
-			pinned := pinOf(t, lookupRecording(t, run, "Agree"))
-			assert.JSONEq(t, tc.pinned, marshal(t, pinned.Recorded))
 		})
 	}
+}
+
+// A confirmation that comes up while the model decides is cleared before
+// the model's actions run, so they never land on it.
+func TestHandlerClearsAScreenThatComesUpWhileTheModelDecides(t *testing.T) {
+	t.Parallel()
+
+	run := elementRun(t)
+	_, dialogElements := confirmDialog()
+	pressingYesShows(run, 0)
+	shown := false
+	session := &scriptedSession{
+		turns: []*computeruse.Turn{actions(clickAt(235, 194)), done("Saved")},
+		onNext: func() {
+			if !shown {
+				shown = true
+				run.elements.show(expenseWindow(), append(expenseElements(), dialogElements...))
+			}
+		},
+	}
+	run.sessions = []*scriptedSession{session}
+	steps := `{"idle": "0", "input": "direct", "handle": ` + confirmHandler("") + `, "do": [{"act": "Save the form"}]}`
+	require.NoError(t, run.execute(steps, nil).err)
+	assert.Equal(t, []string{"invoke はい", "move 235,194", "left down #1"}, run.backend.inputs())
+}
+
+// A confirmation that comes up while the model reads the screen for an
+// extract is cleared, and the extract read again, so its answer binds to the
+// window it read rather than one the confirmation covers.
+func TestHandlerClearsAScreenThatComesUpWhileTheModelExtracts(t *testing.T) {
+	t.Parallel()
+
+	run := elementRun(t)
+	_, dialogElements := confirmDialog()
+	pressingYesShows(run, 0)
+	asked := 0
+	run.vision.onChat = func() {
+		asked++
+		if asked == 1 {
+			run.elements.show(expenseWindow(), append(expenseElements(), dialogElements...))
+		}
+	}
+	run.vision.extract = `{"amount": {"value": 12000, "element": "e3"}}`
+	steps := `{"idle": "0", "input": "direct", "handle": ` + confirmHandler("") + `, "do": [{"extract": {"instruction": "The amount", "schema": {"type": "object", "properties": {"amount": {"type": "number"}}}}}]}`
+	execution := run.execute(steps, nil)
+	require.NoError(t, execution.err)
+	assert.Equal(t, []string{"invoke はい"}, run.backend.inputs())
+	assert.Equal(t, 2, asked, "the extract was read again after the confirmation was cleared")
+	assert.EqualValues(t, 12000, execution.exec.GetOutputs()["amount"])
+}
+
+// A confirmation that one replayed pixel click brings up is cleared before
+// the turn's next click, which would otherwise land on it.
+func TestHandlerClearsAScreenBetweenPixelClicks(t *testing.T) {
+	t.Parallel()
+
+	const learn = `{"do": [{"act": "Click the canvas twice"}]}`
+	run := elementRun(t)
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(10, 10), clickAt(20, 20)), done("Clicked")}}}
+	require.NoError(t, run.execute(learn, nil).err)
+	require.Len(t, lookupRecording(t, run, "Click the canvas twice").Turns[0].Actions, 2)
+
+	_, dialogElements := confirmDialog()
+	pressed := 0
+	run.backend.onPress = func() {
+		pressed++
+		if pressed == 1 {
+			run.elements.show(expenseWindow(), append(expenseElements(), dialogElements...))
+		}
+	}
+	pressingYesShows(run, 0)
+	run.backend.events = nil
+	steps := `{"ai": "never", "input": "direct", "handle": ` + confirmHandler("") + `, "do": [{"act": "Click the canvas twice"}]}`
+	require.NoError(t, run.execute(steps, nil).err)
+	assert.Equal(t, []string{"move 10,10", "left down #1", "invoke はい", "move 20,20", "left down #1"}, run.backend.inputs())
+}
+
+// A handler that moves the window between two replayed pixel clicks leaves
+// the second click where the turn landed on the window, not where the
+// window was.
+func TestHandlerThatMovesTheWindowBetweenPixelClicks(t *testing.T) {
+	t.Parallel()
+
+	const learn = `{"maximize": false, "do": [{"act": "Click the report twice"}]}`
+	run := windowRun(t, reportWindow.Bounds)
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(150, 160), clickAt(200, 200)), done("Clicked")}}}
+	require.NoError(t, run.execute(learn, nil).err)
+	require.Len(t, lookupRecording(t, run, "Click the report twice").Turns[0].Actions, 2)
+
+	run.elements = newFakeElements()
+	dialog, dialogElements := confirmDialog()
+	pressed := 0
+	run.backend.onPress = func() {
+		pressed++
+		if pressed == 1 {
+			run.elements.show(dialog, dialogElements)
+		}
+	}
+	run.elements.onApply = func(e desktop.Element, pattern desktop.Pattern, _ string) {
+		run.backend.recordAccessibility(string(pattern) + " " + focusedID(e))
+		if e.Name == "はい" {
+			run.placeWindow(reportWindow.Bounds.Add(image.Pt(120, 80)))
+			run.elements.show(expenseWindow(), expenseElements())
+		}
+	}
+	run.backend.events = nil
+	steps := `{"ai": "never", "input": "direct", "maximize": false, "handle": ` + confirmHandler("") + `, "do": [{"act": "Click the report twice"}]}`
+	require.NoError(t, run.execute(steps, nil).err)
+	assert.Equal(t, []string{"move 150,160", "left down #1", "invoke はい", "move 320,280", "left down #1"}, run.backend.inputs())
+}
+
+// A confirmation that a replayed click brings up is cleared before the
+// replay compares the screen it ended on with the recording.
+func TestHandlerClearsAScreenAReplayEndsOn(t *testing.T) {
+	t.Parallel()
+
+	const learn = `{"do": [{"act": "Click the canvas"}]}`
+	run := elementRun(t)
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(10, 10)), done("Clicked")}}}
+	require.NoError(t, run.execute(learn, nil).err)
+	require.Nil(t, lookupRecording(t, run, "Click the canvas").Turns[0].Actions[0].Element, "the turn replays by pixels")
+
+	recorded := pattern(800, 600, 0)
+	_, dialogElements := confirmDialog()
+	run.backend.onPress = func() {
+		run.backend.show(pattern(800, 600, 150))
+		run.elements.show(expenseWindow(), append(expenseElements(), dialogElements...))
+	}
+	pressingYesShows(run, 0)
+	onApply := run.elements.onApply
+	run.elements.onApply = func(e desktop.Element, p desktop.Pattern, v string) {
+		onApply(e, p, v)
+		if e.Name == "はい" {
+			run.backend.show(recorded)
+		}
+	}
+	run.backend.events = nil
+	steps := `{"ai": "never", "input": "direct", "handle": ` + confirmHandler("") + `, "do": [{"act": "Click the canvas"}]}`
+	require.NoError(t, run.execute(steps, nil).err)
+	assert.Equal(t, []string{"move 10,10", "left down #1", "invoke はい"}, run.backend.inputs())
+}
+
+// A confirmation is handled before a bound table is read from the window.
+func TestHandlerClearsAScreenBeforeATableIsRead(t *testing.T) {
+	t.Parallel()
+
+	run := elementRun(t)
+	withTable(run)
+	run.elements.tableRows = [][]string{{"りんご", "1,200"}}
+	table := run.elements.elements
+	dialog, dialogElements := confirmDialog()
+	run.elements.show(dialog, dialogElements)
+	pressingYesShows(run, 0)
+	onApply := run.elements.onApply
+	run.elements.onApply = func(e desktop.Element, p desktop.Pattern, v string) {
+		onApply(e, p, v)
+		if e.Name == "はい" {
+			run.elements.show(expenseWindow(), table)
+		}
+	}
+	steps := `{"ai": "never", "input": "direct", "handle": ` + confirmHandler("") + `, "do": [{"extract": {"instruction": "The invoice lines",
+		"schema": {"type": "object", "properties": {"lines": {"type": "array", "items": {"type": "object", "properties": {"item": {"type": "string"}, "amount": {"type": "number"}}}}}},
+		"fields": {"windows": {"lines": {"container": {"role": "list", "name": "明細"}, "columns": {"item": "品目", "amount": "金額"}}}}}}]}`
+	execution := run.execute(steps, nil)
+	require.NoError(t, execution.err)
+	assert.Equal(t, []string{"invoke はい"}, run.backend.inputs())
+	assert.Equal(t, []any{map[string]any{"item": "りんご", "amount": int64(1200)}}, execution.exec.GetOutputs()["lines"])
 }
 
 // A pinned choice from a list box clicks the box open on the screen and
@@ -3055,4 +3337,144 @@ func TestModelElementIdNotOffered(t *testing.T) {
 	assert.Empty(t, run.backend.inputs(), "nothing reached the desktop")
 	require.GreaterOrEqual(t, len(session.observations), 2)
 	assert.Contains(t, session.observations[1].Results[0].Error, `no element "e99" is on the screen`)
+}
+
+// A checkbox that takes no input at first and reaches its state while the
+// step waits for it is left as it is, not toggled away from it.
+func TestPinnedCheckLeavesABoxThatReachedItsStateWhileDisabled(t *testing.T) {
+	t.Parallel()
+
+	run := elementRun(t)
+	box := desktop.Element{Role: desktop.RoleCheckbox, Name: "同意する", ID: "agreeBox", Value: "false", Bounds: image.Rect(120, 220, 300, 240),
+		Path: []desktop.PathStep{{Role: desktop.RoleCheckbox, Name: "同意する", Index: 0}}}
+	run.elements.elements = append(expenseElements(), box)
+	run.elements.failPattern("agreeBox", desktop.ErrDisabled)
+	// The box is checked before it takes input again, so a retry never
+	// meets it enabled and unchecked.
+	time.AfterFunc(300*time.Millisecond, func() {
+		run.elements.setValue("agreeBox", "true")
+		run.elements.mu.Lock()
+		delete(run.elements.applyErr, "agreeBox")
+		run.elements.mu.Unlock()
+	})
+	steps := `{"ai": "never", "input": "direct", "find_within": "3s", "do": [{"act": {"instruction": "Agree", "recorded": {"windows": [{"check": {"role": "checkbox", "id": "agreeBox"}}]}}}]}`
+	require.NoError(t, run.execute(steps, nil).err)
+	assert.Empty(t, run.backend.inputs(), "the box already checked is not toggled")
+	found, err := run.elements.Find(desktop.Selector{Role: desktop.RoleCheckbox, ID: "agreeBox"})
+	require.NoError(t, err)
+	assert.Equal(t, "true", found[0].Value)
+}
+
+// A turn that clicks the same checkbox twice by id records each click with
+// the state it left the box in, read right before each click rather than when
+// the turn listed the box, so the act pins as check, then uncheck.
+func TestRecordingReadsACheckboxBeforeEachClick(t *testing.T) {
+	t.Parallel()
+
+	run := elementRun(t)
+	box := desktop.Element{Role: desktop.RoleCheckbox, Name: "同意する", ID: "agreeBox", Value: "false", Bounds: image.Rect(120, 220, 300, 240),
+		Path: []desktop.PathStep{{Role: desktop.RoleCheckbox, Name: "同意する", Index: 0}}}
+	run.elements.elements = append([]desktop.Element{box}, expenseElements()...)
+	click := computeruse.Action{CallID: "x", Kind: computeruse.KindClick, ElementID: "e1"}
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(click, click), done("Agreed, then not")}}}
+	require.NoError(t, run.execute(`{"idle": "0", "do": [{"act": "Toggle consent"}]}`, nil).err)
+
+	pinned := pinOf(t, lookupRecording(t, run, "Toggle consent"))
+	assert.JSONEq(t, `[
+		{"check": {"app": "expense", "role": "checkbox", "name": "同意する", "id": "agreeBox"}},
+		{"uncheck": {"app": "expense", "role": "checkbox", "name": "同意する", "id": "agreeBox"}}
+	]`, marshal(t, pinned.Recorded))
+}
+
+// A pinned check or uncheck leaves a checkbox in its state, clicking it only
+// when it is in the other one and confirming the state after, so running the
+// step again changes nothing. A checkbox that does not change, or does not
+// say its state, is a miss.
+func TestPinnedCheckboxIsLeftInItsState(t *testing.T) {
+	t.Parallel()
+
+	agree := desktop.Element{Role: desktop.RoleCheckbox, Name: "同意する", ID: "agreeBox", Bounds: image.Rect(120, 220, 300, 240),
+		Path: []desktop.PathStep{{Role: desktop.RoleCheckbox, Name: "同意する", Index: 0}}}
+	for _, tc := range []struct {
+		name    string
+		verb    string
+		state   string
+		input   string
+		stuck   bool
+		inputs  []string
+		final   string
+		missing string
+	}{
+		{name: "check an unchecked box", verb: "check", state: "false", inputs: []string{"move 210,230", "left down #1"}, final: "true"},
+		{name: "check a checked box", verb: "check", state: "true", final: "true"},
+		{name: "uncheck a checked box directly", verb: "uncheck", state: "true", input: "direct", inputs: []string{"toggle agreeBox"}, final: "false"},
+		{name: "uncheck an unchecked box", verb: "uncheck", state: "false", final: "false"},
+		{name: "a box the click does not change", verb: "check", state: "false", stuck: true, inputs: []string{"move 210,230", "left down #1"}, missing: "is not checked after the click"},
+		{name: "a box that does not say its state", verb: "check", missing: "does not say whether it is checked"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			run := elementRun(t)
+			box := agree
+			box.Value = tc.state
+			run.elements.elements = append(expenseElements(), box)
+			if !tc.stuck {
+				run.backend.onPress = func() {
+					run.elements.setValue("agreeBox", map[string]string{"true": "false", "false": "true"}[tc.state])
+				}
+			}
+			steps := fmt.Sprintf(`{"ai": "never", "input": %q, "find_within": "200ms", "do": [{"act": {"instruction": "Agree", "recorded": {"windows": [{%q: {"role": "checkbox", "id": "agreeBox"}}]}}}]}`,
+				cmp.Or(tc.input, "screen"), tc.verb)
+			execution := run.execute(steps, nil)
+			assert.Equal(t, tc.inputs, run.backend.inputs())
+			if tc.missing != "" {
+				require.ErrorContains(t, execution.err, tc.missing)
+				return
+			}
+			require.NoError(t, execution.err)
+			found, err := run.elements.Find(desktop.Selector{Role: desktop.RoleCheckbox, ID: "agreeBox"})
+			require.NoError(t, err)
+			assert.Equal(t, tc.final, found[0].Value)
+		})
+	}
+}
+
+// A model's click on a checkbox, at its position or on the element by id,
+// is recorded with the state it left the box in, so the learned act pins as
+// check or uncheck and replaying it never undoes a box already in that state.
+// A box the application updates a moment later is waited for; one the click
+// leaves as it was records a plain click.
+func TestRecordingKeepsTheStateACheckboxWasLeftIn(t *testing.T) {
+	t.Parallel()
+
+	box := desktop.Element{Role: desktop.RoleCheckbox, Name: "同意する", ID: "agreeBox", Value: "false", Bounds: image.Rect(120, 220, 300, 240),
+		Path: []desktop.PathStep{{Role: desktop.RoleCheckbox, Name: "同意する", Index: 0}}}
+	const checked = `[{"check": {"app": "expense", "role": "checkbox", "name": "同意する", "id": "agreeBox"}}]`
+	for _, tc := range []struct {
+		name   string
+		click  computeruse.Action
+		update func(run *testRun)
+		pinned string
+	}{
+		{"at its position", clickAt(210, 230), func(run *testRun) { run.elements.setValue("agreeBox", "true") }, checked},
+		{"on the element", computeruse.Action{CallID: "x", Kind: computeruse.KindClick, ElementID: "e1"}, nil, checked},
+		{"updated a moment later", clickAt(210, 230), func(run *testRun) {
+			time.AfterFunc(700*time.Millisecond, func() { run.elements.setValue("agreeBox", "true") })
+		}, checked},
+		{"left as it was", clickAt(210, 230), func(*testRun) {}, `[{"click": {"app": "expense", "role": "checkbox", "name": "同意する", "id": "agreeBox"}}]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			run := elementRun(t)
+			run.elements.elements = append([]desktop.Element{box}, expenseElements()...)
+			if tc.update != nil {
+				run.backend.onPress = func() { tc.update(run) }
+			}
+			run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(tc.click), done("Agreed")}}}
+			require.NoError(t, run.execute(`{"idle": "0", "do": [{"act": "Agree"}]}`, nil).err)
+
+			pinned := pinOf(t, lookupRecording(t, run, "Agree"))
+			assert.JSONEq(t, tc.pinned, marshal(t, pinned.Recorded))
+		})
+	}
 }
