@@ -405,10 +405,14 @@ func directInput(rec recordedAction) (desktop.Pattern, bool) {
 
 // applyPattern has an element perform a pattern. A pattern can send keys of
 // its own, as choosing an option of Chromium's list box does; they are the
-// step's input, so the desktop is not taken to be in a person's use.
+// step's input, so the desktop is not taken to be in a person's use. A
+// pattern refused before it acted sent nothing, so a person's input just
+// before it still counts.
 func (r *run) applyPattern(els desktop.Elements, e desktop.Element, pattern desktop.Pattern, value string) error {
 	err := els.Apply(e, pattern, value)
-	r.driver.AssumeInputSent(time.Now())
+	if !errors.Is(err, desktop.ErrNotFound) && !errors.Is(err, desktop.ErrDisabled) && !errors.Is(err, desktop.ErrNoPattern) {
+		r.driver.AssumeInputSent(time.Now())
+	}
 	return err
 }
 

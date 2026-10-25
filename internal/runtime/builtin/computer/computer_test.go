@@ -879,6 +879,35 @@ func TestPatternInputIsTheSteps(t *testing.T) {
 	assert.NotContains(t, strings.Join(lifecycleMessages(replayed.exec.GetAgentSession()), "\n"), "Waiting until nobody")
 }
 
+// A pattern that may have acted counts as the step's input; one refused
+// before it acted does not, so a person's input just before it still holds
+// the step back.
+func TestApplyPatternCountsOnlyInputItMayHaveSent(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name   string
+		err    error
+		counts bool
+	}{
+		{"done", nil, true},
+		{"failed after acting", errors.New("the menu stayed open after its option was chosen"), true},
+		{"not there", desktop.ErrNotFound, false},
+		{"disabled", desktop.ErrDisabled, false},
+		{"no such pattern", desktop.ErrNoPattern, false},
+	} {
+		els := newFakeElements()
+		if tc.err != nil {
+			els.failPattern("saveButton", tc.err)
+		}
+		save, err := els.Find(desktop.Selector{Role: desktop.RoleButton, ID: "saveButton"})
+		require.NoError(t, err)
+		r := &run{driver: desktop.New(newFakeBackend(800, 600))}
+		_ = r.applyPattern(els, save[0], desktop.PatternInvoke, "")
+		assert.Equal(t, tc.counts, !r.driver.InputSentAt().IsZero(), tc.name)
+	}
+}
+
 // A pinned step that misses fails under never, naming why, and clicks
 // nothing.
 func TestPinnedActMissFailsUnderNever(t *testing.T) {

@@ -526,13 +526,44 @@ func (e *axElements) openOption(item uintptr) uintptr {
 		return 0
 	}
 	defer cfRelease(options)
-	for _, option := range cfArray(options) {
-		n, err := e.read(option, &pool)
-		if err == nil && NormalizeText(e.element(n, "AXMenu").Name) == name {
-			return cfRetain(option)
+	list := cfArray(options)
+	var named []int
+	for i, option := range list {
+		if n, err := e.read(option, &pool); err == nil && NormalizeText(e.element(n, "AXMenu").Name) == name {
+			named = append(named, i)
+		}
+	}
+	switch {
+	case len(named) == 1:
+		return cfRetain(list[named[0]])
+	case len(named) > 1:
+		// Options that share a name are told apart by their place, which
+		// the drawn menu keeps; one that cannot be told apart is none.
+		if at := itemIndex(item); slices.Contains(named, at) {
+			return cfRetain(list[at])
 		}
 	}
 	return 0
+}
+
+// itemIndex is a menu item's place among its menu's items, or -1.
+func itemIndex(item uintptr) int {
+	menu := axCopy(item, "AXParent")
+	if menu == 0 {
+		return -1
+	}
+	defer cfRelease(menu)
+	items := axCopy(menu, "AXChildren")
+	if items == 0 {
+		return -1
+	}
+	defer cfRelease(items)
+	for i, sibling := range cfArray(items) {
+		if cfEqual(sibling, item) {
+			return i
+		}
+	}
+	return -1
 }
 
 func (e *axElements) Focused() (Element, error) {
@@ -908,8 +939,8 @@ func chooseOption(option, menu, popup uintptr) (bool, error) {
 	deadline := time.Now().Add(menuCloseWait)
 	for {
 		open := menuHasFocus(pid, menu)
-		shown, there := axValueText(popup), axString(popup, "AXRole") != ""
-		if !open && (!there || NormalizeText(shown) == want) {
+		shown := axValueText(popup)
+		if !open && (axGone(popup) || NormalizeText(shown) == want) {
 			return true, nil
 		}
 		if !time.Now().Before(deadline) {
@@ -920,6 +951,18 @@ func chooseOption(option, menu, popup uintptr) (bool, error) {
 		}
 		time.Sleep(menuClosePoll)
 	}
+}
+
+// axGone reports an element its application has destroyed, as a page does
+// with a list box it builds again. A read that fails for another reason
+// does not count.
+func axGone(element uintptr) bool {
+	var value uintptr
+	code := axUIElementCopyAttributeValue(element, cfName("AXRole"), &value)
+	if code == axErrorSuccess {
+		cfRelease(value)
+	}
+	return code == axErrorInvalidUIElement
 }
 
 // itemText is what a menu item shows: its title, or, for an option of
