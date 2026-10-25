@@ -97,7 +97,7 @@ func Check(ctx context.Context, path string, opts CheckOptions) error {
 	if err != nil {
 		return nil
 	}
-	headers := headerNames(loc.reg, layout, loc.grid, merges, func(string) {})
+	headers := w.headerNames(loc.reg, layout, loc.grid, merges, func(string) {})
 	var problems []error
 	for _, c := range opts.Columns {
 		i, near := findColumn(headers, c.Name)

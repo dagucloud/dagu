@@ -264,7 +264,11 @@ func (w *file) detectTable(sheet string, grid [][]string) (reg region, ok bool, 
 	for r := used.R1; r <= used.R2; r++ {
 		count := 0
 		for c := used.C1; c <= used.C2; c++ {
-			if strings.TrimSpace(cellAt(grid, c, r)) != "" {
+			filled, err := w.cellHasContent(sheet, grid, c, r)
+			if err != nil {
+				return region{}, false, err
+			}
+			if filled {
 				count++
 			}
 		}
@@ -285,7 +289,11 @@ func (w *file) detectTable(sheet string, grid [][]string) (reg region, ok bool, 
 	c1, c2, r2 := 0, 0, header
 	for r := header; r <= used.R2; r++ {
 		for c := used.C1; c <= used.C2; c++ {
-			if strings.TrimSpace(cellAt(grid, c, r)) == "" {
+			filled, err := w.cellHasContent(sheet, grid, c, r)
+			if err != nil {
+				return region{}, false, err
+			}
+			if !filled {
 				continue
 			}
 			if c1 == 0 || c < c1 {
@@ -296,6 +304,19 @@ func (w *file) detectTable(sheet string, grid [][]string) (reg region, ok bool, 
 		}
 	}
 	return region{Sheet: sheet, C1: c1, R1: header, C2: c2, R2: r2}, true, nil
+}
+
+// An uncached formula still occupies a cell. Detection must include it before
+// the read evaluates it, even when it is the only cell in a trailing row.
+func (w *file) cellHasContent(sheet string, grid [][]string, col, row int) (bool, error) {
+	if row >= len(grid) || col >= len(grid[row]) {
+		return false, nil
+	}
+	if strings.TrimSpace(grid[row][col]) != "" {
+		return true, nil
+	}
+	formula, err := w.f.GetCellFormula(sheet, cellName(col, row))
+	return formula != "", err
 }
 
 func cellName(col, row int) string {
