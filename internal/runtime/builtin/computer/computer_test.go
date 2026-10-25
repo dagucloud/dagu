@@ -1088,6 +1088,22 @@ func TestHandlerClearsAScreenBeforeTheModelLooks(t *testing.T) {
 	}
 }
 
+// A screen its handler does not clear stops an act before the model ever
+// sees it, through the handler's limit.
+func TestHandlerThatDoesNotClearItsScreenStopsTheModel(t *testing.T) {
+	t.Parallel()
+
+	run := elementRun(t)
+	dialog, dialogElements := confirmDialog()
+	run.elements.show(dialog, dialogElements)
+	session := &scriptedSession{turns: []*computeruse.Turn{done("Nothing left to do")}}
+	run.sessions = []*scriptedSession{session}
+	steps := `{"idle": "0", "input": "direct", "handle": ` + confirmHandler("") + `, "do": [{"act": "Save the form"}]}`
+	execution := run.execute(steps, nil)
+	require.ErrorContains(t, execution.err, `handle "入力中クリアの確認": the screen was still there after 20 times`)
+	assert.Empty(t, session.observations, "the model never saw the screen")
+}
+
 // A confirmation is handled before a bound table is read from the window.
 func TestHandlerClearsAScreenBeforeATableIsRead(t *testing.T) {
 	t.Parallel()

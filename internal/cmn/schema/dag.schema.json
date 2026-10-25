@@ -8134,7 +8134,17 @@
             "required": ["when", "recorded"],
             "properties": {
               "name": { "type": "string", "minLength": 1, "description": "A name for the screen, shown in the timeline when it is handled." },
-              "when": { "$ref": "#/definitions/computerCondition", "description": "An exact check (text, element, or window) without within that finds the screen in the front window." },
+              "when": {
+                "type": "object",
+                "additionalProperties": false,
+                "oneOf": [{ "required": ["text"] }, { "required": ["element"] }, { "required": ["window"] }],
+                "properties": {
+                  "text": { "type": "string", "minLength": 1 },
+                  "element": { "$ref": "#/definitions/computerSelector" },
+                  "window": { "type": "string", "minLength": 1 }
+                },
+                "description": "An exact check without within that finds the screen in the front window: text a visible element shows, an element, or the window title."
+              },
               "recorded": {
                 "type": "object",
                 "additionalProperties": false,

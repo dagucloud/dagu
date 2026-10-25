@@ -404,7 +404,7 @@ func (l *actLoop) run(ctx context.Context) error {
 func (l *actLoop) look(ctx context.Context) (screen, error) {
 	// A screen a handler clears is cleared before the model sees the
 	// screen, so the model never acts on it.
-	if _, err := l.r.handleScreens(ctx, l.index); err != nil {
+	if err := l.r.clearScreens(ctx, l.index); err != nil {
 		return screen{}, err
 	}
 	if err := l.r.fit(ctx, l.index); err != nil {

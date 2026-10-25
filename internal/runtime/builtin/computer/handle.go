@@ -33,16 +33,11 @@ func (h handler) title() string {
 	return h.When.String()
 }
 
-// validate checks a handler: an exact check read at once, and pinned steps.
+// validate checks a handler's check and pinned steps. The step's schema
+// admits only an exact check without within for when.
 func (h handler) validate() error {
-	if h.When.judged() {
-		return errors.New("when must be an exact check (text, element, or window); a statement needs the model at every check")
-	}
 	if err := h.When.validate(); err != nil {
 		return fmt.Errorf("when: %w", err)
-	}
-	if h.When.Within != "" {
-		return errors.New("when takes no within; a handler is checked whenever the step looks at the screen")
 	}
 	if len(h.Recorded) == 0 {
 		return errors.New("recorded must list the steps for at least one system")
@@ -101,6 +96,18 @@ func (r *run) handleScreens(ctx context.Context, index int) (bool, error) {
 		return true, nil
 	}
 	return false, nil
+}
+
+// clearScreens runs handlers until none finds its screen, so what comes
+// next, such as the model's look at the screen, meets none. A screen its
+// handler does not clear ends the step through the handler's limit.
+func (r *run) clearScreens(ctx context.Context, index int) error {
+	for {
+		handled, err := r.handleScreens(ctx, index)
+		if err != nil || !handled {
+			return err
+		}
+	}
 }
 
 // runHandler runs a handler's pinned steps, as an act's run, with the

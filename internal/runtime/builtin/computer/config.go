@@ -745,9 +745,24 @@ func handlerSchema() *jsonschema.Schema {
 		Required:             []string{"when", "recorded"},
 		Properties: map[string]*jsonschema.Schema{
 			"name":     agentstep.NonEmptyString(),
-			"when":     conditionSchema(),
+			"when":     exactCheckSchema(),
 			"recorded": pinnedBySystem(pinnedStepsSchema),
 		},
+	}
+}
+
+// exactCheckSchema accepts a check read from the window's elements alone:
+// text, an element, or a window title, without within.
+func exactCheckSchema() *jsonschema.Schema {
+	return &jsonschema.Schema{
+		Type:                 "object",
+		AdditionalProperties: agentstep.NoExtraProperties(),
+		Properties: map[string]*jsonschema.Schema{
+			"text":    agentstep.NonEmptyString(),
+			"element": {Ref: "#/$defs/selector"},
+			"window":  agentstep.NonEmptyString(),
+		},
+		OneOf: []*jsonschema.Schema{{Required: []string{"text"}}, {Required: []string{"element"}}, {Required: []string{"window"}}},
 	}
 }
 
