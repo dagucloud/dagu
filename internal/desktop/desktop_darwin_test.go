@@ -6,8 +6,10 @@
 package desktop
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -93,11 +95,20 @@ func TestKeepAwake(t *testing.T) {
 	assert.NotContains(t, powerAssertions(t), awakeReason)
 }
 
+// powerAssertions lists the power assertions this process holds, so one
+// that another Dagu process on the machine holds does not count.
 func powerAssertions(t *testing.T) string {
 	t.Helper()
 	out, err := exec.Command("/usr/bin/pmset", "-g", "assertions").Output()
 	require.NoError(t, err)
-	return string(out)
+	owner := fmt.Sprintf("pid %d(", os.Getpid())
+	var own strings.Builder
+	for line := range strings.Lines(string(out)) {
+		if strings.HasPrefix(strings.TrimSpace(line), owner) {
+			own.WriteString(line)
+		}
+	}
+	return own.String()
 }
 
 // TestDarwinDesktop moves the pointer, so it runs only when asked to with
