@@ -144,15 +144,60 @@ func (b *darwinBackend) Windows() []WindowID {
 }
 
 // WindowAt names the front window under a position, menus and the menu
-// bar included, and overlays left out.
+// bar included, and overlays and windows that let clicks through left out.
 func (b *darwinBackend) WindowAt(x, y int) WindowID {
-	at := image.Pt(x, y)
-	for _, w := range b.listWindows() {
-		if w.layer < overlayWindowLayer && at.In(w.id.Bounds) {
-			return w.id
+	w, _ := windowAt(b.listWindows(), image.Pt(x, y), b.ownerAt)
+	return w.id
+}
+
+// windowAt names the front window under a position among windows, the
+// front first, menus and the menu bar included and overlays left out. A
+// window above the applications' is passed over when the element under the
+// position belongs to another process, as ownerAt tells: Notification
+// Center covers the screen while a banner shows, and lets every click
+// outside the banner through. The menu bar, which the window server draws
+// for the front application, is taken as it is.
+func windowAt(windows []windowInfo, at image.Point, ownerAt func(image.Point) (uint32, bool)) (windowInfo, bool) {
+	var owner uint32
+	asked, known := false, false
+	for _, w := range windows {
+		if w.layer >= overlayWindowLayer || !at.In(w.id.Bounds) {
+			continue
 		}
+		if w.layer != normalWindowLayer && w.layer != mainMenuWindowLayer {
+			if !asked {
+				owner, known = ownerAt(at)
+				asked = true
+			}
+			if known && owner != w.id.PID {
+				continue
+			}
+		}
+		return w, true
 	}
-	return WindowID{}
+	return windowInfo{}, false
+}
+
+// ownerAt is the process that owns the element under a position, as the
+// Accessibility hit test finds it, through windows that let clicks
+// through. It is unknown when the hit test finds nothing.
+func (b *darwinBackend) ownerAt(at image.Point) (uint32, bool) {
+	system := axUIElementCreateSystemWide()
+	if system == 0 {
+		return 0, false
+	}
+	defer cfRelease(system)
+	point := b.display.points(at)
+	var element uintptr
+	if code := axUIElementCopyElementAtPosition(system, float32(point.X), float32(point.Y), &element); code != axErrorSuccess || element == 0 {
+		return 0, false
+	}
+	defer cfRelease(element)
+	var pid int32
+	if axUIElementGetPid(element, &pid) != axErrorSuccess || pid <= 0 {
+		return 0, false
+	}
+	return uint32(pid), true
 }
 
 // FocusedWindow names the front window of the application that has the
@@ -210,18 +255,14 @@ func frontWindowOwner() int32 {
 // clickTarget names the application window a click at a position lands on,
 // the front one there. A menu, the menu bar, or a panel above the
 // application windows takes the click itself, so none is named; overlays
-// never take a click, so the window under them is.
-func clickTarget(windows []windowInfo, at image.Point) (WindowID, bool) {
-	for _, w := range windows {
-		if w.layer >= overlayWindowLayer || !at.In(w.id.Bounds) {
-			continue
-		}
-		if w.layer != normalWindowLayer {
-			return WindowID{}, false
-		}
-		return w.id, true
+// and windows that let clicks through never take one, so the window under
+// them is.
+func clickTarget(windows []windowInfo, at image.Point, ownerAt func(image.Point) (uint32, bool)) (WindowID, bool) {
+	w, ok := windowAt(windows, at, ownerAt)
+	if !ok || w.layer != normalWindowLayer {
+		return WindowID{}, false
 	}
-	return WindowID{}, false
+	return w.id, true
 }
 
 // bringForwardAt raises the application window under a position unless it
@@ -230,7 +271,7 @@ func clickTarget(windows []windowInfo, at image.Point) (WindowID, bool) {
 // first click; Chromium-based applications, among many others, just come
 // forward, and the click is lost.
 func (b *darwinBackend) bringForwardAt(at image.Point) {
-	target, ok := clickTarget(b.listWindows(), at)
+	target, ok := clickTarget(b.listWindows(), at, b.ownerAt)
 	if !ok || b.hasFocus(target) {
 		return
 	}

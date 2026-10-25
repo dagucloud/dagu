@@ -172,7 +172,9 @@ func TestDarwinWindows(t *testing.T) {
 }
 
 // A click on a window in the background reaches it, though the window takes
-// no first click and would otherwise only come forward.
+// no first click and would otherwise only come forward; and it does under a
+// window that lets clicks through, as Notification Center's does while a
+// banner shows.
 func TestDarwinClickReachesBackgroundWindow(t *testing.T) {
 	if os.Getenv("DAGU_DESKTOP_E2E") != "1" {
 		t.Skip("set DAGU_DESKTOP_E2E=1 to run on an interactive desktop")
@@ -182,57 +184,84 @@ func TestDarwinClickReachesBackgroundWindow(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = backend.Close() })
 
-	var presses pressLog
-	probe := startFixture(t, "testdata/click.js", &presses)
-	target := findWindow(t, backend, probe, "dagu-click-e2e")
-	// Another application takes the focus, its windows away from the probe's.
-	front := startFixture(t, "testdata/windows.js", nil)
-	require.NoError(t, backend.Raise(findWindow(t, backend, front, "dagu-fixed-e2e")))
-	require.Eventually(t, func() bool { return frontmost(front) && !frontmost(probe) }, 15*time.Second, 100*time.Millisecond,
-		"the other application never took the focus")
+	for _, tc := range []struct {
+		name    string
+		overlay bool
+	}{
+		{"behind another application", false},
+		{"under a window that lets clicks through", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var presses pressLog
+			probe := startFixture(t, "testdata/click.js", &presses)
+			target := findWindow(t, backend, probe, "dagu-click-e2e")
+			// Another application takes the focus, its windows away from the
+			// probe's.
+			front := startFixture(t, "testdata/windows.js", nil)
+			require.NoError(t, backend.Raise(findWindow(t, backend, front, "dagu-fixed-e2e")))
+			require.Eventually(t, func() bool { return frontmost(front) && !frontmost(probe) }, 15*time.Second, 100*time.Millisecond,
+				"the other application never took the focus")
+			centre := image.Pt((target.Bounds.Min.X+target.Bounds.Max.X)/2, (target.Bounds.Min.Y+target.Bounds.Max.Y)/2)
+			if tc.overlay {
+				findWindow(t, backend, startFixture(t, "testdata/overlay.js", nil), "dagu-overlay-e2e")
+				assert.Equal(t, target.Handle, backend.WindowAt(centre.X, centre.Y).Handle, "the probe's window is at its centre")
+			}
 
-	centre := image.Pt((target.Bounds.Min.X+target.Bounds.Max.X)/2, (target.Bounds.Min.Y+target.Bounds.Max.Y)/2)
-	require.NoError(t, backend.MoveTo(centre.X, centre.Y))
-	require.NoError(t, backend.Button(ButtonLeft, true, 1))
-	require.NoError(t, backend.Button(ButtonLeft, false, 1))
+			require.NoError(t, backend.MoveTo(centre.X, centre.Y))
+			require.NoError(t, backend.Button(ButtonLeft, true, 1))
+			require.NoError(t, backend.Button(ButtonLeft, false, 1))
 
-	require.Eventually(t, func() bool { return presses.count() == 1 }, 5*time.Second, 50*time.Millisecond,
-		"the click never reached the window in the background")
-	assert.True(t, frontmost(probe), "the probe has the focus")
+			require.Eventually(t, func() bool { return presses.count() == 1 }, 5*time.Second, 50*time.Millisecond,
+				"the click never reached the window in the background")
+			assert.True(t, frontmost(probe), "the probe has the focus")
+		})
+	}
 }
 
-// A click lands on the front application window under it, through any
-// overlay; a menu or the menu bar takes the click itself.
-func TestClickTarget(t *testing.T) {
+// The window at a position is the front one there, menus and the menu bar
+// included; overlays, and a window above the applications' that lets the
+// click through to another process's element, are looked through. A click
+// lands on the window at a position only when it is an application window.
+func TestWindowAt(t *testing.T) {
 	t.Parallel()
 
-	window := func(handle uint64, layer int64, bounds image.Rectangle) windowInfo {
-		return windowInfo{id: WindowID{Handle: handle, Bounds: bounds}, layer: layer}
+	window := func(handle uint64, pid uint32, layer int64, bounds image.Rectangle) windowInfo {
+		return windowInfo{id: WindowID{Handle: handle, PID: pid, Bounds: bounds}, layer: layer}
 	}
-	front := window(1, normalWindowLayer, image.Rect(0, 30, 400, 300))
-	behind := window(2, normalWindowLayer, image.Rect(300, 30, 900, 600))
+	const app, other, notifications, desktop = 1, 2, 60, 70
+	front := window(1, app, normalWindowLayer, image.Rect(0, 30, 400, 300))
+	behind := window(2, other, normalWindowLayer, image.Rect(300, 30, 900, 600))
+	menuBar := window(4, 40, mainMenuWindowLayer, image.Rect(0, 0, 2000, 30))
+	menu := window(5, app, 101, image.Rect(500, 100, 700, 300))
+	// Notification Center's window covers the screen while a banner shows.
+	banner := window(6, notifications, 21, image.Rect(0, 0, 2000, 2000))
 	windows := []windowInfo{
-		window(3, overlayWindowLayer, image.Rect(0, 0, 2000, 2000)),
-		window(4, mainMenuWindowLayer, image.Rect(0, 0, 2000, 30)),
-		window(5, 101, image.Rect(500, 100, 700, 300)),
-		front,
-		behind,
+		window(3, 30, overlayWindowLayer, image.Rect(0, 0, 2000, 2000)),
+		menuBar, menu, banner, front, behind,
 	}
 
 	for _, tc := range []struct {
-		name string
-		at   image.Point
-		want uint64
+		name  string
+		at    image.Point
+		owner uint32
+		want  uint64
+		click uint64
 	}{
-		{"where two windows overlap", image.Pt(350, 100), front.id.Handle},
-		{"on a window behind another", image.Pt(800, 500), behind.id.Handle},
-		{"on an open menu", image.Pt(600, 200), 0},
-		{"on the menu bar", image.Pt(1500, 10), 0},
-		{"on no window", image.Pt(1500, 1500), 0},
+		{"where two windows overlap", image.Pt(350, 100), app, front.id.Handle, front.id.Handle},
+		{"on a window behind another", image.Pt(800, 500), other, behind.id.Handle, behind.id.Handle},
+		{"on an open menu", image.Pt(600, 200), app, menu.id.Handle, 0},
+		{"on the menu bar", image.Pt(1500, 10), app, menuBar.id.Handle, 0},
+		{"on a banner", image.Pt(1500, 100), notifications, banner.id.Handle, 0},
+		{"where the hit test cannot tell", image.Pt(350, 100), 0, banner.id.Handle, 0},
+		{"on the desktop", image.Pt(1500, 1500), desktop, 0, 0},
 	} {
-		got, ok := clickTarget(windows, tc.at)
+		ownerAt := func(image.Point) (uint32, bool) { return tc.owner, tc.owner != 0 }
+		got, ok := windowAt(windows, tc.at, ownerAt)
 		assert.Equal(t, tc.want != 0, ok, tc.name)
-		assert.Equal(t, tc.want, got.Handle, tc.name)
+		assert.Equal(t, tc.want, got.id.Handle, tc.name)
+		clicked, ok := clickTarget(windows, tc.at, ownerAt)
+		assert.Equal(t, tc.click != 0, ok, tc.name)
+		assert.Equal(t, tc.click, clicked.Handle, tc.name)
 	}
 }
 
@@ -250,14 +279,15 @@ func startFixture(t *testing.T, script string, stdout io.Writer) *exec.Cmd {
 	return fixture
 }
 
-// findWindow waits for a fixture's window with a title to show.
+// findWindow waits for a fixture's window with a title to show, at any
+// layer.
 func findWindow(t *testing.T, backend *darwinBackend, fixture *exec.Cmd, title string) WindowID {
 	t.Helper()
 	var found WindowID
 	require.Eventually(t, func() bool {
-		for _, w := range backend.Windows() {
-			if w.Title == title && w.PID == uint32(fixture.Process.Pid) { //nolint:gosec // process ids fit 32 bits
-				found = w
+		for _, w := range backend.listWindows() {
+			if w.id.Title == title && w.id.PID == uint32(fixture.Process.Pid) { //nolint:gosec // process ids fit 32 bits
+				found = w.id
 				return true
 			}
 		}
