@@ -37,12 +37,13 @@ func (h handler) title() string {
 // validate checks a handler's check and pinned steps. The step's schema
 // admits only an exact check without within for when, and so does this,
 // for a handler that reaches the step any other way: a statement would ask
-// the model at every look, and within would go unused.
+// the model at every look, a value reads no screen, and within would go
+// unused.
 func (h handler) validate() error {
 	if err := h.When.validate(); err != nil {
 		return fmt.Errorf("when: %w", err)
 	}
-	if h.When.judged() || h.When.Within != "" {
+	if h.When.judged() || h.When.onValue() || h.When.Within != "" {
 		return errors.New("when must be an exact check (text, element, or window) without within")
 	}
 	if len(h.Recorded) == 0 {

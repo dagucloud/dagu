@@ -8202,7 +8202,8 @@
             { "required": ["statement"] },
             { "required": ["text"] },
             { "required": ["element"] },
-            { "required": ["window"] }
+            { "required": ["window"] },
+            { "required": ["value"] }
           ],
           "properties": {
             "statement": {
@@ -8224,12 +8225,24 @@
               "minLength": 1,
               "description": "Holds when the title of the window in front contains this text; * matches any run of characters. Read without a model."
             },
+            "value": {
+              "type": "string",
+              "description": "Data the step was given, such as ${params.NAME} or a %name% variable, compared with equals or not_equals. Decided at once, without the screen or a model, so a when on a value runs an operation only for the runs whose data asks for it, such as {value: \"${params.SECOND_CONTACT}\", not_equals: \"\"}. An empty value is allowed. Compared as names are: full- and half-width forms and runs of spaces are the same."
+            },
+            "equals": {
+              "type": "string",
+              "description": "With value: holds when value is this text."
+            },
+            "not_equals": {
+              "type": "string",
+              "description": "With value: holds when value is not this text; \"\" asks whether value is set."
+            },
             "within": {
               "type": "string",
-              "description": "How long to keep looking before deciding, such as 30s. A statement is judged once by default; an exact when reads once, and an exact expect keeps looking until the operation timeout."
+              "description": "How long to keep looking before deciding, such as 30s. A statement is judged once by default; an exact when reads once, and an exact expect keeps looking until the operation timeout. A value takes none."
             }
           },
-          "description": "A statement the model judges, or an exact check that reads the window's elements without a model call, on 64-bit Windows."
+          "description": "A statement the model judges, an exact check that reads the window's elements without a model call (macOS and 64-bit Windows), or a check on the step's data with value and equals or not_equals."
         }
       ]
     },

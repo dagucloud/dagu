@@ -185,10 +185,13 @@ func (r *run) execute(ctx context.Context) error {
 	for i := start; i < len(r.cfg.Do); i++ {
 		op := r.cfg.Do[i]
 		r.maximize = r.cfg.maximizes(op.maximize())
-		if op.looksAtScreen() {
-			began, before := time.Now(), r.usage
-			if err := r.fit(ctx, i); err != nil {
-				r.reportFailure(i, op.kind(), op.subject(), err, began, before)
+		// A when on the step's data is decided before the window is fitted,
+		// so an operation it skips leaves the windows as they are; a when
+		// that reads the screen reads the window as the operation will see
+		// it.
+		onData := op.When != nil && op.When.onValue()
+		if !onData {
+			if err := r.fitFor(ctx, i, op); err != nil {
 				return r.fail(ctx, i, op.kind(), err)
 			}
 		}
@@ -201,7 +204,7 @@ func (r *run) execute(ctx context.Context) error {
 			var reason string
 			if err == nil {
 				fallback := time.Duration(0)
-				if !c.judged() {
+				if !c.judged() && !c.onValue() {
 					fallback = exactWhenWait
 				}
 				holds, reason, err = r.await(ctx, i, c, c.window(fallback), op.timeout())
@@ -212,11 +215,17 @@ func (r *run) execute(ctx context.Context) error {
 				return r.fail(ctx, i, op.kind(), err)
 			}
 			if !holds {
+				// The operation names what was skipped; the reason, why.
 				r.timeline.Operation(agentstep.Report{
-					Index: i, Kind: op.kind(), Subject: op.When.String(), Status: agentstep.StatusSkipped, Via: c.via(), Detail: reason,
+					Index: i, Kind: op.kind(), Subject: op.subject(), Status: agentstep.StatusSkipped, Via: c.via(), Detail: reason,
 					Tokens: r.usage.sub(before).total(), Duration: time.Since(began),
 				})
 				continue
+			}
+		}
+		if onData {
+			if err := r.fitFor(ctx, i, op); err != nil {
+				return r.fail(ctx, i, op.kind(), err)
 			}
 		}
 		if op.Ask != nil {
@@ -560,7 +569,9 @@ func (r *run) resolve(spec condition) (condition, error) {
 		if !ok {
 			return condition{}, fmt.Errorf("the check uses %%%s%%, but the ask that sets it did not run", name)
 		}
-		if value == "" {
+		// A check on data may ask whether a value is empty; one on the
+		// screen would look for nothing.
+		if value == "" && !spec.onValue() {
 			return condition{}, fmt.Errorf("the check uses %%%s%%, but its value is empty", name)
 		}
 	}
@@ -571,6 +582,11 @@ func (r *run) resolve(spec condition) (condition, error) {
 // operation timeout. When the timeout cuts an exact check short, the last
 // reason stands as the answer rather than the deadline.
 func (r *run) await(ctx context.Context, index int, c condition, window, timeout time.Duration) (bool, string, error) {
+	// A check on data has its answer at once and reads no screen.
+	if c.onValue() {
+		holds, reason := c.valueHolds()
+		return holds, reason, nil
+	}
 	deadline := time.Now().Add(window)
 	// A person's use of the desktop pauses the timeout, as it does an act's.
 	ctx, cancel := r.operationContext(ctx, timeout)
@@ -964,6 +980,20 @@ func (r *run) pollSleep(ctx context.Context, d time.Duration) error {
 			return nil
 		}
 	}
+}
+
+// fitFor fits the front window before an operation that looks at the
+// screen, reporting a failure as the operation's.
+func (r *run) fitFor(ctx context.Context, index int, op operation) error {
+	if !op.looksAtScreen() {
+		return nil
+	}
+	began, before := time.Now(), r.usage
+	if err := r.fit(ctx, index); err != nil {
+		r.reportFailure(index, op.kind(), op.subject(), err, began, before)
+		return err
+	}
+	return nil
 }
 
 // awaitUnlock waits while the desktop is unusable only until a person

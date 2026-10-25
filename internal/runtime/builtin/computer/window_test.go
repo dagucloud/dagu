@@ -161,6 +161,31 @@ func TestActionsRunDespiteChangesOutsideTheWindow(t *testing.T) {
 
 // The front window is maximized before the step looks at it, once, and
 // only when the step allows it and the window is one the step operates.
+// A when on the step's data is decided before the front window is fitted:
+// an act it skips leaves the window as it is, and one it runs is fitted as
+// any other.
+func TestWhenOnDataDecidesBeforeTheWindowIsFitted(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name      string
+		open      string
+		maximized int
+	}{
+		{"skipped", "no", 0},
+		{"run", "yes", 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			run := windowRun(t, reportWindow.Bounds)
+			run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(150, 160)), done("Opened")}}}
+			steps := `{"variables": {"open": "` + tc.open + `"}, "do": [{"act": "Open the report", "when": {"value": "%open%", "equals": "yes"}}]}`
+			require.NoError(t, run.execute(steps, nil).err)
+			assert.Len(t, run.backend.maximizedWindows(), tc.maximized)
+		})
+	}
+}
+
 func TestMaximizesTheFrontWindow(t *testing.T) {
 	t.Parallel()
 

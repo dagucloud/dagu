@@ -58,9 +58,16 @@ func TestValidateStep(t *testing.T) {
 		{name: "never with extract of an object field", with: `{"ai": "never", "do": [{"extract": {"instruction": "a", "schema": {"type": "object", "properties": {"total": {"type": "number"}, "lines": {"type": "object"}}}}}]}`, llm: model, want: `extract under never cannot read lines`},
 		{name: "extract that overrides never", with: `{"ai": "never", "do": [{"extract": {"instruction": "a", "ai": "on_miss", "schema": {"type": "object"}}}]}`, llm: model},
 		{name: "ai and cache", with: `{"ai": "never", "cache": true, "do": [{"act": "x"}]}`, llm: model, want: "set ai or cache, not both"},
+		{name: "when on a value needs no model", with: `{"ai": "never", "variables": {"same": "あり"}, "do": [{"wait": "1s", "when": {"value": "%same%", "equals": "あり"}}, {"wait": "1s", "when": {"value": "", "not_equals": ""}}]}`},
+		{name: "value without equals", with: `{"do": [{"wait": "1s", "when": {"value": "a"}}]}`, want: "value takes exactly one of equals or not_equals"},
+		{name: "value with equals and not_equals", with: `{"do": [{"wait": "1s", "when": {"value": "a", "equals": "a", "not_equals": "b"}}]}`, want: "value takes exactly one of equals or not_equals"},
+		{name: "value with within", with: `{"do": [{"wait": "1s", "when": {"value": "a", "equals": "a", "within": "5s"}}]}`, want: "value is decided at once and takes no within"},
+		{name: "equals without value", with: `{"do": [{"wait": "1s", "when": {"text": "a", "equals": "a"}}]}`, want: "equals and not_equals go with value"},
+		{name: "value with an unknown variable", with: `{"do": [{"wait": "1s", "when": {"value": "%nope%", "equals": "a"}}]}`, want: "when references %nope%"},
 		{name: "handler", with: `{"ai": "never", "variables": {"answer": "はい"}, "handle": [{"name": "確認", "when": {"text": "クリアしていいですか"}, "recorded": {"macos": [{"click": {"role": "button", "name": "%answer%"}}]}}], "do": [{"expect": {"window": "受付"}}]}`},
 		{name: "handler judged by a statement", with: `{"handle": [{"when": "A confirmation is open", "recorded": {"macos": [{"click": {"role": "button", "name": "はい"}}]}}], "do": [{"act": "x"}]}`, llm: model, want: "/properties/handle/items/properties/when"},
 		{name: "handler with within", with: `{"handle": [{"when": {"text": "確認", "within": "5s"}, "recorded": {"macos": [{"click": {"role": "button", "name": "はい"}}]}}], "do": [{"act": "x"}]}`, llm: model, want: `unexpected additional properties ["within"]`},
+		{name: "handler on a value", with: `{"handle": [{"when": {"value": "a", "equals": "a"}, "recorded": {"macos": [{"click": {"role": "button", "name": "はい"}}]}}], "do": [{"act": "x"}]}`, llm: model, want: "/properties/handle/items/properties/when"},
 		{name: "handler without steps", with: `{"handle": [{"when": {"text": "確認"}, "recorded": {}}], "do": [{"act": "x"}]}`, llm: model, want: "handle[0]: recorded must list the steps"},
 		{name: "handler with an unknown variable", with: `{"handle": [{"when": {"text": "確認"}, "recorded": {"macos": [{"click": {"role": "button", "name": "%answer%"}}]}}], "do": [{"act": "x"}]}`, llm: model, want: "handle[0] references %answer%"},
 		{name: "check a checkbox", with: `{"ai": "never", "do": [{"act": {"instruction": "x", "recorded": {"macos": [{"check": {"role": "checkbox", "id": "agree"}}, {"uncheck": {"role": "checkbox", "id": "news"}}]}}}]}`},
@@ -181,7 +188,7 @@ func TestConfigShorthands(t *testing.T) {
 	assert.False(t, exact.Do[2].When.judged())
 	assert.Equal(t, 5*time.Second, exact.Do[0].Expect.window(time.Minute))
 	assert.Equal(t, time.Minute, exact.Do[1].Expect.window(time.Minute), "without within the fallback applies")
-	require.ErrorContains(t, condition{Text: "a", Window: "b"}.validate(), "exactly one of statement, text, element, or window")
+	require.ErrorContains(t, condition{Text: "a", Window: "b"}.validate(), "exactly one of statement, text, element, window, or value")
 	require.ErrorContains(t, condition{}.validate(), "exactly one of")
 }
 
