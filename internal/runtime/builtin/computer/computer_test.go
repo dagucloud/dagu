@@ -886,6 +886,27 @@ func TestPinnedActDirect(t *testing.T) {
 	assert.Equal(t, []string{"invoke saveButton"}, run.backend.inputs())
 }
 
+// A turn that clicks the same checkbox twice by id records each click with
+// the state it left the box in, read right before each click rather than when
+// the turn listed the box, so the act pins as check, then uncheck.
+func TestRecordingReadsACheckboxBeforeEachClick(t *testing.T) {
+	t.Parallel()
+
+	run := elementRun(t)
+	box := desktop.Element{Role: desktop.RoleCheckbox, Name: "同意する", ID: "agreeBox", Value: "false", Bounds: image.Rect(120, 220, 300, 240),
+		Path: []desktop.PathStep{{Role: desktop.RoleCheckbox, Name: "同意する", Index: 0}}}
+	run.elements.elements = append([]desktop.Element{box}, expenseElements()...)
+	click := computeruse.Action{CallID: "x", Kind: computeruse.KindClick, ElementID: "e1"}
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(click, click), done("Agreed, then not")}}}
+	require.NoError(t, run.execute(`{"idle": "0", "do": [{"act": "Toggle consent"}]}`, nil).err)
+
+	pinned := pinOf(t, lookupRecording(t, run, "Toggle consent"))
+	assert.JSONEq(t, `[
+		{"check": {"app": "expense", "role": "checkbox", "name": "同意する", "id": "agreeBox"}},
+		{"uncheck": {"app": "expense", "role": "checkbox", "name": "同意する", "id": "agreeBox"}}
+	]`, marshal(t, pinned.Recorded))
+}
+
 // A pinned check or uncheck leaves a checkbox in its state, clicking it only
 // when it is in the other one and confirming the state after, so running the
 // step again changes nothing. A checkbox that does not change, or does not

@@ -110,6 +110,22 @@ func (r *run) elementOf(display computeruse.Action) (*recordedElement, *bool) {
 	return nil, nil
 }
 
+// checkedNow reads the state a checkbox shows now, where the screen has it,
+// rather than trusting e, which the step read earlier; it falls back to e
+// when the box cannot be found again, and is nil for any other element.
+func (r *run) checkedNow(els desktop.Elements, e desktop.Element) *bool {
+	if e.Role != desktop.RoleCheckbox {
+		return nil
+	}
+	centre := elementCentre(e)
+	if rec := r.recordElement(e, &centre, r.driver.WindowAt(centre).App); rec != nil {
+		if found, reason, err := r.lookRecorded(els, *rec); err == nil && reason == "" {
+			return checkedBefore(found)
+		}
+	}
+	return checkedBefore(e)
+}
+
 // checkedBefore is the state a checkbox shows, or nil for an element that
 // shows none.
 func checkedBefore(e desktop.Element) *bool {
