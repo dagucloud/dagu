@@ -425,7 +425,7 @@ func (d *Driver) glide(ctx context.Context, path []image.Point) error {
 // nil, while holding modifiers. A scroll moves at most 100 notches along
 // each axis.
 func (d *Driver) Scroll(ctx context.Context, at *image.Point, dx, dy int, modifiers []Key) error {
-	if abs(dx) > maxScrollNotches || abs(dy) > maxScrollNotches {
+	if dx < -maxScrollNotches || dx > maxScrollNotches || dy < -maxScrollNotches || dy > maxScrollNotches {
 		return fmt.Errorf("a scroll moves at most %d notches at a time", maxScrollNotches)
 	}
 	if at != nil {
