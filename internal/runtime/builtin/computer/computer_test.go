@@ -402,7 +402,7 @@ func TestConditionsOnValues(t *testing.T) {
 		began := time.Now()
 		execution := run.execute(`{"ai": "never", "variables": {"same": "あり", "second": ""}, "do": [
 			{"wait": "1ms", "when": {"value": "%same%", "equals": "あり"}},
-			{"wait": "1ms", "when": {"value": "%same%", "equals": "なし"}},
+			{"act": {"instruction": "Clear the same-as box", "recorded": {"windows": [{"click": {"role": "button", "id": "saveButton"}}]}}, "when": {"value": "%same%", "equals": "なし"}},
 			{"wait": "1ms", "when": {"value": "%second%", "not_equals": ""}},
 			{"wait": "1ms", "when": {"value": "有", "equals": "有"}},
 			{"wait": "1ms", "when": {"value": "ＡＢＣ", "equals": "ABC"}}
@@ -413,6 +413,7 @@ func TestConditionsOnValues(t *testing.T) {
 		assert.Equal(t, agentstep.StatusCompleted, events[0].Status)
 		assert.Equal(t, agentstep.StatusSkipped, events[1].Status)
 		assert.Equal(t, agentstep.ViaExact, events[1].Via)
+		assert.Contains(t, events[1].Content, `Clear the same-as box`, "the skipped act is named by what it would do")
 		assert.Contains(t, events[1].Content, `"あり" is not "なし"`)
 		assert.Equal(t, agentstep.StatusSkipped, events[2].Status, "an empty value is asked about, not refused")
 		assert.Contains(t, events[2].Content, `"" is ""`)

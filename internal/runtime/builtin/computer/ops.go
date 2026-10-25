@@ -208,8 +208,9 @@ func (r *run) execute(ctx context.Context) error {
 				return r.fail(ctx, i, op.kind(), err)
 			}
 			if !holds {
+				// The operation names what was skipped; the reason, why.
 				r.timeline.Operation(agentstep.Report{
-					Index: i, Kind: op.kind(), Subject: op.When.String(), Status: agentstep.StatusSkipped, Via: c.via(), Detail: reason,
+					Index: i, Kind: op.kind(), Subject: op.subject(), Status: agentstep.StatusSkipped, Via: c.via(), Detail: reason,
 					Tokens: r.usage.sub(before).total(), Duration: time.Since(began),
 				})
 				continue
