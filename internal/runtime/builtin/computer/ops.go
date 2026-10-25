@@ -584,15 +584,23 @@ func (r *run) evaluate(ctx context.Context, c condition) (bool, string, error) {
 	if err != nil {
 		return false, "", err
 	}
+	// For a moment between one window closing and the next one opening, no
+	// window is in front; the check looks again rather than fail.
 	front, err := els.FrontWindow()
+	if errors.Is(err, desktop.ErrNoWindow) {
+		return false, err.Error(), nil
+	}
 	if err != nil {
 		return false, "", err
 	}
 	switch {
 	case c.Text != "":
 		elements, err := els.Outline(front, 0)
-		if errors.Is(err, desktop.ErrNoElements) {
+		switch {
+		case errors.Is(err, desktop.ErrNoElements):
 			return false, fmt.Sprintf("%q exposes no elements", front.Name), nil
+		case errors.Is(err, desktop.ErrNoWindow):
+			return false, err.Error(), nil
 		}
 		if err != nil {
 			return false, "", err
@@ -610,6 +618,8 @@ func (r *run) evaluate(ctx context.Context, c condition) (bool, string, error) {
 		switch {
 		case errors.Is(err, desktop.ErrNoElements):
 			return false, fmt.Sprintf("%q exposes no elements", front.Name), nil
+		case errors.Is(err, desktop.ErrNoWindow):
+			return false, err.Error(), nil
 		case errors.Is(err, desktop.ErrNotFound) || errors.Is(err, desktop.ErrAmbiguous):
 			// The container the selector names is the trouble.
 			return false, fmt.Sprintf("%s is not there: %v", sel, err), nil

@@ -298,11 +298,11 @@ type axWindow struct {
 func frontApplication() (uintptr, int32, error) {
 	pid := focusedApplication()
 	if pid == 0 {
-		return 0, 0, errors.New("no application is in front")
+		return 0, 0, ErrNoWindow
 	}
 	app := axUIElementCreateApplication(pid)
 	if app == 0 {
-		return 0, 0, errors.New("no application is in front")
+		return 0, 0, ErrNoWindow
 	}
 	return app, pid, nil
 }
@@ -328,7 +328,7 @@ func (e *axElements) frontWindow() (axWindow, error) {
 		}
 	}
 	if window == 0 {
-		return axWindow{}, errors.New("no window is in front")
+		return axWindow{}, ErrNoWindow
 	}
 	top, err := e.asWindow(window, pid)
 	top.web = web
