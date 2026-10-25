@@ -243,7 +243,15 @@ func (r *run) replay(ctx context.Context, index int, entry recording, budget int
 			}
 			return outcome, nil
 		}
-		for _, recorded := range turn.Actions {
+		for j, recorded := range turn.Actions {
+			// A screen an earlier action of the turn brought up is cleared
+			// before the next lands on it; the turn's screen was checked
+			// before its first.
+			if j > 0 {
+				if err := r.clearScreens(ctx, index); err != nil {
+					return outcome, err
+				}
+			}
 			action := v.absolute(recorded.Action)
 			logAction(r.timeline, index, "replay by pixels: "+describeAction(action))
 			outcome.actions++

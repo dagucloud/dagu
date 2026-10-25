@@ -1189,6 +1189,32 @@ func TestHandlerClearsAScreenThatComesUpWhileTheModelExtracts(t *testing.T) {
 	assert.EqualValues(t, 12000, execution.exec.GetOutputs()["amount"])
 }
 
+// A confirmation that one replayed pixel click brings up is cleared before
+// the turn's next click, which would otherwise land on it.
+func TestHandlerClearsAScreenBetweenPixelClicks(t *testing.T) {
+	t.Parallel()
+
+	const learn = `{"do": [{"act": "Click the canvas twice"}]}`
+	run := elementRun(t)
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(10, 10), clickAt(20, 20)), done("Clicked")}}}
+	require.NoError(t, run.execute(learn, nil).err)
+	require.Len(t, lookupRecording(t, run, "Click the canvas twice").Turns[0].Actions, 2)
+
+	_, dialogElements := confirmDialog()
+	pressed := 0
+	run.backend.onPress = func() {
+		pressed++
+		if pressed == 1 {
+			run.elements.show(expenseWindow(), append(expenseElements(), dialogElements...))
+		}
+	}
+	pressingYesShows(run, 0)
+	run.backend.events = nil
+	steps := `{"ai": "never", "input": "direct", "handle": ` + confirmHandler("") + `, "do": [{"act": "Click the canvas twice"}]}`
+	require.NoError(t, run.execute(steps, nil).err)
+	assert.Equal(t, []string{"move 10,10", "left down #1", "invoke はい", "move 20,20", "left down #1"}, run.backend.inputs())
+}
+
 // A confirmation that a replayed click brings up is cleared before the
 // replay compares the screen it ended on with the recording.
 func TestHandlerClearsAScreenAReplayEndsOn(t *testing.T) {
