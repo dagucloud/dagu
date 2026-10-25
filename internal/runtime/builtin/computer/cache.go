@@ -241,13 +241,30 @@ func (r *run) replay(ctx context.Context, index int, entry recording, budget int
 			return outcome, err
 		}
 		if !found {
-			outcome.reason = fmt.Sprintf("the screen differs from the recording at turn %d of %d", i+1, total)
-			if turn.Window != nil {
-				outcome.reason = fmt.Sprintf("the window of %s differs from the recording at turn %d of %d", turn.Window.App, i+1, total)
-			}
+			outcome.reason = turnDiffers(turn, i, total)
 			return outcome, nil
 		}
-		for _, recorded := range turn.Actions {
+		for j, recorded := range turn.Actions {
+			// A screen an earlier action of the turn brought up is cleared
+			// before the next lands on it; the turn's screen was checked
+			// before its first. A handler may move the turn's window, so the
+			// rest of the turn lands where the window is now.
+			if j > 0 {
+				handled, err := r.clearScreens(ctx, index)
+				if err != nil {
+					return outcome, err
+				}
+				if handled {
+					current, err := r.settleClear(ctx, index)
+					if err != nil {
+						return outcome, err
+					}
+					if v, found = r.turnView(current, entry, turn); !found {
+						outcome.reason = turnDiffers(turn, i, total)
+						return outcome, nil
+					}
+				}
+			}
 			action := v.absolute(recorded.Action)
 			logAction(r.timeline, index, "replay by pixels: "+describeAction(action))
 			outcome.actions++
@@ -269,7 +286,7 @@ func (r *run) replay(ctx context.Context, index int, entry recording, budget int
 		outcome.complete, outcome.reason = reason == "", reason
 		return outcome, nil
 	}
-	final, err := r.settle(ctx)
+	final, err := r.settleClear(ctx, index)
 	if err != nil {
 		return outcome, err
 	}
@@ -281,12 +298,29 @@ func (r *run) replay(ctx context.Context, index int, entry recording, budget int
 	return outcome, nil
 }
 
+// turnDiffers is why a recorded turn's screen, or its window, is not found.
+func turnDiffers(turn recordedTurn, i, total int) string {
+	if turn.Window != nil {
+		return fmt.Sprintf("the window of %s differs from the recording at turn %d of %d", turn.Window.App, i+1, total)
+	}
+	return fmt.Sprintf("the screen differs from the recording at turn %d of %d", i+1, total)
+}
+
 // awaitScreen waits for the screen to look like a recorded turn's,
 // capturing again until it does or findWithin passes. It returns the view
 // the turn replays in, and false when the screen still differs.
 func (r *run) awaitScreen(ctx context.Context, index int, entry recording, turn recordedTurn, findWithin time.Duration) (view, bool, error) {
 	deadline := time.Now().Add(findWithin)
 	for {
+		// A screen a handler clears may cover the window the turn replays
+		// in; the wait starts over once it is cleared.
+		handled, err := r.handleScreens(ctx, index)
+		if err != nil {
+			return view{}, false, err
+		}
+		if handled {
+			deadline = time.Now().Add(findWithin)
+		}
 		// A window that appears while the turn waits, such as one an
 		// application is still opening, is maximized as it was when the
 		// turn was recorded.

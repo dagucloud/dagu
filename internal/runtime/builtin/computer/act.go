@@ -283,12 +283,12 @@ func (l *actLoop) run(ctx context.Context) error {
 	if err := l.r.awaitPerson(ctx); err != nil {
 		return err
 	}
-	var err error
-	if l.seen, err = l.look(ctx); err != nil {
+	offered, err := l.lookAndOffer(ctx)
+	if err != nil {
 		return err
 	}
 	l.outcome.recording.Width, l.outcome.recording.Height = l.seen.full.Bounds().Dx(), l.seen.full.Bounds().Dy()
-	obs := computeruse.Observation{Screen: l.seen.forModel(), Elements: l.offerElements()}
+	obs := computeruse.Observation{Screen: l.seen.forModel(), Elements: offered}
 	for {
 		turn, err := l.session.Next(ctx, obs)
 		if err != nil {
@@ -365,7 +365,8 @@ func (l *actLoop) run(ctx context.Context) error {
 		if verify {
 			note = verifyNote
 		}
-		if l.seen, err = l.look(ctx); err != nil {
+		offered, err := l.lookAndOffer(ctx)
+		if err != nil {
 			return err
 		}
 		// Scrolls that left every window they scroll as it was reached
@@ -393,18 +394,52 @@ func (l *actLoop) run(ctx context.Context) error {
 			Results:      results,
 			Acknowledged: turn.Confirmation != "",
 			Note:         note,
-			Elements:     l.offerElements(),
+			Elements:     offered,
 		}
 	}
 }
 
-// look maximizes the front window when the step asks for it, then waits
-// for a still screen and captures what the model sees next.
+// look clears any screen a handler clears, maximizes the front window when
+// the step asks for it, then waits for a still screen and captures what the
+// model sees next.
 func (l *actLoop) look(ctx context.Context) (screen, error) {
-	if err := l.r.fit(ctx, l.index); err != nil {
-		return screen{}, err
+	for {
+		// A screen a handler clears is cleared before the model sees the
+		// screen, so the model never acts on it.
+		if _, err := l.r.clearScreens(ctx, l.index); err != nil {
+			return screen{}, err
+		}
+		if err := l.r.fit(ctx, l.index); err != nil {
+			return screen{}, err
+		}
+		shot, err := l.r.observe(ctx, l.limit)
+		if err != nil {
+			return screen{}, err
+		}
+		// One that came up while the screen settled is cleared too, and
+		// the screen looked at again.
+		handled, err := l.r.handleScreens(ctx, l.index)
+		if err != nil || !handled {
+			return shot, err
+		}
 	}
-	return l.r.observe(ctx, l.limit)
+}
+
+// lookAndOffer looks at the screen and lists its elements for the model,
+// both from one screen with no screen a handler clears: one that comes up
+// between the two is cleared, and both are taken again.
+func (l *actLoop) lookAndOffer(ctx context.Context) ([]computeruse.Element, error) {
+	for {
+		var err error
+		if l.seen, err = l.look(ctx); err != nil {
+			return nil, err
+		}
+		offered := l.offerElements()
+		handled, err := l.r.handleScreens(ctx, l.index)
+		if err != nil || !handled {
+			return offered, err
+		}
+	}
 }
 
 // offerElements lists the actionable elements of the front window for the
@@ -603,7 +638,7 @@ func (l *actLoop) unchanged(ctx context.Context, turn *computeruse.Turn) (bool, 
 	if l.focusLeftModel(turn) {
 		return false, nil
 	}
-	current, err := l.r.settle(ctx)
+	current, err := l.r.settleClear(ctx, l.index)
 	if err != nil {
 		return false, err
 	}

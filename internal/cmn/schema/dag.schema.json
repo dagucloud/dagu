@@ -8125,6 +8125,38 @@
           "default": true,
           "description": "Maximize the front window before each operation looks at the screen, so the app is operated at one size every run and recordings replay. A dialog, a window of fixed size, and a window already maximized are left as they are. Set false to keep windows at their size."
         },
+        "handle": {
+          "type": "array",
+          "description": "Screens that may come up at any point of the step, such as a confirmation an application shows only sometimes. Whenever the step looks at the screen (before it looks for an element, reads a check or a table, compares a replayed screen, or shows the model a screenshot) and before an action without an element, the first handler whose check holds in the front window runs its pinned steps, and the step carries on; a modal drawn over a page, which leaves the elements behind it readable, is cleared before anything reads or presses them. A run that never meets the screen waits nothing for it. One handler runs at most 20 times in a step.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["when", "recorded"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1, "description": "A name for the screen, shown in the timeline when it is handled." },
+              "when": {
+                "type": "object",
+                "additionalProperties": false,
+                "oneOf": [{ "required": ["text"] }, { "required": ["element"] }, { "required": ["window"] }],
+                "properties": {
+                  "text": { "type": "string", "minLength": 1 },
+                  "element": { "$ref": "#/definitions/computerSelector" },
+                  "window": { "type": "string", "minLength": 1 }
+                },
+                "description": "An exact check without within that finds the screen in the front window: text a visible element shows, an element, or the window title."
+              },
+              "recorded": {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "The pinned steps that clear the screen, keyed by system (windows or macos).",
+                "properties": {
+                  "windows": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/computerPinnedStep" } },
+                  "macos": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/computerPinnedStep" } }
+                }
+              }
+            }
+          }
+        },
         "llm": {
           "$ref": "#/definitions/standardLLMConfig",
           "description": "Model for this step. Replaces the DAG-level llm block entirely."

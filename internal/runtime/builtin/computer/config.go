@@ -102,8 +102,11 @@ type config struct {
 	MaxRows int `json:"max_rows,omitempty"`
 	// Maximize, true unless set false, maximizes the front window before an
 	// operation looks at the screen.
-	Maximize *bool       `json:"maximize,omitempty"`
-	Do       []operation `json:"do"`
+	Maximize *bool `json:"maximize,omitempty"`
+	// Handle lists screens that may come up at any point of the step, each
+	// with the pinned steps that clear it.
+	Handle []handler   `json:"handle,omitempty"`
+	Do     []operation `json:"do"`
 }
 
 // operation is one item of with.do. Exactly one operation field is set.
@@ -513,6 +516,16 @@ func (c config) validate() error {
 			return fmt.Errorf("computer: variable name %q must match %s", name, agentstep.IdentifierPattern)
 		}
 	}
+	for i, h := range c.Handle {
+		if err := h.validate(); err != nil {
+			return fmt.Errorf("computer: handle[%d]: %w", i, err)
+		}
+		for _, name := range h.references() {
+			if _, ok := c.Variables[name]; !ok {
+				return fmt.Errorf("computer: handle[%d] references %%%s%%, which is not in with.variables", i, name)
+			}
+		}
+	}
 	outputs := make(map[string]int)
 	asks := make(map[string]int)
 	for i, op := range c.Do {
@@ -720,6 +733,36 @@ func pinnedBySystem(value func() *jsonschema.Schema) *jsonschema.Schema {
 		Type:                 "object",
 		AdditionalProperties: agentstep.NoExtraProperties(),
 		Properties:           map[string]*jsonschema.Schema{systemWindows: value(), systemMacOS: value()},
+	}
+}
+
+// handlerSchema accepts a handler: an exact check and the pinned steps that
+// clear the screen it finds.
+func handlerSchema() *jsonschema.Schema {
+	return &jsonschema.Schema{
+		Type:                 "object",
+		AdditionalProperties: agentstep.NoExtraProperties(),
+		Required:             []string{"when", "recorded"},
+		Properties: map[string]*jsonschema.Schema{
+			"name":     agentstep.NonEmptyString(),
+			"when":     exactCheckSchema(),
+			"recorded": pinnedBySystem(pinnedStepsSchema),
+		},
+	}
+}
+
+// exactCheckSchema accepts a check read from the window's elements alone:
+// text, an element, or a window title, without within.
+func exactCheckSchema() *jsonschema.Schema {
+	return &jsonschema.Schema{
+		Type:                 "object",
+		AdditionalProperties: agentstep.NoExtraProperties(),
+		Properties: map[string]*jsonschema.Schema{
+			"text":    agentstep.NonEmptyString(),
+			"element": {Ref: "#/$defs/selector"},
+			"window":  agentstep.NonEmptyString(),
+		},
+		OneOf: []*jsonschema.Schema{{Required: []string{"text"}}, {Required: []string{"element"}}, {Required: []string{"window"}}},
 	}
 }
 
@@ -934,6 +977,7 @@ var configSchema = &jsonschema.Schema{
 		"input":           inputSchema(),
 		"max_rows":        positiveInteger(),
 		"maximize":        {Type: "boolean"},
+		"handle":          {Type: "array", Items: handlerSchema()},
 		"do":              {Type: "array", MinItems: new(1), Items: operationSchema},
 	},
 	Defs: map[string]*jsonschema.Schema{"selector": selectorSchema()},

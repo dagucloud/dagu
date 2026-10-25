@@ -97,7 +97,11 @@ type run struct {
 	// a person; see resumeAfterPerson.
 	workApp       string
 	personHandled time.Time
-	variables     map[string]string
+	// handling is set while a handler's steps run, and handled counts each
+	// handler's runs; see handleScreens.
+	handling  bool
+	handled   map[int]int
+	variables map[string]string
 	// system is which pinned block this device runs; see the executor field.
 	system string
 	// answers holds the values people gave to ask operations.
@@ -450,7 +454,7 @@ func (r *run) replayExtract(ctx context.Context, index int, spec extractSpec, ke
 // modelExtract reads an extract with the model and binds each field it read
 // to the element it came from, when the host can read elements.
 func (r *run) modelExtract(ctx context.Context, index int, spec extractSpec, key string, began time.Time, before tokenUsage) error {
-	full, err := r.settle(ctx)
+	full, err := r.settleClear(ctx, index)
 	if err != nil {
 		return err
 	}
@@ -480,6 +484,13 @@ func (r *run) modelExtract(ctx context.Context, index int, spec extractSpec, key
 	var values map[string]any
 	if err := json.Unmarshal(data, &values); err != nil {
 		return fmt.Errorf("extract returned a non-object value: %w", err)
+	}
+	// A screen that came up while the model answered covers the elements
+	// its answer is bound to; it is cleared and the extract read again.
+	if handled, err := r.handleScreens(ctx, index); err != nil {
+		return err
+	} else if handled {
+		return r.modelExtract(ctx, index, spec, key, began, before)
 	}
 	out := unwrapAnswer(values, spec.Schema, wrapped)
 	if wrapped {
@@ -577,9 +588,22 @@ func (r *run) await(ctx context.Context, index int, c condition, window, timeout
 		} else if resumed {
 			deadline = time.Now().Add(window)
 		}
+		// A screen a handler clears, such as a confirmation, may stand in
+		// the way of the check or over what it reads; it is cleared before
+		// every look.
+		handled, err := r.handleScreens(ctx, index)
+		if err != nil {
+			return false, "", err
+		}
+		if handled {
+			deadline = time.Now().Add(window)
+		}
 		holds, reason, err := r.evaluate(ctx, c)
 		if err != nil || holds || !time.Now().Before(deadline) {
 			return holds, reason, err
+		}
+		if handled {
+			continue
 		}
 		if err := r.pollSleep(ctx, min(interval, time.Until(deadline))); err != nil {
 			if errors.Is(err, context.DeadlineExceeded) && !c.judged() {
