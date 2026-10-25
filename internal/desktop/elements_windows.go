@@ -43,6 +43,7 @@ var elementProperties = []int32{
 	uiaAutomationIdProperty, uiaClassNameProperty, uiaLabeledByProperty, uiaIsPasswordProperty,
 	uiaNativeWindowHandleProperty, uiaIsOffscreenProperty, uiaFrameworkIdProperty,
 	uiaValueValueProperty, uiaLegacyIAccessibleValueProperty, uiaToggleToggleStateProperty,
+	uiaIsEnabledProperty,
 }
 
 // toggle state values a checkbox or radio button reports.
@@ -741,6 +742,9 @@ func (w *uiaWorker) convert(el *element, topLevel bool) (Element, error) {
 		return Element{}, err
 	}
 	found := Element{Role: roleOf(controlType, topLevel), Name: name, ID: id, Bounds: bounds}
+	if enabled, err := el.cachedIsEnabled(); err == nil {
+		found.Disabled = !enabled
+	}
 	if password, err := el.cachedIsPassword(); err == nil && !password {
 		found.Value = w.value(el)
 	}

@@ -30,6 +30,7 @@ func formElements() []Element {
 		{Role: RoleButton, Name: "保存", ID: "saveButton", Bounds: image.Rect(190, 170, 280, 198), Path: []PathStep{{Role: RoleButton, Name: "保存", Index: 0}}},
 		{Role: RoleTextField, ID: "amountBox", Bounds: image.Rect(190, 130, 390, 154), Path: []PathStep{{Role: RoleTextField, Index: 0}}},
 		{Role: RoleText, Name: "金額", ID: "lblAmount", Bounds: image.Rect(120, 130, 180, 154), Path: []PathStep{{Role: RoleText, Name: "金額", Index: 0}}},
+		{Role: RoleButton, Name: "送信", ID: "submitButton", Bounds: image.Rect(420, 140, 510, 168), Path: []PathStep{{Role: RoleButton, Name: "送信", Index: 0}}, Disabled: true},
 	}
 }
 
@@ -126,6 +127,10 @@ func TestMatch(t *testing.T) {
 		{name: "other window", sel: Selector{Window: "経費精算", Role: RoleComboBox, Name: "支払方法"}, want: nil},
 		{name: "app ignores case", sel: Selector{App: "PowerShell", Role: RoleComboBox, Name: "支払方法"}, want: []string{"methodBox"}},
 		{name: "other app", sel: Selector{App: "Expense", Role: RoleComboBox, Name: "支払方法"}, want: nil},
+		{name: "enabled", sel: Selector{Role: RoleButton, Name: "*", Enabled: new(true)}, want: []string{"saveButton", "paymentSaveButton"}},
+		{name: "disabled", sel: Selector{Role: RoleButton, Name: "*", Enabled: new(false)}, want: []string{"submitButton"}},
+		{name: "a disabled id asked enabled", sel: Selector{Role: RoleButton, ID: "submitButton", Enabled: new(true)}, want: nil},
+		{name: "enabled before nth", sel: Selector{Role: RoleButton, Name: "*", Enabled: new(true), Nth: new(1)}, want: []string{"paymentSaveButton"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -228,7 +233,7 @@ func TestReadingOrder(t *testing.T) {
 
 	ordered := readingOrder(formElements())
 	assert.Equal(t, []string{
-		"lblAmount", "amountBox", "saveButton", "agreeBox", "methodBox",
+		"lblAmount", "amountBox", "submitButton", "saveButton", "agreeBox", "methodBox",
 		"paymentGroup", "lblPaymentAmount", "paymentAmountBox", "paymentSaveButton",
 	}, ids(ordered))
 

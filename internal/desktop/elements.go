@@ -126,6 +126,9 @@ type Element struct {
 	Bounds image.Rectangle
 	// Window is the title of the window the element belongs to.
 	Window string
+	// Disabled is set for an element the system reports takes no input
+	// until the application enables it, such as a grayed-out button.
+	Disabled bool
 	// Path leads from the window down to the element. A window's path is
 	// empty.
 	Path []PathStep

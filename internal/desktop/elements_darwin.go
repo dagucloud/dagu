@@ -257,7 +257,7 @@ func valueText(value uintptr) string {
 
 // element describes a node as an Element, without its window and path.
 func (e *axElements) element(n axNode, parentRole string) Element {
-	found := Element{Role: roleOf(n.role, n.subrole, parentRole), Name: n.title, ID: n.id, Label: n.label}
+	found := Element{Role: roleOf(n.role, n.subrole, parentRole), Name: n.title, ID: n.id, Label: n.label, Disabled: n.hasEnabled && !n.enabled}
 	if found.Name == "" {
 		found.Name = n.description
 	}
