@@ -942,29 +942,39 @@ func TestPinnedCheckboxIsLeftInItsState(t *testing.T) {
 // A model's click on a checkbox, at its position or on the element by id,
 // is recorded with the state it left the box in, so the learned act pins as
 // check or uncheck and replaying it never undoes a box already in that state.
+// A box the application updates a moment later is waited for; one the click
+// leaves as it was records a plain click.
 func TestRecordingKeepsTheStateACheckboxWasLeftIn(t *testing.T) {
 	t.Parallel()
 
 	box := desktop.Element{Role: desktop.RoleCheckbox, Name: "同意する", ID: "agreeBox", Value: "false", Bounds: image.Rect(120, 220, 300, 240),
 		Path: []desktop.PathStep{{Role: desktop.RoleCheckbox, Name: "同意する", Index: 0}}}
+	const checked = `[{"check": {"app": "expense", "role": "checkbox", "name": "同意する", "id": "agreeBox"}}]`
 	for _, tc := range []struct {
-		name  string
-		click computeruse.Action
+		name   string
+		click  computeruse.Action
+		update func(run *testRun)
+		pinned string
 	}{
-		{"at its position", clickAt(210, 230)},
-		{"on the element", computeruse.Action{CallID: "x", Kind: computeruse.KindClick, ElementID: "e1"}},
+		{"at its position", clickAt(210, 230), func(run *testRun) { run.elements.setValue("agreeBox", "true") }, checked},
+		{"on the element", computeruse.Action{CallID: "x", Kind: computeruse.KindClick, ElementID: "e1"}, nil, checked},
+		{"updated a moment later", clickAt(210, 230), func(run *testRun) {
+			time.AfterFunc(700*time.Millisecond, func() { run.elements.setValue("agreeBox", "true") })
+		}, checked},
+		{"left as it was", clickAt(210, 230), func(*testRun) {}, `[{"click": {"app": "expense", "role": "checkbox", "name": "同意する", "id": "agreeBox"}}]`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			run := elementRun(t)
 			run.elements.elements = append([]desktop.Element{box}, expenseElements()...)
-			run.backend.onPress = func() { run.elements.setValue("agreeBox", "true") }
+			if tc.update != nil {
+				run.backend.onPress = func() { tc.update(run) }
+			}
 			run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(tc.click), done("Agreed")}}}
 			require.NoError(t, run.execute(`{"idle": "0", "do": [{"act": "Agree"}]}`, nil).err)
 
-			entry := lookupRecording(t, run, "Agree")
-			pinned := pinOf(t, entry)
-			assert.JSONEq(t, `[{"check": {"app": "expense", "role": "checkbox", "name": "同意する", "id": "agreeBox"}}]`, marshal(t, pinned.Recorded))
+			pinned := pinOf(t, lookupRecording(t, run, "Agree"))
+			assert.JSONEq(t, tc.pinned, marshal(t, pinned.Recorded))
 		})
 	}
 }

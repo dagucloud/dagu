@@ -279,7 +279,8 @@ func (f *fakeElements) current() (desktop.Element, []desktop.Element, error) {
 	if f.err != nil {
 		return desktop.Element{}, nil, f.err
 	}
-	return f.window, f.elements, nil
+	// A reader gets the window as it is now, apart from later changes.
+	return f.window, slices.Clone(f.elements), nil
 }
 
 func (f *fakeElements) Find(sel desktop.Selector) ([]desktop.Element, error) {

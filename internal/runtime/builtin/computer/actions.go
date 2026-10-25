@@ -33,8 +33,9 @@ func (r *run) performOne(ctx context.Context, index int, action computeruse.Acti
 	// screen; the pointer has not moved yet either.
 	display, replayable := r.toDisplay(action, seen)
 	var element *recordedElement
+	var before *bool
 	if replayable {
-		element = r.elementOf(display)
+		element, before = r.elementOf(display)
 	}
 	result := r.runAction(ctx, action, seen.toFull, &seen, limit)
 	if result.Failed() {
@@ -48,15 +49,25 @@ func (r *run) performOne(ctx context.Context, index int, action computeruse.Acti
 		r.proveValue(element, action.Text)
 	}
 	rec := recordAction(display, element)
-	rec.Checked = r.checkedAfter(display, element)
+	rec.Checked = r.checkedAfter(ctx, display, element, before)
 	return result, &rec
 }
 
+// A recorded click on a checkbox waits up to checkedSettle, looking every
+// checkedPoll, for the box to show the state the click left it in.
+const (
+	checkedSettle = time.Second
+	checkedPoll   = 50 * time.Millisecond
+)
+
 // checkedAfter reads the state a plain click left a checkbox in, so the
 // recording replays the click as that state rather than as a toggle that
-// would undo a box already in it. It is nil for any other action or element,
-// and when the state cannot be read.
-func (r *run) checkedAfter(display computeruse.Action, element *recordedElement) *bool {
+// would undo a box already in it. An application may update the box a
+// moment after the click, so it waits for a state other than before, the
+// one the box showed before the click, when that is known. It is nil for
+// any other action or element, and when the box shows no state or still
+// shows the one it had.
+func (r *run) checkedAfter(ctx context.Context, display computeruse.Action, element *recordedElement, before *bool) *bool {
 	if element == nil || element.Selector.Role != desktop.RoleCheckbox || !plainClick(display) {
 		return nil
 	}
@@ -64,33 +75,46 @@ func (r *run) checkedAfter(display computeruse.Action, element *recordedElement)
 	if err != nil {
 		return nil
 	}
-	found, reason, err := r.lookRecorded(els, *element)
-	if err != nil || reason != "" {
-		return nil
+	for deadline := time.Now().Add(checkedSettle); ; {
+		found, reason, err := r.lookRecorded(els, *element)
+		if err == nil && reason == "" {
+			if checked, known := checkedState(found); known && (before == nil || checked != *before) {
+				return &checked
+			}
+		}
+		if !time.Now().Before(deadline) || sleep(ctx, checkedPoll) != nil {
+			return nil
+		}
 	}
-	if checked, known := checkedState(found); known {
-		return &checked
-	}
-	return nil
 }
 
 // elementOf reads the element a replayable action lands on, in display
-// pixels, or types into, when the host can read elements.
-func (r *run) elementOf(display computeruse.Action) *recordedElement {
+// pixels, or types into, when the host can read elements, and the state a
+// checkbox shows before the action, when it is one.
+func (r *run) elementOf(display computeruse.Action) (*recordedElement, *bool) {
 	if at, pointer := target(display); pointer {
 		if e, err := r.elementAt(at); err == nil {
 			// The application comes from the window the action lands on, so
 			// an action in a second visible window records its own window,
 			// not the one the turn started in.
-			return r.recordElement(e, &at, r.driver.WindowAt(at).App)
+			return r.recordElement(e, &at, r.driver.WindowAt(at).App), checkedBefore(e)
 		}
-		return nil
+		return nil, nil
 	}
 	switch display.Kind {
 	case computeruse.KindType, computeruse.KindKey, computeruse.KindHoldKey:
 		if e, err := r.focusedElement(); err == nil {
-			return r.recordElement(e, nil, r.driver.FocusedWindow().App)
+			return r.recordElement(e, nil, r.driver.FocusedWindow().App), nil
 		}
+	}
+	return nil, nil
+}
+
+// checkedBefore is the state a checkbox shows, or nil for an element that
+// shows none.
+func checkedBefore(e desktop.Element) *bool {
+	if checked, known := checkedState(e); known && e.Role == desktop.RoleCheckbox {
+		return &checked
 	}
 	return nil
 }

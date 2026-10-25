@@ -527,19 +527,19 @@ func (l *actLoop) invokeElement(ctx context.Context, els desktop.Elements, actio
 		}
 	}
 	l.touched = true
-	recorded := l.recordInvoked(action, e)
+	recorded := l.recordInvoked(ctx, action, e)
 	return true, &recorded, result
 }
 
 // recordInvoked records an element the model invoked as the click it asked
 // for, landing at the element's centre, so a later run can replay it by the
 // element or, on a host without one, by that pixel.
-func (l *actLoop) recordInvoked(action computeruse.Action, e desktop.Element) recordedAction {
+func (l *actLoop) recordInvoked(ctx context.Context, action computeruse.Action, e desktop.Element) recordedAction {
 	centre := elementCentre(e)
 	display := computeruse.Action{Kind: computeruse.KindClick, Count: action.Count, Button: action.Button, Point: &computeruse.Point{X: centre.X, Y: centre.Y}}
 	element := l.r.recordElement(e, &centre, l.r.driver.WindowAt(centre).App)
 	rec := recordAction(display, element)
-	rec.Checked = l.r.checkedAfter(display, element)
+	rec.Checked = l.r.checkedAfter(ctx, display, element, checkedBefore(e))
 	return rec
 }
 
