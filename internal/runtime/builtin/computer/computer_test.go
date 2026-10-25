@@ -6,6 +6,7 @@ package computer
 import (
 	"context"
 	"errors"
+	"fmt"
 	"image"
 	"io"
 	"os"
@@ -938,6 +939,8 @@ func TestApplyPatternCountsOnlyInputItMayHaveSent(t *testing.T) {
 		{"not there", desktop.ErrNotFound, false},
 		{"disabled", desktop.ErrDisabled, false},
 		{"no such pattern", desktop.ErrNoPattern, false},
+		{"a read-only field", fmt.Errorf("%w: the field is read-only", desktop.ErrRefused), false},
+		{"nothing to expand", fmt.Errorf("%w: the element has nothing to expand", desktop.ErrRefused), false},
 	} {
 		els := newFakeElements()
 		if tc.err != nil {

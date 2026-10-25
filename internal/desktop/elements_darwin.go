@@ -37,9 +37,9 @@ const (
 )
 
 var (
-	errReadOnly = errors.New("the field is read-only")
-	errLeaf     = errors.New("the element has nothing to expand")
-	errClosed   = errors.New("elements closed")
+	errReadOnly error = refusal("the field is read-only")
+	errLeaf     error = refusal("the element has nothing to expand")
+	errClosed         = errors.New("elements closed")
 )
 
 // Attributes read for every element, in one request each. The order is

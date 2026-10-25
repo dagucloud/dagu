@@ -415,7 +415,7 @@ func directInput(rec recordedAction) (desktop.Pattern, bool) {
 // before it still counts.
 func (r *run) applyPattern(els desktop.Elements, e desktop.Element, pattern desktop.Pattern, value string) error {
 	err := els.Apply(e, pattern, value)
-	if !errors.Is(err, desktop.ErrNotFound) && !errors.Is(err, desktop.ErrDisabled) && !errors.Is(err, desktop.ErrNoPattern) {
+	if err == nil || !desktop.Refused(err) {
 		r.driver.AssumeInputSent(time.Now())
 	}
 	return err
