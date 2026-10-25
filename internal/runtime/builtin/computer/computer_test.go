@@ -896,11 +896,13 @@ func TestPinnedCheckLeavesABoxThatReachedItsStateWhileDisabled(t *testing.T) {
 		Path: []desktop.PathStep{{Role: desktop.RoleCheckbox, Name: "同意する", Index: 0}}}
 	run.elements.elements = append(expenseElements(), box)
 	run.elements.failPattern("agreeBox", desktop.ErrDisabled)
+	// The box is checked before it takes input again, so a retry never
+	// meets it enabled and unchecked.
 	time.AfterFunc(300*time.Millisecond, func() {
+		run.elements.setValue("agreeBox", "true")
 		run.elements.mu.Lock()
 		delete(run.elements.applyErr, "agreeBox")
 		run.elements.mu.Unlock()
-		run.elements.setValue("agreeBox", "true")
 	})
 	steps := `{"ai": "never", "input": "direct", "find_within": "3s", "do": [{"act": {"instruction": "Agree", "recorded": {"windows": [{"check": {"role": "checkbox", "id": "agreeBox"}}]}}}]}`
 	require.NoError(t, run.execute(steps, nil).err)
