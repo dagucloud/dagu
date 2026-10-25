@@ -910,13 +910,14 @@ func TestHandlerClearsAScreenThatComesUpSometimes(t *testing.T) {
 }
 
 // A screen its handler does not clear fails the step after a bounded number
-// of tries instead of coming back forever.
+// of tries instead of coming back forever. The check waits long enough for
+// every try, however long the step lets the screen settle after each.
 func TestHandlerThatDoesNotClearItsScreenFails(t *testing.T) {
 	t.Parallel()
 
 	const steps = `{"ai": "never", "input": "direct",
 		"handle": [{"name": "入力中クリアの確認", "when": {"text": "クリアしていいですか"}, "recorded": {"windows": [{"click": {"role": "button", "name": "はい"}}]}}],
-		"do": [{"expect": {"element": {"role": "text_field", "id": "amountBox"}, "within": "5s"}}]}`
+		"do": [{"expect": {"element": {"role": "text_field", "id": "amountBox"}, "within": "1m"}}]}`
 	run := elementRun(t)
 	dialog, dialogElements := confirmDialog()
 	run.elements.window = dialog
