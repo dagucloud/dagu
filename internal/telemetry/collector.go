@@ -32,6 +32,20 @@ var (
 
 	// queueWaitBuckets defines buckets for queue wait time (shorter timescales)
 	queueWaitBuckets = []float64{1, 5, 10, 30, 60, 120, 300, 600}
+
+	// dagRunMetricStatuses is the status label set emitted by per-DAG metrics,
+	// matching the values dagu_dag_runs_total_by_dag reports via ir.Status.String.
+	dagRunMetricStatuses = []ir.Status{
+		ir.NotStarted,
+		ir.Running,
+		ir.Failed,
+		ir.Aborted,
+		ir.Succeeded,
+		ir.Queued,
+		ir.PartiallySucceeded,
+		ir.Waiting,
+		ir.Rejected,
+	}
 )
 
 // Collector implements prometheus.Collector interface
@@ -63,6 +77,7 @@ type Collector struct {
 	dagRunsCurrentlyByDAGDesc *prometheus.Desc
 	dagRunsQueuedByDAGDesc    *prometheus.Desc
 	dagRunsTotalByDAGDesc     *prometheus.Desc
+	dagRunStatusDesc          *prometheus.Desc
 	dagRunDurationDesc        *prometheus.Desc
 	queueWaitTimeDesc         *prometheus.Desc
 
@@ -175,6 +190,12 @@ func NewCollector(
 			[]string{"dag", "status"},
 			nil,
 		),
+		dagRunStatusDesc: prometheus.NewDesc(
+			"dagu_dag_run_status",
+			"Current status of the most recent DAG-run for each DAG (one-hot gauge)",
+			[]string{"dag", "status"},
+			nil,
+		),
 		dagRunDurationDesc: prometheus.NewDesc(
 			"dagu_dag_run_duration_seconds",
 			"Duration of completed DAG runs in seconds",
@@ -261,6 +282,7 @@ func (c *Collector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- c.dagRunsCurrentlyByDAGDesc
 	ch <- c.dagRunsQueuedByDAGDesc
 	ch <- c.dagRunsTotalByDAGDesc
+	ch <- c.dagRunStatusDesc
 	ch <- c.dagRunDurationDesc
 	ch <- c.queueWaitTimeDesc
 
@@ -303,6 +325,10 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 
 	// Collect DAG run metrics
 	c.collectDAGRunMetrics(ctx, ch)
+
+	// Current status of each DAG's latest run; independent of ListStatuses so
+	// a failed daily-status query cannot suppress current-health metrics.
+	c.collectDAGRunStatusMetrics(ctx, ch)
 
 	// Collect DAG metrics
 	c.collectDAGMetrics(ctx, ch)
@@ -444,6 +470,45 @@ func (c *Collector) collectDAGRunMetrics(ctx context.Context, ch chan<- promethe
 
 	// Collect queue metrics
 	c.collectQueueMetrics(ctx, ch)
+}
+
+func (c *Collector) collectDAGRunStatusMetrics(ctx context.Context, ch chan<- prometheus.Metric) {
+	// List all DAGs; the default paginator only returns the first page.
+	pg := pagination.NewPaginator(1, int(^uint(0)>>1))
+	result, _, err := c.dagRepository.List(ctx, persis.DAGListOptions{Paginator: &pg})
+	if err != nil {
+		return
+	}
+
+	for _, item := range result.Items {
+		if item.DAG == nil || item.Name == "" {
+			continue
+		}
+		// AllHistory returns the true latest run regardless of the
+		// repository's optional today-only lookup window.
+		attempt, err := c.dagRunRepository.LatestAttempt(ctx, item.Name, persis.DAGRunLatestAttemptOptions{AllHistory: true})
+		if err != nil {
+			continue
+		}
+		status, err := attempt.ReadStatus(ctx)
+		if err != nil || status == nil {
+			continue
+		}
+		current := status.Status.String()
+		for _, s := range dagRunMetricStatuses {
+			value := float64(0)
+			if s.String() == current {
+				value = 1
+			}
+			ch <- prometheus.MustNewConstMetric(
+				c.dagRunStatusDesc,
+				prometheus.GaugeValue,
+				value,
+				item.Name,
+				s.String(),
+			)
+		}
+	}
 }
 
 func (c *Collector) collectDAGMetrics(ctx context.Context, ch chan<- prometheus.Metric) {
