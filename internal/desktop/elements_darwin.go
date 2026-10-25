@@ -27,6 +27,10 @@ const (
 	chromiumWait = 300 * time.Millisecond
 	// maxDepth bounds the walk from an element up to its window.
 	maxDepth = 64
+	// menuCloseWait bounds how long a chosen option's menu takes to close
+	// and its button to show the option, looked at every menuClosePoll.
+	menuCloseWait = time.Second
+	menuClosePoll = 20 * time.Millisecond
 )
 
 var (
@@ -266,8 +270,10 @@ func (e *axElements) element(n axNode, parentRole string) Element {
 		case "0":
 			found.Value = "false"
 		}
-	case found.Role == RoleText && found.Name == "":
-		// Static text names itself with what it shows.
+	case (found.Role == RoleText || found.Role == RoleMenuItem) && found.Name == "":
+		// Static text names itself with what it shows, and so does an
+		// option of a web page's list box, whose text Chromium gives as
+		// its value.
 		found.Name = n.value
 	default:
 		found.Value = n.value
@@ -470,8 +476,63 @@ func (e *axElements) At(x, y int) (Element, error) {
 			return Element{}, err
 		}
 		defer cfRelease(ref)
-		return e.place(ref)
+		found, err := e.place(ref)
+		if err == nil {
+			return found, nil
+		}
+		// Chromium draws a list box's open menu apart from any window; the
+		// option it shows is read from the list box in the window instead.
+		if option := e.openOption(ref); option != 0 {
+			defer cfRelease(option)
+			return e.place(option)
+		}
+		return Element{}, err
 	})
+}
+
+// openOption returns the option of the open pop-up button that a menu item
+// drawn outside any window shows, matched by its name, or 0 when there is
+// none. The caller releases it.
+func (e *axElements) openOption(item uintptr) uintptr {
+	var pool []uintptr
+	defer func() { release(pool) }()
+	shown, err := e.read(item, &pool)
+	var pid int32
+	if err != nil || shown.role != "AXMenuItem" || axUIElementGetPid(item, &pid) != axErrorSuccess {
+		return 0
+	}
+	name := NormalizeText(e.element(shown, "AXMenu").Name)
+	if name == "" {
+		return 0
+	}
+	app := axUIElementCreateApplication(pid)
+	if app == 0 {
+		return 0
+	}
+	defer cfRelease(app)
+	focused := axCopy(app, "AXFocusedUIElement")
+	if focused == 0 {
+		return 0
+	}
+	defer cfRelease(focused)
+	menu, popup := popupOf(focused)
+	if menu == 0 {
+		return 0
+	}
+	defer cfRelease(menu)
+	defer cfRelease(popup)
+	options := axCopy(menu, "AXChildren")
+	if options == 0 {
+		return 0
+	}
+	defer cfRelease(options)
+	for _, option := range cfArray(options) {
+		n, err := e.read(option, &pool)
+		if err == nil && NormalizeText(e.element(n, "AXMenu").Name) == name {
+			return cfRetain(option)
+		}
+	}
+	return 0
 }
 
 func (e *axElements) Focused() (Element, error) {
@@ -736,6 +797,13 @@ func perform(ref uintptr, pattern Pattern, value string) error {
 	actions := axActions(ref)
 	switch pattern {
 	case PatternInvoke, PatternToggle:
+		if menu, popup := popupOf(ref); menu != 0 {
+			defer cfRelease(menu)
+			defer cfRelease(popup)
+			if chosen, err := chooseOption(ref, menu, popup); chosen {
+				return err
+			}
+		}
 		if !slices.Contains(actions, "AXPress") {
 			return ErrNoPattern
 		}
@@ -749,6 +817,16 @@ func perform(ref uintptr, pattern Pattern, value string) error {
 		}
 		return act(ref, "AXPress")
 	case PatternExpand:
+		// A pop-up button opens its menu when pressed. On Chromium's list
+		// box AXShowMenu opens the page's context menu instead, and a
+		// recent Chromium offers no press, so such a box is opened on the
+		// screen.
+		if axString(ref, "AXRole") == "AXPopUpButton" {
+			if !slices.Contains(actions, "AXPress") {
+				return ErrNoPattern
+			}
+			return act(ref, "AXPress")
+		}
 		switch {
 		case slices.Contains(actions, "AXShowMenu"):
 			return act(ref, "AXShowMenu")
@@ -776,6 +854,129 @@ func perform(ref uintptr, pattern Pattern, value string) error {
 	default:
 		return fmt.Errorf("unknown pattern %q", pattern)
 	}
+}
+
+// chooseOption chooses an option of a Chromium list box's open menu with
+// the keyboard, as a person would: up to the first item, down to the
+// option, then Return. Chromium takes no press on an option through
+// Accessibility, or keeps the menu open after one. It reports false, doing
+// nothing, for a menu that does not have the keyboard focus, such as
+// AppKit's, whose items close it when pressed. The button showing the
+// option afterwards confirms the choice.
+func chooseOption(option, menu, popup uintptr) (bool, error) {
+	var pid int32
+	if axUIElementGetPid(option, &pid) != axErrorSuccess || !menuHasFocus(pid, menu) {
+		return false, nil
+	}
+	items := axCopy(menu, "AXChildren")
+	if items == 0 {
+		return true, ErrNotFound
+	}
+	// The arrow keys pass over disabled items, so only enabled ones count.
+	position, count := -1, 0
+	for _, item := range cfArray(items) {
+		if enabled, ok := axBool(item, "AXEnabled"); ok && !enabled {
+			continue
+		}
+		if cfEqual(item, option) {
+			position = count
+		}
+		count++
+	}
+	cfRelease(items)
+	if position < 0 {
+		return true, ErrNotFound
+	}
+	want := NormalizeText(itemText(option))
+	keys := slices.Concat(
+		slices.Repeat([]uint16{namedKeyCodes[KeyUp]}, count),
+		slices.Repeat([]uint16{namedKeyCodes[KeyDown]}, position),
+		[]uint16{namedKeyCodes[KeyEnter]},
+	)
+	for _, code := range keys {
+		for _, down := range []bool{true, false} {
+			event := cgEventCreateKeyboardEvent(0, code, down)
+			if event == 0 {
+				return true, errors.New("create a key event")
+			}
+			cgEventPostToPid(pid, event)
+			cfRelease(event)
+		}
+	}
+	deadline := time.Now().Add(menuCloseWait)
+	for menuHasFocus(pid, menu) || NormalizeText(axValueText(popup)) != want {
+		if !time.Now().Before(deadline) {
+			if menuHasFocus(pid, menu) {
+				return true, errors.New("the menu stayed open after its option was chosen")
+			}
+			return true, fmt.Errorf("the list box shows %q, not the option chosen, %q", axValueText(popup), want)
+		}
+		time.Sleep(menuClosePoll)
+	}
+	return true, nil
+}
+
+// itemText is what a menu item shows: its title, or, for an option of
+// Chromium's list box, its value.
+func itemText(item uintptr) string {
+	if title := axString(item, "AXTitle"); title != "" {
+		return title
+	}
+	return axValueText(item)
+}
+
+// axValueText reads an element's value as text, such as the option a
+// pop-up button shows.
+func axValueText(ref uintptr) string {
+	value := axCopy(ref, "AXValue")
+	if value == 0 {
+		return ""
+	}
+	defer cfRelease(value)
+	return valueText(value)
+}
+
+// popupOf returns the menu an option of a pop-up button sits in and the
+// button, or zeros for an element that is not one. The caller releases
+// both.
+func popupOf(option uintptr) (menu, popup uintptr) {
+	if axString(option, "AXRole") != "AXMenuItem" {
+		return 0, 0
+	}
+	menu = axCopy(option, "AXParent")
+	if menu == 0 {
+		return 0, 0
+	}
+	popup = axCopy(menu, "AXParent")
+	if axString(menu, "AXRole") == "AXMenu" && popup != 0 && axString(popup, "AXRole") == "AXPopUpButton" {
+		return menu, popup
+	}
+	if popup != 0 {
+		cfRelease(popup)
+	}
+	cfRelease(menu)
+	return 0, 0
+}
+
+// menuHasFocus reports whether an application's keyboard focus is on an
+// item of a menu, which it is while the menu is open.
+func menuHasFocus(pid int32, menu uintptr) bool {
+	app := axUIElementCreateApplication(pid)
+	if app == 0 {
+		return false
+	}
+	defer cfRelease(app)
+	focused := axCopy(app, "AXFocusedUIElement")
+	if focused == 0 {
+		return false
+	}
+	defer cfRelease(focused)
+	parent := axCopy(focused, "AXParent")
+	if parent == 0 {
+		return false
+	}
+	defer cfRelease(parent)
+	return cfEqual(parent, menu)
 }
 
 // act performs an action of an element. An application that runs the

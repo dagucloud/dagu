@@ -1,0 +1,20 @@
+<!doctype html>
+<!-- A web page's list box for the macOS Chromium tests. The page says the
+     option chosen, which the change event writes only for a real choice. -->
+<html lang="ja">
+<head><meta charset="utf-8"><title>Dagu select test</title></head>
+<body>
+  <label for="fruit">果物</label>
+  <select id="fruit">
+    <option selected>りんご</option>
+    <option>みかん</option>
+    <option>その他</option>
+  </select>
+  <p id="status">未選択</p>
+  <script>
+    document.getElementById('fruit').addEventListener('change', (e) => {
+      document.getElementById('status').textContent = '選択: ' + e.target.value;
+    });
+  </script>
+</body>
+</html>

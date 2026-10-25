@@ -116,6 +116,7 @@ var (
 	cgEventSetIntegerValueField     func(event uintptr, field uint32, value int64)
 	cgEventSetFlags                 func(event uintptr, flags uint64)
 	cgEventPost                     func(tap uint32, event uintptr)
+	cgEventPostToPid                func(pid int32, event uintptr)
 	cgEventSourceSecondsSinceLast   func(state int32, eventType uint32) float64
 	cgPreflightScreenCaptureAccess  func() bool
 	cgRequestScreenCaptureAccess    func() bool
@@ -174,6 +175,7 @@ func load() error {
 		purego.RegisterLibFunc(&cgEventSetIntegerValueField, cg, "CGEventSetIntegerValueField")
 		purego.RegisterLibFunc(&cgEventSetFlags, cg, "CGEventSetFlags")
 		purego.RegisterLibFunc(&cgEventPost, cg, "CGEventPost")
+		purego.RegisterLibFunc(&cgEventPostToPid, cg, "CGEventPostToPid")
 		purego.RegisterLibFunc(&cgEventSourceSecondsSinceLast, cg, "CGEventSourceSecondsSinceLastEventType")
 		purego.RegisterLibFunc(&cgPreflightScreenCaptureAccess, cg, "CGPreflightScreenCaptureAccess")
 		purego.RegisterLibFunc(&cgRequestScreenCaptureAccess, cg, "CGRequestScreenCaptureAccess")

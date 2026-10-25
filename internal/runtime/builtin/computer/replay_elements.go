@@ -403,6 +403,16 @@ func directInput(rec recordedAction) (desktop.Pattern, bool) {
 	return "", false
 }
 
+// choosesOption reports an option of a list box's menu, which is chosen
+// through its own pattern under either input: on macOS the menu showing it
+// is drawn apart from the window, so the option has no place there that a
+// click could aim at.
+func choosesOption(e desktop.Element) bool {
+	return e.Role == desktop.RoleMenuItem && slices.ContainsFunc(e.Path, func(step desktop.PathStep) bool {
+		return step.Role == desktop.RoleComboBox
+	})
+}
+
 // patternVerbs say what a pattern did, or could not do, to an element.
 var patternVerbs = map[desktop.Pattern]string{
 	desktop.PatternInvoke: "invoked", desktop.PatternToggle: "toggled", desktop.PatternSelect: "selected",
@@ -512,7 +522,7 @@ func (r *run) replayByElement(ctx context.Context, index, position, total int, t
 			if own, owned := r.elementOwner(found); owned {
 				return fmt.Sprintf("%s at turn %d of %d: %s", rec.Element.describe(), position+1, total, ownedMessage(own)), nil
 			}
-			if direct {
+			if direct || choosesOption(found) {
 				done, reason, err := r.direct(ctx, index, position, total, els, rec, found, findWithin)
 				if err != nil || reason != "" {
 					return reason, err

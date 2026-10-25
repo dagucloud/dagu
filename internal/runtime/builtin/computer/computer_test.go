@@ -841,6 +841,24 @@ func TestPinnedActDirect(t *testing.T) {
 	assert.Equal(t, []string{"invoke saveButton"}, run.backend.inputs())
 }
 
+// A pinned choice from a list box clicks the box open on the screen and
+// chooses the option through its own pattern: the open menu is drawn apart
+// from the window, where the option has no place a click could aim at.
+func TestPinnedOptionIsChosenThroughItsPattern(t *testing.T) {
+	t.Parallel()
+
+	run := elementRun(t)
+	box := desktop.PathStep{Role: desktop.RoleComboBox, Name: "支払方法", Index: 0}
+	run.elements.elements = append(run.elements.elements,
+		desktop.Element{Role: desktop.RoleComboBox, Name: "支払方法", ID: "methodBox", Bounds: image.Rect(190, 230, 390, 256), Path: []desktop.PathStep{box}},
+		desktop.Element{Role: desktop.RoleMenuItem, Name: "クレジット", Bounds: image.Rect(190, 230, 390, 235), Path: []desktop.PathStep{box, {Role: desktop.RoleMenuItem, Name: "クレジット", Index: 1}}},
+	)
+	const steps = `{"ai": "never", "do": [{"act": {"instruction": "Pay by credit", "recorded": {"windows": [{"click": {"role": "combo_box", "id": "methodBox"}}, {"click": {"role": "menu_item", "name": "クレジット"}}]}}}]}`
+	replayed := run.execute(steps, nil)
+	require.NoError(t, replayed.err)
+	assert.Equal(t, []string{"move 290,243", "left down #1", "invoke クレジット"}, run.backend.inputs())
+}
+
 // A pinned step that misses fails under never, naming why, and clicks
 // nothing.
 func TestPinnedActMissFailsUnderNever(t *testing.T) {

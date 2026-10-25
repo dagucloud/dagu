@@ -6,6 +6,7 @@
 package desktop
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -196,12 +197,17 @@ func TestDarwinDirectInput(t *testing.T) {
 	expectStatus("区分: 優先")
 
 	require.NoError(t, els.Apply(byID["methodBox"], PatternExpand, ""))
+	var credit []Element
 	require.Eventually(t, func() bool {
-		items, err := els.Find(Selector{Role: RoleMenuItem, Name: "クレジット"})
-		return err == nil && len(items) == 1
+		credit, err = els.Find(Selector{Role: RoleMenuItem, Name: "クレジット"})
+		return err == nil && len(credit) == 1
 	}, 3*time.Second, 100*time.Millisecond, "the popup's menu did not open")
-	require.NoError(t, backend.Key(KeyEscape, true))
-	require.NoError(t, backend.Key(KeyEscape, false))
+	require.NoError(t, els.Apply(credit[0], PatternInvoke, ""))
+	expectStatus("支払方法: クレジット")
+	assert.Eventually(t, func() bool {
+		items, err := els.Find(Selector{Role: RoleMenuItem, Name: "クレジット"})
+		return err == nil && len(items) == 0
+	}, 3*time.Second, 100*time.Millisecond, "the popup's menu closed")
 
 	assert.ErrorIs(t, els.Apply(byID["submitButton"], PatternInvoke, ""), ErrDisabled)
 	assert.ErrorIs(t, els.Apply(byID["lblAmount"], PatternInvoke, ""), ErrNoPattern, "a label has nothing to invoke")
@@ -249,4 +255,75 @@ func TestDarwinTableRead(t *testing.T) {
 
 	_, err = els.Rows(ctx, container, []string{"単価"}, 100)
 	assert.ErrorIs(t, err, ErrNotFound)
+}
+
+// chromePath is where Google Chrome installs itself.
+const chromePath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+
+// A web page's list box in Chromium opens on a press, names its options by
+// their text, places the option its open menu shows over the box, and
+// chooses an option pressed through Accessibility, closing the menu with
+// the choice kept.
+func TestDarwinChromiumListBox(t *testing.T) {
+	backend, els := e2eElements(t)
+	if _, err := os.Stat(chromePath); err != nil {
+		t.Skip("Google Chrome is not installed")
+	}
+	page, err := filepath.Abs("testdata/select.html")
+	require.NoError(t, err)
+	// A profile of its own keeps the test apart from any Chrome a person runs.
+	chrome := exec.Command(chromePath, "--user-data-dir="+t.TempDir(), "--no-first-run", "--no-default-browser-check", "--app=file://"+page)
+	require.NoError(t, chrome.Start())
+	t.Cleanup(func() {
+		_ = chrome.Process.Kill()
+		_ = chrome.Wait()
+	})
+	var box []Element
+	require.Eventually(t, func() bool {
+		box, err = els.Find(Selector{Role: RoleComboBox, ID: "fruit"})
+		return err == nil && len(box) == 1
+	}, 30*time.Second, 200*time.Millisecond, "the page's list box did not show")
+	status := func() string {
+		found, err := els.Find(Selector{Role: RoleText, Name: "選択: *"})
+		if err != nil || len(found) != 1 {
+			return ""
+		}
+		return found[0].Name
+	}
+
+	// A recent Chromium's list box offers no press and opens on a click.
+	centre := box[0].Bounds.Min.Add(box[0].Bounds.Size().Div(2))
+	if err := els.Apply(box[0], PatternExpand, ""); errors.Is(err, ErrNoPattern) {
+		require.NoError(t, New(backend).Click(t.Context(), &centre, ButtonLeft, 1, nil))
+	} else {
+		require.NoError(t, err)
+	}
+	var orange []Element
+	require.Eventually(t, func() bool {
+		orange, err = els.Find(Selector{Role: RoleMenuItem, Name: "みかん", In: &Selector{Role: RoleComboBox, ID: "fruit"}})
+		return err == nil && len(orange) == 1
+	}, 3*time.Second, 100*time.Millisecond, "the list box did not open")
+
+	// The open menu shows the chosen option over the box; it is read as the
+	// list box's option in the window, once Chromium has laid it out.
+	read := func() (Element, bool) {
+		e, err := els.At(centre.X, centre.Y)
+		return e, err == nil
+	}
+	assert.Eventually(t, func() bool {
+		e, ok := read()
+		return ok && e.Role == RoleMenuItem && e.Name == "りんご" && e.Window == "Dagu select test"
+	}, 3*time.Second, 100*time.Millisecond, "the option over the box was not read")
+
+	require.NoError(t, els.Apply(orange[0], PatternInvoke, ""))
+	assert.Eventually(t, func() bool { return status() == "選択: みかん" }, 3*time.Second, 100*time.Millisecond, "the page did not see the choice")
+	// With the menu closed, the box is under its centre again.
+	assert.Eventually(t, func() bool {
+		e, ok := read()
+		return ok && e.Role == RoleComboBox
+	}, 3*time.Second, 100*time.Millisecond, "the menu stayed open")
+	chosen, err := els.Find(Selector{Role: RoleComboBox, ID: "fruit"})
+	require.NoError(t, err)
+	require.Len(t, chosen, 1)
+	assert.Equal(t, "みかん", chosen[0].Value)
 }
