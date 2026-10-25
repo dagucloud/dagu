@@ -326,6 +326,9 @@ func (r *run) lookRecorded(els desktop.Elements, rec recordedElement) (desktop.E
 	}
 	found, err := desktop.One(desktop.MatchPath(matches, rec.Path), sel)
 	if err == nil {
+		if front.App != "" {
+			r.workApp = front.App
+		}
 		return found, "", nil
 	}
 	if ambiguous, ok := errors.AsType[*desktop.AmbiguousError](err); ok {
@@ -340,6 +343,14 @@ func (r *run) resolveElement(ctx context.Context, index int, els desktop.Element
 	deadline := time.Now().Add(findWithin)
 	title := r.substitute(rec.Window)
 	for {
+		// A person who used the desktop meanwhile may have left another
+		// window in front; the element is looked for again from when they
+		// stop.
+		if resumed, err := r.resumeAfterPerson(ctx, index); err != nil {
+			return desktop.Element{}, "", err
+		} else if resumed {
+			deadline = time.Now().Add(findWithin)
+		}
 		// A window that slipped behind another is brought forward rather
 		// than counted a miss, so a replay survives a focus change.
 		r.bringForward(ctx, index, rec.App, title)
@@ -350,7 +361,7 @@ func (r *run) resolveElement(ctx context.Context, index int, els desktop.Element
 		if !time.Now().Before(deadline) {
 			return desktop.Element{}, reason, nil
 		}
-		if err := sleep(ctx, min(exactPollInterval, time.Until(deadline))); err != nil {
+		if err := r.pollSleep(ctx, min(exactPollInterval, time.Until(deadline))); err != nil {
 			return desktop.Element{}, "", err
 		}
 	}
@@ -458,6 +469,29 @@ func directInput(rec recordedAction) (desktop.Pattern, bool) {
 	return "", false
 }
 
+// applyPattern has an element perform a pattern. A pattern can send keys of
+// its own, as choosing an option of Chromium's list box does; they are the
+// step's input, so the desktop is not taken to be in a person's use. A
+// pattern refused before it acted sent nothing, so a person's input just
+// before it still counts.
+func (r *run) applyPattern(els desktop.Elements, e desktop.Element, pattern desktop.Pattern, value string) error {
+	err := els.Apply(e, pattern, value)
+	if err == nil || !desktop.Refused(err) {
+		r.driver.AssumeInputSent(time.Now())
+	}
+	return err
+}
+
+// choosesOption reports an option of a list box's menu, which is chosen
+// through its own pattern under either input: on macOS the menu showing it
+// is drawn apart from the window, so the option has no place there that a
+// click could aim at.
+func choosesOption(e desktop.Element) bool {
+	return e.Role == desktop.RoleMenuItem && slices.ContainsFunc(e.Path, func(step desktop.PathStep) bool {
+		return step.Role == desktop.RoleComboBox
+	})
+}
+
 // patternVerbs say what a pattern did, or could not do, to an element.
 var patternVerbs = map[desktop.Pattern]string{
 	desktop.PatternInvoke: "invoked", desktop.PatternToggle: "toggled", desktop.PatternSelect: "selected",
@@ -515,7 +549,7 @@ func (r *run) direct(ctx context.Context, index, position, total int, els deskto
 		if own, owned := r.elementOwner(found); owned {
 			return false, fmt.Sprintf("%s at turn %d of %d: %s", rec.Element.describe(), position+1, total, ownedMessage(own)), nil
 		}
-		err := els.Apply(found, pattern, value)
+		err := r.applyPattern(els, found, pattern, value)
 		switch {
 		case err == nil:
 			logAction(r.timeline, index, "replay by element: "+describeDirect(pattern, rec))
@@ -553,6 +587,11 @@ func (r *run) direct(ctx context.Context, index, position, total int, els deskto
 // It returns the reason the turn missed, or "" when every action ran.
 func (r *run) replayByElement(ctx context.Context, index, position, total int, turn recordedTurn, els desktop.Elements, findWithin time.Duration, direct bool, outcome *replayOutcome) (string, error) {
 	for _, rec := range turn.Actions {
+		// Every action waits for a person using the desktop to stop, so a
+		// click or text never lands in their window.
+		if _, err := r.resumeAfterPerson(ctx, index); err != nil {
+			return "", err
+		}
 		action := rec.Action
 		if rec.Element == nil {
 			logAction(r.timeline, index, "replay "+describeAction(action))
@@ -577,7 +616,7 @@ func (r *run) replayByElement(ctx context.Context, index, position, total int, t
 					continue
 				}
 			}
-			if direct {
+			if direct || choosesOption(found) {
 				done, reason, err := r.direct(ctx, index, position, total, els, rec, found, findWithin)
 				if err != nil || reason != "" {
 					return reason, err
@@ -638,9 +677,14 @@ func (r *run) confirmChecked(ctx context.Context, els desktop.Elements, rec reco
 // awaitLandmarks checks the screen an element replay ends on: the window
 // in front and the landmarks, looking again until they are there or
 // findWithin passes. It returns the reason they are not.
-func (r *run) awaitLandmarks(ctx context.Context, els desktop.Elements, entry recording, findWithin time.Duration) (string, error) {
+func (r *run) awaitLandmarks(ctx context.Context, index int, els desktop.Elements, entry recording, findWithin time.Duration) (string, error) {
 	deadline := time.Now().Add(findWithin)
 	for {
+		if resumed, err := r.resumeAfterPerson(ctx, index); err != nil {
+			return "", err
+		} else if resumed {
+			deadline = time.Now().Add(findWithin)
+		}
 		reason, err := r.lookLandmarks(els, entry)
 		if err != nil || reason == "" {
 			return reason, err
@@ -648,7 +692,7 @@ func (r *run) awaitLandmarks(ctx context.Context, els desktop.Elements, entry re
 		if !time.Now().Before(deadline) {
 			return reason, nil
 		}
-		if err := sleep(ctx, min(exactPollInterval, time.Until(deadline))); err != nil {
+		if err := r.pollSleep(ctx, min(exactPollInterval, time.Until(deadline))); err != nil {
 			return "", err
 		}
 	}

@@ -516,7 +516,7 @@ func (l *actLoop) invokeElement(ctx context.Context, els desktop.Elements, actio
 		}
 		logAction(l.r.timeline, l.index, "focus "+describeElement(e))
 	} else {
-		switch err := els.Apply(e, pattern, ""); {
+		switch err := l.r.applyPattern(els, e, pattern, ""); {
 		case err == nil:
 			logAction(l.r.timeline, l.index, string(pattern)+" "+describeElement(e))
 		case errors.Is(err, desktop.ErrNoPattern):

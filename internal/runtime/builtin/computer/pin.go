@@ -336,12 +336,6 @@ func (r *run) replayPinned(ctx context.Context, index int, steps []pinnedStep, d
 		if !ok {
 			return result, fmt.Errorf("a pinned step sets no action")
 		}
-		// Wait until nobody has touched the desktop for the idle window, as a
-		// learned replay and the model loop do, so a pinned click or text
-		// never lands in a person's window.
-		if err := r.awaitPerson(ctx); err != nil {
-			return result, err
-		}
 		turn := recordedTurn{Actions: []recordedAction{rec}}
 		reason, err := r.replayByElement(ctx, index, i, total, turn, els, findWithin, direct, &outcome)
 		if err != nil {

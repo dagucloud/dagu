@@ -77,8 +77,8 @@ const (
 const transactionTimeout = elementsTimeout - time.Second
 
 var (
-	errReadOnly = errors.New("the field is read-only")
-	errLeaf     = errors.New("the element has nothing to expand")
+	errReadOnly error = refusal("the field is read-only")
+	errLeaf     error = refusal("the element has nothing to expand")
 )
 
 // patternAs returns the element's interface for a pattern, which the

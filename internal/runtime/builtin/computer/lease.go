@@ -24,6 +24,10 @@ const (
 	// input, so the next step does not take that input for a person's.
 	lastInputFile     = "last-input"
 	lastInputFileMode = 0o600
+	// workAppFile holds the application the last step of a DAG run worked
+	// in, with the run's ID, so the run's next step can bring it back after
+	// a person used the desktop in between.
+	workAppFile = "work-app"
 )
 
 // desktopLease holds exclusive use of the desktop. Two steps typing and
@@ -83,6 +87,31 @@ func (l *desktopLease) recordInput(at time.Time) {
 		return
 	}
 	_ = os.WriteFile(filepath.Join(l.dir, lastInputFile), []byte(strconv.FormatInt(at.UnixNano(), 10)), lastInputFileMode)
+}
+
+// workApp returns the application the run's previous step last worked in,
+// or "" when another run held the desktop last.
+func (l *desktopLease) workApp(runID string) string {
+	data, err := os.ReadFile(filepath.Join(l.dir, workAppFile)) //nolint:gosec // the lock directory is Dagu's own
+	if err != nil {
+		return ""
+	}
+	id, app, ok := strings.Cut(string(data), "\n")
+	if !ok || runID == "" || id != runID {
+		return ""
+	}
+	return app
+}
+
+// recordWorkApp notes the application this step last worked in, for the
+// run's next step. An empty one still records the run, so an application
+// an earlier run worked in is not brought back after this run held the
+// desktop.
+func (l *desktopLease) recordWorkApp(runID, app string) {
+	if runID == "" {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(l.dir, workAppFile), []byte(runID+"\n"+app), lastInputFileMode)
 }
 
 func (l *desktopLease) release() {
