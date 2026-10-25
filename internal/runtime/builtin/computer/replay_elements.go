@@ -288,16 +288,21 @@ func (r *run) resolveElement(ctx context.Context, index int, els desktop.Element
 		// A window that slipped behind another is brought forward rather
 		// than counted a miss, so a replay survives a focus change.
 		r.bringForward(ctx, index, rec.App, title)
+		// A screen a handler clears, such as a confirmation, may hide the
+		// element or stand over it; it is cleared before every look, and the
+		// wait starts over.
+		handled, err := r.handleScreens(ctx, index)
+		if err != nil {
+			return desktop.Element{}, "", err
+		}
+		if handled {
+			deadline = time.Now().Add(findWithin)
+		}
 		found, reason, err := r.lookRecorded(els, rec)
 		if err != nil || reason == "" {
 			return found, reason, err
 		}
-		// A screen a handler clears, such as a confirmation, may hide the
-		// element; the look starts over once it is cleared.
-		if handled, err := r.handleScreens(ctx, index); err != nil {
-			return desktop.Element{}, "", err
-		} else if handled {
-			deadline = time.Now().Add(findWithin)
+		if handled {
 			continue
 		}
 		if !time.Now().Before(deadline) {
@@ -507,9 +512,12 @@ func (r *run) direct(ctx context.Context, index, position, total int, els deskto
 func (r *run) replayByElement(ctx context.Context, index, position, total int, turn recordedTurn, els desktop.Elements, findWithin time.Duration, direct bool, outcome *replayOutcome) (string, error) {
 	for _, rec := range turn.Actions {
 		// A screen a handler clears is cleared before the action, so the
-		// action never lands on it, or through it on the element behind.
-		if _, err := r.handleScreens(ctx, index); err != nil {
-			return "", err
+		// action never lands on it, or through it on the element behind; an
+		// action on an element clears it as it looks for the element.
+		if rec.Element == nil {
+			if _, err := r.handleScreens(ctx, index); err != nil {
+				return "", err
+			}
 		}
 		action := rec.Action
 		if rec.Element == nil {
@@ -570,14 +578,18 @@ func (r *run) replayByElement(ctx context.Context, index, position, total int, t
 func (r *run) awaitLandmarks(ctx context.Context, index int, els desktop.Elements, entry recording, findWithin time.Duration) (string, error) {
 	deadline := time.Now().Add(findWithin)
 	for {
+		handled, err := r.handleScreens(ctx, index)
+		if err != nil {
+			return "", err
+		}
+		if handled {
+			deadline = time.Now().Add(findWithin)
+		}
 		reason, err := r.lookLandmarks(els, entry)
 		if err != nil || reason == "" {
 			return reason, err
 		}
-		if handled, err := r.handleScreens(ctx, index); err != nil {
-			return "", err
-		} else if handled {
-			deadline = time.Now().Add(findWithin)
+		if handled {
 			continue
 		}
 		if !time.Now().Before(deadline) {

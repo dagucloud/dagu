@@ -852,8 +852,8 @@ func confirmDialog() (desktop.Element, []desktop.Element) {
 
 // A handler clears a screen that comes up only sometimes, whenever the step
 // meets it: after an action, while a check waits, or before an action, even
-// a modal drawn over the page, which leaves the elements behind it readable.
-// A run that never meets it pays nothing for it.
+// a modal drawn over the page, which leaves the elements behind it readable
+// to an action or a check. A run that never meets it pays nothing for it.
 func TestHandlerClearsAScreenThatComesUpSometimes(t *testing.T) {
 	t.Parallel()
 
@@ -864,14 +864,16 @@ func TestHandlerClearsAScreenThatComesUpSometimes(t *testing.T) {
 			{"expect": {"element": {"role": "text_field", "id": "amountBox"}, "within": "2s"}}
 		]}`
 	for _, tc := range []struct {
-		name    string
-		before  bool
-		after   bool
-		handled bool
-		inputs  []string
+		name      string
+		before    bool
+		after     bool
+		overCheck bool
+		handled   bool
+		inputs    []string
 	}{
 		{name: "after the click", after: true, handled: true, inputs: []string{"invoke saveButton", "invoke はい"}},
 		{name: "over the page before the click", before: true, handled: true, inputs: []string{"invoke はい", "invoke saveButton"}},
+		{name: "over the page the check reads", overCheck: true, handled: true, inputs: []string{"invoke saveButton", "invoke はい"}},
 		{name: "never", inputs: []string{"invoke saveButton"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -895,6 +897,8 @@ func TestHandlerClearsAScreenThatComesUpSometimes(t *testing.T) {
 					show(form, expenseElements())
 				case tc.after && e.ID == "saveButton":
 					show(dialog, dialogElements)
+				case tc.overCheck && e.ID == "saveButton":
+					show(form, append(expenseElements(), dialogElements...))
 				}
 			}
 			began := time.Now()

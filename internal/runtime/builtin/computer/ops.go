@@ -556,15 +556,18 @@ func (r *run) await(ctx context.Context, index int, c condition, window, timeout
 		interval = exactPollInterval
 	}
 	for {
+		// A screen a handler clears, such as a confirmation, may stand in
+		// the way of the check or over what it reads; it is cleared before
+		// every look.
+		handled, err := r.handleScreens(ctx, index)
+		if err != nil {
+			return false, "", err
+		}
 		holds, reason, err := r.evaluate(ctx, c)
 		if err != nil || holds || !time.Now().Before(deadline) {
 			return holds, reason, err
 		}
-		// A screen a handler clears, such as a confirmation, may stand in
-		// the way of the check.
-		if handled, err := r.handleScreens(ctx, index); err != nil {
-			return false, "", err
-		} else if handled {
+		if handled {
 			continue
 		}
 		if err := sleep(ctx, min(interval, time.Until(deadline))); err != nil {
