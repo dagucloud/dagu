@@ -421,7 +421,7 @@ function DAGStatusOverview({
               <span>
                 <span className="text-muted-foreground"><I18nText text={"Trigger"} /> </span>
                 <span className="font-medium text-foreground">
-                  {triggerTypeLabels[status.triggerType] ?? status.triggerType}
+                  {ts(triggerTypeLabels[status.triggerType] ?? status.triggerType)}
                 </span>
               </span>
             )}

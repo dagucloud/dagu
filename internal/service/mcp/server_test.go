@@ -1475,6 +1475,7 @@ func TestNormalizeDAGListIncludesSummaryFields(t *testing.T) {
 
 	description := "Nightly ETL"
 	nextRun := time.Date(2026, 8, 24, 2, 0, 0, 0, time.UTC)
+	restartPolicy := daguapi.RestartPolicyAlways
 	raw := daguapi.ListDAGs200JSONResponse{
 		Dags: []daguapi.DAGFile{
 			{
@@ -1496,17 +1497,18 @@ func TestNormalizeDAGListIncludesSummaryFields(t *testing.T) {
 				},
 			},
 			{FileName: "never-ran", Dag: daguapi.DAG{Name: "never-ran"}},
+			{FileName: "worker", Dag: daguapi.DAG{Name: "worker", RestartPolicy: &restartPolicy}},
 		},
-		Pagination: daguapi.Pagination{CurrentPage: 1, TotalPages: 1, TotalRecords: 2},
+		Pagination: daguapi.Pagination{CurrentPage: 1, TotalPages: 1, TotalRecords: 3},
 	}
 
 	data, err := normalizeDAGList(raw)
 	require.NoError(t, err)
-	require.Equal(t, daguapi.Pagination{CurrentPage: 1, TotalPages: 1, TotalRecords: 2}, data["pagination"])
+	require.Equal(t, daguapi.Pagination{CurrentPage: 1, TotalPages: 1, TotalRecords: 3}, data["pagination"])
 
 	items, ok := data["items"].([]map[string]any)
 	require.True(t, ok)
-	require.Len(t, items, 2)
+	require.Len(t, items, 3)
 
 	require.Equal(t, "etl", items[0]["name"])
 	require.Equal(t, description, items[0]["description"])
@@ -1521,6 +1523,9 @@ func TestNormalizeDAGListIncludesSummaryFields(t *testing.T) {
 	require.Equal(t, "never-ran", items[1]["name"])
 	require.NotContains(t, items[1], "latestRun")
 	require.NotContains(t, items[1], "description")
+	require.NotContains(t, items[1], "restartPolicy")
+
+	require.Equal(t, "always", items[2]["restartPolicy"])
 }
 
 func TestRunLogsURIWithQueryPreservesQuery(t *testing.T) {

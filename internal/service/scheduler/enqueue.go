@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
@@ -19,7 +20,8 @@ import (
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
 )
 
-// EnqueueCatchupRun enqueues a catchup run for a DAG.
+// EnqueueCatchupRun enqueues a catchup run for a DAG. Restarts of a DAG with a
+// restart_policy are enqueued the same way, with their own trigger type.
 //
 // The function is idempotent: if a run with the same ID already exists
 // (checked via FindAttempt), it returns nil without creating a duplicate.
@@ -50,21 +52,22 @@ func EnqueueCatchupRun(
 
 	// Idempotency: skip if a run with this ID already exists.
 	if _, err := dagRunRepository.FindAttempt(ctx, dagRun); err == nil {
-		logger.Info(ctx, "Catchup run already exists; skipping",
+		logger.Info(ctx, "Run already exists; skipping",
 			tag.DAG(dag.Name),
 			tag.RunID(runID),
+			slog.String("trigger_type", triggerType.String()),
 		)
 		return nil
 	} else if !errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
-		return fmt.Errorf("failed to check existing catchup run: %w", err)
+		return fmt.Errorf("failed to check existing run: %w", err)
 	}
 
 	fullDAG, err := rehydrateExecutionDAG(ctx, dag, nil, baseConfig, workspaceBaseConfigDir)
 	if err != nil {
-		return fmt.Errorf("failed to load full DAG for catchup enqueue: %w", err)
+		return fmt.Errorf("failed to load full DAG for enqueue: %w", err)
 	}
 	if fullDAG == nil {
-		return fmt.Errorf("failed to load full DAG for catchup enqueue: DAG is nil")
+		return fmt.Errorf("failed to load full DAG for enqueue: DAG is nil")
 	}
 	// Clone to avoid mutating the shared planner entry.
 	// Location is cleared to prevent unix pipe conflicts for concurrent runs
@@ -85,12 +88,13 @@ func EnqueueCatchupRun(
 		DefinitionID:     definitionID,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to enqueue catchup run: %w", err)
+		return fmt.Errorf("failed to enqueue run: %w", err)
 	}
 
-	logger.Info(ctx, "Catchup run enqueued",
+	logger.Info(ctx, "Run enqueued",
 		tag.DAG(dag.Name),
 		tag.RunID(runID),
+		slog.String("trigger_type", triggerType.String()),
 	)
 
 	return nil

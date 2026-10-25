@@ -1,0 +1,7 @@
+restart_policy: always
+restart_wait_sec: 5
+schedule:
+  start: "0 8 * * *"
+  stop: "0 18 * * *"
+steps:
+  - run: echo serve
