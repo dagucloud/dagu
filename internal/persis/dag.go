@@ -74,10 +74,12 @@ type DAGRepositoryOptions struct {
 
 // DAGListOptions contains parameters for paginated DAG listing.
 type DAGListOptions struct {
-	Paginator         *pagination.Paginator
-	Name              string
-	Labels            []string
-	ActiveOnly        bool
+	Paginator  *pagination.Paginator
+	Name       string
+	Labels     []string
+	ActiveOnly bool
+	// OnlyAlwaysOn keeps the DAGs that set a restart policy.
+	OnlyAlwaysOn      bool
 	Sort              string
 	Order             string
 	Time              *time.Time

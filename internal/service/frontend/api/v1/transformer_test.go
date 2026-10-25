@@ -931,3 +931,21 @@ func TestToDAGRunDetailsOmitsProcessForRemoteRun(t *testing.T) {
 
 	assert.Nil(t, details.Process)
 }
+
+// Only a run that loops has cycles to report. One that never failed reports
+// zero failures, so a client can tell it from a run that does not loop.
+func TestToDAGRunDetailsReportsTheCyclesOfALoopingRun(t *testing.T) {
+	looping := ToDAGRunDetails(ir.DAGRunStatus{Name: "svc", DAGRunID: "run-1", Cycle: 842, FailedCycles: 3})
+	require.NotNil(t, looping.Cycle)
+	assert.Equal(t, 842, *looping.Cycle)
+	require.NotNil(t, looping.FailedCycles)
+	assert.Equal(t, 3, *looping.FailedCycles)
+
+	clean := ToDAGRunDetails(ir.DAGRunStatus{Name: "svc", DAGRunID: "run-1", Cycle: 2})
+	require.NotNil(t, clean.FailedCycles)
+	assert.Zero(t, *clean.FailedCycles)
+
+	plain := ToDAGRunDetails(ir.DAGRunStatus{Name: "svc", DAGRunID: "run-1"})
+	assert.Nil(t, plain.Cycle)
+	assert.Nil(t, plain.FailedCycles)
+}

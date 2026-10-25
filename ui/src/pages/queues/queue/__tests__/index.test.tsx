@@ -8,14 +8,19 @@ import { components, QueueType } from '@/api/v1/schema';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import QueueDetailsPage from '..';
 
-const { clientMock, getMock, useQueryMock } = vi.hoisted(() => {
+const { clientMock, getMock, alwaysOnDAGs, useQueryMock } = vi.hoisted(() => {
   const get = vi.fn();
   return {
     clientMock: { GET: get },
     getMock: get,
+    alwaysOnDAGs: { current: [] as unknown[] },
     useQueryMock: vi.fn(),
   };
 });
+
+vi.mock('@/features/cockpit/hooks/useAlwaysOnDAGs', () => ({
+  useAlwaysOnDAGs: () => ({ alwaysOnDAGs: alwaysOnDAGs.current, error: null }),
+}));
 
 vi.mock('@/hooks/api', () => ({
   useClient: () => clientMock,
@@ -36,10 +41,13 @@ const cappedZeroQueue: components['schemas']['Queue'] = {
   running: [],
 };
 
-function renderPage(queue: components['schemas']['Queue']): void {
+function renderPage(
+  queue: components['schemas']['Queue'],
+  { missing = false }: { missing?: boolean } = {}
+): void {
   useQueryMock.mockReturnValue({
-    data: queue,
-    error: null,
+    data: missing ? undefined : queue,
+    error: missing ? { status: 404 } : null,
     isLoading: false,
     isValidating: false,
     mutate: vi.fn(),
@@ -67,6 +75,7 @@ describe('QueueDetailsPage', () => {
   beforeEach(() => {
     getMock.mockReset();
     useQueryMock.mockReset();
+    alwaysOnDAGs.current = [];
     getMock.mockResolvedValue({
       data: { items: [] },
       error: undefined,
@@ -120,5 +129,77 @@ describe('QueueDetailsPage', () => {
       await screen.findByText('No queued items in this queue.')
     ).toBeVisible();
     expect(getMock).not.toHaveBeenCalled();
+  });
+
+  // An always-on DAG restarts without end; its state says more than its counts.
+  it('shows the state of the always-on DAG that owns the queue', async () => {
+    alwaysOnDAGs.current = [
+      {
+        fileName: 'running-heavy-q',
+        name: 'running-heavy-q',
+        restartPolicy: 'always',
+        restartWaitSec: 5,
+        state: 'failing',
+        suspended: false,
+      },
+    ];
+
+    renderPage({ ...cappedZeroQueue, queuedCountCapped: undefined });
+
+    const link = await screen.findByRole('link', { name: /Failing/ });
+    expect(link).toHaveAttribute('href', '/dags/running-heavy-q');
+  });
+
+  // A global queue can carry the name of a DAG; it does not belong to that DAG.
+  it('does not take a global queue for the queue of an always-on DAG', async () => {
+    alwaysOnDAGs.current = [
+      {
+        fileName: 'running-heavy-q',
+        name: 'running-heavy-q',
+        restartPolicy: 'always',
+        restartWaitSec: 5,
+        state: 'failing',
+        suspended: false,
+      },
+    ];
+
+    renderPage({
+      ...cappedZeroQueue,
+      type: QueueType.global,
+      queuedCountCapped: undefined,
+    });
+
+    await screen.findByText('running-heavy-q');
+    expect(screen.queryByRole('link', { name: /Failing/ })).toBeNull();
+  });
+
+  // The server lists a DAG queue only while a run is alive or waiting. An
+  // always-on DAG is between two runs for a few seconds, and its queue is idle,
+  // not missing.
+  it('shows the queue of an always-on DAG as idle while the server does not list it', async () => {
+    alwaysOnDAGs.current = [
+      {
+        fileName: 'running-heavy-q',
+        name: 'running-heavy-q',
+        restartPolicy: 'always',
+        restartWaitSec: 5,
+        state: 'restarting',
+        suspended: false,
+      },
+    ];
+
+    renderPage(cappedZeroQueue, { missing: true });
+
+    expect(screen.queryByText('Queue not found')).toBeNull();
+    expect(await screen.findByRole('link', { name: /Restarting/ })).toHaveAttribute(
+      'href',
+      '/dags/running-heavy-q'
+    );
+  });
+
+  it('says that the queue is not found when no always-on DAG owns it', () => {
+    renderPage(cappedZeroQueue, { missing: true });
+
+    expect(screen.getByText('Queue not found')).toBeInTheDocument();
   });
 });

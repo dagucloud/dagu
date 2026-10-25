@@ -222,6 +222,11 @@ type DAGRunStatus struct {
 	FinishedAt     string                 `json:"finishedAt,omitempty"`
 	AutoRetryCount int                    `json:"autoRetryCount,omitempty"`
 	AutoRetryLimit int                    `json:"autoRetryLimit,omitempty"`
+	// Cycle is the number of the cycle a looping run is in, counted from 1. It
+	// is zero for a run that does not loop.
+	Cycle int `json:"cycle,omitempty"`
+	// FailedCycles counts the cycles of a looping run that ended unsuccessfully.
+	FailedCycles int `json:"failedCycles,omitempty"`
 	// AutoRetryInterval is stored as a duration snapshot for retry scanner decisions.
 	AutoRetryInterval time.Duration `json:"autoRetryInterval,omitempty"`
 	AutoRetryBackoff  float64       `json:"autoRetryBackoff,omitempty"`

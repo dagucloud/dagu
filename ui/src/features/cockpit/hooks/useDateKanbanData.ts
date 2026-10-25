@@ -162,6 +162,9 @@ export function useRangeKanbanData(
       remoteNode,
       fromDate,
       toDate,
+      // An always-on DAG restarts without end, so the boards leave its runs out. The
+      // always-on list shows it instead.
+      excludeAlwaysOnRuns: true,
       ...workspaceQuery,
       ...(labelsParam ? { labels: labelsParam } : {}),
       ...(nameParam ? { name: nameParam } : {}),

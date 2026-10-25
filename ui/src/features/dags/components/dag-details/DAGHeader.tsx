@@ -293,7 +293,7 @@ const DAGHeader: React.FC<DAGHeaderProps> = ({
               limit={dagRunToDisplay.autoRetryLimit}
             />
 
-            <RunMetaLine dagRun={dagRunToDisplay} />
+            <RunMetaLine dagRun={dagRunToDisplay} className="flex-1" />
           </div>
         )}
     </div>

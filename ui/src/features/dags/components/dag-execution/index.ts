@@ -4,7 +4,7 @@
  * @module features/dags/components/dag-execution
  */
 
-export { default as DAGExecutionHistory } from './DAGExecutionHistory';
+export { RunHistoryGrid } from './RunHistoryGrid';
 export { default as ExecutionLog } from './ExecutionLog';
 export { default as HistoryTable } from './HistoryTable';
 export { default as HistoryTableRow } from './HistoryTableRow';

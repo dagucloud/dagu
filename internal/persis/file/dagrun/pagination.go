@@ -402,18 +402,27 @@ func (it *dagRunStatusIterator) nextLazyGroup(ctx context.Context) ([]dagRunList
 		}
 
 		items := make([]dagRunListItem, 0, len(runs))
+		// A run that the index shows as started by an excluded trigger costs
+		// no status read. It counts neither as resolved nor as rejected: both
+		// counts decide when to read the day whole, and a DAG that restarts all
+		// the time would push every day over that line.
+		skipped := 0
 		// Index lookups go from the newest run directory down.
 		for _, run := range slices.Backward(runs) {
 			if entry, ok := day.index.Lookup(filepath.Base(run.baseDir), run.timestamp); ok {
 				run.summary = summaryFromIndexEntry(entry)
 			}
+			if it.excludedByIndex(run) {
+				skipped++
+				continue
+			}
 			if item, ok := it.toListItem(ctx, run); ok {
 				items = append(items, item)
 			}
 		}
-		day.resolved += len(runs)
+		day.resolved += len(runs) - skipped
 		day.accepted += len(items)
-		day.rejected += len(runs) - len(items)
+		day.rejected += len(runs) - skipped - len(items)
 		day.pos = groupStart
 		day.before = created
 		if len(items) > 0 {
@@ -468,14 +477,26 @@ func (it *dagRunStatusIterator) allowsTimestamp(ts, before time.Time) bool {
 	return before.IsZero() || ts.Before(before)
 }
 
+// excludedByIndex reports whether the index summary of a run shows that an
+// excluded trigger started it. A run without a summary is judged by its status.
+func (it *dagRunStatusIterator) excludedByIndex(run *DAGRun) bool {
+	return run.summary != nil && slices.Contains(it.opts.ExcludeTriggerTypes, run.summary.TriggerType)
+}
+
 // toListItem reads a run into a list item, or reports false when the run is
 // unreadable or filtered out.
 func (it *dagRunStatusIterator) toListItem(ctx context.Context, run *DAGRun) (dagRunListItem, bool) {
 	if it.opts.DAGRunID != "" && !strings.Contains(run.dagRunID, it.opts.DAGRunID) {
 		return dagRunListItem{}, false
 	}
+	if it.excludedByIndex(run) {
+		return dagRunListItem{}, false
+	}
 	status := it.store.resolveStatus(ctx, run, it.labelFilters, it.opts.WorkspaceFilter, it.statusesFilter, it.hasStatusFilter)
 	if status == nil {
+		return dagRunListItem{}, false
+	}
+	if slices.Contains(it.opts.ExcludeTriggerTypes, status.TriggerType) {
 		return dagRunListItem{}, false
 	}
 	if it.opts.Name != "" && !containsFold(status.Name, it.opts.Name) {

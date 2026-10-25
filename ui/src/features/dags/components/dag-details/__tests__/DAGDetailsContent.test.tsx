@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
@@ -9,13 +9,43 @@ import { NodeStatus, Stream } from '@/api/v1/schema';
 import DAGDetailsContent from '../DAGDetailsContent';
 
 vi.mock('../..', () => ({
-  DAGStatus: vi.fn(({ fillHeight }) => (
-    <div data-fill-height={String(fillHeight)} data-testid="dag-status" />
-  )),
+  DAGStatus: vi.fn(
+    ({
+      fillHeight,
+      dagRun,
+      afterGraph,
+    }: {
+      fillHeight?: boolean;
+      dagRun?: { dagRunId: string };
+      afterGraph?: React.ReactNode;
+    }) => (
+      <div
+        data-fill-height={String(fillHeight)}
+        data-run-id={dagRun?.dagRunId}
+        data-testid="dag-status"
+      >
+        {afterGraph}
+      </div>
+    )
+  ),
 }));
 
 vi.mock('../', () => ({
-  DAGHeader: () => null,
+  DAGHeader: ({ currentDAGRun }: { currentDAGRun?: { dagRunId: string } }) => (
+    <div data-run-id={currentDAGRun?.dagRunId} data-testid="dag-header" />
+  ),
+}));
+
+const history = vi.hoisted(() => ({
+  dagRuns: [] as { dagRunId: string }[],
+}));
+
+vi.mock('../../../hooks/useDAGRunHistory', () => ({
+  useDAGRunHistory: () => ({
+    dagRuns: history.dagRuns,
+    gridData: [],
+    refresh: vi.fn(),
+  }),
 }));
 
 vi.mock('../../common', () => ({
@@ -32,7 +62,13 @@ vi.mock('../../dag-editor', () => ({
 }));
 
 vi.mock('../../dag-execution', () => ({
-  DAGExecutionHistory: () => null,
+  // Picks a run by its ID, or the latest run with null.
+  RunHistoryGrid: ({ onSelect }: { onSelect: (id: string | null) => void }) => (
+    <>
+      <button onClick={() => onSelect('older')}>pick older</button>
+      <button onClick={() => onSelect(null)}>pick latest</button>
+    </>
+  ),
   ExecutionLog: () => null,
   LogViewer: () => null,
   StepLog: ({
@@ -70,6 +106,12 @@ vi.mock('../WebhookTab', () => ({
   default: () => null,
 }));
 
+const optionalTabs = vi.hoisted(() => ({ settings: true }));
+
+vi.mock('../useOptionalDAGTabs', () => ({
+  useOptionalDAGTabs: () => optionalTabs,
+}));
+
 const dag = {
   name: 'release-notes',
   artifacts: {
@@ -83,9 +125,14 @@ const currentDAGRun = {
   artifactsAvailable: true,
 } as never;
 
-function renderContent(activeTab = 'status', isModal = true) {
+function renderContent(
+  activeTab = 'status',
+  isModal = true,
+  onPickedRunChange?: (run: unknown) => void,
+  initialEntry = '/'
+) {
   render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <DAGDetailsContent
         fileName="release-notes"
         dag={dag}
@@ -93,6 +140,7 @@ function renderContent(activeTab = 'status', isModal = true) {
         refreshFn={vi.fn()}
         activeTab={activeTab}
         isModal={isModal}
+        onPickedRunChange={onPickedRunChange}
         fillHeight
       />
     </MemoryRouter>
@@ -120,10 +168,80 @@ describe('DAGDetailsContent', () => {
       'Webhook',
       'Settings',
       'Notifications',
-      'History',
       'Wiki',
     ]) {
       expect(screen.getAllByText(label)).toHaveLength(1);
+    }
+  });
+
+  // The Webhook tab is the only place where a webhook is created, so it stays
+  // listed. The Settings tab goes when there is no profile to choose.
+  it('leaves out the Settings tab when the workflow has no profile to choose', () => {
+    optionalTabs.settings = false;
+    try {
+      renderContent();
+
+      expect(screen.getByText('Webhook')).toBeInTheDocument();
+      expect(screen.queryByText('Settings')).not.toBeInTheDocument();
+      expect(screen.getByText('Notifications')).toBeInTheDocument();
+    } finally {
+      optionalTabs.settings = true;
+    }
+  });
+
+  // The history lives in the overview, so it has no tab of its own.
+  it('has no History tab', () => {
+    renderContent();
+
+    expect(screen.queryByText('History')).not.toBeInTheDocument();
+  });
+
+  it('shows the run that the run picker selects, then the latest run again', () => {
+    history.dagRuns = [{ dagRunId: 'latest-run' }, { dagRunId: 'older' }];
+    const onPickedRunChange = vi.fn();
+    try {
+      renderContent('status', true, onPickedRunChange);
+      const status = screen.getByTestId('dag-status');
+      const header = screen.getByTestId('dag-header');
+      expect(status).toHaveAttribute('data-run-id', 'run-1');
+
+      fireEvent.click(screen.getByText('pick older'));
+      expect(status).toHaveAttribute('data-run-id', 'older');
+      expect(header).toHaveAttribute('data-run-id', 'older');
+      // A page that draws its own header learns which run was picked.
+      expect(onPickedRunChange).toHaveBeenLastCalledWith({ dagRunId: 'older' });
+
+      fireEvent.click(screen.getByText('pick latest'));
+      expect(status).toHaveAttribute('data-run-id', 'run-1');
+      expect(header).toHaveAttribute('data-run-id', 'run-1');
+      expect(onPickedRunChange).toHaveBeenLastCalledWith(undefined);
+    } finally {
+      history.dagRuns = [];
+    }
+  });
+
+  // On the DAG page the picked run is in the URL, so a reload or a shared link
+  // shows it. In a panel over the DAG list the query string is the list's, so
+  // the panel keeps the run in its own state and leaves the URL alone.
+  it('shows the run that the URL names on the DAG page', () => {
+    history.dagRuns = [{ dagRunId: 'latest-run' }, { dagRunId: 'older' }];
+    try {
+      renderContent('status', false, undefined, '/?run=older');
+
+      expect(screen.getByTestId('dag-status')).toHaveAttribute('data-run-id', 'older');
+    } finally {
+      history.dagRuns = [];
+    }
+  });
+
+  it('does not read a run from the URL in a panel', () => {
+    history.dagRuns = [{ dagRunId: 'latest-run' }, { dagRunId: 'older' }];
+    try {
+      renderContent('status', true, undefined, '/?run=older');
+
+      expect(screen.getByTestId('dag-status')).toHaveAttribute('data-run-id', 'run-1');
+    } finally {
+      history.dagRuns = [];
     }
   });
 

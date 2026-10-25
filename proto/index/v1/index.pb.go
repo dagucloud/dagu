@@ -87,20 +87,22 @@ func (x *DAGIndex) GetEntries() []*DAGIndexEntry {
 
 // DAGIndexEntry holds cached metadata for a single DAG definition file.
 type DAGIndexEntry struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	FilePath      string                 `protobuf:"bytes,1,opt,name=file_path,json=filePath,proto3" json:"file_path,omitempty"`
-	FileSize      int64                  `protobuf:"varint,2,opt,name=file_size,json=fileSize,proto3" json:"file_size,omitempty"`
-	ModTime       int64                  `protobuf:"varint,3,opt,name=mod_time,json=modTime,proto3" json:"mod_time,omitempty"`
-	Name          string                 `protobuf:"bytes,4,opt,name=name,proto3" json:"name,omitempty"`
-	Labels        []string               `protobuf:"bytes,5,rep,name=labels,proto3" json:"labels,omitempty"`
-	Group         string                 `protobuf:"bytes,6,opt,name=group,proto3" json:"group,omitempty"`
-	Schedule      string                 `protobuf:"bytes,7,opt,name=schedule,proto3" json:"schedule,omitempty"`
-	Suspended     bool                   `protobuf:"varint,8,opt,name=suspended,proto3" json:"suspended,omitempty"`
-	Description   string                 `protobuf:"bytes,9,opt,name=description,proto3" json:"description,omitempty"`
-	LoadError     string                 `protobuf:"bytes,10,opt,name=load_error,json=loadError,proto3" json:"load_error,omitempty"`
-	LoadPath      string                 `protobuf:"bytes,11,opt,name=load_path,json=loadPath,proto3" json:"load_path,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	FilePath       string                 `protobuf:"bytes,1,opt,name=file_path,json=filePath,proto3" json:"file_path,omitempty"`
+	FileSize       int64                  `protobuf:"varint,2,opt,name=file_size,json=fileSize,proto3" json:"file_size,omitempty"`
+	ModTime        int64                  `protobuf:"varint,3,opt,name=mod_time,json=modTime,proto3" json:"mod_time,omitempty"`
+	Name           string                 `protobuf:"bytes,4,opt,name=name,proto3" json:"name,omitempty"`
+	Labels         []string               `protobuf:"bytes,5,rep,name=labels,proto3" json:"labels,omitempty"`
+	Group          string                 `protobuf:"bytes,6,opt,name=group,proto3" json:"group,omitempty"`
+	Schedule       string                 `protobuf:"bytes,7,opt,name=schedule,proto3" json:"schedule,omitempty"`
+	Suspended      bool                   `protobuf:"varint,8,opt,name=suspended,proto3" json:"suspended,omitempty"`
+	Description    string                 `protobuf:"bytes,9,opt,name=description,proto3" json:"description,omitempty"`
+	LoadError      string                 `protobuf:"bytes,10,opt,name=load_error,json=loadError,proto3" json:"load_error,omitempty"`
+	LoadPath       string                 `protobuf:"bytes,11,opt,name=load_path,json=loadPath,proto3" json:"load_path,omitempty"`
+	RestartPolicy  string                 `protobuf:"bytes,12,opt,name=restart_policy,json=restartPolicy,proto3" json:"restart_policy,omitempty"`
+	RestartWaitSec int64                  `protobuf:"varint,13,opt,name=restart_wait_sec,json=restartWaitSec,proto3" json:"restart_wait_sec,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *DAGIndexEntry) Reset() {
@@ -208,6 +210,20 @@ func (x *DAGIndexEntry) GetLoadPath() string {
 		return x.LoadPath
 	}
 	return ""
+}
+
+func (x *DAGIndexEntry) GetRestartPolicy() string {
+	if x != nil {
+		return x.RestartPolicy
+	}
+	return ""
+}
+
+func (x *DAGIndexEntry) GetRestartWaitSec() int64 {
+	if x != nil {
+		return x.RestartWaitSec
+	}
+	return 0
 }
 
 // DAGRunIndex stores cached summaries for a single day's DAG runs.
@@ -558,7 +574,7 @@ const file_proto_index_v1_index_proto_rawDesc = "" +
 	"\bDAGIndex\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\rR\aversion\x12\"\n" +
 	"\rbuilt_at_unix\x18\x02 \x01(\x03R\vbuiltAtUnix\x121\n" +
-	"\aentries\x18\x03 \x03(\v2\x17.index.v1.DAGIndexEntryR\aentries\"\xbe\x02\n" +
+	"\aentries\x18\x03 \x03(\v2\x17.index.v1.DAGIndexEntryR\aentries\"\x8f\x03\n" +
 	"\rDAGIndexEntry\x12\x1b\n" +
 	"\tfile_path\x18\x01 \x01(\tR\bfilePath\x12\x1b\n" +
 	"\tfile_size\x18\x02 \x01(\x03R\bfileSize\x12\x19\n" +
@@ -572,7 +588,9 @@ const file_proto_index_v1_index_proto_rawDesc = "" +
 	"\n" +
 	"load_error\x18\n" +
 	" \x01(\tR\tloadError\x12\x1b\n" +
-	"\tload_path\x18\v \x01(\tR\bloadPath\"\x81\x01\n" +
+	"\tload_path\x18\v \x01(\tR\bloadPath\x12%\n" +
+	"\x0erestart_policy\x18\f \x01(\tR\rrestartPolicy\x12(\n" +
+	"\x10restart_wait_sec\x18\r \x01(\x03R\x0erestartWaitSec\"\x81\x01\n" +
 	"\vDAGRunIndex\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\rR\aversion\x12\"\n" +
 	"\rbuilt_at_unix\x18\x02 \x01(\x03R\vbuiltAtUnix\x124\n" +

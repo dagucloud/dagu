@@ -19,6 +19,7 @@ import BorderedBox from '@/components/ui/bordered-box';
 import { AlertTriangle, Check, Copy, Save, Undo2 } from 'lucide-react';
 import React, { useEffect } from 'react';
 import { useCookies } from 'react-cookie';
+import { createPortal } from 'react-dom';
 import { components } from '../../../../api/v1/schema';
 import { Button } from '@/components/ui/button';
 import { useErrorModal } from '@/components/ui/error-modal';
@@ -78,13 +79,18 @@ type Props = {
   localDags?: components['schemas']['LocalDag'][];
   /** Editor-only metadata used for dynamic schema synthesis */
   editorHints?: components['schemas']['DAGEditorHints'];
+  /**
+   * Element that receives the view switcher and the actions, such as the tab
+   * row of the page. Without it they sit above the preview.
+   */
+  toolbarSlot?: HTMLElement | null;
 };
 
 /**
  * DAGSpec displays and allows editing of a DAG specification
  * including visualization, attributes, steps, and YAML definition
  */
-function DAGSpec({ fileName, localDags, editorHints }: Props) {
+function DAGSpec({ fileName, localDags, editorHints, toolbarSlot }: Props) {
   const [localTabRowRef, localTabRowFade] = useScrollFade<HTMLDivElement>('x');
   const { ts } = useI18n();
   const remoteNode = useRemoteNode();
@@ -817,6 +823,18 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
           </div>
         );
 
+        const specToolbar = (
+          <>
+            <SpecViewSwitcher
+              value={view}
+              onChange={handleViewChange}
+              canSplit={canSplit}
+              isAgent={isAgentDag}
+            />
+            {specActions}
+          </>
+        );
+
         return (
           data?.dag && (
             <React.Fragment>
@@ -831,15 +849,13 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
                 ref={setSpecRoot}
                 className="flex min-h-0 flex-1 flex-col gap-3"
               >
-                <div className="flex flex-shrink-0 flex-wrap items-center justify-between gap-2">
-                  <SpecViewSwitcher
-                    value={view}
-                    onChange={handleViewChange}
-                    canSplit={canSplit}
-                    isAgent={isAgentDag}
-                  />
-                  {specActions}
-                </div>
+                {toolbarSlot ? (
+                  createPortal(specToolbar, toolbarSlot)
+                ) : (
+                  <div className="flex flex-shrink-0 flex-wrap items-center justify-between gap-2">
+                    {specToolbar}
+                  </div>
+                )}
 
                 <div
                   className={cn(

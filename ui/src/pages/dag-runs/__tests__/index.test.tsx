@@ -1,7 +1,13 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import dayjs from 'dayjs';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
@@ -26,6 +32,7 @@ const {
   deleteRunViewMock,
   readSearchStateMock,
   searchStateMock,
+  alwaysOnDAGsState,
   sharedRunViewState,
   runViewMode,
   updateRunViewMock,
@@ -43,6 +50,7 @@ const {
     updateRunViewMock: vi.fn(),
     readSearchStateMock: readState,
     searchStateMock: { readState, writeState },
+    alwaysOnDAGsState: { count: 0 },
     sharedRunViewState: { views: [] as View[] },
     runViewMode: { current: 'list' },
     viewsLoadingState: { current: false },
@@ -89,6 +97,20 @@ vi.mock('@/hooks/api', () => ({
           : path === '/dags'
             ? { dags: dagsListState.dags }
             : undefined,
+  }),
+}));
+
+vi.mock('@/features/cockpit/hooks/useAlwaysOnDAGs', () => ({
+  useAlwaysOnDAGs: () => ({
+    alwaysOnDAGs: Array.from({ length: alwaysOnDAGsState.count }, (_, index) => ({
+      fileName: `dag-${index}`,
+      name: `dag-${index}`,
+      restartPolicy: 'always',
+      restartWaitSec: 5,
+      state: 'running',
+      suspended: false,
+    })),
+    error: null,
   }),
 }));
 
@@ -198,6 +220,7 @@ beforeEach(() => {
   deleteRunViewMock.mockReset();
   sharedRunViewState.views = [];
   dagsListState.dags = [];
+  alwaysOnDAGsState.count = 0;
   usePaginatedDAGRunsMock.mockReset();
   usePaginatedDAGRunsMock.mockReturnValue({
     dagRuns: [],
@@ -292,6 +315,38 @@ function renderPage(
 }
 
 describe('DAGRuns page', () => {
+  // An always-on DAG restarts without end; its runs would fill the unfiltered list.
+  // A card for each always-on DAG stands in for them.
+  it('leaves the runs of always-on DAGs out of the unfiltered list', () => {
+    alwaysOnDAGsState.count = 2;
+
+    renderPage();
+
+    expect(lastRunQuery()['excludeAlwaysOnRuns']).toBe(true);
+    const alwaysOnDAGs = screen.getByRole('region', { name: 'Always on' });
+    expect(within(alwaysOnDAGs).getByText('dag-0')).toBeInTheDocument();
+    expect(within(alwaysOnDAGs).getByText('dag-1')).toBeInTheDocument();
+  });
+
+  it('shows no always-on section when no DAG is an always-on DAG', () => {
+    renderPage();
+
+    expect(lastRunQuery()['excludeAlwaysOnRuns']).toBe(true);
+    expect(screen.queryByRole('region', { name: 'Always on' })).toBeNull();
+  });
+
+  it.each(['name=worker', 'dagRunId=run-1', 'status=2'])(
+    'shows the runs of always-on DAGs when the list is filtered by %s',
+    (filter) => {
+      alwaysOnDAGsState.count = 2;
+
+      renderPage(vi.fn(), `/dag-runs?${filter}`);
+
+      expect(lastRunQuery()['excludeAlwaysOnRuns']).toBeUndefined();
+      expect(screen.queryByRole('region', { name: 'Always on' })).toBeNull();
+    }
+  );
+
   it.each([
     'outputs',
     'timeline',

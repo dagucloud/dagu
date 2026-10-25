@@ -91,7 +91,12 @@ function DAGDetails() {
   const { setTitle } = appBarContext;
 
   // Determine active tab
-  const tab = params.tab === 'docs' ? 'wiki' : params.tab || 'status';
+  const tab =
+    params.tab === 'docs'
+      ? 'wiki'
+      : params.tab === 'history'
+        ? 'status'
+        : params.tab || 'status';
 
   // Build URL with remote node parameter if needed
   const buildUrl = useCallback(
@@ -127,7 +132,19 @@ function DAGDetails() {
     if (params.tab === 'docs' && fileName) {
       navigate(buildUrl(`/dags/${fileName}/wiki`), { replace: true });
     }
-  }, [buildUrl, fileName, navigate, params.tab]);
+    // The history is part of the overview now; keep old links working.
+    // The run that the old tab had picked moves to ?run=.
+    if (params.tab === 'history' && fileName) {
+      const target = new URLSearchParams();
+      if (dagRunId) {
+        target.set('run', dagRunId);
+      }
+      const query = target.toString();
+      navigate(buildUrl(`/dags/${fileName}${query ? `?${query}` : ''}`), {
+        replace: true,
+      });
+    }
+  }, [buildUrl, dagRunId, fileName, navigate, params.tab]);
 
   // Fetch DAG details — SWR is the single source of truth, refreshed by live invalidations
   const {
@@ -154,6 +171,9 @@ function DAGDetails() {
   // workflow's Overview, from older versions or bookmarks, redirect there.
   const runRootName = queriedDAGRunName || dagData?.dag?.name;
   useEffect(() => {
+    // The old History tab maps to Overview, and its redirect keeps the run as
+    // ?run=, so this redirect must leave it alone.
+    if (params.tab === 'history') return;
     if (tab !== 'status' || !dagRunId || !runRootName) return;
     navigate(
       buildDAGRunPageURL({
@@ -165,7 +185,16 @@ function DAGDetails() {
       }),
       { replace: true }
     );
-  }, [dagRunId, navigate, remoteNode, runRootName, stepName, subDAGRunId, tab]);
+  }, [
+    dagRunId,
+    navigate,
+    params.tab,
+    remoteNode,
+    runRootName,
+    stepName,
+    subDAGRunId,
+    tab,
+  ]);
 
   const dagLabels = [
     ...(dagData?.dag?.labels ?? []),
@@ -250,6 +279,11 @@ function DAGDetails() {
     return dagData?.latestDAGRun;
   }
   const currentDAGRun = getCurrentDAGRun();
+  // The run that the run picker of the overview selected, shown in the header
+  // too, so the actions of the header apply to that run.
+  const [pickedRun, setPickedRun] = useState<
+    components['schemas']['DAGRunDetails'] | undefined
+  >();
 
   // Root DAG-run context state for header display
   const [rootDAGRunData, setRootDAGRunData] = useState<
@@ -279,9 +313,12 @@ function DAGDetails() {
   const displayDAGRunId =
     currentDAGRun?.dagRunId || displayDAGRun?.dagRunId || 'latest';
 
+  // The header reads the root run from this context, so it shows the run that
+  // the overview shows.
+  const shownDAGRun = pickedRun ?? displayDAGRun;
   useEffect(() => {
-    setRootDAGRunData(displayDAGRun);
-  }, [displayDAGRun]);
+    setRootDAGRunData(shownDAGRun);
+  }, [shownDAGRun]);
 
   return (
     <UnsavedChangesProvider>
@@ -330,7 +367,7 @@ function DAGDetails() {
                 <>
                   <DAGHeader
                     dag={dagData.dag}
-                    currentDAGRun={displayDAGRun}
+                    currentDAGRun={shownDAGRun}
                     fileName={fileName}
                     refreshFn={refreshData}
                     buildScopedUrl={buildUrl}
@@ -352,6 +389,7 @@ function DAGDetails() {
                       logStream={logStream}
                       isModal={false}
                       skipHeader={true}
+                      onPickedRunChange={setPickedRun}
                       localDags={dagData?.localDags}
                       editorHints={dagData?.editorHints}
                       buildScopedUrl={buildUrl}
