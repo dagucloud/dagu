@@ -411,6 +411,29 @@ func TestExactConditions(t *testing.T) {
 		assert.True(t, run.elements.closed, "the reader is closed with the desktop")
 	})
 
+	t.Run("a grayed-out element", func(t *testing.T) {
+		t.Parallel()
+		// The reporter button is grayed out once reporters are entered; the
+		// step checks for that and skips entering them, with no model.
+		run := newTestRun(t)
+		run.elements = newFakeElements()
+		run.elements.elements = append(run.elements.elements, desktop.Element{Role: desktop.RoleButton, Name: "通報者", ID: "reporterButton",
+			Bounds: image.Rect(500, 140, 580, 168), Path: []desktop.PathStep{{Role: desktop.RoleButton, Name: "通報者", Index: 2}}, Disabled: true})
+		run.llm = nil
+		execution := run.execute(`{"ai": "never", "screenshots": "never", "do": [
+			{"expect": {"element": {"role": "button", "id": "reporterButton", "enabled": false}}},
+			{"act": {"instruction": "Enter the reporters", "recorded": {"windows": [{"click": {"role": "button", "id": "reporterButton"}}]}},
+			 "when": {"element": {"role": "button", "id": "reporterButton", "enabled": true}}}
+		]}`, nil)
+		require.NoError(t, execution.err)
+		events := operationEvents(execution.exec.GetAgentSession())
+		require.Len(t, events, 2)
+		assert.Equal(t, agentstep.StatusCompleted, events[0].Status)
+		assert.Equal(t, agentstep.StatusSkipped, events[1].Status, "the act is skipped while the button is grayed out")
+		assert.Empty(t, run.backend.inputs())
+		assert.Empty(t, run.vision.requests, "no model request")
+	})
+
 	t.Run("text fails with the reason", func(t *testing.T) {
 		t.Parallel()
 		run := newTestRun(t)

@@ -38,6 +38,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  # A new commit to a pull request cancels the run of the commit it
+  # replaces, so superseded runs stop holding the org's runners. Runs for
+  # main, tags, and manual dispatches each get a group of their own and
+  # always finish.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
 env:
   GO_VERSION: "1.27.3"
 

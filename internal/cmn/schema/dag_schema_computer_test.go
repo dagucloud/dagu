@@ -68,6 +68,13 @@ steps:
             instruction: The document number
             ai: every_run
             schema: {type: object, properties: {doc: {type: string}}}
+        - extract:
+            instruction: The invoice lines
+            schema: {type: object, properties: {number: {type: string}, lines: {type: array, items: {type: object, properties: {item: {type: string}}}}}}
+            fields:
+              windows:
+                number: {role: text, id: docNumber, enabled: true}
+                lines: {container: {role: list, name: 明細}, columns: {item: 品目}}
         - wait: 2s
         - screenshot: posted
 `
@@ -93,6 +100,8 @@ steps:
 		{"element role alone", "{role: text_field, near: {label: 金額, side: right}, nth: 0}", "{role: text_field}"},
 		{"unknown selector key", "{role: button, name: 保存, in: {role: group, name: 支払情報}}", "{role: button, title: 保存}"},
 		{"bad side", "side: right", "side: beside"},
+		{"table field with a selector beside its container", "lines: {container:", "lines: {enabled: false, container:"},
+		{"scalar field with columns", "id: docNumber, enabled: true}", "id: docNumber, columns: {item: 品目}}"},
 		{"focus without key", "                - key: enter\n", "                - click: {role: button, name: OK}\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

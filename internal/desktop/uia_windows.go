@@ -27,6 +27,7 @@ const (
 	uiaBoundingRectangleProperty      = 30001
 	uiaControlTypeProperty            = 30003
 	uiaNameProperty                   = 30005
+	uiaIsEnabledProperty              = 30010
 	uiaAutomationIdProperty           = 30011
 	uiaClassNameProperty              = 30012
 	uiaLabeledByProperty              = 30018
@@ -94,6 +95,7 @@ const (
 	uiaGetCurrentName             = 23
 	uiaGetCachedControlType       = 53
 	uiaGetCachedName              = 55
+	uiaGetCachedIsEnabled         = 60
 	uiaGetCachedAutomationId      = 61
 	uiaGetCachedClassName         = 62
 	uiaGetCachedIsPassword        = 67
@@ -324,6 +326,10 @@ func (e *element) cachedBool(what string, index int) (bool, error) {
 		return false, err
 	}
 	return v != 0, nil
+}
+
+func (e *element) cachedIsEnabled() (bool, error) {
+	return e.cachedBool("get_CachedIsEnabled", uiaGetCachedIsEnabled)
 }
 
 func (e *element) cachedIsPassword() (bool, error) {
