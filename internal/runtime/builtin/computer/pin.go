@@ -126,6 +126,11 @@ func (s pinnedStep) validate() error {
 			return fmt.Errorf("focus: %w", err)
 		}
 	}
+	for _, sel := range []*desktop.Selector{s.Check, s.Uncheck} {
+		if sel != nil && sel.Role != desktop.RoleCheckbox {
+			return fmt.Errorf("check and uncheck take a checkbox, not a %s", sel.Role)
+		}
+	}
 	for _, sel := range []*desktop.Selector{s.Click, s.DoubleClick, s.RightClick, s.Check, s.Uncheck} {
 		if sel != nil {
 			return sel.Validate()

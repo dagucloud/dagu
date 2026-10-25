@@ -538,7 +538,9 @@ func (l *actLoop) recordInvoked(action computeruse.Action, e desktop.Element) re
 	centre := elementCentre(e)
 	display := computeruse.Action{Kind: computeruse.KindClick, Count: action.Count, Button: action.Button, Point: &computeruse.Point{X: centre.X, Y: centre.Y}}
 	element := l.r.recordElement(e, &centre, l.r.driver.WindowAt(centre).App)
-	return recordAction(display, element)
+	rec := recordAction(display, element)
+	rec.Checked = l.r.checkedAfter(display, element)
+	return rec
 }
 
 // reconcile waits for a person using the desktop to pause, then reports

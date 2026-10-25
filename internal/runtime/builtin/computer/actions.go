@@ -48,7 +48,30 @@ func (r *run) performOne(ctx context.Context, index int, action computeruse.Acti
 		r.proveValue(element, action.Text)
 	}
 	rec := recordAction(display, element)
+	rec.Checked = r.checkedAfter(display, element)
 	return result, &rec
+}
+
+// checkedAfter reads the state a plain click left a checkbox in, so the
+// recording replays the click as that state rather than as a toggle that
+// would undo a box already in it. It is nil for any other action or element,
+// and when the state cannot be read.
+func (r *run) checkedAfter(display computeruse.Action, element *recordedElement) *bool {
+	if element == nil || element.Selector.Role != desktop.RoleCheckbox || !plainClick(display) {
+		return nil
+	}
+	els, err := r.elementsIfAvailable()
+	if err != nil {
+		return nil
+	}
+	found, reason, err := r.lookRecorded(els, *element)
+	if err != nil || reason != "" {
+		return nil
+	}
+	if checked, known := checkedState(found); known {
+		return &checked
+	}
+	return nil
 }
 
 // elementOf reads the element a replayable action lands on, in display

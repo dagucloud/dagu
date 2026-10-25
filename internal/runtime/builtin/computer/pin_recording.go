@@ -174,9 +174,9 @@ func pinAction(rec recordedAction) ([]pinnedStep, string) {
 		sel := pinnedSelector(*rec.Element)
 		left := action.Button == "" || action.Button == computeruse.ButtonLeft
 		switch {
-		case rec.Checked != nil && *rec.Checked:
+		case rec.Checked != nil && left && action.Count <= 1 && *rec.Checked:
 			return []pinnedStep{{Check: &sel}}, ""
-		case rec.Checked != nil:
+		case rec.Checked != nil && left && action.Count <= 1:
 			return []pinnedStep{{Uncheck: &sel}}, ""
 		case left && action.Count <= 1:
 			return []pinnedStep{{Click: &sel}}, ""

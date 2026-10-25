@@ -153,6 +153,7 @@ func TestPinnedRecordingConvertsEachAction(t *testing.T) {
 				{Action: computeruse.Action{Kind: computeruse.KindWait, Duration: 5 * time.Minute}},
 				{Action: computeruse.Action{Kind: computeruse.KindClick, Point: at}, Element: agree, Checked: new(true)},
 				{Action: computeruse.Action{Kind: computeruse.KindClick, Point: at}, Element: agree, Checked: new(false)},
+				{Action: computeruse.Action{Kind: computeruse.KindClick, Button: computeruse.ButtonLeft, Count: 2, Point: at}, Element: agree, Checked: new(true)},
 			},
 			steps: `[
 				{"click": {"app": "expense", "role": "button", "name": "保存", "id": "saveButton"}},
@@ -164,7 +165,8 @@ func TestPinnedRecordingConvertsEachAction(t *testing.T) {
 				{"key": "shift+tab", "focus": {"app": "expense", "role": "text_field", "id": "amountBox"}}, {"key": "shift+tab"},
 				{"wait": "1.5s"}, {"wait": "1m0s"},
 				{"check": {"app": "expense", "role": "checkbox", "id": "agreeBox"}},
-				{"uncheck": {"app": "expense", "role": "checkbox", "id": "agreeBox"}}
+				{"uncheck": {"app": "expense", "role": "checkbox", "id": "agreeBox"}},
+				{"double_click": {"app": "expense", "role": "checkbox", "id": "agreeBox"}}
 			]`,
 		},
 		{
