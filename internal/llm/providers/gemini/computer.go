@@ -4,6 +4,7 @@
 package gemini
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -21,11 +22,14 @@ const (
 	desktopEnvironment = "ENVIRONMENT_DESKTOP"
 	// normalizedScale is the size of the coordinate grid Gemini computer use
 	// reports positions on, regardless of the screenshot size.
-	normalizedScale      = 1000
-	requireConfirmation  = "require_confirmation"
-	defaultWaitDuration  = time.Second
-	legacyWaitDuration   = 5 * time.Second
-	defaultScrollNotches = 3
+	normalizedScale     = 1000
+	requireConfirmation = "require_confirmation"
+	defaultWaitDuration = time.Second
+	legacyWaitDuration  = 5 * time.Second
+	// Scroll distances Gemini documents for a call that names none: pixels
+	// for scroll, and on the grid for the legacy scroll_at.
+	defaultScrollPixels   = 300
+	legacyScrollMagnitude = 800
 )
 
 // computerImageLimit is the screen size Gemini computer use is tuned for.
@@ -416,11 +420,7 @@ func computerActions(callID, name string, args geminiArgs, screen computeruse.Sc
 				return nil, err
 			}
 		}
-		amount := computeruse.PixelsToNotches(max(args.MagnitudeInPixels, args.Magnitude))
-		if amount == 0 {
-			amount = defaultScrollNotches
-		}
-		action.ScrollX, action.ScrollY, err = computeruse.ScrollDelta(args.Direction, amount)
+		action.ScrollX, action.ScrollY, err = scrollNotches(name, args, screen)
 	case "press_key":
 		action.Kind = computeruse.KindKey
 		action.Keys = computeruse.SplitKeys(args.Key)
@@ -448,6 +448,19 @@ func computerActions(callID, name string, args geminiArgs, screen computeruse.Sc
 		return nil, fmt.Errorf("%s needs keys", name)
 	}
 	return []computeruse.Action{action}, nil
+}
+
+// scrollNotches converts a scroll's distance to wheel notches. Gemini gives
+// magnitude_in_pixels in screenshot pixels, and the legacy magnitude on the
+// grid positions are on, along the scroll's axis.
+func scrollNotches(name string, args geminiArgs, screen computeruse.Screen) (x, y int, err error) {
+	legacy := args.MagnitudeInPixels == 0 && (args.Magnitude != 0 || name != "scroll")
+	if !legacy {
+		x, y, err = computeruse.ScrollDelta(args.Direction, cmp.Or(args.MagnitudeInPixels, defaultScrollPixels))
+		return computeruse.PixelsToNotches(x), computeruse.PixelsToNotches(y), err
+	}
+	x, y, err = computeruse.ScrollDelta(args.Direction, cmp.Or(args.Magnitude, legacyScrollMagnitude))
+	return computeruse.PixelsToNotches(x * screen.Width / normalizedScale), computeruse.PixelsToNotches(y * screen.Height / normalizedScale), err
 }
 
 // typeActions types at the focus, or clicks the given position first. A

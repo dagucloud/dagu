@@ -89,6 +89,28 @@ func EncodePNG(img image.Image) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// ChangedPixels counts the pixels whose color differs between two images of
+// the same size, matched by their offset from the top-left corner. It tells
+// apart pictures too alike for a Fingerprint, such as a list before and
+// after a short scroll.
+func ChangedPixels(a, b *image.RGBA) int {
+	size := a.Bounds().Size()
+	changed := 0
+	for y := range size.Y {
+		rowA := a.Pix[a.PixOffset(a.Bounds().Min.X, a.Bounds().Min.Y+y):][:size.X*4]
+		rowB := b.Pix[b.PixOffset(b.Bounds().Min.X, b.Bounds().Min.Y+y):][:size.X*4]
+		if bytes.Equal(rowA, rowB) {
+			continue
+		}
+		for x := 0; x < len(rowA); x += 4 {
+			if !bytes.Equal(rowA[x:x+4], rowB[x:x+4]) {
+				changed++
+			}
+		}
+	}
+	return changed
+}
+
 // Fingerprint is a perceptual hash of an image: similar images have
 // fingerprints a small Distance apart.
 type Fingerprint uint64

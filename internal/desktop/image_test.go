@@ -79,6 +79,27 @@ func gradient(box bool) *image.RGBA {
 	return img
 }
 
+// Only the pixels of the compared regions count, matched by their place in
+// each region.
+func TestChangedPixels(t *testing.T) {
+	t.Parallel()
+
+	before, after := image.NewRGBA(image.Rect(0, 0, 10, 10)), image.NewRGBA(image.Rect(0, 0, 10, 10))
+	assert.Zero(t, desktop.ChangedPixels(before, after))
+
+	after.Set(2, 3, color.RGBA{R: 1, A: 255})
+	after.Set(9, 9, color.RGBA{A: 255})
+	assert.Equal(t, 2, desktop.ChangedPixels(before, after))
+
+	region := func(img *image.RGBA, rect image.Rectangle) *image.RGBA {
+		sub, _ := img.SubImage(rect).(*image.RGBA)
+		return sub
+	}
+	corner := image.Rect(6, 6, 10, 10)
+	assert.Equal(t, 1, desktop.ChangedPixels(region(before, corner), region(after, corner)))
+	assert.Equal(t, 1, desktop.ChangedPixels(region(after, image.Rect(0, 0, 4, 4)), region(before, corner)), "regions at different places")
+}
+
 func TestFingerprint(t *testing.T) {
 	t.Parallel()
 

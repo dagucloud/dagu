@@ -73,7 +73,11 @@ const (
 	anyInputEventType         = 0xFFFFFFFF
 
 	mouseEventClickState = 1
-	scrollUnitLine       = 1
+	scrollUnitPixel      = 0
+	// notchPoints is how far one wheel notch scrolls, about what a notch
+	// of a Windows mouse wheel moves a browser page. A scroll in line units
+	// would move most applications a single 10-point line per notch.
+	notchPoints = 100
 	// maxUnicodeChunk is how many UTF-16 units one keyboard event carries.
 	maxUnicodeChunk = 20
 )
@@ -525,8 +529,9 @@ func (b *darwinBackend) Button(button Button, down bool, clicks int) error {
 }
 
 func (b *darwinBackend) Wheel(dx, dy int) error {
-	// Positive wheel values scroll up and left.
-	return b.post(cgEventCreateScrollWheelEvent2(0, scrollUnitLine, 2, int32(-dy), int32(-dx), 0)) //nolint:gosec // notch counts are small
+	// Positive wheel values scroll up and left. A scroll in pixel units,
+	// as a trackpad sends, moves every application by the same distance.
+	return b.post(cgEventCreateScrollWheelEvent2(0, scrollUnitPixel, 2, int32(-dy*notchPoints), int32(-dx*notchPoints), 0)) //nolint:gosec // notch counts are small
 }
 
 func (b *darwinBackend) Key(key Key, down bool) error {

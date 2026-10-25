@@ -6,6 +6,7 @@
 package desktop
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"image"
@@ -424,15 +425,21 @@ func (windowsBackend) Button(button Button, down bool, _ int) error {
 }
 
 func (windowsBackend) Wheel(dx, dy int) error {
+	return sendInput(wheelInputs(dx, dy)...)
+}
+
+// wheelInputs sends a notch per event, as a mouse wheel does, since some
+// applications scroll one notch per wheel message whatever its delta says.
+func wheelInputs(dx, dy int) []input {
 	var events []input
-	if dy != 0 {
-		// Positive wheel data scrolls up, away from the user.
-		events = append(events, mouseEvent(mouseWheel, wheelData(-dy)))
+	// Positive wheel data scrolls up, away from the user.
+	for range abs(dy) {
+		events = append(events, mouseEvent(mouseWheel, wheelData(-cmp.Compare(dy, 0))))
 	}
-	if dx != 0 {
-		events = append(events, mouseEvent(mouseHWheel, wheelData(dx)))
+	for range abs(dx) {
+		events = append(events, mouseEvent(mouseHWheel, wheelData(cmp.Compare(dx, 0))))
 	}
-	return sendInput(events...)
+	return events
 }
 
 func wheelData(notches int) uint32 {
