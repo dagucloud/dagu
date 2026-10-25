@@ -171,6 +171,10 @@ func TestDarwinElementUnderSkippedParent(t *testing.T) {
 	_, byID := outlineByID(t, els, window)
 	require.Contains(t, byID, "content")
 	require.Contains(t, byID, "goButton")
+	// The outline reaches the content group through the window's two groups.
+	require.Len(t, byID["content"].Path, 3, "%+v", byID["content"].Path)
+	assert.Equal(t, RoleGroup, byID["content"].Path[0].Role)
+	assert.Equal(t, RoleGroup, byID["content"].Path[1].Role)
 
 	for _, tc := range []struct {
 		id string
