@@ -398,9 +398,15 @@ func (l *actLoop) run(ctx context.Context) error {
 	}
 }
 
-// look maximizes the front window when the step asks for it, then waits
-// for a still screen and captures what the model sees next.
+// look clears any screen a handler clears, maximizes the front window when
+// the step asks for it, then waits for a still screen and captures what the
+// model sees next.
 func (l *actLoop) look(ctx context.Context) (screen, error) {
+	// A screen a handler clears is cleared before the model sees the
+	// screen, so the model never acts on it.
+	if _, err := l.r.handleScreens(ctx, l.index); err != nil {
+		return screen{}, err
+	}
 	if err := l.r.fit(ctx, l.index); err != nil {
 		return screen{}, err
 	}

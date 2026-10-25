@@ -437,6 +437,14 @@ func (f *fakeElements) shift(dx, dy int) {
 	}
 }
 
+// show puts a window and its elements in front, as another window coming
+// up or the window changing would.
+func (f *fakeElements) show(window desktop.Element, elements []desktop.Element) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.window, f.elements, f.then = window, elements, nil
+}
+
 // retitle changes the window's title.
 func (f *fakeElements) retitle(name string) {
 	f.mu.Lock()

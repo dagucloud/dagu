@@ -924,12 +924,7 @@ func TestHandlerClearsAScreenThatComesUpSometimes(t *testing.T) {
 			run := elementRun(t)
 			form := expenseWindow()
 			dialog, dialogElements := confirmDialog()
-			show := func(window desktop.Element, elements []desktop.Element) {
-				run.elements.mu.Lock()
-				run.elements.window = window
-				run.elements.mu.Unlock()
-				run.elements.arriveAfter(0, elements)
-			}
+			show := run.elements.show
 			if tc.before {
 				show(form, append(expenseElements(), dialogElements...))
 			}
@@ -972,6 +967,152 @@ func TestHandlerThatDoesNotClearItsScreenFails(t *testing.T) {
 	execution := run.execute(steps, nil)
 	require.ErrorContains(t, execution.err, `handle "入力中クリアの確認": the screen was still there after 20 times`)
 	assert.Len(t, run.backend.inputs(), maxHandled)
+}
+
+// confirmHandler clears confirmDialog by pressing its はい, then waits
+// for wait when that is set.
+func confirmHandler(wait string) string {
+	steps := `[{"click": {"role": "button", "name": "はい"}}]`
+	if wait != "" {
+		steps = `[{"click": {"role": "button", "name": "はい"}}, {"wait": "` + wait + `"}]`
+	}
+	return `[{"name": "入力中クリアの確認", "when": {"text": "クリアしていいですか"}, "recorded": {"windows": ` + steps + `}}]`
+}
+
+// pressingYesShows makes pressing the dialog's はい show the form, after
+// reads more looks at the window when reads is set, and records each pattern.
+func pressingYesShows(run *testRun, reads int) {
+	run.elements.onApply = func(e desktop.Element, pattern desktop.Pattern, _ string) {
+		run.backend.recordAccessibility(string(pattern) + " " + focusedID(e))
+		if e.Name != "はい" {
+			return
+		}
+		run.backend.focusOn(desktop.WindowID{Handle: 2, Title: expenseWindow().Name, App: "expense"})
+		if reads == 0 {
+			run.elements.show(expenseWindow(), expenseElements())
+			return
+		}
+		run.elements.show(expenseWindow(), []desktop.Element{})
+		run.elements.arriveAfter(reads, expenseElements())
+	}
+}
+
+// A check keeps looking for its whole window after a handler ran, however
+// long the handler took, so a screen that settles a moment after the
+// confirmation closes still passes.
+func TestHandledCheckLooksForItsWholeWindowAgain(t *testing.T) {
+	t.Parallel()
+
+	run := elementRun(t)
+	dialog, dialogElements := confirmDialog()
+	run.elements.show(dialog, dialogElements)
+	pressingYesShows(run, 2)
+	steps := `{"ai": "never", "input": "direct", "handle": ` + confirmHandler("1200ms") + `,
+		"do": [{"expect": {"element": {"role": "text_field", "id": "amountBox"}, "within": "1s"}}]}`
+	require.NoError(t, run.execute(steps, nil).err)
+	assert.Equal(t, []string{"invoke はい"}, run.backend.inputs())
+}
+
+// A confirmation in front of the window a pinned step names is handled
+// before that window is brought forward, which would hide it.
+func TestHandlerRunsBeforeTheRecordedWindowComesBack(t *testing.T) {
+	t.Parallel()
+
+	run := elementRun(t)
+	form := expenseWindow()
+	dialog, dialogElements := confirmDialog()
+	dialogWindow := desktop.WindowID{Handle: 3, Title: dialog.Name, App: "expense"}
+	formWindow := desktop.WindowID{Handle: 2, Title: form.Name, App: "expense"}
+	run.backend.windows = []desktop.WindowID{dialogWindow, formWindow}
+	run.backend.focusOn(dialogWindow)
+	run.elements.show(dialog, dialogElements)
+	// Raising the form puts it over the confirmation.
+	run.backend.onRaise = func(w desktop.WindowID) {
+		if w.Handle == formWindow.Handle {
+			run.elements.show(form, expenseElements())
+		}
+	}
+	pressingYesShows(run, 0)
+	steps := `{"ai": "never", "input": "direct", "handle": ` + confirmHandler("") + `,
+		"do": [{"act": {"instruction": "Save", "recorded": {"windows": [{"click": {"window": "経費精算*", "role": "button", "id": "saveButton"}}]}}}]}`
+	require.NoError(t, run.execute(steps, nil).err)
+	assert.Equal(t, []string{"invoke はい", "invoke saveButton"}, run.backend.inputs())
+}
+
+// A confirmation over the window a learned pixel turn replays in is
+// handled while the turn waits for its screen.
+func TestHandlerClearsAScreenOverAPixelReplay(t *testing.T) {
+	t.Parallel()
+
+	const learn = `{"do": [{"act": "Click the canvas"}]}`
+	run := elementRun(t)
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(10, 10)), done("Clicked")}}}
+	require.NoError(t, run.execute(learn, nil).err)
+	require.Nil(t, lookupRecording(t, run, "Click the canvas").Turns[0].Actions[0].Element, "the turn replays by pixels")
+
+	recorded := pattern(800, 600, 0)
+	dialog, dialogElements := confirmDialog()
+	run.backend.show(pattern(800, 600, 150))
+	run.elements.show(dialog, dialogElements)
+	pressingYesShows(run, 0)
+	onApply := run.elements.onApply
+	run.elements.onApply = func(e desktop.Element, p desktop.Pattern, v string) {
+		onApply(e, p, v)
+		if e.Name == "はい" {
+			run.backend.show(recorded)
+		}
+	}
+	run.backend.events = nil
+	steps := `{"ai": "never", "input": "direct", "handle": ` + confirmHandler("") + `, "do": [{"act": "Click the canvas"}]}`
+	require.NoError(t, run.execute(steps, nil).err)
+	assert.Equal(t, []string{"invoke はい", "move 10,10", "left down #1"}, run.backend.inputs())
+}
+
+// A confirmation is handled before the model looks at the screen, so the
+// model never sees it or acts on it.
+func TestHandlerClearsAScreenBeforeTheModelLooks(t *testing.T) {
+	t.Parallel()
+
+	run := elementRun(t)
+	dialog, dialogElements := confirmDialog()
+	run.elements.show(dialog, dialogElements)
+	pressingYesShows(run, 0)
+	session := &scriptedSession{turns: []*computeruse.Turn{done("Nothing left to do")}}
+	run.sessions = []*scriptedSession{session}
+	steps := `{"idle": "0", "input": "direct", "handle": ` + confirmHandler("") + `, "do": [{"act": "Save the form"}]}`
+	require.NoError(t, run.execute(steps, nil).err)
+	assert.Equal(t, []string{"invoke はい"}, run.backend.inputs())
+	require.NotEmpty(t, session.observations)
+	for _, e := range session.observations[0].Elements {
+		assert.NotEqual(t, "はい", e.Name, "the model's first look shows no confirmation")
+	}
+}
+
+// A confirmation is handled before a bound table is read from the window.
+func TestHandlerClearsAScreenBeforeATableIsRead(t *testing.T) {
+	t.Parallel()
+
+	run := elementRun(t)
+	withTable(run)
+	run.elements.tableRows = [][]string{{"りんご", "1,200"}}
+	table := run.elements.elements
+	dialog, dialogElements := confirmDialog()
+	run.elements.show(dialog, dialogElements)
+	pressingYesShows(run, 0)
+	onApply := run.elements.onApply
+	run.elements.onApply = func(e desktop.Element, p desktop.Pattern, v string) {
+		onApply(e, p, v)
+		if e.Name == "はい" {
+			run.elements.show(expenseWindow(), table)
+		}
+	}
+	steps := `{"ai": "never", "input": "direct", "handle": ` + confirmHandler("") + `, "do": [{"extract": {"instruction": "The invoice lines",
+		"schema": {"type": "object", "properties": {"lines": {"type": "array", "items": {"type": "object", "properties": {"item": {"type": "string"}, "amount": {"type": "number"}}}}}},
+		"fields": {"windows": {"lines": {"container": {"role": "list", "name": "明細"}, "columns": {"item": "品目", "amount": "金額"}}}}}}]}`
+	execution := run.execute(steps, nil)
+	require.NoError(t, execution.err)
+	assert.Equal(t, []string{"invoke はい"}, run.backend.inputs())
+	assert.Equal(t, []any{map[string]any{"item": "りんご", "amount": int64(1200)}}, execution.exec.GetOutputs()["lines"])
 }
 
 // A pinned step that misses fails under never, naming why, and clicks

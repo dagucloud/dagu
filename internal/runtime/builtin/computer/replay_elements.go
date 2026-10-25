@@ -290,12 +290,9 @@ func (r *run) resolveElement(ctx context.Context, index int, els desktop.Element
 	deadline := time.Now().Add(findWithin)
 	title := r.substitute(rec.Window)
 	for {
-		// A window that slipped behind another is brought forward rather
-		// than counted a miss, so a replay survives a focus change.
-		r.bringForward(ctx, index, rec.App, title)
 		// A screen a handler clears, such as a confirmation, may hide the
-		// element or stand over it; it is cleared before every look, and the
-		// wait starts over.
+		// element or stand over it; it is cleared before every look, while
+		// it is still in front, and the wait starts over.
 		handled, err := r.handleScreens(ctx, index)
 		if err != nil {
 			return desktop.Element{}, "", err
@@ -303,6 +300,9 @@ func (r *run) resolveElement(ctx context.Context, index int, els desktop.Element
 		if handled {
 			deadline = time.Now().Add(findWithin)
 		}
+		// A window that slipped behind another is brought forward rather
+		// than counted a miss, so a replay survives a focus change.
+		r.bringForward(ctx, index, rec.App, title)
 		found, reason, err := r.lookRecorded(els, rec)
 		if err != nil || reason == "" {
 			return found, reason, err

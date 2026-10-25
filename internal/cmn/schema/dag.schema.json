@@ -8127,7 +8127,7 @@
         },
         "handle": {
           "type": "array",
-          "description": "Screens that may come up at any point of the step, such as a confirmation an application shows only sometimes. Before the step looks for an element, acts without one, or reads a check, the first handler whose check holds in the front window runs its pinned steps, and the step carries on; a modal drawn over a page, which leaves the elements behind it readable, is cleared before anything reads or presses them. A run that never meets the screen waits nothing for it. One handler runs at most 20 times in a step.",
+          "description": "Screens that may come up at any point of the step, such as a confirmation an application shows only sometimes. Whenever the step looks at the screen (before it looks for an element, reads a check or a table, compares a replayed screen, or shows the model a screenshot) and before an action without an element, the first handler whose check holds in the front window runs its pinned steps, and the step carries on; a modal drawn over a page, which leaves the elements behind it readable, is cleared before anything reads or presses them. A run that never meets the screen waits nothing for it. One handler runs at most 20 times in a step.",
           "items": {
             "type": "object",
             "additionalProperties": false,

@@ -283,6 +283,15 @@ func (r *run) replay(ctx context.Context, index int, entry recording, budget int
 func (r *run) awaitScreen(ctx context.Context, index int, entry recording, turn recordedTurn, findWithin time.Duration) (view, bool, error) {
 	deadline := time.Now().Add(findWithin)
 	for {
+		// A screen a handler clears may cover the window the turn replays
+		// in; the wait starts over once it is cleared.
+		handled, err := r.handleScreens(ctx, index)
+		if err != nil {
+			return view{}, false, err
+		}
+		if handled {
+			deadline = time.Now().Add(findWithin)
+		}
 		// A window that appears while the turn waits, such as one an
 		// application is still opening, is maximized as it was when the
 		// turn was recorded.
