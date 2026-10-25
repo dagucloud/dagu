@@ -318,6 +318,22 @@ func TestExtractTableMissesOnAMovedHeader(t *testing.T) {
 	require.ErrorContains(t, failed.err, "no column is headed")
 }
 
+// A bound table read while no window is in front misses, so a step looks
+// again, rather than failing as an error.
+func TestExtractTableMissesWithNoWindowInFront(t *testing.T) {
+	t.Parallel()
+
+	run := elementRun(t)
+	withTable(run)
+	run.elements.tableRows = [][]string{{"りんご", "1,200"}}
+	run.vision.extract = `{"lines": {"container": {"role": "list", "name": "明細"}, "columns": {"item": "品目", "amount": "金額"}, "rows": [{"item": "りんご", "amount": 1200}]}}`
+	require.NoError(t, run.execute(extractTable, nil).err)
+
+	run.elements.tableErr = desktop.ErrNoWindow
+	failed := run.execute(extractTableNever, nil)
+	require.ErrorContains(t, failed.err, `table "lines" cannot be read: no window is in front`)
+}
+
 // A model that answers the plain value, ignoring the reading schema's
 // {value, element} wrapper, still publishes; the field just does not bind.
 func TestExtractToleratesAPlainAnswer(t *testing.T) {
@@ -438,6 +454,19 @@ func TestExactConditions(t *testing.T) {
 
 		failed := run.execute(`{"do": [{"expect": {"window": "給与"}, "timeout": "200ms"}]}`, nil)
 		require.ErrorContains(t, failed.err, `"経費精算 - 請求書 1042" is in front, not "給与"`)
+	})
+
+	t.Run("no window in front is looked at again", func(t *testing.T) {
+		t.Parallel()
+		run := newTestRun(t)
+		run.elements = newFakeElements()
+		run.elements.noWindow = 2
+		execution := run.execute(`{"do": [{"expect": {"window": "請求書 *", "within": "5s"}}]}`, nil)
+		require.NoError(t, execution.err, "the window opened while the check kept looking")
+
+		run.elements.noWindow = 1000
+		failed := run.execute(`{"do": [{"expect": {"window": "請求書 *", "within": "300ms"}}]}`, nil)
+		require.ErrorContains(t, failed.err, "no window is in front")
 	})
 
 	t.Run("within keeps looking", func(t *testing.T) {
@@ -828,6 +857,20 @@ func TestPinnedKeyFocusesItsElement(t *testing.T) {
 	missed := run.execute(`{"ai": "never", "do": [{"act": {"instruction": "Submit", "recorded": {"windows": [{"key": "enter", "focus": {"role": "text_field", "id": "noteBox"}}]}}}]}`, nil)
 	require.ErrorContains(t, missed.err, "was not found")
 	assert.Empty(t, run.backend.inputs(), "keys never go to whatever else has the focus")
+}
+
+// A pinned act waits for its element through a moment with no window in
+// front, as when the act before it closed one window and the next has yet
+// to open.
+func TestPinnedActWaitsForAWindowInFront(t *testing.T) {
+	t.Parallel()
+
+	run := elementRun(t)
+	run.elements.noWindow = 3
+	const steps = `{"ai": "never", "input": "direct", "find_within": "5s", "do": [{"act": {"instruction": "Save the invoice", "recorded": {"windows": [{"click": {"role": "button", "name": "保存", "id": "saveButton"}}]}}}]}`
+	replayed := run.execute(steps, nil)
+	require.NoError(t, replayed.err)
+	assert.Equal(t, []string{"invoke saveButton"}, run.backend.inputs())
 }
 
 // A pinned act under input: direct drives the element's pattern.
@@ -2312,6 +2355,87 @@ func TestRepeatedRoundIsNoted(t *testing.T) {
 	assert.Empty(t, session.observations[1].Note, "one round is not a repeat")
 	assert.Equal(t, repeatNote, session.observations[2].Note)
 	assert.Contains(t, execution.stderr.String(), "repeated its previous actions")
+}
+
+// A scroll that moved nothing is reported at once, so the model scrolls
+// elsewhere instead of trying the same spot again. A caret that blinked
+// meanwhile is no movement.
+func TestStillScrollIsNoted(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	run.backend.afterWheels = []*image.RGBA{withCaret(run.backend.screen)}
+	session := &scriptedSession{turns: []*computeruse.Turn{actions(scrollDownAt(5, 5)), done("Scrolled")}}
+	run.sessions = []*scriptedSession{session}
+	execution := run.execute(`{"cache": false, "do": [{"act": "Scroll the list"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	require.Len(t, session.observations, 2)
+	assert.Equal(t, stillScrollNote, session.observations[1].Note)
+	assert.Contains(t, execution.stderr.String(), "the scroll moved nothing")
+}
+
+// A scroll that moved nothing is reported beside the request to look at the
+// result of a turn that also reported the task done.
+func TestStillScrollIsNotedWithReport(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	scrolledAndDone := actions(scrollDownAt(5, 5))
+	scrolledAndDone.Done = &computeruse.Done{Success: true, Summary: "At the end"}
+	session := &scriptedSession{turns: []*computeruse.Turn{scrolledAndDone, done("At the end")}}
+	run.sessions = []*scriptedSession{session}
+	execution := run.execute(`{"cache": false, "do": [{"act": "Scroll to the end"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	require.Len(t, session.observations, 2)
+	assert.Equal(t, verifyNote+" "+stillScrollNote, session.observations[1].Note)
+}
+
+// A turn that scrolls two windows moved something when either window moved.
+func TestScrollOfASecondWindowMoved(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	left := desktop.WindowID{Handle: 1, App: "left", Bounds: image.Rect(0, 0, 200, 200)}
+	right := desktop.WindowID{Handle: 2, App: "right", Bounds: image.Rect(200, 0, 400, 200)}
+	run.backend.windows = []desktop.WindowID{left, right}
+	run.backend.windowAt = func(x, _ int) desktop.WindowID {
+		if x < 200 {
+			return left
+		}
+		return right
+	}
+	screen := run.backend.screen
+	run.backend.afterWheels = []*image.RGBA{screen, brightened(screen, image.Rect(300, 50, 340, 90), 2)}
+	session := &scriptedSession{turns: []*computeruse.Turn{actions(scrollDownAt(50, 50), scrollDownAt(300, 50)), done("Scrolled")}}
+	run.sessions = []*scriptedSession{session}
+	execution := run.execute(`{"cache": false, "do": [{"act": "Scroll both lists"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	require.Len(t, session.observations, 2)
+	assert.Empty(t, session.observations[1].Note)
+}
+
+// Scrolling down a list repeats one scroll, and a small list that moved
+// keeps the screen's fingerprint; neither makes the round a repeat that
+// changed nothing.
+func TestRepeatedScrollThatMovedIsNoRepeat(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	list := run.backend.screen
+	moved, movedAgain := nudged(list, 2), nudged(list, 4)
+	require.Equal(t, desktop.FingerprintOf(list), desktop.FingerprintOf(movedAgain))
+	run.backend.afterWheels = []*image.RGBA{moved, movedAgain}
+	session := &scriptedSession{turns: []*computeruse.Turn{actions(scrollDownAt(5, 5)), actions(scrollDownAt(5, 5)), done("Scrolled")}}
+	run.sessions = []*scriptedSession{session}
+	execution := run.execute(`{"cache": false, "do": [{"act": "Scroll the list"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	require.Len(t, session.observations, 3)
+	assert.Empty(t, session.observations[1].Note)
+	assert.Empty(t, session.observations[2].Note)
 }
 
 // A model provider's confirmation request is approved with

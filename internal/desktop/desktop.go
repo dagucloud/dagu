@@ -162,6 +162,10 @@ const (
 	inputEcho = time.Second
 )
 
+// maxScrollNotches bounds one scroll along each axis, about ten screens,
+// so a mistaken count cannot flood the desktop with wheel input.
+const maxScrollNotches = 100
+
 // WindowID names a top-level window the way the system reports it, so a
 // step can tell whether the focus moved and whose window an action would
 // operate.
@@ -418,8 +422,12 @@ func (d *Driver) glide(ctx context.Context, path []image.Point) error {
 }
 
 // Scroll scrolls wheel notches at a position, or at the pointer when at is
-// nil, while holding modifiers.
+// nil, while holding modifiers. A scroll moves at most 100 notches along
+// each axis.
 func (d *Driver) Scroll(ctx context.Context, at *image.Point, dx, dy int, modifiers []Key) error {
+	if dx < -maxScrollNotches || dx > maxScrollNotches || dy < -maxScrollNotches || dy > maxScrollNotches {
+		return fmt.Errorf("a scroll moves at most %d notches at a time", maxScrollNotches)
+	}
 	if at != nil {
 		if err := d.Move(ctx, *at); err != nil {
 			return err

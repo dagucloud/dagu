@@ -510,6 +510,9 @@ func (r *run) readBinding(ctx context.Context, index int, els desktop.Elements, 
 func (r *run) readTable(ctx context.Context, els desktop.Elements, field fieldBinding, maxRows int) ([]any, string, error) {
 	tbl := field.Table
 	front, err := els.FrontWindow()
+	if errors.Is(err, desktop.ErrNoWindow) {
+		return nil, fmt.Sprintf("table %q cannot be read: %v", field.Name, err), nil
+	}
 	if err != nil {
 		return nil, "", err
 	}
@@ -530,7 +533,7 @@ func (r *run) readTable(ctx context.Context, els desktop.Elements, field fieldBi
 	}
 	read, err := els.Rows(ctx, substituteSelector(tbl.Container, r.variables), headers, maxRows)
 	switch {
-	case errors.Is(err, desktop.ErrNotFound):
+	case errors.Is(err, desktop.ErrNotFound) || errors.Is(err, desktop.ErrNoWindow):
 		return nil, fmt.Sprintf("table %q cannot be read: %s", field.Name, err.Error()), nil
 	case err != nil:
 		return nil, "", err

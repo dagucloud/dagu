@@ -254,6 +254,9 @@ func windowMatchesRecorded(w desktop.WindowID, app, title string) bool {
 func (r *run) lookRecorded(els desktop.Elements, rec recordedElement) (desktop.Element, string, error) {
 	sel := substituteSelector(rec.Selector, r.variables)
 	front, err := els.FrontWindow()
+	if errors.Is(err, desktop.ErrNoWindow) {
+		return desktop.Element{}, err.Error(), nil
+	}
 	if err != nil {
 		return desktop.Element{}, "", err
 	}
@@ -264,6 +267,8 @@ func (r *run) lookRecorded(els desktop.Elements, rec recordedElement) (desktop.E
 	switch {
 	case errors.Is(err, desktop.ErrNoElements):
 		return desktop.Element{}, fmt.Sprintf("%q exposes no elements", front.Name), nil
+	case errors.Is(err, desktop.ErrNoWindow):
+		return desktop.Element{}, err.Error(), nil
 	case errors.Is(err, desktop.ErrNotFound) || errors.Is(err, desktop.ErrAmbiguous):
 		return desktop.Element{}, err.Error(), nil
 	case err != nil:
@@ -595,6 +600,9 @@ func (r *run) awaitLandmarks(ctx context.Context, els desktop.Elements, entry re
 
 func (r *run) lookLandmarks(els desktop.Elements, entry recording) (string, error) {
 	front, err := els.FrontWindow()
+	if errors.Is(err, desktop.ErrNoWindow) {
+		return err.Error(), nil
+	}
 	if err != nil {
 		return "", err
 	}

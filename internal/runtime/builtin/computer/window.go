@@ -23,6 +23,14 @@ const protectedAppsEnv = "DAGU_DESKTOP_PROTECTED_APPS"
 // recorded one and still be the window a turn was recorded on.
 const windowSizeTolerance = 2
 
+// A view still shows the same picture when no more than one in stillShare
+// of its pixels changed, or stillPixels in a small view: enough for a
+// blinking caret or a clock, too few for a list that scrolled.
+const (
+	stillShare  = 10000
+	stillPixels = 256
+)
+
 // protectedApps reads the applications a step never operates.
 func protectedApps() []string {
 	return strings.Split(os.Getenv(protectedAppsEnv), ",")
@@ -62,6 +70,17 @@ func (v view) region(img *image.RGBA) *image.RGBA {
 // fingerprint hashes what the view shows of an image.
 func (v view) fingerprint(img *image.RGBA) desktop.Fingerprint {
 	return desktop.FingerprintOf(v.region(img))
+}
+
+// still reports whether the view shows the same picture in two captures of
+// the display, but for a few pixels.
+func (v view) still(before, after *image.RGBA) bool {
+	if before.Bounds() != after.Bounds() {
+		return false
+	}
+	region := v.region(before)
+	size := region.Bounds().Size()
+	return desktop.ChangedPixels(region, v.region(after)) <= max(stillPixels, size.X*size.Y/stillShare)
 }
 
 // targetPrint hashes the area around a display position, inside the view.

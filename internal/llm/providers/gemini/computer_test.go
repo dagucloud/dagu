@@ -159,6 +159,32 @@ func TestComputerSessionDesktopActions(t *testing.T) {
 	assert.Equal(t, 3, turn.Actions[7].Count, "type_text_at clears the field by default")
 }
 
+// magnitude_in_pixels is in screenshot pixels, while the legacy magnitude is
+// on the grid positions are, along the scroll's axis, so it covers the same
+// share of any screen.
+func TestComputerSessionScrollDistances(t *testing.T) {
+	t.Parallel()
+
+	model := `{"role":"model","parts":[
+		{"functionCall":{"id":"a","name":"scroll","args":{"x":0,"y":0,"direction":"down","magnitude_in_pixels":400}}},
+		{"functionCall":{"id":"b","name":"scroll","args":{"x":0,"y":0,"direction":"up"}}},
+		{"functionCall":{"id":"c","name":"scroll_at","args":{"x":0,"y":0,"direction":"down","magnitude":400}}},
+		{"functionCall":{"id":"d","name":"scroll_at","args":{"x":0,"y":0,"direction":"right","magnitude":400}}},
+		{"functionCall":{"id":"e","name":"scroll_at","args":{"x":0,"y":0,"direction":"down"}}}
+	]}`
+	server := generateServer(`{"candidates":[{"content":` + model + `}]}`)
+	session := newComputerSession(t, server)
+
+	turn, err := session.Next(context.Background(), computeruse.Observation{Screen: testScreen("first")})
+	require.NoError(t, err)
+	require.Len(t, turn.Actions, 5)
+	assert.Equal(t, 4, turn.Actions[0].ScrollY, "400 pixels")
+	assert.Equal(t, -3, turn.Actions[1].ScrollY, "the documented default of 300 pixels")
+	assert.Equal(t, 2, turn.Actions[2].ScrollY, "400 of 1000 down a 500-pixel screen is 200 pixels")
+	assert.Equal(t, 4, turn.Actions[3].ScrollX, "400 of 1000 across a 1000-pixel screen is 400 pixels")
+	assert.Equal(t, 4, turn.Actions[4].ScrollY, "the documented default of 800 of 1000 is 400 pixels")
+}
+
 // A call that cannot be performed stops the batch.
 func TestComputerSessionHaltsBatch(t *testing.T) {
 	t.Parallel()

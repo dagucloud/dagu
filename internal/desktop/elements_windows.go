@@ -519,7 +519,7 @@ type topWindow struct {
 func (w *uiaWorker) frontWindow() (*topWindow, error) {
 	hwnd := windows.GetForegroundWindow()
 	if hwnd == 0 {
-		return nil, errors.New("no window is in front")
+		return nil, ErrNoWindow
 	}
 	el, err := w.auto.elementFromHandle(uintptr(hwnd), w.cacheElement)
 	if err != nil {
