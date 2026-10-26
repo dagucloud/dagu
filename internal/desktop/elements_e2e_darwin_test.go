@@ -241,7 +241,9 @@ func outlined(t *testing.T, outline []Element, role, name string) Element {
 // An element in a sheet belongs to the sheet, the window in front, not to
 // the window the sheet is attached to, whether it is read where it is or as
 // the one with the focus; its path runs down from the sheet, as the sheet's
-// outline gives it.
+// outline gives it. A combo box in it that has the keyboard focus refuses to
+// be given it again, so focusing it then succeeds: the focus is already
+// where it was asked to be.
 func TestDarwinElementInASheet(t *testing.T) {
 	_, els := e2eElements(t)
 	sheet, outline := formSheet(t, els)
@@ -259,18 +261,11 @@ func TestDarwinElementInASheet(t *testing.T) {
 	assert.Equal(t, RoleTextField, focused.Role)
 	assert.Equal(t, sheet.Name, focused.Window)
 	assert.Equal(t, field.Path, focused.Path)
-}
 
-// A combo box that has the keyboard focus refuses to be given it again, so
-// focusing it then succeeds: the focus is already where it was asked to be.
-func TestDarwinFocusAnElementThatHasIt(t *testing.T) {
-	_, els := e2eElements(t)
-	_, outline := formSheet(t, els)
 	choice := outlined(t, outline, RoleComboBox, "Dagu form choice")
-
 	require.NoError(t, els.Focus(choice))
 	require.NoError(t, els.Focus(choice), "the combo box has the focus already")
-	focused, err := els.Focused()
+	focused, err = els.Focused()
 	require.NoError(t, err)
 	assert.Equal(t, RoleComboBox, focused.Role)
 }
