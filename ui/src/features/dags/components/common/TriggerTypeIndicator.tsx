@@ -8,6 +8,7 @@ export const triggerTypeLabels: Record<TriggerType, string> = {
   subdag: 'Sub-DAG',
   retry: 'Retry',
   catchup: 'Catch-up',
+  file: 'File',
   unknown: 'Unknown',
 };
 

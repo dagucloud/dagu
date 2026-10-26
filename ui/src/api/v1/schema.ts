@@ -22572,7 +22572,8 @@ export enum TriggerType {
     webhook = "webhook",
     subdag = "subdag",
     retry = "retry",
-    catchup = "catchup"
+    catchup = "catchup",
+    file = "file"
 }
 export enum NodeStatus {
     NotStarted = 0,

@@ -37,6 +37,7 @@ const (
 	CollectionUpgradeCheck          = "upgrade_check"
 	CollectionUsers                 = "users"
 	CollectionViews                 = "views"
+	CollectionWatchState            = "watch_state"
 	CollectionWebhooks              = "webhooks"
 	CollectionWebhookDAGClaims      = "webhook_dag_claims"
 	CollectionWorkerHeartbeats      = "worker_heartbeats"

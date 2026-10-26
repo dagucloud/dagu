@@ -14675,6 +14675,7 @@ components:
         - "subdag"
         - "retry"
         - "catchup"
+        - "file"
 
     NodeStatus:
       type: integer

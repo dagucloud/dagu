@@ -164,6 +164,8 @@ type dag struct {
 	Resources *resourcesConfig `yaml:"resources,omitempty"`
 	// Webhook contains DAG-level webhook trigger behavior configuration.
 	Webhook *webhookConfig `yaml:"webhook,omitempty"`
+	// Watch names the folder whose arriving files each start a run.
+	Watch *watchConfig `yaml:"watch,omitempty"`
 	// RegistryAuths maps registry hostnames to authentication configs.
 	// Can be either a JSON string or a map of registry to auth config.
 	RegistryAuths any `yaml:"registry_auths,omitempty"`
@@ -363,6 +365,16 @@ type webhookConfig struct {
 	ForwardHeaders []string `yaml:"forward_headers,omitempty"`
 }
 
+// watchConfig names a folder whose arriving files each start a run.
+type watchConfig struct {
+	// Path is the folder watched.
+	Path string `yaml:"path,omitempty"`
+	// Pattern is the glob a file's name must match, such as *.pdf.
+	Pattern string `yaml:"pattern,omitempty"`
+	// Interval is how often the folder is read, such as 30s; 10s by default.
+	Interval string `yaml:"interval,omitempty"`
+}
+
 // ssh defines the SSH configuration for the DAG.
 type ssh struct {
 	// User is the SSH user.
@@ -551,6 +563,7 @@ var metadataParamsEnvStage = transformStage{
 
 var metadataScheduleStage = transformStage{
 	dagField("schedule", buildSchedule, func(out *ir.DAG, v []ir.Schedule) { out.Schedule = v }),
+	dagField("watch", buildWatchConfig, func(out *ir.DAG, v *ir.WatchConfig) { out.Watch = v }),
 	dagField("stop_schedule", buildStopSchedule, func(out *ir.DAG, v []ir.Schedule) { out.StopSchedule = v }),
 	dagField("restart_schedule", buildRestartSchedule, func(out *ir.DAG, v []ir.Schedule) { out.RestartSchedule = v }),
 }
@@ -1763,6 +1776,37 @@ func buildResources(_ buildContext, d *dag) (*ir.Resources, error) {
 		return nil, nil
 	}
 	return &ir.Resources{Limits: limits}, nil
+}
+
+// buildWatchConfig checks a watch block: a folder, a name pattern that
+// filepath.Match takes, and an interval of at least a second.
+func buildWatchConfig(_ buildContext, d *dag) (*ir.WatchConfig, error) {
+	if d.Watch == nil {
+		return nil, nil
+	}
+	path := strings.TrimSpace(d.Watch.Path)
+	if path == "" {
+		return nil, ir.NewValidationError("watch.path", d.Watch.Path, fmt.Errorf("the folder to watch is required"))
+	}
+	pattern := strings.TrimSpace(d.Watch.Pattern)
+	if _, err := filepath.Match(pattern, ""); err != nil {
+		return nil, ir.NewValidationError("watch.pattern", d.Watch.Pattern, err)
+	}
+	if pattern == "*" {
+		pattern = ""
+	}
+	interval := ir.DefaultWatchInterval
+	if raw := strings.TrimSpace(d.Watch.Interval); raw != "" {
+		parsed, err := time.ParseDuration(raw)
+		if err != nil {
+			return nil, ir.NewValidationError("watch.interval", d.Watch.Interval, fmt.Errorf("interval must be a duration such as 30s"))
+		}
+		if parsed < time.Second {
+			return nil, ir.NewValidationError("watch.interval", d.Watch.Interval, fmt.Errorf("interval must be at least 1s"))
+		}
+		interval = parsed
+	}
+	return &ir.WatchConfig{Path: path, Pattern: pattern, Interval: interval}, nil
 }
 
 func buildWebhookConfig(_ buildContext, d *dag) (*ir.WebhookConfig, error) {

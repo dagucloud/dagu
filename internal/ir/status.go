@@ -138,6 +138,8 @@ const (
 	TriggerTypeSubDAG
 	TriggerTypeRetry
 	TriggerTypeCatchUp
+	// TriggerTypeFile is a run started by a file arriving in a watched folder.
+	TriggerTypeFile
 )
 
 // String returns the canonical lowercase token for the trigger type.
@@ -157,6 +159,8 @@ func (t TriggerType) String() string {
 		return "retry"
 	case TriggerTypeCatchUp:
 		return "catchup"
+	case TriggerTypeFile:
+		return "file"
 	default:
 		return "unknown"
 	}
@@ -177,6 +181,8 @@ func ParseTriggerType(s string) TriggerType {
 		return TriggerTypeRetry
 	case "catchup":
 		return TriggerTypeCatchUp
+	case "file":
+		return TriggerTypeFile
 	default:
 		return TriggerTypeUnknown
 	}

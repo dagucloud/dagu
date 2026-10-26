@@ -784,6 +784,27 @@
       },
       "description": "DAG-level webhook trigger behavior. Use this to forward selected request headers into webhook-triggered runs."
     },
+    "watch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The folder watched; a leading ~ is the home directory. Each file that arrives in it starts one run, with the file's path as WATCH_FILE and its name as WATCH_NAME. A file counts as arrived once its size and modification time hold still between two readings, so a file still being copied waits. Files the folder holds when the watch starts are left alone. A file runs again only when it is replaced."
+        },
+        "pattern": {
+          "type": "string",
+          "description": "A glob the file's name must match, such as *.pdf. Files whose names start with . or ~$ and files still being written (.tmp, .part, .crdownload) never match."
+        },
+        "interval": {
+          "type": "string",
+          "description": "How often the folder is read, such as 30s. Defaults to 10s; at least 1s."
+        }
+      },
+      "description": "Start a run for each file that arrives in a folder."
+    },
     "worker_selector": {
       "oneOf": [
         {
