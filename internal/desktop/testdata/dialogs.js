@@ -1,6 +1,6 @@
-// Opens a window and then, as the argument asks, a sheet on it, a modal
-// alert, or a panel that is not modal; then runs until the test ends the
-// process.
+// Opens a window and then, as the argument asks, a sheet on it, a form of
+// the application's own as a sheet, a modal alert, or a panel that is not
+// modal; then runs until the test ends the process.
 ObjC.import('Cocoa');
 
 function run(argv) {
@@ -21,6 +21,20 @@ function run(argv) {
       alert.messageText = 'Dagu sheet question';
       alert.beginSheetModalForWindowCompletionHandler(host, null);
       break;
+    case 'form': {
+      const form = $.NSWindow.alloc.initWithContentRectStyleMaskBackingDefer(
+        $.NSMakeRect(0, 0, 300, 140), $.NSWindowStyleMaskTitled, $.NSBackingStoreBuffered, false);
+      form.title = 'Dagu form sheet';
+      const field = $.NSTextField.alloc.initWithFrame($.NSMakeRect(20, 80, 200, 24));
+      field.setAccessibilityLabel('Dagu form field');
+      form.contentView.addSubview(field);
+      const save = $.NSButton.buttonWithTitleTargetAction('Dagu form save', null, null);
+      save.frame = $.NSMakeRect(20, 20, 160, 32);
+      form.contentView.addSubview(save);
+      host.beginSheetCompletionHandler(form, null);
+      form.makeFirstResponder(field);
+      break;
+    }
     case 'alert':
       // A modal alert runs once the application has finished launching,
       // so it comes to the front as the active application's.

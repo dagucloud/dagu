@@ -590,6 +590,13 @@ func (e *axElements) Focused() (Element, error) {
 	})
 }
 
+// windowRole reports an Accessibility role that is a window of its own. A
+// sheet is one, though its parent is the window it is attached to: it is
+// the window in front while it is open, and its elements belong to it.
+func windowRole(role string) bool {
+	return role == "AXWindow" || role == "AXSheet"
+}
+
 // place describes an element with its window and its path down from it.
 func (e *axElements) place(ref uintptr) (Element, error) {
 	var pool []uintptr
@@ -598,7 +605,7 @@ func (e *axElements) place(ref uintptr) (Element, error) {
 	if err != nil {
 		return Element{}, err
 	}
-	if n.role == "AXWindow" {
+	if windowRole(n.role) {
 		var pid int32
 		_ = axUIElementGetPid(ref, &pid)
 		top, err := e.asWindow(cfRetain(ref), pid)
@@ -633,7 +640,7 @@ func (e *axElements) place(ref uintptr) (Element, error) {
 			parentRole = holder
 		}
 		steps = append(steps, below...)
-		if parentNode.role == "AXWindow" {
+		if windowRole(parentNode.role) {
 			title = e.element(parentNode, "").Name
 			break
 		}

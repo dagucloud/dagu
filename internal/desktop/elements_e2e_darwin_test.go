@@ -208,6 +208,44 @@ func TestDarwinDialogs(t *testing.T) {
 	}
 }
 
+// An element in a sheet belongs to the sheet, the window in front, not to
+// the window the sheet is attached to, whether it is read where it is or as
+// the one with the focus; its path runs down from the sheet, as the sheet's
+// outline gives it.
+func TestDarwinElementInASheet(t *testing.T) {
+	_, els := e2eElements(t)
+	startFixture(t, filepath.Join("testdata", "dialogs.js"), nil, "form")
+	var sheet, save Element
+	require.Eventually(t, func() bool {
+		w, err := els.FrontWindow()
+		if err != nil || w.App != "osascript" || w.Role != RoleDialog {
+			return false
+		}
+		outline, err := els.Outline(w, 0)
+		if err != nil {
+			return false
+		}
+		i := slices.IndexFunc(outline, func(e Element) bool { return e.Role == RoleButton && e.Name == "Dagu form save" })
+		if i < 0 {
+			return false
+		}
+		sheet, save = w, outline[i]
+		return true
+	}, 20*time.Second, 200*time.Millisecond, "the form sheet did not come to the front")
+
+	centre := save.Bounds.Min.Add(save.Bounds.Size().Div(2))
+	at, err := els.At(centre.X, centre.Y)
+	require.NoError(t, err)
+	assert.Equal(t, "Dagu form save", at.Name)
+	assert.Equal(t, sheet.Name, at.Window)
+	assert.Equal(t, save.Path, at.Path)
+
+	focused, err := els.Focused()
+	require.NoError(t, err)
+	assert.Equal(t, RoleTextField, focused.Role)
+	assert.Equal(t, sheet.Name, focused.Window)
+}
+
 func TestDarwinElementUnderSkippedParent(t *testing.T) {
 	_, els := e2eElements(t)
 	window := fixtureWindow(t, els, filepath.Join("testdata", "skipped.js"), skippedWindowTitle)
