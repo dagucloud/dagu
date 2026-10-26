@@ -23,11 +23,15 @@ function run(argv) {
       break;
     case 'form': {
       const form = $.NSWindow.alloc.initWithContentRectStyleMaskBackingDefer(
-        $.NSMakeRect(0, 0, 300, 140), $.NSWindowStyleMaskTitled, $.NSBackingStoreBuffered, false);
+        $.NSMakeRect(0, 0, 300, 180), $.NSWindowStyleMaskTitled, $.NSBackingStoreBuffered, false);
       form.title = 'Dagu form sheet';
-      const field = $.NSTextField.alloc.initWithFrame($.NSMakeRect(20, 80, 200, 24));
+      const field = $.NSTextField.alloc.initWithFrame($.NSMakeRect(20, 130, 200, 24));
       field.setAccessibilityLabel('Dagu form field');
       form.contentView.addSubview(field);
+      const choice = $.NSComboBox.alloc.initWithFrame($.NSMakeRect(20, 80, 200, 26));
+      choice.setAccessibilityLabel('Dagu form choice');
+      choice.addItemsWithObjectValues($(['Alpha', 'Beta']));
+      form.contentView.addSubview(choice);
       const save = $.NSButton.buttonWithTitleTargetAction('Dagu form save', null, null);
       save.frame = $.NSMakeRect(20, 20, 160, 32);
       form.contentView.addSubview(save);

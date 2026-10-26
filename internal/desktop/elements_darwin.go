@@ -841,6 +841,11 @@ func (e *axElements) Focus(target Element) error {
 		}
 		defer cfRelease(ref)
 		e.bringForward(ref)
+		// An element that has the focus may refuse to be given it again,
+		// as a combo box being edited does.
+		if focused, ok := axBool(ref, "AXFocused"); ok && focused {
+			return struct{}{}, nil
+		}
 		if !axSettable(ref, "AXFocused") {
 			return struct{}{}, errors.New("the element cannot take the keyboard focus")
 		}

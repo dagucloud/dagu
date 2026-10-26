@@ -208,31 +208,44 @@ func TestDarwinDialogs(t *testing.T) {
 	}
 }
 
+// formSheet opens the fixture's form as a sheet and returns the sheet and
+// its outline once it is in front.
+func formSheet(t *testing.T, els Elements) (Element, []Element) {
+	t.Helper()
+	startFixture(t, filepath.Join("testdata", "dialogs.js"), nil, "form")
+	var sheet Element
+	var outline []Element
+	require.Eventually(t, func() bool {
+		w, err := els.FrontWindow()
+		if err != nil || w.App != "osascript" || w.Role != RoleDialog {
+			return false
+		}
+		found, err := els.Outline(w, 0)
+		if err != nil || !slices.ContainsFunc(found, func(e Element) bool { return e.Role == RoleButton && e.Name == "Dagu form save" }) {
+			return false
+		}
+		sheet, outline = w, found
+		return true
+	}, 20*time.Second, 200*time.Millisecond, "the form sheet did not come to the front")
+	return sheet, outline
+}
+
+// outlined returns the outline's element with role and name.
+func outlined(t *testing.T, outline []Element, role, name string) Element {
+	t.Helper()
+	i := slices.IndexFunc(outline, func(e Element) bool { return e.Role == role && e.Name == name })
+	require.GreaterOrEqual(t, i, 0, "no %s %q in %+v", role, name, outline)
+	return outline[i]
+}
+
 // An element in a sheet belongs to the sheet, the window in front, not to
 // the window the sheet is attached to, whether it is read where it is or as
 // the one with the focus; its path runs down from the sheet, as the sheet's
 // outline gives it.
 func TestDarwinElementInASheet(t *testing.T) {
 	_, els := e2eElements(t)
-	startFixture(t, filepath.Join("testdata", "dialogs.js"), nil, "form")
-	var sheet, field, save Element
-	require.Eventually(t, func() bool {
-		w, err := els.FrontWindow()
-		if err != nil || w.App != "osascript" || w.Role != RoleDialog {
-			return false
-		}
-		outline, err := els.Outline(w, 0)
-		if err != nil {
-			return false
-		}
-		i := slices.IndexFunc(outline, func(e Element) bool { return e.Role == RoleButton && e.Name == "Dagu form save" })
-		j := slices.IndexFunc(outline, func(e Element) bool { return e.Role == RoleTextField })
-		if i < 0 || j < 0 {
-			return false
-		}
-		sheet, save, field = w, outline[i], outline[j]
-		return true
-	}, 20*time.Second, 200*time.Millisecond, "the form sheet did not come to the front")
+	sheet, outline := formSheet(t, els)
+	field, save := outlined(t, outline, RoleTextField, "Dagu form field"), outlined(t, outline, RoleButton, "Dagu form save")
 
 	centre := save.Bounds.Min.Add(save.Bounds.Size().Div(2))
 	at, err := els.At(centre.X, centre.Y)
@@ -246,6 +259,20 @@ func TestDarwinElementInASheet(t *testing.T) {
 	assert.Equal(t, RoleTextField, focused.Role)
 	assert.Equal(t, sheet.Name, focused.Window)
 	assert.Equal(t, field.Path, focused.Path)
+}
+
+// A combo box that has the keyboard focus refuses to be given it again, so
+// focusing it then succeeds: the focus is already where it was asked to be.
+func TestDarwinFocusAnElementThatHasIt(t *testing.T) {
+	_, els := e2eElements(t)
+	_, outline := formSheet(t, els)
+	choice := outlined(t, outline, RoleComboBox, "Dagu form choice")
+
+	require.NoError(t, els.Focus(choice))
+	require.NoError(t, els.Focus(choice), "the combo box has the focus already")
+	focused, err := els.Focused()
+	require.NoError(t, err)
+	assert.Equal(t, RoleComboBox, focused.Role)
 }
 
 func TestDarwinElementUnderSkippedParent(t *testing.T) {
