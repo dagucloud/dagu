@@ -327,3 +327,17 @@ func TestRehearsalKeepsItsCommitPoint(t *testing.T) {
 	assert.Equal(t, "Click the Save button", points[0].Operation)
 	assert.Equal(t, "https://books.example.com/deals", points[0].Page)
 }
+
+// In record mode a write nothing approved, sent while the last downloads
+// settle, fails the step as one sent during an operation does.
+func TestRecordFailsAWriteAfterTheLastOperation(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.engine.handle.WriteGate = runningGate()
+	run.engine.downloadWrites = []writegate.Event{blockedSave}
+	execution := run.execute(`{"url": "https://books.example.com/deals", "browser": {"write_gate": "record"}, "do": [{"act": "Click the Save button"}]}`, nil)
+
+	require.ErrorContains(t, execution.err, "do[0] act failed: write_blocked")
+	require.Len(t, run.commitPoints(), 1)
+}
