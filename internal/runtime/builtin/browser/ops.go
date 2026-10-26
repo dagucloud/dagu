@@ -325,6 +325,26 @@ func (r *run) reportWrites(ctx context.Context, index int) (*writegate.Event, er
 	return stop, nil
 }
 
+// restoreWrites takes back what the gate decided up to the last event the
+// step reported before it waited for an answer, without reporting it
+// again, so its write gate report covers the whole step.
+func (r *run) restoreWrites(ctx context.Context) {
+	events, err := r.eng.Writes(ctx, 0)
+	if err != nil {
+		// The next report reads the gate again.
+		return
+	}
+	for _, event := range maskEvents(r.masker, events) {
+		if event.Seq > r.writeSeq {
+			break
+		}
+		r.writes = append(r.writes, event)
+		if event.Kind == writegate.KindSocket {
+			r.unrehearsable = true
+		}
+	}
+}
+
 // rehearsed ends a rehearsal at the write the gate kept back after the
 // operation at index: the step partially succeeds, saying what it would
 // have sent and which operations did not run.
@@ -623,6 +643,15 @@ func (r *run) capture(ctx context.Context, label string) (string, error) {
 }
 
 func (r *run) succeed(ctx context.Context) error {
+	// A write the page sent while downloads settled stops a rehearsal too.
+	last := len(r.cfg.Do) - 1
+	stop, gateErr := r.reportWrites(ctx, last)
+	switch {
+	case gateErr != nil:
+		return r.fail(ctx, last, kindWriteGate, gateErr)
+	case stop != nil:
+		return r.rehearsed(ctx, last, *stop)
+	}
 	var files []string
 	if r.cfg.capturesFinalScreenshot() && r.artifacts.Enabled() {
 		if rel, err := r.capture(ctx, finalShotLabel); err == nil {
@@ -671,7 +700,9 @@ func (r *run) fail(ctx context.Context, index int, kind string, cause error) err
 	}
 	r.reportBlocked(index)
 	if !errors.Is(cause, errWriteGateLost) {
-		_, _ = r.reportWrites(ctx, index)
+		// What the gate decided before a cancellation still belongs in the
+		// report.
+		_, _ = r.reportWrites(context.WithoutCancel(ctx), index)
 	}
 	r.keepWriteGateReport(nil, nil)
 	r.takeCertificateEvents(ctx, index)

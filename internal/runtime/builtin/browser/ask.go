@@ -111,6 +111,7 @@ func (r *run) resumeSession(ctx context.Context, recordID string, session *ir.Ag
 		if r.writeGate, err = writeGateMode(ctx, r.cfg.Browser.WriteGate); err != nil {
 			return 0, err
 		}
+		r.restoreWrites(ctx)
 	}
 	if err := r.saveRunningRecord(); err != nil {
 		return 0, err

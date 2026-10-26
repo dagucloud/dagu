@@ -4,6 +4,7 @@
 package browser
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -166,4 +167,77 @@ func TestWriteGateIsOffByDefault(t *testing.T) {
 	require.NoError(t, execution.err)
 	assert.Nil(t, run.launcher.launches[0].WriteGate)
 	assert.NoFileExists(t, filepath.Join(run.artifacts, "browser", "shop", writeGateFile))
+}
+
+// readReport returns the write gate report the step left.
+func (r *testRun) readReport() writeGateReport {
+	r.t.Helper()
+	data, err := os.ReadFile(filepath.Join(r.artifacts, "browser", "shop", writeGateFile))
+	require.NoError(r.t, err)
+	var report writeGateReport
+	require.NoError(r.t, json.Unmarshal(data, &report))
+	return report
+}
+
+// A step that waited for an answer reports what the gate decided before
+// the wait too, once each, and still knows the site cannot be rehearsed.
+func TestWriteGateReportSpansAnAsk(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.engine.handle.WriteGate = runningGate()
+	beacon := writegate.Event{Kind: writegate.KindWrite, Method: "POST", URL: "https://books.example.com/log", ResourceType: "Ping", Class: writegate.ClassNoise, Outcome: writegate.OutcomeBlocked}
+	socket := writegate.Event{Kind: writegate.KindSocket, URL: "wss://books.example.com/live", Target: "service_worker"}
+	run.engine.actWrites = []writegate.Event{beacon, socket}
+	steps := `{"browser": {"write_gate": "rehearse"}, "do": [
+		{"act": "Click the Open button"},
+		{"ask": {"prompt": "Which entry?", "as": "entry"}},
+		{"act": "Click the Next button"}
+	]}`
+	waiting := run.execute(steps, nil)
+	require.NoError(t, waiting.err)
+	session := waiting.exec.GetAgentSession()
+	session.Interactions[0].Status = ir.AgentInteractionAnswered
+	session.Interactions[0].Answers = [][]string{{"A-1"}}
+	resumed := run.execute(steps, session)
+	require.NoError(t, resumed.err)
+
+	report := run.readReport()
+	assert.Len(t, report.Writes, 2)
+	assert.False(t, report.Rehearsable)
+	assert.NotContains(t, eventNames(resumed.exec.GetAgentSession())[2:], "write:blocked", "the resumed step does not report them again")
+}
+
+// A write the page sends while the last downloads settle stops the
+// rehearsal as one sent during an operation does.
+func TestRehearsalStopsAtAWriteAfterTheLastOperation(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.engine.handle.WriteGate = runningGate()
+	run.engine.downloadWrites = []writegate.Event{blockedSave}
+	execution := run.execute(`{"browser": {"write_gate": "rehearse"}, "do": [{"act": "Click the Save button"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	status, _ := execution.exec.DetermineNodeStatus()
+	assert.Equal(t, ir.NodePartiallySucceeded, status)
+	require.NotNil(t, run.readReport().WouldSend)
+}
+
+// A step cancelled after the gate decided a write still reports it.
+func TestCancelledStepReportsItsWrites(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.engine.handle.WriteGate = runningGate()
+	run.engine.actWrites = []writegate.Event{blockedSave}
+	base, cancel := context.WithCancel(t.Context())
+	run.base = base
+	run.engine.onAct = cancel
+	execution := run.execute(`{"browser": {"write_gate": "rehearse"}, "do": [{"act": "Click the Save button"}, {"wait": {"duration": "10s"}}]}`, nil)
+	require.ErrorContains(t, execution.err, context.Canceled.Error())
+
+	report := run.readReport()
+	require.Len(t, report.Writes, 1)
+	assert.Equal(t, blockedSave.Signature, report.Writes[0].Signature)
 }

@@ -5,6 +5,7 @@ package browser
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -52,6 +53,9 @@ type testRun struct {
 	// browser.write_gate and browser.write_policy.
 	hostWriteGate   string
 	hostWritePolicy string
+	// base is the context executions run under, in place of the test's,
+	// for a test that cancels one.
+	base context.Context
 	// noModel runs the step without an llm block.
 	noModel bool
 }
@@ -110,7 +114,7 @@ func (r *testRun) context() context.Context {
 	for name, secret := range r.secrets {
 		scope = scope.WithEntry(name, secret, value.EnvSourceSecret)
 	}
-	ctx := cmnconfig.WithConfig(r.t.Context(), &cmnconfig.Config{
+	ctx := cmnconfig.WithConfig(cmp.Or(r.base, r.t.Context()), &cmnconfig.Config{
 		Paths: cmnconfig.PathsConfig{DataDir: r.dataDir},
 		Browser: cmnconfig.BrowserConfig{
 			NoSandbox: r.noSandbox, ClientCertificates: r.hostCertificates, TrustedCAs: r.hostTrustedCAs, GuardClientCertificates: r.hostGuard,

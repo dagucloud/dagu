@@ -101,6 +101,9 @@ type fakeEngine struct {
 	writes    []writegate.Event
 	// writesErr is the error every read of the write gate reports.
 	writesErr error
+	// downloadWrites are the writes the gate decides while the next
+	// download wait runs.
+	downloadWrites []writegate.Event
 	// outcome is what the browser shows after a page opened.
 	outcome pageOutcome
 	// pending are the connections the certificate proxy waits on.
@@ -184,11 +187,20 @@ func (e *fakeEngine) TakeCertificateEvents(context.Context) ([]certproxy.Event, 
 	return events, nil
 }
 
-func (e *fakeEngine) Writes(_ context.Context, after int64) ([]writegate.Event, error) {
+// keepWrites numbers writes as the gate keeps them. The caller holds e.mu.
+func (e *fakeEngine) keepWrites(writes []writegate.Event) {
+	for _, write := range writes {
+		write.Seq = int64(len(e.writes) + 1)
+		e.writes = append(e.writes, write)
+	}
+}
+
+func (e *fakeEngine) Writes(ctx context.Context, after int64) ([]writegate.Event, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.writesErr != nil {
-		return nil, e.writesErr
+	// The runtime's calls end with their context, as the real engine's do.
+	if err := cmp.Or(ctx.Err(), e.writesErr); err != nil {
+		return nil, err
 	}
 	var events []writegate.Event
 	for _, write := range e.writes {
@@ -253,10 +265,7 @@ func (e *fakeEngine) Act(ctx context.Context, instruction string, variables map[
 	e.dialogs = append(e.dialogs, e.actDialogs...)
 	e.actDialogs = nil
 	e.blocked, e.actBlocked = e.actBlocked, nil
-	for _, write := range e.actWrites {
-		write.Seq = int64(len(e.writes) + 1)
-		e.writes = append(e.writes, write)
-	}
+	e.keepWrites(e.actWrites)
 	e.actWrites = nil
 	generate, onAct, twoStep, fills := e.generate, e.onAct, e.twoStepAct, e.actFills
 	losesPage, pageLoss := e.actLosesPage > 0, cmp.Or(e.pageLoss, errFakeSessionLost)
@@ -428,6 +437,8 @@ func (e *fakeEngine) WaitForDownloads(_ context.Context, _ time.Duration, timeou
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.downloadWaits = append(e.downloadWaits, timeout)
+	e.keepWrites(e.downloadWrites)
+	e.downloadWrites = nil
 	downloads := e.downloads
 	e.downloads = nil
 	return downloads, e.downloadErr
