@@ -243,6 +243,9 @@ func (g *gate) arm(ctx context.Context, extensionDir string) (net.Listener, erro
 			return nil, err
 		}
 	}
+	if err := g.awaitSocketRule(ctx); err != nil {
+		return nil, err
+	}
 	// The browser target covers what loads from now on. A page loaded
 	// before is paused at its own target too.
 	if err := g.armLoadedPages(ctx); err != nil {
