@@ -38,6 +38,22 @@ func TestSeedNodesHumanTask(t *testing.T) {
 	require.Equal(t, ir.NodeNotStarted, nodes[1].State.Status)
 }
 
+// A run seeded from another starts with nothing spent on models: the steps
+// it skips spent theirs in the run they came from.
+func TestSeedNodesLeavesModelUsage(t *testing.T) {
+	dag := &ir.DAG{Steps: []ir.Step{{Name: "ask"}}}
+	source := &ir.DAGRunStatus{Nodes: []*ir.Node{{
+		Step:       ir.Step{Name: "ask"},
+		Status:     ir.NodeSucceeded,
+		ModelUsage: &ir.StepModelUsage{Models: []ir.ModelUsage{{Provider: "openai", Model: "gpt", Calls: 2}}},
+	}}}
+
+	nodes := transform.SeedNodes(dag, source, []string{"ask"})
+
+	require.Len(t, nodes, 1)
+	require.Nil(t, nodes[0].State.ModelUsage)
+}
+
 func TestSeedNodesNoSource(t *testing.T) {
 	dag := &ir.DAG{Steps: []ir.Step{{Name: "build"}, {Name: "test"}}}
 

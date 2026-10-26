@@ -107,6 +107,9 @@ type NodeState struct {
 	ToolDefinitions []ir.ToolDefinition
 	// AgentSession stores managed coding-agent state across suspended attempts.
 	AgentSession *ir.AgentSession
+	// ModelUsage is what the step's calls to models used, over every attempt
+	// of the step in this run.
+	ModelUsage *ir.StepModelUsage
 	// ApprovalInputs stores key-value parameters provided during approval.
 	// These are available as environment variables in subsequent steps.
 	ApprovalInputs map[string]string
@@ -811,11 +814,13 @@ func (d *Data) SetWorkingDir(workingDir string) {
 	d.inner.State.WorkingDir = workingDir
 }
 
+// ClearState resets the step for another execution. It keeps what the
+// step's earlier attempts spent on models, which the run still spent.
 func (d *Data) ClearState(s ir.Step) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	d.inner.State = NodeState{}
+	d.inner.State = NodeState{ModelUsage: d.inner.State.ModelUsage}
 
 	// Reset the state of the step
 	d.inner.Step = s
@@ -823,7 +828,8 @@ func (d *Data) ClearState(s ir.Step) {
 
 // clearStateForRetry resets the step for another execution but keeps its
 // push-back context. A retry re-runs the step within the same push-back cycle,
-// so the reviewer feedback still applies.
+// so the reviewer feedback still applies. What the earlier attempts spent on
+// models stays, as the run still spent it.
 func (d *Data) clearStateForRetry(s ir.Step) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -834,6 +840,7 @@ func (d *Data) clearStateForRetry(s ir.Step) {
 		PushBackInputs:         previous.PushBackInputs,
 		PushBackHistory:        previous.PushBackHistory,
 		PushBackPreviousStdout: previous.PushBackPreviousStdout,
+		ModelUsage:             previous.ModelUsage,
 	}
 	d.inner.Step = s
 }
@@ -893,6 +900,21 @@ func (d *Data) GetAgentSession() *ir.AgentSession {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return ir.CloneAgentSession(d.inner.State.AgentSession)
+}
+
+// SetModelUsage records what the step's calls to models used.
+func (d *Data) SetModelUsage(usage *ir.StepModelUsage) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.inner.State.ModelUsage = ir.CloneStepModelUsage(usage)
+}
+
+// ModelUsage returns a detached copy of what the step's calls to models
+// used.
+func (d *Data) ModelUsage() *ir.StepModelUsage {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return ir.CloneStepModelUsage(d.inner.State.ModelUsage)
 }
 
 // GetApprovalInputs returns a copy of the approval inputs map.

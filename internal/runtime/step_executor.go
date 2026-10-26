@@ -12,9 +12,15 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
+	"github.com/dagucloud/dagu/v2/internal/runtime/modelusage"
 )
 
 var errNodeExecutionAborted = errors.New("node execution aborted before start")
+
+// liveModelUsageInterval is how often, at most, a step that reports no
+// progress of its own has its model usage written while it runs. Tests
+// shorten it.
+var liveModelUsageInterval = 5 * time.Second
 
 // StepExecutor owns a single step execution attempt.
 //
@@ -49,6 +55,13 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 	node.SetStatusDetails(nil)
 	ctx, cancel, stepTimeout := node.setupContextWithTimeout(ctx)
 	defer cancel()
+
+	// Every model call the step makes adds to its meter, which goes on from
+	// what the step's earlier attempts used. The executor is created with
+	// this context, since some keep the context they are made with.
+	meter := modelusage.NewMeter(node.ModelUsage())
+	ctx = modelusage.WithMeter(ctx, meter)
+	defer func() { node.SetModelUsage(meter.Snapshot()) }()
 
 	if err := preRunAbortErr(ctx, node); err != nil {
 		return recordPreRunAbort(ctx, node, err, stepTimeout, attemptStarted)
@@ -92,10 +105,19 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 	if progressAware, ok := cmd.(executor.ProgressCallbackAware); ok {
 		progressAware.SetProgressCallback(func() {
 			e.captureLiveExecutorSideChannels(cmd, node)
+			node.SetModelUsage(meter.Snapshot())
 			if onProgress != nil {
 				onProgress()
 			}
 		})
+	} else if onProgress != nil {
+		// An executor that reports no progress of its own, such as a chat
+		// step, has its model usage reported while it runs.
+		flusher := meter.StartFlusher(liveModelUsageInterval, func(usage *ir.StepModelUsage) {
+			node.SetModelUsage(usage)
+			onProgress()
+		})
+		defer flusher.Stop()
 	}
 
 	flusher := node.startOutputFlusher()

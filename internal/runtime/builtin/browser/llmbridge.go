@@ -18,6 +18,7 @@ import (
 	_ "github.com/dagucloud/dagu/v2/internal/llm/allproviders"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
+	"github.com/dagucloud/dagu/v2/internal/runtime/modelusage"
 )
 
 // errNoStepModel answers a model request of a step that has no model.
@@ -118,6 +119,9 @@ func (b *modelBridge) generate(ctx context.Context, req generateRequest) (genera
 	defer cancel()
 	stop := context.AfterFunc(b.runCtx, cancel)
 	defer stop()
+	// The step's model usage is counted on the step's meter, which only the
+	// step's context carries.
+	ctx = modelusage.WithMeter(ctx, modelusage.FromContext(b.runCtx))
 
 	parameters, err := toolParameters(req.Schema)
 	if err != nil {

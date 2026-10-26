@@ -157,6 +157,9 @@ type Node struct {
 	ToolDefinitions []ToolDefinition `json:"toolDefinitions,omitempty"`
 	// AgentSession stores managed coding-agent state for display and durable resume.
 	AgentSession *AgentSession `json:"agentSession,omitempty"`
+	// ModelUsage is what the step's calls to models used, over every attempt
+	// of the step in this run.
+	ModelUsage *StepModelUsage `json:"modelUsage,omitempty"`
 
 	// outputsValueFrom and stepOutputsValueFrom name the output field whose
 	// value a stored node repeats, so a status file holds that value once.
