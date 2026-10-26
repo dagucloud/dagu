@@ -15,10 +15,11 @@ import (
 
 // Resolver resolves workflow values for semantic fields.
 type Resolver struct {
-	static                     StaticScope
-	runtime                    RuntimeScope
-	notices                    ValueReferenceNoticeSink
-	disableCommandSubstitution bool
+	static                      StaticScope
+	runtime                     RuntimeScope
+	notices                     ValueReferenceNoticeSink
+	disableCommandSubstitution  bool
+	rejectUnqualifiedItemFields bool
 }
 
 // ResolverOption configures a Resolver.
@@ -44,6 +45,15 @@ func WithValueReferenceNotices(sink ValueReferenceNoticeSink) ResolverOption {
 func WithoutCommandSubstitution() ResolverOption {
 	return func(r *Resolver) {
 		r.disableCommandSubstitution = true
+	}
+}
+
+// RejectUnqualifiedItemFields makes resolution fail when a field resolved with
+// foreach item scope contains ${<as>.<field>}, the current item's field
+// written without the foreach namespace, and nothing else resolves it.
+func RejectUnqualifiedItemFields() ResolverOption {
+	return func(r *Resolver) {
+		r.rejectUnqualifiedItemFields = true
 	}
 }
 
@@ -119,6 +129,11 @@ func (r Resolver) resolveString(ctx context.Context, raw string, field Field) (s
 	}
 	policy := policyForField(field)
 	ctx = r.withRuntimeEnv(ctx)
+	if policy.strict && r.rejectUnqualifiedItemFields {
+		if err := r.unqualifiedItemFieldError(ctx, raw, policy); err != nil {
+			return "", fieldError(field, err)
+		}
+	}
 	resolved := raw
 	var protected protectedReferences
 	if policy.strict {
@@ -139,6 +154,39 @@ func (r Resolver) resolveString(ctx context.Context, raw string, field Field) (s
 		return "", err
 	}
 	return restoreProtectedReferences(evaluated, protected.all), nil
+}
+
+// unqualifiedItemFieldError reports the first ${<as>.<field>} in raw that no
+// ${name.path} source resolves, where <as> is the current foreach item alias.
+func (r Resolver) unqualifiedItemFieldError(ctx context.Context, raw string, policy resolverPolicy) error {
+	alias, ok := foreachItemAlias(r.runtime.Foreach)
+	if !ok {
+		return nil
+	}
+	tokens := unqualifiedItemFieldReferences(raw, alias)
+	if len(tokens) == 0 {
+		return nil
+	}
+	lookup := newResolver(ctx, buildOptions(r.optionsFor(policy)))
+	for _, token := range tokens {
+		path := strings.TrimSuffix(strings.TrimPrefix(token, "${"+alias), "}")
+		if _, ok := lookup.resolveReference(ctx, alias, path); !ok {
+			return fmt.Errorf("%s does not reference the foreach item; use ${foreach.%s", token, token[2:])
+		}
+	}
+	return nil
+}
+
+// foreachItemAlias returns the name item scope stores the current item under.
+// The index and key entries share the scope, so foreach.as cannot take their
+// names.
+func foreachItemAlias(scope Values) (string, bool) {
+	for name := range scope {
+		if name != "index" && name != "key" {
+			return name, true
+		}
+	}
+	return "", false
 }
 
 func (r Resolver) bindingScope() RuntimeScope {

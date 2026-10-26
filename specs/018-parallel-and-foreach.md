@@ -508,12 +508,14 @@ Rules:
   `foreach` item reference.
 
 - `${<as>.field}` without the `foreach.` namespace is not an item reference.
-  In a field with item scope, an unescaped `${<as>.field}` whose field may be
-  written unquoted is a validation error unless that field reads `<as>`
-  another way: a param, root `env` entry, or secret; an `env` entry of the
-  step that owns the field; an output variable of a step in the same step
-  list; a step id read through a step property such as `${<as>.stdout}`; or
-  `ITEM` in the child target and params of a `parallel` step. `${<as>}` and
+  When a field with item scope is evaluated, an unescaped `${<as>.field}`
+  whose field may be written unquoted fails that item unless another source
+  resolves it: an environment value named `<as>` holding a JSON object with
+  that field, from any source the field reads (root `env`, dotenv, params,
+  step `env`, an output variable, or the process environment where the field
+  reads it), or a step property such as `${<as>.stdout}` of a step whose id
+  is `<as>`. Validation cannot decide this, because run-time params, dotenv
+  files, and the process environment may define `<as>`. `${<as>}` and
   `$<as>.field` are not affected, so shell variables keep their meaning.
 
 #### Body Step Scope
@@ -697,8 +699,6 @@ Validation must fail when:
 - a body step identity collides with a visible top-level step identity.
 - a body step dependency names a top-level step.
 - a top-level step dependency names a body step.
-- a field with item scope contains `${<as>.field}` without the `foreach.`
-  namespace, as the Item Scope section defines.
 
 Runtime execution must fail when:
 
@@ -707,6 +707,8 @@ Runtime execution must fail when:
 - item expansion produces more than `1000` items.
 - `foreach.key` resolves to an empty string.
 - two item slots resolve to the same item key.
+- a field with item scope keeps `${<as>.field}` without the `foreach.`
+  namespace, as the Item Scope section defines; that item fails.
 - every item body fails; a collect expression that fails to resolve after
   its item body succeeded counts as that item's failure. When some item
   bodies fail and others succeed, the step is `partially_succeeded`, as the
