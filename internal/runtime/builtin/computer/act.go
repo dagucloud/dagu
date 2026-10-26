@@ -599,6 +599,11 @@ func (l *actLoop) reconcile(ctx context.Context, turn *computeruse.Turn) (run bo
 	if err != nil {
 		return false, "", err
 	}
+	// The window a person left in front is theirs: the step never maximizes
+	// it, whether or not the turn's actions still run.
+	if front := l.r.driver.FocusedWindow(); person && front.Known() {
+		l.r.fitted[front.Handle] = true
+	}
 	same, err := l.unchanged(ctx, turn)
 	if err != nil {
 		return false, "", err
@@ -618,14 +623,11 @@ func (l *actLoop) reconcile(ctx context.Context, turn *computeruse.Turn) (run bo
 	return false, divergedNote, nil
 }
 
-// returnAfterPerson makes way for a person who left another window in front:
-// their window is never maximized, since it is theirs, and the application
-// the act was working in comes back to the front, so the model's next look
-// is at the task rather than at what the person was doing.
+// returnAfterPerson makes way for a person whose use of the desktop held
+// back a turn: the application the act was working in comes back to the
+// front, so the model's next look is at the task rather than at what the
+// person was doing.
 func (l *actLoop) returnAfterPerson(ctx context.Context) {
-	if front := l.r.driver.FocusedWindow(); front.Known() && !strings.EqualFold(front.App, l.r.workApp) {
-		l.r.fitted[front.Handle] = true
-	}
 	l.r.personHandled = time.Now()
 	if l.r.workApp != "" {
 		l.r.bringForward(ctx, l.index, l.r.workApp, "")
@@ -693,6 +695,23 @@ func (l *actLoop) view(actions []computeruse.Action) view {
 		}
 	}
 	return l.r.windowView(l.r.driver.FocusedWindow(), display)
+}
+
+// noteTurnApp makes the application a turn's last pointer action lands in,
+// as the model saw it, the one the act works in; a turn of keys alone works
+// in the window in front.
+func (l *actLoop) noteTurnApp(actions []computeruse.Action) {
+	for i := len(actions) - 1; i >= 0; i-- {
+		if at, ok := l.pointOf(actions[i]); ok {
+			if w, ok := l.r.appWindow(l.r.driver.WindowAt(at)); ok {
+				l.r.noteWorkApp(w)
+			}
+			return
+		}
+	}
+	if len(actions) > 0 {
+		l.r.noteWorkApp(l.r.driver.FocusedWindow())
+	}
 }
 
 // pointOf is where a pointer action lands in display pixels: the centre of
@@ -785,12 +804,9 @@ func describeRound(actions []computeruse.Action) string {
 func (l *actLoop) apply(ctx context.Context, turn *computeruse.Turn) []computeruse.Result {
 	l.touched = l.touched || len(turn.Actions) > 0
 	l.outcome.actions += len(turn.Actions)
-	// The window is read before the actions run, as the model saw it, and
-	// its application is where the act now works.
+	// The window is read before the actions run, as the model saw it.
 	v := l.view(turn.Actions)
-	if v.window != nil {
-		l.r.workApp = v.window.App
-	}
+	l.noteTurnApp(turn.Actions)
 	els, _ := l.r.elementsIfAvailable()
 	results := make([]computeruse.Result, len(turn.Actions))
 	var recorded []recordedAction
