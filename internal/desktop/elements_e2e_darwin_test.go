@@ -273,6 +273,7 @@ func TestDarwinElementInASheet(t *testing.T) {
 	focused, err = els.Focused()
 	require.NoError(t, err)
 	assert.Equal(t, RoleComboBox, focused.Role)
+	assert.Equal(t, choice.Path, focused.Path, "the combo box asked for has the focus")
 }
 
 func TestDarwinElementUnderSkippedParent(t *testing.T) {
