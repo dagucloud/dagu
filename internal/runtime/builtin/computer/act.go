@@ -701,8 +701,8 @@ func (l *actLoop) view(actions []computeruse.Action) view {
 // as the model saw it, the one the act works in; a turn of keys alone works
 // in the window in front.
 func (l *actLoop) noteTurnApp(actions []computeruse.Action) {
-	for i := len(actions) - 1; i >= 0; i-- {
-		if at, ok := l.pointOf(actions[i]); ok {
+	for _, action := range slices.Backward(actions) {
+		if at, ok := l.pointOf(action); ok {
 			if w, ok := l.r.appWindow(l.r.driver.WindowAt(at)); ok {
 				l.r.noteWorkApp(w)
 			}
