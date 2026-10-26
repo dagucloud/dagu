@@ -15372,6 +15372,8 @@ components:
               $ref: "#/components/schemas/Node"
             onWait:
               $ref: "#/components/schemas/Node"
+            modelUsage:
+              $ref: "#/components/schemas/RunModelUsage"
             preconditions:
               type: array
               description: "List of preconditions that must be met before the DAG-run can start"
@@ -15804,6 +15806,8 @@ components:
             $ref: "#/components/schemas/PushBackHistoryEntry"
         agentSession:
           $ref: "#/components/schemas/AgentSession"
+        modelUsage:
+          $ref: "#/components/schemas/StepModelUsage"
       required:
         - step
         - stdout
@@ -15880,6 +15884,72 @@ components:
         cost:
           type: number
           format: double
+
+    ModelUsage:
+      type: object
+      description: "What calls to one model used: their number, tokens, and the cost the provider reported"
+      properties:
+        provider:
+          type: string
+          description: "Provider of the model, such as openai or openrouter"
+        model:
+          type: string
+          description: "Model the calls named"
+        calls:
+          type: integer
+          format: int64
+          description: "Number of calls"
+        inputTokens:
+          type: integer
+          format: int64
+          description: "Prompt tokens, cached and cache-write tokens included"
+        cachedInputTokens:
+          type: integer
+          format: int64
+          description: "Prompt tokens read from the provider's prompt cache"
+        cacheWriteTokens:
+          type: integer
+          format: int64
+          description: "Prompt tokens written to the provider's prompt cache"
+        outputTokens:
+          type: integer
+          format: int64
+          description: "Completion tokens, reasoning tokens included"
+        reasoningTokens:
+          type: integer
+          format: int64
+          description: "Completion tokens spent on reasoning"
+        cost:
+          type: number
+          format: double
+          description: "Cost in US dollars the provider reported for costReportedCalls of the calls"
+        costReportedCalls:
+          type: integer
+          format: int64
+          description: "Number of calls whose cost the provider reported; cost is whole only when it equals calls"
+      required:
+        - provider
+        - model
+        - calls
+
+    StepModelUsage:
+      type: object
+      description: "What a step's calls to models used, over every attempt of the step in its run"
+      properties:
+        models:
+          type: array
+          items:
+            $ref: "#/components/schemas/ModelUsage"
+
+    RunModelUsage:
+      type: object
+      description: "What every step of a DAG-run, its handlers included, used on models"
+      properties:
+        models:
+          type: array
+          description: "Usage of each model the run called"
+          items:
+            $ref: "#/components/schemas/ModelUsage"
 
     AgentInteraction:
       type: object

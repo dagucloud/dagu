@@ -6097,6 +6097,7 @@ export interface components {
             onFailure?: components["schemas"]["Node"];
             onAbort?: components["schemas"]["Node"];
             onWait?: components["schemas"]["Node"];
+            modelUsage?: components["schemas"]["RunModelUsage"];
             /** @description List of preconditions that must be met before the DAG-run can start */
             preconditions?: components["schemas"]["Condition"][];
             /** @description Top-level error recorded for the DAG-run, such as a definition build failure that prevented the run from starting */
@@ -6340,6 +6341,7 @@ export interface components {
             /** @description Chronological push-back history for this step */
             pushBackHistory?: components["schemas"]["PushBackHistoryEntry"][];
             agentSession?: components["schemas"]["AgentSession"];
+            modelUsage?: components["schemas"]["StepModelUsage"];
         };
         /** @description Durable state for a managed coding-agent session */
         AgentSession: {
@@ -6369,6 +6371,62 @@ export interface components {
             totalTokens?: number;
             /** Format: double */
             cost?: number;
+        };
+        /** @description What calls to one model used: their number, tokens, and the cost the provider reported */
+        ModelUsage: {
+            /** @description Provider of the model, such as openai or openrouter */
+            provider: string;
+            /** @description Model the calls named */
+            model: string;
+            /**
+             * Format: int64
+             * @description Number of calls
+             */
+            calls: number;
+            /**
+             * Format: int64
+             * @description Prompt tokens, cached and cache-write tokens included
+             */
+            inputTokens?: number;
+            /**
+             * Format: int64
+             * @description Prompt tokens read from the provider's prompt cache
+             */
+            cachedInputTokens?: number;
+            /**
+             * Format: int64
+             * @description Prompt tokens written to the provider's prompt cache
+             */
+            cacheWriteTokens?: number;
+            /**
+             * Format: int64
+             * @description Completion tokens, reasoning tokens included
+             */
+            outputTokens?: number;
+            /**
+             * Format: int64
+             * @description Completion tokens spent on reasoning
+             */
+            reasoningTokens?: number;
+            /**
+             * Format: double
+             * @description Cost in US dollars the provider reported for costReportedCalls of the calls
+             */
+            cost?: number;
+            /**
+             * Format: int64
+             * @description Number of calls whose cost the provider reported; cost is whole only when it equals calls
+             */
+            costReportedCalls?: number;
+        };
+        /** @description What a step's calls to models used, over every attempt of the step in its run */
+        StepModelUsage: {
+            models?: components["schemas"]["ModelUsage"][];
+        };
+        /** @description What every step of a DAG-run, its handlers included, used on models */
+        RunModelUsage: {
+            /** @description Usage of each model the run called */
+            models?: components["schemas"]["ModelUsage"][];
         };
         AgentInteraction: {
             id: string;

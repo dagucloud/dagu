@@ -473,7 +473,44 @@ func ToDAGRunDetails(s ir.DAGRunStatus) api.DAGRunDetails {
 		OnWait:                 ptrOf(toNode(s.OnWait)),
 		Labels:                 &s.Labels,
 		Tags:                   &s.Labels,
+		ModelUsage:             toRunModelUsage(s.ModelUsageTotal()),
 	}
+}
+
+// toRunModelUsage maps what a run used on models, or nil when it used none.
+func toRunModelUsage(usage []ir.ModelUsage) *api.RunModelUsage {
+	if len(usage) == 0 {
+		return nil
+	}
+	return &api.RunModelUsage{Models: ptrOf(toModelUsage(usage))}
+}
+
+// toStepModelUsage maps what a step used on models, or nil when it used
+// none.
+func toStepModelUsage(usage *ir.StepModelUsage) *api.StepModelUsage {
+	if usage == nil || len(usage.Models) == 0 {
+		return nil
+	}
+	return &api.StepModelUsage{Models: ptrOf(toModelUsage(usage.Models))}
+}
+
+func toModelUsage(usage []ir.ModelUsage) []api.ModelUsage {
+	result := make([]api.ModelUsage, len(usage))
+	for i, u := range usage {
+		result[i] = api.ModelUsage{
+			Provider:          u.Provider,
+			Model:             u.Model,
+			Calls:             u.Calls,
+			InputTokens:       ptrOf(u.InputTokens),
+			CachedInputTokens: ptrOf(u.CachedInputTokens),
+			CacheWriteTokens:  ptrOf(u.CacheWriteTokens),
+			OutputTokens:      ptrOf(u.OutputTokens),
+			ReasoningTokens:   ptrOf(u.ReasoningTokens),
+			Cost:              ptrOf(u.Cost),
+			CostReportedCalls: ptrOf(u.CostReportedCalls),
+		}
+	}
+	return result
 }
 
 func hasArtifactEntries(archiveDir string) bool {
@@ -541,6 +578,7 @@ func toNode(node *ir.Node) api.Node {
 	if node.AgentSession != nil {
 		result.AgentSession = toAgentSession(node.AgentSession)
 	}
+	result.ModelUsage = toStepModelUsage(node.ModelUsage)
 	if node.Build != nil {
 		result.Build = &api.BuildExecution{
 			Decision:           api.BuildExecutionDecision(node.Build.Decision),

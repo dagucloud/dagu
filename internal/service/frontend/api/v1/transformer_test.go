@@ -106,6 +106,36 @@ func TestToDAGRunDetailsIncludesScheduleTime(t *testing.T) {
 	assert.Equal(t, "alice", *details.TriggerActor)
 }
 
+// A run's detail shows each step's model usage and the run's total, its
+// handlers included, with zero counts left out; a run that used no model
+// shows none.
+func TestToDAGRunDetailsIncludesModelUsage(t *testing.T) {
+	step := &ir.StepModelUsage{Models: []ir.ModelUsage{{Provider: "openrouter", Model: "kitewell/included", Calls: 2, InputTokens: 300, OutputTokens: 40, Cost: 0.0012, CostReportedCalls: 2}}}
+	handler := &ir.StepModelUsage{Models: []ir.ModelUsage{{Provider: "openrouter", Model: "kitewell/included", Calls: 1, InputTokens: 100, OutputTokens: 10}}}
+	details := ToDAGRunDetails(ir.DAGRunStatus{
+		Name: "test-dag", DAGRunID: "run-1",
+		Nodes:     []*ir.Node{{Step: ir.Step{Name: "ask"}, ModelUsage: step}, {Step: ir.Step{Name: "copy"}}},
+		OnFailure: &ir.Node{Step: ir.Step{Name: "onFailure"}, ModelUsage: handler},
+	})
+
+	require.NotNil(t, details.Nodes[0].ModelUsage)
+	require.NotNil(t, details.Nodes[0].ModelUsage.Models)
+	node := (*details.Nodes[0].ModelUsage.Models)[0]
+	assert.Equal(t, int64(2), node.Calls)
+	require.NotNil(t, node.Cost)
+	assert.InDelta(t, 0.0012, *node.Cost, 1e-12)
+	assert.Nil(t, node.CachedInputTokens, "zero counts are left out")
+	assert.Nil(t, details.Nodes[1].ModelUsage)
+
+	require.NotNil(t, details.ModelUsage)
+	total := (*details.ModelUsage.Models)[0]
+	assert.Equal(t, int64(3), total.Calls)
+	assert.Equal(t, int64(400), *total.InputTokens)
+	assert.Equal(t, int64(2), *total.CostReportedCalls, "the handler's call reported no cost")
+
+	assert.Nil(t, ToDAGRunDetails(ir.DAGRunStatus{Name: "test-dag", DAGRunID: "run-2"}).ModelUsage)
+}
+
 func TestToDAGRunDetailsIncludesAttemptID(t *testing.T) {
 	details := ToDAGRunDetails(ir.DAGRunStatus{Name: "test-dag", DAGRunID: "run-1", AttemptID: "attempt-2"})
 	require.NotNil(t, details.AttemptId)
