@@ -511,6 +511,10 @@ func (g *gate) paused(sessionID string, params json.RawMessage) {
 		g.send(sessionID, "Fetch.continueRequest", map[string]any{"requestId": p.RequestID, "interceptResponse": true})
 		return
 	}
+	// A write is kept before the page learns its fate, so a reader that saw
+	// the page's answer finds the write in the ledger.
+	event.Outcome = OutcomeBlocked
+	g.ledger.add(event)
 	if req.ResourceType == resourceDocument {
 		g.send(sessionID, "Fetch.fulfillRequest", map[string]any{
 			"requestId": p.RequestID, "responseCode": http.StatusOK,
@@ -520,8 +524,6 @@ func (g *gate) paused(sessionID string, params json.RawMessage) {
 	} else {
 		g.send(sessionID, "Fetch.failRequest", map[string]any{"requestId": p.RequestID, "errorReason": accessDenied})
 	}
-	event.Outcome = OutcomeBlocked
-	g.ledger.add(event)
 }
 
 // describe returns the event of a write.
@@ -543,11 +545,11 @@ func (g *gate) answered(sessionID string, p pausedRequest) {
 	delete(g.sending, key)
 	g.mu.Unlock()
 	if p.ResponseErrorReason != "" {
-		g.send(sessionID, "Fetch.continueRequest", map[string]any{"requestId": p.RequestID})
 		if ok {
 			event.ResponseError = p.ResponseErrorReason
 			g.ledger.add(event)
 		}
+		g.send(sessionID, "Fetch.continueRequest", map[string]any{"requestId": p.RequestID})
 		return
 	}
 	if !ok {
@@ -556,14 +558,13 @@ func (g *gate) answered(sessionID string, p pausedRequest) {
 	}
 	event.Status = p.ResponseStatusCode
 	if !readableResponse(p.ResponseHeaders) {
-		g.send(sessionID, "Fetch.continueResponse", map[string]any{"requestId": p.RequestID})
 		g.ledger.add(event)
+		g.send(sessionID, "Fetch.continueResponse", map[string]any{"requestId": p.RequestID})
 		return
 	}
 	id := g.nextID.Add(1)
 	g.mu.Lock()
 	g.callbacks[id] = func(r reply) {
-		g.send(sessionID, "Fetch.continueResponse", map[string]any{"requestId": p.RequestID})
 		var body struct {
 			Body          string `json:"body"`
 			Base64Encoded bool   `json:"base64Encoded"`
@@ -572,14 +573,15 @@ func (g *gate) answered(sessionID string, p pausedRequest) {
 			event.Response = g.rules.describeResponse(body.Body, body.Base64Encoded, contentType(p.ResponseHeaders))
 		}
 		g.ledger.add(event)
+		g.send(sessionID, "Fetch.continueResponse", map[string]any{"requestId": p.RequestID})
 	}
 	g.mu.Unlock()
 	if err := g.write(id, sessionID, "Fetch.getResponseBody", map[string]any{"requestId": p.RequestID}); err != nil {
 		g.mu.Lock()
 		delete(g.callbacks, id)
 		g.mu.Unlock()
-		g.send(sessionID, "Fetch.continueResponse", map[string]any{"requestId": p.RequestID})
 		g.ledger.add(event)
+		g.send(sessionID, "Fetch.continueResponse", map[string]any{"requestId": p.RequestID})
 	}
 }
 
