@@ -1,0 +1,11 @@
+steps:
+  - id: each
+    foreach:
+      items:
+        - wallet: A
+      steps:
+        - id: write
+          action: file.write
+          with:
+            path: foreach-unqualified-item-field.txt
+            content: ${item.wallet}

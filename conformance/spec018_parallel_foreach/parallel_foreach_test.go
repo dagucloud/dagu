@@ -125,6 +125,20 @@ func TestForeachValidation(t *testing.T) {
 			result.ExpectStderr("")
 		})
 	}
+
+	t.Run("foreach_unqualified_item_field.yaml", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := harness.NewRunner(t)
+		result := dagu.Run("validate", "foreach_unqualified_item_field.yaml")
+		result.ExpectExitCode(1)
+		result.ExpectStdout("")
+		result.ExpectStderrContains(
+			"steps[0].foreach.steps[0].with.content",
+			"use ${foreach.item.wallet}",
+		)
+		result.ExpectStderrNotContains("Usage:")
+	})
 }
 
 func TestForeachRuntime(t *testing.T) {

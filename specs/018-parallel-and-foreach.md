@@ -507,6 +507,13 @@ Rules:
 - The uppercase `${ITEM}` item reference is owned by `parallel`. It is not a
   `foreach` item reference.
 
+- `${<as>.field}` without the `foreach.` namespace is not an item reference.
+  In a field with item scope, an unescaped `${<as>.field}` whose field may be
+  written unquoted is a validation error unless the DAG defines `<as>` another
+  way: as a step id, param, env entry, secret, output variable, or the
+  `parallel` item `ITEM`. `${<as>}` and `$<as>.field` are not affected, so
+  shell variables keep their meaning.
+
 #### Body Step Scope
 
 `foreach.steps` defines steps scoped to one item body.
@@ -688,6 +695,8 @@ Validation must fail when:
 - a body step identity collides with a visible top-level step identity.
 - a body step dependency names a top-level step.
 - a top-level step dependency names a body step.
+- a field with item scope contains `${<as>.field}` without the `foreach.`
+  namespace, as the Item Scope section defines.
 
 Runtime execution must fail when:
 
