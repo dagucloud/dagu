@@ -195,3 +195,22 @@ func TestSessionEndsWhenAnAllowanceMayNotEnd(t *testing.T) {
 	assert.Equal(t, CodeWriteGateLost, sessionCode(err))
 	assert.Equal(t, browserhost.StateEnded, ts.record(opened.ID).State)
 }
+
+// An exported operation that tried to send a write but keeps no commit
+// point is warned about.
+func TestSessionExportWarnsOfAWriteWithoutACommitPoint(t *testing.T) {
+	t.Parallel()
+
+	ts := newTestSessions(t, pageModel(nil))
+	ts.engine.handle.WriteGate = runningGate()
+	opened := ts.open(SessionOptions{URL: "https://books.example.com/", Headless: true, LLM: testModel, WriteGate: writegate.ModeRehearse})
+	ts.engine.downloadWrites = []writegate.Event{blockedSave}
+	_, err := ts.do(opened.ID, `{"goto": "https://books.example.com/deals"}`)
+	require.NoError(t, err)
+
+	exported, err := ts.sessions.Export(ts.context(), ExportRequest{ID: opened.ID, DAG: "books", Step: "enter"})
+	require.NoError(t, err)
+	assert.Zero(t, exported.CommitPoints)
+	assert.Contains(t, exported.Warnings, "operation 0 (goto) tried to send "+blockedSave.Signature+
+		", but only an act or an upload with into keeps a commit point to approve, so the step in record mode blocks it")
+}

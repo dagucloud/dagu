@@ -259,8 +259,13 @@ func exportStep(state sessionState, req ExportRequest) (*exportedSession, error)
 					previous, entry.URLBefore, sessionIndex)
 			}
 		}
-		if key != "" && entry.Status == OperationDone {
+		switch {
+		case entry.Status != OperationDone:
+		case key != "":
 			exported.noteCommits(key, index, op, entry)
+		case len(entry.Writes) > 0:
+			exported.warnf("operation %d (%s) tried to send %s, but only an act or an upload with into keeps a commit point to approve, so the step in record mode blocks it",
+				sessionIndex, entry.Kind, strings.Join(entry.Writes, ", "))
 		}
 		if entry.URLAfter != "" {
 			previous = entry.URLAfter
