@@ -90,6 +90,15 @@ func (s *site) serve(w http.ResponseWriter, r *http.Request) {
 			s.reads[r.URL.Path]++
 		}
 		s.mu.Unlock()
+		if r.URL.Path == "/w/stream" {
+			// The stream stays open until the site closes, as a page's event
+			// stream does.
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = io.WriteString(w, "data: hi\n\n")
+			w.(http.Flusher).Flush()
+			<-r.Context().Done()
+			return
+		}
 		_, _ = io.WriteString(w, `{"ok":true}`)
 	case r.URL.Path == "/worker.js":
 		w.Header().Set("Content-Type", "application/javascript")
@@ -559,6 +568,31 @@ func TestGateRecordSendsWhatTheOperationMay(t *testing.T) {
 	}, outcomes)
 	assert.Equal(t, 200, sent.Status)
 	assert.Equal(t, `{"ok":true}`, sent.Response)
+}
+
+// A sent write answered with a stream reaches the page as the stream
+// begins, not when it ends.
+func TestGateLetsAStreamedAnswerThrough(t *testing.T) {
+	t.Parallel()
+
+	s := startSite(t)
+	b := startBrowser(t)
+	controls, _, _ := guard(t, b, writegate.Policy{}, nil)
+	p := openPage(t, b)
+	p.goTo(s.URL + "/")
+	require.NoError(t, writegate.SetPerson(t.Context(), controls, true))
+
+	read := `fetch('/w/stream', {method: 'POST', body: 'x'}).then(r => r.body.getReader().read()).then(c => new TextDecoder().decode(c.value))`
+	assert.Equal(t, "data: hi\n\n", p.eval(read))
+	var sent writegate.Event
+	require.Eventually(t, func() bool {
+		var ok bool
+		sent, ok = find(events(t, controls), "/w/stream")
+		return ok
+	}, 5*time.Second, 50*time.Millisecond)
+	assert.Equal(t, writegate.OutcomeSent, sent.Outcome)
+	assert.Equal(t, 200, sent.Status)
+	assert.Empty(t, sent.Response)
 }
 
 // A page armed on its own target, and then on the browser target once it

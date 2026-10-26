@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -446,10 +447,12 @@ type pausedRequest struct {
 		PostData     string            `json:"postData"`
 		PostDataSize int64             `json:"postDataSize"`
 	} `json:"request"`
-	ResponseHeaders []struct {
-		Name  string `json:"name"`
-		Value string `json:"value"`
-	} `json:"responseHeaders"`
+	ResponseHeaders []header `json:"responseHeaders"`
+}
+
+type header struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
 }
 
 // paused decides a paused request at once. The browser target sees the
@@ -552,6 +555,11 @@ func (g *gate) answered(sessionID string, p pausedRequest) {
 		return
 	}
 	event.Status = p.ResponseStatusCode
+	if !readableResponse(p.ResponseHeaders) {
+		g.send(sessionID, "Fetch.continueResponse", map[string]any{"requestId": p.RequestID})
+		g.ledger.add(event)
+		return
+	}
 	id := g.nextID.Add(1)
 	g.mu.Lock()
 	g.callbacks[id] = func(r reply) {
@@ -590,16 +598,36 @@ type allowance struct {
 	Seconds int `json:"seconds"`
 }
 
-func contentType(headers []struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
-}) string {
-	for _, header := range headers {
-		if strings.EqualFold(header.Name, "Content-Type") {
-			return header.Value
+func contentType(headers []header) string {
+	return headerValue(headers, "Content-Type")
+}
+
+func headerValue(headers []header, name string) string {
+	for _, h := range headers {
+		if strings.EqualFold(h.Name, name) {
+			return h.Value
 		}
 	}
 	return ""
+}
+
+// readableResponse reports whether an answer is text the page reads whole,
+// so the gate may read it first. A stream or a download reaches the page
+// as it arrives, and its event keeps no answer.
+func readableResponse(headers []header) bool {
+	disposition, _, _ := mime.ParseMediaType(headerValue(headers, "Content-Disposition"))
+	if disposition == "attachment" {
+		return false
+	}
+	mediaType, _, _ := mime.ParseMediaType(contentType(headers))
+	switch {
+	case mediaType == "text/event-stream", strings.HasSuffix(mediaType, "ndjson"):
+		return false
+	case strings.HasPrefix(mediaType, "text/"), strings.Contains(mediaType, "json"), strings.Contains(mediaType, "xml"),
+		mediaType == "application/x-www-form-urlencoded":
+		return true
+	}
+	return false
 }
 
 // attached watches a service worker or a shared worker of a site for the
