@@ -2262,11 +2262,36 @@ func TestActShowsTheModelVisibleValues(t *testing.T) {
 	assert.Contains(t, run.sessionOptions[0].System, `%item% is "Toner T-20"`)
 	assert.NotContains(t, run.sessionOptions[0].System, "s3cret")
 
-	// A declared secret is never made visible.
-	run.secrets = map[string]string{"PORTAL_PASSWORD": "s3cret"}
-	refused := run.execute(`{"variables": {"password": "s3cret"}, "visible": ["password"], "do": [{"act": "Sign in with %password%"}]}`, nil)
+	// A declared secret is never made visible, even one too short to look
+	// for inside text.
+	run.secrets = map[string]string{"PORTAL_PASSWORD": "s3cret", "DOOR_PIN": "123"}
+	refused := run.execute(`{"variables": {"password": "my s3cret"}, "visible": ["password"], "do": [{"act": "Sign in with %password%"}]}`, nil)
 	require.ErrorContains(t, refused.err, "with.variables.password contains the value of secret PORTAL_PASSWORD")
+	refused = run.execute(`{"variables": {"pin": "123"}, "visible": ["pin"], "do": [{"act": "Enter %pin%"}]}`, nil)
+	require.ErrorContains(t, refused.err, "with.variables.pin is the value of secret DOOR_PIN")
 	assert.Len(t, run.sessionOptions, 1, "no model was asked")
+}
+
+// A visible value the model chooses is recorded by its placeholder however
+// short it is, so the next run chooses its own value.
+func TestReplayRecordsAShortVisibleChoiceByPlaceholder(t *testing.T) {
+	t.Parallel()
+
+	grade := func(name string) desktop.Element {
+		return desktop.Element{Role: desktop.RoleListItem, Name: name, Bounds: image.Rect(120, 420, 300, 444), Path: []desktop.PathStep{{Role: desktop.RoleListItem, Name: name, Index: 0}}}
+	}
+	run := elementRun(t)
+	run.elements.elements = append(expenseElements(), grade("A"))
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(210, 432)), done("Chose the grade")}}}
+	require.NoError(t, run.execute(`{"variables": {"grade": "A"}, "visible": ["grade"], "do": [{"act": "Choose %grade%"}]}`, nil).err)
+	assert.Equal(t, "%grade%", lookupRecording(t, run, "Choose %grade%").Turns[0].Actions[0].Element.Selector.Name)
+
+	run.elements.elements = append(expenseElements(), grade("B"))
+	run.backend.events = nil
+	replayed := run.execute(`{"variables": {"grade": "B"}, "visible": ["grade"], "do": [{"act": "Choose %grade%"}]}`, nil)
+	require.NoError(t, replayed.err)
+	assert.Equal(t, []string{"act:cache-hit"}, eventNames(replayed.exec.GetAgentSession()))
+	assert.Equal(t, []string{"move 210,432", "left down #1"}, run.backend.inputs())
 }
 
 // An element named by a variable's value is recorded by the placeholder,
