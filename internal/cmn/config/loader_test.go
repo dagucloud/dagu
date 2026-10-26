@@ -814,6 +814,9 @@ func TestLoad_BrowserWriteGate(t *testing.T) {
 
 	t.Setenv("DAGU_BROWSER_WRITE_GATE", "off")
 	require.Equal(t, "off", testLoad(t, WithConfigFile(configFile)).Browser.WriteGate)
+
+	t.Setenv("DAGU_BROWSER_WRITE_GATE", "loose")
+	require.ErrorContains(t, testLoadWithError(t), `browser.write_gate must be one of off, rehearse, got "loose"`)
 }
 
 func TestLoad_BrowserClientCertificates(t *testing.T) {

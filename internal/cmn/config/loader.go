@@ -448,6 +448,9 @@ func (l *ConfigLoader) loadCoreConfig(cfg *Config, def Definition) error {
 	if cfg.Browser.MaxOpen < 0 {
 		return fmt.Errorf("browser.max_open must not be negative, got %d", cfg.Browser.MaxOpen)
 	}
+	if mode := cfg.Browser.WriteGate; mode != "" && !slices.Contains(BrowserWriteGateModes, mode) {
+		return fmt.Errorf("browser.write_gate must be one of %s, got %q", strings.Join(BrowserWriteGateModes, ", "), mode)
+	}
 	if l.v.IsSet("browser.guard_client_certificates") {
 		guard := l.v.GetBool("browser.guard_client_certificates")
 		cfg.Browser.GuardClientCertificates = &guard

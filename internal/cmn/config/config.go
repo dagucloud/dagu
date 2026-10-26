@@ -79,13 +79,17 @@ type BrowserConfig struct {
 	// the browser presents certificates.
 	GuardClientCertificates *bool
 	// WriteGate is the least strict write gate mode a browser on this host
-	// runs in; a step or a session may only ask for a stricter one. Empty
-	// runs no gate.
+	// runs in, one of BrowserWriteGateModes; a step or a session may only
+	// ask for a stricter one. Empty runs no gate.
 	WriteGate string
 	// WritePolicy is the file of the write gate policy browser steps on
 	// this host follow: the sign-in endpoints whose writes are sent.
 	WritePolicy string
 }
+
+// BrowserWriteGateModes are the modes browser.write_gate takes. The write
+// gate defines what each does.
+var BrowserWriteGateModes = []string{"off", "rehearse"}
 
 // BrowserTrustedCA adds server certificate authorities for specific hosts.
 type BrowserTrustedCA struct {
