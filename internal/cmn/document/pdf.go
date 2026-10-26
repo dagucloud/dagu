@@ -30,22 +30,23 @@ func readPDF(ctx context.Context, data []byte) ([]Page, error) {
 	if err != nil {
 		return nil, fmt.Errorf("the PDF reader could not start: %w", err)
 	}
-	defer pool.Close()
+	defer func() { _ = pool.Close() }()
 	reader, err := pool.GetInstanceWithContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("the PDF reader could not start: %w", err)
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 	doc, err := reader.OpenDocument(&requests.OpenDocument{File: &data})
 	if err != nil {
 		return nil, fmt.Errorf("the PDF could not be read: %w", err)
 	}
-	defer reader.FPDF_CloseDocument(&requests.FPDF_CloseDocument{Document: doc.Document})
+	defer func() { _, _ = reader.FPDF_CloseDocument(&requests.FPDF_CloseDocument{Document: doc.Document}) }()
 	count, err := reader.FPDF_GetPageCount(&requests.FPDF_GetPageCount{Document: doc.Document})
 	if err != nil {
 		return nil, fmt.Errorf("the PDF could not be read: %w", err)
 	}
 	pages := make([]Page, 0, count.PageCount)
+	scanned := 0
 	for i := range count.PageCount {
 		if err := ctx.Err(); err != nil {
 			return nil, fmt.Errorf("the PDF could not be read: %w", err)
@@ -58,6 +59,12 @@ func readPDF(ctx context.Context, data []byte) ([]Page, error) {
 		if utf8.RuneCountInString(strings.TrimSpace(text.Text)) >= scannedPageRunes {
 			pages = append(pages, Page{Text: text.Text})
 			continue
+		}
+		// Rendering stops where the model's limit would, rather than holding
+		// hundreds of page images for a step that cannot send them.
+		scanned++
+		if scanned > MaxImages {
+			return nil, fmt.Errorf("the PDF has more than %d pages without text; a model takes up to %d images", MaxImages, MaxImages)
 		}
 		image, err := renderPage(reader, doc.Document, i)
 		if err != nil {

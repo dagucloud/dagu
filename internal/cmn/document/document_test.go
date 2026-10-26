@@ -7,7 +7,9 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
+	"hash/crc32"
 	"image"
 	"image/color"
 	"image/png"
@@ -183,4 +185,32 @@ func TestReadRefuses(t *testing.T) {
 			assert.Contains(t, err.Error(), tc.want)
 		})
 	}
+}
+
+func TestReadImageRefusesARasterTooLargeToDecode(t *testing.T) {
+	t.Parallel()
+
+	// A PNG whose header names a raster of 30000 by 30000 pixels, with no
+	// pixel data behind it: the header alone must stop the decoding.
+	var b bytes.Buffer
+	b.Write([]byte("\x89PNG\r\n\x1a\n"))
+	chunk := func(kind string, body []byte) {
+		var length [4]byte
+		binary.BigEndian.PutUint32(length[:], uint32(len(body)))
+		b.Write(length[:])
+		data := append([]byte(kind), body...)
+		b.Write(data)
+		var sum [4]byte
+		binary.BigEndian.PutUint32(sum[:], crc32.ChecksumIEEE(data))
+		b.Write(sum[:])
+	}
+	header := make([]byte, 13)
+	binary.BigEndian.PutUint32(header[0:], 30000)
+	binary.BigEndian.PutUint32(header[4:], 30000)
+	header[8], header[9] = 8, 6
+	chunk("IHDR", header)
+	chunk("IEND", nil)
+
+	_, err := document.Read(context.Background(), write(t, "huge.png", b.Bytes()))
+	require.ErrorContains(t, err, "30000 by 30000 pixels; a model takes images of up to 64 million pixels")
 }

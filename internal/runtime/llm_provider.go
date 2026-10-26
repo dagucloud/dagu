@@ -168,6 +168,7 @@ func MaskSecretsForProvider(ctx context.Context, msgs []ir.LLMMessage) []ir.LLMM
 			ToolCallID: msg.ToolCallID,
 			ToolCalls:  msg.ToolCalls, // IDs and names carry no secrets
 			Metadata:   msg.Metadata,
+			Images:     msg.Images, // pixels carry no secrets
 		}
 	}
 	return result

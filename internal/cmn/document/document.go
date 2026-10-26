@@ -27,15 +27,22 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/imagefit"
 	"github.com/xuri/excelize/v2"
+	_ "golang.org/x/image/webp" // decoded by image.Decode
 	"golang.org/x/text/encoding/japanese"
 )
 
 const (
 	// MaxFileBytes bounds one file.
 	MaxFileBytes = 50 << 20
+	// MaxImages bounds the images a model is given at once, image files and
+	// scanned pages together.
+	MaxImages = 50
 	// imageLongEdge is the longest edge of an image a model is given; a
 	// larger image is scaled down to it.
 	imageLongEdge = 1568
+	// maxImagePixels bounds the pixels decoded from one image, since a
+	// small file can name a raster that does not fit in memory.
+	maxImagePixels = 64_000_000
 	// maxImageBytes bounds one encoded image, as the providers do.
 	maxImageBytes = 4 << 20
 	// scannedPageRunes is the text below which a PDF page counts as scanned
@@ -104,7 +111,7 @@ func Read(ctx context.Context, path string) (File, error) {
 	if info.Size() > MaxFileBytes {
 		return File{}, fmt.Errorf("%s is %d MB; a model takes files of up to %d MB", path, (info.Size()+(1<<20)-1)>>20, MaxFileBytes>>20)
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path is a file the step named
 	if err != nil {
 		return File{}, err
 	}
@@ -160,14 +167,13 @@ func kindOf(path string, data []byte) string {
 func fitImage(data []byte, mediaType string) (*Image, error) {
 	config, _, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
-		// WebP has no decoder here; it is given as it is when small enough.
-		if mediaType == "image/webp" && len(data) <= maxImageBytes {
-			return &Image{MediaType: mediaType, Data: data}, nil
-		}
 		return nil, fmt.Errorf("the image could not be read: %w", err)
 	}
 	if max(config.Width, config.Height) <= imageLongEdge && len(data) <= maxImageBytes {
 		return &Image{MediaType: mediaType, Data: data}, nil
+	}
+	if int64(config.Width)*int64(config.Height) > maxImagePixels {
+		return nil, fmt.Errorf("the image is %d by %d pixels; a model takes images of up to %d million pixels", config.Width, config.Height, maxImagePixels/1_000_000)
 	}
 	decoded, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
@@ -223,7 +229,7 @@ func docxText(data []byte) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("the Word file could not be read: %w", err)
 	}
-	defer part.Close()
+	defer func() { _ = part.Close() }()
 	var out, line strings.Builder
 	var cell, row []string
 	inText, inCell := false, false
@@ -280,7 +286,7 @@ func workbookText(data []byte) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("the Excel file could not be read: %w", err)
 	}
-	defer book.Close()
+	defer func() { _ = book.Close() }()
 	var b strings.Builder
 	for _, sheet := range book.GetSheetList() {
 		rows, err := book.GetRows(sheet)

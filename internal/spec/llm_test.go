@@ -209,6 +209,6 @@ steps:
     with:
       prompt: Read it.
 `))
-		require.ErrorContains(t, err, "files is set on a chat.completion step, under with")
+		require.ErrorContains(t, err, "files is not valid in a DAG-level llm block; set it on a chat.completion step, under with")
 	})
 }

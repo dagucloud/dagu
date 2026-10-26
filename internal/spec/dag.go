@@ -2802,7 +2802,7 @@ func buildLLM(_ buildContext, d *dag) (*ir.LLMConfig, error) {
 	// The files a model reads belong with the prompt that asks about them.
 	if !cfg.Files.IsZero() {
 		return nil, ir.NewValidationError("llm.files", cfg.Files.Value(),
-			fmt.Errorf("files is set on a chat.completion step, under with"))
+			fmt.Errorf("files is not valid in a DAG-level llm block; set it on a chat.completion step, under with"))
 	}
 
 	thinking, err := buildThinkingConfig(cfg.Thinking)

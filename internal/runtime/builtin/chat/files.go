@@ -18,13 +18,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/filerefs"
 )
 
-const (
-	// maxFilesRunes bounds the text of all the files a step gives the model.
-	maxFilesRunes = 1_000_000
-	// maxFilesImages bounds the images, image files and scanned pages
-	// together, a step gives the model.
-	maxFilesImages = 50
-)
+// maxFilesRunes bounds the text of all the files a step gives the model.
+const maxFilesRunes = 1_000_000
 
 // attachFiles reads the files with.files names and gives them to the
 // step's last user message: their text ahead of the prompt, and their
@@ -71,8 +66,8 @@ func attachFiles(ctx context.Context, files []string, messages []ir.LLMMessage) 
 	if n := utf8.RuneCountInString(text.String()); n > maxFilesRunes {
 		return fmt.Errorf("the files hold %d characters of text; a model step takes up to %d, so give it fewer or smaller files", n, maxFilesRunes)
 	}
-	if len(images) > maxFilesImages {
-		return fmt.Errorf("the files hold %d images, image files and scanned pages together; a model step takes up to %d", len(images), maxFilesImages)
+	if len(images) > document.MaxImages {
+		return fmt.Errorf("the files hold %d images, image files and scanned pages together; a model step takes up to %d", len(images), document.MaxImages)
 	}
 	messages[prompt].Content = text.String() + messages[prompt].Content
 	messages[prompt].Images = images
