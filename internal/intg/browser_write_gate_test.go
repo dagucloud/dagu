@@ -47,7 +47,11 @@ func TestBrowserWriteGateAsksBeforeTheCommitAct(t *testing.T) {
 		_, _ = io.WriteString(w, ledgerPage)
 	}))
 	t.Cleanup(page.Close)
-	model := httptest.NewServer(http.HandlerFunc(verifyModel))
+	var asked atomic.Int64
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		asked.Add(1)
+		verifyModel(w, r)
+	}))
 	t.Cleanup(model.Close)
 	server := test.SetupServer(t)
 
@@ -113,9 +117,11 @@ steps:
 	}
 
 	start("intg_wg_ask", "once")
+	before := asked.Load()
 	respond("once", "once", 0)
 	status := waitForDAGRunStatus(t, server, "intg_wg_ask", "once", ir.Succeeded)
 	require.Equal(t, int64(1), saves.Load(), "the answered act sends its write")
+	require.Equal(t, before, asked.Load(), "the answered act replays what the rehearsal did, asking no model")
 	require.Equal(t, ir.NodeSucceeded, nodeByName(t, status, "after").Status)
 
 	start("intg_wg_ask", "skip")
