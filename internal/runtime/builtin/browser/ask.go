@@ -95,11 +95,16 @@ func (r *run) resumeSession(ctx context.Context, recordID string, session *ir.Ag
 	}
 	// An answer to a permission before a commit operation says whether
 	// that operation sends its write.
-	if answer.Index < len(r.cfg.Do) && r.cfg.Do[answer.Index].Ask == nil {
+	commit := answer.Index < len(r.cfg.Do) && r.cfg.Do[answer.Index].Ask == nil
+	if commit {
 		r.commitDecisions[answer.Index] = answer.Decision
 	}
 	if time.Now().After(record.Deadline) {
-		return 0, errors.New("the answer arrived after ask.timeout and the browser was closed; retry the step to start over")
+		wait := "ask.timeout"
+		if commit {
+			wait = "the wait for a write decision"
+		}
+		return 0, fmt.Errorf("the answer arrived after %s and the browser was closed; retry the step to start over", wait)
 	}
 	for index, value := range agentstep.AnsweredAsks(session) {
 		if index < len(r.cfg.Do) && r.cfg.Do[index].Ask != nil {
