@@ -46,6 +46,10 @@ function socket() { return new Promise(res => { const s = new WebSocket(location
 
 const siteWorker = `fetch('/w/worker', {method: 'POST', body: 'x'}).then(r => postMessage('ok ' + r.status), e => postMessage('error ' + e));`
 
+// siteStartWorker opens a socket in its first statement.
+const siteStartWorker = `new WebSocket(location.origin.replace('http', 'ws') + '/ws?from=start');
+self.addEventListener('install', () => self.skipWaiting());`
+
 const siteServiceWorker = `self.addEventListener('install', e => self.skipWaiting());
 self.addEventListener('activate', e => e.waitUntil(clients.claim()));
 self.addEventListener('message', e => e.waitUntil((async () => {
@@ -93,6 +97,9 @@ func (s *site) serve(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == "/sw.js":
 		w.Header().Set("Content-Type", "application/javascript")
 		_, _ = io.WriteString(w, siteServiceWorker)
+	case r.URL.Path == "/sw-start.js":
+		w.Header().Set("Content-Type", "application/javascript")
+		_, _ = io.WriteString(w, siteStartWorker)
 	default:
 		w.Header().Set("Content-Type", "text/html")
 		_, _ = io.WriteString(w, sitePage)
@@ -422,6 +429,26 @@ func TestGateRefusesSockets(t *testing.T) {
 	socket, _ := find(events(t, controls), "/ws?from=sw")
 	assert.Equal(t, writegate.KindSocket, socket.Kind)
 	assert.Equal(t, "service_worker", socket.Target)
+}
+
+// A service worker waits for the gate to watch it, so a socket it opens in
+// its first statement is reported.
+func TestGateSeesASocketAWorkerOpensAtStart(t *testing.T) {
+	t.Parallel()
+
+	s := startSite(t)
+	b := startBrowser(t)
+	controls, _, _ := guard(t, b, writegate.Policy{}, nil)
+	p := openPage(t, b)
+	p.goTo(s.URL + "/")
+
+	p.eval(`navigator.serviceWorker.register('/sw-start.js').then(() => navigator.serviceWorker.ready).then(() => 'ready')`)
+	require.Eventually(t, func() bool {
+		_, ok := find(events(t, controls), "/ws?from=start")
+		return ok
+	}, 10*time.Second, 50*time.Millisecond)
+	socket, _ := find(events(t, controls), "/ws?from=start")
+	assert.Equal(t, writegate.KindSocket, socket.Kind)
 }
 
 func TestGateCutsLargeBodies(t *testing.T) {

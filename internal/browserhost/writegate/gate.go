@@ -231,8 +231,10 @@ func (g *gate) arm(ctx context.Context, extensionDir string) (net.Listener, erro
 	}{
 		{"Fetch.enable", map[string]any{"patterns": []map[string]any{{"urlPattern": "*", "requestStage": "Request"}}}},
 		{"Extensions.loadUnpacked", map[string]any{"path": extensionDir}},
+		// A worker waits for the gate to watch it before it runs, so a socket
+		// it opens at once is still seen.
 		{"Target.setAutoAttach", map[string]any{
-			"autoAttach": true, "waitForDebuggerOnStart": false, "flatten": true,
+			"autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true,
 			"filter": []map[string]any{{"type": targetServiceWorker}, {"type": targetSharedWorker}, {"exclude": true}},
 		}},
 	}
@@ -460,7 +462,8 @@ func (g *gate) keep(req request, class, outcome string) {
 }
 
 // attached watches a service worker or a shared worker of a site for the
-// sockets it opens.
+// sockets it opens, then lets it run; a worker of anything else, such as an
+// extension, just runs.
 func (g *gate) attached(params json.RawMessage) {
 	var e struct {
 		SessionID  string `json:"sessionId"`
@@ -469,13 +472,18 @@ func (g *gate) attached(params json.RawMessage) {
 			URL  string `json:"url"`
 		} `json:"targetInfo"`
 	}
-	if json.Unmarshal(params, &e) != nil || !webURL(e.TargetInfo.URL) {
+	if json.Unmarshal(params, &e) != nil {
 		return
 	}
-	g.mu.Lock()
-	g.watched[e.SessionID] = e.TargetInfo.Type
-	g.mu.Unlock()
-	g.send(e.SessionID, "Network.enable", map[string]any{"maxPostDataSize": 0})
+	if webURL(e.TargetInfo.URL) {
+		g.mu.Lock()
+		g.watched[e.SessionID] = e.TargetInfo.Type
+		g.mu.Unlock()
+		// The worker runs the commands in order, so it is watched before it
+		// runs.
+		g.send(e.SessionID, "Network.enable", map[string]any{"maxPostDataSize": 0})
+	}
+	g.send(e.SessionID, "Runtime.runIfWaitingForDebugger", nil)
 }
 
 // socket records a WebSocket a watched worker opened.

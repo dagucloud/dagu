@@ -6,6 +6,7 @@ package writegate
 import (
 	"testing"
 
+	cmnconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -126,4 +127,25 @@ func TestStricter(t *testing.T) {
 	assert.Equal(t, ModeOff, Stricter(ModeOff, ModeOff))
 	_, err := ParseMode("loose")
 	assert.Error(t, err)
+}
+
+// A declared write needs no secret; one naming a secret is refused, since
+// it would never match.
+func TestPolicyRefusesASecretOnAWrite(t *testing.T) {
+	t.Parallel()
+
+	assert.NoError(t, Policy{SignIn: []Rule{{Host: "login.example.com", Secret: "PW"}}}.Validate())
+	err := Policy{Writes: []Rule{{Host: "app.example.com", Path: "/delete", Secret: "PW"}}}.Validate()
+	assert.ErrorContains(t, err, "only sign_in rules take one")
+}
+
+// The host config takes exactly the modes the gate has.
+func TestModesMatchTheHostConfig(t *testing.T) {
+	t.Parallel()
+
+	for _, mode := range cmnconfig.BrowserWriteGateModes {
+		_, err := ParseMode(mode)
+		assert.NoError(t, err, mode)
+	}
+	assert.ElementsMatch(t, []string{ModeOff, ModeRehearse}, cmnconfig.BrowserWriteGateModes)
 }

@@ -93,6 +93,13 @@ func (p Policy) Validate() error {
 			}
 		}
 	}
+	// A declared write is one whatever it carries; a secret there would make
+	// the rule never match.
+	for _, rule := range p.Writes {
+		if rule.Secret != "" {
+			return fmt.Errorf("the writes rule for %s names a secret; only sign_in rules take one", rule.Host)
+		}
+	}
 	for _, host := range p.NoiseHosts {
 		if err := hostpattern.Validate(host); err != nil {
 			return err
