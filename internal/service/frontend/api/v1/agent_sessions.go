@@ -540,6 +540,9 @@ func validateAgentInteractionResponse(interaction ir.AgentInteraction, body *api
 			return errors.New("permission response requires a decision")
 		}
 		decision := string(*body.Decision)
+		if decision == ir.AgentDecisionSkip && interaction.Permission == ir.AgentPermissionBrowserWrite {
+			return nil
+		}
 		if decision != "once" && decision != "session" && decision != "reject" {
 			return errors.New("permission decision must be once, session, or reject")
 		}

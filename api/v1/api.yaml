@@ -12532,7 +12532,7 @@ components:
 
     AgentInteractionResponseRequest:
       type: object
-      description: "Answer to a pending managed-agent permission or question"
+      description: "Answer to a pending managed-agent permission or question. A browser.write permission also takes skip: the operation is not run and the step ends without failing."
       properties:
         decision:
           type: string
@@ -12540,6 +12540,7 @@ components:
             - once
             - session
             - reject
+            - skip
         answers:
           type: array
           items:

@@ -33,6 +33,15 @@ const (
 	AgentInteractionRejected AgentInteractionStatus = "rejected"
 )
 
+// AgentPermissionBrowserWrite is the permission a browser step asks for
+// before an operation that sends a write. Besides once, session, and
+// reject, its answer may be AgentDecisionSkip.
+const AgentPermissionBrowserWrite = "browser.write"
+
+// AgentDecisionSkip answers a browser write permission: the operation is
+// not run and the step ends without failing, having sent nothing.
+const AgentDecisionSkip = "skip"
+
 // AgentQuestion is one question in a managed agent interaction.
 type AgentQuestion struct {
 	Header   string                `json:"header"`

@@ -4569,7 +4569,7 @@ export interface components {
             /** @description The sub-DAG run ID, present only for sub-DAG push-back operations */
             subDAGRunId?: string;
         };
-        /** @description Answer to a pending managed-agent permission or question */
+        /** @description Answer to a pending managed-agent permission or question. A browser.write permission also takes skip: the operation is not run and the step ends without failing. */
         AgentInteractionResponseRequest: {
             /** @enum {string} */
             decision?: AgentInteractionResponseRequestDecision;
@@ -22422,7 +22422,8 @@ export enum ChatMessageRole {
 export enum AgentInteractionResponseRequestDecision {
     once = "once",
     session = "session",
-    reject = "reject"
+    reject = "reject",
+    skip = "skip"
 }
 export enum ErrorCode {
     forbidden = "forbidden",
