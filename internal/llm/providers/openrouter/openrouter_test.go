@@ -44,6 +44,33 @@ func TestStreamFinishReason(t *testing.T) {
 	}
 }
 
+// A stream's final chunk carries the usage OpenRouter reports, its cost
+// included, which is what a gateway relaying OpenRouter charges.
+func TestStreamUsageCost(t *testing.T) {
+	t.Parallel()
+
+	provider := &Provider{}
+	events := make(chan llm.StreamEvent, 4)
+	body := io.NopCloser(strings.NewReader("data: {\"choices\":[{\"delta\":{\"content\":\"answer\"},\"finish_reason\":\"stop\"}]}\n" +
+		"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":120,\"completion_tokens\":30,\"total_tokens\":150,\"prompt_tokens_details\":{\"cached_tokens\":100},\"completion_tokens_details\":{\"reasoning_tokens\":12},\"cost\":0.0021}}\n" +
+		"data: [DONE]\n"))
+
+	provider.streamResponse(context.Background(), body, events)
+
+	var usage *llm.Usage
+	for event := range events {
+		if event.Done {
+			usage = event.Usage
+		}
+	}
+	require.NotNil(t, usage)
+	require.NotNil(t, usage.Cost)
+	assert.InDelta(t, 0.0021, *usage.Cost, 1e-12)
+	assert.Equal(t, 120, usage.PromptTokens)
+	assert.Equal(t, 100, usage.CachedPromptTokens)
+	assert.Equal(t, 12, usage.ReasoningTokens)
+}
+
 func TestBuildRequestBody_WebSearch(t *testing.T) {
 	t.Parallel()
 

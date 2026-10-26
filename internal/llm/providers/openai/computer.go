@@ -15,6 +15,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/llm/computeruse"
+	"github.com/dagucloud/dagu/v2/internal/llm/providers/chatusage"
 )
 
 const (
@@ -244,11 +245,7 @@ func (s *computerSession) input(obs computeruse.Observation) []any {
 }
 
 func (s *computerSession) turn(resp responsesResponse) (*computeruse.Turn, error) {
-	turn := &computeruse.Turn{Usage: llm.Usage{
-		PromptTokens:     resp.Usage.InputTokens,
-		CompletionTokens: resp.Usage.OutputTokens,
-		TotalTokens:      resp.Usage.TotalTokens,
-	}}
+	turn := &computeruse.Turn{Usage: resp.Usage.LLM()}
 	s.computerCalls = s.computerCalls[:0]
 	s.functionCalls = s.functionCalls[:0]
 
@@ -327,12 +324,8 @@ type responsesResponse struct {
 	IncompleteDetails *struct {
 		Reason string `json:"reason"`
 	} `json:"incomplete_details"`
-	Output []responsesItem `json:"output"`
-	Usage  struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
-		TotalTokens  int `json:"total_tokens"`
-	} `json:"usage"`
+	Output []responsesItem     `json:"output"`
+	Usage  chatusage.Responses `json:"usage"`
 }
 
 type responsesItem struct {
