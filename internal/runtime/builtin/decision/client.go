@@ -27,6 +27,7 @@ var sharedHTTPClient = llm.NewHTTPClient(llm.Config{
 type client struct {
 	maxResponseBytes int64
 	http             *llm.HTTPClient
+	provider         string
 	endpoint         string
 	apiKey           string
 }
@@ -67,10 +68,31 @@ func (c *client) evaluate(ctx context.Context, req request) (map[string]any, err
 	if decoder.Decode(new(any)) != io.EOF {
 		return nil, fmt.Errorf("decision response must contain one JSON object")
 	}
+	// The call is billed whether or not its answer passes validation.
+	llm.RecordUsage(ctx, llm.UsageRecord{Provider: c.provider, Model: req.Model, Usage: responseUsage(result)})
 	if err := validateResponse(result, req.Questions); err != nil {
 		return nil, err
 	}
 	return result, nil
+}
+
+// responseUsage reads the tokens and the cost a decision response reports,
+// leaving out what is missing or not a count.
+func responseUsage(result map[string]any) llm.Usage {
+	usage, _ := result["usage"].(map[string]any)
+	count := func(field string) int {
+		v, ok := number(usage[field])
+		if !ok || v < 0 || v != float64(int64(v)) {
+			return 0
+		}
+		return int(v)
+	}
+	reported := llm.Usage{PromptTokens: count("input_tokens"), CompletionTokens: count("output_tokens")}
+	reported.TotalTokens = reported.PromptTokens + reported.CompletionTokens
+	if cost, ok := number(usage["cost"]); ok && cost >= 0 {
+		reported.Cost = &cost
+	}
+	return reported
 }
 
 func validateResponse(result map[string]any, questions map[string]question) error {
