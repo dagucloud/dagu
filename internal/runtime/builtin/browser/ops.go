@@ -103,13 +103,17 @@ type run struct {
 	// when its browser started.
 	commits *writegate.CommitStore
 	points  []writegate.CommitPoint
-	// opKey and opPage identify the operation running and the page it
-	// started on, as a commit point does; allowing is set while the gate
-	// lets it send its approved writes.
-	opKey    string
-	opPage   string
-	allowing bool
-	stepKey  string
+	// opIndex is the operation that ran last, -1 before one runs, and
+	// opKey, opPage and opActions are its commit point's key, the page it
+	// started on and the actions it performed. The writes the gate decides
+	// until the next operation starts are its own, and allowing is set
+	// while the gate lets it send its approved ones.
+	opIndex   int
+	opKey     string
+	opPage    string
+	opActions []recordedAction
+	allowing  bool
+	stepKey   string
 }
 
 func newRun(ctx context.Context, e *browserExecutor) (*run, error) {
@@ -170,6 +174,7 @@ func newRun(ctx context.Context, e *browserExecutor) (*run, error) {
 		answers:   map[string]string{},
 		outputs:   map[string]any{},
 		blocked:   map[string]int{},
+		opIndex:   -1,
 
 		certificateFailures: map[string]string{},
 	}
@@ -237,11 +242,22 @@ func (r *run) execute(ctx context.Context) error {
 			if err := r.settleDownloads(ctx, i-1, true); err != nil {
 				return r.fail(ctx, i, kindDownload, err)
 			}
+			if stopped, err := r.finishWrites(ctx, i-1); stopped {
+				return err
+			}
+			if err := r.endWrites(ctx); err != nil {
+				return r.fail(ctx, i, kindWriteGate, err)
+			}
 			return r.waitForInput(ctx, i, *op.Ask)
 		}
-		r.beginWrites(ctx, i, op)
+		if stopped, err := r.finishWrites(ctx, i-1); stopped {
+			return err
+		}
+		if err := r.beginWrites(ctx, i, op); err != nil {
+			return r.fail(ctx, i, kindWriteGate, err)
+		}
 		result, err := r.runOperation(ctx, i, op)
-		r.endWrites(ctx)
+		r.opActions = result.Actions
 		if err == nil {
 			r.reportResult(ctx, result)
 		}
@@ -255,7 +271,7 @@ func (r *run) execute(ctx context.Context) error {
 		case gateErr != nil:
 			return r.fail(ctx, i, kindWriteGate, gateErr)
 		case stop != nil:
-			r.noteCommit(ctx, i, op, result, *stop)
+			r.noteCommit(ctx, *stop)
 			if r.writeGate == writegate.ModeRecord {
 				return r.fail(ctx, i, op.kind(), writeBlocked{write: *stop})
 			}
@@ -366,39 +382,72 @@ func (r *run) restoreWrites(ctx context.Context) {
 	}
 }
 
-// beginWrites notes the operation at index starting on the current page,
-// and, in record mode, tells the gate the writes its approved commit
-// points send.
-func (r *run) beginWrites(ctx context.Context, index int, op operation) {
-	r.opKey, r.opPage = "", ""
+// beginWrites ends the allowance of the operation that ran last, notes the
+// operation at index starting on the current page, and, in record mode,
+// tells the gate the writes its approved commit points send. Its error is
+// an allowance that may not have ended.
+func (r *run) beginWrites(ctx context.Context, index int, op operation) error {
+	if err := r.endWrites(ctx); err != nil {
+		return err
+	}
+	r.opIndex, r.opKey, r.opPage, r.opActions = index, "", "", nil
 	if r.eng == nil || r.eng.Handle().WriteGate == nil {
-		return
+		return nil
 	}
 	page, err := r.eng.CurrentURL(ctx)
 	if err != nil {
-		return
+		return nil
 	}
 	r.opKey, r.opPage = commitKey(index, op, page), page
 	allowed := writegate.Allowed(r.points, r.opKey)
 	if r.writeGate != writegate.ModeRecord || r.opKey == "" || len(allowed) == 0 {
-		return
+		return nil
 	}
-	if err := r.eng.BeginWrites(ctx, allowed, op.timeout()+commitLeaseSlack); err != nil {
+	// The allowance lasts until the next operation starts; its lease covers
+	// the operation and its downloads settling.
+	lease := op.timeout() + max(r.downloadWindow, op.timeout()) + downloadGrace + commitLeaseSlack
+	if err := r.eng.BeginWrites(ctx, allowed, lease); err != nil {
 		r.warn(index, "tell the write gate what the operation may send: "+r.masker.MaskString(err.Error()))
-		return
+		return nil
 	}
 	r.allowing = true
+	return nil
 }
 
 // endWrites tells the gate that the operation sending its approved writes
 // ended.
-func (r *run) endWrites(ctx context.Context) {
+func (r *run) endWrites(ctx context.Context) error {
 	if !r.allowing {
-		return
+		return nil
 	}
 	r.allowing = false
-	// A gate that did not hear it blocks the writes once the lease ends.
-	_ = r.eng.EndWrites(ctx)
+	return r.eng.EndWrites(ctx)
+}
+
+// finishWrites reports what the gate decided since the operation that ran
+// last was read as that operation's. A write the gate kept back ends the
+// step, with nothing run after the operation at reached, and finishWrites
+// then returns true with the step's result.
+func (r *run) finishWrites(ctx context.Context, reached int) (bool, error) {
+	ran, kind := reached, ""
+	if r.opIndex >= 0 {
+		ran = r.opIndex
+	}
+	if ran >= 0 {
+		kind = r.cfg.Do[ran].kind()
+	}
+	stop, err := r.reportWrites(ctx, ran)
+	switch {
+	case err != nil:
+		return true, r.fail(ctx, ran, kindWriteGate, err)
+	case stop == nil:
+		return false, nil
+	}
+	r.noteCommit(ctx, *stop)
+	if r.writeGate == writegate.ModeRecord {
+		return true, r.fail(ctx, ran, kind, writeBlocked{write: *stop})
+	}
+	return true, r.rehearsed(ctx, reached, *stop)
 }
 
 // committedActions returns the recorded actions of the approved commit
@@ -416,18 +465,19 @@ func (r *run) committedActions(key string) ([]recordedAction, bool) {
 	return nil, false
 }
 
-// noteCommit keeps the operation at index, which tried to send write, as a
-// commit point to approve, with the actions it performed.
-func (r *run) noteCommit(ctx context.Context, index int, op operation, result opResult, write writegate.Event) {
+// noteCommit keeps the operation that ran last, which tried to send write,
+// as a commit point to approve, with the actions it performed.
+func (r *run) noteCommit(ctx context.Context, write writegate.Event) {
 	if r.opKey == "" {
 		return
 	}
+	index := r.opIndex
 	point := writegate.CommitPoint{
-		Key: r.opKey, Op: index, Operation: r.masker.MaskString(opWords(op)), Page: r.masker.MaskString(pagePath(r.opPage)),
+		Key: r.opKey, Op: index, Operation: r.masker.MaskString(opWords(r.cfg.Do[index])), Page: r.masker.MaskString(pagePath(r.opPage)),
 		Signature: write.Signature, Example: &write, SeenAt: time.Now(),
 	}
-	if len(result.Actions) > 0 {
-		point.Actions, _ = json.Marshal(result.Actions)
+	if len(r.opActions) > 0 {
+		point.Actions, _ = json.Marshal(r.opActions)
 	}
 	if err := r.commits.Note(ctx, r.dagName, r.stepKey, point); err != nil {
 		r.warn(index, "keep the commit point: "+r.masker.MaskString(err.Error()))
@@ -745,19 +795,9 @@ func (r *run) capture(ctx context.Context, label string) (string, error) {
 }
 
 func (r *run) succeed(ctx context.Context) error {
-	// A write the page sent while downloads settled stops a rehearsal too,
-	// and in record mode fails the step.
-	last := len(r.cfg.Do) - 1
-	stop, gateErr := r.reportWrites(ctx, last)
-	switch {
-	case gateErr != nil:
-		return r.fail(ctx, last, kindWriteGate, gateErr)
-	case stop != nil && r.writeGate == writegate.ModeRecord:
-		r.noteCommit(ctx, last, r.cfg.Do[last], opResult{}, *stop)
-		return r.fail(ctx, last, r.cfg.Do[last].kind(), writeBlocked{write: *stop})
-	case stop != nil:
-		r.noteCommit(ctx, last, r.cfg.Do[last], opResult{}, *stop)
-		return r.rehearsed(ctx, last, *stop)
+	// The allowance left ends as the browser closes with its gate.
+	if stopped, err := r.finishWrites(ctx, len(r.cfg.Do)-1); stopped {
+		return err
 	}
 	var files []string
 	if r.cfg.capturesFinalScreenshot() && r.artifacts.Enabled() {

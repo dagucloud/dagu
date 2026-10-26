@@ -106,9 +106,10 @@ type fakeEngine struct {
 	downloadWrites []writegate.Event
 	// allowed are the signatures the write gate was told the operation
 	// running may send, one entry per operation, and allowing whether it
-	// still runs.
+	// still runs; endErr is the error telling the gate it ended reports.
 	allowed  [][]string
 	allowing bool
+	endErr   error
 	// outcome is what the browser shows after a page opened.
 	outcome pageOutcome
 	// pending are the connections the certificate proxy waits on.
@@ -192,9 +193,13 @@ func (e *fakeEngine) TakeCertificateEvents(context.Context) ([]certproxy.Event, 
 	return events, nil
 }
 
-// keepWrites numbers writes as the gate keeps them. The caller holds e.mu.
+// keepWrites numbers writes as the gate keeps them, sending one the
+// operation running may send. The caller holds e.mu.
 func (e *fakeEngine) keepWrites(writes []writegate.Event) {
 	for _, write := range writes {
+		if e.allowing && slices.Contains(e.allowed[len(e.allowed)-1], write.Signature) {
+			write.Class, write.Outcome = writegate.ClassApproved, writegate.OutcomeSent
+		}
 		write.Seq = int64(len(e.writes) + 1)
 		e.writes = append(e.writes, write)
 	}
@@ -227,6 +232,9 @@ func (e *fakeEngine) BeginWrites(_ context.Context, signatures []string, _ time.
 func (e *fakeEngine) EndWrites(context.Context) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if e.endErr != nil {
+		return e.endErr
+	}
 	e.allowing = false
 	return nil
 }
