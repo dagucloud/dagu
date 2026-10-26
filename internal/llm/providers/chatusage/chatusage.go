@@ -21,7 +21,8 @@ type Usage struct {
 }
 
 type promptTokensDetails struct {
-	CachedTokens int `json:"cached_tokens"`
+	CachedTokens     int `json:"cached_tokens"`
+	CacheWriteTokens int `json:"cache_write_tokens"`
 }
 
 type completionTokensDetails struct {
@@ -39,6 +40,7 @@ func (u Usage) LLM() llm.Usage {
 	}
 	if u.PromptTokensDetails != nil {
 		usage.CachedPromptTokens = u.PromptTokensDetails.CachedTokens
+		usage.CacheWritePromptTokens = u.PromptTokensDetails.CacheWriteTokens
 	}
 	if u.CompletionTokensDetails != nil {
 		usage.ReasoningTokens = u.CompletionTokensDetails.ReasoningTokens

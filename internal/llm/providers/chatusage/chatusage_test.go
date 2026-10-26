@@ -27,8 +27,8 @@ func TestUsage(t *testing.T) {
 	}{
 		{
 			name: "details and cost",
-			body: `{"prompt_tokens":120,"completion_tokens":30,"total_tokens":150,"prompt_tokens_details":{"cached_tokens":100},"completion_tokens_details":{"reasoning_tokens":12},"cost":0.00042}`,
-			want: llm.Usage{PromptTokens: 120, CompletionTokens: 30, TotalTokens: 150, CachedPromptTokens: 100, ReasoningTokens: 12, Cost: &cost},
+			body: `{"prompt_tokens":120,"completion_tokens":30,"total_tokens":150,"prompt_tokens_details":{"cached_tokens":100,"cache_write_tokens":15},"completion_tokens_details":{"reasoning_tokens":12},"cost":0.00042}`,
+			want: llm.Usage{PromptTokens: 120, CompletionTokens: 30, TotalTokens: 150, CachedPromptTokens: 100, CacheWritePromptTokens: 15, ReasoningTokens: 12, Cost: &cost},
 		},
 		{
 			name: "counts alone",
