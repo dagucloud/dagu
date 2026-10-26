@@ -3057,10 +3057,11 @@ func TestActReturnsToItsApplicationAfterAPerson(t *testing.T) {
 	}
 }
 
-// The act works in the application its last action that ran landed in: a
-// turn that clicks in one application and then another leaves the act in the
-// second, which is the one brought back after a person; a turn stopped by a
-// failed action leaves it where it last worked.
+// The act works in the application its last action that ran operated: a turn
+// that clicks in one application and then another leaves the act in the
+// second, which is the one brought back after a person; keys work in the
+// window in front as they are sent; a turn stopped by a failed action leaves
+// the act where it last worked.
 func TestActWorksWhereItsLastActionLanded(t *testing.T) {
 	t.Parallel()
 
@@ -3070,12 +3071,16 @@ func TestActWorksWhereItsLastActionLanded(t *testing.T) {
 	// An element id the screen did not offer fails its action, so the
 	// actions after it are skipped.
 	missing := computeruse.Action{CallID: "x", Kind: computeruse.KindClick, ElementID: "e99"}
+	typeTotal := computeruse.Action{CallID: "t", Kind: computeruse.KindType, Text: "12,000"}
 	tests := []struct {
-		name   string
-		first  *computeruse.Turn
-		raised desktop.WindowID
+		name  string
+		first *computeruse.Turn
+		// pressed comes to the front when the turn's click is pressed.
+		pressed desktop.WindowID
+		raised  desktop.WindowID
 	}{
 		{name: "the last click", first: actions(clickAt(10, 10), clickAt(300, 10)), raised: ledger},
+		{name: "keys after a click that brought another application forward", first: actions(clickAt(10, 10), typeTotal), pressed: ledger, raised: ledger},
 		{name: "a failed action", first: actions(clickAt(10, 10), missing, clickAt(300, 10)), raised: expense},
 	}
 	for _, tc := range tests {
@@ -3091,6 +3096,9 @@ func TestActWorksWhereItsLastActionLanded(t *testing.T) {
 					return expense
 				}
 				return ledger
+			}
+			if tc.pressed.Known() {
+				run.backend.onPress = func() { run.backend.focusOn(tc.pressed) }
 			}
 			paste := computeruse.Action{CallID: "p", Kind: computeruse.KindKey, Keys: []string{"cmd", "v"}}
 			turns := 0
@@ -3120,6 +3128,46 @@ func TestActWorksWhereItsLastActionLanded(t *testing.T) {
 			}
 		})
 	}
+}
+
+// An action that only looks operates no application: a screenshot taken
+// while a person's window is in front leaves the act working where it was,
+// and that application is the one brought back after the person.
+func TestActLooksWithoutChangingItsApplication(t *testing.T) {
+	t.Parallel()
+
+	expense := desktop.WindowID{Handle: 2, Title: "Expense", PID: 7, App: "expense", Bounds: image.Rect(0, 0, 400, 200)}
+	mail := desktop.WindowID{Handle: 1, Title: "Mail", PID: 8, App: "mail", Bounds: image.Rect(0, 0, 400, 200)}
+	run := newTestRun(t)
+	run.backend.windows = []desktop.WindowID{mail, expense}
+	run.backend.focusOn(expense)
+	run.backend.under = expense
+	look := computeruse.Action{CallID: "s", Kind: computeruse.KindScreenshot}
+	turns := 0
+	session := &scriptedSession{
+		turns: []*computeruse.Turn{actions(clickAt(10, 10)), actions(look), actions(clickAt(20, 20)), done("Saved")},
+		onNext: func() {
+			turns++
+			switch turns {
+			case 2:
+				// A person brings mail forward over the same picture, so
+				// the screenshot still runs.
+				run.backend.personUsesAfterEcho()
+				run.backend.focusOn(mail)
+				run.backend.under = mail
+			case 3:
+				// The person changes the screen, so the click is held back.
+				run.backend.personUsesAfterEcho()
+				run.backend.show(pattern(400, 200, 150))
+			}
+		},
+	}
+	run.sessions = []*scriptedSession{session}
+	execution := run.execute(`{"idle": "100ms", "do": [{"act": "Save the expense"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	require.NotEmpty(t, run.backend.raised)
+	assert.Equal(t, expense.Handle, run.backend.raised[0].Handle, "the application the act clicked in came back")
 }
 
 // A window that came to the front after the screenshot, with no person
