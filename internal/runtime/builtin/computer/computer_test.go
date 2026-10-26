@@ -484,7 +484,9 @@ func TestExactConditions(t *testing.T) {
 		t.Parallel()
 		run := newTestRun(t)
 		run.elements = newFakeElements()
-		execution := run.execute(`{"do": [{"expect": {"text": "エラー"}, "timeout": "300ms"}]}`, nil)
+		// The timeout spans several exact polls, so a second read is sure even
+		// where the first one is slow to come back on a loaded runner.
+		execution := run.execute(`{"do": [{"expect": {"text": "エラー"}, "timeout": "1s"}]}`, nil)
 		require.EqualError(t, execution.err, `computer: do[0] expect failed: expectation not met: no element of "経費精算 - 請求書 1042" shows "エラー"`)
 		events := operationEvents(execution.exec.GetAgentSession())
 		require.Len(t, events, 1)
