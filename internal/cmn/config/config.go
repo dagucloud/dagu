@@ -89,7 +89,7 @@ type BrowserConfig struct {
 
 // BrowserWriteGateModes are the modes browser.write_gate takes. The write
 // gate defines what each does.
-var BrowserWriteGateModes = []string{"off", "record", "rehearse"}
+var BrowserWriteGateModes = []string{"off", "record", "ask", "rehearse"}
 
 // BrowserTrustedCA adds server certificate authorities for specific hosts.
 type BrowserTrustedCA struct {

@@ -656,7 +656,7 @@ var configSchema = &jsonschema.Schema{
 				"allowed_domains": {Type: "array", Items: agentstep.NonEmptyString()},
 				"screenshots":     {Type: "string", Enum: []any{screenshotsOnFailure, screenshotsFinal, screenshotsEach, screenshotsNever}},
 				"profile":         agentstep.NonEmptyString(),
-				"write_gate":      {Type: "string", Enum: []any{writegate.ModeOff, writegate.ModeRecord, writegate.ModeRehearse}},
+				"write_gate":      {Type: "string", Enum: []any{writegate.ModeOff, writegate.ModeRecord, writegate.ModeAsk, writegate.ModeRehearse}},
 				"client_certificates": {
 					Type: "array",
 					Items: &jsonschema.Schema{

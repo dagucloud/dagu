@@ -38,12 +38,15 @@ const (
 	// its approved commit points name them, and keeps each with its
 	// answer; it blocks the others.
 	ModeRecord = "record"
+	// ModeAsk decides writes as ModeRecord does, and a step running in it
+	// asks a person before each operation that is a commit point.
+	ModeAsk = "ask"
 	// ModeRehearse blocks every write and keeps what it would have sent.
 	ModeRehearse = "rehearse"
 )
 
 // modeRank orders the modes by strictness.
-var modeRank = map[string]int{ModeOff: 0, ModeRecord: 1, ModeRehearse: 3}
+var modeRank = map[string]int{ModeOff: 0, ModeRecord: 1, ModeAsk: 2, ModeRehearse: 3}
 
 // ParseMode returns the mode text names; empty is ModeOff.
 func ParseMode(text string) (string, error) {
@@ -51,10 +54,14 @@ func ParseMode(text string) (string, error) {
 		return ModeOff, nil
 	}
 	if _, ok := modeRank[text]; !ok {
-		return "", fmt.Errorf("write gate mode %q must be %s, %s, or %s", text, ModeOff, ModeRecord, ModeRehearse)
+		return "", fmt.Errorf("write gate mode %q must be %s, %s, %s, or %s", text, ModeOff, ModeRecord, ModeAsk, ModeRehearse)
 	}
 	return text, nil
 }
+
+// Sends reports whether a gate in mode sends the writes an operation is
+// allowed.
+func Sends(mode string) bool { return mode == ModeRecord || mode == ModeAsk }
 
 // Stricter returns the stricter of two modes.
 func Stricter(a, b string) string {

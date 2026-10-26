@@ -127,6 +127,8 @@ func TestStricter(t *testing.T) {
 	assert.Equal(t, ModeOff, Stricter(ModeOff, ModeOff))
 	assert.Equal(t, ModeRecord, Stricter(ModeOff, ModeRecord))
 	assert.Equal(t, ModeRehearse, Stricter(ModeRecord, ModeRehearse))
+	assert.Equal(t, ModeAsk, Stricter(ModeAsk, ModeRecord))
+	assert.Equal(t, ModeRehearse, Stricter(ModeAsk, ModeRehearse))
 	_, err := ParseMode("loose")
 	assert.Error(t, err)
 }
@@ -149,5 +151,5 @@ func TestModesMatchTheHostConfig(t *testing.T) {
 		_, err := ParseMode(mode)
 		assert.NoError(t, err, mode)
 	}
-	assert.ElementsMatch(t, []string{ModeOff, ModeRecord, ModeRehearse}, cmnconfig.BrowserWriteGateModes)
+	assert.ElementsMatch(t, []string{ModeOff, ModeRecord, ModeAsk, ModeRehearse}, cmnconfig.BrowserWriteGateModes)
 }

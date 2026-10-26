@@ -21,36 +21,53 @@ const askQuestionHeader = "Browser input"
 // waitForInput leaves the browser running, records where to resume, and
 // puts the step into Waiting until a person answers.
 func (r *run) waitForInput(ctx context.Context, index int, spec askSpec) error {
+	prompt := r.masker.MaskString(spec.Prompt)
+	deadline := time.Now().Add(spec.timeout())
 	generation := r.exec.GetAgentSession().Generation
+	interaction := agentstep.AskInteraction(index, generation, askQuestionHeader, prompt, deadline)
+	if err := r.detachForAnswer(ctx, index, index+1, opAsk, deadline); err != nil {
+		return err
+	}
+	r.timeline.Operation(agentstep.Report{Index: index, Kind: opAsk, Subject: prompt, Status: agentstep.StatusWaiting})
+	r.awaitAnswer(interaction)
+	return nil
+}
+
+// awaitAnswer puts the step into Waiting until a person answers
+// interaction.
+func (r *run) awaitAnswer(interaction ir.AgentInteraction) {
+	usage := r.bridge.totals()
+	r.exec.updateSession(func(s *ir.AgentSession) {
+		s.State = ir.AgentSessionWaiting
+		// The step resumes in a new process, which counts on from here.
+		s.Usage = ir.AgentUsage{InputTokens: int64(usage.Input), OutputTokens: int64(usage.Output), TotalTokens: int64(usage.total())}
+		s.Interactions = append(s.Interactions, interaction)
+	})
+	r.exec.setNodeStatus(ir.NodeWaiting)
+}
+
+// detachForAnswer leaves the browser running until deadline and records
+// that the step resumes at cursor once the question the operation at index
+// of kind asks is answered.
+func (r *run) detachForAnswer(ctx context.Context, index, cursor int, kind string, deadline time.Time) error {
 	if err := r.eng.Detach(ctx); err != nil {
-		return r.fail(ctx, index, opAsk, fmt.Errorf("keep browser open: %w", err))
+		return r.fail(ctx, index, kind, fmt.Errorf("keep browser open: %w", err))
 	}
 	r.eng = nil
 	r.record.State = browserhost.StateDetached
-	r.record.Deadline = time.Now().Add(spec.timeout())
-	r.record.Cursor = index + 1
+	r.record.Deadline = deadline
+	r.record.Cursor = cursor
 	r.record.Outputs = r.outputs
 	r.record.ReplayPending, r.record.ReplayUsed = r.cache.Held()
 	r.record.WriteGateSeq = r.writeSeq
 	r.record.OwnerPID = 0
 	r.record.OwnerStartedAt = 0
 	if err := r.store.Save(r.record); err != nil {
-		return r.fail(ctx, index, opAsk, err)
+		return r.fail(ctx, index, kind, err)
 	}
 	// The record marks the profile as held while the browser waits.
 	r.profile.release()
 	r.profile = nil
-
-	prompt := r.masker.MaskString(spec.Prompt)
-	r.timeline.Operation(agentstep.Report{Index: index, Kind: opAsk, Subject: prompt, Status: agentstep.StatusWaiting})
-	usage := r.bridge.totals()
-	r.exec.updateSession(func(s *ir.AgentSession) {
-		s.State = ir.AgentSessionWaiting
-		// The step resumes in a new process, which counts on from here.
-		s.Usage = ir.AgentUsage{InputTokens: int64(usage.Input), OutputTokens: int64(usage.Output), TotalTokens: int64(usage.total())}
-		s.Interactions = append(s.Interactions, agentstep.AskInteraction(index, generation, askQuestionHeader, prompt, r.record.Deadline))
-	})
-	r.exec.setNodeStatus(ir.NodeWaiting)
 	return nil
 }
 
@@ -75,6 +92,11 @@ func (r *run) resumeSession(ctx context.Context, recordID string, session *ir.Ag
 	r.record = record
 	if answer.Rejected {
 		return 0, agentstep.ErrAskRejected
+	}
+	// An answer to a permission before a commit operation says whether
+	// that operation sends its write.
+	if answer.Index < len(r.cfg.Do) && r.cfg.Do[answer.Index].Ask == nil {
+		r.commitDecisions[answer.Index] = answer.Decision
 	}
 	if time.Now().After(record.Deadline) {
 		return 0, errors.New("the answer arrived after ask.timeout and the browser was closed; retry the step to start over")

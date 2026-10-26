@@ -700,7 +700,7 @@ func (s *Sessions) Do(ctx context.Context, req DoRequest) (DoResult, error) {
 	}
 	defer use.release()
 	state := use.state
-	if len(req.AllowWrites) > 0 && state.WriteGate != writegate.ModeRecord {
+	if len(req.AllowWrites) > 0 && !writegate.Sends(state.WriteGate) {
 		return DoResult{}, &SessionError{Code: CodeInvalidInput, Message: "only a session whose write gate records sends a write it is allowed; open one with --write-gate record"}
 	}
 	if len(state.Ops) >= maxSessionOperations {
@@ -864,7 +864,7 @@ func (s *Sessions) Do(ctx context.Context, req DoRequest) (DoResult, error) {
 		}
 		// In record mode a write nothing allowed did not save what the
 		// operation was for, which explains any failure that followed.
-		if write.Consequential() && state.WriteGate == writegate.ModeRecord && !blocked {
+		if write.Consequential() && writegate.Sends(state.WriteGate) && !blocked {
 			blocked = true
 			message := fmt.Sprintf("%s; allow it with --allow-write %q", writeBlocked{write: write}, write.Signature)
 			result.Status = OperationFailed

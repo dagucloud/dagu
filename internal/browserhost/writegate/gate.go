@@ -494,7 +494,7 @@ func (g *gate) paused(sessionID string, params json.RawMessage) {
 		return
 	}
 	event := g.describe(req, class)
-	if class == ClassWrite && g.mode == ModeRecord && g.allows(event.Signature) {
+	if class == ClassWrite && Sends(g.mode) && g.allows(event.Signature) {
 		event.Class = ClassApproved
 	}
 	if class == ClassSignIn || class == ClassPerson || event.Class == ClassApproved {

@@ -14,6 +14,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/browserhost/writegate"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -418,4 +419,148 @@ func TestRecordFailsWhenAnAllowanceMayNotEnd(t *testing.T) {
 
 	require.ErrorContains(t, execution.err, "the write gate answered 500 Internal Server Error")
 	assert.Equal(t, []string{"Click the Save button"}, run.engine.actInstructions(), "the next operation does not start")
+}
+
+const askedSteps = `{
+	"url": "https://books.example.com/deals",
+	"browser": {"write_gate": "ask"},
+	"do": [
+		{"act": "Click the Save button"},
+		{"act": "Click the Next button"}
+	]
+}`
+
+// noteSavePoint keeps the Save act of askedSteps as a commit point, not yet
+// approved, with the action it performs.
+func (r *testRun) noteSavePoint() recordedAction {
+	r.t.Helper()
+	saved := recordedAction{Selector: "xpath=/html/body/button[2]", Method: "click"}
+	actions, err := json.Marshal([]recordedAction{saved})
+	require.NoError(r.t, err)
+	point := writegate.CommitPoint{
+		Key: saveKey, Op: 0, Operation: "Click the Save button",
+		Signature: blockedSave.Signature, Actions: actions, Example: &blockedSave,
+	}
+	require.NoError(r.t, writegate.NewCommitStore(filepath.Join(r.dataDir, "browser")).Note(r.t.Context(), "orders", "shop", point))
+	return saved
+}
+
+// answerCommit answers the pending permission of a waiting step.
+func answerCommit(t *testing.T, session *ir.AgentSession, decision string) *ir.AgentSession {
+	t.Helper()
+	require.Len(t, session.Interactions, 1)
+	session.Interactions[0].Status = ir.AgentInteractionAnswered
+	if decision == "reject" {
+		session.Interactions[0].Status = ir.AgentInteractionRejected
+	}
+	session.Interactions[0].Decision = decision
+	return session
+}
+
+// In ask mode a step waits before a commit act, showing the page it is
+// about to send from, and asks for the write the act sends.
+func TestAskWaitsBeforeACommitAct(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.engine.handle.WriteGate = runningGate()
+	run.noteSavePoint()
+	waiting := run.execute(askedSteps, nil)
+	require.NoError(t, waiting.err)
+
+	status, _ := waiting.exec.DetermineNodeStatus()
+	assert.Equal(t, ir.NodeWaiting, status)
+	assert.Empty(t, run.engine.actInstructions(), "the commit act waits")
+	assert.Empty(t, run.engine.replays)
+	assert.True(t, run.engine.detached)
+	session := waiting.exec.GetAgentSession()
+	require.Len(t, session.Interactions, 1)
+	interaction := session.Interactions[0]
+	assert.Equal(t, ir.AgentInteractionPermission, interaction.Kind)
+	assert.Equal(t, ir.AgentPermissionBrowserWrite, interaction.Permission)
+	assert.Equal(t, []string{blockedSave.Signature}, interaction.Patterns)
+	assert.Contains(t, interaction.Questions[0].Question, `do[0] "Click the Save button" is about to send POST https://books.example.com/api/deals`)
+	last := session.Events[len(session.Events)-1]
+	assert.Equal(t, kindWriteGate+":"+agentstep.StatusWaiting, last.Name+":"+last.Status)
+	assert.Contains(t, last.Files, "browser/shop/commit-0.txt")
+	assert.FileExists(t, filepath.Join(run.artifacts, "browser", "shop", "commit-0.txt"))
+	records := run.records()
+	require.Len(t, records, 1)
+	assert.Equal(t, 0, records[0].Cursor, "the commit act runs once answered")
+}
+
+// Answered once, the commit act replays its approved actions without a
+// model and sends only its write; answered for the session, its point is
+// approved for later runs too.
+func TestAskSendsTheWriteItWasAnswered(t *testing.T) {
+	t.Parallel()
+
+	for _, decision := range []string{"once", "session"} {
+		t.Run(decision, func(t *testing.T) {
+			t.Parallel()
+
+			run := newTestRun(t, pageModel(nil))
+			run.engine.handle.WriteGate = runningGate()
+			saved := run.noteSavePoint()
+			waiting := run.execute(askedSteps, nil)
+			require.NoError(t, waiting.err)
+			resumed := run.execute(askedSteps, answerCommit(t, waiting.exec.GetAgentSession(), decision))
+			require.NoError(t, resumed.err)
+
+			assert.Equal(t, []recordedAction{saved}, run.engine.replays)
+			assert.Equal(t, []string{"Click the Next button"}, run.engine.actInstructions())
+			assert.Equal(t, [][]string{{blockedSave.Signature}}, run.engine.allowed)
+			points := run.commitPoints()
+			require.Len(t, points, 1)
+			assert.Equal(t, decision == "session", points[0].Approved)
+		})
+	}
+}
+
+// Skipped, the commit act does not run, nothing after it runs, and the
+// step is skipped rather than failed.
+func TestAskSkipEndsTheStepWithoutSending(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.engine.handle.WriteGate = runningGate()
+	run.noteSavePoint()
+	waiting := run.execute(askedSteps, nil)
+	require.NoError(t, waiting.err)
+	resumed := run.execute(askedSteps, answerCommit(t, waiting.exec.GetAgentSession(), ir.AgentDecisionSkip))
+	require.NoError(t, resumed.err)
+
+	status, _ := resumed.exec.DetermineNodeStatus()
+	assert.Equal(t, ir.NodeSkipped, status)
+	assert.Empty(t, run.engine.actInstructions())
+	assert.Empty(t, run.engine.replays)
+	assert.Empty(t, run.engine.allowed)
+	assert.True(t, run.engine.closed)
+	data, err := os.ReadFile(filepath.Join(run.artifacts, "browser", "shop", writeGateFile))
+	require.NoError(t, err)
+	var report writeGateReport
+	require.NoError(t, json.Unmarshal(data, &report))
+	assert.True(t, report.Skipped)
+	assert.Equal(t, []int{0, 1}, report.NotRun)
+
+	rejected := newTestRun(t, pageModel(nil))
+	rejected.engine.handle.WriteGate = runningGate()
+	rejected.noteSavePoint()
+	waiting = rejected.execute(askedSteps, nil)
+	require.NoError(t, waiting.err)
+	failed := rejected.execute(askedSteps, answerCommit(t, waiting.exec.GetAgentSession(), "reject"))
+	require.ErrorContains(t, failed.err, agentstep.ErrAskRejected.Error())
+	assert.Empty(t, rejected.engine.actInstructions())
+}
+
+// An act no commit point names runs as in record mode, without asking.
+func TestAskRunsOtherActsWithoutAsking(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.engine.handle.WriteGate = runningGate()
+	execution := run.execute(askedSteps, nil)
+	require.NoError(t, execution.err)
+	assert.Equal(t, []string{"Click the Save button", "Click the Next button"}, run.engine.actInstructions())
+	assert.Empty(t, execution.exec.GetAgentSession().Interactions)
 }

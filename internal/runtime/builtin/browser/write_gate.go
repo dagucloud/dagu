@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -45,6 +46,55 @@ type writeBlocked struct {
 func (w writeBlocked) Error() string {
 	return fmt.Sprintf("%s: the write gate blocked %s, which no approved commit point of this operation sends; nothing was saved (signature %s)",
 		CodeWriteBlocked, w.write.String(), w.write.Signature)
+}
+
+// commitAskTimeout bounds how long a step in ask mode waits for a person
+// before a commit operation.
+const commitAskTimeout = 4 * time.Hour
+
+const commitQuestionHeader = "Browser write"
+
+// commitForSession is the answer that sends a commit operation's writes
+// and approves them for later runs.
+const commitForSession = "session"
+
+// pointsAt returns the commit points of the operation at key.
+func pointsAt(points []writegate.CommitPoint, key string) []writegate.CommitPoint {
+	var at []writegate.CommitPoint
+	for _, point := range points {
+		if key != "" && point.Key == key {
+			at = append(at, point)
+		}
+	}
+	return at
+}
+
+// signatures returns the signatures of points, each once.
+func signatures(points []writegate.CommitPoint) []string {
+	var out []string
+	for _, point := range points {
+		if !slices.Contains(out, point.Signature) {
+			out = append(out, point.Signature)
+		}
+	}
+	return out
+}
+
+// commitQuestion asks a person whether the operation at index sends the
+// writes of its commit points.
+func commitQuestion(index int, op operation, points []writegate.CommitPoint) string {
+	var writes []string
+	for _, point := range points {
+		write := point.Signature
+		if point.Example != nil {
+			write = point.Example.String()
+		}
+		if !slices.Contains(writes, write) {
+			writes = append(writes, write)
+		}
+	}
+	return fmt.Sprintf("do[%d] %q is about to send %s. Send it once, for the session, skip it and end the step without sending, or reject it.",
+		index, opWords(op), strings.Join(writes, ", "))
 }
 
 // commitKey identifies the operation at index on pageURL as a commit point
@@ -167,8 +217,11 @@ type writeGateReport struct {
 	// WouldSend is the write a rehearsal stopped at.
 	WouldSend *writegate.Event `json:"would_send,omitempty"`
 	// NotRun are the operations a rehearsal left.
-	NotRun []int             `json:"not_run,omitempty"`
-	Writes []writegate.Event `json:"writes"`
+	NotRun []int `json:"not_run,omitempty"`
+	// Skipped reports that a person chose not to run the commit operation
+	// at StoppedAt, so nothing was sent.
+	Skipped bool              `json:"skipped,omitempty"`
+	Writes  []writegate.Event `json:"writes"`
 }
 
 // maskEvents hides the values masker knows in what the gate reported.

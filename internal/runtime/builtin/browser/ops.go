@@ -43,6 +43,7 @@ const (
 	finalShotLabel        = "final"
 	failureShotLabel      = "failure"
 	rehearsalShotLabel    = "rehearsal"
+	commitShotLabel       = "commit"
 )
 
 // noActionFoundMessage is how the browser runtime reports an act whose model
@@ -114,6 +115,14 @@ type run struct {
 	opActions []recordedAction
 	allowing  bool
 	stepKey   string
+	// commitDecisions are the answers, by operation, a person gave before
+	// a commit operation in ask mode: once, session, or skip.
+	commitDecisions map[int]string
+	// approvedKeys are the commit operations a person let send their
+	// writes in this attempt.
+	approvedKeys map[string]bool
+	// skipped is set when a person chose not to run a commit operation.
+	skipped bool
 }
 
 func newRun(ctx context.Context, e *browserExecutor) (*run, error) {
@@ -185,6 +194,8 @@ func newRun(ctx context.Context, e *browserExecutor) (*run, error) {
 	r.stepKey = stepKey
 	r.commits = writegate.NewCommitStore(browserDir)
 	r.committed = r.committedActions
+	r.commitDecisions = map[int]string{}
+	r.approvedKeys = map[string]bool{}
 	r.timeline = &agentstep.Timeline{Log: e.stderr, Masker: masker, Total: len(e.cfg.Do), Update: e.updateSession, Provider: providerName}
 	r.warn = func(index int, message string) {
 		_, _ = fmt.Fprintf(r.timeline.Log, "warning: %s %s\n", r.timeline.Position(index), message)
@@ -201,6 +212,9 @@ func newRun(ctx context.Context, e *browserExecutor) (*run, error) {
 func (r *run) execute(ctx context.Context) error {
 	if r.cfg.hasAsk() && !r.exec.askSupported {
 		return errors.New("browser: ask operations are not supported on Windows, where the browser cannot outlive the step process")
+	}
+	if mode, err := writeGateMode(ctx, r.cfg.Browser.WriteGate); err == nil && mode == writegate.ModeAsk && !r.exec.askSupported {
+		return errors.New("browser: write_gate ask is not supported on Windows, where the browser cannot outlive the step process")
 	}
 	sweepCtx, cancel := context.WithTimeout(ctx, sweepBudget)
 	_ = browserhost.SweepAll(sweepCtx, r.browser, time.Now(), nil)
@@ -253,9 +267,16 @@ func (r *run) execute(ctx context.Context) error {
 		if stopped, err := r.finishWrites(ctx, i-1); stopped {
 			return err
 		}
-		if err := r.beginWrites(ctx, i, op); err != nil {
+		if err := r.endWrites(ctx); err != nil {
 			return r.fail(ctx, i, kindWriteGate, err)
 		}
+		r.locate(ctx, i, op)
+		if pause, decision := r.commitTurn(ctx, i); pause {
+			return r.askToCommit(ctx, i, op)
+		} else if decision == ir.AgentDecisionSkip {
+			return r.skipCommit(ctx, i, op)
+		}
+		r.beginWrites(ctx, i, op)
 		result, err := r.runOperation(ctx, i, op)
 		r.opActions = result.Actions
 		if err == nil {
@@ -272,7 +293,7 @@ func (r *run) execute(ctx context.Context) error {
 			return r.fail(ctx, i, kindWriteGate, gateErr)
 		case stop != nil:
 			r.noteCommit(ctx, *stop)
-			if r.writeGate == writegate.ModeRecord {
+			if writegate.Sends(r.writeGate) {
 				return r.fail(ctx, i, op.kind(), writeBlocked{write: *stop})
 			}
 			return r.rehearsed(ctx, i, *stop)
@@ -382,36 +403,64 @@ func (r *run) restoreWrites(ctx context.Context) {
 	}
 }
 
-// beginWrites ends the allowance of the operation that ran last, notes the
-// operation at index starting on the current page, and, in record mode,
-// tells the gate the writes its approved commit points send. Its error is
-// an allowance that may not have ended.
-func (r *run) beginWrites(ctx context.Context, index int, op operation) error {
-	if err := r.endWrites(ctx); err != nil {
-		return err
-	}
+// locate notes the operation at index starting on the current page, as a
+// commit point names it, when a gate decides the browser's writes.
+func (r *run) locate(ctx context.Context, index int, op operation) {
 	r.opIndex, r.opKey, r.opPage, r.opActions = index, "", "", nil
 	if r.eng == nil || r.eng.Handle().WriteGate == nil {
-		return nil
+		return
 	}
 	page, err := r.eng.CurrentURL(ctx)
 	if err != nil {
-		return nil
+		return
 	}
 	r.opKey, r.opPage = commitKey(index, op, page), page
+}
+
+// commitTurn reports whether the operation at index, in ask mode, waits
+// for a person before it runs, and otherwise what a person decided for
+// it. A decision to send its writes lets the operation send its commit
+// points' writes in this attempt, and for the session approves them for
+// later runs too.
+func (r *run) commitTurn(ctx context.Context, index int) (bool, string) {
+	if r.writeGate != writegate.ModeAsk || r.opKey == "" || len(pointsAt(r.points, r.opKey)) == 0 {
+		return false, ""
+	}
+	decision, decided := r.commitDecisions[index]
+	if !decided {
+		return true, ""
+	}
+	if decision == ir.AgentDecisionSkip {
+		return false, decision
+	}
+	r.approvedKeys[r.opKey] = true
+	if decision == commitForSession {
+		key := r.opKey
+		if _, err := r.commits.Approve(ctx, r.dagName, r.stepKey, nil, func(p writegate.CommitPoint) bool { return p.Key == key }, time.Now()); err != nil {
+			r.warn(index, "approve the commit point: "+r.masker.MaskString(err.Error()))
+		}
+	}
+	return false, decision
+}
+
+// beginWrites tells the gate, in record and ask mode, the writes the
+// commit points of the operation at index send, once approved.
+func (r *run) beginWrites(ctx context.Context, index int, op operation) {
 	allowed := writegate.Allowed(r.points, r.opKey)
-	if r.writeGate != writegate.ModeRecord || r.opKey == "" || len(allowed) == 0 {
-		return nil
+	if r.approvedKeys[r.opKey] {
+		allowed = signatures(pointsAt(r.points, r.opKey))
+	}
+	if !writegate.Sends(r.writeGate) || r.opKey == "" || len(allowed) == 0 {
+		return
 	}
 	// The allowance lasts until the next operation starts; its lease covers
 	// the operation and its downloads settling.
 	lease := op.timeout() + max(r.downloadWindow, op.timeout()) + downloadGrace + commitLeaseSlack
 	if err := r.eng.BeginWrites(ctx, allowed, lease); err != nil {
 		r.warn(index, "tell the write gate what the operation may send: "+r.masker.MaskString(err.Error()))
-		return nil
+		return
 	}
 	r.allowing = true
-	return nil
 }
 
 // endWrites tells the gate that the operation sending its approved writes
@@ -444,25 +493,80 @@ func (r *run) finishWrites(ctx context.Context, reached int) (bool, error) {
 		return false, nil
 	}
 	r.noteCommit(ctx, *stop)
-	if r.writeGate == writegate.ModeRecord {
+	if writegate.Sends(r.writeGate) {
 		return true, r.fail(ctx, ran, kind, writeBlocked{write: *stop})
 	}
 	return true, r.rehearsed(ctx, reached, *stop)
 }
 
 // committedActions returns the recorded actions of the approved commit
-// point of the act at key, in record mode.
+// point of the act at key, in record and ask mode.
 func (r *run) committedActions(key string) ([]recordedAction, bool) {
-	if r.writeGate != writegate.ModeRecord || key == "" {
+	if !writegate.Sends(r.writeGate) || key == "" {
 		return nil, false
 	}
-	for _, point := range r.points {
+	for _, point := range pointsAt(r.points, key) {
 		var actions []recordedAction
-		if point.Approved && point.Key == key && json.Unmarshal(point.Actions, &actions) == nil && len(actions) > 0 {
+		if (point.Approved || r.approvedKeys[key]) && json.Unmarshal(point.Actions, &actions) == nil && len(actions) > 0 {
 			return actions, true
 		}
 	}
 	return nil, false
+}
+
+// askToCommit leaves the browser waiting before the commit operation at
+// index until a person decides whether it sends its writes, showing the
+// page as it is about to be sent.
+func (r *run) askToCommit(ctx context.Context, index int, op operation) error {
+	points := pointsAt(r.points, r.opKey)
+	question := commitQuestion(index, op, points)
+	var files []string
+	if r.artifacts.Enabled() {
+		if rel, err := r.capture(ctx, commitShotLabel); err == nil {
+			files = append(files, rel)
+		}
+		if rel, err := r.keepFormSnapshot(ctx, index); err == nil {
+			files = append(files, rel)
+		}
+	}
+	deadline := time.Now().Add(commitAskTimeout)
+	generation := r.exec.GetAgentSession().Generation
+	interaction := agentstep.PermissionInteraction(index, generation, ir.AgentPermissionBrowserWrite, signatures(points),
+		commitQuestionHeader, r.masker.MaskString(question), deadline)
+	if err := r.detachForAnswer(ctx, index, index, kindWriteGate, deadline); err != nil {
+		return err
+	}
+	r.timeline.Operation(agentstep.Report{Index: index, Kind: kindWriteGate, Subject: question, Status: agentstep.StatusWaiting, Files: files})
+	r.awaitAnswer(interaction)
+	return nil
+}
+
+// keepFormSnapshot saves what the page shows, its fields filled in, before
+// the commit operation at index, and returns its path in the artifacts.
+func (r *run) keepFormSnapshot(ctx context.Context, index int) (string, error) {
+	snap, err := r.eng.Snapshot(ctx)
+	if err != nil {
+		return "", err
+	}
+	name := fmt.Sprintf("commit-%d.txt", index)
+	text := r.masker.MaskString(snap.URL + "\n" + snap.Title + "\n\n" + snap.Tree)
+	if err := os.MkdirAll(r.artifacts.Dir(), 0o755); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(filepath.Join(r.artifacts.Dir(), name), []byte(text), 0o644); err != nil { //nolint:gosec // run artifacts are readable like the rest
+		return "", err
+	}
+	return r.artifacts.RelPath(name), nil
+}
+
+// skipCommit ends the step before the commit operation at index, which a
+// person chose not to run: nothing after it runs, nothing was sent, and
+// the step is skipped, as are the steps that depend on it.
+func (r *run) skipCommit(ctx context.Context, index int, op operation) error {
+	r.skipped = true
+	r.keepWriteGateReport(&index, nil)
+	r.exec.setNodeStatus(ir.NodeSkipped)
+	return r.finish(ctx, fmt.Sprintf("do[%d] %s was skipped as asked; it sent nothing, and nothing after it ran", index, opWords(op)), nil)
 }
 
 // noteCommit keeps the operation that ran last, which tried to send write,
@@ -518,9 +622,13 @@ func (r *run) keepWriteGateReport(stoppedAt *int, write *writegate.Event) {
 	if r.writeGate == writegate.ModeOff || r.writeGate == "" || !r.artifacts.Enabled() {
 		return
 	}
-	report := writeGateReport{Mode: r.writeGate, Rehearsable: !r.unrehearsable, StoppedAt: stoppedAt, WouldSend: write, Writes: r.writes}
+	report := writeGateReport{Mode: r.writeGate, Rehearsable: !r.unrehearsable, StoppedAt: stoppedAt, WouldSend: write, Skipped: r.skipped, Writes: r.writes}
 	if stoppedAt != nil {
-		for i := *stoppedAt + 1; i < len(r.cfg.Do); i++ {
+		first := *stoppedAt + 1
+		if r.skipped {
+			first = *stoppedAt
+		}
+		for i := first; i < len(r.cfg.Do); i++ {
 			report.NotRun = append(report.NotRun, i)
 		}
 	}
