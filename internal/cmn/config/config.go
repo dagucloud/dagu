@@ -64,6 +64,10 @@ type BrowserConfig struct {
 	// this host, for hosts where the sandbox cannot start. Pages are then
 	// isolated from the host only by the operating system user.
 	NoSandbox bool
+	// MaxOpen is the most browsers open at once on this host, counting
+	// browser steps and browser sessions; a browser past it waits for one
+	// to close. Zero sets no limit.
+	MaxOpen int
 	// ClientCertificates are presented by every browser started on this
 	// host, after the certificates a step names itself.
 	ClientCertificates []BrowserClientCertificate

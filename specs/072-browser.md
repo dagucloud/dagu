@@ -196,6 +196,14 @@ by default, and a DAG cannot change it. With the sandbox on, a step fails
 before starting a browser where the browser runtime would turn the sandbox off
 anyway: when `CI` is set, or when Dagu runs as root on Linux.
 
+The host configuration `browser.max_open`, or the environment variable
+`DAGU_BROWSER_MAX_OPEN`, bounds how many browsers are open at once on the
+host, counting the browsers of steps, of steps waiting for a person, and of
+browser sessions, whichever DAG run or process opened them. A browser past
+the limit waits for one to close, within the step's timeout, and the step
+reports that it is waiting. A browser counts until its process exits. `0`, the
+default, sets no limit, and a DAG cannot change it.
+
 ### Client certificates
 
 `client_certificates` lists TLS client certificates and the hosts each is

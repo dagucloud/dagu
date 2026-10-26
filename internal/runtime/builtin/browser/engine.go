@@ -132,6 +132,12 @@ type launchOptions struct {
 	// BrowserDir keeps what launches learn about browser executables; empty
 	// keeps nothing, so every headless launch learns it again.
 	BrowserDir string
+	// MaxOpen is the most browsers open at once under BrowserDir; a launch
+	// waits while that many are. Zero sets no limit.
+	MaxOpen int
+	// Waiting reports, once, that the launch waits for another browser to
+	// close.
+	Waiting func()
 }
 
 // browserHandle locates a running browser.

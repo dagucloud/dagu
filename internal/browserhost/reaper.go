@@ -264,10 +264,16 @@ func abandoned(ctx context.Context, record Record, now time.Time, resumable Resu
 }
 
 func ownerAlive(record Record) bool {
-	if !procutil.IsAlive(record.OwnerPID) {
+	return processAlive(record.OwnerPID, record.OwnerStartedAt)
+}
+
+// processAlive reports whether pid still runs as the process that started
+// at startedAt.
+func processAlive(pid int, startedAt int64) bool {
+	if !procutil.IsAlive(pid) {
 		return false
 	}
-	matched, _, ok := procutil.MatchesStartTime(record.OwnerPID, record.OwnerStartedAt)
+	matched, _, ok := procutil.MatchesStartTime(pid, startedAt)
 	// Without a start time to compare, a live PID is trusted.
 	return !ok || matched
 }

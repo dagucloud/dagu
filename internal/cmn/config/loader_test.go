@@ -781,6 +781,22 @@ func TestLoad_BrowserSandboxFromEnv(t *testing.T) {
 	require.True(t, testLoad(t).Browser.NoSandbox)
 }
 
+// Open browsers are unlimited unless the config file or the environment sets
+// browser.max_open.
+func TestLoad_BrowserMaxOpen(t *testing.T) {
+	require.Zero(t, testLoad(t).Browser.MaxOpen, "no limit by default")
+
+	configFile := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(configFile, []byte("browser:\n  max_open: 4\n"), 0o600))
+	require.Equal(t, 4, testLoad(t, WithConfigFile(configFile)).Browser.MaxOpen)
+
+	t.Setenv("DAGU_BROWSER_MAX_OPEN", "2")
+	require.Equal(t, 2, testLoad(t).Browser.MaxOpen)
+
+	t.Setenv("DAGU_BROWSER_MAX_OPEN", "-1")
+	require.ErrorContains(t, testLoadWithError(t), "browser.max_open must not be negative")
+}
+
 func TestLoad_BrowserClientCertificates(t *testing.T) {
 	dir := t.TempDir()
 	configFile := filepath.Join(dir, "config.yaml")

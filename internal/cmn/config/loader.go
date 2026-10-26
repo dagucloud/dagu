@@ -439,7 +439,10 @@ func (l *ConfigLoader) loadCoreConfig(cfg *Config, def Definition) error {
 	if cfg.OpenCode.Executable == "" {
 		cfg.OpenCode.Executable = "opencode"
 	}
-	cfg.Browser = BrowserConfig{NoSandbox: !l.v.GetBool("browser.sandbox")}
+	cfg.Browser = BrowserConfig{NoSandbox: !l.v.GetBool("browser.sandbox"), MaxOpen: l.v.GetInt("browser.max_open")}
+	if cfg.Browser.MaxOpen < 0 {
+		return fmt.Errorf("browser.max_open must not be negative, got %d", cfg.Browser.MaxOpen)
+	}
 	if l.v.IsSet("browser.guard_client_certificates") {
 		guard := l.v.GetBool("browser.guard_client_certificates")
 		cfg.Browser.GuardClientCertificates = &guard
@@ -2286,6 +2289,7 @@ var envBindings = []envBinding{
 	{key: "opencode.executable", env: "OPENCODE_EXECUTABLE"},
 	{key: "opencode.env_passthrough", env: "OPENCODE_ENV_PASSTHROUGH"},
 	{key: "browser.sandbox", env: "BROWSER_SANDBOX"},
+	{key: "browser.max_open", env: "BROWSER_MAX_OPEN"},
 	{key: "browser.guard_client_certificates", env: "BROWSER_GUARD_CLIENT_CERTIFICATES"},
 
 	// Secrets

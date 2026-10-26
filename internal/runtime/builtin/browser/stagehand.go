@@ -203,6 +203,24 @@ func (l stagehandLauncher) Launch(ctx context.Context, opts launchOptions) (engi
 		return nil, fmt.Errorf("launch browser: the browser sandbox is on, but the browser runtime turns it off %s; "+
 			"set browser.sandbox: false in the Dagu config or DAGU_BROWSER_SANDBOX=false to run without it", reason)
 	}
+	slot, err := browserhost.TakeSlot(ctx, opts.BrowserDir, opts.MaxOpen, opts.Waiting)
+	if err != nil {
+		return nil, fmt.Errorf("wait for another browser to close: %w", err)
+	}
+	eng, err := l.launch(ctx, opts)
+	if err != nil {
+		slot.Release()
+		return nil, err
+	}
+	handle := eng.Handle()
+	if err := slot.Hold(handle.BrowserPID, handle.BrowserStartedAt); err != nil {
+		return nil, errors.Join(err, eng.Close(context.WithoutCancel(ctx)))
+	}
+	return eng, nil
+}
+
+// launch starts the browser opts describe and connects to it.
+func (l stagehandLauncher) launch(ctx context.Context, opts launchOptions) (*stagehandEngine, error) {
 	opts.Warn = warnOnce(opts.Warn)
 	key := userAgentKey(opts.Executable)
 	known := knownUserAgent(ctx, opts, key)

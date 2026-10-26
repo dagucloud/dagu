@@ -113,6 +113,7 @@ type OpenCodeDef struct {
 // BrowserDef configures the browsers that browser steps start on this host.
 type BrowserDef struct {
 	Sandbox                 *bool                         `mapstructure:"sandbox"`
+	MaxOpen                 *int                          `mapstructure:"max_open"`
 	ClientCertificates      []BrowserClientCertificateDef `mapstructure:"client_certificates"`
 	TrustedCAs              []BrowserTrustedCADef         `mapstructure:"trusted_cas"`
 	GuardClientCertificates *bool                         `mapstructure:"guard_client_certificates"`

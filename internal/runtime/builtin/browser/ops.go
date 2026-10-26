@@ -422,6 +422,8 @@ func (r *run) launchOptions(ctx context.Context, recordID string) (launchOptions
 		Guard:              guard,
 		Warn:               func(message string) { r.warn(-1, message) },
 		BrowserDir:         r.browser,
+		MaxOpen:            cmnconfig.GetConfig(ctx).Browser.MaxOpen,
+		Waiting:            func() { r.timeline.Lifecycle(agentstep.StatusRunning, "Waiting for another browser to close") },
 	}
 	if name := r.cfg.Browser.Profile; name != "" {
 		lease, err := acquireProfile(ctx, r.browser, name, recordID, true)
