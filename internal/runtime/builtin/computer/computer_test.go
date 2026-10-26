@@ -3099,9 +3099,12 @@ func TestActWorksWhereItsLastActionLanded(t *testing.T) {
 				onNext: func() {
 					turns++
 					// Once the first turn ran, a person brings mail forward,
-					// where the paste would land.
+					// where the paste would land. Their input comes after the
+					// moment the desktop may still report the step's clicks,
+					// so a clock too coarse to order the clicks and the next
+					// screenshot still tells it from the step's own.
 					if turns == 2 {
-						run.backend.personUses()
+						run.backend.personUsesAfterEcho()
 						run.backend.focusOn(mail)
 					}
 				},
