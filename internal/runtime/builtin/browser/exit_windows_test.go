@@ -138,6 +138,9 @@ func TestCloseBrowserLeavesRunningBrowserToExit(t *testing.T) {
 
 	require.NoError(t, browser.Process.Kill())
 	_ = browser.Wait()
+	// The helper's grace starts when the browser goes, not when closing began.
+	time.Sleep(helperExitGrace / 2)
+	require.True(t, procutil.IsAlive(helperPID), "the helper gets its grace")
 	select {
 	case err := <-closed:
 		assert.NoError(t, err)
@@ -161,6 +164,25 @@ func TestCloseBrowserEndsBrowserThatDoesNotExit(t *testing.T) {
 	tree.browserExit = helperExitGrace + time.Second
 
 	require.NoError(t, tree.awaitExit(context.Background()))
+	assert.False(t, procutil.IsAlive(browser.Process.Pid), "the browser is ended")
+	assert.False(t, procutil.IsAlive(helperPID), "the helper is ended")
+}
+
+// A close with less time left than the browser's time to exit ends the
+// browser early enough for its helpers to follow before the time runs out.
+func TestCloseBrowserEndsBrowserWithinItsContext(t *testing.T) {
+	t.Parallel()
+
+	browser, helperPID := startSleeperTree(t)
+	startedAt, ok := procutil.StartTime(browser.Process.Pid)
+	require.True(t, ok)
+	tree := recordBrowserProcessTree(browser.Process.Pid, startedAt)
+	require.NotNil(t, tree)
+	t.Cleanup(tree.release)
+	ctx, cancel := context.WithTimeout(context.Background(), helperExitGrace+exitSettle+3*time.Second)
+	defer cancel()
+
+	require.NoError(t, tree.awaitExit(ctx))
 	assert.False(t, procutil.IsAlive(browser.Process.Pid), "the browser is ended")
 	assert.False(t, procutil.IsAlive(helperPID), "the helper is ended")
 }

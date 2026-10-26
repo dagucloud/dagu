@@ -28,6 +28,8 @@ const (
 	// helperExitTimeout bounds the wait for the helpers after the browser has
 	// gone.
 	helperExitTimeout = 10 * time.Second
+	// exitSettle is how long a process that was ended gets to be gone.
+	exitSettle = time.Second
 	// treeProcessAccess is the access the tree needs to a process: to read
 	// its parent and start time, to wait for its exit, and to end it.
 	treeProcessAccess = windows.PROCESS_QUERY_LIMITED_INFORMATION | windows.PROCESS_TERMINATE | windows.SYNCHRONIZE
@@ -177,39 +179,37 @@ func (t *browserProcessTree) browserRunning() bool {
 // awaitExit waits for the recorded processes to exit after the runtime has
 // closed the browser. A launched browser's tree is ended by the runtime, but
 // a reattached one is only asked to close, so the browser gets browserExit
-// to finish writing its profile and is ended after that. The runtime ends
-// the tree it finds when it closes, so a helper whose parent exited first can
-// be left behind; helpers still running helperExitGrace after the browser
-// has gone are ended here.
+// to finish writing its profile and is ended after that, or sooner when ctx
+// would end before its helpers could follow it. The runtime ends the tree it
+// finds when it closes, so a helper whose parent exited first can be left
+// behind; helpers still running helperExitGrace after the browser has gone
+// are ended here.
 func (t *browserProcessTree) awaitExit(ctx context.Context) error {
 	ticker := time.NewTicker(exitPollInterval)
 	defer ticker.Stop()
-	grace := time.After(helperExitGrace)
-	browserDeadline := time.After(t.browserExit)
-	// The helpers' bound starts once the browser has gone.
-	var timeout <-chan time.Time
-	graceOver, helpersEnded := false, false
+	wait := t.browserExit
+	if deadline, ok := ctx.Deadline(); ok {
+		wait = min(wait, time.Until(deadline)-helperExitGrace-exitSettle)
+	}
+	browserDeadline := time.After(wait)
+	// The helpers' grace and bound start once the browser has gone.
+	var grace, timeout <-chan time.Time
 	for {
 		if t.exited() {
 			return nil
 		}
-		browserGone := !t.browserRunning()
-		if browserGone && timeout == nil {
-			timeout = time.After(helperExitTimeout)
-		}
-		if graceOver && !helpersEnded && browserGone {
-			t.end(false)
-			helpersEnded = true
+		if timeout == nil && !t.browserRunning() {
+			grace, timeout = time.After(helperExitGrace), time.After(helperExitTimeout)
 		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-grace:
-			graceOver = true
-			grace = nil
 		case <-browserDeadline:
 			t.end(true)
 			browserDeadline = nil
+		case <-grace:
+			t.end(false)
+			grace = nil
 		case <-timeout:
 			return fmt.Errorf("browser processes still running: %v", t.running())
 		case <-ticker.C:
