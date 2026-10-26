@@ -949,6 +949,14 @@ func (r *run) resumeAfterPerson(ctx context.Context, index int) (bool, error) {
 	return true, nil
 }
 
+// noteWorkApp makes w's application the one the step works in, unless the
+// system names no application for it or the step never operates it.
+func (r *run) noteWorkApp(w desktop.WindowID) {
+	if w.App != "" && !r.driver.Owned(w) {
+		r.workApp = w.App
+	}
+}
+
 // personSince is when the step last sent input or made way for a person,
 // whichever came later: input after it is a person's the step has not made
 // way for yet.

@@ -3001,6 +3001,46 @@ func TestPersonInputSkipsStaleTurn(t *testing.T) {
 	}
 }
 
+// A person who leaves another application in front while the model works
+// holds the act until they stop; the act then brings back the application it
+// was working in, so the model's next look is at the task, and it never
+// maximizes the person's window, which is theirs.
+func TestActReturnsToItsApplicationAfterAPerson(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	expense := desktop.WindowID{Handle: 2, Title: "Expense", PID: 7, App: "expense", Bounds: image.Rect(0, 0, 400, 200)}
+	mail := desktop.WindowID{Handle: 1, Title: "Mail", PID: 8, App: "mail", Bounds: image.Rect(0, 0, 400, 200)}
+	run.backend.windows = []desktop.WindowID{mail, expense}
+	run.backend.focusOn(expense)
+	run.backend.under = expense
+	used := false
+	session := &scriptedSession{
+		turns: []*computeruse.Turn{actions(clickAt(10, 10)), actions(clickAt(20, 20)), done("Clicked")},
+		onNext: func() {
+			if !used {
+				used = true
+				run.backend.personUses()
+				run.backend.show(pattern(400, 200, 150))
+				run.backend.focusOn(mail)
+				run.backend.under = mail
+			}
+		},
+	}
+	run.sessions = []*scriptedSession{session}
+	execution := run.execute(`{"idle": "100ms", "do": [{"act": "Save the expense"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	require.Len(t, session.observations, 3)
+	assert.Equal(t, personNote, session.observations[1].Note)
+	require.NotEmpty(t, run.backend.raised)
+	assert.Equal(t, expense.Handle, run.backend.raised[0].Handle, "the application the act was working in came back")
+	for _, w := range run.backend.maximizedWindows() {
+		assert.NotEqual(t, mail.Handle, w.Handle, "the person's window keeps its size")
+	}
+	assert.Equal(t, []string{"move 20,20", "left down #1"}, run.backend.inputs(), "only the click chosen after the person stopped lands")
+}
+
 // A window that came to the front after the screenshot, with no person
 // input at all, still sends the turn back to the model instead of letting
 // its actions land on the wrong window. This is the remote-session case,

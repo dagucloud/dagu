@@ -283,6 +283,9 @@ func (l *actLoop) run(ctx context.Context) error {
 	if err := l.r.awaitPerson(ctx); err != nil {
 		return err
 	}
+	// The act works in the application in front when it starts, such as
+	// one the step just launched, until its own actions land in another.
+	l.r.noteWorkApp(l.r.driver.FocusedWindow())
 	offered, err := l.lookAndOffer(ctx)
 	if err != nil {
 		return err
@@ -608,10 +611,25 @@ func (l *actLoop) reconcile(ctx context.Context, turn *computeruse.Turn) (run bo
 	}
 	if person {
 		logAction(l.r.timeline, l.index, "a person used the desktop; the model's actions were not run")
+		l.returnAfterPerson(ctx)
 		return false, personNote, nil
 	}
 	logAction(l.r.timeline, l.index, "the screen changed before the actions ran; they were not run")
 	return false, divergedNote, nil
+}
+
+// returnAfterPerson makes way for a person who left another window in front:
+// their window is never maximized, since it is theirs, and the application
+// the act was working in comes back to the front, so the model's next look
+// is at the task rather than at what the person was doing.
+func (l *actLoop) returnAfterPerson(ctx context.Context) {
+	if front := l.r.driver.FocusedWindow(); front.Known() && !strings.EqualFold(front.App, l.r.workApp) {
+		l.r.fitted[front.Handle] = true
+	}
+	l.r.personHandled = time.Now()
+	if l.r.workApp != "" {
+		l.r.bringForward(ctx, l.index, l.r.workApp, "")
+	}
 }
 
 // personUsed waits until nobody has used the desktop for the idle period and
@@ -767,8 +785,12 @@ func describeRound(actions []computeruse.Action) string {
 func (l *actLoop) apply(ctx context.Context, turn *computeruse.Turn) []computeruse.Result {
 	l.touched = l.touched || len(turn.Actions) > 0
 	l.outcome.actions += len(turn.Actions)
-	// The window is read before the actions run, as the model saw it.
+	// The window is read before the actions run, as the model saw it, and
+	// its application is where the act now works.
 	v := l.view(turn.Actions)
+	if v.window != nil {
+		l.r.workApp = v.window.App
+	}
 	els, _ := l.r.elementsIfAvailable()
 	results := make([]computeruse.Result, len(turn.Actions))
 	var recorded []recordedAction

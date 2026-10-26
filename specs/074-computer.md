@@ -222,7 +222,10 @@ after the screenshot the model answered, the step waits for the idle period
 again. If the window the actions land on still looks as the model saw it,
 overall and where each action lands, and the keyboard focus is still on the
 window it was on, the actions run; otherwise they are not run, and the new
-screenshot is sent with a note saying why. A change elsewhere on the screen
+screenshot is sent with a note saying why. Before that screenshot, an act
+brings back the application it was working in: the one in front when the
+act started, or the one its last actions landed in. The window the person
+left in front is theirs, so the step never maximizes it. A change elsewhere on the screen
 does not stop the actions. Where the system does not report the focus, the
 screen check alone guards a turn that types or presses keys. The end of
 a wait is a lifecycle event of its own, `running`, so a view knows the step
