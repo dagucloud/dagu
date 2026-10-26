@@ -13,6 +13,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
+	"github.com/dagucloud/dagu/v2/internal/runtime/modelusage"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator/subflow"
 	"github.com/stretchr/testify/assert"
@@ -517,6 +518,39 @@ func TestRunnerRetryDispatchesPreviousStatus(t *testing.T) {
 	assert.Equal(t, previous, task.PreviousStatus)
 	assert.Equal(t, "queue-a", task.QueueName)
 	assert.Equal(t, ir.Succeeded, result.Status)
+}
+
+// A distributed child's model usage reaches the parent step while the child
+// runs and when it ends, each report replacing the one before.
+func TestRunnerReportsChildModelUsage(t *testing.T) {
+	t.Parallel()
+
+	usage := func(calls int64) *ir.StepModelUsage {
+		return &ir.StepModelUsage{Models: []ir.ModelUsage{{Provider: "openrouter", Model: "kitewell/included", Calls: calls, InputTokens: 100 * calls}}}
+	}
+	status := func(state ir.Status, calls int64) *ir.DAGRunStatus {
+		return &ir.DAGRunStatus{Name: "child", DAGRunID: "child-1", Status: state, Nodes: []*ir.Node{{Step: ir.Step{Name: "ask"}, ModelUsage: usage(calls)}}}
+	}
+	dispatcher := &mockDispatcher{statuses: []*dispatch.DAGRunStatusResult{
+		{Found: true, Status: &ir.DAGRunStatus{Name: "child", DAGRunID: "child-1", Status: ir.Failed}},
+		{Found: true, Status: status(ir.Running, 1)},
+		{Found: true, Status: status(ir.Succeeded, 2)},
+	}}
+	runner := newFastRunner(dispatcher)
+	meter := modelusage.NewMeter(nil)
+
+	result, err := runner.Retry(modelusage.WithMeter(context.Background(), meter), runtimeexec.SubWorkflowRetryRequest{
+		SubWorkflowRequest: runtimeexec.SubWorkflowRequest{
+			DAG:          &ir.DAG{Name: "child", YamlData: []byte("name: child")},
+			RootDAGRun:   ir.NewDAGRunRef("parent", "root-1"),
+			ParentDAGRun: ir.NewDAGRunRef("parent", "parent-1"),
+			RunID:        "child-1",
+		},
+		StepName: "flaky",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, usage(2).Models, result.ModelUsage)
+	assert.Equal(t, usage(2).Models, meter.Snapshot().Total(), "the finished child's total replaced the running one")
 }
 
 func TestRunnerRetryRejectsEmptyStepName(t *testing.T) {

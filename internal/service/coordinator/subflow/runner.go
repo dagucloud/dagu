@@ -21,6 +21,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
+	"github.com/dagucloud/dagu/v2/internal/runtime/modelusage"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 )
 
@@ -472,6 +473,8 @@ func (r *Runner) waitCompletion(ctx context.Context, req executor.SubWorkflowReq
 				continue
 			}
 			consecutiveErrors = 0
+			// The parent step shows what the child has used so far.
+			modelusage.FromContext(ctx).SetReported(modelusage.SubRunSource(req.RunID), result.ModelUsage)
 
 			if len(result.PendingStepRetries) > 0 {
 				logger.Info(waitCtx, "Distributed child workflow returned pending step retry")
@@ -589,6 +592,7 @@ func statusToRunStatus(status *ir.DAGRunStatus, runID string) *ir.RunStatus {
 		Status:             status.Status,
 		PreconditionNotMet: preconditionNotMet(status),
 		PendingStepRetries: ir.PendingStepRetriesFromStatus(status),
+		ModelUsage:         status.ModelUsageTotal(),
 	}
 }
 

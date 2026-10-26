@@ -147,3 +147,18 @@ func TestMeterNotReported(t *testing.T) {
 	none.RecordLLMUsage(call("a", 1, 1, nil))
 	assert.Nil(t, none.Snapshot(), "a nil meter records nothing")
 }
+
+// Work the step finished elsewhere adds to its own usage, and a source that
+// reports nothing leaves no entry behind.
+func TestMeterAdd(t *testing.T) {
+	t.Parallel()
+
+	meter := modelusage.NewMeter(nil)
+	meter.SetReported(modelusage.SubRunSource("child-1"), nil)
+	assert.Nil(t, meter.Snapshot(), "a child that used no model adds no entry")
+
+	item := []ir.ModelUsage{{Provider: "openai", Model: "gpt-5", Calls: 1, InputTokens: 5}}
+	meter.Add(item)
+	meter.Add(item)
+	assert.Equal(t, &ir.StepModelUsage{Models: []ir.ModelUsage{{Provider: "openai", Model: "gpt-5", Calls: 2, InputTokens: 10}}}, meter.Snapshot())
+}

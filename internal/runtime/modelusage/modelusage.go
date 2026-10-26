@@ -65,6 +65,17 @@ func (m *Meter) RecordLLMUsage(record llm.UsageRecord) {
 	m.changed()
 }
 
+// Add adds usage the step's own work spent elsewhere, such as the body of a
+// foreach item, once that work is done.
+func (m *Meter) Add(models []ir.ModelUsage) {
+	if m == nil || len(models) == 0 {
+		return
+	}
+	m.mu.Lock()
+	m.models = ir.MergeModelUsage(m.models, models...)
+	m.changed()
+}
+
 // SetReported records source's latest total, as a coding agent's session
 // reports it, replacing the one before. A source the step resumes keeps its
 // entry, so what it used before is not counted twice.
@@ -76,7 +87,7 @@ func (m *Meter) SetReported(source string, models []ir.ModelUsage) {
 	m.mu.Lock()
 	i := slices.IndexFunc(m.reported, func(r ir.ReportedModelUsage) bool { return r.Source == source })
 	switch {
-	case i >= 0 && slices.Equal(m.reported[i].Models, models):
+	case i >= 0 && slices.Equal(m.reported[i].Models, models), i < 0 && len(models) == 0:
 		m.mu.Unlock()
 		return
 	case i >= 0:
@@ -220,4 +231,10 @@ func WithMeter(ctx context.Context, m *Meter) context.Context {
 func FromContext(ctx context.Context) *Meter {
 	m, _ := ctx.Value(meterKey{}).(*Meter)
 	return m
+}
+
+// SubRunSource names a child run as the source of the usage its parent step
+// reports, so each child keeps one entry however often it reports.
+func SubRunSource(runID string) string {
+	return "run:" + runID
 }
