@@ -2817,8 +2817,8 @@ func TestOwnApplicationIsNeverOperated(t *testing.T) {
 
 	run := newTestRun(t)
 	run.protect = []uint32{99}
-	run.backend.focusOn(desktop.WindowID{Handle: 5, Title: "Kitewell", PID: 99})
-	run.backend.under = desktop.WindowID{Handle: 5, Title: "Kitewell", PID: 99}
+	run.backend.focusOn(desktop.WindowID{Handle: 5, Title: "Runbook", PID: 99})
+	run.backend.under = desktop.WindowID{Handle: 5, Title: "Runbook", PID: 99}
 	session := &scriptedSession{turns: []*computeruse.Turn{
 		actions(computeruse.Action{CallID: "k", Kind: computeruse.KindKey, Keys: []string{"alt", "F4"}}),
 		actions(clickAt(10, 10)),
@@ -2830,7 +2830,7 @@ func TestOwnApplicationIsNeverOperated(t *testing.T) {
 
 	assert.Empty(t, run.backend.inputs(), "nothing reached the desktop")
 	require.Len(t, session.observations, 3)
-	assert.Contains(t, session.observations[1].Results[0].Error, `"Kitewell" belongs to the application that runs this step`)
+	assert.Contains(t, session.observations[1].Results[0].Error, `"Runbook" belongs to the application that runs this step`)
 	assert.Contains(t, session.observations[2].Results[0].Error, "never operates")
 }
 
@@ -2841,7 +2841,7 @@ func TestOwnApplicationIsNeverOperated(t *testing.T) {
 func TestOwnApplicationGuardCoversEveryReach(t *testing.T) {
 	t.Parallel()
 
-	own := desktop.WindowID{Handle: 5, Title: "Kitewell", PID: 99}
+	own := desktop.WindowID{Handle: 5, Title: "Runbook", PID: 99}
 	other := desktop.WindowID{Handle: 6, Title: "Notepad", PID: 7}
 
 	cases := []struct {
