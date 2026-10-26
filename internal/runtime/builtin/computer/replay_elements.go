@@ -734,7 +734,7 @@ func (r *run) replayByElement(ctx context.Context, index, position, total int, t
 					continue
 				}
 			}
-			if direct || choosesOption(found) {
+			if direct || rec.Invoked || choosesOption(found) {
 				done, reason, err := r.direct(ctx, index, position, total, els, rec, found, findWithin)
 				if err != nil || reason != "" {
 					return reason, err

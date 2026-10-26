@@ -582,6 +582,7 @@ func (l *actLoop) recordInvoked(ctx context.Context, action computeruse.Action, 
 	element := l.r.recordElement(e, &centre, l.r.driver.WindowAt(centre).App)
 	rec := recordAction(display, element)
 	rec.Checked = l.r.checkedAfter(ctx, display, element, before)
+	rec.Invoked = true
 	return rec
 }
 

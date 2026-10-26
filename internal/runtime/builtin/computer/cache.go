@@ -135,6 +135,10 @@ type recordedAction struct {
 	// replay clicks only a checkbox in the other state, and confirms the
 	// state after.
 	Checked *bool `json:"checked,omitempty"`
+	// Invoked marks a click the act carried out through the element itself,
+	// which a replay carries out the same way: opening a combo box is not
+	// what a click at its centre does.
+	Invoked bool `json:"invoked,omitempty"`
 }
 
 // recordAction records an action in display pixels; its turn's view later

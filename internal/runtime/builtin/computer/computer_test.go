@@ -3660,6 +3660,26 @@ func TestModelFocusesFieldElement(t *testing.T) {
 	assert.Equal(t, []string{"focus amountBox"}, run.backend.inputs(), "the field takes the focus, no pixel click")
 }
 
+// A combo box the model opened through its element opens the same way when
+// the act replays, as the act did, rather than by a click at its centre,
+// which on macOS only puts the caret in its field.
+func TestReplayOpensAComboBoxAsTheActDid(t *testing.T) {
+	t.Parallel()
+
+	run := elementRun(t)
+	run.elements.elements[2] = desktop.Element{Role: desktop.RoleComboBox, Name: "品目", ID: "itemBox", Bounds: image.Rect(190, 140, 390, 164), Path: []desktop.PathStep{{Role: desktop.RoleComboBox, Name: "品目", Index: 0}}}
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{
+		actions(computeruse.Action{CallID: "x", Kind: computeruse.KindClick, ElementID: "e1"}),
+		done("Opened the item list"),
+	}}}
+	require.NoError(t, run.execute(`{"idle": "0", "do": [{"act": "Open the item list"}]}`, nil).err)
+	require.Equal(t, []string{"expand itemBox"}, run.backend.inputs(), "the act opens the box through its element")
+
+	run.backend.events = nil
+	require.NoError(t, run.execute(`{"ai": "never", "idle": "0", "do": [{"act": "Open the item list"}]}`, nil).err)
+	assert.Equal(t, []string{"expand itemBox"}, run.backend.inputs(), "the replay opens it the same way")
+}
+
 // An element that offers no pattern for the click, such as a custom control,
 // falls back to a click at its position on the screen.
 func TestModelElementFallsBackToClick(t *testing.T) {
