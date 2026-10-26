@@ -256,9 +256,14 @@ func TestDarwinElementInASheet(t *testing.T) {
 	assert.Equal(t, sheet.Name, at.Window)
 	assert.Equal(t, save.Path, at.Path)
 
-	focused, err := els.Focused()
-	require.NoError(t, err)
-	assert.Equal(t, RoleTextField, focused.Role)
+	// The fixture asks for the field to take the focus as it starts, so the
+	// read waits until a field has it.
+	var focused Element
+	require.Eventually(t, func() bool {
+		var err error
+		focused, err = els.Focused()
+		return err == nil && focused.Role == RoleTextField
+	}, 5*time.Second, 100*time.Millisecond, "the form's field did not take the focus")
 	assert.Equal(t, sheet.Name, focused.Window)
 	assert.Equal(t, field.Path, focused.Path)
 
