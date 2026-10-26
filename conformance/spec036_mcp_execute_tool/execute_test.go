@@ -341,7 +341,9 @@ func TestExecuteRefusesDecisionFromEarlierAttempt(t *testing.T) {
 		current, _ = run["attemptId"].(string)
 		assert.NotEqual(c, earlier, current)
 		assert.Equal(c, "waiting", readStep(t, run, "deploy_gate")["statusLabel"])
-	}, mcptest.Timeout, 250*time.Millisecond, "the pushed-back gate never waited again in a new attempt")
+		// The gate waits before the run does, and only a waiting run takes a decision.
+		assert.Equal(c, "waiting", run["statusLabel"])
+	}, mcptest.Timeout, 250*time.Millisecond, "the pushed-back run never waited again in a new attempt")
 
 	result = callExecute(t, session, map[string]any{
 		"action":    "approve",
