@@ -200,6 +200,9 @@ type Driver struct {
 	// never operates either, such as the one a person runs the automation
 	// from when the system did not start it as the automation's parent.
 	protectedApps []string
+	// protectedTitles are window titles the driver never operates, such as
+	// the automation's own pages in a browser a person also uses.
+	protectedTitles []string
 }
 
 // New returns a driver for a backend.
@@ -257,16 +260,27 @@ func (d *Driver) ProtectApps(apps ...string) {
 	}
 }
 
+// ProtectTitles adds window titles, matched as WindowMatches matches them,
+// whose windows the driver never operates.
+func (d *Driver) ProtectTitles(titles ...string) {
+	for _, title := range titles {
+		if title = strings.TrimSpace(title); title != "" {
+			d.protectedTitles = append(d.protectedTitles, title)
+		}
+	}
+}
+
 // Owned reports a window of the automation's own application, which a step
 // never operates: a keystroke to it could close the application that runs
-// the step.
+// the step, and a click in its pages could start the automation again.
 func (d *Driver) Owned(w WindowID) bool {
 	if w.PID != 0 && d.family()[w.PID] {
 		return true
 	}
-	return w.App != "" && slices.ContainsFunc(d.protectedApps, func(app string) bool {
-		return strings.EqualFold(app, w.App)
-	})
+	if w.App != "" && slices.ContainsFunc(d.protectedApps, func(app string) bool { return strings.EqualFold(app, w.App) }) {
+		return true
+	}
+	return w.Title != "" && slices.ContainsFunc(d.protectedTitles, func(title string) bool { return WindowMatches(w.Title, title) })
 }
 
 // InputSentAt reports when the driver last sent input.

@@ -188,9 +188,13 @@ of its windows, or keys and typing while one has the focus, fails with a
 result naming the window, and the model is told. Those are the windows of
 the Dagu process and the processes that started it, and on any system the
 windows of the applications named, by executable name and separated by
-commas, in the `DAGU_DESKTOP_PROTECTED_APPS` environment variable. The
-variable protects an application a person starts automation from when a
-service manager, rather than that application, starts Dagu, as on macOS.
+commas, in the `DAGU_DESKTOP_PROTECTED_APPS` environment variable, and the
+windows whose title matches one named, separated by commas and matched as
+a window title is anywhere else, in `DAGU_DESKTOP_PROTECTED_TITLES`. The
+first protects an application a person starts automation from when a
+service manager, rather than that application, starts Dagu, as on macOS;
+the second protects that application's pages in a browser a person also
+uses, where a click could start the automation again.
 
 ### Window size
 

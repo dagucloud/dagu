@@ -318,6 +318,7 @@ func (r *run) start(ctx context.Context) (int, error) {
 	}
 	r.driver = driver
 	r.driver.ProtectApps(r.exec.protectedApps...)
+	r.driver.ProtectTitles(r.exec.protectedTitles...)
 	r.driver.AssumeInputSent(r.lease.lastInput())
 	r.workApp = r.lease.workApp(r.dagRunID)
 	if cursor > 0 {

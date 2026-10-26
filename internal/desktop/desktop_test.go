@@ -243,6 +243,17 @@ func TestDiagnosticsAwaitsPerson(t *testing.T) {
 	}
 }
 
+func TestDriverOwnedProtectsTitles(t *testing.T) {
+	t.Parallel()
+
+	driver := desktop.New(&recordingBackend{})
+	driver.ProtectTitles(" · Kitewell ", "")
+
+	assert.True(t, driver.Owned(desktop.WindowID{Handle: 1, PID: 999999, App: "Google Chrome", Title: "バッチ · Kitewell"}), "a page with a protected title is owned in any application")
+	assert.False(t, driver.Owned(desktop.WindowID{Handle: 2, PID: 999999, App: "Google Chrome", Title: "Inbox - Mail"}))
+	assert.False(t, driver.Owned(desktop.WindowID{Handle: 3, PID: 999999, App: "Google Chrome"}), "a window without a title is nobody's")
+}
+
 func TestDriverOwnedProtectsApps(t *testing.T) {
 	t.Parallel()
 

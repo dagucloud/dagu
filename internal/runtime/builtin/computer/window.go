@@ -31,9 +31,19 @@ const (
 	stillPixels = 256
 )
 
+// protectedTitlesEnv lists window titles, separated by commas and matched
+// as a window title is anywhere else, whose windows a step never operates or
+// maximizes, such as the automation's own pages in a browser.
+const protectedTitlesEnv = "DAGU_DESKTOP_PROTECTED_TITLES"
+
 // protectedApps reads the applications a step never operates.
 func protectedApps() []string {
 	return strings.Split(os.Getenv(protectedAppsEnv), ",")
+}
+
+// protectedTitles reads the window titles a step never operates.
+func protectedTitles() []string {
+	return strings.Split(os.Getenv(protectedTitlesEnv), ",")
 }
 
 // recordedWindow is the application window a pixel turn was recorded on.

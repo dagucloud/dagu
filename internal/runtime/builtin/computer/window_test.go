@@ -295,6 +295,27 @@ func TestModelElementInAProtectedWindowIsRefused(t *testing.T) {
 	assert.Contains(t, session.observations[1].Results[0].Error, "belongs to the application that runs this step")
 }
 
+// A window whose title is protected, such as the automation's own page in a
+// browser a person also uses, is never operated: a click the model aims
+// there is refused, and the model is told why.
+func TestModelClickOnAProtectedTitleIsRefused(t *testing.T) {
+	t.Parallel()
+
+	page := desktop.WindowID{Handle: 4, Title: "Batches · Kitewell", PID: 31, App: "Google Chrome", Bounds: image.Rect(0, 0, 400, 200)}
+	run := newTestRun(t)
+	run.backend.windows = []desktop.WindowID{page}
+	run.backend.under = page
+	run.protectTitles = []string{"· Kitewell"}
+	session := &scriptedSession{turns: []*computeruse.Turn{actions(clickAt(10, 10)), done("Could not run")}}
+	run.sessions = []*scriptedSession{session}
+	require.NoError(t, run.execute(`{"idle": "0", "do": [{"act": "Run the sheet"}]}`, nil).err)
+
+	assert.Empty(t, run.backend.inputs(), "the click does not reach the page")
+	require.Len(t, session.observations, 2)
+	require.Len(t, session.observations[1].Results, 1)
+	assert.Contains(t, session.observations[1].Results[0].Error, `"Batches · Kitewell" belongs to the application that runs this step`)
+}
+
 // A replay never has an element in a window the step never operates act by
 // itself, as input: direct would; it misses, naming why.
 func TestReplayRefusesAnElementInAProtectedWindow(t *testing.T) {

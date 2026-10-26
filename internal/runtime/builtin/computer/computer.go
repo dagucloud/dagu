@@ -73,10 +73,12 @@ type computerExecutor struct {
 	// it so pins resolve on any runner.
 	system string
 	// protectedApps are applications whose windows the step never operates
-	// or maximizes, from DAGU_DESKTOP_PROTECTED_APPS in production.
-	protectedApps []string
-	stdout        io.Writer
-	stderr        io.Writer
+	// or maximizes, from DAGU_DESKTOP_PROTECTED_APPS in production, and
+	// protectedTitles window titles, from DAGU_DESKTOP_PROTECTED_TITLES.
+	protectedApps   []string
+	protectedTitles []string
+	stdout          io.Writer
+	stderr          io.Writer
 
 	mu            sync.Mutex
 	cancel        context.CancelFunc
@@ -93,26 +95,27 @@ func newExecutor(_ context.Context, step ir.Step) (executor.Executor, error) {
 		return nil, err
 	}
 	return &computerExecutor{
-		step:          step,
-		cfg:           cfg,
-		openDesktop:   desktop.Open,
-		checkDesktop:  desktop.Check,
-		screenPoll:    defaultScreenPoll,
-		screenWait:    defaultScreenWait,
-		openElements:  desktop.OpenElements,
-		launch:        desktop.Launch,
-		newProvider:   runtime.NewLLMProvider,
-		newSession:    computeruse.New,
-		settle:        defaultSettle,
-		desktopLock:   userDesktopLock(),
-		idlePoll:      defaultIdlePoll,
-		personWait:    defaultPersonWait,
-		findWithin:    defaultFindWithin,
-		onConsole:     desktop.OnConsoleSession,
-		system:        hostSystem(),
-		protectedApps: protectedApps(),
-		stdout:        os.Stdout,
-		stderr:        os.Stderr,
+		step:            step,
+		cfg:             cfg,
+		openDesktop:     desktop.Open,
+		checkDesktop:    desktop.Check,
+		screenPoll:      defaultScreenPoll,
+		screenWait:      defaultScreenWait,
+		openElements:    desktop.OpenElements,
+		launch:          desktop.Launch,
+		newProvider:     runtime.NewLLMProvider,
+		newSession:      computeruse.New,
+		settle:          defaultSettle,
+		desktopLock:     userDesktopLock(),
+		idlePoll:        defaultIdlePoll,
+		personWait:      defaultPersonWait,
+		findWithin:      defaultFindWithin,
+		onConsole:       desktop.OnConsoleSession,
+		system:          hostSystem(),
+		protectedApps:   protectedApps(),
+		protectedTitles: protectedTitles(),
+		stdout:          os.Stdout,
+		stderr:          os.Stderr,
 	}, nil
 }
 
