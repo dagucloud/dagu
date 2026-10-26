@@ -11,6 +11,7 @@ import (
 	"maps"
 	"net"
 	"net/http"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -116,7 +117,26 @@ type browser struct {
 
 func startBrowser(t *testing.T) *browser {
 	t.Helper()
-	return startBrowserOn(t, t.TempDir())
+	return startBrowserOn(t, profileDir(t))
+}
+
+// profileDir returns a new browser profile directory. The browser's helper
+// processes can write to it for a moment after the browser is ended, so it
+// is removed with retries; call it before starting the browser, so it is
+// removed after.
+func profileDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "writegate-profile-")
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		for range 50 {
+			if os.RemoveAll(dir) == nil {
+				return
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+	})
+	return dir
 }
 
 // startBrowserOn starts the browser on the profile directory.
@@ -443,7 +463,7 @@ func TestGateClosesTheBrowserItLoses(t *testing.T) {
 func TestGateExtensionLeavesTheProfileAsItWas(t *testing.T) {
 	t.Parallel()
 
-	profile := t.TempDir()
+	profile := profileDir(t)
 	b := startBrowserOn(t, profile)
 	_, _, _ = guard(t, b, writegate.Policy{}, nil)
 	require.Contains(t, extensionNames(t, b), "Dagu write gate")
