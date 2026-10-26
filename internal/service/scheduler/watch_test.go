@@ -5,6 +5,7 @@ package scheduler
 
 import (
 	"context"
+	"maps"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -204,6 +205,9 @@ func TestWatchNamesARunAfterTheFileVersion(t *testing.T) {
 
 	f := newWatchFixture(t, "", nil)
 	f.read()
+	// The ledger as it was saved before the file arrived.
+	saved := f.watcher.ledgers["inbox"]
+	saved.Files = maps.Clone(saved.Files)
 	path := f.write("a.txt", "x", f.now)
 	f.read()
 	f.read()
@@ -211,9 +215,10 @@ func TestWatchNamesARunAfterTheFileVersion(t *testing.T) {
 	assert.Regexp(t, `^file-[0-9a-f]{32}$`, f.runIDs[0])
 	assert.NoError(t, ir.ValidateDAGRunID(f.runIDs[0]))
 
-	// The ledger is lost; the same file version is queued under the same ID.
-	f.watcher.ledgers = map[string]schedulerstate.WatchLedger{}
-	f.read()
+	// The process stopped before saving the ledger: the saved one comes back,
+	// and the same file version is queued under the same ID.
+	f.watcher.ledgers["inbox"] = saved
+	delete(f.watcher.pending, "inbox")
 	f.read()
 	f.read()
 	require.Len(t, f.runIDs, 2)
