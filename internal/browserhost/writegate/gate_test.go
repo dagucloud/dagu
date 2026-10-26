@@ -4,8 +4,10 @@
 package writegate_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -155,25 +157,63 @@ func profileDir(t *testing.T) string {
 	return dir
 }
 
-// startBrowserOn starts the browser on the profile directory.
+// startBrowserOn starts the browser on the profile directory. The browser
+// chooses its DevTools port and writes it to the profile, so no other
+// process can take the port between choosing and listening.
 func startBrowserOn(t *testing.T, profile string) *browser {
 	t.Helper()
 	path := chrometest.Require(t)
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	port := listener.Addr().(*net.TCPAddr).Port
-	require.NoError(t, listener.Close())
+	activePort := filepath.Join(profile, "DevToolsActivePort")
+	// A profile used before still names the port of the browser that used it.
+	if err := os.Remove(activePort); !errors.Is(err, os.ErrNotExist) {
+		require.NoError(t, err)
+	}
 	cmd := exec.Command(path, "--headless", "--no-sandbox", "--no-first-run", "--no-default-browser-check",
 		"--enable-unsafe-extension-debugging", "--remote-allow-origins=*", "--password-store=basic", "--use-mock-keychain",
-		fmt.Sprintf("--remote-debugging-port=%d", port), "--user-data-dir="+profile, "about:blank")
+		"--remote-debugging-port=0", "--user-data-dir="+profile, "about:blank")
+	var out output
+	cmd.Stdout, cmd.Stderr = &out, &out
 	require.NoError(t, cmd.Start())
-	b := &browser{cmd: cmd, cdpURL: fmt.Sprintf("http://127.0.0.1:%d", port), profile: profile}
 	t.Cleanup(func() {
 		_ = cmd.Process.Kill()
 		_, _ = cmd.Process.Wait()
 	})
-	require.Eventually(t, func() bool { return browserhost.Probe(t.Context(), b.cdpURL) == nil }, 30*time.Second, 50*time.Millisecond)
-	return b
+	cdpURL := make(chan string, 1)
+	started := assert.Eventually(t, func() bool {
+		data, err := os.ReadFile(activePort) //nolint:gosec // the test's own profile
+		port, _, _ := strings.Cut(string(data), "\n")
+		if err != nil || port == "" {
+			return false
+		}
+		address := "http://127.0.0.1:" + port
+		if browserhost.Probe(t.Context(), address) != nil {
+			return false
+		}
+		cdpURL <- address
+		return true
+	}, 30*time.Second, 50*time.Millisecond)
+	if !started {
+		t.Fatalf("the browser did not answer on DevTools; it printed:\n%s", out.String())
+	}
+	return &browser{cmd: cmd, cdpURL: <-cdpURL, profile: profile}
+}
+
+// output keeps what a browser prints, to show when it does not start.
+type output struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (o *output) Write(p []byte) (int, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.buf.Write(p)
+}
+
+func (o *output) String() string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.buf.String()
 }
 
 // guard runs a gate in mode rehearse on the browser until the test ends,
@@ -229,25 +269,18 @@ func openPage(t *testing.T, b *browser) *page {
 	conn.SetReadLimit(-1)
 	t.Cleanup(func() { _ = conn.CloseNow() })
 	p := &page{t: t, conn: conn}
-	var targets struct {
-		TargetInfos []struct {
-			TargetID string `json:"targetId"`
-			Type     string `json:"type"`
-		} `json:"targetInfos"`
+	// The test opens a page of its own: a blank page the browser started
+	// with can still be replaced while the browser starts.
+	var created struct {
+		TargetID string `json:"targetId"`
 	}
-	p.call("", "Target.getTargets", nil, &targets)
-	for _, target := range targets.TargetInfos {
-		if target.Type == "page" {
-			var attached struct {
-				SessionID string `json:"sessionId"`
-			}
-			p.call("", "Target.attachToTarget", map[string]any{"targetId": target.TargetID, "flatten": true}, &attached)
-			p.sid = attached.SessionID
-			return p
-		}
+	p.call("", "Target.createTarget", map[string]any{"url": "about:blank"}, &created)
+	var attached struct {
+		SessionID string `json:"sessionId"`
 	}
-	t.Fatal("no page")
-	return nil
+	p.call("", "Target.attachToTarget", map[string]any{"targetId": created.TargetID, "flatten": true}, &attached)
+	p.sid = attached.SessionID
+	return p
 }
 
 func (p *page) call(sid, method string, params map[string]any, result any) {
