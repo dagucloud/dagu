@@ -31,6 +31,7 @@ func (r *run) waitForInput(ctx context.Context, index int, spec askSpec) error {
 	r.record.Cursor = index + 1
 	r.record.Outputs = r.outputs
 	r.record.ReplayPending, r.record.ReplayUsed = r.cache.Held()
+	r.record.WriteGateSeq = r.writeSeq
 	r.record.OwnerPID = 0
 	r.record.OwnerStartedAt = 0
 	if err := r.store.Save(r.record); err != nil {
@@ -105,6 +106,12 @@ func (r *run) resumeSession(ctx context.Context, recordID string, session *ir.Ag
 	}
 	r.eng = eng
 	r.certificateProxy = record.CertProxyURL != ""
+	r.writeSeq = record.WriteGateSeq
+	if record.WriteGateURL != "" {
+		if r.writeGate, err = writeGateMode(ctx, r.cfg.Browser.WriteGate); err != nil {
+			return 0, err
+		}
+	}
 	if err := r.saveRunningRecord(); err != nil {
 		return 0, err
 	}

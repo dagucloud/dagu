@@ -117,6 +117,8 @@ type BrowserDef struct {
 	ClientCertificates      []BrowserClientCertificateDef `mapstructure:"client_certificates"`
 	TrustedCAs              []BrowserTrustedCADef         `mapstructure:"trusted_cas"`
 	GuardClientCertificates *bool                         `mapstructure:"guard_client_certificates"`
+	WriteGate               string                        `mapstructure:"write_gate"`
+	WritePolicy             string                        `mapstructure:"write_policy"`
 }
 
 // BrowserClientCertificateDef is a TLS client certificate that browsers on

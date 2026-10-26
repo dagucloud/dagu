@@ -29,6 +29,7 @@ import (
 
 	stagehand "github.com/browserbase/stagehand/packages/sdk-go/v4"
 	"github.com/dagucloud/dagu/v2/internal/browserhost"
+	"github.com/dagucloud/dagu/v2/internal/browserhost/writegate"
 	"github.com/dagucloud/dagu/v2/internal/test/chrometest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1484,4 +1485,70 @@ func TestStagehandDetachEndsAModelCallItWaitsOn(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NoError(t, reattached.Goto(t.Context(), "data:text/html,"+strings.ReplaceAll(shopPage, "#", "%23"), time.Minute))
+}
+
+// notesPage saves through a request when Submit is pressed.
+const notesPage = `<!doctype html><html><head><title>Notes</title></head><body>
+<p id="status">ready</p>
+<button onclick="fetch('/save', {method: 'POST', body: new URLSearchParams({note: 'hello'})}).then(() => { document.getElementById('status').textContent = 'saved'; }, () => { document.getElementById('status').textContent = 'not saved'; })">Submit</button>
+</body></html>`
+
+// A browser launched with a write gate has every write decided from its
+// first page on: an act's save is blocked and reported, and the act still
+// completes.
+func TestStagehandWriteGateDecidesFromTheFirstPage(t *testing.T) {
+	t.Parallel()
+	chrometest.Require(t)
+
+	var saves atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			saves.Add(1)
+		}
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = io.WriteString(w, notesPage)
+	}))
+	t.Cleanup(server.Close)
+	launcher := stagehandLauncher{startGate: func(ctx context.Context, _ string, cfg writegate.Config) (*writegate.Handle, error) {
+		ready := make(chan writegate.Ready, 1)
+		failed := make(chan error, 1)
+		go func() {
+			failed <- writegate.Serve(context.WithoutCancel(ctx), cfg, func(r writegate.Ready) { ready <- r })
+		}()
+		select {
+		case r := <-ready:
+			// No process to end: the gate ends with its browser.
+			return &writegate.Handle{URL: fmt.Sprintf("http://127.0.0.1:%d/%s", r.Port, cfg.Token)}, nil
+		case err := <-failed:
+			return nil, err
+		}
+	}}
+	model := &shopModel{}
+	var eng engine
+	err := withStartupSlot(func() (err error) {
+		eng, err = launcher.Launch(t.Context(), launchOptions{
+			Executable: chrometest.Path(), Headless: true, UserDataDir: browserProfileDir(t), NoSandbox: true, BrowserDir: testBrowserDir,
+			Generate: model.generate, WriteGate: &writeGateOptions{Mode: writegate.ModeRehearse},
+		})
+		return err
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = eng.Close(context.WithoutCancel(t.Context())) })
+	require.NotNil(t, eng.Handle().WriteGate)
+
+	require.NoError(t, eng.Goto(t.Context(), server.URL, time.Minute))
+	outcome, err := eng.Act(t.Context(), "Click the Submit button", nil, nil, time.Minute)
+	require.NoError(t, err)
+	require.True(t, outcome.Success, outcome.Message)
+	text, err := eng.PageText(t.Context())
+	require.NoError(t, err)
+	assert.Contains(t, text, "not saved")
+	assert.Zero(t, saves.Load())
+
+	writes, err := eng.Writes(t.Context(), 0)
+	require.NoError(t, err)
+	require.Len(t, writes, 1)
+	assert.True(t, writes[0].Consequential())
+	assert.Equal(t, "POST "+server.URL+"/save", writes[0].String())
+	assert.Equal(t, []string{"note"}, writes[0].Fields)
 }

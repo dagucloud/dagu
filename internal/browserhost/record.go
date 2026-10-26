@@ -89,6 +89,15 @@ type Record struct {
 	CertProxyPID       int    `json:"certProxyPid,omitempty"`
 	CertProxyStartedAt int64  `json:"certProxyStartedAt,omitempty"`
 
+	// WriteGateURL locates the gate deciding the browser's writes;
+	// WriteGatePID and WriteGateStartedAt identify its process. A browser
+	// whose gate is gone sends writes nothing decides, so it is closed.
+	// WriteGateSeq is the last of the gate's events reported.
+	WriteGateURL       string `json:"writeGateUrl,omitempty"`
+	WriteGatePID       int    `json:"writeGatePid,omitempty"`
+	WriteGateStartedAt int64  `json:"writeGateStartedAt,omitempty"`
+	WriteGateSeq       int64  `json:"writeGateSeq,omitempty"`
+
 	// OwnerPID and OwnerStartedAt identify the process driving a running
 	// browser, so a crashed owner can be detected even after PID reuse.
 	OwnerPID       int   `json:"ownerPid,omitempty"`

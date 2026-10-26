@@ -1163,6 +1163,15 @@
           "type": "boolean",
           "description": "Send a browser's other HTTPS requests through the certificate proxy too, so the browser never asks the operating system for a client certificate; a site that asks for one gets none and the step says so. Defaults to on whenever the browser presents client certificates."
         },
+        "write_gate": {
+          "type": "string",
+          "enum": ["off", "rehearse"],
+          "description": "The least strict write gate mode every browser on this host runs in; a step or a browser session can only ask for a stricter one. rehearse blocks every write a page sends (any request but GET, HEAD, or OPTIONS) and reports what it would have sent; a step stops at the first such write and ends partially succeeded. off, the default, runs no gate."
+        },
+        "write_policy": {
+          "type": "string",
+          "description": "Path to the write gate policy browser steps follow: sign_in rules (host, path, and optionally the secret the request must carry) whose writes are sent, writes rules that declare reads that save, and noise_hosts whose writes do not count."
+        },
         "trusted_cas": {
           "type": "array",
           "description": "Server certificate authorities trusted only for the hosts each names, in addition to existing trust. Matching entries combine independently of client certificates.",

@@ -20,6 +20,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/dagucloud/dagu/v2/internal/browserhost/certproxy"
+	"github.com/dagucloud/dagu/v2/internal/browserhost/writegate"
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
 )
@@ -94,6 +95,12 @@ type fakeEngine struct {
 	blockedErr error
 	// certificateEvents are what the certificate proxy reports next.
 	certificateEvents []certproxy.Event
+	// actWrites are the writes the write gate decides while the next act
+	// runs, numbered as they are kept in writes.
+	actWrites []writegate.Event
+	writes    []writegate.Event
+	// writesErr is the error every read of the write gate reports.
+	writesErr error
 	// outcome is what the browser shows after a page opened.
 	outcome pageOutcome
 	// pending are the connections the certificate proxy waits on.
@@ -177,6 +184,21 @@ func (e *fakeEngine) TakeCertificateEvents(context.Context) ([]certproxy.Event, 
 	return events, nil
 }
 
+func (e *fakeEngine) Writes(_ context.Context, after int64) ([]writegate.Event, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.writesErr != nil {
+		return nil, e.writesErr
+	}
+	var events []writegate.Event
+	for _, write := range e.writes {
+		if write.Seq > after {
+			events = append(events, write)
+		}
+	}
+	return events, nil
+}
+
 func (e *fakeEngine) PageOutcome(context.Context) (pageOutcome, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -231,6 +253,11 @@ func (e *fakeEngine) Act(ctx context.Context, instruction string, variables map[
 	e.dialogs = append(e.dialogs, e.actDialogs...)
 	e.actDialogs = nil
 	e.blocked, e.actBlocked = e.actBlocked, nil
+	for _, write := range e.actWrites {
+		write.Seq = int64(len(e.writes) + 1)
+		e.writes = append(e.writes, write)
+	}
+	e.actWrites = nil
 	generate, onAct, twoStep, fills := e.generate, e.onAct, e.twoStepAct, e.actFills
 	losesPage, pageLoss := e.actLosesPage > 0, cmp.Or(e.pageLoss, errFakeSessionLost)
 	if losesPage {

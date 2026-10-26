@@ -18,6 +18,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/browserhost"
 	"github.com/dagucloud/dagu/v2/internal/browserhost/certproxy"
+	"github.com/dagucloud/dagu/v2/internal/browserhost/writegate"
 	cmnconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/hostpattern"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -129,6 +130,15 @@ func recordCertProxy(record *browserhost.Record, proxy *certproxy.Handle) {
 	record.CertProxyURL, record.CertProxyPID, record.CertProxyStartedAt = proxy.URL, proxy.PID, proxy.StartedAt
 }
 
+// recordWriteGate stores in record where the write gate runs, if the
+// browser has one.
+func recordWriteGate(record *browserhost.Record, gate *writegate.Handle) {
+	if gate == nil {
+		return
+	}
+	record.WriteGateURL, record.WriteGatePID, record.WriteGateStartedAt = gate.URL, gate.PID, gate.StartedAt
+}
+
 // recordedHandle locates the browser record describes.
 func recordedHandle(record browserhost.Record) browserHandle {
 	handle := browserHandle{
@@ -140,6 +150,9 @@ func recordedHandle(record browserhost.Record) browserHandle {
 	}
 	if record.CertProxyURL != "" {
 		handle.CertProxy = &certproxy.Handle{URL: record.CertProxyURL, PID: record.CertProxyPID, StartedAt: record.CertProxyStartedAt}
+	}
+	if record.WriteGateURL != "" {
+		handle.WriteGate = &writegate.Handle{URL: record.WriteGateURL, PID: record.WriteGatePID, StartedAt: record.WriteGateStartedAt}
 	}
 	return handle
 }

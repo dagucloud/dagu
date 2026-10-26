@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	goruntime "runtime"
 	"strings"
 	"sync"
@@ -21,6 +22,7 @@ import (
 	stagehand "github.com/browserbase/stagehand/packages/sdk-go/v4"
 	"github.com/dagucloud/dagu/v2/internal/browserhost"
 	"github.com/dagucloud/dagu/v2/internal/browserhost/certproxy"
+	"github.com/dagucloud/dagu/v2/internal/browserhost/writegate"
 	cmnconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/hostpattern"
 	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
@@ -194,6 +196,9 @@ type stagehandLauncher struct {
 	// startProxy starts the proxy presenting client certificates; nil
 	// starts it as a process of the Dagu executable.
 	startProxy func(ctx context.Context, executable string, cfg certproxy.Config) (*certproxy.Handle, error)
+	// startGate starts the write gate; nil starts it as a process of the
+	// Dagu executable.
+	startGate func(ctx context.Context, executable string, cfg writegate.Config) (*writegate.Handle, error)
 }
 
 var _ launcher = stagehandLauncher{}
@@ -240,11 +245,19 @@ func (l stagehandLauncher) launch(ctx context.Context, opts launchOptions) (*sta
 		return nil, err
 	}
 	cdpURL := started.cdpURL
+	// The gate decides the browser's requests from before the runtime
+	// loads its first page.
+	if opts.WriteGate != nil {
+		if started.gate, err = l.startWriteGate(ctx, cdpURL, opts); err != nil {
+			return nil, errors.Join(err, started.end(ctx))
+		}
+	}
 	eng, err := startEngine(ctx, started.browser, cdpURL, opts)
 	if err != nil {
-		return nil, errors.Join(err, endUnstartedBrowser(ctx, started.browser, cdpURL, opts.UserDataDir), killCertProxy(started.proxy))
+		return nil, errors.Join(err, endUnstartedBrowser(ctx, started.browser, cdpURL, opts.UserDataDir), killCertProxy(started.proxy), killWriteGate(started.gate))
 	}
 	eng.handle.CertProxy = started.proxy
+	eng.handle.WriteGate = started.gate
 	extension, err := browserhost.StagehandExtension(ctx, cdpURL)
 	if err != nil {
 		return nil, errors.Join(fmt.Errorf("locate browser runtime extension: %w", err), eng.Close(context.WithoutCancel(ctx)))
@@ -288,6 +301,14 @@ func (l stagehandLauncher) start(ctx context.Context, opts launchOptions, userAg
 		launch.Args = append(launch.Args, headlessScreen(opts.Viewport))
 	}
 	cdpURL := fmt.Sprintf("http://127.0.0.1:%d", port)
+	if opts.WriteGate != nil {
+		// A service worker a site registered in an earlier run can start
+		// with the browser, before the gate, to send a pending background
+		// sync. The site registers its worker again when visited.
+		if err := os.RemoveAll(filepath.Join(opts.UserDataDir, "Default", "Service Worker")); err != nil {
+			return startedBrowser{}, fmt.Errorf("clear the profile's service workers: %w", err)
+		}
+	}
 	var proxy *certproxy.Handle
 	if len(opts.ClientCertificates) > 0 || len(opts.TrustedCAs) > 0 || opts.Guard {
 		if proxy, err = l.startCertProxy(ctx, cdpURL, opts); err != nil {
@@ -326,6 +347,7 @@ func (stagehandLauncher) Reattach(ctx context.Context, handle browserHandle, opt
 	eng.handle.BrowserPID = handle.BrowserPID
 	eng.handle.BrowserStartedAt = handle.BrowserStartedAt
 	eng.handle.CertProxy = handle.CertProxy
+	eng.handle.WriteGate = handle.WriteGate
 	// What the proxy reported before the browser was reattached belongs to
 	// the process that drove it then.
 	_, _ = eng.TakeCertificateEvents(ctx)
@@ -364,6 +386,41 @@ func (l stagehandLauncher) startCertProxy(ctx context.Context, cdpURL string, op
 		return nil, fmt.Errorf("start the certificate proxy: %w", err)
 	}
 	return proxy, nil
+}
+
+// startWriteGate starts the gate deciding the writes of the browser at
+// cdpURL.
+func (l stagehandLauncher) startWriteGate(ctx context.Context, cdpURL string, opts launchOptions) (*writegate.Handle, error) {
+	start := l.startGate
+	if start == nil {
+		start = writegate.Start
+	}
+	gate, err := start(ctx, cmnconfig.GetConfig(ctx).Paths.Executable, writegate.Config{
+		Token:        rand.Text(),
+		CDPURL:       cdpURL,
+		Mode:         opts.WriteGate.Mode,
+		Policy:       opts.WriteGate.Policy,
+		Secrets:      opts.WriteGate.Secrets,
+		ExtensionDir: filepath.Join(opts.UserDataDir, writeGateExtensionDir),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("start the write gate: %w", err)
+	}
+	return gate, nil
+}
+
+// writeGateExtensionDir is where in the browser's profile the write gate
+// keeps the extension that blocks sockets.
+const writeGateExtensionDir = "DaguWriteGate"
+
+// killWriteGate ends the write gate of a browser that is gone, if it has
+// one. A gate ended while its browser runs would let a request it paused
+// through.
+func killWriteGate(gate *writegate.Handle) error {
+	if gate == nil {
+		return nil
+	}
+	return gate.Kill()
 }
 
 // killCertProxy ends the certificate proxy of a browser that did not start,
@@ -1038,6 +1095,15 @@ func (e *stagehandEngine) CertificateVerified(ctx context.Context, host string) 
 	})
 }
 
+func (e *stagehandEngine) Writes(ctx context.Context, after int64) ([]writegate.Event, error) {
+	if e.handle.WriteGate == nil {
+		return nil, nil
+	}
+	return boundCall(ctx, e.pageCallTimeout, func(ctx context.Context) ([]writegate.Event, error) {
+		return writegate.Events(ctx, e.handle.WriteGate.URL, after)
+	})
+}
+
 func (e *stagehandEngine) Handle() browserHandle {
 	return e.handle
 }
@@ -1061,13 +1127,14 @@ func (e *stagehandEngine) Detach(ctx context.Context) error {
 }
 
 // Close terminates the browser, and then the proxy that presented its
-// client certificates.
+// client certificates and the gate that decided its writes.
 func (e *stagehandEngine) Close(ctx context.Context) error {
 	defer e.slot.Release()
 	return errors.Join(
 		e.release(ctx),
 		closeBrowser(ctx, e.handle.BrowserPID, e.handle.BrowserStartedAt, e.browser.Close),
 		killCertProxy(e.handle.CertProxy),
+		killWriteGate(e.handle.WriteGate),
 	)
 }
 

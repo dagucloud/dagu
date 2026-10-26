@@ -39,7 +39,8 @@ type ResumableFunc func(context.Context, Record) bool
 
 // Sweep closes browsers that no step can resume and removes their records:
 // running sessions whose owner process is gone, detached sessions past their
-// deadline, and detached sessions whose step can no longer resume.
+// deadline, detached sessions whose step can no longer resume, and
+// browsers whose write gate is gone.
 func Sweep(ctx context.Context, store *Store, now time.Time, resumable ResumableFunc) error {
 	records, err := store.List()
 	if err != nil {
@@ -97,9 +98,12 @@ func closeOwned(ctx context.Context, record Record) error {
 			return fmt.Errorf("close browser at %s: %w", record.CDPURL, err)
 		}
 	}
-	// The certificate proxy ends on its own once its browser is gone; ending
-	// it here frees its port at once.
+	// The certificate proxy and the write gate end on their own once their
+	// browser is gone; ending them here frees their ports at once. The gate
+	// ends only after the browser, which would send a request the gate
+	// paused.
 	endProcess(record.CertProxyPID, record.CertProxyStartedAt)
+	endProcess(record.WriteGatePID, record.WriteGateStartedAt)
 	var errs []error
 	for _, dir := range []string{record.ExtensionDir, record.WorkDir} {
 		if dir != "" {
@@ -166,9 +170,12 @@ func RetireAbandoned(ctx context.Context, store *Store, id string, now time.Time
 }
 
 // sessionAbandoned reports whether nothing will use a browser session's
-// browser again: it waited past its idle deadline, or the command driving
-// it is gone.
+// browser again: it waited past its idle deadline, the command driving it
+// is gone, or the gate deciding its writes is.
 func sessionAbandoned(record Record, now time.Time) bool {
+	if record.State != StateEnded && gateLost(record) {
+		return true
+	}
 	switch record.State {
 	case StateInteractive:
 		return !record.Deadline.IsZero() && now.After(record.Deadline)
@@ -246,6 +253,9 @@ func RunReaper(ctx context.Context, browserDataDir string, resumable ResumableFu
 }
 
 func abandoned(ctx context.Context, record Record, now time.Time, resumable ResumableFunc) bool {
+	if gateLost(record) {
+		return true
+	}
 	switch record.State {
 	case StateRunning:
 		return !ownerAlive(record)
@@ -261,6 +271,11 @@ func abandoned(ctx context.Context, record Record, now time.Time, resumable Resu
 	default:
 		return true
 	}
+}
+
+// gateLost reports whether the browser had a write gate that is gone.
+func gateLost(record Record) bool {
+	return record.WriteGatePID != 0 && !processAlive(record.WriteGatePID, record.WriteGateStartedAt)
 }
 
 func ownerAlive(record Record) bool {

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/browserhost/certproxy"
+	"github.com/dagucloud/dagu/v2/internal/browserhost/writegate"
 )
 
 // errPageSessionLost reports an operation whose connection to the page went
@@ -100,6 +101,10 @@ type engine interface {
 	// server certificate of host on a route it still carries; false without
 	// a proxy.
 	CertificateVerified(ctx context.Context, host string) (bool, error)
+	// Writes returns what the write gate decided after the event numbered
+	// after, or nothing without a gate. Its error reports that the gate no
+	// longer answers, so the browser's writes go undecided.
+	Writes(ctx context.Context, after int64) ([]writegate.Event, error)
 	Handle() browserHandle
 	// Detach releases the session while the browser keeps running.
 	Detach(ctx context.Context) error
@@ -128,6 +133,9 @@ type launchOptions struct {
 	// Guard sends the browser's other https: requests through the proxy
 	// too.
 	Guard bool
+	// WriteGate decides the browser's writes from before its first page
+	// loads; nil runs no gate.
+	WriteGate *writeGateOptions
 	// Warn reports what the launch could not set up as configured without
 	// failing.
 	Warn func(string)
@@ -156,6 +164,17 @@ type browserHandle struct {
 	// CertProxy is the proxy presenting the browser's client certificates,
 	// or nil when it presents none.
 	CertProxy *certproxy.Handle
+	// WriteGate is the gate deciding the browser's writes, or nil.
+	WriteGate *writegate.Handle
+}
+
+// writeGateOptions configures the write gate a browser starts with.
+type writeGateOptions struct {
+	Mode   string
+	Policy writegate.Policy
+	// Secrets holds the values of the secrets the policy's sign-in rules
+	// name.
+	Secrets map[string]string
 }
 
 // pageOutcome is what the browser shows after it opened a page.

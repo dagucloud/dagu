@@ -17,6 +17,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/browserhost"
 	"github.com/dagucloud/dagu/v2/internal/browserhost/certproxy"
+	"github.com/dagucloud/dagu/v2/internal/browserhost/writegate"
 	cmnconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
@@ -41,6 +42,7 @@ const (
 	shutdownTimeout       = 30 * time.Second
 	finalShotLabel        = "final"
 	failureShotLabel      = "failure"
+	rehearsalShotLabel    = "rehearsal"
 )
 
 // noActionFoundMessage is how the browser runtime reports an act whose model
@@ -88,6 +90,15 @@ type run struct {
 	// downloadWindow is the longest timeout of the acts and gotos run so
 	// far, which can start downloads; zero until one runs.
 	downloadWindow time.Duration
+	// writeGate is the write gate mode the browser runs in.
+	writeGate string
+	// writeSeq is the last write gate event reported, and writes are those
+	// this attempt saw.
+	writeSeq int64
+	writes   []writegate.Event
+	// unrehearsable is set once a socket opened whose writes the gate
+	// cannot see.
+	unrehearsable bool
 }
 
 func newRun(ctx context.Context, e *browserExecutor) (*run, error) {
@@ -180,6 +191,12 @@ func (r *run) execute(ctx context.Context) error {
 	r.reportDialogs(-1)
 	r.reportBlocked(-1)
 	if err == nil {
+		var stop *writegate.Event
+		if stop, err = r.reportWrites(ctx, -1); stop != nil {
+			return r.rehearsed(ctx, start-1, *stop)
+		}
+	}
+	if err == nil {
 		err = r.checkPage(ctx, -1)
 	}
 	if err != nil {
@@ -214,7 +231,15 @@ func (r *run) execute(ctx context.Context) error {
 		}
 		r.reportDialogs(i)
 		r.reportBlocked(i)
-		if err != nil {
+		// A write the rehearsal kept back ends the step there, whatever the
+		// operation made of the page that did not get its answer.
+		stop, gateErr := r.reportWrites(ctx, i)
+		switch {
+		case gateErr != nil:
+			return r.fail(ctx, i, kindWriteGate, gateErr)
+		case stop != nil:
+			return r.rehearsed(ctx, i, *stop)
+		case err != nil:
 			return r.fail(ctx, i, op.kind(), err)
 		}
 		if err := r.checkPage(ctx, i); err != nil {
@@ -267,6 +292,77 @@ func (r *run) reportBlocked(index int) {
 		r.blocked[host] += count
 	}
 	logBlocked(r.timeline, index, describeBlocked(blocked))
+}
+
+// reportWrites records what the write gate decided while the operation at
+// index ran, and returns the first write a rehearsal stops at. Its error
+// reports a gate that is gone.
+func (r *run) reportWrites(ctx context.Context, index int) (*writegate.Event, error) {
+	if r.eng == nil || r.eng.Handle().WriteGate == nil {
+		return nil, nil
+	}
+	events, err := r.eng.Writes(ctx, r.writeSeq)
+	if err != nil {
+		if !r.eng.Handle().WriteGate.Alive() {
+			return nil, errWriteGateLost
+		}
+		// A gate that runs still decides; only what it reports waits.
+		_, _ = fmt.Fprintf(r.timeline.Log, "warning: read the write gate: %s\n", r.masker.MaskString(err.Error()))
+		return nil, nil
+	}
+	var stop *writegate.Event
+	for _, event := range maskEvents(r.masker, events) {
+		r.writeSeq = event.Seq
+		r.writes = append(r.writes, event)
+		logWrite(r.timeline, index, event)
+		if event.Kind == writegate.KindSocket {
+			r.unrehearsable = true
+		}
+		if stop == nil && r.writeGate == writegate.ModeRehearse && event.Consequential() {
+			stop = &event
+		}
+	}
+	return stop, nil
+}
+
+// rehearsed ends a rehearsal at the write the gate kept back after the
+// operation at index: the step partially succeeds, saying what it would
+// have sent and which operations did not run.
+func (r *run) rehearsed(ctx context.Context, index int, write writegate.Event) error {
+	var files []string
+	if r.cfg.screenshotPolicy() != screenshotsNever && r.artifacts.Enabled() && r.eng != nil {
+		if rel, err := r.capture(ctx, rehearsalShotLabel); err == nil {
+			files = append(files, rel)
+		}
+	}
+	r.keepWriteGateReport(&index, &write)
+	message := wouldSend(write, index, len(r.cfg.Do))
+	r.exec.setNodeStatus(ir.NodePartiallySucceeded)
+	return r.finish(ctx, message, files)
+}
+
+// keepWriteGateReport writes what the gate decided into the step's
+// artifacts, with where a rehearsal stopped when stoppedAt is set.
+func (r *run) keepWriteGateReport(stoppedAt *int, write *writegate.Event) {
+	if r.writeGate == writegate.ModeOff || r.writeGate == "" || !r.artifacts.Enabled() {
+		return
+	}
+	report := writeGateReport{Mode: r.writeGate, Rehearsable: !r.unrehearsable, StoppedAt: stoppedAt, WouldSend: write, Writes: r.writes}
+	if stoppedAt != nil {
+		for i := *stoppedAt + 1; i < len(r.cfg.Do); i++ {
+			report.NotRun = append(report.NotRun, i)
+		}
+	}
+	data, err := encodeReport(report)
+	if err == nil {
+		err = os.MkdirAll(r.artifacts.Dir(), 0o755)
+	}
+	if err == nil {
+		err = os.WriteFile(filepath.Join(r.artifacts.Dir(), writeGateFile), data, 0o644) //nolint:gosec // run artifacts are readable like the rest
+	}
+	if err != nil {
+		_, _ = fmt.Fprintf(r.timeline.Log, "warning: keep the write gate report: %s\n", r.masker.MaskString(err.Error()))
+	}
 }
 
 // reportRefusal records the refusal the page shows after the operation at
@@ -360,6 +456,9 @@ func (r *run) startSession(ctx context.Context) (int, error) {
 	}
 	r.eng = eng
 	handle := eng.Handle()
+	if opts.WriteGate != nil {
+		r.writeGate = opts.WriteGate.Mode
+	}
 	r.record = browserhost.Record{
 		ID:               recordID,
 		DAGName:          r.dagName,
@@ -378,6 +477,7 @@ func (r *run) startSession(ctx context.Context) (int, error) {
 		BrowserStartedAt: handle.BrowserStartedAt,
 	}
 	recordCertProxy(&r.record, handle.CertProxy)
+	recordWriteGate(&r.record, handle.WriteGate)
 	if err := r.saveRunningRecord(); err != nil {
 		return 0, err
 	}
@@ -409,6 +509,10 @@ func (r *run) launchOptions(ctx context.Context, recordID string) (launchOptions
 	}
 	guard := guardsCertificates(ctx, certificates)
 	r.certificateProxy = len(certificates) > 0 || len(authorities) > 0 || guard
+	gate, err := r.writeGateOptions(ctx)
+	if err != nil {
+		return launchOptions{}, err
+	}
 	opts := launchOptions{
 		Executable:     r.cfg.Browser.Executable,
 		Headless:       r.cfg.headless(),
@@ -422,6 +526,7 @@ func (r *run) launchOptions(ctx context.Context, recordID string) (launchOptions
 		ClientCertificates: certificates,
 		TrustedCAs:         authorities,
 		Guard:              guard,
+		WriteGate:          gate,
 		Warn:               func(message string) { r.warn(-1, message) },
 		BrowserDir:         r.browser,
 		MaxOpen:            cmnconfig.GetConfig(ctx).Browser.MaxOpen,
@@ -444,6 +549,25 @@ func (r *run) launchOptions(ctx context.Context, recordID string) (launchOptions
 	return opts, nil
 }
 
+// writeGateOptions returns the write gate the step's browser starts with,
+// following the host's write policy, or nil when it runs none.
+func (r *run) writeGateOptions(ctx context.Context) (*writeGateOptions, error) {
+	mode, err := writeGateMode(ctx, r.cfg.Browser.WriteGate)
+	if err != nil || mode == writegate.ModeOff {
+		return nil, err
+	}
+	policy, err := loadWritePolicy(cmnconfig.GetConfig(ctx).Browser.WritePolicy)
+	if err != nil {
+		return nil, fmt.Errorf("browser.write_policy in the Dagu config: %w", err)
+	}
+	return writeGateFor(mode, policy, func(name string) (string, bool) {
+		if value, ok := r.secrets[name]; ok {
+			return value, true
+		}
+		return os.LookupEnv(name)
+	})
+}
+
 // releaseProfile undoes launchOptions after a failed launch.
 func (r *run) releaseProfile(_ context.Context, opts launchOptions) {
 	if r.profile != nil {
@@ -458,6 +582,7 @@ func (r *run) releaseProfile(_ context.Context, opts launchOptions) {
 
 func (r *run) saveRunningRecord() error {
 	r.record.State = browserhost.StateRunning
+	r.record.WriteGateSeq = r.writeSeq
 	r.record.Deadline = time.Time{}
 	r.record.OwnerPID = os.Getpid()
 	r.record.OwnerStartedAt, _ = procutil.StartTime(r.record.OwnerPID)
@@ -504,6 +629,13 @@ func (r *run) succeed(ctx context.Context) error {
 			files = append(files, rel)
 		}
 	}
+	r.keepWriteGateReport(nil, nil)
+	return r.finish(ctx, fmt.Sprintf("Completed %d operations using %d tokens", len(r.cfg.Do), r.bridge.totals().total()), files)
+}
+
+// finish closes the browser of a step whose operations did their work,
+// keeps its recordings, and publishes its outputs, reporting summary.
+func (r *run) finish(ctx context.Context, summary string, files []string) error {
 	// The operations succeeded; leftover browser files are reported, not
 	// treated as a step failure.
 	if err := r.shutdown(ctx); err != nil {
@@ -513,7 +645,7 @@ func (r *run) succeed(ctx context.Context) error {
 		_, _ = fmt.Fprintf(r.timeline.Log, "warning: keep replay recordings: %s\n", r.masker.MaskString(err.Error()))
 	}
 	usage := r.bridge.totals()
-	summary := fmt.Sprintf("Completed %d operations using %d tokens", len(r.cfg.Do), usage.total())
+	summary = r.masker.MaskString(summary)
 	r.timeline.AppendEvent(ir.AgentSessionEvent{Type: agentstep.EventLifecycle, Status: agentstep.StatusCompleted, Content: summary, Files: files})
 	_, _ = fmt.Fprintln(r.timeline.Log, summary)
 	r.exec.updateSession(func(s *ir.AgentSession) {
@@ -538,6 +670,10 @@ func (r *run) fail(ctx context.Context, index int, kind string, cause error) err
 		cause = ctx.Err()
 	}
 	r.reportBlocked(index)
+	if !errors.Is(cause, errWriteGateLost) {
+		_, _ = r.reportWrites(ctx, index)
+	}
+	r.keepWriteGateReport(nil, nil)
 	r.takeCertificateEvents(ctx, index)
 	// A page the site refused explains a failure that follows, however long
 	// after the refusal.
