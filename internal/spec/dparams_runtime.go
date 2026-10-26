@@ -445,6 +445,8 @@ func isInternalRuntimeParam(name string) bool {
 		return true
 	case "WEBHOOK_HEADERS":
 		return true
+	case ir.WatchFileParam, ir.WatchNameParam:
+		return true
 	default:
 		return false
 	}

@@ -23,6 +23,16 @@ type LLMMessage struct {
 	ToolCallID string              `json:"tool_call_id,omitempty"`
 	ToolCalls  []ToolCall          `json:"tool_calls,omitempty"`
 	Metadata   *LLMMessageMetadata `json:"metadata,omitempty"`
+	// Images are sent with a user message ahead of its text, for the one
+	// request that carries them; they are never kept with a run.
+	Images []LLMImage `json:"-"`
+}
+
+// LLMImage is an encoded image attached to a message.
+type LLMImage struct {
+	// MediaType is the image's IANA media type, such as image/png.
+	MediaType string
+	Data      []byte
 }
 
 // LLMMessageMetadata contains metadata about an LLM API call.

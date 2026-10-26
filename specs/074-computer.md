@@ -222,7 +222,12 @@ after the screenshot the model answered, the step waits for the idle period
 again. If the window the actions land on still looks as the model saw it,
 overall and where each action lands, and the keyboard focus is still on the
 window it was on, the actions run; otherwise they are not run, and the new
-screenshot is sent with a note saying why. A change elsewhere on the screen
+screenshot is sent with a note saying why. Before that screenshot, an act
+brings back the application it was working in: the one in front when the
+act started, or the one its last action that ran operated (where a pointer
+action landed, or the window in front as keys were sent; a screenshot or a
+wait operates none). The window the person
+left in front is theirs, so the step never maximizes it. A change elsewhere on the screen
 does not stop the actions. Where the system does not report the focus, the
 screen check alone guards a turn that types or presses keys. The end of
 a wait is a lifecycle event of its own, `running`, so a view knows the step
@@ -352,7 +357,12 @@ or the whole display where the system named none, to look as recorded.
 
 `with.input`, or `act.input` for one act, says how a replayed action
 reaches the application. `screen`, the default, sends the pointer and keys
-as the model did. `direct` has the element act itself through its
+as the model did; a click the model carried out through the element itself,
+as it does on a button, replays the same way under either input, since a
+click at the element's centre may not reach what the pattern did. A click
+the model aims at a combo box lands on it as a person's click does, opening
+one that only offers a list and putting the caret in one that takes typing.
+`direct` has the element act itself through its
 automation pattern, which moves no pointer and needs no window in front: a
 plain click on a `button`, `menu_item`, `link`, or a control of role
 `other` invokes it, on a `checkbox` toggles it, on a `radio`, `list_item`,

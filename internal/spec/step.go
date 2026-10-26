@@ -333,6 +333,9 @@ type llmConfig struct {
 	ObservationKeepRecent *int `yaml:"observation_keep_recent,omitempty"`
 	// WebSearch configures provider-native web search.
 	WebSearch *webSearchConfig `yaml:"web_search,omitempty"`
+	// Files names the files the model reads with the prompt: paths, glob
+	// patterns, or a list an earlier step published.
+	Files types.StringOrArray `yaml:"files,omitempty"`
 }
 
 // llmMessage defines a message in the LLM session.
@@ -2741,6 +2744,7 @@ func llmConfigOf(cfg *llmConfig) (*ir.LLMConfig, error) {
 		Tools:             cfg.Tools,
 		MaxToolIterations: cfg.MaxToolIterations,
 		WebSearch:         buildWebSearchConfig(cfg.WebSearch),
+		Files:             cfg.Files.Values(),
 	}, nil
 }
 

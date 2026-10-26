@@ -283,6 +283,9 @@ func (l *actLoop) run(ctx context.Context) error {
 	if err := l.r.awaitPerson(ctx); err != nil {
 		return err
 	}
+	// The act works in the application in front when it starts, such as
+	// one the step just launched, until its own actions land in another.
+	l.r.noteWorkApp(l.r.driver.FocusedWindow())
 	offered, err := l.lookAndOffer(ctx)
 	if err != nil {
 		return err
@@ -516,11 +519,12 @@ func elementAction(action computeruse.Action, role string) (pattern desktop.Patt
 		return desktop.PatternToggle, false, true
 	case desktop.RoleRadio, desktop.RoleListItem, desktop.RoleTab, desktop.RoleCell:
 		return desktop.PatternSelect, false, true
-	case desktop.RoleComboBox:
-		return desktop.PatternExpand, false, true
 	case desktop.RoleTextField:
 		return "", true, true
 	}
+	// A combo box is clicked where it is, as a person would: a click opens
+	// one that only offers a list, and puts the caret in one that takes
+	// typing, where opening its list would take the typing instead.
 	return "", false, false
 }
 
@@ -579,6 +583,7 @@ func (l *actLoop) recordInvoked(ctx context.Context, action computeruse.Action, 
 	element := l.r.recordElement(e, &centre, l.r.driver.WindowAt(centre).App)
 	rec := recordAction(display, element)
 	rec.Checked = l.r.checkedAfter(ctx, display, element, before)
+	rec.Invoked = true
 	return rec
 }
 
@@ -596,6 +601,11 @@ func (l *actLoop) reconcile(ctx context.Context, turn *computeruse.Turn) (run bo
 	if err != nil {
 		return false, "", err
 	}
+	// The window a person left in front is theirs: the step never maximizes
+	// it, whether or not the turn's actions still run.
+	if front := l.r.driver.FocusedWindow(); person && front.Known() {
+		l.r.fitted[front.Handle] = true
+	}
 	same, err := l.unchanged(ctx, turn)
 	if err != nil {
 		return false, "", err
@@ -608,10 +618,22 @@ func (l *actLoop) reconcile(ctx context.Context, turn *computeruse.Turn) (run bo
 	}
 	if person {
 		logAction(l.r.timeline, l.index, "a person used the desktop; the model's actions were not run")
+		l.returnAfterPerson(ctx)
 		return false, personNote, nil
 	}
 	logAction(l.r.timeline, l.index, "the screen changed before the actions ran; they were not run")
 	return false, divergedNote, nil
+}
+
+// returnAfterPerson makes way for a person whose use of the desktop held
+// back a turn: the application the act was working in comes back to the
+// front, so the model's next look is at the task rather than at what the
+// person was doing.
+func (l *actLoop) returnAfterPerson(ctx context.Context) {
+	l.r.personHandled = time.Now()
+	if l.r.workApp != "" {
+		l.r.bringForward(ctx, l.index, l.r.workApp, "")
+	}
 }
 
 // personUsed waits until nobody has used the desktop for the idle period and
@@ -677,6 +699,18 @@ func (l *actLoop) view(actions []computeruse.Action) view {
 	return l.r.windowView(l.r.driver.FocusedWindow(), display)
 }
 
+// pointerApps is the window each of a turn's pointer actions lands in, as
+// the model saw the screen; other actions land in none.
+func (l *actLoop) pointerApps(actions []computeruse.Action) []desktop.WindowID {
+	apps := make([]desktop.WindowID, len(actions))
+	for i, action := range actions {
+		if at, ok := l.pointOf(action); ok {
+			apps[i], _ = l.r.appWindow(l.r.driver.WindowAt(at))
+		}
+	}
+	return apps
+}
+
 // pointOf is where a pointer action lands in display pixels: the centre of
 // the element it names, or its position on the screen the model saw.
 func (l *actLoop) pointOf(action computeruse.Action) (image.Point, bool) {
@@ -712,14 +746,24 @@ func (l *actLoop) focusLeftModel(turn *computeruse.Turn) bool {
 // whose key-down reaches the focus wherever the pointer is.
 func usesKeyboard(actions []computeruse.Action) bool {
 	for _, action := range actions {
-		switch action.Kind {
-		case computeruse.KindType, computeruse.KindKey, computeruse.KindHoldKey:
+		if sendsKeys(action) {
 			return true
+		}
+		switch action.Kind {
 		case computeruse.KindClick, computeruse.KindMove, computeruse.KindDrag, computeruse.KindScroll:
 			if len(action.Modifiers) > 0 {
 				return true
 			}
 		}
+	}
+	return false
+}
+
+// sendsKeys reports an action that types or presses keys.
+func sendsKeys(action computeruse.Action) bool {
+	switch action.Kind {
+	case computeruse.KindType, computeruse.KindKey, computeruse.KindHoldKey:
+		return true
 	}
 	return false
 }
@@ -763,12 +807,15 @@ func describeRound(actions []computeruse.Action) string {
 	return strings.Join(parts, "\n")
 }
 
-// apply performs a turn's actions and records the ones that completed.
+// apply performs a turn's actions and records the ones that completed; the
+// application the last of them operated becomes the one the act works in.
 func (l *actLoop) apply(ctx context.Context, turn *computeruse.Turn) []computeruse.Result {
 	l.touched = l.touched || len(turn.Actions) > 0
 	l.outcome.actions += len(turn.Actions)
-	// The window is read before the actions run, as the model saw it.
+	// The windows pointer actions land in are read before any action runs,
+	// as the model saw them.
 	v := l.view(turn.Actions)
+	apps := l.pointerApps(turn.Actions)
 	els, _ := l.r.elementsIfAvailable()
 	results := make([]computeruse.Result, len(turn.Actions))
 	var recorded []recordedAction
@@ -778,6 +825,12 @@ func (l *actLoop) apply(ctx context.Context, turn *computeruse.Turn) []computeru
 		if failed {
 			results[i] = computeruse.Result{CallID: action.CallID, Skipped: true}
 			continue
+		}
+		// Keys reach the window in front as they are sent; an action that
+		// only looks or waits operates no application.
+		app := apps[i]
+		if !app.Known() && sendsKeys(action) {
+			app = l.r.driver.FocusedWindow()
 		}
 		var rec *recordedAction
 		if action.ElementID != "" {
@@ -796,6 +849,7 @@ func (l *actLoop) apply(ctx context.Context, turn *computeruse.Turn) []computeru
 					continue
 				}
 				recorded = appendRecorded(recorded, rec)
+				l.r.noteWorkApp(app)
 				continue
 			}
 			// No pattern, or a host without elements: click the element's
@@ -810,6 +864,7 @@ func (l *actLoop) apply(ctx context.Context, turn *computeruse.Turn) []computeru
 			continue
 		}
 		recorded = appendRecorded(recorded, rec)
+		l.r.noteWorkApp(app)
 	}
 	if len(recorded) > 0 {
 		for i := range recorded {

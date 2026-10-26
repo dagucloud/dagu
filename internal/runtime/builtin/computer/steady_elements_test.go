@@ -20,12 +20,24 @@ import (
 type fakeWindows struct {
 	mu   sync.Mutex
 	list []desktop.WindowID
+	// changing has every read find another window, as windows that keep
+	// changing do however the reads are timed.
+	changing bool
 }
 
 func (w *fakeWindows) get() []desktop.WindowID {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if w.changing {
+		w.list = []desktop.WindowID{{Handle: w.list[0].Handle + 1}}
+	}
 	return slices.Clone(w.list)
+}
+
+func (w *fakeWindows) keepChanging(changing bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.changing = changing
 }
 
 func (w *fakeWindows) set(list ...desktop.WindowID) {
@@ -108,23 +120,10 @@ func TestSteadyReadWaitsAgainAfterUnsettledWindows(t *testing.T) {
 	require.NoError(t, err)
 
 	windows.set(desktop.WindowID{Handle: 2})
-	stop := make(chan struct{})
-	changed := make(chan struct{})
-	go func() {
-		defer close(changed)
-		for handle := uint64(3); ; handle++ {
-			select {
-			case <-stop:
-				return
-			case <-time.After(windowSettlePoll / 2):
-				windows.set(desktop.WindowID{Handle: handle})
-			}
-		}
-	}()
+	windows.keepChanging(true)
 	_, err = els.FrontWindow()
 	require.NoError(t, err)
-	close(stop)
-	<-changed
+	windows.keepChanging(false)
 	require.True(t, els.unsettled, "the windows were still changing at the limit")
 
 	began := time.Now()

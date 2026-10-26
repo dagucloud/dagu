@@ -647,9 +647,11 @@ func TestBaseWatchSymlink(t *testing.T) {
 			done := make(chan struct{})
 			go func() { defer close(done); reader.Start(t.Context()) }()
 			t.Cleanup(func() { reader.Stop(); <-done })
+			// A watch event on a loaded runner arrives late rather than never,
+			// so the waits are bounded well above the second it usually takes.
 			expect := func(queue string) {
 				t.Helper()
-				timer := time.NewTimer(time.Second)
+				timer := time.NewTimer(10 * time.Second)
 				defer timer.Stop()
 				for {
 					select {
@@ -667,7 +669,7 @@ func TestBaseWatchSymlink(t *testing.T) {
 				// Wait for the directory event to be processed before creating its file.
 				select {
 				case <-watchAdded:
-				case <-time.After(time.Second):
+				case <-time.After(10 * time.Second):
 					t.Fatal("new symlink target directory was not observed")
 				}
 			}

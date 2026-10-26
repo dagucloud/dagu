@@ -511,8 +511,8 @@ func (g *gate) paused(sessionID string, params json.RawMessage) {
 		g.send(sessionID, "Fetch.continueRequest", map[string]any{"requestId": p.RequestID, "interceptResponse": true})
 		return
 	}
-	// The event is kept before the page learns the outcome, so whoever saw
-	// the outcome finds the event.
+	// A write is kept before the page learns its fate, so a reader that saw
+	// the page's answer finds the write in the ledger.
 	event.Outcome = OutcomeBlocked
 	g.ledger.add(event)
 	if req.ResourceType == resourceDocument {

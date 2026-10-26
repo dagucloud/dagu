@@ -484,7 +484,9 @@ func TestExactConditions(t *testing.T) {
 		t.Parallel()
 		run := newTestRun(t)
 		run.elements = newFakeElements()
-		execution := run.execute(`{"do": [{"expect": {"text": "エラー"}, "timeout": "300ms"}]}`, nil)
+		// The timeout spans several exact polls, so a second read is sure even
+		// where the first one is slow to come back on a loaded runner.
+		execution := run.execute(`{"do": [{"expect": {"text": "エラー"}, "timeout": "1s"}]}`, nil)
 		require.EqualError(t, execution.err, `computer: do[0] expect failed: expectation not met: no element of "経費精算 - 請求書 1042" shows "エラー"`)
 		events := operationEvents(execution.exec.GetAgentSession())
 		require.Len(t, events, 1)
@@ -3001,6 +3003,175 @@ func TestPersonInputSkipsStaleTurn(t *testing.T) {
 	}
 }
 
+// A person who leaves another window in front while the model works holds
+// the act until they stop; the act then brings back the application it was
+// working in, so the model's next look is at the task, and it never
+// maximizes the window the person left in front, which is theirs, even one
+// of the same application.
+func TestActReturnsToItsApplicationAfterAPerson(t *testing.T) {
+	t.Parallel()
+
+	expense := desktop.WindowID{Handle: 2, Title: "Expense", PID: 7, App: "expense", Bounds: image.Rect(0, 0, 400, 200)}
+	for _, tc := range []struct {
+		name   string
+		person desktop.WindowID
+		raised uint64
+	}{
+		{"another application", desktop.WindowID{Handle: 1, Title: "Mail", PID: 8, App: "mail", Bounds: image.Rect(0, 0, 400, 200)}, expense.Handle},
+		{"another window of the same application", desktop.WindowID{Handle: 3, Title: "Expense 2", PID: 7, App: "expense", Bounds: image.Rect(0, 0, 400, 200)}, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			run := newTestRun(t)
+			// The person's window is listed first, so a return to the
+			// application may settle on it.
+			run.backend.windows = []desktop.WindowID{tc.person, expense}
+			run.backend.focusOn(expense)
+			run.backend.under = expense
+			used := false
+			session := &scriptedSession{
+				turns: []*computeruse.Turn{actions(clickAt(10, 10)), actions(clickAt(20, 20)), done("Clicked")},
+				onNext: func() {
+					if !used {
+						used = true
+						run.backend.personUses()
+						run.backend.show(pattern(400, 200, 150))
+						run.backend.focusOn(tc.person)
+						run.backend.under = tc.person
+					}
+				},
+			}
+			run.sessions = []*scriptedSession{session}
+			execution := run.execute(`{"idle": "100ms", "do": [{"act": "Save the expense"}]}`, nil)
+			require.NoError(t, execution.err)
+
+			require.Len(t, session.observations, 3)
+			assert.Equal(t, personNote, session.observations[1].Note)
+			if tc.raised != 0 {
+				require.NotEmpty(t, run.backend.raised)
+				assert.Equal(t, tc.raised, run.backend.raised[0].Handle, "the application the act was working in came back")
+			}
+			for _, w := range run.backend.maximizedWindows() {
+				assert.NotEqual(t, tc.person.Handle, w.Handle, "the person's window keeps its size")
+			}
+			assert.Equal(t, []string{"move 20,20", "left down #1"}, run.backend.inputs(), "only the click chosen after the person stopped lands")
+		})
+	}
+}
+
+// The act works in the application its last action that ran operated: a turn
+// that clicks in one application and then another leaves the act in the
+// second, which is the one brought back after a person; keys work in the
+// window in front as they are sent; a turn stopped by a failed action leaves
+// the act where it last worked.
+func TestActWorksWhereItsLastActionLanded(t *testing.T) {
+	t.Parallel()
+
+	expense := desktop.WindowID{Handle: 2, Title: "Expense", PID: 7, App: "expense", Bounds: image.Rect(0, 0, 200, 200)}
+	ledger := desktop.WindowID{Handle: 3, Title: "Ledger", PID: 9, App: "ledger", Bounds: image.Rect(200, 0, 400, 200)}
+	mail := desktop.WindowID{Handle: 1, Title: "Mail", PID: 8, App: "mail", Bounds: image.Rect(0, 0, 400, 200)}
+	// An element id the screen did not offer fails its action, so the
+	// actions after it are skipped.
+	missing := computeruse.Action{CallID: "x", Kind: computeruse.KindClick, ElementID: "e99"}
+	typeTotal := computeruse.Action{CallID: "t", Kind: computeruse.KindType, Text: "12,000"}
+	tests := []struct {
+		name  string
+		first *computeruse.Turn
+		// pressed comes to the front when the turn's click is pressed.
+		pressed desktop.WindowID
+		raised  desktop.WindowID
+	}{
+		{name: "the last click", first: actions(clickAt(10, 10), clickAt(300, 10)), raised: ledger},
+		{name: "keys after a click that brought another application forward", first: actions(clickAt(10, 10), typeTotal), pressed: ledger, raised: ledger},
+		{name: "a failed action", first: actions(clickAt(10, 10), missing, clickAt(300, 10)), raised: expense},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			run := newTestRun(t)
+			run.elements = newFakeElements()
+			run.backend.windows = []desktop.WindowID{mail, expense, ledger}
+			run.backend.focusOn(expense)
+			run.backend.windowAt = func(x, _ int) desktop.WindowID {
+				if x < 200 {
+					return expense
+				}
+				return ledger
+			}
+			if tc.pressed.Known() {
+				run.backend.onPress = func() { run.backend.focusOn(tc.pressed) }
+			}
+			paste := computeruse.Action{CallID: "p", Kind: computeruse.KindKey, Keys: []string{"cmd", "v"}}
+			turns := 0
+			session := &scriptedSession{
+				turns: []*computeruse.Turn{tc.first, actions(paste), actions(paste), done("Copied")},
+				onNext: func() {
+					turns++
+					// Once the first turn ran, a person brings mail forward,
+					// where the paste would land. Their input comes after the
+					// moment the desktop may still report the step's clicks,
+					// so a clock too coarse to order the clicks and the next
+					// screenshot still tells it from the step's own.
+					if turns == 2 {
+						run.backend.personUsesAfterEcho()
+						run.backend.focusOn(mail)
+					}
+				},
+			}
+			run.sessions = []*scriptedSession{session}
+			execution := run.execute(`{"idle": "100ms", "do": [{"act": "Copy the amount into the ledger"}]}`, nil)
+			require.NoError(t, execution.err)
+
+			require.NotEmpty(t, run.backend.raised)
+			assert.Equal(t, tc.raised.Handle, run.backend.raised[0].Handle, "the application the act last worked in came back")
+			for _, w := range run.backend.maximizedWindows() {
+				assert.NotEqual(t, mail.Handle, w.Handle, "the person's window keeps its size")
+			}
+		})
+	}
+}
+
+// An action that only looks operates no application: a screenshot taken
+// while a person's window is in front leaves the act working where it was,
+// and that application is the one brought back after the person.
+func TestActLooksWithoutChangingItsApplication(t *testing.T) {
+	t.Parallel()
+
+	expense := desktop.WindowID{Handle: 2, Title: "Expense", PID: 7, App: "expense", Bounds: image.Rect(0, 0, 400, 200)}
+	mail := desktop.WindowID{Handle: 1, Title: "Mail", PID: 8, App: "mail", Bounds: image.Rect(0, 0, 400, 200)}
+	run := newTestRun(t)
+	run.backend.windows = []desktop.WindowID{mail, expense}
+	run.backend.focusOn(expense)
+	run.backend.under = expense
+	look := computeruse.Action{CallID: "s", Kind: computeruse.KindScreenshot}
+	turns := 0
+	session := &scriptedSession{
+		turns: []*computeruse.Turn{actions(clickAt(10, 10)), actions(look), actions(clickAt(20, 20)), done("Saved")},
+		onNext: func() {
+			turns++
+			switch turns {
+			case 2:
+				// A person brings mail forward over the same picture, so
+				// the screenshot still runs.
+				run.backend.personUsesAfterEcho()
+				run.backend.focusOn(mail)
+				run.backend.under = mail
+			case 3:
+				// The person changes the screen, so the click is held back.
+				run.backend.personUsesAfterEcho()
+				run.backend.show(pattern(400, 200, 150))
+			}
+		},
+	}
+	run.sessions = []*scriptedSession{session}
+	execution := run.execute(`{"idle": "100ms", "do": [{"act": "Save the expense"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	require.NotEmpty(t, run.backend.raised)
+	assert.Equal(t, expense.Handle, run.backend.raised[0].Handle, "the application the act clicked in came back")
+}
+
 // A window that came to the front after the screenshot, with no person
 // input at all, still sends the turn back to the model instead of letting
 // its actions land on the wrong window. This is the remote-session case,
@@ -3489,6 +3660,43 @@ func TestModelFocusesFieldElement(t *testing.T) {
 	require.NoError(t, execution.err)
 
 	assert.Equal(t, []string{"focus amountBox"}, run.backend.inputs(), "the field takes the focus, no pixel click")
+}
+
+// A click the act carried out through an element's pattern replays through
+// it under the default screen input too, as the act did, rather than as a
+// click at the element's centre.
+func TestReplayInvokesAnElementAsTheActDid(t *testing.T) {
+	t.Parallel()
+
+	run := elementRun(t)
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{
+		actions(computeruse.Action{CallID: "x", Kind: computeruse.KindClick, ElementID: "e1"}),
+		done("Saved"),
+	}}}
+	require.NoError(t, run.execute(`{"idle": "0", "do": [{"act": "Save the form"}]}`, nil).err)
+	require.Equal(t, []string{"invoke saveButton"}, run.backend.inputs(), "the act invokes the button")
+
+	run.backend.events = nil
+	require.NoError(t, run.execute(`{"ai": "never", "idle": "0", "do": [{"act": "Save the form"}]}`, nil).err)
+	assert.Equal(t, []string{"invoke saveButton"}, run.backend.inputs(), "the replay invokes it the same way")
+}
+
+// A click the model aims at a combo box lands on it, as a person's click
+// would, rather than opening its list: in a combo box that takes typing it
+// puts the caret in the field, so the typing that follows goes there.
+func TestModelClickOnAComboBoxClicksIt(t *testing.T) {
+	t.Parallel()
+
+	run := elementRun(t)
+	run.elements.elements[2] = desktop.Element{Role: desktop.RoleComboBox, Name: "品目", ID: "itemBox", Bounds: image.Rect(190, 140, 390, 164), Path: []desktop.PathStep{{Role: desktop.RoleComboBox, Name: "品目", Index: 0}}}
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{
+		actions(computeruse.Action{CallID: "x", Kind: computeruse.KindClick, ElementID: "e1"}),
+		done("Clicked the item box"),
+	}}}
+	require.NoError(t, run.execute(`{"idle": "0", "do": [{"act": "Click the item box"}]}`, nil).err)
+
+	// e1 is the 品目 box at (190,140)-(390,164); its centre is 290,152.
+	assert.Equal(t, []string{"move 290,152", "left down #1"}, run.backend.inputs())
 }
 
 // An element that offers no pattern for the click, such as a custom control,

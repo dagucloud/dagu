@@ -1144,7 +1144,36 @@ steps:
 
 ## chat.completion
 
-Send a prompt to a model and print the reply. `with.prompt` (or `with.messages`) is required; every other `with` key (`provider`, `model`, `system`, `tools`, `max_tool_iterations`, `stream`, `thinking`, `web_search`) configures the model and replaces the DAG-level `llm` block entirely. `with.model` can be a list of `{provider, name}` entries tried in order.
+Send a prompt to a model and print the reply. `with.prompt` (or `with.messages`) is required; every other `with` key (`provider`, `model`, `system`, `tools`, `max_tool_iterations`, `stream`, `thinking`, `web_search`, `files`) configures the model and replaces the DAG-level `llm` block entirely. `with.model` can be a list of `{provider, name}` entries tried in order.
+
+`with.files` gives the model files to read with the prompt: a path or glob pattern, a list of them, or a list an earlier step published, such as the emails `mail.search` found with `save_attachments: true`. PDF, Word (`.docx`), Excel (`.xlsx`) and text files go as text ahead of the prompt, each in a `<file name="…">` block; images go as images, scaled down to fit a model; and a PDF page without text, such as a scan, goes as an image too. Up to 50 MB a file, 1,000,000 characters of text and 50 images a step. Read a document into typed values with `output_schema`:
+
+```yaml
+steps:
+  - id: find
+    action: mail.search
+    with:
+      mailbox: billing@example.com
+      unread: true
+      has_attachments: true
+      save_attachments: true
+
+  - id: read
+    action: chat.completion
+    depends: find
+    with:
+      provider: anthropic
+      model: claude-sonnet-4-6
+      prompt: Read the invoice and give its number, date, and total.
+      files: ${steps.find.outputs.messages}
+    output_schema:
+      type: object
+      properties:
+        number: {type: string}
+        date: {type: string}
+        total: {type: number}
+      required: [number]
+```
 
 Add a step-level `output_schema` when later steps need typed values instead of free text:
 
@@ -1352,7 +1381,7 @@ Computer behavior:
 - Declare secrets under `secrets:`, pass them in `variables`, and reference them as `%name%`. The model sees only the placeholder, which is replaced when typed. Typed values can appear in later screenshots sent to the model and saved as artifacts. An instruction containing a declared secret value (4+ characters) fails the step.
 - The top-level properties of each `extract` schema become `${steps.<id>.outputs.<name>}`.
 - `with.ai` chooses how much the model decides, and `ai` on an `act` or an `extract` replaces it for that operation. `on_miss` (default): the acts of a step that succeeded are replayed on later runs on the same host without a model while every screen still matches what the model saw; when a screen differs, the model continues from there and repairs the recording. `every_run`: the model decides every run; a successful act still records. `never`: replay only; when the screen differs or there is no recording on the host, the step fails and says why, and the recording is kept for a run under `on_miss` to repair. A step whose operations never call the model needs no `llm`. A statement `expect` or `when` needs the model, so a step-level `never` refuses it; exact checks are allowed. An `extract` binds each field it reads, a scalar to its element and a table to its grid, so under `never` it reads the bound elements with no model and fails only when a field's element or a column header is missing; an `extract` under `never` whose schema lists a plain object or a free array, which need the model, fails validation. `cache: false` means `every_run`; set `ai` or `cache`, not both. When a later operation fails, the step's replays are dropped and the next run asks the model again. Clear recordings with `dagu computer cache clear <dag> [--step <id>]`.
-- A recording keeps the element each action landed on beside its pixels, so a replay finds the button or field where it is now: a moved window, another display, or a screen showing other data still replays, and the model is asked only when an element is missing. An element named by a variable's value is recorded as `%name%`, so one recording serves every row of a loop. `with.find_within` (default `10s`; `act.find_within` for one act; `0` looks once) is how long a replayed action waits for its element before it counts as a miss. Names and labels are compared after folding full-width characters and whitespace, and without a label's trailing colon. `with.input: direct` (or `act.input`) has a replayed element act itself through its automation pattern instead of the pointer and keys: a click invokes a button, toggles a checkbox, selects a list item, or opens a combo box, and a typing sets the field's value at once when the recording showed the typed text became the value; an element without the pattern replays on the screen, and an application that reacts to each key or to the pointer alone sees nothing, so `screen` stays the default.
+- A recording keeps the element each action landed on beside its pixels, so a replay finds the button or field where it is now: a moved window, another display, or a screen showing other data still replays, and the model is asked only when an element is missing. An element named by a variable's value is recorded as `%name%`, so one recording serves every row of a loop. `with.find_within` (default `10s`; `act.find_within` for one act; `0` looks once) is how long a replayed action waits for its element before it counts as a miss. Names and labels are compared after folding full-width characters and whitespace, and without a label's trailing colon. `with.input: direct` (or `act.input`) has a replayed element act itself through its automation pattern instead of the pointer and keys: a click invokes a button, toggles a checkbox, selects a list item, or opens a combo box, and a typing sets the field's value at once when the recording showed the typed text became the value; an element without the pattern replays on the screen, and an application that reacts to each key or to the pointer alone sees nothing, so `screen` stays the default. A click the model carried out through the element itself, as it does on a button, replays the same way under either input; a click the model aims at a combo box lands on it as a person's click does, so one that takes typing gets the caret.
 - A turn the model ran on the screen, rather than through an element, is recorded on the application window its first click landed on, or the window with the keyboard focus for a turn that only types. A replay compares only that window and clicks relative to its corner, so a window that moved, or a change elsewhere on the screen such as another window, a notification, or the clock, still replays; a window of another size is a miss. Where the system names no window, the replay compares the whole display, which then needs the size it was recorded on.
 - `with.maximize` (default `true`; `act.maximize` or `extract.maximize` for one operation) maximizes the window in front before an operation looks at the screen and whenever a new window comes to the front during an act, so the application is operated at one size every run, the model reads larger text, and recordings replay. On macOS the window fills the screen between the menu bar and the Dock, not full screen, and a window on another display moves to the main display. A dialog, a window of fixed size, and a window already maximized are left as they are, and each window is maximized at most once per run, so one a person resizes stays as they left it. A step never operates or maximizes the windows of applications named in the `DAGU_DESKTOP_PROTECTED_APPS` environment variable (executable names separated by commas), such as the app a person starts automation from.
 - A successful `extract` binds each scalar field (`string`, `number`, `integer`) to the element its value was read from, when exactly one element in the window gives that value and the model read it from an element, not the screen. A later run reads the bound element and converts its value to the field's type (a string trimmed, a number without grouping or currency, full-width digits folded), so `on_miss` reads it with no model and asks the model only when a field's element is missing, and `never` reads it alone. A boolean field binds to a checkbox's state. A table field, an array of objects of scalars, binds to a grid, table, or list: the model names the container and each column's header, and a later run reads every row by header (up to `with.max_rows`, default 10000; `extract.max_rows` for one extract), so a moved column still reads and a missing header is a miss.
@@ -1361,7 +1390,7 @@ Computer behavior:
 - When a model provider asks for confirmation before sensitive actions, the step fails unless `on_confirmation: allow`. Put an `ask` before such an act instead.
 - `ask: {prompt, as}` puts the step in Waiting and leaves the desktop as it is; the answer becomes `%<as>%` and the step resumes at the next operation.
 - One computer step at a time uses a user's desktop, across Dagu processes with different data directories; others wait. While a step holds the desktop, the display stays awake. A step that starts on a locked screen, or while nobody is logged in, waits for it to be unlocked, up to its timeout or 24 hours; a screen that locks while a step runs fails it. Screenshots are saved under `computer/<step id>/` in the run artifacts on failure by default and are not masked.
-- Before sending input, a step waits until nobody has touched the desktop for `with.idle` (default `5s`). Actions the model chose on a screen a person has since used are not run; the model gets the new screen instead. `idle: 0` turns this off, for example on a dedicated host.
+- Before sending input, a step waits until nobody has touched the desktop for `with.idle` (default `5s`). Actions the model chose on a screen a person has since used are not run; the act brings back the application it was working in, never maximizes the window the person left in front, and the model gets the new screen instead. `idle: 0` turns this off, for example on a dedicated host.
 
 ## router.route
 
