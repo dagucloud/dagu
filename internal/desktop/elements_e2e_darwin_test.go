@@ -215,7 +215,7 @@ func TestDarwinDialogs(t *testing.T) {
 func TestDarwinElementInASheet(t *testing.T) {
 	_, els := e2eElements(t)
 	startFixture(t, filepath.Join("testdata", "dialogs.js"), nil, "form")
-	var sheet, save Element
+	var sheet, field, save Element
 	require.Eventually(t, func() bool {
 		w, err := els.FrontWindow()
 		if err != nil || w.App != "osascript" || w.Role != RoleDialog {
@@ -226,10 +226,11 @@ func TestDarwinElementInASheet(t *testing.T) {
 			return false
 		}
 		i := slices.IndexFunc(outline, func(e Element) bool { return e.Role == RoleButton && e.Name == "Dagu form save" })
-		if i < 0 {
+		j := slices.IndexFunc(outline, func(e Element) bool { return e.Role == RoleTextField })
+		if i < 0 || j < 0 {
 			return false
 		}
-		sheet, save = w, outline[i]
+		sheet, save, field = w, outline[i], outline[j]
 		return true
 	}, 20*time.Second, 200*time.Millisecond, "the form sheet did not come to the front")
 
@@ -244,6 +245,7 @@ func TestDarwinElementInASheet(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, RoleTextField, focused.Role)
 	assert.Equal(t, sheet.Name, focused.Window)
+	assert.Equal(t, field.Path, focused.Path)
 }
 
 func TestDarwinElementUnderSkippedParent(t *testing.T) {
