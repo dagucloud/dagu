@@ -239,8 +239,9 @@ func (r *run) click(ctx context.Context, action computeruse.Action, at *image.Po
 // ownWindow reports a window an action would operate that belongs to the
 // application that runs the step. It gathers every window the action
 // reaches: the focused window for keys and typing, the window under the
-// position for pointer actions, the window under the cursor for a button
-// press that moves nothing, every point a drag crosses, and the focused
+// position for pointer actions, the window under the cursor for a click or
+// scroll that names no position and for a button press, which moves
+// nothing, every point a drag crosses, and the focused
 // window for any pointer action that holds modifiers, whose key-down
 // reaches the focus wherever the pointer is. It reports the first of those
 // the step owns, so a keystroke or click never reaches the application.
@@ -249,7 +250,14 @@ func (r *run) ownWindow(action computeruse.Action, at *image.Point, toFull posit
 	switch action.Kind {
 	case computeruse.KindType, computeruse.KindKey, computeruse.KindHoldKey:
 		windows = append(windows, r.driver.FocusedWindow())
-	case computeruse.KindClick, computeruse.KindMove, computeruse.KindScroll:
+	case computeruse.KindClick, computeruse.KindScroll:
+		// One that names no position acts at the cursor.
+		if at != nil {
+			windows = append(windows, r.driver.WindowAt(*at))
+		} else if p, err := r.driver.CursorPosition(); err == nil {
+			windows = append(windows, r.driver.WindowAt(p))
+		}
+	case computeruse.KindMove:
 		if at != nil {
 			windows = append(windows, r.driver.WindowAt(*at))
 		}

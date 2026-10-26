@@ -2835,9 +2835,10 @@ func TestOwnApplicationIsNeverOperated(t *testing.T) {
 }
 
 // The own-application guard covers every window an action reaches: the
-// window under the cursor for a button press that moves nothing, a later
-// point a drag crosses, and the focused window for a click that holds a
-// modifier while the pointer is elsewhere.
+// window under the cursor for a button press that moves nothing and for a
+// click or scroll that names no position, a later point a drag crosses, and
+// the focused window for a click that holds a modifier while the pointer is
+// elsewhere.
 func TestOwnApplicationGuardCoversEveryReach(t *testing.T) {
 	t.Parallel()
 
@@ -2853,6 +2854,16 @@ func TestOwnApplicationGuardCoversEveryReach(t *testing.T) {
 			name:  "button press at the cursor over an owned window",
 			setup: func(b *fakeBackend) { b.under = own },
 			turn:  actions(computeruse.Action{CallID: "a", Kind: computeruse.KindMouseDown, Button: "left"}),
+		},
+		{
+			name:  "a click without a position at the cursor over an owned window",
+			setup: func(b *fakeBackend) { b.under = own },
+			turn:  actions(computeruse.Action{CallID: "a", Kind: computeruse.KindClick, Button: "left"}),
+		},
+		{
+			name:  "a scroll without a position at the cursor over an owned window",
+			setup: func(b *fakeBackend) { b.under = own },
+			turn:  actions(computeruse.Action{CallID: "a", Kind: computeruse.KindScroll, ScrollY: 3}),
 		},
 		{
 			name: "a drag crosses an owned window after its first point",
