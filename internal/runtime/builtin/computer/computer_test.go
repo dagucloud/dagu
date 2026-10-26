@@ -2247,6 +2247,28 @@ func TestReplayFocusesRecordedField(t *testing.T) {
 	assert.Equal(t, []string{"move 327,163", "left down #1", "focus amountBox", "type 12,000"}, run.backend.inputs())
 }
 
+// The model is told what a visible placeholder stands for, so it can find or
+// choose the value on the screen, as an item in a list; a value that is not
+// visible, such as a password, it never sees.
+func TestActShowsTheModelVisibleValues(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{done("Chose the item")}}}
+	execution := run.execute(`{"idle": "0", "variables": {"item": "Toner T-20", "password": "s3cret"}, "visible": ["item"], "do": [{"act": "Sign in with %password% and choose %item%"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	require.Len(t, run.sessionOptions, 1)
+	assert.Contains(t, run.sessionOptions[0].System, `%item% is "Toner T-20"`)
+	assert.NotContains(t, run.sessionOptions[0].System, "s3cret")
+
+	// A declared secret is never made visible.
+	run.secrets = map[string]string{"PORTAL_PASSWORD": "s3cret"}
+	refused := run.execute(`{"variables": {"password": "s3cret"}, "visible": ["password"], "do": [{"act": "Sign in with %password%"}]}`, nil)
+	require.ErrorContains(t, refused.err, "with.variables.password contains the value of secret PORTAL_PASSWORD")
+	assert.Len(t, run.sessionOptions, 1, "no model was asked")
+}
+
 // An element named by a variable's value is recorded by the placeholder,
 // so the next run, with another value, clicks the element named by it.
 func TestReplayRecordsPlaceholderForElementName(t *testing.T) {

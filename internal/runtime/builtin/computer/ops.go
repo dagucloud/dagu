@@ -129,6 +129,11 @@ func newRun(ctx context.Context, e *computerExecutor) (*run, error) {
 	if err := agentstep.CheckSecrets(executorType, e.cfg.operationTexts(), secrets); err != nil {
 		return nil, err
 	}
+	for _, name := range e.cfg.Visible {
+		if err := agentstep.CheckTextSecrets(executorType, "variables."+name, e.cfg.Variables[name], secrets); err != nil {
+			return nil, fmt.Errorf("%w, as with.visible names it", err)
+		}
+	}
 	dagName := ""
 	if env.DAG != nil {
 		dagName = env.DAG.Name

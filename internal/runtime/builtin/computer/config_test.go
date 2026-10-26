@@ -53,6 +53,8 @@ func TestValidateStep(t *testing.T) {
 		{name: "unknown variable in selector", with: `{"do": [{"act": "x", "when": {"element": {"role": "text_field", "near": {"label": "%label%", "side": "right"}}}}]}`, llm: model, want: "when references %label%"},
 		{name: "variable in a container from an earlier ask", with: `{"do": [{"ask": {"prompt": "Group?", "as": "group"}}, {"expect": {"element": {"role": "button", "name": "保存", "in": {"role": "group", "name": "%group%"}}}}]}`, llm: model},
 		{name: "variable in a window from variables", with: `{"variables": {"doc": "1042"}, "do": [{"expect": {"window": "請求書 %doc%"}}]}`, llm: model},
+		{name: "visible variable", with: `{"variables": {"item": "Toner T-20"}, "visible": ["item"], "do": [{"act": "Choose %item%"}]}`, llm: model},
+		{name: "visible names an unknown variable", with: `{"variables": {"item": "Toner T-20"}, "visible": ["sku"], "do": [{"act": "Choose %item%"}]}`, llm: model, want: `visible names "sku", which is not in with.variables`},
 		{name: "never with extract of no bindable field", with: `{"ai": "never", "do": [{"extract": {"instruction": "a", "schema": {"type": "object"}}}]}`, llm: model, want: "has no field that reads from an element"},
 		{name: "never with extract of a bindable field", with: `{"ai": "never", "do": [{"extract": {"instruction": "a", "schema": {"type": "object", "properties": {"total": {"type": "number"}}}}}]}`, llm: model},
 		{name: "never with extract of an object field", with: `{"ai": "never", "do": [{"extract": {"instruction": "a", "schema": {"type": "object", "properties": {"total": {"type": "number"}, "lines": {"type": "object"}}}}}]}`, llm: model, want: `extract under never cannot read lines`},

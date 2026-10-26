@@ -948,11 +948,20 @@ func anyFailed(results []computeruse.Result) bool {
 }
 
 // environmentNote tells the model about the desktop and the placeholders it
-// may type.
+// may type, and what the visible ones stand for.
 func (r *run) environmentNote() string {
 	note := "The computer runs " + osName() + ". Do not ask questions; work with what is on the screen."
 	if len(r.variables) > 0 {
 		note += "\nValues written as %name% are placeholders for values you cannot see. To enter one, type the placeholder exactly as written, including the percent signs; it is replaced when typed."
+	}
+	var shown []string
+	for _, name := range slices.Sorted(slices.Values(r.cfg.Visible)) {
+		if value, ok := r.variables[name]; ok {
+			shown = append(shown, fmt.Sprintf("%%%s%% is %q", name, value))
+		}
+	}
+	if len(shown) > 0 {
+		note += "\nYou may see what these placeholders stand for, to find or choose them on the screen, such as an item in a list: " + strings.Join(shown, ", ") + ". To type one, still type its placeholder."
 	}
 	return note
 }

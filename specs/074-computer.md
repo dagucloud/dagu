@@ -258,6 +258,15 @@ text containing `%name%`, the value is typed instead. Values typed into fields
 that show them can appear in later screenshots, which are sent to the model
 and saved as artifacts.
 
+`with.visible` lists variables whose values the model may see, for values
+that are not secret: the model is told what each one stands for, so it can
+find or choose it on the screen, such as an item in a list a row chooses
+from. It still types the placeholder, and an element it chose by such a
+value is recorded by the placeholder (see Recordings), so the next run
+chooses its own value. A name in `with.visible` must be in
+`with.variables`, and the step fails before operating the desktop when a
+visible value is a declared secret's.
+
 The step fails before operating the desktop when an `act`, `extract`, `ask`,
 `expect`, or `when` text contains the resolved value of a secret declared
 under `secrets:` that has four or more characters. Declared secret values and

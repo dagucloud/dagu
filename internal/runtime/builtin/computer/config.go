@@ -84,14 +84,17 @@ func init() {
 
 // config is the resolved with block of a computer step.
 type config struct {
-	Mode           string            `json:"mode,omitempty"`
-	Variables      map[string]string `json:"variables,omitempty"`
-	Screenshots    string            `json:"screenshots,omitempty"`
-	AI             string            `json:"ai,omitempty"`
-	Cache          *bool             `json:"cache,omitempty"`
-	MaxActions     int               `json:"max_actions,omitempty"`
-	OnConfirmation string            `json:"on_confirmation,omitempty"`
-	Idle           string            `json:"idle,omitempty"`
+	Mode      string            `json:"mode,omitempty"`
+	Variables map[string]string `json:"variables,omitempty"`
+	// Visible names variables whose values the model may see, for values
+	// that are not secret, such as the item a row chooses from a list.
+	Visible        []string `json:"visible,omitempty"`
+	Screenshots    string   `json:"screenshots,omitempty"`
+	AI             string   `json:"ai,omitempty"`
+	Cache          *bool    `json:"cache,omitempty"`
+	MaxActions     int      `json:"max_actions,omitempty"`
+	OnConfirmation string   `json:"on_confirmation,omitempty"`
+	Idle           string   `json:"idle,omitempty"`
 	// FindWithin is how long a replayed action waits for its element, or a
 	// replayed turn for its screen, before it is a miss.
 	FindWithin string `json:"find_within,omitempty"`
@@ -514,6 +517,11 @@ func (c config) validate() error {
 	for name := range c.Variables {
 		if !agentstep.IdentifierPattern.MatchString(name) {
 			return fmt.Errorf("computer: variable name %q must match %s", name, agentstep.IdentifierPattern)
+		}
+	}
+	for _, name := range c.Visible {
+		if _, ok := c.Variables[name]; !ok {
+			return fmt.Errorf("computer: visible names %q, which is not in with.variables", name)
 		}
 	}
 	for i, h := range c.Handle {
@@ -971,6 +979,7 @@ var configSchema = &jsonschema.Schema{
 	Properties: map[string]*jsonschema.Schema{
 		"mode":            {Type: "string", Enum: []any{string(computeruse.ModeAuto), string(computeruse.ModeNative), string(computeruse.ModeGeneric)}},
 		"variables":       {Type: "object", AdditionalProperties: agentstep.StringSchema()},
+		"visible":         {Type: "array", Items: agentstep.StringSchema()},
 		"screenshots":     {Type: "string", Enum: []any{screenshotsOnFailure, screenshotsFinal, screenshotsEach, screenshotsNever}},
 		"ai":              aiSchema(),
 		"cache":           {Type: "boolean"},

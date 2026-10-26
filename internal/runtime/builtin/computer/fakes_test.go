@@ -775,8 +775,10 @@ type testRun struct {
 	llm      *ir.LLMConfig
 	// sessions supplies the session for each act, in order.
 	sessions []*scriptedSession
-	// sessionErrors fails session creation for the named models.
-	sessionErrors map[string]error
+	// sessionErrors fails session creation for the named models, and
+	// sessionOptions keeps what each session was opened with.
+	sessionErrors  map[string]error
+	sessionOptions []computeruse.Options
 	// personWait, when set, bounds how long a step waits for a person.
 	personWait time.Duration
 	// checkDesktop reports whether the desktop can be automated, to the step
@@ -891,6 +893,7 @@ func (r *testRun) execute(withJSON string, session *ir.AgentSession) *stepExecut
 		return r.vision, nil
 	}
 	execution.exec.newSession = func(_ llmpkg.ProviderType, _ llmpkg.Provider, _ computeruse.Mode, opts computeruse.Options) (computeruse.Session, error) {
+		r.sessionOptions = append(r.sessionOptions, opts)
 		if err := r.sessionErrors[opts.Model]; err != nil {
 			return nil, err
 		}

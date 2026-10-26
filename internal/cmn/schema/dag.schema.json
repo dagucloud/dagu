@@ -8123,6 +8123,11 @@
           "additionalProperties": { "type": "string" },
           "description": "Values referenced as %name% in act instructions. The model sees only the names; the values are typed for it."
         },
+        "visible": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "description": "Names of variables that are not secret whose values the model may see, such as an item to choose from a list. An element it chooses by such a value is recorded by the placeholder."
+        },
         "screenshots": { "$ref": "#/definitions/computerScreenshots" },
         "ai": { "$ref": "#/definitions/computerAI" },
         "cache": {
