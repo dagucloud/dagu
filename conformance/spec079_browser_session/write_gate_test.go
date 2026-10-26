@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"os"
@@ -122,9 +123,7 @@ func (l *ledger) written() (map[string]int, int) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	out := map[string]int{}
-	for path, count := range l.writes {
-		out[path] = count
-	}
+	maps.Copy(out, l.writes)
 	return out, l.sockets
 }
 

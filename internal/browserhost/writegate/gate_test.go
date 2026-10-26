@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"os/exec"
@@ -101,9 +102,7 @@ func (s *site) written() map[string]int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := map[string]int{}
-	for k, v := range s.writes {
-		out[k] = v
-	}
+	maps.Copy(out, s.writes)
 	return out
 }
 
