@@ -1227,6 +1227,18 @@ func TestHandler_Poll(t *testing.T) {
 		require.Equal(t, "alice", status.TriggerActor)
 	})
 
+	t.Run("WriteInitialStatusRecordsModelUsage", func(t *testing.T) {
+		t.Parallel()
+
+		h := NewHandler(HandlerConfig{})
+		attempt := &mockAttempt{}
+		require.NoError(t, h.writeInitialStatus(context.Background(), attempt, &coordinatorv1.Task{DagRunId: "run-123"}, "test-dag", ir.DAGRunRef{}, nil))
+
+		status, err := attempt.ReadStatus(context.Background())
+		require.NoError(t, err)
+		require.True(t, status.ModelUsageRecorded, "a dispatched run that has not started yet has used no model")
+	})
+
 	t.Run("DispatchFailsWhenAttemptPreparationFails", func(t *testing.T) {
 		t.Parallel()
 		registerCommandExecutorCapsForCoordinatorTest()

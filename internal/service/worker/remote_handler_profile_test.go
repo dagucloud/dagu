@@ -62,3 +62,18 @@ func TestReportTaskInitFailurePreservesProfileName(t *testing.T) {
 	assert.Equal(t, ir.NewDAGRunRef("root", "root-run"), status.Root)
 	assert.Equal(t, ir.NewDAGRunRef("parent", "parent-run"), status.Parent)
 }
+
+// A run that fails before its first step is still one whose model usage was
+// recorded: it used none.
+func TestTaskFailureStatusesRecordModelUsage(t *testing.T) {
+	t.Parallel()
+
+	task := &coordinatorv1.Task{Target: "child", DagRunId: "run-1", AttemptId: "attempt-1"}
+	loaded, err := worker.ReportTaskLoadFailureStatusForTest(context.Background(), task, ir.DAGRunRef{}, ir.DAGRunRef{}, errors.New("load failed"), "")
+	require.NoError(t, err)
+	assert.True(t, loaded.ModelUsageRecorded, "load failure")
+
+	initialized, err := worker.ReportTaskInitFailureStatusForTest(context.Background(), task, ir.DAGRunRef{}, ir.DAGRunRef{}, errors.New("init failed"), "")
+	require.NoError(t, err)
+	assert.True(t, initialized.ModelUsageRecorded, "init failure")
+}

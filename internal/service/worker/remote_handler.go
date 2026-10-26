@@ -265,6 +265,8 @@ func (h *remoteTaskHandler) reportTaskLoadFailure(ctx context.Context, run remot
 		ProfileName:  run.profileName,
 		DefinitionID: task.DefinitionId,
 		TriggerActor: task.TriggerActor,
+		// The run ended before any step could use a model.
+		ModelUsageRecorded: true,
 	}
 
 	if err := statusPusher.Push(ctx, status); err != nil {
@@ -320,6 +322,8 @@ func (h *remoteTaskHandler) reportDAGRunInitFailure(
 		ProfileName:  run.profileName,
 		DefinitionID: task.DefinitionId,
 		TriggerActor: task.TriggerActor,
+		// The run ended before any step could use a model.
+		ModelUsageRecorded: true,
 	}
 
 	if err := statusPusher.Push(ctx, status); err != nil {

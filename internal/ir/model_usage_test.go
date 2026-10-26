@@ -26,8 +26,8 @@ func TestMergeModelUsage(t *testing.T) {
 	}, merged)
 }
 
-// A run's total covers its steps and its handlers, and is nil when nothing
-// reports usage.
+// A run's total covers its steps and its handlers, skips a missing node, and
+// is nil when nothing reports usage.
 func TestModelUsageTotal(t *testing.T) {
 	t.Parallel()
 
@@ -35,7 +35,7 @@ func TestModelUsageTotal(t *testing.T) {
 		return &ir.StepModelUsage{Models: []ir.ModelUsage{{Provider: "openai", Model: "gpt", Calls: calls, InputTokens: 100 * calls}}}
 	}
 	status := ir.DAGRunStatus{
-		Nodes:     []*ir.Node{{ModelUsage: usage(1)}, {}, {ModelUsage: usage(2)}},
+		Nodes:     []*ir.Node{{ModelUsage: usage(1)}, nil, {}, {ModelUsage: usage(2)}},
 		OnFailure: &ir.Node{ModelUsage: usage(4)},
 	}
 	assert.Equal(t, []ir.ModelUsage{{Provider: "openai", Model: "gpt", Calls: 7, InputTokens: 700}}, status.ModelUsageTotal())

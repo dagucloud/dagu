@@ -112,6 +112,10 @@ func (f *Flusher) arm() {
 }
 
 func (f *Flusher) fire() {
+	// Stop is seen while holding reportMu, so either this report sees it or
+	// Stop waits for this report.
+	f.reportMu.Lock()
+	defer f.reportMu.Unlock()
 	f.mu.Lock()
 	f.timer = nil
 	stopped := f.stopped
@@ -119,8 +123,6 @@ func (f *Flusher) fire() {
 	if stopped {
 		return
 	}
-	f.reportMu.Lock()
-	defer f.reportMu.Unlock()
 	recorded := f.meter.recordedCalls()
 	if recorded == f.reported {
 		return

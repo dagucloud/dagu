@@ -80,7 +80,7 @@ func MergeModelUsage(into []ModelUsage, usage ...ModelUsage) []ModelUsage {
 func (st *DAGRunStatus) ModelUsageTotal() []ModelUsage {
 	var total []ModelUsage
 	for _, node := range st.NodesInRunOrder() {
-		if node.ModelUsage != nil {
+		if node != nil && node.ModelUsage != nil {
 			total = MergeModelUsage(total, node.ModelUsage.Models...)
 		}
 	}

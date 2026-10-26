@@ -1058,6 +1058,8 @@ func (h *Handler) writeInitialStatus(ctx context.Context, attempt dagrun.Attempt
 		ScheduleTime: task.ScheduleTime,
 		DefinitionID: task.DefinitionId,
 		ProfileName:  task.ProfileName,
+		// Every step's model usage is recorded from the start.
+		ModelUsageRecorded: true,
 	}
 	return attempt.Write(ctx, initialStatus)
 }
