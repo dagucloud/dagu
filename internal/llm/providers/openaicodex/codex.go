@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/llm"
+	"github.com/dagucloud/dagu/v2/internal/llm/providers/chatusage"
 )
 
 const (
@@ -481,16 +482,9 @@ type responseEvent struct {
 	Code      string       `json:"code"`
 	Item      responseItem `json:"item"`
 	Response  struct {
-		Status string `json:"status"`
-		Usage  struct {
-			InputTokens        int `json:"input_tokens"`
-			OutputTokens       int `json:"output_tokens"`
-			TotalTokens        int `json:"total_tokens"`
-			InputTokensDetails struct {
-				CachedTokens int `json:"cached_tokens"`
-			} `json:"input_tokens_details"`
-		} `json:"usage"`
-		Error struct {
+		Status string              `json:"status"`
+		Usage  chatusage.Responses `json:"usage"`
+		Error  struct {
 			Message string `json:"message"`
 		} `json:"error"`
 	} `json:"response"`
@@ -508,15 +502,8 @@ func (e responseEvent) toUsage() *llm.Usage {
 	if e.Response.Usage.TotalTokens == 0 && e.Response.Usage.InputTokens == 0 && e.Response.Usage.OutputTokens == 0 {
 		return nil
 	}
-	promptTokens := e.Response.Usage.InputTokens - e.Response.Usage.InputTokensDetails.CachedTokens
-	if promptTokens < 0 {
-		promptTokens = e.Response.Usage.InputTokens
-	}
-	return &llm.Usage{
-		PromptTokens:     promptTokens,
-		CompletionTokens: e.Response.Usage.OutputTokens,
-		TotalTokens:      e.Response.Usage.TotalTokens,
-	}
+	usage := e.Response.Usage.LLM()
+	return &usage
 }
 
 func (e responseEvent) finishReason(hasToolCalls bool) string {

@@ -235,11 +235,7 @@ func (s *computerSession) turn(content json.RawMessage, screen computeruse.Scree
 
 	turn := &computeruse.Turn{}
 	if usage != nil {
-		turn.Usage = llm.Usage{
-			PromptTokens:     usage.PromptTokenCount,
-			CompletionTokens: usage.CandidatesTokenCount + usage.ThoughtsTokenCount,
-			TotalTokens:      usage.TotalTokenCount,
-		}
+		turn.Usage = usage.llm()
 	}
 	s.pending = s.pending[:0]
 	var confirmations []string
@@ -309,11 +305,26 @@ type computerResponse struct {
 	UsageMetadata *usageMetadata `json:"usageMetadata"`
 }
 
+// usageMetadata is a response's usage. The prompt count includes the cached
+// content; the candidates count leaves out the thinking tokens.
 type usageMetadata struct {
-	PromptTokenCount     int `json:"promptTokenCount"`
-	CandidatesTokenCount int `json:"candidatesTokenCount"`
-	ThoughtsTokenCount   int `json:"thoughtsTokenCount"`
-	TotalTokenCount      int `json:"totalTokenCount"`
+	PromptTokenCount        int `json:"promptTokenCount"`
+	CandidatesTokenCount    int `json:"candidatesTokenCount"`
+	ThoughtsTokenCount      int `json:"thoughtsTokenCount"`
+	CachedContentTokenCount int `json:"cachedContentTokenCount"`
+	TotalTokenCount         int `json:"totalTokenCount"`
+}
+
+// llm returns the usage as llm.Usage, whose completion counts the thinking
+// tokens too.
+func (u usageMetadata) llm() llm.Usage {
+	return llm.Usage{
+		PromptTokens:       u.PromptTokenCount,
+		CompletionTokens:   u.CandidatesTokenCount + u.ThoughtsTokenCount,
+		TotalTokens:        u.TotalTokenCount,
+		CachedPromptTokens: u.CachedContentTokenCount,
+		ReasoningTokens:    u.ThoughtsTokenCount,
+	}
 }
 
 // geminiArgs holds the arguments of every predefined computer use

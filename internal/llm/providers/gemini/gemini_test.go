@@ -682,3 +682,25 @@ func TestStreamResponse_LargeEvent(t *testing.T) {
 	require.True(t, done)
 	require.Equal(t, []string{big}, deltas)
 }
+
+// A response's completion count includes the thinking tokens, which Gemini
+// reports apart from the candidates, and its cached content is named.
+func TestStreamResponse_Usage(t *testing.T) {
+	t.Parallel()
+
+	stream := "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"hi\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":50,\"candidatesTokenCount\":10,\"thoughtsTokenCount\":5,\"cachedContentTokenCount\":20,\"totalTokenCount\":65}}\n\n"
+
+	provider := &Provider{}
+	events := make(chan llm.StreamEvent)
+	go provider.streamResponse(context.Background(), io.NopCloser(strings.NewReader(stream)), events)
+
+	var usage *llm.Usage
+	for event := range events {
+		require.NoError(t, event.Error)
+		if event.Done {
+			usage = event.Usage
+		}
+	}
+	require.NotNil(t, usage)
+	assert.Equal(t, llm.Usage{PromptTokens: 50, CompletionTokens: 15, TotalTokens: 65, CachedPromptTokens: 20, ReasoningTokens: 5}, *usage)
+}
