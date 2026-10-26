@@ -142,7 +142,9 @@ func TestReplayTargetInRow(t *testing.T) {
 }
 
 // An act picking an option does not count as done unless the page before
-// it shows the select offers the option.
+// it shows the select offers the option. The reason names the option
+// compared, filled in with its variables' values unless one is secret, and
+// the options the select offers.
 func TestUncheckedOption(t *testing.T) {
 	t.Parallel()
 
@@ -150,9 +152,42 @@ func TestUncheckedOption(t *testing.T) {
 		return []recordedAction{{Selector: selector, Method: selectOptionMethod, Arguments: []string{option}}}
 	}
 	status := "xpath=/html[1]/body[1]/select[1]"
-	assert.Empty(t, uncheckedOption(ordersPage, nil, pick(status, "未出荷"), nil))
-	assert.Equal(t, `the select offers no option "出荷済み"`, uncheckedOption(ordersPage, nil, pick(status, "出荷済み"), nil))
-	assert.Contains(t, uncheckedOption(pageSnapshot{}, errors.New("page busy"), pick(status, "未出荷"), nil), "page busy")
-	assert.Empty(t, uncheckedOption(pageSnapshot{}, errors.New("page busy"), []recordedAction{{Selector: status, Method: "click"}}, nil),
+	assert.Empty(t, uncheckedOption(ordersPage, nil, pick(status, "未出荷"), nil, nil))
+	assert.Equal(t, `the select offers no option "出荷済み"; it offers "すべて", "未出荷"`,
+		uncheckedOption(ordersPage, nil, pick(status, "出荷済み"), nil, nil))
+	assert.Equal(t, `the select offers no option "出荷済み"; it has no options`,
+		uncheckedOption(ordersPage, nil, pick("xpath=/html[1]/body[1]/select[2]", "出荷済み"), nil, nil))
+	assert.Contains(t, uncheckedOption(pageSnapshot{}, errors.New("page busy"), pick(status, "未出荷"), nil, nil), "page busy")
+	assert.Empty(t, uncheckedOption(pageSnapshot{}, errors.New("page busy"), []recordedAction{{Selector: status, Method: "click"}}, nil, nil),
 		"only a picked option needs the page")
+
+	// A reference that stayed literal leaves the variable holding text the
+	// select cannot offer.
+	variables := map[string]string{"state": "${item.state}", "code": "hunter2"}
+	isCode := func(name string) bool { return name == "code" }
+	assert.Equal(t, `the select offers no option "${item.state}", the value of "%state%"; it offers "すべて", "未出荷"`,
+		uncheckedOption(ordersPage, nil, pick(status, "%state%"), variables, isCode))
+	assert.Equal(t, `the select offers no option "${item.state} 発送", the value of "%state% 発送"; it offers "すべて", "未出荷"`,
+		uncheckedOption(ordersPage, nil, pick(status, "%state% 発送"), variables, isCode))
+	assert.Equal(t, `the select offers no option for the secret value of "%state% %code%"; it offers "すべて", "未出荷"`,
+		uncheckedOption(ordersPage, nil, pick(status, "%state% %code%"), variables, isCode))
+	assert.Equal(t, `the select offers no option for the secret value of "%state%"; it offers "すべて", "未出荷"`,
+		uncheckedOption(ordersPage, nil, pick(status, "%state%"), variables, nil), "a nil secret counts every value as one")
+}
+
+// A select's options are listed up to the number the outline shows.
+func TestUncheckedOptionListsFirstOptions(t *testing.T) {
+	t.Parallel()
+
+	snap := pageSnapshot{Tree: "[0-1] RootWebArea: Form\n  [0-2] combobox: Prefecture\n", XPaths: map[string]string{"0-2": "/html[1]/body[1]/input[1]"}}
+	var offered []string
+	for i := range outlineOptionCount + 2 {
+		snap.Tree += fmt.Sprintf("    [1-%d] option: P%d\n", i, i)
+		if i < outlineOptionCount {
+			offered = append(offered, fmt.Sprintf(`"P%d"`, i))
+		}
+	}
+	picked := []recordedAction{{Selector: "xpath=/html[1]/body[1]/input[1]", Method: selectOptionMethod, Arguments: []string{"Q"}}}
+	assert.Equal(t, `the combobox "Prefecture" offers no option "Q"; it offers `+strings.Join(offered, ", ")+" (+2 more)",
+		uncheckedOption(snap, nil, picked, nil, nil))
 }

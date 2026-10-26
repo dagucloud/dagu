@@ -151,6 +151,8 @@ func newRun(ctx context.Context, e *browserExecutor) (*run, error) {
 
 		certificateFailures: map[string]string{},
 	}
+	// A variable holding a declared secret or an ask's answer is secret.
+	r.secret = func(name string) bool { return holdsSecret(r.variables[name], r.secrets, r.answers) }
 	r.cache = openReplayCache(browserDir, dagName, stepKey)
 	r.recorder = stepRecorder{cache: r.cache}
 	r.timeline = &agentstep.Timeline{Log: e.stderr, Masker: masker, Total: len(e.cfg.Do), Update: e.updateSession, Provider: providerName}

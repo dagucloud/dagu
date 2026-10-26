@@ -441,6 +441,24 @@ func TestVariablesReachTheBrowserOnly(t *testing.T) {
 	}
 }
 
+// The browser is told which variables hold a declared secret, however
+// short, so what it reports leaves their values out. A plain variable is
+// not secret.
+func TestActKnowsSecretVariables(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.secrets = map[string]string{"VENDOR_PIN": "42"}
+	execution := run.execute(`{
+		"variables": {"pin": "42", "login": "alice-42", "account": "Checking"},
+		"do": [{"act": "Type %pin% into the PIN field"}]
+	}`, nil)
+	require.NoError(t, execution.err)
+
+	require.Len(t, run.engine.acts, 1)
+	assert.Equal(t, []string{"login", "pin"}, run.engine.acts[0].secret)
+}
+
 // A repeated run replays recorded actions instead of asking the model, and
 // a replay that no longer works falls back to the model and is re-recorded.
 func TestReplayCache(t *testing.T) {
@@ -919,6 +937,7 @@ func TestAskWaitsAndResumesSameBrowser(t *testing.T) {
 	assert.Len(t, run.launcher.launches, 1, "the resumed step reuses the browser")
 	assert.Equal(t, []string{"Sign in", "Type %otp% and submit"}, run.engine.actInstructions())
 	assert.Equal(t, "123456", run.engine.acts[1].variables["otp"])
+	assert.Equal(t, []string{"otp"}, run.engine.acts[1].secret, "an answer is secret")
 	assert.Equal(t, map[string]any{"account": "acme"}, resumed.exec.GetOutputs())
 	assert.True(t, resumed.exec.GetAgentSession().Interactions[0].Applied)
 	assert.True(t, run.engine.closed)

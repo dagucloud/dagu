@@ -29,6 +29,9 @@ type operator struct {
 	bridge         *modelBridge
 	variables      map[string]string
 	allowedDomains []string
+	// secret reports whether the value of a variable holds a secret, which
+	// messages leave out; nil counts every value as one.
+	secret func(name string) bool
 	// recorder replays and records acts; nil when acts do neither.
 	recorder actRecorder
 	// choice returns how much AI decides for an act or an upload with the
@@ -55,6 +58,19 @@ type operator struct {
 	// presented maps the hosts the proxy presented a certificate to, to the
 	// certificate's label.
 	presented map[string]string
+}
+
+// holdsSecret reports whether value contains a value of secrets, however
+// short: a value shown whole shows each secret in it.
+func holdsSecret(value string, secrets ...map[string]string) bool {
+	for _, values := range secrets {
+		for _, secret := range values {
+			if secret != "" && strings.Contains(value, secret) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // actRecorder keeps the actions acts and uploads performed, keyed by
@@ -395,7 +411,7 @@ func (o *operator) replay(ctx context.Context, actions []recordedAction, documen
 // that check could submit a form twice.
 func (o *operator) performAct(ctx context.Context, index int, instruction, document string, timeout time.Duration) (actOutcome, error) {
 	for retried := false; ; retried = true {
-		outcome, err := o.eng.Act(ctx, instruction, o.variables, timeout)
+		outcome, err := o.eng.Act(ctx, instruction, o.variables, o.secret, timeout)
 		if !errors.Is(err, errPageSessionLost) {
 			return outcome, err
 		}

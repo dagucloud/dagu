@@ -7,8 +7,10 @@ import (
 	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
@@ -167,6 +169,46 @@ func offersOption(node *outlineNode, action recordedAction, variables map[string
 	}
 	want := agentstep.SubstituteVariables(action.Arguments[0], variables)
 	return slices.ContainsFunc(options, func(option *outlineNode) bool { return sameText(option.name, want) })
+}
+
+// pickedOption names argument, the option a select action picks, as
+// offersOption compares it: with its variables' values, followed by the
+// argument as written. A variable that secret reports, or any variable when
+// secret is nil, leaves only the argument as written.
+func pickedOption(argument string, variables map[string]string, secret func(string) bool) string {
+	var names []string
+	for _, name := range agentstep.VariableReferences(argument) {
+		if _, ok := variables[name]; ok {
+			names = append(names, name)
+		}
+	}
+	switch {
+	case len(names) == 0:
+		return strconv.Quote(argument)
+	case secret == nil || slices.ContainsFunc(names, secret):
+		return "for the secret value of " + strconv.Quote(argument)
+	default:
+		return fmt.Sprintf("%q, the value of %q", agentstep.SubstituteVariables(argument, variables), argument)
+	}
+}
+
+// offeredOptions lists the options of node, a select, up to as many as the
+// outline shows.
+func offeredOptions(node *outlineNode) string {
+	options := optionsOf(node)
+	if len(options) == 0 {
+		return "it has no options"
+	}
+	shown := options[:min(len(options), outlineOptionCount)]
+	names := make([]string, 0, len(shown))
+	for _, option := range shown {
+		names = append(names, strconv.Quote(clip(option.name, outlineTextRunes)))
+	}
+	list := "it offers " + strings.Join(names, ", ")
+	if more := len(options) - len(shown); more > 0 {
+		list += fmt.Sprintf(" (+%d more)", more)
+	}
+	return list
 }
 
 // withPlaceholders replaces each variable value of at least

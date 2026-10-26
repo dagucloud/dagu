@@ -517,7 +517,11 @@ or its replay misses, as described under How much AI decides. When an `act`
 fails because its model chose no element, the error names the model, since
 some models give that answer for every request. An
 `act` whose model picks an option that the select does not offer does not
-complete. An `upload` fails when a file cannot be uploaded, the model finds no
+complete. Its error names the option compared, filled in with the values of
+the variables it references, and up to 15 options the select offers. A
+variable whose value holds a declared secret or an `ask` answer, of any
+length, is named without its value.
+An `upload` fails when a file cannot be uploaded, the model finds no
 element for `into`, or the element leads to no single file input, as
 described under Uploads. A page that does not load because of a client certificate fails the
 operation that opened it, as described under Client certificates. A failure

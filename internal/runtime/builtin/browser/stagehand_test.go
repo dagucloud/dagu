@@ -254,7 +254,7 @@ func TestStagehandActRecordsReplayableActions(t *testing.T) {
 	model := &shopModel{}
 	eng := launchShop(t, model)
 
-	outcome, err := eng.Act(t.Context(), "Click the Submit button", nil, time.Minute)
+	outcome, err := eng.Act(t.Context(), "Click the Submit button", nil, nil, time.Minute)
 	require.NoError(t, err)
 	require.True(t, outcome.Success, outcome.Message)
 	require.NotEmpty(t, outcome.Actions)
@@ -373,7 +373,7 @@ func TestStagehandReplayMissesShiftedElement(t *testing.T) {
 
 	eng := launchBrowser(t, launchOptions{Generate: treeModel(where(buttonNamed("Save")), "click")})
 	require.NoError(t, eng.Goto(t.Context(), savePage(false), time.Minute))
-	outcome, err := eng.Act(t.Context(), "Click Save", nil, time.Minute)
+	outcome, err := eng.Act(t.Context(), "Click Save", nil, nil, time.Minute)
 	require.NoError(t, err)
 	require.True(t, outcome.Success, outcome.Message)
 	require.Len(t, outcome.Actions, 1)
@@ -412,7 +412,7 @@ func TestStagehandReplayMissesShiftedSelect(t *testing.T) {
 
 	eng := launchBrowser(t, launchOptions{Generate: treeModel(where(selectOffering("7000万円未満")), "selectOptionFromDropdown", "7000万円未満")})
 	require.NoError(t, eng.Goto(t.Context(), priceForm(false), time.Minute))
-	outcome, err := eng.Act(t.Context(), "Choose 7000万円未満 as the upper price", nil, time.Minute)
+	outcome, err := eng.Act(t.Context(), "Choose 7000万円未満 as the upper price", nil, nil, time.Minute)
 	require.NoError(t, err)
 	require.True(t, outcome.Success, outcome.Message)
 	require.Len(t, outcome.Actions, 1)
@@ -459,7 +459,7 @@ func TestStagehandReplayMissesShiftedRow(t *testing.T) {
 	}
 	eng := launchBrowser(t, launchOptions{Generate: treeModel(betaDelete, "click")})
 	require.NoError(t, eng.Goto(t.Context(), deleteList("Alpha", "Beta"), time.Minute))
-	outcome, err := eng.Act(t.Context(), "Delete Beta", nil, time.Minute)
+	outcome, err := eng.Act(t.Context(), "Delete Beta", nil, nil, time.Minute)
 	require.NoError(t, err)
 	require.True(t, outcome.Success, outcome.Message)
 	require.Len(t, outcome.Actions, 1)
@@ -480,7 +480,7 @@ func TestStagehandReplayMissesShiftedRow(t *testing.T) {
 	// A Delete alone in its list when recorded has no row to be told apart
 	// by, so a row added before it makes the replay miss.
 	require.NoError(t, eng.Goto(t.Context(), deleteList("Beta"), time.Minute))
-	outcome, err = eng.Act(t.Context(), "Delete Beta", nil, time.Minute)
+	outcome, err = eng.Act(t.Context(), "Delete Beta", nil, nil, time.Minute)
 	require.NoError(t, err)
 	require.True(t, outcome.Success, outcome.Message)
 	require.NoError(t, eng.Goto(t.Context(), deleteList("Alpha", "Beta"), time.Minute))
@@ -491,16 +491,23 @@ func TestStagehandReplayMissesShiftedRow(t *testing.T) {
 }
 
 // An act whose model picks an option the select does not offer does not
-// complete, though the runtime reports success for it.
+// complete, though the runtime reports success for it. Its message names
+// the value the option's variable was given, unless that value is secret.
 func TestStagehandActMissingOption(t *testing.T) {
 	t.Parallel()
 
-	eng := launchBrowser(t, launchOptions{Generate: treeModel(where(selectOffering("7000万円未満")), "selectOptionFromDropdown", "8000万円未満")})
+	eng := launchBrowser(t, launchOptions{Generate: treeModel(where(selectOffering("7000万円未満")), "selectOptionFromDropdown", "%upper%")})
 	require.NoError(t, eng.Goto(t.Context(), priceForm(false), time.Minute))
-	outcome, err := eng.Act(t.Context(), "Choose 8000万円未満 as the upper price", nil, time.Minute)
+	upper := map[string]string{"upper": "8000万円未満"}
+	outcome, err := eng.Act(t.Context(), "Choose %upper% as the upper price", upper, func(string) bool { return false }, time.Minute)
 	require.NoError(t, err)
 	assert.False(t, outcome.Success)
-	assert.Contains(t, outcome.Message, `"8000万円未満"`)
+	assert.Equal(t, `the select offers no option "8000万円未満", the value of "%upper%"; it offers "上限なし", "7000万円未満"`, outcome.Message)
+
+	outcome, err = eng.Act(t.Context(), "Choose %upper% as the upper price", upper, func(string) bool { return true }, time.Minute)
+	require.NoError(t, err)
+	assert.False(t, outcome.Success)
+	assert.NotContains(t, outcome.Message, "8000万円未満")
 }
 
 // servePerPage serves a list whose results-per-page select reloads the page
@@ -676,7 +683,7 @@ func TestStagehandActPerformsOneAction(t *testing.T) {
 	eng := launchBrowser(t, launchOptions{Generate: model})
 	require.NoError(t, eng.Goto(t.Context(), "data:text/html,"+url.PathEscape(menuPage), 30*time.Second))
 
-	outcome, err := eng.Act(t.Context(), "Open the menu", nil, time.Minute)
+	outcome, err := eng.Act(t.Context(), "Open the menu", nil, nil, time.Minute)
 	require.NoError(t, err)
 	require.True(t, outcome.Success, outcome.Message)
 	assert.Len(t, outcome.Actions, 1)
@@ -784,7 +791,7 @@ func TestStagehandReattachAfterProcessExit(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, strings.HasPrefix(pageURL, "data:text/html"), pageURL)
 
-	outcome, err := eng.Act(t.Context(), "Click the Submit button", nil, time.Minute)
+	outcome, err := eng.Act(t.Context(), "Click the Submit button", nil, nil, time.Minute)
 	require.NoError(t, err)
 	assert.True(t, outcome.Success, outcome.Message)
 
@@ -845,7 +852,7 @@ func TestStagehandWaitsForDownloads(t *testing.T) {
 	eng := launchBrowser(t, launchOptions{DownloadsDir: downloads, Generate: reportModel})
 	require.NoError(t, eng.Goto(t.Context(), serveReport(t), time.Minute))
 
-	outcome, err := eng.Act(t.Context(), "Click the Download report link", nil, time.Minute)
+	outcome, err := eng.Act(t.Context(), "Click the Download report link", nil, nil, time.Minute)
 	require.NoError(t, err)
 	require.True(t, outcome.Success, outcome.Message)
 
@@ -1466,7 +1473,7 @@ func TestStagehandDetachEndsAModelCallItWaitsOn(t *testing.T) {
 	}
 	eng := launchBrowser(t, launchOptions{Generate: hanging})
 	require.NoError(t, eng.Goto(t.Context(), "data:text/html,"+strings.ReplaceAll(shopPage, "#", "%23"), time.Minute))
-	_, err := eng.Act(t.Context(), "Click Add to cart", nil, 2*time.Second)
+	_, err := eng.Act(t.Context(), "Click Add to cart", nil, nil, 2*time.Second)
 	require.Error(t, err, "the act waits on a model that never answers")
 	require.NoError(t, eng.Detach(t.Context()), "the runtime closes once its model call ends")
 

@@ -131,6 +131,8 @@ type fakeEngine struct {
 type fakeAct struct {
 	instruction string
 	variables   map[string]string
+	// secret names the variables the act was told hold a secret.
+	secret []string
 }
 
 // fakeUpload is an upload the page was given: the element, or "" for the
@@ -214,9 +216,15 @@ var errFakeSessionLost = fmt.Errorf("%w: Failed to perform act: -32001 Session w
 // script context a new document replaced.
 var errFakeContextLost = fmt.Errorf("%w: Failed to perform act: -32000 Cannot find context with specified id", errPageContextLost)
 
-func (e *fakeEngine) Act(ctx context.Context, instruction string, variables map[string]string, _ time.Duration) (actOutcome, error) {
+func (e *fakeEngine) Act(ctx context.Context, instruction string, variables map[string]string, secret func(string) bool, _ time.Duration) (actOutcome, error) {
+	act := fakeAct{instruction: instruction, variables: maps.Clone(variables)}
+	for _, name := range slices.Sorted(maps.Keys(variables)) {
+		if secret == nil || secret(name) {
+			act.secret = append(act.secret, name)
+		}
+	}
 	e.mu.Lock()
-	e.acts = append(e.acts, fakeAct{instruction: instruction, variables: maps.Clone(variables)})
+	e.acts = append(e.acts, act)
 	if e.actNavigatesTo != "" {
 		e.load(e.actNavigatesTo)
 	}

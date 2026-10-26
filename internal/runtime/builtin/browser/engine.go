@@ -33,11 +33,13 @@ type launcher interface {
 // engine drives one browser session.
 type engine interface {
 	Goto(ctx context.Context, url string, timeout time.Duration) error
-	// Act performs one action described in natural language. Its error wraps
+	// Act performs one action described in natural language. A message
+	// naming a variable leaves out its value when secret reports the
+	// variable, and always when secret is nil. Its error wraps
 	// errPageSessionLost when the connection to the page went away before
 	// the act reported back, and errPageContextLost when its script context
 	// did; the act may or may not have taken effect.
-	Act(ctx context.Context, instruction string, variables map[string]string, timeout time.Duration) (actOutcome, error)
+	Act(ctx context.Context, instruction string, variables map[string]string, secret func(name string) bool, timeout time.Duration) (actOutcome, error)
 	// Replay performs one recorded action without a model call and reports
 	// whether it succeeded. An action whose element is not visible, or is
 	// no longer the element it recorded, is not performed and does not

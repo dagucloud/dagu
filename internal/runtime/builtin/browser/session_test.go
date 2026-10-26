@@ -199,6 +199,8 @@ func TestSessionVariables(t *testing.T) {
 	_, err = ts.do(opened.ID, `{"act": "Type %password% into the Password field", "variables": {"password": {"env": "`+env+`"}}}`)
 	require.NoError(t, err)
 	assert.Equal(t, "s3cret-value", ts.engine.acts[1].variables["password"], "the browser types the value")
+	assert.Empty(t, ts.engine.acts[0].secret)
+	assert.Equal(t, []string{"password"}, ts.engine.acts[1].secret)
 
 	// The password is still known to the next command; the user is not.
 	_, err = ts.do(opened.ID, `{"act": "Type %password% again"}`)

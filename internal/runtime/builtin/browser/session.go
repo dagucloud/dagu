@@ -424,7 +424,7 @@ func (s *Sessions) Open(ctx context.Context, opts SessionOptions) (OpenResult, e
 	if warning := jobWarning(); warning != "" {
 		warnings = append(warnings, warning)
 	}
-	op := s.operator(eng, bridge, state, nil, workDir, &warnings)
+	op := s.operator(eng, bridge, state, sessionValues{}, workDir, &warnings)
 	if opts.URL != "" {
 		if _, err := op.gotoURL(ctx, -1, opts.URL, defaultOperationTimeout); err != nil {
 			message := "open " + opts.URL + ": " + err.Error()
@@ -542,7 +542,8 @@ func sessionModelEnv(cfg *ir.LLMConfig) *cmnvalue.EnvScope {
 }
 
 // operator returns the operator that runs a command's operation.
-func (s *Sessions) operator(eng engine, bridge *modelBridge, state sessionState, variables map[string]string, workDir string, warnings *[]string) *operator {
+func (s *Sessions) operator(eng engine, bridge *modelBridge, state sessionState, values sessionValues, workDir string, warnings *[]string) *operator {
+	variables := values.all
 	if variables == nil {
 		variables = map[string]string{}
 	}
@@ -550,6 +551,7 @@ func (s *Sessions) operator(eng engine, bridge *modelBridge, state sessionState,
 		eng:            eng,
 		bridge:         bridge,
 		variables:      variables,
+		secret:         func(name string) bool { return holdsSecret(variables[name], values.secrets) },
 		allowedDomains: state.Browser.AllowedDomains,
 		recorder:       sessionRecorder{},
 		shots:          agentstep.NewArtifactStore(workDir, "", "screenshots"),
@@ -665,7 +667,7 @@ func (s *Sessions) Do(ctx context.Context, req DoRequest) (DoResult, error) {
 	began := time.Now()
 	index := len(state.Ops)
 	var warnings []string
-	operator := s.operator(eng, bridge, state, values.all, use.record.WorkDir, &warnings)
+	operator := s.operator(eng, bridge, state, values, use.record.WorkDir, &warnings)
 	operator.recorder = sessionRecorder{preset: preset}
 	urlBefore, _ := eng.CurrentURL(ctx)
 	if state.Page.URL != "" && urlBefore != state.Page.URL {

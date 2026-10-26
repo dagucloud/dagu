@@ -519,7 +519,7 @@ func (e *stagehandEngine) Goto(ctx context.Context, url string, timeout time.Dur
 	return err
 }
 
-func (e *stagehandEngine) Act(ctx context.Context, instruction string, variables map[string]string, timeout time.Duration) (actOutcome, error) {
+func (e *stagehandEngine) Act(ctx context.Context, instruction string, variables map[string]string, secret func(string) bool, timeout time.Duration) (actOutcome, error) {
 	// The page before the act identifies the element it acts on, which the
 	// act may rename or remove. Without it, the actions go unidentified.
 	before, beforeErr := e.Snapshot(ctx)
@@ -553,7 +553,7 @@ func (e *stagehandEngine) Act(ctx context.Context, instruction string, variables
 	if beforeErr == nil {
 		identifyOn(before, outcome.Actions, variables)
 	}
-	if message := uncheckedOption(before, beforeErr, outcome.Actions, variables); outcome.Success && message != "" {
+	if message := uncheckedOption(before, beforeErr, outcome.Actions, variables, secret); outcome.Success && message != "" {
 		outcome.Success, outcome.Message = false, message
 	}
 	return outcome, nil
@@ -563,8 +563,10 @@ func (e *stagehandEngine) Act(ctx context.Context, instruction string, variables
 // on its select: snap, the page before the actions ran, shows the select
 // lacks it, or the page could not be read, as snapErr says. It returns ""
 // otherwise. The runtime resets a select told to pick an option it lacks
-// to its first option and reports success.
-func uncheckedOption(snap pageSnapshot, snapErr error, actions []recordedAction, variables map[string]string) string {
+// to its first option and reports success. A lacking select is reported
+// with the option as compared and the options it offers; secret is as for
+// engine.Act.
+func uncheckedOption(snap pageSnapshot, snapErr error, actions []recordedAction, variables map[string]string, secret func(string) bool) string {
 	for _, action := range actions {
 		if action.Method != selectOptionMethod {
 			continue
@@ -573,7 +575,9 @@ func uncheckedOption(snap pageSnapshot, snapErr error, actions []recordedAction,
 			return "the page could not be read to check the option picked: " + snapErr.Error()
 		}
 		if target, ok := targetOf(snap, action.Selector); ok && !offersOption(target.node(), action, variables) {
-			return fmt.Sprintf("the %s offers no option %q", withName(target.node().role, target.node().name), action.Arguments[0])
+			node := target.node()
+			return fmt.Sprintf("the %s offers no option %s; %s", withName(node.role, node.name),
+				pickedOption(action.Arguments[0], variables, secret), offeredOptions(node))
 		}
 	}
 	return ""
