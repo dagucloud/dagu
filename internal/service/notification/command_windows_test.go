@@ -71,16 +71,25 @@ func notificationChildProcessIDs(t *testing.T, pid uint32) []uint32 {
 	return children
 }
 
+// waitNotificationProcessGone waits for a process to have ended. A process
+// that was killed can still be opened while the system tears it down, so it
+// counts as gone once it can no longer be opened or reports an exit code;
+// on a loaded runner the teardown takes seconds.
 func waitNotificationProcessGone(t *testing.T, pid uint32, what string) {
 	t.Helper()
 
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(15 * time.Second)
 	for {
-		handle, err := windows.OpenProcess(windows.PROCESS_QUERY_INFORMATION, false, pid)
+		handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
 		if err != nil {
 			return
 		}
+		var code uint32
+		err = windows.GetExitCodeProcess(handle, &code)
 		_ = windows.CloseHandle(handle)
+		if err != nil || code != uint32(windows.STATUS_PENDING) {
+			return
+		}
 		if time.Now().After(deadline) {
 			t.Fatalf("expected %s (PID %d) to be gone", what, pid)
 		}
