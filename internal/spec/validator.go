@@ -595,23 +595,20 @@ func validateForeachBodyDependencies(parent ir.Step, bodySteps []ir.Step, bodyNa
 // validateForeachItemReferences rejects ${<as>.<field>} in a field resolved
 // with item scope, an item field written without the foreach namespace. Such
 // text never reaches a run as meant: a shell rejects the dotted form and other
-// fields receive it literally. A DAG that defines <as> as a name ${name.path}
+// fields receive it literally. A field where <as> is a name ${name.path}
 // reads keeps that meaning.
 func validateForeachItemReferences(dag *ir.DAG, errs *ir.ErrorList) {
-	defined := pathReferenceNames(dag)
+	scope := newPathReferenceScope(dag)
 	// One authored command yields several fields under the same path.
 	reported := make(map[[2]string]struct{})
 	for _, field := range ReferenceFields(dag) {
 		if field.itemAlias == "" || field.Field.IsTemplateScript() {
 			continue
 		}
-		if _, ok := defined[field.itemAlias]; ok {
-			continue
-		}
 		path := field.noticeFieldPath()
 		for _, token := range cmnvalue.UnqualifiedItemFieldReferences(field.Value, field.itemAlias) {
 			key := [2]string{path, token}
-			if _, ok := reported[key]; ok {
+			if _, ok := reported[key]; ok || scope.resolves(field, token) {
 				continue
 			}
 			reported[key] = struct{}{}
@@ -621,42 +618,94 @@ func validateForeachItemReferences(dag *ir.DAG, errs *ir.ErrorList) {
 	}
 }
 
-// pathReferenceNames returns the names a ${name.path} reference reads outside
-// foreach item scope: params, env entries, secrets, step IDs, output
-// variables, and the parallel item.
-func pathReferenceNames(dag *ir.DAG) map[string]struct{} {
-	names := make(map[string]struct{})
-	addEnv := func(env []string) {
+// pathReferenceScope holds the names a ${name.path} reference can read
+// besides the foreach item, so a field is checked only against names
+// visible to it.
+type pathReferenceScope struct {
+	// dag holds params, DAG env entries, and secrets, visible to every step.
+	dag map[string]struct{}
+	// stepIDs holds every step ID; ${id.stdout} and other step properties
+	// resolve inside foreach bodies too.
+	stepIDs map[string]struct{}
+	// steps holds, by step path, the step's own env entries and the output
+	// variables of steps in the same list.
+	steps map[string]map[string]struct{}
+	// parallel holds the paths of parallel steps, whose child target and
+	// params read the parallel item.
+	parallel map[string]struct{}
+}
+
+func newPathReferenceScope(dag *ir.DAG) pathReferenceScope {
+	scope := pathReferenceScope{
+		dag:      make(map[string]struct{}),
+		stepIDs:  make(map[string]struct{}),
+		steps:    make(map[string]map[string]struct{}),
+		parallel: make(map[string]struct{}),
+	}
+	addEnv := func(names map[string]struct{}, env []string) {
 		for _, entry := range env {
 			key, _, _ := strings.Cut(entry, "=")
 			names[key] = struct{}{}
 		}
 	}
 	for name := range dag.ParamDeclarations() {
-		names[name] = struct{}{}
+		scope.dag[name] = struct{}{}
 	}
 	for name := range dag.ParamValues() {
-		names[name] = struct{}{}
+		scope.dag[name] = struct{}{}
 	}
 	for _, secret := range dag.Secrets {
-		names[secret.Name] = struct{}{}
+		scope.dag[secret.Name] = struct{}{}
 	}
-	addEnv(dag.Env)
+	addEnv(scope.dag, dag.Env)
 	if dag.Container != nil {
-		addEnv(dag.Container.Env)
+		addEnv(scope.dag, dag.Container.Env)
 	}
-	walkSteps(dag, func(step ir.Step, _ string) {
-		names[step.ID] = struct{}{}
-		names[step.Output] = struct{}{}
-		if step.Parallel != nil {
-			names[ir.ParallelItemVariable] = struct{}{}
+
+	var walk func(path string, steps []ir.Step)
+	walk = func(path string, steps []ir.Step) {
+		for i, step := range steps {
+			stepPath := fmt.Sprintf("%s[%d]", path, i)
+			names := make(map[string]struct{})
+			for _, sibling := range steps {
+				names[sibling.Output] = struct{}{}
+			}
+			addEnv(names, step.Env)
+			if step.Container != nil {
+				addEnv(names, step.Container.Env)
+			}
+			scope.steps[stepPath] = names
+			scope.stepIDs[step.ID] = struct{}{}
+			if step.Parallel != nil {
+				scope.parallel[stepPath] = struct{}{}
+			}
+			if step.Foreach != nil {
+				walk(stepPath+".foreach.steps", step.Foreach.Steps)
+			}
 		}
-		addEnv(step.Env)
-		if step.Container != nil {
-			addEnv(step.Container.Env)
-		}
-	})
-	return names
+	}
+	walk("steps", dag.Steps)
+	return scope
+}
+
+// resolves reports whether token, an unqualified item field in field, reads a
+// name visible to that field instead.
+func (s pathReferenceScope) resolves(field ReferenceField, token string) bool {
+	name := field.itemAlias
+	if _, ok := s.dag[name]; ok {
+		return true
+	}
+	if _, ok := s.steps[field.OwnerStepPath][name]; ok {
+		return true
+	}
+	if _, ok := s.stepIDs[name]; ok && cmnvalue.HasStepRuntimeOutputReference(token, name) {
+		return true
+	}
+	if _, ok := s.parallel[field.OwnerStepPath]; ok && name == ir.ParallelItemVariable {
+		return field.Path == field.OwnerStepPath+".child_dag.name" ||
+			field.Path == field.OwnerStepPath+".child_dag.params"
+	}
+	return false
 }
 
 func validateStepWithValidator(step ir.Step) error {

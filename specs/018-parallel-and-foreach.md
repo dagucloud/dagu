@@ -509,10 +509,12 @@ Rules:
 
 - `${<as>.field}` without the `foreach.` namespace is not an item reference.
   In a field with item scope, an unescaped `${<as>.field}` whose field may be
-  written unquoted is a validation error unless the DAG defines `<as>` another
-  way: as a step id, param, env entry, secret, output variable, or the
-  `parallel` item `ITEM`. `${<as>}` and `$<as>.field` are not affected, so
-  shell variables keep their meaning.
+  written unquoted is a validation error unless that field reads `<as>`
+  another way: a param, root `env` entry, or secret; an `env` entry of the
+  step that owns the field; an output variable of a step in the same step
+  list; a step id read through a step property such as `${<as>.stdout}`; or
+  `ITEM` in the child target and params of a `parallel` step. `${<as>}` and
+  `$<as>.field` are not affected, so shell variables keep their meaning.
 
 #### Body Step Scope
 

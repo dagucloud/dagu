@@ -125,7 +125,7 @@ steps:
         - run: echo "${item.wallet}"`,
 		},
 		{
-			name: "env",
+			name: "dag env",
 			yaml: `
 env:
   - item: '{"wallet":"A"}'
@@ -134,6 +134,29 @@ steps:
       items: [one]
       steps:
         - run: echo "${item.wallet}"`,
+		},
+		{
+			name: "step env",
+			yaml: `
+steps:
+  - foreach:
+      items: [one]
+      steps:
+        - env:
+            - item: '{"wallet":"A"}'
+          run: echo "${item.wallet}"`,
+		},
+		{
+			name: "step property",
+			yaml: `
+steps:
+  - id: item
+    run: echo top
+  - depends: [item]
+    foreach:
+      items: [one]
+      steps:
+        - run: echo "${item.stdout}"`,
 		},
 		{
 			name: "output variable",
@@ -292,6 +315,37 @@ func TestForeachSpec018Validation(t *testing.T) {
 				"steps[0].foreach.collect.id",
 				"use ${foreach.row.id}",
 			},
+		},
+		{
+			name: "rejects item field named after another step's env",
+			body: `
+    foreach:
+      items: [{wallet: A}]
+      steps:
+        - run: echo "${item.wallet}"
+  - name: other
+    env:
+      - item: '{"wallet":"A"}'
+    run: echo ok`,
+			wantParts: []string{"steps[0].foreach.steps[0].run", "use ${foreach.item.wallet}"},
+		},
+		{
+			name: "rejects parallel item outside the child target and params",
+			body: `
+    foreach:
+      items: [{wallet: A}]
+      as: ITEM
+      steps:
+        - action: dag.run
+          with:
+            dag: child
+            params:
+              account: ${ITEM.account}
+          parallel:
+            items:
+              - account: a
+        - run: echo "${ITEM.wallet}"`,
+			wantParts: []string{"steps[0].foreach.steps[1].run", "use ${foreach.ITEM.wallet}"},
 		},
 	}
 
