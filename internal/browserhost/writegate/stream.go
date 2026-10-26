@@ -11,14 +11,16 @@ import (
 	"strconv"
 )
 
-// Keys of a paused request's body in a DevTools message. The browser sends
-// the whole body, however large, both as text and as base64 entries.
+// Keys of a body in a DevTools message. The browser sends a paused
+// request's whole body, however large, both as text and as base64 entries,
+// and a response's whole body as body.
 const (
 	postDataKey        = "postData"
 	postDataEntriesKey = "postDataEntries"
-	// postDataSizeKey is added after a cut postData with the size of the
-	// whole body.
-	postDataSizeKey = "postDataSize"
+	bodyKey            = "body"
+	// sizeSuffix names the key added after a cut value with the size of
+	// the whole value, such as postDataSize.
+	sizeSuffix = "Size"
 )
 
 // maxKeyBytes bounds the strings remembered as the key of the value after
@@ -28,8 +30,9 @@ const maxKeyBytes = 64
 var errUnterminated = errors.New("the browser sent a message that ends inside a string")
 
 // cutMessage reads one DevTools message from r and returns it with every
-// postData value cut to limit bytes, followed by a postDataSize key with
-// the size of the whole body, and every postDataEntries value left empty.
+// postData and body value cut to limit bytes, each followed by a key, such
+// as postDataSize, with the size of the whole value, and every
+// postDataEntries value left empty.
 // Memory stays bounded by the rest of the message, however large a body
 // is.
 func cutMessage(r io.Reader, limit int) ([]byte, error) {
@@ -80,7 +83,7 @@ func (c *cutter) run() error {
 
 // value handles the value of key, which follows the colon just read.
 func (c *cutter) value(key string) error {
-	if key != postDataKey && key != postDataEntriesKey {
+	if key != postDataKey && key != bodyKey && key != postDataEntriesKey {
 		return nil
 	}
 	for {
@@ -95,9 +98,9 @@ func (c *cutter) value(key string) error {
 	}
 	next, _ := c.in.Peek(1)
 	switch {
-	case key == postDataKey && next[0] == '"':
+	case key != postDataEntriesKey && next[0] == '"':
 		_, _ = c.in.ReadByte()
-		return c.cutString()
+		return c.cutString(key + sizeSuffix)
 	case key == postDataEntriesKey && next[0] == '[':
 		_, _ = c.in.ReadByte()
 		c.out.WriteString("[]")
@@ -136,8 +139,8 @@ func (c *cutter) copyString() ([]byte, error) {
 
 // cutString copies at most limit bytes of a string whose opening quote was
 // read, never splitting an escape, skips the rest, and adds the size of
-// the whole string, counting each escape as one byte.
-func (c *cutter) cutString() error {
+// the whole string under sizeKey, counting each escape as one byte.
+func (c *cutter) cutString(sizeKey string) error {
 	c.out.WriteByte('"')
 	kept, size := 0, int64(0)
 	for kept < c.limit {
@@ -146,7 +149,7 @@ func (c *cutter) cutString() error {
 			return errUnterminated
 		}
 		if b == '"' {
-			c.writeSize(size)
+			c.writeSize(sizeKey, size)
 			return nil
 		}
 		size++
@@ -176,14 +179,14 @@ func (c *cutter) cutString() error {
 	if err != nil {
 		return err
 	}
-	c.writeSize(size + rest)
+	c.writeSize(sizeKey, size+rest)
 	return nil
 }
 
-// writeSize closes a cut string and adds the size of the whole string as a
-// key of its own.
-func (c *cutter) writeSize(size int64) {
-	c.out.WriteString(`","` + postDataSizeKey + `":` + strconv.FormatInt(size, 10))
+// writeSize closes a cut string and adds the size of the whole string
+// under sizeKey.
+func (c *cutter) writeSize(sizeKey string, size int64) {
+	c.out.WriteString(`","` + sizeKey + `":` + strconv.FormatInt(size, 10))
 }
 
 // skipString skips the rest of a string, through its closing quote, a

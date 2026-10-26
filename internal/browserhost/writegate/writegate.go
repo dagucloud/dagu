@@ -34,12 +34,16 @@ import (
 const (
 	// ModeOff runs no gate.
 	ModeOff = "off"
+	// ModeRecord sends only the writes the operation running may send, as
+	// its approved commit points name them, and keeps each with its
+	// answer; it blocks the others.
+	ModeRecord = "record"
 	// ModeRehearse blocks every write and keeps what it would have sent.
 	ModeRehearse = "rehearse"
 )
 
 // modeRank orders the modes by strictness.
-var modeRank = map[string]int{ModeOff: 0, ModeRehearse: 1}
+var modeRank = map[string]int{ModeOff: 0, ModeRecord: 1, ModeRehearse: 3}
 
 // ParseMode returns the mode text names; empty is ModeOff.
 func ParseMode(text string) (string, error) {
@@ -47,7 +51,7 @@ func ParseMode(text string) (string, error) {
 		return ModeOff, nil
 	}
 	if _, ok := modeRank[text]; !ok {
-		return "", fmt.Errorf("write gate mode %q must be %s or %s", text, ModeOff, ModeRehearse)
+		return "", fmt.Errorf("write gate mode %q must be %s, %s, or %s", text, ModeOff, ModeRecord, ModeRehearse)
 	}
 	return text, nil
 }
@@ -132,6 +136,8 @@ const (
 const (
 	// ClassWrite is a write of the work, one the gate exists for.
 	ClassWrite = "write"
+	// ClassApproved is a write of the work the operation running may send.
+	ClassApproved = "approved"
 	// ClassSignIn is a write to a sign-in endpoint the policy lists.
 	ClassSignIn = "sign_in"
 	// ClassNoise is a beacon, a report, or a write to a noise host.
@@ -170,6 +176,13 @@ type Event struct {
 	BodyBytes int64 `json:"body_bytes,omitempty"`
 	// Target is the kind of worker that opened a socket.
 	Target string `json:"target,omitempty"`
+	// Status is the HTTP status a sent write was answered with, and
+	// Response the start of the answer, with sensitive fields hidden.
+	// ResponseError is the network error a sent write got in place of an
+	// answer.
+	Status        int    `json:"status,omitempty"`
+	Response      string `json:"response,omitempty"`
+	ResponseError string `json:"response_error,omitempty"`
 }
 
 // Consequential reports whether the event is a write of the work the gate

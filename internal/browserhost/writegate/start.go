@@ -219,6 +219,36 @@ func SetPerson(ctx context.Context, handleURL string, on bool) error {
 	return nil
 }
 
+// Begin tells the gate at handleURL which writes the operation starting
+// may send, for at most lease. In record mode every other write is
+// blocked, and so is every write once End is called or the lease ends.
+func Begin(ctx context.Context, handleURL string, signatures []string, lease time.Duration) error {
+	data, err := json.Marshal(allowance{Signatures: signatures, Seconds: max(int(lease.Seconds()), 1)})
+	if err != nil {
+		return err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, handleURL+"/"+beginPath, bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	if err := do(request, nil); err != nil {
+		return fmt.Errorf("tell the write gate what the operation may send: %w", err)
+	}
+	return nil
+}
+
+// End tells the gate at handleURL that the operation that began ended.
+func End(ctx context.Context, handleURL string) error {
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, handleURL+"/"+endPath, nil)
+	if err != nil {
+		return err
+	}
+	if err := do(request, nil); err != nil {
+		return fmt.Errorf("tell the write gate the operation ended: %w", err)
+	}
+	return nil
+}
+
 func do(request *http.Request, v any) error {
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {

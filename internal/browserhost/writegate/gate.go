@@ -43,9 +43,15 @@ const (
 const (
 	eventsPath  = "events"
 	personPath  = "person"
+	beginPath   = "begin"
+	endPath     = "end"
 	afterParam  = "after"
 	personParam = "on"
 )
+
+// maxLease bounds how long an operation's allowance lasts, so writes an
+// operation that never ended may send stop being sent.
+const maxLease = 30 * time.Minute
 
 // notSentPage answers a page load the gate blocked, so the page shows
 // where it stopped instead of a network error.
@@ -132,11 +138,15 @@ func Serve(ctx context.Context, cfg Config, ready func(Ready)) error {
 	g := &gate{
 		conn:      conn,
 		ctx:       readCtx,
+		mode:      cfg.Mode,
 		rules:     newRules(cfg.Policy, cfg.Secrets),
 		ledger:    &ledger{},
 		bodyLimit: limit,
 		waiters:   map[int64]chan reply{},
+		callbacks: map[int64]func(reply){},
 		watched:   map[string]string{},
+		sending:   map[string]Event{},
+		decided:   map[string]bool{},
 		done:      make(chan struct{}),
 	}
 	go g.read()
@@ -191,6 +201,7 @@ func endProcess(pid int, startedAt int64) bool {
 type gate struct {
 	conn      *websocket.Conn
 	ctx       context.Context
+	mode      string
 	rules     *rules
 	ledger    *ledger
 	bodyLimit int
@@ -199,10 +210,23 @@ type gate struct {
 
 	mu      sync.Mutex
 	waiters map[int64]chan reply
+	// callbacks handle the replies to commands sent while deciding, which
+	// the gate never waits on.
+	callbacks map[int64]func(reply)
 	// watched maps the sessions of the service workers and shared workers
 	// the gate watches for sockets to their kind of target.
 	watched map[string]string
-	done    chan struct{}
+	// sending holds the writes sent until their answers arrive, by
+	// request.
+	sending map[string]Event
+	// decided holds the requests a page target let through, by network ID,
+	// so the browser target does not keep them again.
+	decided map[string]bool
+	// allowed are the signatures the operation running may send, until
+	// allowedUntil.
+	allowed      map[string]bool
+	allowedUntil time.Time
+	done         chan struct{}
 }
 
 type reply struct {
@@ -374,15 +398,19 @@ func (g *gate) read() {
 		}
 		switch m.Method {
 		case "":
+			r := reply{result: m.Result}
+			if m.Error != nil {
+				r.err = errors.New(m.Error.Message)
+			}
 			g.mu.Lock()
-			wait := g.waiters[m.ID]
+			wait, callback := g.waiters[m.ID], g.callbacks[m.ID]
+			delete(g.callbacks, m.ID)
 			g.mu.Unlock()
-			if wait != nil {
-				r := reply{result: m.Result}
-				if m.Error != nil {
-					r.err = errors.New(m.Error.Message)
-				}
+			switch {
+			case wait != nil:
 				wait <- r
+			case callback != nil:
+				callback(r)
 			}
 		case "Fetch.requestPaused":
 			g.paused(m.SessionID, m.Params)
@@ -403,27 +431,50 @@ func (g *gate) read() {
 	}
 }
 
-// pausedRequest is a Fetch.requestPaused event, with its body cut.
+// pausedRequest is a Fetch.requestPaused event, with its body cut. One
+// paused at the response stage has a status or an error.
 type pausedRequest struct {
-	RequestID    string `json:"requestId"`
-	ResourceType string `json:"resourceType"`
-	Request      struct {
+	RequestID           string `json:"requestId"`
+	NetworkID           string `json:"networkId"`
+	ResourceType        string `json:"resourceType"`
+	ResponseStatusCode  int    `json:"responseStatusCode"`
+	ResponseErrorReason string `json:"responseErrorReason"`
+	Request             struct {
 		URL          string            `json:"url"`
 		Method       string            `json:"method"`
 		Headers      map[string]string `json:"headers"`
 		PostData     string            `json:"postData"`
 		PostDataSize int64             `json:"postDataSize"`
 	} `json:"request"`
+	ResponseHeaders []struct {
+		Name  string `json:"name"`
+		Value string `json:"value"`
+	} `json:"responseHeaders"`
 }
 
-// paused decides a paused request at once. The browser target sees every
-// request; a page target, armed for a page loaded before the gate, sees
-// its page's first, so a request that target lets through is kept only
-// when the browser target decides it.
+// paused decides a paused request at once. The browser target sees the
+// requests of every document loaded after the gate; a page target, armed
+// for a page loaded before it, sees its page's requests first, and a
+// request it lets through is seen again by the browser target only when a
+// later document of the page sent it, so it is kept once.
 func (g *gate) paused(sessionID string, params json.RawMessage) {
 	var p pausedRequest
 	if err := json.Unmarshal(params, &p); err != nil {
 		return
+	}
+	if p.ResponseStatusCode != 0 || p.ResponseErrorReason != "" {
+		g.answered(sessionID, p)
+		return
+	}
+	if sessionID == "" && p.NetworkID != "" {
+		g.mu.Lock()
+		decided := g.decided[p.NetworkID]
+		delete(g.decided, p.NetworkID)
+		g.mu.Unlock()
+		if decided {
+			g.send(sessionID, "Fetch.continueRequest", map[string]any{"requestId": p.RequestID})
+			return
+		}
 	}
 	req := request{
 		Method: p.Request.Method, URL: p.Request.URL, ResourceType: p.ResourceType,
@@ -435,11 +486,26 @@ func (g *gate) paused(sessionID string, params json.RawMessage) {
 		}
 	}
 	class, write := g.rules.classify(req, g.person.Load())
-	if !write || class == ClassSignIn || class == ClassPerson {
+	if !write {
 		g.send(sessionID, "Fetch.continueRequest", map[string]any{"requestId": p.RequestID})
-		if write && sessionID == "" {
-			g.keep(req, class, OutcomeSent)
+		return
+	}
+	event := g.describe(req, class)
+	if class == ClassWrite && g.mode == ModeRecord && g.allows(event.Signature) {
+		event.Class = ClassApproved
+	}
+	if class == ClassSignIn || class == ClassPerson || event.Class == ClassApproved {
+		if sessionID != "" && p.NetworkID != "" {
+			g.mu.Lock()
+			g.decided[p.NetworkID] = true
+			g.mu.Unlock()
 		}
+		// What an approved write was answered with tells whether it saved.
+		event.Outcome = OutcomeSent
+		g.mu.Lock()
+		g.sending[sessionID+"\x00"+p.RequestID] = event
+		g.mu.Unlock()
+		g.send(sessionID, "Fetch.continueRequest", map[string]any{"requestId": p.RequestID, "interceptResponse": true})
 		return
 	}
 	if req.ResourceType == resourceDocument {
@@ -451,17 +517,89 @@ func (g *gate) paused(sessionID string, params json.RawMessage) {
 	} else {
 		g.send(sessionID, "Fetch.failRequest", map[string]any{"requestId": p.RequestID, "errorReason": accessDenied})
 	}
-	g.keep(req, class, OutcomeBlocked)
+	event.Outcome = OutcomeBlocked
+	g.ledger.add(event)
 }
 
-// keep records a decided write.
-func (g *gate) keep(req request, class, outcome string) {
+// describe returns the event of a write.
+func (g *gate) describe(req request, class string) Event {
 	d := g.rules.describe(req)
-	g.ledger.add(Event{
+	return Event{
 		Kind: KindWrite, Method: req.Method, URL: d.URL, ResourceType: req.ResourceType,
-		Class: class, Outcome: outcome, Signature: d.Signature, ContentType: req.ContentType,
+		Class: class, Signature: d.Signature, ContentType: req.ContentType,
 		Fields: d.Fields, Body: d.Body, BodyBytes: req.BodyBytes,
-	})
+	}
+}
+
+// answered keeps a sent write with the answer it got, paused at the
+// response stage, and lets the answer through as soon as its body is read.
+func (g *gate) answered(sessionID string, p pausedRequest) {
+	key := sessionID + "\x00" + p.RequestID
+	g.mu.Lock()
+	event, ok := g.sending[key]
+	delete(g.sending, key)
+	g.mu.Unlock()
+	if p.ResponseErrorReason != "" {
+		g.send(sessionID, "Fetch.continueRequest", map[string]any{"requestId": p.RequestID})
+		if ok {
+			event.ResponseError = p.ResponseErrorReason
+			g.ledger.add(event)
+		}
+		return
+	}
+	if !ok {
+		g.send(sessionID, "Fetch.continueResponse", map[string]any{"requestId": p.RequestID})
+		return
+	}
+	event.Status = p.ResponseStatusCode
+	id := g.nextID.Add(1)
+	g.mu.Lock()
+	g.callbacks[id] = func(r reply) {
+		g.send(sessionID, "Fetch.continueResponse", map[string]any{"requestId": p.RequestID})
+		var body struct {
+			Body          string `json:"body"`
+			Base64Encoded bool   `json:"base64Encoded"`
+		}
+		if r.err == nil && json.Unmarshal(r.result, &body) == nil {
+			event.Response = g.rules.describeResponse(body.Body, body.Base64Encoded, contentType(p.ResponseHeaders))
+		}
+		g.ledger.add(event)
+	}
+	g.mu.Unlock()
+	if err := g.write(id, sessionID, "Fetch.getResponseBody", map[string]any{"requestId": p.RequestID}); err != nil {
+		g.mu.Lock()
+		delete(g.callbacks, id)
+		g.mu.Unlock()
+		g.send(sessionID, "Fetch.continueResponse", map[string]any{"requestId": p.RequestID})
+		g.ledger.add(event)
+	}
+}
+
+// allows reports whether the operation running may send a write of
+// signature.
+func (g *gate) allows(signature string) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.allowed[signature] && time.Now().Before(g.allowedUntil)
+}
+
+// allowance is what an operation may send while it runs.
+type allowance struct {
+	Signatures []string `json:"signatures"`
+	// Seconds bounds how long the operation may send them.
+	Seconds int `json:"seconds"`
+}
+
+func contentType(headers []struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}) string {
+	for _, header := range headers {
+		if strings.EqualFold(header.Name, "Content-Type") {
+			return header.Value
+		}
+	}
+	return ""
 }
 
 // attached watches a service worker or a shared worker of a site for the
@@ -515,6 +653,27 @@ func (g *gate) controls() http.Handler {
 		after, _ := strconv.ParseInt(r.URL.Query().Get(afterParam), 10, 64)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(g.ledger.after(after))
+	})
+	mux.HandleFunc("POST /"+beginPath, func(w http.ResponseWriter, r *http.Request) {
+		var a allowance
+		if err := json.NewDecoder(r.Body).Decode(&a); err != nil || a.Seconds <= 0 {
+			http.Error(w, "give the signatures and a positive number of seconds", http.StatusBadRequest)
+			return
+		}
+		allowed := map[string]bool{}
+		for _, signature := range a.Signatures {
+			allowed[signature] = true
+		}
+		g.mu.Lock()
+		g.allowed, g.allowedUntil = allowed, time.Now().Add(min(time.Duration(a.Seconds)*time.Second, maxLease))
+		g.mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("POST /"+endPath, func(w http.ResponseWriter, _ *http.Request) {
+		g.mu.Lock()
+		g.allowed, g.allowedUntil = nil, time.Time{}
+		g.mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("POST /"+personPath, func(w http.ResponseWriter, r *http.Request) {
 		on, err := strconv.ParseBool(r.URL.Query().Get(personParam))

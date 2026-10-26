@@ -125,6 +125,8 @@ func TestStricter(t *testing.T) {
 	assert.Equal(t, ModeRehearse, Stricter(ModeOff, ModeRehearse))
 	assert.Equal(t, ModeRehearse, Stricter(ModeRehearse, ModeOff))
 	assert.Equal(t, ModeOff, Stricter(ModeOff, ModeOff))
+	assert.Equal(t, ModeRecord, Stricter(ModeOff, ModeRecord))
+	assert.Equal(t, ModeRehearse, Stricter(ModeRecord, ModeRehearse))
 	_, err := ParseMode("loose")
 	assert.Error(t, err)
 }

@@ -171,13 +171,19 @@ func startBrowserOn(t *testing.T, profile string) *browser {
 // and returns where its controls are.
 func guard(t *testing.T, b *browser, policy writegate.Policy, secrets map[string]string) (string, context.CancelFunc, <-chan error) {
 	t.Helper()
+	return guardIn(t, b, writegate.ModeRehearse, policy, secrets)
+}
+
+// guardIn runs a gate in mode on the browser until the test ends.
+func guardIn(t *testing.T, b *browser, mode string, policy writegate.Policy, secrets map[string]string) (string, context.CancelFunc, <-chan error) {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	readyCh := make(chan writegate.Ready, 1)
 	done := make(chan error, 1)
 	token := "test-token"
 	go func() {
 		done <- writegate.Serve(ctx, writegate.Config{
-			Token: token, CDPURL: b.cdpURL, Mode: writegate.ModeRehearse, Policy: policy, Secrets: secrets,
+			Token: token, CDPURL: b.cdpURL, Mode: mode, Policy: policy, Secrets: secrets,
 			ExtensionDir: filepath.Join(b.profile, "DaguWriteGate"),
 		}, func(r writegate.Ready) { readyCh <- r })
 	}()
@@ -514,4 +520,67 @@ func extensionNames(t *testing.T, b *browser) []string {
 		names = append(names, e.Name)
 	}
 	return names
+}
+
+// In record mode the gate sends only the writes the operation running may
+// send, while it runs, and keeps each with its answer.
+func TestGateRecordSendsWhatTheOperationMay(t *testing.T) {
+	t.Parallel()
+
+	s := startSite(t)
+	b := startBrowser(t)
+	controls, _, _ := guardIn(t, b, writegate.ModeRecord, writegate.Policy{}, nil)
+	p := openPage(t, b)
+	p.goTo(s.URL + "/")
+
+	assert.Contains(t, p.eval(`post('/w/save')`), "error", "no operation runs, so nothing is sent")
+	blocked, ok := find(events(t, controls), "/w/save")
+	require.True(t, ok)
+	require.NoError(t, writegate.Begin(t.Context(), controls, []string{blocked.Signature}, time.Minute))
+	assert.Equal(t, "ok 200", p.eval(`post('/w/save')`))
+	assert.Contains(t, p.eval(`post('/w/other')`), "error", "a write the operation may not send is blocked")
+	require.NoError(t, writegate.End(t.Context(), controls))
+	assert.Contains(t, p.eval(`post('/w/save')`), "error", "the operation ended")
+	require.NoError(t, writegate.Begin(t.Context(), controls, []string{blocked.Signature}, time.Second))
+	time.Sleep(1500 * time.Millisecond)
+	assert.Contains(t, p.eval(`post('/w/save')`), "error", "the lease ended")
+
+	assert.Equal(t, map[string]int{"/w/save": 1}, s.written())
+	var outcomes []string
+	var sent writegate.Event
+	for _, e := range events(t, controls) {
+		outcomes = append(outcomes, strings.TrimPrefix(e.URL, s.URL)+" "+e.Class+" "+e.Outcome)
+		if e.Outcome == writegate.OutcomeSent {
+			sent = e
+		}
+	}
+	assert.Equal(t, []string{
+		"/w/save write blocked", "/w/save approved sent", "/w/other write blocked", "/w/save write blocked", "/w/save write blocked",
+	}, outcomes)
+	assert.Equal(t, 200, sent.Status)
+	assert.Equal(t, `{"ok":true}`, sent.Response)
+}
+
+// A page armed on its own target, and then on the browser target once it
+// loads another document, has each write kept once.
+func TestGateKeepsEachWriteOnce(t *testing.T) {
+	t.Parallel()
+
+	s := startSite(t)
+	b := startBrowser(t)
+	p := openPage(t, b)
+	p.goTo(s.URL + "/")
+	policy := writegate.Policy{SignIn: []writegate.Rule{{Host: "127.0.0.1", Path: "/w/session"}}}
+	controls, _, _ := guard(t, b, policy, nil)
+	p.goTo(s.URL + "/?again")
+
+	assert.Equal(t, "ok 200", p.eval(`post('/w/session')`))
+	assert.Contains(t, p.eval(`post('/w/save')`), "error")
+	require.Eventually(t, func() bool { return len(events(t, controls)) >= 2 }, 5*time.Second, 50*time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
+	list := events(t, controls)
+	require.Len(t, list, 2, "%+v", list)
+	assert.Equal(t, writegate.ClassSignIn, list[0].Class)
+	assert.Equal(t, 200, list[0].Status)
+	assert.True(t, list[1].Consequential())
 }

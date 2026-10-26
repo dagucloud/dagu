@@ -5,6 +5,7 @@ package writegate
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"mime"
 	"mime/multipart"
@@ -151,6 +152,17 @@ func (r *rules) describe(req request) description {
 		Fields:    fields,
 		Signature: signature(req.Method, u, fields, discriminators),
 	}
+}
+
+// describeResponse returns the start of an answer's body, with sensitive
+// values hidden.
+func (r *rules) describeResponse(body string, base64Encoded bool, contentType string) string {
+	data := []byte(body)
+	if base64Encoded {
+		// A cut body ends inside a group of four.
+		data, _ = base64.StdEncoding.DecodeString(body[:len(body)/4*4])
+	}
+	return r.masker.MaskString(strings.ToValidUTF8(string(maskBody(contentType, data)), "\uFFFD"))
 }
 
 // sensitiveWords are the words of a field name whose value is always
