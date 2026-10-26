@@ -358,8 +358,10 @@ or the whole display where the system named none, to look as recorded.
 `with.input`, or `act.input` for one act, says how a replayed action
 reaches the application. `screen`, the default, sends the pointer and keys
 as the model did; a click the model carried out through the element itself,
-as when it opened a combo box, replays the same way under either input,
-since a click at the element's centre may not do what the pattern did.
+as it does on a button, replays the same way under either input, since a
+click at the element's centre may not reach what the pattern did. A click
+the model aims at a combo box lands on it as a person's click does, opening
+one that only offers a list and putting the caret in one that takes typing.
 `direct` has the element act itself through its
 automation pattern, which moves no pointer and needs no window in front: a
 plain click on a `button`, `menu_item`, `link`, or a control of role

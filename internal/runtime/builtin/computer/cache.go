@@ -136,8 +136,9 @@ type recordedAction struct {
 	// state after.
 	Checked *bool `json:"checked,omitempty"`
 	// Invoked marks a click the act carried out through the element itself,
-	// which a replay carries out the same way: opening a combo box is not
-	// what a click at its centre does.
+	// which a replay carries out the same way rather than at the element's
+	// centre, where the pointer may not reach what the element's pattern
+	// did.
 	Invoked bool `json:"invoked,omitempty"`
 }
 

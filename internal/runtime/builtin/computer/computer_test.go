@@ -3660,24 +3660,41 @@ func TestModelFocusesFieldElement(t *testing.T) {
 	assert.Equal(t, []string{"focus amountBox"}, run.backend.inputs(), "the field takes the focus, no pixel click")
 }
 
-// A combo box the model opened through its element opens the same way when
-// the act replays, as the act did, rather than by a click at its centre,
-// which on macOS only puts the caret in its field.
-func TestReplayOpensAComboBoxAsTheActDid(t *testing.T) {
+// A click the act carried out through an element's pattern replays through
+// it under the default screen input too, as the act did, rather than as a
+// click at the element's centre.
+func TestReplayInvokesAnElementAsTheActDid(t *testing.T) {
+	t.Parallel()
+
+	run := elementRun(t)
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{
+		actions(computeruse.Action{CallID: "x", Kind: computeruse.KindClick, ElementID: "e1"}),
+		done("Saved"),
+	}}}
+	require.NoError(t, run.execute(`{"idle": "0", "do": [{"act": "Save the form"}]}`, nil).err)
+	require.Equal(t, []string{"invoke saveButton"}, run.backend.inputs(), "the act invokes the button")
+
+	run.backend.events = nil
+	require.NoError(t, run.execute(`{"ai": "never", "idle": "0", "do": [{"act": "Save the form"}]}`, nil).err)
+	assert.Equal(t, []string{"invoke saveButton"}, run.backend.inputs(), "the replay invokes it the same way")
+}
+
+// A click the model aims at a combo box lands on it, as a person's click
+// would, rather than opening its list: in a combo box that takes typing it
+// puts the caret in the field, so the typing that follows goes there.
+func TestModelClickOnAComboBoxClicksIt(t *testing.T) {
 	t.Parallel()
 
 	run := elementRun(t)
 	run.elements.elements[2] = desktop.Element{Role: desktop.RoleComboBox, Name: "品目", ID: "itemBox", Bounds: image.Rect(190, 140, 390, 164), Path: []desktop.PathStep{{Role: desktop.RoleComboBox, Name: "品目", Index: 0}}}
 	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{
 		actions(computeruse.Action{CallID: "x", Kind: computeruse.KindClick, ElementID: "e1"}),
-		done("Opened the item list"),
+		done("Clicked the item box"),
 	}}}
-	require.NoError(t, run.execute(`{"idle": "0", "do": [{"act": "Open the item list"}]}`, nil).err)
-	require.Equal(t, []string{"expand itemBox"}, run.backend.inputs(), "the act opens the box through its element")
+	require.NoError(t, run.execute(`{"idle": "0", "do": [{"act": "Click the item box"}]}`, nil).err)
 
-	run.backend.events = nil
-	require.NoError(t, run.execute(`{"ai": "never", "idle": "0", "do": [{"act": "Open the item list"}]}`, nil).err)
-	assert.Equal(t, []string{"expand itemBox"}, run.backend.inputs(), "the replay opens it the same way")
+	// e1 is the 品目 box at (190,140)-(390,164); its centre is 290,152.
+	assert.Equal(t, []string{"move 290,152", "left down #1"}, run.backend.inputs())
 }
 
 // An element that offers no pattern for the click, such as a custom control,

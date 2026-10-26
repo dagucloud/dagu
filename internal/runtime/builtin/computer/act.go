@@ -519,11 +519,12 @@ func elementAction(action computeruse.Action, role string) (pattern desktop.Patt
 		return desktop.PatternToggle, false, true
 	case desktop.RoleRadio, desktop.RoleListItem, desktop.RoleTab, desktop.RoleCell:
 		return desktop.PatternSelect, false, true
-	case desktop.RoleComboBox:
-		return desktop.PatternExpand, false, true
 	case desktop.RoleTextField:
 		return "", true, true
 	}
+	// A combo box is clicked where it is, as a person would: a click opens
+	// one that only offers a list, and puts the caret in one that takes
+	// typing, where opening its list would take the typing instead.
 	return "", false, false
 }
 
