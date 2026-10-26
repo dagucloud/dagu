@@ -142,6 +142,8 @@ type LLMConfig struct {
 	ObservationKeepRecent *int `json:"observationKeepRecent,omitempty"`
 	// WebSearch configures provider-native web search.
 	WebSearch *WebSearchConfig `json:"webSearch,omitempty"`
+	// Files names the files the model reads with the prompt.
+	Files []string `json:"files,omitempty"`
 }
 
 // PromptMessage represents an authored message used to initialize an LLM session.

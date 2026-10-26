@@ -4,6 +4,7 @@
 package spec
 
 import (
+	"context"
 	"testing"
 
 	"github.com/goccy/go-yaml"
@@ -164,4 +165,50 @@ model:
 			}
 		})
 	}
+}
+
+func TestChatFiles(t *testing.T) {
+	t.Parallel()
+
+	t.Run("one or several", func(t *testing.T) {
+		t.Parallel()
+		dag, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: one
+    action: chat.completion
+    with:
+      provider: openai
+      model: gpt-4o
+      prompt: Read the invoice.
+      files: invoices/*.pdf
+  - id: several
+    action: chat.completion
+    with:
+      provider: openai
+      model: gpt-4o
+      prompt: Read them.
+      files:
+        - receipt.png
+        - ${steps.find.outputs.messages}
+`))
+		require.NoError(t, err)
+		assert.Equal(t, []string{"invoices/*.pdf"}, dag.Steps[0].LLM.Files)
+		assert.Equal(t, []string{"receipt.png", "${steps.find.outputs.messages}"}, dag.Steps[1].LLM.Files)
+	})
+
+	t.Run("not at the DAG level", func(t *testing.T) {
+		t.Parallel()
+		_, err := LoadYAML(context.Background(), []byte(`
+llm:
+  provider: openai
+  model: gpt-4o
+  files: invoice.pdf
+steps:
+  - id: ask
+    action: chat.completion
+    with:
+      prompt: Read it.
+`))
+		require.ErrorContains(t, err, "files is set on a chat.completion step, under with")
+	})
 }

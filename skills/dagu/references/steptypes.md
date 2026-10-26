@@ -1144,7 +1144,36 @@ steps:
 
 ## chat.completion
 
-Send a prompt to a model and print the reply. `with.prompt` (or `with.messages`) is required; every other `with` key (`provider`, `model`, `system`, `tools`, `max_tool_iterations`, `stream`, `thinking`, `web_search`) configures the model and replaces the DAG-level `llm` block entirely. `with.model` can be a list of `{provider, name}` entries tried in order.
+Send a prompt to a model and print the reply. `with.prompt` (or `with.messages`) is required; every other `with` key (`provider`, `model`, `system`, `tools`, `max_tool_iterations`, `stream`, `thinking`, `web_search`, `files`) configures the model and replaces the DAG-level `llm` block entirely. `with.model` can be a list of `{provider, name}` entries tried in order.
+
+`with.files` gives the model files to read with the prompt: a path or glob pattern, a list of them, or a list an earlier step published, such as the emails `mail.search` found with `save_attachments: true`. PDF, Word (`.docx`), Excel (`.xlsx`) and text files go as text ahead of the prompt, each in a `<file name="…">` block; images go as images, scaled down to fit a model; and a PDF page without text, such as a scan, goes as an image too. Up to 50 MB a file, 1,000,000 characters of text and 50 images a step. Read a document into typed values with `output_schema`:
+
+```yaml
+steps:
+  - id: find
+    action: mail.search
+    with:
+      mailbox: billing@example.com
+      unread: true
+      has_attachments: true
+      save_attachments: true
+
+  - id: read
+    action: chat.completion
+    depends: find
+    with:
+      provider: anthropic
+      model: claude-sonnet-4-6
+      prompt: Read the invoice and give its number, date, and total.
+      files: ${steps.find.outputs.messages}
+    output_schema:
+      type: object
+      properties:
+        number: {type: string}
+        date: {type: string}
+        total: {type: number}
+      required: [number]
+```
 
 Add a step-level `output_schema` when later steps need typed values instead of free text:
 

@@ -6677,6 +6677,9 @@
         "web_search": {
           "$ref": "#/definitions/webSearchConfig",
           "description": "Provider-native web search configuration. Supported by Anthropic, Gemini, and OpenRouter."
+        },
+        "files": {
+          "$ref": "#/definitions/modelFiles"
         }
       },
       "description": "LLM configuration. Supports OpenAI, Anthropic, Google Gemini, OpenRouter, and local models (Ollama/vLLM)."
@@ -7693,9 +7696,19 @@
             "$ref": "#/definitions/llmMessage"
           },
           "description": "Explicit chat messages."
+        },
+        "files": {
+          "$ref": "#/definitions/modelFiles"
         }
       },
       "description": "Configuration for action: chat.completion."
+    },
+    "modelFiles": {
+      "oneOf": [
+        { "type": "string", "minLength": 1 },
+        { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+      ],
+      "description": "Files the model reads with the prompt: paths or glob patterns, one per entry or per line, or a list an earlier step published, such as the emails mail.search found with their attachments saved. PDF, Word (.docx), Excel (.xlsx) and text files are given as text, images as images, and a PDF page without text as an image."
     },
     "browserExtractActionConfig": {
       "type": "object",

@@ -220,7 +220,7 @@ func (e *Executor) SetContext(messages []ir.LLMMessage) {
 // GetMessages returns the complete session messages after execution.
 // This includes inherited messages, step messages, and the assistant response.
 func (e *Executor) GetMessages() []ir.LLMMessage {
-	return e.savedMessages
+	return withoutImages(e.savedMessages)
 }
 
 func (e *Executor) SetPushBackContext(inputs map[string]string, iteration int) {
@@ -269,6 +269,13 @@ func (e *Executor) executionMessages(ctx context.Context) ([]ir.LLMMessage, erro
 		return nil, err
 	}
 	if e.pushBackIteration == 0 {
+		// A push-back resends the feedback alone: the files' text is already
+		// in the conversation, and their images went with the first request.
+		if e.step.LLM != nil {
+			if err := attachFiles(ctx, e.step.LLM.Files, evaluatedMessages); err != nil {
+				return nil, err
+			}
+		}
 		return buildMessageList(evaluatedMessages, e.contextMessages), nil
 	}
 
@@ -320,6 +327,9 @@ func toLLMMessages(msgs []ir.LLMMessage) []llmpkg.Message {
 			Role:       llmpkg.Role(msg.Role),
 			Content:    msg.Content,
 			ToolCallID: msg.ToolCallID,
+		}
+		for _, image := range msg.Images {
+			result[i].Images = append(result[i].Images, llmpkg.Image{MediaType: image.MediaType, Data: image.Data})
 		}
 		// Convert tool calls if present
 		if len(msg.ToolCalls) > 0 {
