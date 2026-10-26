@@ -18,11 +18,15 @@ import (
 )
 
 const (
+	// browserExitTimeout is how long a browser asked to close gets to finish
+	// writing its profile before it is ended. A graceful Chrome shutdown can
+	// take tens of seconds on a loaded Windows machine.
+	browserExitTimeout = 20 * time.Second
 	// helperExitGrace is how long the browser's helpers get to leave on their
 	// own after the browser has gone before they are ended.
 	helperExitGrace = 2 * time.Second
-	// helperExitTimeout bounds the wait for the browser and its helpers after
-	// the runtime has closed the browser.
+	// helperExitTimeout bounds the wait for the helpers after the browser has
+	// gone.
 	helperExitTimeout = 10 * time.Second
 	// treeProcessAccess is the access the tree needs to a process: to read
 	// its parent and start time, to wait for its exit, and to end it.
@@ -37,6 +41,9 @@ const (
 // the same process until it is ended or released.
 type browserProcessTree struct {
 	members []treeProcess
+	// browserExit is how long the browser gets to exit on its own once the
+	// runtime has closed it.
+	browserExit time.Duration
 }
 
 // treeProcess is one process held by the tree.
@@ -51,14 +58,12 @@ type treeProcess struct {
 // nothing can be tracked: a browser whose start time is unknown, because its
 // ID cannot be told from a reused one, or an ID that a later process has
 // taken. When the browser has already exited, the helpers it left behind are
-// still recorded: those started under its ID after it did. The browser itself
-// is waited for but never ended here, so a browser still writing its profile
-// after the runtime returns finishes on its own.
+// still recorded: those started under its ID after it did.
 func recordBrowserProcessTree(pid int, startedAt int64) *browserProcessTree {
 	if startedAt <= 0 {
 		return nil
 	}
-	tree := &browserProcessTree{}
+	tree := &browserProcessTree{browserExit: browserExitTimeout}
 	if handle, ok := openProcess(pid); ok {
 		actual, known := procutil.HandleStartTime(handle)
 		if !known || actual != startedAt {
@@ -170,21 +175,30 @@ func (t *browserProcessTree) browserRunning() bool {
 }
 
 // awaitExit waits for the recorded processes to exit after the runtime has
-// closed the browser. The runtime ends the tree it finds at that moment, so
-// a helper whose parent exited first can be left behind; helpers still
-// running helperExitGrace after the browser has gone are ended here.
+// closed the browser. A launched browser's tree is ended by the runtime, but
+// a reattached one is only asked to close, so the browser gets browserExit
+// to finish writing its profile and is ended after that. The runtime ends
+// the tree it finds when it closes, so a helper whose parent exited first can
+// be left behind; helpers still running helperExitGrace after the browser
+// has gone are ended here.
 func (t *browserProcessTree) awaitExit(ctx context.Context) error {
 	ticker := time.NewTicker(exitPollInterval)
 	defer ticker.Stop()
 	grace := time.After(helperExitGrace)
-	timeout := time.After(helperExitTimeout)
+	browserDeadline := time.After(t.browserExit)
+	// The helpers' bound starts once the browser has gone.
+	var timeout <-chan time.Time
 	graceOver, helpersEnded := false, false
 	for {
 		if t.exited() {
 			return nil
 		}
-		if graceOver && !helpersEnded && !t.browserRunning() {
-			t.endHelpers()
+		browserGone := !t.browserRunning()
+		if browserGone && timeout == nil {
+			timeout = time.After(helperExitTimeout)
+		}
+		if graceOver && !helpersEnded && browserGone {
+			t.end(false)
 			helpersEnded = true
 		}
 		select {
@@ -193,6 +207,9 @@ func (t *browserProcessTree) awaitExit(ctx context.Context) error {
 		case <-grace:
 			graceOver = true
 			grace = nil
+		case <-browserDeadline:
+			t.end(true)
+			browserDeadline = nil
 		case <-timeout:
 			return fmt.Errorf("browser processes still running: %v", t.running())
 		case <-ticker.C:
@@ -200,11 +217,11 @@ func (t *browserProcessTree) awaitExit(ctx context.Context) error {
 	}
 }
 
-// endHelpers ends every recorded helper that is still running, through the
-// handle that has held it since it was recorded.
-func (t *browserProcessTree) endHelpers() {
+// end ends the recorded browser, or else every recorded helper, that is
+// still running, through the handle that has held it since it was recorded.
+func (t *browserProcessTree) end(browser bool) {
 	for _, member := range t.members {
-		if !member.browser && procutil.HandleIsAlive(member.handle) {
+		if member.browser == browser && procutil.HandleIsAlive(member.handle) {
 			_ = windows.TerminateProcess(member.handle, 1)
 		}
 	}
