@@ -413,12 +413,13 @@ func TestGateCutsLargeBodies(t *testing.T) {
 	p := openPage(t, b)
 	p.goTo(s.URL + "/")
 
-	assert.Contains(t, p.eval(`post('/w/large', {body: new Blob([new Uint8Array(30 << 20)])})`), "error")
+	// Its message is several times the 16 MiB a capped connection reads.
+	assert.Contains(t, p.eval(`post('/w/large', {body: new Blob(['x'.repeat(20 << 20)])})`), "error")
 	assert.Contains(t, p.eval(`post('/w/next')`), "error", "the gate still decides after a large body")
 	assert.Empty(t, s.written())
 	large, ok := find(events(t, controls), "/w/large")
 	require.True(t, ok)
-	assert.Equal(t, int64(30<<20), large.BodyBytes)
+	assert.Equal(t, int64(20<<20), large.BodyBytes)
 	assert.LessOrEqual(t, len(large.Body), 3*writegate.DefaultBodyLimit)
 }
 

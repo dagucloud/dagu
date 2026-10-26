@@ -140,22 +140,19 @@ func (c *cutter) copyString() ([]byte, error) {
 func (c *cutter) cutString() error {
 	c.out.WriteByte('"')
 	kept, size := 0, int64(0)
-	for {
+	for kept < c.limit {
 		b, err := c.in.ReadByte()
 		if err != nil {
 			return errUnterminated
 		}
 		if b == '"' {
-			// The closing quote, then the size as a key of its own.
-			c.out.WriteString(`","` + postDataSizeKey + `":` + strconv.FormatInt(size, 10))
+			c.writeSize(size)
 			return nil
 		}
 		size++
 		if b != '\\' {
-			if kept < c.limit {
-				c.out.WriteByte(b)
-				kept++
-			}
+			c.out.WriteByte(b)
+			kept++
 			continue
 		}
 		escape := []byte{b, 0}
@@ -169,34 +166,84 @@ func (c *cutter) cutString() error {
 			}
 			escape = append(escape, hex...)
 		}
-		if kept+len(escape) <= c.limit {
-			c.out.Write(escape)
-			kept += len(escape)
-		} else {
-			kept = c.limit
+		if kept+len(escape) > c.limit {
+			break
+		}
+		c.out.Write(escape)
+		kept += len(escape)
+	}
+	rest, err := c.skipString()
+	if err != nil {
+		return err
+	}
+	c.writeSize(size + rest)
+	return nil
+}
+
+// writeSize closes a cut string and adds the size of the whole string as a
+// key of its own.
+func (c *cutter) writeSize(size int64) {
+	c.out.WriteString(`","` + postDataSizeKey + `":` + strconv.FormatInt(size, 10))
+}
+
+// skipString skips the rest of a string, through its closing quote, a
+// buffer at a time, and returns its size, counting each escape as one
+// byte.
+func (c *cutter) skipString() (int64, error) {
+	var size int64
+	afterBackslash, hexLeft := false, 0
+	for {
+		chunk, err := c.in.ReadSlice('"')
+		if err != nil && !errors.Is(err, bufio.ErrBufferFull) {
+			return size, errUnterminated
+		}
+		for i := 0; i < len(chunk); {
+			switch {
+			case hexLeft > 0:
+				n := min(hexLeft, len(chunk)-i)
+				i += n
+				hexLeft -= n
+			case afterBackslash:
+				afterBackslash = false
+				if chunk[i] == 'u' {
+					hexLeft = 4
+				}
+				i++
+			default:
+				j := bytes.IndexAny(chunk[i:], `\"`)
+				if j < 0 {
+					size += int64(len(chunk) - i)
+					i = len(chunk)
+					continue
+				}
+				size += int64(j)
+				i += j
+				if chunk[i] == '"' {
+					return size, nil
+				}
+				size++
+				afterBackslash = true
+				i++
+			}
 		}
 	}
 }
 
 // skipArray skips the rest of an array whose opening bracket was read.
 func (c *cutter) skipArray() error {
-	depth := 1
-	inString := false
-	for depth > 0 {
+	for depth := 1; depth > 0; {
 		b, err := c.in.ReadByte()
 		if err != nil {
 			return errUnterminated
 		}
-		switch {
-		case inString && b == '\\':
-			if _, err := c.in.ReadByte(); err != nil {
-				return errUnterminated
+		switch b {
+		case '"':
+			if _, err := c.skipString(); err != nil {
+				return err
 			}
-		case b == '"':
-			inString = !inString
-		case !inString && (b == '[' || b == '{'):
+		case '[', '{':
 			depth++
-		case !inString && (b == ']' || b == '}'):
+		case ']', '}':
 			depth--
 		}
 	}

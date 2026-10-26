@@ -75,3 +75,17 @@ func TestCutMessageRejectsATruncatedMessage(t *testing.T) {
 	_, err := cutMessage(strings.NewReader(`{"params":{"request":{"postData":"abc`), 10)
 	assert.ErrorIs(t, err, errUnterminated)
 }
+
+// A body larger than the reader's buffer is skipped a buffer at a time,
+// escapes included, however they fall across buffers.
+func TestCutMessageSkipsALargeBody(t *testing.T) {
+	t.Parallel()
+
+	body := strings.Repeat(`ab\u0000\"`, 50_000)
+	message := `{"params":{"request":{"postData":"` + body + `","postDataEntries":[{"bytes":"` + strings.Repeat("QUJD", 100_000) + `"}],"url":"https://x/"},"requestId":"r9"}}`
+	got := cut(t, message, 8)
+	assert.Equal(t, "ab\x00", got.Params.Request.PostData, "the escape after the limit is left out whole")
+	assert.Equal(t, int64(4*50_000), got.Params.Request.PostDataSize)
+	assert.Equal(t, "https://x/", got.Params.Request.URL)
+	assert.Equal(t, "r9", got.Params.RequestID)
+}
