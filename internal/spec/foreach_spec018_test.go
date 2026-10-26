@@ -94,6 +94,116 @@ steps:
 	require.Empty(t, result.ValueReferenceNotices)
 }
 
+// Text that only resembles an item field without the foreach namespace keeps
+// loading: shell variables, names the DAG defines for ${name.path} lookup,
+// escaped text, and scripts passed to their executor as written.
+func TestForeachSpec018AcceptsItemLikeReferences(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		yaml string
+	}{
+		{
+			name: "shell variables",
+			yaml: `
+steps:
+  - foreach:
+      items: [one]
+      steps:
+        - run: for item in a b; do echo "${item}" $item.txt; done`,
+		},
+		{
+			name: "param",
+			yaml: `
+params:
+  - item: '{"wallet":"A"}'
+steps:
+  - foreach:
+      items: [one]
+      steps:
+        - run: echo "${item.wallet}"`,
+		},
+		{
+			name: "env",
+			yaml: `
+env:
+  - item: '{"wallet":"A"}'
+steps:
+  - foreach:
+      items: [one]
+      steps:
+        - run: echo "${item.wallet}"`,
+		},
+		{
+			name: "output variable",
+			yaml: `
+steps:
+  - foreach:
+      items: [one]
+      steps:
+        - id: plan
+          run: echo '{"wallet":"A"}'
+          output: item
+        - depends: [plan]
+          run: echo "${item.wallet}"`,
+		},
+		{
+			name: "parallel item",
+			yaml: `
+steps:
+  - foreach:
+      items: [one]
+      as: ITEM
+      steps:
+        - action: dag.run
+          with:
+            dag: child
+            params:
+              account: ${ITEM.account}
+          parallel:
+            items:
+              - account: a`,
+		},
+		{
+			name: "escaped",
+			yaml: `
+steps:
+  - foreach:
+      items: [one]
+      steps:
+        - action: js.run
+          with:
+            input: '\${item.wallet}'
+            script: return input;`,
+		},
+		{
+			name: "verbatim script",
+			yaml: `
+steps:
+  - foreach:
+      items: [{wallet: A}]
+      steps:
+        - action: js.run
+          with:
+            input: ${foreach.item}
+            script: |
+              const item = input;
+              return ` + "`${item.wallet}`" + `;`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := spec.LoadYAML(context.Background(), []byte(strings.TrimSpace(tt.yaml)),
+				spec.SkipSchemaValidation(), spec.WithoutEval())
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestForeachSpec018Validation(t *testing.T) {
 	t.Parallel()
 
@@ -148,6 +258,40 @@ func TestForeachSpec018Validation(t *testing.T) {
       collect:
         value: 1`,
 			wantParts: []string{"foreach.collect", "string"},
+		},
+		{
+			name: "rejects item field without foreach namespace",
+			body: `
+    foreach:
+      items: [{wallet: A}]
+      steps:
+        - action: js.run
+          with:
+            input:
+              wallet: ${item.wallet}
+            script: return input.wallet;`,
+			wantParts: []string{
+				"steps[0].foreach.steps[0].with.input.wallet",
+				"${item.wallet} does not reference the foreach item; use ${foreach.item.wallet}",
+			},
+		},
+		{
+			name: "rejects aliased item field in item scope fields",
+			body: `
+    foreach:
+      items: [{id: a}]
+      as: row
+      key: ${row.id}
+      steps:
+        - run: echo "${row.id}"
+      collect:
+        id: ${row.id}`,
+			wantParts: []string{
+				"steps[0].foreach.key",
+				"steps[0].foreach.steps[0].run",
+				"steps[0].foreach.collect.id",
+				"use ${foreach.row.id}",
+			},
 		},
 	}
 

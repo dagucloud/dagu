@@ -238,6 +238,22 @@ func HasStepRuntimeOutputReference(raw, stepID string) bool {
 	return false
 }
 
+// UnqualifiedItemFieldReferences returns each unescaped ${alias.field} token in
+// raw: a foreach item field written without the foreach namespace. Only fields
+// that ${foreach.alias.field} accepts unquoted are reported.
+func UnqualifiedItemFieldReferences(raw, alias string) []string {
+	var tokens []string
+	for _, ref := range scanReferences(raw) {
+		if ref.Kind != referenceEval || !ref.Braced || ref.Raw != "${"+ref.Expr+"}" {
+			continue
+		}
+		if len(ref.Segments) == 2 && ref.Segments[0] == alias && validItemFieldSegment(ref.Segments[1]) {
+			tokens = append(tokens, ref.Raw)
+		}
+	}
+	return tokens
+}
+
 func isStepRuntimeOutputPath(path string) bool {
 	if strings.HasPrefix(path, ".output.") || strings.HasPrefix(path, ".output[") ||
 		strings.HasPrefix(path, ".outputs.") || strings.HasPrefix(path, ".outputs[") {

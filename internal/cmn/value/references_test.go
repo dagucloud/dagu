@@ -117,6 +117,27 @@ func TestHasStepRuntimeOutputReference(t *testing.T) {
 	}
 }
 
+func TestUnqualifiedItemFieldReferences(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t,
+		[]string{"${item.wallet}", "${item._row}", "${item.名前}"},
+		value.UnqualifiedItemFieldReferences(`echo "${item.wallet}" ${item._row} ${item.名前}`, "item"))
+
+	for _, input := range []string{
+		"${item}",
+		"$item.txt",
+		`\${item.wallet}`,
+		"${item:-a.b}",
+		"${item.a.b}",
+		"${ item.wallet }",
+		"${foreach.item.wallet}",
+		"${row.wallet}",
+	} {
+		assert.Empty(t, value.UnqualifiedItemFieldReferences(input, "item"), input)
+	}
+}
+
 func TestHasReferenceToNamespace(t *testing.T) {
 	t.Parallel()
 

@@ -31,6 +31,9 @@ type ReferenceField struct {
 	// owns the field, including fields of foreach body steps. It is -1 for
 	// DAG-level and handler fields.
 	topLevelStepIndex int
+	// itemAlias is the foreach.as alias of the item scope the field resolves
+	// with. It is empty outside item scope.
+	itemAlias string
 }
 
 type referenceFieldWalker struct {
@@ -38,6 +41,8 @@ type referenceFieldWalker struct {
 	// topLevelStepIndex is stamped on every field added while walking a
 	// top-level step and its foreach bodies.
 	topLevelStepIndex int
+	// itemAlias is stamped on every field added inside a foreach item scope.
+	itemAlias string
 }
 
 func ReferenceFields(dag *ir.DAG) []ReferenceField {
@@ -51,6 +56,7 @@ func (w *referenceFieldWalker) add(field ReferenceField) {
 		return
 	}
 	field.topLevelStepIndex = w.topLevelStepIndex
+	field.itemAlias = w.itemAlias
 	w.fields = append(w.fields, field)
 }
 
@@ -301,6 +307,11 @@ func (w *referenceFieldWalker) walkParallel(path string, parallel *ir.ParallelCo
 func (w *referenceFieldWalker) walkForeach(path string, foreach *ir.ForeachConfig, base ReferenceField) {
 	w.add(base.withPathValue(path+".items", foreach.ItemsExpr).withField(cmnvalue.WorkflowField(path + ".items")))
 	w.walkStringLeaves(path+".items", foreach.Items, base.withField(cmnvalue.WorkflowField(path+".items")))
+	// Key, body, and collect fields resolve with this item scope, which
+	// replaces an enclosing one.
+	outerAlias := w.itemAlias
+	w.itemAlias = foreach.As
+	defer func() { w.itemAlias = outerAlias }()
 	w.add(base.withPathValue(path+".key", foreach.Key).withField(cmnvalue.WorkflowField(path + ".key")))
 	for i, step := range foreach.Steps {
 		w.walkStep(fmt.Sprintf("%s.steps[%d]", path, i), step)
