@@ -6423,7 +6423,7 @@ export interface components {
         StepModelUsage: {
             models?: components["schemas"]["ModelUsage"][];
         };
-        /** @description What every step of a DAG-run, its handlers included, used on models */
+        /** @description What every step of a DAG-run, its handlers included, used on models. A run recorded by an engine that records model usage always has it, with no models when the run used none; a run recorded before has it only when its steps report usage. */
         RunModelUsage: {
             /** @description Usage of each model the run called */
             models?: components["schemas"]["ModelUsage"][];

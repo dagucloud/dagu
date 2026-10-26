@@ -133,7 +133,10 @@ func TestToDAGRunDetailsIncludesModelUsage(t *testing.T) {
 	assert.Equal(t, int64(400), *total.InputTokens)
 	assert.Equal(t, int64(2), *total.CostReportedCalls, "the handler's call reported no cost")
 
-	assert.Nil(t, ToDAGRunDetails(ir.DAGRunStatus{Name: "test-dag", DAGRunID: "run-2"}).ModelUsage)
+	assert.Nil(t, ToDAGRunDetails(ir.DAGRunStatus{Name: "test-dag", DAGRunID: "run-2"}).ModelUsage, "recorded before the engine recorded usage")
+	none := ToDAGRunDetails(ir.DAGRunStatus{Name: "test-dag", DAGRunID: "run-3", ModelUsageRecorded: true}).ModelUsage
+	require.NotNil(t, none, "a run that used no model says so")
+	assert.Nil(t, none.Models)
 }
 
 func TestToDAGRunDetailsIncludesAttemptID(t *testing.T) {

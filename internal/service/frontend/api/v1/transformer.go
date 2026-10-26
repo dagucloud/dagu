@@ -473,14 +473,20 @@ func ToDAGRunDetails(s ir.DAGRunStatus) api.DAGRunDetails {
 		OnWait:                 ptrOf(toNode(s.OnWait)),
 		Labels:                 &s.Labels,
 		Tags:                   &s.Labels,
-		ModelUsage:             toRunModelUsage(s.ModelUsageTotal()),
+		ModelUsage:             toRunModelUsage(s),
 	}
 }
 
-// toRunModelUsage maps what a run used on models, or nil when it used none.
-func toRunModelUsage(usage []ir.ModelUsage) *api.RunModelUsage {
+// toRunModelUsage maps what a run used on models. A run recorded by an
+// engine that records usage always has it, empty when the run used no
+// model; one recorded before has it only when its steps report some.
+func toRunModelUsage(s ir.DAGRunStatus) *api.RunModelUsage {
+	usage := s.ModelUsageTotal()
 	if len(usage) == 0 {
-		return nil
+		if !s.ModelUsageRecorded {
+			return nil
+		}
+		return &api.RunModelUsage{}
 	}
 	return &api.RunModelUsage{Models: ptrOf(toModelUsage(usage))}
 }

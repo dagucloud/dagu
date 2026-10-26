@@ -43,6 +43,7 @@ func InitialStatus(dag *DAG) DAGRunStatus {
 	return DAGRunStatus{
 		Name:                 dag.Name,
 		Status:               NotStarted,
+		ModelUsageRecorded:   true,
 		PID:                  PID(0),
 		Nodes:                NewNodesFromSteps(dag.Steps),
 		OnInit:               newNodeOrNil(dag.HandlerOn.Init),
@@ -203,25 +204,29 @@ type DAGRunStatus struct {
 	TriggerActor string            `json:"triggerActor,omitempty"`
 	// Resume marks a queued checkpoint resume. Retry planning honors it only
 	// while the attempt is queued, so retries of finished runs reset as usual.
-	Resume         bool                   `json:"resume,omitempty"`
-	WorkerID       string                 `json:"workerId,omitempty"`
-	PID            PID                    `json:"pid,omitempty"`
-	PIDStartedAt   int64                  `json:"pidStartedAt,omitempty"`
-	Nodes          []*Node                `json:"nodes,omitempty"`
-	AgentSessions  []AgentSessionResource `json:"agentSessions,omitempty"`
-	OnInit         *Node                  `json:"onInit,omitempty"`
-	OnExit         *Node                  `json:"onExit,omitempty"`
-	OnSuccess      *Node                  `json:"onSuccess,omitempty"`
-	OnFailure      *Node                  `json:"onFailure,omitempty"`
-	OnAbort        *Node                  `json:"onAbort,omitempty"`
-	OnWait         *Node                  `json:"onWait,omitempty"`
-	CreatedAt      int64                  `json:"createdAt,omitempty"`
-	QueuedAt       string                 `json:"queuedAt,omitempty"`
-	ScheduleTime   string                 `json:"scheduleTime,omitempty"`
-	StartedAt      string                 `json:"startedAt,omitempty"`
-	FinishedAt     string                 `json:"finishedAt,omitempty"`
-	AutoRetryCount int                    `json:"autoRetryCount,omitempty"`
-	AutoRetryLimit int                    `json:"autoRetryLimit,omitempty"`
+	Resume        bool                   `json:"resume,omitempty"`
+	WorkerID      string                 `json:"workerId,omitempty"`
+	PID           PID                    `json:"pid,omitempty"`
+	PIDStartedAt  int64                  `json:"pidStartedAt,omitempty"`
+	Nodes         []*Node                `json:"nodes,omitempty"`
+	AgentSessions []AgentSessionResource `json:"agentSessions,omitempty"`
+	// ModelUsageRecorded marks a status written by an engine that records
+	// each step's model usage, so a run that shows none used no model
+	// rather than ran before the engine recorded it.
+	ModelUsageRecorded bool   `json:"modelUsageRecorded,omitempty"`
+	OnInit             *Node  `json:"onInit,omitempty"`
+	OnExit             *Node  `json:"onExit,omitempty"`
+	OnSuccess          *Node  `json:"onSuccess,omitempty"`
+	OnFailure          *Node  `json:"onFailure,omitempty"`
+	OnAbort            *Node  `json:"onAbort,omitempty"`
+	OnWait             *Node  `json:"onWait,omitempty"`
+	CreatedAt          int64  `json:"createdAt,omitempty"`
+	QueuedAt           string `json:"queuedAt,omitempty"`
+	ScheduleTime       string `json:"scheduleTime,omitempty"`
+	StartedAt          string `json:"startedAt,omitempty"`
+	FinishedAt         string `json:"finishedAt,omitempty"`
+	AutoRetryCount     int    `json:"autoRetryCount,omitempty"`
+	AutoRetryLimit     int    `json:"autoRetryLimit,omitempty"`
 	// AutoRetryInterval is stored as a duration snapshot for retry scanner decisions.
 	AutoRetryInterval time.Duration `json:"autoRetryInterval,omitempty"`
 	AutoRetryBackoff  float64       `json:"autoRetryBackoff,omitempty"`
