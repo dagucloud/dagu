@@ -112,3 +112,38 @@ func TestMeterConcurrentCalls(t *testing.T) {
 	flusher.Stop()
 	assert.Equal(t, int64(1000), meter.Snapshot().Models[0].Calls)
 }
+
+// A source's total replaces the one it reported before, so a session that
+// reports again, or a step that resumes it, never counts it twice; another
+// source adds its own.
+func TestMeterReported(t *testing.T) {
+	t.Parallel()
+
+	model := func(calls int64) []ir.ModelUsage {
+		return []ir.ModelUsage{{Provider: "openai", Model: "gpt-5", Calls: calls, InputTokens: 10 * calls}}
+	}
+	meter := modelusage.NewMeter(&ir.StepModelUsage{Reported: []ir.ReportedModelUsage{{Source: "session-1", Models: model(2)}}})
+	meter.SetReported("session-1", model(5))
+	meter.SetReported("session-2", model(1))
+
+	usage := meter.Snapshot()
+	require.NotNil(t, usage)
+	assert.Equal(t, []ir.ReportedModelUsage{{Source: "session-1", Models: model(5)}, {Source: "session-2", Models: model(1)}}, usage.Reported)
+	assert.Equal(t, model(6), usage.Total())
+}
+
+// A tool whose usage cannot be read is named, and a step that only ran such a
+// tool still has something to show.
+func TestMeterNotReported(t *testing.T) {
+	t.Parallel()
+
+	meter := modelusage.NewMeter(nil)
+	meter.MarkNotReported("claude")
+	assert.Equal(t, &ir.StepModelUsage{NotReported: "claude"}, meter.Snapshot())
+
+	var none *modelusage.Meter
+	none.MarkNotReported("claude")
+	none.SetReported("session", nil)
+	none.RecordLLMUsage(call("a", 1, 1, nil))
+	assert.Nil(t, none.Snapshot(), "a nil meter records nothing")
+}

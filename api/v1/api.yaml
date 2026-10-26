@@ -15938,8 +15938,12 @@ components:
       properties:
         models:
           type: array
+          description: "Usage of each model: the step's own calls and what the tools it ran, such as a coding agent, reported"
           items:
             $ref: "#/components/schemas/ModelUsage"
+        notReported:
+          type: string
+          description: "A tool the step ran whose model usage could not be read, such as a coding agent's command line"
 
     RunModelUsage:
       type: object

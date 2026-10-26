@@ -24,6 +24,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/opencodehost"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/runtime/modelusage"
 	"github.com/google/uuid"
 )
 
@@ -622,8 +623,9 @@ func (e *harnessExecutor) refreshManagedMessages(ctx context.Context, client *op
 	if err != nil {
 		return nil, err
 	}
-	chat, events, usage := normalizeOpenCodeMessages(messages)
+	chat, events, usage, models := normalizeOpenCodeMessages(messages)
 	e.mu.Lock()
+	generation := e.agentSession.Generation
 	changed := !reflect.DeepEqual(e.savedMessages, chat) || e.agentSession.Usage != usage
 	e.savedMessages = chat
 	eventIndexes := make(map[string]int, len(e.agentSession.Events))
@@ -655,6 +657,9 @@ func (e *harnessExecutor) refreshManagedMessages(ctx context.Context, client *op
 		changed = true
 	}
 	e.mu.Unlock()
+	// The session's totals replace what it reported before, so a resumed
+	// session does not count its earlier calls twice.
+	modelusage.FromContext(ctx).SetReported(fmt.Sprintf("opencode:%s:%d", sessionID, generation), models)
 	if changed {
 		e.notifyProgress()
 	}
@@ -740,10 +745,14 @@ func openCodeErrorMessage(raw json.RawMessage) string {
 	return strings.TrimSpace(value.Name)
 }
 
-func normalizeOpenCodeMessages(messages []openCodeMessage) ([]ir.LLMMessage, []ir.AgentSessionEvent, ir.AgentUsage) {
+// normalizeOpenCodeMessages turns a session's messages into the step's chat,
+// its events, the session's usage, and that usage by the model each
+// assistant message came from.
+func normalizeOpenCodeMessages(messages []openCodeMessage) ([]ir.LLMMessage, []ir.AgentSessionEvent, ir.AgentUsage, []ir.ModelUsage) {
 	chat := make([]ir.LLMMessage, 0, len(messages))
 	var events []ir.AgentSessionEvent
 	var usage ir.AgentUsage
+	var models []ir.ModelUsage
 	for _, message := range messages {
 		var info openCodeMessageInfo
 		if json.Unmarshal(message.Info, &info) != nil {
@@ -754,6 +763,7 @@ func normalizeOpenCodeMessages(messages []openCodeMessage) ([]ir.LLMMessage, []i
 		var textParts []string
 		var toolCalls []ir.ToolCall
 		var messageUsage ir.AgentUsage
+		modelUsage := ir.ModelUsage{Provider: info.ProviderID, Model: info.ModelID}
 		for partIndex, raw := range message.Parts {
 			var part map[string]any
 			if json.Unmarshal(raw, &part) != nil {
@@ -794,8 +804,14 @@ func normalizeOpenCodeMessages(messages []openCodeMessage) ([]ir.LLMMessage, []i
 					messageUsage.OutputTokens += int64(number(tokens["output"]))
 					messageUsage.ReasoningTokens += int64(number(tokens["reasoning"]))
 					messageUsage.TotalTokens += int64(number(tokens["total"]))
+					addOpenCodeStep(&modelUsage, tokens)
 				}
+				modelUsage.Calls++
 				messageUsage.Cost += number(part["cost"])
+				if _, reported := part["cost"]; reported {
+					modelUsage.Cost += number(part["cost"])
+					modelUsage.CostReportedCalls++
+				}
 			}
 			if event.ID == "" {
 				event.ID = fmt.Sprintf("%s:%s:%d", messageID, partType, partIndex)
@@ -807,6 +823,9 @@ func normalizeOpenCodeMessages(messages []openCodeMessage) ([]ir.LLMMessage, []i
 		usage.ReasoningTokens += messageUsage.ReasoningTokens
 		usage.TotalTokens += messageUsage.TotalTokens
 		usage.Cost += messageUsage.Cost
+		if role == "assistant" && modelUsage.Calls > 0 {
+			models = ir.MergeModelUsage(models, modelUsage)
+		}
 		if role != "user" && role != "assistant" {
 			continue
 		}
@@ -819,7 +838,20 @@ func normalizeOpenCodeMessages(messages []openCodeMessage) ([]ir.LLMMessage, []i
 		}
 		chat = append(chat, msg)
 	}
-	return chat, events, usage
+	return chat, events, usage, models
+}
+
+// addOpenCodeStep adds one model step's tokens. OpenCode counts the prompt
+// apart from the tokens read from and written to the prompt cache, and the
+// output with the reasoning in it.
+func addOpenCodeStep(usage *ir.ModelUsage, tokens map[string]any) {
+	cache, _ := tokens["cache"].(map[string]any)
+	read, write := int64(number(cache["read"])), int64(number(cache["write"]))
+	usage.InputTokens += int64(number(tokens["input"])) + read + write
+	usage.CachedInputTokens += read
+	usage.CacheWriteTokens += write
+	usage.OutputTokens += int64(number(tokens["output"]))
+	usage.ReasoningTokens += int64(number(tokens["reasoning"]))
 }
 
 func number(value any) float64 {

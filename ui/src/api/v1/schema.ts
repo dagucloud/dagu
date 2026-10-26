@@ -6421,7 +6421,10 @@ export interface components {
         };
         /** @description What a step's calls to models used, over every attempt of the step in its run */
         StepModelUsage: {
+            /** @description Usage of each model: the step's own calls and what the tools it ran, such as a coding agent, reported */
             models?: components["schemas"]["ModelUsage"][];
+            /** @description A tool the step ran whose model usage could not be read, such as a coding agent's command line */
+            notReported?: string;
         };
         /** @description What every step of a DAG-run, its handlers included, used on models. A run recorded by an engine that records model usage always has it, with no models when the run used none; a run recorded before has it only when its steps report usage. */
         RunModelUsage: {

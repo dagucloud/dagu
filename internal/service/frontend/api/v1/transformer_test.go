@@ -139,6 +139,28 @@ func TestToDAGRunDetailsIncludesModelUsage(t *testing.T) {
 	assert.Nil(t, none.Models)
 }
 
+// A step's usage counts what the tools it ran reported, and names a tool
+// whose usage could not be read.
+func TestToDAGRunDetailsStepModelUsageSources(t *testing.T) {
+	reported := &ir.StepModelUsage{
+		Models:   []ir.ModelUsage{{Provider: "openai", Model: "gpt-5", Calls: 1, InputTokens: 10}},
+		Reported: []ir.ReportedModelUsage{{Source: "opencode:s1:0", Models: []ir.ModelUsage{{Provider: "openai", Model: "gpt-5", Calls: 4, InputTokens: 40}}}},
+	}
+	details := ToDAGRunDetails(ir.DAGRunStatus{Name: "test-dag", DAGRunID: "run-1", Nodes: []*ir.Node{
+		{Step: ir.Step{Name: "code"}, ModelUsage: reported},
+		{Step: ir.Step{Name: "agent"}, ModelUsage: &ir.StepModelUsage{NotReported: "claude"}},
+	}})
+
+	models := *details.Nodes[0].ModelUsage.Models
+	require.Len(t, models, 1)
+	assert.Equal(t, int64(5), models[0].Calls)
+	assert.Equal(t, int64(50), *models[0].InputTokens)
+
+	require.NotNil(t, details.Nodes[1].ModelUsage)
+	assert.Equal(t, "claude", *details.Nodes[1].ModelUsage.NotReported)
+	assert.Equal(t, int64(5), (*details.ModelUsage.Models)[0].Calls)
+}
+
 func TestToDAGRunDetailsIncludesAttemptID(t *testing.T) {
 	details := ToDAGRunDetails(ir.DAGRunStatus{Name: "test-dag", DAGRunID: "run-1", AttemptID: "attempt-2"})
 	require.NotNil(t, details.AttemptId)

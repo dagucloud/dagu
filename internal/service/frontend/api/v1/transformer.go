@@ -491,13 +491,14 @@ func toRunModelUsage(s ir.DAGRunStatus) *api.RunModelUsage {
 	return &api.RunModelUsage{Models: ptrOf(toModelUsage(usage))}
 }
 
-// toStepModelUsage maps what a step used on models, or nil when it used
-// none.
+// toStepModelUsage maps what a step used on models, its own calls and what
+// the tools it ran reported, or nil when there is nothing to show.
 func toStepModelUsage(usage *ir.StepModelUsage) *api.StepModelUsage {
-	if usage == nil || len(usage.Models) == 0 {
+	total := usage.Total()
+	if len(total) == 0 && (usage == nil || usage.NotReported == "") {
 		return nil
 	}
-	return &api.StepModelUsage{Models: ptrOf(toModelUsage(usage.Models))}
+	return &api.StepModelUsage{Models: ptrOf(toModelUsage(total)), NotReported: ptrOf(usage.NotReported)}
 }
 
 func toModelUsage(usage []ir.ModelUsage) []api.ModelUsage {

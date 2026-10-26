@@ -25,6 +25,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/opencodehost"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	dockerexec "github.com/dagucloud/dagu/v2/internal/runtime/builtin/docker"
+	"github.com/dagucloud/dagu/v2/internal/runtime/modelusage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -119,7 +120,7 @@ func TestNormalizeOpenCodeMessages(t *testing.T) {
 		},
 	}}
 
-	chat, events, usage := normalizeOpenCodeMessages(messages)
+	chat, events, usage, models := normalizeOpenCodeMessages(messages)
 
 	require.Len(t, chat, 2)
 	assert.Equal(t, ir.LLMRoleAssistant, chat[0].Role)
@@ -135,6 +136,56 @@ func TestNormalizeOpenCodeMessages(t *testing.T) {
 	assert.NotEqual(t, events[0].ID, events[1].ID)
 	assert.Equal(t, int64(28), usage.TotalTokens)
 	assert.Equal(t, 0.30, usage.Cost)
+	require.Len(t, models, 1)
+	assert.Equal(t, ir.ModelUsage{
+		Provider: "openai", Model: "gpt-5", Calls: 2, InputTokens: 14, OutputTokens: 11, ReasoningTokens: 3,
+		Cost: 0.30, CostReportedCalls: 2,
+	}, models[0])
+}
+
+// A step's model usage from an OpenCode session names the model of each
+// message and counts the cached prompt in its input, which OpenCode reports
+// apart.
+func TestOpenCodeModelUsageCountsCache(t *testing.T) {
+	t.Parallel()
+
+	_, _, _, models := normalizeOpenCodeMessages([]openCodeMessage{{
+		Info:  json.RawMessage(`{"role":"assistant","id":"message-1","providerID":"anthropic","modelID":"claude-sonnet-4-6"}`),
+		Parts: []json.RawMessage{json.RawMessage(`{"type":"step-finish","tokens":{"input":5,"output":20,"reasoning":4,"cache":{"read":300,"write":40}}}`)},
+	}, {
+		Info:  json.RawMessage(`{"role":"user","id":"message-2"}`),
+		Parts: []json.RawMessage{json.RawMessage(`{"type":"text","text":"more"}`)},
+	}})
+	assert.Equal(t, []ir.ModelUsage{{
+		Provider: "anthropic", Model: "claude-sonnet-4-6", Calls: 1,
+		InputTokens: 345, CachedInputTokens: 300, CacheWriteTokens: 40, OutputTokens: 20, ReasoningTokens: 4,
+	}}, models)
+}
+
+// Refreshing a session again reports its latest total, which replaces the
+// one before, so the step's usage is the session's, not the sum of refreshes.
+func TestManagedOpenCodeRefreshReportsModelUsage(t *testing.T) {
+	t.Parallel()
+
+	turn := `[{"info":{"role":"assistant","id":"message-1","providerID":"openai","modelID":"gpt-5"},"parts":[{"type":"step-finish","tokens":{"input":10,"output":2},"cost":0.01}]}]`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, turn)
+	}))
+	t.Cleanup(server.Close)
+	exec := &harnessExecutor{agentSession: &ir.AgentSession{Generation: 1}}
+	client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Password: "test"}, http: server.Client()}
+	meter := modelusage.NewMeter(nil)
+	ctx := modelusage.WithMeter(t.Context(), meter)
+
+	for range 3 {
+		_, err := exec.refreshManagedMessages(ctx, client, "session-1")
+		require.NoError(t, err)
+	}
+
+	usage := meter.Snapshot()
+	require.NotNil(t, usage)
+	assert.Equal(t, []ir.ModelUsage{{Provider: "openai", Model: "gpt-5", Calls: 1, InputTokens: 10, OutputTokens: 2, Cost: 0.01, CostReportedCalls: 1}}, usage.Total())
 }
 
 func TestManagedOpenCodeResult(t *testing.T) {
@@ -1117,6 +1168,35 @@ exit 0
 	assert.Contains(t, stderr.String(), "fallback stderr")
 	assert.Contains(t, stderr.String(), "trying fallback")
 	assert.Equal(t, 0, exec.ExitCode())
+}
+
+// A coding agent run through its command line reports no model usage, so
+// the step names it rather than showing that it used nothing.
+func TestHarnessExecutorRun_MarksModelUsageNotReported(t *testing.T) {
+	if goruntime.GOOS == "windows" {
+		t.Skip("Skipping shell-based test on Windows")
+	}
+
+	agent := writeHarnessTestBinary(t, "agent", `#!/bin/sh
+echo "done"
+`)
+	exec := &harnessExecutor{
+		stdout: &strings.Builder{},
+		stderr: &strings.Builder{},
+		configs: []providerConfig{{
+			name: "claude",
+			definition: &ir.HarnessDefinition{
+				Binary:     agent,
+				PromptMode: ir.HarnessPromptModeArg,
+				FlagStyle:  ir.HarnessFlagStyleGNULong,
+			},
+		}},
+		prompt: "hello",
+	}
+	meter := modelusage.NewMeter(nil)
+
+	require.NoError(t, exec.Run(modelusage.WithMeter(context.Background(), meter)))
+	assert.Equal(t, &ir.StepModelUsage{NotReported: "claude"}, meter.Snapshot())
 }
 
 func TestHarnessExecutorRun_IncludesFailedStdoutInError(t *testing.T) {

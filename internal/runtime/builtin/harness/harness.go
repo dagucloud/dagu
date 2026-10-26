@@ -30,6 +30,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	dockerexec "github.com/dagucloud/dagu/v2/internal/runtime/builtin/docker"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
+	"github.com/dagucloud/dagu/v2/internal/runtime/modelusage"
 	"github.com/dagucloud/dagu/v2/internal/runtime/resourcelimit"
 	"github.com/goccy/go-yaml"
 	dockerclient "github.com/moby/moby/client"
@@ -315,6 +316,8 @@ func (e *harnessExecutor) Run(ctx context.Context) error {
 // runOnce dispatches one provider attempt to its protocol and execution backend.
 func (e *harnessExecutor) runOnce(ctx context.Context, cfg providerConfig) (*os.File, error) {
 	if cfg.definition != nil && cfg.definition.Protocol == ir.HarnessProtocolACP {
+		// An ACP agent does not report what its models used.
+		modelusage.FromContext(ctx).MarkNotReported(cfg.name)
 		return e.runACP(ctx, cfg)
 	}
 	hasRootContainer := rootContainerConfigured(ctx)
@@ -359,6 +362,9 @@ func (e *harnessExecutor) runOnce(ctx context.Context, cfg providerConfig) (*os.
 	} else if cfg.modeReason != "" {
 		_, _ = fmt.Fprintln(e.stderrWriter(), "harness: using legacy OpenCode CLI: "+cfg.modeReason)
 	}
+
+	// A coding agent's command line does not report what its models used.
+	modelusage.FromContext(ctx).MarkNotReported(cfg.name)
 
 	if e.step.Container != nil {
 		return e.runContainerOnce(ctx, cfg)

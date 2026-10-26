@@ -44,8 +44,34 @@ func (u *ModelUsage) Add(other ModelUsage) {
 // StepModelUsage is what a step's calls to models used, over every attempt
 // of the step in its run.
 type StepModelUsage struct {
-	// Models is the usage of each model the step called.
+	// Models is the usage of each model the step called itself.
 	Models []ModelUsage `json:"models,omitempty"`
+	// Reported is usage the step read from tools that call models
+	// themselves, such as a coding agent's session: each source's latest
+	// total, which replaces the one before.
+	Reported []ReportedModelUsage `json:"reported,omitempty"`
+	// NotReported names a tool the step ran whose model usage could not be
+	// read, such as a coding agent's command line.
+	NotReported string `json:"notReported,omitempty"`
+}
+
+// ReportedModelUsage is one source's latest total of model usage.
+type ReportedModelUsage struct {
+	Source string       `json:"source"`
+	Models []ModelUsage `json:"models"`
+}
+
+// Total returns what the step used by model: its own calls and every
+// source's total.
+func (u *StepModelUsage) Total() []ModelUsage {
+	if u == nil {
+		return nil
+	}
+	total := MergeModelUsage(nil, u.Models...)
+	for _, reported := range u.Reported {
+		total = MergeModelUsage(total, reported.Models...)
+	}
+	return total
 }
 
 // CloneStepModelUsage returns a copy of usage that shares nothing with it.
@@ -53,7 +79,11 @@ func CloneStepModelUsage(usage *StepModelUsage) *StepModelUsage {
 	if usage == nil {
 		return nil
 	}
-	return &StepModelUsage{Models: slices.Clone(usage.Models)}
+	clone := &StepModelUsage{Models: slices.Clone(usage.Models), NotReported: usage.NotReported}
+	for _, reported := range usage.Reported {
+		clone.Reported = append(clone.Reported, ReportedModelUsage{Source: reported.Source, Models: slices.Clone(reported.Models)})
+	}
+	return clone
 }
 
 // MergeModelUsage adds usage to into, one entry per provider and model, and
@@ -80,8 +110,8 @@ func MergeModelUsage(into []ModelUsage, usage ...ModelUsage) []ModelUsage {
 func (st *DAGRunStatus) ModelUsageTotal() []ModelUsage {
 	var total []ModelUsage
 	for _, node := range st.NodesInRunOrder() {
-		if node != nil && node.ModelUsage != nil {
-			total = MergeModelUsage(total, node.ModelUsage.Models...)
+		if node != nil {
+			total = MergeModelUsage(total, node.ModelUsage.Total()...)
 		}
 	}
 	return total

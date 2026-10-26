@@ -8,6 +8,7 @@ package modelusage
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"time"
 
@@ -16,12 +17,15 @@ import (
 )
 
 // Meter adds up a step's calls to models, on top of what the step's earlier
-// attempts used.
+// attempts used. Its methods do nothing on a nil meter, so an executor run
+// without one needs no checks.
 type Meter struct {
-	mu       sync.Mutex
-	models   []ir.ModelUsage
-	recorded uint64
-	onRecord func()
+	mu          sync.Mutex
+	models      []ir.ModelUsage
+	reported    []ir.ReportedModelUsage
+	notReported string
+	changes     uint64
+	onRecord    func()
 }
 
 // NewMeter returns a meter that starts from what the step used before, which
@@ -29,13 +33,19 @@ type Meter struct {
 func NewMeter(base *ir.StepModelUsage) *Meter {
 	m := &Meter{}
 	if base != nil {
-		m.models = ir.MergeModelUsage(nil, base.Models...)
+		clone := ir.CloneStepModelUsage(base)
+		m.models = ir.MergeModelUsage(nil, clone.Models...)
+		m.reported = clone.Reported
+		m.notReported = clone.NotReported
 	}
 	return m
 }
 
 // RecordLLMUsage adds one call.
 func (m *Meter) RecordLLMUsage(record llm.UsageRecord) {
+	if m == nil {
+		return
+	}
 	entry := ir.ModelUsage{
 		Provider:          record.Provider,
 		Model:             record.Model,
@@ -52,7 +62,50 @@ func (m *Meter) RecordLLMUsage(record llm.UsageRecord) {
 	}
 	m.mu.Lock()
 	m.models = ir.MergeModelUsage(m.models, entry)
-	m.recorded++
+	m.changed()
+}
+
+// SetReported records source's latest total, as a coding agent's session
+// reports it, replacing the one before. A source the step resumes keeps its
+// entry, so what it used before is not counted twice.
+func (m *Meter) SetReported(source string, models []ir.ModelUsage) {
+	if m == nil {
+		return
+	}
+	models = ir.MergeModelUsage(nil, models...)
+	m.mu.Lock()
+	i := slices.IndexFunc(m.reported, func(r ir.ReportedModelUsage) bool { return r.Source == source })
+	switch {
+	case i >= 0 && slices.Equal(m.reported[i].Models, models):
+		m.mu.Unlock()
+		return
+	case i >= 0:
+		m.reported[i].Models = models
+	default:
+		m.reported = append(m.reported, ir.ReportedModelUsage{Source: source, Models: models})
+	}
+	m.changed()
+}
+
+// MarkNotReported records that the step ran tool, whose model usage cannot
+// be read.
+func (m *Meter) MarkNotReported(tool string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	if m.notReported == tool {
+		m.mu.Unlock()
+		return
+	}
+	m.notReported = tool
+	m.changed()
+}
+
+// changed counts a change and tells the flusher, if any. It is called with
+// the lock held and releases it.
+func (m *Meter) changed() {
+	m.changes++
 	onRecord := m.onRecord
 	m.mu.Unlock()
 	if onRecord != nil {
@@ -61,24 +114,27 @@ func (m *Meter) RecordLLMUsage(record llm.UsageRecord) {
 }
 
 // Snapshot returns what the step has used so far, or nil when it has used
-// nothing.
+// nothing and reported nothing.
 func (m *Meter) Snapshot() *ir.StepModelUsage {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if len(m.models) == 0 {
+	if m == nil {
 		return nil
 	}
-	return ir.CloneStepModelUsage(&ir.StepModelUsage{Models: m.models})
-}
-
-func (m *Meter) recordedCalls() uint64 {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.recorded
+	if len(m.models) == 0 && len(m.reported) == 0 && m.notReported == "" {
+		return nil
+	}
+	return ir.CloneStepModelUsage(&ir.StepModelUsage{Models: m.models, Reported: m.reported, NotReported: m.notReported})
+}
+
+func (m *Meter) changeCount() uint64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.changes
 }
 
 // Flusher reports a meter's usage while its step runs, at most once an
-// interval and only after a call was recorded since the last report, so a
+// interval and only after the usage changed since the last report, so a
 // step that calls no model never reports.
 type Flusher struct {
 	meter  *Meter
@@ -123,11 +179,11 @@ func (f *Flusher) fire() {
 	if stopped {
 		return
 	}
-	recorded := f.meter.recordedCalls()
-	if recorded == f.reported {
+	changes := f.meter.changeCount()
+	if changes == f.reported {
 		return
 	}
-	f.reported = recorded
+	f.reported = changes
 	f.report(f.meter.Snapshot())
 }
 
