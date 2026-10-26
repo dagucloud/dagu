@@ -38,8 +38,9 @@ const (
 // reject, its answer may be AgentDecisionSkip.
 const AgentPermissionBrowserWrite = "browser.write"
 
-// AgentDecisionSkip answers a browser write permission: the operation is
-// not run and the step ends without failing, having sent nothing.
+// AgentDecisionSkip answers a browser write permission: neither the
+// operation nor any after it runs, so nothing further is sent, and the
+// step ends without failing.
 const AgentDecisionSkip = "skip"
 
 // AgentQuestion is one question in a managed agent interaction.

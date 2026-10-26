@@ -97,7 +97,7 @@ func commitQuestion(index int, op operation, points []writegate.CommitPoint) str
 			writes = append(writes, write)
 		}
 	}
-	return fmt.Sprintf("do[%d] %q is about to send %s. Send it once, for the session, skip it and end the step without sending, or reject it.",
+	return fmt.Sprintf("do[%d] %q is about to send %s. Send it once, for the session, skip it and end the step there, or reject it.",
 		index, opWords(op), strings.Join(writes, ", "))
 }
 

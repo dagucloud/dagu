@@ -7792,7 +7792,7 @@
         "write_gate": {
           "type": "string",
           "enum": ["off", "record", "ask", "rehearse"],
-          "description": "Write gate mode: rehearse blocks the writes the page sends (any request but GET, HEAD, or OPTIONS), except sign-ins the host's browser.write_policy lists, and reports what it would have sent; the step stops at the first blocked write of the work and ends partially succeeded. record sends only the writes an act's approved commit points name, replaying that act's recorded actions, and fails the step with write_blocked on any other. ask does what record does and, before each act or upload that is a commit point, waits for a person to answer once, session, reject, or skip, which ends the step without sending. The browser runs in the stricter of this and the host's browser.write_gate, so a step can only tighten it."
+          "description": "Write gate mode: rehearse blocks the writes the page sends (any request but GET, HEAD, or OPTIONS), except sign-ins the host's browser.write_policy lists, and reports what it would have sent; the step stops at the first blocked write of the work and ends partially succeeded. record sends only the writes an act's approved commit points name, replaying that act's recorded actions, and fails the step with write_blocked on any other. ask does what record does and, before each act or upload that is a commit point, waits for a person to answer once, session, reject, or skip, which ends the step there, sending nothing further. The browser runs in the stricter of this and the host's browser.write_gate, so a step can only tighten it."
         },
         "client_certificates": {
           "type": "array",
