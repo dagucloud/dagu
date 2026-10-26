@@ -149,5 +149,5 @@ func TestModesMatchTheHostConfig(t *testing.T) {
 		_, err := ParseMode(mode)
 		assert.NoError(t, err, mode)
 	}
-	assert.ElementsMatch(t, []string{ModeOff, ModeRehearse}, cmnconfig.BrowserWriteGateModes)
+	assert.ElementsMatch(t, []string{ModeOff, ModeRecord, ModeRehearse}, cmnconfig.BrowserWriteGateModes)
 }

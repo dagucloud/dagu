@@ -58,6 +58,10 @@ type operator struct {
 	// presented maps the hosts the proxy presented a certificate to, to the
 	// certificate's label.
 	presented map[string]string
+	// committed returns the recorded actions of an approved commit act at
+	// key, which the act replays and asks no model about; nil when no act
+	// is one.
+	committed func(key string) ([]recordedAction, bool)
 }
 
 // holdsSecret reports whether value contains a value of secrets, however
@@ -288,6 +292,13 @@ func (o *operator) act(ctx context.Context, index int, spec actSpec, timeout tim
 	}
 	status := agentstep.StatusCompleted
 	actions, ok := o.recording(choice, key)
+	// An approved commit act does only what was approved: the actions it
+	// recorded, never what a model picks.
+	if o.committed != nil {
+		if committed, isCommit := o.committed(key); isCommit {
+			choice, actions, ok = aiNever, committed, true
+		}
+	}
 	if !ok && choice == aiNever {
 		return opResult{}, replayMiss{kind: opAct, reason: noRecording}
 	}

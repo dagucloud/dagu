@@ -105,6 +105,11 @@ type engine interface {
 	// after, or nothing without a gate. Its error reports that the gate no
 	// longer answers, so the browser's writes go undecided.
 	Writes(ctx context.Context, after int64) ([]writegate.Event, error)
+	// BeginWrites tells the write gate which writes the operation starting
+	// may send, for at most lease; EndWrites that it ended. Without a gate
+	// they do nothing.
+	BeginWrites(ctx context.Context, signatures []string, lease time.Duration) error
+	EndWrites(ctx context.Context) error
 	Handle() browserHandle
 	// Detach releases the session while the browser keeps running.
 	Detach(ctx context.Context) error

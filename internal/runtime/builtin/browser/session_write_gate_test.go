@@ -6,6 +6,7 @@ package browser
 import (
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"sync"
 	"testing"
 
@@ -101,4 +102,58 @@ func TestSessionEndsWhenItsGateIsLost(t *testing.T) {
 	_, err := ts.do(opened.ID, `{"wait": {"duration": "1ms"}}`)
 	assert.Equal(t, CodeWriteGateLost, sessionCode(err))
 	assert.Equal(t, browserhost.StateEnded, ts.record(opened.ID).State)
+}
+
+// A session whose gate records fails an operation whose write nothing
+// allowed with write_blocked, and the same operation allowed that write
+// sends it.
+func TestSessionRecordSendsOnlyWhatItIsAllowed(t *testing.T) {
+	t.Parallel()
+
+	ts := newTestSessions(t, pageModel(nil))
+	ts.engine.handle.WriteGate = runningGate()
+	opened := ts.open(SessionOptions{URL: "https://books.example.com/", Headless: true, LLM: testModel, WriteGate: writegate.ModeRecord})
+
+	ts.engine.actWrites = []writegate.Event{blockedSave}
+	result, err := ts.do(opened.ID, `{"act": "Click the Save button"}`)
+	assert.Equal(t, CodeWriteBlocked, sessionCode(err))
+	assert.Equal(t, OperationFailed, result.Status)
+	assert.Contains(t, result.Error.Message, "--allow-write \""+blockedSave.Signature+"\"")
+	require.Len(t, result.Writes, 1)
+
+	sent := blockedSave
+	sent.Class, sent.Outcome, sent.Status = writegate.ClassApproved, writegate.OutcomeSent, 201
+	ts.engine.actWrites = []writegate.Event{sent}
+	op, variables, err := ParseSessionInput([]byte(`{"act": "Click the Save button"}`))
+	require.NoError(t, err)
+	result, err = ts.sessions.Do(ts.context(), DoRequest{ID: opened.ID, Operation: op, Variables: variables, AllowWrites: []string{blockedSave.Signature}})
+	require.NoError(t, err)
+	assert.Equal(t, OperationDone, result.Status)
+	assert.Equal(t, [][]string{{blockedSave.Signature}}, ts.engine.allowed)
+	assert.False(t, ts.engine.allowing)
+
+	// The step exported from it keeps the write as a commit point.
+	exported, err := ts.sessions.Export(ts.context(), ExportRequest{ID: opened.ID, DAG: "books", Step: "enter"})
+	require.NoError(t, err)
+	assert.Equal(t, 1, exported.CommitPoints)
+	points, err := writegate.NewCommitStore(filepath.Join(ts.dataDir, browserhost.DataDirName)).Load("books", "enter")
+	require.NoError(t, err)
+	require.Len(t, points, 1)
+	assert.Equal(t, blockedSave.Signature, points[0].Signature)
+	assert.Equal(t, 0, points[0].Op)
+	assert.False(t, points[0].Approved)
+}
+
+// A rehearsing session sends nothing, however it is asked.
+func TestSessionRehearsalRefusesAllowedWrites(t *testing.T) {
+	t.Parallel()
+
+	ts := newTestSessions(t, pageModel(nil))
+	ts.engine.handle.WriteGate = runningGate()
+	opened := ts.open(SessionOptions{URL: "https://books.example.com/", Headless: true, LLM: testModel, WriteGate: writegate.ModeRehearse})
+	op, variables, err := ParseSessionInput([]byte(`{"act": "Click the Save button"}`))
+	require.NoError(t, err)
+	_, err = ts.sessions.Do(ts.context(), DoRequest{ID: opened.ID, Operation: op, Variables: variables, AllowWrites: []string{blockedSave.Signature}})
+	assert.Equal(t, CodeInvalidInput, sessionCode(err))
+	assert.Empty(t, ts.engine.allowed)
 }

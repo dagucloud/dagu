@@ -59,6 +59,11 @@ var (
 		name:  "write-policy",
 		usage: "Write gate policy file naming the sign-in endpoints whose writes are sent",
 	}
+	sessionAllowWriteFlag = commandLineFlag{
+		name:          "allow-write",
+		isStringArray: true,
+		usage:         "Let the operation send the write of this signature, in a session whose write gate records; repeat for more",
+	}
 	sessionPersonFlag = commandLineFlag{
 		name:   "person",
 		isBool: true,
@@ -249,8 +254,11 @@ API key is read from the environment on every command.
 
 With --write-gate rehearse, every write the page sends, any request but GET,
 HEAD, or OPTIONS, is blocked and reported under writes, by this command and
-by the next for a write the page sent while it waited. Sign-ins the
---write-policy file lists are sent:
+by the next for a write the page sent while it waited. With --write-gate
+record, writes are blocked the same way unless the do command that sends
+one allows its signature with --allow-write; a blocked write fails the
+operation with write_blocked. Sign-ins the --write-policy file lists are
+sent:
 
   sign_in:
     - host: login.example.com
@@ -420,17 +428,21 @@ upload into the element in words, reported as into, with the action it took
 as its recording.
 
 The result reports what the operation did, the actions an act performed,
-what an extract read, and the page the browser is on next. An operation that
-fails is reported with status failed and the command exits 1; the session
-stays open.
+what an extract read, the writes the write gate decided, and the page the
+browser is on next. An operation that fails is reported with status failed
+and the command exits 1; the session stays open.
+
+In a session whose write gate records, --allow-write lets the operation
+send the write of a signature a blocked write reported; it sends no other.
 
 Examples:
   echo '{"act": "Click Sign in"}' | dagu browser session do ab2cd3ef4g
   echo '{"click": "0-131"}' | dagu browser session do ab2cd3ef4g
+  echo '{"click": "0-88"}' | dagu browser session do ab2cd3ef4g --allow-write 'POST https://books.example.com/api/deals? {amount}'
   dagu browser session do ab2cd3ef4g < operation.yaml
 `,
 		Args: cobra.ExactArgs(1),
-	}, []commandLineFlag{sessionOutlineFlag}, runBrowserSessionDo)
+	}, []commandLineFlag{sessionOutlineFlag, sessionAllowWriteFlag}, runBrowserSessionDo)
 }
 
 func runBrowserSessionDo(ctx *Context, args []string) error {
@@ -446,9 +458,11 @@ func runBrowserSessionDo(ctx *Context, args []string) error {
 	if err != nil {
 		return writeSessionError(ctx, err)
 	}
-	result, err := browser.NewSessions().Do(ctx, browser.DoRequest{ID: args[0], Operation: op, Variables: variables, OutlineChars: chars})
+	allowed, _ := ctx.Command.Flags().GetStringArray(sessionAllowWriteFlag.name)
+	result, err := browser.NewSessions().Do(ctx, browser.DoRequest{ID: args[0], Operation: op, Variables: variables, OutlineChars: chars, AllowWrites: allowed})
 	var sessionErr *browser.SessionError
-	if err != nil && (!errors.As(err, &sessionErr) || sessionErr.Code != browser.CodeOperationFailed) {
+	// An operation that ran reports its result, failed or not.
+	if err != nil && (!errors.As(err, &sessionErr) || sessionErr.Code != browser.CodeOperationFailed && sessionErr.Code != browser.CodeWriteBlocked) {
 		return writeSessionError(ctx, err)
 	}
 	if writeErr := writeIndentedJSON(ctx.Command.OutOrStdout(), result); writeErr != nil {

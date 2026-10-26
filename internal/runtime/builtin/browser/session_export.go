@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/dagucloud/dagu/v2/internal/browserhost/writegate"
 	"github.com/dagucloud/dagu/v2/internal/cmn/replaycache"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/spec"
@@ -45,6 +46,9 @@ type ExportResult struct {
 	CacheFile string `json:"cache_file,omitempty"`
 	// Recordings counts the acts and uploads a first run replays.
 	Recordings int `json:"recordings"`
+	// CommitPoints counts the writes of the step's acts and uploads kept as
+	// commit points to approve.
+	CommitPoints int `json:"commit_points"`
 	// Ops maps each operation of the step to the session's history.
 	Ops []ExportedOperation `json:"ops"`
 	// Variables says how to give the step each variable's value.
@@ -166,7 +170,13 @@ func (s *Sessions) Export(ctx context.Context, req ExportRequest) (ExportResult,
 		Warnings:  exported.warnings,
 	}
 	result.Recordings = len(exported.recordings)
+	result.CommitPoints = len(exported.commits)
 	if !req.DryRun {
+		if len(exported.commits) > 0 {
+			if err := writegate.NewCommitStore(browserDir).Note(ctx, req.DAG, req.Step, exported.commits...); err != nil {
+				return ExportResult{}, fmt.Errorf("keep the commit points: %w", err)
+			}
+		}
 		cache := openReplayCache(browserDir, req.DAG, req.Step)
 		for _, key := range slices.Sorted(maps.Keys(exported.recordings)) {
 			cache.Stage(key, exported.recordings[key])
@@ -187,7 +197,9 @@ type exportedSession struct {
 	ops        []ExportedOperation
 	variables  []ExportedVariable
 	recordings map[string][]recordedAction
-	warnings   []string
+	// commits are the writes the step's operations sent or tried to send.
+	commits  []writegate.CommitPoint
+	warnings []string
 	// sessionIndex maps each operation of the step to the history.
 	sessionIndex []int
 }
@@ -246,6 +258,9 @@ func exportStep(state sessionState, req ExportRequest) (*exportedSession, error)
 				exported.warnf("the page changed from %s to %s before operation %d outside the exported operations, so the first run may ask the model for it; an expect: {url: ...} before it makes the step wait for that page",
 					previous, entry.URLBefore, sessionIndex)
 			}
+		}
+		if key != "" && entry.Status == OperationDone {
+			exported.noteCommits(key, index, op, entry)
 		}
 		if entry.URLAfter != "" {
 			previous = entry.URLAfter
@@ -336,6 +351,21 @@ func (e *exportedSession) check() error {
 
 // doReference is how a step's checks name one of its operations.
 var doReference = regexp.MustCompile(`do\[(\d+)\]`)
+
+// noteCommits keeps the writes the operation at index of the step sent or
+// tried to send as commit points to approve, with its recording.
+func (e *exportedSession) noteCommits(key string, index int, op operation, entry sessionOp) {
+	var actions json.RawMessage
+	if entry.Recordable {
+		actions, _ = json.Marshal(entry.Actions)
+	}
+	for _, signature := range entry.Writes {
+		e.commits = append(e.commits, writegate.CommitPoint{
+			Key: key, Op: index, Operation: opWords(op), Page: pagePath(entry.URLBefore),
+			Signature: signature, Actions: actions, SeenAt: entry.At,
+		})
+	}
+}
 
 func (e *exportedSession) warnf(format string, args ...any) {
 	e.warnings = append(e.warnings, fmt.Sprintf(format, args...))

@@ -67,6 +67,9 @@ const (
 	// CodeWriteGateLost reports a session whose write gate stopped, which
 	// closed its browser.
 	CodeWriteGateLost = "write_gate_lost"
+	// CodeWriteBlocked reports an operation whose write the write gate
+	// blocked in record mode, since nothing allowed it.
+	CodeWriteBlocked = "write_blocked"
 	// CodeFailed reports any other failure, such as a file that could not
 	// be written.
 	CodeFailed = "failed"
@@ -206,6 +209,9 @@ type DoRequest struct {
 	// OutlineChars bounds the page outline the result reports; zero omits
 	// it.
 	OutlineChars int
+	// AllowWrites are the signatures of the writes the operation may send,
+	// in a session whose write gate records; it sends no other.
+	AllowWrites []string
 }
 
 // SessionAction is one action an act performed on the page.
@@ -694,6 +700,9 @@ func (s *Sessions) Do(ctx context.Context, req DoRequest) (DoResult, error) {
 	}
 	defer use.release()
 	state := use.state
+	if len(req.AllowWrites) > 0 && state.WriteGate != writegate.ModeRecord {
+		return DoResult{}, &SessionError{Code: CodeInvalidInput, Message: "only a session whose write gate records sends a write it is allowed; open one with --write-gate record"}
+	}
 	if len(state.Ops) >= maxSessionOperations {
 		return DoResult{}, &SessionError{Code: CodeInvalidInput, Message: fmt.Sprintf("the session has run %d operations; export it or close it", maxSessionOperations)}
 	}
@@ -778,7 +787,17 @@ func (s *Sessions) Do(ctx context.Context, req DoRequest) (DoResult, error) {
 	}
 	if opErr == nil && !skipped {
 		var done opResult
+		if len(req.AllowWrites) > 0 {
+			if err := eng.BeginWrites(ctx, req.AllowWrites, op.timeout()+commitLeaseSlack); err != nil {
+				return DoResult{}, err
+			}
+		}
 		done, opErr = operator.runOperation(ctx, index, op)
+		if len(req.AllowWrites) > 0 {
+			// A gate that did not hear it blocks the writes once the lease
+			// ends.
+			_ = eng.EndWrites(ctx)
+		}
 		if opErr == nil {
 			opErr = operator.checkPage(ctx, index)
 		}
@@ -821,6 +840,21 @@ func (s *Sessions) Do(ctx context.Context, req DoRequest) (DoResult, error) {
 	}
 	if result.Writes, err = takeWrites(ctx, eng, &state, masker); err != nil {
 		return result, use.retire(ctx, writeGateLost(req.ID))
+	}
+	blocked := false
+	for _, write := range result.Writes {
+		if write.Consequential() || write.Class == writegate.ClassApproved {
+			entry.Writes = append(entry.Writes, write.Signature)
+		}
+		// In record mode a write nothing allowed did not save what the
+		// operation was for, which explains any failure that followed.
+		if write.Consequential() && state.WriteGate == writegate.ModeRecord && !blocked {
+			blocked = true
+			message := fmt.Sprintf("%s; allow it with --allow-write %q", writeBlocked{write: write}, write.Signature)
+			result.Status = OperationFailed
+			result.Error = &SessionError{Code: CodeWriteBlocked, Message: message}
+			entry.Status, entry.Error = OperationFailed, message
+		}
 	}
 	if blocked, err := eng.TakeBlockedRequests(); err == nil && len(blocked) > 0 {
 		result.Blocked = blocked

@@ -104,3 +104,60 @@ func TestBrowserRehearsalStopsAtTheSave(t *testing.T) {
 		})
 	}
 }
+
+// A step that records sends the save a rehearsal found and a person
+// approved, replaying the act that sends it without the model, and blocks
+// the postback nobody approved, failing with write_blocked and keeping it
+// as a commit point to approve.
+func TestBrowserRecordSendsOnlyApprovedWrites(t *testing.T) {
+	t.Parallel()
+
+	b := newBrowserEnv(t)
+	ledger, writes := startLedger(t)
+	runEnv := append(append([]string{}, b.env...), "LEDGER_URL="+ledger, "DAGU_HOME="+filepath.Join(t.TempDir(), "dagu"))
+	b.dagu.RunWithEnv(runEnv, "start", "write_gate.yaml").ExpectExitCode(0)
+	require.Zero(t, writes())
+	approved := b.dagu.RunWithEnv(runEnv, "browser", "writes", "approve", "write_gate_record", "--from-dag", "write_gate")
+	approved.ExpectExitCode(0)
+	assert.Contains(t, approved.Stdout(), "POST "+ledger+"/api/entries? {amount}")
+
+	acts := b.model.count(kindAct)
+	recorded := b.dagu.RunWithEnv(runEnv, "start", "write_gate_record.yaml")
+	recorded.ExpectNonZeroExitCode()
+	assert.Contains(t, recorded.Stdout()+recorded.Stderr(), "write_blocked: the write gate blocked POST "+ledger+"/Default.aspx")
+
+	assert.Equal(t, 1, writes(), "the approved save reaches the ledger, the postback does not")
+	assert.Equal(t, acts+2, b.model.count(kindAct), "the commit act replays without the model")
+	data, err := os.ReadFile(b.dagu.ProjectPath("gate.out"))
+	require.NoError(t, err)
+	var report struct {
+		WouldSend struct {
+			Signature string `json:"signature"`
+		} `json:"would_send"`
+		Writes []struct {
+			Class   string `json:"class"`
+			Outcome string `json:"outcome"`
+			Status  int    `json:"status"`
+		} `json:"writes"`
+	}
+	require.NoError(t, json.Unmarshal(data, &report), string(data))
+	assert.Equal(t, "POST "+ledger+"/Default.aspx? {__EVENTTARGET} __EVENTTARGET=Save", report.WouldSend.Signature)
+	require.Len(t, report.Writes, 2)
+	assert.Equal(t, "approved sent", report.Writes[0].Class+" "+report.Writes[0].Outcome)
+	assert.Equal(t, http.StatusOK, report.Writes[0].Status)
+
+	listed := b.dagu.RunWithEnv(runEnv, "browser", "writes", "list", "write_gate_record")
+	listed.ExpectExitCode(0)
+	var points struct {
+		Steps map[string][]struct {
+			Op        int    `json:"op"`
+			Signature string `json:"signature"`
+			Approved  bool   `json:"approved"`
+		} `json:"steps"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(listed.Stdout()), &points), listed.Stdout())
+	require.Len(t, points.Steps["book"], 2)
+	assert.True(t, points.Steps["book"][0].Approved)
+	assert.Equal(t, 2, points.Steps["book"][1].Op)
+	assert.False(t, points.Steps["book"][1].Approved, "the blocked postback waits for approval")
+}

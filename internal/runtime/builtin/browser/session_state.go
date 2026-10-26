@@ -90,6 +90,9 @@ type sessionOp struct {
 	Outputs []string `json:"outputs,omitempty"`
 	// Variables names the variables the operation used.
 	Variables []string `json:"variables,omitempty"`
+	// Writes are the signatures of the writes of the work the operation
+	// sent or tried to send, which an export keeps as commit points.
+	Writes []string `json:"writes,omitempty"`
 }
 
 func (s sessionState) idleTimeout() time.Duration {

@@ -112,6 +112,7 @@ func (r *run) resumeSession(ctx context.Context, recordID string, session *ir.Ag
 			return 0, err
 		}
 		r.restoreWrites(ctx)
+		r.loadCommitPoints()
 	}
 	if err := r.saveRunningRecord(); err != nil {
 		return 0, err

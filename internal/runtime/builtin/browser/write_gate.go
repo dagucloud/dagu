@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/browserhost/writegate"
 	cmnconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -29,6 +30,46 @@ const (
 	// decided and where a rehearsal stopped.
 	writeGateFile = "write-gate.json"
 )
+
+// commitLeaseSlack lets an operation's approved writes be sent a little
+// past its timeout, which the runtime reports before its call ends.
+const commitLeaseSlack = 30 * time.Second
+
+// writeBlocked is the failure of an operation in record mode whose write
+// the gate blocked: no approved commit point of the operation sends it.
+// Nothing was saved; approving the point lets later runs send it.
+type writeBlocked struct {
+	write writegate.Event
+}
+
+func (w writeBlocked) Error() string {
+	return fmt.Sprintf("%s: the write gate blocked %s, which no approved commit point of this operation sends; nothing was saved (signature %s)",
+		CodeWriteBlocked, w.write.String(), w.write.Signature)
+}
+
+// commitKey identifies the operation at index on pageURL as a commit point
+// does, the way the replay cache keys acts and uploads; "" for an
+// operation of another kind.
+func commitKey(index int, op operation, pageURL string) string {
+	switch {
+	case op.Act != nil:
+		return replayKey(index, op.Act.Instruction, pageURL)
+	case op.Upload != nil && op.Upload.Into != "":
+		return uploadReplayKey(index, op.Upload.Into, pageURL)
+	}
+	return ""
+}
+
+// opWords describes an operation that may be a commit point.
+func opWords(op operation) string {
+	switch {
+	case op.Act != nil:
+		return op.Act.Instruction
+	case op.Upload != nil:
+		return "upload into " + op.Upload.Into
+	}
+	return op.kind()
+}
 
 // errWriteGateLost reports a gate that stopped answering; its browser is
 // closed, since nothing decides its writes.

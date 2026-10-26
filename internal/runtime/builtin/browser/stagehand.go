@@ -1104,6 +1104,26 @@ func (e *stagehandEngine) Writes(ctx context.Context, after int64) ([]writegate.
 	})
 }
 
+func (e *stagehandEngine) BeginWrites(ctx context.Context, signatures []string, lease time.Duration) error {
+	if e.handle.WriteGate == nil {
+		return nil
+	}
+	_, err := boundCall(ctx, e.pageCallTimeout, func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, writegate.Begin(ctx, e.handle.WriteGate.URL, signatures, lease)
+	})
+	return err
+}
+
+func (e *stagehandEngine) EndWrites(ctx context.Context) error {
+	if e.handle.WriteGate == nil {
+		return nil
+	}
+	_, err := boundCall(ctx, e.pageCallTimeout, func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, writegate.End(ctx, e.handle.WriteGate.URL)
+	})
+	return err
+}
+
 func (e *stagehandEngine) Handle() browserHandle {
 	return e.handle
 }
