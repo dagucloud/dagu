@@ -205,15 +205,19 @@ func (l stagehandLauncher) Launch(ctx context.Context, opts launchOptions) (engi
 	}
 	slot, err := browserhost.TakeSlot(ctx, opts.BrowserDir, opts.MaxOpen, opts.Waiting)
 	if err != nil {
-		return nil, fmt.Errorf("wait for another browser to close: %w", err)
+		return nil, err
 	}
 	eng, err := l.launch(ctx, opts)
 	if err != nil {
 		slot.Release()
 		return nil, err
 	}
-	handle := eng.Handle()
-	if err := slot.Hold(handle.BrowserPID, handle.BrowserStartedAt); err != nil {
+	if eng.handle.BrowserPID <= 0 {
+		eng.slot = slot
+		return eng, nil
+	}
+	if err := slot.Hold(eng.handle.BrowserPID, eng.handle.BrowserStartedAt); err != nil {
+		eng.slot = slot
 		return nil, errors.Join(err, eng.Close(context.WithoutCancel(ctx)))
 	}
 	return eng, nil
@@ -489,6 +493,10 @@ type stagehandEngine struct {
 	botCheckWait time.Duration
 	// certificateEventsSeen is the last certificate proxy event taken.
 	certificateEventsSeen int64
+	// slot is the open browser slot this process keeps for the browser
+	// until it closes, when the browser cannot hold it itself; nil when the
+	// browser holds its slot or there is no limit.
+	slot *browserhost.Slot
 }
 
 // handleDownloads saves downloads into dir, or refuses them when dir is
@@ -1051,6 +1059,7 @@ func (e *stagehandEngine) Detach(ctx context.Context) error {
 // Close terminates the browser, and then the proxy that presented its
 // client certificates.
 func (e *stagehandEngine) Close(ctx context.Context) error {
+	defer e.slot.Release()
 	return errors.Join(
 		e.release(ctx),
 		closeBrowser(ctx, e.handle.BrowserPID, e.handle.BrowserStartedAt, e.browser.Close),

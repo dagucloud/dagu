@@ -61,7 +61,7 @@ func TakeSlot(ctx context.Context, browserDir string, limit int, waiting func())
 		}
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, fmt.Errorf("wait for another browser to close: %w", ctx.Err())
 		case <-time.After(openPollInterval):
 		}
 	}
@@ -110,16 +110,16 @@ func heldSlots(dir string) (int, error) {
 }
 
 // Hold hands the slot to the browser process, so it stays taken while the
-// browser runs, after the process that opened it is gone. A browser whose
-// process is unknown leaves the slot with the process that opened it.
+// browser runs, after the process that opened it is gone.
 func (s *Slot) Hold(pid int, startedAt int64) error {
-	if s == nil || pid <= 0 {
+	if s == nil {
 		return nil
 	}
 	return s.write(slotHolder{PID: pid, StartedAt: startedAt})
 }
 
-// Release frees the slot of a browser that did not start.
+// Release frees the slot of a browser that did not start, or that closed
+// without holding the slot itself.
 func (s *Slot) Release() {
 	if s == nil {
 		return
