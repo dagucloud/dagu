@@ -53,7 +53,7 @@ var (
 	}
 	sessionWriteGateFlag = commandLineFlag{
 		name:  "write-gate",
-		usage: "Write gate mode: rehearse blocks every write the page sends and reports it (default: the host's browser.write_gate)",
+		usage: "Write gate mode: rehearse blocks and reports the page's writes, but the sign-ins --write-policy lists (default: the host's browser.write_gate)",
 	}
 	sessionWritePolicyFlag = commandLineFlag{
 		name:  "write-policy",

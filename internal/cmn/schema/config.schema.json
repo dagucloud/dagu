@@ -1166,7 +1166,7 @@
         "write_gate": {
           "type": "string",
           "enum": ["off", "rehearse"],
-          "description": "The least strict write gate mode every browser on this host runs in; a step or a browser session can only ask for a stricter one. rehearse blocks every write a page sends (any request but GET, HEAD, or OPTIONS) and reports what it would have sent; a step stops at the first such write and ends partially succeeded. off, the default, runs no gate."
+          "description": "The least strict write gate mode every browser on this host runs in; a step or a browser session can only ask for a stricter one. rehearse blocks the writes a page sends (any request but GET, HEAD, or OPTIONS), except sign-ins browser.write_policy lists and, in a browser session, writes made while a person holds the browser, and reports what it would have sent; a step stops at the first blocked write of the work and ends partially succeeded. off, the default, runs no gate."
         },
         "write_policy": {
           "type": "string",
