@@ -697,21 +697,19 @@ func (l *actLoop) view(actions []computeruse.Action) view {
 	return l.r.windowView(l.r.driver.FocusedWindow(), display)
 }
 
-// noteTurnApp makes the application a turn's last pointer action lands in,
-// as the model saw it, the one the act works in; a turn of keys alone works
-// in the window in front.
-func (l *actLoop) noteTurnApp(actions []computeruse.Action) {
-	for _, action := range slices.Backward(actions) {
+// turnApps is the window each of a turn's actions works in, as the model saw
+// the screen: where a pointer action lands, and for keys, where the turn's
+// pointer action before them landed, or the window in front.
+func (l *actLoop) turnApps(actions []computeruse.Action) []desktop.WindowID {
+	apps := make([]desktop.WindowID, len(actions))
+	current := l.r.driver.FocusedWindow()
+	for i, action := range actions {
 		if at, ok := l.pointOf(action); ok {
-			if w, ok := l.r.appWindow(l.r.driver.WindowAt(at)); ok {
-				l.r.noteWorkApp(w)
-			}
-			return
+			current, _ = l.r.appWindow(l.r.driver.WindowAt(at))
 		}
+		apps[i] = current
 	}
-	if len(actions) > 0 {
-		l.r.noteWorkApp(l.r.driver.FocusedWindow())
-	}
+	return apps
 }
 
 // pointOf is where a pointer action lands in display pixels: the centre of
@@ -800,13 +798,14 @@ func describeRound(actions []computeruse.Action) string {
 	return strings.Join(parts, "\n")
 }
 
-// apply performs a turn's actions and records the ones that completed.
+// apply performs a turn's actions and records the ones that completed; the
+// application the last of them worked in becomes the one the act works in.
 func (l *actLoop) apply(ctx context.Context, turn *computeruse.Turn) []computeruse.Result {
 	l.touched = l.touched || len(turn.Actions) > 0
 	l.outcome.actions += len(turn.Actions)
-	// The window is read before the actions run, as the model saw it.
+	// The windows are read before the actions run, as the model saw them.
 	v := l.view(turn.Actions)
-	l.noteTurnApp(turn.Actions)
+	apps := l.turnApps(turn.Actions)
 	els, _ := l.r.elementsIfAvailable()
 	results := make([]computeruse.Result, len(turn.Actions))
 	var recorded []recordedAction
@@ -834,6 +833,7 @@ func (l *actLoop) apply(ctx context.Context, turn *computeruse.Turn) []computeru
 					continue
 				}
 				recorded = appendRecorded(recorded, rec)
+				l.r.noteWorkApp(apps[i])
 				continue
 			}
 			// No pattern, or a host without elements: click the element's
@@ -848,6 +848,7 @@ func (l *actLoop) apply(ctx context.Context, turn *computeruse.Turn) []computeru
 			continue
 		}
 		recorded = appendRecorded(recorded, rec)
+		l.r.noteWorkApp(apps[i])
 	}
 	if len(recorded) > 0 {
 		for i := range recorded {

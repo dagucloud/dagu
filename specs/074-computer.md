@@ -224,7 +224,7 @@ overall and where each action lands, and the keyboard focus is still on the
 window it was on, the actions run; otherwise they are not run, and the new
 screenshot is sent with a note saying why. Before that screenshot, an act
 brings back the application it was working in: the one in front when the
-act started, or the one its last actions landed in. The window the person
+act started, or the one its last action that ran landed in. The window the person
 left in front is theirs, so the step never maximizes it. A change elsewhere on the screen
 does not stop the actions. Where the system does not report the focus, the
 screen check alone guards a turn that types or presses keys. The end of

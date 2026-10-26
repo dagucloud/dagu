@@ -3057,46 +3057,65 @@ func TestActReturnsToItsApplicationAfterAPerson(t *testing.T) {
 	}
 }
 
-// The act works in the application its last action landed in: a turn that
-// clicks in one application and then another leaves the act in the second,
-// which is the one brought back after a person.
+// The act works in the application its last action that ran landed in: a
+// turn that clicks in one application and then another leaves the act in the
+// second, which is the one brought back after a person; a turn stopped by a
+// failed action leaves it where it last worked.
 func TestActWorksWhereItsLastActionLanded(t *testing.T) {
 	t.Parallel()
 
-	run := newTestRun(t)
 	expense := desktop.WindowID{Handle: 2, Title: "Expense", PID: 7, App: "expense", Bounds: image.Rect(0, 0, 200, 200)}
 	ledger := desktop.WindowID{Handle: 3, Title: "Ledger", PID: 9, App: "ledger", Bounds: image.Rect(200, 0, 400, 200)}
 	mail := desktop.WindowID{Handle: 1, Title: "Mail", PID: 8, App: "mail", Bounds: image.Rect(0, 0, 400, 200)}
-	run.backend.windows = []desktop.WindowID{mail, expense, ledger}
-	run.backend.focusOn(expense)
-	run.backend.windowAt = func(x, _ int) desktop.WindowID {
-		if x < 200 {
-			return expense
-		}
-		return ledger
+	// An element id the screen did not offer fails its action, so the
+	// actions after it are skipped.
+	missing := computeruse.Action{CallID: "x", Kind: computeruse.KindClick, ElementID: "e99"}
+	tests := []struct {
+		name   string
+		first  *computeruse.Turn
+		raised desktop.WindowID
+	}{
+		{name: "the last click", first: actions(clickAt(10, 10), clickAt(300, 10)), raised: ledger},
+		{name: "a failed action", first: actions(clickAt(10, 10), missing, clickAt(300, 10)), raised: expense},
 	}
-	paste := computeruse.Action{CallID: "p", Kind: computeruse.KindKey, Keys: []string{"cmd", "v"}}
-	turns := 0
-	session := &scriptedSession{
-		turns: []*computeruse.Turn{actions(clickAt(10, 10), clickAt(300, 10)), actions(paste), actions(paste), done("Copied")},
-		onNext: func() {
-			turns++
-			// Once the first turn ran, a person brings mail forward, where
-			// the paste would land.
-			if turns == 2 {
-				run.backend.personUses()
-				run.backend.focusOn(mail)
-			}
-		},
-	}
-	run.sessions = []*scriptedSession{session}
-	execution := run.execute(`{"idle": "100ms", "do": [{"act": "Copy the amount into the ledger"}]}`, nil)
-	require.NoError(t, execution.err)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	require.NotEmpty(t, run.backend.raised)
-	assert.Equal(t, ledger.Handle, run.backend.raised[0].Handle, "the application of the turn's last click came back")
-	for _, w := range run.backend.maximizedWindows() {
-		assert.NotEqual(t, mail.Handle, w.Handle, "the person's window keeps its size")
+			run := newTestRun(t)
+			run.elements = newFakeElements()
+			run.backend.windows = []desktop.WindowID{mail, expense, ledger}
+			run.backend.focusOn(expense)
+			run.backend.windowAt = func(x, _ int) desktop.WindowID {
+				if x < 200 {
+					return expense
+				}
+				return ledger
+			}
+			paste := computeruse.Action{CallID: "p", Kind: computeruse.KindKey, Keys: []string{"cmd", "v"}}
+			turns := 0
+			session := &scriptedSession{
+				turns: []*computeruse.Turn{tc.first, actions(paste), actions(paste), done("Copied")},
+				onNext: func() {
+					turns++
+					// Once the first turn ran, a person brings mail forward,
+					// where the paste would land.
+					if turns == 2 {
+						run.backend.personUses()
+						run.backend.focusOn(mail)
+					}
+				},
+			}
+			run.sessions = []*scriptedSession{session}
+			execution := run.execute(`{"idle": "100ms", "do": [{"act": "Copy the amount into the ledger"}]}`, nil)
+			require.NoError(t, execution.err)
+
+			require.NotEmpty(t, run.backend.raised)
+			assert.Equal(t, tc.raised.Handle, run.backend.raised[0].Handle, "the application the act last worked in came back")
+			for _, w := range run.backend.maximizedWindows() {
+				assert.NotEqual(t, mail.Handle, w.Handle, "the person's window keeps its size")
+			}
+		})
 	}
 }
 
