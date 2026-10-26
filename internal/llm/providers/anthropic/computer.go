@@ -118,6 +118,8 @@ func (s *computerSession) Next(ctx context.Context, obs computeruse.Observation)
 	if err := json.NewDecoder(respBody).Decode(&resp); err != nil {
 		return nil, llm.WrapError(providerName, fmt.Errorf("failed to decode response: %w", err))
 	}
+	// The call is billed whether or not its answer can be used.
+	llm.RecordUsage(ctx, llm.UsageRecord{Provider: providerName, Model: s.opts.Model, Usage: resp.Usage.llm()})
 	if resp.StopReason == stopReasonRefusal {
 		return nil, fmt.Errorf("%s: the model declined the request: %s", providerName, resp.StopDetails.describe())
 	}

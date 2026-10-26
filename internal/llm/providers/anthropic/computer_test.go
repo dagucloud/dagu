@@ -178,6 +178,28 @@ func TestComputerSessionRefusal(t *testing.T) {
 	require.ErrorContains(t, err, "not allowed")
 }
 
+type usageRecords []llm.UsageRecord
+
+func (r *usageRecords) RecordLLMUsage(record llm.UsageRecord) { *r = append(*r, record) }
+
+// A native session's call reports its usage even when its answer is
+// declined, since the call is billed either way.
+func TestComputerSessionRecordsUsage(t *testing.T) {
+	t.Parallel()
+
+	server := messagesServer(
+		`{"content":[],"stop_reason":"refusal","stop_details":{"type":"refusal","category":"cyber","explanation":"not allowed"},"usage":{"input_tokens":40,"output_tokens":3,"cache_read_input_tokens":200}}`,
+	)
+	session := newComputerSession(t, server)
+	var records usageRecords
+
+	_, err := session.Next(llm.WithUsageSink(context.Background(), &records), computeruse.Observation{Screen: testScreen("first")})
+	require.ErrorContains(t, err, "not allowed")
+	assert.Equal(t, usageRecords{{Provider: "anthropic", Model: "claude-opus-5", Usage: llm.Usage{
+		PromptTokens: 240, CompletionTokens: 3, TotalTokens: 243, CachedPromptTokens: 200,
+	}}}, records)
+}
+
 // A member call that cannot be performed stops the batch; the calls after it
 // are not run and are answered as skipped.
 func TestComputerSessionHaltsBatch(t *testing.T) {

@@ -118,6 +118,10 @@ func (s *computerSession) Next(ctx context.Context, obs computeruse.Observation)
 	if err := json.NewDecoder(respBody).Decode(&resp); err != nil {
 		return nil, llm.WrapError(providerName, fmt.Errorf("failed to decode response: %w", err))
 	}
+	// The call is billed whether or not its answer can be used.
+	if resp.UsageMetadata != nil {
+		llm.RecordUsage(ctx, llm.UsageRecord{Provider: providerName, Model: s.opts.Model, Usage: resp.UsageMetadata.llm()})
+	}
 	if len(resp.Candidates) == 0 {
 		reason := "no candidates"
 		if resp.PromptFeedback != nil && resp.PromptFeedback.BlockReason != "" {

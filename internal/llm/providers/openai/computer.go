@@ -127,6 +127,10 @@ func (s *computerSession) Next(ctx context.Context, obs computeruse.Observation)
 	if err := json.NewDecoder(respBody).Decode(&resp); err != nil {
 		return nil, llm.WrapError(providerName, fmt.Errorf("failed to decode response: %w", err))
 	}
+	// An answer cut short is still billed; a failed response is not.
+	if resp.Status != responseFailed {
+		llm.RecordUsage(ctx, llm.UsageRecord{Provider: providerName, Model: s.opts.Model, Usage: resp.Usage.LLM()})
+	}
 	switch resp.Status {
 	case responseFailed:
 		message := "the response failed"
