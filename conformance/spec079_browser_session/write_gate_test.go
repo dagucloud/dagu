@@ -41,7 +41,7 @@ const ledgerPage = `<!doctype html><html><head><title>Ledger</title></head><body
 <button onclick="navigator.sendBeacon('/beacon', 'x'); say('beacon sent')">Send beacon</button>
 <button onclick="socket()">Open socket</button>
 <button onclick="signIn()">Sign in</button>
-<button onclick="setTimeout(() => post('/api/autosave', 'draft=1', 'application/x-www-form-urlencoded'), 1500)">Autosave later</button>
+<button onclick="setTimeout(() => post('/api/autosave', 'draft=1', 'application/x-www-form-urlencoded'), 4000)">Autosave later</button>
 <button onclick="post('/Default.aspx', '__EVENTTARGET=ctl00%24Save&amount=1', 'application/x-www-form-urlencoded')">Postback</button>
 <button onclick="post('/graphql', JSON.stringify({operationName: 'CreateEntry', query: 'mutation CreateEntry { id }'}), 'application/json')">Create with GraphQL</button>
 <button onclick="sync()">Sync later</button>
@@ -310,8 +310,10 @@ func TestSessionReportsAWriteMadeWhileIdle(t *testing.T) {
 
 	g := newGateEnv(t)
 	opened := g.open("--write-gate", "rehearse")
+	// The autosave comes after the click's downloads settled, while the
+	// session waits.
 	g.press(opened.ID, "Autosave later")
-	time.Sleep(3 * time.Second)
+	time.Sleep(4 * time.Second)
 	sent, _ := g.ledger.written()
 	assert.Empty(t, sent)
 

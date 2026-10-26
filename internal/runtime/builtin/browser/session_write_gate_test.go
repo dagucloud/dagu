@@ -16,6 +16,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// doAllowing runs input in the session, letting it send the writes of
+// signatures.
+func (ts *testSessions) doAllowing(id, input string, signatures ...string) (DoResult, error) {
+	ts.t.Helper()
+	op, variables, err := ParseSessionInput([]byte(input))
+	require.NoError(ts.t, err)
+	return ts.sessions.Do(ts.context(), DoRequest{ID: id, Operation: op, Variables: variables, AllowWrites: signatures})
+}
+
 // A gated session reports each write with the command it happened in, and
 // one the page sent while it waited with the next command.
 func TestSessionReportsWrites(t *testing.T) {
@@ -124,9 +133,7 @@ func TestSessionRecordSendsOnlyWhatItIsAllowed(t *testing.T) {
 	sent := blockedSave
 	sent.Class, sent.Outcome, sent.Status = writegate.ClassApproved, writegate.OutcomeSent, 201
 	ts.engine.actWrites = []writegate.Event{sent}
-	op, variables, err := ParseSessionInput([]byte(`{"act": "Click the Save button"}`))
-	require.NoError(t, err)
-	result, err = ts.sessions.Do(ts.context(), DoRequest{ID: opened.ID, Operation: op, Variables: variables, AllowWrites: []string{blockedSave.Signature}})
+	result, err = ts.doAllowing(opened.ID, `{"act": "Click the Save button"}`, blockedSave.Signature)
 	require.NoError(t, err)
 	assert.Equal(t, OperationDone, result.Status)
 	assert.Equal(t, [][]string{{blockedSave.Signature}}, ts.engine.allowed)
@@ -151,9 +158,40 @@ func TestSessionRehearsalRefusesAllowedWrites(t *testing.T) {
 	ts := newTestSessions(t, pageModel(nil))
 	ts.engine.handle.WriteGate = runningGate()
 	opened := ts.open(SessionOptions{URL: "https://books.example.com/", Headless: true, LLM: testModel, WriteGate: writegate.ModeRehearse})
-	op, variables, err := ParseSessionInput([]byte(`{"act": "Click the Save button"}`))
-	require.NoError(t, err)
-	_, err = ts.sessions.Do(ts.context(), DoRequest{ID: opened.ID, Operation: op, Variables: variables, AllowWrites: []string{blockedSave.Signature}})
+	_, err := ts.doAllowing(opened.ID, `{"act": "Click the Save button"}`, blockedSave.Signature)
 	assert.Equal(t, CodeInvalidInput, sessionCode(err))
 	assert.Empty(t, ts.engine.allowed)
+}
+
+// An act's allowed write sent while its downloads settle is sent and
+// reported with the act.
+func TestSessionSendsAnAllowedWriteWhileDownloadsSettle(t *testing.T) {
+	t.Parallel()
+
+	ts := newTestSessions(t, pageModel(nil))
+	ts.engine.handle.WriteGate = runningGate()
+	opened := ts.open(SessionOptions{URL: "https://books.example.com/", Headless: true, LLM: testModel, WriteGate: writegate.ModeRecord})
+	ts.engine.downloadWrites = []writegate.Event{blockedSave}
+	result, err := ts.doAllowing(opened.ID, `{"act": "Click the Save button"}`, blockedSave.Signature)
+	require.NoError(t, err)
+
+	assert.Equal(t, OperationDone, result.Status)
+	require.Len(t, result.Writes, 1)
+	assert.Equal(t, writegate.OutcomeSent, result.Writes[0].Outcome)
+	assert.False(t, ts.engine.allowing)
+}
+
+// A session whose gate may still let a command's allowed writes through
+// ends, closing its browser.
+func TestSessionEndsWhenAnAllowanceMayNotEnd(t *testing.T) {
+	t.Parallel()
+
+	ts := newTestSessions(t, pageModel(nil))
+	ts.engine.handle.WriteGate = runningGate()
+	opened := ts.open(SessionOptions{URL: "https://books.example.com/", Headless: true, LLM: testModel, WriteGate: writegate.ModeRecord})
+	ts.engine.endErr = assert.AnError
+	_, err := ts.doAllowing(opened.ID, `{"act": "Click the Save button"}`, blockedSave.Signature)
+
+	assert.Equal(t, CodeWriteGateLost, sessionCode(err))
+	assert.Equal(t, browserhost.StateEnded, ts.record(opened.ID).State)
 }

@@ -773,7 +773,7 @@ func (s *Sessions) Do(ctx context.Context, req DoRequest) (DoResult, error) {
 		entry.Variables = agentstep.VariableReferences(op.Act.Instruction)
 	}
 	var opErr error
-	skipped := false
+	skipped, allowing := false, false
 	if op.When != nil {
 		holds, reason, err := operator.await(ctx, *op.When, op.When.window(0), op.timeout())
 		switch {
@@ -788,16 +788,13 @@ func (s *Sessions) Do(ctx context.Context, req DoRequest) (DoResult, error) {
 	if opErr == nil && !skipped {
 		var done opResult
 		if len(req.AllowWrites) > 0 {
-			if err := eng.BeginWrites(ctx, req.AllowWrites, op.timeout()+commitLeaseSlack); err != nil {
+			// The allowance lasts until the operation's downloads settle.
+			if err := eng.BeginWrites(ctx, req.AllowWrites, 2*op.timeout()+sessionDownloadGrace+commitLeaseSlack); err != nil {
 				return DoResult{}, err
 			}
+			allowing = true
 		}
 		done, opErr = operator.runOperation(ctx, index, op)
-		if len(req.AllowWrites) > 0 {
-			// A gate that did not hear it blocks the writes once the lease
-			// ends.
-			_ = eng.EndWrites(ctx)
-		}
 		if opErr == nil {
 			opErr = operator.checkPage(ctx, index)
 		}
@@ -838,6 +835,25 @@ func (s *Sessions) Do(ctx context.Context, req DoRequest) (DoResult, error) {
 	for _, d := range eng.TakeDialogs() {
 		result.Dialogs = append(result.Dialogs, SessionDialog{Type: d.Type, Message: masker.MaskString(d.Message)})
 	}
+	if op.Act != nil || op.Goto != "" {
+		grace := time.Duration(0)
+		if op.Act != nil {
+			grace = sessionDownloadGrace
+		}
+		names, err := eng.WaitForDownloads(ctx, grace, op.timeout())
+		for _, name := range names {
+			result.Downloads = append(result.Downloads, filepath.Join(use.record.DownloadsDir, name))
+		}
+		if err != nil {
+			warnings = append(warnings, "wait for downloads: "+masker.MaskString(err.Error()))
+		}
+	}
+	// The writes sent while downloads settled are the operation's too.
+	if allowing {
+		if err := eng.EndWrites(context.WithoutCancel(ctx)); err != nil {
+			return result, use.retire(context.WithoutCancel(ctx), writeGateLost(req.ID))
+		}
+	}
 	if result.Writes, err = takeWrites(ctx, eng, &state, masker); err != nil {
 		return result, use.retire(ctx, writeGateLost(req.ID))
 	}
@@ -858,19 +874,6 @@ func (s *Sessions) Do(ctx context.Context, req DoRequest) (DoResult, error) {
 	}
 	if blocked, err := eng.TakeBlockedRequests(); err == nil && len(blocked) > 0 {
 		result.Blocked = blocked
-	}
-	if op.Act != nil || op.Goto != "" {
-		grace := time.Duration(0)
-		if op.Act != nil {
-			grace = sessionDownloadGrace
-		}
-		names, err := eng.WaitForDownloads(ctx, grace, op.timeout())
-		for _, name := range names {
-			result.Downloads = append(result.Downloads, filepath.Join(use.record.DownloadsDir, name))
-		}
-		if err != nil {
-			warnings = append(warnings, "wait for downloads: "+masker.MaskString(err.Error()))
-		}
 	}
 	view, pageURL := s.view(ctx, eng, masker, req.OutlineChars, &warnings)
 	// Reading a browser that stopped answering would only wait for it again,
