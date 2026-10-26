@@ -27,6 +27,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
+	"github.com/dagucloud/dagu/v2/internal/runtime/modelusage"
 )
 
 var (
@@ -382,10 +383,22 @@ func (e *foreachExecutor) runItem(ctx context.Context, item expandedItem) itemRe
 	err = runner.Run(itemCtx, plan, progressCh)
 	close(progressCh)
 	<-recorded
+	// The body's steps are not saved with the run, so what they used on
+	// models counts toward the foreach step.
+	modelusage.FromContext(ctx).Add(bodyModelUsage(plan))
 
 	result := e.itemResult(itemCtx, plan, item, err, runner.Status(itemCtx, plan))
 	recorder.finished(ctx, recordedItemStatus(ctx, result), result.Error)
 	return result
+}
+
+// bodyModelUsage sums what an item's body steps used on models.
+func bodyModelUsage(plan *runtime.Plan) []ir.ModelUsage {
+	var total []ir.ModelUsage
+	for _, node := range plan.Nodes() {
+		total = ir.MergeModelUsage(total, node.ModelUsage().Total()...)
+	}
+	return total
 }
 
 // itemResult turns a body run's outcome into the item's aggregate entry.
