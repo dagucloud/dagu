@@ -546,7 +546,7 @@ func (l *actLoop) invokeElement(ctx context.Context, els desktop.Elements, actio
 	// The element is acted on wherever it is now, so the step makes sure
 	// that is not a window it never operates, as a pointer action does.
 	if own, owned := l.r.elementOwner(e); owned {
-		result.Error = ownedMessage(own)
+		result.Error = l.r.ownedMessage(own)
 		return true, nil, result
 	}
 	if focus {

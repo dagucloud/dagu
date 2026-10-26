@@ -245,8 +245,12 @@ func (r *run) elementOwner(e desktop.Element) (desktop.WindowID, bool) {
 	return desktop.WindowID{}, false
 }
 
-// ownedMessage says why the step will not operate a window.
-func ownedMessage(w desktop.WindowID) string {
+// ownedMessage says why the step will not operate a window: it belongs to
+// the application that runs the step, or shows one of its pages.
+func (r *run) ownedMessage(w desktop.WindowID) string {
+	if r.driver.OwnedPage(w) {
+		return fmt.Sprintf("%s is a page of the application that runs this step, which it never operates", describeWindow(w))
+	}
 	return fmt.Sprintf("%q belongs to the application that runs this step, which it never operates", w.Title)
 }
 

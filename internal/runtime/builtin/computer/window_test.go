@@ -313,7 +313,7 @@ func TestModelClickOnAProtectedTitleIsRefused(t *testing.T) {
 	assert.Empty(t, run.backend.inputs(), "the click does not reach the page")
 	require.Len(t, session.observations, 2)
 	require.Len(t, session.observations[1].Results, 1)
-	assert.Contains(t, session.observations[1].Results[0].Error, `"Batches · Kitewell" belongs to the application that runs this step`)
+	assert.Contains(t, session.observations[1].Results[0].Error, `Google Chrome "Batches · Kitewell" is a page of the application that runs this step`)
 }
 
 // A replay never has an element in a window the step never operates act by

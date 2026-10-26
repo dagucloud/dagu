@@ -248,10 +248,16 @@ func TestDriverOwnedProtectsTitles(t *testing.T) {
 
 	driver := desktop.New(&recordingBackend{})
 	driver.ProtectTitles(" · Kitewell ", "")
+	driver.ProtectApps("Kitewell")
 
-	assert.True(t, driver.Owned(desktop.WindowID{Handle: 1, PID: 999999, App: "Google Chrome", Title: "バッチ · Kitewell"}), "a page with a protected title is owned in any application")
+	page := desktop.WindowID{Handle: 1, PID: 999999, App: "Google Chrome", Title: "バッチ · Kitewell"}
+	assert.True(t, driver.Owned(page), "a page with a protected title is owned in any application")
+	assert.True(t, driver.OwnedPage(page), "it is owned as a page another application shows")
 	assert.False(t, driver.Owned(desktop.WindowID{Handle: 2, PID: 999999, App: "Google Chrome", Title: "Inbox - Mail"}))
 	assert.False(t, driver.Owned(desktop.WindowID{Handle: 3, PID: 999999, App: "Google Chrome"}), "a window without a title is nobody's")
+	own := desktop.WindowID{Handle: 4, PID: 999999, App: "Kitewell", Title: "Settings · Kitewell"}
+	assert.True(t, driver.Owned(own))
+	assert.False(t, driver.OwnedPage(own), "a protected application's own window is not a page another shows")
 }
 
 func TestDriverOwnedProtectsApps(t *testing.T) {

@@ -274,12 +274,24 @@ func (d *Driver) ProtectTitles(titles ...string) {
 // never operates: a keystroke to it could close the application that runs
 // the step, and a click in its pages could start the automation again.
 func (d *Driver) Owned(w WindowID) bool {
+	return d.ownedApplication(w) || d.protectsTitle(w)
+}
+
+// OwnedPage reports a window Owned only for its title: a page of the
+// automation's own application that another application, such as a
+// browser, shows.
+func (d *Driver) OwnedPage(w WindowID) bool {
+	return d.protectsTitle(w) && !d.ownedApplication(w)
+}
+
+func (d *Driver) ownedApplication(w WindowID) bool {
 	if w.PID != 0 && d.family()[w.PID] {
 		return true
 	}
-	if w.App != "" && slices.ContainsFunc(d.protectedApps, func(app string) bool { return strings.EqualFold(app, w.App) }) {
-		return true
-	}
+	return w.App != "" && slices.ContainsFunc(d.protectedApps, func(app string) bool { return strings.EqualFold(app, w.App) })
+}
+
+func (d *Driver) protectsTitle(w WindowID) bool {
 	return w.Title != "" && slices.ContainsFunc(d.protectedTitles, func(title string) bool { return WindowMatches(w.Title, title) })
 }
 
