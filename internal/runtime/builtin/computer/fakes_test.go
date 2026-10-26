@@ -40,8 +40,9 @@ type fakeBackend struct {
 	afterClicks []*image.RGBA
 	afterWheels []*image.RGBA
 	events      []string
-	// typeErr fails typing when set.
-	typeErr error
+	// typeErr fails typing, and positionErr reading the pointer's
+	// position, when set.
+	typeErr, positionErr error
 	// lastEvent and personInputAt are when the desktop last received input
 	// from the step and from a person.
 	lastEvent     time.Time
@@ -508,7 +509,7 @@ func (b *fakeBackend) MoveTo(x, y int) error {
 	return nil
 }
 
-func (b *fakeBackend) Position() (int, int, error) { return 0, 0, nil }
+func (b *fakeBackend) Position() (int, int, error) { return 0, 0, b.positionErr }
 
 func (b *fakeBackend) Button(button desktop.Button, down bool, clicks int) error {
 	if !down {

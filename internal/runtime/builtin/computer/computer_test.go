@@ -2900,6 +2900,30 @@ func TestOwnApplicationGuardCoversEveryReach(t *testing.T) {
 	}
 }
 
+// An action at the cursor is refused when the cursor's position cannot be
+// read, since the window it would reach is unknown.
+func TestActionAtAnUnreadableCursorIsRefused(t *testing.T) {
+	t.Parallel()
+
+	for _, action := range []computeruse.Action{
+		{CallID: "a", Kind: computeruse.KindClick, Button: "left"},
+		{CallID: "a", Kind: computeruse.KindScroll, ScrollY: 3},
+		{CallID: "a", Kind: computeruse.KindMouseDown, Button: "left"},
+	} {
+		t.Run(string(action.Kind), func(t *testing.T) {
+			t.Parallel()
+			run := newTestRun(t)
+			run.backend.positionErr = errors.New("no pointer")
+			session := &scriptedSession{turns: []*computeruse.Turn{actions(action), done("Gave up")}}
+			run.sessions = []*scriptedSession{session}
+			require.NoError(t, run.execute(`{"idle": "0", "do": [{"act": "Operate"}]}`, nil).err)
+			assert.Empty(t, run.backend.inputs(), "nothing reached the desktop")
+			require.GreaterOrEqual(t, len(session.observations), 2)
+			assert.Contains(t, session.observations[1].Results[0].Error, "the pointer's position cannot be read")
+		})
+	}
+}
+
 // A wait for a person ends with an event, so a view knows the step is at
 // work again before its operation finishes.
 func TestWaitEndsWithAnEvent(t *testing.T) {

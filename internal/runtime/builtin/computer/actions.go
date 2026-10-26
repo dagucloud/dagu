@@ -146,11 +146,15 @@ func (r *run) runAction(ctx context.Context, action computeruse.Action, toFull p
 	}
 	// The step never operates the application that runs it: a keystroke
 	// to a window of its own a person just focused could close it.
-	if own, ok := r.ownWindow(action, at, toFull); ok {
+	own, ok, err := r.ownWindow(action, at, toFull)
+	if err != nil {
+		result.Error = err.Error()
+		return result
+	}
+	if ok {
 		result.Error = r.ownedMessage(own)
 		return result
 	}
-	var err error
 	switch action.Kind {
 	case computeruse.KindClick:
 		err = r.click(ctx, action, at)
@@ -244,9 +248,19 @@ func (r *run) click(ctx context.Context, action computeruse.Action, at *image.Po
 // nothing, every point a drag crosses, and the focused
 // window for any pointer action that holds modifiers, whose key-down
 // reaches the focus wherever the pointer is. It reports the first of those
-// the step owns, so a keystroke or click never reaches the application.
-func (r *run) ownWindow(action computeruse.Action, at *image.Point, toFull positionMapper) (desktop.WindowID, bool) {
+// the step owns, so a keystroke or click never reaches the application. An
+// action at the cursor is refused with an error when the cursor's position
+// cannot be read, since the window it would reach is unknown.
+func (r *run) ownWindow(action computeruse.Action, at *image.Point, toFull positionMapper) (desktop.WindowID, bool, error) {
 	var windows []desktop.WindowID
+	underCursor := func() error {
+		p, err := r.driver.CursorPosition()
+		if err != nil {
+			return fmt.Errorf("the pointer's position cannot be read to check the window it is over: %w", err)
+		}
+		windows = append(windows, r.driver.WindowAt(p))
+		return nil
+	}
 	switch action.Kind {
 	case computeruse.KindType, computeruse.KindKey, computeruse.KindHoldKey:
 		windows = append(windows, r.driver.FocusedWindow())
@@ -254,8 +268,8 @@ func (r *run) ownWindow(action computeruse.Action, at *image.Point, toFull posit
 		// One that names no position acts at the cursor.
 		if at != nil {
 			windows = append(windows, r.driver.WindowAt(*at))
-		} else if p, err := r.driver.CursorPosition(); err == nil {
-			windows = append(windows, r.driver.WindowAt(p))
+		} else if err := underCursor(); err != nil {
+			return desktop.WindowID{}, false, err
 		}
 	case computeruse.KindMove:
 		if at != nil {
@@ -263,15 +277,15 @@ func (r *run) ownWindow(action computeruse.Action, at *image.Point, toFull posit
 		}
 	case computeruse.KindMouseDown, computeruse.KindMouseUp:
 		// A button press acts at the cursor, which the action does not move.
-		if p, err := r.driver.CursorPosition(); err == nil {
-			windows = append(windows, r.driver.WindowAt(p))
+		if err := underCursor(); err != nil {
+			return desktop.WindowID{}, false, err
 		}
 	case computeruse.KindDrag:
 		for _, p := range action.Path {
 			windows = append(windows, r.driver.WindowAt(toFull(p)))
 		}
 	default:
-		return desktop.WindowID{}, false
+		return desktop.WindowID{}, false, nil
 	}
 	// A pointer action that holds modifiers sends key-downs to the focused
 	// window wherever the pointer is; a button press sends none.
@@ -280,10 +294,10 @@ func (r *run) ownWindow(action computeruse.Action, at *image.Point, toFull posit
 	}
 	for _, window := range windows {
 		if r.driver.Owned(window) {
-			return window, true
+			return window, true, nil
 		}
 	}
-	return desktop.WindowID{}, false
+	return desktop.WindowID{}, false, nil
 }
 
 // snapshot captures the screen, or a region of it, scaled to the model's
