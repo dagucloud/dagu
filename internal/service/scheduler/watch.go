@@ -5,6 +5,8 @@ package scheduler
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -42,6 +44,16 @@ type WatchEnqueueFunc func(ctx context.Context, entry DAGEntry, runID, params st
 // WatchRuntimeParams are the params a file's run receives.
 func WatchRuntimeParams(path string) string {
 	return fmt.Sprintf("%s=%s %s=%s", ir.WatchFileParam, strconv.Quote(path), ir.WatchNameParam, strconv.Quote(filepath.Base(path)))
+}
+
+// WatchRunID names the run of one version of a file, the same every time
+// it is derived: when the ledger that remembers the file is lost, as it is
+// when the process stops between queuing the run and saving the ledger,
+// the file is queued again under the same ID and the queue, which already
+// holds it, leaves it alone.
+func WatchRunID(dagName, path string, mark schedulerstate.FileMark) string {
+	sum := sha256.Sum256([]byte(dagName + "\x00" + path + "\x00" + strconv.FormatInt(mark.Size, 10) + "\x00" + strconv.FormatInt(mark.ModTime.UnixNano(), 10)))
+	return "file-" + hex.EncodeToString(sum[:16])
 }
 
 type folderWatcherConfig struct {
@@ -106,12 +118,10 @@ func (w *folderWatcher) Start(ctx context.Context) {
 func (w *folderWatcher) tick(ctx context.Context) {
 	now := w.cfg.Clock()
 	changed := false
-	watched := map[string]bool{}
 	for _, entry := range w.cfg.Entries() {
 		if entry.DAG == nil || entry.DAG.Watch == nil {
 			continue
 		}
-		watched[entry.DAG.Name] = true
 		if last, ok := w.readAt[entry.DAG.Name]; ok && now.Sub(last) < entry.DAG.Watch.Interval {
 			continue
 		}
@@ -120,17 +130,9 @@ func (w *folderWatcher) tick(ctx context.Context) {
 			changed = true
 		}
 	}
-	// A DAG that stopped watching, or went away, forgets its folder, so it
-	// starts over when it watches again.
-	for name := range w.ledgers {
-		if !watched[name] {
-			delete(w.ledgers, name)
-			delete(w.pending, name)
-			delete(w.readAt, name)
-			delete(w.trouble, name)
-			changed = true
-		}
-	}
+	// A DAG the entries leave out keeps its record: it may be back after an
+	// edit that did not load, and a file that arrived meanwhile must still
+	// run then. A record of a DAG that is gone for good costs a few bytes.
 	if changed && w.cfg.Store != nil {
 		if err := w.cfg.Store.SaveWatch(ctx, w.ledgers); err != nil {
 			logger.Error(ctx, "Failed to save watched folders", tag.Error(err))
@@ -193,7 +195,7 @@ func (w *folderWatcher) settle(ctx context.Context, entry DAGEntry, dir string, 
 			pending[name] = mark
 			continue
 		}
-		if w.start(ctx, entry, filepath.Join(dir, name)) {
+		if w.start(ctx, entry, filepath.Join(dir, name), mark) {
 			ledger.Files[name] = mark
 			delete(pending, name)
 			changed = true
@@ -218,7 +220,7 @@ func (w *folderWatcher) settle(ctx context.Context, entry DAGEntry, dir string, 
 // suspended, and reports whether the file is now taken care of. A file
 // whose run could not start, or that arrived while the DAG was suspended,
 // is tried again at the next reading.
-func (w *folderWatcher) start(ctx context.Context, entry DAGEntry, path string) bool {
+func (w *folderWatcher) start(ctx context.Context, entry DAGEntry, path string, mark schedulerstate.FileMark) bool {
 	dag := entry.DAG
 	suspended, err := isSuspendedDAG(ctx, w.cfg.IsSuspended, nil, dag, entry.DefinitionID)
 	if err != nil {
@@ -228,11 +230,7 @@ func (w *folderWatcher) start(ctx context.Context, entry DAGEntry, path string) 
 	if suspended {
 		return false
 	}
-	runID, err := ir.NewDAGRunID()
-	if err != nil {
-		logger.Error(ctx, "Failed to make a run ID for a file", tag.DAG(dag.Name), tag.Error(err))
-		return false
-	}
+	runID := WatchRunID(dag.Name, path, mark)
 	if err := w.cfg.Enqueue(ctx, entry, runID, WatchRuntimeParams(path)); err != nil {
 		logger.Error(ctx, "Failed to start the run for a file", tag.DAG(dag.Name), slog.String("file", path), tag.Error(err))
 		return false

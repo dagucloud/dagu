@@ -32,6 +32,7 @@ type watchFixture struct {
 
 	mu      sync.Mutex
 	started []string
+	runIDs  []string
 	fail    bool
 }
 
@@ -42,7 +43,7 @@ func newWatchFixture(t *testing.T, pattern string, watchStore schedulerstate.Wat
 	f.watcher = newFolderWatcher(folderWatcherConfig{
 		Entries:     func() []DAGEntry { return []DAGEntry{f.entry} },
 		IsSuspended: func(context.Context, string) (bool, error) { return f.suspended, nil },
-		Enqueue: func(_ context.Context, entry DAGEntry, _ string, params string) error {
+		Enqueue: func(_ context.Context, entry DAGEntry, runID string, params string) error {
 			f.mu.Lock()
 			defer f.mu.Unlock()
 			if f.fail {
@@ -50,6 +51,7 @@ func newWatchFixture(t *testing.T, pattern string, watchStore schedulerstate.Wat
 			}
 			require.Equal(t, "inbox", entry.DAG.Name)
 			f.started = append(f.started, params)
+			f.runIDs = append(f.runIDs, runID)
 			return nil
 		},
 		Store: watchStore,
@@ -192,6 +194,55 @@ func TestWatchRemembersFilesAcrossRestarts(t *testing.T) {
 	again.read()
 	again.read()
 	assert.Equal(t, []string{WatchRuntimeParams(arrived)}, again.runs())
+}
+
+// A run is named after the file's version, so a file queued again after the
+// ledger was lost, as when the process stopped before saving it, is the same
+// run to the queue.
+func TestWatchNamesARunAfterTheFileVersion(t *testing.T) {
+	t.Parallel()
+
+	f := newWatchFixture(t, "", nil)
+	f.read()
+	path := f.write("a.txt", "x", f.now)
+	f.read()
+	f.read()
+	require.Len(t, f.runIDs, 1)
+	assert.Regexp(t, `^file-[0-9a-f]{32}$`, f.runIDs[0])
+	assert.NoError(t, ir.ValidateDAGRunID(f.runIDs[0]))
+
+	// The ledger is lost; the same file version is queued under the same ID.
+	f.watcher.ledgers = map[string]schedulerstate.WatchLedger{}
+	f.read()
+	f.read()
+	f.read()
+	require.Len(t, f.runIDs, 2)
+	assert.Equal(t, f.runIDs[0], f.runIDs[1])
+
+	f.write("a.txt", "changed", f.now.Add(time.Minute))
+	f.read()
+	f.read()
+	require.Len(t, f.runIDs, 3)
+	assert.NotEqual(t, f.runIDs[0], f.runIDs[2], "another version of the file is another run")
+	assert.Equal(t, WatchRunID("inbox", path, schedulerstate.FileMark{Size: 7, ModTime: f.now.Add(40 * time.Second)}), f.runIDs[2])
+}
+
+// A DAG the entries leave out for a while, as one being edited is, keeps
+// its record, so a file that arrives meanwhile runs once the DAG is back.
+func TestWatchKeepsTheRecordWhileADAGIsAway(t *testing.T) {
+	t.Parallel()
+
+	f := newWatchFixture(t, "", nil)
+	f.read()
+	entry := f.entry
+	f.entry = DAGEntry{}
+	path := f.write("a.txt", "x", f.now)
+	f.read()
+	f.read()
+	f.entry = entry
+	f.read()
+	f.read()
+	assert.Equal(t, []string{WatchRuntimeParams(path)}, f.runs())
 }
 
 func TestWatchStartsOverWhenTheFolderChanges(t *testing.T) {
