@@ -252,17 +252,16 @@ func (r *run) execute(ctx context.Context) error {
 				continue
 			}
 		}
-		if op.Ask != nil {
+		key, page := r.locate(ctx, i, op)
+		decision, decided := r.commitDecisions[i]
+		commit := r.asksBefore(key)
+		waits := op.Ask != nil || commit && !decided
+		// A person sees the page once the downloads of the operations before
+		// have settled.
+		if waits {
 			if err := r.settleDownloads(ctx, i-1, true); err != nil {
 				return r.fail(ctx, i, kindDownload, err)
 			}
-			if stopped, err := r.finishWrites(ctx, i-1); stopped {
-				return err
-			}
-			if err := r.endWrites(ctx); err != nil {
-				return r.fail(ctx, i, kindWriteGate, err)
-			}
-			return r.waitForInput(ctx, i, *op.Ask)
 		}
 		if stopped, err := r.finishWrites(ctx, i-1); stopped {
 			return err
@@ -270,10 +269,14 @@ func (r *run) execute(ctx context.Context) error {
 		if err := r.endWrites(ctx); err != nil {
 			return r.fail(ctx, i, kindWriteGate, err)
 		}
-		r.locate(ctx, i, op)
-		if pause, decision := r.commitTurn(ctx, i); pause {
+		if op.Ask != nil {
+			return r.waitForInput(ctx, i, *op.Ask)
+		}
+		r.opIndex, r.opKey, r.opPage, r.opActions = i, key, page, nil
+		switch {
+		case waits:
 			return r.askToCommit(ctx, i, op)
-		} else if decision == ir.AgentDecisionSkip {
+		case commit && !r.sendsCommit(ctx, i, decision):
 			return r.skipCommit(ctx, i, op)
 		}
 		r.beginWrites(ctx, i, op)
@@ -403,35 +406,32 @@ func (r *run) restoreWrites(ctx context.Context) {
 	}
 }
 
-// locate notes the operation at index starting on the current page, as a
-// commit point names it, when a gate decides the browser's writes.
-func (r *run) locate(ctx context.Context, index int, op operation) {
-	r.opIndex, r.opKey, r.opPage, r.opActions = index, "", "", nil
+// locate returns the commit point key of the operation at index and the
+// page it starts on, when a gate decides the browser's writes.
+func (r *run) locate(ctx context.Context, index int, op operation) (string, string) {
 	if r.eng == nil || r.eng.Handle().WriteGate == nil {
-		return
+		return "", ""
 	}
 	page, err := r.eng.CurrentURL(ctx)
 	if err != nil {
-		return
+		return "", ""
 	}
-	r.opKey, r.opPage = commitKey(index, op, page), page
+	return commitKey(index, op, page), page
 }
 
-// commitTurn reports whether the operation at index, in ask mode, waits
-// for a person before it runs, and otherwise what a person decided for
-// it. A decision to send its writes lets the operation send its commit
-// points' writes in this attempt, and for the session approves them for
-// later runs too.
-func (r *run) commitTurn(ctx context.Context, index int) (bool, string) {
-	if r.writeGate != writegate.ModeAsk || r.opKey == "" || len(pointsAt(r.points, r.opKey)) == 0 {
-		return false, ""
-	}
-	decision, decided := r.commitDecisions[index]
-	if !decided {
-		return true, ""
-	}
-	if decision == ir.AgentDecisionSkip {
-		return false, decision
+// asksBefore reports whether, in ask mode, a person decides before the
+// operation whose commit point key is key runs.
+func (r *run) asksBefore(key string) bool {
+	return r.writeGate == writegate.ModeAsk && key != "" && len(pointsAt(r.points, key)) > 0
+}
+
+// sendsCommit applies what a person decided before the commit operation
+// at index and reports whether it runs. Once lets it send its commit
+// points' writes in this attempt, and session approves them for later
+// runs too; any other answer runs nothing.
+func (r *run) sendsCommit(ctx context.Context, index int, decision string) bool {
+	if decision != commitOnce && decision != commitForSession {
+		return false
 	}
 	r.approvedKeys[r.opKey] = true
 	if decision == commitForSession {
@@ -440,7 +440,7 @@ func (r *run) commitTurn(ctx context.Context, index int) (bool, string) {
 			r.warn(index, "approve the commit point: "+r.masker.MaskString(err.Error()))
 		}
 	}
-	return false, decision
+	return true
 }
 
 // beginWrites tells the gate, in record and ask mode, the writes the

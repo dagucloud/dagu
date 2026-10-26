@@ -121,9 +121,11 @@ type fakeEngine struct {
 	visible  []string
 	// snapshot is the page's accessibility tree; its URL is the page's.
 	snapshot pageSnapshot
-	// downloads and downloadErr script what the next download wait reports.
-	downloads   []string
-	downloadErr error
+	// downloads and downloadErr script what the next download wait reports,
+	// and lateDownloads what only a wait that allows them to begin does.
+	downloads     []string
+	downloadErr   error
+	lateDownloads []string
 	// downloadWaits records the timeout of each download wait.
 	downloadWaits []time.Duration
 	// uploadHow is how uploads report the files reached the page;
@@ -461,7 +463,7 @@ func (e *fakeEngine) Snapshot(context.Context) (pageSnapshot, error) {
 
 // WaitForDownloads reports the scripted downloads once, as if they finished
 // after the operation that started them.
-func (e *fakeEngine) WaitForDownloads(_ context.Context, _ time.Duration, timeout time.Duration) ([]string, error) {
+func (e *fakeEngine) WaitForDownloads(_ context.Context, grace time.Duration, timeout time.Duration) ([]string, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.downloadWaits = append(e.downloadWaits, timeout)
@@ -469,6 +471,10 @@ func (e *fakeEngine) WaitForDownloads(_ context.Context, _ time.Duration, timeou
 	e.downloadWrites = nil
 	downloads := e.downloads
 	e.downloads = nil
+	if grace > 0 {
+		downloads = append(downloads, e.lateDownloads...)
+		e.lateDownloads = nil
+	}
 	return downloads, e.downloadErr
 }
 

@@ -564,3 +564,40 @@ func TestAskRunsOtherActsWithoutAsking(t *testing.T) {
 	assert.Equal(t, []string{"Click the Save button", "Click the Next button"}, run.engine.actInstructions())
 	assert.Empty(t, execution.exec.GetAgentSession().Interactions)
 }
+
+// An answer to a commit act that is neither once nor session sends
+// nothing.
+func TestAskSendsNothingForAnotherAnswer(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.engine.handle.WriteGate = runningGate()
+	run.noteSavePoint()
+	waiting := run.execute(askedSteps, nil)
+	require.NoError(t, waiting.err)
+	resumed := run.execute(askedSteps, answerCommit(t, waiting.exec.GetAgentSession(), ""))
+	require.NoError(t, resumed.err)
+
+	assert.Empty(t, run.engine.replays)
+	assert.Empty(t, run.engine.allowed)
+	assert.Empty(t, run.engine.actInstructions())
+}
+
+// The downloads the operations before a commit act started settle before
+// the step waits for a person.
+func TestAskSettlesDownloadsBeforeItWaits(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.engine.handle.WriteGate = runningGate()
+	point := writegate.CommitPoint{Key: replayKey(1, "Click the Save button", "https://books.example.com/deals"), Op: 1, Operation: "Click the Save button", Signature: blockedSave.Signature}
+	require.NoError(t, writegate.NewCommitStore(filepath.Join(run.dataDir, "browser")).Note(t.Context(), "orders", "shop", point))
+	run.engine.lateDownloads = []string{"deals.csv"}
+	waiting := run.execute(`{"url": "https://books.example.com/deals", "browser": {"write_gate": "ask"}, "do": [
+		{"act": "Click the Export button"},
+		{"act": "Click the Save button"}
+	]}`, nil)
+	require.NoError(t, waiting.err)
+
+	assert.Equal(t, []string{"goto:completed", "act:completed", "download:completed", "write_gate:waiting"}, eventNames(waiting.exec.GetAgentSession()))
+}

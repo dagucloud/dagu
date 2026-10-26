@@ -54,9 +54,13 @@ const commitAskTimeout = 4 * time.Hour
 
 const commitQuestionHeader = "Browser write"
 
-// commitForSession is the answer that sends a commit operation's writes
-// and approves them for later runs.
-const commitForSession = "session"
+// commitOnce is the answer that sends a commit operation's writes in this
+// attempt, and commitForSession the one that also approves them for later
+// runs.
+const (
+	commitOnce       = "once"
+	commitForSession = "session"
+)
 
 // pointsAt returns the commit points of the operation at key.
 func pointsAt(points []writegate.CommitPoint, key string) []writegate.CommitPoint {
