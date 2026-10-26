@@ -445,7 +445,7 @@ func TestSessionWorkAndExport(t *testing.T) {
 	s.session("", "close", id).ExpectExitCode(0)
 	listed := s.session("", "list")
 	listed.ExpectExitCode(0)
-	assert.JSONEq(t, `{"sessions": [], "capabilities": ["trusted_cas"]}`, listed.Stdout())
+	assert.JSONEq(t, `{"sessions": [], "capabilities": ["trusted_cas", "write_gate"]}`, listed.Stdout())
 
 	acts := s.model.count(kindAct)
 	s.dagu.RunWithEnv(s.env, "start", "orders.yaml").ExpectExitCode(0)

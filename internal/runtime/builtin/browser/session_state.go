@@ -50,6 +50,12 @@ type sessionState struct {
 	Page         sessionPage       `json:"page"`
 	Usage        sessionUsage      `json:"usage"`
 	Ops          []sessionOp       `json:"ops"`
+	// WriteGate is the write gate mode the browser runs in, empty without
+	// a gate; WriteSeq is the last of its events reported, and Person
+	// whether a person holds the browser.
+	WriteGate string `json:"writeGate,omitempty"`
+	WriteSeq  int64  `json:"writeSeq,omitempty"`
+	Person    bool   `json:"person,omitempty"`
 }
 
 type sessionPage struct {

@@ -22,6 +22,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/browserhost"
 	"github.com/dagucloud/dagu/v2/internal/browserhost/certproxy"
+	"github.com/dagucloud/dagu/v2/internal/browserhost/writegate"
 	cmnconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
@@ -63,6 +64,9 @@ const (
 	CodeLaunchFailed    = "launch_failed"
 	CodeOperationFailed = "operation_failed"
 	CodeExportInvalid   = "export_invalid"
+	// CodeWriteGateLost reports a session whose write gate stopped, which
+	// closed its browser.
+	CodeWriteGateLost = "write_gate_lost"
 	// CodeFailed reports any other failure, such as a file that could not
 	// be written.
 	CodeFailed = "failed"
@@ -133,6 +137,13 @@ type SessionOptions struct {
 	// OutlineChars bounds the page outline the result reports; zero omits
 	// it.
 	OutlineChars int
+	// WriteGate is the write gate mode the session asks for; the browser
+	// runs in the stricter of it and the host's browser.write_gate.
+	WriteGate string
+	// WritePolicyFile is the write gate policy, naming the sign-in
+	// endpoints whose writes the gate sends. The secrets its rules name are
+	// read from the environment.
+	WritePolicyFile string
 }
 
 // SessionViewport is the size of the browser's page area.
@@ -177,6 +188,11 @@ type OpenResult struct {
 	Warnings     []string  `json:"warnings"`
 	// Refused is the refusal the page shows, if any.
 	Refused *SessionRefusal `json:"refused,omitempty"`
+	// WriteGate is the write gate mode the browser runs in, empty without
+	// a gate.
+	WriteGate string `json:"write_gate,omitempty"`
+	// Writes are what the gate decided while the page opened.
+	Writes []writegate.Event `json:"writes,omitempty"`
 	SessionPageView
 }
 
@@ -227,14 +243,17 @@ type DoResult struct {
 	Recorded bool           `json:"recorded"`
 	Outputs  map[string]any `json:"outputs,omitempty"`
 	// Screenshot is the file a screenshot operation saved.
-	Screenshot   string          `json:"screenshot,omitempty"`
-	Downloads    []string        `json:"downloads"`
-	Dialogs      []SessionDialog `json:"dialogs"`
-	Blocked      map[string]int  `json:"blocked,omitempty"`
-	Tokens       int             `json:"tokens"`
-	DurationMS   int64           `json:"duration_ms"`
-	Warnings     []string        `json:"warnings"`
-	IdleDeadline time.Time       `json:"idle_deadline"`
+	Screenshot string          `json:"screenshot,omitempty"`
+	Downloads  []string        `json:"downloads"`
+	Dialogs    []SessionDialog `json:"dialogs"`
+	Blocked    map[string]int  `json:"blocked,omitempty"`
+	// Writes are what the write gate decided since the previous command,
+	// including what the page sent while it waited.
+	Writes       []writegate.Event `json:"writes,omitempty"`
+	Tokens       int               `json:"tokens"`
+	DurationMS   int64             `json:"duration_ms"`
+	Warnings     []string          `json:"warnings"`
+	IdleDeadline time.Time         `json:"idle_deadline"`
 	// Refused is the refusal the page shows after the operation, if any.
 	Refused *SessionRefusal `json:"refused,omitempty"`
 	SessionPageView
@@ -317,6 +336,18 @@ func (s *Sessions) Open(ctx context.Context, opts SessionOptions) (OpenResult, e
 	if err != nil {
 		return OpenResult{}, &SessionError{Code: CodeInvalidInput, Message: fmt.Sprintf("model: %v", err)}
 	}
+	mode, err := writeGateMode(ctx, opts.WriteGate)
+	if err != nil {
+		return OpenResult{}, &SessionError{Code: CodeInvalidInput, Message: err.Error()}
+	}
+	policy, err := loadWritePolicy(opts.WritePolicyFile)
+	if err != nil {
+		return OpenResult{}, &SessionError{Code: CodeInvalidInput, Message: err.Error()}
+	}
+	gate, err := writeGateFor(mode, policy, os.LookupEnv)
+	if err != nil {
+		return OpenResult{}, &SessionError{Code: CodeInvalidInput, Message: err.Error()}
+	}
 	sweepCtx, cancel := context.WithTimeout(ctx, sweepBudget)
 	_ = browserhost.SweepAll(sweepCtx, browserDir, s.now(), nil)
 	cancel()
@@ -372,6 +403,7 @@ func (s *Sessions) Open(ctx context.Context, opts SessionOptions) (OpenResult, e
 		ClientCertificates: certificates,
 		TrustedCAs:         authorities,
 		Guard:              guardsCertificates(ctx, certificates),
+		WriteGate:          gate,
 		Warn:               func(message string) { warnings = append(warnings, message) },
 		BrowserDir:         browserDir,
 		MaxOpen:            cmnconfig.GetConfig(ctx).Browser.MaxOpen,
@@ -405,6 +437,9 @@ func (s *Sessions) Open(ctx context.Context, opts SessionOptions) (OpenResult, e
 		},
 		LLM: opts.LLM,
 	}
+	if gate != nil {
+		state.WriteGate = mode
+	}
 	record := browserhost.Record{
 		ID:               id,
 		CDPURL:           handle.CDPURL,
@@ -419,6 +454,7 @@ func (s *Sessions) Open(ctx context.Context, opts SessionOptions) (OpenResult, e
 		WorkDir:          workDir,
 	}
 	recordCertProxy(&record, handle.CertProxy)
+	recordWriteGate(&record, handle.WriteGate)
 	if err := saveSessionRecord(store, &record, state, browserhost.StateRunning, time.Time{}); err != nil {
 		return OpenResult{}, errors.Join(err, closeSession(ctx, eng, store, record))
 	}
@@ -438,6 +474,10 @@ func (s *Sessions) Open(ctx context.Context, opts SessionOptions) (OpenResult, e
 	if err := op.checkPage(ctx, -1); err != nil {
 		return OpenResult{}, errors.Join(&SessionError{Code: CodeOperationFailed, Message: err.Error()}, closeSession(ctx, eng, store, record))
 	}
+	writes, err := takeWrites(ctx, eng, &state, masker)
+	if err != nil {
+		return OpenResult{}, errors.Join(writeGateLost(record.ID), closeSession(ctx, eng, store, record))
+	}
 	view, pageURL := s.view(ctx, eng, masker, opts.OutlineChars, &warnings)
 	refused := pageRefusal(ctx, op, sessionPage{}, pageURL)
 	state.Page = sessionPage{URL: pageURL, Title: view.Title, Refused: refused}
@@ -455,8 +495,36 @@ func (s *Sessions) Open(ctx context.Context, opts SessionOptions) (OpenResult, e
 		IdleDeadline:    deadline,
 		Warnings:        nonNil(warnings),
 		Refused:         sessionRefusal(refused, masker),
+		WriteGate:       state.WriteGate,
+		Writes:          writes,
 		SessionPageView: view,
 	}, nil
+}
+
+// takeWrites returns what the session's write gate decided since the last
+// command, and notes it in state. Its error reports a gate that is gone.
+func takeWrites(ctx context.Context, eng engine, state *sessionState, masker *masking.Masker) ([]writegate.Event, error) {
+	gate := eng.Handle().WriteGate
+	if gate == nil {
+		return nil, nil
+	}
+	events, err := eng.Writes(ctx, state.WriteSeq)
+	if err != nil {
+		if !gate.Alive() {
+			return nil, errWriteGateLost
+		}
+		// A gate that runs still decides; what it reports waits for the
+		// next command.
+		return nil, nil
+	}
+	if len(events) > 0 {
+		state.WriteSeq = events[len(events)-1].Seq
+	}
+	return maskEvents(masker, events), nil
+}
+
+func writeGateLost(id string) error {
+	return &SessionError{Code: CodeWriteGateLost, Message: fmt.Sprintf("browser session %s has ended: %s; open a new session", id, errWriteGateLost)}
 }
 
 func (o SessionOptions) validate() error {
@@ -484,6 +552,9 @@ func (o SessionOptions) validate() error {
 	}
 	if o.OutlineChars < 0 {
 		return invalid("the outline size must not be negative")
+	}
+	if _, err := writegate.ParseMode(o.WriteGate); err != nil {
+		return invalid("%v", err)
 	}
 	return nil
 }
@@ -748,6 +819,9 @@ func (s *Sessions) Do(ctx context.Context, req DoRequest) (DoResult, error) {
 	for _, d := range eng.TakeDialogs() {
 		result.Dialogs = append(result.Dialogs, SessionDialog{Type: d.Type, Message: masker.MaskString(d.Message)})
 	}
+	if result.Writes, err = takeWrites(ctx, eng, &state, masker); err != nil {
+		return result, use.retire(ctx, writeGateLost(req.ID))
+	}
 	if blocked, err := eng.TakeBlockedRequests(); err == nil && len(blocked) > 0 {
 		result.Blocked = blocked
 	}
@@ -874,6 +948,52 @@ func (s *Sessions) Describe(ctx context.Context, req DescribeRequest) (DescribeR
 	}
 	result.Warnings = nonNil(warnings)
 	return result, nil
+}
+
+// GateRequest tells a session's write gate who holds the browser.
+type GateRequest struct {
+	ID string
+	// Person reports that a person holds the browser, whose writes the
+	// gate sends; false hands it back to the gate's mode.
+	Person bool
+}
+
+// GateResult reports a session's write gate.
+type GateResult struct {
+	ID        string `json:"id"`
+	WriteGate string `json:"write_gate"`
+	// Person reports that the gate sends the browser's writes, which a
+	// person makes.
+	Person       bool      `json:"person"`
+	IdleDeadline time.Time `json:"idle_deadline"`
+}
+
+// Gate tells the session's write gate whether a person holds the browser.
+// The gate then sends every write, still reporting each; it never stops
+// deciding, since a request it does not pause is never seen.
+func (s *Sessions) Gate(ctx context.Context, req GateRequest) (GateResult, error) {
+	use, err := s.use(ctx, req.ID)
+	if err != nil {
+		return GateResult{}, err
+	}
+	defer use.release()
+	handle := recordedHandle(use.record).WriteGate
+	if handle == nil {
+		return GateResult{}, &SessionError{Code: CodeInvalidInput, Message: fmt.Sprintf("browser session %s has no write gate; open one with --write-gate", req.ID)}
+	}
+	if err := writegate.SetPerson(ctx, handle.URL, req.Person); err != nil {
+		if !handle.Alive() {
+			return GateResult{}, use.retire(ctx, writeGateLost(req.ID))
+		}
+		return GateResult{}, err
+	}
+	state := use.state
+	state.Person = req.Person
+	deadline := s.now().Add(state.idleTimeout())
+	if err := use.park(ctx, state, deadline); err != nil {
+		return GateResult{}, err
+	}
+	return GateResult{ID: req.ID, WriteGate: state.WriteGate, Person: req.Person, IdleDeadline: deadline}, nil
 }
 
 // CloseRequest closes a session.
@@ -1077,6 +1197,16 @@ func (s *Sessions) park(ctx context.Context, eng engine, store *browserhost.Stor
 	}
 	errs = append(errs, saveSessionRecord(store, record, state, browserhost.StateInteractive, deadline))
 	return errors.Join(errs...)
+}
+
+// retire ends the session, closing its browser, and returns cause.
+func (u *sessionUse) retire(ctx context.Context, cause error) error {
+	if u.eng != nil {
+		_ = u.eng.Detach(context.WithoutCancel(ctx))
+		u.eng = nil
+	}
+	_, err := browserhost.Retire(ctx, u.store, u.record, u.sessions.now().Add(browserhost.SessionRetention))
+	return errors.Join(cause, err)
 }
 
 func (u *sessionUse) release() {
