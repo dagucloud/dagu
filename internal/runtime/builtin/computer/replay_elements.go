@@ -68,8 +68,14 @@ func (r *run) recordElement(e desktop.Element, at *image.Point, app string) *rec
 	if e.Role == desktop.RoleWindow || e.Bounds.Empty() || (e.Name == "" && e.ID == "") {
 		return nil
 	}
+	// A name kept as a placeholder finds the element by the next run's
+	// value, which the element's own id would override.
+	name, id := r.elementName(e.Name), e.ID
+	if name != e.Name {
+		id = ""
+	}
 	rec := &recordedElement{
-		Selector: desktop.Selector{Role: e.Role, Name: r.elementName(e.Name), ID: e.ID},
+		Selector: desktop.Selector{Role: e.Role, Name: name, ID: id},
 		Path:     e.Path,
 		App:      app,
 		Window:   r.placeholderIn(e.Window),

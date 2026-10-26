@@ -2273,25 +2273,27 @@ func TestActShowsTheModelVisibleValues(t *testing.T) {
 }
 
 // A visible value the model chooses is recorded by its placeholder however
-// short it is, so the next run chooses its own value.
+// short it is, and without the element's own id, so the next run chooses its
+// own value from the same list.
 func TestReplayRecordsAShortVisibleChoiceByPlaceholder(t *testing.T) {
 	t.Parallel()
 
-	grade := func(name string) desktop.Element {
-		return desktop.Element{Role: desktop.RoleListItem, Name: name, Bounds: image.Rect(120, 420, 300, 444), Path: []desktop.PathStep{{Role: desktop.RoleListItem, Name: name, Index: 0}}}
+	grade := func(name string, row int) desktop.Element {
+		top := 420 + 30*row
+		return desktop.Element{Role: desktop.RoleListItem, Name: name, ID: "grade-" + name, Bounds: image.Rect(120, top, 300, top+24), Path: []desktop.PathStep{{Role: desktop.RoleListItem, Name: name, Index: row}}}
 	}
 	run := elementRun(t)
-	run.elements.elements = append(expenseElements(), grade("A"))
+	run.elements.elements = append(expenseElements(), grade("A", 0), grade("B", 1))
 	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(210, 432)), done("Chose the grade")}}}
 	require.NoError(t, run.execute(`{"variables": {"grade": "A"}, "visible": ["grade"], "do": [{"act": "Choose %grade%"}]}`, nil).err)
-	assert.Equal(t, "%grade%", lookupRecording(t, run, "Choose %grade%").Turns[0].Actions[0].Element.Selector.Name)
+	recorded := lookupRecording(t, run, "Choose %grade%").Turns[0].Actions[0].Element.Selector
+	assert.Equal(t, desktop.Selector{Role: desktop.RoleListItem, Name: "%grade%"}, recorded)
 
-	run.elements.elements = append(expenseElements(), grade("B"))
 	run.backend.events = nil
 	replayed := run.execute(`{"variables": {"grade": "B"}, "visible": ["grade"], "do": [{"act": "Choose %grade%"}]}`, nil)
 	require.NoError(t, replayed.err)
 	assert.Equal(t, []string{"act:cache-hit"}, eventNames(replayed.exec.GetAgentSession()))
-	assert.Equal(t, []string{"move 210,432", "left down #1"}, run.backend.inputs())
+	assert.Equal(t, []string{"move 210,462", "left down #1"}, run.backend.inputs(), "the replay clicks B, not the A it was recorded on")
 }
 
 // An element named by a variable's value is recorded by the placeholder,
