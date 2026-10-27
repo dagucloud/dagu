@@ -155,7 +155,7 @@ func (r *run) runAction(ctx context.Context, action computeruse.Action, toFull p
 		result.Error = r.ownedMessage(own)
 		return result
 	}
-	if why, refused := r.refusedAction(action, at); refused {
+	if why, refused := r.refusedAction(action, at, toFull); refused {
 		result.Error = why
 		return result
 	}

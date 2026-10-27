@@ -4,32 +4,51 @@
 package computer
 
 import (
+	"image"
 	"testing"
+	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/desktop"
 	"github.com/dagucloud/dagu/v2/internal/llm/computeruse"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 // A step that refuses a word never presses an element named with it: not a
-// click the model aims at it by position or by id, nor Enter while it is in
-// the window in front, where Enter may press it as the default button. The
-// model is told why, and nothing reaches the application.
+// click the model aims at it by position, by id, or at its label, nor a drag
+// that starts on it, nor a button press while the pointer rests on it, nor
+// Enter, typed or held, while it is in the window in front, where Enter may
+// press it as the default button. The model is told why, and nothing
+// reaches the application.
 func TestARefusedWordIsNeverPressed(t *testing.T) {
 	t.Parallel()
 
+	// The button's label, a child the system reads at the button's centre.
+	label := func(r *testRun) {
+		r.elements.elements = append(r.elements.elements, desktop.Element{Role: desktop.RoleText, Bounds: image.Rect(215, 186, 255, 202),
+			Path: []desktop.PathStep{{Role: desktop.RoleButton, Name: "保存", Index: 0}, {Role: desktop.RoleText, Index: 0}}})
+	}
 	for _, tc := range []struct {
-		name string
-		turn *computeruse.Turn
+		name  string
+		setup func(*testRun)
+		turn  *computeruse.Turn
 	}{
-		{"a click at it", actions(clickAt(235, 194))},
-		{"a click on its id", actions(computeruse.Action{CallID: "x", Kind: computeruse.KindClick, ElementID: "e1"})},
-		{"Enter in its window", actions(keyPress("Return"))},
+		{"a click at it", nil, actions(clickAt(235, 194))},
+		{"a click on its id", nil, actions(computeruse.Action{CallID: "x", Kind: computeruse.KindClick, ElementID: "e1"})},
+		{"a click on its label", label, actions(clickAt(235, 194))},
+		{"a drag that starts on it", nil, actions(computeruse.Action{CallID: "d", Kind: computeruse.KindDrag, Path: []computeruse.Point{{X: 235, Y: 194}, {X: 300, Y: 194}}})},
+		{"a button press while the pointer rests on it", func(r *testRun) { r.backend.pointer = image.Pt(235, 194) },
+			actions(computeruse.Action{CallID: "p", Kind: computeruse.KindMouseDown, Button: "left", Point: &computeruse.Point{X: 10, Y: 10}})},
+		{"Enter in its window", nil, actions(keyPress("Return"))},
+		{"Enter held in its window", nil, actions(computeruse.Action{CallID: "h", Kind: computeruse.KindHoldKey, Keys: []string{"Return"}, Duration: time.Millisecond})},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			run := newTestRun(t)
 			run.elements = newFakeElements()
+			if tc.setup != nil {
+				tc.setup(run)
+			}
 			session := &scriptedSession{turns: []*computeruse.Turn{tc.turn, done("Left it")}}
 			run.sessions = []*scriptedSession{session}
 			execution := run.execute(`{"idle": "0", "refuse": ["保存"], "do": [{"act": "金額を確かめる"}]}`, nil)

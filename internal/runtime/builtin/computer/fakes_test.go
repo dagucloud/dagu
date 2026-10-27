@@ -43,6 +43,8 @@ type fakeBackend struct {
 	// typeErr fails typing, and positionErr reading the pointer's
 	// position, when set.
 	typeErr, positionErr error
+	// pointer is where the pointer rests, which Position reports.
+	pointer image.Point
 	// lastEvent and personInputAt are when the desktop last received input
 	// from the step and from a person.
 	lastEvent     time.Time
@@ -526,7 +528,11 @@ func (b *fakeBackend) MoveTo(x, y int) error {
 	return nil
 }
 
-func (b *fakeBackend) Position() (int, int, error) { return 0, 0, b.positionErr }
+func (b *fakeBackend) Position() (int, int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.pointer.X, b.pointer.Y, b.positionErr
+}
 
 func (b *fakeBackend) Button(button desktop.Button, down bool, clicks int) error {
 	if !down {
