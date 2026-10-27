@@ -70,7 +70,14 @@ func seedForeachRun(t *testing.T) foreachFixture {
 	writeJSON(filepath.Join(stepDir, "1", logpath.ForeachItemStatusFile), ir.ForeachItemStatus{
 		Index: 1, Key: "b", Status: ir.NodeSucceeded,
 		Steps: []ir.ForeachBodyStepStatus{
-			{Name: "body", ID: "body", Status: ir.NodeSucceeded, Stdout: "body.out", Stderr: "body.err"},
+			{
+				Name: "body", ID: "body", Status: ir.NodeSucceeded, Stdout: "body.out", Stderr: "body.err",
+				AgentSession: &ir.AgentSession{Provider: "browser", State: ir.AgentSessionSucceeded, Events: []ir.AgentSessionEvent{
+					{Sequence: 1, ID: "browser-1-1", Type: "tool", Name: "act", Status: "healed", Via: "model", Position: 1, Tokens: 42, Files: []string{"browser/body/01-act.png"}},
+					{Sequence: 2, ID: "browser-1-2", Type: "tool", Name: "act", Status: "cache-hit", Via: "element", Position: 2},
+				}},
+				ModelUsage: &ir.StepModelUsage{Models: []ir.ModelUsage{{Provider: "openrouter", Model: "test/model", Calls: 1, InputTokens: 40, OutputTokens: 2}}},
+			},
 			{Name: "inner", Status: ir.NodeSucceeded, Foreach: true, Stdout: "inner.out", Stderr: "inner.err"},
 		},
 	})
@@ -187,6 +194,25 @@ func TestForeachItems(t *testing.T) {
 		require.Equal(t, "body", item.Steps[0].Name)
 		require.True(t, item.Steps[0].HasStdout)
 		require.True(t, item.Steps[0].HasStderr)
+	})
+
+	t.Run("item detail reports a body step's agent session and model usage", func(t *testing.T) {
+		var item api.ForeachItem
+		f.get(t, "/steps/each/foreach/1?remoteNode=local", http.StatusOK).Unmarshal(t, &item)
+		session := item.Steps[0].AgentSession
+		require.NotNil(t, session)
+		require.NotNil(t, session.Events)
+		events := *session.Events
+		require.Len(t, events, 2)
+		require.Equal(t, "healed", *events[0].Status)
+		require.Equal(t, "model", *events[0].Via)
+		require.Equal(t, []string{"browser/body/01-act.png"}, *events[0].Files)
+		require.Equal(t, "cache-hit", *events[1].Status)
+		require.NotNil(t, item.Steps[0].ModelUsage)
+		require.Equal(t, int64(1), (*item.Steps[0].ModelUsage.Models)[0].Calls)
+
+		require.Nil(t, item.Steps[1].AgentSession)
+		require.Nil(t, item.Steps[1].ModelUsage)
 	})
 
 	t.Run("body step log honours stream and tail", func(t *testing.T) {

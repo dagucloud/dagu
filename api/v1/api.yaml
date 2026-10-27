@@ -16944,6 +16944,10 @@ components:
         foreachParent:
           type: string
           description: "For a body step that is itself a foreach, the parent path that lists its items"
+        agentSession:
+          $ref: "#/components/schemas/AgentSession"
+        modelUsage:
+          $ref: "#/components/schemas/StepModelUsage"
       required:
         - name
         - status

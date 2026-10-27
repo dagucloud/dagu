@@ -6907,6 +6907,8 @@ export interface components {
             hasStderr: boolean;
             /** @description For a body step that is itself a foreach, the parent path that lists its items */
             foreachParent?: string;
+            agentSession?: components["schemas"]["AgentSession"];
+            modelUsage?: components["schemas"]["StepModelUsage"];
         };
         /** @description Log information for the execution */
         Log: {
