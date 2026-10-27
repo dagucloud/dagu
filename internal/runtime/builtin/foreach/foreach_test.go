@@ -126,7 +126,8 @@ func TestRunItemRecordsFailureBeforeBodyRuns(t *testing.T) {
 
 // operationsExecutor stands for a body step that drives an agent, such as a
 // browser step: item 0 needs the model to fix its operation, item 1 replays
-// it, and item 2 is refused with an error naming the secret it typed.
+// it, and item 2 is refused with an error naming the secret it typed. Every
+// item's session also names the secret in an answered question.
 type operationsExecutor struct {
 	session *ir.AgentSession
 }
@@ -145,7 +146,15 @@ func (e *operationsExecutor) Run(ctx context.Context) error {
 		llm.RecordUsage(ctx, llm.UsageRecord{Provider: "openrouter", Model: "test/model", Usage: llm.Usage{PromptTokens: 40, CompletionTokens: 2, TotalTokens: 42}})
 		event.Status, event.Via, event.Tokens = "healed", "model", 42
 	}
-	e.session = &ir.AgentSession{Provider: "browser", State: ir.AgentSessionSucceeded, Events: []ir.AgentSessionEvent{event}}
+	e.session = &ir.AgentSession{
+		Provider: "browser", State: ir.AgentSessionSucceeded, Events: []ir.AgentSessionEvent{event},
+		Interactions: []ir.AgentInteraction{{
+			ID: "ask-1", Kind: ir.AgentInteractionQuestion, Status: ir.AgentInteractionAnswered,
+			Questions: []ir.AgentQuestion{{Header: "Code", Question: "Is " + operationsSecret + " the vendor code?",
+				Options: []ir.AgentQuestionOption{{Label: operationsSecret}}}},
+			Answers: [][]string{{operationsSecret}},
+		}},
+	}
 	if index == "2" {
 		return errors.New("site refused " + operationsSecret)
 	}

@@ -126,7 +126,7 @@ func bodyStepStatuses(plan *runtime.Plan, masker *masking.Masker) []ir.ForeachBo
 			StartedAt:    stringutil.FormatTime(data.State.StartedAt),
 			FinishedAt:   stringutil.FormatTime(data.State.FinishedAt),
 			RetryCount:   data.State.RetryCount,
-			AgentSession: ir.MaskAgentSession(data.State.AgentSession, masker.MaskString),
+			AgentSession: recordedSession(data.State.AgentSession, masker),
 			ModelUsage:   ir.CloneStepModelUsage(data.State.ModelUsage),
 			Foreach:      data.Step.ExecutorConfig.Type == ir.ExecutorTypeForeach,
 		}
@@ -142,6 +142,45 @@ func bodyStepStatuses(plan *runtime.Plan, masker *masking.Masker) []ir.ForeachBo
 		steps = append(steps, step)
 	}
 	return steps
+}
+
+// recordedSession masks a body step's agent session for its item record.
+// The run status keeps interaction answers so a resumed step can read them
+// back; nothing reads an item record back, so its interactions are masked
+// too.
+func recordedSession(session *ir.AgentSession, masker *masking.Masker) *ir.AgentSession {
+	masked := ir.MaskAgentSession(session, masker.MaskString)
+	if masked == nil {
+		return nil
+	}
+	for i := range masked.Interactions {
+		interaction := &masked.Interactions[i]
+		maskAll(masker, interaction.Patterns)
+		maskAll(masker, interaction.AllowForSessionPatterns)
+		for j := range interaction.Questions {
+			question := &interaction.Questions[j]
+			question.Header = masker.MaskString(question.Header)
+			question.Question = masker.MaskString(question.Question)
+			for k := range question.Options {
+				question.Options[k].Label = masker.MaskString(question.Options[k].Label)
+				question.Options[k].Description = masker.MaskString(question.Options[k].Description)
+			}
+		}
+		for _, answer := range interaction.Answers {
+			maskAll(masker, answer)
+		}
+	}
+	for i := range masked.PermissionGrants {
+		maskAll(masker, masked.PermissionGrants[i].Patterns)
+	}
+	return masked
+}
+
+// maskAll masks each text in place.
+func maskAll(masker *masking.Masker, texts []string) {
+	for i := range texts {
+		texts[i] = masker.MaskString(texts[i])
+	}
 }
 
 func writeRecord(ctx context.Context, path string, record any) {
