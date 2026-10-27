@@ -56,15 +56,17 @@ func TestOutline(t *testing.T) {
 		t.Parallel()
 		run := newTestRun(t)
 		run.elements = newFakeElements()
-		run.secrets = map[string]string{"VENDOR_CODE": "V-77-secret"}
-		run.elements.elements = append(run.elements.elements, desktop.Element{Role: desktop.RoleTextField, Name: "取引先コード", Value: "V-77-secret",
+		// Quoting would escape the quote and the backslash, so the secret is
+		// masked before it is quoted.
+		run.secrets = map[string]string{"VENDOR_CODE": `V-77"se\cret`}
+		run.elements.elements = append(run.elements.elements, desktop.Element{Role: desktop.RoleTextField, Name: "取引先コード", Value: `V-77"se\cret`,
 			Bounds: image.Rect(190, 220, 390, 244), Path: []desktop.PathStep{{Role: desktop.RoleTextField, Name: "取引先コード", Index: 1}}})
 		run.llm = nil
 		execution := run.execute(outlineOnly, nil)
 		require.NoError(t, execution.err)
 		window, _ := execution.exec.GetOutputs()["window"].(string)
 		assert.Contains(t, window, `text_field "取引先コード"`)
-		assert.NotContains(t, window, "V-77-secret")
+		assert.NotContains(t, window, "V-77")
 	})
 
 	t.Run("says when the window has more elements than it lists", func(t *testing.T) {

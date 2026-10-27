@@ -45,10 +45,11 @@ func (r *run) outline(ctx context.Context, index int, name string, timeout time.
 	if err != nil {
 		return err
 	}
-	r.outputs[name] = r.masker.MaskString(outlineText(front, elements))
+	mask := r.masker.MaskString
+	r.outputs[name] = outlineText(front, elements, mask)
 	r.report(ctx, agentstep.Report{
 		Index: index, Kind: opOutline, Subject: name, Status: agentstep.StatusCompleted, Via: agentstep.ViaExact,
-		Detail: fmt.Sprintf("%d elements of %s", min(len(elements), maxOutlineElements), describeWindow(desktop.WindowID{App: front.App, Title: front.Name})), Duration: time.Since(began),
+		Detail: fmt.Sprintf("%d elements of %s", min(len(elements), maxOutlineElements), describeWindow(desktop.WindowID{App: mask(front.App), Title: mask(front.Name)})), Duration: time.Since(began),
 	})
 	return nil
 }
@@ -56,10 +57,11 @@ func (r *run) outline(ctx context.Context, index int, name string, timeout time.
 // outlineText lists a window and its elements, one per line, each element
 // indented under the listed element that contains it. An element that shows
 // nothing and that no selector can name, such as an unnamed group, is left
-// out, and its children move up a level.
-func outlineText(window desktop.Element, elements []desktop.Element) string {
+// out, and its children move up a level. mask hides the declared secrets
+// any text holds.
+func outlineText(window desktop.Element, elements []desktop.Element, mask func(string) string) string {
 	var b strings.Builder
-	b.WriteString(outlineLine(window))
+	b.WriteString(outlineLine(window, mask))
 	var parents [][]desktop.PathStep
 	for i, e := range elements {
 		if i == maxOutlineElements {
@@ -73,31 +75,33 @@ func outlineText(window desktop.Element, elements []desktop.Element) string {
 			continue
 		}
 		b.WriteString(strings.Repeat("  ", len(parents)+1))
-		b.WriteString(outlineLine(e))
+		b.WriteString(outlineLine(e, mask))
 		parents = append(parents, e.Path)
 	}
 	return b.String()
 }
 
 // outlineLine describes one element: its role, accessible name, and the
-// app, label, value, id, and state it has beside the name.
-func outlineLine(e desktop.Element) string {
+// app, label, value, id, and state it has beside the name. Each text is
+// masked before it is quoted, since quoting changes a secret that holds a
+// quote or a backslash.
+func outlineLine(e desktop.Element, mask func(string) string) string {
 	var b strings.Builder
 	b.WriteString(e.Role)
 	if e.Name != "" {
-		fmt.Fprintf(&b, " %q", e.Name)
+		fmt.Fprintf(&b, " %q", mask(e.Name))
 	}
 	if e.App != "" {
-		fmt.Fprintf(&b, " app=%q", e.App)
+		fmt.Fprintf(&b, " app=%q", mask(e.App))
 	}
 	if e.Label != "" && e.Label != e.Name {
-		fmt.Fprintf(&b, " label=%q", e.Label)
+		fmt.Fprintf(&b, " label=%q", mask(e.Label))
 	}
 	if e.Value != "" && e.Value != e.Name {
-		fmt.Fprintf(&b, " value=%q", e.Value)
+		fmt.Fprintf(&b, " value=%q", mask(e.Value))
 	}
 	if e.ID != "" {
-		fmt.Fprintf(&b, " id=%q", e.ID)
+		fmt.Fprintf(&b, " id=%q", mask(e.ID))
 	}
 	if e.Disabled {
 		b.WriteString(" disabled")
