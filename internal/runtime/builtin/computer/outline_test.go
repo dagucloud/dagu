@@ -112,9 +112,21 @@ func TestOutline(t *testing.T) {
 		// works in; another app's window comes forward before the outline.
 		run.elements.comeForwardAfter(1, desktop.Element{Role: desktop.RoleWindow, Name: "通話", App: "FaceTime"})
 		run.llm = nil
-		execution := run.execute(`{"ai": "never", "screenshots": "never", "do": [{"expect": {"text": "保存しました"}}, {"outline": "window"}]}`, nil)
+		execution := run.execute(`{"ai": "never", "do": [{"expect": {"text": "保存しました"}}, {"outline": "window"}]}`, nil)
 		require.ErrorContains(t, execution.err, "a window of FaceTime is in front, not of expense")
 		assert.NotContains(t, execution.err.Error(), "通話", "the other app's window title stays out")
+		assert.Empty(t, execution.exec.GetOutputs())
+		assert.Zero(t, run.backend.captures, "the failure captures no screenshot of the window it refused")
+	})
+
+	t.Run("never reads a window of an app the system does not name", func(t *testing.T) {
+		t.Parallel()
+		run := newTestRun(t)
+		run.elements = newFakeElements()
+		run.elements.comeForwardAfter(1, desktop.Element{Role: desktop.RoleWindow, Name: "通話"})
+		run.llm = nil
+		execution := run.execute(`{"ai": "never", "screenshots": "never", "do": [{"expect": {"text": "保存しました"}}, {"outline": "window"}]}`, nil)
+		require.ErrorContains(t, execution.err, "a window of an app the system does not name is in front, not of expense")
 		assert.Empty(t, execution.exec.GetOutputs())
 	})
 

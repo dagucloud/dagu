@@ -4,8 +4,8 @@
 package computer
 
 import (
+	"cmp"
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -18,6 +18,12 @@ import (
 // maxOutlineElements bounds the elements an outline publishes, so a window
 // with a huge tree, such as a spreadsheet grid, keeps the output readable.
 const maxOutlineElements = 400
+
+// refusedWindow is an outline's refusal to read the window in front, whose
+// screen the step's failure does not capture either.
+type refusedWindow string
+
+func (r refusedWindow) Error() string { return string(r) }
 
 // outline publishes the front window's elements as text under name, read
 // from the system's accessibility tree with no model and no screenshot, so
@@ -41,12 +47,13 @@ func (r *run) outline(ctx context.Context, index int, name string, timeout time.
 	if err != nil {
 		return err
 	}
-	if r.workApp != "" && front.App != "" && !strings.EqualFold(front.App, r.workApp) {
-		return fmt.Errorf("a window of %s is in front, not of %s, the app this step works in, and an outline reads only that app's windows", front.App, r.workApp)
+	if r.workApp != "" && !strings.EqualFold(front.App, r.workApp) {
+		app := cmp.Or(front.App, "an app the system does not name")
+		return refusedWindow(fmt.Sprintf("a window of %s is in front, not of %s, the app this step works in, and an outline reads only that app's windows", app, r.workApp))
 	}
 	for _, w := range []desktop.WindowID{r.driver.FocusedWindow(), {App: front.App, Title: front.Name}} {
 		if r.driver.Owned(w) {
-			return errors.New(r.ownedMessage(w))
+			return refusedWindow(r.ownedMessage(w))
 		}
 	}
 	elements, err := els.Outline(front, maxOutlineElements+1)
