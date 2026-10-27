@@ -25,9 +25,11 @@ func TestOutline(t *testing.T) {
 		run := newTestRun(t)
 		run.elements = newFakeElements()
 		// An unnamed group shows nothing and no selector names it, so its
-		// button is listed a level up.
+		// button is listed a level up; an unnamed field stays, since a
+		// selector names it by the label near it.
 		toolbar := []desktop.PathStep{{Role: desktop.RoleGroup, Index: 1}}
 		run.elements.elements = append(run.elements.elements,
+			desktop.Element{Role: desktop.RoleTextField, Bounds: image.Rect(190, 220, 390, 244), Path: []desktop.PathStep{{Role: desktop.RoleTextField, Index: 1}}},
 			desktop.Element{Role: desktop.RoleGroup, Bounds: image.Rect(120, 460, 660, 490), Path: toolbar},
 			desktop.Element{Role: desktop.RoleButton, Name: "閉じる", Disabled: true, Bounds: image.Rect(570, 460, 650, 488),
 				Path: append(toolbar[:1:1], desktop.PathStep{Role: desktop.RoleButton, Name: "閉じる", Index: 0})},
@@ -42,6 +44,7 @@ func TestOutline(t *testing.T) {
   button "保存" id="saveButton"
   group "支払情報" id="paymentGroup"
     button "保存" id="paymentSaveButton"
+  text_field
   button "閉じる" disabled
 `, execution.exec.GetOutputs()["window"])
 		events := operationEvents(execution.exec.GetAgentSession())
@@ -50,6 +53,18 @@ func TestOutline(t *testing.T) {
 		assert.Equal(t, agentstep.ViaExact, events[0].Via)
 		assert.Empty(t, run.vision.requests, "no model request")
 		assert.Zero(t, run.backend.captures, "no screenshot")
+	})
+
+	t.Run("takes no screenshot when every operation is captured", func(t *testing.T) {
+		t.Parallel()
+		run := newTestRun(t)
+		run.elements = newFakeElements()
+		run.llm = nil
+		execution := run.execute(`{"ai": "never", "screenshots": "each", "do": [{"outline": "window"}]}`, nil)
+		require.NoError(t, execution.err)
+		events := operationEvents(execution.exec.GetAgentSession())
+		require.Len(t, events, 1)
+		assert.Empty(t, events[0].Files)
 	})
 
 	t.Run("masks a secret a field shows", func(t *testing.T) {

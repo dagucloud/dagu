@@ -120,6 +120,7 @@ func TestValidateStep(t *testing.T) {
 		{name: "bad screenshot name", with: `{"do": [{"screenshot": "../x"}]}`, llm: model, want: "screenshot name"},
 		{name: "outline", with: `{"ai": "never", "do": [{"outline": "window"}]}`},
 		{name: "bad outline name", with: `{"do": [{"outline": "the window"}]}`, llm: model, want: "outline name"},
+		{name: "outline name that is no declared output", with: `{"do": [{"outline": "_window"}]}`, llm: model, want: "outline name"},
 		{name: "outline collides with an extract", with: `{"do": [
 			{"extract": {"instruction": "a", "schema": {"type": "object", "properties": {"window": {}}}}},
 			{"outline": "window"}

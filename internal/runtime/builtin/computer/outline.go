@@ -55,7 +55,9 @@ func (r *run) outline(ctx context.Context, index int, name string, timeout time.
 	}
 	mask := r.masker.MaskString
 	r.outputs[name] = outlineText(front, elements, mask)
-	r.report(ctx, agentstep.Report{
+	// The event goes to the timeline directly: report would capture the
+	// screen under screenshots: each, and an outline takes no screenshot.
+	r.timeline.Operation(agentstep.Report{
 		Index: index, Kind: opOutline, Subject: name, Status: agentstep.StatusCompleted, Via: agentstep.ViaExact,
 		Detail: fmt.Sprintf("%d elements of %s", min(len(elements), maxOutlineElements), describeWindow(desktop.WindowID{App: mask(front.App), Title: mask(front.Name)})), Duration: time.Since(began),
 	})
@@ -64,9 +66,10 @@ func (r *run) outline(ctx context.Context, index int, name string, timeout time.
 
 // outlineText lists a window and its elements, one per line, each element
 // indented under the listed element that contains it. An element that shows
-// nothing and that no selector can name, such as an unnamed group, is left
-// out, and its children move up a level. mask hides the declared secrets
-// any text holds.
+// nothing and that a person does not act on, such as an unnamed group, is
+// left out, and its children move up a level; an unnamed field or button
+// stays, since a selector names it by the label near it. mask hides the
+// declared secrets any text holds.
 func outlineText(window desktop.Element, elements []desktop.Element, mask func(string) string) string {
 	var b strings.Builder
 	b.WriteString(outlineLine(window, mask))
@@ -79,7 +82,7 @@ func outlineText(window desktop.Element, elements []desktop.Element, mask func(s
 		for len(parents) > 0 && !within(e.Path, parents[len(parents)-1]) {
 			parents = parents[:len(parents)-1]
 		}
-		if e.Name == "" && e.Value == "" && e.Label == "" && e.ID == "" {
+		if e.Name == "" && e.Value == "" && e.Label == "" && e.ID == "" && !actionableRole(e.Role) {
 			continue
 		}
 		b.WriteString(strings.Repeat("  ", len(parents)+1))

@@ -104,6 +104,7 @@ steps:
 		{"table field with a selector beside its container", "lines: {container:", "lines: {enabled: false, container:"},
 		{"scalar field with columns", "id: docNumber, enabled: true}", "id: docNumber, columns: {item: 品目}}"},
 		{"outline name that is not an identifier", "outline: posted_window", "outline: posted window"},
+		{"outline name that starts with an underscore", "outline: posted_window", "outline: _posted_window"},
 		{"focus without key", "                - key: enter\n", "                - click: {role: button, name: OK}\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

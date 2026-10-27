@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -35,6 +36,10 @@ const (
 	opOutline    = "outline"
 	opAsk        = "ask"
 )
+
+// outlineNamePattern is what an outline's output may be named: a step's
+// declared outputs start with a letter.
+var outlineNamePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
 
 // Automatic screenshot policies.
 const (
@@ -701,8 +706,8 @@ func (o operation) validate() error {
 			return fmt.Errorf("screenshot name %q must match %s", o.Screenshot, agentstep.FileNamePattern)
 		}
 	case o.Outline != "":
-		if !agentstep.IdentifierPattern.MatchString(o.Outline) {
-			return fmt.Errorf("outline name %q must match %s", o.Outline, agentstep.IdentifierPattern)
+		if !outlineNamePattern.MatchString(o.Outline) {
+			return fmt.Errorf("outline name %q must match %s", o.Outline, outlineNamePattern)
 		}
 	case o.Ask != nil:
 		if strings.TrimSpace(o.Ask.Prompt) == "" {
