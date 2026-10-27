@@ -796,6 +796,9 @@ type testRun struct {
 	protectApps   []string
 	protectTitles []string
 	launches      [][]string
+	// onLaunch, when set, runs on every launch, so a test can bring the
+	// launched application to the front.
+	onLaunch func()
 	// remote runs the step as if in a remote desktop session rather than
 	// at the console, where it does not wait for a person by default.
 	remote bool
@@ -887,6 +890,9 @@ func (r *testRun) execute(withJSON string, session *ir.AgentSession) *stepExecut
 	execution.exec.onConsole = func() bool { return !r.remote }
 	execution.exec.launch = func(dir, command string, args []string) error {
 		r.launches = append(r.launches, append([]string{dir, command}, args...))
+		if r.onLaunch != nil {
+			r.onLaunch()
+		}
 		return nil
 	}
 	execution.exec.newProvider = func(context.Context, *ir.LLMConfig) (llmpkg.Provider, error) {

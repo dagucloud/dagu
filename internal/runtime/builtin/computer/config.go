@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -177,6 +179,23 @@ type askSpec struct {
 	Prompt  string `json:"prompt"`
 	As      string `json:"as"`
 	Timeout string `json:"timeout,omitempty"`
+}
+
+// app is the application a launch opens by name, as the system names its
+// windows' application: the one open -a names on macOS, or the program of a
+// Windows .exe. It is "" for any other launch.
+func (l launchSpec) app() string {
+	if l.Command == "open" {
+		if i := slices.Index(l.Args, "-a"); i >= 0 && i+1 < len(l.Args) {
+			return l.Args[i+1]
+		}
+		return ""
+	}
+	program := filepath.Base(strings.ReplaceAll(l.Command, `\`, "/"))
+	if name, ok := strings.CutSuffix(strings.ToLower(program), ".exe"); ok {
+		return program[:len(name)]
+	}
+	return ""
 }
 
 // UnmarshalJSON accepts a command string or an object.

@@ -359,7 +359,11 @@ func (r *run) launch(ctx context.Context, index int, spec launchSpec) error {
 	if err := r.awaitPerson(ctx); err != nil {
 		return err
 	}
+	before := r.driver.FocusedWindow()
 	if err := r.exec.launch(r.workingDir, spec.Command, spec.Args); err != nil {
+		return err
+	}
+	if err := r.awaitLaunched(ctx, index, spec, before); err != nil {
 		return err
 	}
 	subject := strings.Join(append([]string{spec.Command}, spec.Args...), " ")

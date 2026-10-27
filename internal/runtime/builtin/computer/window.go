@@ -9,6 +9,7 @@ import (
 	"image"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/desktop"
 	"github.com/dagucloud/dagu/v2/internal/llm/computeruse"
@@ -189,6 +190,41 @@ func (r *run) findWindow(rec recordedWindow) (image.Rectangle, bool) {
 		}
 	}
 	return bySize, !bySize.Empty()
+}
+
+// launchFront bounds how long a launch waits for what it opened to come to
+// the front, looked at every launchFrontPoll.
+const (
+	launchFront     = 5 * time.Second
+	launchFrontPoll = 100 * time.Millisecond
+)
+
+// awaitLaunched waits until what a launch opened is in front: a window of
+// the application it names, or any window other than the one in front
+// before it. A launch returns before the application comes to the front, and
+// the next operation fits and reads the window in front, which until then is
+// the one a person or another application had there. A host that did not
+// say which window was in front before, or a launch whose window never comes
+// to the front, goes on as it is.
+func (r *run) awaitLaunched(ctx context.Context, index int, spec launchSpec, before desktop.WindowID) error {
+	if !before.Known() {
+		return nil
+	}
+	app := spec.app()
+	deadline := time.Now().Add(launchFront)
+	for {
+		w := r.driver.FocusedWindow()
+		if w.Known() && (w.Handle != before.Handle || (app != "" && strings.EqualFold(w.App, app))) {
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			logAction(r.timeline, index, fmt.Sprintf("nothing it opened came to the front within %s", launchFront))
+			return nil
+		}
+		if err := sleep(ctx, launchFrontPoll); err != nil {
+			return err
+		}
+	}
 }
 
 // fit maximizes the front window when the operation running asks for it.

@@ -9,6 +9,7 @@ import (
 	"image/draw"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/computerhost"
 	"github.com/dagucloud/dagu/v2/internal/desktop"
@@ -182,6 +183,41 @@ func TestWhenOnDataDecidesBeforeTheWindowIsFitted(t *testing.T) {
 			steps := `{"variables": {"open": "` + tc.open + `"}, "do": [{"act": "Open the report", "when": {"value": "%open%", "equals": "yes"}}]}`
 			require.NoError(t, run.execute(steps, nil).err)
 			assert.Len(t, run.backend.maximizedWindows(), tc.maximized)
+		})
+	}
+}
+
+// A launch returns before the application it opens comes to the front, so
+// the operation after it waits for that application rather than fit the
+// window a person had in front.
+func TestFitsTheLaunchedApplication(t *testing.T) {
+	t.Parallel()
+
+	terminal := desktop.WindowID{Handle: 3, Title: "zsh", App: "Terminal", Bounds: image.Rect(0, 0, 400, 300)}
+	for _, tc := range []struct {
+		name, launch string
+		// front is the window in front as the launch begins.
+		front desktop.WindowID
+	}{
+		{"an app by name", `{"command": "open", "args": ["-a", "Report"]}`, terminal},
+		{"a program", `"C:\\Apps\\report.exe"`, terminal},
+		{"an app already in front", `{"command": "open", "args": ["-a", "Report"]}`, reportWindow},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			run := windowRun(t, reportWindow.Bounds)
+			run.backend.focusOn(tc.front)
+			run.onLaunch = func() {
+				go func() {
+					time.Sleep(200 * time.Millisecond)
+					run.backend.focusOn(reportWindow)
+				}()
+			}
+			execution := run.execute(`{"ai": "never", "do": [{"launch": `+tc.launch+`}, {"screenshot": "opened"}]}`, nil)
+			require.NoError(t, execution.err)
+			require.Len(t, run.backend.maximizedWindows(), 1)
+			assert.Equal(t, reportWindow.Handle, run.backend.maximizedWindows()[0].Handle, "the launched application's window, not the terminal")
+			assert.NotContains(t, execution.stderr.String(), "came to the front", "no wait runs out")
 		})
 	}
 }
