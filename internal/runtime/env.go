@@ -119,8 +119,10 @@ func newEnv(ctx context.Context, step ir.Step, rCtx Context, workingDir string) 
 	// and adds step-specific environment variables
 	scope := rCtx.EnvScope
 	var foreach cmnvalue.Values
+	var foreachPath []int
 	if inherited, ok := LookupEnv(ctx); ok {
 		foreach = inherited.Foreach
+		foreachPath = inherited.ForeachPath
 	}
 	if scope == nil {
 		scope = cmnvalue.NewEnvScope(nil, true) // Fallback: OS layer only
@@ -133,6 +135,7 @@ func newEnv(ctx context.Context, step ir.Step, rCtx Context, workingDir string) 
 		Step:         step,
 		StepMap:      make(map[string]cmnvalue.StepInfo),
 		Foreach:      foreach,
+		ForeachPath:  foreachPath,
 		WorkingDir:   workingDir,
 		reportedRefs: make(map[string]struct{}),
 	}

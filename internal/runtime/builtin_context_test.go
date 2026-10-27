@@ -101,3 +101,14 @@ func TestResolveStringLegacyBuiltInRunContextAliases(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "test|run-1|2026-03-13T10:00:01Z|attempt-1|step", got)
 }
+
+// A body step's own env keeps the enclosing foreach items, so a step can tell
+// which item it runs for.
+func TestNewEnvKeepsForeachPath(t *testing.T) {
+	t.Parallel()
+
+	ctx := runtime.NewContext(context.Background(), &ir.DAG{Name: "each"}, "run-1", "")
+	ctx = runtime.WithEnv(ctx, runtime.Env{ForeachPath: []int{2, 5}})
+
+	assert.Equal(t, []int{2, 5}, runtime.NewEnv(ctx, ir.Step{Name: "body"}).ForeachPath)
+}

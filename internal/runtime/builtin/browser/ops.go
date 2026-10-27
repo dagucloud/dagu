@@ -159,7 +159,7 @@ func newRun(ctx context.Context, e *browserExecutor) (*run, error) {
 	if variables == nil {
 		variables = map[string]string{}
 	}
-	artifacts := agentstep.NewArtifactStore(artifactsDir, artifactsSubdir, artifactKey(stepKey, env.ForeachPath))
+	artifacts := agentstep.NewArtifactStore(artifactsDir, artifactsSubdir, stepKey).ForItem(env.ForeachPath)
 	r := &run{
 		operator: operator{
 			bridge:         bridge,
