@@ -2267,8 +2267,8 @@ func TestActShowsTheModelVisibleValues(t *testing.T) {
 	run.secrets = map[string]string{"PORTAL_PASSWORD": "s3cret", "DOOR_PIN": "123"}
 	refused := run.execute(`{"variables": {"password": "my s3cret"}, "visible": ["password"], "do": [{"act": "Sign in with %password%"}]}`, nil)
 	require.ErrorContains(t, refused.err, "with.variables.password contains the value of secret PORTAL_PASSWORD")
-	refused = run.execute(`{"variables": {"pin": "123"}, "visible": ["pin"], "do": [{"act": "Enter %pin%"}]}`, nil)
-	require.ErrorContains(t, refused.err, "with.variables.pin is the value of secret DOOR_PIN")
+	refused = run.execute(`{"variables": {"pin": "door 123"}, "visible": ["pin"], "do": [{"act": "Enter %pin%"}]}`, nil)
+	require.ErrorContains(t, refused.err, "with.variables.pin contains the value of secret DOOR_PIN")
 	assert.Len(t, run.sessionOptions, 1, "no model was asked")
 }
 

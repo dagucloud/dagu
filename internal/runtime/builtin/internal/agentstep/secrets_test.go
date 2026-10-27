@@ -34,13 +34,13 @@ func TestCheckTextSecrets(t *testing.T) {
 
 func TestCheckValueSecrets(t *testing.T) {
 	t.Parallel()
-	secrets := map[string]string{"SHOP_TOKEN": "tok-12345", "PIN": "123", "EMPTY": ""}
+	secrets := map[string]string{"SHOP_TOKEN": "tok-98765", "PIN": "123", "EMPTY": ""}
 
-	err := agentstep.CheckValueSecrets("computer", "variables.code", "123", secrets)
-	require.EqualError(t, err, "computer: with.variables.code is the value of secret PIN, which would be sent to the model",
-		"a secret too short to look for in text is refused as the whole value")
-	err = agentstep.CheckValueSecrets("computer", "variables.code", "key tok-12345", secrets)
+	err := agentstep.CheckValueSecrets("computer", "variables.code", "PIN: 123", secrets)
+	require.EqualError(t, err, "computer: with.variables.code contains the value of secret PIN, which would be sent to the model",
+		"a secret too short to look for in text is still looked for in a value")
+	err = agentstep.CheckValueSecrets("computer", "variables.code", "key tok-98765", secrets)
 	require.ErrorContains(t, err, "contains the value of secret SHOP_TOKEN")
-	require.NoError(t, agentstep.CheckValueSecrets("computer", "variables.code", "1234", secrets), "only the whole value is compared with a short secret")
+	require.NoError(t, agentstep.CheckValueSecrets("computer", "variables.code", "Toner T-20", secrets))
 	require.NoError(t, agentstep.CheckValueSecrets("computer", "variables.code", "", secrets), "an empty secret matches nothing")
 }
