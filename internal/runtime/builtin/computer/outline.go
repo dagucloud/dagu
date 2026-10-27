@@ -26,7 +26,8 @@ type refusedWindow string
 func (r refusedWindow) Error() string { return string(r) }
 
 // outline publishes the front window's elements as text under name, read
-// from the system's accessibility tree with no model and no screenshot, so
+// from the system's accessibility tree with no model, taking no screenshot
+// of its own (the step's policy still captures its end or failure), so
 // an author learns what an application shows and what a selector or an act
 // can name. It reads only the app the step works in, once known: an app a
 // person brought forward makes way for it, and another app's window in
