@@ -297,8 +297,11 @@ type pinnedOutcome struct {
 	// an act the model finishes covers the whole task. It is empty when none
 	// of them acted on an element, since such a turn could replay only by
 	// pixels it never recorded.
-	ran    []recordedTurn
-	reason string
+	ran []recordedTurn
+	// carried lists the steps that acted, element or not, for the model
+	// that takes over when one misses.
+	carried []recordedAction
+	reason  string
 }
 
 // replayPinned runs an act's pinned steps in order through the same element
@@ -342,7 +345,7 @@ func (r *run) replayPinned(ctx context.Context, index int, steps []pinnedStep, d
 			return result, err
 		}
 		if reason != "" {
-			result.reason = reason
+			result.reason, result.carried = reason, outcome.carried
 			keepRan()
 			return result, nil
 		}

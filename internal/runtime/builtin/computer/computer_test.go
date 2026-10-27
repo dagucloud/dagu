@@ -789,16 +789,17 @@ func TestReplayCache(t *testing.T) {
 
 // When a replay stops after carrying out part of the task, the model that
 // takes over is told what was already done and why the replay stopped, so
-// it carries on from the screen rather than doing the task again.
+// it carries on from the screen rather than doing the task again. An action
+// that landed before a later one of its turn missed counts as done.
 func TestHealedActKnowsWhatTheReplayDid(t *testing.T) {
 	t.Parallel()
 
 	const steps = `{"find_within": "50ms", "do": [{"act": "Save, then open the amount"}]}`
 	run := elementRun(t)
-	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(235, 194)), actions(clickAt(290, 152)), done("Done")}}}
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{actions(clickAt(235, 194), clickAt(290, 152)), done("Done")}}}
 	require.NoError(t, run.execute(steps, nil).err)
 
-	// The amount box the second click landed on is gone.
+	// The amount box the turn's second click landed on is gone.
 	run.elements.elements = slices.DeleteFunc(expenseElements(), func(e desktop.Element) bool { return e.ID == "amountBox" })
 	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{done("The amount box is not there")}}}
 	healed := run.execute(steps, nil)
@@ -807,9 +808,8 @@ func TestHealedActKnowsWhatTheReplayDid(t *testing.T) {
 	require.Len(t, run.sessionOptions, 2)
 	assert.NotContains(t, run.sessionOptions[0].System, "already carried out")
 	handoff := run.sessionOptions[1].System
-	assert.Contains(t, handoff, `already carried out: click on button "保存"`)
+	assert.Contains(t, handoff, `already carried out: click on button "保存". The replay stopped because `)
 	assert.NotContains(t, handoff, "235,194", "a recorded position is of another screen")
-	assert.Contains(t, handoff, "The replay stopped because ")
 	assert.Contains(t, handoff, "if the task is already done, finish without acting")
 }
 

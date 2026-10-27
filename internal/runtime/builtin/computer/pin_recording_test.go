@@ -95,6 +95,20 @@ func TestHealedPinnedActRecordsTheStepsThatRan(t *testing.T) {
 	]`, steps, "the pinned steps that ran, then what the model did in place of the one that missed")
 }
 
+// When a pinned step misses, the model that takes over is told every step
+// that acted before it, a key sent without an element included.
+func TestHealedPinnedActKnowsTheStepsThatActed(t *testing.T) {
+	t.Parallel()
+
+	const pinned = `[{"key": "ctrl+s"}, {"click": {"role": "button", "name": "送信", "id": "submit"}}]`
+	run := elementRun(t)
+	run.sessions = []*scriptedSession{{turns: []*computeruse.Turn{done("It was saved")}}}
+	healed := run.execute(`{"find_within": "50ms", "do": [{"act": {"instruction": "Save the invoice", "recorded": {"windows": `+pinned+`}}}]}`, nil)
+	require.NoError(t, healed.err)
+	require.Len(t, run.sessionOptions, 1)
+	assert.Contains(t, run.sessionOptions[0].System, "already carried out: key ctrl+s. The replay stopped because ")
+}
+
 // An element without an id is looked for in its closest named container, so
 // a name that repeats in the window still names one element.
 func TestPinnedRecordingNamesTheContainer(t *testing.T) {

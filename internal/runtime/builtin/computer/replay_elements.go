@@ -741,6 +741,7 @@ func (r *run) replayByElement(ctx context.Context, index, position, total int, t
 				}
 				if done {
 					outcome.actions++
+					outcome.carried = append(outcome.carried, rec)
 					if reason, err := r.confirmChecked(ctx, els, rec, position, total, findWithin); err != nil || reason != "" {
 						return reason, err
 					}
@@ -772,6 +773,7 @@ func (r *run) replayByElement(ctx context.Context, index, position, total int, t
 		if result := r.runAction(ctx, action, identity, nil, computeruse.ImageLimit{}); result.Failed() {
 			return fmt.Sprintf("%s failed at turn %d of %d: %s", describeAction(action), position+1, total, result.Error), ctx.Err()
 		}
+		outcome.carried = append(outcome.carried, rec)
 		if reason, err := r.confirmChecked(ctx, els, rec, position, total, findWithin); err != nil || reason != "" {
 			return reason, err
 		}

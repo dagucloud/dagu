@@ -174,8 +174,10 @@ type replayOutcome struct {
 	// turns counts the recorded turns replayed in full.
 	turns int
 	// actions counts the actions performed, including those of a turn cut
-	// short by a failed action.
+	// short by a failed action, and carried lists the recorded actions that
+	// succeeded, in order, for the model that takes over.
 	actions int
+	carried []recordedAction
 	// complete reports that every turn replayed and the final screen
 	// matched.
 	complete bool
@@ -277,6 +279,7 @@ func (r *run) replay(ctx context.Context, index int, entry recording, budget int
 				outcome.reason = fmt.Sprintf("%s failed at turn %d of %d: %s", describeAction(action), i+1, total, result.Error)
 				return outcome, ctx.Err()
 			}
+			outcome.carried = append(outcome.carried, recorded)
 		}
 		outcome.turns++
 	}

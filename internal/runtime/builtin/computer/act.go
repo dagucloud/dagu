@@ -126,7 +126,7 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 			logAction(r.timeline, index, "pinned steps stopped: "+outcome.reason)
 			status = agentstep.StatusHealed
 			replayed, spent = outcome.ran, outcome.performed
-			handoff = replayHandoff(replayed, outcome.reason)
+			handoff = replayHandoff(outcome.carried, outcome.reason)
 		}
 	}
 	if !pinned && choice != aiEveryRun {
@@ -179,7 +179,7 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 			// what it did.
 			r.cache.Drop(key)
 			replayed, spent = entry.Turns[:replay.turns], replay.actions
-			handoff = replayHandoff(replayed, replay.reason)
+			handoff = replayHandoff(replay.carried, replay.reason)
 		}
 	}
 
@@ -954,20 +954,18 @@ func anyFailed(results []computeruse.Result) bool {
 // replayHandoff tells the model, when a replay stopped after carrying out
 // some of the task, what it already did and why it stopped, so the model
 // carries on from the screen rather than doing the task again.
-func replayHandoff(turns []recordedTurn, reason string) string {
+func replayHandoff(carried []recordedAction, reason string) string {
 	var done []string
-	for _, turn := range turns {
-		for _, rec := range turn.Actions {
-			// Recorded positions are of another screen; the element says
-			// what an action was on.
-			action := rec.Action
-			action.Point, action.Path = nil, nil
-			step := describeAction(action)
-			if rec.Element != nil {
-				step += " on " + rec.Element.describe()
-			}
-			done = append(done, step)
+	for _, rec := range carried {
+		// Recorded positions are of another screen; the element says what
+		// an action was on.
+		action := rec.Action
+		action.Point, action.Path = nil, nil
+		step := describeAction(action)
+		if rec.Element != nil {
+			step += " on " + rec.Element.describe()
 		}
+		done = append(done, step)
 	}
 	if len(done) == 0 {
 		return ""
