@@ -89,6 +89,20 @@ func TestOutline(t *testing.T) {
 		assert.Equal(t, fmt.Sprintf("(the window has more than %d elements; the rest are not listed)", maxOutlineElements), lines[maxOutlineElements+1])
 	})
 
+	t.Run("never reads another app than the one the step works in", func(t *testing.T) {
+		t.Parallel()
+		run := newTestRun(t)
+		run.elements = newFakeElements()
+		// The check finds the expense app in front, which the step then
+		// works in; another app's window comes forward before the outline.
+		run.elements.comeForwardAfter(1, desktop.Element{Role: desktop.RoleWindow, Name: "通話", App: "FaceTime"})
+		run.llm = nil
+		execution := run.execute(`{"ai": "never", "screenshots": "never", "do": [{"expect": {"text": "保存しました"}}, {"outline": "window"}]}`, nil)
+		require.ErrorContains(t, execution.err, "a window of FaceTime is in front, not of expense")
+		assert.NotContains(t, execution.err.Error(), "通話", "the other app's window title stays out")
+		assert.Empty(t, execution.exec.GetOutputs())
+	})
+
 	t.Run("never reads a window the step never operates", func(t *testing.T) {
 		t.Parallel()
 		run := newTestRun(t)

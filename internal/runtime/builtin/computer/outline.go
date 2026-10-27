@@ -22,7 +22,9 @@ const maxOutlineElements = 400
 // outline publishes the front window's elements as text under name, read
 // from the system's accessibility tree with no model and no screenshot, so
 // an author learns what an application shows and what a selector or an act
-// can name.
+// can name. It reads only the app the step works in, once known: an app a
+// person brought forward makes way for it, and another app's window in
+// front is never read.
 func (r *run) outline(ctx context.Context, index int, name string, timeout time.Duration) error {
 	ctx, cancel := r.operationContext(ctx, timeout)
 	defer cancel()
@@ -32,9 +34,15 @@ func (r *run) outline(ctx context.Context, index int, name string, timeout time.
 	if err != nil {
 		return err
 	}
+	if _, err := r.resumeAfterPerson(ctx, index); err != nil {
+		return err
+	}
 	front, err := els.FrontWindow()
 	if err != nil {
 		return err
+	}
+	if r.workApp != "" && front.App != "" && !strings.EqualFold(front.App, r.workApp) {
+		return fmt.Errorf("a window of %s is in front, not of %s, the app this step works in, and an outline reads only that app's windows", front.App, r.workApp)
 	}
 	for _, w := range []desktop.WindowID{r.driver.FocusedWindow(), {App: front.App, Title: front.Name}} {
 		if r.driver.Owned(w) {

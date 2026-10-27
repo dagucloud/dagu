@@ -192,9 +192,12 @@ type fakeElements struct {
 	// opens counts how often the executor opened the reader; reads counts
 	// the looks at the window.
 	opens, reads int
-	// then replaces elements once reads reaches after.
-	after  int
-	then   []desktop.Element
+	// then replaces elements once reads reaches after, and nextWindow
+	// the window once reads reaches windowAfter.
+	after       int
+	then        []desktop.Element
+	windowAfter int
+	nextWindow  *desktop.Element
 	closed bool
 	// focused is the element with the keyboard focus, once one has it.
 	focused  desktop.Element
@@ -283,6 +286,14 @@ func (f *fakeElements) arriveAfter(reads int, elements []desktop.Element) {
 	f.after, f.then = f.reads+reads, elements
 }
 
+// comeForwardAfter puts another window in front once the window in front has
+// been read reads more times, as another application coming forward would.
+func (f *fakeElements) comeForwardAfter(reads int, window desktop.Element) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.windowAfter, f.nextWindow = f.reads+reads, &window
+}
+
 // FrontWindow counts one look at the window, which the elements read
 // after it belong to.
 func (f *fakeElements) FrontWindow() (desktop.Element, error) {
@@ -298,6 +309,9 @@ func (f *fakeElements) FrontWindow() (desktop.Element, error) {
 	f.reads++
 	if f.then != nil && f.reads > f.after {
 		f.elements, f.then = f.then, nil
+	}
+	if f.nextWindow != nil && f.reads > f.windowAfter {
+		f.window, f.nextWindow = *f.nextWindow, nil
 	}
 	return f.window, nil
 }
