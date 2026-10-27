@@ -501,7 +501,11 @@ func contextWithItemScope(ctx context.Context, alias string, index int, key stri
 	}
 	env.Scope = scope.WithEntry("foreach", string(data), cmnvalue.EnvSourceStepEnv)
 	env.Foreach = cmnvalue.Values(payload)
-	return runtime.WithEnv(ctx, env), nil
+	// Body steps build their scope from the DAG context, so it carries the
+	// foreach step's scope (its env: and earlier steps' output variables).
+	rCtx := runtime.GetDAGContext(ctx)
+	rCtx.EnvScope = env.Scope
+	return runtime.WithEnv(runtime.WithDAGContext(ctx, rCtx), env), nil
 }
 
 func containsUnresolvedSupportedReference(value string) bool {

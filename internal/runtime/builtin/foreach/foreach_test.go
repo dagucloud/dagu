@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
+	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/llm"
@@ -212,4 +213,23 @@ func TestItemRecordKeepsBodyAgentSessions(t *testing.T) {
 	assert.Equal(t, ir.NodeFailed, refused.Status)
 	assert.Contains(t, refused.Error, "site refused *******")
 	require.NotNil(t, refused.AgentSession)
+}
+
+// Body steps must see the foreach step's own env: and the output variables of
+// the steps it depends on, not only the DAG-level scope.
+func TestContextWithItemScopeKeepsForeachStepScope(t *testing.T) {
+	t.Parallel()
+
+	ctx := runtime.NewContext(context.Background(), &ir.DAG{Name: "each"}, "run-1", "")
+	parent := runtime.NewEnv(ctx, ir.Step{Name: "each"})
+	parent.Scope = parent.Scope.WithEntry("FROM_FOREACH_STEP", "yes", cmnvalue.EnvSourceStepEnv)
+	ctx = runtime.WithEnv(ctx, parent)
+
+	itemCtx, err := contextWithItemScope(ctx, "item", 0, "0", "a")
+	require.NoError(t, err)
+
+	body := runtime.NewEnv(itemCtx, ir.Step{Name: "body"})
+	got, ok := body.Scope.Get("FROM_FOREACH_STEP")
+	require.True(t, ok)
+	assert.Equal(t, "yes", got)
 }
