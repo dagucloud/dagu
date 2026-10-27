@@ -332,16 +332,19 @@ chose on it, and the recordings are kept when the step succeeds. Beside the
 pixels of each action, a recording keeps the element the action landed on,
 or typed into, when the host can read elements (see Elements): its role,
 its name or id, its path in the window, and where in it the pointer went.
-An element with neither a name nor an id is recorded by its pixels alone.
-A name or a typed text equal to a variable's value or an `ask` answer of
-two or more characters is recorded as the `%name%` placeholder, and a
-window title containing such a value likewise, so a recording made on one
-record replays on the next. The recording keeps the application of the
-window the act ran on — the process image name — which a replay matches on,
-and each window's title only to tell apart several windows of one
-application and as a fallback when the application cannot be read. The
-recording ends with its landmarks: the window in front and up to three of
-the elements the act touched last that were still there.
+An element with neither a name nor an id is recorded by its pixels alone. A
+name or a typed text equal to a variable's value or an `ask` answer of two
+or more characters is recorded as the `%name%` placeholder, and so is a
+name equal to a `with.visible` value however short, since the model chose
+the element by it; an element recorded by a placeholder is recorded without
+its id, which would find the recorded element again. A window title
+containing such a value is recorded by the placeholder likewise, so a
+recording made on one record replays on the next. The recording keeps the
+application of the window the act ran on — the process image name — which a
+replay matches on, and each window's title only to tell apart several
+windows of one application and as a fallback when the application cannot be
+read. The recording ends with its landmarks: the window in front and up to
+three of the elements the act touched last that were still there.
 
 A later run of the same step on the same host replays a recording without
 a model request when the operation position and instruction match. Each
