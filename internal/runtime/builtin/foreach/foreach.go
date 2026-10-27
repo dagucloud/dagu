@@ -499,13 +499,40 @@ func contextWithItemScope(ctx context.Context, alias string, index int, key stri
 	if err != nil {
 		return ctx, fmt.Errorf("failed to serialize foreach item scope: %w", err)
 	}
+	// Capture the foreach step's own entries before the item entry joins the
+	// scope, so the item reaches body steps only through env.Foreach.
+	env.ForeachParentEntries = stepLocalEntries(scope)
 	env.Scope = scope.WithEntry("foreach", string(data), cmnvalue.EnvSourceStepEnv)
 	env.Foreach = cmnvalue.Values(payload)
-	// Body steps build their scope from the DAG context, so it carries the
-	// foreach step's scope (its env: and earlier steps' output variables).
-	rCtx := runtime.GetDAGContext(ctx)
-	rCtx.EnvScope = env.Scope
-	return runtime.WithEnv(runtime.WithDAGContext(ctx, rCtx), env), nil
+	return runtime.WithEnv(ctx, env), nil
+}
+
+// stepLocalEntries returns the foreach step's env: entries and its
+// predecessors' output variables, which body steps read as their own. Run-level
+// values already reach body steps through the run scope. Names Dagu generates
+// per run or step (such as PWD, the step name and TRACEPARENT) are left out so
+// a body step keeps its own.
+func stepLocalEntries(scope *cmnvalue.EnvScope) []cmnvalue.EnvEntry {
+	names := make(map[string]struct{})
+	for _, source := range []cmnvalue.EnvSource{cmnvalue.EnvSourceStepEnv, cmnvalue.EnvSourceOutput} {
+		for name := range scope.AllBySource(source) {
+			names[name] = struct{}{}
+		}
+	}
+	entries := make([]cmnvalue.EnvEntry, 0, len(names))
+	for name := range names {
+		if runenv.IsNonTransferableRunEnvKey(name) || name == runenv.EnvKeyTraceParent || name == runenv.EnvKeyTraceState {
+			continue
+		}
+		// The winning entry decides: a run-level value that shadows a
+		// step-local one is already in the body step's scope.
+		entry, ok := scope.GetEntry(name)
+		if !ok || (entry.Source != cmnvalue.EnvSourceStepEnv && entry.Source != cmnvalue.EnvSourceOutput) {
+			continue
+		}
+		entries = append(entries, entry)
+	}
+	return entries
 }
 
 func containsUnresolvedSupportedReference(value string) bool {

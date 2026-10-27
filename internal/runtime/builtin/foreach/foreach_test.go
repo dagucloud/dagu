@@ -216,7 +216,8 @@ func TestItemRecordKeepsBodyAgentSessions(t *testing.T) {
 }
 
 // Body steps must see the foreach step's own env: and the output variables of
-// the steps it depends on, not only the DAG-level scope.
+// the steps it depends on, but not the item entry or the values Dagu generates
+// for the foreach step itself.
 func TestContextWithItemScopeKeepsForeachStepScope(t *testing.T) {
 	t.Parallel()
 
@@ -224,7 +225,8 @@ func TestContextWithItemScopeKeepsForeachStepScope(t *testing.T) {
 	parent := runtime.NewEnv(ctx, ir.Step{Name: "each"})
 	parent.Scope = parent.Scope.
 		WithEntry("FROM_FOREACH_STEP", "yes", cmnvalue.EnvSourceStepEnv).
-		WithEntry("FROM_PREDECESSOR", "upstream", cmnvalue.EnvSourceOutput)
+		WithEntry("FROM_PREDECESSOR", "upstream", cmnvalue.EnvSourceOutput).
+		WithEntry("TRACEPARENT", "foreach-span", cmnvalue.EnvSourceStepEnv)
 	ctx = runtime.WithEnv(ctx, parent)
 
 	itemCtx, err := contextWithItemScope(ctx, "item", 0, "0", "a")
@@ -238,4 +240,16 @@ func TestContextWithItemScopeKeepsForeachStepScope(t *testing.T) {
 	got, ok = body.Scope.Get("FROM_PREDECESSOR")
 	require.True(t, ok)
 	assert.Equal(t, "upstream", got)
+
+	_, ok = body.Scope.Get("TRACEPARENT")
+	assert.False(t, ok, "the foreach step's span must not reach the body step")
+	_, ok = body.Scope.Get("foreach")
+	assert.False(t, ok, "the item stays out of the scope; body steps read it from the foreach scope")
+	got, ok = body.Scope.Get("DAG_RUN_STEP_NAME")
+	require.True(t, ok)
+	assert.Equal(t, "body", got)
+
+	// The run scope sub-DAGs inherit is unchanged.
+	_, ok = runtime.GetDAGContext(itemCtx).EnvScope.Get("FROM_FOREACH_STEP")
+	assert.False(t, ok)
 }

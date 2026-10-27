@@ -547,6 +547,13 @@ Rules:
 
 - Body step output references never cross item bodies.
 
+- A body step reads the `foreach` step's own `env` entries and the output
+  variables of the steps the `foreach` step depends on, as a step in the same
+  DAG would. A body step's own `env` wins over them. Values Dagu generates per
+  step, such as the working directory, the step name and the trace context
+  (Spec 017), are those of the body step, not the `foreach` step. The item
+  scope stays literal `$foreach` text in a body step (see above).
+
 - Top-level steps after the `foreach` step cannot reference body step outputs
   directly. They must consume the `foreach` aggregate output.
 
