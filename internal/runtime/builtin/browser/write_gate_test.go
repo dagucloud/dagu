@@ -162,6 +162,31 @@ func TestWriteGateSecretsComeFromTheStep(t *testing.T) {
 	assert.Equal(t, map[string]string{"PORTAL_PASSWORD": "s3cret"}, gate.Secrets)
 }
 
+// A host's policy names the sign-ins of every site; a step that holds the
+// secret of only one keeps that site's rule and still runs.
+func TestWriteGateKeepsOnlyTheSignInsAStepHolds(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	policy := filepath.Join(t.TempDir(), "policy.yaml")
+	require.NoError(t, os.WriteFile(policy, []byte(`sign_in:
+  - host: login.example.com
+    secret: PORTAL_PASSWORD
+  - host: books.example.com
+    secret: BOOKS_PASSWORD
+`), 0o600))
+	run.hostWritePolicy = policy
+	run.secrets = map[string]string{"PORTAL_PASSWORD": "s3cret"}
+	run.engine.handle.WriteGate = runningGate()
+	execution := run.execute(`{"browser": {"write_gate": "rehearse"}, "do": [{"act": "Click the Sign in button"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	gate := run.launcher.launches[0].WriteGate
+	require.NotNil(t, gate)
+	assert.Equal(t, []writegate.Rule{{Host: "login.example.com", Secret: "PORTAL_PASSWORD"}}, gate.Policy.SignIn)
+	assert.Equal(t, map[string]string{"PORTAL_PASSWORD": "s3cret"}, gate.Secrets)
+}
+
 func TestWriteGateIsOffByDefault(t *testing.T) {
 	t.Parallel()
 

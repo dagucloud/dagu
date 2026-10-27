@@ -845,7 +845,7 @@ func (r *run) writeGateOptions(ctx context.Context) (*writeGateOptions, error) {
 			return value, true
 		}
 		return os.LookupEnv(name)
-	})
+	}), nil
 }
 
 // releaseProfile undoes launchOptions after a failed launch.

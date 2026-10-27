@@ -350,10 +350,7 @@ func (s *Sessions) Open(ctx context.Context, opts SessionOptions) (OpenResult, e
 	if err != nil {
 		return OpenResult{}, &SessionError{Code: CodeInvalidInput, Message: err.Error()}
 	}
-	gate, err := writeGateFor(mode, policy, os.LookupEnv)
-	if err != nil {
-		return OpenResult{}, &SessionError{Code: CodeInvalidInput, Message: err.Error()}
-	}
+	gate := writeGateFor(mode, policy, os.LookupEnv)
 	sweepCtx, cancel := context.WithTimeout(ctx, sweepBudget)
 	_ = browserhost.SweepAll(sweepCtx, browserDir, s.now(), nil)
 	cancel()

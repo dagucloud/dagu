@@ -165,21 +165,26 @@ func loadWritePolicy(path string) (writegate.Policy, error) {
 
 // writeGateFor returns the gate a browser starts with in mode, following
 // policy, or nil for mode off. lookup finds the secrets the policy's
-// sign-in rules name; one it cannot find fails, since the rule would never
-// match.
-func writeGateFor(mode string, policy writegate.Policy, lookup func(name string) (string, bool)) (*writeGateOptions, error) {
+// sign-in rules name. A rule whose secret has no value here is left out:
+// it could match no request, and a host's policy names the sign-ins of
+// every site while a step holds the secrets of its own.
+func writeGateFor(mode string, policy writegate.Policy, lookup func(name string) (string, bool)) *writeGateOptions {
 	if mode == writegate.ModeOff {
-		return nil, nil
+		return nil
 	}
 	secrets := map[string]string{}
-	for _, name := range policy.Secrets() {
-		value, ok := lookup(name)
-		if !ok || value == "" {
-			return nil, fmt.Errorf("the write policy's sign-in rule names the secret %s, which has no value here", name)
+	policy.SignIn = slices.DeleteFunc(slices.Clone(policy.SignIn), func(rule writegate.Rule) bool {
+		if rule.Secret == "" {
+			return false
 		}
-		secrets[name] = value
-	}
-	return &writeGateOptions{Mode: mode, Policy: policy, Secrets: secrets}, nil
+		value, ok := lookup(rule.Secret)
+		if !ok || value == "" {
+			return true
+		}
+		secrets[rule.Secret] = value
+		return false
+	})
+	return &writeGateOptions{Mode: mode, Policy: policy, Secrets: secrets}
 }
 
 // logWrite reports what the gate decided while the operation at index ran.
