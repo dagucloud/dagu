@@ -65,6 +65,29 @@ func TestArtifactStoreScreenshots(t *testing.T) {
 	require.ErrorIs(t, err, agentstep.ErrNoArtifactStorage)
 }
 
+// Each foreach item gets its own directory below the step's, and no ordinary
+// step can resolve to it, whatever it is named.
+func TestArtifactStoreForItem(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store := agentstep.NewArtifactStore(root, "browser", "book")
+
+	assert.Same(t, store, store.ForItem(nil), "outside a foreach the directory is the step's own")
+
+	first, err := store.ForItem([]int{0}).WriteScreenshot("act", []byte("png"))
+	require.NoError(t, err)
+	assert.Equal(t, "browser/book/items/0/01-act.png", first)
+
+	nested, err := store.ForItem([]int{1, 0}).WriteScreenshot("act", []byte("png"))
+	require.NoError(t, err)
+	assert.Equal(t, "browser/book/items/1-0/01-act.png", nested)
+
+	lookalike, err := agentstep.NewArtifactStore(root, "browser", "book-item-0").WriteScreenshot("act", []byte("png"))
+	require.NoError(t, err)
+	assert.Equal(t, "browser/book-item-0/01-act.png", lookalike)
+}
+
 // Long event content is cut to the event size limit on a character
 // boundary, so the stored text stays valid UTF-8.
 func TestTimelineTruncatesOnCharacterBoundary(t *testing.T) {

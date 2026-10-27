@@ -47,6 +47,11 @@ type Env struct {
 	// Foreach contains the current item scope for foreach body evaluation.
 	Foreach cmnvalue.Values
 
+	// ForeachPath lists the item indexes of the enclosing foreach steps,
+	// outermost first. Foreach only carries the innermost item, so this is
+	// what tells apart the same body step running for different items.
+	ForeachPath []int
+
 	// Inputs contains final materialization paths scoped to the current step.
 	Inputs cmnvalue.Values
 	// Outputs contains attempt staging paths scoped to the current step.
@@ -114,8 +119,10 @@ func newEnv(ctx context.Context, step ir.Step, rCtx Context, workingDir string) 
 	// and adds step-specific environment variables
 	scope := rCtx.EnvScope
 	var foreach cmnvalue.Values
+	var foreachPath []int
 	if inherited, ok := LookupEnv(ctx); ok {
 		foreach = inherited.Foreach
+		foreachPath = inherited.ForeachPath
 	}
 	if scope == nil {
 		scope = cmnvalue.NewEnvScope(nil, true) // Fallback: OS layer only
@@ -128,6 +135,7 @@ func newEnv(ctx context.Context, step ir.Step, rCtx Context, workingDir string) 
 		Step:         step,
 		StepMap:      make(map[string]cmnvalue.StepInfo),
 		Foreach:      foreach,
+		ForeachPath:  foreachPath,
 		WorkingDir:   workingDir,
 		reportedRefs: make(map[string]struct{}),
 	}

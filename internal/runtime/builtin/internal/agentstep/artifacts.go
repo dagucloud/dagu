@@ -42,6 +42,23 @@ func NewArtifactStore(root, subdir, stepKey string) *ArtifactStore {
 	return &ArtifactStore{root: root, rel: path.Join(subdir, fileutil.SafeName(stepKey))}
 }
 
+// ForItem returns the store for one run of the step inside foreach items,
+// given the item indexes of the enclosing foreach steps, outermost first. Each
+// run gets its own "items/<indexes>" directory below the step's, so runs do
+// not overwrite each other's files. The directory is added after the step key
+// is sanitized, so no other step's key can resolve to it. Outside a foreach
+// the store is returned as is.
+func (s *ArtifactStore) ForItem(indexes []int) *ArtifactStore {
+	if len(indexes) == 0 {
+		return s
+	}
+	parts := make([]string, len(indexes))
+	for i, index := range indexes {
+		parts[i] = strconv.Itoa(index)
+	}
+	return &ArtifactStore{root: s.root, rel: path.Join(s.rel, "items", strings.Join(parts, "-"))}
+}
+
 // Enabled reports whether the DAG stores artifacts.
 func (s *ArtifactStore) Enabled() bool {
 	return s.root != ""

@@ -213,3 +213,19 @@ func TestItemRecordKeepsBodyAgentSessions(t *testing.T) {
 	assert.Contains(t, refused.Error, "site refused *******")
 	require.NotNil(t, refused.AgentSession)
 }
+
+// A nested foreach body sees every enclosing item, outermost first, while
+// ${foreach.*} still names only the innermost one.
+func TestContextWithItemScopeRecordsEnclosingItems(t *testing.T) {
+	t.Parallel()
+
+	ctx := runtime.NewContext(context.Background(), &ir.DAG{Name: "each"}, "run-1", "")
+	outer, err := contextWithItemScope(ctx, "item", 2, "2", "a")
+	require.NoError(t, err)
+	inner, err := contextWithItemScope(outer, "item", 5, "5", "b")
+	require.NoError(t, err)
+
+	assert.Equal(t, []int{2}, runtime.GetEnv(outer).ForeachPath)
+	assert.Equal(t, []int{2, 5}, runtime.GetEnv(inner).ForeachPath)
+	assert.Equal(t, "5", runtime.GetEnv(inner).Foreach["index"])
+}
