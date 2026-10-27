@@ -265,7 +265,7 @@ from. It still types the placeholder, and an element it chose by such a
 value is recorded by the placeholder (see Recordings), so the next run
 chooses its own value. A name in `with.visible` must be in
 `with.variables`, and the step fails before operating the desktop when a
-visible value is a declared secret's.
+visible value holds a declared secret's value, however short.
 
 The step fails before operating the desktop when an `act`, `extract`, `ask`,
 `expect`, or `when` text contains the resolved value of a secret declared
