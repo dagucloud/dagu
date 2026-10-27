@@ -8172,7 +8172,7 @@
         "refuse": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 },
-          "description": "Words the step never presses an element named with, such as Save in a run that must change nothing: a click on such an element, by the model or a replay, is refused, as is Enter while one is in the window in front. A Latin word matches a whole word, ignoring case and character width; any other word matches wherever a name holds it."
+          "description": "Words the step never presses an element named with, such as Save, to keep a run from pressing the buttons that save or send. It limits presses only: the step still types into fields and sends other keys. A click on such an element, by the model or a replay, is refused, as is Enter while one is in the window in front. A Latin word matches a whole word, ignoring case and character width; any other word matches wherever a name holds it."
         },
         "handle": {
           "type": "array",

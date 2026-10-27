@@ -98,7 +98,7 @@ type config struct {
 	// that are not secret, such as the item a row chooses from a list.
 	Visible []string `json:"visible,omitempty"`
 	// Refuse lists words the step never presses an element named with,
-	// such as Save in a run that must change nothing.
+	// such as Save, so a run that should not save presses no Save button.
 	Refuse         []string `json:"refuse,omitempty"`
 	Screenshots    string   `json:"screenshots,omitempty"`
 	AI             string   `json:"ai,omitempty"`

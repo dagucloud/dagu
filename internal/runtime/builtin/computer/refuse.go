@@ -16,9 +16,8 @@ import (
 
 // refusedElement reports an element the step never presses: one whose name,
 // or the name of the button, link, or other element a person presses that
-// holds it, has a word with.refuse lists, such as 保存 or Save in a check
-// that must change nothing. It says why, for the model or the replay that
-// tried.
+// holds it, has a word with.refuse lists, such as 保存 or Save. It says
+// why, for the model or the replay that tried.
 func (r *run) refusedElement(e desktop.Element) (string, bool) {
 	names := []desktop.PathStep{{Role: e.Role, Name: e.Name}}
 	for i := len(e.Path) - 2; i >= 0; i-- {
