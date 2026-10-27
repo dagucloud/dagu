@@ -222,7 +222,9 @@ func TestContextWithItemScopeKeepsForeachStepScope(t *testing.T) {
 
 	ctx := runtime.NewContext(context.Background(), &ir.DAG{Name: "each"}, "run-1", "")
 	parent := runtime.NewEnv(ctx, ir.Step{Name: "each"})
-	parent.Scope = parent.Scope.WithEntry("FROM_FOREACH_STEP", "yes", cmnvalue.EnvSourceStepEnv)
+	parent.Scope = parent.Scope.
+		WithEntry("FROM_FOREACH_STEP", "yes", cmnvalue.EnvSourceStepEnv).
+		WithEntry("FROM_PREDECESSOR", "upstream", cmnvalue.EnvSourceOutput)
 	ctx = runtime.WithEnv(ctx, parent)
 
 	itemCtx, err := contextWithItemScope(ctx, "item", 0, "0", "a")
@@ -232,4 +234,8 @@ func TestContextWithItemScopeKeepsForeachStepScope(t *testing.T) {
 	got, ok := body.Scope.Get("FROM_FOREACH_STEP")
 	require.True(t, ok)
 	assert.Equal(t, "yes", got)
+
+	got, ok = body.Scope.Get("FROM_PREDECESSOR")
+	require.True(t, ok)
+	assert.Equal(t, "upstream", got)
 }
