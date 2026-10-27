@@ -38,14 +38,24 @@ func (r *run) refusedElement(e desktop.Element) (string, bool) {
 
 // refusedAction reports an action that would press an element the step
 // never presses: a click on one, a button press or a drag that starts over
-// one, or Enter, typed or held, while one is in the window in front, where
-// Enter may press it as the window's default button. An action whose
-// element the host cannot read goes on.
+// one, or Enter, pressed, held, typed as a line break, or held as a
+// modifier, while one is in the window in front, where Enter may press it
+// as the window's default button. An action whose element the host cannot
+// read goes on.
 func (r *run) refusedAction(action computeruse.Action, at *image.Point, toFull positionMapper) (string, bool) {
 	if len(r.cfg.Refuse) == 0 {
 		return "", false
 	}
+	if modifiers, err := desktop.ParseKeys(action.Modifiers); err == nil && slices.Contains(modifiers, desktop.KeyEnter) {
+		if why, refused := r.refusedDefault(); refused {
+			return why, true
+		}
+	}
 	switch action.Kind {
+	case computeruse.KindType:
+		if strings.ContainsAny(r.substitute(action.Text), "\r\n") {
+			return r.refusedDefault()
+		}
 	case computeruse.KindClick:
 		return r.refusedAt(at)
 	case computeruse.KindMouseDown:

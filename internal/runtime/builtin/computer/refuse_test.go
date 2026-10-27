@@ -17,8 +17,9 @@ import (
 // A step that refuses a word never presses an element named with it: not a
 // click the model aims at it by position, by id, or at its label, nor a drag
 // that starts on it, nor a button press while the pointer rests on it, nor
-// Enter, typed or held, while it is in the window in front, where Enter may
-// press it as the default button. The model is told why, and nothing
+// Enter, pressed, held, typed as a line break, or held with a click, while
+// it is in the window in front, where Enter may press it as the default
+// button. The model is told why, and nothing
 // reaches the application.
 func TestARefusedWordIsNeverPressed(t *testing.T) {
 	t.Parallel()
@@ -41,6 +42,8 @@ func TestARefusedWordIsNeverPressed(t *testing.T) {
 			actions(computeruse.Action{CallID: "p", Kind: computeruse.KindMouseDown, Button: "left", Point: &computeruse.Point{X: 10, Y: 10}})},
 		{"Enter in its window", nil, actions(keyPress("Return"))},
 		{"Enter held in its window", nil, actions(computeruse.Action{CallID: "h", Kind: computeruse.KindHoldKey, Keys: []string{"Return"}, Duration: time.Millisecond})},
+		{"a line break typed in its window", nil, actions(computeruse.Action{CallID: "t", Kind: computeruse.KindType, Text: "12000\n"})},
+		{"a click elsewhere holding Enter", nil, actions(computeruse.Action{CallID: "m", Kind: computeruse.KindClick, Point: &computeruse.Point{X: 10, Y: 10}, Modifiers: []string{"return"}})},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
