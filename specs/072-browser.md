@@ -385,7 +385,9 @@ wait is left to the operations that follow and reported as above.
 
 A DAG with a browser action enables artifact storage unless it sets
 `artifacts.enabled: false`. Files are written under `browser/<step id>/` in the
-run's artifacts directory and are not masked.
+run's artifacts directory and are not masked. A step in a `foreach` body writes
+every item's files there, and each item's timeline names the screenshots and
+downloads that item saved.
 
 | `screenshots` | Automatic screenshots |
 | --- | --- |

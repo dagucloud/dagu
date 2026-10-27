@@ -288,7 +288,9 @@ A DAG with a computer action enables artifact storage unless it sets
 `computer/<step id>/` in the run's artifacts directory, scaled to at most
 1920 pixels on the long edge, and are not masked. `with.screenshots` takes the
 same values as for browser actions: `on_failure` (default), `final`, `each`,
-or `never`. With artifacts disabled, a `screenshot` operation fails.
+or `never`. A step in a `foreach` body writes every item's screenshots there,
+and each item's timeline names the screenshots it took. With artifacts
+disabled, a `screenshot` operation fails.
 
 ### How much AI decides
 
