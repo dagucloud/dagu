@@ -24,8 +24,8 @@ var workspaceDeprecationKinds = map[deprecation.Kind]api.WorkspaceDeprecationIte
 	deprecation.KindWikiDirectory:     api.WorkspaceDeprecationItemKindWikiDirectory,
 }
 
-// GetWorkspaceDeprecation lists the workspace settings in use that stop
-// applying when workspaces are removed in v3.0. Requires admin role.
+// GetWorkspaceDeprecation lists the workspace settings in use that v3.0
+// moves into projects. Requires admin role.
 func (a *API) GetWorkspaceDeprecation(ctx context.Context, _ api.GetWorkspaceDeprecationRequestObject) (api.GetWorkspaceDeprecationResponseObject, error) {
 	if err := a.requireAdmin(ctx); err != nil {
 		return nil, err

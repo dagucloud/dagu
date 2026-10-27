@@ -16,8 +16,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/workspace/deprecation"
 )
 
-// warnWorkspaceDeprecation logs every workspace setting in use that stops
-// applying when workspaces are removed in v3.0, in one warning.
+// warnWorkspaceDeprecation logs every workspace setting in use that v3.0
+// moves into projects, in one warning.
 func (srv *Server) warnWorkspaceDeprecation(ctx context.Context) {
 	items, err := deprecation.Find(ctx, srv.workspaceDeprecation)
 	if err != nil {
@@ -34,7 +34,7 @@ func (srv *Server) warnWorkspaceDeprecation(ctx context.Context) {
 }
 
 // workspaceDeprecationSources returns where the workspace settings that v3.0
-// stops applying are read from. A missing store or service stays a nil
+// moves into projects are read from. A missing store or service stays a nil
 // source, which Find skips.
 func workspaceDeprecationSources(cfg *config.Config, dr *persis.DAGRepository, stores Stores, authSvc *authservice.Service) deprecation.Sources {
 	src := deprecation.Sources{

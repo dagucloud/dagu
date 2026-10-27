@@ -11096,7 +11096,7 @@ type ServerInterface interface {
 	// Create a workspace
 	// (POST /workspaces)
 	CreateWorkspace(w http.ResponseWriter, r *http.Request, params CreateWorkspaceParams)
-	// List workspace settings removed in v3.0
+	// List workspace settings that v3.0 moves into projects
 	// (GET /workspaces/deprecation)
 	GetWorkspaceDeprecation(w http.ResponseWriter, r *http.Request, params GetWorkspaceDeprecationParams)
 	// Delete a workspace
@@ -12656,7 +12656,7 @@ func (_ Unimplemented) CreateWorkspace(w http.ResponseWriter, r *http.Request, p
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// List workspace settings removed in v3.0
+// List workspace settings that v3.0 moves into projects
 // (GET /workspaces/deprecation)
 func (_ Unimplemented) GetWorkspaceDeprecation(w http.ResponseWriter, r *http.Request, params GetWorkspaceDeprecationParams) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -46807,7 +46807,7 @@ type StrictServerInterface interface {
 	// Create a workspace
 	// (POST /workspaces)
 	CreateWorkspace(ctx context.Context, request CreateWorkspaceRequestObject) (CreateWorkspaceResponseObject, error)
-	// List workspace settings removed in v3.0
+	// List workspace settings that v3.0 moves into projects
 	// (GET /workspaces/deprecation)
 	GetWorkspaceDeprecation(ctx context.Context, request GetWorkspaceDeprecationRequestObject) (GetWorkspaceDeprecationResponseObject, error)
 	// Delete a workspace
@@ -55679,19 +55679,19 @@ var swaggerSpec = []string{
 	"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",
-	"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",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

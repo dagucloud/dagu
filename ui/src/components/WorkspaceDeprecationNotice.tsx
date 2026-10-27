@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 /**
- * Admin notice listing the workspace settings that stop applying when
- * workspaces are removed in v3.0. It stays a small icon until opened, and a
- * dismissal hides it until another setting comes into use.
+ * Admin notice listing the workspace settings that v3.0 moves into projects.
+ * It stays a small icon until opened, and a dismissal hides it until another
+ * setting comes into use.
  *
  * @module components
  */
@@ -94,7 +94,7 @@ export function WorkspaceDeprecationNotice() {
     setDismissed((prev) => ({ ...prev, [storageKey]: keys }));
   };
 
-  const title = ts('Workspaces are removed in v3.0');
+  const title = ts('Workspaces become projects in v3.0');
   return (
     <Dialog>
       <DialogTrigger
@@ -109,7 +109,7 @@ export function WorkspaceDeprecationNotice() {
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
             {ts(
-              'These workspace settings will stop applying, and users and API keys limited to workspaces will become viewers.'
+              'v3.0 moves these settings into projects with a migration command. No action is needed now.'
             )}
           </DialogDescription>
         </DialogHeader>

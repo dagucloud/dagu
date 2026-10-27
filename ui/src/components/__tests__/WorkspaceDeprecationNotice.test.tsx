@@ -26,7 +26,7 @@ vi.mock('@/contexts/RemoteNodeContext', () => ({
 
 const useIsAdminMock = vi.mocked(useIsAdmin);
 
-const iconName = 'Workspaces are removed in v3.0';
+const iconName = 'Workspaces become projects in v3.0';
 const billing = {
   kind: WorkspaceDeprecationItemKind.baseConfig,
   name: 'billing',

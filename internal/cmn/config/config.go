@@ -47,7 +47,7 @@ type Config struct {
 	Notices         []string
 	Warnings        []string
 	// WorkspaceAccessKeys lists the workspace access keys the configuration
-	// sets. Workspaces are removed in v3.0, which makes these keys unknown.
+	// sets. v3.0 reads them as their project equivalents until v3.1.
 	WorkspaceAccessKeys []string
 }
 

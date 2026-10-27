@@ -4230,8 +4230,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List workspace settings removed in v3.0
-         * @description Lists the workspace settings in use that stop applying when workspaces are removed in v3.0. Admin only.
+         * List workspace settings that v3.0 moves into projects
+         * @description Lists the workspace settings in use that v3.0 moves into projects. Admin only.
          */
         get: operations["getWorkspaceDeprecation"];
         put?: never;
