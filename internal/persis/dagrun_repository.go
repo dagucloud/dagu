@@ -373,7 +373,12 @@ func (r *DAGRunRepository) agentSessionResources(ctx context.Context, root ir.DA
 	if err != nil {
 		return nil, err
 	}
-	resources := ir.MergeAgentSessionResources(status.AgentSessions, withForeachBodyNodes(status.Nodes))
+	resources := ir.MergeAgentSessionResources(status.AgentSessions, status.Nodes)
+	bodyResources, err := foreachBodySessionResources(ctx, status.Nodes)
+	if err != nil {
+		return nil, err
+	}
+	resources = append(resources, bodyResources...)
 	seen := map[string]bool{root.ID: true}
 	queue := childDAGRunIDs(status.Nodes)
 	for len(queue) > 0 {
@@ -397,7 +402,12 @@ func (r *DAGRunRepository) agentSessionResources(ctx context.Context, root ir.DA
 			}
 			return nil, err
 		}
-		resources = ir.MergeAgentSessionResources(resources, withForeachBodyNodes(childStatus.Nodes))
+		resources = ir.MergeAgentSessionResources(resources, childStatus.Nodes)
+		bodyResources, err := foreachBodySessionResources(ctx, childStatus.Nodes)
+		if err != nil {
+			return nil, err
+		}
+		resources = append(resources, bodyResources...)
 		resources = append(resources, childStatus.AgentSessions...)
 		resources = ir.MergeAgentSessionResources(resources, nil)
 		queue = append(queue, childDAGRunIDs(childStatus.Nodes)...)
@@ -405,38 +415,81 @@ func (r *DAGRunRepository) agentSessionResources(ctx context.Context, root ir.DA
 	return resources, nil
 }
 
-// withForeachBodyNodes returns nodes followed by one node for each foreach
-// body step that kept an agent session. Body steps are not nodes of the run
-// status; their sessions live in the item records under the foreach step's
-// log directory, so cleanup has to read them from there.
-func withForeachBodyNodes(nodes []*ir.Node) []*ir.Node {
-	result := nodes
+// foreachBodySessionResources returns the provider sessions owned by foreach
+// body steps of nodes. Body steps are not nodes of the run status; their
+// sessions live in the item records under the foreach step's log directory,
+// so cleanup reads them from there, following the layout the runtime writes:
+// an items.json per foreach, and a status.json per item.
+func foreachBodySessionResources(ctx context.Context, nodes []*ir.Node) ([]ir.AgentSessionResource, error) {
+	var bodyNodes []*ir.Node
 	for _, node := range nodes {
 		if node == nil || node.Step.Foreach == nil || node.Stdout == "" {
 			continue
 		}
 		stepDir := logpath.ForeachStepDir(node.Stdout, node.Step.Name)
-		_ = filepath.WalkDir(stepDir, func(path string, d fs.DirEntry, err error) error {
-			if err != nil || d.IsDir() || d.Name() != logpath.ForeachItemStatusFile {
-				return nil
-			}
-			data, err := os.ReadFile(path)
-			if err != nil {
-				return nil
-			}
-			var record ir.ForeachItemStatus
-			if json.Unmarshal(data, &record) != nil {
-				return nil
-			}
-			for _, step := range record.Steps {
-				if step.AgentSession != nil {
-					result = append(result, &ir.Node{Step: ir.Step{Name: step.Name}, AgentSession: step.AgentSession})
-				}
-			}
-			return nil
-		})
+		var err error
+		if bodyNodes, err = collectForeachBodyNodes(ctx, bodyNodes, stepDir, ""); err != nil {
+			return nil, err
+		}
 	}
-	return result
+	return ir.MergeAgentSessionResources(nil, bodyNodes), nil
+}
+
+// collectForeachBodyNodes appends a node for each body step with an agent
+// session among the items listed under parent, descending into the foreach
+// loops those body steps may themselves run. Unreadable records are logged
+// and skipped so one damaged item does not block removing the run; only
+// cancellation aborts.
+func collectForeachBodyNodes(ctx context.Context, nodes []*ir.Node, stepDir, parent string) ([]*ir.Node, error) {
+	dir, err := logpath.ForeachParentDir(stepDir, parent)
+	if err != nil {
+		return nodes, nil
+	}
+	var items ir.ForeachItems
+	if !readForeachRecord(ctx, filepath.Join(dir, logpath.ForeachItemsFile), &items) {
+		return nodes, nil
+	}
+	for _, ref := range items.Items {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		itemPath := logpath.ForeachItemPath(parent, ref.Index)
+		itemDir, err := logpath.ForeachItemDir(stepDir, itemPath)
+		if err != nil {
+			continue
+		}
+		var record ir.ForeachItemStatus
+		if !readForeachRecord(ctx, filepath.Join(itemDir, logpath.ForeachItemStatusFile), &record) {
+			continue
+		}
+		for _, step := range record.Steps {
+			if step.AgentSession != nil {
+				nodes = append(nodes, &ir.Node{Step: ir.Step{Name: step.Name}, AgentSession: step.AgentSession})
+			}
+			if nodes, err = collectForeachBodyNodes(ctx, nodes, stepDir, logpath.ForeachNestedParent(itemPath, step.Name)); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return nodes, nil
+}
+
+// readForeachRecord decodes the JSON record at path into v. It reports false
+// when the record is absent, which is normal for an item that never ran, or
+// unreadable, which is logged.
+func readForeachRecord(ctx context.Context, path string, v any) bool {
+	data, err := os.ReadFile(path) //nolint:gosec // paths derive from recorded log locations and validated segments
+	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			logger.Warn(ctx, "Failed to read foreach record", slog.String("path", path), slog.Any("err", err))
+		}
+		return false
+	}
+	if err := json.Unmarshal(data, v); err != nil {
+		logger.Warn(ctx, "Failed to decode foreach record", slog.String("path", path), slog.Any("err", err))
+		return false
+	}
+	return true
 }
 
 func childDAGRunIDs(nodes []*ir.Node) []string {
