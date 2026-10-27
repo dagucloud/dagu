@@ -202,6 +202,7 @@ func TestFitsTheLaunchedApplication(t *testing.T) {
 		{"an app by name", `{"command": "open", "args": ["-a", "Report"]}`, terminal},
 		{"a program", `"C:\\Apps\\report.exe"`, terminal},
 		{"an app already in front", `{"command": "open", "args": ["-a", "Report"]}`, reportWindow},
+		{"an app by its path already in front", `{"command": "open", "args": ["-a", "/Applications/Report.app"]}`, reportWindow},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -224,41 +225,69 @@ func TestFitsTheLaunchedApplication(t *testing.T) {
 
 // The app a launch opened is the one the step works in: when a person
 // brings another app forward before the next check, the launched app comes
-// back once they stop.
+// back once they stop. Another app that took the front before the launched
+// one is not the step's, and never comes back.
 func TestALaunchedAppComesBackAfterAPerson(t *testing.T) {
 	t.Parallel()
 
-	run := elementRun(t)
 	form := expenseWindow()
 	expense := desktop.WindowID{Handle: 2, Title: form.Name, App: "expense"}
 	notes := desktop.WindowID{Handle: 1, Title: "メモ", App: "notes"}
-	run.backend.windows = []desktop.WindowID{notes, expense}
-	run.backend.focusOn(notes)
-	showNotes := func() {
-		run.elements.asApp(notes.App)
-		run.elements.retitle(notes.Title)
-		run.elements.arriveAfter(0, []desktop.Element{})
+	call := desktop.WindowID{Handle: 3, Title: "着信", App: "FaceTime"}
+	for _, tc := range []struct {
+		name string
+		// first is the window that comes forward after the launch.
+		first desktop.WindowID
+		// raised is the window brought back, if any.
+		raised []uint64
+	}{
+		{"the launched app", expense, []uint64{expense.Handle}},
+		{"another app first", call, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			run := elementRun(t)
+			run.backend.windows = []desktop.WindowID{notes, expense, call}
+			run.backend.focusOn(notes)
+			run.elements.asApp(notes.App)
+			run.elements.retitle(notes.Title)
+			run.elements.arriveAfter(0, []desktop.Element{})
+			run.onLaunch = func() {
+				// A window comes forward for a moment; then a person brings
+				// their notes back in front.
+				run.backend.mu.Lock()
+				run.backend.focusNext = []desktop.WindowID{tc.first}
+				run.backend.mu.Unlock()
+				run.backend.personUses()
+			}
+			run.backend.onRaise = func(w desktop.WindowID) {
+				if w.Handle == expense.Handle {
+					run.elements.asApp(expense.App)
+					run.elements.retitle(expense.Title)
+					run.elements.arriveAfter(0, expenseElements())
+				}
+			}
+			execution := run.execute(`{"ai": "never", "idle": "100ms", "maximize": false, "do": [{"launch": "C:\\Apps\\expense.exe"}, {"expect": {"text": "保存しました"}, "timeout": "1s"}]}`, nil)
+			var raised []uint64
+			for _, w := range run.backend.raised {
+				raised = append(raised, w.Handle)
+			}
+			assert.Equal(t, tc.raised, raised)
+			if tc.raised != nil {
+				require.NoError(t, execution.err, "the launched app came back")
+			}
+		})
 	}
-	showNotes()
-	run.onLaunch = func() {
-		// The app comes forward for a moment; then a person brings their
-		// notes back in front.
-		run.backend.mu.Lock()
-		run.backend.focusNext = []desktop.WindowID{expense}
-		run.backend.mu.Unlock()
-		run.backend.personUses()
-	}
-	run.backend.onRaise = func(w desktop.WindowID) {
-		if w.Handle == expense.Handle {
-			run.elements.asApp(expense.App)
-			run.elements.retitle(expense.Title)
-			run.elements.arriveAfter(0, expenseElements())
-		}
-	}
-	execution := run.execute(`{"ai": "never", "idle": "100ms", "maximize": false, "do": [{"launch": "C:\\Apps\\expense.exe"}, {"expect": {"text": "保存しました"}, "timeout": "2s"}]}`, nil)
+}
+
+// A launch waits no longer than its own timeout for what it opened.
+func TestALaunchWaitsNoLongerThanItsTimeout(t *testing.T) {
+	t.Parallel()
+
+	run := windowRun(t, reportWindow.Bounds)
+	execution := run.execute(`{"ai": "never", "maximize": false, "do": [{"launch": {"command": "open", "args": ["-a", "Ledger"]}, "timeout": "200ms"}]}`, nil)
 	require.NoError(t, execution.err)
-	require.Len(t, run.backend.raised, 1)
-	assert.Equal(t, expense.Handle, run.backend.raised[0].Handle, "the launched app came back")
+	assert.Contains(t, execution.stderr.String(), "nothing it opened came to the front within 200ms")
 }
 
 func TestMaximizesTheFrontWindow(t *testing.T) {

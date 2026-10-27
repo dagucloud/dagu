@@ -338,7 +338,7 @@ func (r *run) runOperation(ctx context.Context, index int, op operation) error {
 	timeout := op.timeout()
 	switch {
 	case op.Launch != nil:
-		return r.launch(ctx, index, *op.Launch)
+		return r.launch(ctx, index, *op.Launch, timeout)
 	case op.Act != nil:
 		return r.act(ctx, index, *op.Act, timeout)
 	case op.Extract != nil:
@@ -353,7 +353,7 @@ func (r *run) runOperation(ctx context.Context, index int, op operation) error {
 	return fmt.Errorf("unsupported operation %q", op.kind())
 }
 
-func (r *run) launch(ctx context.Context, index int, spec launchSpec) error {
+func (r *run) launch(ctx context.Context, index int, spec launchSpec, timeout time.Duration) error {
 	began := time.Now()
 	// A new window takes the keyboard focus from a person who is typing.
 	if err := r.awaitPerson(ctx); err != nil {
@@ -363,7 +363,7 @@ func (r *run) launch(ctx context.Context, index int, spec launchSpec) error {
 	if err := r.exec.launch(r.workingDir, spec.Command, spec.Args); err != nil {
 		return err
 	}
-	if err := r.awaitLaunched(ctx, index, spec, before); err != nil {
+	if err := r.awaitLaunched(ctx, index, spec, before, min(launchFront, timeout)); err != nil {
 		return err
 	}
 	subject := strings.Join(append([]string{spec.Command}, spec.Args...), " ")

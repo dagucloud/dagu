@@ -193,34 +193,39 @@ func (r *run) findWindow(rec recordedWindow) (image.Rectangle, bool) {
 }
 
 // launchFront bounds how long a launch waits for what it opened to come to
-// the front, looked at every launchFrontPoll.
+// the front, unless its timeout is shorter, looked at every launchFrontPoll.
 const (
 	launchFront     = 5 * time.Second
 	launchFrontPoll = 100 * time.Millisecond
 )
 
-// awaitLaunched waits until what a launch opened is in front: a window of
-// the application it names, or any window other than the one in front
-// before it, whose application the step then works in. A launch returns
-// before the application comes to the front, and the next operation fits
-// and reads the window in front, which until then is the one a person or
-// another application had there. A host that did not say which window was
-// in front before, or a launch whose window never comes to the front, goes
-// on as it is.
-func (r *run) awaitLaunched(ctx context.Context, index int, spec launchSpec, before desktop.WindowID) error {
+// awaitLaunched waits, up to wait, until what a launch opened is in front:
+// a window of the application it names, or any window other than the one
+// in front before it. A launch returns before the application comes to the
+// front, and the next operation fits and reads the window in front, which
+// until then is the one a person or another application had there. The
+// application the launch names, or the one a launch naming none brought
+// forward, is then the one the step works in; another application that
+// took the front first is not. A host that did not say which window was in
+// front before, or a launch whose window never comes to the front, goes on
+// as it is.
+func (r *run) awaitLaunched(ctx context.Context, index int, spec launchSpec, before desktop.WindowID, wait time.Duration) error {
 	if !before.Known() {
 		return nil
 	}
 	app := spec.app()
-	deadline := time.Now().Add(launchFront)
+	deadline := time.Now().Add(wait)
 	for {
 		w := r.driver.FocusedWindow()
-		if w.Known() && (w.Handle != before.Handle || (app != "" && strings.EqualFold(w.App, app))) {
-			r.noteWorkApp(w)
+		named := app != "" && strings.EqualFold(w.App, app)
+		if w.Known() && (named || w.Handle != before.Handle) {
+			if named || app == "" {
+				r.noteWorkApp(w)
+			}
 			return nil
 		}
 		if !time.Now().Before(deadline) {
-			logAction(r.timeline, index, fmt.Sprintf("nothing it opened came to the front within %s", launchFront))
+			logAction(r.timeline, index, fmt.Sprintf("nothing it opened came to the front within %s", wait))
 			return nil
 		}
 		if err := sleep(ctx, launchFrontPoll); err != nil {
