@@ -28,7 +28,7 @@ import (
 )
 
 // Warning is the message logged with the settings Find returns.
-const Warning = "Workspaces become projects in v3.0, and a migration command moves these settings"
+const Warning = "Workspaces become projects in v3.0, and a migration command moves these settings, so no action is needed now"
 
 // Kind is a kind of workspace setting.
 type Kind string
