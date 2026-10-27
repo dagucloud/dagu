@@ -351,7 +351,7 @@ dispatch:
 
 func (e *foreachExecutor) runItem(ctx context.Context, item expandedItem) itemResult {
 	logDir := filepath.Join(e.stepDir, strconv.Itoa(item.index))
-	recorder := newItemRecorder(logDir, item)
+	recorder := newItemRecorder(ctx, logDir, item)
 	// An item that fails before its body runs is still recorded, so the
 	// record and the aggregate agree on it.
 	failed := func(err error) itemResult {

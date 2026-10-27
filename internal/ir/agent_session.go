@@ -210,6 +210,21 @@ func CloneAgentSession(session *AgentSession) *AgentSession {
 	return &clone
 }
 
+// MaskAgentSession returns a detached copy of session with mask applied to
+// its displayed text. Interaction answers are kept as given, since a resumed
+// step reads them back from status.
+func MaskAgentSession(session *AgentSession, mask func(string) string) *AgentSession {
+	if session == nil {
+		return nil
+	}
+	masked := CloneAgentSession(session)
+	masked.LastError = mask(masked.LastError)
+	for i := range masked.Events {
+		masked.Events[i].Content = mask(masked.Events[i].Content)
+	}
+	return masked
+}
+
 // MergeAgentSessionResources retains every Dagu-owned provider session observed by a DAG run.
 func MergeAgentSessionResources(resources []AgentSessionResource, nodes []*Node) []AgentSessionResource {
 	result := make([]AgentSessionResource, 0, len(resources))

@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
+	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -45,10 +46,23 @@ type itemRecorder struct {
 	item      expandedItem
 	plan      *runtime.Plan
 	startedAt time.Time
+	// masker hides the run's secrets in the record, as the run status hides
+	// them in its nodes.
+	masker *masking.Masker
 }
 
-func newItemRecorder(dir string, item expandedItem) *itemRecorder {
-	return &itemRecorder{dir: dir, item: item, startedAt: time.Now()}
+func newItemRecorder(ctx context.Context, dir string, item expandedItem) *itemRecorder {
+	return &itemRecorder{dir: dir, item: item, startedAt: time.Now(), masker: newRecordMasker(ctx)}
+}
+
+// newRecordMasker returns a masker for the secrets of the run in ctx.
+func newRecordMasker(ctx context.Context) *masking.Masker {
+	secrets := runtime.GetDAGContext(ctx).EnvScope.AllSecrets()
+	pairs := make([]string, 0, len(secrets))
+	for name, value := range secrets {
+		pairs = append(pairs, name+"="+value)
+	}
+	return masking.NewMasker(masking.SourcedEnvVars{Secrets: pairs})
 }
 
 // planned gives the recorder the body plan whose steps it records.
@@ -89,15 +103,15 @@ func (r *itemRecorder) write(ctx context.Context, status ir.NodeStatus, errMessa
 		Index:      r.item.index,
 		Key:        r.item.key,
 		Status:     status,
-		Error:      errMessage,
+		Error:      r.masker.MaskString(errMessage),
 		StartedAt:  stringutil.FormatTime(r.startedAt),
 		FinishedAt: stringutil.FormatTime(finishedAt),
-		Steps:      bodyStepStatuses(r.plan),
+		Steps:      bodyStepStatuses(r.plan, r.masker),
 	}
 	writeRecord(ctx, filepath.Join(r.dir, logpath.ForeachItemStatusFile), record)
 }
 
-func bodyStepStatuses(plan *runtime.Plan) []ir.ForeachBodyStepStatus {
+func bodyStepStatuses(plan *runtime.Plan, masker *masking.Masker) []ir.ForeachBodyStepStatus {
 	var nodes []*runtime.Node
 	if plan != nil {
 		nodes = plan.Nodes()
@@ -106,16 +120,18 @@ func bodyStepStatuses(plan *runtime.Plan) []ir.ForeachBodyStepStatus {
 	for _, node := range nodes {
 		data := node.NodeData()
 		step := ir.ForeachBodyStepStatus{
-			Name:       data.Step.Name,
-			ID:         data.Step.ID,
-			Status:     data.State.Status,
-			StartedAt:  stringutil.FormatTime(data.State.StartedAt),
-			FinishedAt: stringutil.FormatTime(data.State.FinishedAt),
-			RetryCount: data.State.RetryCount,
-			Foreach:    data.Step.ExecutorConfig.Type == ir.ExecutorTypeForeach,
+			Name:         data.Step.Name,
+			ID:           data.Step.ID,
+			Status:       data.State.Status,
+			StartedAt:    stringutil.FormatTime(data.State.StartedAt),
+			FinishedAt:   stringutil.FormatTime(data.State.FinishedAt),
+			RetryCount:   data.State.RetryCount,
+			AgentSession: ir.MaskAgentSession(data.State.AgentSession, masker.MaskString),
+			ModelUsage:   ir.CloneStepModelUsage(data.State.ModelUsage),
+			Foreach:      data.Step.ExecutorConfig.Type == ir.ExecutorTypeForeach,
 		}
 		if data.State.Error != nil {
-			step.Error = data.State.Error.Error()
+			step.Error = masker.MaskString(data.State.Error.Error())
 		}
 		if data.State.Stdout != "" {
 			step.Stdout = filepath.Base(data.State.Stdout)

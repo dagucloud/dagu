@@ -6,14 +6,19 @@ package foreach
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/command"
+	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -117,4 +122,85 @@ func TestRunItemRecordsFailureBeforeBodyRuns(t *testing.T) {
 	assert.Equal(t, result.Error, record.Error)
 	assert.NotEmpty(t, record.FinishedAt)
 	assert.Empty(t, record.Steps)
+}
+
+// operationsExecutor stands for a body step that drives an agent, such as a
+// browser step: item 0 needs the model to fix its operation, item 1 replays
+// it, and item 2 is refused with an error naming the secret it typed.
+type operationsExecutor struct {
+	session *ir.AgentSession
+}
+
+const operationsSecret = "vendor-token-1234"
+
+func (e *operationsExecutor) SetStdout(io.Writer)                {}
+func (e *operationsExecutor) SetStderr(io.Writer)                {}
+func (e *operationsExecutor) Kill(os.Signal) error               { return nil }
+func (e *operationsExecutor) SetAgentSession(s *ir.AgentSession) { e.session = s }
+func (e *operationsExecutor) GetAgentSession() *ir.AgentSession  { return e.session }
+func (e *operationsExecutor) Run(ctx context.Context) error {
+	index := runtime.GetEnv(ctx).Foreach["index"]
+	event := ir.AgentSessionEvent{Type: "tool", Name: "act", Status: "cache-hit", Via: "element", Content: "Type " + operationsSecret + " into the vendor field"}
+	if index == "0" {
+		llm.RecordUsage(ctx, llm.UsageRecord{Provider: "openrouter", Model: "test/model", Usage: llm.Usage{PromptTokens: 40, CompletionTokens: 2, TotalTokens: 42}})
+		event.Status, event.Via, event.Tokens = "healed", "model", 42
+	}
+	e.session = &ir.AgentSession{Provider: "browser", State: ir.AgentSessionSucceeded, Events: []ir.AgentSessionEvent{event}}
+	if index == "2" {
+		return errors.New("site refused " + operationsSecret)
+	}
+	return nil
+}
+
+// Each item's record keeps its body steps' agent sessions and model usage,
+// with the run's secrets masked as the run status masks them.
+func TestItemRecordKeepsBodyAgentSessions(t *testing.T) {
+	executorType := "test-foreach-operations"
+	runtimeexec.RegisterExecutor(executorType, func(context.Context, ir.Step) (runtimeexec.Executor, error) {
+		return &operationsExecutor{}, nil
+	}, nil, registry.ExecutorCapabilities{})
+	t.Cleanup(func() { runtimeexec.UnregisterExecutor(executorType) })
+
+	logDir := t.TempDir()
+	e := &foreachExecutor{step: ir.Step{
+		Name: "each",
+		Foreach: &ir.ForeachConfig{
+			Items: []any{"a", "b", "c"},
+			Steps: []ir.Step{{Name: "enter", ID: "enter", ExecutorConfig: ir.ExecutorConfig{Type: executorType}}},
+		},
+	}}
+	e.SetStdout(io.Discard)
+	ctx := runtime.NewContext(context.Background(), &ir.DAG{Name: "each"}, "run-1", "",
+		runtime.WithDAGRunLogDir(logDir),
+		runtime.WithSecrets([]string{"VENDOR_TOKEN=" + operationsSecret}))
+	require.NoError(t, e.Run(ctx))
+
+	readStep := func(index string) ir.ForeachBodyStepStatus {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join(logDir, logpath.ForeachLogDirName, "each", index, logpath.ForeachItemStatusFile))
+		require.NoError(t, err)
+		var record ir.ForeachItemStatus
+		require.NoError(t, json.Unmarshal(data, &record))
+		require.Len(t, record.Steps, 1)
+		require.NotContains(t, string(data), operationsSecret)
+		return record.Steps[0]
+	}
+
+	healed := readStep("0")
+	require.NotNil(t, healed.AgentSession)
+	require.Len(t, healed.AgentSession.Events, 1)
+	assert.Equal(t, "healed", healed.AgentSession.Events[0].Status)
+	assert.Equal(t, "Type ******* into the vendor field", healed.AgentSession.Events[0].Content)
+	require.NotNil(t, healed.ModelUsage)
+	assert.Equal(t, []ir.ModelUsage{{Provider: "openrouter", Model: "test/model", Calls: 1, InputTokens: 40, OutputTokens: 2}}, healed.ModelUsage.Total())
+
+	replayed := readStep("1")
+	require.NotNil(t, replayed.AgentSession)
+	assert.Equal(t, "cache-hit", replayed.AgentSession.Events[0].Status)
+	assert.Empty(t, replayed.ModelUsage.Total())
+
+	refused := readStep("2")
+	assert.Equal(t, ir.NodeFailed, refused.Status)
+	assert.Contains(t, refused.Error, "site refused *******")
+	require.NotNil(t, refused.AgentSession)
 }
