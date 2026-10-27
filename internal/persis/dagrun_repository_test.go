@@ -5,10 +5,14 @@ package persis_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -289,6 +293,43 @@ func TestRepositoryEnqueuesAgentSessionsBeforeRemovingDAGRun(t *testing.T) {
 		Generation:    2,
 	}}, enqueuer.resources)
 	assert.Equal(t, persis.DAGRunRemoveRequest{DAGRun: ref}, backend.removeRequest)
+}
+
+func TestRepositoryEnqueuesAgentSessionsOwnedByForeachBodySteps(t *testing.T) {
+	t.Parallel()
+
+	ref := ir.NewDAGRunRef("daily", "run-1")
+	stdout := filepath.Join(t.TempDir(), "each.out")
+	itemDir := filepath.Join(logpath.ForeachStepDir(stdout, "each"), "0")
+	require.NoError(t, os.MkdirAll(itemDir, 0o750))
+	record, err := json.Marshal(ir.ForeachItemStatus{
+		Status: ir.NodeSucceeded,
+		Steps: []ir.ForeachBodyStepStatus{{
+			Name: "body",
+			AgentSession: &ir.AgentSession{
+				Provider: "opencode", SessionID: "body-session", Directory: "/workspace",
+				OwnerWorkerID: "worker-1", SessionOwned: true, Generation: 1,
+			},
+		}},
+	})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(itemDir, logpath.ForeachItemStatusFile), record, 0o600))
+
+	events := []string{}
+	backend := &recordingDAGRunStore{
+		attempt: &testutil.MockAttempt{Status: &ir.DAGRunStatus{
+			Nodes: []*ir.Node{{Step: ir.Step{Name: "each", Foreach: &ir.ForeachConfig{}}, Stdout: stdout}},
+		}},
+		events: &events,
+	}
+	enqueuer := &recordingDAGRunRemovalEnqueuer{events: &events}
+	repository := persis.NewDAGRunRepository(backend, nil, persis.DAGRunRepositoryOptions{RemovalEnqueuer: enqueuer})
+
+	require.NoError(t, repository.RemoveDAGRun(context.Background(), ref, persis.DAGRunRemoveOptions{}))
+	assert.Equal(t, []ir.AgentSessionResource{{
+		Provider: "opencode", SessionID: "body-session", Directory: "/workspace",
+		OwnerWorkerID: "worker-1", StepName: "body", Generation: 1,
+	}}, enqueuer.resources)
 }
 
 func TestRepositoryRetentionRemovesExactlyQueuedDAGRuns(t *testing.T) {

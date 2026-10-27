@@ -5,13 +5,18 @@ package persis
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
@@ -368,7 +373,7 @@ func (r *DAGRunRepository) agentSessionResources(ctx context.Context, root ir.DA
 	if err != nil {
 		return nil, err
 	}
-	resources := ir.MergeAgentSessionResources(status.AgentSessions, status.Nodes)
+	resources := ir.MergeAgentSessionResources(status.AgentSessions, withForeachBodyNodes(status.Nodes))
 	seen := map[string]bool{root.ID: true}
 	queue := childDAGRunIDs(status.Nodes)
 	for len(queue) > 0 {
@@ -392,12 +397,46 @@ func (r *DAGRunRepository) agentSessionResources(ctx context.Context, root ir.DA
 			}
 			return nil, err
 		}
-		resources = ir.MergeAgentSessionResources(resources, childStatus.Nodes)
+		resources = ir.MergeAgentSessionResources(resources, withForeachBodyNodes(childStatus.Nodes))
 		resources = append(resources, childStatus.AgentSessions...)
 		resources = ir.MergeAgentSessionResources(resources, nil)
 		queue = append(queue, childDAGRunIDs(childStatus.Nodes)...)
 	}
 	return resources, nil
+}
+
+// withForeachBodyNodes returns nodes followed by one node for each foreach
+// body step that kept an agent session. Body steps are not nodes of the run
+// status; their sessions live in the item records under the foreach step's
+// log directory, so cleanup has to read them from there.
+func withForeachBodyNodes(nodes []*ir.Node) []*ir.Node {
+	result := nodes
+	for _, node := range nodes {
+		if node == nil || node.Step.Foreach == nil || node.Stdout == "" {
+			continue
+		}
+		stepDir := logpath.ForeachStepDir(node.Stdout, node.Step.Name)
+		_ = filepath.WalkDir(stepDir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || d.Name() != logpath.ForeachItemStatusFile {
+				return nil
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return nil
+			}
+			var record ir.ForeachItemStatus
+			if json.Unmarshal(data, &record) != nil {
+				return nil
+			}
+			for _, step := range record.Steps {
+				if step.AgentSession != nil {
+					result = append(result, &ir.Node{Step: ir.Step{Name: step.Name}, AgentSession: step.AgentSession})
+				}
+			}
+			return nil
+		})
+	}
+	return result
 }
 
 func childDAGRunIDs(nodes []*ir.Node) []string {
