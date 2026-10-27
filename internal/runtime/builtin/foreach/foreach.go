@@ -12,6 +12,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -501,6 +502,7 @@ func contextWithItemScope(ctx context.Context, alias string, index int, key stri
 	}
 	env.Scope = scope.WithEntry("foreach", string(data), cmnvalue.EnvSourceStepEnv)
 	env.Foreach = cmnvalue.Values(payload)
+	env.ForeachPath = append(slices.Clone(env.ForeachPath), index)
 	return runtime.WithEnv(ctx, env), nil
 }
 

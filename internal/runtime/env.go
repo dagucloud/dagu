@@ -47,6 +47,11 @@ type Env struct {
 	// Foreach contains the current item scope for foreach body evaluation.
 	Foreach cmnvalue.Values
 
+	// ForeachPath lists the item indexes of the enclosing foreach steps,
+	// outermost first. Foreach only carries the innermost item, so this is
+	// what tells apart the same body step running for different items.
+	ForeachPath []int
+
 	// Inputs contains final materialization paths scoped to the current step.
 	Inputs cmnvalue.Values
 	// Outputs contains attempt staging paths scoped to the current step.
