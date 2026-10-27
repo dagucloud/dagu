@@ -77,7 +77,7 @@ jobs:
         shell: bash
         env:
           DESKTOP_E2E_ARTIFACTS: ${{ runner.temp }}/desktop-artifacts
-        run: DAGU_BIN="$PWD/.local/bin/dagu.exe" go test -count=1 -run 'TestComputerTypesIntoWindow|TestComputerElements|TestComputerPinnedAct' -v ./conformance/spec074_computer/
+        run: DAGU_BIN="$PWD/.local/bin/dagu.exe" go test -count=1 -run 'TestComputerTypesIntoWindow|TestComputerElements|TestComputerPinnedAct|TestComputerOutlineStep' -v ./conformance/spec074_computer/
 
       - name: Upload screenshots
         if: failure()

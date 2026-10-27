@@ -198,7 +198,7 @@ type fakeElements struct {
 	then        []desktop.Element
 	windowAfter int
 	nextWindow  *desktop.Element
-	closed bool
+	closed      bool
 	// focused is the element with the keyboard focus, once one has it.
 	focused  desktop.Element
 	hasFocus bool
