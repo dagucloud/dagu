@@ -77,6 +77,7 @@ steps:
                 lines: {container: {role: list, name: 明細}, columns: {item: 品目}}
         - wait: 2s
         - screenshot: posted
+        - outline: posted_window
 `
 	resolved := mustResolveDAGSchema(t)
 	require.NoError(t, resolved.Validate(mustParseYAMLDocument(t, source)))
@@ -102,6 +103,7 @@ steps:
 		{"bad side", "side: right", "side: beside"},
 		{"table field with a selector beside its container", "lines: {container:", "lines: {enabled: false, container:"},
 		{"scalar field with columns", "id: docNumber, enabled: true}", "id: docNumber, columns: {item: 品目}}"},
+		{"outline name that is not an identifier", "outline: posted_window", "outline: posted window"},
 		{"focus without key", "                - key: enter\n", "                - click: {role: button, name: OK}\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

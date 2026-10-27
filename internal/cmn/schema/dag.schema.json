@@ -8449,6 +8449,7 @@
         { "required": ["expect"] },
         { "required": ["wait"] },
         { "required": ["screenshot"] },
+        { "required": ["outline"] },
         { "required": ["ask"] }
       ],
       "properties": {
@@ -8560,6 +8561,11 @@
           "type": "string",
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
           "description": "Save a screenshot with this name as a run artifact."
+        },
+        "outline": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "description": "Read the front window's elements (role, name, label, value, id, and whether each is disabled) with no model and no screenshot, and publish them as text under this output name."
         },
         "ask": {
           "type": "object",

@@ -114,10 +114,16 @@ func TestValidateStep(t *testing.T) {
 		{name: "duplicate output", with: `{"do": [
 			{"extract": {"instruction": "a", "schema": {"type": "object", "properties": {"total": {}}}}},
 			{"extract": {"instruction": "b", "schema": {"type": "object", "properties": {"total": {}}}}}
-		]}`, llm: model, want: `output "total" is already extracted by do[0]`},
+		]}`, llm: model, want: `output "total" is already published by do[0]`},
 		{name: "bad wait", with: `{"do": [{"wait": "soon"}]}`, llm: model, want: "must be a positive duration"},
 		{name: "bad within", with: `{"do": [{"expect": {"statement": "Saved", "within": "later"}}]}`, llm: model, want: "within"},
 		{name: "bad screenshot name", with: `{"do": [{"screenshot": "../x"}]}`, llm: model, want: "screenshot name"},
+		{name: "outline", with: `{"ai": "never", "do": [{"outline": "window"}]}`},
+		{name: "bad outline name", with: `{"do": [{"outline": "the window"}]}`, llm: model, want: "outline name"},
+		{name: "outline collides with an extract", with: `{"do": [
+			{"extract": {"instruction": "a", "schema": {"type": "object", "properties": {"window": {}}}}},
+			{"outline": "window"}
+		]}`, llm: model, want: `output "window" is already published by do[0]`},
 		{name: "unknown mode", with: `{"mode": "fast", "do": [{"act": "x"}]}`, llm: model, want: "mode"},
 		{name: "no idle wait", with: `{"idle": "0", "do": [{"act": "x"}]}`, llm: model},
 		{name: "bad idle", with: `{"idle": "soon", "do": [{"act": "x"}]}`, llm: model, want: `idle "soon" must be a duration`},

@@ -349,6 +349,8 @@ func (r *run) runOperation(ctx context.Context, index int, op operation) error {
 		return r.wait(ctx, index, op.Wait)
 	case op.Screenshot != "":
 		return r.screenshot(ctx, index, op.Screenshot)
+	case op.Outline != "":
+		return r.outline(ctx, index, op.Outline, timeout)
 	}
 	return fmt.Errorf("unsupported operation %q", op.kind())
 }
