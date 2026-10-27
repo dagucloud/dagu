@@ -216,6 +216,44 @@ func TestWriteNumberFormats(t *testing.T) {
 	}
 }
 
+func TestWriteFormatsWinOverKind(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "out.xlsx")
+	table := Table{Columns: []string{"Total", "Rate", "Year"}, Rows: [][]any{{17500, 0.125, 2026}, {2500, 0.5, 2027}}}
+	_, err := Write(context.Background(), path, table, WriteOptions{
+		Header:  true,
+		Formats: map[string]string{"Total": " #,##0 ", "Rate": "0.0%"},
+	})
+	require.NoError(t, err)
+	f, err := excelize.OpenFile(path)
+	require.NoError(t, err)
+	defer func() { _ = f.Close() }()
+	for cell, want := range map[string]string{"A2": "17,500", "B2": "12.5%", "C2": "2026"} {
+		got, err := f.GetCellValue("Sheet1", cell)
+		require.NoError(t, err)
+		assert.Equal(t, want, got, cell)
+	}
+	_, year := cellNumFmt(t, f, "Sheet1", "C2")
+	assert.Empty(t, year, "a column without a format keeps the format of its kind")
+}
+
+func TestWriteFormatsRejectsBadEntries(t *testing.T) {
+	t.Parallel()
+	table := Table{Columns: []string{"Total"}, Rows: [][]any{{1}}}
+	for name, formats := range map[string]map[string]string{
+		"UnknownColumn": {"Totl": "#,##0"},
+		"EmptyFormat":   {"Total": " "},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "out.xlsx")
+			_, err := Write(context.Background(), path, table, WriteOptions{Header: true, Formats: formats})
+			require.ErrorContains(t, err, "formats.")
+			assert.NoFileExists(t, path)
+		})
+	}
+}
+
 // TestAppendKeepsFractionDigits covers a fraction appended below a column of
 // whole numbers: it copies the integer format and still shows its digits.
 func TestAppendKeepsFractionDigits(t *testing.T) {

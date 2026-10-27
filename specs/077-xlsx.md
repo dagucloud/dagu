@@ -345,8 +345,14 @@ places, dates `yyyy-mm-dd`, date-times `yyyy-mm-dd hh:mm:ss`, text `@`. A
 column's kind is its pinned type, or else the kind most of its values have;
 a whole number is an integer however it arrives, so JSON `17500` shows as
 `17500`, and a column mixing integers and decimals is a decimal column. A
-column mixing dates and date-times is formatted as date-time. `style: none`
-writes bare cells.
+column mixing dates and date-times is formatted as date-time. `formats` maps
+a column name to a number format, such as `{Total: "#,##0", Rate: "0.0%"}`,
+and wins over the format its kind gets. Names match the columns written to
+the sheet, after `columns` has selected and renamed them. A name that is not
+one of them, or an empty format, fails the step before the workbook is
+opened. Surrounding spaces are trimmed, and the code is otherwise passed to
+Excel as-is, without a syntax check. `style: none` writes bare cells, and
+`formats` with `style: none` is a configuration error.
 
 `xlsx.append`, and `mode: append`, write below the last non-empty row with
 no header, and each new cell copies the style of the cell above it, so a date

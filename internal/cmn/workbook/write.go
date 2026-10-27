@@ -10,6 +10,8 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/xuri/excelize/v2"
@@ -59,6 +61,11 @@ type WriteOptions struct {
 	// Output, when set, receives the result while the workbook at path is
 	// left as it was.
 	Output string
+	// Formats names the number format of a column, such as "#,##0", and
+	// wins over the format its kind would get. It applies only to a sheet
+	// Style: table formats, so appended rows keep the style above them.
+	// The code is passed to Excel as-is, without a syntax check.
+	Formats map[string]string
 	// InPlace saves directly instead of through a temporary file.
 	InPlace bool
 	DryRun  bool
@@ -87,6 +94,11 @@ func Write(ctx context.Context, path string, table Table, opts WriteOptions) (*W
 	if opts.Style == "" {
 		opts.Style = StyleTable
 	}
+	formats, err := checkFormats(path, table, opts.Formats)
+	if err != nil {
+		return nil, err
+	}
+	opts.Formats = formats
 	return withLock(ctx, path, opts.Lock, func() (*WriteResult, error) {
 		return writeOnce(ctx, path, table, opts)
 	}, opts.Output)
@@ -96,6 +108,27 @@ func Write(ctx context.Context, path string, table Table, opts WriteOptions) (*W
 func Append(ctx context.Context, path string, table Table, opts WriteOptions) (*WriteResult, error) {
 	opts.Mode = WriteAppend
 	return Write(ctx, path, table, opts)
+}
+
+// checkFormats returns formats with each code trimmed, or an error for a
+// name that is not a written column or an empty code. Names match the
+// columns written to the sheet, after columns has selected and renamed them.
+func checkFormats(path string, table Table, formats map[string]string) (map[string]string, error) {
+	if len(formats) == 0 {
+		return nil, nil
+	}
+	trimmed := make(map[string]string, len(formats))
+	for name, format := range formats {
+		if !slices.Contains(table.Columns, name) {
+			return nil, fmt.Errorf("%s: formats.%s: not a column written to the sheet", Base(path), name)
+		}
+		format = strings.TrimSpace(format)
+		if format == "" {
+			return nil, fmt.Errorf("%s: formats.%s: format must not be empty", Base(path), name)
+		}
+		trimmed[name] = format
+	}
+	return trimmed, nil
 }
 
 func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions) (*WriteResult, error) {
@@ -253,7 +286,7 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 	result.Changes.CellsChanged = cells
 
 	if fresh && opts.Style == StyleTable && len(table.Columns) > 0 {
-		if err := w.styleTable(sheet, table, kinds, startRow, writeHeader, lastRow); err != nil {
+		if err := w.styleTable(sheet, table, kinds, opts.Formats, startRow, writeHeader, lastRow); err != nil {
 			return nil, err
 		}
 	}
@@ -629,8 +662,8 @@ func (w *file) setCell(sheet string, col, row int, v any) error {
 
 // styleTable makes a fresh sheet look finished: bold header on a light
 // fill, frozen below the header, widths fitted to content, and number
-// formats by column kind.
-func (w *file) styleTable(sheet string, table Table, kinds []ColumnType, startRow int, header bool, lastRow int) error {
+// formats by column kind, or by name where formats gives one.
+func (w *file) styleTable(sheet string, table Table, kinds []ColumnType, formats map[string]string, startRow int, header bool, lastRow int) error {
 	if header {
 		id, err := w.f.NewStyle(&excelize.Style{
 			Font:      &excelize.Font{Bold: true},
@@ -668,6 +701,9 @@ func (w *file) styleTable(sheet string, table Table, kinds []ColumnType, startRo
 			continue
 		}
 		style := kindStyle(kinds[c])
+		if format, ok := formats[name]; ok {
+			style = &excelize.Style{CustomNumFmt: &format}
+		}
 		if style == nil {
 			continue
 		}

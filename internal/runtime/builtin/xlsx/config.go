@@ -44,6 +44,7 @@ type config struct {
 	Format        string            `mapstructure:"format"`
 	Mode          string            `mapstructure:"mode"`
 	Style         string            `mapstructure:"style"`
+	Formats       map[string]string `mapstructure:"formats"`
 	Atomic        bool              `mapstructure:"atomic"`
 	DryRun        bool              `mapstructure:"dry_run"`
 	WaitForUnlock string            `mapstructure:"wait_for_unlock"`
@@ -171,7 +172,7 @@ var fieldsByOperation = map[string][]string{
 	opInfo:       {"path", "password"},
 	opListSheets: {"path", "password"},
 	opWrite: {"path", "password", "sheet", "rows", "input", "format", "encoding", "delimiter", "columns", "header",
-		"mode", "style", "types", "atomic", "dry_run", "wait_for_unlock", "artifact"},
+		"mode", "style", "types", "formats", "atomic", "dry_run", "wait_for_unlock", "artifact"},
 	opAppend: {"path", "password", "sheet", "rows", "input", "format", "encoding", "delimiter", "columns", "header",
 		"types", "output", "atomic", "dry_run", "wait_for_unlock", "artifact"},
 	opUpdateRows: {"path", "password", "sheet", "header", "rows", "key", "set", "missing", "output", "atomic",
@@ -544,6 +545,9 @@ func validateWriterConfig(operation string, cfg *config) error {
 	default:
 		return fmt.Errorf("%w: style must be table or none", errConfig)
 	}
+	if cfg.provided("formats") && cfg.provided("style") && cfg.Style == string(workbook.StyleNone) {
+		return fmt.Errorf("%w: formats applies to style: table only", errConfig)
+	}
 	if strings.TrimSpace(cfg.WaitForUnlock) != "" {
 		wait, err := spec.ParseDuration(cfg.WaitForUnlock)
 		if err != nil || wait < 0 {
@@ -570,6 +574,7 @@ func (cfg config) writeOptions(output string, log func(string)) workbook.WriteOp
 		Style:    workbook.StyleMode(cfg.Style),
 		Types:    cfg.types,
 		Output:   output,
+		Formats:  cfg.Formats,
 		InPlace:  !cfg.Atomic,
 		DryRun:   cfg.DryRun,
 		Lock:     cfg.lockOptions(log),
@@ -784,6 +789,8 @@ var configSchema = &jsonschema.Schema{
 			Description: "What xlsx.write does to an existing sheet: replace (default) its contents, or append below its last row."},
 		"style": {Type: "string", Enum: []any{"table", "none"},
 			Description: "How a new sheet looks: table (default) has a bold frozen header, fitted widths, and number formats by column; none writes bare cells."},
+		"formats": {Type: "object", AdditionalProperties: &jsonschema.Schema{Type: "string"},
+			Description: "Number format of a column on a new sheet with style: table, such as {Total: \"#,##0\", Rate: \"0.0%\"}. It wins over the format the column's kind gets."},
 		"atomic":  boolOrRef("Save through a temporary file renamed over the workbook. Defaults to true."),
 		"dry_run": boolOrRef("Compute and report the changes without saving the workbook."),
 		"wait_for_unlock": {Type: "string", Description: "How long to retry a workbook that another program holds open, such as 5m. " +

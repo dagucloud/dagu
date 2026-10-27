@@ -8742,6 +8742,11 @@
           "enum": ["table", "none"],
           "description": "How a new sheet looks: table (default) has a bold frozen header, fitted widths, and number formats by column; none writes bare cells."
         },
+        "formats": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Number format of a column on a new sheet with style: table, such as {Total: \"#,##0\", Rate: \"0.0%\"}. It wins over the format the column's kind gets."
+        },
         "atomic": {
           "oneOf": [{ "type": "boolean" }, { "type": "string" }],
           "description": "Save through a temporary file renamed over the workbook. Defaults to true."
