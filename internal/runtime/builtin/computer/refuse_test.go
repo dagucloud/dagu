@@ -37,6 +37,12 @@ func TestARefusedWordIsNeverPressed(t *testing.T) {
 		{"a click at it", nil, actions(clickAt(235, 194))},
 		{"a click on its id", nil, actions(computeruse.Action{CallID: "x", Kind: computeruse.KindClick, ElementID: "e1"})},
 		{"a click on its label", label, actions(clickAt(235, 194))},
+		{"a click inside a custom control named with it", func(r *testRun) {
+			control := desktop.PathStep{Role: desktop.RoleOther, Name: "保存する", Index: 0}
+			r.elements.elements = append(r.elements.elements,
+				desktop.Element{Role: desktop.RoleOther, Name: "保存する", Bounds: image.Rect(300, 140, 380, 170), Path: []desktop.PathStep{control}},
+				desktop.Element{Role: desktop.RoleText, Bounds: image.Rect(310, 145, 370, 165), Path: []desktop.PathStep{control, {Role: desktop.RoleText, Index: 0}}})
+		}, actions(clickAt(340, 155))},
 		{"a drag that starts on it", nil, actions(computeruse.Action{CallID: "d", Kind: computeruse.KindDrag, Path: []computeruse.Point{{X: 235, Y: 194}, {X: 300, Y: 194}}})},
 		{"a button press while the pointer rests on it", func(r *testRun) { r.backend.pointer = image.Pt(235, 194) },
 			actions(computeruse.Action{CallID: "p", Kind: computeruse.KindMouseDown, Button: "left", Point: &computeruse.Point{X: 10, Y: 10}})},
@@ -58,7 +64,8 @@ func TestARefusedWordIsNeverPressed(t *testing.T) {
 			require.NoError(t, execution.err)
 			assert.Empty(t, run.backend.inputs(), "nothing reached the application")
 			require.Len(t, session.observations, 2)
-			assert.Contains(t, session.observations[1].Results[0].Error, `button "保存" is not pressed in this step, which refuses "保存"`)
+			assert.Contains(t, session.observations[1].Results[0].Error, `"保存`)
+			assert.Contains(t, session.observations[1].Results[0].Error, `is not pressed in this step, which refuses "保存"`)
 		})
 	}
 }
