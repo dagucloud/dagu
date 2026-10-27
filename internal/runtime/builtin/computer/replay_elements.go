@@ -668,6 +668,9 @@ func (r *run) direct(ctx context.Context, index, position, total int, els deskto
 		if own, owned := r.elementOwner(found); owned {
 			return false, fmt.Sprintf("%s at turn %d of %d: %s", rec.Element.describe(), position+1, total, r.ownedMessage(own)), nil
 		}
+		if why, refused := r.refusedElement(found); refused {
+			return false, fmt.Sprintf("%s at turn %d of %d: %s", rec.Element.describe(), position+1, total, why), nil
+		}
 		// A checkbox found again may have reached its state meanwhile, and
 		// a toggle would then undo it.
 		if rec.Checked != nil {
@@ -744,6 +747,9 @@ func (r *run) replayByElement(ctx context.Context, index, position, total int, t
 			}
 			if own, owned := r.elementOwner(found); owned {
 				return fmt.Sprintf("%s at turn %d of %d: %s", rec.Element.describe(), position+1, total, r.ownedMessage(own)), nil
+			}
+			if why, refused := r.refusedElement(found); refused {
+				return fmt.Sprintf("%s at turn %d of %d: %s", rec.Element.describe(), position+1, total, why), nil
 			}
 			if rec.Checked != nil {
 				state, known := checkedState(found)

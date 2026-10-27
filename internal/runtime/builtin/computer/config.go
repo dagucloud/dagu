@@ -96,7 +96,10 @@ type config struct {
 	Variables map[string]string `json:"variables,omitempty"`
 	// Visible names variables whose values the model may see, for values
 	// that are not secret, such as the item a row chooses from a list.
-	Visible        []string `json:"visible,omitempty"`
+	Visible []string `json:"visible,omitempty"`
+	// Refuse lists words the step never presses an element named with,
+	// such as Save in a run that must change nothing.
+	Refuse         []string `json:"refuse,omitempty"`
 	Screenshots    string   `json:"screenshots,omitempty"`
 	AI             string   `json:"ai,omitempty"`
 	Cache          *bool    `json:"cache,omitempty"`
@@ -1037,6 +1040,7 @@ var configSchema = &jsonschema.Schema{
 		"max_rows":        positiveInteger(),
 		"maximize":        {Type: "boolean"},
 		"handle":          {Type: "array", Items: handlerSchema()},
+		"refuse":          {Type: "array", Items: agentstep.NonEmptyString()},
 		"do":              {Type: "array", MinItems: new(1), Items: operationSchema},
 	},
 	Defs: map[string]*jsonschema.Schema{"selector": selectorSchema()},

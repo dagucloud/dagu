@@ -35,6 +35,7 @@ steps:
       ai: on_miss
       find_within: 5s
       maximize: false
+      refuse: [保存, Save]
       max_actions: 40
       on_confirmation: allow
       screenshots: each
@@ -92,6 +93,7 @@ steps:
 		{"unknown confirmation policy", "on_confirmation: allow", "on_confirmation: ask"},
 		{"zero max actions", "max_actions: 40", "max_actions: 0"},
 		{"maximize that is not a boolean", "maximize: false", "maximize: sometimes"},
+		{"refuse with an empty word", "refuse: [保存, Save]", "refuse: [\"\"]"},
 		{"launch without command", "{command: open, args: [-a, TextEdit]}", "{args: [-a, TextEdit]}"},
 		{"two check keys", "{text: Posted, within: 10s}", "{text: Posted, window: App}"},
 		{"statement and text", "{statement: A document number is shown, within: 30s}", "{statement: Shown, text: Posted}"},

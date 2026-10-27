@@ -553,6 +553,10 @@ func (l *actLoop) invokeElement(ctx context.Context, els desktop.Elements, actio
 		result.Error = l.r.ownedMessage(own)
 		return true, nil, result
 	}
+	if why, refused := l.r.refusedElement(e); refused {
+		result.Error = why
+		return true, nil, result
+	}
 	if focus {
 		if err := els.Focus(e); err != nil {
 			result.Error = l.r.masker.MaskString(err.Error())
