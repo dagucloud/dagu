@@ -222,6 +222,45 @@ func TestFitsTheLaunchedApplication(t *testing.T) {
 	}
 }
 
+// The app a launch opened is the one the step works in: when a person
+// brings another app forward before the next check, the launched app comes
+// back once they stop.
+func TestALaunchedAppComesBackAfterAPerson(t *testing.T) {
+	t.Parallel()
+
+	run := elementRun(t)
+	form := expenseWindow()
+	expense := desktop.WindowID{Handle: 2, Title: form.Name, App: "expense"}
+	notes := desktop.WindowID{Handle: 1, Title: "メモ", App: "notes"}
+	run.backend.windows = []desktop.WindowID{notes, expense}
+	run.backend.focusOn(notes)
+	showNotes := func() {
+		run.elements.asApp(notes.App)
+		run.elements.retitle(notes.Title)
+		run.elements.arriveAfter(0, []desktop.Element{})
+	}
+	showNotes()
+	run.onLaunch = func() {
+		// The app comes forward for a moment; then a person brings their
+		// notes back in front.
+		run.backend.mu.Lock()
+		run.backend.focusNext = []desktop.WindowID{expense}
+		run.backend.mu.Unlock()
+		run.backend.personUses()
+	}
+	run.backend.onRaise = func(w desktop.WindowID) {
+		if w.Handle == expense.Handle {
+			run.elements.asApp(expense.App)
+			run.elements.retitle(expense.Title)
+			run.elements.arriveAfter(0, expenseElements())
+		}
+	}
+	execution := run.execute(`{"ai": "never", "idle": "100ms", "maximize": false, "do": [{"launch": "C:\\Apps\\expense.exe"}, {"expect": {"text": "保存しました"}, "timeout": "2s"}]}`, nil)
+	require.NoError(t, execution.err)
+	require.Len(t, run.backend.raised, 1)
+	assert.Equal(t, expense.Handle, run.backend.raised[0].Handle, "the launched app came back")
+}
+
 func TestMaximizesTheFrontWindow(t *testing.T) {
 	t.Parallel()
 

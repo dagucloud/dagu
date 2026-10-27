@@ -51,8 +51,11 @@ type fakeBackend struct {
 	// at that moment.
 	personChecks int
 	// focus is the window with the keyboard focus, and under is the window
-	// under any position; zero means the system does not say.
+	// under any position; zero means the system does not say. focusNext
+	// lists windows FocusedWindow reports first, one a call, as a window
+	// that comes and goes would.
 	focus, under desktop.WindowID
+	focusNext    []desktop.WindowID
 	// app is the application the front window reports to WindowAt and
 	// FocusedWindow when no explicit window is set, so a recording captures
 	// an application; "" is a host that does not report one.
@@ -605,6 +608,11 @@ func (b *fakeBackend) Type(text string) error {
 func (b *fakeBackend) FocusedWindow() desktop.WindowID {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if len(b.focusNext) > 0 {
+		w := b.focusNext[0]
+		b.focusNext = b.focusNext[1:]
+		return w
+	}
 	if b.focus.Known() {
 		return b.focus
 	}

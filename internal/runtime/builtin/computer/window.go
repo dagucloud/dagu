@@ -201,11 +201,12 @@ const (
 
 // awaitLaunched waits until what a launch opened is in front: a window of
 // the application it names, or any window other than the one in front
-// before it. A launch returns before the application comes to the front, and
-// the next operation fits and reads the window in front, which until then is
-// the one a person or another application had there. A host that did not
-// say which window was in front before, or a launch whose window never comes
-// to the front, goes on as it is.
+// before it, whose application the step then works in. A launch returns
+// before the application comes to the front, and the next operation fits
+// and reads the window in front, which until then is the one a person or
+// another application had there. A host that did not say which window was
+// in front before, or a launch whose window never comes to the front, goes
+// on as it is.
 func (r *run) awaitLaunched(ctx context.Context, index int, spec launchSpec, before desktop.WindowID) error {
 	if !before.Known() {
 		return nil
@@ -215,6 +216,7 @@ func (r *run) awaitLaunched(ctx context.Context, index int, spec launchSpec, bef
 	for {
 		w := r.driver.FocusedWindow()
 		if w.Known() && (w.Handle != before.Handle || (app != "" && strings.EqualFold(w.App, app))) {
+			r.noteWorkApp(w)
 			return nil
 		}
 		if !time.Now().Before(deadline) {
