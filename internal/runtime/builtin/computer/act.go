@@ -82,9 +82,10 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 	status := agentstep.StatusCompleted
 	key := ""
 	// replayed holds the recorded turns a partial replay completed, which
-	// the healed recording keeps, and spent the actions it performed.
+	// the healed recording keeps, spent the actions it performed, and
+	// handoff what the model is told of them.
 	var replayed []recordedTurn
-	spent := 0
+	spent, handoff := 0, ""
 	pinned := false
 	// A pinned act runs its authored steps first on every device of its
 	// system, ahead of this device's own recording.
@@ -125,6 +126,7 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 			logAction(r.timeline, index, "pinned steps stopped: "+outcome.reason)
 			status = agentstep.StatusHealed
 			replayed, spent = outcome.ran, outcome.performed
+			handoff = replayHandoff(replayed, outcome.reason)
 		}
 	}
 	if !pinned && choice != aiEveryRun {
@@ -177,10 +179,11 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 			// what it did.
 			r.cache.Drop(key)
 			replayed, spent = entry.Turns[:replay.turns], replay.actions
+			handoff = replayHandoff(replayed, replay.reason)
 		}
 	}
 
-	outcome, err := r.drive(ctx, index, spec, spent)
+	outcome, err := r.drive(ctx, index, spec, spent, handoff)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) && ctx.Err() != nil {
 			return fmt.Errorf("act did not finish within %s", timeout)
@@ -207,15 +210,16 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 }
 
 // drive runs the task with the models in order, after spent actions a
-// replay performed. A later model takes over only when an earlier one failed
-// before touching the desktop, not when a person kept using it.
-func (r *run) drive(ctx context.Context, index int, spec actSpec, spent int) (actOutcome, error) {
+// replay performed, which handoff tells the model of. A later model takes
+// over only when an earlier one failed before touching the desktop, not
+// when a person kept using it.
+func (r *run) drive(ctx context.Context, index int, spec actSpec, spent int, handoff string) (actOutcome, error) {
 	if len(r.models) == 0 {
 		return actOutcome{}, errors.New("no model is configured")
 	}
 	var errs []error
 	for _, m := range r.models {
-		outcome, touched, err := r.driveModel(ctx, index, spec, m, spent)
+		outcome, touched, err := r.driveModel(ctx, index, spec, m, spent, handoff)
 		if err == nil {
 			return outcome, nil
 		}
@@ -229,11 +233,11 @@ func (r *run) drive(ctx context.Context, index int, spec actSpec, spent int) (ac
 
 // driveModel runs the task with one model. touched reports whether any
 // action ran.
-func (r *run) driveModel(ctx context.Context, index int, spec actSpec, m model, spent int) (actOutcome, bool, error) {
+func (r *run) driveModel(ctx context.Context, index int, spec actSpec, m model, spent int, handoff string) (actOutcome, bool, error) {
 	session, err := r.exec.newSession(m.providerType, m.provider, r.cfg.mode(), computeruse.Options{
 		Model:       m.cfg.Model,
 		Task:        spec.Instruction,
-		System:      r.environmentNote(),
+		System:      r.environmentNote() + handoff,
 		MaxTokens:   m.cfg.MaxTokens,
 		Temperature: m.cfg.Temperature,
 	})
@@ -945,6 +949,31 @@ func anyFailed(results []computeruse.Result) bool {
 		}
 	}
 	return false
+}
+
+// replayHandoff tells the model, when a replay stopped after carrying out
+// some of the task, what it already did and why it stopped, so the model
+// carries on from the screen rather than doing the task again.
+func replayHandoff(turns []recordedTurn, reason string) string {
+	var done []string
+	for _, turn := range turns {
+		for _, rec := range turn.Actions {
+			// Recorded positions are of another screen; the element says
+			// what an action was on.
+			action := rec.Action
+			action.Point, action.Path = nil, nil
+			step := describeAction(action)
+			if rec.Element != nil {
+				step += " on " + rec.Element.describe()
+			}
+			done = append(done, step)
+		}
+	}
+	if len(done) == 0 {
+		return ""
+	}
+	return "\nThe task was started by replaying what an earlier run did, which already carried out: " + strings.Join(done, "; ") +
+		". The replay stopped because " + reason + ". Look at the screen and do only what is still needed; if the task is already done, finish without acting."
 }
 
 // environmentNote tells the model about the desktop and the placeholders it

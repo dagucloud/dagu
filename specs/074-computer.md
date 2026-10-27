@@ -388,8 +388,11 @@ proved it sets the value as `sets_value`.
 
 When an element or a screen is not found, or an action fails, the model
 continues the task from the current screen and the new actions are
-recorded; the timeline marks the operation `healed`. When the step
-succeeds, the turns that replayed and the new actions replace the
+recorded; the timeline marks the operation `healed`. The model is told
+which recorded actions the replay already carried out and why it stopped,
+so it does only what is still needed, and nothing when the task is already
+done, such as a form the replay saved before its last screen differed. When
+the step succeeds, the turns that replayed and the new actions replace the
 recording; when there are none, the recording is removed unless another run
 of the step replaced it first. A full replay is marked `cache-hit`, with
 `via: element` when every turn replayed by elements and `via: screen`
