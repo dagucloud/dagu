@@ -362,9 +362,9 @@ func (d *Driver) WaitForIdle(ctx context.Context, idle, poll time.Duration, onWa
 	return nil
 }
 
-// Close releases the driver.
+// Close releases the driver, and every button still pressed.
 func (d *Driver) Close() error {
-	return d.backend.Close()
+	return errors.Join(d.ReleaseHeld(), d.backend.Close())
 }
 
 // Screenshot captures the primary display.
@@ -429,18 +429,23 @@ func (d *Driver) PressButton(button Button) error {
 
 // ReleaseButton releases a button at the pointer.
 func (d *Driver) ReleaseButton(button Button) error {
+	if err := d.backend.Button(button, false, 1); err != nil {
+		return err
+	}
 	d.held = slices.DeleteFunc(d.held, func(b Button) bool { return b == button })
-	return d.backend.Button(button, false, 1)
+	return nil
 }
 
 // ReleaseHeld releases, at the pointer, every button PressButton pressed
-// and nothing has released since.
+// and nothing has released since. A button whose release fails stays
+// pressed for the next ReleaseHeld.
 func (d *Driver) ReleaseHeld() error {
 	var errs []error
-	for _, button := range d.held {
-		errs = append(errs, d.backend.Button(button, false, 1))
-	}
-	d.held = nil
+	d.held = slices.DeleteFunc(d.held, func(button Button) bool {
+		err := d.backend.Button(button, false, 1)
+		errs = append(errs, err)
+		return err == nil
+	})
 	return errors.Join(errs...)
 }
 

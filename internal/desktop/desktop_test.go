@@ -21,6 +21,8 @@ import (
 type recordingBackend struct {
 	events  []string
 	failKey desktop.Key
+	// failReleases is how many more button releases fail.
+	failReleases int
 	// personInputAt is the last input the desktop received from a person.
 	personInputAt time.Time
 }
@@ -38,6 +40,10 @@ func (b *recordingBackend) Position() (int, int, error) { return 7, 8, nil }
 
 func (b *recordingBackend) Button(button desktop.Button, down bool, clicks int) error {
 	b.events = append(b.events, fmt.Sprintf("%s %s #%d", button, upDown(down), clicks))
+	if !down && b.failReleases > 0 {
+		b.failReleases--
+		return errors.New("release failed")
+	}
 	return nil
 }
 
@@ -270,4 +276,30 @@ func TestDriverOwnedProtectsApps(t *testing.T) {
 	assert.True(t, driver.Owned(desktop.WindowID{Handle: 1, PID: 999999, App: "Runbook"}), "a protected app is owned whatever its process")
 	assert.False(t, driver.Owned(desktop.WindowID{Handle: 2, PID: 999999, App: "TextEdit"}))
 	assert.False(t, driver.Owned(desktop.WindowID{Handle: 3}), "a window the system does not name is nobody's")
+}
+
+// A button pressed and not released is released by ReleaseHeld, and one
+// whose release fails stays pressed for the next ReleaseHeld.
+func TestReleaseHeldReleasesWhatStaysPressed(t *testing.T) {
+	t.Parallel()
+
+	backend := &recordingBackend{failReleases: 2}
+	driver := desktop.New(backend)
+	require.NoError(t, driver.PressButton(desktop.ButtonLeft))
+	require.Error(t, driver.ReleaseButton(desktop.ButtonLeft))
+	require.Error(t, driver.ReleaseHeld())
+	require.NoError(t, driver.ReleaseHeld())
+	require.NoError(t, driver.ReleaseHeld())
+	assert.Equal(t, []string{"left down #1", "left up #1", "left up #1", "left up #1"}, backend.events)
+}
+
+// Closing the driver releases a button still pressed.
+func TestCloseReleasesWhatStaysPressed(t *testing.T) {
+	t.Parallel()
+
+	backend := &recordingBackend{}
+	driver := desktop.New(backend)
+	require.NoError(t, driver.PressButton(desktop.ButtonLeft))
+	require.NoError(t, driver.Close())
+	assert.Equal(t, []string{"left down #1", "left up #1"}, backend.events)
 }
