@@ -598,6 +598,40 @@ params:
 	}
 }
 
+// An open schema keeps explicit values outside its properties. An override of
+// such a value replaces it even when the base config declares the same name.
+func TestLoadYAML_SchemaValueOfBaseConfigParam(t *testing.T) {
+	t.Parallel()
+
+	baseConfig := []byte(`
+params:
+  - DAY_OF_WEEK: 1
+`)
+
+	dir := t.TempDir()
+	schemaPath := filepath.Join(dir, "params.schema.json")
+	require.NoError(t, os.WriteFile(schemaPath, []byte(`{
+  "type": "object",
+  "properties": {"BLOCKLIST_FN": {"type": "string", "default": "et_block.netset"}},
+  "additionalProperties": true
+}`), 0o600))
+
+	yaml := []byte(`
+name: schema-value-base-param
+params:
+  schema: ` + schemaPath + `
+  values:
+    DAY_OF_WEEK: "5"
+`)
+
+	dag, err := LoadYAML(context.Background(), yaml,
+		WithBaseConfigContent(baseConfig),
+		WithParams("DAY_OF_WEEK=3"),
+	)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"BLOCKLIST_FN=et_block.netset", "DAY_OF_WEEK=3"}, dag.Params)
+}
+
 func TestResolveRuntimeParams_RejectsUnknownViaJSON_InlineTyped(t *testing.T) {
 	t.Parallel()
 

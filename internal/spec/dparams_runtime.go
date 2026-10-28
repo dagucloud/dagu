@@ -423,12 +423,17 @@ func declaredRuntimeParamNames(entries []dagParamEntry) map[string]struct{} {
 	return names
 }
 
+// declaredRuntimeParamNamesForPlan returns the names the DAG declares through
+// explicit values or schema properties.
 func declaredRuntimeParamNamesForPlan(plan *dagParamPlan) map[string]struct{} {
+	names := declaredRuntimeParamNames(plan.entries)
 	if len(plan.schemaProperties) == 0 {
-		return declaredRuntimeParamNames(plan.entries)
+		return names
 	}
 
-	names := make(map[string]struct{}, len(plan.schemaProperties))
+	if names == nil {
+		names = make(map[string]struct{}, len(plan.schemaProperties))
+	}
 	for name := range plan.schemaProperties {
 		names[name] = struct{}{}
 	}
