@@ -163,6 +163,10 @@ type Element struct {
 	ID   string
 	Role string
 	Name string
+	// Value is what the element holds, such as a field's text or the option
+	// a combo box shows, with the values the step types written as their
+	// placeholders.
+	Value string
 }
 
 // Result reports how one action went.

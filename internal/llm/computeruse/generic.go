@@ -41,6 +41,10 @@ const (
 	// conversation; older ones are replaced with a note to bound its size.
 	keptScreenshots   = 3
 	omittedScreenshot = "(An earlier screenshot was removed from the conversation.)"
+	// elementsHeader begins a screen's element list, and omittedElements
+	// stands in for one an earlier screen had.
+	elementsHeader  = "\nElements you can target with click_element by id:"
+	omittedElements = "(This screen's element list was removed; only the latest list's ids can be targeted.)"
 )
 
 // genericImageLimit fits the image limits of common vision models.
@@ -160,17 +164,32 @@ func (s *genericSession) appendObservation(obs Observation) {
 	}
 	fmt.Fprintf(&text, "Current screen (%dx%d pixels).", obs.Screen.Width, obs.Screen.Height)
 	if len(obs.Elements) > 0 {
-		text.WriteString("\nElements you can target with click_element by id:")
+		text.WriteString(elementsHeader)
 		for _, e := range obs.Elements {
 			fmt.Fprintf(&text, "\n- %s: %s %q", e.ID, e.Role, e.Name)
+			if e.Value != "" {
+				fmt.Fprintf(&text, " value %q", e.Value)
+			}
 		}
 	}
+	s.dropOldElements()
 	s.dropOldScreenshots()
 	s.messages = append(s.messages, llm.Message{
 		Role:    llm.RoleUser,
 		Content: text.String(),
 		Images:  []llm.Image{obs.Screen.Image},
 	})
+}
+
+// dropOldElements removes the element lists of earlier screens, whose ids
+// only the latest list names now, so the conversation does not carry every
+// list again.
+func (s *genericSession) dropOldElements() {
+	for i := range s.messages {
+		if at := strings.Index(s.messages[i].Content, elementsHeader); at >= 0 {
+			s.messages[i].Content = s.messages[i].Content[:at] + "\n" + omittedElements
+		}
+	}
 }
 
 // dropOldScreenshots removes images from all but the latest screenshots,

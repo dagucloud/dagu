@@ -4,6 +4,7 @@
 package computer
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -288,8 +289,12 @@ type actLoop struct {
 }
 
 // maxModelElements bounds how many actionable elements an observation
-// offers the model, so a large tree does not bloat the prompt.
-const maxModelElements = 40
+// offers the model, so a large tree does not bloat the prompt, and
+// maxModelValue how much of an element's value it shows.
+const (
+	maxModelElements = 80
+	maxModelValue    = 80
+)
 
 // run loops between the model and the desktop until the model reports the
 // task done.
@@ -488,14 +493,21 @@ func (l *actLoop) offerElements() []computeruse.Element {
 	if err != nil {
 		return nil
 	}
+	// The options of an open menu come first, so a long window does not
+	// leave them out; the rest follow in reading order.
+	slices.SortStableFunc(outline, func(a, b desktop.Element) int {
+		return cmp.Compare(menuRank(a), menuRank(b))
+	})
 	var list []computeruse.Element
 	choices := make(map[string]desktop.Element)
 	for _, e := range outline {
-		if !actionableRole(e.Role) || strings.TrimSpace(e.Name) == "" || e.Bounds.Empty() {
+		// A field with no name of its own goes by the label beside it.
+		name := cmp.Or(strings.TrimSpace(e.Name), strings.TrimSpace(e.Label))
+		if !actionableRole(e.Role) || name == "" || e.Bounds.Empty() {
 			continue
 		}
 		id := fmt.Sprintf("e%d", len(list)+1)
-		list = append(list, computeruse.Element{ID: id, Role: e.Role, Name: e.Name})
+		list = append(list, computeruse.Element{ID: id, Role: e.Role, Name: name, Value: l.r.modelValue(e, name)})
 		choices[id] = e
 		if len(list) >= maxModelElements {
 			break
@@ -503,6 +515,29 @@ func (l *actLoop) offerElements() []computeruse.Element {
 	}
 	l.choices = choices
 	return list
+}
+
+// menuRank puts the items of an open menu before every other element.
+func menuRank(e desktop.Element) int {
+	if e.Role == desktop.RoleMenuItem {
+		return 0
+	}
+	return 1
+}
+
+// modelValue is what the model is shown an element holds: its value, with
+// every value the step types written as its placeholder and declared
+// secrets masked, cut short when long, and nothing when it only repeats the
+// element's name.
+func (r *run) modelValue(e desktop.Element, name string) string {
+	value := strings.TrimSpace(r.masker.MaskString(r.placeholderIn(e.Value)))
+	if value == "" || value == name {
+		return ""
+	}
+	if runes := []rune(value); len(runes) > maxModelValue {
+		value = string(runes[:maxModelValue]) + "…"
+	}
+	return value
 }
 
 // actionableRole reports whether the model may usefully click an element of

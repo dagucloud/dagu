@@ -152,6 +152,38 @@ func TestGenericSessionKeepsLatestScreenshots(t *testing.T) {
 	assert.Equal(t, []string{"3", "4", "5"}, images)
 }
 
+// The latest screen's elements are listed with what each holds; the lists of
+// earlier screens, whose ids no longer name anything, are taken out of the
+// conversation.
+func TestGenericSessionListsOnlyTheLatestElements(t *testing.T) {
+	t.Parallel()
+
+	provider := &scriptedProvider{}
+	for range 2 {
+		provider.responses = append(provider.responses, &llm.ChatResponse{Content: "thinking"})
+	}
+	session := newGeneric(t, provider)
+	first := []computeruse.Element{{ID: "e1", Role: "button", Name: "新規受注…"}}
+	latest := []computeruse.Element{{ID: "e1", Role: "combo_box", Name: "顧客", Value: "%customer%"}, {ID: "e2", Role: "text_field", Name: "数量"}}
+	for _, elements := range [][]computeruse.Element{first, latest} {
+		_, err := session.Next(context.Background(), computeruse.Observation{Screen: screen("s"), Elements: elements})
+		require.NoError(t, err)
+	}
+
+	var texts []string
+	for _, message := range provider.requests[1].Messages {
+		if message.Role == llm.RoleUser {
+			texts = append(texts, message.Content)
+		}
+	}
+	require.Len(t, texts, 2)
+	assert.NotContains(t, texts[0], "新規受注", "the earlier list is gone")
+	assert.Contains(t, texts[0], "element list was removed")
+	assert.Contains(t, texts[1], `- e1: combo_box "顧客" value "%customer%"`)
+	assert.Contains(t, texts[1], `- e2: text_field "数量"`)
+	assert.NotContains(t, texts[1], `"数量" value`, "an element with no value shows none")
+}
+
 // A model the native tool does not support uses the generic session in auto
 // mode and fails in native mode.
 func TestNewFallsBackForUnsupportedModel(t *testing.T) {
