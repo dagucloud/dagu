@@ -184,6 +184,33 @@ func TestGenericSessionListsOnlyTheLatestElements(t *testing.T) {
 	assert.NotContains(t, texts[1], `"数量" value`, "an element with no value shows none")
 }
 
+// A task that quotes the element list's header keeps all of its text when
+// the next screen removes the earlier list.
+func TestGenericSessionKeepsATaskThatQuotesTheListHeader(t *testing.T) {
+	t.Parallel()
+
+	provider := &scriptedProvider{}
+	for range 2 {
+		provider.responses = append(provider.responses, &llm.ChatResponse{Content: "thinking"})
+	}
+	const task = "Read the form.\nElements you can target with click_element by id: then press 確定 last"
+	session, err := computeruse.New(llm.ProviderLocal, provider, computeruse.ModeAuto, computeruse.Options{Model: "test-model", Task: task})
+	require.NoError(t, err)
+	for range 2 {
+		_, err := session.Next(context.Background(), computeruse.Observation{Screen: screen("s"), Elements: []computeruse.Element{{ID: "e1", Role: "button", Name: "確定"}}})
+		require.NoError(t, err)
+	}
+	var first string
+	for _, message := range provider.requests[1].Messages {
+		if message.Role == llm.RoleUser {
+			first = message.Content
+			break
+		}
+	}
+	assert.Contains(t, first, task, "the task is whole")
+	assert.Contains(t, first, "element list was removed")
+}
+
 // A model the native tool does not support uses the generic session in auto
 // mode and fails in native mode.
 func TestNewFallsBackForUnsupportedModel(t *testing.T) {

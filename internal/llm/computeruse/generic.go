@@ -63,6 +63,15 @@ type genericSession struct {
 	// pending are the tool calls of the last turn, which the next
 	// observation must answer.
 	pending []pendingCall
+	// list is where the latest screen's element list begins, so the next
+	// screen removes that list and nothing else, such as a task that
+	// quotes its header; nil when no list is kept.
+	list *listStart
+}
+
+// listStart is the message an element list is in and the byte it starts at.
+type listStart struct {
+	message, at int
 }
 
 // pendingCall is a tool call awaiting its result. err is set when the call
@@ -163,7 +172,9 @@ func (s *genericSession) appendObservation(obs Observation) {
 		text.WriteString(obs.Note + "\n\n")
 	}
 	fmt.Fprintf(&text, "Current screen (%dx%d pixels).", obs.Screen.Width, obs.Screen.Height)
+	s.dropOldElements()
 	if len(obs.Elements) > 0 {
+		s.list = &listStart{message: len(s.messages), at: text.Len()}
 		text.WriteString(elementsHeader)
 		for _, e := range obs.Elements {
 			fmt.Fprintf(&text, "\n- %s: %s %q", e.ID, e.Role, e.Name)
@@ -172,7 +183,6 @@ func (s *genericSession) appendObservation(obs Observation) {
 			}
 		}
 	}
-	s.dropOldElements()
 	s.dropOldScreenshots()
 	s.messages = append(s.messages, llm.Message{
 		Role:    llm.RoleUser,
@@ -185,11 +195,12 @@ func (s *genericSession) appendObservation(obs Observation) {
 // only the latest list names now, so the conversation does not carry every
 // list again.
 func (s *genericSession) dropOldElements() {
-	for i := range s.messages {
-		if at := strings.Index(s.messages[i].Content, elementsHeader); at >= 0 {
-			s.messages[i].Content = s.messages[i].Content[:at] + "\n" + omittedElements
-		}
+	if s.list == nil {
+		return
 	}
+	message := &s.messages[s.list.message]
+	message.Content = message.Content[:s.list.at] + "\n" + omittedElements
+	s.list = nil
 }
 
 // dropOldScreenshots removes images from all but the latest screenshots,

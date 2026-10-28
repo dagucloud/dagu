@@ -526,11 +526,12 @@ func menuRank(e desktop.Element) int {
 }
 
 // modelValue is what the model is shown an element holds: its value, with
-// every value the step types written as its placeholder and declared
-// secrets masked, cut short when long, and nothing when it only repeats the
-// element's name.
+// declared secrets masked and every value the step types written as its
+// placeholder, cut short when long, and nothing when it only repeats the
+// element's name. Secrets are masked first, so a typed value within one
+// never leaves the rest of it to be seen.
 func (r *run) modelValue(e desktop.Element, name string) string {
-	value := strings.TrimSpace(r.masker.MaskString(r.placeholderIn(e.Value)))
+	value := strings.TrimSpace(r.placeholderIn(r.masker.MaskString(e.Value)))
 	if value == "" || value == name {
 		return ""
 	}
