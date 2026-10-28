@@ -372,6 +372,7 @@ func (r *run) lookIn(els desktop.Elements, front desktop.Element, rec recordedEl
 	if err == nil {
 		if front.App != "" {
 			r.workApp = front.App
+			r.trustWorkApp(front.App)
 		}
 		return found, "", nil
 	}
@@ -665,8 +666,8 @@ func (r *run) direct(ctx context.Context, index, position, total int, els deskto
 	for {
 		// The element is found again on each try, so where it is now is
 		// checked each time, as the first try's was.
-		if own, owned := r.elementOwner(found); owned {
-			return false, fmt.Sprintf("%s at turn %d of %d: %s", rec.Element.describe(), position+1, total, r.ownedMessage(own)), nil
+		if own, owned := r.elementOffLimits(found); owned {
+			return false, fmt.Sprintf("%s at turn %d of %d: %s", rec.Element.describe(), position+1, total, r.offLimitsMessage(own)), nil
 		}
 		if why, refused := r.refusedElement(found); refused {
 			return false, fmt.Sprintf("%s at turn %d of %d: %s", rec.Element.describe(), position+1, total, why), nil
@@ -745,8 +746,8 @@ func (r *run) replayByElement(ctx context.Context, index, position, total int, t
 			if reason != "" {
 				return fmt.Sprintf("%s was not found within %s at turn %d of %d: %s", rec.Element.describe(), findWithin, position+1, total, reason), nil
 			}
-			if own, owned := r.elementOwner(found); owned {
-				return fmt.Sprintf("%s at turn %d of %d: %s", rec.Element.describe(), position+1, total, r.ownedMessage(own)), nil
+			if own, owned := r.elementOffLimits(found); owned {
+				return fmt.Sprintf("%s at turn %d of %d: %s", rec.Element.describe(), position+1, total, r.offLimitsMessage(own)), nil
 			}
 			if why, refused := r.refusedElement(found); refused {
 				return fmt.Sprintf("%s at turn %d of %d: %s", rec.Element.describe(), position+1, total, why), nil

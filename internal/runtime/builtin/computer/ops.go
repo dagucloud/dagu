@@ -97,6 +97,11 @@ type run struct {
 	// a person; see resumeAfterPerson.
 	workApp       string
 	personHandled time.Time
+	// present are the windows on the screen when the step began, by
+	// handle, and workApps the applications the step works in; see
+	// confine.go.
+	present  map[uint64]bool
+	workApps []string
 	// handling is set while a handler's steps run, and handled counts each
 	// handler's runs; see handleScreens.
 	handling  bool
@@ -326,6 +331,8 @@ func (r *run) start(ctx context.Context) (int, error) {
 	r.driver.ProtectTitles(r.exec.protectedTitles...)
 	r.driver.AssumeInputSent(r.lease.lastInput())
 	r.workApp = r.lease.workApp(r.dagRunID)
+	r.trustWorkApp(r.workApp)
+	r.noteStartingWindows()
 	if cursor > 0 {
 		r.timeline.Lifecycle(agentstep.StatusRunning, "Resumed after input")
 	} else {
@@ -673,6 +680,7 @@ func (r *run) evaluate(ctx context.Context, c condition) (bool, string, error) {
 	holds, reason, err := evaluateFront(els, front, c)
 	if holds && front.App != "" {
 		r.workApp = front.App
+		r.trustWorkApp(front.App)
 	}
 	// A dialog in front is often why a check fails, so the reason names it.
 	if !holds && err == nil && front.Role == desktop.RoleDialog {
@@ -966,7 +974,7 @@ func (r *run) resumeAfterPerson(ctx context.Context, index int) (bool, error) {
 // noteWorkApp makes w's application the one the step works in, unless the
 // system names no application for it or the step never operates it.
 func (r *run) noteWorkApp(w desktop.WindowID) {
-	if w.App != "" && !r.driver.Owned(w) {
+	if w.App != "" && !r.offLimits(w) {
 		r.workApp = w.App
 	}
 }

@@ -144,15 +144,16 @@ func (r *run) runAction(ctx context.Context, action computeruse.Action, toFull p
 		p := toFull(*action.Point)
 		at = &p
 	}
-	// The step never operates the application that runs it: a keystroke
-	// to a window of its own a person just focused could close it.
-	own, ok, err := r.ownWindow(action, at, toFull)
+	// The step never operates the application that runs it, where a
+	// keystroke to a window of its own a person just focused could close
+	// it, nor another application the person had open.
+	own, ok, err := r.offLimitsWindow(action, at, toFull)
 	if err != nil {
 		result.Error = err.Error()
 		return result
 	}
 	if ok {
-		result.Error = r.ownedMessage(own)
+		result.Error = r.offLimitsMessage(own)
 		return result
 	}
 	if why, refused := r.refusedAction(action, at, toFull); refused {
@@ -244,18 +245,19 @@ func (r *run) click(ctx context.Context, action computeruse.Action, at *image.Po
 	return r.driver.Click(ctx, at, button, max(action.Count, 1), modifiers)
 }
 
-// ownWindow reports a window an action would operate that belongs to the
-// application that runs the step. It gathers every window the action
+// offLimitsWindow reports a window an action would operate that the step
+// never operates: one of the application that runs it, or of another
+// application the person had open (confine.go). It gathers every window the action
 // reaches: the focused window for keys and typing, the window under the
 // position for pointer actions, the window under the cursor for a click or
 // scroll that names no position and for a button press, which moves
 // nothing, every point a drag crosses, and the focused
 // window for any pointer action that holds modifiers, whose key-down
 // reaches the focus wherever the pointer is. It reports the first of those
-// the step owns, so a keystroke or click never reaches the application. An
+// that is off limits, so a keystroke or click never reaches it. An
 // action at the cursor is refused with an error when the cursor's position
 // cannot be read, since the window it would reach is unknown.
-func (r *run) ownWindow(action computeruse.Action, at *image.Point, toFull positionMapper) (desktop.WindowID, bool, error) {
+func (r *run) offLimitsWindow(action computeruse.Action, at *image.Point, toFull positionMapper) (desktop.WindowID, bool, error) {
 	var windows []desktop.WindowID
 	underCursor := func() error {
 		p, err := r.driver.CursorPosition()
@@ -297,7 +299,7 @@ func (r *run) ownWindow(action computeruse.Action, at *image.Point, toFull posit
 		windows = append(windows, r.driver.FocusedWindow())
 	}
 	for _, window := range windows {
-		if r.driver.Owned(window) {
+		if r.offLimits(window) {
 			return window, true, nil
 		}
 	}

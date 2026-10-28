@@ -410,6 +410,12 @@ func (l *actLoop) run(ctx context.Context) error {
 // the step asks for it, then waits for a still screen and captures what the
 // model sees next.
 func (l *actLoop) look(ctx context.Context) (screen, error) {
+	// A window of another app the person had open came forward with nobody
+	// at the desktop, as an app that raises itself does: the step's own app
+	// comes back before the model looks.
+	if front := l.r.driver.FocusedWindow(); l.r.foreign(front) && !l.r.driver.PersonInputSince(l.r.personSince()) {
+		l.r.bringForward(ctx, l.index, l.r.homeApp(), "")
+	}
 	for {
 		// A screen a handler clears is cleared before the model sees the
 		// screen, so the model never acts on it.
@@ -455,6 +461,11 @@ func (l *actLoop) lookAndOffer(ctx context.Context) ([]computeruse.Element, erro
 // working by pixels.
 func (l *actLoop) offerElements() []computeruse.Element {
 	l.choices = nil
+	// The window in front is another app's the step never operates, so
+	// none of its elements is offered.
+	if l.r.foreign(l.r.driver.FocusedWindow()) {
+		return nil
+	}
 	els, err := l.r.elementsIfAvailable()
 	if err != nil {
 		return nil
@@ -549,8 +560,8 @@ func (l *actLoop) invokeElement(ctx context.Context, els desktop.Elements, actio
 	var before *bool
 	// The element is acted on wherever it is now, so the step makes sure
 	// that is not a window it never operates, as a pointer action does.
-	if own, owned := l.r.elementOwner(e); owned {
-		result.Error = l.r.ownedMessage(own)
+	if own, owned := l.r.elementOffLimits(e); owned {
+		result.Error = l.r.offLimitsMessage(own)
 		return true, nil, result
 	}
 	if why, refused := l.r.refusedElement(e); refused {
