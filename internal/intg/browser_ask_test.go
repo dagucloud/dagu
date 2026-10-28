@@ -248,16 +248,31 @@ func describeBrowserRun(status *ir.DAGRunStatus) string {
 	return b.String()
 }
 
-// fileTail returns the last lines of the file at path, or why it cannot.
+// fileTail returns the last lines of the file at path, read from its last
+// 64 KiB however long it grew, or why it cannot.
 func fileTail(path string) string {
-	const lines = 40
+	const lines, window = 40, 64 << 10
 	if path == "" {
 		return "(no file)"
 	}
-	data, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return fmt.Sprintf("(%v)", err)
 	}
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil {
+		return fmt.Sprintf("(%v)", err)
+	}
+	offset := max(info.Size()-window, 0)
+	data := make([]byte, info.Size()-offset)
+	if _, err := f.ReadAt(data, offset); err != nil && err != io.EOF {
+		return fmt.Sprintf("(%v)", err)
+	}
 	all := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	if offset > 0 {
+		// The window starts within a line.
+		all = all[1:]
+	}
 	return strings.Join(all[max(len(all)-lines, 0):], "\n")
 }
