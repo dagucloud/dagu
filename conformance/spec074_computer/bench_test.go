@@ -99,10 +99,10 @@ type benchRun struct {
 	Seconds float64 `json:"seconds"`
 	// Strayed reports a run that pressed the other app's button.
 	Strayed bool `json:"strayed"`
-	// Finished reports a run whose command ended, so its actions and
-	// tokens are known; a run that did not counts as a failure and stays
-	// out of the medians.
-	Finished bool `json:"finished"`
+	// Measured reports a run whose step log was read, so its actions,
+	// tokens, and seconds are known; a run that was not counts as a failure
+	// and stays out of the medians.
+	Measured bool `json:"measured"`
 }
 
 func TestComputerDesktopBench(t *testing.T) {
@@ -161,6 +161,13 @@ func runBenchTask(t *testing.T, task benchTask, provider, model string, env, sec
 	t.Helper()
 	dagu := harness.NewRunner(t).WithCommandTimeout(benchTimeout + benchGrace)
 	marker := dagu.ProjectPath("distractor-pressed")
+	began := time.Now()
+	defer func() {
+		run.Seconds = time.Since(began).Seconds()
+		if _, err := os.Stat(marker); err == nil {
+			run.Strayed, run.Success, run.Reason = true, false, "pressed the other app's 保存"
+		}
+	}()
 	startFixture(t, dagu, "distractor", marker)
 	startFixture(t, dagu, "elements")
 	dagu.WriteFile("task.yaml", fmt.Sprintf(`working_dir: .
@@ -183,16 +190,8 @@ steps:
         - expect: {window: "Dagu elements test", within: 30s}%s
 `, strings.Join(secrets, "\n"), provider, model, int(benchTimeout.Seconds()), task.do))
 
-	began := time.Now()
-	defer func() {
-		run.Seconds = time.Since(began).Seconds()
-		if _, err := os.Stat(marker); err == nil {
-			run.Strayed, run.Success, run.Reason = true, false, "pressed the other app's 保存"
-		}
-	}()
 	result := dagu.RunWithEnv(env, "start", "task.yaml")
-	run.Finished = true
-	run.Actions, run.Tokens, run.Reason = readStepLog(result.Stdout())
+	readStepLog(result.Stdout(), run)
 	run.Success = result.ExitCode() == 0
 	if run.Success && task.output != "" {
 		var outputs map[string]any
@@ -252,34 +251,38 @@ var (
 	actionLine = regexp.MustCompile(`^\[\d+/\d+\]\s{3}(click|double_click|right_click|type|key|scroll|drag|move|invoke|toggle|select|expand|focus|set_value|replay by element)\b`)
 )
 
-// readStepLog counts the actions and tokens the step's log reports, and the
-// reason of its last failed operation.
-func readStepLog(stdout string) (actions, tokens int, reason string) {
+// readStepLog fills in the actions and tokens the step's log reports and
+// the reason of its last failed operation, and marks the run measured once
+// it read the log; a run that ended before its step ran has none.
+func readStepLog(stdout string, run *benchRun) {
 	match := stepLog.FindStringSubmatch(stdout)
 	if match == nil {
-		return 0, 0, "the step log was not found"
+		run.Reason = "the step log was not found"
+		return
 	}
 	data, err := os.ReadFile(filepath.Clean(match[1]))
 	if err != nil {
-		return 0, 0, err.Error()
+		run.Reason = err.Error()
+		return
 	}
+	run.Reason = ""
 	for line := range strings.SplitSeq(string(data), "\n") {
 		if actionLine.MatchString(line) {
-			actions++
+			run.Actions++
 		}
 		if m := operationLine.FindStringSubmatch(line); m != nil {
 			n, _ := strconv.Atoi(m[2])
-			tokens += n
+			run.Tokens += n
 			if m[1] == "failed" {
-				reason = strings.TrimSpace(line)
+				run.Reason = strings.TrimSpace(line)
 			}
 		}
 	}
-	return actions, tokens, reason
+	run.Measured = true
 }
 
 // benchTable sums the runs up per task: successes among all runs, median
-// actions, tokens, and seconds of the runs that finished, and runs that
+// actions, tokens, and seconds of the runs that were measured, and runs that
 // strayed into the other app.
 func benchTable(results []benchRun) string {
 	var b strings.Builder
@@ -304,24 +307,27 @@ func benchTable(results []benchRun) string {
 				strayed++
 			}
 			runs++
-			if r.Finished {
+			if r.Measured {
 				actions, tokens, seconds = append(actions, float64(r.Actions)), append(tokens, float64(r.Tokens)), append(seconds, r.Seconds)
 			}
 		}
-		fmt.Fprintf(&b, "%-8s %5d/%-2d %8.0f %8.0f %8.0f %8d\n", task, ok, runs, median(actions), median(tokens), median(seconds), strayed)
+		fmt.Fprintf(&b, "%-8s %5d/%-2d %8s %8s %8s %8d\n", task, ok, runs, medianCell(actions), medianCell(tokens), medianCell(seconds), strayed)
 	}
 	return b.String()
 }
 
-func median(values []float64) float64 {
+// medianCell is the median of values as the table shows it, or "-" when
+// no run gave one.
+func medianCell(values []float64) string {
 	if len(values) == 0 {
-		return 0
+		return "-"
 	}
 	sorted := slices.Clone(values)
 	slices.Sort(sorted)
 	middle := len(sorted) / 2
+	m := sorted[middle]
 	if len(sorted)%2 == 0 {
-		return (sorted[middle-1] + sorted[middle]) / 2
+		m = (sorted[middle-1] + sorted[middle]) / 2
 	}
-	return sorted[middle]
+	return fmt.Sprintf("%.0f", m)
 }
