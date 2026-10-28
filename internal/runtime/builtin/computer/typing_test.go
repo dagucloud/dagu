@@ -15,23 +15,29 @@ import (
 // The model is told what its typing did to the field: what the field now
 // shows, or, when the field shows what it did before without the typed
 // text, that the typing did not reach it, which stops the turn before the
-// save after it.
+// save after it. A field that shows the typed value as it formats it, such
+// as 12,000 for 12000, has it.
 func TestTheModelIsToldWhatTypingDid(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
 		name  string
+		typed string
 		lands bool
 		check func(t *testing.T, results []computeruse.Result, inputs []string)
 	}{
-		{"it lands", true, func(t *testing.T, results []computeruse.Result, inputs []string) {
+		{"it lands", "1200", true, func(t *testing.T, results []computeruse.Result, inputs []string) {
 			assert.Equal(t, `the field now shows "1200"`, results[0].Output)
 			assert.Contains(t, inputs, "invoke saveButton", "the save after it runs")
 		}},
-		{"it does not land", false, func(t *testing.T, results []computeruse.Result, inputs []string) {
+		{"it does not land", "1200", false, func(t *testing.T, results []computeruse.Result, inputs []string) {
 			assert.Equal(t, `the typing did not reach the field, which still shows "12,000"`, results[0].Error)
 			assert.True(t, results[1].Skipped, "the save after it does not run")
 			assert.NotContains(t, inputs, "invoke saveButton")
+		}},
+		{"the field shows it formatted", "12000", false, func(t *testing.T, results []computeruse.Result, inputs []string) {
+			assert.False(t, results[0].Failed(), results[0].Error)
+			assert.Contains(t, inputs, "invoke saveButton", "the save after it runs")
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -46,7 +52,7 @@ func TestTheModelIsToldWhatTypingDid(t *testing.T) {
 				}
 			}
 			session := &scriptedSession{turns: []*computeruse.Turn{
-				actions(typing("1200"), computeruse.Action{CallID: "s", Kind: computeruse.KindClick, ElementID: "e1"}),
+				actions(typing(tc.typed), computeruse.Action{CallID: "s", Kind: computeruse.KindClick, ElementID: "e1"}),
 				done("Entered"),
 			}}
 			run.sessions = []*scriptedSession{session}

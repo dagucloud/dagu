@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/dagucloud/dagu/v2/internal/desktop"
 	"github.com/dagucloud/dagu/v2/internal/llm/computeruse"
@@ -61,7 +62,24 @@ func (r *run) reportTyped(ctx context.Context, result *computeruse.Result, befor
 	switch {
 	case after.Value != before.Value:
 		result.Output = fmt.Sprintf("%s now shows %q", name, r.modelValue(after, ""))
-	case before.Value != "" && !strings.Contains(desktop.NormalizeText(after.Value), desktop.NormalizeText(r.substitute(text))):
+	case before.Value != "" && !showsTyped(after.Value, r.substitute(text)):
 		result.Error = fmt.Sprintf("the typing did not reach %s, which still shows %q", name, r.modelValue(after, ""))
 	}
+}
+
+// showsTyped reports whether a field's value holds the typed text, as typed
+// or as the field formats it: the same letters and digits with separators
+// or symbols between, such as 12,000 or ¥12,000 for 12000.
+func showsTyped(value, typed string) bool {
+	value, typed = desktop.NormalizeText(value), desktop.NormalizeText(typed)
+	return strings.Contains(value, typed) || lettersAndDigits(value) == lettersAndDigits(typed)
+}
+
+func lettersAndDigits(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return r
+		}
+		return -1
+	}, s)
 }
