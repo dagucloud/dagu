@@ -37,12 +37,19 @@ const (
 //  4. Home, then Down one option at a time, until the control shows it or
 //     the end of its list.
 //
-// It returns why the control does not show the option, or "".
+// An option the step refuses is never chosen, nor one with a line break,
+// which typing would send as Enter. It returns why the control does not
+// show the option, or "".
 func (r *run) choose(ctx context.Context, index int, els desktop.Elements, control desktop.Element, option string) (string, error) {
 	want := desktop.NormalizeText(option)
 	rec := r.recordElement(control, nil, "")
-	if want == "" || rec == nil {
+	if want == "" || rec == nil || strings.ContainsAny(option, "\r\n") {
 		return fmt.Sprintf("%s cannot be told which option to show", describeElement(control)), nil
+	}
+	for _, word := range r.cfg.Refuse {
+		if namesWord(option, word) {
+			return fmt.Sprintf("option %q is not chosen in this step, which refuses %q; leave it as it is", r.shownText(option), word), nil
+		}
 	}
 	shows := func() (string, bool) {
 		found, reason, err := r.lookRecorded(els, *rec)

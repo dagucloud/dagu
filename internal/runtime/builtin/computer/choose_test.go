@@ -134,6 +134,7 @@ func TestARefusedChoiceIsNotMade(t *testing.T) {
 		opens        bool
 	}{
 		{"an option it refuses", "クレジット", true},
+		{"an option it refuses in a box that takes typing", "クレジット", false},
 		{"a control it refuses", "支払", false},
 	} {
 		refuse := tc.refuse
@@ -152,6 +153,34 @@ func TestARefusedChoiceIsNotMade(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, box, 1)
 			assert.Equal(t, "銀行振込", box[0].Value)
+		})
+	}
+}
+
+// An option the step refuses is not chosen even where the box shows it
+// already, and an option with a line break, which typing would send as
+// Enter, is not chosen at all.
+func TestAChoiceNeverTakesARefusedOrMultilineOption(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name, with, option, reason string
+	}{
+		{"a refused option the box shows", `"refuse": ["銀行"]`, "銀行振込", `which refuses "銀行"`},
+		{"an option with a line break", `"refuse": []`, "現金\n", "cannot be told which option to show"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			run := choiceRun(t, false)
+			run.backend.onType = func(string) { t.Error("the option is never typed") }
+			session := &scriptedSession{turns: []*computeruse.Turn{
+				actions(computeruse.Action{CallID: "c", Kind: computeruse.KindChoose, ElementID: "e3", Text: tc.option}),
+				done("Left it"),
+			}}
+			run.sessions = []*scriptedSession{session}
+			require.NoError(t, run.execute(`{"idle": "0", `+tc.with+`, "do": [{"act": "支払方法を確かめる"}]}`, nil).err)
+			assert.Contains(t, session.observations[1].Results[0].Error, tc.reason)
+			assert.Empty(t, run.backend.inputs(), "nothing reached the box")
 		})
 	}
 }
