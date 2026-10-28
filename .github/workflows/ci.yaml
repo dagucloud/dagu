@@ -25,6 +25,7 @@ on:
       - "ui/**"
       - ".github/actions/setup-go-cache/**"
       - ".github/workflows/ci.yaml"
+      - ".github/opencode/**"
   pull_request:
     # Keep this workflow directly rerunnable from PR-only maintenance commits.
     types:
@@ -50,6 +51,7 @@ on:
       - "ui/**"
       - ".github/actions/setup-go-cache/**"
       - ".github/workflows/ci.yaml"
+      - ".github/opencode/**"
   workflow_dispatch:
 
 permissions:
@@ -122,7 +124,7 @@ jobs:
           windows_installer_changed=false
           while IFS= read -r file; do
             case "${file}" in
-              *.go|go.mod|go.sum|Makefile|scripts/ci/*|.github/actions/setup-go-cache/*|.github/workflows/ci.yaml)
+              *.go|go.mod|go.sum|Makefile|scripts/ci/*|.github/opencode/*|.github/actions/setup-go-cache/*|.github/workflows/ci.yaml)
                 go_changed=true
                 ;;
             esac

@@ -290,3 +290,43 @@ func TestV2PermissionEvent(t *testing.T) {
 	require.True(t, waiting)
 	require.Len(t, executor.agentSession.Interactions, 1)
 }
+
+func TestV2MissingInteraction(t *testing.T) {
+	server := httptest.NewServer(http.NotFoundHandler())
+	defer server.Close()
+	c := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "2.1.4"}, sessionID: "ses_test", http: server.Client()}
+	for _, path := range []string{"/session/ses_test/permission/req/reply", "/session/ses_test/form/req", "/session/ses_test/form/req/reply"} {
+		err := c.json(t.Context(), http.MethodPost, path, nil, nil)
+		require.Error(t, err)
+		require.NotErrorIs(t, err, errManagedSessionUnavailable)
+	}
+	require.ErrorIs(t, c.json(t.Context(), http.MethodGet, "/session/ses_test", nil, nil), errManagedSessionUnavailable)
+}
+
+func TestV2CommandCancellation(t *testing.T) {
+	var submitted, interrupted atomic.Bool
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/session/ses_test/command":
+			submitted.Store(true)
+			cancel()
+			w.WriteHeader(http.StatusNoContent)
+		case "/api/session/ses_test/interrupt":
+			interrupted.Store(true)
+			w.WriteHeader(http.StatusNoContent)
+		case "/api/session/ses_test/inbox", "/api/session/ses_test/message":
+			_, _ = w.Write([]byte(`{"data":[]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	c := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "2.1.4"}, http: server.Client()}
+	e := &harnessExecutor{}
+	err := e.submitManagedPromptV2(ctx, c, providerConfig{flags: map[string]any{"command": "slow"}}, "ses_test", "msg_test", nil)
+	require.Error(t, err)
+	require.True(t, submitted.Load())
+	require.True(t, interrupted.Load(), "accepted command must be interrupted even after caller cancellation")
+}

@@ -78,6 +78,15 @@ func (e *harnessExecutor) submitManagedPromptV2(ctx context.Context, c *openCode
 		if err != nil {
 			return err
 		}
+		admitted := false
+		defer func() {
+			if !admitted {
+				// The server may accept a command before the caller observes a failure.
+				abortCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+				defer cancel()
+				_ = c.abort(abortCtx, sessionID)
+			}
+		}()
 		if err := c.postNoContent(ctx, base+"/command", body); err != nil {
 			return err
 		}
@@ -98,6 +107,7 @@ func (e *harnessExecutor) submitManagedPromptV2(ctx context.Context, c *openCode
 					e.mu.Lock()
 					e.agentSession.PromptMessageID = id
 					e.mu.Unlock()
+					admitted = true
 					return nil
 				}
 			}
