@@ -64,3 +64,27 @@ func TestAnOfferedValueNeverShowsPartOfASecret(t *testing.T) {
 	}
 	t.Fatal("the field was not offered")
 }
+
+// An element's name, or the label an unnamed field goes by, is shown with
+// declared secrets masked.
+func TestAnOfferedNameNeverShowsASecret(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	run.secrets = map[string]string{"PIN": "4242-9876"}
+	run.elements = newFakeElements()
+	run.elements.elements = append(run.elements.elements,
+		desktop.Element{Role: desktop.RoleTextField, Label: "照合 4242-9876", Bounds: image.Rect(190, 220, 390, 244),
+			Path: []desktop.PathStep{{Role: desktop.RoleTextField, Index: 1}}},
+		desktop.Element{Role: desktop.RoleButton, Name: "4242-9876 で照合", Bounds: image.Rect(190, 250, 390, 270),
+			Path: []desktop.PathStep{{Role: desktop.RoleButton, Name: "4242-9876 で照合", Index: 0}}})
+	session := &scriptedSession{turns: []*computeruse.Turn{done("Looked")}}
+	run.sessions = []*scriptedSession{session}
+	require.NoError(t, run.execute(`{"idle": "0", "do": [{"act": "照合欄を確かめる"}]}`, nil).err)
+	require.NotEmpty(t, session.observations)
+	var names []string
+	for _, e := range session.observations[0].Elements {
+		names = append(names, e.Name)
+	}
+	assert.Subset(t, names, []string{"照合 *******", "******* で照合"})
+}

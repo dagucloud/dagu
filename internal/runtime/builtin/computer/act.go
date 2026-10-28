@@ -501,8 +501,9 @@ func (l *actLoop) offerElements() []computeruse.Element {
 	var list []computeruse.Element
 	choices := make(map[string]desktop.Element)
 	for _, e := range outline {
-		// A field with no name of its own goes by the label beside it.
-		name := cmp.Or(strings.TrimSpace(e.Name), strings.TrimSpace(e.Label))
+		// A field with no name of its own goes by the label beside it, and
+		// either is shown with declared secrets masked.
+		name := strings.TrimSpace(l.r.masker.MaskString(cmp.Or(strings.TrimSpace(e.Name), e.Label)))
 		if !actionableRole(e.Role) || name == "" || e.Bounds.Empty() {
 			continue
 		}
