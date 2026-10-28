@@ -42,10 +42,19 @@ import (
 // runs the model again rather than reuse a cached result:
 //
 //	DAGU_BIN=/path/to/dagu go test -v -count=1 -timeout 120m -run TestComputerDesktopBench ./conformance/spec074_computer
+//
+// and in PowerShell on Windows:
+//
+//	$env:DAGU_BIN = 'C:\path\to\dagu.exe'; go test -v -count=1 -timeout 120m -run TestComputerDesktopBench ./conformance/spec074_computer
 
 // benchTimeout bounds one run of a task, longer than a desktop command's,
-// since a weak model may take minutes.
-const benchTimeout = 8 * time.Minute
+// since a weak model may take minutes. The step itself stops at it, so a
+// run that takes too long still ends with its log; the command gets
+// benchGrace more to finish before the test gives up on it.
+const (
+	benchTimeout = 8 * time.Minute
+	benchGrace   = time.Minute
+)
 
 // benchKeys are the environment variables a model's key may be in, passed
 // through to the runs.
@@ -90,6 +99,10 @@ type benchRun struct {
 	Seconds float64 `json:"seconds"`
 	// Strayed reports a run that pressed the other app's button.
 	Strayed bool `json:"strayed"`
+	// Finished reports a run whose command ended, so its actions and
+	// tokens are known; a run that did not counts as a failure and stays
+	// out of the medians.
+	Finished bool `json:"finished"`
 }
 
 func TestComputerDesktopBench(t *testing.T) {
@@ -120,19 +133,14 @@ func TestComputerDesktopBench(t *testing.T) {
 		for run := 1; run <= runs; run++ {
 			// Each run is a subtest of its own, so its windows close before
 			// the next run opens fresh ones. A run that ends the subtest, as
-			// a command that times out does, still counts as a failure.
+			// a command that hangs past its timeout does, still counts.
 			t.Run(fmt.Sprintf("%s/%d", task.name, run), func(t *testing.T) {
-				began := time.Now()
-				result := benchRun{Task: task.name, Reason: "the run did not finish"}
+				result := benchRun{Task: task.name, Run: run, Reason: "the run did not finish"}
 				defer func() {
-					result.Run = run
-					if result.Seconds == 0 {
-						result.Seconds = time.Since(began).Seconds()
-					}
 					t.Logf("success=%v actions=%d tokens=%d %.0fs strayed=%v %s", result.Success, result.Actions, result.Tokens, result.Seconds, result.Strayed, result.Reason)
 					results = append(results, result)
 				}()
-				result = runBenchTask(t, task, provider, model, env, secrets)
+				runBenchTask(t, task, provider, model, env, secrets, &result)
 			})
 		}
 	}
@@ -144,12 +152,14 @@ func TestComputerDesktopBench(t *testing.T) {
 	}
 }
 
-// runBenchTask runs one task once on fresh windows.
-// The model's key reaches the step as a secret read from the environment,
-// never written into the definition.
-func runBenchTask(t *testing.T, task benchTask, provider, model string, env, secrets []string) benchRun {
+// runBenchTask runs one task once on fresh windows and fills in how it
+// went. The model's key reaches the step as a secret read from the
+// environment, never written into the definition. A run the test gives up
+// on still reports how long it took and whether it pressed the other app's
+// button.
+func runBenchTask(t *testing.T, task benchTask, provider, model string, env, secrets []string, run *benchRun) {
 	t.Helper()
-	dagu := harness.NewRunner(t).WithCommandTimeout(benchTimeout)
+	dagu := harness.NewRunner(t).WithCommandTimeout(benchTimeout + benchGrace)
 	marker := dagu.ProjectPath("distractor-pressed")
 	startFixture(t, dagu, "distractor", marker)
 	startFixture(t, dagu, "elements")
@@ -163,6 +173,7 @@ steps:
   - id: task
     action: computer.run
     stdout: task.json
+    timeout_sec: %d
     with:
       idle: "0"
       ai: every_run
@@ -170,18 +181,19 @@ steps:
       maximize: false
       do:
         - expect: {window: "Dagu elements test", within: 30s}%s
-`, strings.Join(secrets, "\n"), provider, model, task.do))
+`, strings.Join(secrets, "\n"), provider, model, int(benchTimeout.Seconds()), task.do))
 
 	began := time.Now()
+	defer func() {
+		run.Seconds = time.Since(began).Seconds()
+		if _, err := os.Stat(marker); err == nil {
+			run.Strayed, run.Success, run.Reason = true, false, "pressed the other app's 保存"
+		}
+	}()
 	result := dagu.RunWithEnv(env, "start", "task.yaml")
-	run := benchRun{Task: task.name, Seconds: time.Since(began).Seconds()}
-	_, err := os.Stat(marker)
-	run.Strayed = err == nil
+	run.Finished = true
 	run.Actions, run.Tokens, run.Reason = readStepLog(result.Stdout())
-	run.Success = result.ExitCode() == 0 && !run.Strayed
-	if run.Strayed {
-		run.Reason = "pressed the other app's 保存"
-	}
+	run.Success = result.ExitCode() == 0
 	if run.Success && task.output != "" {
 		var outputs map[string]any
 		data, _ := os.ReadFile(dagu.ProjectPath("task.json"))
@@ -189,7 +201,6 @@ steps:
 			run.Success, run.Reason = false, fmt.Sprintf("read %v, not %q", outputs[task.output], task.want)
 		}
 	}
-	return run
 }
 
 // startFixture starts a fixture window, elements or distractor, for the rest
@@ -267,8 +278,9 @@ func readStepLog(stdout string) (actions, tokens int, reason string) {
 	return actions, tokens, reason
 }
 
-// benchTable sums the runs up per task: successes, median actions, tokens,
-// and seconds, and runs that strayed into the other app.
+// benchTable sums the runs up per task: successes among all runs, median
+// actions, tokens, and seconds of the runs that finished, and runs that
+// strayed into the other app.
 func benchTable(results []benchRun) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%-8s %8s %8s %8s %8s %8s\n", "task", "success", "actions", "tokens", "seconds", "strayed")
@@ -279,7 +291,7 @@ func benchTable(results []benchRun) string {
 		}
 	}
 	for _, task := range tasks {
-		var ok, strayed int
+		var ok, strayed, runs int
 		var actions, tokens, seconds []float64
 		for _, r := range results {
 			if r.Task != task {
@@ -291,9 +303,12 @@ func benchTable(results []benchRun) string {
 			if r.Strayed {
 				strayed++
 			}
-			actions, tokens, seconds = append(actions, float64(r.Actions)), append(tokens, float64(r.Tokens)), append(seconds, r.Seconds)
+			runs++
+			if r.Finished {
+				actions, tokens, seconds = append(actions, float64(r.Actions)), append(tokens, float64(r.Tokens)), append(seconds, r.Seconds)
+			}
 		}
-		fmt.Fprintf(&b, "%-8s %5d/%-2d %8.0f %8.0f %8.0f %8d\n", task, ok, len(actions), median(actions), median(tokens), median(seconds), strayed)
+		fmt.Fprintf(&b, "%-8s %5d/%-2d %8.0f %8.0f %8.0f %8d\n", task, ok, runs, median(actions), median(tokens), median(seconds), strayed)
 	}
 	return b.String()
 }
