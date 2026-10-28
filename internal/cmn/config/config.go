@@ -867,7 +867,7 @@ func (c *Config) Validate() error {
 func (c *Config) validateOpenCode() error {
 	for _, key := range c.OpenCode.EnvPassthrough {
 		normalized := strings.ToUpper(strings.TrimSpace(key))
-		if normalized == "OPENCODE_SERVER_USERNAME" || normalized == "OPENCODE_SERVER_PASSWORD" || strings.HasPrefix(normalized, "_DAGU_INTERNAL_") {
+		if normalized == "OPENCODE_PASSWORD" || normalized == "OPENCODE_SERVER_USERNAME" || normalized == "OPENCODE_SERVER_PASSWORD" || strings.HasPrefix(normalized, "_DAGU_INTERNAL_") {
 			return fmt.Errorf("opencode.env_passthrough must not include reserved variable %q", key)
 		}
 	}

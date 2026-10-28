@@ -22,6 +22,7 @@ import (
 type openCodeClient struct {
 	host      opencodehost.Config
 	directory string
+	sessionID string
 	http      *http.Client
 }
 
@@ -44,11 +45,15 @@ func newOpenCodeHTTPClient(timeout time.Duration) *http.Client {
 type openCodeSession struct {
 	ID        string `json:"id"`
 	Directory string `json:"directory"`
+	Location  struct {
+		Directory string `json:"directory"`
+	} `json:"location"`
 }
 
 type openCodeEvent struct {
 	Type       string          `json:"type"`
 	Properties json.RawMessage `json:"properties"`
+	Data       json.RawMessage `json:"data"`
 }
 
 type openCodeMessage struct {
@@ -94,8 +99,17 @@ type openCodeQuestionRequest struct {
 
 func (c *openCodeClient) endpoint(path string) string {
 	query := url.Values{}
-	query.Set("directory", c.directory)
-	return c.host.URL + path + "?" + query.Encode()
+	if c.host.IsV2() {
+		query.Set("location[directory]", c.directory)
+		path = v2Path(path)
+	} else {
+		query.Set("directory", c.directory)
+	}
+	separator := "?"
+	if strings.Contains(path, "?") {
+		separator = "&"
+	}
+	return c.host.URL + path + separator + query.Encode()
 }
 
 func (c *openCodeClient) request(ctx context.Context, method, path string, body any) (*http.Response, error) {
@@ -144,6 +158,21 @@ func (c *openCodeClient) json(ctx context.Context, method, path string, body, ta
 	if target == nil || resp.StatusCode == http.StatusNoContent {
 		return nil
 	}
+	if c.host.IsV2() && path != "/config" {
+		var envelope struct {
+			Data json.RawMessage `json:"data"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
+			return err
+		}
+		if err := json.Unmarshal(envelope.Data, target); err != nil {
+			return err
+		}
+		if session, ok := target.(*openCodeSession); ok {
+			session.Directory = session.Location.Directory
+		}
+		return nil
+	}
 	return json.NewDecoder(resp.Body).Decode(target)
 }
 
@@ -153,6 +182,9 @@ func (c *openCodeClient) postNoContent(ctx context.Context, path string, body an
 
 func (c *openCodeClient) createSession(ctx context.Context, title, agent string) (openCodeSession, error) {
 	body := map[string]any{}
+	if c.host.IsV2() {
+		body["location"] = map[string]string{"directory": c.directory}
+	}
 	if title != "" {
 		body["title"] = title
 	}
@@ -181,11 +213,11 @@ func (c *openCodeClient) deleteSession(ctx context.Context, sessionID string) er
 }
 
 func (c *openCodeClient) validateManagedConfig(ctx context.Context) error {
-	var settings map[string]any
+	var settings any
 	if err := c.json(ctx, http.MethodGet, "/config", nil, &settings); err != nil {
 		return fmt.Errorf("validate managed OpenCode configuration: %w", err)
 	}
-	if settings["share"] != "disabled" {
+	if !opencodehost.SharingDisabled(settings) {
 		return errors.New("managed OpenCode requires sharing to be disabled")
 	}
 	return nil
@@ -213,6 +245,9 @@ func (c *openCodeClient) commandAsync(ctx context.Context, sessionID, messageID,
 }
 
 func (c *openCodeClient) messages(ctx context.Context, sessionID string) ([]openCodeMessage, error) {
+	if c.host.IsV2() {
+		return c.messagesV2(ctx, sessionID)
+	}
 	var messages []openCodeMessage
 	err := c.json(ctx, http.MethodGet, "/session/"+url.PathEscape(sessionID)+"/message", nil, &messages)
 	return messages, err
@@ -229,30 +264,48 @@ func (c *openCodeClient) sessionStatus(ctx context.Context, sessionID string) (s
 	if !ok {
 		return "idle", nil
 	}
+	if c.host.IsV2() && status.Type == "running" {
+		return "busy", nil
+	}
 	return status.Type, nil
 }
 
 func (c *openCodeClient) permissions(ctx context.Context) ([]openCodePermissionRequest, error) {
+	if c.host.IsV2() {
+		return c.permissionsV2(ctx)
+	}
 	var requests []openCodePermissionRequest
 	err := c.json(ctx, http.MethodGet, "/permission", nil, &requests)
 	return requests, err
 }
 
 func (c *openCodeClient) questions(ctx context.Context) ([]openCodeQuestionRequest, error) {
+	if c.host.IsV2() {
+		return c.questionsV2(ctx)
+	}
 	var requests []openCodeQuestionRequest
 	err := c.json(ctx, http.MethodGet, "/question", nil, &requests)
 	return requests, err
 }
 
 func (c *openCodeClient) replyPermission(ctx context.Context, requestID, reply string) error {
+	if c.host.IsV2() {
+		return c.json(ctx, http.MethodPost, "/session/"+url.PathEscape(c.sessionID)+"/permission/"+url.PathEscape(requestID)+"/reply", map[string]any{"decision": reply}, nil)
+	}
 	return c.json(ctx, http.MethodPost, "/permission/"+url.PathEscape(requestID)+"/reply", map[string]any{"reply": reply}, nil)
 }
 
 func (c *openCodeClient) replyQuestion(ctx context.Context, requestID string, answers [][]string) error {
+	if c.host.IsV2() {
+		return c.replyQuestionV2(ctx, requestID, answers)
+	}
 	return c.json(ctx, http.MethodPost, "/question/"+url.PathEscape(requestID)+"/reply", map[string]any{"answers": answers}, nil)
 }
 
 func (c *openCodeClient) rejectQuestion(ctx context.Context, requestID string) error {
+	if c.host.IsV2() {
+		return c.json(ctx, http.MethodDelete, "/session/"+url.PathEscape(c.sessionID)+"/form/"+url.PathEscape(requestID), nil, nil)
+	}
 	return c.json(ctx, http.MethodPost, "/question/"+url.PathEscape(requestID)+"/reject", nil, nil)
 }
 

@@ -355,6 +355,11 @@ jobs:
           DAGU_TEST_OPENCODE_VERSION: 1.18.11
         run: go test ./internal/opencodehost -run '^TestRealOpenCodeCapabilities$' -count=1
 
+      - name: Test managed OpenCode v2 execution
+        env:
+          DAGU_TEST_OPENCODE_V2_EXECUTABLE: ${{ github.workspace }}/.github/opencode/node_modules/@opencode/cli-linux-x64-baseline/bin/opencode
+        run: go test ./internal/runtime/builtin/harness -run '^TestRealV2Run$' -count=1
+
       - name: Test with the legacy JSON backend
         env:
           GOEXPERIMENT: nojsonv2

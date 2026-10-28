@@ -79,6 +79,7 @@ func (e *harnessExecutor) runManagedOpenCode(
 		e.failManagedSession(err)
 		return nil, err
 	}
+	client.sessionID = sessionID
 	e.mu.Lock()
 	e.agentSession.RestartPending = false
 	e.mu.Unlock()
@@ -288,6 +289,9 @@ func (e *harnessExecutor) ensureManagedSession(ctx context.Context, client *open
 }
 
 func (e *harnessExecutor) submitManagedPrompt(ctx context.Context, client *openCodeClient, cfg providerConfig, sessionID, messageID string, files []map[string]any) (<-chan error, error) {
+	if client.host.IsV2() {
+		return nil, e.submitManagedPromptV2(ctx, client, cfg, sessionID, messageID, files)
+	}
 	parts := []map[string]any{{"type": "text", "text": e.effectivePrompt()}}
 	if strings.TrimSpace(e.script) != "" {
 		parts = append(parts, map[string]any{"type": "text", "text": "Supplementary input:\n" + e.script})
@@ -408,6 +412,24 @@ func (e *harnessExecutor) applyManagedInteractionResponses(ctx context.Context, 
 }
 
 func (e *harnessExecutor) handleManagedEvent(ctx context.Context, client *openCodeClient, sessionID string, event openCodeEvent) (waiting, busy bool, err error) {
+	if client.host.IsV2() {
+		// V2 events carry data rather than properties. Reconcile the current
+		// requests so a reply racing the event cannot restore a stale prompt.
+		if event.Type == "permission.asked" || event.Type == "form.created" {
+			var data struct {
+				SessionID string `json:"sessionID"`
+				Form      struct {
+					SessionID string `json:"sessionID"`
+				} `json:"form"`
+			}
+			if json.Unmarshal(event.Data, &data) == nil && (data.SessionID == sessionID || data.Form.SessionID == sessionID) {
+				waiting, err = e.reconcileManagedSession(ctx, client, sessionID)
+				return waiting, false, err
+			}
+		}
+		return false, false, nil
+	}
+
 	switch event.Type {
 	case "permission.asked":
 		var request openCodePermissionRequest
