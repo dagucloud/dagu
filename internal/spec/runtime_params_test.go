@@ -632,6 +632,35 @@ params:
 	assert.ElementsMatch(t, []string{"BLOCKLIST_FN=et_block.netset", "DAY_OF_WEEK=3"}, dag.Params)
 }
 
+// Values the schema does not type are decoded only for validation, so the
+// params keep the text the caller supplied.
+func TestLoadYAML_OpenSchemaKeepsUntypedValueText(t *testing.T) {
+	t.Parallel()
+
+	schemaPath := filepath.Join(t.TempDir(), "params.schema.json")
+	require.NoError(t, os.WriteFile(schemaPath, []byte(`{
+  "type": "object",
+  "properties": {"BLOCKLIST_FN": {"type": "string", "default": "et_block.netset"}},
+  "additionalProperties": true
+}`), 0o600))
+
+	yaml := []byte(`
+name: open-schema-untyped-text
+params:
+  schema: ` + schemaPath + `
+  values:
+    VERSION: "1.10"
+`)
+
+	dag, err := LoadYAML(context.Background(), yaml, WithParams("CUSTOMER_ID=12345678901234567"))
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{
+		"BLOCKLIST_FN=et_block.netset",
+		"VERSION=1.10",
+		"CUSTOMER_ID=12345678901234567",
+	}, dag.Params)
+}
+
 func TestResolveRuntimeParams_RejectsUnknownViaJSON_InlineTyped(t *testing.T) {
 	t.Parallel()
 

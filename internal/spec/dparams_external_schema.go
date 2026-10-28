@@ -135,7 +135,8 @@ func resolveExternalSchemaEntries(plan *dagParamPlan, rawParams string, paramsLi
 		return nil, err
 	}
 
-	return appendPassThroughEntries(entriesFromTypedMap(typedMap, plan.schemaOrder), passThroughPairs), nil
+	entries := keepUntypedValueText(entriesFromTypedMap(typedMap, plan.schemaOrder), append(basePairs, overridePairs...), plan.schemaProperties)
+	return appendPassThroughEntries(entries, passThroughPairs), nil
 }
 
 func validateSchemaMap(values map[string]any, schema *jsonschema.Resolved, metadataMode bool) (map[string]any, error) {
@@ -177,6 +178,28 @@ func schemaPairsToMap(pairs []paramPair, properties map[string]*jsonschema.Schem
 		result[pair.Name] = value
 	}
 	return result, nil
+}
+
+// keepUntypedValueText restores the supplied text of values the schema does not
+// type. Their decoded form only serves validation, and encoding it again would
+// change the value, such as 1.10 becoming 1.1.
+func keepUntypedValueText(entries []dagParamEntry, pairs []paramPair, properties map[string]*jsonschema.Schema) []dagParamEntry {
+	text := make(map[string]string, len(pairs))
+	for _, pair := range pairs {
+		if pair.Name == "" {
+			continue
+		}
+		if _, typed := schemaScalarType(properties[pair.Name]); typed {
+			continue
+		}
+		text[pair.Name] = pair.Value
+	}
+	for i := range entries {
+		if value, ok := text[entries[i].Name]; ok {
+			entries[i].Value = value
+		}
+	}
+	return entries
 }
 
 func coerceSchemaPairValue(name, raw string, schema *jsonschema.Schema, allowSchemaFallbackJSON bool) (any, error) {
