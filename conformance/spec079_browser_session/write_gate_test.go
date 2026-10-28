@@ -54,7 +54,7 @@ function signIn() {
   const body = new URLSearchParams({user: 'alice', password: document.getElementById('password').value});
   fetch('http://localhost:' + location.port + '/session', {method: 'POST', body}).then(r => say('signed in ' + r.status), () => say('sign-in failed'));
 }
-async function sync() { const reg = await navigator.serviceWorker.register('/sw.js'); await navigator.serviceWorker.ready; await reg.sync.register('entries'); say('sync registered'); }
+async function sync() { const reg = await navigator.serviceWorker.register('/sw.js'); await navigator.serviceWorker.ready; await reg.sync.register('entries'); say('sync registered'); document.body.dataset.sync = 'registered'; }
 </script></body></html>`
 
 const ledgerWorker = `fetch('/worker', {method: 'POST', body: 'x'}).then(() => postMessage('worker saved'), () => postMessage('worker not saved'));`
@@ -265,6 +265,11 @@ func TestSessionRehearsesEveryWrite(t *testing.T) {
 	for _, name := range []string{"Save entry", "Submit form", "Delete entry", "Start worker", "Send beacon", "Open socket", "Postback", "Create with GraphQL", "Sync later"} {
 		writes = append(writes, g.press(opened.ID, name)...)
 	}
+	// The sync registers only once its service worker is ready, after the
+	// click reports back; a page left before then registers nothing.
+	synced := g.session(`{"wait": {"selector": "body[data-sync=registered]"}}`, "do", opened.ID)
+	synced.ExpectExitCode(0)
+	writes = append(writes, decode(t, synced).Writes...)
 	g.session(fmt.Sprintf(`{"goto": %q}`, g.ledger.url+"/"), "do", opened.ID).ExpectExitCode(0)
 	typed := g.session(`{"type": {"into": "`+g.find(opened.ID, "Password")+`", "text": "%pw%"}, "variables": {"pw": {"env": "LEDGER_PASSWORD"}}}`, "do", opened.ID)
 	typed.ExpectExitCode(0)
