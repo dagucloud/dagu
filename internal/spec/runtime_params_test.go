@@ -370,6 +370,7 @@ func TestResolveLegacyRuntimePairs_InternalOverridesLastWriteWins(t *testing.T) 
 
 	pairs, err := resolveLegacyRuntimePairs(
 		nil,
+		nil,
 		`WEBHOOK_PAYLOAD=first`,
 		[]string{`WEBHOOK_PAYLOAD=second`},
 	)
@@ -384,6 +385,7 @@ func TestResolveLegacyRuntimePairs_WebhookHeadersInternalOverridesLastWriteWins(
 
 	pairs, err := resolveLegacyRuntimePairs(
 		nil,
+		nil,
 		`WEBHOOK_HEADERS=first`,
 		[]string{`WEBHOOK_HEADERS=second`},
 	)
@@ -393,28 +395,30 @@ func TestResolveLegacyRuntimePairs_WebhookHeadersInternalOverridesLastWriteWins(
 	}, pairs)
 }
 
-func TestSplitInternalRuntimeOverridePairs_DeclaredWebhookPayloadStaysUserParam(t *testing.T) {
+func TestSplitPassThroughOverridePairs_DeclaredWebhookPayloadStaysUserParam(t *testing.T) {
 	t.Parallel()
 
-	userPairs, internalPairs := splitInternalRuntimeOverridePairs(
+	userPairs, passThroughPairs := splitPassThroughOverridePairs(
 		[]paramPair{{Name: "WEBHOOK_PAYLOAD", Value: "42"}},
 		map[string]struct{}{"WEBHOOK_PAYLOAD": {}},
+		nil,
 	)
 
 	assert.Equal(t, []paramPair{{Name: "WEBHOOK_PAYLOAD", Value: "42"}}, userPairs)
-	assert.Empty(t, internalPairs)
+	assert.Empty(t, passThroughPairs)
 }
 
-func TestSplitInternalRuntimeOverridePairs_DeclaredWebhookHeadersStaysUserParam(t *testing.T) {
+func TestSplitPassThroughOverridePairs_DeclaredWebhookHeadersStaysUserParam(t *testing.T) {
 	t.Parallel()
 
-	userPairs, internalPairs := splitInternalRuntimeOverridePairs(
+	userPairs, passThroughPairs := splitPassThroughOverridePairs(
 		[]paramPair{{Name: "WEBHOOK_HEADERS", Value: "42"}},
 		map[string]struct{}{"WEBHOOK_HEADERS": {}},
+		nil,
 	)
 
 	assert.Equal(t, []paramPair{{Name: "WEBHOOK_HEADERS", Value: "42"}}, userPairs)
-	assert.Empty(t, internalPairs)
+	assert.Empty(t, passThroughPairs)
 }
 
 func TestResolveRuntimeParams_RejectsUnknownNamedParam_LegacyNamed(t *testing.T) {
@@ -455,6 +459,83 @@ steps:
 	resolved, err := ResolveRuntimeParams(context.Background(), dag, "foo=bar baz=qux", ResolveRuntimeParamsOptions{})
 	require.NoError(t, err)
 	assert.NotNil(t, resolved)
+}
+
+// A run records the params declared by the base config next to the DAG's own,
+// and queued dispatch and retry pass that list back when rebuilding the DAG.
+func TestLoadYAML_BaseConfigParamOverride(t *testing.T) {
+	t.Parallel()
+
+	baseConfig := []byte(`
+params:
+  - name: DAY_OF_WEEK
+    type: integer
+    default: 1
+`)
+
+	schemaPath := filepath.Join(t.TempDir(), "params.schema.json")
+	require.NoError(t, os.WriteFile(schemaPath, []byte(`{
+  "type": "object",
+  "properties": {
+    "BLOCKLIST_FN": {"type": "string", "default": "et_block.netset"}
+  },
+  "additionalProperties": false
+}`), 0o600))
+
+	tests := []struct {
+		name   string
+		params string
+	}{
+		{
+			name: "InlineDefinition",
+			params: `
+  - name: BLOCKLIST_FN
+    default: et_block.netset`,
+		},
+		{
+			name: "LegacyNamed",
+			params: `
+  - BLOCKLIST_FN: et_block.netset`,
+		},
+		{
+			name: "InlineSchema",
+			params: `
+  type: object
+  properties:
+    BLOCKLIST_FN:
+      type: string
+      default: et_block.netset
+  additionalProperties: false`,
+		},
+		{
+			name: "ExternalSchema",
+			params: `
+  schema: ` + schemaPath,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			yaml := []byte("name: base-param-override\nparams:" + tt.params + "\n")
+
+			dag, err := LoadYAML(context.Background(), yaml,
+				WithBaseConfigContent(baseConfig),
+				WithParams("DAY_OF_WEEK=3 BLOCKLIST_FN=custom.netset"),
+			)
+			require.NoError(t, err)
+			assert.Equal(t, "3", dag.ParamsMap()["DAY_OF_WEEK"])
+			assert.Equal(t, "custom.netset", dag.ParamsMap()["BLOCKLIST_FN"])
+
+			_, err = LoadYAML(context.Background(), yaml,
+				WithBaseConfigContent(baseConfig),
+				WithParams("DAY_OF_WEEK=3 regoin=typo"),
+			)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "regoin")
+		})
+	}
 }
 
 func TestResolveRuntimeParams_RejectsUnknownViaJSON_InlineTyped(t *testing.T) {

@@ -29,6 +29,9 @@ type dagParamPlan struct {
 	schemaOrder      []string
 	schemaProperties map[string]*jsonschema.Schema
 	schemaClosed     bool
+	// inheritedNames holds the params declared by the base config. Overrides
+	// naming them are accepted even when this DAG does not declare them.
+	inheritedNames map[string]struct{}
 }
 
 type dagParamEntry struct {
@@ -46,6 +49,7 @@ func buildDAGParamsResult(ctx buildContext, d *dag) (*paramsResult, error) {
 	if err := finalizeDAGParamPlan(plan); err != nil {
 		return nil, err
 	}
+	plan.inheritedNames = inheritedParamNames(ctx.baseDAG)
 
 	resolveRuntimeParams := shouldResolveRuntimeParams(ctx)
 	defaultEntries := cloneParamEntries(plan.entries)
@@ -57,7 +61,7 @@ func buildDAGParamsResult(ctx buildContext, d *dag) (*paramsResult, error) {
 		if plan.schema == nil {
 			finalPairs = defaultPairs
 			if resolveRuntimeParams {
-				finalPairs, err = resolveLegacyRuntimePairs(plan.entries, ctx.opts.Parameters, ctx.opts.ParametersList)
+				finalPairs, err = resolveLegacyRuntimePairs(plan.entries, plan.inheritedNames, ctx.opts.Parameters, ctx.opts.ParametersList)
 				if err != nil {
 					return nil, err
 				}
@@ -188,6 +192,19 @@ func paramDeclarationsForPlan(plan *dagParamPlan) cmnvalue.Values {
 		return nil
 	}
 	return params
+}
+
+// inheritedParamNames returns the named params declared by the base config.
+func inheritedParamNames(base *ir.DAG) map[string]struct{} {
+	declarations := base.ParamDeclarations()
+	if len(declarations) == 0 {
+		return nil
+	}
+	names := make(map[string]struct{}, len(declarations))
+	for name := range declarations {
+		names[name] = struct{}{}
+	}
+	return names
 }
 
 func paramPlanHasEval(plan *dagParamPlan) bool {
