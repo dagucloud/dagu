@@ -537,6 +537,67 @@ params:
 	}
 }
 
+// A DAG schema that declares a base config param without a default still
+// validates overrides of it.
+func TestLoadYAML_DAGSchemaValidatesBaseConfigParam(t *testing.T) {
+	t.Parallel()
+
+	baseConfig := []byte(`
+params:
+  - COUNT: 1
+`)
+
+	schema := `{
+  "type": "object",
+  "properties": {"COUNT": {"type": "integer"}},
+  "required": ["COUNT"]
+}`
+	schemaPath := filepath.Join(t.TempDir(), "params.schema.json")
+	require.NoError(t, os.WriteFile(schemaPath, []byte(schema), 0o600))
+
+	tests := []struct {
+		name   string
+		params string
+	}{
+		{
+			name: "InlineSchema",
+			params: `
+  type: object
+  properties:
+    COUNT:
+      type: integer
+  required: [COUNT]`,
+		},
+		{
+			name: "ExternalSchema",
+			params: `
+  schema: ` + schemaPath,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			yaml := []byte("name: schema-base-param\nparams:" + tt.params + "\n")
+
+			dag, err := LoadYAML(context.Background(), yaml,
+				WithBaseConfigContent(baseConfig),
+				WithParams("COUNT=2"),
+			)
+			require.NoError(t, err)
+			assert.Equal(t, []string{"COUNT=2"}, dag.Params)
+
+			_, err = LoadYAML(context.Background(), yaml,
+				WithBaseConfigContent(baseConfig),
+				WithParams("COUNT=abc"),
+			)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "COUNT")
+		})
+	}
+}
+
 func TestResolveRuntimeParams_RejectsUnknownViaJSON_InlineTyped(t *testing.T) {
 	t.Parallel()
 

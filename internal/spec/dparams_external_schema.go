@@ -105,7 +105,7 @@ func resolveExternalSchemaEntries(plan *dagParamPlan, rawParams string, paramsLi
 	if err != nil {
 		return nil, err
 	}
-	overridePairs, passThroughPairs := splitPassThroughOverridePairs(overridePairs, declaredRuntimeParamNames(plan.entries), plan.inheritedNames)
+	overridePairs, passThroughPairs := splitPassThroughOverridePairs(overridePairs, declaredRuntimeParamNamesForPlan(plan), plan.inheritedNames)
 
 	basePairs := make([]paramPair, 0, len(plan.entries))
 	for _, entry := range plan.entries {
