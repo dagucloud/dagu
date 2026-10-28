@@ -613,8 +613,8 @@ func (l *actLoop) chooseElement(ctx context.Context, els desktop.Elements, actio
 		result.Error = "this host cannot read the control to choose in; click through its list instead"
 		return result, nil
 	}
-	if own, owned := l.r.elementOwner(e); owned {
-		result.Error = l.r.ownedMessage(own)
+	if own, owned := l.r.elementOffLimits(e); owned {
+		result.Error = l.r.offLimitsMessage(own)
 		return result, nil
 	}
 	if why, refused := l.r.refusedElement(e); refused {
