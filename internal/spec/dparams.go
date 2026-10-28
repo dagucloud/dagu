@@ -49,7 +49,7 @@ func buildDAGParamsResult(ctx buildContext, d *dag) (*paramsResult, error) {
 	if err := finalizeDAGParamPlan(plan); err != nil {
 		return nil, err
 	}
-	plan.inheritedNames = inheritedParamNames(ctx.baseDAG)
+	plan.inheritedNames = ctx.baseParamNames
 
 	resolveRuntimeParams := shouldResolveRuntimeParams(ctx)
 	defaultEntries := cloneParamEntries(plan.entries)
@@ -194,15 +194,19 @@ func paramDeclarationsForPlan(plan *dagParamPlan) cmnvalue.Values {
 	return params
 }
 
-// inheritedParamNames returns the named params the base config declares or
-// sets. A schema without properties sets values without declaring them.
-func inheritedParamNames(base *ir.DAG) map[string]struct{} {
-	names := make(map[string]struct{})
-	for name := range base.ParamDeclarations() {
-		names[name] = struct{}{}
+// declaredParamNames returns the named params a definition declares through
+// explicit values or schema properties.
+func declaredParamNames(ctx buildContext, d *dag) map[string]struct{} {
+	plan, err := buildDAGParamPlan(ctx, d)
+	if err != nil {
+		// Building the definition itself reports invalid params.
+		return nil
 	}
-	for name := range base.ParamValues() {
-		names[name] = struct{}{}
+	names := make(map[string]struct{})
+	for name := range declaredRuntimeParamNamesForPlan(plan) {
+		if !isPositionalName(name) {
+			names[name] = struct{}{}
+		}
 	}
 	if len(names) == 0 {
 		return nil
