@@ -79,6 +79,8 @@ type fakeBackend struct {
 	released []desktop.Button
 	// captures counts the screenshots taken.
 	captures int
+	// onType runs on every typing, so a test can make it change a field.
+	onType func(text string)
 	// onPress runs on every left button press, so a test can make a click
 	// change what the elements reader sees.
 	onPress func()
@@ -630,6 +632,12 @@ func (b *fakeBackend) Type(text string) error {
 		return err
 	}
 	b.record("type " + text)
+	b.mu.Lock()
+	onType := b.onType
+	b.mu.Unlock()
+	if onType != nil {
+		onType(text)
+	}
 	return nil
 }
 

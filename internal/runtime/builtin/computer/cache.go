@@ -38,7 +38,7 @@ const (
 // 2 ignores a version 3 recording rather than click at the window's own
 // positions as if they were the display's.
 const (
-	recordingVersion       = 3
+	recordingVersion       = 4
 	oldestRecordingVersion = 2
 )
 

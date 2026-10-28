@@ -866,11 +866,18 @@ func pinnedStepSchema() *jsonschema.Schema {
 			},
 			"wait":  agentstep.NonEmptyString(),
 			"focus": selector(),
+			"choose": {
+				Type:                 "object",
+				AdditionalProperties: agentstep.NoExtraProperties(),
+				Required:             []string{"from", "option"},
+				Properties:           map[string]*jsonschema.Schema{"from": selector(), "option": agentstep.NonEmptyString()},
+			},
 		},
 		OneOf: []*jsonschema.Schema{
 			{Required: []string{"click"}}, {Required: []string{"double_click"}}, {Required: []string{"right_click"}},
 			{Required: []string{"check"}}, {Required: []string{"uncheck"}},
 			{Required: []string{"type"}}, {Required: []string{"key"}}, {Required: []string{"scroll"}}, {Required: []string{"wait"}},
+			{Required: []string{"choose"}},
 		},
 	}
 }

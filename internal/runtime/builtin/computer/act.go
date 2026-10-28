@@ -603,6 +603,41 @@ func (l *actLoop) invokeElement(ctx context.Context, els desktop.Elements, actio
 	return true, &recorded, result
 }
 
+// chooseElement sets the choice control the model named to the option it
+// named, and records the choice by the control and the option, the option
+// written as its placeholder when it is a variable's value, so a replay
+// chooses each row's own.
+func (l *actLoop) chooseElement(ctx context.Context, els desktop.Elements, action computeruse.Action, e desktop.Element) (computeruse.Result, *recordedAction) {
+	result := computeruse.Result{CallID: action.CallID}
+	if els == nil {
+		result.Error = "this host cannot read the control to choose in; click through its list instead"
+		return result, nil
+	}
+	if own, owned := l.r.elementOwner(e); owned {
+		result.Error = l.r.ownedMessage(own)
+		return result, nil
+	}
+	if why, refused := l.r.refusedElement(e); refused {
+		result.Error = why
+		return result, nil
+	}
+	option := l.r.substitute(action.Text)
+	reason, err := l.r.choose(ctx, l.index, els, e, option)
+	switch {
+	case err != nil:
+		result.Error = l.r.masker.MaskString(err.Error())
+		return result, nil
+	case reason != "":
+		result.Error = reason
+		return result, nil
+	}
+	l.touched = true
+	centre := elementCentre(e)
+	element := l.r.recordElement(e, &centre, l.r.driver.WindowAt(centre).App)
+	rec := recordAction(computeruse.Action{Kind: computeruse.KindChoose, Text: l.r.placeholder(option)}, element)
+	return result, &rec
+}
+
 // recordInvoked records an element the model invoked as the click it asked
 // for, landing at the element's centre, so a later run can replay it by the
 // element or, on a host without one, by that pixel.
@@ -870,6 +905,17 @@ func (l *actLoop) apply(ctx context.Context, turn *computeruse.Turn) []computeru
 				continue
 			}
 			logAction(l.r.timeline, l.index, fmt.Sprintf("element %s is %s %q", action.ElementID, e.Role, e.Name))
+			if action.Kind == computeruse.KindChoose {
+				results[i], rec = l.chooseElement(ctx, els, action, e)
+				if results[i].Failed() {
+					logAction(l.r.timeline, l.index, "  failed: "+results[i].Error)
+					failed = true
+					continue
+				}
+				recorded = appendRecorded(recorded, rec)
+				l.r.noteWorkApp(app)
+				continue
+			}
 			if invoked, invokedRec, invokedResult := l.invokeElement(ctx, els, action, e); invoked {
 				results[i], rec = invokedResult, invokedRec
 				if invokedResult.Failed() {

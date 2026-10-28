@@ -24,6 +24,7 @@ const (
 	genericWait   = "wait"
 
 	genericClickElement = "click_element"
+	genericChooseOption = "choose_option"
 )
 
 // The done tool is how a model reports the task finished, in every mode.
@@ -46,7 +47,7 @@ const (
 var genericImageLimit = ImageLimit{LongEdge: 1568, MaxPixels: 1_150_000}
 
 const genericSystemPrompt = `You operate a computer by calling tools. After each round of tool calls you receive a screenshot of the screen. Coordinates are pixels in that screenshot, measured from its top-left corner.
-Put every action whose outcome you can predict into one round: for example, click a field, select all, type the text, and press Return together. Wait for a new screenshot only before an action that depends on what will appear, such as after opening a menu or a dialog. When the control you need is listed as an element, target it with click_element by its id instead of guessing a pixel position, which is far more reliable for buttons and menu items. To close a window, press Alt+F4 (on macOS, Cmd+Q) while it has the focus, which is more reliable than aiming at a small close button; these keys act on the focused window, so when another window may have the focus, click the target window first. This step refuses to operate the application that runs it, so these keys cannot close it. When a dialog asks whether to save, choose not to save. Key names follow common spelling, such as "Return", "Tab", "ctrl+c" or "cmd+space".
+Put every action whose outcome you can predict into one round: for example, click a field, select all, type the text, and press Return together. Wait for a new screenshot only before an action that depends on what will appear, such as after opening a menu or a dialog. When the control you need is listed as an element, target it with click_element by its id instead of guessing a pixel position, which is far more reliable for buttons and menu items; to pick an option of a combo box or pop-up, call choose_option with its id and the option's text. To close a window, press Alt+F4 (on macOS, Cmd+Q) while it has the focus, which is more reliable than aiming at a small close button; these keys act on the focused window, so when another window may have the focus, click the target window first. This step refuses to operate the application that runs it, so these keys cannot close it. When a dialog asks whether to save, choose not to save. Key names follow common spelling, such as "Return", "Tab", "ctrl+c" or "cmd+space".
 ` + DoneInstruction
 
 // genericSession drives a model through plain function tools.
@@ -228,6 +229,7 @@ type genericArgs struct {
 	Repeat    int      `json:"repeat"`
 	Seconds   float64  `json:"seconds"`
 	ElementID string   `json:"element_id"`
+	Option    string   `json:"option"`
 }
 
 func parseGenericAction(call llm.ToolCall) (Action, error) {
@@ -256,6 +258,13 @@ func parseGenericAction(call llm.ToolCall) (Action, error) {
 		action.Button = args.Button
 		action.Count = args.Count
 		action.Modifiers = args.Modifiers
+	case genericChooseOption:
+		if strings.TrimSpace(args.ElementID) == "" || strings.TrimSpace(args.Option) == "" {
+			return Action{}, fmt.Errorf("element_id and option are required")
+		}
+		action.Kind = KindChoose
+		action.ElementID = args.ElementID
+		action.Text = args.Option
 	case genericMove:
 		point, err := requiredPoint(args.X, args.Y)
 		if err != nil {
@@ -351,6 +360,10 @@ var genericTools = []llm.Tool{
 		"count":      map[string]any{"type": "integer", "minimum": 1, "maximum": 3, "description": "Number of clicks; 2 for a double click."},
 		"modifiers":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Keys held during the click, such as shift or ctrl."},
 	}, "element_id"),
+	genericTool(genericChooseOption, "Choose an option of a combo box or pop-up listed by id in the latest observation, by the option's text, which the computer picks through the control itself. Prefer this over clicking through the control's list.", map[string]any{
+		"element_id": map[string]any{"type": "string", "description": "The id of the combo box or pop-up, such as e3."},
+		"option":     map[string]any{"type": "string", "description": "The option's text exactly as the list shows it."},
+	}, "element_id", "option"),
 	genericTool(genericMove, "Move the pointer without clicking.", map[string]any{
 		"x": integerProperty("Horizontal pixel position."),
 		"y": integerProperty("Vertical pixel position."),

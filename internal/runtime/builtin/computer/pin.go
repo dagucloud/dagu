@@ -50,6 +50,7 @@ type pinnedStep struct {
 	Type    *pinnedType       `json:"type,omitempty"`
 	Key     string            `json:"key,omitempty"`
 	Scroll  *pinnedScroll     `json:"scroll,omitempty"`
+	Choose  *pinnedChoose     `json:"choose,omitempty"`
 	Wait    string            `json:"wait,omitempty"`
 	// Focus is the element a key step focuses before it presses its keys,
 	// so the keys reach the element they went to when the step was learned.
@@ -59,6 +60,12 @@ type pinnedStep struct {
 type pinnedType struct {
 	Into desktop.Selector `json:"into"`
 	Text string           `json:"text"`
+}
+
+// pinnedChoose sets the choice control From names to Option.
+type pinnedChoose struct {
+	From   desktop.Selector `json:"from"`
+	Option string           `json:"option"`
 }
 
 type pinnedScroll struct {
@@ -105,7 +112,7 @@ func (s *pinnedStep) UnmarshalJSON(data []byte) error {
 
 func (s pinnedStep) actionCount() int {
 	n := 0
-	for _, set := range []bool{s.Click != nil, s.DoubleClick != nil, s.RightClick != nil, s.Check != nil, s.Uncheck != nil, s.Type != nil, s.Key != "", s.Scroll != nil, s.Wait != ""} {
+	for _, set := range []bool{s.Click != nil, s.DoubleClick != nil, s.RightClick != nil, s.Check != nil, s.Uncheck != nil, s.Type != nil, s.Key != "", s.Scroll != nil, s.Wait != "", s.Choose != nil} {
 		if set {
 			n++
 		}
@@ -137,6 +144,11 @@ func (s pinnedStep) validate() error {
 		}
 	}
 	switch {
+	case s.Choose != nil:
+		if strings.TrimSpace(s.Choose.Option) == "" {
+			return errors.New("choose needs an option")
+		}
+		return s.Choose.From.Validate()
 	case s.Type != nil:
 		return s.Type.Into.Validate()
 	case s.Scroll != nil:
@@ -167,6 +179,10 @@ func (s pinnedStep) references() []string {
 	}
 	if s.Scroll != nil {
 		texts = append(texts, selectorTexts(s.Scroll.On)...)
+	}
+	if s.Choose != nil {
+		texts = append(texts, s.Choose.Option)
+		texts = append(texts, selectorTexts(s.Choose.From)...)
 	}
 	var names []string
 	for _, text := range texts {
@@ -275,6 +291,8 @@ func (s pinnedStep) recordedAction() (recordedAction, bool) {
 		return recordedAction{Action: computeruse.Action{Kind: computeruse.KindType, Text: s.Type.Text}, Element: new(pinnedElement(s.Type.Into))}, true
 	case s.Scroll != nil:
 		return recordedAction{Action: computeruse.Action{Kind: computeruse.KindScroll, ScrollY: s.Scroll.Dy, Point: &computeruse.Point{}}, Element: new(pinnedElement(s.Scroll.On))}, true
+	case s.Choose != nil:
+		return recordedAction{Action: computeruse.Action{Kind: computeruse.KindChoose, Text: s.Choose.Option}, Element: new(pinnedElement(s.Choose.From))}, true
 	case s.Key != "":
 		rec := recordedAction{Action: computeruse.Action{Kind: computeruse.KindKey, Keys: strings.Split(s.Key, "+")}}
 		if s.Focus != nil {

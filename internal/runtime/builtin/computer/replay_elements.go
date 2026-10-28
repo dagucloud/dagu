@@ -752,6 +752,18 @@ func (r *run) replayByElement(ctx context.Context, index, position, total int, t
 			if why, refused := r.refusedElement(found); refused {
 				return fmt.Sprintf("%s at turn %d of %d: %s", rec.Element.describe(), position+1, total, why), nil
 			}
+			if action.Kind == computeruse.KindChoose {
+				reason, err := r.choose(ctx, index, els, found, r.substitute(action.Text))
+				if err != nil {
+					return "", err
+				}
+				if reason != "" {
+					return fmt.Sprintf("%s at turn %d of %d: %s", rec.Element.describe(), position+1, total, reason), nil
+				}
+				outcome.actions++
+				outcome.carried = append(outcome.carried, rec)
+				continue
+			}
 			if rec.Checked != nil {
 				state, known := checkedState(found)
 				if !known {

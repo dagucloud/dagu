@@ -63,6 +63,9 @@ const (
 	KindZoom Kind = "zoom"
 	// KindCursorPosition reports the pointer position.
 	KindCursorPosition Kind = "cursor_position"
+	// KindChoose sets the combo box or pop-up ElementID names to the option
+	// Text, through the control itself.
+	KindChoose Kind = "choose"
 )
 
 // Pointer buttons.

@@ -191,6 +191,11 @@ func pinAction(rec recordedAction) ([]pinnedStep, string) {
 			return nil, unpinnableNoField
 		}
 		return []pinnedStep{{Type: &pinnedType{Into: pinnedSelector(*rec.Element), Text: action.Text}}}, ""
+	case computeruse.KindChoose:
+		if rec.Element == nil {
+			return nil, unpinnableNoElement
+		}
+		return []pinnedStep{{Choose: &pinnedChoose{From: pinnedSelector(*rec.Element), Option: action.Text}}}, ""
 	case computeruse.KindKey:
 		step := pinnedStep{Key: strings.Join(action.Keys, "+")}
 		if step.validate() != nil {

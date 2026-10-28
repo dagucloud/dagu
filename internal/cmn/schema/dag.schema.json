@@ -8307,7 +8307,8 @@
         { "required": ["type"] },
         { "required": ["key"] },
         { "required": ["scroll"] },
-        { "required": ["wait"] }
+        { "required": ["wait"] },
+        { "required": ["choose"] }
       ],
       "properties": {
         "click": { "$ref": "#/definitions/computerSelector" },
@@ -8341,10 +8342,20 @@
           }
         },
         "wait": { "type": "string", "minLength": 1, "description": "A time to pause, such as 1s." },
-        "focus": { "$ref": "#/definitions/computerSelector", "description": "With key: the element to focus before pressing the keys." }
+        "focus": { "$ref": "#/definitions/computerSelector", "description": "With key: the element to focus before pressing the keys." },
+        "choose": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["from", "option"],
+          "properties": {
+            "from": { "$ref": "#/definitions/computerSelector", "description": "The combo box or pop-up." },
+            "option": { "type": "string", "minLength": 1, "description": "The option to choose, by its text; %name% placeholders allowed." }
+          },
+          "description": "Set a combo box or pop-up to an option through the control itself: done when it shows the option already, else by opening it and pressing the option, typing the option, or stepping through its list, each checked by what the control then shows."
+        }
       },
       "dependencies": { "focus": ["key"] },
-      "description": "One pinned step of an act: exactly one of click, double_click, right_click, check, uncheck (a selector), type (into, text), key (a chord, with an optional focus), scroll (on, dy), or wait."
+      "description": "One pinned step of an act: exactly one of click, double_click, right_click, check, uncheck (a selector), type (into, text), key (a chord, with an optional focus), scroll (on, dy), choose (from, option), or wait."
     },
     "computerPinnedField": {
       "type": "object",

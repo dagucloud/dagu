@@ -391,7 +391,7 @@ func describeAction(action computeruse.Action) string {
 		}
 	case computeruse.KindScroll:
 		fmt.Fprintf(&b, " %d,%d", action.ScrollX, action.ScrollY)
-	case computeruse.KindType:
+	case computeruse.KindType, computeruse.KindChoose:
 		fmt.Fprintf(&b, " %q", action.Text)
 	case computeruse.KindKey, computeruse.KindHoldKey:
 		b.WriteString(" " + strings.Join(action.Keys, "+"))

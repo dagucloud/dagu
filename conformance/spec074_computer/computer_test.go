@@ -331,6 +331,34 @@ func TestComputerOutlineStep(t *testing.T) {
 	)
 }
 
+// A pinned choose step sets the elements window's payment method pop-up to
+// an option by name, which the window's status label reports, on a real
+// macOS or Windows desktop.
+func TestComputerChoosesAnOption(t *testing.T) {
+	if (runtime.GOOS != "windows" && runtime.GOOS != "darwin") || os.Getenv("DAGU_DESKTOP_E2E") != "1" {
+		t.Skip("set DAGU_DESKTOP_E2E=1 on an interactive macOS or Windows desktop to run")
+	}
+	dagu := harness.NewRunner(t).WithCommandTimeout(desktopCommandTimeout)
+	fixture := "choose.yaml"
+	t.Cleanup(func() {
+		if runtime.GOOS == "darwin" {
+			_ = exec.Command("pkill", "-f", "elements.js").Run()
+			return
+		}
+		_ = exec.Command("taskkill", "/F", "/FI", "WINDOWTITLE eq "+elementsWindowTitle).Run()
+	})
+	if runtime.GOOS == "darwin" {
+		fixture = "choose_macos.yaml"
+	}
+	result := dagu.Run("start", fixture)
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("stdout:\n%s\nstderr:\n%s", result.Stdout(), result.Stderr())
+		}
+	})
+	result.ExpectExitCode(0)
+}
+
 // closeTestWindow ends the test window and waits for its process to exit.
 func closeTestWindow(t *testing.T) {
 	t.Helper()
