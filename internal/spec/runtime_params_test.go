@@ -525,8 +525,7 @@ params:
 				WithParams("DAY_OF_WEEK=3 BLOCKLIST_FN=custom.netset"),
 			)
 			require.NoError(t, err)
-			assert.Equal(t, "3", dag.ParamsMap()["DAY_OF_WEEK"])
-			assert.Equal(t, "custom.netset", dag.ParamsMap()["BLOCKLIST_FN"])
+			assert.ElementsMatch(t, []string{"DAY_OF_WEEK=3", "BLOCKLIST_FN=custom.netset"}, dag.Params)
 
 			_, err = LoadYAML(context.Background(), yaml,
 				WithBaseConfigContent(baseConfig),

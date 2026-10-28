@@ -1057,6 +1057,9 @@ func composeBuildDAGContext(base, current *ir.DAG, currentSpec *dag) (*ir.DAG, e
 	if err := merge(effective, current); err != nil {
 		return nil, err
 	}
+	if len(base.Params) > 0 && len(current.Params) > 0 {
+		effective.Params = overrideInheritedParams(base.Params, current.Params)
+	}
 	applyHistoryRetentionOverride(effective, currentSpec.HistRetentionDays != nil, currentSpec.HistRetentionRuns != nil)
 	// Built-in defaults must not replace inherited values, while explicit
 	// false and empty values must be able to disable inherited behavior.
@@ -1077,6 +1080,27 @@ func composeBuildDAGContext(base, current *ir.DAG, currentSpec *dag) (*ir.DAG, e
 	}
 
 	return effective, nil
+}
+
+// overrideInheritedParams returns the base config params followed by the DAG's
+// own, leaving out base entries whose name the DAG sets again.
+func overrideInheritedParams(base, own []string) []string {
+	ownNames := make(map[string]struct{}, len(own))
+	for _, param := range own {
+		if name, _, ok := strings.Cut(param, "="); ok {
+			ownNames[name] = struct{}{}
+		}
+	}
+	params := make([]string, 0, len(base)+len(own))
+	for _, param := range base {
+		if name, _, ok := strings.Cut(param, "="); ok {
+			if _, overridden := ownNames[name]; overridden {
+				continue
+			}
+		}
+		params = append(params, param)
+	}
+	return append(params, own...)
 }
 
 func applyHistoryRetentionOverride(effective *ir.DAG, authoredDays, authoredRuns bool) {
