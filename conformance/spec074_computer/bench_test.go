@@ -36,7 +36,10 @@ import (
 //	DAGU_BENCH_OUT, a file the results are written to as JSON
 //
 // Each run asks the model (ai: every_run), so replays never hide how the
-// model does.
+// model does. A whole bench can outlast go test's default timeout of ten
+// minutes, so give it a longer one:
+//
+//	go test -timeout 120m -run TestComputerDesktopBench ./conformance/spec074_computer
 
 // benchTimeout bounds one run of a task, longer than a desktop command's,
 // since a weak model may take minutes.
@@ -113,10 +116,14 @@ func TestComputerDesktopBench(t *testing.T) {
 			continue
 		}
 		for run := 1; run <= runs; run++ {
-			result := runBenchTask(t, task, provider, model, env, secrets)
-			result.Run = run
-			t.Logf("%s #%d: success=%v actions=%d tokens=%d %.0fs strayed=%v %s", task.name, run, result.Success, result.Actions, result.Tokens, result.Seconds, result.Strayed, result.Reason)
-			results = append(results, result)
+			// Each run is a subtest of its own, so its windows close before
+			// the next run opens fresh ones.
+			t.Run(fmt.Sprintf("%s/%d", task.name, run), func(t *testing.T) {
+				result := runBenchTask(t, task, provider, model, env, secrets)
+				result.Run = run
+				t.Logf("success=%v actions=%d tokens=%d %.0fs strayed=%v %s", result.Success, result.Actions, result.Tokens, result.Seconds, result.Strayed, result.Reason)
+				results = append(results, result)
+			})
 		}
 	}
 	t.Log("\n" + benchTable(results))
@@ -287,5 +294,9 @@ func median(values []float64) float64 {
 	}
 	sorted := slices.Clone(values)
 	slices.Sort(sorted)
-	return sorted[len(sorted)/2]
+	middle := len(sorted) / 2
+	if len(sorted)%2 == 0 {
+		return (sorted[middle-1] + sorted[middle]) / 2
+	}
+	return sorted[middle]
 }
