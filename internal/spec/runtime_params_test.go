@@ -670,6 +670,35 @@ params:
 	}, dag.Params)
 }
 
+// A base config schema without properties still sets values the DAG inherits.
+func TestLoadYAML_BaseConfigSchemaValueOverride(t *testing.T) {
+	t.Parallel()
+
+	schemaPath := filepath.Join(t.TempDir(), "base.schema.json")
+	require.NoError(t, os.WriteFile(schemaPath, []byte(`{"type": "object"}`), 0o600))
+
+	baseConfig := []byte(`
+params:
+  schema: ` + schemaPath + `
+  values:
+    DAY_OF_WEEK: "5"
+`)
+
+	yaml := []byte(`
+name: base-schema-value-override
+params:
+  - name: BLOCKLIST_FN
+    default: et_block.netset
+`)
+
+	dag, err := LoadYAML(context.Background(), yaml,
+		WithBaseConfigContent(baseConfig),
+		WithParams("DAY_OF_WEEK=3"),
+	)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"DAY_OF_WEEK=3", "BLOCKLIST_FN=et_block.netset"}, dag.Params)
+}
+
 func TestResolveRuntimeParams_RejectsUnknownViaJSON_InlineTyped(t *testing.T) {
 	t.Parallel()
 

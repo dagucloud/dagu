@@ -194,15 +194,18 @@ func paramDeclarationsForPlan(plan *dagParamPlan) cmnvalue.Values {
 	return params
 }
 
-// inheritedParamNames returns the named params declared by the base config.
+// inheritedParamNames returns the named params the base config declares or
+// sets. A schema without properties sets values without declaring them.
 func inheritedParamNames(base *ir.DAG) map[string]struct{} {
-	declarations := base.ParamDeclarations()
-	if len(declarations) == 0 {
-		return nil
-	}
-	names := make(map[string]struct{}, len(declarations))
-	for name := range declarations {
+	names := make(map[string]struct{})
+	for name := range base.ParamDeclarations() {
 		names[name] = struct{}{}
+	}
+	for name := range base.ParamValues() {
+		names[name] = struct{}{}
+	}
+	if len(names) == 0 {
+		return nil
 	}
 	return names
 }
