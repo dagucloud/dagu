@@ -5,10 +5,14 @@ package persis_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -288,6 +292,67 @@ func TestRepositoryEnqueuesAgentSessionsBeforeRemovingDAGRun(t *testing.T) {
 		StepName:      "agent",
 		Generation:    2,
 	}}, enqueuer.resources)
+	assert.Equal(t, persis.DAGRunRemoveRequest{DAGRun: ref}, backend.removeRequest)
+}
+
+func TestRepositoryEnqueuesAgentSessionsOwnedByForeachBodySteps(t *testing.T) {
+	t.Parallel()
+
+	ref := ir.NewDAGRunRef("daily", "run-1")
+	stdout := filepath.Join(t.TempDir(), "each.out")
+	stepDir := logpath.ForeachStepDir(stdout, "each")
+	session := func(id string) *ir.AgentSession {
+		return &ir.AgentSession{
+			Provider: "opencode", SessionID: id, Directory: "/workspace",
+			OwnerWorkerID: "worker-1", SessionOwned: true, Generation: 1,
+		}
+	}
+	writeRecord := func(dir, name string, v any) {
+		t.Helper()
+		require.NoError(t, os.MkdirAll(dir, 0o750))
+		data, err := json.Marshal(v)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), data, 0o600))
+	}
+
+	// Item 0 holds a session and a nested foreach whose item holds another.
+	// Item 1 never ran, so it has no record.
+	writeRecord(stepDir, logpath.ForeachItemsFile, ir.ForeachItems{
+		Total: 2, Items: []ir.ForeachItemRef{{Index: 0, Key: "a"}, {Index: 1, Key: "b"}},
+	})
+	writeRecord(filepath.Join(stepDir, "0"), logpath.ForeachItemStatusFile, ir.ForeachItemStatus{
+		Status: ir.NodeSucceeded,
+		Steps: []ir.ForeachBodyStepStatus{
+			{Name: "body", AgentSession: session("body-session")},
+			{Name: "inner"},
+		},
+	})
+	nestedDir, err := logpath.ForeachParentDir(stepDir, logpath.ForeachNestedParent("0", "inner"))
+	require.NoError(t, err)
+	writeRecord(nestedDir, logpath.ForeachItemsFile, ir.ForeachItems{
+		Total: 1, Items: []ir.ForeachItemRef{{Index: 0, Key: "x"}},
+	})
+	writeRecord(filepath.Join(nestedDir, "0"), logpath.ForeachItemStatusFile, ir.ForeachItemStatus{
+		Status: ir.NodeSucceeded,
+		Steps:  []ir.ForeachBodyStepStatus{{Name: "leaf", AgentSession: session("nested-session")}},
+	})
+
+	events := []string{}
+	backend := &recordingDAGRunStore{
+		attempt: &testutil.MockAttempt{Status: &ir.DAGRunStatus{
+			Nodes: []*ir.Node{{Step: ir.Step{Name: "each", Foreach: &ir.ForeachConfig{}}, Stdout: stdout}},
+		}},
+		events: &events,
+	}
+	enqueuer := &recordingDAGRunRemovalEnqueuer{events: &events}
+	repository := persis.NewDAGRunRepository(backend, nil, persis.DAGRunRepositoryOptions{RemovalEnqueuer: enqueuer})
+
+	require.NoError(t, repository.RemoveDAGRun(context.Background(), ref, persis.DAGRunRemoveOptions{}))
+	assert.ElementsMatch(t, []ir.AgentSessionResource{
+		{Provider: "opencode", SessionID: "body-session", Directory: "/workspace", OwnerWorkerID: "worker-1", StepName: "body", Generation: 1},
+		{Provider: "opencode", SessionID: "nested-session", Directory: "/workspace", OwnerWorkerID: "worker-1", StepName: "leaf", Generation: 1},
+	}, enqueuer.resources)
+	assert.Equal(t, "enqueue", events[0], "sessions must be queued before the run is removed")
 	assert.Equal(t, persis.DAGRunRemoveRequest{DAGRun: ref}, backend.removeRequest)
 }
 
