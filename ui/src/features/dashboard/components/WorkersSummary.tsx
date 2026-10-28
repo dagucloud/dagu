@@ -163,7 +163,7 @@ function WorkersSummary({
                       {worker.id}
                     </div>
 
-                    <div className="flex flex-wrap gap-1">
+                    <div className="flex min-w-0 max-w-[50%] flex-wrap justify-end gap-1">
                       {worker.labels &&
                         Object.entries(worker.labels)
                           .sort(
@@ -171,21 +171,15 @@ function WorkersSummary({
                               Number(keyA === 'os' || keyA === 'arch') -
                               Number(keyB === 'os' || keyB === 'arch')
                           )
-                          .slice(0, 2)
                           .map(([key, value]) => (
                             <span
                               key={key}
-                              className="px-1.5 py-0.5 rounded text-xs font-medium bg-accent"
+                              className="max-w-full truncate px-1.5 py-0.5 rounded text-xs font-medium bg-accent"
+                              title={`${key}=${value}`}
                             >
                               {key}={value}
                             </span>
                           ))}
-                      {worker.labels &&
-                        Object.keys(worker.labels).length > 2 && (
-                          <span className="text-xs text-muted-foreground">
-                            +{Object.keys(worker.labels).length - 2}
-                          </span>
-                        )}
                     </div>
 
                     <div className="w-20 flex items-center gap-1">
