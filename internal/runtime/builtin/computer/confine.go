@@ -4,7 +4,6 @@
 package computer
 
 import (
-	"cmp"
 	"fmt"
 	"slices"
 	"strings"
@@ -45,9 +44,10 @@ func (r *run) worksIn(app string) bool {
 
 // foreign reports a window of an application the step does not work in,
 // which was on the screen when the step began. Until the step works in an
-// application, no window is.
+// application, no window is, nor is one whose application the host does not
+// name.
 func (r *run) foreign(w desktop.WindowID) bool {
-	return len(r.workApps) > 0 && w.Known() && r.present[w.Handle] && !r.worksIn(w.App)
+	return len(r.workApps) > 0 && w.Known() && w.App != "" && r.present[w.Handle] && !r.worksIn(w.App)
 }
 
 // offLimits reports a window the step never operates: one of the
@@ -64,7 +64,7 @@ func (r *run) offLimitsMessage(w desktop.WindowID) string {
 	if r.driver.Owned(w) {
 		return r.ownedMessage(w)
 	}
-	return fmt.Sprintf("that is a window of %s, which was open before this step and is not an app it works in; work in %s", cmp.Or(w.App, "another app"), strings.Join(r.workApps, ", "))
+	return fmt.Sprintf("that is a window of %s, which was open before this step and is not an app it works in; work in %s", w.App, strings.Join(r.workApps, ", "))
 }
 
 // homeApp is the application to bring back to the front: the one the step
