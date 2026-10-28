@@ -36,10 +36,12 @@ import (
 //	DAGU_BENCH_OUT, a file the results are written to as JSON
 //
 // Each run asks the model (ai: every_run), so replays never hide how the
-// model does. A whole bench can outlast go test's default timeout of ten
-// minutes, so give it a longer one:
+// model does. DAGU_BIN names the dagu binary to run, as for every
+// conformance test. A whole bench can outlast go test's default timeout of
+// ten minutes, -v shows the results of a bench that passes, and -count=1
+// runs the model again rather than reuse a cached result:
 //
-//	go test -timeout 120m -run TestComputerDesktopBench ./conformance/spec074_computer
+//	DAGU_BIN=/path/to/dagu go test -v -count=1 -timeout 120m -run TestComputerDesktopBench ./conformance/spec074_computer
 
 // benchTimeout bounds one run of a task, longer than a desktop command's,
 // since a weak model may take minutes.
@@ -117,12 +119,20 @@ func TestComputerDesktopBench(t *testing.T) {
 		}
 		for run := 1; run <= runs; run++ {
 			// Each run is a subtest of its own, so its windows close before
-			// the next run opens fresh ones.
+			// the next run opens fresh ones. A run that ends the subtest, as
+			// a command that times out does, still counts as a failure.
 			t.Run(fmt.Sprintf("%s/%d", task.name, run), func(t *testing.T) {
-				result := runBenchTask(t, task, provider, model, env, secrets)
-				result.Run = run
-				t.Logf("success=%v actions=%d tokens=%d %.0fs strayed=%v %s", result.Success, result.Actions, result.Tokens, result.Seconds, result.Strayed, result.Reason)
-				results = append(results, result)
+				began := time.Now()
+				result := benchRun{Task: task.name, Reason: "the run did not finish"}
+				defer func() {
+					result.Run = run
+					if result.Seconds == 0 {
+						result.Seconds = time.Since(began).Seconds()
+					}
+					t.Logf("success=%v actions=%d tokens=%d %.0fs strayed=%v %s", result.Success, result.Actions, result.Tokens, result.Seconds, result.Strayed, result.Reason)
+					results = append(results, result)
+				}()
+				result = runBenchTask(t, task, provider, model, env, secrets)
 			})
 		}
 	}
