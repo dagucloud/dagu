@@ -266,13 +266,18 @@ func TestSessionRehearsesEveryWrite(t *testing.T) {
 		writes = append(writes, g.press(opened.ID, name)...)
 	}
 	// The sync registers only once its service worker is ready, after the
-	// click reports back; a page left before then registers nothing.
+	// click reports back; a page left before then registers nothing. The
+	// worker sends it after that, so every command from here on may report
+	// it.
 	synced := g.session(`{"wait": {"selector": "body[data-sync=registered]"}}`, "do", opened.ID)
 	synced.ExpectExitCode(0)
 	writes = append(writes, decode(t, synced).Writes...)
-	g.session(fmt.Sprintf(`{"goto": %q}`, g.ledger.url+"/"), "do", opened.ID).ExpectExitCode(0)
+	reloaded := g.session(fmt.Sprintf(`{"goto": %q}`, g.ledger.url+"/"), "do", opened.ID)
+	reloaded.ExpectExitCode(0)
+	writes = append(writes, decode(t, reloaded).Writes...)
 	typed := g.session(`{"type": {"into": "`+g.find(opened.ID, "Password")+`", "text": "%pw%"}, "variables": {"pw": {"env": "LEDGER_PASSWORD"}}}`, "do", opened.ID)
 	typed.ExpectExitCode(0)
+	writes = append(writes, decode(t, typed).Writes...)
 	signedIn := g.session(`{"click": "`+g.find(opened.ID, "Sign in")+`"}`, "do", opened.ID)
 	signedIn.ExpectExitCode(0)
 	writes = append(writes, decode(t, signedIn).Writes...)
