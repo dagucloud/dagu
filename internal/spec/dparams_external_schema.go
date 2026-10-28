@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"reflect"
 	"sort"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -135,7 +136,7 @@ func resolveExternalSchemaEntries(plan *dagParamPlan, rawParams string, paramsLi
 		return nil, err
 	}
 
-	entries := keepUntypedValueText(entriesFromTypedMap(typedMap, plan.schemaOrder), append(basePairs, overridePairs...), plan.schemaProperties)
+	entries := keepUntypedValueText(entriesFromTypedMap(typedMap, plan.schemaOrder), typedMap, append(basePairs, overridePairs...), plan.schemaProperties)
 	return appendPassThroughEntries(entries, passThroughPairs), nil
 }
 
@@ -182,22 +183,28 @@ func schemaPairsToMap(pairs []paramPair, properties map[string]*jsonschema.Schem
 
 // keepUntypedValueText restores the supplied text of values the schema does not
 // type. Their decoded form only serves validation, and encoding it again would
-// change the value, such as 1.10 becoming 1.1.
-func keepUntypedValueText(entries []dagParamEntry, pairs []paramPair, properties map[string]*jsonschema.Schema) []dagParamEntry {
-	text := make(map[string]string, len(pairs))
+// change the value, such as 1.10 becoming 1.1. A value that validation filled
+// with schema defaults keeps its validated form so the defaults reach the run.
+func keepUntypedValueText(entries []dagParamEntry, validated map[string]any, pairs []paramPair, properties map[string]*jsonschema.Schema) []dagParamEntry {
+	supplied := make(map[string]string, len(pairs))
 	for _, pair := range pairs {
-		if pair.Name == "" {
-			continue
+		if pair.Name != "" {
+			supplied[pair.Name] = pair.Value
 		}
-		if _, typed := schemaScalarType(properties[pair.Name]); typed {
-			continue
-		}
-		text[pair.Name] = pair.Value
 	}
 	for i := range entries {
-		if value, ok := text[entries[i].Name]; ok {
-			entries[i].Value = value
+		name := entries[i].Name
+		text, ok := supplied[name]
+		if !ok {
+			continue
 		}
+		if _, typed := schemaScalarType(properties[name]); typed {
+			continue
+		}
+		if !reflect.DeepEqual(parseJSONLikeValue(text), validated[name]) {
+			continue
+		}
+		entries[i].Value = text
 	}
 	return entries
 }

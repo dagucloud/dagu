@@ -633,14 +633,20 @@ params:
 }
 
 // Values the schema does not type are decoded only for validation, so the
-// params keep the text the caller supplied.
+// params keep the text the caller supplied unless validation fills in defaults.
 func TestLoadYAML_OpenSchemaKeepsUntypedValueText(t *testing.T) {
 	t.Parallel()
 
 	schemaPath := filepath.Join(t.TempDir(), "params.schema.json")
 	require.NoError(t, os.WriteFile(schemaPath, []byte(`{
   "type": "object",
-  "properties": {"BLOCKLIST_FN": {"type": "string", "default": "et_block.netset"}},
+  "properties": {
+    "BLOCKLIST_FN": {"type": "string", "default": "et_block.netset"},
+    "CONFIG": {
+      "type": "object",
+      "properties": {"a": {"type": "integer"}, "b": {"type": "integer", "default": 2}}
+    }
+  },
   "additionalProperties": true
 }`), 0o600))
 
@@ -652,12 +658,15 @@ params:
     VERSION: "1.10"
 `)
 
-	dag, err := LoadYAML(context.Background(), yaml, WithParams("CUSTOMER_ID=12345678901234567"))
+	dag, err := LoadYAML(context.Background(), yaml,
+		WithParams(`CUSTOMER_ID=12345678901234567 CONFIG="{\"a\":1}"`),
+	)
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{
 		"BLOCKLIST_FN=et_block.netset",
 		"VERSION=1.10",
 		"CUSTOMER_ID=12345678901234567",
+		`CONFIG={"a":1,"b":2}`,
 	}, dag.Params)
 }
 

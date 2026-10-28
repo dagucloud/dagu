@@ -374,7 +374,7 @@ func buildExternalSchemaParamPlan(input any, workingDir, dagLocation string) (*d
 		schema:           resolvedSchema,
 		schemaOrder:      schemaOrder,
 		schemaProperties: schemaProperties,
-		entries:          keepUntypedValueText(entriesFromTypedMap(typedDefaults, schemaOrder), basePairs, schemaProperties),
+		entries:          keepUntypedValueText(entriesFromTypedMap(typedDefaults, schemaOrder), typedDefaults, basePairs, schemaProperties),
 	}
 
 	paramDefs, ok := deriveExternalSchemaParamDefs(root, typedDefaults)
