@@ -191,8 +191,9 @@ func (r *run) pressKeys(ctx context.Context, chord string) error {
 	return r.driver.PressKeys(ctx, keys, 1)
 }
 
-// shownText is text as the step's log and the model may read it: the
-// step's typed values as their placeholders and declared secrets masked.
+// shownText is text as the step's log and the model may read it: declared
+// secrets masked, then the step's typed values as their placeholders, so a
+// typed value within a secret never leaves the rest of it to be seen.
 func (r *run) shownText(text string) string {
-	return r.masker.MaskString(r.placeholderIn(text))
+	return r.placeholderIn(r.masker.MaskString(text))
 }
