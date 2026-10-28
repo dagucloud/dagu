@@ -65,6 +65,15 @@ type replayMiss struct {
 func (m replayMiss) Error() string { return "the act cannot run without AI: " + m.err.Error() }
 func (m replayMiss) Unwrap() error { return m.err }
 
+// releaseButtons releases, where the pointer rests, the buttons an act
+// pressed and never released, as when a refusal ends the turn before the
+// release, so none stays pressed past the act.
+func (r *run) releaseButtons(index int) {
+	if err := r.driver.ReleaseHeld(); err != nil {
+		logAction(r.timeline, index, "a pressed button was not released: "+err.Error())
+	}
+}
+
 func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Duration) error {
 	// Validation guarantees every reference names a variable or an earlier
 	// ask, so a missing value means that ask was skipped.
@@ -76,6 +85,7 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 	ctx, cancel := r.operationContext(ctx, timeout)
 	defer cancel()
 	defer r.during(ctx)()
+	defer r.releaseButtons(index)
 	began, before := time.Now(), r.usage
 
 	choice := r.cfg.actChoice(spec)

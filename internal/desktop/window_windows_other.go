@@ -7,10 +7,11 @@ package desktop
 
 // Window identity needs the 64-bit calling convention; elsewhere the system
 // does not say, and a step treats the focus as unknown.
-func (windowsBackend) FocusedWindow() WindowID    { return WindowID{} }
-func (windowsBackend) WindowAt(int, int) WindowID { return WindowID{} }
-func (windowsBackend) Windows() []WindowID        { return nil }
-func (windowsBackend) Raise(WindowID) error       { return nil }
+func (windowsBackend) FocusedWindow() WindowID      { return WindowID{} }
+func (windowsBackend) WindowAt(int, int) WindowID   { return WindowID{} }
+func (windowsBackend) Windows() []WindowID          { return nil }
+func (windowsBackend) ReachableWindows() []WindowID { return nil }
+func (windowsBackend) Raise(WindowID) error         { return nil }
 func (windowsBackend) Maximize(WindowID) (bool, error) {
 	return false, nil
 }

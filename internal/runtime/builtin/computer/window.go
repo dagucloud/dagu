@@ -208,7 +208,9 @@ const (
 // forward, is then the one the step works in; another application that
 // took the front first is not. A host that did not say which window was in
 // front before, or a launch whose window never comes to the front, goes on
-// as it is.
+// as it is. A launch naming none that brings forward a window the step
+// never operates, such as another application's a person had open, does
+// not make that application one the step works in.
 func (r *run) awaitLaunched(ctx context.Context, index int, spec launchSpec, before desktop.WindowID, wait time.Duration) error {
 	if !before.Known() {
 		return nil
@@ -219,11 +221,11 @@ func (r *run) awaitLaunched(ctx context.Context, index int, spec launchSpec, bef
 		w := r.driver.FocusedWindow()
 		named := app != "" && strings.EqualFold(w.App, app)
 		if w.Known() && (named || w.Handle != before.Handle) {
+			if (named && !r.driver.Owned(w)) || (app == "" && !r.offLimits(w)) {
+				r.trustWorkApp(w.App)
+			}
 			if named || app == "" {
 				r.noteWorkApp(w)
-				if !r.driver.Owned(w) {
-					r.trustWorkApp(w.App)
-				}
 			}
 			return nil
 		}

@@ -72,6 +72,11 @@ type fakeBackend struct {
 	windows []desktop.WindowID
 	raised  []desktop.WindowID
 	onRaise func(desktop.WindowID)
+	// reachable are the windows only ReachableWindows lists besides
+	// windows, such as a status item's.
+	reachable []desktop.WindowID
+	// released records the buttons released.
+	released []desktop.Button
 	// captures counts the screenshots taken.
 	captures int
 	// onPress runs on every left button press, so a test can make a click
@@ -536,6 +541,9 @@ func (b *fakeBackend) Position() (int, int, error) {
 
 func (b *fakeBackend) Button(button desktop.Button, down bool, clicks int) error {
 	if !down {
+		b.mu.Lock()
+		b.released = append(b.released, button)
+		b.mu.Unlock()
 		return nil
 	}
 	b.record(fmt.Sprintf("%s down #%d", button, clicks))
@@ -655,6 +663,12 @@ func (b *fakeBackend) Windows() []desktop.WindowID {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return append([]desktop.WindowID(nil), b.windows...)
+}
+
+func (b *fakeBackend) ReachableWindows() []desktop.WindowID {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append(append([]desktop.WindowID(nil), b.windows...), b.reachable...)
 }
 
 func (b *fakeBackend) Raise(w desktop.WindowID) error {

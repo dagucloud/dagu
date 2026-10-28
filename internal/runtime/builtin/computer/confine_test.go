@@ -97,3 +97,53 @@ func TestAStepBringsItsAppBackWhenAnotherComesForward(t *testing.T) {
 	require.NotEmpty(t, run.backend.raised)
 	assert.Equal(t, expenseApp.Handle, run.backend.raised[0].Handle, "the expense window came back")
 }
+
+// A window only a pointer reaches, such as another app's status item, that
+// was open before the step is kept out as the app's other windows are.
+func TestAStepNeverOperatesAStatusItemOpenBeforeIt(t *testing.T) {
+	t.Parallel()
+
+	statusItem := desktop.WindowID{Handle: 30, App: "Dropbox", Bounds: image.Rect(300, 0, 330, 24)}
+	run := confinedRun(t, statusItem)
+	run.backend.reachable = []desktop.WindowID{statusItem}
+	session := &scriptedSession{turns: []*computeruse.Turn{actions(clickAt(310, 10)), done("Stopped")}}
+	run.sessions = []*scriptedSession{session}
+	require.NoError(t, run.execute(`{"idle": "0", "maximize": false, "do": [{"expect": {"text": "保存しました"}}, {"act": "金額を確かめる"}]}`, nil).err)
+	assert.Empty(t, run.backend.inputs(), "nothing reached the status item")
+	assert.Contains(t, session.observations[1].Results[0].Error, "that is a window of Dropbox")
+}
+
+// A button the model pressed is released after the act where the pointer
+// rests, when a refusal ends its turn before the release.
+func TestAButtonPressedBeforeARefusalIsReleased(t *testing.T) {
+	t.Parallel()
+
+	run := confinedRun(t, terminal)
+	run.backend.pointer = image.Pt(100, 50)
+	session := &scriptedSession{turns: []*computeruse.Turn{
+		actions(
+			computeruse.Action{CallID: "d", Kind: computeruse.KindMouseDown, Button: "left"},
+			computeruse.Action{CallID: "m", Kind: computeruse.KindMove, Point: &computeruse.Point{X: 350, Y: 50}},
+			computeruse.Action{CallID: "u", Kind: computeruse.KindMouseUp, Button: "left"},
+		),
+		done("Stopped"),
+	}}
+	run.sessions = []*scriptedSession{session}
+	require.NoError(t, run.execute(`{"idle": "0", "maximize": false, "do": [{"expect": {"text": "保存しました"}}, {"act": "行を並べ替える"}]}`, nil).err)
+	require.Contains(t, session.observations[1].Results[1].Error, "that is a window of Terminal")
+	assert.Equal(t, []desktop.Button{desktop.ButtonLeft}, run.backend.released)
+}
+
+// A launch naming no app that brings forward another app's window, open
+// before the step, does not make that app one the step works in.
+func TestALaunchDoesNotTrustAnAppItDidNotOpen(t *testing.T) {
+	t.Parallel()
+
+	run := confinedRun(t, terminal)
+	run.backend.focusOn(expenseApp)
+	run.onLaunch = func() { run.backend.focusOn(terminal) }
+	session := &scriptedSession{turns: []*computeruse.Turn{actions(clickAt(350, 50)), done("Stopped")}}
+	run.sessions = []*scriptedSession{session}
+	require.NoError(t, run.execute(`{"idle": "0", "maximize": false, "do": [{"expect": {"text": "保存しました"}}, {"launch": "./export.sh"}, {"act": "金額を確かめる"}]}`, nil).err)
+	assert.Contains(t, session.observations[1].Results[0].Error, "that is a window of Terminal")
+}

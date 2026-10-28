@@ -7,6 +7,7 @@ package desktop
 
 import (
 	"image"
+	"slices"
 	"sync"
 	"syscall"
 	"unsafe"
@@ -78,14 +79,21 @@ var (
 		if visible, _, _ := procIsWindowVisible.Call(hwnd); visible == 0 {
 			return 1 // keep enumerating
 		}
-		if w := windowID(windows.HWND(hwnd)); w.Title != "" {
-			*enumOut = append(*enumOut, w)
-		}
+		*enumOut = append(*enumOut, windowID(windows.HWND(hwnd)))
 		return 1
 	})
 )
 
 func (windowsBackend) Windows() []WindowID {
+	return slices.DeleteFunc(visibleWindows(), func(w WindowID) bool { return w.Title == "" })
+}
+
+func (windowsBackend) ReachableWindows() []WindowID {
+	return visibleWindows()
+}
+
+// visibleWindows lists the visible top-level windows, titled or not.
+func visibleWindows() []WindowID {
 	// EnumWindows visits top-level windows front of the Z-order first, so
 	// the slice keeps that order.
 	enumMu.Lock()

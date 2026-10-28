@@ -21,10 +21,10 @@ import (
 // a page a link opens, is the step's to work in.
 
 // noteStartingWindows remembers the windows on the screen as the step
-// begins.
+// begins, every one a pointer action can land in.
 func (r *run) noteStartingWindows() {
 	r.present = map[uint64]bool{}
-	for _, w := range r.driver.Windows() {
+	for _, w := range r.driver.ReachableWindows() {
 		if w.Known() {
 			r.present[w.Handle] = true
 		}

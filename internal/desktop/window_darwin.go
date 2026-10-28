@@ -143,6 +143,19 @@ func (b *darwinBackend) Windows() []WindowID {
 	return out
 }
 
+// ReachableWindows lists the windows below the overlays, the front first,
+// all but the menu bar, which the window server draws for the front
+// application.
+func (b *darwinBackend) ReachableWindows() []WindowID {
+	var out []WindowID
+	for _, w := range b.listWindows() {
+		if w.layer < overlayWindowLayer && w.layer != mainMenuWindowLayer {
+			out = append(out, w.id)
+		}
+	}
+	return out
+}
+
 // WindowAt names the front window under a position, menus and the menu
 // bar included, and overlays and windows that let clicks through left out.
 func (b *darwinBackend) WindowAt(x, y int) WindowID {
