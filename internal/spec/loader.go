@@ -887,7 +887,7 @@ func prepareDocumentContext(ctx buildContext, baseDef, spec *dag) (buildContext,
 	}
 	ctx.baseDAG = baseDAG
 	ctx.baseDefaults = baseDefaults
-	ctx.baseParamNames = declaredParamNames(ctx, baseDef)
+	ctx.baseParamPlan = baseParamPlan(ctx, baseDef)
 	return ctx, baseDAG, nil
 }
 

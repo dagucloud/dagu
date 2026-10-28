@@ -31,9 +31,9 @@ type buildContext struct {
 	// baseDefaults contains decoded step defaults inherited from base config.
 	// They are merged with DAG-local defaults before building steps and handlers.
 	baseDefaults *defaults
-	// baseParamNames contains the named params the base config declares
-	// through explicit values or schema properties.
-	baseParamNames map[string]struct{}
+	// baseParamPlan describes the params the base config declares. Runtime
+	// overrides of them are validated against it.
+	baseParamPlan *dagParamPlan
 
 	// buildEnv is a temporary map used during ir.DAG building to pass env vars to params
 	// This is not serialized and is cleared after build completes

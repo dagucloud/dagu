@@ -49,9 +49,14 @@ func buildDAGParamsResult(ctx buildContext, d *dag) (*paramsResult, error) {
 	if err := finalizeDAGParamPlan(plan); err != nil {
 		return nil, err
 	}
-	plan.inheritedNames = ctx.baseParamNames
+	plan.inheritedNames = declaredParamNames(ctx.baseParamPlan)
 
 	resolveRuntimeParams := shouldResolveRuntimeParams(ctx)
+	if resolveRuntimeParams {
+		if err := validateInheritedOverrides(ctx, plan); err != nil {
+			return nil, err
+		}
+	}
 	defaultEntries := cloneParamEntries(plan.entries)
 	defaultPairs := runtimePairsFromEntries(defaultEntries)
 	finalPairs := defaultPairs
@@ -194,12 +199,20 @@ func paramDeclarationsForPlan(plan *dagParamPlan) cmnvalue.Values {
 	return params
 }
 
-// declaredParamNames returns the named params a definition declares through
-// explicit values or schema properties.
-func declaredParamNames(ctx buildContext, d *dag) map[string]struct{} {
-	plan, err := buildDAGParamPlan(ctx, d)
+// baseParamPlan returns the param plan of the base config definition.
+func baseParamPlan(ctx buildContext, baseDef *dag) *dagParamPlan {
+	plan, err := buildDAGParamPlan(ctx, baseDef)
 	if err != nil {
-		// Building the definition itself reports invalid params.
+		// Building the base config itself reports invalid params.
+		return nil
+	}
+	return plan
+}
+
+// declaredParamNames returns the named params a plan declares through
+// explicit values or schema properties.
+func declaredParamNames(plan *dagParamPlan) map[string]struct{} {
+	if plan == nil {
 		return nil
 	}
 	names := make(map[string]struct{})
@@ -212,6 +225,38 @@ func declaredParamNames(ctx buildContext, d *dag) map[string]struct{} {
 		return nil
 	}
 	return names
+}
+
+// validateInheritedOverrides checks runtime overrides of params that only the
+// base config declares against the base config's param schema. The DAG's own
+// resolution validates the names it declares itself.
+func validateInheritedOverrides(ctx buildContext, plan *dagParamPlan) error {
+	base := ctx.baseParamPlan
+	if base == nil || base.schema == nil || len(plan.inheritedNames) == 0 {
+		return nil
+	}
+
+	overridePairs, err := parseOverridePairs(ctx.opts.Parameters, ctx.opts.ParametersList)
+	if err != nil {
+		return err
+	}
+	declaredNames := declaredRuntimeParamNamesForPlan(plan)
+	inheritedPairs := make([]paramPair, 0, len(overridePairs))
+	for _, pair := range overridePairs {
+		if isDeclaredRuntimeParam(plan.inheritedNames, pair.Name) && !isDeclaredRuntimeParam(declaredNames, pair.Name) {
+			inheritedPairs = append(inheritedPairs, pair)
+		}
+	}
+	if len(inheritedPairs) == 0 {
+		return nil
+	}
+
+	values, err := schemaPairsToMap(inheritedPairs, base.schemaProperties, true)
+	if err != nil {
+		return err
+	}
+	_, err = validateSchemaMap(values, base.schema, true)
+	return err
 }
 
 func paramPlanHasEval(plan *dagParamPlan) bool {

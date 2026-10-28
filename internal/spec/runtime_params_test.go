@@ -533,6 +533,13 @@ params:
 			)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "regoin")
+
+			_, err = LoadYAML(context.Background(), yaml,
+				WithBaseConfigContent(baseConfig),
+				WithParams("DAY_OF_WEEK=abc"),
+			)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "DAY_OF_WEEK")
 		})
 	}
 }
@@ -700,7 +707,8 @@ params:
 }
 
 // A base config schema property without a value is still inherited, even when
-// the schema cannot be rendered as param definitions.
+// the schema cannot be rendered as param definitions, and overrides of it are
+// validated against the base config schema.
 func TestLoadYAML_BaseConfigSchemaPropertyOverride(t *testing.T) {
 	t.Parallel()
 
@@ -731,6 +739,13 @@ params:
 	)
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{"COUNT=2", "BLOCKLIST_FN=et_block.netset"}, dag.Params)
+
+	_, err = LoadYAML(context.Background(), yaml,
+		WithBaseConfigContent(baseConfig),
+		WithParams("COUNT=abc"),
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "COUNT")
 }
 
 func TestResolveRuntimeParams_RejectsUnknownViaJSON_InlineTyped(t *testing.T) {
