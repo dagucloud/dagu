@@ -159,27 +159,30 @@ function WorkersSummary({
 
                     <WorkerHealth healthStatus={worker.healthStatus} />
 
-                    <div className="flex-1 min-w-0 font-mono text-sm truncate">
-                      {worker.id}
-                    </div>
+                    {/* Labels take at most half of this column so the ID stays visible. */}
+                    <div className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
+                      <div className="min-w-0 font-mono text-sm truncate sm:flex-1">
+                        {worker.id}
+                      </div>
 
-                    <div className="flex min-w-0 max-w-[50%] flex-wrap justify-end gap-1">
-                      {worker.labels &&
-                        Object.entries(worker.labels)
-                          .sort(
-                            ([keyA], [keyB]) =>
-                              Number(keyA === 'os' || keyA === 'arch') -
-                              Number(keyB === 'os' || keyB === 'arch')
-                          )
-                          .map(([key, value]) => (
-                            <span
-                              key={key}
-                              className="max-w-full truncate px-1.5 py-0.5 rounded text-xs font-medium bg-accent"
-                              title={`${key}=${value}`}
-                            >
-                              {key}={value}
-                            </span>
-                          ))}
+                      <div className="flex min-w-0 flex-wrap gap-1 sm:max-w-[50%] sm:justify-end">
+                        {worker.labels &&
+                          Object.entries(worker.labels)
+                            .sort(
+                              ([keyA], [keyB]) =>
+                                Number(keyA === 'os' || keyA === 'arch') -
+                                Number(keyB === 'os' || keyB === 'arch')
+                            )
+                            .map(([key, value]) => (
+                              <span
+                                key={key}
+                                className="max-w-full truncate px-1.5 py-0.5 rounded text-xs font-medium bg-accent"
+                                title={`${key}=${value}`}
+                              >
+                                {key}={value}
+                              </span>
+                            ))}
+                      </div>
                     </div>
 
                     <div className="w-20 flex items-center gap-1">
