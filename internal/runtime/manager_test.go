@@ -763,6 +763,34 @@ steps:
 		require.Equal(t, "original-group", processes.attemptGroup)
 		attempt.AssertExpectations(t)
 	})
+	t.Run("GetSavedStatusKeepsRunThatStartsWaitingDuringTheRead", func(t *testing.T) {
+		// The run process writes Waiting and exits after its status is read as
+		// Running. A run parked for input has no process, so it is not stale.
+		ctx := th.Context
+		ref := ir.NewDAGRunRef("parked-dag", uuid.Must(uuid.NewV7()).String())
+		dag := &ir.DAG{Name: ref.Name}
+		running := testNewStatus(dag, ref.ID, ir.Running, ir.NodeRunning)
+		staleAt := time.Now().Add(-3 * time.Second)
+		running.StartedAt = stringutil.FormatTime(staleAt)
+		running.CreatedAt = staleAt.UnixMilli()
+		waiting := testNewStatus(dag, ref.ID, ir.Waiting, ir.NodeWaiting)
+
+		attempt := new(testutil.MockAttempt)
+		attempt.Test(t)
+		attempt.On("ReadStatus", ctx).Return(&running, nil).Once()
+		attempt.On("ReadDAG", ctx).Return(dag, nil).Once()
+		attempt.On("ReadStatus", ctx).Return(&waiting, nil).Once()
+		store := &managerDAGRunStore{rootAttempt: attempt}
+		repository := persis.NewDAGRunRepository(store, nil, persis.DAGRunRepositoryOptions{})
+		mgr := runtime.NewManager(repository, &managerProcessRepository{}, th.Config)
+
+		saved, err := mgr.GetSavedStatus(ctx, ref)
+
+		require.NoError(t, err)
+		require.Equal(t, ir.Waiting, saved.Status)
+		require.Equal(t, ir.NodeWaiting, saved.Nodes[0].Status)
+		attempt.AssertExpectations(t)
+	})
 	t.Run("GetLatestStatusKeepsFreshRunDuringStartupGrace", func(t *testing.T) {
 		dag := th.DAG(t, `steps:
   - name: "1"
