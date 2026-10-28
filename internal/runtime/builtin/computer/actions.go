@@ -37,7 +37,11 @@ func (r *run) performOne(ctx context.Context, index int, action computeruse.Acti
 	if replayable {
 		element, before = r.elementOf(display)
 	}
+	field, typing := r.typedField(action)
 	result := r.runAction(ctx, action, seen.toFull, &seen, limit)
+	if !result.Failed() && typing {
+		r.reportTyped(ctx, &result, field, action.Text)
+	}
 	if result.Failed() {
 		logAction(r.timeline, index, "  failed: "+result.Error)
 		return result, nil
