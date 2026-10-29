@@ -156,7 +156,7 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 	if !pinned && choice != aiEveryRun {
 		key = replayKey(index, spec.Instruction)
 		entry, ok := r.cache.Lookup(key)
-		switch {
+		switch unfit := r.unfit(spec.Instruction, entry); {
 		case !ok || len(entry.Turns) == 0:
 			if choice == aiNever {
 				return replayMiss{err: errors.New("there is no recording of it on this host"), via: agentstep.ViaScreen}
@@ -168,6 +168,15 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 			if choice == aiNever {
 				return replayMiss{err: errors.New("its recording on this host is from an older version and was ignored"), via: agentstep.ViaScreen}
 			}
+		case unfit != "":
+			// The recording is kept for runs with the value it fits; what
+			// the model does here replaces it, unless the model does
+			// nothing.
+			reason := fmt.Sprintf("its recording does nothing with %%%s%%, so it fits only the value %%%s%% had when it was recorded", unfit, unfit)
+			if choice == aiNever {
+				return replayMiss{err: errors.New(reason), via: agentstep.ViaScreen}
+			}
+			logAction(r.timeline, index, "not replayed: "+reason)
 		default:
 			findWithin, err := r.cfg.findWithin(spec, r.exec.findWithin)
 			if err != nil {
@@ -222,6 +231,7 @@ func (r *run) act(ctx context.Context, index int, spec actSpec, timeout time.Dur
 		if key == "" {
 			key = replayKey(index, spec.Instruction)
 		}
+		outcome.recording.Assumed = agentstep.Assume(unusedVariables(spec.Instruction, outcome.recording.Turns), r.variables)
 		r.cache.Stage(key, outcome.recording)
 	}
 	r.report(ctx, agentstep.Report{

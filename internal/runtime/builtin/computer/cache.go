@@ -76,6 +76,10 @@ type recording struct {
 	// the value from, so a later run reads it again with no model. An act
 	// has none; an extract has no turns.
 	Fields []fieldBinding `json:"fields,omitempty"`
+	// Assumed holds the values of the variables the act names that its
+	// actions never use, such as an item its list already showed, so the
+	// recording replays only where they still hold; see unfit.
+	Assumed *agentstep.Assumed `json:"assumed,omitempty"`
 	// System is the system the recording was made on, windows or macos,
 	// which keys its pinned form. SavedAt is when the run that made it ran.
 	System  string    `json:"system,omitempty"`
@@ -167,6 +171,31 @@ func openReplayCache(computerDir, dagName, stepKey string) *replayCache {
 func replayKey(index int, instruction string) string {
 	sum := sha256.Sum256([]byte(strconv.Itoa(index) + "\x00" + instruction))
 	return hex.EncodeToString(sum[:])
+}
+
+// unusedVariables returns the variables an act's instruction names that its
+// recorded turns never use: no action types or chooses the variable's
+// placeholder, nor finds its element by it.
+func unusedVariables(instruction string, turns []recordedTurn) []string {
+	var texts []string
+	for _, turn := range turns {
+		for _, rec := range turn.Actions {
+			texts = append(texts, rec.Action.Text)
+			if rec.Element != nil {
+				texts = append(texts, selectorTexts(rec.Element.Selector)...)
+			}
+		}
+	}
+	return agentstep.UnusedVariables(instruction, texts)
+}
+
+// unfit names a variable the act's instruction names that the recording
+// never uses and whose value is not the one it was recorded with, or
+// returns "" when the recording fits this run. Such a recording was made
+// where the screen already showed the value, as a field holding its
+// default, so a replay with another value would leave the field wrong.
+func (r *run) unfit(instruction string, entry recording) string {
+	return entry.Assumed.Unmet(unusedVariables(instruction, entry.Turns), r.variables)
 }
 
 // replayOutcome is how far a replay got.
