@@ -453,6 +453,16 @@ step on the same host replays them without a model request when the operation
 position, instruction, and page URL without query or fragment match, unless
 the act's choice is `every_run`. When a replay fails, the step asks the model
 again, or fails under `never` (see How much AI decides).
+An `act`'s recording replays only on a run its actions fit. A variable the
+instruction names that no recorded action uses, in its arguments, its
+element's name, or the row text that tells its element apart, such as a
+field the page already filled with the value, is kept with a salted digest
+of the value it had, never the value. A run in which such a variable holds
+another value does not replay: the model acts and its actions replace the
+recording, and under `never` the act fails with `its recording does nothing
+with %item%, so it fits only the value %item% had when it was recorded`. An
+approved commit act replays the actions a person approved, whatever the
+values.
 If the step succeeds, the model's new actions replace the recording; an act
 that records no actions, such as one whose click loaded a new document before
 it reported back, removes the recording instead, unless another run of the step

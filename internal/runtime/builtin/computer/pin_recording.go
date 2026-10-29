@@ -5,6 +5,7 @@ package computer
 
 import (
 	"encoding/json"
+	"maps"
 	"math"
 	"slices"
 	"strings"
@@ -34,6 +35,10 @@ type PinnedOperation struct {
 	Fields map[string]pinnedField `json:"fields,omitempty"`
 	// Unpinnable lists an act's recorded actions that have no pinned form.
 	Unpinnable []UnpinnableAction `json:"unpinnable,omitempty"`
+	// Assumes names the variables the act's instruction names that its
+	// recorded actions never use, such as an item its list already showed:
+	// pinned, the steps leave each as a run finds it, whatever its value.
+	Assumes []string `json:"assumes,omitempty"`
 }
 
 // UnpinnableAction is a recorded action with no pinned form and why: Code
@@ -97,6 +102,9 @@ func PinRecording(entry json.RawMessage) (PinnedOperation, bool) {
 	case len(rec.Turns) > 0:
 		pinned.Kind = opAct
 		pinned.Recorded, pinned.Unpinnable = pinAct(rec.Turns)
+		if rec.Assumed != nil {
+			pinned.Assumes = slices.Sorted(maps.Keys(rec.Assumed.Digests))
+		}
 	case len(rec.Fields) > 0:
 		pinned.Kind = opExtract
 		pinned.Fields = pinFields(rec.Fields)

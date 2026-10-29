@@ -130,7 +130,8 @@ on the command line. A value given as `{"env": NAME}` is read from the
 environment on that command and every later one, which then require it,
 and is masked like a secret in everything the session reports. A literal
 value serves its own command only and is not masked. No value is ever kept
-in the session's state. An instruction that holds a secret value is
+in the session's state, only the salted digest of one an act's actions
+never used. An instruction that holds a secret value is
 refused, and an act whose recorded actions hold a variable's value is not
 exported for replay.
 
@@ -174,7 +175,9 @@ Unless `--dry-run` is given, export writes the recordings of the acts and
 uploads to the replay cache of the named DAG and step on this host, keyed by
 their places in the step's `with.do`, so the step's first run replays them
 without a model request when it meets the pages the session met, and heals
-as usual when it does not. Export runs the checks the step gets when its DAG
+as usual when it does not. An act whose actions never used a variable its
+instruction names keeps a salted digest of the value the session gave it,
+so the step replays it only while that variable has that value (Spec 072). Export runs the checks the step gets when its DAG
 loads and warns about an act or upload with no recording, about a page
 reached outside the exported operations, and about each upload, whose files
 are those the session was given until the step names what each run

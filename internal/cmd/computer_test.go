@@ -100,6 +100,33 @@ recorded:
 	assert.Equal(t, "No computer recordings for step \"missing\" of DAG \"invoices\"\n", out)
 }
 
+// A recording that never used a variable its task names, as one made where
+// a field already showed the value, says so beside its pin, since the pinned
+// steps would leave that field alone for every value.
+func TestComputerCacheShowNamesWhatAPinLeavesAlone(t *testing.T) {
+	t.Parallel()
+
+	th := test.SetupCommand(t)
+	writeComputerRecordings(t, th, "invoices", "post", map[string]string{
+		"save": `{"op": 0, "version": 4, "system": "macos", "assumed": {"salt": "s", "digests": {"qty": "d1", "item": "d2"}}, "turns": [{"actions": [{"action": {"kind": "key", "keys": ["cmd", "s"]}}]}]}`,
+	})
+
+	out, err := runCommand(th, cmd.Computer(), "computer", "cache", "show", "invoices", "--step", "post", "--format", "json")
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"operations": [
+		{"step": "post", "op": 1, "kind": "act", "system": "macos", "recorded": [{"key": "cmd+s"}], "assumes": ["item", "qty"]}
+	]}`, out)
+
+	out, err = runCommand(th, cmd.Computer(), "computer", "cache", "show", "invoices", "--step", "post")
+	require.NoError(t, err)
+	assert.Equal(t, `Step "post", task 1 (act):
+# The steps never use %item%, %qty%, which the task names; pinned, they leave each as a run finds it, whatever its value.
+recorded:
+  macos:
+  - key: cmd+s
+`, out)
+}
+
 func TestComputerCacheShowInvalidInput(t *testing.T) {
 	t.Parallel()
 
