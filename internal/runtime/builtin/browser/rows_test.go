@@ -5,8 +5,12 @@ package browser
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/browserhost"
+	"github.com/dagucloud/dagu/v2/internal/cmn/replaycache"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -90,4 +94,26 @@ func TestARecordingThatFindsItsElementByAValueFitsEveryValue(t *testing.T) {
 	identifyOn(rowsPage("Alpha", "Beta"), other, map[string]string{"customer": "Gamma"})
 	rec = recordAct(instruction, other, map[string]string{"customer": "Gamma"})
 	assert.Equal(t, "customer", unfit(instruction, rec, map[string]string{"customer": "Delta"}), "a row that did not show the customer is not found by it")
+}
+
+// A cache an older engine wrote keeps each recording as a bare list of
+// actions. It still replays where its actions use every variable the act
+// names, and one that cannot say what it assumed is not replayed.
+func TestARecordingKeptAsAListReplays(t *testing.T) {
+	t.Parallel()
+
+	const pageURL = "https://shop.example.com/orders/new"
+	run := newTestRun(t, pageModel(nil))
+	path := replaycache.New(filepath.Join(run.dataDir, browserhost.DataDirName)).Path("orders", "shop")
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
+	require.NoError(t, os.WriteFile(path, fmt.Appendf(nil, `{%q: [{"selector": "xpath=/html/body/button", "method": "click"}], %q: [{"selector": "xpath=/html/body/input", "method": "fill", "arguments": ["%%item%%"]}]}`,
+		replayKey(0, "Choose %item% as the item and add it", pageURL), replayKey(0, "Type %item% into the item field", pageURL)), 0o600))
+
+	filled := run.execute(`{"url": "`+pageURL+`", "variables": {"item": "Toner T-20"}, "do": [{"act": "Type %item% into the item field"}]}`, nil)
+	require.NoError(t, filled.err)
+	assert.Equal(t, []string{"goto:completed", "act:cache-hit"}, eventNames(filled.exec.GetAgentSession()))
+
+	chosen := run.execute(itemStep(aiOnMiss, "Toner T-20"), nil)
+	require.NoError(t, chosen.err)
+	assert.Equal(t, []string{"goto:completed", "act:completed"}, eventNames(chosen.exec.GetAgentSession()), "the act that never used %item% asks the model")
 }

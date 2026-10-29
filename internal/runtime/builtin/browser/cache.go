@@ -4,8 +4,10 @@
 package browser
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"net/url"
 	"strconv"
 
@@ -29,6 +31,17 @@ type recording struct {
 	// actions never use, such as a field that already showed the value, so
 	// the recording replays only where they still hold; see unfit.
 	Assumed *agentstep.Assumed `json:"assumed,omitempty"`
+}
+
+// UnmarshalJSON reads a recording, or the bare list of actions an older
+// engine kept for one, which notes nothing its actions assumed.
+func (r *recording) UnmarshalJSON(data []byte) error {
+	if trimmed := bytes.TrimSpace(data); len(trimmed) > 0 && trimmed[0] == '[' {
+		*r = recording{}
+		return json.Unmarshal(trimmed, &r.Actions)
+	}
+	type plain recording
+	return json.Unmarshal(data, (*plain)(r))
 }
 
 // recordAct is the recording of an act's actions, run with values, which
