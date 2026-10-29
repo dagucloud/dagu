@@ -276,6 +276,32 @@ func TestDarwinElementInASheet(t *testing.T) {
 	assert.Equal(t, choice.Path, focused.Path, "the combo box asked for has the focus")
 }
 
+// A combo box opens its list when asked to, not its text's context menu,
+// and a list open already stays open. One that cannot be told to open
+// opens by its button.
+func TestDarwinComboBoxList(t *testing.T) {
+	backend, els := e2eElements(t)
+	_, outline := formSheet(t, els)
+	choice := outlined(t, outline, RoleComboBox, "Dagu form choice")
+	open := func() bool {
+		rows, err := els.Find(Selector{Role: RoleGroup, Name: "Beta", In: &Selector{Role: RoleComboBox, Name: "Dagu form choice"}})
+		return err == nil && len(rows) == 1
+	}
+	require.NoError(t, els.Apply(choice, PatternExpand, ""))
+	require.Eventually(t, open, 3*time.Second, 100*time.Millisecond, "the list did not open")
+	require.NoError(t, els.Apply(choice, PatternExpand, ""))
+	assert.Never(t, func() bool { return !open() }, 500*time.Millisecond, 100*time.Millisecond, "the open list closed")
+
+	require.NoError(t, backend.Key(KeyEscape, true))
+	require.NoError(t, backend.Key(KeyEscape, false))
+	require.Eventually(t, func() bool { return !open() }, 3*time.Second, 100*time.Millisecond, "the list did not close")
+	ref, err := els.(*axElements).locate(choice)
+	require.NoError(t, err)
+	defer cfRelease(ref)
+	require.NoError(t, pressButtonIn(ref))
+	require.Eventually(t, open, 3*time.Second, 100*time.Millisecond, "the button did not open the list")
+}
+
 func TestDarwinElementUnderSkippedParent(t *testing.T) {
 	_, els := e2eElements(t)
 	window := fixtureWindow(t, els, filepath.Join("testdata", "skipped.js"), skippedWindowTitle)
@@ -352,6 +378,12 @@ func TestDarwinDirectInput(t *testing.T) {
 		credit, err = els.Find(Selector{Role: RoleMenuItem, Name: "クレジット"})
 		return err == nil && len(credit) == 1
 	}, 3*time.Second, 100*time.Millisecond, "the popup's menu did not open")
+	// A menu open already stays open when asked to open.
+	require.NoError(t, els.Apply(byID["methodBox"], PatternExpand, ""))
+	assert.Never(t, func() bool {
+		items, err := els.Find(Selector{Role: RoleMenuItem, Name: "クレジット"})
+		return err != nil || len(items) == 0
+	}, 500*time.Millisecond, 100*time.Millisecond, "the popup's open menu closed")
 	require.NoError(t, els.Apply(credit[0], PatternInvoke, ""))
 	expectStatus("支払方法: クレジット")
 	assert.Eventually(t, func() bool {
@@ -462,6 +494,9 @@ func TestDarwinChromiumListBox(t *testing.T) {
 	}
 	centre := box[0].Bounds.Min.Add(box[0].Bounds.Size().Div(2))
 	open(box[0])
+	option("みかん", "fruit")
+	// An open list box stays open when asked to open.
+	require.NoError(t, els.Apply(box[0], PatternExpand, ""))
 	orange := []Element{option("みかん", "fruit")}
 
 	// The open menu shows the chosen option over the box; it is read as the

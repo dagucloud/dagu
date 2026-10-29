@@ -61,7 +61,8 @@ const (
 	PatternToggle Pattern = "toggle"
 	// PatternSelect selects a radio button, list item, tab, or cell.
 	PatternSelect Pattern = "select"
-	// PatternExpand opens a combo box or another collapsed element.
+	// PatternExpand opens a combo box or another collapsed element, and
+	// leaves one already open as it is.
 	PatternExpand Pattern = "expand"
 	// PatternSetValue replaces the text of a field.
 	PatternSetValue Pattern = "set_value"

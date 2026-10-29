@@ -917,23 +917,30 @@ func perform(ref uintptr, pattern Pattern, value string) error {
 		}
 		return act(ref, "AXPress")
 	case PatternExpand:
-		// A pop-up button opens its menu when pressed. On Chromium's list
-		// box AXShowMenu opens the page's context menu instead, and a
-		// recent Chromium offers no press, so such a box is opened on the
-		// screen.
-		if axString(ref, "AXRole") == "AXPopUpButton" {
+		// An element already open stays open: pressing an AppKit pop-up
+		// button again closes its menu.
+		if axOpen(ref) {
+			return nil
+		}
+		// AXShowMenu opens a context menu, not the element's options: an
+		// AppKit combo box's text menu, or the page's on Chromium's list
+		// box. A pop-up button opens its menu when pressed, and a recent
+		// Chromium offers no press, so such a box is opened on the screen.
+		// A combo box that cannot be told to open is opened by its button.
+		role := axString(ref, "AXRole")
+		if role == "AXPopUpButton" {
 			if !slices.Contains(actions, "AXPress") {
 				return ErrNoPattern
 			}
 			return act(ref, "AXPress")
 		}
 		switch {
-		case slices.Contains(actions, "AXShowMenu"):
-			return act(ref, "AXShowMenu")
 		case axSettable(ref, "AXExpanded"):
 			return axSet(ref, "AXExpanded", cfBooleanTrue)
 		case slices.Contains(actions, "AXPress"):
 			return act(ref, "AXPress")
+		case role == "AXComboBox":
+			return pressButtonIn(ref)
 		}
 		return errLeaf
 	case PatternSetValue:
@@ -954,6 +961,40 @@ func perform(ref uintptr, pattern Pattern, value string) error {
 	default:
 		return fmt.Errorf("unknown pattern %q", pattern)
 	}
+}
+
+// axOpen reports whether an element shows what it opens. A combo box and
+// Chromium's list box say so; an AppKit pop-up button holds its menu only
+// while the menu is open.
+func axOpen(ref uintptr) bool {
+	if expanded, ok := axBool(ref, "AXExpanded"); ok {
+		return expanded
+	}
+	if axString(ref, "AXRole") != "AXPopUpButton" {
+		return false
+	}
+	children := axCopy(ref, "AXChildren")
+	if children == 0 {
+		return false
+	}
+	defer cfRelease(children)
+	return slices.ContainsFunc(cfArray(children), func(child uintptr) bool { return axString(child, "AXRole") == "AXMenu" })
+}
+
+// pressButtonIn presses the button an element holds, such as a combo box's
+// button that opens its list.
+func pressButtonIn(ref uintptr) error {
+	children := axCopy(ref, "AXChildren")
+	if children == 0 {
+		return ErrNoPattern
+	}
+	defer cfRelease(children)
+	for _, child := range cfArray(children) {
+		if axString(child, "AXRole") == "AXButton" && slices.Contains(axActions(child), "AXPress") {
+			return act(child, "AXPress")
+		}
+	}
+	return ErrNoPattern
 }
 
 // chooseOption chooses an option of a Chromium list box's open menu with
