@@ -98,7 +98,8 @@ func TestARecordingThatFindsItsElementByAValueFitsEveryValue(t *testing.T) {
 
 // A cache an older engine wrote keeps each recording as a bare list of
 // actions. It still replays where its actions use every variable the act
-// names, and one that cannot say what it assumed is not replayed.
+// names, and one that cannot say what it assumed is not replayed. A later
+// run's recording is written beside it, not over it.
 func TestARecordingKeptAsAListReplays(t *testing.T) {
 	t.Parallel()
 
@@ -109,11 +110,16 @@ func TestARecordingKeptAsAListReplays(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, fmt.Appendf(nil, `{%q: [{"selector": "xpath=/html/body/button", "method": "click"}], %q: [{"selector": "xpath=/html/body/input", "method": "fill", "arguments": ["%%item%%"]}]}`,
 		replayKey(0, "Choose %item% as the item and add it", pageURL), replayKey(0, "Type %item% into the item field", pageURL)), 0o600))
 
-	filled := run.execute(`{"url": "`+pageURL+`", "variables": {"item": "Toner T-20"}, "do": [{"act": "Type %item% into the item field"}]}`, nil)
+	const fills = `{"url": "` + pageURL + `", "variables": {"item": "Toner T-20"}, "do": [{"act": "Type %item% into the item field"}]}`
+	filled := run.execute(fills, nil)
 	require.NoError(t, filled.err)
 	assert.Equal(t, []string{"goto:completed", "act:cache-hit"}, eventNames(filled.exec.GetAgentSession()))
 
 	chosen := run.execute(itemStep(aiOnMiss, "Toner T-20"), nil)
 	require.NoError(t, chosen.err)
 	assert.Equal(t, []string{"goto:completed", "act:completed"}, eventNames(chosen.exec.GetAgentSession()), "the act that never used %item% asks the model")
+
+	again := run.execute(fills, nil)
+	require.NoError(t, again.err)
+	assert.Equal(t, []string{"goto:completed", "act:cache-hit"}, eventNames(again.exec.GetAgentSession()), "the old recording outlives the new one's commit")
 }
