@@ -169,6 +169,12 @@ func (p *Provider) buildRequestBody(req *llm.ChatRequest, stream bool) ([]byte, 
 	if len(req.Stop) > 0 {
 		chatReq.Stop = req.Stop
 	}
+	// allow_fallbacks keeps OpenRouter's default. The account's data policy
+	// still filters every fallback endpoint, and refusing fallbacks would
+	// fail the request whenever the named endpoints are unavailable.
+	if len(p.config.ProviderOrder) > 0 {
+		chatReq.Provider = &providerPreferences{Order: p.config.ProviderOrder}
+	}
 
 	// Add reasoning configuration if enabled
 	// OpenRouter normalizes reasoning across different providers
@@ -369,6 +375,14 @@ type chatCompletionRequest struct {
 	ToolChoice       any               `json:"tool_choice,omitempty"`
 	Plugins          []plugin          `json:"plugins,omitempty"`
 	WebSearchOptions *webSearchOptions `json:"web_search_options,omitempty"`
+	// Provider routes the request among the upstream providers serving the
+	// model.
+	Provider *providerPreferences `json:"provider,omitempty"`
+}
+
+// providerPreferences is OpenRouter's provider routing object.
+type providerPreferences struct {
+	Order []string `json:"order"`
 }
 
 // plugin represents an OpenRouter plugin configuration.

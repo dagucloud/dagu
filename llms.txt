@@ -1369,6 +1369,8 @@ steps:
 
 Send a prompt to a model and print the reply. `with.prompt` (or `with.messages`) is required; every other `with` key (`provider`, `model`, `system`, `tools`, `max_tool_iterations`, `stream`, `thinking`, `web_search`, `files`) configures the model and replaces the DAG-level `llm` block entirely. `with.model` can be a list of `{provider, name}` entries tried in order.
 
+With `provider: openrouter`, `provider_order` lists the upstream providers OpenRouter tries first, such as `[azure/eu]`; a `with.model` entry can set its own. OpenRouter can pass over an endpoint, such as one with a regional surcharge, unless the request names it, so an account limited to zero-data-retention endpoints may need it to reach some models. Other providers refuse `provider_order`. Every `llm` block takes it, including the DAG-level one and `with.llm` of `browser.run` and `computer.run`.
+
 `with.files` gives the model files to read with the prompt: a path or glob pattern, a list of them, or a list an earlier step published, such as the emails `mail.search` found with `save_attachments: true`. PDF, Word (`.docx`), Excel (`.xlsx`) and text files go as text ahead of the prompt, each in a `<file name="…">` block; images go as images, scaled down to fit a model; and a PDF page without text, such as a scan, goes as an image too. Up to 50 MB a file, 1,000,000 characters of text and 50 images a step. Read a document into typed values with `output_schema`:
 
 ```yaml

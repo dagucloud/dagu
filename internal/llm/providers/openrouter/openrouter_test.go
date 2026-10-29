@@ -7,6 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -365,6 +367,45 @@ func TestBuildRequestBody_ReasoningEffort(t *testing.T) {
 			var parsed map[string]any
 			require.NoError(t, json.Unmarshal(body, &parsed))
 			assert.Equal(t, tt.expected, parsed["reasoning"])
+		})
+	}
+}
+
+// A configured provider order reaches OpenRouter as its provider routing
+// object; without one the request leaves routing to OpenRouter.
+func TestChatProviderOrder(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name  string
+		order []string
+		want  any
+	}{
+		{name: "set", order: []string{"azure/eu", "openai"}, want: map[string]any{"order": []any{"azure/eu", "openai"}}},
+		{name: "unset"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			bodies := make(chan map[string]any, 1)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body map[string]any
+				assert.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+				bodies <- body
+				_, _ = io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
+			}))
+			defer server.Close()
+
+			provider, err := New(llm.Config{APIKey: "test-key", BaseURL: server.URL, ProviderOrder: tc.order})
+			require.NoError(t, err)
+			_, err = provider.Chat(context.Background(), &llm.ChatRequest{
+				Model:    "openai/gpt-6.1-terra",
+				Messages: []llm.Message{{Role: llm.RoleUser, Content: "Hello"}},
+			})
+			require.NoError(t, err)
+
+			routing, ok := (<-bodies)["provider"]
+			assert.Equal(t, tc.want != nil, ok)
+			assert.Equal(t, tc.want, routing)
 		})
 	}
 }

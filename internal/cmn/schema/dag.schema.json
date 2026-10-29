@@ -6588,6 +6588,11 @@
       ],
       "description": "LLM provider name. Supports value references such as ${params.PROVIDER} resolved when the step runs."
     },
+    "llmProviderOrder": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "OpenRouter upstream providers to try first, in order, such as [azure/eu]. A model entry's provider_order replaces the shared one. Only the openrouter provider accepts it."
+    },
     "llmConfig": {
       "type": "object",
       "additionalProperties": false,
@@ -6611,7 +6616,8 @@
                   "max_tokens": { "type": "integer" },
                   "top_p": { "type": "number" },
                   "base_url": { "type": "string" },
-                  "api_key_name": { "type": "string" }
+                  "api_key_name": { "type": "string" },
+                  "provider_order": { "$ref": "#/definitions/llmProviderOrder" }
                 }
               }
             }
@@ -6646,6 +6652,9 @@
         "api_key_name": {
           "type": "string",
           "description": "Name of the environment variable containing the API key. If not specified, the default for the provider is used (e.g., OPENAI_API_KEY)."
+        },
+        "provider_order": {
+          "$ref": "#/definitions/llmProviderOrder"
         },
         "stream": {
           "type": "boolean",

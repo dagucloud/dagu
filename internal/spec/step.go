@@ -313,6 +313,9 @@ type llmConfig struct {
 	// APIKeyName is the name of the environment variable containing the API key.
 	// If not specified, the default environment variable for the provider is used.
 	APIKeyName string `yaml:"api_key_name,omitempty"`
+	// ProviderOrder names the upstream providers OpenRouter tries first, in
+	// order. Only the openrouter provider accepts it.
+	ProviderOrder []string `yaml:"provider_order,omitempty"`
 	// Stream enables or disables streaming output.
 	// Default is true.
 	Stream *bool `yaml:"stream,omitempty"`
@@ -2715,6 +2718,9 @@ func llmConfigOf(cfg *llmConfig) (*ir.LLMConfig, error) {
 	if err := validateAgentLLMLimits(cfg, false); err != nil {
 		return nil, err
 	}
+	if err := validateProviderOrder(cfg, models); err != nil {
+		return nil, err
+	}
 
 	// Validate top_p range
 	if cfg.TopP != nil {
@@ -2739,6 +2745,7 @@ func llmConfigOf(cfg *llmConfig) (*ir.LLMConfig, error) {
 		TopP:              cfg.TopP,
 		BaseURL:           cfg.BaseURL,
 		APIKeyName:        cfg.APIKeyName,
+		ProviderOrder:     cfg.ProviderOrder,
 		Stream:            cfg.Stream,
 		Thinking:          thinking,
 		Tools:             cfg.Tools,
@@ -2806,6 +2813,39 @@ func validateLLMProvider(provider string) error {
 	return err
 }
 
+// validateProviderOrder refuses provider_order for a model whose provider is
+// not openrouter, the one provider that routes among upstream providers. A
+// model entry's own provider_order replaces the shared one. A provider that
+// carries a value reference is checked once the step resolves it.
+func validateProviderOrder(cfg *llmConfig, models []ir.ModelEntry) error {
+	if len(models) == 0 {
+		return requireOpenRouter("llm.provider_order", cfg.ProviderOrder, cfg.Provider)
+	}
+	for i, model := range models {
+		path, order := "llm.provider_order", cfg.ProviderOrder
+		if len(model.ProviderOrder) > 0 {
+			path, order = fmt.Sprintf("llm.model[%d].provider_order", i), model.ProviderOrder
+		}
+		if err := requireOpenRouter(path, order, model.Provider); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// requireOpenRouter refuses an order for a provider other than openrouter. A
+// missing provider is left to the check that requires one.
+func requireOpenRouter(path string, order []string, provider string) error {
+	if len(order) == 0 || provider == "" || cmnvalue.HasValueReference(provider) {
+		return nil
+	}
+	if providerType, _ := llm.ParseProviderType(provider); providerType == llm.ProviderOpenRouter {
+		return nil
+	}
+	return ir.NewValidationError(path, order,
+		fmt.Errorf("provider_order is only supported by the openrouter provider, not %q", provider))
+}
+
 // convertModelEntries converts types.ModelEntry slice to ir.ModelEntry slice with validation.
 func convertModelEntries(entries []types.ModelEntry) ([]ir.ModelEntry, error) {
 	models := make([]ir.ModelEntry, len(entries))
@@ -2814,13 +2854,14 @@ func convertModelEntries(entries []types.ModelEntry) ([]ir.ModelEntry, error) {
 			return nil, ir.NewValidationError(fmt.Sprintf("llm.model[%d].provider", i), e.Provider, err)
 		}
 		models[i] = ir.ModelEntry{
-			Provider:    e.Provider,
-			Name:        e.Name,
-			Temperature: e.Temperature,
-			MaxTokens:   e.MaxTokens,
-			TopP:        e.TopP,
-			BaseURL:     e.BaseURL,
-			APIKeyName:  e.APIKeyName,
+			Provider:      e.Provider,
+			Name:          e.Name,
+			Temperature:   e.Temperature,
+			MaxTokens:     e.MaxTokens,
+			TopP:          e.TopP,
+			BaseURL:       e.BaseURL,
+			APIKeyName:    e.APIKeyName,
+			ProviderOrder: e.ProviderOrder,
 		}
 	}
 	return models, nil

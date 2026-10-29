@@ -2845,6 +2845,9 @@ func buildLLM(_ buildContext, d *dag) (*ir.LLMConfig, error) {
 	if err := validateAgentLLMLimits(cfg, canonicalDAGType(d.Type) == ir.TypeAgent); err != nil {
 		return nil, err
 	}
+	if err := validateProviderOrder(cfg, models); err != nil {
+		return nil, err
+	}
 	// The files a model reads belong with the prompt that asks about them.
 	if !cfg.Files.IsZero() {
 		return nil, ir.NewValidationError("llm.files", cfg.Files.Value(),
@@ -2871,6 +2874,7 @@ func buildLLM(_ buildContext, d *dag) (*ir.LLMConfig, error) {
 		Tools:       cfg.Tools,
 		WebSearch:   buildWebSearchConfig(cfg.WebSearch),
 
+		ProviderOrder:         cfg.ProviderOrder,
 		MaxToolIterations:     cfg.MaxToolIterations,
 		MaxContextTokens:      cfg.MaxContextTokens,
 		ObservationMaxBytes:   cfg.ObservationMaxBytes,

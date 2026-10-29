@@ -16,12 +16,16 @@ import (
 )
 
 // NewLLMProvider builds an LLM provider from a resolved DAG or step LLM config.
-// The API key and base URL are evaluated against the current runtime env.
+// The API key and base URL are evaluated against the current runtime env. A
+// config with a provider order is refused unless its provider is openrouter.
 func NewLLMProvider(ctx context.Context, cfg *ir.LLMConfig) (llmpkg.Provider, error) {
 	providerType, err := llmpkg.ParseProviderType(cfg.Provider)
 	if err != nil {
 		// ParseProviderType already reports an invalid provider by name.
 		return nil, err
+	}
+	if len(cfg.ProviderOrder) > 0 && providerType != llmpkg.ProviderOpenRouter {
+		return nil, fmt.Errorf("provider_order is only supported by the openrouter provider, not %q", cfg.Provider)
 	}
 
 	apiKeyEnvVar := cfg.APIKeyName
@@ -51,6 +55,7 @@ func NewLLMProvider(ctx context.Context, cfg *ir.LLMConfig) (llmpkg.Provider, er
 	provider, err := llmpkg.NewProvider(providerType, llmpkg.Config{
 		APIKey:          apiKey,
 		BaseURL:         baseURL,
+		ProviderOrder:   cfg.ProviderOrder,
 		Timeout:         5 * time.Minute,
 		MaxRetries:      3,
 		InitialInterval: 1 * time.Second,
@@ -122,6 +127,7 @@ func EffectiveLLMConfig(cfg *ir.LLMConfig, model ir.ModelEntry) *ir.LLMConfig {
 		TopP:                  coalescePtr(model.TopP, cfg.TopP),
 		BaseURL:               coalesceStr(model.BaseURL, cfg.BaseURL),
 		APIKeyName:            coalesceStr(model.APIKeyName, cfg.APIKeyName),
+		ProviderOrder:         coalesceSlice(model.ProviderOrder, cfg.ProviderOrder),
 	}
 }
 
@@ -134,6 +140,13 @@ func coalescePtr[T any](override, fallback *T) *T {
 
 func coalesceStr(override, fallback string) string {
 	if override != "" {
+		return override
+	}
+	return fallback
+}
+
+func coalesceSlice[T any](override, fallback []T) []T {
+	if len(override) > 0 {
 		return override
 	}
 	return fallback
