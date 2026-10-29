@@ -30,6 +30,7 @@ import (
 	stagehand "github.com/browserbase/stagehand/packages/sdk-go/v4"
 	"github.com/dagucloud/dagu/v2/internal/browserhost"
 	"github.com/dagucloud/dagu/v2/internal/browserhost/writegate"
+	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
 	"github.com/dagucloud/dagu/v2/internal/test/chrometest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -973,6 +974,36 @@ func TestAskToExitGivesUpOnASilentBrowser(t *testing.T) {
 	err := askToExit(context.Background(), serveSilentBrowser(t))
 	require.ErrorIs(t, err, errBrowserUnresponsive)
 	require.Less(t, time.Since(started), exitRequestTimeout+10*time.Second)
+}
+
+// A browser asked to exit stops answering DevTools before it has finished
+// writing its profile. Exiting a launched browser returns only once its
+// process has gone, so the runtime does not end it partway through.
+func TestExitLaunchedBrowserWaitsForProcess(t *testing.T) {
+	t.Parallel()
+
+	browser := startSleeper(t)
+	reaped := make(chan struct{})
+	go func() {
+		_ = browser.Wait()
+		close(reaped)
+	}()
+	var finished atomic.Bool
+	cdpURL := serveExitingBrowser(t, func() {
+		// The browser takes a while to write its profile before it exits.
+		time.Sleep(500 * time.Millisecond)
+		finished.Store(true)
+		_ = browser.Process.Kill()
+	})
+	startedAt, _ := procutil.StartTime(browser.Process.Pid)
+
+	exitLaunchedBrowser(t.Context(), browserHandle{
+		CDPURL:           cdpURL,
+		BrowserPID:       browser.Process.Pid,
+		BrowserStartedAt: startedAt,
+	})
+	assert.True(t, finished.Load(), "returned while the browser was still exiting")
+	<-reaped
 }
 
 // dialogPage opens an alert, a confirm, and a prompt while it loads, and

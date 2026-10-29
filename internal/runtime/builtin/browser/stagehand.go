@@ -49,6 +49,10 @@ const (
 	callTimeoutSlack = 5 * time.Second
 	// exitPollInterval spaces the checks for a closing browser's exit.
 	exitPollInterval = 100 * time.Millisecond
+	// browserExitTimeout is how long a browser asked to close gets to finish
+	// writing its profile before it is ended. A graceful Chrome shutdown can
+	// take tens of seconds on a loaded machine.
+	browserExitTimeout = 20 * time.Second
 	// unstartedCallTimeout bounds each request that ends a browser whose
 	// runtime failed to start, so a slow request cannot use up the next one's
 	// time.
@@ -1154,25 +1158,50 @@ func (e *stagehandEngine) Detach(ctx context.Context) error {
 // client certificates and the gate that decided its writes.
 func (e *stagehandEngine) Close(ctx context.Context) error {
 	defer e.slot.Release()
+	releaseErr := e.release(ctx)
+	// The runtime asks a browser it reattached to exit itself.
+	if e.browser.Origin() == stagehand.BrowserOriginLaunched {
+		exitLaunchedBrowser(ctx, e.handle)
+	}
 	return errors.Join(
-		e.release(ctx),
-		closeBrowser(ctx, e.handle.BrowserPID, e.handle.BrowserStartedAt, e.endBrowser),
+		releaseErr,
+		closeBrowser(ctx, e.handle.BrowserPID, e.handle.BrowserStartedAt, e.browser.Close),
 		killCertProxy(e.handle.CertProxy),
 		killWriteGate(e.handle.WriteGate),
 	)
 }
 
-// endBrowser asks a browser it launched to exit over DevTools, then has the
-// runtime end whatever is left of it. Exiting on request, the browser first
-// writes what its profile keeps, such as the cookies of a sign-in; the
-// runtime ends a launched browser's processes all at once, which loses what
-// is not written yet. A browser that does not exit on request is still ended
-// by the runtime, and one it reattached to the runtime asks to exit itself.
-func (e *stagehandEngine) endBrowser(ctx context.Context) error {
-	if e.browser.Origin() == stagehand.BrowserOriginLaunched {
-		_ = askToExit(ctx, e.handle.CDPURL)
+// exitLaunchedBrowser asks a browser it launched to exit over DevTools and
+// waits up to browserExitTimeout for its processes to exit. Exiting on
+// request, the browser first writes what its profile keeps, such as the
+// cookies of a sign-in, and it stops answering DevTools before it is done.
+// The runtime ends a launched browser's processes all at once, which loses
+// what is not written yet, so it ends only a browser that does not exit on
+// request or in time.
+func exitLaunchedBrowser(ctx context.Context, handle browserHandle) {
+	var tree *browserProcessTree
+	if handle.BrowserPID > 0 {
+		tree = recordBrowserProcessTree(handle.BrowserPID, handle.BrowserStartedAt)
 	}
-	return e.browser.Close(ctx)
+	if tree != nil {
+		defer tree.release()
+	}
+	if askToExit(ctx, handle.CDPURL) != nil || tree == nil {
+		return
+	}
+	ticker := time.NewTicker(exitPollInterval)
+	defer ticker.Stop()
+	deadline := time.NewTimer(browserExitTimeout)
+	defer deadline.Stop()
+	for !tree.exited() {
+		select {
+		case <-ctx.Done():
+			return
+		case <-deadline.C:
+			return
+		case <-ticker.C:
+		}
+	}
 }
 
 // askToExit asks the browser at cdpURL to exit over DevTools, giving up on

@@ -18,10 +18,6 @@ import (
 )
 
 const (
-	// browserExitTimeout is how long a browser asked to close gets to finish
-	// writing its profile before it is ended. A graceful Chrome shutdown can
-	// take tens of seconds on a loaded Windows machine.
-	browserExitTimeout = 20 * time.Second
 	// helperExitGrace is how long the browser's helpers get to leave on their
 	// own after the browser has gone before they are ended.
 	helperExitGrace = 2 * time.Second
