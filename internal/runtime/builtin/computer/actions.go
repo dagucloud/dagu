@@ -402,6 +402,9 @@ func describeAction(action computeruse.Action) string {
 		if action.Repeat > 1 {
 			fmt.Fprintf(&b, " x%d", action.Repeat)
 		}
+		if action.Kind == computeruse.KindHoldKey {
+			b.WriteString(" for " + min(action.Duration, maxActionPause).String())
+		}
 	case computeruse.KindWait:
 		b.WriteString(" " + action.Duration.String())
 	case computeruse.KindZoom:

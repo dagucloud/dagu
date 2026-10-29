@@ -3820,6 +3820,25 @@ func TestDistinctElementsAreNotStuck(t *testing.T) {
 	assert.Equal(t, []string{"", "", "", "", ""}, notes, "no round repeats another")
 }
 
+// Holding a key for different times is different actions.
+func TestDifferentHoldsAreNotStuck(t *testing.T) {
+	t.Parallel()
+
+	hold := func(d time.Duration) computeruse.Action {
+		return computeruse.Action{CallID: "h", Kind: computeruse.KindHoldKey, Keys: []string{"shift"}, Duration: d}
+	}
+	run := newTestRun(t)
+	session := &scriptedSession{turns: []*computeruse.Turn{
+		actions(hold(time.Millisecond)), actions(hold(2 * time.Millisecond)), actions(hold(3 * time.Millisecond)), actions(hold(4 * time.Millisecond)), done("Held shift"),
+	}}
+	run.sessions = []*scriptedSession{session}
+	execution := run.execute(`{"cache": false, "do": [{"act": "Hold shift"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	notes, _ := session.requests()
+	assert.NotContains(t, notes, stuckNote)
+}
+
 // An empty field is offered with the hint it shows, so the model can tell a
 // grey "0" from a value; a field that holds a value shows none.
 func TestOfferedFieldShowsItsHint(t *testing.T) {
