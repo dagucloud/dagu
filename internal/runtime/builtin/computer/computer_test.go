@@ -3726,6 +3726,52 @@ func TestStuckCycleEndsTheAct(t *testing.T) {
 	})
 }
 
+// Actions an earlier failure skipped were never taken, so running them later
+// is no repeat.
+func TestSkippedActionsAreNotTried(t *testing.T) {
+	t.Parallel()
+
+	missing := computeruse.Action{CallID: "m", Kind: computeruse.KindClick, ElementID: "e9"}
+	selectAll, selectAllMac := keyPress("ctrl", "a"), keyPress("cmd", "a")
+	run := newTestRun(t)
+	session := &scriptedSession{turns: []*computeruse.Turn{
+		actions(missing, selectAll, selectAllMac), actions(selectAll), actions(selectAllMac), actions(selectAll), done("Selected the text"),
+	}}
+	run.sessions = []*scriptedSession{session}
+	execution := run.execute(`{"cache": false, "do": [{"act": "Select the text"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	notes, _ := session.requests()
+	assert.Equal(t, []string{"", "", "", "", stuckNote}, notes, "only the last round repeats an action that ran")
+}
+
+// A screen that changed while the model chose its next actions, which then
+// did not run, starts the count afresh.
+func TestChangedScreenResetsStuck(t *testing.T) {
+	t.Parallel()
+
+	selectAll := keyPress("ctrl", "a")
+	run := newTestRun(t)
+	requests := 0
+	session := &scriptedSession{
+		turns: []*computeruse.Turn{
+			actions(selectAll), actions(selectAll), actions(selectAll), actions(selectAll), actions(selectAll), done("Selected the text"),
+		},
+		onNext: func() {
+			if requests++; requests == 3 {
+				run.backend.show(pattern(400, 200, 120))
+			}
+		},
+	}
+	run.sessions = []*scriptedSession{session}
+	execution := run.execute(`{"cache": false, "do": [{"act": "Select the text"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	notes, _ := session.requests()
+	require.Len(t, notes, 6)
+	assert.Equal(t, divergedNote, notes[3], "the third round did not run")
+}
+
 // Rounds that only wait are not counted toward a stuck act, so a model may
 // wait for a slow application as long as the act lasts.
 func TestWaitingIsNotStuck(t *testing.T) {

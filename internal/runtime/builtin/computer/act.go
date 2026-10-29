@@ -443,7 +443,7 @@ func (l *actLoop) run(ctx context.Context) error {
 			}
 			l.lastRound = round
 		}
-		stuck, err := l.progress(turn.Actions, runActions, before)
+		stuck, err := l.progress(turn.Actions, results, before)
 		if err != nil {
 			return err
 		}
@@ -965,12 +965,10 @@ func allStill(views []view, before, after *image.RGBA) bool {
 // an act going nowhere rather than letting it run to its timeout. A round
 // that leaves the screen as it was and only repeats actions taken since it
 // last changed is stuck, as in a cycle of focusing a field, selecting all,
-// and clicking it again; maxStuckRounds of them end the act. Rounds that
-// only look or wait are not counted, but a change they find is.
-func (l *actLoop) progress(actions []computeruse.Action, ran bool, before *image.RGBA) (stuck bool, err error) {
-	if !ran || len(actions) == 0 {
-		return false, nil
-	}
+// and clicking it again; maxStuckRounds of them end the act. Actions that
+// only look or wait, or did not run, are not counted, but a change seen
+// after any turn is.
+func (l *actLoop) progress(actions []computeruse.Action, results []computeruse.Result, before *image.RGBA) (stuck bool, err error) {
 	if !displayView(before).still(before, l.seen.full) {
 		l.tried, l.stillRounds, l.stuck = nil, 0, 0
 		return false, nil
@@ -979,8 +977,8 @@ func (l *actLoop) progress(actions []computeruse.Action, ran bool, before *image
 		l.tried = map[string]bool{}
 	}
 	stuck, acted := true, false
-	for _, action := range actions {
-		if onlyObserves(action) {
+	for i, action := range actions {
+		if onlyObserves(action) || results[i].Skipped {
 			continue
 		}
 		acted = true
