@@ -1152,10 +1152,23 @@ func (e *stagehandEngine) Close(ctx context.Context) error {
 	defer e.slot.Release()
 	return errors.Join(
 		e.release(ctx),
-		closeBrowser(ctx, e.handle.BrowserPID, e.handle.BrowserStartedAt, e.browser.Close),
+		closeBrowser(ctx, e.handle.BrowserPID, e.handle.BrowserStartedAt, e.endBrowser),
 		killCertProxy(e.handle.CertProxy),
 		killWriteGate(e.handle.WriteGate),
 	)
+}
+
+// endBrowser asks a browser it launched to exit over DevTools, then has the
+// runtime end whatever is left of it. Exiting on request, the browser first
+// writes what its profile keeps, such as the cookies of a sign-in; the
+// runtime ends a launched browser's processes all at once, which loses what
+// is not written yet. A browser that does not exit on request is still ended
+// by the runtime, and one it reattached to the runtime asks to exit itself.
+func (e *stagehandEngine) endBrowser(ctx context.Context) error {
+	if e.browser.Origin() == stagehand.BrowserOriginLaunched {
+		_ = browserhost.CloseBrowser(ctx, e.handle.CDPURL)
+	}
+	return e.browser.Close(ctx)
 }
 
 // closeBrowser terminates a launched browser with closeRuntime. The browser's

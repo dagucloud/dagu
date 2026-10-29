@@ -136,7 +136,9 @@ func launchBrowser(t *testing.T, opts launchOptions) engine {
 	ctx := t.Context()
 	opts.Executable = cmp.Or(opts.Executable, chrometest.Path())
 	opts.Headless = true
-	opts.UserDataDir = browserProfileDir(t)
+	if opts.UserDataDir == "" {
+		opts.UserDataDir = browserProfileDir(t)
+	}
 	opts.NoSandbox = true
 	opts.BrowserDir = cmp.Or(opts.BrowserDir, testBrowserDir)
 	var eng engine
@@ -927,6 +929,39 @@ func TestStagehandReportsBrowserProcess(t *testing.T) {
 		stopped := errors.Is(err, browserhost.ErrUnreachable) || (errors.As(err, &netErr) && netErr.Timeout())
 		assert.True(c, stopped, "the browser stops answering; last probe: %v", err)
 	}, 10*time.Second, 200*time.Millisecond)
+}
+
+// A sign-in a browser makes stays in its profile when the browser closes,
+// so the next browser on the profile is still signed in.
+func TestStagehandCloseKeepsProfileCookies(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		if r.URL.Path == "/login" {
+			http.SetCookie(w, &http.Cookie{Name: "sid", Value: "member", Path: "/", MaxAge: 3600, HttpOnly: true})
+			_, _ = io.WriteString(w, "<p>Signed in</p>")
+			return
+		}
+		if cookie, err := r.Cookie("sid"); err == nil && cookie.Value == "member" {
+			_, _ = io.WriteString(w, "<p>Welcome back</p>")
+			return
+		}
+		_, _ = io.WriteString(w, "<p>Please sign in</p>")
+	}))
+	t.Cleanup(server.Close)
+	ctx := t.Context()
+	profile := browserProfileDir(t)
+
+	first := launchBrowser(t, launchOptions{UserDataDir: profile})
+	require.NoError(t, first.Goto(ctx, server.URL+"/login", time.Minute))
+	require.NoError(t, first.Close(context.WithoutCancel(ctx)))
+
+	second := launchBrowser(t, launchOptions{UserDataDir: profile})
+	require.NoError(t, second.Goto(ctx, server.URL+"/", time.Minute))
+	text, err := second.PageText(ctx)
+	require.NoError(t, err)
+	require.Contains(t, text, "Welcome back", "the profile keeps the session cookie the first browser received")
 }
 
 // dialogPage opens an alert, a confirm, and a prompt while it loads, and
