@@ -39,14 +39,14 @@ func TestComputerCacheShow(t *testing.T) {
 
 	th := test.SetupCommand(t)
 	writeComputerRecordings(t, th, "invoices", "post", map[string]string{
-		"older": `{"op": 0, "version": 2, "system": "windows", "saved_at": "2026-10-01T09:00:00Z", "turns": [{"actions": [{"action": {"kind": "key", "keys": ["ctrl", "s"]}}]}]}`,
-		"newer": `{"op": 0, "version": 2, "system": "windows", "saved_at": "2026-10-02T09:00:00Z", "turns": [{"actions": [{"action": {"kind": "click", "point": {"x": 1, "y": 2}}, "element": {"selector": {"role": "button", "name": "保存", "id": "saveButton"}, "path": [], "app": "expense", "window": "経費精算", "fx": 0.5, "fy": 0.5}}]}]}`,
-		"drag":  `{"op": 1, "version": 2, "system": "windows", "turns": [{"actions": [{"action": {"kind": "drag", "path": [{"x": 1, "y": 2}, {"x": 3, "y": 4}]}}]}]}`,
+		"older": `{"op": 0, "version": 5, "system": "windows", "saved_at": "2026-10-01T09:00:00Z", "turns": [{"actions": [{"action": {"kind": "key", "keys": ["ctrl", "s"]}}]}]}`,
+		"newer": `{"op": 0, "version": 5, "system": "windows", "saved_at": "2026-10-02T09:00:00Z", "turns": [{"actions": [{"action": {"kind": "click", "point": {"x": 1, "y": 2}}, "element": {"selector": {"role": "button", "name": "保存", "id": "saveButton"}, "path": [], "app": "expense", "window": "経費精算", "fx": 0.5, "fy": 0.5}}]}]}`,
+		"drag":  `{"op": 1, "version": 5, "system": "windows", "turns": [{"actions": [{"action": {"kind": "drag", "path": [{"x": 1, "y": 2}, {"x": 3, "y": 4}]}}]}]}`,
 		"read":  `{"op": 2, "version": 2, "system": "windows", "fields": [{"name": "amount", "kind": "number", "element": {"selector": {"role": "text_field", "id": "amountBox"}, "path": [], "app": "expense", "window": "経費精算", "fx": 0, "fy": 0}}]}`,
 		"stale": `{"op": 0, "version": 1, "turns": [{"actions": [{"action": {"kind": "key", "keys": ["enter"]}}]}]}`,
 	})
 	writeComputerRecordings(t, th, "invoices", "check", map[string]string{
-		"enter": `{"op": 0, "version": 2, "system": "windows", "turns": [{"actions": [{"action": {"kind": "key", "keys": ["enter"]}}]}]}`,
+		"enter": `{"op": 0, "version": 5, "system": "windows", "turns": [{"actions": [{"action": {"kind": "key", "keys": ["enter"]}}]}]}`,
 	})
 
 	out, err := runCommand(th, cmd.Computer(), "computer", "cache", "show", "invoices", "--step", "post", "--format", "json")
@@ -102,13 +102,17 @@ recorded:
 
 // A recording that never used a variable its task names, as one made where
 // a field already showed the value, says so beside its pin, since the pinned
-// steps would leave that field alone for every value.
+// steps would leave that field alone for every value. One recorded before
+// recordings noted such variables says to check its steps.
 func TestComputerCacheShowNamesWhatAPinLeavesAlone(t *testing.T) {
 	t.Parallel()
 
 	th := test.SetupCommand(t)
 	writeComputerRecordings(t, th, "invoices", "post", map[string]string{
-		"save": `{"op": 0, "version": 4, "system": "macos", "assumed": {"salt": "s", "digests": {"qty": "d1", "item": "d2"}}, "turns": [{"actions": [{"action": {"kind": "key", "keys": ["cmd", "s"]}}]}]}`,
+		"save": `{"op": 0, "version": 5, "system": "macos", "assumed": {"salt": "s", "digests": {"qty": "d1", "item": "d2"}}, "turns": [{"actions": [{"action": {"kind": "key", "keys": ["cmd", "s"]}}]}]}`,
+	})
+	writeComputerRecordings(t, th, "invoices", "check", map[string]string{
+		"enter": `{"op": 0, "version": 4, "system": "macos", "turns": [{"actions": [{"action": {"kind": "key", "keys": ["enter"]}}]}]}`,
 	})
 
 	out, err := runCommand(th, cmd.Computer(), "computer", "cache", "show", "invoices", "--step", "post", "--format", "json")
@@ -124,6 +128,20 @@ func TestComputerCacheShowNamesWhatAPinLeavesAlone(t *testing.T) {
 recorded:
   macos:
   - key: cmd+s
+`, out)
+
+	out, err = runCommand(th, cmd.Computer(), "computer", "cache", "show", "invoices", "--step", "check", "--format", "json")
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"operations": [
+		{"step": "check", "op": 1, "kind": "act", "system": "macos", "recorded": [{"key": "enter"}], "assumes_unknown": true}
+	]}`, out)
+	out, err = runCommand(th, cmd.Computer(), "computer", "cache", "show", "invoices", "--step", "check")
+	require.NoError(t, err)
+	assert.Equal(t, `Step "check", task 1 (act):
+# Recorded before recordings noted the variables they never use; check that the steps use each variable the task names.
+recorded:
+  macos:
+  - key: enter
 `, out)
 }
 

@@ -36,10 +36,13 @@ const (
 // has none, still replays on the whole display as it was recorded; an older
 // recording is ignored once and replaced. An engine that knows only version
 // 2 ignores a version 3 recording rather than click at the window's own
-// positions as if they were the display's.
+// positions as if they were the display's. Version 5 notes what an act
+// assumed (see recording.Assumed); an older one notes nothing, so which
+// variables it never uses is not known without its instruction.
 const (
-	recordingVersion       = 4
+	recordingVersion       = 5
 	oldestRecordingVersion = 2
+	assumingVersion        = 5
 )
 
 // replayable reports a recording version this engine replays.

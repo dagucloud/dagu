@@ -246,11 +246,19 @@ func exportStep(state sessionState, req ExportRequest) (*exportedSession, error)
 				key, what = uploadReplayKey(index, op.Upload.Into, entry.URLBefore), fmt.Sprintf("upload into %q", op.Upload.Into)
 			}
 		}
+		// An act the session recorded before acts noted what their actions
+		// took for granted fits no value of a variable they never use.
+		var unnoted []string
+		if op.Act != nil && entry.Recordable && entry.Assumed == nil {
+			unnoted = unusedVariables(op.Act.Instruction, entry.Actions)
+		}
 		switch {
 		case key == "", entry.Status != OperationDone:
 			// A skipped operation has nothing to replay.
 		case !entry.Recordable:
 			exported.warnf("operation %d (%s) has no recording, so every run asks the model for it", sessionIndex, what)
+		case len(unnoted) > 0:
+			exported.warnf("operation %d (%s) never uses %%%s%%, and the session did not note its value, so the first run asks the model for it", sessionIndex, what, unnoted[0])
 		default:
 			exported.recordings[key] = recording{Actions: entry.Actions, Assumed: entry.Assumed}
 			item.Recorded = true

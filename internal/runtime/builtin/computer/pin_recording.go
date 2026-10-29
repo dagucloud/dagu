@@ -39,6 +39,9 @@ type PinnedOperation struct {
 	// recorded actions never use, such as an item its list already showed:
 	// pinned, the steps leave each as a run finds it, whatever its value.
 	Assumes []string `json:"assumes,omitempty"`
+	// AssumesUnknown marks an act recorded before recordings noted those
+	// variables, whose steps may leave some of them alone.
+	AssumesUnknown bool `json:"assumes_unknown,omitempty"`
 }
 
 // UnpinnableAction is a recorded action with no pinned form and why: Code
@@ -102,7 +105,10 @@ func PinRecording(entry json.RawMessage) (PinnedOperation, bool) {
 	case len(rec.Turns) > 0:
 		pinned.Kind = opAct
 		pinned.Recorded, pinned.Unpinnable = pinAct(rec.Turns)
-		if rec.Assumed != nil {
+		switch {
+		case rec.Version < assumingVersion:
+			pinned.AssumesUnknown = true
+		case rec.Assumed != nil:
 			pinned.Assumes = slices.Sorted(maps.Keys(rec.Assumed.Digests))
 		}
 	case len(rec.Fields) > 0:

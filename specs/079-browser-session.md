@@ -177,7 +177,9 @@ their places in the step's `with.do`, so the step's first run replays them
 without a model request when it meets the pages the session met, and heals
 as usual when it does not. An act whose actions never used a variable its
 instruction names keeps a salted digest of the value the session gave it,
-so the step replays it only while that variable has that value (Spec 072). Export runs the checks the step gets when its DAG
+so the step replays it only while that variable has that value (Spec 072);
+one the session recorded without the digest is exported with a warning and
+no recording. Export runs the checks the step gets when its DAG
 loads and warns about an act or upload with no recording, about a page
 reached outside the exported operations, and about each upload, whose files
 are those the session was given until the step names what each run

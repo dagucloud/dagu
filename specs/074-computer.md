@@ -570,10 +570,13 @@ with its turn and why, instead of steps, since a pin that skipped an action
 would report success without doing the task. An act whose recording never
 used a variable its instruction names (see Replay cache) says so in a
 comment above its steps, since pinned steps run for every value and would
-leave that variable's field as each run finds it. An extract's bindings
+leave that variable's field as each run finds it; an act recorded before
+recordings noted those variables (format version 4 or older) says to check
+that its steps use each variable the task names. An extract's bindings
 become its fields. `--format json` prints `{"operations": [...]}`, each with
 `step`, `op`, `kind`, `system`, `saved_at`, `assumes`, which names those
-variables, and `recorded`, `fields`, or `unpinnable`, whose items carry `turn`, `action`, `reason`, and a `code` for
+variables, `assumes_unknown`, set for such an older act, and `recorded`,
+`fields`, or `unpinnable`, whose items carry `turn`, `action`, `reason`, and a `code` for
 a program: `no_element`, `edge_click`, `click_with_keys`, `click`,
 `no_field`, `keys`, `edge_scroll`, `scroll`, `move`, `drag`, `hold_key`,
 `button`, or `unsupported`.
