@@ -964,6 +964,17 @@ func TestStagehandCloseKeepsProfileCookies(t *testing.T) {
 	require.Contains(t, text, "Welcome back", "the profile keeps the session cookie the first browser received")
 }
 
+// A browser that stops answering DevTools does not hold up its close: the
+// request to exit gives up, so the runtime can end the browser.
+func TestAskToExitGivesUpOnASilentBrowser(t *testing.T) {
+	t.Parallel()
+
+	started := time.Now()
+	err := askToExit(context.Background(), serveSilentBrowser(t))
+	require.ErrorIs(t, err, errBrowserUnresponsive)
+	require.Less(t, time.Since(started), exitRequestTimeout+10*time.Second)
+}
+
 // dialogPage opens an alert, a confirm, and a prompt while it loads, and
 // shows how the confirm and the prompt were answered.
 const dialogPage = `<p id="result"></p><script>

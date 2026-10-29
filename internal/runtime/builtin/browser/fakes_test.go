@@ -587,6 +587,33 @@ func pageModel(extracts map[string]string, trueStatements ...string) func(req *l
 	}
 }
 
+// serveSilentBrowser serves the DevTools endpoint of a browser that takes
+// commands without ever answering them, and keeps running.
+func serveSilentBrowser(t *testing.T) string {
+	t.Helper()
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/json/version" {
+			wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/devtools/browser/silent"
+			_ = json.NewEncoder(w).Encode(map[string]string{"webSocketDebuggerUrl": wsURL})
+			return
+		}
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.CloseNow() }()
+		// Read until the client hangs up, answering nothing.
+		for {
+			if _, _, err := conn.Read(r.Context()); err != nil {
+				return
+			}
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server.URL
+}
+
 // serveHungBrowser serves the DevTools endpoint of a browser that
 // acknowledges every command, including Browser.close, and keeps running.
 func serveHungBrowser(t *testing.T) string {
