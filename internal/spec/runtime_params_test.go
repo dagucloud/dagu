@@ -370,6 +370,7 @@ func TestResolveLegacyRuntimePairs_InternalOverridesLastWriteWins(t *testing.T) 
 
 	pairs, err := resolveLegacyRuntimePairs(
 		nil,
+		nil,
 		`WEBHOOK_PAYLOAD=first`,
 		[]string{`WEBHOOK_PAYLOAD=second`},
 	)
@@ -384,6 +385,7 @@ func TestResolveLegacyRuntimePairs_WebhookHeadersInternalOverridesLastWriteWins(
 
 	pairs, err := resolveLegacyRuntimePairs(
 		nil,
+		nil,
 		`WEBHOOK_HEADERS=first`,
 		[]string{`WEBHOOK_HEADERS=second`},
 	)
@@ -393,28 +395,30 @@ func TestResolveLegacyRuntimePairs_WebhookHeadersInternalOverridesLastWriteWins(
 	}, pairs)
 }
 
-func TestSplitInternalRuntimeOverridePairs_DeclaredWebhookPayloadStaysUserParam(t *testing.T) {
+func TestSplitPassThroughOverridePairs_DeclaredWebhookPayloadStaysUserParam(t *testing.T) {
 	t.Parallel()
 
-	userPairs, internalPairs := splitInternalRuntimeOverridePairs(
+	userPairs, passThroughPairs := splitPassThroughOverridePairs(
 		[]paramPair{{Name: "WEBHOOK_PAYLOAD", Value: "42"}},
 		map[string]struct{}{"WEBHOOK_PAYLOAD": {}},
+		nil,
 	)
 
 	assert.Equal(t, []paramPair{{Name: "WEBHOOK_PAYLOAD", Value: "42"}}, userPairs)
-	assert.Empty(t, internalPairs)
+	assert.Empty(t, passThroughPairs)
 }
 
-func TestSplitInternalRuntimeOverridePairs_DeclaredWebhookHeadersStaysUserParam(t *testing.T) {
+func TestSplitPassThroughOverridePairs_DeclaredWebhookHeadersStaysUserParam(t *testing.T) {
 	t.Parallel()
 
-	userPairs, internalPairs := splitInternalRuntimeOverridePairs(
+	userPairs, passThroughPairs := splitPassThroughOverridePairs(
 		[]paramPair{{Name: "WEBHOOK_HEADERS", Value: "42"}},
 		map[string]struct{}{"WEBHOOK_HEADERS": {}},
+		nil,
 	)
 
 	assert.Equal(t, []paramPair{{Name: "WEBHOOK_HEADERS", Value: "42"}}, userPairs)
-	assert.Empty(t, internalPairs)
+	assert.Empty(t, passThroughPairs)
 }
 
 func TestResolveRuntimeParams_RejectsUnknownNamedParam_LegacyNamed(t *testing.T) {
@@ -580,6 +584,83 @@ params:
 		`WEBHOOK_PAYLOAD={"event":"push"}`,
 	}, resolved.Params)
 	assert.JSONEq(t, `{"idea":"ship","WEBHOOK_PAYLOAD":"{\"event\":\"push\"}"}`, resolved.ParamsJSON)
+}
+
+// Scheduled, queued, and retried runs rebuild a DAG from the params its run
+// saved, which include the ones the base config declares. The rebuild must
+// accept them whichever way the DAG declares its own params.
+func TestResolveRuntimeParams_BaseConfigParams(t *testing.T) {
+	t.Parallel()
+
+	baseConfig := []byte(`
+params:
+  - name: DAY_OF_WEEK
+    type: integer
+    default: 3
+`)
+	schema := []byte(`{
+  "type": "object",
+  "properties": {
+    "BLOCKLIST_FN": {"type": "string", "default": "et_block.netset"}
+  },
+  "additionalProperties": false
+}`)
+
+	tests := []struct {
+		name   string
+		params string
+	}{
+		{
+			name: "InlineDefinition",
+			params: `
+  - name: BLOCKLIST_FN
+    default: et_block.netset`,
+		},
+		{
+			name: "LegacyNamed",
+			params: `
+  - BLOCKLIST_FN: et_block.netset`,
+		},
+		{
+			name: "InlineSchema",
+			params: `
+  type: object
+  additionalProperties: false
+  properties:
+    BLOCKLIST_FN:
+      type: string
+      default: et_block.netset`,
+		},
+		{
+			name: "ExternalSchema",
+			params: `
+  schema: params.schema.json`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "params.schema.json"), schema, 0o600))
+			dagPath := filepath.Join(dir, "refresh.yaml")
+			require.NoError(t, os.WriteFile(dagPath, []byte("params:"+tt.params+"\nsteps:\n  - run: echo ok\n"), 0o600))
+
+			dag, err := Load(context.Background(), dagPath, WithBaseConfigContent(baseConfig))
+			require.NoError(t, err)
+			assert.ElementsMatch(t, []string{"DAY_OF_WEEK=3", "BLOCKLIST_FN=et_block.netset"}, dag.Params)
+
+			resolved, err := ResolveRuntimeParams(context.Background(), dag,
+				[]string{"DAY_OF_WEEK=5", "BLOCKLIST_FN=et_block.netset"}, ResolveRuntimeParamsOptions{})
+			require.NoError(t, err)
+			assert.ElementsMatch(t, []string{"DAY_OF_WEEK=5", "BLOCKLIST_FN=et_block.netset"}, resolved.Params)
+
+			_, err = ResolveRuntimeParams(context.Background(), dag, []string{"TYPO=1"}, ResolveRuntimeParamsOptions{})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "TYPO")
+		})
+	}
 }
 
 func TestToFloat64_RejectsUnsafeIntegerPrecision(t *testing.T) {

@@ -1054,6 +1054,7 @@ func composeBuildDAGContext(base, current *ir.DAG, currentSpec *dag) (*ir.DAG, e
 		(current.SMTP != nil && current.SMTP.OAuth != nil)) {
 		effective.SMTP = nil
 	}
+	effective.Params = withoutOverriddenParams(base.Params, current.Params)
 	if err := merge(effective, current); err != nil {
 		return nil, err
 	}
@@ -1077,6 +1078,30 @@ func composeBuildDAGContext(base, current *ir.DAG, currentSpec *dag) (*ir.DAG, e
 	}
 
 	return effective, nil
+}
+
+// withoutOverriddenParams drops the inherited params the DAG also sets, so each
+// name is listed once with the DAG's value, which is the one used at runtime.
+func withoutOverriddenParams(inherited, own []string) []string {
+	if len(inherited) == 0 || len(own) == 0 {
+		return inherited
+	}
+	ownNames := make(map[string]struct{}, len(own))
+	for _, param := range own {
+		if name, _, ok := strings.Cut(param, "="); ok {
+			ownNames[name] = struct{}{}
+		}
+	}
+	kept := make([]string, 0, len(inherited))
+	for _, param := range inherited {
+		if name, _, ok := strings.Cut(param, "="); ok {
+			if _, overridden := ownNames[name]; overridden {
+				continue
+			}
+		}
+		kept = append(kept, param)
+	}
+	return kept
 }
 
 func applyHistoryRetentionOverride(effective *ir.DAG, authoredDays, authoredRuns bool) {
