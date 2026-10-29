@@ -1081,11 +1081,15 @@ func confirmDialog() (desktop.Element, []desktop.Element) {
 func TestHandlerClearsAScreenThatComesUpSometimes(t *testing.T) {
 	t.Parallel()
 
-	const steps = `{"ai": "never", "input": "direct", "find_within": "300ms",
+	// The step may look for an element, and the check wait, for a minute,
+	// far longer than any of these runs takes. A run that waited for the
+	// screen on either bound stands apart from one that did not, however
+	// slow the host.
+	const steps = `{"ai": "never", "input": "direct", "find_within": "1m",
 		"handle": [{"name": "入力中クリアの確認", "when": {"text": "クリアしていいですか"}, "recorded": {"windows": [{"click": {"role": "button", "name": "はい"}}]}}],
 		"do": [
 			{"act": {"instruction": "Reset", "recorded": {"windows": [{"click": {"role": "button", "id": "saveButton"}}]}}},
-			{"expect": {"element": {"role": "text_field", "id": "amountBox"}, "within": "2s"}}
+			{"expect": {"element": {"role": "text_field", "id": "amountBox"}, "within": "1m"}}
 		]}`
 	for _, tc := range []struct {
 		name      string
@@ -1126,7 +1130,7 @@ func TestHandlerClearsAScreenThatComesUpSometimes(t *testing.T) {
 			assert.Equal(t, tc.inputs, run.backend.inputs())
 			assert.Equal(t, tc.handled, strings.Contains(execution.stderr.String(), "handling 入力中クリアの確認"))
 			if !tc.handled {
-				assert.Less(t, time.Since(began), time.Second, "a run without the screen does not wait for it")
+				assert.Less(t, time.Since(began), 30*time.Second, "a run without the screen does not wait for it")
 			}
 		})
 	}
