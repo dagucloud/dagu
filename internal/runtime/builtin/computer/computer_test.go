@@ -3510,9 +3510,11 @@ func TestActLimits(t *testing.T) {
 			want:  "the model could not complete the task: The file is missing",
 		},
 		{
+			// Reminded to continue, then asked for its report alone, a model
+			// that still answers without acting ends the act.
 			name:  "model stops without done",
 			with:  `{"do": [{"act": "Open the file"}]}`,
-			turns: []*computeruse.Turn{{Text: "I think it is open."}, {Text: "Still open."}},
+			turns: []*computeruse.Turn{{Text: "I think it is open."}, {Text: "Still open."}, {Text: "It is open."}},
 			want:  "the model stopped without reporting the task done",
 		},
 		{
@@ -3547,8 +3549,56 @@ func TestCapAsksForReport(t *testing.T) {
 	assert.Equal(t, []string{"move 1,1", "left down #1", "move 2,2", "left down #1"}, run.backend.inputs(), "the third click was not run")
 	require.Len(t, session.observations, 3)
 	assert.Equal(t, capNote, session.observations[2].Note)
+	assert.True(t, session.observations[2].ReportOnly)
 	assert.Equal(t, []computeruse.Result{{CallID: "c", Skipped: true}}, session.observations[2].Results)
 	assert.Contains(t, execution.stderr.String(), "Clicked around (2 actions)")
+}
+
+// A model that cannot be forced to call a tool may end a task it did with
+// text instead of done. Answering a second time without acting, it is asked
+// for its report alone, so the act ends as the model reports it.
+func TestAnswersWithoutActingAskForReport(t *testing.T) {
+	t.Parallel()
+
+	said := func(text string) *computeruse.Turn { return &computeruse.Turn{Text: text} }
+	for _, tc := range []struct {
+		name   string
+		report *computeruse.Turn
+		// want is the act's error, empty when it succeeds.
+		want string
+	}{
+		{name: "done", report: done("Filled in the order")},
+		{
+			name:   "not done",
+			report: &computeruse.Turn{Done: &computeruse.Done{Success: false, Summary: "The quantity was not accepted"}},
+			want:   "the model could not complete the task: The quantity was not accepted",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			run := newTestRun(t)
+			session := &scriptedSession{turns: []*computeruse.Turn{
+				actions(clickAt(1, 1)), said("I filled in the order."), said("The order is filled in, not saved."), tc.report,
+			}}
+			run.sessions = []*scriptedSession{session}
+			execution := run.execute(`{"cache": false, "do": [{"act": "Fill in the order"}]}`, nil)
+			if tc.want != "" {
+				require.ErrorContains(t, execution.err, tc.want)
+			} else {
+				require.NoError(t, execution.err)
+				assert.Contains(t, execution.stderr.String(), "Filled in the order (1 actions)")
+			}
+
+			var notes []string
+			var reportOnly []bool
+			for _, obs := range session.observations {
+				notes = append(notes, obs.Note)
+				reportOnly = append(reportOnly, obs.ReportOnly)
+			}
+			assert.Equal(t, []string{"", "", continueNote, reportNote}, notes)
+			assert.Equal(t, []bool{false, false, false, true}, reportOnly, "the first reminder still lets the model act")
+		})
+	}
 }
 
 // A model that repeats its previous round on a screen that did not change is

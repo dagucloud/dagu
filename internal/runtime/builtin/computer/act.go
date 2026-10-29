@@ -23,6 +23,10 @@ import (
 // task properly.
 const continueNote = "Continue the task. " + computeruse.DoneInstruction
 
+// reportNote asks a model that answered without acting a second time to
+// report the task with done, the only tool it is then offered.
+const reportNote = "You answered without acting again. Report the task now: call done with success set to true if the task is complete, or false with what is wrong or left."
+
 // personNote tells a model why its actions were not run.
 const personNote = "A person used the computer after your last screenshot, so your last actions were not run. Continue the task from the current screen."
 
@@ -279,8 +283,9 @@ type actLoop struct {
 	elements []recordedElement
 	// choices maps the ids offered to the model this turn to the elements
 	// they name, so click_element resolves to a position.
-	choices  map[string]desktop.Element
-	reminded bool
+	choices map[string]desktop.Element
+	// stalled counts the model's answers in a row without an action.
+	stalled int
 	// capped records that the model was told the task has no actions left
 	// and asked for its report.
 	capped bool
@@ -339,7 +344,7 @@ func (l *actLoop) run(ctx context.Context) error {
 			if l.seen, err = l.look(ctx); err != nil {
 				return err
 			}
-			obs = computeruse.Observation{Screen: l.seen.forModel(), Results: skippedResults(turn.Actions), Note: capNote}
+			obs = computeruse.Observation{Screen: l.seen.forModel(), Results: skippedResults(turn.Actions), Note: capNote, ReportOnly: true}
 			continue
 		}
 		// Before running the turn's actions, make sure the world still matches
@@ -377,7 +382,7 @@ func (l *actLoop) run(ctx context.Context) error {
 		if verify && len(turn.Actions) == 0 {
 			return l.finish(ctx, turn)
 		}
-		note, err := l.reminder(turn)
+		note, reportOnly, err := l.reminder(turn)
 		if err != nil {
 			return err
 		}
@@ -416,6 +421,7 @@ func (l *actLoop) run(ctx context.Context) error {
 			Results:      results,
 			Acknowledged: turn.Confirmation != "",
 			Note:         note,
+			ReportOnly:   reportOnly,
 			Elements:     offered,
 		}
 	}
@@ -1028,18 +1034,26 @@ func (l *actLoop) finish(ctx context.Context, turn *computeruse.Turn) error {
 	return nil
 }
 
-// reminder returns the note sent with the next screen. A model that twice
-// answers without acting or reporting the task done is stuck.
-func (l *actLoop) reminder(turn *computeruse.Turn) (string, error) {
+// reminder returns the note sent with the next screen, and whether it asks
+// for the model's report alone. A model that answers without acting or
+// reporting the task done is reminded to continue. A model that cannot be
+// forced to call a tool may end with text again, so it is then asked for its
+// report with nothing else to call; one that still does not report is stuck.
+func (l *actLoop) reminder(turn *computeruse.Turn) (note string, reportOnly bool, err error) {
 	if len(turn.Actions) > 0 {
-		l.reminded = false
-		return "", nil
+		l.stalled = 0
+		return "", false, nil
 	}
-	if l.reminded {
-		return "", fmt.Errorf("the model stopped without reporting the task done: %s", agentstep.QuoteShort(turn.Text))
+	l.stalled++
+	switch l.stalled {
+	case 1:
+		return continueNote, false, nil
+	case 2:
+		logAction(l.r.timeline, l.index, "the model answered again without acting; asking it to report")
+		return reportNote, true, nil
+	default:
+		return "", false, fmt.Errorf("the model stopped without reporting the task done: %s", agentstep.QuoteShort(turn.Text))
 	}
-	l.reminded = true
-	return continueNote, nil
 }
 
 func skippedResults(actions []computeruse.Action) []computeruse.Result {

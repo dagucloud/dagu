@@ -151,6 +151,9 @@ type Observation struct {
 	// Note is an instruction for the model, such as a reminder to report
 	// the task done.
 	Note string
+	// ReportOnly asks the model for its report instead of more actions. A
+	// session that can limit the model's tools offers it only done.
+	ReportOnly bool
 	// Elements are the actionable elements of the front window the model
 	// may target by id, more reliable than aiming at a pixel. Empty when
 	// the desktop exposes no elements.

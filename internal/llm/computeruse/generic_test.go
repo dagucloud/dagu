@@ -129,6 +129,38 @@ func TestGenericSessionAnswersEveryCall(t *testing.T) {
 	assert.Equal(t, computeruse.SkippedText, messages[5].Content)
 }
 
+// A model asked for its report alone is offered no tool but done.
+func TestGenericSessionOffersOnlyDoneForReport(t *testing.T) {
+	t.Parallel()
+
+	provider := &scriptedProvider{responses: []*llm.ChatResponse{
+		{ToolCalls: []llm.ToolCall{toolCall("c1", "click", `{"x":1,"y":2}`)}},
+		{ToolCalls: []llm.ToolCall{toolCall("d1", "done", `{"success":true,"summary":"Settings open"}`)}},
+	}}
+	session := newGeneric(t, provider)
+	_, err := session.Next(context.Background(), computeruse.Observation{Screen: screen("a")})
+	require.NoError(t, err)
+	turn, err := session.Next(context.Background(), computeruse.Observation{
+		Screen:     screen("b"),
+		Results:    []computeruse.Result{{CallID: "c1"}},
+		Note:       "Report the task now.",
+		ReportOnly: true,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, &computeruse.Done{Success: true, Summary: "Settings open"}, turn.Done)
+
+	toolNames := func(req *llm.ChatRequest) []string {
+		var names []string
+		for _, tool := range req.Tools {
+			names = append(names, tool.Function.Name)
+		}
+		return names
+	}
+	assert.Contains(t, toolNames(provider.requests[0]), "click", "an ordinary observation offers the actions")
+	assert.Equal(t, []string{computeruse.DoneToolName}, toolNames(provider.requests[1]))
+	assert.Equal(t, "required", provider.requests[1].ToolChoice)
+}
+
 // Only the latest screenshots are sent; older ones are replaced with a note.
 func TestGenericSessionKeepsLatestScreenshots(t *testing.T) {
 	t.Parallel()

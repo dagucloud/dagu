@@ -92,12 +92,18 @@ func (s *genericSession) ImageLimit() ImageLimit {
 
 func (s *genericSession) Next(ctx context.Context, obs Observation) (*Turn, error) {
 	s.appendObservation(obs)
+	// A model asked only for its report is offered nothing else, so even
+	// one that cannot be forced to call a tool can only report or answer.
+	tools := genericTools
+	if obs.ReportOnly {
+		tools = []llm.Tool{doneTool}
+	}
 	resp, err := llm.ChatWithRetry(ctx, s.provider, &llm.ChatRequest{
 		Model:       s.opts.Model,
 		Messages:    s.messages,
 		Temperature: s.opts.Temperature,
 		MaxTokens:   s.opts.MaxTokens,
-		Tools:       genericTools,
+		Tools:       tools,
 		ToolChoice:  "required",
 	}, llm.DefaultLogicalRetryConfig())
 	if err != nil {
@@ -420,8 +426,12 @@ var genericTools = []llm.Tool{
 	genericTool(genericWait, "Wait before looking at the screen again.", map[string]any{
 		"seconds": map[string]any{"type": "number", "minimum": 0, "maximum": 60},
 	}, "seconds"),
-	{Type: "function", Function: llm.ToolFunction{Name: DoneToolName, Description: DoneToolDescription, Parameters: DoneParameters()}},
+	doneTool,
 }
+
+// doneTool reports the task finished; a request for the model's report
+// offers it alone.
+var doneTool = llm.Tool{Type: "function", Function: llm.ToolFunction{Name: DoneToolName, Description: DoneToolDescription, Parameters: DoneParameters()}}
 
 func genericTool(name, description string, properties map[string]any, required ...string) llm.Tool {
 	return llm.Tool{
