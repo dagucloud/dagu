@@ -350,12 +350,12 @@ func (w *file) planUpdate(opts UpdateOptions, warn func(string)) (*updatePlan, e
 	set := opts.Set
 	if set == nil {
 		set = defaultSet(opts.Rows, opts.Key)
-		if len(set) == 0 {
+		if len(set) == 0 && len(opts.Rows) > 0 {
 			return nil, w.sheetError(sheet, "rows carry no fields to write; set is empty")
 		}
 	}
 	for column, value := range set {
-		if !value.IsLiteral && !anyRowHas(opts.Rows, value.Field) {
+		if len(opts.Rows) > 0 && !value.IsLiteral && !anyRowHas(opts.Rows, value.Field) {
 			return nil, w.sheetError(sheet, fmt.Sprintf("set.%s: field %q is not in any row", column, value.Field))
 		}
 	}
@@ -419,6 +419,9 @@ type rowTarget struct {
 // locateRows finds the sheet row of every input row and runs the second
 // shape check: a row addressed by _row must still hold its key there.
 func (w *file) locateRows(plan *updatePlan, opts UpdateOptions, warn func(string)) (targets, appends []rowTarget, err error) {
+	if len(opts.Rows) == 0 {
+		return nil, nil, nil
+	}
 	byKey := map[string][]int{}
 	if plan.keyCol > 0 {
 		for r := plan.layout.dataStart; r <= plan.reg.R2; r++ {
