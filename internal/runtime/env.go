@@ -47,6 +47,13 @@ type Env struct {
 	// Foreach contains the current item scope for foreach body evaluation.
 	Foreach cmnvalue.Values
 
+	// ForeachParentEntries are the foreach step's own env: entries and the
+	// output variables of its predecessors. A body step layers them under its
+	// own env, so it reads them as a normal step would. They stay out of the
+	// run scope on purpose: a sub-DAG a body step starts inherits the run
+	// scope, and these values belong to the foreach step alone.
+	ForeachParentEntries []cmnvalue.EnvEntry
+
 	// Inputs contains final materialization paths scoped to the current step.
 	Inputs cmnvalue.Values
 	// Outputs contains attempt staging paths scoped to the current step.
@@ -114,12 +121,15 @@ func newEnv(ctx context.Context, step ir.Step, rCtx Context, workingDir string) 
 	// and adds step-specific environment variables
 	scope := rCtx.EnvScope
 	var foreach cmnvalue.Values
+	var parentEntries []cmnvalue.EnvEntry
 	if inherited, ok := LookupEnv(ctx); ok {
 		foreach = inherited.Foreach
+		parentEntries = inherited.ForeachParentEntries
 	}
 	if scope == nil {
 		scope = cmnvalue.NewEnvScope(nil, true) // Fallback: OS layer only
 	}
+	scope = scope.WithEnvEntries(parentEntries)
 	scope = scope.WithEntries(stepEnvs, cmnvalue.EnvSourceStepEnv)
 
 	return Env{

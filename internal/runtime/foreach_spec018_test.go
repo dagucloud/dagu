@@ -303,6 +303,33 @@ func TestForeachRuntimeBodyEnvFieldKeepsStructuredItemScope(t *testing.T) {
 	}, state.records())
 }
 
+// A body step reads the foreach step's own env: and the output variables of the
+// steps the foreach step depends on, as a step in the DAG would.
+func TestForeachRuntimeBodyReadsForeachStepScope(t *testing.T) {
+	probeType, state := registerForeachProbeExecutor(t)
+	r := setupRunner(t)
+
+	parent := foreachRuntimeStep(probeType, []any{
+		map[string]any{"slug": "one", "url": "one"},
+	}, 1)
+	parent.Depends = []string{"upstream"}
+	parent.Env = []string{"FROM_FOREACH_STEP=parent-env"}
+	parent.Foreach.Steps[0].ExecutorConfig.Config["value"] =
+		"${env.FROM_FOREACH_STEP}|${env.FROM_UPSTREAM}|${env.PWD}|${env.DAG_RUN_STEP_NAME}"
+
+	upstream := newStep("upstream", withCommand("echo from-upstream"), withOutput("FROM_UPSTREAM"))
+	r.newPlan(t, upstream, parent).assertRun(t, ir.Succeeded)
+
+	records := state.records()
+	require.Len(t, records, 1)
+	parts := strings.Split(records[0].Value, "|")
+	require.Len(t, parts, 4)
+	assert.Equal(t, "parent-env", parts[0])
+	assert.Equal(t, "from-upstream", parts[1])
+	// Values Dagu sets per step belong to the body step, not the foreach step.
+	assert.Equal(t, "write", parts[3])
+}
+
 // A loop some item bodies failed is partially succeeded: the steps after it
 // run, and the aggregate names the failed items.
 func TestForeachRuntimePartialFailureIsPartiallySucceeded(t *testing.T) {

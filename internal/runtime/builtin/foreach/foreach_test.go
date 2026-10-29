@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
+	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/llm"
@@ -212,4 +213,43 @@ func TestItemRecordKeepsBodyAgentSessions(t *testing.T) {
 	assert.Equal(t, ir.NodeFailed, refused.Status)
 	assert.Contains(t, refused.Error, "site refused *******")
 	require.NotNil(t, refused.AgentSession)
+}
+
+// Body steps must see the foreach step's own env: and the output variables of
+// the steps it depends on, but not the item entry or the values Dagu generates
+// for the foreach step itself.
+func TestContextWithItemScopeKeepsForeachStepScope(t *testing.T) {
+	t.Parallel()
+
+	ctx := runtime.NewContext(context.Background(), &ir.DAG{Name: "each"}, "run-1", "")
+	parent := runtime.NewEnv(ctx, ir.Step{Name: "each"})
+	parent.Scope = parent.Scope.
+		WithEntry("FROM_FOREACH_STEP", "yes", cmnvalue.EnvSourceStepEnv).
+		WithEntry("FROM_PREDECESSOR", "upstream", cmnvalue.EnvSourceOutput).
+		WithEntry("TRACEPARENT", "foreach-span", cmnvalue.EnvSourceStepEnv)
+	ctx = runtime.WithEnv(ctx, parent)
+
+	itemCtx, err := contextWithItemScope(ctx, "item", 0, "0", "a")
+	require.NoError(t, err)
+
+	body := runtime.NewEnv(itemCtx, ir.Step{Name: "body"})
+	got, ok := body.Scope.Get("FROM_FOREACH_STEP")
+	require.True(t, ok)
+	assert.Equal(t, "yes", got)
+
+	got, ok = body.Scope.Get("FROM_PREDECESSOR")
+	require.True(t, ok)
+	assert.Equal(t, "upstream", got)
+
+	_, ok = body.Scope.Get("TRACEPARENT")
+	assert.False(t, ok, "the foreach step's span must not reach the body step")
+	_, ok = body.Scope.Get("foreach")
+	assert.False(t, ok, "the item stays out of the scope; body steps read it from the foreach scope")
+	got, ok = body.Scope.Get("DAG_RUN_STEP_NAME")
+	require.True(t, ok)
+	assert.Equal(t, "body", got)
+
+	// The run scope sub-DAGs inherit is unchanged.
+	_, ok = runtime.GetDAGContext(itemCtx).EnvScope.Get("FROM_FOREACH_STEP")
+	assert.False(t, ok)
 }
