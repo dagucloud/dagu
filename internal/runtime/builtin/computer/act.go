@@ -39,6 +39,15 @@ const divergedNote = "The screen changed after the screenshot you chose your act
 // and changed nothing on the screen.
 const repeatNote = "You repeated your previous round of actions, and the screen looks the same as it did before them. Repeating them again will not help. If the task is already complete, report done; otherwise take a different approach."
 
+// stuckNote tells a model that its last round only repeated actions it took
+// since the screen last changed, and changed nothing either.
+const stuckNote = "You repeated actions you already took, and the screen still looks as it did before them. Doing them again will not help. If the task is already complete, report done; otherwise take a different approach."
+
+// maxStuckRounds is how many rounds that only repeat actions the screen did
+// not answer an act allows before it ends. The model is told with each, so
+// the rounds after the first are its chance to take a different approach.
+const maxStuckRounds = 3
+
 // stillScrollNote tells a model that its scrolls left the window under the
 // pointer as it was.
 const stillScrollNote = "Your scroll moved nothing on the screen: the spot under the pointer does not scroll, or it is already at its end in that direction. Scroll over the content you mean to move, click inside it first, or use keys such as Page Down."
@@ -291,11 +300,17 @@ type actLoop struct {
 	capped bool
 	// lastRound is the previous round of actions, for noticing a repeat.
 	lastRound string
+	// tried holds the actions the model took since the screen last changed,
+	// stillRounds counts the rounds they came in, and stuck the rounds that
+	// only repeated tried actions.
+	tried       map[string]bool
+	stillRounds int
+	stuck       int
 }
 
 // maxModelElements bounds how many actionable elements an observation
 // offers the model, so a large tree does not bloat the prompt, and
-// maxModelValue how much of an element's value it shows.
+// maxModelValue how much of an element's value or hint it shows.
 const (
 	maxModelElements = 80
 	maxModelValue    = 80
@@ -428,6 +443,14 @@ func (l *actLoop) run(ctx context.Context) error {
 			}
 			l.lastRound = round
 		}
+		stuck, err := l.progress(turn.Actions, runActions, before)
+		if err != nil {
+			return err
+		}
+		if stuck && note == "" {
+			logAction(l.r.timeline, l.index, "the model repeated earlier actions and the screen did not change")
+			note = stuckNote
+		}
 		obs = computeruse.Observation{
 			Screen:       l.seen.forModel(),
 			Results:      results,
@@ -526,7 +549,7 @@ func (l *actLoop) offerElements() []computeruse.Element {
 			continue
 		}
 		id := fmt.Sprintf("e%d", len(list)+1)
-		list = append(list, computeruse.Element{ID: id, Role: e.Role, Name: name, Value: l.r.modelValue(e, name)})
+		list = append(list, computeruse.Element{ID: id, Role: e.Role, Name: name, Value: l.r.modelValue(e, name), Hint: l.r.modelHint(e)})
 		choices[id] = e
 		if len(list) >= maxModelElements {
 			break
@@ -554,10 +577,26 @@ func (r *run) modelValue(e desktop.Element, name string) string {
 	if value == "" || value == name {
 		return ""
 	}
-	if runes := []rune(value); len(runes) > maxModelValue {
-		value = string(runes[:maxModelValue]) + "…"
+	return shortened(value)
+}
+
+// modelHint is the hint an empty field shows in place of a value, with
+// declared secrets masked and cut short when long, so the model can tell it
+// from a value. It is nothing for a field that holds a value.
+func (r *run) modelHint(e desktop.Element) string {
+	if strings.TrimSpace(e.Value) != "" {
+		return ""
 	}
-	return value
+	return shortened(strings.TrimSpace(r.masker.MaskString(e.Placeholder)))
+}
+
+// shortened cuts text the model is shown about an element to maxModelValue
+// characters.
+func shortened(text string) string {
+	if runes := []rune(text); len(runes) > maxModelValue {
+		return string(runes[:maxModelValue]) + "…"
+	}
+	return text
 }
 
 // actionableRole reports whether the model may usefully click an element of
@@ -922,13 +961,70 @@ func allStill(views []view, before, after *image.RGBA) bool {
 	return true
 }
 
+// progress follows whether the model's rounds change the screen, and ends
+// an act going nowhere rather than letting it run to its timeout. A round
+// that leaves the screen as it was and only repeats actions taken since it
+// last changed is stuck, as in a cycle of focusing a field, selecting all,
+// and clicking it again; maxStuckRounds of them end the act. Rounds that
+// only look or wait are not counted, but a change they find is.
+func (l *actLoop) progress(actions []computeruse.Action, ran bool, before *image.RGBA) (stuck bool, err error) {
+	if !ran || len(actions) == 0 {
+		return false, nil
+	}
+	if !displayView(before).still(before, l.seen.full) {
+		l.tried, l.stillRounds, l.stuck = nil, 0, 0
+		return false, nil
+	}
+	if l.tried == nil {
+		l.tried = map[string]bool{}
+	}
+	stuck, acted := true, false
+	for _, action := range actions {
+		if onlyObserves(action) {
+			continue
+		}
+		acted = true
+		key := actionKey(action)
+		stuck = stuck && l.tried[key]
+		l.tried[key] = true
+	}
+	if !acted {
+		return false, nil
+	}
+	l.stillRounds++
+	if !stuck {
+		return false, nil
+	}
+	if l.stuck++; l.stuck >= maxStuckRounds {
+		return true, fmt.Errorf("the model kept acting for %d rounds without changing the screen", l.stillRounds)
+	}
+	return true, nil
+}
+
+// onlyObserves reports an action that looks at the screen or waits, which
+// is not expected to change it.
+func onlyObserves(action computeruse.Action) bool {
+	switch action.Kind {
+	case computeruse.KindWait, computeruse.KindScreenshot, computeruse.KindZoom, computeruse.KindCursorPosition:
+		return true
+	}
+	return false
+}
+
 // describeRound summarizes a round of actions so two rounds can be compared.
 func describeRound(actions []computeruse.Action) string {
 	parts := make([]string, 0, len(actions))
 	for _, action := range actions {
-		parts = append(parts, describeAction(action))
+		parts = append(parts, actionKey(action))
 	}
 	return strings.Join(parts, "\n")
+}
+
+// actionKey tells actions apart when looking for a repeat: what an action
+// does and the element it names, whose id stays the same while the screen
+// does, so clicks on two elements differ.
+func actionKey(action computeruse.Action) string {
+	return describeAction(action) + " " + action.ElementID
 }
 
 // apply performs a turn's actions and records the ones that completed; the

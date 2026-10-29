@@ -3685,6 +3685,118 @@ func TestRepeatedRoundIsNoted(t *testing.T) {
 	assert.Contains(t, execution.stderr.String(), "repeated its previous actions")
 }
 
+// A model that cycles through actions that leave the screen as it was, such
+// as clicking a field and selecting all in turn, is told so, then the act
+// ends instead of running to its timeout. A cycle whose actions change the
+// screen goes on.
+func TestStuckCycleEndsTheAct(t *testing.T) {
+	t.Parallel()
+
+	selectAll := keyPress("ctrl", "a")
+	cycle := []*computeruse.Turn{
+		actions(clickAt(5, 5)), actions(selectAll), actions(clickAt(5, 5)), actions(selectAll), actions(clickAt(5, 5)), done("Cleared the field"),
+	}
+
+	t.Run("still screen", func(t *testing.T) {
+		t.Parallel()
+		run := newTestRun(t)
+		session := &scriptedSession{turns: slices.Clone(cycle)}
+		run.sessions = []*scriptedSession{session}
+		execution := run.execute(`{"cache": false, "do": [{"act": "Clear the quantity"}]}`, nil)
+		require.ErrorContains(t, execution.err, "the model kept acting for 5 rounds without changing the screen")
+
+		notes, _ := session.requests()
+		assert.Equal(t, []string{"", "", "", stuckNote, stuckNote}, notes, "told whenever it repeats itself")
+		assert.Len(t, session.turns, 1, "the act ended before the model's report")
+	})
+
+	t.Run("changing screen", func(t *testing.T) {
+		t.Parallel()
+		run := newTestRun(t)
+		for shift := 1; shift <= 3; shift++ {
+			run.backend.afterClicks = append(run.backend.afterClicks, pattern(400, 200, shift*40))
+		}
+		session := &scriptedSession{turns: slices.Clone(cycle)}
+		run.sessions = []*scriptedSession{session}
+		execution := run.execute(`{"cache": false, "do": [{"act": "Clear the quantity"}]}`, nil)
+		require.NoError(t, execution.err)
+
+		notes, _ := session.requests()
+		assert.Equal(t, []string{"", "", "", "", "", ""}, notes)
+	})
+}
+
+// Rounds that only wait are not counted toward a stuck act, so a model may
+// wait for a slow application as long as the act lasts.
+func TestWaitingIsNotStuck(t *testing.T) {
+	t.Parallel()
+
+	wait := computeruse.Action{CallID: "w", Kind: computeruse.KindWait, Duration: time.Millisecond}
+	run := newTestRun(t)
+	session := &scriptedSession{turns: []*computeruse.Turn{
+		actions(wait), actions(wait), actions(wait), actions(wait), actions(wait), done("The report finished loading"),
+	}}
+	run.sessions = []*scriptedSession{session}
+	execution := run.execute(`{"cache": false, "do": [{"act": "Wait for the report"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	notes, _ := session.requests()
+	assert.NotContains(t, notes, stuckNote)
+}
+
+// Clicks on different elements are different actions, even where none
+// changes the screen much, as when ticking boxes one by one: none is a
+// repeat, and the act is not stuck.
+func TestDistinctElementsAreNotStuck(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	run.elements = newFakeElements()
+	run.elements.elements = append(run.elements.elements,
+		desktop.Element{Role: desktop.RoleCheckbox, Name: "請求書", Bounds: image.Rect(190, 220, 210, 240)},
+		desktop.Element{Role: desktop.RoleCheckbox, Name: "領収書", Bounds: image.Rect(190, 250, 210, 270)},
+	)
+	click := func(id string) computeruse.Action {
+		return computeruse.Action{CallID: id, Kind: computeruse.KindClick, ElementID: id}
+	}
+	session := &scriptedSession{turns: []*computeruse.Turn{
+		actions(click("e1")), actions(click("e2")), actions(click("e3")), actions(click("e4")), done("Clicked each"),
+	}}
+	run.sessions = []*scriptedSession{session}
+	execution := run.execute(`{"idle": "0", "cache": false, "do": [{"act": "Click each control"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	notes, _ := session.requests()
+	assert.Equal(t, []string{"", "", "", "", ""}, notes, "no round repeats another")
+}
+
+// An empty field is offered with the hint it shows, so the model can tell a
+// grey "0" from a value; a field that holds a value shows none.
+func TestOfferedFieldShowsItsHint(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	run.elements = newFakeElements()
+	run.elements.elements = append(run.elements.elements,
+		desktop.Element{Role: desktop.RoleTextField, Name: "数量", Placeholder: "0", Bounds: image.Rect(190, 220, 390, 244)},
+		desktop.Element{Role: desktop.RoleTextField, Name: "単価", Value: "300", Placeholder: "0", Bounds: image.Rect(190, 250, 390, 274)},
+	)
+	session := &scriptedSession{turns: []*computeruse.Turn{done("Looked at the form")}}
+	run.sessions = []*scriptedSession{session}
+	execution := run.execute(`{"idle": "0", "do": [{"act": "Look at the form"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	require.NotEmpty(t, session.observations)
+	offered := map[string]computeruse.Element{}
+	for _, e := range session.observations[0].Elements {
+		offered[e.Name] = e
+	}
+	assert.Equal(t, "0", offered["数量"].Hint)
+	assert.Empty(t, offered["数量"].Value)
+	assert.Equal(t, "300", offered["単価"].Value)
+	assert.Empty(t, offered["単価"].Hint, "a field that holds a value shows no hint")
+}
+
 // A scroll that moved nothing is reported at once, so the model scrolls
 // elsewhere instead of trying the same spot again. A caret that blinked
 // meanwhile is no movement.
