@@ -145,6 +145,20 @@ func TestHarnessWarningsAfterBaseMerge(t *testing.T) {
 	assert.Empty(t, dag.BuildWarnings)
 }
 
+func TestBaseConfigParamsWarning(t *testing.T) {
+	t.Parallel()
+	data := []byte("name: parent\nsteps:\n  - run: echo parent\n---\nname: child\nsteps:\n  - run: echo child\n")
+
+	dag, err := spec.LoadYAML(context.Background(), data, spec.WithBaseConfigContent([]byte("params:\n  - DAY_OF_WEEK: 3\n")))
+	require.NoError(t, err)
+	require.Len(t, dag.BuildWarnings, 1)
+	assert.Contains(t, dag.BuildWarnings[0], "params in the base config are not supported")
+
+	dag, err = spec.LoadYAML(context.Background(), data, spec.WithBaseConfigContent([]byte("consts:\n  - DAY_OF_WEEK: 3\n")))
+	require.NoError(t, err)
+	assert.Empty(t, dag.BuildWarnings)
+}
+
 func TestLoad(t *testing.T) {
 	t.Parallel()
 

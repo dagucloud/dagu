@@ -835,6 +835,12 @@ func (s *dagBuildState) collectWarnings() {
 		))
 	}
 
+	if base := s.ctx.baseDAG; base != nil && (len(base.ParamDefs) > 0 || len(base.Params) > 0 || len(base.ParamSchema) > 0) {
+		s.result.BuildWarnings = append(s.result.BuildWarnings,
+			"params in the base config are not supported. "+
+				"Declare params in each DAG that uses them, or use consts in the base config for shared fixed values.")
+	}
+
 	for _, sched := range s.result.Schedule {
 		s.result.BuildWarnings = append(s.result.BuildWarnings, sched.Warnings...)
 	}
