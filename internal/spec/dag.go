@@ -1060,10 +1060,10 @@ func composeBuildDAGContext(base, current *ir.DAG, currentSpec *dag) (*ir.DAG, e
 		(current.SMTP != nil && current.SMTP.OAuth != nil)) {
 		effective.SMTP = nil
 	}
-	effective.Params = withoutOverriddenParams(base.Params, current.Params)
 	if err := merge(effective, current); err != nil {
 		return nil, err
 	}
+	effective.Params = mergeInheritedParams(base.Params, current.Params)
 	applyHistoryRetentionOverride(effective, currentSpec.HistRetentionDays != nil, currentSpec.HistRetentionRuns != nil)
 	// Built-in defaults must not replace inherited values, while explicit
 	// false and empty values must be able to disable inherited behavior.
@@ -1086,28 +1086,43 @@ func composeBuildDAGContext(base, current *ir.DAG, currentSpec *dag) (*ir.DAG, e
 	return effective, nil
 }
 
-// withoutOverriddenParams drops the inherited params the DAG also sets, so each
-// name is listed once with the DAG's value, which is the one used at runtime.
-func withoutOverriddenParams(inherited, own []string) []string {
-	if len(inherited) == 0 || len(own) == 0 {
+// mergeInheritedParams lists the inherited params before the DAG's own. A DAG
+// value of an inherited param takes the inherited entry's place, so each name
+// is listed once, in a stable order, with the value used at runtime.
+func mergeInheritedParams(inherited, own []string) []string {
+	if len(inherited) == 0 {
+		return own
+	}
+	if len(own) == 0 {
 		return inherited
 	}
-	ownNames := make(map[string]struct{}, len(own))
+	ownValues := make(map[string]string, len(own))
 	for _, param := range own {
 		if name, _, ok := strings.Cut(param, "="); ok {
-			ownNames[name] = struct{}{}
+			ownValues[name] = param
 		}
 	}
-	kept := make([]string, 0, len(inherited))
+	merged := make([]string, 0, len(inherited)+len(own))
+	placed := make(map[string]struct{}, len(ownValues))
 	for _, param := range inherited {
 		if name, _, ok := strings.Cut(param, "="); ok {
-			if _, overridden := ownNames[name]; overridden {
+			if value, overridden := ownValues[name]; overridden {
+				merged = append(merged, value)
+				placed[name] = struct{}{}
 				continue
 			}
 		}
-		kept = append(kept, param)
+		merged = append(merged, param)
 	}
-	return kept
+	for _, param := range own {
+		if name, _, ok := strings.Cut(param, "="); ok {
+			if _, done := placed[name]; done {
+				continue
+			}
+		}
+		merged = append(merged, param)
+	}
+	return merged
 }
 
 func applyHistoryRetentionOverride(effective *ir.DAG, authoredDays, authoredRuns bool) {

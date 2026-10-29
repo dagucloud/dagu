@@ -588,7 +588,8 @@ params:
 
 // Scheduled, queued, and retried runs rebuild a DAG from the params its run
 // saved, which include the ones the base config declares. The rebuild must
-// accept them whichever way the DAG declares its own params.
+// accept them whichever way the DAG declares its own params, keep the saved
+// values, and list each name once in the order of the first build.
 func TestResolveRuntimeParams_BaseConfigParams(t *testing.T) {
 	t.Parallel()
 
@@ -597,11 +598,14 @@ params:
   - name: DAY_OF_WEEK
     type: integer
     default: 3
+  - name: BLOCKLIST_FN
+    default: base.netset
 `)
 	schema := []byte(`{
   "type": "object",
   "properties": {
-    "BLOCKLIST_FN": {"type": "string", "default": "et_block.netset"}
+    "BLOCKLIST_FN": {"type": "string", "default": "et_block.netset"},
+    "IPSET": {"type": "string", "default": "et_block"}
   },
   "additionalProperties": false
 }`)
@@ -614,12 +618,15 @@ params:
 			name: "InlineDefinition",
 			params: `
   - name: BLOCKLIST_FN
-    default: et_block.netset`,
+    default: et_block.netset
+  - name: IPSET
+    default: et_block`,
 		},
 		{
 			name: "LegacyNamed",
 			params: `
-  - BLOCKLIST_FN: et_block.netset`,
+  - BLOCKLIST_FN: et_block.netset
+  - IPSET: et_block`,
 		},
 		{
 			name: "InlineSchema",
@@ -629,7 +636,10 @@ params:
   properties:
     BLOCKLIST_FN:
       type: string
-      default: et_block.netset`,
+      default: et_block.netset
+    IPSET:
+      type: string
+      default: et_block`,
 		},
 		{
 			name: "ExternalSchema",
@@ -642,21 +652,26 @@ params:
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			ctx := context.Background()
 			dir := t.TempDir()
 			require.NoError(t, os.WriteFile(filepath.Join(dir, "params.schema.json"), schema, 0o600))
 			dagPath := filepath.Join(dir, "refresh.yaml")
 			require.NoError(t, os.WriteFile(dagPath, []byte("params:"+tt.params+"\nsteps:\n  - run: echo ok\n"), 0o600))
 
-			dag, err := Load(context.Background(), dagPath, WithBaseConfigContent(baseConfig))
+			dag, err := Load(ctx, dagPath, WithBaseConfigContent(baseConfig))
 			require.NoError(t, err)
-			assert.ElementsMatch(t, []string{"DAY_OF_WEEK=3", "BLOCKLIST_FN=et_block.netset"}, dag.Params)
+			assert.Equal(t, []string{"DAY_OF_WEEK=3", "BLOCKLIST_FN=et_block.netset", "IPSET=et_block"}, dag.Params)
 
-			resolved, err := ResolveRuntimeParams(context.Background(), dag,
-				[]string{"DAY_OF_WEEK=5", "BLOCKLIST_FN=et_block.netset"}, ResolveRuntimeParamsOptions{})
+			saved := []string{"DAY_OF_WEEK=5", "BLOCKLIST_FN=saved.netset", "IPSET=et_block"}
+			resolved, err := ResolveRuntimeParams(ctx, dag, saved, ResolveRuntimeParamsOptions{})
 			require.NoError(t, err)
-			assert.ElementsMatch(t, []string{"DAY_OF_WEEK=5", "BLOCKLIST_FN=et_block.netset"}, resolved.Params)
+			assert.Equal(t, saved, resolved.Params)
 
-			_, err = ResolveRuntimeParams(context.Background(), dag, []string{"TYPO=1"}, ResolveRuntimeParamsOptions{})
+			rebuilt, err := RebuildFromYAML(ctx, resolved)
+			require.NoError(t, err)
+			assert.Equal(t, saved, rebuilt.Params)
+
+			_, err = ResolveRuntimeParams(ctx, dag, []string{"TYPO=1"}, ResolveRuntimeParamsOptions{})
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "TYPO")
 		})
