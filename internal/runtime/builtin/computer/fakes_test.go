@@ -760,6 +760,11 @@ func done(summary string) *computeruse.Turn {
 	return &computeruse.Turn{Done: &computeruse.Done{Success: true, Summary: summary}, Usage: llmpkg.Usage{PromptTokens: 10, CompletionTokens: 2}}
 }
 
+// said is a turn in which the model only answers in text.
+func said(text string) *computeruse.Turn {
+	return &computeruse.Turn{Text: text}
+}
+
 func actions(list ...computeruse.Action) *computeruse.Turn {
 	return &computeruse.Turn{Actions: list, Usage: llmpkg.Usage{PromptTokens: 10, CompletionTokens: 2}}
 }

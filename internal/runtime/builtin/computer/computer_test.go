@@ -3561,7 +3561,7 @@ func TestCapAsksForReportAfterText(t *testing.T) {
 
 	run := newTestRun(t)
 	session := &scriptedSession{turns: []*computeruse.Turn{
-		actions(clickAt(1, 1), clickAt(2, 2)), actions(clickAt(3, 3)), {Text: "I clicked around."}, done("Clicked around"),
+		actions(clickAt(1, 1), clickAt(2, 2)), actions(clickAt(3, 3)), said("I clicked around."), done("Clicked around"),
 	}}
 	run.sessions = []*scriptedSession{session}
 	execution := run.execute(`{"max_actions": 2, "cache": false, "do": [{"act": "Click around"}]}`, nil)
@@ -3572,13 +3572,50 @@ func TestCapAsksForReportAfterText(t *testing.T) {
 	assert.Equal(t, []bool{false, false, true, true}, reportOnly)
 }
 
+// A batch larger than the actions left leaves the model its actions, so a
+// smaller one may still finish the task.
+func TestCapLeavesActionsThatRemain(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	session := &scriptedSession{turns: []*computeruse.Turn{
+		actions(clickAt(1, 1), clickAt(2, 2)), actions(clickAt(3, 3), clickAt(4, 4)), actions(clickAt(3, 3)), done("Clicked around"),
+	}}
+	run.sessions = []*scriptedSession{session}
+	execution := run.execute(`{"max_actions": 3, "cache": false, "do": [{"act": "Click around"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	assert.Equal(t, []string{"move 1,1", "left down #1", "move 2,2", "left down #1", "move 3,3", "left down #1"}, run.backend.inputs())
+	notes, reportOnly := session.requests()
+	assert.Equal(t, []string{"", "", capNote, ""}, notes)
+	assert.Equal(t, []bool{false, false, false, false}, reportOnly)
+}
+
+// A model that acts after answering without acting, even past the cap, has
+// its answers without an action counted afresh: a text answer to the cap
+// request is asked for the report alone before the act fails.
+func TestCapCountsTextAnswersAfresh(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	session := &scriptedSession{turns: []*computeruse.Turn{
+		said("Looking."), said("Still looking."), actions(clickAt(1, 1), clickAt(2, 2)), said("I would click twice."), said("I am stuck."),
+	}}
+	run.sessions = []*scriptedSession{session}
+	execution := run.execute(`{"max_actions": 1, "cache": false, "do": [{"act": "Click twice"}]}`, nil)
+	require.ErrorContains(t, execution.err, "the model stopped without reporting the task done")
+
+	notes, reportOnly := session.requests()
+	assert.Equal(t, []string{"", continueNote, reportNote, capNote, reportNote}, notes)
+	assert.Equal(t, []bool{false, false, true, false, true}, reportOnly)
+}
+
 // A model that cannot be forced to call a tool may end a task it did with
 // text instead of done. Answering a second time without acting, it is asked
 // for its report alone, so the act ends as the model reports it.
 func TestAnswersWithoutActingAskForReport(t *testing.T) {
 	t.Parallel()
 
-	said := func(text string) *computeruse.Turn { return &computeruse.Turn{Text: text} }
 	for _, tc := range []struct {
 		name   string
 		report *computeruse.Turn

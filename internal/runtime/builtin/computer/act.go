@@ -340,11 +340,17 @@ func (l *actLoop) run(ctx context.Context) error {
 				return fmt.Errorf("the task needed more than max_actions (%d) actions", l.budget)
 			}
 			l.capped = true
+			// The model acted, though nothing ran, so its answers without an
+			// action are counted afresh.
+			l.stalled = 0
 			logAction(l.r.timeline, l.index, "the task has used the actions it may take; asking the model to report")
 			if l.seen, err = l.look(ctx); err != nil {
 				return err
 			}
-			obs = computeruse.Observation{Screen: l.seen.forModel(), Results: skippedResults(turn.Actions), Note: capNote, ReportOnly: true}
+			// Only a budget with nothing left takes the actions away; one
+			// that a batch overran may still fit a smaller one.
+			exhausted := l.spent+l.outcome.actions >= l.budget
+			obs = computeruse.Observation{Screen: l.seen.forModel(), Results: skippedResults(turn.Actions), Note: capNote, ReportOnly: exhausted}
 			continue
 		}
 		// Before running the turn's actions, make sure the world still matches
