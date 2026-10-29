@@ -196,7 +196,11 @@ func TestGenericSessionListsOnlyTheLatestElements(t *testing.T) {
 	}
 	session := newGeneric(t, provider)
 	first := []computeruse.Element{{ID: "e1", Role: "button", Name: "新規受注…"}}
-	latest := []computeruse.Element{{ID: "e1", Role: "combo_box", Name: "顧客", Value: "%customer%"}, {ID: "e2", Role: "text_field", Name: "数量"}}
+	latest := []computeruse.Element{
+		{ID: "e1", Role: "combo_box", Name: "顧客", Value: "%customer%"},
+		{ID: "e2", Role: "text_field", Name: "数量"},
+		{ID: "e3", Role: "text_field", Name: "単価", Hint: "0"},
+	}
 	for _, elements := range [][]computeruse.Element{first, latest} {
 		_, err := session.Next(context.Background(), computeruse.Observation{Screen: screen("s"), Elements: elements})
 		require.NoError(t, err)
@@ -214,6 +218,7 @@ func TestGenericSessionListsOnlyTheLatestElements(t *testing.T) {
 	assert.Contains(t, texts[1], `- e1: combo_box "顧客" value "%customer%"`)
 	assert.Contains(t, texts[1], `- e2: text_field "数量"`)
 	assert.NotContains(t, texts[1], `"数量" value`, "an element with no value shows none")
+	assert.Contains(t, texts[1], `- e3: text_field "単価" empty, showing the hint "0"`, "an empty field shows its hint")
 }
 
 // A task that quotes the element list's header keeps all of its text when

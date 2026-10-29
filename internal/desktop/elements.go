@@ -122,6 +122,10 @@ type Element struct {
 	// Value is what the element holds, such as the text of a field. It is
 	// blank for a password field.
 	Value string
+	// Placeholder is the hint a field shows while it holds nothing, such as
+	// a grey "0". It is read on macOS; Windows UI Automation has no such
+	// property.
+	Placeholder string
 	// Label is the name of the element that labels this one, when the
 	// application links them.
 	Label string

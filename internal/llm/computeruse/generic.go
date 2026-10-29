@@ -184,8 +184,11 @@ func (s *genericSession) appendObservation(obs Observation) {
 		text.WriteString(elementsHeader)
 		for _, e := range obs.Elements {
 			fmt.Fprintf(&text, "\n- %s: %s %q", e.ID, e.Role, e.Name)
-			if e.Value != "" {
+			switch {
+			case e.Value != "":
 				fmt.Fprintf(&text, " value %q", e.Value)
+			case e.Hint != "":
+				fmt.Fprintf(&text, " empty, showing the hint %q", e.Hint)
 			}
 		}
 	}

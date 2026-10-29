@@ -46,7 +46,7 @@ var (
 // the index of each value in the answer.
 var elementAttributes = []string{
 	"AXRole", "AXSubrole", "AXTitle", "AXDescription", "AXValue", "AXIdentifier", "AXDOMIdentifier",
-	"AXPosition", "AXSize", "AXEnabled", "AXChildren", "AXTitleUIElement",
+	"AXPosition", "AXSize", "AXEnabled", "AXChildren", "AXTitleUIElement", "AXPlaceholderValue",
 }
 
 const (
@@ -62,6 +62,7 @@ const (
 	attrEnabled
 	attrChildren
 	attrTitleElement
+	attrPlaceholder
 )
 
 // axRoles maps Accessibility roles onto roles.
@@ -169,6 +170,7 @@ type axNode struct {
 	title         string
 	description   string
 	value         string
+	placeholder   string
 	id            string
 	frame         cgRect
 	framed        bool
@@ -199,7 +201,7 @@ func (e *axElements) read(ref uintptr, pool *[]uintptr) (axNode, error) {
 	}
 	n := axNode{
 		role: text(attrRole), subrole: text(attrSubrole), title: text(attrTitle), description: text(attrDescription),
-		id: text(attrIdentifier),
+		id: text(attrIdentifier), placeholder: text(attrPlaceholder),
 	}
 	if n.id == "" {
 		n.id = text(attrDOMIdentifier)
@@ -263,7 +265,8 @@ func (e *axElements) element(n axNode, parentRole string) Element {
 	}
 	switch {
 	case n.subrole == "AXSecureTextField":
-		// A password field's value is never read.
+		// A password field's value is never read, and its placeholder, which
+		// it reports whether or not it holds anything, would claim it empty.
 	case found.Role == RoleCheckbox || found.Role == RoleRadio || found.Role == RoleTab:
 		// A checkbox or radio button holds its state, not text, so its value
 		// is its state as a boolean a person would read.
@@ -279,7 +282,7 @@ func (e *axElements) element(n axNode, parentRole string) Element {
 		// its value.
 		found.Name = n.value
 	default:
-		found.Value = n.value
+		found.Value, found.Placeholder = n.value, n.placeholder
 	}
 	// A group, such as a titled box, is named by the element that titles it,
 	// as a group box is by its text on Windows.

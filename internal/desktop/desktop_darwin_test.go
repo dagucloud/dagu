@@ -394,6 +394,18 @@ func TestMenuItemName(t *testing.T) {
 	assert.Equal(t, "保存", titled.Name)
 }
 
+// A field keeps the hint it shows while it holds nothing; a password
+// field's is not read, since it reports one whatever it holds.
+func TestFieldPlaceholder(t *testing.T) {
+	t.Parallel()
+
+	var e axElements
+	field := e.element(axNode{role: "AXTextField", title: "数量", placeholder: "0"}, "AXWindow")
+	assert.Equal(t, Element{Role: RoleTextField, Name: "数量", Placeholder: "0"}, field)
+	secure := e.element(axNode{role: "AXTextField", subrole: "AXSecureTextField", title: "パスワード", placeholder: "必須"}, "AXWindow")
+	assert.Empty(t, secure.Placeholder)
+}
+
 // An element's value reads as text whether the application gives a string
 // or a boolean, as a checkbox's state may come.
 func TestValueText(t *testing.T) {

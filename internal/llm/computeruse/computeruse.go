@@ -170,6 +170,10 @@ type Element struct {
 	// a combo box shows, with the values the step types written as their
 	// placeholders.
 	Value string
+	// Hint is the text an empty field shows in place of a value, such as a
+	// grey "0", which the field does not hold. Empty when the field holds a
+	// value or the desktop does not report one.
+	Hint string
 }
 
 // Result reports how one action went.
