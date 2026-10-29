@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -67,7 +66,7 @@ steps:
     with:
       api_key_name: OPENROUTER_TEST_KEY
       stream: false
-      prompt: Hello.`+fmt.Sprintf(strings.TrimRight(with, "\n"), server.URL)+`
+      prompt: Hello.`+fmt.Sprintf(with, server.URL)+`
 `)
 			dag.Agent().RunSuccess(t)
 
