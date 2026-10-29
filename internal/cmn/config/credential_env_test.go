@@ -27,3 +27,25 @@ func TestEverySettingThatNamesACredentialIsHiddenFromWorkflows(t *testing.T) {
 		}
 	}
 }
+
+// The _file key of a credential names the file that holds it. Workflows do
+// not get that path either.
+func TestSecretFileSettingsAreHiddenFromWorkflows(t *testing.T) {
+	t.Parallel()
+
+	prefix := strings.ToUpper(AppSlug) + "_"
+	byKey := make(map[string]envBinding, len(envBindings))
+	for _, binding := range envBindings {
+		byKey[binding.key] = binding
+	}
+	found := 0
+	for _, binding := range envBindings {
+		inline, isFile := strings.CutSuffix(binding.key, "_file")
+		if !isFile || !byKey[inline].secret {
+			continue
+		}
+		found++
+		require.True(t, IsCredentialEnv(prefix+binding.env), "%s (%s) names the file of a credential", binding.key, binding.env)
+	}
+	require.NotZero(t, found)
+}

@@ -178,8 +178,9 @@ type AuthDef struct {
 
 // AuthBasicDef configures basic authentication credentials.
 type AuthBasicDef struct {
-	Username string `mapstructure:"username"`
-	Password string `mapstructure:"password"`
+	Username     string `mapstructure:"username"`
+	Password     string `mapstructure:"password"`
+	PasswordFile string `mapstructure:"password_file"`
 }
 
 // AuthBuiltinDef configures builtin authentication with RBAC.
@@ -190,14 +191,16 @@ type AuthBuiltinDef struct {
 
 // TokenConfigDef configures JWT token settings.
 type TokenConfigDef struct {
-	Secret string `mapstructure:"secret"`
-	TTL    string `mapstructure:"ttl"`
+	Secret     string `mapstructure:"secret"`
+	SecretFile string `mapstructure:"secret_file"`
+	TTL        string `mapstructure:"ttl"`
 }
 
 // InitialAdminDef configures the initial admin user for auto-provisioning.
 type InitialAdminDef struct {
-	Username string `mapstructure:"username"`
-	Password string `mapstructure:"password"`
+	Username     string `mapstructure:"username"`
+	Password     string `mapstructure:"password"`
+	PasswordFile string `mapstructure:"password_file"`
 }
 
 // AuthOIDCDef configures OIDC authentication.
@@ -205,8 +208,9 @@ type InitialAdminDef struct {
 type AuthOIDCDef struct {
 	// ClientID is the OAuth client identifier (Go naming: ID not Id).
 	// mapstructure tag uses lowercase "client_id" for YAML compatibility.
-	ClientID     string `mapstructure:"client_id"`
-	ClientSecret string `mapstructure:"client_secret"`
+	ClientID         string `mapstructure:"client_id"`
+	ClientSecret     string `mapstructure:"client_secret"`
+	ClientSecretFile string `mapstructure:"client_secret_file"`
 	// ClientURL is the application callback URL (Go naming: URL not Url).
 	// mapstructure tag uses lowercase "client_url" for YAML compatibility.
 	ClientURL      string              `mapstructure:"client_url"`
@@ -335,6 +339,7 @@ type AlibabaSecretsDef struct {
 type VaultSecretsDef struct {
 	Address    string `mapstructure:"address"`
 	Token      string `mapstructure:"token"`
+	TokenFile  string `mapstructure:"token_file"`
 	CACert     string `mapstructure:"ca_cert"`
 	ClientCert string `mapstructure:"client_cert"`
 	ClientKey  string `mapstructure:"client_key"`
@@ -383,15 +388,17 @@ type PeerDef struct {
 
 // RemoteNodeDef configures a remote node connection.
 type RemoteNodeDef struct {
-	Name              string `mapstructure:"name"`
-	Description       string `mapstructure:"description"`
-	APIBaseURL        string `mapstructure:"api_base_url"`
-	AuthType          string `mapstructure:"auth_type"`
-	BasicAuthUsername string `mapstructure:"basic_auth_username"`
-	BasicAuthPassword string `mapstructure:"basic_auth_password"`
-	AuthToken         string `mapstructure:"auth_token"`
-	SkipTLSVerify     bool   `mapstructure:"skip_tls_verify"`
-	Timeout           int    `mapstructure:"timeout"` // seconds; 0 = use default
+	Name                  string `mapstructure:"name"`
+	Description           string `mapstructure:"description"`
+	APIBaseURL            string `mapstructure:"api_base_url"`
+	AuthType              string `mapstructure:"auth_type"`
+	BasicAuthUsername     string `mapstructure:"basic_auth_username"`
+	BasicAuthPassword     string `mapstructure:"basic_auth_password"`
+	BasicAuthPasswordFile string `mapstructure:"basic_auth_password_file"`
+	AuthToken             string `mapstructure:"auth_token"`
+	AuthTokenFile         string `mapstructure:"auth_token_file"`
+	SkipTLSVerify         bool   `mapstructure:"skip_tls_verify"`
+	Timeout               int    `mapstructure:"timeout"` // seconds; 0 = use default
 }
 
 // -----------------------------------------------------------------------------
@@ -535,10 +542,12 @@ type GitSyncDef struct {
 
 // GitSyncAuthDef configures Git authentication.
 type GitSyncAuthDef struct {
-	Type          string `mapstructure:"type"` // "token" or "ssh", default: token
-	Token         string `mapstructure:"token"`
-	SSHKeyPath    string `mapstructure:"ssh_key_path"`
-	SSHPassphrase string `mapstructure:"ssh_passphrase"`
+	Type              string `mapstructure:"type"` // "token" or "ssh", default: token
+	Token             string `mapstructure:"token"`
+	TokenFile         string `mapstructure:"token_file"`
+	SSHKeyPath        string `mapstructure:"ssh_key_path"`
+	SSHPassphrase     string `mapstructure:"ssh_passphrase"`
+	SSHPassphraseFile string `mapstructure:"ssh_passphrase_file"`
 }
 
 // GitSyncAutoSyncDef configures automatic synchronization.
