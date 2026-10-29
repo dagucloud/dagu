@@ -217,7 +217,7 @@ func TestExportKeepsWhatAnActAssumed(t *testing.T) {
 	require.NoError(t, err)
 	assert.Zero(t, exported.Recordings)
 	assert.False(t, exported.Ops[0].Recorded)
-	assert.Equal(t, []string{`operation 0 (act "Sign in as %user%") never uses %user%, and the session did not note its value, so the first run asks the model for it`}, exported.Warnings)
+	assert.Equal(t, []string{`operation 0 (act "Sign in as %user%") never uses %user%, and the session did not note its value, so its recording is not exported and the first run may ask the model for it`}, exported.Warnings)
 }
 
 // A session whose browser closed can still be exported from its history.

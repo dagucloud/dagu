@@ -258,7 +258,7 @@ func exportStep(state sessionState, req ExportRequest) (*exportedSession, error)
 		case !entry.Recordable:
 			exported.warnf("operation %d (%s) has no recording, so every run asks the model for it", sessionIndex, what)
 		case len(unnoted) > 0:
-			exported.warnf("operation %d (%s) never uses %%%s%%, and the session did not note its value, so the first run asks the model for it", sessionIndex, what, unnoted[0])
+			exported.warnf("operation %d (%s) never uses %%%s%%, and the session did not note its value, so its recording is not exported and the first run may ask the model for it", sessionIndex, what, unnoted[0])
 		default:
 			exported.recordings[key] = recording{Actions: entry.Actions, Assumed: entry.Assumed}
 			item.Recorded = true
