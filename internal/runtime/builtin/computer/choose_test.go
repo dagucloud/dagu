@@ -120,18 +120,23 @@ func TestAChoiceIsTypedIntoABoxThatTakesTyping(t *testing.T) {
 
 // A box whose list is open already, as a click on the box leaves it, is
 // chosen in as a closed one is: from its list, or, where the list lies in
-// a window of its own, as a Windows combo box's does, by typing, with no
-// Escape that could reach the window. An option the step refuses is still
-// not chosen.
+// a window of its own, as a Windows combo box's does, by typing. A box
+// that opens, which leaves its open list as it is, has that list closed
+// with Escape before the typing; one with no way to open gets no Escape,
+// which could reach the window instead. An option the step refuses is
+// still not chosen.
 func TestAChoiceIsMadeInAListAlreadyOpen(t *testing.T) {
 	t.Parallel()
 
+	typed := []string{"focus methodBox", "key ctrl", "key a", "type 現金"}
 	for _, tc := range []struct {
 		name, refuse, shows, says string
-		opens                     bool
+		opens, noExpand           bool
+		inputs                    []string
 	}{
 		{name: "a pop-up whose menu is open", opens: true, shows: "現金", says: `chose "現金" in combo_box "支払方法" from its list`},
-		{name: "a combo box whose list is a window of its own", shows: "現金", says: `chose "現金" in combo_box "支払方法" by typing it`},
+		{name: "a combo box whose open list is a window of its own", shows: "現金", says: `chose "現金" in combo_box "支払方法" by typing it`, inputs: append([]string{"expand methodBox", "key escape"}, typed...)},
+		{name: "a combo box with no way to open", noExpand: true, shows: "現金", says: `chose "現金" in combo_box "支払方法" by typing it`, inputs: typed},
 		{name: "an option it refuses", refuse: "現金", opens: true, shows: "銀行振込", says: `which refuses "現金"`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -140,7 +145,8 @@ func TestAChoiceIsMadeInAListAlreadyOpen(t *testing.T) {
 			run.llm = nil
 			if tc.opens {
 				openMethodList(run)
-			} else {
+			}
+			if tc.noExpand {
 				run.elements.withoutPattern("methodBox")
 			}
 			refuse := "[]"
@@ -161,7 +167,11 @@ func TestAChoiceIsMadeInAListAlreadyOpen(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, box, 1)
 			assert.Equal(t, tc.shows, box[0].Value)
-			assert.NotContains(t, run.backend.inputs(), "key escape")
+			if tc.inputs != nil {
+				assert.Equal(t, tc.inputs, run.backend.inputs())
+			} else {
+				assert.NotContains(t, run.backend.inputs(), "key escape")
+			}
 		})
 	}
 }
