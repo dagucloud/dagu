@@ -78,15 +78,22 @@ func (t pageTarget) distinctDepth() int {
 	return depth
 }
 
-// context is a digest of the text of the element's ancestor depth levels
-// up, with variables' values as their placeholders.
+// context is a digest of contextText.
 func (t pageTarget) context(depth int, variables map[string]string) string {
 	if depth >= len(t.path) {
 		return ""
 	}
-	text := withPlaceholders(textOf(t.path[len(t.path)-1-depth]), variables)
-	sum := sha256.Sum256([]byte(strings.Join(strings.Fields(text), " ")))
+	sum := sha256.Sum256([]byte(strings.Join(strings.Fields(t.contextText(depth, variables)), " ")))
 	return hex.EncodeToString(sum[:])
+}
+
+// contextText is the text of the element's ancestor depth levels up, with
+// variables' values as their placeholders, or "" above the page.
+func (t pageTarget) contextText(depth int, variables map[string]string) string {
+	if depth >= len(t.path) {
+		return ""
+	}
+	return withPlaceholders(textOf(t.path[len(t.path)-1-depth]), variables)
 }
 
 // matches reports whether the element is the one want recorded. Without
@@ -127,6 +134,10 @@ func identified(action recordedAction, target pageTarget, variables map[string]s
 		recorded.Lookalikes = count
 		if depth := target.distinctDepth(); depth > 0 {
 			recorded.Context, recorded.Depth = target.context(depth, variables), depth
+			if names := agentstep.VariableReferences(target.contextText(depth, variables)); len(names) > 0 {
+				slices.Sort(names)
+				recorded.ContextVariables = slices.Compact(names)
+			}
 		}
 	}
 	action.Target = recorded

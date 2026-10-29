@@ -86,6 +86,9 @@ type sessionOp struct {
 	// Recordable reports that the act's actions may be replayed by a step:
 	// the act was recorded and its actions hold no variable's value.
 	Recordable bool `json:"recordable,omitempty"`
+	// Assumed is what the act's actions took for granted about the values
+	// of the variables they never use, which the step's recording keeps.
+	Assumed *agentstep.Assumed `json:"assumed,omitempty"`
 	// Outputs names the values an extract read.
 	Outputs []string `json:"outputs,omitempty"`
 	// Variables names the variables the operation used.

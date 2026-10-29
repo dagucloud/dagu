@@ -649,9 +649,11 @@ type sessionRecorder struct {
 	preset []recordedAction
 }
 
-func (r sessionRecorder) lookup(string) ([]recordedAction, bool) { return r.preset, len(r.preset) > 0 }
-func (sessionRecorder) stage(string, []recordedAction)           {}
-func (sessionRecorder) drop(string)                              {}
+func (r sessionRecorder) lookup(string) (recording, bool) {
+	return recording{Actions: r.preset}, len(r.preset) > 0
+}
+func (sessionRecorder) stage(string, recording) {}
+func (sessionRecorder) drop(string)             {}
 
 // checkOperation refuses an operation the session cannot run as given: an
 // act using a variable no value was given for, one needing a model the
@@ -811,6 +813,9 @@ func (s *Sessions) Do(ctx context.Context, req DoRequest) (DoResult, error) {
 				// variable's value.
 				if entry.Recordable {
 					entry.Actions = done.Actions
+					if op.Act != nil {
+						entry.Assumed = agentstep.Assume(unusedVariables(op.Act.Instruction, done.Actions), values.all)
+					}
 				}
 				result.Recorded = entry.Recordable
 			}

@@ -776,7 +776,7 @@ func TestReplaySeesOtherRuns(t *testing.T) {
 
 	healed := []recordedAction{{Selector: "xpath=/html/body/nav/a[3]", Method: "click"}}
 	run.engine.onAct = otherRun(func(other *replayCache) error {
-		other.Stage(key, healed)
+		other.Stage(key, recording{Actions: healed})
 		return other.Commit(t.Context())
 	})
 	replayed := run.execute(steps, nil)

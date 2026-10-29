@@ -124,12 +124,12 @@ func (o *operator) upload(ctx context.Context, index int, spec uploadSpec, timeo
 	// and tells whether a recorded element is still the one recorded.
 	snap, snapErr := o.eng.Snapshot(ctx)
 	status := agentstep.StatusCompleted
-	actions, ok := o.recording(choice, key)
+	rec, ok := o.recording(choice, key)
 	if !ok && choice == aiNever {
 		return opResult{}, replayMiss{kind: opUpload, reason: noRecording}
 	}
 	if ok {
-		action := actions[0]
+		action := rec.Actions[0]
 		if snapErr == nil && stillTargets(action, snap, o.variables) {
 			how, err := o.eng.Upload(ctx, action.Selector, files, timeout)
 			if err != nil {
@@ -166,7 +166,7 @@ func (o *operator) upload(ctx context.Context, index int, spec uploadSpec, timeo
 		return opResult{}, err
 	}
 	if recorded {
-		o.recorder.stage(key, []recordedAction{action})
+		o.recorder.stage(key, recording{Actions: []recordedAction{action}})
 	}
 	return result(status, agentstep.ViaModel, &action, how, pageURL), nil
 }

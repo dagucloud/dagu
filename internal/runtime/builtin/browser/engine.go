@@ -247,6 +247,9 @@ type recordedTarget struct {
 	// others. Both are empty when its parent already holds another.
 	Context string `json:"context,omitempty"`
 	Depth   int    `json:"depth,omitempty"`
+	// ContextVariables names the variables whose placeholders the text
+	// Context digests held, which a replay finds the element by.
+	ContextVariables []string `json:"context_variables,omitempty"`
 }
 
 type actOutcome struct {
