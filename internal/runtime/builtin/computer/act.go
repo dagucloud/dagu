@@ -23,9 +23,9 @@ import (
 // task properly.
 const continueNote = "Continue the task. " + computeruse.DoneInstruction
 
-// reportNote asks a model that answered without acting a second time to
-// report the task with done, the only tool it is then offered.
-const reportNote = "You answered without acting again. Report the task now: call done with success set to true if the task is complete, or false with what is wrong or left."
+// reportNote asks a model that keeps answering without acting to report the
+// task with done, the only tool it is then offered.
+const reportNote = "You have not reported the task. Report it now: call done with success set to true if the task is complete, or false with what is wrong or left."
 
 // personNote tells a model why its actions were not run.
 const personNote = "A person used the computer after your last screenshot, so your last actions were not run. Continue the task from the current screen."
@@ -1039,17 +1039,22 @@ func (l *actLoop) finish(ctx context.Context, turn *computeruse.Turn) error {
 // reporting the task done is reminded to continue. A model that cannot be
 // forced to call a tool may end with text again, so it is then asked for its
 // report with nothing else to call; one that still does not report is stuck.
+// A model already told the task has no actions left is not reminded to
+// continue but asked for its report alone at once.
 func (l *actLoop) reminder(turn *computeruse.Turn) (note string, reportOnly bool, err error) {
 	if len(turn.Actions) > 0 {
 		l.stalled = 0
 		return "", false, nil
 	}
 	l.stalled++
+	if l.capped {
+		l.stalled = max(l.stalled, 2)
+	}
 	switch l.stalled {
 	case 1:
 		return continueNote, false, nil
 	case 2:
-		logAction(l.r.timeline, l.index, "the model answered again without acting; asking it to report")
+		logAction(l.r.timeline, l.index, "the model answered without acting or reporting; asking it to report")
 		return reportNote, true, nil
 	default:
 		return "", false, fmt.Errorf("the model stopped without reporting the task done: %s", agentstep.QuoteShort(turn.Text))

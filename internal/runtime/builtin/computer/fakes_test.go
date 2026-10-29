@@ -746,6 +746,16 @@ func (s *scriptedSession) Next(_ context.Context, obs computeruse.Observation) (
 	return turn, nil
 }
 
+// requests lists the note of every observation and whether it asked for
+// the model's report alone.
+func (s *scriptedSession) requests() (notes []string, reportOnly []bool) {
+	for _, obs := range s.observations {
+		notes = append(notes, obs.Note)
+		reportOnly = append(reportOnly, obs.ReportOnly)
+	}
+	return notes, reportOnly
+}
+
 func done(summary string) *computeruse.Turn {
 	return &computeruse.Turn{Done: &computeruse.Done{Success: true, Summary: summary}, Usage: llmpkg.Usage{PromptTokens: 10, CompletionTokens: 2}}
 }

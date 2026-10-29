@@ -3554,6 +3554,24 @@ func TestCapAsksForReport(t *testing.T) {
 	assert.Contains(t, execution.stderr.String(), "Clicked around (2 actions)")
 }
 
+// A model that answers the request for its report after the cap with text
+// is asked for the report alone again, not offered actions it may not take.
+func TestCapAsksForReportAfterText(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	session := &scriptedSession{turns: []*computeruse.Turn{
+		actions(clickAt(1, 1), clickAt(2, 2)), actions(clickAt(3, 3)), {Text: "I clicked around."}, done("Clicked around"),
+	}}
+	run.sessions = []*scriptedSession{session}
+	execution := run.execute(`{"max_actions": 2, "cache": false, "do": [{"act": "Click around"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	notes, reportOnly := session.requests()
+	assert.Equal(t, []string{"", "", capNote, reportNote}, notes)
+	assert.Equal(t, []bool{false, false, true, true}, reportOnly)
+}
+
 // A model that cannot be forced to call a tool may end a task it did with
 // text instead of done. Answering a second time without acting, it is asked
 // for its report alone, so the act ends as the model reports it.
@@ -3589,12 +3607,7 @@ func TestAnswersWithoutActingAskForReport(t *testing.T) {
 				assert.Contains(t, execution.stderr.String(), "Filled in the order (1 actions)")
 			}
 
-			var notes []string
-			var reportOnly []bool
-			for _, obs := range session.observations {
-				notes = append(notes, obs.Note)
-				reportOnly = append(reportOnly, obs.ReportOnly)
-			}
+			notes, reportOnly := session.requests()
 			assert.Equal(t, []string{"", "", continueNote, reportNote}, notes)
 			assert.Equal(t, []bool{false, false, false, true}, reportOnly, "the first reminder still lets the model act")
 		})
