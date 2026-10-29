@@ -344,13 +344,19 @@ func (l *actLoop) run(ctx context.Context) error {
 			// action are counted afresh.
 			l.stalled = 0
 			logAction(l.r.timeline, l.index, "the task has used the actions it may take; asking the model to report")
-			if l.seen, err = l.look(ctx); err != nil {
+			offered, err := l.lookAndOffer(ctx)
+			if err != nil {
 				return err
 			}
 			// Only a budget with nothing left takes the actions away; one
 			// that a batch overran may still fit a smaller one.
-			exhausted := l.spent+l.outcome.actions >= l.budget
-			obs = computeruse.Observation{Screen: l.seen.forModel(), Results: skippedResults(turn.Actions), Note: capNote, ReportOnly: exhausted}
+			obs = computeruse.Observation{
+				Screen:     l.seen.forModel(),
+				Results:    skippedResults(turn.Actions),
+				Note:       capNote,
+				ReportOnly: l.exhausted(),
+				Elements:   offered,
+			}
 			continue
 		}
 		// Before running the turn's actions, make sure the world still matches
@@ -890,6 +896,11 @@ func (l *actLoop) admit(turn *computeruse.Turn) (over bool, err error) {
 	return l.spent+l.outcome.actions+len(turn.Actions) > l.budget, nil
 }
 
+// exhausted reports whether the task has no action left.
+func (l *actLoop) exhausted() bool {
+	return l.spent+l.outcome.actions >= l.budget
+}
+
 // onlyScrolls reports a turn that does nothing but scroll.
 func onlyScrolls(actions []computeruse.Action) bool {
 	for _, action := range actions {
@@ -1045,15 +1056,15 @@ func (l *actLoop) finish(ctx context.Context, turn *computeruse.Turn) error {
 // reporting the task done is reminded to continue. A model that cannot be
 // forced to call a tool may end with text again, so it is then asked for its
 // report with nothing else to call; one that still does not report is stuck.
-// A model already told the task has no actions left is not reminded to
-// continue but asked for its report alone at once.
+// A model with no action left is not reminded to continue but asked for
+// its report alone at once.
 func (l *actLoop) reminder(turn *computeruse.Turn) (note string, reportOnly bool, err error) {
 	if len(turn.Actions) > 0 {
 		l.stalled = 0
 		return "", false, nil
 	}
 	l.stalled++
-	if l.capped {
+	if l.exhausted() {
 		l.stalled = max(l.stalled, 2)
 	}
 	switch l.stalled {

@@ -3591,23 +3591,40 @@ func TestCapLeavesActionsThatRemain(t *testing.T) {
 	assert.Equal(t, []bool{false, false, false, false}, reportOnly)
 }
 
-// A model that acts after answering without acting, even past the cap, has
-// its answers without an action counted afresh: a text answer to the cap
-// request is asked for the report alone before the act fails.
+// A batch that overruns the actions left counts as an answer with actions,
+// so the model's answers without one are counted afresh, and with actions
+// left a text answer is reminded to continue before it is asked to report.
 func TestCapCountsTextAnswersAfresh(t *testing.T) {
 	t.Parallel()
 
 	run := newTestRun(t)
 	session := &scriptedSession{turns: []*computeruse.Turn{
-		said("Looking."), said("Still looking."), actions(clickAt(1, 1), clickAt(2, 2)), said("I would click twice."), said("I am stuck."),
+		said("Looking."), said("Still looking."), actions(clickAt(1, 1), clickAt(2, 2)), said("I would click twice."), said("Thinking."), said("I am stuck."),
 	}}
 	run.sessions = []*scriptedSession{session}
 	execution := run.execute(`{"max_actions": 1, "cache": false, "do": [{"act": "Click twice"}]}`, nil)
 	require.ErrorContains(t, execution.err, "the model stopped without reporting the task done")
 
 	notes, reportOnly := session.requests()
-	assert.Equal(t, []string{"", continueNote, reportNote, capNote, reportNote}, notes)
-	assert.Equal(t, []bool{false, false, true, false, true}, reportOnly)
+	assert.Equal(t, []string{"", continueNote, reportNote, capNote, continueNote, reportNote}, notes)
+	assert.Equal(t, []bool{false, false, true, false, false, true}, reportOnly)
+}
+
+// The request for the report after the cap lists the screen's elements, so
+// the model judges its report from what the fields hold.
+func TestCapRequestListsElements(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t)
+	run.elements = newFakeElements()
+	session := &scriptedSession{turns: []*computeruse.Turn{actions(clickAt(1, 1), clickAt(2, 2)), done("Clicked around")}}
+	run.sessions = []*scriptedSession{session}
+	execution := run.execute(`{"idle": "0", "max_actions": 1, "cache": false, "do": [{"act": "Click around"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	require.Len(t, session.observations, 2)
+	assert.Equal(t, capNote, session.observations[1].Note)
+	assert.Contains(t, session.observations[1].Elements, computeruse.Element{ID: "e1", Role: desktop.RoleButton, Name: "保存"})
 }
 
 // A model that cannot be forced to call a tool may end a task it did with
