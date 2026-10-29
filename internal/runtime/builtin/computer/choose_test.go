@@ -22,8 +22,9 @@ var methodBox = desktop.Element{Role: desktop.RoleComboBox, Name: "支払方法"
 	Bounds: image.Rect(190, 220, 390, 244), Path: []desktop.PathStep{{Role: desktop.RoleComboBox, Name: "支払方法", Index: 0}}}
 
 // choiceRun is a run whose window holds methodBox. With opens, opening the
-// box shows its options and pressing one sets the box to it; without, the
-// box opens to nothing and takes typing instead, as an editable combo box.
+// box shows its options, leaving them as they are once shown, and pressing
+// one sets the box to it; without, the box opens to nothing and takes
+// typing instead, as an editable combo box.
 func choiceRun(t *testing.T, opens bool) *testRun {
 	t.Helper()
 	run := newTestRun(t)
@@ -42,22 +43,31 @@ func choiceRun(t *testing.T, opens bool) *testRun {
 		run.backend.onType = setMethod
 		return run
 	}
-	options := []desktop.Element{}
-	for i, name := range []string{"銀行振込", "クレジット", "現金"} {
-		options = append(options, desktop.Element{Role: desktop.RoleMenuItem, Name: name, Bounds: image.Rect(190, 250+i*20, 390, 268+i*20),
-			Path: []desktop.PathStep{{Role: desktop.RoleComboBox, Name: "支払方法", Index: 0}, {Role: desktop.RoleMenuItem, Name: name, Index: i}}})
-	}
 	run.elements.onApply = func(e desktop.Element, pattern desktop.Pattern, _ string) {
 		switch {
 		case e.ID == "methodBox" && pattern == desktop.PatternExpand:
-			run.elements.mu.Lock()
-			run.elements.elements = append(slices.Clone(run.elements.elements), options...)
-			run.elements.mu.Unlock()
+			openMethodList(run)
 		case e.Role == desktop.RoleMenuItem && pattern == desktop.PatternInvoke:
 			setMethod(e.Name)
 		}
 	}
 	return run
+}
+
+// openMethodList shows methodBox's options among the window's elements, as
+// a click on the box does, unless they show already.
+func openMethodList(run *testRun) {
+	run.elements.mu.Lock()
+	defer run.elements.mu.Unlock()
+	if slices.ContainsFunc(run.elements.elements, func(e desktop.Element) bool { return e.Role == desktop.RoleMenuItem }) {
+		return
+	}
+	options := slices.Clone(run.elements.elements)
+	for i, name := range []string{"銀行振込", "クレジット", "現金"} {
+		options = append(options, desktop.Element{Role: desktop.RoleMenuItem, Name: name, Bounds: image.Rect(190, 250+i*20, 390, 268+i*20),
+			Path: []desktop.PathStep{{Role: desktop.RoleComboBox, Name: "支払方法", Index: 0}, {Role: desktop.RoleMenuItem, Name: name, Index: i}}})
+	}
+	run.elements.elements = options
 }
 
 // The model chooses an option by name: the box opens and the option presses
@@ -106,6 +116,54 @@ func TestAChoiceIsTypedIntoABoxThatTakesTyping(t *testing.T) {
 	inputs := run.backend.inputs()
 	assert.Contains(t, inputs, "type 現金")
 	assert.NotContains(t, inputs, "key enter", "a choice never presses Enter")
+}
+
+// A box whose list is open already, as a click on the box leaves it, is
+// chosen in as a closed one is: from its list, or, where the list lies in
+// a window of its own, as a Windows combo box's does, by typing, with no
+// Escape that could reach the window. An option the step refuses is still
+// not chosen.
+func TestAChoiceIsMadeInAListAlreadyOpen(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name, refuse, shows, says string
+		opens                     bool
+	}{
+		{name: "a pop-up whose menu is open", opens: true, shows: "現金", says: `chose "現金" in combo_box "支払方法" from its list`},
+		{name: "a combo box whose list is a window of its own", shows: "現金", says: `chose "現金" in combo_box "支払方法" by typing it`},
+		{name: "an option it refuses", refuse: "現金", opens: true, shows: "銀行振込", says: `which refuses "現金"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			run := choiceRun(t, tc.opens)
+			run.llm = nil
+			if tc.opens {
+				openMethodList(run)
+			} else {
+				run.elements.withoutPattern("methodBox")
+			}
+			refuse := "[]"
+			if tc.refuse != "" {
+				refuse = `["` + tc.refuse + `"]`
+			}
+			execution := run.execute(`{"ai": "never", "idle": "0", "refuse": `+refuse+`, "do": [
+				{"act": {"instruction": "支払方法を現金にする", "recorded": {"windows": [{"choose": {"from": {"role": "combo_box", "id": "methodBox"}, "option": "現金"}}]}}}
+			]}`, nil)
+			if tc.refuse == "" {
+				require.NoError(t, execution.err)
+				assert.Contains(t, execution.stderr.String(), tc.says)
+			} else {
+				require.Error(t, execution.err)
+				assert.Contains(t, execution.err.Error(), tc.says)
+			}
+			box, err := run.elements.Find(desktop.Selector{Role: desktop.RoleComboBox, ID: "methodBox"})
+			require.NoError(t, err)
+			require.Len(t, box, 1)
+			assert.Equal(t, tc.shows, box[0].Value)
+			assert.NotContains(t, run.backend.inputs(), "key escape")
+		})
+	}
 }
 
 // A box that shows the option after no way of choosing it fails the action
