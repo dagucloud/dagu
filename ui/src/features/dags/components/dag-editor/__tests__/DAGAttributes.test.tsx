@@ -4,7 +4,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ScheduleKind } from '@/api/v1/schema';
+import { ScheduleKind, UpcomingRunsHold } from '@/api/v1/schema';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import dayjs from '@/lib/dayjs';
@@ -179,6 +179,42 @@ describe('DAGAttributes', () => {
       screen.getByText('· skips Mon 2027-01-11 (Coming of Age Day)')
     ).toBeInTheDocument();
     expect(screen.getByText('· extra business day')).toBeInTheDocument();
+  });
+
+  it('says when the listed runs will not start', () => {
+    const { rerender } = render(
+      <DAGAttributes
+        dag={{
+          name: 'held',
+          schedule: [{ expression: '0 12 * * *', kind: ScheduleKind.cron }],
+          upcomingRuns: [
+            { time: '2027-01-01T12:00:00Z', scheduleIndex: 0, timezone: 'UTC' },
+          ],
+          upcomingRunsHold: UpcomingRunsHold.suspended,
+        }}
+      />
+    );
+    expect(
+      screen.getByText(
+        'This DAG is suspended. None of these runs will start until it is resumed.'
+      )
+    ).toBeInTheDocument();
+
+    rerender(
+      <DAGAttributes
+        dag={{
+          name: 'held',
+          schedule: [{ expression: '0 12 * * *', kind: ScheduleKind.cron }],
+          upcomingRuns: [
+            { time: '2027-01-01T12:00:00Z', scheduleIndex: 0, timezone: 'UTC' },
+          ],
+          upcomingRunsHold: UpcomingRunsHold.schedulerPaused,
+        }}
+      />
+    );
+    expect(
+      screen.getByText('Scheduler is paused. No scheduled runs will start.')
+    ).toBeInTheDocument();
   });
 
   it('expands the upcoming runs past the first five', () => {

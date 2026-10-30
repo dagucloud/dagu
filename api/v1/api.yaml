@@ -14696,6 +14696,13 @@ components:
       required:
         - date
 
+    UpcomingRunsHold:
+      type: string
+      description: "Why none of the upcoming runs will start: the scheduler is paused, or the DAG is suspended"
+      enum:
+        - "schedulerPaused"
+        - "suspended"
+
     UpcomingRun:
       type: object
       description: "A time at which a start schedule fires"
@@ -14982,6 +14989,8 @@ components:
           description: "Next fire times of the start schedules, earliest first. Derived from the definition alone: suspension, scheduler pauses, and runtime profiles do not filter it."
           items:
             $ref: "#/components/schemas/UpcomingRun"
+        upcomingRunsHold:
+          $ref: "#/components/schemas/UpcomingRunsHold"
         group:
           type: string
           description: "Logical grouping of related DAGs for organizational purposes"

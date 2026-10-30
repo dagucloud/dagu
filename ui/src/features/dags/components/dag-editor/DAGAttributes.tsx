@@ -6,7 +6,7 @@
 import dayjs from '@/lib/dayjs';
 import { Calendar, CheckSquare, Settings, Tag } from 'lucide-react';
 import React from 'react';
-import { components } from '../../../../api/v1/schema';
+import { components, UpcomingRunsHold } from '../../../../api/v1/schema';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -88,6 +88,7 @@ function DAGAttributes({ dag }: Props) {
               {upcomingRuns.length > 0 && (
                 <UpcomingRuns
                   runs={upcomingRuns}
+                  hold={dag.upcomingRunsHold}
                   schedules={dag.schedule ?? []}
                   locale={dayjsLocale}
                 />
@@ -167,10 +168,12 @@ function DAGAttributes({ dag }: Props) {
  */
 function UpcomingRuns({
   runs,
+  hold,
   schedules,
   locale,
 }: {
   runs: UpcomingRun[];
+  hold?: UpcomingRunsHold;
   schedules: Schedule[];
   locale: string;
 }) {
@@ -190,6 +193,17 @@ function UpcomingRuns({
           </span>
         )}
       </div>
+      {hold && (
+        <div className="text-sm text-warning">
+          <I18nText
+            text={
+              hold === UpcomingRunsHold.suspended
+                ? 'This DAG is suspended. None of these runs will start until it is resumed.'
+                : 'Scheduler is paused. No scheduled runs will start.'
+            }
+          />
+        </div>
+      )}
       <ol className="space-y-0.5 text-sm text-muted-foreground tabular-nums">
         {visibleRuns.map((run) => {
           const schedule = schedules[run.scheduleIndex];

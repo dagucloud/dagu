@@ -2629,6 +2629,7 @@ const english = {
   "business day {n} of the month": "business day {n} of the month",
   "extra business day": "extra business day",
   "skips {day}": "skips {day}",
+  "This DAG is suspended. None of these runs will start until it is resumed.": "This DAG is suspended. None of these runs will start until it is resumed.",
 } as const;
 
 export type StaticMessage = keyof typeof english;
@@ -5204,6 +5205,7 @@ const chinese = {
   "business day {n} of the month": "当月第 {n} 个工作日",
   "extra business day": "额外工作日",
   "skips {day}": "跳过 {day}",
+  "This DAG is suspended. None of these runs will start until it is resumed.": "此 DAG 已暂停。恢复之前，这些运行都不会开始。",
 } as const satisfies Record<StaticMessage, string>;
 
 const japanese = {
@@ -7855,6 +7857,7 @@ const japanese = {
   "business day {n} of the month": "第 {n} 営業日",
   "extra business day": "臨時営業日",
   "skips {day}": "{day} はスキップ",
+  "This DAG is suspended. None of these runs will start until it is resumed.": "このDAGは停止中です。再開するまで、これらの実行は開始されません。",
 } as const satisfies Record<StaticMessage, string>;
 
 export const staticMessages = {
