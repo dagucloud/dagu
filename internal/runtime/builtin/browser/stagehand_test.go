@@ -645,6 +645,105 @@ func TestStagehandWaitsForThePageAPressOpens(t *testing.T) {
 	assert.Contains(t, text, "Welcome back", "the greeting the home page fetched")
 }
 
+// serveFramedSearch serves a page built of frames, as older sites are,
+// whose menu frame posts a search into the content frame: Search at once,
+// Search later a moment after it is pressed, and Search with notice while
+// a window it opens says to wait, which the results close. The results are
+// answered a moment after the search is posted.
+func serveFramedSearch(t *testing.T) string {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		switch r.URL.Path {
+		case "/":
+			_, _ = io.WriteString(w, `<frameset cols="200,*"><frame src="/menu"><frame name="main" src="/home"></frameset>`)
+		case "/menu":
+			_, _ = io.WriteString(w, `<form id="search" method="post" action="/results" target="main"></form>
+<button onclick="document.getElementById('search').submit()">Search</button>
+<button onclick="setTimeout(() => document.getElementById('search').submit(), 200)">Search later</button>
+<button onclick="top.notice = window.open('/wait', 'notice', 'width=300,height=100'); document.getElementById('search').submit()">Search with notice</button>`)
+		case "/home":
+			_, _ = io.WriteString(w, "<p>Home</p>")
+		case "/wait":
+			_, _ = io.WriteString(w, "<p>Searching</p>")
+		case "/results":
+			time.Sleep(1500 * time.Millisecond)
+			_, _ = io.WriteString(w, `<p>Road repair</p><script>if (top.notice) top.notice.close()</script>`)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server.URL
+}
+
+// A press that posts a form into another frame waits for the frame to load
+// the answer, so the next operation reads the results rather than the
+// frame as it was: a press replayed, one an act performs after its model
+// took a while to answer, which posts a moment after the act returns, and
+// one that opens a window, which the browser then shows in front.
+func TestStagehandWaitsForTheFrameAPressLoads(t *testing.T) {
+	t.Parallel()
+
+	replayPress := func(selector string) func(context.Context, engine) error {
+		return func(ctx context.Context, eng engine) error {
+			replayed, err := eng.Replay(ctx, recordedAction{Selector: selector, Method: "click"}, nil, time.Minute)
+			if err == nil && !replayed {
+				err = errors.New("the press was not replayed")
+			}
+			return err
+		}
+	}
+	// The model answers after the page has long been quiet.
+	slowModel := func(generate generateFunc) generateFunc {
+		return func(ctx context.Context, req generateRequest) (generateResponse, error) {
+			select {
+			case <-ctx.Done():
+				return generateResponse{}, ctx.Err()
+			case <-time.After(time.Second):
+			}
+			return generate(ctx, req)
+		}
+	}
+	for name, tc := range map[string]struct {
+		generate generateFunc
+		press    func(context.Context, engine) error
+	}{
+		"replay": {
+			generate: (&shopModel{}).generate,
+			press:    replayPress("xpath=/html[1]/frameset[1]/frame[1]/html[1]/body[1]/button[1]"),
+		},
+		"window": {
+			generate: (&shopModel{}).generate,
+			press:    replayPress("xpath=/html[1]/frameset[1]/frame[1]/html[1]/body[1]/button[3]"),
+		},
+		"act": {
+			generate: slowModel(treeModel(where(buttonNamed("Search later")), "click")),
+			press: func(ctx context.Context, eng engine) error {
+				outcome, err := eng.Act(ctx, "Click Search later", nil, nil, time.Minute)
+				if err == nil && !outcome.Success {
+					err = errors.New(outcome.Message)
+				}
+				return err
+			},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			eng := launchBrowser(t, launchOptions{Generate: tc.generate})
+			require.NoError(t, eng.Goto(t.Context(), serveFramedSearch(t), time.Minute))
+			// A press returns once the page has settled, long before the wait
+			// for it would give up.
+			eng.(*stagehandEngine).settleWait = time.Minute
+
+			began := time.Now()
+			require.NoError(t, tc.press(t.Context(), eng))
+			assert.Less(t, time.Since(began), 20*time.Second, "the press waited out the settle limit")
+			snap, err := eng.Snapshot(t.Context())
+			require.NoError(t, err)
+			assert.Contains(t, snap.Tree, "Road repair", "the results the search loaded")
+		})
+	}
+}
+
 // menuPage adds an Approve button once its menu is opened.
 const menuPage = `<p id="status">pending</p>
 <button onclick="openMenu()">Open menu</button>

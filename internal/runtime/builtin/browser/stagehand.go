@@ -517,6 +517,11 @@ func startEngine(ctx context.Context, browser *stagehand.Browser, cdpURL string,
 	if eng.responses, err = browserhost.WatchPageResponses(ctx, cdpURL); err != nil {
 		return nil, errors.Join(fmt.Errorf("watch page responses: %w", err), eng.release(context.WithoutCancel(ctx)))
 	}
+	// A frame a form posts into keeps its document until the answer loads,
+	// which only the browser tells.
+	if eng.loads, err = browserhost.WatchFrameLoads(ctx, cdpURL); err != nil {
+		return nil, errors.Join(fmt.Errorf("watch frame loads: %w", err), eng.release(context.WithoutCancel(ctx)))
+	}
 	if len(opts.AllowedDomains) > 0 {
 		// Blocked requests leave a broken page and a later, unrelated
 		// failure, so they are reported by host.
@@ -547,6 +552,7 @@ type stagehandEngine struct {
 	downloads *browserhost.DownloadWatcher
 	dialogs   *browserhost.DialogWatcher
 	responses *browserhost.PageResponseWatcher
+	loads     *browserhost.FrameLoadWatcher
 	// blocked counts requests allowed_domains blocks; nil without
 	// allowed_domains.
 	blocked *browserhost.BlockedRequestWatcher
@@ -780,32 +786,43 @@ func (e *stagehandEngine) showsBotCheck(ctx context.Context) bool {
 }
 
 // settleDocument waits, until deadline, for the document the page shows to
-// settle: a new document until its network is idle, and the document an
-// action began on until its requests end and it stops changing. A page that
-// does not settle in time is left as it is.
+// settle: every frame of the browser's pages, a page's own included, until
+// the document it loads has loaded, a new document until its network is
+// idle, and the document an action began on until its requests end and it
+// stops changing. The page is watched for settleQuiet at least, since a
+// navigation an action starts may begin a moment after the action returns.
+// A page that does not settle in time is left as it is.
 func (e *stagehandEngine) settleDocument(ctx context.Context, deadline time.Time) {
 	if !time.Now().Before(deadline) {
 		return
 	}
 	ctx, cancel := waitContext(ctx, deadline)
 	defer cancel()
-	page, err := e.page(ctx)
-	if err != nil {
-		return
-	}
+	watched := time.Now().Add(settleQuiet)
 	for time.Now().Before(deadline) {
-		quiet, err := page.Evaluate(ctx, quietExpression)
-		if err == nil && string(quiet) == "true" {
-			return
-		}
-		// A page that can't be read may be between documents, and one that
-		// reports no quiet state shows a document watch never readied; both
-		// wait as a newly loaded page does.
-		if err != nil || string(quiet) != "false" {
-			if wait := time.Until(deadline); wait > 0 {
-				_ = page.WaitForLoadState(ctx, stagehand.LoadStateNetworkIdle, new(int(wait.Milliseconds())))
+		if !e.loads.Loading() {
+			// The page in front changes as the page opens or closes a window.
+			page, err := e.page(ctx)
+			if err != nil {
+				return
 			}
-			return
+			quiet, err := page.Evaluate(ctx, quietExpression)
+			switch {
+			case err == nil && string(quiet) == "true":
+				if !time.Now().Before(watched) {
+					return
+				}
+			case err == nil && string(quiet) == "false":
+				// The document still has requests in flight or changes.
+			default:
+				// A page that can't be read may be between documents, and one
+				// that reports no quiet state shows a document watch never
+				// readied; both wait as a newly loaded page does.
+				if wait := time.Until(deadline); wait > 0 {
+					_ = page.WaitForLoadState(ctx, stagehand.LoadStateNetworkIdle, new(int(wait.Milliseconds())))
+				}
+				return
+			}
 		}
 		if !pause(ctx, settlePoll, deadline) {
 			return
@@ -1268,6 +1285,10 @@ func (e *stagehandEngine) release(ctx context.Context) error {
 	if e.responses != nil {
 		errs = append(errs, e.responses.Close())
 		e.responses = nil
+	}
+	if e.loads != nil {
+		errs = append(errs, e.loads.Close())
+		e.loads = nil
 	}
 	if e.blocked != nil {
 		errs = append(errs, e.blocked.Close())
