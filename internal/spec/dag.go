@@ -775,13 +775,15 @@ func (s *dagBuildState) bindScheduleCalendars() {
 		if !sched.IsCron() {
 			continue
 		}
+		calendarField := "calendar"
 		if sched.Calendar == "" {
 			sched.Calendar = s.result.Calendar
+			calendarField = ""
 		}
 		if !sched.HasCalendar() {
 			sched.Calendar = ""
 			if len(sched.BusinessDays) > 0 {
-				s.errs = append(s.errs, ir.NewValidationError("schedule", sched.Expression,
+				s.errs = append(s.errs, s.scheduleFieldError(i, "business_days",
 					fmt.Errorf("business_days needs a calendar: set calendar on the entry or the DAG")))
 			}
 			continue
@@ -789,7 +791,7 @@ func (s *dagBuildState) bindScheduleCalendars() {
 		cal, err := resolveScheduleCalendar(s.ctx.opts.Calendars, sched.Calendar)
 		if err != nil && !reported[sched.Calendar] {
 			reported[sched.Calendar] = true
-			s.errs = append(s.errs, ir.NewValidationError("schedule", nil, err))
+			s.errs = append(s.errs, s.scheduleFieldError(i, calendarField, err))
 		}
 		if cal == nil {
 			// Unresolved calendar schedules stay unbound and never fire.
@@ -812,6 +814,21 @@ func (s *dagBuildState) bindScheduleCalendars() {
 				sched.Expression, sched.Calendar))
 		}
 	}
+}
+
+// scheduleFieldError reports err at a field of start schedule i, or at the
+// DAG's calendar when field is empty because the schedule took the DAG's.
+// Errors about schedules or calendars inherited from a base config have no
+// field in the document.
+func (s *dagBuildState) scheduleFieldError(i int, field string, err error) error {
+	if field == "" {
+		if s.spec.Calendar != "" {
+			return &FieldError{Path: "calendar", Err: err}
+		}
+	} else if path, ok := s.spec.Schedule.StartPath(i); ok {
+		return &FieldError{Path: path + "." + field, Err: err}
+	}
+	return ir.NewValidationError("schedule", nil, err)
 }
 
 // resolveScheduleCalendar loads a calendar a schedule names. Without a

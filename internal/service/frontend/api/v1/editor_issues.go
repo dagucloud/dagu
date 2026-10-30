@@ -46,7 +46,7 @@ func buildValidationIssues(loadErr error, dag *ir.DAG, notices []cmnvalue.ValueR
 	}
 	if dag != nil {
 		for _, e := range dag.BuildErrors {
-			issues = append(issues, newErrorIssue(api.ValidationIssueSourceBuild, e, scope))
+			issues = append(issues, newErrorIssue(api.ValidationIssueSourceBuild, positionFieldError(e, scope.yaml), scope))
 		}
 		for _, w := range dag.BuildWarnings {
 			issues = append(issues, api.ValidationIssue{
@@ -95,6 +95,26 @@ func errorPosition(err error) (line, column int, ok bool) {
 	}
 	return 0, 0, false
 }
+
+// positionFieldError prefixes an error about one field of the document,
+// such as a schedule's calendar, with the [line:column] of the field, as the
+// errors list of a response does.
+func positionFieldError(err error, source []byte) error {
+	if _, ok := errors.AsType[*spec.FieldError](err); !ok || len(source) == 0 {
+		return err
+	}
+	return &positionedError{message: spec.ErrorMessages(source, []error{err})[0], err: err}
+}
+
+// positionedError is an error whose text starts with its position.
+type positionedError struct {
+	message string
+	err     error
+}
+
+func (e *positionedError) Error() string { return e.message }
+
+func (e *positionedError) Unwrap() error { return e.err }
 
 func newErrorIssue(source api.ValidationIssueSource, err error, scope *issueScope) api.ValidationIssue {
 	issue := api.ValidationIssue{

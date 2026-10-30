@@ -368,7 +368,9 @@ steps:
 	}).ExpectStatus(http.StatusOK).Send(t)
 	response.Unmarshal(t, &validation)
 	require.False(t, validation.Valid)
-	require.Contains(t, strings.Join(validation.Errors, "\n"), `unknown calendar "opps"; available: ops, weekdays`)
+	// The [line:column] prefix lets the editor mark the calendar line.
+	require.Contains(t, validation.Errors,
+		`[3:15] field 'schedule[0].calendar': unknown calendar "opps"; available: ops, weekdays`)
 }
 
 func TestDAGSpecInheritsBaseGraphType(t *testing.T) {

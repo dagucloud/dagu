@@ -132,9 +132,7 @@ func (a *API) ValidateDAGSpecData(ctx context.Context, name, source string) (*ap
 	}
 
 	if dag != nil && len(dag.BuildErrors) > 0 {
-		for _, e := range dag.BuildErrors {
-			errs = append(errs, e.Error())
-		}
+		errs = append(errs, spec.ErrorMessages([]byte(source), dag.BuildErrors)...)
 	}
 
 	details := toDAGDetails(dag)
@@ -304,7 +302,7 @@ func (a *API) GetDAGSpec(ctx context.Context, request api.GetDAGSpecRequestObjec
 			errs = append(errs, err.Error())
 		}
 	} else {
-		errs = append(errs, extractBuildErrors(dag.BuildErrors)...)
+		errs = append(errs, spec.ErrorMessages([]byte(yamlSpec), dag.BuildErrors)...)
 	}
 	if err := a.requireWorkspaceVisible(ctx, dagWorkspaceName(dag)); err != nil {
 		return nil, err

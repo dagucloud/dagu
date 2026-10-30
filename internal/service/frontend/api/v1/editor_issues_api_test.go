@@ -132,3 +132,19 @@ func TestEditorIssuesOnePerEntry(t *testing.T) {
 	issues := errorIssues(t, body)
 	assert.Len(t, issues, len(body.Errors))
 }
+
+// A calendar error is about one field of the document, so its issue sits on
+// that field, as the errors list says.
+func TestEditorIssuesCalendarPosition(t *testing.T) {
+	server := test.SetupServer(t)
+	body := validateIssues(t, server,
+		"calendar: nope\nschedule: \"0 9 * * *\"\nsteps:\n  - run: echo hi\n")
+
+	require.False(t, body.Valid)
+	issues := errorIssues(t, body)
+	require.Len(t, issues, 1)
+	require.NotNil(t, issues[0].Line)
+	require.NotNil(t, issues[0].Column)
+	assert.Equal(t, 1, *issues[0].Line)
+	assert.Equal(t, 11, *issues[0].Column)
+}
