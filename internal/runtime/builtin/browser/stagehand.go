@@ -593,9 +593,8 @@ type stagehandEngine struct {
 	loads     *browserhost.FrameLoadWatcher
 	// acted is when the last action or goto began; zero before the first.
 	acted time.Time
-	// held holds the windows heldWindows last found held, by target ID,
-	// with the target IDs of their openers.
-	held map[string]string
+	// held holds the windows heldWindows last found held, by target ID.
+	held map[string]heldWindow
 	// blocked counts requests allowed_domains blocks; nil without
 	// allowed_domains.
 	blocked *browserhost.BlockedRequestWatcher
@@ -662,6 +661,14 @@ func (e *stagehandEngine) page(ctx context.Context) (*stagehand.Page, error) {
 	return page, nil
 }
 
+// heldWindow is a window held behind the page that opened it.
+type heldWindow struct {
+	opener string
+	// began is when the opener began the load the window was first held
+	// for.
+	began time.Time
+}
+
 // heldWindows returns the windows operations look past, each with the
 // target ID of the page that opened it. A window is held when the last
 // action both opened it and made its opener load a document, as a search
@@ -669,22 +676,33 @@ func (e *stagehandEngine) page(ctx context.Context) (*stagehand.Page, error) {
 // closes the window. It stays held, through later actions too, while the
 // opener loads and for settleQuiet after, which a window the answer closes
 // takes to go; a window still open then is a page in its own right, such
-// as a form to fill in.
+// as a form to fill in, and a load its opener begins after that quiet
+// period does not hold it again.
 func (e *stagehandEngine) heldWindows() map[string]string {
-	held := map[string]string{}
+	held := map[string]heldWindow{}
 	for _, window := range e.loads.Windows() {
 		load := e.loads.PageLoad(window.Opener)
-		_, wasHeld := e.held[window.TargetID]
-		opened := !e.acted.IsZero() && !window.Opened.Before(e.acted) && !load.Began.Before(e.acted)
-		if !wasHeld && !opened {
+		hold, wasHeld := e.held[window.TargetID]
+		switch {
+		case wasHeld:
+			if load.Ended.After(hold.began) && load.Began.Sub(load.Ended) >= settleQuiet {
+				continue
+			}
+		case !e.acted.IsZero() && !window.Opened.Before(e.acted) && !load.Began.Before(e.acted):
+			hold = heldWindow{opener: window.Opener, began: load.Began}
+		default:
 			continue
 		}
 		if load.Loading || time.Since(load.Ended) < settleQuiet {
-			held[window.TargetID] = window.Opener
+			held[window.TargetID] = hold
 		}
 	}
 	e.held = held
-	return held
+	openers := make(map[string]string, len(held))
+	for target, hold := range held {
+		openers[target] = hold.opener
+	}
+	return openers
 }
 
 // Goto loads url over the page's own DevTools connection: the browser
