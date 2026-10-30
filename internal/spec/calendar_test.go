@@ -103,6 +103,56 @@ func TestLoadCalendarDigestCoversIncludes(t *testing.T) {
 	assert.NotEqual(t, before.Digest, after.Digest)
 }
 
+// A source parses a calendar once and reuses it until a file it was built
+// from changes, so many DAGs on one calendar cost one parse.
+func TestCalendarSourceReusesCalendars(t *testing.T) {
+	t.Parallel()
+
+	dir := writeCalendars(t, map[string]string{
+		"jp-banking":  jpBankingCalendar,
+		"jp-national": jpNationalCalendar,
+	})
+	source := spec.NewCalendarSource(dir)
+	write := func(name, content string) {
+		t.Helper()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name+".yaml"), []byte(content), 0o600))
+	}
+
+	first, err := source.Calendar("jp-banking")
+	require.NoError(t, err)
+	again, err := source.Calendar("jp-banking")
+	require.NoError(t, err)
+	assert.Same(t, first, again)
+
+	write("jp-banking", "holidays: [2027-05-03]\ninclude: [jp-national]\n")
+	edited, err := source.Calendar("jp-banking")
+	require.NoError(t, err)
+	_, ok := edited.Holiday(civil(2027, 5, 3))
+	assert.True(t, ok, "edited calendar")
+
+	write("jp-national", jpNationalCalendar+"  - 2027-03-21\n")
+	included, err := source.Calendar("jp-banking")
+	require.NoError(t, err)
+	_, ok = included.Holiday(civil(2027, 3, 21))
+	assert.True(t, ok, "edited include")
+
+	write("jp-banking", "holidays: nope\n")
+	_, err = source.Calendar("jp-banking")
+	require.ErrorContains(t, err, "holidays must be a list")
+	_, err = source.Calendar("jp-banking")
+	require.ErrorContains(t, err, "holidays must be a list")
+
+	require.NoError(t, os.Remove(filepath.Join(dir, "jp-banking.yaml")))
+	_, err = source.Calendar("jp-banking")
+	require.ErrorIs(t, err, spec.ErrUnknownCalendar)
+
+	write("jp-banking", jpNationalCalendar)
+	restored, err := source.Calendar("jp-banking")
+	require.NoError(t, err)
+	_, ok = restored.Holiday(civil(2027, 2, 11))
+	assert.True(t, ok, "recreated calendar")
+}
+
 func TestLoadCalendarErrors(t *testing.T) {
 	t.Parallel()
 

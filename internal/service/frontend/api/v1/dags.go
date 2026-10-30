@@ -275,7 +275,7 @@ func (a *API) GetDAGSpec(ctx context.Context, request api.GetDAGSpecRequestObjec
 		spec.WithAllowBuildErrors(),
 		spec.WithoutEval(),
 		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(a.config.Paths.DAGsDir)),
-		spec.WithCalendarsDir(a.config.Paths.CalendarsDir),
+		spec.WithCalendars(a.calendarSource()),
 	}
 	if a.config.Paths.BaseConfig != "" {
 		loadOpts = append(loadOpts, spec.WithBaseConfig(a.config.Paths.BaseConfig))

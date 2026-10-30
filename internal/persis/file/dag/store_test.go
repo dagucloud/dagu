@@ -20,6 +20,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dag/dagindex"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 
 	"github.com/stretchr/testify/assert"
@@ -42,7 +43,7 @@ func newRepository(baseDir string, opts ...Option) *persis.DAGRepository {
 	return persis.NewDAGRepository(store, persis.DAGRepositoryOptions{
 		BaseConfigPath:         store.baseConfigPath,
 		WorkspaceBaseConfigDir: store.workspaceBaseConfigDir,
-		CalendarsDir:           store.calendarsDir,
+		Calendars:              store.calendars,
 	})
 }
 
@@ -2710,7 +2711,7 @@ func TestCatalogBindsCalendars(t *testing.T) {
 		[]byte("calendar: jp\nschedule: \"0 18 * * *\"\nsteps:\n  - run: echo pay\n"), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(calendars, "jp.yaml"), []byte("holidays: [2027-01-11]\n"), 0600))
 
-	store := NewStore(dir, WithSkipExamples(true), WithIndexDir(filepath.Join(root, "index")), WithCalendarsDir(calendars))
+	store := NewStore(dir, WithSkipExamples(true), WithIndexDir(filepath.Join(root, "index")), WithCalendars(spec.NewCalendarSource(calendars)))
 	catalog, err := store.Catalog(t.Context())
 	require.NoError(t, err)
 

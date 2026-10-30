@@ -146,6 +146,11 @@ func (s Schedule) Location() *time.Location {
 	if !ok {
 		return nil
 	}
+	return cronLocation(parsed)
+}
+
+// cronLocation returns the zone a parsed cron expression names, or nil.
+func cronLocation(parsed cron.Schedule) *time.Location {
 	spec, ok := parsed.(*cron.SpecSchedule)
 	if !ok || spec.Location == time.Local {
 		return nil
@@ -177,7 +182,7 @@ func (s *Schedule) BindCalendar(cal *Calendar) error {
 		base:         base,
 		calendar:     cal,
 		businessDays: s.BusinessDays,
-		location:     s.Location(),
+		location:     cronLocation(base),
 	}
 	return nil
 }

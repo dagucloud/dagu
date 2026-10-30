@@ -115,8 +115,8 @@ type buildOpts struct {
 	BaseConfigContent []byte
 	// WorkspaceBaseConfigDir contains per-workspace base configs at <workspace>/base.yaml.
 	WorkspaceBaseConfigDir string
-	// CalendarsDir contains the calendar files that schedules name.
-	CalendarsDir string
+	// Calendars loads the calendar files that schedules name.
+	Calendars *CalendarSource
 	// Parameters specifies the Parameters to the DAG.
 	// Parameters are used to override the default Parameters in the DAG.
 	Parameters string

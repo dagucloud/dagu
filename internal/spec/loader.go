@@ -65,12 +65,23 @@ func WithWorkspaceBaseConfigDir(dir string) LoadOption {
 	}
 }
 
-// WithCalendarsDir sets the directory of the calendar files that schedules
-// name. Without it, a schedule naming a calendar file stays unbound and never
+// WithCalendars sets the source of the calendar files that schedules name.
+// Without one, a schedule naming a calendar file stays unbound and never
 // fires; built-in calendars bind either way.
+func WithCalendars(source *CalendarSource) LoadOption {
+	return func(o *buildOpts) {
+		o.Calendars = source
+	}
+}
+
+// WithCalendarsDir reads the calendar files that schedules name from dir,
+// without reusing calendars across loads. An empty dir sets no source.
 func WithCalendarsDir(dir string) LoadOption {
 	return func(o *buildOpts) {
-		o.CalendarsDir = dir
+		o.Calendars = nil
+		if dir != "" {
+			o.Calendars = NewCalendarSource(dir)
+		}
 	}
 }
 

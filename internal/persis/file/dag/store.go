@@ -48,7 +48,7 @@ type Options struct {
 	SearchPaths            []string                 // Additional search paths for DAG files
 	BaseConfigPath         string                   // Optional base config file applied when loading DAGs
 	WorkspaceBaseConfigDir string                   // Optional directory containing workspace base configs
-	CalendarsDir           string                   // Optional directory of the calendar files schedules name
+	Calendars              *spec.CalendarSource     // Optional source of the calendar files schedules name
 	SkipExamples           bool                     // Skip creating example DAGs
 	Recursive              bool                     // Discover DAG definitions in subdirectories
 	Symlinks               bool                     // Include recursive file symlinks and external targets
@@ -121,11 +121,10 @@ func WithWorkspaceBaseConfigDir(dir string) Option {
 	}
 }
 
-// WithCalendarsDir sets the directory of the calendar files that schedules
-// name.
-func WithCalendarsDir(dir string) Option {
+// WithCalendars sets the source of the calendar files that schedules name.
+func WithCalendars(source *spec.CalendarSource) Option {
 	return func(o *Options) {
-		o.CalendarsDir = dir
+		o.Calendars = source
 	}
 }
 
@@ -173,7 +172,7 @@ func NewStore(baseDir string, opts ...Option) *Store {
 		searchPaths:            searchPaths,
 		baseConfigPath:         options.BaseConfigPath,
 		workspaceBaseConfigDir: options.WorkspaceBaseConfigDir,
-		calendarsDir:           options.CalendarsDir,
+		calendars:              options.Calendars,
 		skipExamples:           options.SkipExamples,
 		recursive:              options.Recursive,
 		symlinks:               options.Symlinks,
@@ -192,7 +191,7 @@ type Store struct {
 	searchPaths            []string                 // Additional search paths for DAG files
 	baseConfigPath         string                   // Optional base config file applied when loading DAGs
 	workspaceBaseConfigDir string                   // Optional directory containing workspace base configs
-	calendarsDir           string                   // Optional directory of the calendar files schedules name
+	calendars              *spec.CalendarSource     // Optional source of the calendar files schedules name
 	baseConfigState        string                   // Empty until first load so indexes from previous processes are invalidated
 	skipExamples           bool                     // Skip creating example DAGs
 	recursive              bool                     // Discover DAG definitions in subdirectories
@@ -244,7 +243,7 @@ func (store *Store) catalog(ctx context.Context, includeSearchPaths bool) (persi
 	}
 	for _, entry := range catalog.entries {
 		dag := dagindex.DAGFromEntry(entry, store.baseDir)
-		spec.BindScheduleCalendars(dag.Schedule, store.calendarsDir)
+		spec.BindScheduleCalendars(dag.Schedule, store.calendars)
 		result.Items = append(result.Items, persis.DAGListItem{
 			ID:        entryStem(entry),
 			DAG:       dag,
@@ -262,8 +261,8 @@ func (store *Store) defaultLoadOptions(opts ...spec.LoadOption) []spec.LoadOptio
 	if store.workspaceBaseConfigDir != "" {
 		loadOpts = append(loadOpts, spec.WithWorkspaceBaseConfigDir(store.workspaceBaseConfigDir))
 	}
-	if store.calendarsDir != "" {
-		loadOpts = append(loadOpts, spec.WithCalendarsDir(store.calendarsDir))
+	if store.calendars != nil {
+		loadOpts = append(loadOpts, spec.WithCalendars(store.calendars))
 	}
 	loadOpts = append(loadOpts, opts...)
 	return loadOpts
@@ -273,10 +272,11 @@ func (store *Store) refreshBaseConfigState() string {
 	store.baseConfigMu.Lock()
 	defer store.baseConfigMu.Unlock()
 
-	if store.baseConfigPath == "" && store.workspaceBaseConfigDir == "" && store.calendarsDir == "" {
+	calendarsDir := store.calendarsDir()
+	if store.baseConfigPath == "" && store.workspaceBaseConfigDir == "" && calendarsDir == "" {
 		return store.baseConfigState
 	}
-	state := describeDefinitionInputState(store.baseConfigPath, store.workspaceBaseConfigDir, store.calendarsDir)
+	state := describeDefinitionInputState(store.baseConfigPath, store.workspaceBaseConfigDir, calendarsDir)
 	if state != store.baseConfigState {
 		if store.fileCache != nil {
 			store.fileCache.InvalidateAll()
@@ -285,6 +285,15 @@ func (store *Store) refreshBaseConfigState() string {
 		store.baseConfigState = state
 	}
 	return store.baseConfigState
+}
+
+// calendarsDir returns the directory of the calendar files, or "" without a
+// calendar source.
+func (store *Store) calendarsDir() string {
+	if store.calendars == nil {
+		return ""
+	}
+	return store.calendars.Dir()
 }
 
 // describeDefinitionInputState describes the files besides a DAG's own that

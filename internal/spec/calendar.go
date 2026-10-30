@@ -13,6 +13,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -54,28 +55,109 @@ type CalendarSummary struct {
 // LoadCalendar returns the named calendar: a built-in one, or the calendar
 // file <name>.yaml in dir with the holidays of the calendars it includes.
 func LoadCalendar(dir, name string) (*ir.Calendar, error) {
-	if cal, ok := ir.BuiltinCalendar(name); ok {
-		return cal, nil
-	}
-	loader := calendarLoader{dir: dir, loading: map[string]bool{}}
-	return loader.load(name)
+	return NewCalendarSource(dir).Calendar(name)
 }
 
 // ListCalendars lists the built-in calendars and the calendar files in dir,
 // sorted by name. A missing dir lists only the built-in calendars.
 func ListCalendars(dir string) ([]CalendarSummary, error) {
+	return NewCalendarSource(dir).List()
+}
+
+// CalendarSource loads the calendar files of one directory. It keeps each
+// parsed calendar until its file, or a file it includes, changes size or
+// modification time, so DAGs that share a calendar parse it once. The
+// calendars it returns are shared and must not be modified.
+type CalendarSource struct {
+	dir     string
+	mu      sync.Mutex
+	entries map[string]calendarEntry
+}
+
+// calendarEntry is a loaded calendar, or why it did not load, with the
+// files it was read from.
+type calendarEntry struct {
+	cal   *ir.Calendar
+	err   error
+	files []fileStamp
+}
+
+// fileStamp identifies the version of a file, or that it was missing.
+type fileStamp struct {
+	path    string
+	exists  bool
+	size    int64
+	modTime int64
+}
+
+func statFile(path string) fileStamp {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fileStamp{path: path}
+	}
+	return fileStamp{path: path, exists: true, size: info.Size(), modTime: info.ModTime().UnixNano()}
+}
+
+func (e calendarEntry) current() bool {
+	for _, file := range e.files {
+		if statFile(file.path) != file {
+			return false
+		}
+	}
+	return true
+}
+
+// NewCalendarSource returns a source for the calendar files in dir. With an
+// empty dir, only built-in calendars exist.
+func NewCalendarSource(dir string) *CalendarSource {
+	return &CalendarSource{dir: dir, entries: map[string]calendarEntry{}}
+}
+
+// Dir returns the directory of the calendar files.
+func (s *CalendarSource) Dir() string {
+	return s.dir
+}
+
+// Calendar returns the named calendar: a built-in one, or the calendar file
+// <name>.yaml with the holidays of the calendars it includes.
+func (s *CalendarSource) Calendar(name string) (*ir.Calendar, error) {
+	if cal, ok := ir.BuiltinCalendar(name); ok {
+		return cal, nil
+	}
+	return s.CalendarFile(name)
+}
+
+// CalendarFile returns the calendar file <name>.yaml with the holidays of
+// the calendars it includes. A reserved name is an error, even when a file
+// has that name.
+func (s *CalendarSource) CalendarFile(name string) (*ir.Calendar, error) {
+	if isReservedCalendarName(name) {
+		return nil, fmt.Errorf("calendar file %s%s: %q is reserved", name, calendarFileExtension, name)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if entry, ok := s.entries[name]; ok && entry.current() {
+		return entry.cal, entry.err
+	}
+	loader := calendarLoader{dir: s.dir, loading: map[string]bool{}}
+	cal, err := loader.load(name)
+	s.entries[name] = calendarEntry{cal: cal, err: err, files: loader.files}
+	return cal, err
+}
+
+// List lists the built-in calendars and the calendar files, sorted by name.
+// A missing directory lists only the built-in calendars.
+func (s *CalendarSource) List() ([]CalendarSummary, error) {
 	weekdays, _ := ir.BuiltinCalendar(ir.CalendarWeekdays)
 	summaries := []CalendarSummary{{Name: weekdays.Name, Description: weekdays.Description, Builtin: true}}
 
-	names, err := calendarFileNames(dir)
+	names, err := calendarFileNames(s.dir)
 	if err != nil {
 		return nil, err
 	}
 	for _, name := range names {
 		summary := CalendarSummary{Name: name}
-		if isReservedCalendarName(name) {
-			summary.Err = fmt.Errorf("calendar file %s%s: %q is reserved", name, calendarFileExtension, name)
-		} else if cal, err := LoadCalendar(dir, name); err != nil {
+		if cal, err := s.CalendarFile(name); err != nil {
 			summary.Err = err
 		} else {
 			summary.Description = cal.Description
@@ -130,6 +212,8 @@ type calendarLoader struct {
 	dir string
 	// loading holds the calendars being loaded, to detect include cycles.
 	loading map[string]bool
+	// files records each file read, or found missing, while loading.
+	files []fileStamp
 }
 
 func (l *calendarLoader) load(name string) (*ir.Calendar, error) {
@@ -145,8 +229,14 @@ func (l *calendarLoader) load(name string) (*ir.Calendar, error) {
 	if l.dir == "" {
 		return nil, unknownCalendarError(l.dir, name)
 	}
-	data, err := os.ReadFile(filepath.Join(l.dir, name+calendarFileExtension)) //nolint:gosec // name matches the calendar name pattern, so the path stays in dir.
+	path := filepath.Join(l.dir, name+calendarFileExtension)
+	// Stamped before reading, so a write during the read shows as a change.
+	l.files = append(l.files, statFile(path))
+	data, err := os.ReadFile(path) //nolint:gosec // name matches the calendar name pattern, so the path stays in dir.
 	if errors.Is(err, os.ErrNotExist) {
+		// The error lists the directory's calendars, so it lasts until the
+		// directory changes.
+		l.files = append(l.files, statFile(l.dir))
 		return nil, unknownCalendarError(l.dir, name)
 	}
 	if err != nil {
