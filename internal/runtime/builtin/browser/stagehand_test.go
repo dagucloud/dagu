@@ -1265,6 +1265,22 @@ func TestStagehandBoundsUnresponsivePage(t *testing.T) {
 	assert.Less(t, time.Since(began), 10*time.Second)
 }
 
+// A wait for a selector on a page that stops answering ends near its own
+// timeout, not at the longer bound of a single page read.
+func TestStagehandSelectorWaitKeepsItsTimeout(t *testing.T) {
+	t.Parallel()
+
+	eng := launchShop(t, &shopModel{})
+	require.NoError(t, eng.Goto(t.Context(), "data:text/html,"+url.PathEscape("<p>busy</p>"), 30*time.Second))
+	_, err := eng.(*stagehandEngine).evaluate(t.Context(), "setTimeout(() => { for (;;) {} }, 0)")
+	require.NoError(t, err)
+
+	began := time.Now()
+	err = eng.WaitForSelector(t.Context(), "#missing", time.Second)
+	require.ErrorContains(t, err, `selector "#missing" did not appear within 1s`)
+	assert.Less(t, time.Since(began), 10*time.Second)
+}
+
 // A runtime close that fails while the browser is still running is
 // reported. The browser's start time is unknown here, so closing relies on
 // the runtime alone.

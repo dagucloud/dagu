@@ -118,7 +118,7 @@ var quietExpression = fmt.Sprintf(`(() => { const s = window.__daguSettle; retur
 // and the documents of the frames it shows, nested ones too, each with the
 // XPath of the frame holding it as the browser runtime writes it across
 // frames, so that path followed by an XPath in the document names an
-// element. A frame from another site cannot be read and is left out.
+// element. A frame from another origin cannot be read and is left out.
 const shownDocumentsFunction = `function xpathOf(element) {
 	const steps = [];
 	for (let node = element; node && node.nodeType === Node.ELEMENT_NODE; node = node.parentNode) {
@@ -1006,24 +1006,28 @@ func (e *stagehandEngine) WaitForSelector(ctx context.Context, selector string, 
 }
 
 // waitForVisible waits up to timeout for the CSS selector to match a
-// visible element, as SelectorVisible tells.
+// visible element, as SelectorVisible tells, reading the page as
+// waitContext allows.
 func (e *stagehandEngine) waitForVisible(ctx context.Context, selector string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
+	reads, cancel := waitContext(ctx, deadline)
+	defer cancel()
 	for {
-		visible, err := e.SelectorVisible(ctx, selector)
-		if err != nil {
+		visible, err := e.SelectorVisible(reads, selector)
+		switch {
+		case ctx.Err() != nil:
+			return ctx.Err()
+		case err == nil && visible:
+			return nil
+		// A read the deadline cut short found nothing in time.
+		case err != nil && time.Now().Before(deadline):
 			return err
 		}
-		if visible {
-			return nil
-		}
-		if !time.Now().Before(deadline) {
+		if !pause(reads, conditionPollInterval, deadline) {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			return fmt.Errorf("selector %q did not appear within %s", selector, timeout)
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(min(conditionPollInterval, time.Until(deadline))):
 		}
 	}
 }
