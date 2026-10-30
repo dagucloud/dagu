@@ -38,6 +38,24 @@ func TestRunCalendarCheck(t *testing.T) {
 	assert.Contains(t, out.String(), "ok   jp-banking")
 }
 
+// A file named after a built-in calendar never loads, so the check must not
+// report it as the built-in calendar.
+func TestRunCalendarCheckRejectsReservedNames(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	reserved := filepath.Join(dir, "weekdays.yaml")
+	require.NoError(t, os.WriteFile(reserved, []byte("holidays: nope\n"), 0o600))
+
+	var out bytes.Buffer
+	require.EqualError(t, runCalendarCheck(&out, dir, nil), "1 of 1 calendars are invalid")
+	assert.Contains(t, out.String(), `FAIL weekdays: calendar file weekdays.yaml: "weekdays" is reserved`)
+
+	out.Reset()
+	require.Error(t, runCalendarCheck(&out, "", []string{reserved}))
+	assert.Contains(t, out.String(), "FAIL weekdays")
+}
+
 func TestCalendarFireNote(t *testing.T) {
 	t.Parallel()
 

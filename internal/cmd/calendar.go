@@ -94,7 +94,9 @@ func runCalendarCheck(out io.Writer, calendarsDir string, files []string) error 
 
 	failed := 0
 	for _, target := range targets {
-		cal, err := spec.LoadCalendar(target.dir, target.name)
+		// A file is checked as a file even when its name is a built-in
+		// calendar's, which no schedule can reach.
+		cal, err := spec.NewCalendarSource(target.dir).CalendarFile(target.name)
 		if err != nil {
 			failed++
 			if _, werr := fmt.Fprintf(out, "FAIL %s: %v\n", target.name, err); werr != nil {
@@ -137,7 +139,8 @@ func runCalendarFires(ctx *Context, args []string) error {
 		if err != nil {
 			return fmt.Errorf("--from must be an RFC 3339 time: %w", err)
 		}
-		from = parsed
+		// --from moves the start, not the zone of schedules that name none.
+		from = parsed.In(ctx.Config.Core.Location)
 	}
 	countValue, _ := ctx.Command.Flags().GetString("count")
 	count, err := strconv.Atoi(countValue)
