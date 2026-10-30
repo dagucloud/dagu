@@ -296,6 +296,23 @@ func TestUpcomingFires(t *testing.T) {
 		assert.Equal(t, time.Date(2027, 1, 1, 9, 30, 0, 0, time.UTC), fires[0].Time)
 	})
 
+	// A one-off carries its own offset; advancing an unzoned cron from it
+	// must not evaluate the cron in that offset.
+	t.Run("coinciding one-off keeps the evaluation zone", func(t *testing.T) {
+		t.Parallel()
+
+		oneOff, err := ir.NewOneOffSchedule("2027-01-01T10:00:00+09:00")
+		require.NoError(t, err)
+		dag := &ir.DAG{Schedule: []ir.Schedule{oneOff, newCron(t, "0 1 * * *")}}
+
+		fires := dag.UpcomingFires(time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), 2)
+
+		assert.Equal(t, []time.Time{
+			time.Date(2027, 1, 1, 1, 0, 0, 0, time.UTC),
+			time.Date(2027, 1, 2, 1, 0, 0, 0, time.UTC),
+		}, []time.Time{fires[0].Time, fires[1].Time})
+	})
+
 	t.Run("stops when schedules are exhausted", func(t *testing.T) {
 		t.Parallel()
 
