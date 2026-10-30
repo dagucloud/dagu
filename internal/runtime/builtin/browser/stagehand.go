@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	goruntime "runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -590,6 +591,8 @@ type stagehandEngine struct {
 	dialogs   *browserhost.DialogWatcher
 	responses *browserhost.PageResponseWatcher
 	loads     *browserhost.FrameLoadWatcher
+	// acted is when the last action or goto began; zero before the first.
+	acted time.Time
 	// blocked counts requests allowed_domains blocks; nil without
 	// allowed_domains.
 	blocked *browserhost.BlockedRequestWatcher
@@ -621,6 +624,12 @@ func (e *stagehandEngine) handleDownloads(ctx context.Context, dir string) error
 	return nil
 }
 
+// errNoPage reports a browser that shows no page, as for a moment after
+// the window in front closes.
+var errNoPage = errors.New("the browser shows no page")
+
+// page returns the page operations work on: the page in front, or, when
+// that is a held window, as heldWindows tells, the page that opened it.
 func (e *stagehandEngine) page(ctx context.Context) (*stagehand.Page, error) {
 	browserContext, err := e.browser.Context()
 	if err != nil {
@@ -630,6 +639,18 @@ func (e *stagehandEngine) page(ctx context.Context) (*stagehand.Page, error) {
 	if err != nil {
 		return nil, err
 	}
+	if page == nil {
+		return nil, errNoPage
+	}
+	if opener, held := e.heldWindows()[page.PageID()]; held {
+		pages, err := browserContext.Pages(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if i := slices.IndexFunc(pages, func(p *stagehand.Page) bool { return p.PageID() == opener }); i >= 0 {
+			page = pages[i]
+		}
+	}
 	// The caller's next call writes to the browser runtime, which closes its
 	// connection to the browser when that call's context has ended.
 	if err := ctx.Err(); err != nil {
@@ -638,14 +659,40 @@ func (e *stagehandEngine) page(ctx context.Context) (*stagehand.Page, error) {
 	return page, nil
 }
 
+// heldWindows returns the windows operations look past, each with the
+// target ID of the page that opened it. A window is held when the last
+// action both opened it and made its opener load a document, as a search
+// does that opens a "searching" window and posts into a frame whose answer
+// closes the window. It stays held while the opener loads and for
+// settleQuiet after, which a window the answer closes takes to go; a window
+// still open then is a page in its own right, such as a form to fill in.
+func (e *stagehandEngine) heldWindows() map[string]string {
+	held := map[string]string{}
+	if e.acted.IsZero() {
+		return held
+	}
+	for _, window := range e.loads.Windows() {
+		load := e.loads.PageLoad(window.Opener)
+		if window.Opened.Before(e.acted) || load.Began.Before(e.acted) {
+			continue
+		}
+		if load.Loading || time.Since(load.Ended) < settleQuiet {
+			held[window.TargetID] = window.Opener
+		}
+	}
+	return held
+}
+
 // Goto loads url over the page's own DevTools connection: the browser
 // runtime's goto waits for a document even when the load brings none, and
 // so fails a download only once its timeout ends.
 func (e *stagehandEngine) Goto(ctx context.Context, url string, timeout time.Duration) error {
+	limit := time.Now().Add(timeout)
 	page, err := boundCall(ctx, e.pageCallTimeout, e.page)
 	if err != nil {
 		return err
 	}
+	e.acted = time.Now()
 	loadCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	downloads := 0
@@ -665,7 +712,7 @@ func (e *stagehandEngine) Goto(ctx context.Context, url string, timeout time.Dur
 		return err
 	}
 	if load.Document {
-		e.settle(ctx)
+		e.settle(ctx, limit)
 		return nil
 	}
 	// A load that brought no new document has nothing to settle. A call
@@ -676,23 +723,28 @@ func (e *stagehandEngine) Goto(ctx context.Context, url string, timeout time.Dur
 }
 
 func (e *stagehandEngine) Act(ctx context.Context, instruction string, variables map[string]string, secret func(string) bool, timeout time.Duration) (actOutcome, error) {
+	limit := time.Now().Add(timeout)
 	// The page before the act identifies the element it acts on, which the
 	// act may rename or remove. Without it, the actions go unidentified.
 	before, beforeErr := e.Snapshot(ctx)
 	e.watch(ctx)
 	result, err := boundCall(ctx, timeout+callTimeoutSlack, func(ctx context.Context) (stagehand.ActResult, error) {
-		return e.client.Act(ctx, stagehand.ActInstruction(instruction), actOptions(variables, timeout))
+		page, err := e.page(ctx)
+		if err != nil {
+			return stagehand.ActResult{}, err
+		}
+		return e.client.Act(ctx, stagehand.ActInstruction(instruction), actOptions(page, variables, timeout))
 	})
 	if lost := sessionLost(result, err); lost != nil {
 		// The act may have loaded a new document before the page was lost.
-		e.settle(ctx)
+		e.settle(ctx, limit)
 		return actOutcome{}, lost
 	}
 	if err != nil {
 		return actOutcome{}, err
 	}
 	if result.Data.Success {
-		e.settle(ctx)
+		e.settle(ctx, limit)
 	}
 	outcome := actOutcome{Message: result.Data.Message, Success: result.Data.Success}
 	for _, action := range result.Data.Actions {
@@ -740,6 +792,7 @@ func uncheckedOption(snap pageSnapshot, snapErr error, actions []recordedAction,
 }
 
 func (e *stagehandEngine) Replay(ctx context.Context, recorded recordedAction, variables map[string]string, timeout time.Duration) (bool, error) {
+	limit := time.Now().Add(timeout)
 	// The runtime types into or fills a hidden element without failing, so
 	// a recorded element that is now hidden, such as a field in a closed
 	// dialog, counts as a miss.
@@ -764,11 +817,15 @@ func (e *stagehandEngine) Replay(ctx context.Context, recorded recordedAction, v
 	}
 	e.watch(ctx)
 	result, err := boundCall(ctx, timeout+callTimeoutSlack, func(ctx context.Context) (stagehand.ActResult, error) {
-		return e.client.Act(ctx, stagehand.ObservedAction(action), actOptions(variables, timeout))
+		page, err := e.page(ctx)
+		if err != nil {
+			return stagehand.ActResult{}, err
+		}
+		return e.client.Act(ctx, stagehand.ObservedAction(action), actOptions(page, variables, timeout))
 	})
 	if lost := sessionLost(result, err); lost != nil {
 		// The action may have loaded a new document before the page was lost.
-		e.settle(ctx)
+		e.settle(ctx, limit)
 		return false, lost
 	}
 	if err != nil {
@@ -778,14 +835,15 @@ func (e *stagehandEngine) Replay(ctx context.Context, recorded recordedAction, v
 		return false, nil
 	}
 	if result.Data.Success {
-		e.settle(ctx)
+		e.settle(ctx, limit)
 	}
 	return result.Data.Success, nil
 }
 
 // watch readies the document the page shows to tell when what an action
-// starts on it has finished.
+// starts on it has finished, and notes when the action began.
 func (e *stagehandEngine) watch(ctx context.Context) {
+	e.acted = time.Now()
 	_, _ = boundCall(ctx, e.pageCallTimeout, func(ctx context.Context) (json.RawMessage, error) {
 		page, err := e.page(ctx)
 		if err != nil {
@@ -797,9 +855,10 @@ func (e *stagehandEngine) watch(ctx context.Context) {
 
 // settle waits for what an action started to finish before the next
 // operation reads the page: for the document it shows to settle, and for a
-// bot check the site answered with to pass.
-func (e *stagehandEngine) settle(ctx context.Context) {
-	e.settleDocument(ctx, time.Now().Add(e.settleWait))
+// bot check the site answered with to pass. limit is when the action's own
+// time ends, up to which a held window is waited out; zero waits out none.
+func (e *stagehandEngine) settle(ctx context.Context, limit time.Time) {
+	e.settleDocument(ctx, time.Now().Add(e.settleWait), limit)
 	e.awaitBotCheck(ctx)
 }
 
@@ -827,7 +886,7 @@ func (e *stagehandEngine) awaitBotCheck(ctx context.Context) {
 		if settled.After(deadline) {
 			settled = deadline
 		}
-		e.settleDocument(ctx, settled)
+		e.settleDocument(ctx, settled, time.Time{})
 		if !time.Now().Before(deadline) || !e.showsBotCheck(ctx) {
 			return
 		}
@@ -850,16 +909,28 @@ func (e *stagehandEngine) showsBotCheck(ctx context.Context) bool {
 // idle, and the document an action began on until its requests end and it
 // stops changing. The page is watched for settleQuiet at least, since a
 // navigation an action starts may begin a moment after the action returns.
-// A page that does not settle in time is left as it is.
-func (e *stagehandEngine) settleDocument(ctx context.Context, deadline time.Time) {
-	if !time.Now().Before(deadline) {
-		return
+// While a window is held, as heldWindows tells, the wait goes on until none
+// is, up to limit when that is later than deadline. A page that does not
+// settle in time is left as it is.
+func (e *stagehandEngine) settleDocument(ctx context.Context, deadline, limit time.Time) {
+	// A held window holds the wait until the later of the two.
+	heldEnd := deadline
+	if limit.After(heldEnd) {
+		heldEnd = limit
 	}
-	ctx, cancel := waitContext(ctx, deadline)
+	ctx, cancel := waitContext(ctx, heldEnd)
 	defer cancel()
 	watched := time.Now().Add(settleQuiet)
-	for time.Now().Before(deadline) {
-		if !e.loads.Loading() {
+	for {
+		held := len(e.heldWindows()) > 0
+		end := deadline
+		if held {
+			end = heldEnd
+		}
+		if ctx.Err() != nil || !time.Now().Before(end) {
+			return
+		}
+		if !held && !e.loads.Loading() {
 			// The page in front changes as the page opens or closes a window.
 			page, err := e.page(ctx)
 			if err != nil {
@@ -883,9 +954,7 @@ func (e *stagehandEngine) settleDocument(ctx context.Context, deadline time.Time
 				return
 			}
 		}
-		if !pause(ctx, settlePoll, deadline) {
-			return
-		}
+		pause(ctx, settlePoll, end)
 	}
 }
 
@@ -985,7 +1054,11 @@ func (e *stagehandEngine) Extract(ctx context.Context, instruction string, schem
 
 func (e *stagehandEngine) Observe(ctx context.Context, instruction string, timeout time.Duration) ([]recordedAction, error) {
 	result, err := boundCall(ctx, timeout+callTimeoutSlack, func(ctx context.Context) (stagehand.ObserveResult, error) {
-		return e.client.Observe(ctx, &instruction, &stagehand.StagehandClientObserveOptions{Timeout: new(float64(timeout.Milliseconds()))})
+		page, err := e.page(ctx)
+		if err != nil {
+			return stagehand.ObserveResult{}, err
+		}
+		return e.client.Observe(ctx, &instruction, &stagehand.StagehandClientObserveOptions{Page: page, Timeout: new(float64(timeout.Milliseconds()))})
 	})
 	if err != nil {
 		return nil, err
@@ -1451,8 +1524,8 @@ func boundCall[T any](ctx context.Context, limit time.Duration, call func(contex
 	return result, err
 }
 
-func actOptions(variables map[string]string, timeout time.Duration) *stagehand.StagehandClientActOptions {
-	options := &stagehand.StagehandClientActOptions{Timeout: new(float64(timeout.Milliseconds()))}
+func actOptions(page *stagehand.Page, variables map[string]string, timeout time.Duration) *stagehand.StagehandClientActOptions {
+	options := &stagehand.StagehandClientActOptions{Page: page, Timeout: new(float64(timeout.Milliseconds()))}
 	if len(variables) > 0 {
 		options.Variables = make(stagehand.Variables, len(variables))
 		for name, value := range variables {

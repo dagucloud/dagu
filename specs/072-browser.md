@@ -60,6 +60,15 @@ is idle, and a page it changed in place until its requests end and it stops
 changing for half a second. A page that has not settled after five seconds is
 read as it is.
 
+Such an operation can open a window and make the page that opened it load
+a document, as a search does that opens a "searching" window and posts into
+a frame whose answer closes the window. That window is not the page
+operations work on: the operation waits, up to its timeout, until the window
+closes or stays open half a second past the load, and until then every
+operation works on the page that opened it. A window still open after that,
+such as one to fill in and close, is the page operations work on, as is a
+window opened without making its opener load.
+
 Any operation may set `when`, a condition checked once before the operation;
 the operation is skipped unless it holds. Any operation may set `timeout`, a
 duration such as `30s`; the default is two minutes. A browser that stops

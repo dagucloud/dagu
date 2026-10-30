@@ -9,6 +9,7 @@ package spec072_browser_test
 import (
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -96,6 +97,45 @@ document.getElementById('screen').textContent = screen.width >= outerWidth && sc
 
 const layoutBanner = `<button onclick="document.getElementById('status').textContent='Banner closed'">Dismiss</button>`
 
+// bidsPage is a site built of frames, as older ones are. Its Search button
+// writes a "searching" window in place and posts into the results frame,
+// whose answer comes after bidsAnswerDelay and closes the window as it
+// loads. Choose region opens a window to tick regions in, which stays
+// until Register gives them to the search and closes it.
+const bidsPage = `<!doctype html><html><head><title>Bids</title><script>
+function openSearching() {
+  top.searching = window.open("/bids/blank", "searching", "width=320,height=120");
+  top.searching.document.write("<title>Searching</title><p>Searching, please wait</p><input name='indicator'>");
+  top.searching.document.close();
+}
+function closeSearching() { if (top.searching) top.searching.close(); }
+</script></head>
+<frameset cols="200,*"><frame src="/bids/menu"><frame name="results" src="/bids/home"></frameset></html>`
+
+const bidsMenuPage = `<!doctype html><html><body>
+<form id="search" method="post" action="/bids/results" target="results"><input type="hidden" name="region" id="region"></form>
+<p id="chosen">All regions</p>
+<button onclick="top.openSearching(); document.getElementById('search').submit()">Search</button>
+<button onclick="window.open('/bids/regions', 'regions', 'width=800,height=600')">Choose region</button>
+<script>function setRegion(name) { document.getElementById('region').value = name; document.getElementById('chosen').textContent = name; }</script>
+</body></html>`
+
+const bidsRegionsPage = `<!doctype html><html><head><title>Regions</title></head><body>
+<label><input type="checkbox" value="Chiba">Chiba</label>
+<label><input type="checkbox" value="Funabashi">Funabashi</label>
+<button onclick="opener.setRegion([...document.querySelectorAll('input:checked')].map(box => box.value).join(', ')); window.close()">Register</button>
+</body></html>`
+
+const bidsResultsPage = `<!doctype html><html><body onload="top.closeSearching()">
+<h1>Road repair</h1>
+<p>Road repair in %s</p>
+<button onclick="this.textContent = 'Opened'">Open</button>
+</body></html>`
+
+// bidsAnswerDelay outlasts the five seconds a page gets to settle after an
+// action.
+const bidsAnswerDelay = 7 * time.Second
+
 // browserCommandTimeout bounds a command that starts a browser. Starting
 // one takes tens of seconds when the conformance job loads the runner.
 const browserCommandTimeout = 2 * time.Minute
@@ -116,7 +156,7 @@ const (
 )
 
 var (
-	buttonPattern    = regexp.MustCompile(`\[(\d+-\d+)\] (?:button|link): ([^\n]+)`)
+	buttonPattern    = regexp.MustCompile(`\[(\d+-\d+)\] (?:button|link|checkbox): ([^\n]+)`)
 	quotedPattern    = regexp.MustCompile(`'([^']+)'`)
 	orderPattern     = regexp.MustCompile(`Order confirmed: (\S+)`)
 	headingPattern   = regexp.MustCompile(`heading: ([^\n]+)`)
@@ -282,6 +322,10 @@ func startShop(t *testing.T) string {
 <script>setTimeout(() => { document.cookie = "passed=1; path=/"; location.reload(); }, 1000);</script>`)
 			return
 		}
+		if strings.HasPrefix(r.URL.Path, "/bids") {
+			serveBids(w, r)
+			return
+		}
 		if r.URL.Path == "/agent" {
 			sent, _ := json.Marshal(r.UserAgent())
 			w.Header().Set("Content-Type", "text/html")
@@ -299,6 +343,24 @@ func startShop(t *testing.T) string {
 	}))
 	t.Cleanup(server.Close)
 	return server.URL
+}
+
+// serveBids serves bidsPage and its frames and windows.
+func serveBids(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html")
+	switch r.URL.Path {
+	case "/bids":
+		_, _ = io.WriteString(w, bidsPage)
+	case "/bids/menu":
+		_, _ = io.WriteString(w, bidsMenuPage)
+	case "/bids/regions":
+		_, _ = io.WriteString(w, bidsRegionsPage)
+	case "/bids/home":
+		_, _ = io.WriteString(w, "<p>Choose a region and search</p>")
+	case "/bids/results":
+		time.Sleep(bidsAnswerDelay)
+		_, _ = fmt.Fprintf(w, bidsResultsPage, html.EscapeString(r.PostFormValue("region")))
+	}
 }
 
 // requireChrome skips when no Chrome is installed, except in CI, where the
@@ -505,6 +567,19 @@ func TestBrowserSandboxNotSilentlyOff(t *testing.T) {
 	result.ExpectNonZeroExitCode()
 	result.ExpectStderrContains("because CI is set", "DAGU_BROWSER_SANDBOX=false")
 	require.Zero(t, b.model.total())
+}
+
+// A search that opens a "searching" window, which its answer closes, is
+// waited out even when the answer takes longer than a page gets to settle,
+// so the when, expect, extract, and act after it work on the results, not
+// on the window. A window that stays, as one to tick regions in and
+// register, is worked on as a page.
+func TestBrowserSearchingWindow(t *testing.T) {
+	t.Parallel()
+
+	b := newBrowserEnv(t)
+	b.dagu.RunWithEnv(b.env, "start", "searching_window.yaml").ExpectExitCode(0)
+	b.dagu.ExpectTextFileContent("heading.out", "Road repair\n")
 }
 
 func TestBrowserExtract(t *testing.T) {

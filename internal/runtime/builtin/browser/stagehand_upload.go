@@ -52,6 +52,7 @@ var uploadMIMETypes = map[string]string{
 }
 
 func (e *stagehandEngine) Upload(ctx context.Context, selector string, files []uploadFile, timeout time.Duration) (string, error) {
+	limit := time.Now().Add(timeout)
 	return boundCall(ctx, timeout+callTimeoutSlack, func(ctx context.Context) (string, error) {
 		page, err := e.page(ctx)
 		if err != nil {
@@ -61,7 +62,7 @@ func (e *stagehandEngine) Upload(ctx context.Context, selector string, files []u
 		how, err := e.upload(ctx, page, selector, files)
 		if err == nil {
 			// The page may start sending the files as soon as it has them.
-			e.settle(ctx)
+			e.settle(ctx, limit)
 		}
 		return how, err
 	})
