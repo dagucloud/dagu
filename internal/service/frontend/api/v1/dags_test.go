@@ -304,6 +304,70 @@ steps:
 	requireUpcomingRuns(t, details.Dag.UpcomingRuns)
 }
 
+// A calendar's holidays show in the preview as skipped dates, and the
+// calendar list names the calendars the editor can complete.
+func TestDAGSpecCalendars(t *testing.T) {
+	server := test.SetupServer(t)
+	calendarsDir := server.Config.Paths.CalendarsDir
+	require.NotEmpty(t, calendarsDir)
+	require.NoError(t, os.MkdirAll(calendarsDir, 0o750))
+	// Every day is a business day except tomorrow, so the preview is
+	// deterministic whatever day the test runs.
+	tomorrow := time.Now().In(server.Config.Core.Location).AddDate(0, 0, 1).Format(time.DateOnly)
+	require.NoError(t, os.WriteFile(filepath.Join(calendarsDir, "ops.yaml"), []byte(
+		"description: Operations days\nweekdays: [MON, TUE, WED, THU, FRI, SAT, SUN]\nholidays:\n  - date: "+tomorrow+"\n    name: Maintenance\n",
+	), 0o600))
+
+	name := "calendar_preview"
+	definition := `schedule:
+  - expression: "0 12 * * *"
+    calendar: ops
+steps:
+  - run: echo hello
+`
+	response := server.Client().Post("/api/v1/dags/validate", api.ValidateDAGSpecJSONRequestBody{
+		Name: &name, Spec: definition,
+	}).ExpectStatus(http.StatusOK).Send(t)
+	var validation api.ValidateDAGSpec200JSONResponse
+	response.Unmarshal(t, &validation)
+	require.True(t, validation.Valid, validation.Errors)
+	require.NotNil(t, validation.Dag.Schedule)
+	require.Equal(t, "ops", *(*validation.Dag.Schedule)[0].Calendar)
+
+	var skipped []api.Holiday
+	for _, run := range *validation.Dag.UpcomingRuns {
+		require.NotEqual(t, tomorrow, run.Time.Format(time.DateOnly))
+		if run.SkippedHolidays != nil {
+			skipped = append(skipped, *run.SkippedHolidays...)
+		}
+	}
+	require.Len(t, skipped, 1)
+	require.Equal(t, tomorrow, skipped[0].Date.Format(time.DateOnly))
+	require.Equal(t, "Maintenance", *skipped[0].Name)
+
+	response = server.Client().Get("/api/v1/calendars").ExpectStatus(http.StatusOK).Send(t)
+	var calendars api.ListCalendars200JSONResponse
+	response.Unmarshal(t, &calendars)
+	require.Len(t, calendars.Calendars, 2)
+	require.Equal(t, "ops", calendars.Calendars[0].Name)
+	require.Equal(t, "Operations days", *calendars.Calendars[0].Description)
+	require.Equal(t, "weekdays", calendars.Calendars[1].Name)
+	require.True(t, calendars.Calendars[1].Builtin)
+
+	unknown := `schedule:
+  - expression: "0 12 * * *"
+    calendar: opps
+steps:
+  - run: echo hello
+`
+	response = server.Client().Post("/api/v1/dags/validate", api.ValidateDAGSpecJSONRequestBody{
+		Name: &name, Spec: unknown,
+	}).ExpectStatus(http.StatusOK).Send(t)
+	response.Unmarshal(t, &validation)
+	require.False(t, validation.Valid)
+	require.Contains(t, strings.Join(validation.Errors, "\n"), `unknown calendar "opps"; available: ops, weekdays`)
+}
+
 func TestDAGSpecInheritsBaseGraphType(t *testing.T) {
 	server := test.SetupServer(t)
 

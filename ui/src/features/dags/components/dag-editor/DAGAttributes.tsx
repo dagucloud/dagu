@@ -20,6 +20,7 @@ import { I18nText } from '@/i18n/I18nText';
 
 type Schedule = components['schemas']['Schedule'];
 type UpcomingRun = components['schemas']['UpcomingRun'];
+type Translate = ReturnType<typeof useI18n>['ts'];
 
 /** Upcoming runs shown before the list is expanded. */
 const COLLAPSED_UPCOMING_RUNS = 5;
@@ -173,6 +174,7 @@ function UpcomingRuns({
   schedules: Schedule[];
   locale: string;
 }) {
+  const { ts } = useI18n();
   const [expanded, setExpanded] = React.useState(false);
   const zones = new Set(runs.map((run) => run.timezone));
   const sharedZone = zones.size === 1 ? runs[0]?.timezone : undefined;
@@ -191,6 +193,7 @@ function UpcomingRuns({
       <ol className="space-y-0.5 text-sm text-muted-foreground tabular-nums">
         {visibleRuns.map((run) => {
           const schedule = schedules[run.scheduleIndex];
+          const notes = upcomingRunNotes(run, locale, ts);
           return (
             <li key={run.time}>
               {formatFireTime(run.time, 'ddd YYYY-MM-DD HH:mm', locale)}
@@ -199,6 +202,12 @@ function UpcomingRuns({
                 <span className="text-muted-foreground/80">
                   {' · '}
                   {scheduleSummary(schedule)}
+                </span>
+              )}
+              {notes.length > 0 && (
+                <span className="text-foreground/80">
+                  {' · '}
+                  {notes.join('; ')}
                 </span>
               )}
             </li>
@@ -217,6 +226,38 @@ function UpcomingRuns({
       )}
     </div>
   );
+}
+
+// upcomingRunNotes explains where a business calendar put a run: the
+// business day it matched, and the holidays it skipped to get there.
+function upcomingRunNotes(
+  run: UpcomingRun,
+  locale: string,
+  ts: Translate
+): string[] {
+  const notes: string[] = [];
+  const businessDay = run.businessDay ?? 0;
+  if (businessDay === -1) {
+    notes.push(ts('last business day of the month'));
+  } else if (businessDay < -1) {
+    notes.push(
+      ts("business day {n} from the month's end", { n: -businessDay })
+    );
+  } else if (businessDay > 0) {
+    notes.push(ts('business day {n} of the month', { n: businessDay }));
+  }
+  if (run.extraBusinessDay) {
+    notes.push(ts('extra business day'));
+  }
+  for (const holiday of run.skippedHolidays ?? []) {
+    const day = dayjs(holiday.date).locale(locale).format('ddd YYYY-MM-DD');
+    notes.push(
+      ts('skips {day}', {
+        day: holiday.name ? `${day} (${holiday.name})` : day,
+      })
+    );
+  }
+  return notes;
 }
 
 function scheduleSummary(schedule: Schedule): string {

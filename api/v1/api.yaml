@@ -8245,6 +8245,36 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /calendars:
+    get:
+      summary: "List business calendars"
+      description: "Lists the built-in calendars and the calendar files that start schedules can name."
+      operationId: "listCalendars"
+      tags:
+        - "dags"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "Calendars, sorted by name"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  calendars:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CalendarSummary"
+                required:
+                  - calendars
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /settings/base-config:
     get:
       summary: "Get base configuration"
@@ -14624,6 +14654,47 @@ components:
           allOf:
             - $ref: "#/components/schemas/RuntimeProfileName"
           description: "Runtime profile name that activates this schedule entry"
+        calendar:
+          type: string
+          description: "Calendar whose business days the schedule fires on"
+        businessDays:
+          type: array
+          description: "Business days of the month the schedule keeps; negative values count from the end"
+          items:
+            type: integer
+
+    CalendarSummary:
+      type: object
+      description: "A business calendar that start schedules can name"
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        through:
+          type: string
+          format: date
+          description: "Last date the calendar's holidays are maintained for"
+        builtin:
+          type: boolean
+          description: "Whether the calendar is built in rather than a file"
+        error:
+          type: string
+          description: "Why the calendar file does not load"
+      required:
+        - name
+        - builtin
+
+    Holiday:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        name:
+          type: string
+      required:
+        - date
 
     UpcomingRun:
       type: object
@@ -14639,6 +14710,17 @@ components:
         timezone:
           type: string
           description: "Name of the zone the schedule is evaluated in"
+        skippedHolidays:
+          type: array
+          description: "Holidays since the previous fire on which the cron expression fired but the calendar did not"
+          items:
+            $ref: "#/components/schemas/Holiday"
+        businessDay:
+          type: integer
+          description: "Listed business-day position the fire matched; negative counts from the end"
+        extraBusinessDay:
+          type: boolean
+          description: "Whether the fire falls on a business day only because the calendar lists it"
       required:
         - time
         - scheduleIndex

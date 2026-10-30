@@ -160,6 +160,17 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
     },
     sseFallbackOptions(dagSSE)
   );
+  const { data: calendarsData } = useQuery('/calendars', {
+    params: { query: { remoteNode } },
+  });
+  const calendarNames = React.useMemo(
+    () =>
+      (calendarsData?.calendars ?? [])
+        .filter((calendar) => !calendar.error)
+        .map((calendar) => calendar.name),
+    [calendarsData]
+  );
+
   useSSECacheSync(dagSSE, mutateSpec, (next) =>
     next.spec === undefined
       ? undefined
@@ -354,10 +365,12 @@ function DAGSpec({ fileName, localDags, editorHints }: Props) {
         inheritedLegacyDefinitions,
         effectiveLegacyDefinitions
       ),
-      mergeCustomActionHints(inheritedCustomActions, effectiveLocalActions)
+      mergeCustomActionHints(inheritedCustomActions, effectiveLocalActions),
+      calendarNames
     );
   }, [
     baseSchema,
+    calendarNames,
     effectiveLocalActions,
     effectiveLegacyDefinitions,
     inheritedCustomActions,

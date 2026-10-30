@@ -258,6 +258,7 @@ func (a *API) GetDAGSpec(ctx context.Context, request api.GetDAGSpecRequestObjec
 		spec.WithAllowBuildErrors(),
 		spec.WithoutEval(),
 		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(a.config.Paths.DAGsDir)),
+		spec.WithCalendarsDir(a.config.Paths.CalendarsDir),
 	}
 	if a.config.Paths.BaseConfig != "" {
 		loadOpts = append(loadOpts, spec.WithBaseConfig(a.config.Paths.BaseConfig))
@@ -2350,11 +2351,29 @@ func (a *API) scheduleFires(dag *ir.DAG) *[]api.UpcomingRun {
 		if loc := dag.Schedule[fire.ScheduleIndex].Location(); loc != nil {
 			zone = loc.String()
 		}
-		runs = append(runs, api.UpcomingRun{
+		run := api.UpcomingRun{
 			Time:          fire.Time,
 			ScheduleIndex: fire.ScheduleIndex,
 			Timezone:      zone,
-		})
+		}
+		if len(fire.SkippedHolidays) > 0 {
+			holidays := make([]api.Holiday, 0, len(fire.SkippedHolidays))
+			for _, holiday := range fire.SkippedHolidays {
+				entry := api.Holiday{Date: toAPIDate(holiday.Date)}
+				if holiday.Name != "" {
+					entry.Name = ptrOf(holiday.Name)
+				}
+				holidays = append(holidays, entry)
+			}
+			run.SkippedHolidays = &holidays
+		}
+		if fire.BusinessDay != 0 {
+			run.BusinessDay = ptrOf(fire.BusinessDay)
+		}
+		if fire.ExtraBusinessDay {
+			run.ExtraBusinessDay = ptrOf(true)
+		}
+		runs = append(runs, run)
 	}
 	return &runs
 }
