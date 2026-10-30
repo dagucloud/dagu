@@ -211,3 +211,27 @@ func TestStagehandOutlinesFileInputs(t *testing.T) {
 	outline, _, _ := renderOutline(snap, outlineOptions{})
 	assert.Regexp(t, `\[\d+-\d+\] file input "Receipt"`, outline)
 }
+
+// An upload without into finds the page's only file input in the frames it
+// shows, as a page built of frames holds its form in one.
+func TestStagehandUploadFindsTheFileInputInAFrame(t *testing.T) {
+	t.Parallel()
+
+	pages := map[string]string{
+		"/":     `<frameset cols="30%,70%"><frame src="/menu"><frame src="/form"></frameset>`,
+		"/menu": `<p>Menu</p>`,
+		"/form": `<input id="form-input" type="file" onchange="document.getElementById('log').textContent = 'form-input got ' + [...this.files].map(f => f.name).join(',')"><pre id="log"></pre>`,
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = io.WriteString(w, pages[r.URL.Path])
+	}))
+	t.Cleanup(server.Close)
+	eng := launchBrowser(t, launchOptions{Generate: (&shopModel{}).generate})
+	require.NoError(t, eng.Goto(t.Context(), server.URL, time.Minute))
+
+	how, err := eng.Upload(t.Context(), "", receiptFiles(t, "bid.pdf"), time.Minute)
+	require.NoError(t, err)
+	assert.Equal(t, uploadDirect, how)
+	pageLog(t, eng, "form-input got bid.pdf")
+}

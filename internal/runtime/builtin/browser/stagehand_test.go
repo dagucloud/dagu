@@ -987,19 +987,29 @@ func TestStagehandPageChecks(t *testing.T) {
 	visible, err = eng.SelectorVisible(t.Context(), ".row")
 	require.NoError(t, err)
 	assert.True(t, visible)
+
+	// An element inside an open shadow root is matched, by a check and by
+	// a wait.
+	shadow := `<div id="host"></div><script>document.getElementById("host").attachShadow({mode: "open"}).innerHTML = "<p id=inner>Inside</p>"</script>`
+	require.NoError(t, eng.Goto(t.Context(), "data:text/html,"+url.PathEscape(shadow), time.Minute))
+	visible, err = eng.SelectorVisible(t.Context(), "#inner")
+	require.NoError(t, err)
+	assert.True(t, visible)
+	require.NoError(t, eng.WaitForSelector(t.Context(), "#inner", 10*time.Second))
 }
 
 // serveFrames serves a page built of frames, as older sites are: a
 // frameset whose content frame is a frameset of its own, one of whose
-// frames hides its body, and a menu that holds a frame hidden by display
-// and one hidden by visibility.
+// frames hides its body and one adds an element a moment after it loads,
+// and a menu that holds a frame hidden by display and one hidden by
+// visibility.
 func serveFrames(t *testing.T) string {
 	t.Helper()
 	pages := map[string]string{
 		"/":          `<frameset cols="150,*"><frame src="/menu"><frame src="/main"></frameset>`,
 		"/menu":      `<p>Bid schedule</p><iframe src="/draft" style="display:none"></iframe><iframe src="/withdrawn" style="visibility:hidden"></iframe>`,
 		"/main":      `<frameset rows="40%,40%,20%"><frame src="/search"><frame src="/results"><frame src="/notice"></frameset>`,
-		"/search":    `<p>Search</p>`,
+		"/search":    `<p>Search</p><script>setTimeout(() => document.body.insertAdjacentHTML("beforeend", "<p id=later>Ready</p>"), 2000)</script>`,
 		"/results":   `<table><tr><td>Road repair</td><td><a id="show" href="#">Show</a></td></tr></table>`,
 		"/notice":    `<body style="display:none"><p>Maintenance notice</p></body>`,
 		"/draft":     `<p id="draft">Unpublished case</p>`,
@@ -1042,6 +1052,28 @@ func TestStagehandPageChecksReadFrames(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, visible, hidden)
 	}
+}
+
+// A wait for a CSS selector finds it in the frames the page shows too, also
+// once it appears there, and a selector that hops into frames or an XPath
+// through them is found as written. An element of a hidden frame never
+// appears.
+func TestStagehandWaitsForSelectorInFrames(t *testing.T) {
+	t.Parallel()
+
+	eng := launchBrowser(t, launchOptions{Generate: (&shopModel{}).generate})
+	require.NoError(t, eng.Goto(t.Context(), serveFrames(t), time.Minute))
+
+	for _, selector := range []string{
+		"#later",
+		"#show",
+		`frame[src="/main"] >> frame[src="/results"] >> #show`,
+		"xpath=/html[1]/frameset[1]/frame[2]/html[1]/frameset[1]/frame[2]/html[1]/body[1]/table[1]/tbody[1]/tr[1]/td[2]/a[1]",
+	} {
+		require.NoError(t, eng.WaitForSelector(t.Context(), selector, 10*time.Second), selector)
+	}
+	err := eng.WaitForSelector(t.Context(), "#draft", time.Second)
+	assert.ErrorContains(t, err, `selector "#draft" did not appear within 1s`)
 }
 
 // A document keeps its ID while it stays loaded, and loading the same URL

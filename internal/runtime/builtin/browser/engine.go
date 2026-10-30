@@ -58,18 +58,22 @@ type engine interface {
 	Observe(ctx context.Context, instruction string, timeout time.Duration) ([]recordedAction, error)
 	// Upload gives files to a file input and reports how they reached it,
 	// as uploadDirect, uploadPicker, or uploadNearby. With an empty
-	// selector, the page's only file input gets them. Otherwise the element
-	// at selector gets them when it is a file input or holds exactly one;
-	// else a click on it opens a file picker that gets them; else the one
-	// file input nearest it does.
+	// selector, the only file input of the page and the frames it shows
+	// gets them. Otherwise the element at selector gets them when it is a
+	// file input or holds exactly one; else a click on it opens a file
+	// picker that gets them; else the one file input nearest it does.
 	Upload(ctx context.Context, selector string, files []uploadFile, timeout time.Duration) (string, error)
+	// WaitForSelector waits up to timeout for selector to match a visible
+	// element: a CSS selector as SelectorVisible matches it, and a selector
+	// that hops into frames with >>, or an XPath, as written.
 	WaitForSelector(ctx context.Context, selector string, timeout time.Duration) error
 	Screenshot(ctx context.Context) ([]byte, error)
 	CurrentURL(ctx context.Context) (string, error)
-	// PageText returns the visible text of the page.
+	// PageText returns the visible text of the page and the frames it shows.
 	PageText(ctx context.Context) (string, error)
 	// SelectorVisible reports whether a CSS selector matches a visible
-	// element.
+	// element of the page or the frames it shows, inside open shadow roots
+	// too.
 	SelectorVisible(ctx context.Context, selector string) (bool, error)
 	// Snapshot returns the active page's accessibility tree, the one an act
 	// shows the model, without a model call.

@@ -115,14 +115,27 @@ const watchExpression = `(() => {
 var quietExpression = fmt.Sprintf(`(() => { const s = window.__daguSettle; return s ? s.pending <= 0 && Date.now() - s.changed >= %d : null; })()`, settleQuiet.Milliseconds())
 
 // shownDocumentsFunction declares shownDocuments, which returns a document
-// and the documents of the frames it shows, nested ones too. A frame from
-// another site cannot be read and is left out.
-const shownDocumentsFunction = `function shownDocuments(doc) {
-	const documents = [doc];
+// and the documents of the frames it shows, nested ones too, each with the
+// XPath of the frame holding it as the browser runtime writes it across
+// frames, so that path followed by an XPath in the document names an
+// element. A frame from another site cannot be read and is left out.
+const shownDocumentsFunction = `function xpathOf(element) {
+	const steps = [];
+	for (let node = element; node && node.nodeType === Node.ELEMENT_NODE; node = node.parentNode) {
+		let index = 1;
+		for (let sibling = node.previousElementSibling; sibling; sibling = sibling.previousElementSibling) {
+			if (sibling.localName === node.localName) index++;
+		}
+		steps.unshift(node.localName + "[" + index + "]");
+	}
+	return "/" + steps.join("/");
+}
+function shownDocuments(doc, path = "") {
+	const documents = [{doc, path}];
 	for (const frame of doc.querySelectorAll("frame, iframe")) {
 		const box = frame.getBoundingClientRect();
 		const shown = box.width > 0 && box.height > 0 && frame.checkVisibility({visibilityProperty: true});
-		if (frame.contentDocument && shown) documents.push(...shownDocuments(frame.contentDocument));
+		if (frame.contentDocument && shown) documents.push(...shownDocuments(frame.contentDocument, path + xpathOf(frame)));
 	}
 	return documents;
 }`
@@ -132,7 +145,7 @@ const shownDocumentsFunction = `function shownDocuments(doc) {
 // its innerText is the text it holds.
 const pageTextExpression = `(() => {
 	` + shownDocumentsFunction + `
-	return shownDocuments(document).map((doc) => doc.body && doc.body.checkVisibility() ? doc.body.innerText : "").filter(Boolean).join("\n");
+	return shownDocuments(document).map(({doc}) => doc.body && doc.body.checkVisibility() ? doc.body.innerText : "").filter(Boolean).join("\n");
 })()`
 
 // documentExpression reads the time the page's document began loading, which
@@ -154,10 +167,12 @@ const contextLostMarker = "Cannot find context with specified id"
 
 // selectorVisibleExpression reports whether the selector, a JSON string
 // literal substituted for %s, matches any rendered, visible element of the
-// page or of the frames it shows.
+// page or of the frames it shows, inside their open shadow roots too.
 const selectorVisibleExpression = `(() => {
 	` + shownDocumentsFunction + `
-	return shownDocuments(document).some((doc) => Array.from(doc.querySelectorAll(%s)).some((element) => {
+	const matching = (root) => [...root.querySelectorAll(%s)].concat(
+		...[...root.querySelectorAll("*")].filter((element) => element.shadowRoot).map((element) => matching(element.shadowRoot)));
+	return shownDocuments(document).some(({doc}) => matching(doc).some((element) => {
 		const box = element.getBoundingClientRect();
 		const style = doc.defaultView.getComputedStyle(element);
 		return box.width > 0 && box.height > 0 && style.visibility !== "hidden" && style.display !== "none";
@@ -965,6 +980,11 @@ func (e *stagehandEngine) Observe(ctx context.Context, instruction string, timeo
 }
 
 func (e *stagehandEngine) WaitForSelector(ctx context.Context, selector string, timeout time.Duration) error {
+	// The runtime finds a selector that hops into frames, or an XPath, as
+	// written, but looks for a CSS selector in the page's own document only.
+	if !strings.Contains(selector, ">>") && !strings.HasPrefix(selector, "xpath=") && !strings.HasPrefix(selector, "/") {
+		return e.waitForVisible(ctx, selector, timeout)
+	}
 	matched, err := boundCall(ctx, timeout+callTimeoutSlack, func(ctx context.Context) (bool, error) {
 		page, err := e.page(ctx)
 		if err != nil {
@@ -983,6 +1003,29 @@ func (e *stagehandEngine) WaitForSelector(ctx context.Context, selector string, 
 		return fmt.Errorf("selector %q did not appear within %s", selector, timeout)
 	}
 	return nil
+}
+
+// waitForVisible waits up to timeout for the CSS selector to match a
+// visible element, as SelectorVisible tells.
+func (e *stagehandEngine) waitForVisible(ctx context.Context, selector string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		visible, err := e.SelectorVisible(ctx, selector)
+		if err != nil {
+			return err
+		}
+		if visible {
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf("selector %q did not appear within %s", selector, timeout)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(min(conditionPollInterval, time.Until(deadline))):
+		}
+	}
 }
 
 func (e *stagehandEngine) Screenshot(ctx context.Context) ([]byte, error) {
