@@ -174,7 +174,8 @@ type gatedResult struct {
 	WriteGate string  `json:"write_gate"`
 	Writes    []write `json:"writes"`
 	Error     *struct {
-		Code string `json:"code"`
+		Code    string `json:"code"`
+		Message string `json:"message"`
 	} `json:"error"`
 }
 
@@ -496,6 +497,8 @@ func TestSessionHoldsAGoto(t *testing.T) {
 	result := decode(t, held)
 	require.NotNil(t, result.Error, held.Stdout())
 	assert.Equal(t, "operation_failed", result.Error.Code)
+	// A goto that waited out its timeout would fail too, saying so.
+	assert.Contains(t, result.Error.Message, "cancelled the load")
 	assert.Equal(t, g.ledger.url+"/", result.URL)
 	deleted, ok := byPath(result.Writes)["/entries/1/delete"]
 	require.True(t, ok, held.Stdout())
