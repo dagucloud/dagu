@@ -1,0 +1,6 @@
+schedule:
+  stop:
+    expression: "0 18 * * *"
+    calendar: weekdays
+steps:
+  - run: echo scheduled
