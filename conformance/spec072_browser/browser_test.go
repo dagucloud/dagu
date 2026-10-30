@@ -438,6 +438,17 @@ func TestBrowserDownload(t *testing.T) {
 	b.dagu.ExpectTextFileContent("report.out", reportBody)
 }
 
+// A goto to a file the site answers as a download ends as soon as the
+// download begins, rather than waiting for a page that never comes, and
+// the file is saved in the run artifacts.
+func TestBrowserGotoDownload(t *testing.T) {
+	t.Parallel()
+
+	b := newBrowserEnv(t)
+	b.dagu.RunWithEnv(b.env, "start", "download_goto.yaml").ExpectExitCode(0)
+	b.dagu.ExpectTextFileContent("report.out", reportBody)
+}
+
 // A page that opens dialogs keeps working: the alert shown while it loads
 // and the confirm raised by an act are both accepted.
 func TestBrowserDialogs(t *testing.T) {

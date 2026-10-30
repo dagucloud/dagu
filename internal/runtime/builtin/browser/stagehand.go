@@ -595,19 +595,41 @@ func (e *stagehandEngine) page(ctx context.Context) (*stagehand.Page, error) {
 	return page, nil
 }
 
+// Goto loads url over the page's own DevTools connection: the browser
+// runtime's goto waits for a document even when the load brings none, and
+// so fails a download only once its timeout ends.
 func (e *stagehandEngine) Goto(ctx context.Context, url string, timeout time.Duration) error {
-	_, err := boundCall(ctx, timeout+callTimeoutSlack, func(ctx context.Context) (struct{}, error) {
-		page, err := e.page(ctx)
-		if err != nil {
-			return struct{}{}, err
-		}
-		_, err = page.Goto(ctx, url, &stagehand.PageNavigationOptions{Timeout: new(int(timeout.Milliseconds()))})
-		return struct{}{}, err
-	})
-	if err == nil {
-		e.settle(ctx)
+	page, err := boundCall(ctx, e.pageCallTimeout, e.page)
+	if err != nil {
+		return err
 	}
-	return err
+	loadCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	downloads := 0
+	if e.downloads != nil {
+		downloads = e.downloads.Begun()
+	}
+	load, err := browserhost.Navigate(loadCtx, e.handle.CDPURL, page.PageID(), url)
+	// A download is reported with the goto that began it, so the goto ends
+	// once the download is seen to begin.
+	if err == nil && load.Download && e.downloads != nil {
+		err = e.downloads.AwaitBegun(loadCtx, downloads)
+	}
+	if err != nil {
+		if ctx.Err() == nil && errors.Is(loadCtx.Err(), context.DeadlineExceeded) {
+			return fmt.Errorf("the page did not load within %s", timeout)
+		}
+		return err
+	}
+	if load.Document {
+		e.settle(ctx)
+		return nil
+	}
+	// A load that brought no new document has nothing to settle. A call
+	// to the page returns only after the browser runtime has taken in what
+	// the browser reported before it, such as a move to a fragment.
+	_, _ = e.evaluate(ctx, "location.href")
+	return nil
 }
 
 func (e *stagehandEngine) Act(ctx context.Context, instruction string, variables map[string]string, secret func(string) bool, timeout time.Duration) (actOutcome, error) {

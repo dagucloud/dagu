@@ -868,6 +868,85 @@ func TestStagehandWaitsForDownloads(t *testing.T) {
 	assert.Equal(t, reportBody, string(data))
 }
 
+// serveLoads serves a page that names its path, the report as a download,
+// an answer with no content, and an answer that closes the connection
+// unanswered, for which the browser shows its error page.
+func serveLoads(t *testing.T) string {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = io.WriteString(w, "<!doctype html><title>Loads</title><p>page "+r.URL.Path+"</p>")
+	})
+	mux.HandleFunc("/report.csv", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/csv")
+		w.Header().Set("Content-Disposition", `attachment; filename="report.csv"`)
+		_, _ = io.WriteString(w, reportBody)
+	})
+	mux.HandleFunc("/empty", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("/unanswered", func(w http.ResponseWriter, _ *http.Request) {
+		conn, _, err := w.(http.Hijacker).Hijack()
+		if err == nil {
+			_ = conn.Close()
+		}
+	})
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	return server.URL
+}
+
+// A goto ends when its load does. One that brings no document, a download
+// or an answer with no content, returns as soon as the browser reports it
+// and leaves the page where it was; the download is saved. One that brings
+// a document returns once it is parsed, the browser's error page for an
+// address that cannot be reached included.
+func TestStagehandGotoEndsWithItsLoad(t *testing.T) {
+	t.Parallel()
+
+	downloads := t.TempDir()
+	eng := launchBrowser(t, launchOptions{DownloadsDir: downloads, Generate: reportModel})
+	site := serveLoads(t)
+	// A load that never reports would wait out this timeout and fail.
+	const timeout = 30 * time.Second
+	require.NoError(t, eng.Goto(t.Context(), site+"/start", timeout))
+
+	for path, want := range map[string][]string{"/report.csv": {"report.csv"}, "/empty": {}} {
+		began := time.Now()
+		require.NoError(t, eng.Goto(t.Context(), site+path, timeout), path)
+		assert.Less(t, time.Since(began), timeout/2, path)
+		current, err := eng.CurrentURL(t.Context())
+		require.NoError(t, err)
+		assert.Equal(t, site+"/start", current, "%s leaves the page where it was", path)
+		// Without a grace, only a download already seen to begin is waited
+		// for, as a session waits after a goto.
+		names, err := eng.WaitForDownloads(t.Context(), 0, time.Minute)
+		require.NoError(t, err)
+		assert.Equal(t, want, names, path)
+	}
+
+	for target, code := range map[string]string{
+		"http://dagu-test.invalid/": "ERR_NAME_NOT_RESOLVED",
+		site + "/unanswered":        "ERR_EMPTY_RESPONSE",
+	} {
+		require.NoError(t, eng.Goto(t.Context(), target, timeout), target)
+		page, err := eng.PageOutcome(t.Context())
+		require.NoError(t, err)
+		assert.Equal(t, code, page.Code, target)
+	}
+
+	require.NoError(t, eng.Goto(t.Context(), site+"/next", timeout))
+	text, err := eng.PageText(t.Context())
+	require.NoError(t, err)
+	assert.Contains(t, text, "page /next")
+	// A move to a fragment keeps the document.
+	require.NoError(t, eng.Goto(t.Context(), site+"/next#part", timeout))
+	current, err := eng.CurrentURL(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, site+"/next#part", current)
+}
+
 func TestStagehandPageChecks(t *testing.T) {
 	t.Parallel()
 

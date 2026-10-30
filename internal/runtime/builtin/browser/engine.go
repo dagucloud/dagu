@@ -33,6 +33,10 @@ type launcher interface {
 
 // engine drives one browser session.
 type engine interface {
+	// Goto loads url in the page and returns once the page settled on the
+	// document it brought, the browser's error page included. A load that
+	// brings no new document, such as a download, an answer with no
+	// content, or a move to a fragment, returns at once.
 	Goto(ctx context.Context, url string, timeout time.Duration) error
 	// Act performs one action described in natural language. A message
 	// naming a variable leaves out its value when secret reports the
