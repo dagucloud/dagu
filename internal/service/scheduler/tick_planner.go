@@ -453,7 +453,7 @@ func latestCronSlot(schedules []ir.Schedule, from, to time.Time) (time.Time, boo
 		if !schedule.IsCron() || schedule.Parsed == nil {
 			continue
 		}
-		for t := schedule.Parsed.Next(from); t.Before(to); {
+		for t := schedule.Parsed.Next(from); !t.IsZero() && t.Before(to); {
 			if t.After(latest) {
 				latest = t
 			}
@@ -1101,7 +1101,7 @@ func computePrevExecTime(next time.Time, schedule ir.Schedule) time.Time {
 	seed := next.Add(-32 * 24 * time.Hour)
 	var prev time.Time
 	t := schedule.Parsed.Next(seed)
-	for t.Before(next) {
+	for !t.IsZero() && t.Before(next) {
 		prev = t
 		t = schedule.Parsed.Next(t)
 	}
@@ -1121,7 +1121,9 @@ func scheduleDueAt(schedule ir.Schedule, now time.Time) (time.Time, bool) {
 		return time.Time{}, false
 	}
 	next := schedule.Parsed.Next(now.Add(-time.Second))
-	if next.After(now) {
+	// A zero time means the schedule never fires again, such as a calendar
+	// schedule whose expression matches no business day.
+	if next.IsZero() || next.After(now) {
 		return time.Time{}, false
 	}
 	return next, true
@@ -1638,7 +1640,9 @@ func (tp *TickPlanner) recomputeBuffer(ctx context.Context, entry DAGEntry, acti
 			schedules[schedule.Fingerprint()] = schedule
 		}
 		for _, item := range pending.items {
-			if schedule, ok := schedules[item.Schedule.Fingerprint()]; ok {
+			// A calendar edit keeps the fingerprint but can drop the slot's
+			// date, so the slot must still be a fire of the schedule.
+			if schedule, ok := schedules[item.Schedule.Fingerprint()]; ok && scheduleMatchesFireTime(schedule, item.ScheduledTime) {
 				item.DAGEntry = entry
 				item.Schedule = schedule
 				q.items = append(q.items, item)
