@@ -27,7 +27,7 @@ func TestARefusedWordIsNeverPressed(t *testing.T) {
 
 	const (
 		pressed       = `button "保存" is not pressed in this step, which refuses "保存"; leave it as it is`
-		returnPressed = `Return is not pressed: it may press the default button "保存", which this step never presses. To set a combo box or pop-up, call choose_option; to fill a text field, type without Return; to move on, press Tab.`
+		returnPressed = `Return is not pressed: it may press the default button "保存", which this step never presses. To set a combo box or pop-up, call choose_option, or open it and click the option; to fill a text field, type without Return; to move on, press Tab.`
 	)
 	// The button's label, a child the system reads at the button's centre.
 	label := func(r *testRun) {

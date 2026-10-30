@@ -126,7 +126,7 @@ func (r *run) refusedDefault() (string, bool) {
 			continue
 		}
 		if n, _, refused := r.refusedName(e); refused {
-			return fmt.Sprintf("Return is not pressed: it may press the default button %q, which this step never presses. To set a combo box or pop-up, call choose_option; to fill a text field, type without Return; to move on, press Tab.", n.Name), true
+			return fmt.Sprintf("Return is not pressed: it may press the default button %q, which this step never presses. To set a combo box or pop-up, call choose_option, or open it and click the option; to fill a text field, type without Return; to move on, press Tab.", n.Name), true
 		}
 	}
 	return "", false
