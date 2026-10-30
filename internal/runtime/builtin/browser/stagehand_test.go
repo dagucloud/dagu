@@ -890,6 +890,54 @@ func TestStagehandPageChecks(t *testing.T) {
 	assert.True(t, visible)
 }
 
+// serveFrames serves a page built of frames, as older sites are: a
+// frameset whose content frame is a frameset of its own, and a menu that
+// holds a hidden frame.
+func serveFrames(t *testing.T) string {
+	t.Helper()
+	pages := map[string]string{
+		"/":        `<frameset cols="150,*"><frame src="/menu"><frame src="/main"></frameset>`,
+		"/menu":    `<p>Bid schedule</p><iframe src="/draft" style="display:none"></iframe>`,
+		"/main":    `<frameset rows="50%,50%"><frame src="/search"><frame src="/results"></frameset>`,
+		"/search":  `<p>Search</p>`,
+		"/results": `<table><tr><td>Road repair</td><td><a id="show" href="#">Show</a></td></tr></table>`,
+		"/draft":   `<p id="draft">Unpublished case</p>`,
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		page, ok := pages[r.URL.Path]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = io.WriteString(w, page)
+	}))
+	t.Cleanup(server.Close)
+	return server.URL
+}
+
+// A page's text and elements include those of the frames it shows, nested
+// ones too, and leave out a frame it hides.
+func TestStagehandPageChecksReadFrames(t *testing.T) {
+	t.Parallel()
+
+	eng := launchBrowser(t, launchOptions{Generate: (&shopModel{}).generate})
+	require.NoError(t, eng.Goto(t.Context(), serveFrames(t), time.Minute))
+
+	text, err := eng.PageText(t.Context())
+	require.NoError(t, err)
+	assert.Contains(t, text, "Bid schedule")
+	assert.Contains(t, text, "Road repair")
+	assert.NotContains(t, text, "Unpublished case")
+
+	visible, err := eng.SelectorVisible(t.Context(), "#show")
+	require.NoError(t, err)
+	assert.True(t, visible)
+	visible, err = eng.SelectorVisible(t.Context(), "#draft")
+	require.NoError(t, err)
+	assert.False(t, visible)
+}
+
 // A document keeps its ID while it stays loaded, and loading the same URL
 // again gives a new ID, as a form that posts back to its own page does.
 func TestStagehandDocumentID(t *testing.T) {
