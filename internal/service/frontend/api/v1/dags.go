@@ -2339,22 +2339,14 @@ func (a *API) scheduleFires(dag *ir.DAG) *[]api.UpcomingRun {
 	if a.config != nil && a.config.Core.Location != nil {
 		location = a.config.Core.Location
 	}
-	defaultZone := location.String()
-	if a.config != nil && a.config.Core.TZ != "" {
-		defaultZone = a.config.Core.TZ
-	}
 
 	fires := dag.UpcomingFires(time.Now().In(location), upcomingRunsLimit)
 	runs := make([]api.UpcomingRun, 0, len(fires))
 	for _, fire := range fires {
-		zone := defaultZone
-		if loc := dag.Schedule[fire.ScheduleIndex].Location(); loc != nil {
-			zone = loc.String()
-		}
 		run := api.UpcomingRun{
 			Time:          fire.Time,
 			ScheduleIndex: fire.ScheduleIndex,
-			Timezone:      zone,
+			Timezone:      fireZoneLabel(fire.Time),
 		}
 		if len(fire.SkippedHolidays) > 0 {
 			holidays := make([]api.Holiday, 0, len(fire.SkippedHolidays))
@@ -2376,6 +2368,15 @@ func (a *API) scheduleFires(dag *ir.DAG) *[]api.UpcomingRun {
 		runs = append(runs, run)
 	}
 	return &runs
+}
+
+// fireZoneLabel names the zone of a fire time: its time zone name, or its
+// UTC offset when the zone has none, as with the host's local zone.
+func fireZoneLabel(fire time.Time) string {
+	if name := fire.Location().String(); name != "" && name != "Local" {
+		return name
+	}
+	return "UTC" + fire.Format("-07:00")
 }
 
 func (a *API) nextRunProjection(ctx context.Context) func(*ir.DAG, time.Time) time.Time {

@@ -631,12 +631,15 @@ func (d *DAG) UpcomingFires(from time.Time, limit int) []ScheduleFire {
 			fire.BusinessDay = bound.businessDay(day)
 			fire.ExtraBusinessDay = bound.calendar.IsExtraBusinessDay(day)
 		}
+		// A one-off's time carries its own offset, in which an unzoned cron
+		// would be evaluated; advance from the evaluation zone instead.
+		after := at.In(from.Location())
 		for i, cursor := range cursors {
 			if cursor.at.IsZero() || cursor.at.After(at) {
 				continue
 			}
 			fire.SkippedHolidays = appendHolidays(fire.SkippedHolidays, cursor.skipped)
-			cursors[i] = nextFireCursor(d.Schedule[i], at)
+			cursors[i] = nextFireCursor(d.Schedule[i], after)
 		}
 		fires = append(fires, fire)
 	}
