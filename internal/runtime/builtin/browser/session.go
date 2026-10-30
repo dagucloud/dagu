@@ -873,6 +873,12 @@ func (s *Sessions) Do(ctx context.Context, req DoRequest) (DoResult, error) {
 			result.Error = &SessionError{Code: CodeWriteBlocked, Message: message}
 			entry.Status, entry.Error = OperationFailed, message
 		}
+		// A blocked form stays on its page as it was filled in, so a
+		// rehearsal says what became of the write rather than leave the
+		// operation looking as if it did nothing.
+		if write.Consequential() && !writegate.Sends(state.WriteGate) {
+			warnings = append(warnings, fmt.Sprintf("the write gate blocked %s, so nothing was saved; a rehearsal does not send it", write))
+		}
 	}
 	if blocked, err := eng.TakeBlockedRequests(); err == nil && len(blocked) > 0 {
 		result.Blocked = blocked
