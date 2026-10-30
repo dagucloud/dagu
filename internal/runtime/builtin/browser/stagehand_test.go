@@ -927,8 +927,10 @@ func TestStagehandGotoEndsWithItsLoad(t *testing.T) {
 	}
 
 	// The code an error page names varies by platform, as where Chrome
-	// probes DNS, so only that the error page shows is checked.
+	// probes DNS, so only that the error page shows is checked; each load
+	// starts from a page, which names none.
 	for _, target := range []string{"http://dagu-test.invalid/", site + "/unanswered"} {
+		require.NoError(t, eng.Goto(t.Context(), site+"/start", timeout))
 		require.NoError(t, eng.Goto(t.Context(), target, timeout), target)
 		page, err := eng.PageOutcome(t.Context())
 		require.NoError(t, err)
