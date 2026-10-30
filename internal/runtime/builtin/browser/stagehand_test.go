@@ -948,6 +948,39 @@ func TestStagehandGotoEndsWithItsLoad(t *testing.T) {
 	assert.Equal(t, site+"/next#part", current)
 }
 
+// A goto whose load another load replaces before the site answers fails,
+// and the page shows the load that replaced it.
+func TestStagehandGotoFailsWhenItsLoadIsCancelled(t *testing.T) {
+	t.Parallel()
+
+	requested := make(chan struct{}, 1)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/slow", func(_ http.ResponseWriter, r *http.Request) {
+		requested <- struct{}{}
+		// No answer comes; the browser drops the request once the load is
+		// replaced.
+		<-r.Context().Done()
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = io.WriteString(w, "<!doctype html><title>Loads</title><p>page "+r.URL.Path+"</p>")
+	})
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	eng := launchBrowser(t, launchOptions{Generate: reportModel})
+	const timeout = 30 * time.Second
+	require.NoError(t, eng.Goto(t.Context(), server.URL+"/start", timeout))
+
+	cancelled := make(chan error, 1)
+	go func() { cancelled <- eng.Goto(t.Context(), server.URL+"/slow", timeout) }()
+	<-requested
+	require.NoError(t, eng.Goto(t.Context(), server.URL+"/next", timeout))
+	assert.ErrorContains(t, <-cancelled, "cancelled the load")
+	current, err := eng.CurrentURL(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, server.URL+"/next", current)
+}
+
 func TestStagehandPageChecks(t *testing.T) {
 	t.Parallel()
 

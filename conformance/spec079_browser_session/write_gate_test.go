@@ -484,16 +484,18 @@ func TestSessionRecordSendsAHeldForm(t *testing.T) {
 }
 
 // A goto to an address the policy declares a write is held like any other
-// write: the goto returns at once, the page stays where it was, and the
-// write is reported.
+// write: the goto fails at once, since its page never loads, the page stays
+// where it was, and the write is reported.
 func TestSessionHoldsAGoto(t *testing.T) {
 	t.Parallel()
 
 	g := newGateEnv(t)
 	opened := g.open("--write-gate", "rehearse", "--write-policy", g.policy)
 	held := g.session(fmt.Sprintf(`{"goto": %q, "timeout": "30s"}`, g.ledger.url+"/entries/1/delete"), "do", opened.ID)
-	held.ExpectExitCode(0)
+	held.ExpectNonZeroExitCode()
 	result := decode(t, held)
+	require.NotNil(t, result.Error, held.Stdout())
+	assert.Equal(t, "operation_failed", result.Error.Code)
 	assert.Equal(t, g.ledger.url+"/", result.URL)
 	deleted, ok := byPath(result.Writes)["/entries/1/delete"]
 	require.True(t, ok, held.Stdout())

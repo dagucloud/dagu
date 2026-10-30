@@ -13,16 +13,23 @@ import (
 )
 
 const (
-	// loadAborted is the error of a page load that ended without a document,
-	// as one that became a download or was answered with no content does.
+	// loadAborted is the error of a page load that ended without a
+	// document: one that became a download, was answered with no content,
+	// or was cancelled before an answer came.
 	loadAborted = "net::ERR_ABORTED"
 	// lifecycleParsed is the lifecycle event of a document the browser has
 	// parsed.
 	lifecycleParsed = "DOMContentLoaded"
 )
 
-// errPageClosed reports a page that closed while it loaded.
-var errPageClosed = errors.New("the page closed while it loaded")
+var (
+	// errPageClosed reports a page that closed while it loaded.
+	errPageClosed = errors.New("the page closed while it loaded")
+	// errLoadCancelled reports a load the browser cancelled before the site
+	// answered, as it does when another load replaces it or a DevTools
+	// client fails its request.
+	errLoadCancelled = errors.New("the browser cancelled the load before the site answered")
+)
 
 // Load is what a page load brought.
 type Load struct {
@@ -39,14 +46,16 @@ type Load struct {
 // page whose document is replaced before it is parsed is waited on until the
 // document that replaced it is. A load that brings none, such as one that
 // became a download, was answered with no content, or moved within the
-// document to a fragment, returns as soon as the browser reports it.
+// document to a fragment, returns as soon as the browser reports it. A load
+// the browser cancelled before the site answered fails, leaving the page as
+// it was.
 func Navigate(ctx context.Context, cdpURL, targetID, url string) (Load, error) {
 	conn, err := dialBrowser(ctx, cdpURL)
 	if err != nil {
 		return Load{}, err
 	}
 	defer func() { _ = conn.CloseNow() }()
-	n := &navigation{conn: conn, committed: map[string]bool{}, parsed: map[string]bool{}}
+	n := &navigation{conn: conn, committed: map[string]bool{}, parsed: map[string]bool{}, answered: map[string]bool{}}
 	var attached struct {
 		SessionID string `json:"sessionId"`
 	}
@@ -54,11 +63,22 @@ func Navigate(ctx context.Context, cdpURL, targetID, url string) (Load, error) {
 		return Load{}, err
 	}
 	n.session = attached.SessionID
-	if err := n.command(ctx, "Page.enable", nil, nil); err != nil {
-		return Load{}, err
-	}
-	if err := n.command(ctx, "Page.setLifecycleEventsEnabled", map[string]any{"enabled": true}, nil); err != nil {
-		return Load{}, err
+	// Commands the page's document answers wait while another load is in
+	// flight, so these are sent without waiting for their replies: a load
+	// that never ends would otherwise hold the goto that replaces it. The
+	// document the load brings takes them in before it is shown. Network
+	// events tell only whether the site answered, so no body is kept.
+	for _, enable := range []struct {
+		method string
+		params map[string]any
+	}{
+		{"Page.enable", nil},
+		{"Page.setLifecycleEventsEnabled", map[string]any{"enabled": true}},
+		{"Network.enable", map[string]any{"maxTotalBufferSize": 0, "maxResourceBufferSize": 0, "maxPostDataSize": 0}},
+	} {
+		if err := n.send(ctx, enable.method, enable.params); err != nil {
+			return Load{}, err
+		}
 	}
 	var started struct {
 		LoaderID   string `json:"loaderId"`
@@ -68,9 +88,12 @@ func Navigate(ctx context.Context, cdpURL, targetID, url string) (Load, error) {
 	if err := n.command(ctx, "Page.navigate", map[string]any{"url": url}, &started); err != nil {
 		return Load{}, err
 	}
-	// A load within the document has no loader of its own; neither it nor
-	// an aborted load leaves a document to wait for.
-	if started.ErrorText == loadAborted || started.LoaderID == "" {
+	// The browser reports the site's answer to a load before it reports the
+	// load aborted, and a load within the document has no loader of its own.
+	switch {
+	case started.ErrorText == loadAborted && !started.IsDownload && !n.answered[started.LoaderID]:
+		return Load{}, errLoadCancelled
+	case started.ErrorText == loadAborted, started.LoaderID == "":
 		return Load{Download: started.IsDownload}, nil
 	}
 	for !n.committed[started.LoaderID] || !n.parsed[n.current] {
@@ -90,9 +113,11 @@ type navigation struct {
 	lastID  int64
 	// committed holds the loaders whose documents the page's main frame
 	// showed, current the last of them, and parsed those the page parsed.
+	// answered holds the documents' requests the site answered.
 	committed map[string]bool
 	current   string
 	parsed    map[string]bool
+	answered  map[string]bool
 	// waiting is the command whose reply is awaited; replied reports that
 	// it came, with result or failure.
 	waiting int64
@@ -101,17 +126,23 @@ type navigation struct {
 	failure error
 }
 
-// command sends method to the page, or to the browser before the page is
-// attached, and decodes its result into result unless that is nil.
-func (n *navigation) command(ctx context.Context, method string, params map[string]any, result any) error {
+// send sends method to the page, or to the browser before the page is
+// attached, without waiting for its reply.
+func (n *navigation) send(ctx context.Context, method string, params map[string]any) error {
 	if params == nil {
 		params = map[string]any{}
 	}
 	n.lastID++
-	n.waiting, n.replied = n.lastID, false
-	if err := writeCommand(ctx, n.conn, n.waiting, n.session, method, params); err != nil {
+	return writeCommand(ctx, n.conn, n.lastID, n.session, method, params)
+}
+
+// command sends method as send does and decodes its result into result
+// unless that is nil.
+func (n *navigation) command(ctx context.Context, method string, params map[string]any, result any) error {
+	if err := n.send(ctx, method, params); err != nil {
 		return err
 	}
+	n.waiting, n.replied = n.lastID, false
 	for !n.replied {
 		if err := n.next(ctx); err != nil {
 			return fmt.Errorf("%s: %w", method, err)
@@ -163,6 +194,14 @@ func (n *navigation) next(ctx context.Context) error {
 		}
 		if json.Unmarshal(message.Params, &event) == nil && event.Frame.ParentID == "" {
 			n.committed[event.Frame.LoaderID], n.current = true, event.Frame.LoaderID
+		}
+	case message.Method == "Network.responseReceived":
+		var event struct {
+			RequestID string `json:"requestId"`
+			Type      string `json:"type"`
+		}
+		if json.Unmarshal(message.Params, &event) == nil && event.Type == resourceTypeDocument {
+			n.answered[event.RequestID] = true
 		}
 	case message.Method == "Page.lifecycleEvent":
 		var event struct {
