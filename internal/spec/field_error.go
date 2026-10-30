@@ -35,8 +35,7 @@ func ErrorMessages(data []byte, errs []error) []string {
 	var file *ast.File
 	for _, err := range errs {
 		message := err.Error()
-		var fieldErr *FieldError
-		if errors.As(err, &fieldErr) {
+		if fieldErr, ok := errors.AsType[*FieldError](err); ok {
 			if file == nil {
 				file, _ = parser.ParseBytes(data, 0)
 			}
