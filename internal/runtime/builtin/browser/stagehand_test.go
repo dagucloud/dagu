@@ -999,9 +999,12 @@ func TestStagehandHeldWindowLetGoAfterItsLoad(t *testing.T) {
 	case <-t.Context().Done():
 		t.Fatal("the content frame never refreshed")
 	}
-	text, err := eng.PageText(t.Context())
-	require.NoError(t, err)
-	assert.Contains(t, text, "Details of the bid", "the window that stayed")
+	// Reading the page does not hold the window again.
+	for range 2 {
+		text, err := eng.PageText(t.Context())
+		require.NoError(t, err)
+		assert.Contains(t, text, "Details of the bid", "the window that stayed")
+	}
 }
 
 // menuPage adds an Approve button once its menu is opened.

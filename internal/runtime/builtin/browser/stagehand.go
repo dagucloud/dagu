@@ -593,8 +593,9 @@ type stagehandEngine struct {
 	loads     *browserhost.FrameLoadWatcher
 	// acted is when the last action or goto began; zero before the first.
 	acted time.Time
-	// held holds the windows heldWindows last found held, by target ID.
-	held map[string]heldWindow
+	// holds holds the open windows heldWindows found held, by target ID,
+	// those it let go too.
+	holds map[string]windowHold
 	// blocked counts requests allowed_domains blocks; nil without
 	// allowed_domains.
 	blocked *browserhost.BlockedRequestWatcher
@@ -661,12 +662,14 @@ func (e *stagehandEngine) page(ctx context.Context) (*stagehand.Page, error) {
 	return page, nil
 }
 
-// heldWindow is a window held behind the page that opened it.
-type heldWindow struct {
+// windowHold is a window held behind the page that opened it.
+type windowHold struct {
 	opener string
 	// began is when the opener began the load the window was first held
 	// for.
 	began time.Time
+	// released is set once the window is let go, for good.
+	released bool
 }
 
 // heldWindows returns the windows operations look past, each with the
@@ -676,32 +679,32 @@ type heldWindow struct {
 // closes the window. It stays held, through later actions too, while the
 // opener loads and for settleQuiet after, which a window the answer closes
 // takes to go; a window still open then is a page in its own right, such
-// as a form to fill in, and a load its opener begins after that quiet
-// period does not hold it again.
+// as a form to fill in, and is never held again, even by a load its
+// opener begins after that quiet period.
 func (e *stagehandEngine) heldWindows() map[string]string {
-	held := map[string]heldWindow{}
+	holds := map[string]windowHold{}
+	openers := map[string]string{}
 	for _, window := range e.loads.Windows() {
 		load := e.loads.PageLoad(window.Opener)
-		hold, wasHeld := e.held[window.TargetID]
-		switch {
-		case wasHeld:
-			if load.Ended.After(hold.began) && load.Began.Sub(load.Ended) >= settleQuiet {
+		hold, known := e.holds[window.TargetID]
+		if !known {
+			if e.acted.IsZero() || window.Opened.Before(e.acted) || load.Began.Before(e.acted) {
 				continue
 			}
-		case !e.acted.IsZero() && !window.Opened.Before(e.acted) && !load.Began.Before(e.acted):
-			hold = heldWindow{opener: window.Opener, began: load.Began}
-		default:
-			continue
+			hold = windowHold{opener: window.Opener, began: load.Began}
 		}
-		if load.Loading || time.Since(load.Ended) < settleQuiet {
-			held[window.TargetID] = hold
+		if !hold.released {
+			// A load begun a quiet period after the held one ended is
+			// another.
+			anotherLoad := load.Ended.After(hold.began) && load.Began.Sub(load.Ended) >= settleQuiet
+			hold.released = anotherLoad || !load.Loading && time.Since(load.Ended) >= settleQuiet
+		}
+		holds[window.TargetID] = hold
+		if !hold.released {
+			openers[window.TargetID] = hold.opener
 		}
 	}
-	e.held = held
-	openers := make(map[string]string, len(held))
-	for target, hold := range held {
-		openers[target] = hold.opener
-	}
+	e.holds = holds
 	return openers
 }
 
