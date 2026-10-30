@@ -113,12 +113,48 @@ func (t pageTarget) contextText(depth int, variables map[string]string) string {
 	return withPlaceholders(textOf(t.path[len(t.path)-1-depth]), variables)
 }
 
-// matches reports whether the element is the one want recorded. Without
-// a context to tell it from its lookalikes, an element that gained more of
+// column is the header of the table column the element sits in, with
+// variables' values as their placeholders, and "" when it is not in a
+// table cell or the table has no header row.
+func (t pageTarget) column(variables map[string]string) string {
+	for i := len(t.path) - 2; i > 0; i-- {
+		cell, row := t.path[i], t.path[i-1]
+		if !slices.Contains(cellRoles, cell.role) || cell.role == "columnheader" {
+			continue
+		}
+		index := 0
+		for _, sibling := range row.children {
+			if sibling == cell {
+				break
+			}
+			if slices.Contains(cellRoles, sibling.role) {
+				index++
+			}
+		}
+		for _, table := range slices.Backward(t.path[:i-1]) {
+			for _, candidate := range descendants(table, "row") {
+				if headers := cellsOf(candidate); len(headers) > 0 && allHeaders(candidate) {
+					if index < len(headers) {
+						return strings.Join(strings.Fields(withPlaceholders(headers[index], variables)), " ")
+					}
+					return ""
+				}
+			}
+		}
+		return ""
+	}
+	return ""
+}
+
+// matches reports whether the element is the one want recorded, in the
+// column it was. Without a context to tell it from its lookalikes, an element that gained more of
 // them since cannot be told from the new ones, so it does not match.
 func (t pageTarget) matches(want recordedTarget, variables map[string]string) bool {
 	node := t.node()
 	if node.role != want.Role || !sameText(withPlaceholders(node.name, variables), want.Name) {
+		return false
+	}
+	if want.Column != "" && t.column(variables) != want.Column {
 		return false
 	}
 	if want.Depth > 0 {
@@ -142,11 +178,16 @@ func lookalikes(nodes []*outlineNode, node *outlineNode) int {
 // identified returns action carrying the element it targets, so a replay
 // can tell the element is still there. An element with lookalikes on the
 // page, such as a button in each row of a list, is also identified by the
-// text around it. A variable's value in either is replaced by its
-// placeholder, so they match on a later run with another value.
+// text around it. A form control, or an element with lookalikes, in a table
+// cell is also identified by the header of its column. A variable's value in
+// any of them is replaced by its placeholder, so they match on a later run
+// with another value.
 func identified(action recordedAction, target pageTarget, variables map[string]string) recordedAction {
 	node := target.node()
 	recorded := &recordedTarget{Role: node.role, Name: withPlaceholders(node.name, variables)}
+	if slices.Contains(controlRoles, node.role) || target.lookalikes() > 1 {
+		recorded.Column = target.column(variables)
+	}
 	if count := target.lookalikes(); count > 1 {
 		recorded.Lookalikes = count
 		if depth := target.distinctDepth(); depth > 0 {
