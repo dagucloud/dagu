@@ -40,7 +40,7 @@ func targetOf(snap pageSnapshot, selector string) (pageTarget, bool) {
 		if path != xpath {
 			continue
 		}
-		roots := parseSnapshotTree(snap.Tree)
+		roots := snap.roots()
 		if found := pathTo(roots, id); found != nil {
 			return pageTarget{roots: roots, path: found}, true
 		}

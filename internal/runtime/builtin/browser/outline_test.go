@@ -247,3 +247,49 @@ func TestOutlineShowsFileInputs(t *testing.T) {
 	text, _, _ := renderOutline(snap, outlineOptions{})
 	assert.Equal(t, `[0-13] file input "Receipt"`, text)
 }
+
+// rowFormAttributes are the name attributes of the controls the rowform
+// tree leaves unnamed, as the browser reported them.
+var rowFormAttributes = map[string]string{
+	"1-9": "KoujiSyubetu", "1-10": "Nendo", "1-11": "KikanNO", "1-12": "AnkenName", "1-103": "Tenpu",
+	"1-13": "FreeWord", "1-14": "lonely", "2-17": "Tanto", "2-18": "Kikan",
+}
+
+// A form laid out in a table names a control the tree leaves unnamed by the
+// label cell before it in its row, skipping a cell that holds a control, in
+// a layout table and through a table nested in a cell too. A control no
+// row labels is named by its name or id attribute, and a control's own
+// name comes first.
+func TestOutlineNamesControlsByTheirRow(t *testing.T) {
+	t.Parallel()
+
+	snap := fixtureSnapshot(t, "rowform")
+	snap.Attributes = rowFormAttributes
+	outline, _, _ := renderOutline(snap, outlineOptions{})
+	assert.Equal(t, `iframe
+  text: Menu
+iframe
+  form
+    table: 6 rows
+      row: 工種又は業種 |
+        [1-9] select "工種又は業種" = ; options: , 土木一式工事
+      row: 年度 | | 調達機関 | 千葉県
+        [1-10] select "年度" = ; options: , 令和8年度
+        [1-11] select "調達機関" = 千葉県; options: 千葉県
+      row: 案件名 |
+        [1-12] textbox "案件名"
+      row: 添付あり |
+        [1-103] checkbox "添付あり"
+      row: 
+        [1-13] textbox "FreeWord"
+      row: 入札方式 | 一般競争
+        [1-15] checkbox "一般競争"
+    [1-14] textbox "lonely"
+iframe
+  [2-17] textbox "担当者"
+  [2-18] select "期間" = 今月; options: 今月`, outline)
+
+	snap.Attributes = nil
+	outline, _, _ = renderOutline(snap, outlineOptions{})
+	assert.Contains(t, outline, "[1-13] textbox\n", "a control nothing names stays unnamed")
+}

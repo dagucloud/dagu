@@ -220,8 +220,11 @@ type pageSnapshot struct {
 	URLs map[string]string
 	// XPaths maps the IDs of nodes to the XPaths that find them on the page.
 	XPaths map[string]string
-	URL    string
-	Title  string
+	// Attributes maps the IDs of controls the tree leaves unnamed to their
+	// name attribute, or else their id.
+	Attributes map[string]string
+	URL        string
+	Title      string
 }
 
 // dialog is a JavaScript dialog the browser accepted.

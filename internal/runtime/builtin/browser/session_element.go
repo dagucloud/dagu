@@ -160,7 +160,7 @@ func elementID(raw json.RawMessage) (string, error) {
 // action that does it, identifying the element with variables' values as
 // their placeholders.
 func elementAct(snap pageSnapshot, op elementOperation, variables map[string]string) (string, recordedAction, error) {
-	roots := parseSnapshotTree(snap.Tree)
+	roots := snap.roots()
 	path := pathTo(roots, op.element)
 	xpath := snap.XPaths[op.element]
 	if path == nil || xpath == "" {

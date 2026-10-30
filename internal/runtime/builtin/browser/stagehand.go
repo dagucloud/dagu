@@ -1122,8 +1122,41 @@ func (e *stagehandEngine) Snapshot(ctx context.Context) (pageSnapshot, error) {
 		if err != nil {
 			return pageSnapshot{}, err
 		}
-		return pageSnapshot{Tree: snapshot.FormattedTree, URLs: snapshot.URLMap, XPaths: snapshot.XPathMap, URL: pageURL, Title: title}, nil
+		snap := pageSnapshot{Tree: snapshot.FormattedTree, URLs: snapshot.URLMap, XPaths: snapshot.XPathMap, URL: pageURL, Title: title}
+		snap.Attributes = controlAttributes(ctx, page, snap)
+		return snap, nil
 	})
+}
+
+// controlAttributes reads the name or id attribute of each control the
+// tree of snap leaves unnamed, by element ID. A control whose attributes
+// cannot be read, as in a frame from another origin, is left out.
+func controlAttributes(ctx context.Context, page *stagehand.Page, snap pageSnapshot) map[string]string {
+	ids := unnamedControls(parseSnapshotTree(snap.Tree))
+	if len(ids) == 0 {
+		return nil
+	}
+	xpaths := make([]string, 0, len(ids))
+	for _, id := range ids {
+		xpaths = append(xpaths, snap.XPaths[id])
+	}
+	// The XPaths are embedded as a JSON array literal, never as code.
+	literal, err := json.Marshal(xpaths)
+	if err != nil {
+		return nil
+	}
+	raw, err := page.Evaluate(ctx, fmt.Sprintf(controlAttributesExpression, literal))
+	var values []string
+	if err != nil || json.Unmarshal(raw, &values) != nil || len(values) != len(ids) {
+		return nil
+	}
+	attributes := map[string]string{}
+	for i, id := range ids {
+		if values[i] != "" {
+			attributes[id] = values[i]
+		}
+	}
+	return attributes
 }
 
 // evaluate runs a JavaScript expression in the active page.
