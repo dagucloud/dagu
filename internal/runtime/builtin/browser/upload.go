@@ -158,7 +158,7 @@ func (o *operator) upload(ctx context.Context, index int, spec uploadSpec, timeo
 			"if the element is on the page, reword into or try another model", o.bridge.modelName(), spec.Into)
 	}
 	action := recordedAction{Selector: found[0].Selector, Description: found[0].Description, Method: uploadMethod}
-	if target, ok := targetOf(snap, action.Selector); ok && snapErr == nil {
+	if target, ok := identifyingTarget(snap, action.Selector); ok && snapErr == nil {
 		action = identified(action, target, o.variables)
 	}
 	how, err := o.eng.Upload(ctx, action.Selector, files, timeout)

@@ -33,19 +33,36 @@ type pageTarget struct {
 }
 
 // targetOf returns the element of snap at the XPath a selector names, and
-// false when no node of the tree is there.
-func targetOf(snap pageSnapshot, selector string) (pageTarget, bool) {
+// false when no node of the tree is there. With named, the controls the
+// tree leaves unnamed carry the names roots gives them; else every node
+// keeps the name the tree gives it.
+func targetOf(snap pageSnapshot, selector string, named bool) (pageTarget, bool) {
 	xpath := strings.TrimPrefix(selector, "xpath=")
 	for id, path := range snap.XPaths {
 		if path != xpath {
 			continue
 		}
-		roots := snap.roots()
+		roots := parseSnapshotTree(snap.Tree)
+		if named {
+			roots = snap.roots()
+		}
 		if found := pathTo(roots, id); found != nil {
 			return pageTarget{roots: roots, path: found}, true
 		}
 	}
 	return pageTarget{}, false
+}
+
+// identifyingTarget returns the element of snap at the XPath a selector
+// names, as a recording identifies it: by the name roots gives it, or,
+// when nothing names it, among the names the tree gives. A target recorded
+// with no name is checked among those, as stillTargets explains.
+func identifyingTarget(snap pageSnapshot, selector string) (pageTarget, bool) {
+	target, ok := targetOf(snap, selector, true)
+	if ok && target.node().name == "" {
+		return targetOf(snap, selector, false)
+	}
+	return target, ok
 }
 
 // pathTo returns the nodes from one of nodes down to the node with id, or
@@ -149,7 +166,7 @@ func identified(action recordedAction, target pageTarget, variables map[string]s
 // tree is left unidentified.
 func identifyOn(snap pageSnapshot, actions []recordedAction, variables map[string]string) {
 	for i, action := range actions {
-		if target, ok := targetOf(snap, action.Selector); ok {
+		if target, ok := identifyingTarget(snap, action.Selector); ok {
 			actions[i] = identified(action, target, variables)
 		}
 	}
@@ -158,9 +175,13 @@ func identifyOn(snap pageSnapshot, actions []recordedAction, variables map[strin
 // stillTargets reports whether the element at the location action recorded
 // on snap is the one it acted on, and for a select, one offering the option
 // it picks. An action recorded without its element is checked for the
-// option only.
+// option only. An element recorded with no name is compared among the
+// names the tree gives, without those roots adds, so the recording of a
+// control that nothing named when it was recorded still finds the control
+// once its table row names it.
 func stillTargets(action recordedAction, snap pageSnapshot, variables map[string]string) bool {
-	target, found := targetOf(snap, action.Selector)
+	named := action.Target == nil || action.Target.Name != ""
+	target, found := targetOf(snap, action.Selector, named)
 	if action.Target != nil && (!found || !target.matches(*action.Target, variables)) {
 		return false
 	}

@@ -141,6 +141,40 @@ func TestReplayTargetInRow(t *testing.T) {
 	assert.False(t, stillTargets(lone[0], rowsPage("New", "Alpha"), nil), "New's Delete is where Alpha's was")
 }
 
+// A recording may name no control where the outline now names one by its
+// table row, as recordings made before rows named controls do. Such a
+// recording still finds the control, compared by the names the tree gives.
+// The empty name is no wildcard: a control with a name of its own at that
+// place is another element.
+func TestReplayTargetRecordedUnnamed(t *testing.T) {
+	t.Parallel()
+
+	snap := fixtureSnapshot(t, "rowform")
+	snap.Attributes = rowFormAttributes
+	snap.XPaths = map[string]string{
+		"1-9":  "/html[1]/frameset[1]/frame[2]/html[1]/body[1]/form[1]/table[1]/tbody[1]/tr[1]/td[1]/select[1]",
+		"1-13": "/html[1]/frameset[1]/frame[2]/html[1]/body[1]/form[1]/table[1]/tbody[1]/tr[8]/td[1]/input[1]",
+		"1-15": "/html[1]/frameset[1]/frame[2]/html[1]/body[1]/form[1]/table[1]/tbody[1]/tr[9]/td[2]/input[1]",
+	}
+	pick := recordedAction{Selector: "xpath=" + snap.XPaths["1-9"], Method: selectOptionMethod, Arguments: []string{"土木一式工事"}}
+	unnamed := parseSnapshotTree(snap.Tree)
+	recorded := identified(pick, pageTarget{roots: unnamed, path: pathTo(unnamed, "1-9")}, nil)
+	require.Empty(t, recorded.Target.Name)
+	assert.True(t, stillTargets(recorded, snap, nil), "a select recorded before rows named it")
+
+	// A control nothing names is recorded and replayed alike.
+	bare := snap
+	bare.Attributes = nil
+	actions := []recordedAction{{Selector: "xpath=" + snap.XPaths["1-13"], Method: "fill", Arguments: []string{"舗装"}}}
+	identifyOn(bare, actions, nil)
+	require.NotNil(t, actions[0].Target)
+	assert.Empty(t, actions[0].Target.Name)
+	assert.True(t, stillTargets(actions[0], bare, nil), "a field nothing names")
+
+	own := recordedAction{Selector: "xpath=" + snap.XPaths["1-15"], Method: "click", Target: &recordedTarget{Role: "checkbox"}}
+	assert.False(t, stillTargets(own, snap, nil), "a checkbox with a name of its own")
+}
+
 // An act picking an option does not count as done unless the page before
 // it shows the select offers the option. The reason names the option
 // compared, filled in with its variables' values unless one is secret, and

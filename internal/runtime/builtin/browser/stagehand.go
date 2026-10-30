@@ -730,7 +730,7 @@ func uncheckedOption(snap pageSnapshot, snapErr error, actions []recordedAction,
 		if snapErr != nil {
 			return "the page could not be read to check the option picked: " + snapErr.Error()
 		}
-		if target, ok := targetOf(snap, action.Selector); ok && !offersOption(target.node(), action, variables) {
+		if target, ok := targetOf(snap, action.Selector, true); ok && !offersOption(target.node(), action, variables) {
 			node := target.node()
 			return fmt.Sprintf("the %s offers no option %s; %s", withName(node.role, node.name),
 				pickedOption(action.Arguments[0], variables, secret), offeredOptions(node))
