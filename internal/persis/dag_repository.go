@@ -30,6 +30,9 @@ func (r *DAGRepository) loadOptions(opts ...spec.LoadOption) []spec.LoadOption {
 	if r.options.WorkspaceBaseConfigDir != "" {
 		loadOpts = append(loadOpts, spec.WithWorkspaceBaseConfigDir(r.options.WorkspaceBaseConfigDir))
 	}
+	if r.options.CalendarsDir != "" {
+		loadOpts = append(loadOpts, spec.WithCalendarsDir(r.options.CalendarsDir))
+	}
 	return append(loadOpts, opts...)
 }
 

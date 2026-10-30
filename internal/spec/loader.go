@@ -65,6 +65,15 @@ func WithWorkspaceBaseConfigDir(dir string) LoadOption {
 	}
 }
 
+// WithCalendarsDir sets the directory of the calendar files that schedules
+// name. Without it, a schedule naming a calendar file stays unbound and never
+// fires; built-in calendars bind either way.
+func WithCalendarsDir(dir string) LoadOption {
+	return func(o *buildOpts) {
+		o.CalendarsDir = dir
+	}
+}
+
 // WithParams sets the parameters for the DAG.
 func WithParams(params any) LoadOption {
 	return func(o *buildOpts) {

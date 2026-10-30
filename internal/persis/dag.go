@@ -70,6 +70,8 @@ type DAGLoadOptions struct {
 type DAGRepositoryOptions struct {
 	BaseConfigPath         string
 	WorkspaceBaseConfigDir string
+	// CalendarsDir contains the calendar files that schedules name.
+	CalendarsDir string
 }
 
 // DAGListOptions contains parameters for paginated DAG listing.

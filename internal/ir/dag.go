@@ -105,6 +105,8 @@ type DAG struct {
 	Description string `json:"description,omitempty"`
 	// Schedule configuration for starting, stopping, and restarting the DAG.
 	Schedule []Schedule `json:"schedule,omitempty"`
+	// Calendar is the calendar of start schedules that name none.
+	Calendar string `json:"calendar,omitempty"`
 	// StopSchedule contains the cron expressions for stopping the DAG.
 	StopSchedule []Schedule `json:"stopSchedule,omitempty"`
 	// RestartSchedule contains the cron expressions for restarting the DAG.
@@ -582,6 +584,15 @@ type ScheduleFire struct {
 	Time time.Time
 	// ScheduleIndex is the position of the firing schedule in DAG.Schedule.
 	ScheduleIndex int
+	// SkippedHolidays lists the holidays, since the previous fire, on which
+	// the schedule's cron expression fired but its calendar did not.
+	SkippedHolidays []Holiday
+	// BusinessDay is the listed business-day position the fire matched, or
+	// 0 when the schedule lists none.
+	BusinessDay int
+	// ExtraBusinessDay reports whether the fire falls on a business day only
+	// because its calendar lists it as one.
+	ExtraBusinessDay bool
 }
 
 // UpcomingFires returns up to limit start-schedule fire times after from,
@@ -592,36 +603,69 @@ func (d *DAG) UpcomingFires(from time.Time, limit int) []ScheduleFire {
 	if limit <= 0 || len(d.Schedule) == 0 {
 		return nil
 	}
-	next := make([]time.Time, len(d.Schedule))
+	cursors := make([]fireCursor, len(d.Schedule))
 	for i, sched := range d.Schedule {
-		next[i] = sched.Next(from)
+		cursors[i] = nextFireCursor(sched, from)
 	}
 
 	var fires []ScheduleFire
 	for len(fires) < limit {
 		earliest := -1
-		for i, t := range next {
-			if !t.IsZero() && (earliest < 0 || t.Before(next[earliest])) {
+		for i, cursor := range cursors {
+			if !cursor.at.IsZero() && (earliest < 0 || cursor.at.Before(cursors[earliest].at)) {
 				earliest = i
 			}
 		}
 		if earliest < 0 {
 			break
 		}
-		at := next[earliest]
-		loc := d.Schedule[earliest].Location()
+		at := cursors[earliest].at
+		sched := d.Schedule[earliest]
+		loc := sched.Location()
 		if loc == nil {
 			loc = from.Location()
 		}
-		fireTime := at.In(loc)
-		fires = append(fires, ScheduleFire{Time: fireTime, ScheduleIndex: earliest})
-		for i, t := range next {
-			if !t.IsZero() && !t.After(at) {
-				next[i] = d.Schedule[i].Next(at)
-			}
+		fire := ScheduleFire{Time: at.In(loc), ScheduleIndex: earliest}
+		if bound, ok := sched.Parsed.(calendarSchedule); ok {
+			day := bound.dateOf(at)
+			fire.BusinessDay = bound.businessDay(day)
+			fire.ExtraBusinessDay = bound.calendar.IsExtraBusinessDay(day)
 		}
+		for i, cursor := range cursors {
+			if cursor.at.IsZero() || cursor.at.After(at) {
+				continue
+			}
+			fire.SkippedHolidays = appendHolidays(fire.SkippedHolidays, cursor.skipped)
+			cursors[i] = nextFireCursor(d.Schedule[i], at)
+		}
+		fires = append(fires, fire)
 	}
 	return fires
+}
+
+// fireCursor is a schedule's next fire and the holidays skipped to reach it.
+type fireCursor struct {
+	at      time.Time
+	skipped []Holiday
+}
+
+func nextFireCursor(sched Schedule, after time.Time) fireCursor {
+	if bound, ok := sched.Parsed.(calendarSchedule); ok {
+		at, skipped := bound.next(after)
+		return fireCursor{at: at, skipped: skipped}
+	}
+	return fireCursor{at: sched.Next(after)}
+}
+
+// appendHolidays appends the holidays not yet listed, keeping one entry per
+// date when several schedules or candidates skip the same day.
+func appendHolidays(dst, holidays []Holiday) []Holiday {
+	for _, holiday := range holidays {
+		if !slices.ContainsFunc(dst, func(listed Holiday) bool { return listed.Date == holiday.Date }) {
+			dst = append(dst, holiday)
+		}
+	}
+	return dst
 }
 
 // initializeDefaults sets the default values for the DAG.
@@ -975,7 +1019,15 @@ type Schedule struct {
 	At string `json:"at,omitempty"`
 	// Profile is the runtime profile name that activates this schedule.
 	Profile string `json:"profile,omitempty"`
-	// Parsed is the parsed cron schedule.
+	// Calendar names the calendar whose business days the schedule fires
+	// on. It is empty, or CalendarNone, for a schedule without one.
+	Calendar string `json:"calendar,omitempty"`
+	// BusinessDays keeps only the fires on these business days of the
+	// month, counted from the start when positive and from the end when
+	// negative.
+	BusinessDays []int `json:"business_days,omitempty"`
+	// Parsed is the parsed cron schedule. A calendar schedule has none until
+	// its calendar is bound.
 	Parsed cron.Schedule `json:"-"`
 	// AtTime is the parsed one-off schedule time.
 	AtTime time.Time `json:"-"`
@@ -990,17 +1042,21 @@ func (s Schedule) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	return json.Marshal(struct {
-		Kind       ScheduleKind `json:"kind,omitempty"`
-		Expression string       `json:"expression,omitempty"`
-		At         string       `json:"at,omitempty"`
-		Profile    string       `json:"profile,omitempty"`
-		Warnings   []string     `json:"warnings,omitempty"`
+		Kind         ScheduleKind `json:"kind,omitempty"`
+		Expression   string       `json:"expression,omitempty"`
+		At           string       `json:"at,omitempty"`
+		Profile      string       `json:"profile,omitempty"`
+		Calendar     string       `json:"calendar,omitempty"`
+		BusinessDays []int        `json:"business_days,omitempty"`
+		Warnings     []string     `json:"warnings,omitempty"`
 	}{
-		Kind:       normalized.Kind,
-		Expression: normalized.Expression,
-		At:         normalized.At,
-		Profile:    normalized.Profile,
-		Warnings:   normalized.Warnings,
+		Kind:         normalized.Kind,
+		Expression:   normalized.Expression,
+		At:           normalized.At,
+		Profile:      normalized.Profile,
+		Calendar:     normalized.Calendar,
+		BusinessDays: normalized.BusinessDays,
+		Warnings:     normalized.Warnings,
 	})
 }
 
@@ -1018,7 +1074,7 @@ func (s *Schedule) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
-	schedule, err := parseScheduleMap(raw, ScheduleParseOptions{AllowAt: true})
+	schedule, err := parseScheduleMap(raw, ScheduleParseOptions{AllowAt: true, AllowCalendar: true})
 	if err != nil {
 		return err
 	}

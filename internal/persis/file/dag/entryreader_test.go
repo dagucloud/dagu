@@ -553,6 +553,52 @@ func TestBaseWatchLifecycle(t *testing.T) {
 	}
 }
 
+// A holiday added to a calendar file must re-plan the DAGs that use it,
+// although their own files and base configs are unchanged.
+func TestCalendarWatch(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	dir := filepath.Join(root, "dags")
+	calendars := filepath.Join(root, "calendars")
+	require.NoError(t, os.MkdirAll(dir, 0750))
+	require.NoError(t, os.MkdirAll(calendars, 0750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "payroll.yaml"),
+		[]byte("calendar: jp\nschedule: \"0 18 * * *\"\nsteps:\n  - run: echo pay\n"), 0600))
+	calendarFile := filepath.Join(calendars, "jp.yaml")
+	require.NoError(t, os.WriteFile(calendarFile, []byte("holidays: [2027-01-01]\n"), 0600))
+
+	repo := newRepository(dir, WithSkipExamples(true), WithCalendarsDir(calendars),
+		WithFileCache(fileutil.NewCache[*ir.DAG]("calendar-watch", 2, 0)))
+	reader := NewFileEntryReader(dir, repo, false, "", "", WatchCalendars(calendars))
+	require.NoError(t, reader.Init(t.Context()))
+	entries := reader.Entries()
+	require.Len(t, entries, 1)
+	from := time.Date(2027, 1, 11, 0, 0, 0, 0, time.UTC)
+	require.Equal(t, time.Date(2027, 1, 11, 18, 0, 0, 0, time.UTC), entries[0].DAG.NextRun(from))
+
+	done := make(chan struct{})
+	go func() { defer close(done); reader.Start(t.Context()) }()
+	t.Cleanup(func() { reader.Stop(); <-done })
+
+	require.NoError(t, os.WriteFile(calendarFile, []byte("holidays: [2027-01-01, 2027-01-11]\n"), 0600))
+
+	timeout := time.NewTimer(5 * time.Second)
+	defer timeout.Stop()
+	for {
+		select {
+		case event := <-reader.Events():
+			if event.Type != persis.DAGChangeUpdated {
+				continue
+			}
+			assert.Equal(t, time.Date(2027, 1, 12, 18, 0, 0, 0, time.UTC), event.DAG.NextRun(from))
+			return
+		case <-timeout.C:
+			t.Fatal("missing update after the calendar changed")
+		}
+	}
+}
+
 type observedWatcher struct {
 	filenotify.FileWatcher
 	added func(string)

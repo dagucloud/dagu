@@ -40,6 +40,7 @@ func newRepository(baseDir string, opts ...Option) *persis.DAGRepository {
 	return persis.NewDAGRepository(store, persis.DAGRepositoryOptions{
 		BaseConfigPath:         store.baseConfigPath,
 		WorkspaceBaseConfigDir: store.workspaceBaseConfigDir,
+		CalendarsDir:           store.calendarsDir,
 	})
 }
 
@@ -2619,4 +2620,27 @@ func TestMetadataInFlightBaseChange(t *testing.T) {
 	current, err := store.GetMetadata(t.Context(), "scheduled")
 	require.NoError(t, err)
 	require.Equal(t, "updated", current.ProcGroup())
+}
+
+// Listings rebuild DAGs from the index, which stores calendar names only;
+// their schedules must still skip the calendar's holidays.
+func TestCatalogBindsCalendars(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	dir := filepath.Join(root, "dags")
+	calendars := filepath.Join(root, "calendars")
+	require.NoError(t, os.MkdirAll(dir, 0750))
+	require.NoError(t, os.MkdirAll(calendars, 0750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "payroll.yaml"),
+		[]byte("calendar: jp\nschedule: \"0 18 * * *\"\nsteps:\n  - run: echo pay\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(calendars, "jp.yaml"), []byte("holidays: [2027-01-11]\n"), 0600))
+
+	store := NewStore(dir, WithSkipExamples(true), WithIndexDir(filepath.Join(root, "index")), WithCalendarsDir(calendars))
+	catalog, err := store.Catalog(t.Context())
+	require.NoError(t, err)
+
+	require.Len(t, catalog.Items, 1)
+	from := time.Date(2027, 1, 11, 0, 0, 0, 0, time.UTC)
+	assert.Equal(t, time.Date(2027, 1, 12, 18, 0, 0, 0, time.UTC), catalog.Items[0].NextRun(from))
 }

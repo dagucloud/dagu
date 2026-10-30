@@ -84,6 +84,7 @@ func NewDAGRepository(cfg *config.Config, opts ...DAGRepositoryOption) (*persis.
 		filedag.WithSearchPaths(options.SearchPaths),
 		filedag.WithBaseConfig(cfg.Paths.BaseConfig),
 		filedag.WithWorkspaceBaseConfigDir(workspaceBaseConfigDir),
+		filedag.WithCalendarsDir(cfg.Paths.CalendarsDir),
 		filedag.WithFileCache(options.Cache),
 		filedag.WithSkipExamples(skipExamples),
 		filedag.WithRecursiveDiscovery(cfg.DAGDiscovery.Recursive),
@@ -96,6 +97,7 @@ func NewDAGRepository(cfg *config.Config, opts ...DAGRepositoryOption) (*persis.
 	return persis.NewDAGRepository(dagStore, persis.DAGRepositoryOptions{
 		BaseConfigPath:         cfg.Paths.BaseConfig,
 		WorkspaceBaseConfigDir: workspaceBaseConfigDir,
+		CalendarsDir:           cfg.Paths.CalendarsDir,
 	}), nil
 }
 
