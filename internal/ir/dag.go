@@ -615,9 +615,12 @@ func (d *DAG) UpcomingFires(from time.Time, limit int) []ScheduleFire {
 		}
 		fireTime := at.In(loc)
 		fires = append(fires, ScheduleFire{Time: fireTime, ScheduleIndex: earliest})
+		// A one-off's time carries its own offset, in which an unzoned cron
+		// would be evaluated; advance from the evaluation zone instead.
+		after := at.In(from.Location())
 		for i, t := range next {
 			if !t.IsZero() && !t.After(at) {
-				next[i] = d.Schedule[i].Next(at)
+				next[i] = d.Schedule[i].Next(after)
 			}
 		}
 	}

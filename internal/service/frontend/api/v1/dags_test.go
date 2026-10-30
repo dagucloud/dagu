@@ -270,7 +270,7 @@ steps:
 			}
 			switch run.ScheduleIndex {
 			case 0:
-				require.Equal(t, server.Config.Core.TZ, run.Timezone)
+				require.Equal(t, server.Config.Core.Location.String(), run.Timezone)
 				require.Equal(t, 18, run.Time.In(server.Config.Core.Location).Hour())
 			case 1:
 				require.Equal(t, "Asia/Tokyo", run.Timezone)
