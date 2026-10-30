@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/llm"
@@ -78,8 +79,8 @@ func (p *Provider) Chat(ctx context.Context, req *llm.ChatRequest) (*llm.ChatRes
 		return nil, llm.WrapError(providerName, fmt.Errorf("failed to decode response: %w", err))
 	}
 
-	if len(resp.Choices) == 0 {
-		return nil, llm.WrapError(providerName, fmt.Errorf("no choices in response"))
+	if err := resp.failure(); err != nil {
+		return nil, err
 	}
 
 	choice := resp.Choices[0]
@@ -327,6 +328,13 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, event
 			continue
 		}
 
+		// A failure after the status was sent arrives as an error chunk
+		// that ends the stream.
+		if chunk.Error != nil {
+			events <- llm.StreamEvent{Error: chunk.Error.apiError(), Done: true}
+			return
+		}
+
 		// Capture usage if present
 		if chunk.Usage != nil {
 			chunkUsage := chunk.Usage.LLM()
@@ -440,8 +448,46 @@ type chatCompletionResponse struct {
 		Index        int             `json:"index"`
 		Message      responseMessage `json:"message"`
 		FinishReason string          `json:"finish_reason"`
+		// Error reports a failure that cut the choice short.
+		Error *responseError `json:"error,omitempty"`
 	} `json:"choices"`
 	Usage chatusage.Usage `json:"usage"`
+	// Error reports a failure in place of any choice.
+	Error *responseError `json:"error,omitempty"`
+}
+
+// failure returns the error a response reports in place of an answer: an
+// error object at the top level or on the first choice. A response with no
+// choice at all is a transient failure.
+func (r *chatCompletionResponse) failure() error {
+	reported := r.Error
+	if reported == nil && len(r.Choices) > 0 {
+		reported = r.Choices[0].Error
+	}
+	if reported != nil {
+		return reported.apiError()
+	}
+	if len(r.Choices) == 0 {
+		return &llm.APIError{
+			Provider:   providerName,
+			StatusCode: http.StatusOK,
+			Message:    "no choices in response",
+			Retryable:  true,
+		}
+	}
+	return nil
+}
+
+// responseError is the error object OpenRouter sends with a 200 status when
+// the upstream provider fails after accepting the request. Code is the HTTP
+// status the failure maps to.
+type responseError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+func (e *responseError) apiError() *llm.APIError {
+	return llm.NewAPIError(providerName, e.Code, e.Message)
 }
 
 type streamChunk struct {
@@ -458,4 +504,6 @@ type streamChunk struct {
 		FinishReason string `json:"finish_reason,omitempty"`
 	} `json:"choices"`
 	Usage *chatusage.Usage `json:"usage,omitempty"`
+	// Error reports a failure that ends the stream.
+	Error *responseError `json:"error,omitempty"`
 }

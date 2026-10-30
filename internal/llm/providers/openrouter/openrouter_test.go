@@ -6,13 +6,16 @@ package openrouter
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/llm"
+	"github.com/dagucloud/dagu/v2/internal/llm/llmtest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -408,4 +411,97 @@ func TestChatProviderOrder(t *testing.T) {
 			assert.Equal(t, tc.want, routing)
 		})
 	}
+}
+
+const okAnswer = `{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`
+
+// fastRetry retries a logical request once without the default backoff.
+var fastRetry = llm.LogicalRetryConfig{MaxAttempts: 2, InitialInterval: time.Millisecond, MaxInterval: time.Millisecond}
+
+func chatWithRetry(t *testing.T, server *llmtest.Server) (*llm.ChatResponse, error) {
+	t.Helper()
+	provider, err := New(llm.Config{APIKey: "test-key", BaseURL: server.Start(t)})
+	require.NoError(t, err)
+	return llm.ChatWithRetry(context.Background(), provider, &llm.ChatRequest{
+		Model:    "openai/gpt-6.1-terra",
+		Messages: []llm.Message{{Role: llm.RoleUser, Content: "Hello"}},
+	}, fastRetry)
+}
+
+// OpenRouter answers 200 once the upstream provider accepts a request, so a
+// later upstream failure arrives in the body. A failure whose code is
+// transient, or an answer without choices, is retried.
+func TestChatRetriesTransientFailureInBody(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{name: "error object", body: `{"id":"gen-1","error":{"code":502,"message":"Provider returned error"}}`},
+		{name: "error on choice", body: `{"choices":[{"message":{"role":"assistant","content":"partial"},"finish_reason":"error","error":{"code":502,"message":"Provider disconnected mid-stream"}}]}`},
+		{name: "no choices", body: `{"id":"gen-1","choices":[]}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			server := &llmtest.Server{Path: defaultChatEndpoint, Responses: []string{tc.body, okAnswer}}
+
+			resp, err := chatWithRetry(t, server)
+
+			require.NoError(t, err)
+			assert.Equal(t, "ok", resp.Content)
+			assert.Len(t, server.Requests(), 2)
+		})
+	}
+}
+
+// A failure in the body whose code is a request error ends the request with
+// the reported message, classified like the same error sent as a status.
+func TestChatRequestErrorInBody(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name    string
+		code    int
+		message string
+		// kind is the sentinel the error classifies as, if any.
+		kind error
+	}{
+		{name: "moderation", code: 403, message: "Your input was flagged for violence"},
+		{name: "context length", code: 400, message: "This endpoint's maximum context length is 128000 tokens", kind: llm.ErrContextTooLong},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			failure := fmt.Sprintf(`{"error":{"code":%d,"message":%q}}`, tc.code, tc.message)
+			server := &llmtest.Server{Path: defaultChatEndpoint, Responses: []string{failure, okAnswer}}
+
+			_, err := chatWithRetry(t, server)
+
+			require.ErrorContains(t, err, tc.message)
+			if tc.kind != nil {
+				assert.ErrorIs(t, err, tc.kind)
+			}
+			assert.Len(t, server.Requests(), 1)
+		})
+	}
+}
+
+// An error chunk ends the stream with the failure it reports.
+func TestStreamErrorChunk(t *testing.T) {
+	t.Parallel()
+
+	provider := &Provider{}
+	events := make(chan llm.StreamEvent, 3)
+	body := io.NopCloser(strings.NewReader("data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n" +
+		"data: {\"error\":{\"code\":502,\"message\":\"Provider disconnected\"},\"choices\":[{\"delta\":{\"content\":\"\"},\"finish_reason\":\"error\"}]}\n"))
+
+	provider.streamResponse(context.Background(), body, events)
+
+	var last llm.StreamEvent
+	for event := range events {
+		last = event
+	}
+	require.True(t, last.Done)
+	require.ErrorContains(t, last.Error, "Provider disconnected")
+	assert.True(t, llm.IsRetryable(last.Error))
 }
