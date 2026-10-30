@@ -96,6 +96,10 @@ A candidate's date is read in the zone its cron expression names with a `TZ=`
 or `CRON_TZ=` prefix, otherwise in the zone the schedule is evaluated in
 (`core.tz`).
 
+When no fire exists within five years, as for a Saturday expression on the
+`weekdays` calendar, loading the DAG reports a warning naming the expression
+and the calendar.
+
 Every surface that reports fire times uses this rule: the scheduler, catch-up,
 `dagu ls -n`, `dagu calendar fires`, and the upcoming runs in DAG details. A
 schedule whose calendar cannot be loaded never fires.

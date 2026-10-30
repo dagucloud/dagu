@@ -364,6 +364,25 @@ steps:
 		assert.Contains(t, warnings[0], `calendar "expiring" lists holidays through`)
 	})
 
+	t.Run("warns when a schedule can never fire", func(t *testing.T) {
+		t.Parallel()
+
+		dag, err := spec.LoadYAML(t.Context(), []byte(`
+schedule:
+  - expression: "0 9 * * 6"
+    calendar: weekdays
+  - expression: "0 9 * * *"
+    calendar: weekdays
+steps:
+  - run: echo pay
+`), spec.WithCalendarsDir(dir))
+		require.NoError(t, err)
+
+		assert.Contains(t, dag.BuildWarnings,
+			`schedule "0 9 * * 6" never fires: no time it matches falls on a business day of calendar "weekdays"`)
+		assert.Len(t, dag.BuildWarnings, 1)
+	})
+
 	for _, tc := range []struct {
 		name string
 		yaml string
