@@ -478,16 +478,35 @@ func (r *chatCompletionResponse) failure() error {
 	return nil
 }
 
+// errorTypeContextLength is the typed error OpenRouter reports when a request
+// exceeds the model's context window.
+const errorTypeContextLength = "context_length_exceeded"
+
 // responseError is the error object OpenRouter sends with a 200 status when
 // the upstream provider fails after accepting the request. Code is the HTTP
 // status the failure maps to.
 type responseError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
+	Code     int    `json:"code"`
+	Message  string `json:"message"`
+	Metadata struct {
+		// ErrorType is OpenRouter's typed error code, which stays the same
+		// whatever the upstream provider's message says.
+		ErrorType string `json:"error_type"`
+	} `json:"metadata"`
 }
 
+// apiError classifies the reported failure like the same status sent as an
+// HTTP error. Any server error is retryable, since the upstream provider
+// failed after accepting the request.
 func (e *responseError) apiError() *llm.APIError {
-	return llm.NewAPIError(providerName, e.Code, e.Message)
+	apiErr := llm.NewAPIError(providerName, e.Code, e.Message)
+	if e.Code >= http.StatusInternalServerError && e.Code < 600 {
+		apiErr.Retryable = true
+	}
+	if e.Metadata.ErrorType == errorTypeContextLength {
+		apiErr.Err = llm.ErrContextTooLong
+	}
+	return apiErr
 }
 
 type streamChunk struct {

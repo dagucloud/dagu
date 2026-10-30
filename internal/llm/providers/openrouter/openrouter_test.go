@@ -429,8 +429,8 @@ func chatWithRetry(t *testing.T, server *llmtest.Server) (*llm.ChatResponse, err
 }
 
 // OpenRouter answers 200 once the upstream provider accepts a request, so a
-// later upstream failure arrives in the body. A failure whose code is
-// transient, or an answer without choices, is retried.
+// later upstream failure arrives in the body. A rate limit or server error,
+// or an answer without choices, is retried.
 func TestChatRetriesTransientFailureInBody(t *testing.T) {
 	t.Parallel()
 
@@ -439,6 +439,9 @@ func TestChatRetriesTransientFailureInBody(t *testing.T) {
 		body string
 	}{
 		{name: "error object", body: `{"id":"gen-1","error":{"code":502,"message":"Provider returned error"}}`},
+		{name: "rate limit", body: `{"error":{"code":429,"message":"Rate limit exceeded","metadata":{"error_type":"rate_limit_exceeded"}}}`},
+		// 520 is outside the statuses an HTTP error is retried on.
+		{name: "other server error", body: `{"error":{"code":520,"message":"Unknown error"}}`},
 		{name: "error on choice", body: `{"choices":[{"message":{"role":"assistant","content":"partial"},"finish_reason":"error","error":{"code":502,"message":"Provider disconnected mid-stream"}}]}`},
 		{name: "no choices", body: `{"id":"gen-1","choices":[]}`},
 	} {
@@ -461,18 +464,20 @@ func TestChatRequestErrorInBody(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
-		name    string
-		code    int
-		message string
+		name      string
+		code      int
+		message   string
+		errorType string
 		// kind is the sentinel the error classifies as, if any.
 		kind error
 	}{
-		{name: "moderation", code: 403, message: "Your input was flagged for violence"},
-		{name: "context length", code: 400, message: "This endpoint's maximum context length is 128000 tokens", kind: llm.ErrContextTooLong},
+		{name: "moderation", code: 403, message: "Your input was flagged for violence", errorType: "content_policy_violation"},
+		{name: "context length message", code: 400, message: "This endpoint's maximum context length is 128000 tokens", kind: llm.ErrContextTooLong},
+		{name: "context length type", code: 400, message: "Input validation error", errorType: "context_length_exceeded", kind: llm.ErrContextTooLong},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			failure := fmt.Sprintf(`{"error":{"code":%d,"message":%q}}`, tc.code, tc.message)
+			failure := fmt.Sprintf(`{"error":{"code":%d,"message":%q,"metadata":{"error_type":%q}}}`, tc.code, tc.message, tc.errorType)
 			server := &llmtest.Server{Path: defaultChatEndpoint, Responses: []string{failure, okAnswer}}
 
 			_, err := chatWithRetry(t, server)
