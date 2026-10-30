@@ -130,6 +130,23 @@ func (s Schedule) Next(now time.Time) time.Time {
 	}
 }
 
+// Location returns the time zone named by the schedule's TZ or CRON_TZ
+// prefix, or nil when the schedule names none.
+func (s Schedule) Location() *time.Location {
+	if !s.IsCron() {
+		return nil
+	}
+	parsed, ok := s.parsedCron()
+	if !ok {
+		return nil
+	}
+	spec, ok := parsed.(*cron.SpecSchedule)
+	if !ok || spec.Location == time.Local {
+		return nil
+	}
+	return spec.Location
+}
+
 // Fingerprint returns the canonical schedule fingerprint used for durable state.
 func (s Schedule) Fingerprint() string {
 	normalized, err := s.normalized()

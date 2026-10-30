@@ -5,15 +5,24 @@
  */
 import dayjs from '@/lib/dayjs';
 import { Calendar, CheckSquare, Settings, Tag } from 'lucide-react';
+import React from 'react';
 import { components } from '../../../../api/v1/schema';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import {
+  formatFireTime,
   getScheduleKey,
   getScheduleLabel,
   parseNextRun,
 } from '../../../../lib/dagSchedule';
 import { useI18n } from '@/i18n/I18nProvider';
 import { I18nText } from '@/i18n/I18nText';
+
+type Schedule = components['schemas']['Schedule'];
+type UpcomingRun = components['schemas']['UpcomingRun'];
+
+/** Upcoming runs shown before the list is expanded. */
+const COLLAPSED_UPCOMING_RUNS = 5;
 
 /**
  * Props for the DAGAttributes component
@@ -29,7 +38,9 @@ type Props = {
  */
 function DAGAttributes({ dag }: Props) {
   const { locale } = useI18n();
+  const dayjsLocale = toDayjsLocale(locale);
   const nextRun = parseNextRun(dag.nextRun);
+  const upcomingRuns = dag.upcomingRuns ?? [];
 
   return (
     <div>
@@ -64,12 +75,22 @@ function DAGAttributes({ dag }: Props) {
                 ))}
               </div>
 
-              <div className="text-sm text-muted-foreground">
-                <span className="font-medium text-foreground"><I18nText text={"Next run:"} /></span>{' '}
-                {nextRun
-                  ? `${dayjs(nextRun).format('YYYY-MM-DD HH:mm:ss')} (${dayjs(nextRun).locale(locale === 'zh-CN' ? 'zh-cn' : locale).fromNow()})`
-                  : <I18nText text="No upcoming run" />}
-              </div>
+              {(nextRun || upcomingRuns.length === 0) && (
+                <div className="text-sm text-muted-foreground">
+                  <span className="font-medium text-foreground"><I18nText text={"Next run:"} /></span>{' '}
+                  {nextRun
+                    ? `${dayjs(nextRun).format('YYYY-MM-DD HH:mm:ss')} (${dayjs(nextRun).locale(dayjsLocale).fromNow()})`
+                    : <I18nText text="No upcoming run" />}
+                </div>
+              )}
+
+              {upcomingRuns.length > 0 && (
+                <UpcomingRuns
+                  runs={upcomingRuns}
+                  schedules={dag.schedule ?? []}
+                  locale={dayjsLocale}
+                />
+              )}
             </div>
           )}
         </div>
@@ -137,6 +158,74 @@ function DAGAttributes({ dag }: Props) {
       </div>
     </div>
   );
+}
+
+/**
+ * UpcomingRuns lists the next fire times of the start schedules in the
+ * wall-clock time of the zone each schedule runs in.
+ */
+function UpcomingRuns({
+  runs,
+  schedules,
+  locale,
+}: {
+  runs: UpcomingRun[];
+  schedules: Schedule[];
+  locale: string;
+}) {
+  const [expanded, setExpanded] = React.useState(false);
+  const zones = new Set(runs.map((run) => run.timezone));
+  const sharedZone = zones.size === 1 ? runs[0]?.timezone : undefined;
+  const visibleRuns = expanded ? runs : runs.slice(0, COLLAPSED_UPCOMING_RUNS);
+
+  return (
+    <div className="space-y-1">
+      <div className="text-sm font-medium text-foreground">
+        <I18nText text="Upcoming runs" />
+        {sharedZone && (
+          <span className="ml-1 font-normal text-muted-foreground">
+            ({sharedZone})
+          </span>
+        )}
+      </div>
+      <ol className="space-y-0.5 text-sm text-muted-foreground tabular-nums">
+        {visibleRuns.map((run) => {
+          const schedule = schedules[run.scheduleIndex];
+          return (
+            <li key={run.time}>
+              {formatFireTime(run.time, 'ddd YYYY-MM-DD HH:mm', locale)}
+              {!sharedZone && ` ${run.timezone}`}
+              {schedules.length > 1 && schedule && (
+                <span className="text-muted-foreground/80">
+                  {' · '}
+                  {scheduleSummary(schedule)}
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+      {runs.length > COLLAPSED_UPCOMING_RUNS && (
+        <Button
+          variant="link"
+          size="xs"
+          className="px-0"
+          onClick={() => setExpanded((value) => !value)}
+        >
+          <I18nText text={expanded ? 'Show less' : 'Show more'} />
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function scheduleSummary(schedule: Schedule): string {
+  const label = getScheduleLabel(schedule);
+  return schedule.profile ? `${label} (${schedule.profile})` : label;
+}
+
+function toDayjsLocale(locale: string): string {
+  return locale === 'zh-CN' ? 'zh-cn' : locale;
 }
 
 export default DAGAttributes;

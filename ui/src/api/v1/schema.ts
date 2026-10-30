@@ -5677,6 +5677,18 @@ export interface components {
             /** @description Runtime profile name that activates this schedule entry */
             profile?: components["schemas"]["RuntimeProfileName"];
         };
+        /** @description A time at which a start schedule fires */
+        UpcomingRun: {
+            /**
+             * Format: date-time
+             * @description Fire time, with the offset of the zone the schedule is evaluated in
+             */
+            time: string;
+            /** @description Position of the firing entry in the DAG's schedule list */
+            scheduleIndex: number;
+            /** @description Name of the zone the schedule is evaluated in */
+            timezone: string;
+        };
         /**
          * @description Numeric status code indicating current DAG-run state:
          *     0: "Not started"
@@ -5826,6 +5838,8 @@ export interface components {
              * @description Scheduler-aware next planned run time. Pending overdue one-offs remain visible until consumed.
              */
             nextRun?: string;
+            /** @description Next fire times of the start schedules, earliest first. Derived from the definition alone: suspension, scheduler pauses, and runtime profiles do not filter it. */
+            upcomingRuns?: components["schemas"]["UpcomingRun"][];
             /** @description Logical grouping of related DAGs for organizational purposes */
             group?: string;
             /** @description Unique identifier for the DAG within its group */

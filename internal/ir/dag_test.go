@@ -216,6 +216,100 @@ func TestNextRun_OneOffPastIsIgnored(t *testing.T) {
 	assert.True(t, dag.NextRun(now).IsZero())
 }
 
+func TestUpcomingFires(t *testing.T) {
+	t.Parallel()
+
+	newCron := func(t *testing.T, expr string) ir.Schedule {
+		t.Helper()
+		schedule, err := ir.NewCronSchedule(expr)
+		require.NoError(t, err)
+		return schedule
+	}
+
+	t.Run("merges schedules in time order", func(t *testing.T) {
+		t.Parallel()
+
+		oneOff, err := ir.NewOneOffSchedule("2027-01-01T10:30:00Z")
+		require.NoError(t, err)
+		dag := &ir.DAG{Schedule: []ir.Schedule{
+			newCron(t, "0 9 * * *"),
+			newCron(t, "0 12 * * *"),
+			oneOff,
+		}}
+
+		from := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
+		fires := dag.UpcomingFires(from, 4)
+
+		assert.Equal(t, []ir.ScheduleFire{
+			{Time: time.Date(2027, 1, 1, 9, 0, 0, 0, time.UTC), ScheduleIndex: 0},
+			{Time: time.Date(2027, 1, 1, 10, 30, 0, 0, time.UTC), ScheduleIndex: 2},
+			{Time: time.Date(2027, 1, 1, 12, 0, 0, 0, time.UTC), ScheduleIndex: 1},
+			{Time: time.Date(2027, 1, 2, 9, 0, 0, 0, time.UTC), ScheduleIndex: 0},
+		}, fires)
+	})
+
+	// The planner starts one run per DAG per tick, so coinciding schedules
+	// must not list the same instant twice.
+	t.Run("coinciding schedules yield one fire", func(t *testing.T) {
+		t.Parallel()
+
+		dag := &ir.DAG{Schedule: []ir.Schedule{
+			newCron(t, "0 * * * *"),
+			newCron(t, "0 */2 * * *"),
+		}}
+
+		from := time.Date(2027, 1, 1, 0, 30, 0, 0, time.UTC)
+		fires := dag.UpcomingFires(from, 3)
+
+		assert.Equal(t, []ir.ScheduleFire{
+			{Time: time.Date(2027, 1, 1, 1, 0, 0, 0, time.UTC), ScheduleIndex: 0},
+			{Time: time.Date(2027, 1, 1, 2, 0, 0, 0, time.UTC), ScheduleIndex: 0},
+			{Time: time.Date(2027, 1, 1, 3, 0, 0, 0, time.UTC), ScheduleIndex: 0},
+		}, fires)
+	})
+
+	t.Run("reports fires in the schedule zone", func(t *testing.T) {
+		t.Parallel()
+
+		tokyo, err := time.LoadLocation("Asia/Tokyo")
+		require.NoError(t, err)
+		dag := &ir.DAG{Schedule: []ir.Schedule{newCron(t, "CRON_TZ=Asia/Tokyo 0 9 * * *")}}
+
+		fires := dag.UpcomingFires(time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), 1)
+
+		require.Len(t, fires, 1)
+		assert.Equal(t, tokyo, fires[0].Time.Location())
+		assert.Equal(t, time.Date(2027, 1, 2, 9, 0, 0, 0, tokyo), fires[0].Time)
+	})
+
+	t.Run("reports unzoned fires in the evaluation zone", func(t *testing.T) {
+		t.Parallel()
+
+		oneOff, err := ir.NewOneOffSchedule("2027-01-01T10:30:00+01:00")
+		require.NoError(t, err)
+		dag := &ir.DAG{Schedule: []ir.Schedule{oneOff}}
+
+		fires := dag.UpcomingFires(time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), 1)
+
+		require.Len(t, fires, 1)
+		assert.Equal(t, time.UTC, fires[0].Time.Location())
+		assert.Equal(t, time.Date(2027, 1, 1, 9, 30, 0, 0, time.UTC), fires[0].Time)
+	})
+
+	t.Run("stops when schedules are exhausted", func(t *testing.T) {
+		t.Parallel()
+
+		oneOff, err := ir.NewOneOffSchedule("2027-01-01T10:30:00Z")
+		require.NoError(t, err)
+		dag := &ir.DAG{Schedule: []ir.Schedule{oneOff}}
+
+		fires := dag.UpcomingFires(time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), 5)
+
+		assert.Len(t, fires, 1)
+		assert.Empty(t, dag.UpcomingFires(time.Date(2027, 1, 2, 0, 0, 0, 0, time.UTC), 5))
+	})
+}
+
 func TestEffectiveLogOutput(t *testing.T) {
 	t.Parallel()
 

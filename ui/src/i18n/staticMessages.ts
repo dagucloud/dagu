@@ -2621,6 +2621,9 @@ const english = {
   "Update available: v{current} → {latest} {releaseLink}": "Update available: v{current} → {latest} {releaseLink}",
   "A new Dagu binary is installed. Run {command} to restart and use it.": "A new Dagu binary is installed. Run {command} to restart and use it.",
   "A new Dagu binary is installed. Restart Dagu to use it.": "A new Dagu binary is installed. Restart Dagu to use it.",
+  "Upcoming runs": "Upcoming runs",
+  "Show more": "Show more",
+  "Show less": "Show less",
 } as const;
 
 export type StaticMessage = keyof typeof english;
@@ -5188,6 +5191,9 @@ const chinese = {
   "Update available: v{current} → {latest} {releaseLink}": "有可用更新：v{current} → {latest} {releaseLink}",
   "A new Dagu binary is installed. Run {command} to restart and use it.": "已安装新的 Dagu 二进制文件。运行 {command} 重启后即可使用。",
   "A new Dagu binary is installed. Restart Dagu to use it.": "已安装新的 Dagu 二进制文件。重启 Dagu 后即可使用。",
+  "Upcoming runs": "即将进行的运行",
+  "Show more": "显示更多",
+  "Show less": "收起",
 } as const satisfies Record<StaticMessage, string>;
 
 const japanese = {
@@ -7831,6 +7837,9 @@ const japanese = {
   "Update available: v{current} → {latest} {releaseLink}": "更新があります：v{current} → {latest} {releaseLink}",
   "A new Dagu binary is installed. Run {command} to restart and use it.": "新しい Dagu バイナリがインストールされました。{command} を実行して再起動すると使用できます。",
   "A new Dagu binary is installed. Restart Dagu to use it.": "新しい Dagu バイナリがインストールされました。Dagu を再起動すると使用できます。",
+  "Upcoming runs": "今後の実行",
+  "Show more": "さらに表示",
+  "Show less": "表示を減らす",
 } as const satisfies Record<StaticMessage, string>;
 
 export const staticMessages = {
