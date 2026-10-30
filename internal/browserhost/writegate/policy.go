@@ -162,7 +162,9 @@ func (r *rules) describeResponse(body string, base64Encoded bool, contentType st
 	if base64Encoded {
 		// A cut body ends inside a group of four.
 		data, _ = base64.StdEncoding.DecodeString(body[:len(body)/4*4])
-		data = decodeCharset(contentType, data)
+		// A secret sent in another charset than the one named is hidden as
+		// it was sent, before decoding changes its bytes.
+		data = decodeCharset(contentType, []byte(r.masker.MaskString(string(data))))
 	}
 	return r.masker.MaskString(strings.ToValidUTF8(string(maskBody(contentType, data)), "\uFFFD"))
 }
