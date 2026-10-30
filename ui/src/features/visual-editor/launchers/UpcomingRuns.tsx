@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useState, type ReactElement } from 'react';
-import type { components } from '@/api/v1/schema';
+import { UpcomingRunsHold, type components } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
 import { useI18n } from '@/i18n/I18nProvider';
 import dayjs from '@/lib/dayjs';
@@ -22,9 +22,12 @@ const COLLAPSED_UPCOMING_RUNS = 5;
  */
 export function UpcomingRuns({
   runs,
+  hold,
   schedules,
 }: {
   runs: UpcomingRun[];
+  /** Why none of the runs will start, if they will not. */
+  hold?: UpcomingRunsHold;
   /** The schedules that runs index. */
   schedules: Schedule[];
 }): ReactElement {
@@ -45,6 +48,15 @@ export function UpcomingRuns({
           </span>
         )}
       </h3>
+      {hold && (
+        <p className="text-sm text-warning">
+          {ts(
+            hold === UpcomingRunsHold.suspended
+              ? 'This DAG is suspended. None of these runs will start until it is resumed.'
+              : 'Scheduler is paused. No scheduled runs will start.'
+          )}
+        </p>
+      )}
       {runs.length === 0 ? (
         <p className="text-sm italic text-muted-foreground">
           {ts('No upcoming run')}

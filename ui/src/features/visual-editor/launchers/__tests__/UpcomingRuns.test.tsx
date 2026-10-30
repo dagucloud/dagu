@@ -3,7 +3,7 @@
 
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { ScheduleKind } from '@/api/v1/schema';
+import { ScheduleKind, UpcomingRunsHold } from '@/api/v1/schema';
 import { UpcomingRuns } from '../UpcomingRuns';
 
 describe('UpcomingRuns', () => {
@@ -121,6 +121,28 @@ describe('UpcomingRuns', () => {
       screen.getByText('· skips Mon 2027-01-11 (Coming of Age Day)')
     ).toBeInTheDocument();
     expect(screen.getByText('· extra business day')).toBeInTheDocument();
+  });
+
+  it.each([
+    [
+      UpcomingRunsHold.suspended,
+      'This DAG is suspended. None of these runs will start until it is resumed.',
+    ],
+    [
+      UpcomingRunsHold.schedulerPaused,
+      'Scheduler is paused. No scheduled runs will start.',
+    ],
+  ])('says when the runs will not start (%s)', (hold, message) => {
+    render(
+      <UpcomingRuns
+        hold={hold}
+        schedules={[{ expression: '0 12 * * *', kind: ScheduleKind.cron }]}
+        runs={[
+          { time: '2027-01-01T12:00:00Z', scheduleIndex: 0, timezone: 'UTC' },
+        ]}
+      />
+    );
+    expect(screen.getByText(message)).toBeInTheDocument();
   });
 
   it('expands the runs past the first five', () => {

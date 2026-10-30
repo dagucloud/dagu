@@ -305,6 +305,16 @@ steps:
 	response.Unmarshal(t, &details)
 	require.NotNil(t, details.Dag)
 	requireUpcomingRuns(t, details.Dag.UpcomingRuns)
+	require.Nil(t, details.Dag.UpcomingRunsHold)
+
+	// A suspended DAG still lists its schedule's runs, and says none will start.
+	server.Client().Post("/api/v1/dags/"+name+"/suspend", api.UpdateDAGSuspensionStateJSONRequestBody{
+		Suspend: true,
+	}).ExpectStatus(http.StatusOK).Send(t)
+	response = server.Client().Get("/api/v1/dags/" + name + "/spec").ExpectStatus(http.StatusOK).Send(t)
+	response.Unmarshal(t, &saved)
+	require.NotNil(t, saved.Dag.UpcomingRunsHold)
+	require.Equal(t, api.UpcomingRunsHoldSuspended, *saved.Dag.UpcomingRunsHold)
 }
 
 // A calendar's holidays show in the preview as skipped dates, and the

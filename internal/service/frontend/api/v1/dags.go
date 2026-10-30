@@ -138,6 +138,7 @@ func (a *API) ValidateDAGSpecData(ctx context.Context, name, source string) (*ap
 	details := toDAGDetails(dag)
 	if details != nil {
 		details.UpcomingRuns = a.scheduleFires(dag)
+		details.UpcomingRunsHold = a.upcomingRunsHold(ctx, name, details.UpcomingRuns)
 	}
 
 	notices := a.specValueReferenceNotices(ctx, name, source)
@@ -319,6 +320,7 @@ func (a *API) GetDAGSpec(ctx context.Context, request api.GetDAGSpecRequestObjec
 		}
 		details.NextRun = a.projectNextRun(ctx, projectionDAG)
 		details.UpcomingRuns = a.scheduleFires(dag)
+		details.UpcomingRunsHold = a.upcomingRunsHold(ctx, request.FileName, details.UpcomingRuns)
 	}
 
 	return &api.GetDAGSpec200JSONResponse{
@@ -603,6 +605,7 @@ func (a *API) getDAGDetailsData(ctx context.Context, fileName string) (api.GetDA
 	if details != nil {
 		details.NextRun = a.projectNextRun(ctx, dag)
 		details.UpcomingRuns = a.scheduleFires(dag)
+		details.UpcomingRunsHold = a.upcomingRunsHold(ctx, fileName, details.UpcomingRuns)
 	}
 
 	localDAGs := make([]api.LocalDag, 0, len(dag.LocalDAGs))
@@ -2669,6 +2672,26 @@ func (a *API) scheduleFires(dag *ir.DAG) *[]api.UpcomingRun {
 		runs = append(runs, run)
 	}
 	return &runs
+}
+
+// upcomingRunsHold reports why listed upcoming runs will not start: the
+// scheduler is paused, or the DAG is suspended. fileName may name a DAG that
+// is not saved yet, which is never suspended.
+func (a *API) upcomingRunsHold(ctx context.Context, fileName string, runs *[]api.UpcomingRun) *api.UpcomingRunsHold {
+	if runs == nil || len(*runs) == 0 {
+		return nil
+	}
+	if a.schedulerPauseStore != nil {
+		if paused, err := a.schedulerPauseStore.IsPaused(ctx); err == nil && paused {
+			return ptrOf(api.UpcomingRunsHoldSchedulerPaused)
+		}
+	}
+	if fileName != "" {
+		if suspended, err := a.dagRepository.IsSuspended(ctx, fileName); err == nil && suspended {
+			return ptrOf(api.UpcomingRunsHoldSuspended)
+		}
+	}
+	return nil
 }
 
 // fireZoneLabel names the zone of a fire time: its time zone name, or its

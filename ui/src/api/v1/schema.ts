@@ -5800,6 +5800,11 @@ export interface components {
             date: string;
             name?: string;
         };
+        /**
+         * @description Why none of the upcoming runs will start: the scheduler is paused, or the DAG is suspended
+         * @enum {string}
+         */
+        UpcomingRunsHold: UpcomingRunsHold;
         /** @description A time at which a start schedule fires */
         UpcomingRun: {
             /**
@@ -5969,6 +5974,7 @@ export interface components {
             nextRun?: string;
             /** @description Next fire times of the start schedules, earliest first. Derived from the definition alone: suspension, scheduler pauses, and runtime profiles do not filter it. */
             upcomingRuns?: components["schemas"]["UpcomingRun"][];
+            upcomingRunsHold?: components["schemas"]["UpcomingRunsHold"];
             /** @description Logical grouping of related DAGs for organizational purposes */
             group?: string;
             /** @description Unique identifier for the DAG within its group */
@@ -23239,6 +23245,10 @@ export enum HealthResponseStatus {
 export enum ScheduleKind {
     cron = "cron",
     at = "at"
+}
+export enum UpcomingRunsHold {
+    schedulerPaused = "schedulerPaused",
+    suspended = "suspended"
 }
 export enum Status {
     NotStarted = 0,
