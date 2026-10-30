@@ -373,11 +373,25 @@ func (p *page) goTo(url string) {
 // loaded.
 func (p *page) load(statement string) {
 	p.t.Helper()
+	p.awaitLoad(func() { p.eval(statement + `; 1`) })
+}
+
+// navigate asks the browser to load url in the page, as a goto does, and
+// returns once the load ended, whether or not a document loaded.
+func (p *page) navigate(url string) {
+	p.t.Helper()
+	p.awaitLoad(func() { p.call(p.sid, "Page.navigate", map[string]any{"url": url}, nil) })
+}
+
+// awaitLoad runs start, which starts a page load, and returns once the load
+// ended.
+func (p *page) awaitLoad(start func()) {
+	p.t.Helper()
 	p.call(p.sid, "Page.enable", nil, nil)
 	p.mu.Lock()
 	p.seen = nil
 	p.mu.Unlock()
-	p.eval(statement + `; 1`)
+	start()
 	p.await("Page.frameStoppedLoading")
 }
 
@@ -532,10 +546,11 @@ func TestGateLoadsAFormThatReads(t *testing.T) {
 	assert.False(t, ok, "a read is not an event")
 }
 
-// A link the page follows to an address the policy declares a write keeps
-// the page, as a form does. The browser's own load of that address, as a
-// goto is, has no page to keep and ends on a page saying nothing was sent.
-func TestGateHoldsALoadByWhoStartedIt(t *testing.T) {
+// A load of an address the policy declares a write keeps the page, as a
+// form does, whoever starts it: a link the page follows, with or without
+// the page's address as its Referer, or the browser asked for the address,
+// as a goto does.
+func TestGateHoldsALoadWhoeverStartsIt(t *testing.T) {
 	t.Parallel()
 
 	s := startSite(t)
@@ -550,8 +565,8 @@ func TestGateHoldsALoadByWhoStartedIt(t *testing.T) {
 	// A link that withholds the page's address names no Referer.
 	p.load(`const a = document.createElement('a'); a.href = '/w/delete'; a.rel = 'noreferrer'; document.body.append(a); a.click()`)
 	assert.Equal(t, s.URL+"/", p.eval(`location.href`))
-	p.goTo(s.URL + "/w/delete")
-	assert.Equal(t, "Not sent", p.eval(`document.title`))
+	p.navigate(s.URL + "/w/delete")
+	assert.Equal(t, s.URL+"/", p.eval(`location.href`))
 
 	var outcomes []string
 	for _, e := range events(t, controls) {
