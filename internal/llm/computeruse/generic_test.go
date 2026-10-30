@@ -161,6 +161,25 @@ func TestGenericSessionOffersOnlyDoneForReport(t *testing.T) {
 	assert.Equal(t, "required", provider.requests[1].ToolChoice)
 }
 
+// The model is told that Return in a form or dialog may press its default
+// button, such as Save, so it sets a field or an option without Return, and
+// no example it is given presses Return.
+func TestGenericSessionWarnsThatReturnMayPressTheDefaultButton(t *testing.T) {
+	t.Parallel()
+
+	provider := &scriptedProvider{responses: []*llm.ChatResponse{
+		{ToolCalls: []llm.ToolCall{toolCall("d1", "done", `{"success":true,"summary":"Settings open"}`)}},
+	}}
+	session := newGeneric(t, provider)
+	_, err := session.Next(context.Background(), computeruse.Observation{Screen: screen("a")})
+	require.NoError(t, err)
+
+	system := provider.requests[0].Messages[0].Content
+	assert.Contains(t, system, "In a form or dialog, Return may press the default button, such as Save or OK, so do not press it to confirm a field or an option.")
+	assert.Contains(t, system, "to pick an option of a combo box or pop-up, call choose_option")
+	assert.NotContains(t, system, "press Return", "no example presses Return")
+}
+
 // Only the latest screenshots are sent; older ones are replaced with a note.
 func TestGenericSessionKeepsLatestScreenshots(t *testing.T) {
 	t.Parallel()
