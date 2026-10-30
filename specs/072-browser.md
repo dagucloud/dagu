@@ -187,6 +187,11 @@ those outputs. Operation progress is written to stderr.
 (unauthenticated), `allowed_domains`, `screenshots`, `profile`, and
 `client_certificates`.
 
+Each execution of a step drives a browser of its own. The items of a
+`foreach` whose body runs the step each have their own browser, and an item
+starting never closes the browser of an item still running. A new attempt
+of the step closes a browser its earlier attempt left open.
+
 A browser without a window sends the user agent its executable sends with
 one, never `HeadlessChrome`, so a site treats the step as it treats a person.
 The user agent is learned from the executable the first time it runs without

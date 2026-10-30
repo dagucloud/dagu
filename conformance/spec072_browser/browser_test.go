@@ -19,6 +19,7 @@ import (
 	"regexp"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -279,6 +280,7 @@ func (m *scriptedModel) serve(w http.ResponseWriter, r *http.Request) {
 
 func startShop(t *testing.T) string {
 	t.Helper()
+	items := &itemPages{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/rows" {
 			w.Header().Set("Content-Type", "text/html")
@@ -326,6 +328,10 @@ func startShop(t *testing.T) string {
 			serveBids(w, r)
 			return
 		}
+		if strings.HasPrefix(r.URL.Path, "/items/") {
+			items.serve(w, r)
+			return
+		}
 		if r.URL.Path == "/agent" {
 			sent, _ := json.Marshal(r.UserAgent())
 			w.Header().Set("Content-Type", "text/html")
@@ -343,6 +349,34 @@ func startShop(t *testing.T) string {
 	}))
 	t.Cleanup(server.Close)
 	return server.URL
+}
+
+// itemPages serves a page per foreach item at /items/page?item=N, and at
+// /items/turn?item=N answers 200 once the page of item N-1 has been
+// served, so an item's turn comes while the item before it shows its page.
+type itemPages struct {
+	mu     sync.Mutex
+	served map[string]bool
+}
+
+func (p *itemPages) serve(w http.ResponseWriter, r *http.Request) {
+	item := r.URL.Query().Get("item")
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	switch r.URL.Path {
+	case "/items/page":
+		if p.served == nil {
+			p.served = map[string]bool{}
+		}
+		p.served[item] = true
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = fmt.Fprintf(w, "<!doctype html><title>Item %s</title><p>Item %s</p>", html.EscapeString(item), html.EscapeString(item))
+	case "/items/turn":
+		index, err := strconv.Atoi(item)
+		if err != nil || index > 0 && !p.served[strconv.Itoa(index-1)] {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}
+	}
 }
 
 // serveBids serves bidsPage and its frames and windows.
@@ -580,6 +614,29 @@ func TestBrowserSearchingWindow(t *testing.T) {
 	b := newBrowserEnv(t)
 	b.dagu.RunWithEnv(b.env, "start", "searching_window.yaml").ExpectExitCode(0)
 	b.dagu.ExpectTextFileContent("heading.out", "Road repair\n")
+}
+
+// The items of a foreach each drive a browser of their own: an item whose
+// browser step starts while another item's browser is open leaves that
+// browser alone, though both run the same step of the same DAG run.
+func TestBrowserForeachItemsKeepTheirBrowsers(t *testing.T) {
+	t.Parallel()
+
+	b := newBrowserEnv(t)
+	b.dagu.RunWithEnv(b.env, "start", "foreach_items.yaml").ExpectExitCode(0)
+	data, err := os.ReadFile(b.dagu.ProjectPath("each.out"))
+	require.NoError(t, err)
+	var aggregate struct {
+		Summary struct {
+			Succeeded int `json:"succeeded"`
+		} `json:"summary"`
+		Items []struct {
+			Status string `json:"status"`
+			Error  string `json:"error"`
+		} `json:"items"`
+	}
+	require.NoError(t, json.Unmarshal(data, &aggregate))
+	require.Equal(t, 2, aggregate.Summary.Succeeded, "items: %+v", aggregate.Items)
 }
 
 func TestBrowserExtract(t *testing.T) {

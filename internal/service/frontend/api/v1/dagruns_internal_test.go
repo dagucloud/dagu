@@ -2114,7 +2114,7 @@ func TestBrowserSessionWaiting(t *testing.T) {
 			dataDir := t.TempDir()
 			if test.record != nil {
 				record := *test.record
-				record.ID = browserhost.RecordID("run-1", "login")
+				record.ID = browserhost.RecordID("run-1", "", "login")
 				require.NoError(t, browserhost.NewStore(filepath.Join(dataDir, browserhost.DataDirName)).Save(record))
 			}
 			waiting, err := browserSessionWaiting(t.Context(), dataDir, "run-1", "login", now)

@@ -10,6 +10,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
+	"sync"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
@@ -212,4 +214,64 @@ func TestItemRecordKeepsBodyAgentSessions(t *testing.T) {
 	assert.Equal(t, ir.NodeFailed, refused.Status)
 	assert.Contains(t, refused.Error, "site refused *******")
 	require.NotNil(t, refused.AgentSession)
+}
+
+// itemExecutor stands for a body step and reports the foreach item it runs
+// in.
+type itemExecutor struct {
+	report func(item string)
+}
+
+func (e *itemExecutor) SetStdout(io.Writer)  {}
+func (e *itemExecutor) SetStderr(io.Writer)  {}
+func (e *itemExecutor) Kill(os.Signal) error { return nil }
+func (e *itemExecutor) Run(ctx context.Context) error {
+	e.report(runtime.GetEnv(ctx).ForeachItem)
+	return nil
+}
+
+// Every item body, of a nested foreach too, tells its body steps an item
+// identity of its own, and the same one each time the step runs.
+func TestBodyStepsKnowTheirItem(t *testing.T) {
+	executorType := "test-foreach-item"
+	var mu sync.Mutex
+	var items []string
+	runtimeexec.RegisterExecutor(executorType, func(context.Context, ir.Step) (runtimeexec.Executor, error) {
+		return &itemExecutor{report: func(item string) {
+			mu.Lock()
+			defer mu.Unlock()
+			items = append(items, item)
+		}}, nil
+	}, nil, registry.ExecutorCapabilities{})
+	t.Cleanup(func() { runtimeexec.UnregisterExecutor(executorType) })
+
+	look := ir.Step{Name: "look", ID: "look", ExecutorConfig: ir.ExecutorConfig{Type: executorType}}
+	inner := ir.Step{
+		Name: "inner", ID: "inner", ExecutorConfig: ir.ExecutorConfig{Type: ir.ExecutorTypeForeach},
+		Foreach: &ir.ForeachConfig{Items: []any{"x", "y"}, Steps: []ir.Step{look}},
+	}
+	run := func() []string {
+		t.Helper()
+		items = nil
+		e := &foreachExecutor{step: ir.Step{
+			Name:    "each",
+			Foreach: &ir.ForeachConfig{Items: []any{"a", "b"}, Steps: []ir.Step{look, inner}},
+		}}
+		e.SetStdout(io.Discard)
+		ctx := runtime.NewContext(context.Background(), &ir.DAG{Name: "each"}, "run-1", "", runtime.WithDAGRunLogDir(t.TempDir()))
+		require.NoError(t, e.Run(ctx))
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Clone(items)
+	}
+
+	first := run()
+	require.Len(t, first, 6, "a look in each item and in each item of its inner foreach")
+	distinct := map[string]bool{}
+	for _, item := range first {
+		assert.NotEmpty(t, item)
+		distinct[item] = true
+	}
+	assert.Len(t, distinct, 6, "each body has an item of its own: %q", first)
+	assert.ElementsMatch(t, first, run(), "a body keeps its item from run to run")
 }

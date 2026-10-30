@@ -122,9 +122,12 @@ type Record struct {
 	Interactive json.RawMessage `json:"interactive,omitempty"`
 }
 
-// RecordID returns the record identifier for a step of a DAG run.
-func RecordID(dagRunID, stepName string) string {
-	sum := sha256.Sum256([]byte(dagRunID + "\x00" + stepName))
+// RecordID returns the record identifier for a step of a DAG run. item
+// identifies the foreach item whose body runs the step, so the items of one
+// foreach each have a record of their own; it is empty for a step outside a
+// foreach body.
+func RecordID(dagRunID, item, stepName string) string {
+	sum := sha256.Sum256([]byte(dagRunID + "\x00" + item + "\x00" + stepName))
 	return hex.EncodeToString(sum[:16])
 }
 

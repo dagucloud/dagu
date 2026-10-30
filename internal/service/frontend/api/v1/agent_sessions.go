@@ -248,7 +248,7 @@ func (a *API) requireLocalBrowserSession(ctx context.Context, ref ir.DAGRunRef, 
 // waiting to be resumed. An error means the browser's state is unknown.
 func browserSessionWaiting(ctx context.Context, dataDir, dagRunID, stepName string, now time.Time) (bool, error) {
 	store := browserhost.NewStore(filepath.Join(dataDir, browserhost.DataDirName))
-	record, err := store.Load(browserhost.RecordID(dagRunID, stepName))
+	record, err := store.Load(browserhost.RecordID(dagRunID, "", stepName))
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}

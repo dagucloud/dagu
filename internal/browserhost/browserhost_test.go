@@ -135,7 +135,7 @@ func TestStoreRoundTrip(t *testing.T) {
 
 	store := browserhost.NewStore(t.TempDir())
 	record := browserhost.Record{
-		ID:       browserhost.RecordID("run-1", "login"),
+		ID:       browserhost.RecordID("run-1", "", "login"),
 		DAGRunID: "run-1",
 		StepName: "login",
 		State:    browserhost.StateDetached,

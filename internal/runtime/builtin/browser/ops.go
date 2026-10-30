@@ -690,7 +690,7 @@ func (r *run) settleDownloads(ctx context.Context, index int, final bool) error 
 // operation left running, and returns the first operation to run.
 func (r *run) startSession(ctx context.Context) (int, error) {
 	session := r.exec.GetAgentSession()
-	recordID := browserhost.RecordID(r.dagRunID, r.stepName)
+	recordID := browserhost.RecordID(r.dagRunID, runtime.GetEnv(ctx).ForeachItem, r.stepName)
 	answer, answered := agentstep.PendingAnswer(session, providerName)
 	if answered {
 		return r.resumeSession(ctx, recordID, session, answer)
