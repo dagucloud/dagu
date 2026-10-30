@@ -69,6 +69,60 @@ describe('UpcomingRuns', () => {
     ).toBeInTheDocument();
   });
 
+  it('explains where a business calendar put each run', () => {
+    render(
+      <UpcomingRuns
+        schedules={[
+          {
+            expression: '0 23 * * *',
+            kind: ScheduleKind.cron,
+            calendar: 'jp-banking',
+            businessDays: [3, -1],
+          },
+        ]}
+        runs={[
+          {
+            time: '2027-01-06T23:00:00Z',
+            scheduleIndex: 0,
+            timezone: 'UTC',
+            businessDay: 3,
+          },
+          {
+            time: '2027-01-29T23:00:00Z',
+            scheduleIndex: 0,
+            timezone: 'UTC',
+            businessDay: -1,
+          },
+          {
+            time: '2027-01-12T18:00:00Z',
+            scheduleIndex: 0,
+            timezone: 'UTC',
+            skippedHolidays: [
+              { date: '2027-01-11', name: 'Coming of Age Day' },
+            ],
+          },
+          {
+            time: '2027-10-09T18:00:00Z',
+            scheduleIndex: 0,
+            timezone: 'UTC',
+            extraBusinessDay: true,
+          },
+        ]}
+      />
+    );
+
+    expect(
+      screen.getByText('· business day 3 of the month')
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('· last business day of the month')
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('· skips Mon 2027-01-11 (Coming of Age Day)')
+    ).toBeInTheDocument();
+    expect(screen.getByText('· extra business day')).toBeInTheDocument();
+  });
+
   it('expands the runs past the first five', () => {
     const runs = Array.from({ length: 7 }, (_, day) => ({
       time: `2027-01-0${day + 1}T12:00:00Z`,

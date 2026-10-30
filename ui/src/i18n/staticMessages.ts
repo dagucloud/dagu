@@ -3008,6 +3008,11 @@ const baseEnglish = {
   'A new Dagu binary is installed. Restart Dagu to use it.':
     'A new Dagu binary is installed. Restart Dagu to use it.',
   "Upcoming runs": "Upcoming runs",
+  "last business day of the month": "last business day of the month",
+  "business day {n} from the month's end": "business day {n} from the month's end",
+  "business day {n} of the month": "business day {n} of the month",
+  "extra business day": "extra business day",
+  "skips {day}": "skips {day}",
 } as const;
 
 type BaseStaticMessage = keyof typeof baseEnglish;
@@ -5941,6 +5946,11 @@ const baseChinese = {
   'A new Dagu binary is installed. Restart Dagu to use it.':
     '已安装新的 Dagu 二进制文件。重启 Dagu 后即可使用。',
   "Upcoming runs": "即将进行的运行",
+  "last business day of the month": "当月最后一个工作日",
+  "business day {n} from the month's end": "当月倒数第 {n} 个工作日",
+  "business day {n} of the month": "当月第 {n} 个工作日",
+  "extra business day": "额外工作日",
+  "skips {day}": "跳过 {day}",
 } as const satisfies Record<BaseStaticMessage, string>;
 
 const baseJapanese = {
@@ -8980,6 +8990,11 @@ const baseJapanese = {
   'A new Dagu binary is installed. Restart Dagu to use it.':
     '新しい Dagu バイナリがインストールされました。Dagu を再起動すると使用できます。',
   "Upcoming runs": "今後の実行",
+  "last business day of the month": "月末営業日",
+  "business day {n} from the month's end": "月末から {n} 番目の営業日",
+  "business day {n} of the month": "第 {n} 営業日",
+  "extra business day": "臨時営業日",
+  "skips {day}": "{day} はスキップ",
 } as const satisfies Record<BaseStaticMessage, string>;
 
 const chinese = {

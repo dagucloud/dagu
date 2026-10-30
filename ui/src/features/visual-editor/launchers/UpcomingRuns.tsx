@@ -5,10 +5,12 @@ import { useState, type ReactElement } from 'react';
 import type { components } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
 import { useI18n } from '@/i18n/I18nProvider';
+import dayjs from '@/lib/dayjs';
 import { formatFireTime, getScheduleLabel } from '@/lib/dagSchedule';
 
 type Schedule = components['schemas']['Schedule'];
 type UpcomingRun = components['schemas']['UpcomingRun'];
+type Translate = ReturnType<typeof useI18n>['ts'];
 
 /** Upcoming runs shown before the list is expanded. */
 const COLLAPSED_UPCOMING_RUNS = 5;
@@ -16,7 +18,7 @@ const COLLAPSED_UPCOMING_RUNS = 5;
 /**
  * The next times the start schedules fire, as the server computes them. A
  * time reads in the zone of its schedule; the zone heads the list when all
- * runs share it.
+ * runs share it. A run placed by a business calendar says why.
  */
 export function UpcomingRuns({
   runs,
@@ -51,6 +53,7 @@ export function UpcomingRuns({
         <ol className="space-y-0.5 whitespace-normal break-words text-sm text-muted-foreground tabular-nums">
           {visibleRuns.map((run) => {
             const schedule = schedules[run.scheduleIndex];
+            const notes = upcomingRunNotes(run, dayjsLocale, ts);
             return (
               <li key={`${run.time}-${run.scheduleIndex}`}>
                 {formatFireTime(run.time, 'ddd YYYY-MM-DD HH:mm', dayjsLocale)}
@@ -59,6 +62,12 @@ export function UpcomingRuns({
                   <span className="text-muted-foreground/80">
                     {' · '}
                     {scheduleSummary(schedule)}
+                  </span>
+                )}
+                {notes.length > 0 && (
+                  <span className="text-foreground/80">
+                    {' · '}
+                    {notes.join('; ')}
                   </span>
                 )}
               </li>
@@ -78,6 +87,38 @@ export function UpcomingRuns({
       )}
     </section>
   );
+}
+
+// upcomingRunNotes explains where a business calendar put a run: the
+// business day it matched, and the holidays it skipped to get there.
+function upcomingRunNotes(
+  run: UpcomingRun,
+  locale: string,
+  ts: Translate
+): string[] {
+  const notes: string[] = [];
+  const businessDay = run.businessDay ?? 0;
+  if (businessDay === -1) {
+    notes.push(ts('last business day of the month'));
+  } else if (businessDay < -1) {
+    notes.push(
+      ts("business day {n} from the month's end", { n: -businessDay })
+    );
+  } else if (businessDay > 0) {
+    notes.push(ts('business day {n} of the month', { n: businessDay }));
+  }
+  if (run.extraBusinessDay) {
+    notes.push(ts('extra business day'));
+  }
+  for (const holiday of run.skippedHolidays ?? []) {
+    const day = dayjs(holiday.date).locale(locale).format('ddd YYYY-MM-DD');
+    notes.push(
+      ts('skips {day}', {
+        day: holiday.name ? `${day} (${holiday.name})` : day,
+      })
+    );
+  }
+  return notes;
 }
 
 function scheduleSummary(schedule: Schedule): string {
