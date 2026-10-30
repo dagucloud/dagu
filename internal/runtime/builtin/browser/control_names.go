@@ -125,9 +125,10 @@ func labelCell(path []*outlineNode) (*outlineNode, string) {
 	return nil, ""
 }
 
-// holdsControl reports whether a control is under n.
+// holdsControl reports whether a control or a button is under n. The text
+// of a cell holding a button names the button, not the field after it.
 func holdsControl(n *outlineNode) bool {
 	return slices.ContainsFunc(n.children, func(child *outlineNode) bool {
-		return slices.Contains(controlRoles, child.role) || holdsControl(child)
+		return slices.Contains(controlRoles, child.role) || child.role == "button" || holdsControl(child)
 	})
 }

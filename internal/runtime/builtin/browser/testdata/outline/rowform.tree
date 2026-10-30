@@ -55,6 +55,12 @@
                           [1-220] slot
                             [1-221] option: AND [selected]
                             [1-222] option: OR
+                  [1-300] row
+                    [1-301] rowheader: 担当課
+                    [1-303] cell: 選択
+                      [1-304] button: 選択
+                    [1-306] cell
+                      [1-20] textbox
                   [1-104] row
                     [1-105] cell
                       [1-13] textbox
