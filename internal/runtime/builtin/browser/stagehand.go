@@ -121,16 +121,18 @@ const shownDocumentsFunction = `function shownDocuments(doc) {
 	const documents = [doc];
 	for (const frame of doc.querySelectorAll("frame, iframe")) {
 		const box = frame.getBoundingClientRect();
-		if (frame.contentDocument && box.width > 0 && box.height > 0) documents.push(...shownDocuments(frame.contentDocument));
+		const shown = box.width > 0 && box.height > 0 && frame.checkVisibility({visibilityProperty: true});
+		if (frame.contentDocument && shown) documents.push(...shownDocuments(frame.contentDocument));
 	}
 	return documents;
 }`
 
 // pageTextExpression reads the text a person sees on the page, in the
-// frames it shows too.
+// frames it shows too. A body that is not rendered shows nothing, though
+// its innerText is the text it holds.
 const pageTextExpression = `(() => {
 	` + shownDocumentsFunction + `
-	return shownDocuments(document).map((doc) => doc.body ? doc.body.innerText : "").filter(Boolean).join("\n");
+	return shownDocuments(document).map((doc) => doc.body && doc.body.checkVisibility() ? doc.body.innerText : "").filter(Boolean).join("\n");
 })()`
 
 // documentExpression reads the time the page's document began loading, which
