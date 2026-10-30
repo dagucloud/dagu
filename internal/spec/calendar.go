@@ -91,7 +91,7 @@ type fileStamp struct {
 }
 
 func statFile(path string) fileStamp {
-	info, err := os.Stat(path)
+	info, err := os.Stat(path) //nolint:gosec // paths are the calendars directory and names matching the calendar name pattern.
 	if err != nil {
 		return fileStamp{path: path}
 	}
