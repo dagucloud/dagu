@@ -1470,6 +1470,28 @@ func TestNormalizeRunListIncludesTimestampsAndCursor(t *testing.T) {
 	require.NotContains(t, items[1], "finishedAt")
 }
 
+// Fire times keep the offset of the zone each schedule runs in, so an agent
+// can read the wall-clock time a run starts.
+func TestNormalizeDAGDetailsIncludesUpcomingRuns(t *testing.T) {
+	t.Parallel()
+
+	tokyo := time.FixedZone("JST", 9*60*60)
+	raw := daguapi.GetDAGDetails200JSONResponse{
+		Dag: &daguapi.DAGDetails{
+			Name:     "payroll",
+			Schedule: &[]daguapi.Schedule{{Expression: "CRON_TZ=Asia/Tokyo 0 9 25 * *"}},
+			UpcomingRuns: &[]daguapi.UpcomingRun{
+				{Time: time.Date(2027, 1, 25, 9, 0, 0, 0, tokyo), Timezone: "Asia/Tokyo"},
+				{Time: time.Date(2027, 2, 25, 9, 0, 0, 0, tokyo), Timezone: "Asia/Tokyo"},
+			},
+		},
+	}
+
+	data, err := normalizeDAGDetails(raw, "payroll")
+	require.NoError(t, err)
+	require.Equal(t, []string{"2027-01-25T09:00:00+09:00", "2027-02-25T09:00:00+09:00"}, data["upcomingRuns"])
+}
+
 func TestNormalizeDAGListIncludesSummaryFields(t *testing.T) {
 	t.Parallel()
 

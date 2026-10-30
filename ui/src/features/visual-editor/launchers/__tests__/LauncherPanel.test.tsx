@@ -3,6 +3,7 @@
 
 import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ScheduleKind } from '@/api/v1/schema';
 import { formatAbsoluteTime } from '@/lib/dagRunTiming';
 import type { ScheduleView } from '../../doc';
 import { CronLauncherPanel } from '../LauncherPanel';
@@ -63,6 +64,32 @@ describe('CronLauncherPanel', () => {
     expect(onChange).toHaveBeenCalledTimes(1);
     fireEvent.keyDown(added, { key: 'Enter' });
     expect(onChange).toHaveBeenLastCalledWith(['@daily', '@weekly']);
+  });
+
+  // The server knows what the browser cannot, such as the scheduler's own
+  // rules, so its runs replace the preview of a saved expression. A draft
+  // still previews at once.
+  it('lists the server runs and previews only the expression being typed', () => {
+    render(
+      <CronLauncherPanel
+        schedule={{ present: true, expressions: ['0 9 * * *'], others: 0 }}
+        editable
+        upcomingRuns={[
+          { time: '2027-01-04T09:00:00Z', scheduleIndex: 0, timezone: 'UTC' },
+        ]}
+        schedules={[{ expression: '0 9 * * *', kind: ScheduleKind.cron }]}
+        onChange={() => undefined}
+        onClose={() => undefined}
+      />
+    );
+
+    expect(screen.getByText('Mon 2027-01-04 09:00')).toBeInTheDocument();
+    expect(screen.queryByTestId('ve-launcher-next-runs')).toBeNull();
+
+    fireEvent.change(screen.getByLabelText('Cron expression'), {
+      target: { value: '0 10 * * *' },
+    });
+    expect(screen.getByTestId('ve-launcher-next-runs')).toBeInTheDocument();
   });
 
   // The scheduler fires in its own time zone, whatever the zone of the

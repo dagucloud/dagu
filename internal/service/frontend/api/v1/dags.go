@@ -51,7 +51,11 @@ import (
 // the name sort.
 const maxRunSortDAGs = 300
 
-const defaultHistoryLimit = 30
+const (
+	defaultHistoryLimit = 30
+	// upcomingRunsLimit caps the fire times listed in DAG details.
+	upcomingRunsLimit = 10
+)
 
 // resolveDAGName returns the DAG name from metadata, or falls back to fileName if metadata lookup fails.
 func (a *API) resolveDAGName(ctx context.Context, fileName string) string {
@@ -134,6 +138,9 @@ func (a *API) ValidateDAGSpecData(ctx context.Context, name, source string) (*ap
 	}
 
 	details := toDAGDetails(dag)
+	if details != nil {
+		details.UpcomingRuns = a.scheduleFires(dag)
+	}
 
 	notices := a.specValueReferenceNotices(ctx, name, source)
 
@@ -312,6 +319,7 @@ func (a *API) GetDAGSpec(ctx context.Context, request api.GetDAGSpecRequestObjec
 			}
 		}
 		details.NextRun = a.projectNextRun(ctx, projectionDAG)
+		details.UpcomingRuns = a.scheduleFires(dag)
 	}
 
 	return &api.GetDAGSpec200JSONResponse{
@@ -595,6 +603,7 @@ func (a *API) getDAGDetailsData(ctx context.Context, fileName string) (api.GetDA
 	details := toDAGDetails(dag)
 	if details != nil {
 		details.NextRun = a.projectNextRun(ctx, dag)
+		details.UpcomingRuns = a.scheduleFires(dag)
 	}
 
 	localDAGs := make([]api.LocalDag, 0, len(dag.LocalDAGs))
@@ -2620,6 +2629,37 @@ func (a *API) projectNextRun(ctx context.Context, dag *ir.DAG) *time.Time {
 		return nil
 	}
 	return &nextRun
+}
+
+// scheduleFires lists the next fire times of a DAG's start schedules, each
+// labeled with the zone its schedule is evaluated in.
+func (a *API) scheduleFires(dag *ir.DAG) *[]api.UpcomingRun {
+	if dag == nil || len(dag.Schedule) == 0 {
+		return nil
+	}
+	location := time.Local
+	if a.config != nil && a.config.Core.Location != nil {
+		location = a.config.Core.Location
+	}
+	defaultZone := location.String()
+	if a.config != nil && a.config.Core.TZ != "" {
+		defaultZone = a.config.Core.TZ
+	}
+
+	fires := dag.UpcomingFires(time.Now().In(location), upcomingRunsLimit)
+	runs := make([]api.UpcomingRun, 0, len(fires))
+	for _, fire := range fires {
+		zone := defaultZone
+		if loc := dag.Schedule[fire.ScheduleIndex].Location(); loc != nil {
+			zone = loc.String()
+		}
+		runs = append(runs, api.UpcomingRun{
+			Time:          fire.Time,
+			ScheduleIndex: fire.ScheduleIndex,
+			Timezone:      zone,
+		})
+	}
+	return &runs
 }
 
 func (a *API) nextRunProjection(ctx context.Context) func(*ir.DAG, time.Time) time.Time {

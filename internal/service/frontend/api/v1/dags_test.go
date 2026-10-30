@@ -246,6 +246,67 @@ func TestDAGSpecWarnings(t *testing.T) {
 	}
 }
 
+// The editor previews fire times from an unsaved spec, and the saved DAG's
+// spec and details pages show the same list.
+func TestDAGSpecUpcomingRuns(t *testing.T) {
+	server := test.SetupServer(t)
+	name := "upcoming_runs"
+	definition := `schedule:
+  - "0 18 * * *"
+  - "CRON_TZ=Asia/Tokyo 0 9 * * *"
+steps:
+  - run: echo hello
+`
+	tokyo, err := time.LoadLocation("Asia/Tokyo")
+	require.NoError(t, err)
+
+	requireUpcomingRuns := func(t *testing.T, runs *[]api.UpcomingRun) {
+		t.Helper()
+		require.NotNil(t, runs)
+		require.Len(t, *runs, 10)
+		for i, run := range *runs {
+			if i > 0 {
+				require.True(t, (*runs)[i-1].Time.Before(run.Time))
+			}
+			switch run.ScheduleIndex {
+			case 0:
+				require.Equal(t, server.Config.Core.TZ, run.Timezone)
+				require.Equal(t, 18, run.Time.In(server.Config.Core.Location).Hour())
+			case 1:
+				require.Equal(t, "Asia/Tokyo", run.Timezone)
+				require.Equal(t, 9, run.Time.In(tokyo).Hour())
+			default:
+				t.Fatalf("unexpected schedule index %d", run.ScheduleIndex)
+			}
+		}
+	}
+
+	response := server.Client().Post("/api/v1/dags/validate", api.ValidateDAGSpecJSONRequestBody{
+		Name: &name, Spec: definition,
+	}).ExpectStatus(http.StatusOK).Send(t)
+	var validation api.ValidateDAGSpec200JSONResponse
+	response.Unmarshal(t, &validation)
+	require.True(t, validation.Valid)
+	require.NotNil(t, validation.Dag)
+	requireUpcomingRuns(t, validation.Dag.UpcomingRuns)
+
+	server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
+		Name: name, Spec: &definition,
+	}).ExpectStatus(http.StatusCreated).Send(t)
+
+	response = server.Client().Get("/api/v1/dags/" + name + "/spec").ExpectStatus(http.StatusOK).Send(t)
+	var saved api.GetDAGSpec200JSONResponse
+	response.Unmarshal(t, &saved)
+	require.NotNil(t, saved.Dag)
+	requireUpcomingRuns(t, saved.Dag.UpcomingRuns)
+
+	response = server.Client().Get("/api/v1/dags/" + name).ExpectStatus(http.StatusOK).Send(t)
+	var details api.GetDAGDetails200JSONResponse
+	response.Unmarshal(t, &details)
+	require.NotNil(t, details.Dag)
+	requireUpcomingRuns(t, details.Dag.UpcomingRuns)
+}
+
 func TestDAGSpecInheritsBaseGraphType(t *testing.T) {
 	server := test.SetupServer(t)
 
