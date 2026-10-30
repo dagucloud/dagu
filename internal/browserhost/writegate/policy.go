@@ -17,6 +17,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/hostpattern"
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
+	"golang.org/x/text/encoding/htmlindex"
 )
 
 // Resource types, as DevTools names them, of requests that are not the
@@ -154,15 +155,35 @@ func (r *rules) describe(req request) description {
 	}
 }
 
-// describeResponse returns the start of an answer's body, with sensitive
-// values hidden.
+// describeResponse returns the start of an answer's body as text, with
+// sensitive values hidden.
 func (r *rules) describeResponse(body string, base64Encoded bool, contentType string) string {
 	data := []byte(body)
 	if base64Encoded {
 		// A cut body ends inside a group of four.
 		data, _ = base64.StdEncoding.DecodeString(body[:len(body)/4*4])
+		data = decodeCharset(contentType, data)
 	}
 	return r.masker.MaskString(strings.ToValidUTF8(string(maskBody(contentType, data)), "\uFFFD"))
+}
+
+// decodeCharset decodes data from the charset contentType names, such as
+// Shift_JIS, into UTF-8. Data whose charset is not named or not known is
+// returned as it is.
+func decodeCharset(contentType string, data []byte) []byte {
+	_, params, err := mime.ParseMediaType(contentType)
+	if err != nil || params["charset"] == "" {
+		return data
+	}
+	charset, err := htmlindex.Get(params["charset"])
+	if err != nil {
+		return data
+	}
+	decoded, err := charset.NewDecoder().Bytes(data)
+	if err != nil {
+		return data
+	}
+	return decoded
 }
 
 // sensitiveWords are the words of a field name whose value is always
