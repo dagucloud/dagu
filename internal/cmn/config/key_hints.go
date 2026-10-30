@@ -97,6 +97,7 @@ var legacyToSnakeCaseKey = map[string]string{
 	"paths.adminlogsdir":       "paths.admin_logs_dir",
 	"paths.eventstoredir":      "paths.event_store_dir",
 	"paths.baseconfig":         "paths.base_config",
+	"paths.calendarsdir":       "paths.calendars_dir",
 	"paths.altdagsdir":         "paths.alt_dags_dir",
 	"paths.dagrunsdir":         "paths.dag_runs_dir",
 	"paths.dagrunworkdir":      "paths.dag_run_work_dir",

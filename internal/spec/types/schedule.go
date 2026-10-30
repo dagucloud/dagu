@@ -32,6 +32,9 @@ type ScheduleValue struct {
 	restarts []ir.Schedule // Restart schedules
 }
 
+// startScheduleOptions accepts the schedule forms only start schedules take.
+var startScheduleOptions = ir.ScheduleParseOptions{AllowAt: true, AllowCalendar: true}
+
 // UnmarshalYAML implements BytesUnmarshaler for goccy/go-yaml.
 func (s *ScheduleValue) UnmarshalYAML(data []byte) error {
 	s.isSet = true
@@ -47,7 +50,7 @@ func (s *ScheduleValue) UnmarshalYAML(data []byte) error {
 		if v == "" {
 			return nil
 		}
-		schedule, err := ir.ParseScheduleValue(v, ir.ScheduleParseOptions{AllowAt: true})
+		schedule, err := ir.ParseScheduleValue(v, startScheduleOptions)
 		if err != nil {
 			return fmt.Errorf("schedule: %w", err)
 		}
@@ -56,7 +59,7 @@ func (s *ScheduleValue) UnmarshalYAML(data []byte) error {
 
 	case []any:
 		for i, item := range v {
-			schedule, err := ir.ParseScheduleValue(item, ir.ScheduleParseOptions{AllowAt: true})
+			schedule, err := ir.ParseScheduleValue(item, startScheduleOptions)
 			if err != nil {
 				return fmt.Errorf("schedule[%d]: %w", i, err)
 			}
@@ -69,7 +72,7 @@ func (s *ScheduleValue) UnmarshalYAML(data []byte) error {
 		return nil
 	case []string:
 		for i, item := range v {
-			schedule, err := ir.ParseScheduleValue(item, ir.ScheduleParseOptions{AllowAt: true})
+			schedule, err := ir.ParseScheduleValue(item, startScheduleOptions)
 			if err != nil {
 				return fmt.Errorf("schedule[%d]: %w", i, err)
 			}
@@ -98,7 +101,7 @@ func (s *ScheduleValue) parseScheduleMap(m map[string]any) error {
 		switch key {
 		case "start":
 			target = &s.starts
-			opts.AllowAt = true
+			opts = startScheduleOptions
 		case "stop":
 			target = &s.stops
 		case "restart":

@@ -664,6 +664,7 @@ func (l *ConfigLoader) loadPathsConfig(cfg *Config, def Definition) error {
 		{"AdminLogsDir", &cfg.Paths.AdminLogsDir, def.Paths.AdminLogsDir},
 		{"EventStoreDir", &cfg.Paths.EventStoreDir, def.Paths.EventStoreDir},
 		{"BaseConfig", &cfg.Paths.BaseConfig, def.Paths.BaseConfig},
+		{"CalendarsDir", &cfg.Paths.CalendarsDir, def.Paths.CalendarsDir},
 		{"Executable", &cfg.Paths.Executable, def.Paths.Executable},
 		{"DAGRunsDir", &cfg.Paths.DAGRunsDir, def.Paths.DAGRunsDir},
 		{"DAGRunWorkDir", &cfg.Paths.DAGRunWorkDir, def.Paths.DAGRunWorkDir},
@@ -2302,6 +2303,7 @@ func (l *ConfigLoader) setViperDefaultValues(paths Paths) {
 	l.v.SetDefault("paths.admin_logs_dir", paths.AdminLogsDir)
 	l.v.SetDefault("paths.event_store_dir", paths.EventStoreDir)
 	l.v.SetDefault("paths.base_config", paths.BaseConfigFile)
+	l.v.SetDefault("paths.calendars_dir", paths.CalendarsDir)
 
 	// Server
 	l.v.SetDefault("host", "127.0.0.1")
@@ -2547,6 +2549,7 @@ var envBindings = []envBinding{
 	{key: "paths.admin_logs_dir", env: "ADMIN_LOG_DIR", isPath: true},
 	{key: "paths.event_store_dir", env: "EVENT_STORE_DIR", isPath: true},
 	{key: "paths.base_config", env: "BASE_CONFIG", isPath: true},
+	{key: "paths.calendars_dir", env: "CALENDARS_DIR", isPath: true},
 	{key: "paths.dag_runs_dir", env: "DAG_RUNS_DIR", isPath: true},
 	{key: "paths.dag_run_work_dir", env: "DAG_RUN_WORK_DIR", isPath: true},
 	{key: "paths.proc_dir", env: "PROC_DIR", isPath: true},

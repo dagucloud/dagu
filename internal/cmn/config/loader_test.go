@@ -155,6 +155,7 @@ func TestLoad_Env(t *testing.T) {
 		"DAGU_SUSPEND_FLAGS_DIR":    filepath.Join(testPaths, "suspend"),
 		"DAGU_ADMIN_LOG_DIR":        filepath.Join(testPaths, "admin"),
 		"DAGU_BASE_CONFIG":          filepath.Join(testPaths, "base.yaml"),
+		"DAGU_CALENDARS_DIR":        filepath.Join(testPaths, "calendars"),
 		"DAGU_DAG_RUNS_DIR":         filepath.Join(testPaths, "runs"),
 		"DAGU_PROC_DIR":             filepath.Join(testPaths, "proc"),
 		"DAGU_QUEUE_DIR":            filepath.Join(testPaths, "queue"),
@@ -309,6 +310,7 @@ func TestLoad_Env(t *testing.T) {
 			AdminLogsDir:       filepath.Join(testPaths, "admin"),
 			EventStoreDir:      cfg.Paths.EventStoreDir,
 			BaseConfig:         filepath.Join(testPaths, "base.yaml"),
+			CalendarsDir:       filepath.Join(testPaths, "calendars"),
 			DAGRunsDir:         filepath.Join(testPaths, "runs"),
 			DAGRunWorkDir:      filepath.Join(testPaths, "data", "dag-run-work"),
 			ProcDir:            filepath.Join(testPaths, "proc"),
@@ -932,6 +934,7 @@ paths:
   suspend_flags_dir: "/var/dagu/suspend"
   admin_logs_dir: "/var/dagu/adminlogs"
   base_config: "/var/dagu/base.yaml"
+  calendars_dir: "/var/dagu/calendars"
   executable: "/usr/local/bin/dagu"
 ui:
   navbar_title: "Test Dagu"
@@ -1123,6 +1126,7 @@ scheduler:
 			AdminLogsDir:       resolvedTestPath(t, "/var/dagu/adminlogs"),
 			EventStoreDir:      cfg.Paths.EventStoreDir,
 			BaseConfig:         resolvedTestPath(t, "/var/dagu/base.yaml"),
+			CalendarsDir:       resolvedTestPath(t, "/var/dagu/calendars"),
 			Executable:         resolvedTestPath(t, "/usr/local/bin/dagu"),
 			DAGRunsDir:         resolvedTestPath(t, "/var/dagu/data/dag-runs"),
 			DAGRunWorkDir:      resolvedTestPath(t, "/var/dagu/data/dag-run-work"),

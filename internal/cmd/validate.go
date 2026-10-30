@@ -76,6 +76,7 @@ func runValidate(ctx *Context, args []string, showUnresolved bool) error {
 		spec.WithoutEval(),
 		spec.WithDAGsDir(ctx.Config.Paths.DAGsDir),
 		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(ctx.Config.Paths.DAGsDir)),
+		spec.WithCalendarsDir(ctx.Config.Paths.CalendarsDir),
 	}
 	if ctx.Config.Paths.BaseConfig != "" {
 		loadOpts = append(loadOpts, spec.WithBaseConfig(ctx.Config.Paths.BaseConfig))

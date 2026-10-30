@@ -13,6 +13,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -33,6 +34,7 @@ import (
 type entryReaderImpl struct {
 	baseConfigPath         string
 	workspaceBaseConfigDir string
+	calendarsDir           string
 	baseConfigState        string
 	baseWatchPaths         []baseWatchPath
 	targetDir              string
@@ -76,6 +78,14 @@ func withResyncInterval(interval time.Duration) EntryReaderOption {
 func withSymlinkPollInterval(interval time.Duration) EntryReaderOption {
 	return func(er *entryReaderImpl) {
 		er.symlinkPollInterval = interval
+	}
+}
+
+// WatchCalendars makes the reader load DAGs again when a calendar file in
+// dir changes, so schedules follow the calendars they name.
+func WatchCalendars(dir string) EntryReaderOption {
+	return func(er *entryReaderImpl) {
+		er.calendarsDir = dir
 	}
 }
 
@@ -204,7 +214,7 @@ func NewFileEntryReader(dir string, dagRepository *persis.DAGRepository, recursi
 
 // Init loads the initial DAG registry and starts watching the target directory.
 func (er *entryReaderImpl) Init(ctx context.Context) error {
-	for _, path := range []*string{&er.targetDir, &er.baseConfigPath, &er.workspaceBaseConfigDir} {
+	for _, path := range []*string{&er.targetDir, &er.baseConfigPath, &er.workspaceBaseConfigDir, &er.calendarsDir} {
 		if *path != "" {
 			absolute, err := filepath.Abs(*path)
 			if err != nil {
@@ -213,7 +223,7 @@ func (er *entryReaderImpl) Init(ctx context.Context) error {
 			*path = absolute
 		}
 	}
-	er.baseConfigState = describeBaseConfigStateSet(er.baseConfigPath, er.workspaceBaseConfigDir)
+	er.baseConfigState = er.describeInputState()
 	// Read the marker before loading so a change made while loading is seen by
 	// the next poll.
 	er.markerSeen, _ = er.marker.poll(ctx, nil)
@@ -345,7 +355,7 @@ func (er *entryReaderImpl) watch(ctx context.Context) {
 			}
 			// A symlink target or its link directory can change without an event
 			// named after the configured base file.
-			baseState := describeBaseConfigStateSet(er.baseConfigPath, er.workspaceBaseConfigDir)
+			baseState := er.describeInputState()
 			if baseState != er.baseConfigState {
 				er.baseConfigState = baseState
 				scheduleRefresh()
@@ -651,7 +661,7 @@ func (er *entryReaderImpl) syncWatches(ctx context.Context, dirs []string) {
 func (er *entryReaderImpl) loadRegistry(ctx context.Context, scan DiscoveryResult, scannedAt time.Time) (registryState, error) {
 	// Described before loading, so a base config change during the load makes
 	// the next refresh load again.
-	baseState := describeBaseConfigStateSet(er.baseConfigPath, er.workspaceBaseConfigDir)
+	baseState := er.describeInputState()
 	scanned := make(map[string]DiscoveredFile, len(scan.Files))
 	for _, file := range scan.Files {
 		scanned[file.RelPath] = file
@@ -725,6 +735,24 @@ func (er *entryReaderImpl) loadRegistry(ctx context.Context, scan DiscoveryResul
 	}, nil
 }
 
+// describeInputState describes the base configs and calendar files the
+// loaded DAGs depend on.
+func (er *entryReaderImpl) describeInputState() string {
+	return describeDefinitionInputState(er.baseConfigPath, er.workspaceBaseConfigDir, er.calendarsDir)
+}
+
+// scheduleCalendarDigests identifies the calendars bound to a DAG's start
+// schedules, so a calendar edit counts as a change to the DAGs using it.
+func scheduleCalendarDigests(dag *ir.DAG) []string {
+	var digests []string
+	for _, sched := range dag.Schedule {
+		if cal, ok := sched.BoundCalendar(); ok {
+			digests = append(digests, cal.Digest)
+		}
+	}
+	return digests
+}
+
 // reusableDAG returns the registry entry for key, and how it was loaded, when
 // loading the file again would give the same DAG: the file still has the
 // resolved target, stamp and base configs of the earlier load, and had not
@@ -787,7 +815,8 @@ func (er *entryReaderImpl) replaceRegistry(state registryState) []persis.DAGChan
 		// A reload can change the DAG without changing the stamp, such as a
 		// symlink retargeted to a file of the same size and time.
 		if er.loads[key].stamp != state.loads[key].stamp || oldDAG.SourceFile != dag.SourceFile ||
-			!bytes.Equal(oldDAG.YamlData, dag.YamlData) || !bytes.Equal(oldDAG.BaseConfigData, dag.BaseConfigData) {
+			!bytes.Equal(oldDAG.YamlData, dag.YamlData) || !bytes.Equal(oldDAG.BaseConfigData, dag.BaseConfigData) ||
+			!slices.Equal(scheduleCalendarDigests(oldDAG), scheduleCalendarDigests(dag)) {
 			events = append(events, persis.DAGChangeEvent{
 				Type: persis.DAGChangeUpdated,
 				DAGEntry: persis.DAGEntry{
