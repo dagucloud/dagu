@@ -23,21 +23,19 @@ var (
 
 // controlAttributesExpression returns, for each XPath of a JSON array
 // substituted for %s, the name attribute of the element there, or else its
-// id, or "". An XPath runs into a frame of the same origin as the browser
-// runtime writes it, the frame's document following the frame element.
+// id, or "". The XPaths run into frames and shadow roots as the browser
+// runtime writes them: a frame's document follows the frame element after
+// "/", and an open shadow root follows its host after "//".
 const controlAttributesExpression = `((xpaths) => xpaths.map((xpath) => {
-	let doc = document, path = "", element = null;
-	for (const step of xpath.split("/").filter(Boolean)) {
-		if (element && (element.localName === "frame" || element.localName === "iframe")) {
-			doc = element.contentDocument;
-			path = "";
-			if (!doc) return "";
-		}
-		path += "/" + step;
-		element = doc.evaluate(path, doc, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-		if (!element) return "";
+	if (!/^(\/\/?[^/[\]]+\[\d+\])+$/.test(xpath)) return "";
+	let node = document;
+	for (const [, hop, name, index] of xpath.matchAll(/(\/\/?)([^/[\]]+)\[(\d+)\]/g)) {
+		if (hop === "//") node = node.shadowRoot;
+		else if (node.localName === "frame" || node.localName === "iframe") node = node.contentDocument;
+		node = node && [...node.children].filter((child) => child.localName === name)[index - 1];
+		if (!node) return "";
 	}
-	return (element && (element.getAttribute("name") || element.id)) || "";
+	return node.getAttribute("name") || node.id || "";
 }))(%s)`
 
 // roots reads the tree of snap into its root nodes, naming each control

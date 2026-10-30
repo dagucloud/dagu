@@ -1948,8 +1948,9 @@ func TestStagehandWriteGateDecidesFromTheFirstPage(t *testing.T) {
 // serveRowForm serves a page built of frames whose form, in a frame, is laid
 // out in a table: each control is named only by the label cell of its row,
 // as forms of older sites are, two fields of a date range share one, and
-// one field follows a button. One control is named by nothing but its name
-// attribute.
+// one field follows a button. Outside the table, a field and a field in
+// the shadow root of its host are named by nothing but their name
+// attributes.
 func serveRowForm(t *testing.T) string {
 	t.Helper()
 	pages := map[string]string{
@@ -1963,7 +1964,8 @@ func serveRowForm(t *testing.T) string {
 <tr><th>文字列検索</th><td><input type="text" name="Mojiretu"> <select name="AndOr"><option>AND</option><option>OR</option></select></td></tr>
 <tr><th>担当課</th><td><button type="button">選択</button></td><td><input type="text" name="Tantoka"></td></tr>
 <tr><td><input type="text" name="FreeWord"></td></tr>
-</table></form>`,
+</table><x-field id="host"><input type="text" name="Slotted"></x-field></form>
+<script>document.getElementById("host").attachShadow({mode: "open"}).innerHTML = '<input type="text" name="Inner"><slot></slot>'</script>`,
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -1976,7 +1978,8 @@ func serveRowForm(t *testing.T) string {
 // A control a form names only by its table row, or by its name attribute,
 // in a frame, is outlined by that name and taken by an element operation by
 // its ID: a select picks its option, a field takes text, and a checkbox is
-// checked. Fields that share a row's label are told apart by their order.
+// checked. Fields that share a row's label are told apart by their order,
+// and a field in a shadow root takes its own name attribute.
 func TestStagehandNamesControlsByTheirRow(t *testing.T) {
 	t.Parallel()
 
@@ -2015,7 +2018,9 @@ func TestStagehandNamesControlsByTheirRow(t *testing.T) {
 	assert.Contains(t, outline, `textbox "文字列検索"`)
 	assert.Contains(t, outline, `select "文字列検索" = AND`)
 	assert.Contains(t, outline, `textbox "担当課"`)
+	assert.Contains(t, outline, `textbox "Inner"`)
+	assert.Contains(t, outline, `textbox "Slotted"`)
 	typed, err := eng.(*stagehandEngine).evaluate(t.Context(), `Object.fromEntries([...frames[1].document.querySelectorAll("input[type=text]")].map((input) => [input.name, input.value]))`)
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"AnkenName":"道路","DateFrom":"","DateTo":"2026/04/30","Mojiretu":"","Tantoka":"","FreeWord":"舗装"}`, string(typed))
+	assert.JSONEq(t, `{"AnkenName":"道路","DateFrom":"","DateTo":"2026/04/30","Mojiretu":"","Tantoka":"","FreeWord":"舗装","Slotted":""}`, string(typed))
 }
