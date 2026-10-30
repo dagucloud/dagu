@@ -434,8 +434,10 @@ and the command exits 1; the session stays open.
 
 In a session whose write gate records, --allow-write lets the operation
 send the write of a signature a blocked write reported; it sends no other.
-A form whose write was blocked stays on the page as it was filled in. If
-the form still accepts the same operation, allowing its write sends it.
+A form whose write was blocked stays on the page as the page's script
+left it, normally as it was filled in. If the form still accepts the
+same operation, allowing its write sends the values the form holds then,
+so check them before allowing it.
 
 Examples:
   echo '{"act": "Click Sign in"}' | dagu browser session do ab2cd3ef4g
