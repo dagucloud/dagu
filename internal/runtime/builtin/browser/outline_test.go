@@ -252,14 +252,17 @@ func TestOutlineShowsFileInputs(t *testing.T) {
 // tree leaves unnamed, as the browser reported them.
 var rowFormAttributes = map[string]string{
 	"1-9": "KoujiSyubetu", "1-10": "Nendo", "1-11": "KikanNO", "1-12": "AnkenName", "1-103": "Tenpu",
+	"1-16": "DateFrom", "1-17": "DateTo", "1-18": "Mojiretu", "1-19": "AndOr",
 	"1-13": "FreeWord", "1-14": "lonely", "2-17": "Tanto", "2-18": "Kikan",
 }
 
 // A form laid out in a table names a control the tree leaves unnamed by the
 // label cell before it in its row, skipping a cell that holds a control, in
-// a layout table and through a table nested in a cell too. A control no
-// row labels is named by its name or id attribute, and a control's own
-// name comes first.
+// a layout table and through a table nested in a cell too. Controls of one
+// role that one cell labels, as the two fields of a date range, are
+// numbered in order; a control of another role beside them is not. A
+// control no row labels is named by its name or id attribute, and a
+// control's own name comes first.
 func TestOutlineNamesControlsByTheirRow(t *testing.T) {
 	t.Parallel()
 
@@ -270,7 +273,7 @@ func TestOutlineNamesControlsByTheirRow(t *testing.T) {
   text: Menu
 iframe
   form
-    table: 6 rows
+    table: 8 rows
       row: 工種又は業種 |
         [1-9] select "工種又は業種" = ; options: , 土木一式工事
       row: 年度 | | 調達機関 | 千葉県
@@ -280,6 +283,12 @@ iframe
         [1-12] textbox "案件名"
       row: 添付あり |
         [1-103] checkbox "添付あり"
+      row: 入札予定日範囲 | ～
+        [1-16] textbox "入札予定日範囲 1"
+        [1-17] textbox "入札予定日範囲 2"
+      row: 文字列検索 | AND
+        [1-18] textbox "文字列検索"
+        [1-19] select "文字列検索" = AND; options: AND, OR
       row: 
         [1-13] textbox "FreeWord"
       row: 入札方式 | 一般競争

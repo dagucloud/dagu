@@ -41,6 +41,20 @@
                     [1-100] cell: 添付あり
                     [1-102] cell
                       [1-103] checkbox
+                  [1-200] row
+                    [1-201] rowheader: 入札予定日範囲
+                    [1-203] cell: ～
+                      [1-16] textbox
+                      [1-17] textbox
+                  [1-209] row
+                    [1-210] rowheader: 文字列検索
+                    [1-212] cell: AND
+                      [1-18] textbox
+                      [1-19] select
+                        [1-219] MenuListPopup
+                          [1-220] slot
+                            [1-221] option: AND [selected]
+                            [1-222] option: OR
                   [1-104] row
                     [1-105] cell
                       [1-13] textbox

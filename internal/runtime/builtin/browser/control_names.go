@@ -6,6 +6,7 @@ package browser
 import (
 	"cmp"
 	"slices"
+	"strconv"
 )
 
 // controlRoles are the roles of the controls of a form, which a form laid
@@ -44,7 +45,7 @@ const controlAttributesExpression = `((xpaths) => xpaths.map((xpath) => {
 // else by its name or id attribute.
 func (snap pageSnapshot) roots() []*outlineNode {
 	roots := parseSnapshotTree(snap.Tree)
-	nameControls(roots, nil, snap.Attributes)
+	nameControls(roots, snap.Attributes)
 	return roots
 }
 
@@ -61,23 +62,51 @@ func unnamedControls(nodes []*outlineNode) []string {
 	return ids
 }
 
-// nameControls names the unnamed controls under nodes, which sit in
-// ancestors, by their row's label cell or else by attributes.
-func nameControls(nodes, ancestors []*outlineNode, attributes map[string]string) {
-	for _, n := range nodes {
-		path := append(slices.Clip(ancestors), n)
-		if n.name == "" && slices.Contains(controlRoles, n.role) {
-			n.name = cmp.Or(rowLabel(path), attributes[n.id])
+// labelledControls keys the controls a label cell names by that cell and
+// their role.
+type labelledControls struct {
+	cell *outlineNode
+	role string
+}
+
+// nameControls names the unnamed controls under roots by their row's label
+// cell, or else by attributes. Controls of one role that one label cell
+// names, such as the two fields of a date range, are numbered in order
+// after it, so that each has a name of its own.
+func nameControls(roots []*outlineNode, attributes map[string]string) {
+	labelled := map[labelledControls][]*outlineNode{}
+	var walk func(nodes, ancestors []*outlineNode)
+	walk = func(nodes, ancestors []*outlineNode) {
+		for _, n := range nodes {
+			path := append(slices.Clip(ancestors), n)
+			if n.name == "" && slices.Contains(controlRoles, n.role) {
+				if cell, label := labelCell(path); cell != nil {
+					n.name = label
+					key := labelledControls{cell: cell, role: n.role}
+					labelled[key] = append(labelled[key], n)
+				} else {
+					n.name = attributes[n.id]
+				}
+			}
+			walk(n.children, path)
 		}
-		nameControls(n.children, path, attributes)
+	}
+	walk(roots, nil)
+	for _, controls := range labelled {
+		if len(controls) < 2 {
+			continue
+		}
+		for i, n := range controls {
+			n.name += " " + strconv.Itoa(i+1)
+		}
 	}
 }
 
-// rowLabel returns the text of the cell that labels the last node of path:
-// the nearest cell before the one holding it in its table row that has
-// text and holds no control, in the nearest row that has one. It returns
-// "" when no row does.
-func rowLabel(path []*outlineNode) string {
+// labelCell returns the cell that labels the last node of path, and its
+// text: the nearest cell before the one holding it in its table row that
+// has text and holds no control, in the nearest row that has one. It
+// returns nil when no row does.
+func labelCell(path []*outlineNode) (*outlineNode, string) {
 	for i := len(path) - 2; i >= 0; i-- {
 		if !slices.Contains(rowRoles, path[i].role) {
 			continue
@@ -89,11 +118,11 @@ func rowLabel(path []*outlineNode) string {
 				continue
 			}
 			if text := cmp.Or(cell.name, textOf(cell)); text != "" {
-				return text
+				return cell, text
 			}
 		}
 	}
-	return ""
+	return nil, ""
 }
 
 // holdsControl reports whether a control is under n.

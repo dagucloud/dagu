@@ -1947,7 +1947,8 @@ func TestStagehandWriteGateDecidesFromTheFirstPage(t *testing.T) {
 
 // serveRowForm serves a page built of frames whose form, in a frame, is laid
 // out in a table: each control is named only by the label cell of its row,
-// as forms of older sites are, and one by nothing but its name attribute.
+// as forms of older sites are, two fields of a date range share one, and
+// one control is named by nothing but its name attribute.
 func serveRowForm(t *testing.T) string {
 	t.Helper()
 	pages := map[string]string{
@@ -1957,6 +1958,8 @@ func serveRowForm(t *testing.T) string {
 <tr><th>工種又は業種</th><td><select name="KoujiSyubetu"><option></option><option>土木一式工事</option></select></td></tr>
 <tr><th>案件名</th><td><input type="text" name="AnkenName"></td></tr>
 <tr><td>添付あり</td><td><input type="checkbox" name="Tenpu"></td></tr>
+<tr><th>入札予定日範囲</th><td><input type="text" name="DateFrom"> ～ <input type="text" name="DateTo"></td></tr>
+<tr><th>文字列検索</th><td><input type="text" name="Mojiretu"> <select name="AndOr"><option>AND</option><option>OR</option></select></td></tr>
 <tr><td><input type="text" name="FreeWord"></td></tr>
 </table></form>`,
 	}
@@ -1971,7 +1974,7 @@ func serveRowForm(t *testing.T) string {
 // A control a form names only by its table row, or by its name attribute,
 // in a frame, is outlined by that name and taken by an element operation by
 // its ID: a select picks its option, a field takes text, and a checkbox is
-// checked.
+// checked. Fields that share a row's label are told apart by their order.
 func TestStagehandNamesControlsByTheirRow(t *testing.T) {
 	t.Parallel()
 
@@ -1991,6 +1994,7 @@ func TestStagehandNamesControlsByTheirRow(t *testing.T) {
 		{kind: opSelect, element: idOf(`select "工種又は業種"`), text: "土木一式工事"},
 		{kind: opType, element: idOf(`textbox "案件名"`), text: "道路"},
 		{kind: opClick, element: idOf(`checkbox "添付あり"`)},
+		{kind: opType, element: idOf(`textbox "入札予定日範囲 2"`), text: "2026/04/30"},
 		{kind: opType, element: idOf(`textbox "FreeWord"`), text: "舗装"},
 	} {
 		_, action, err := elementAct(snap, op, nil)
@@ -2005,7 +2009,10 @@ func TestStagehandNamesControlsByTheirRow(t *testing.T) {
 	outline, _, _ = renderOutline(snap, outlineOptions{})
 	assert.Contains(t, outline, `select "工種又は業種" = 土木一式工事`)
 	assert.Contains(t, outline, `checkbox "添付あり" [checked]`)
-	typed, err := eng.(*stagehandEngine).evaluate(t.Context(), `[...frames[1].document.querySelectorAll("input[type=text]")].map((input) => input.value)`)
+	assert.Contains(t, outline, `textbox "入札予定日範囲 1"`)
+	assert.Contains(t, outline, `textbox "文字列検索"`)
+	assert.Contains(t, outline, `select "文字列検索" = AND`)
+	typed, err := eng.(*stagehandEngine).evaluate(t.Context(), `Object.fromEntries([...frames[1].document.querySelectorAll("input[type=text]")].map((input) => [input.name, input.value]))`)
 	require.NoError(t, err)
-	assert.JSONEq(t, `["道路","舗装"]`, string(typed))
+	assert.JSONEq(t, `{"AnkenName":"道路","DateFrom":"","DateTo":"2026/04/30","Mojiretu":"","FreeWord":"舗装"}`, string(typed))
 }
