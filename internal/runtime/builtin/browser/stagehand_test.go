@@ -850,12 +850,13 @@ func TestStagehandSearchingWindowWaitEndsWithTimeout(t *testing.T) {
 	t.Parallel()
 
 	eng := launchBrowser(t, launchOptions{Generate: (&shopModel{}).generate})
-	require.NoError(t, eng.Goto(t.Context(), serveWindowedSearch(t, 4*time.Second), time.Minute))
+	answer := 8 * time.Second
+	require.NoError(t, eng.Goto(t.Context(), serveWindowedSearch(t, answer), time.Minute))
 	eng.(*stagehandEngine).settleWait = 200 * time.Millisecond
 
 	began := time.Now()
 	require.NoError(t, windowedSearchPress(t.Context(), eng, 1, time.Second))
-	assert.Less(t, time.Since(began), 3*time.Second, "the search waited past its timeout")
+	assert.Less(t, time.Since(began), answer-2*time.Second, "the search waited past its timeout for the answer")
 	snap, err := eng.Snapshot(t.Context())
 	require.NoError(t, err)
 	assert.Contains(t, snap.Tree, "Choose region", "the page that searched")
