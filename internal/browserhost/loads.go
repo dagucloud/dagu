@@ -26,7 +26,7 @@ type FrameLoadWatcher struct {
 
 	mu sync.Mutex
 	// loading holds the IDs of the frames loading a document, by the
-	// session of their page.
+	// session of their page or cross-origin frame.
 	loading map[string]map[string]bool
 }
 
@@ -117,9 +117,15 @@ func (w *FrameLoadWatcher) read(ctx context.Context, acknowledged chan<- error) 
 					Type string `json:"type"`
 				} `json:"targetInfo"`
 			}
-			if json.Unmarshal(message.Params, &event) == nil && event.TargetInfo.Type == targetTypePage {
-				_ = writeCommand(ctx, w.conn, w.lastID.Add(1), event.SessionID, "Page.enable", map[string]any{})
+			if json.Unmarshal(message.Params, &event) != nil {
+				continue
 			}
+			if event.TargetInfo.Type != targetTypePage && event.TargetInfo.Type != targetTypeIframe {
+				continue
+			}
+			_ = writeCommand(ctx, w.conn, w.lastID.Add(1), event.SessionID, "Page.enable", map[string]any{})
+			// Cross-origin frames are targets of their own under the page.
+			_ = writeCommand(ctx, w.conn, w.lastID.Add(1), event.SessionID, "Target.setAutoAttach", autoAttachParams())
 		case "Target.detachedFromTarget":
 			var event struct {
 				SessionID string `json:"sessionId"`

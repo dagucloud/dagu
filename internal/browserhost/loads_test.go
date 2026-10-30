@@ -62,3 +62,28 @@ func TestFrameLoadWatcherTellsLoadingFrames(t *testing.T) {
 	read(cdpEvent{Method: "Target.detachedFromTarget", Params: map[string]any{"sessionId": "page-2"}})
 	assert.False(t, watcher.Loading(), "a page that closed loads nothing")
 }
+
+// A cross-origin frame is a target of its own under its page, whose loads
+// count once the watcher attaches to it and enables its Page domain.
+func TestFrameLoadWatcherTellsCrossOriginFrames(t *testing.T) {
+	t.Parallel()
+
+	fake := newScriptedBrowser(t, func(command cdpCommand) []cdpEvent {
+		switch {
+		case command.Method == "Target.setAutoAttach" && command.SessionID == "":
+			return []cdpEvent{pageAttached("page-1", "target-1")}
+		case command.Method == "Target.setAutoAttach" && command.SessionID == "page-1":
+			return []cdpEvent{attachedTo("page-1", "ad-frame", "iframe")}
+		case command.Method == "Page.enable" && command.SessionID == "ad-frame":
+			return []cdpEvent{frameEvent("Page.frameStartedLoading", "ad-frame", "main")}
+		}
+		return nil
+	})
+	watcher, err := browserhost.WatchFrameLoads(context.Background(), fake.server.URL)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = watcher.Close() })
+
+	require.Eventually(t, watcher.Loading, 5*time.Second, 20*time.Millisecond)
+	fake.emit(frameEvent("Page.frameStoppedLoading", "ad-frame", "main"))
+	require.Eventually(t, func() bool { return !watcher.Loading() }, 5*time.Second, 20*time.Millisecond)
+}
