@@ -17,6 +17,12 @@ type DAGRepository struct {
 	options DAGRepositoryOptions
 }
 
+// Calendars returns the source of the calendar files that schedules name,
+// or nil when the repository has none.
+func (r *DAGRepository) Calendars() *spec.CalendarSource {
+	return r.options.Calendars
+}
+
 // NewDAGRepository creates a repository backed by the given definition store.
 func NewDAGRepository(store DAGDefinitionStore, options DAGRepositoryOptions) *DAGRepository {
 	return &DAGRepository{store: store, options: options}
@@ -30,8 +36,8 @@ func (r *DAGRepository) loadOptions(opts ...spec.LoadOption) []spec.LoadOption {
 	if r.options.WorkspaceBaseConfigDir != "" {
 		loadOpts = append(loadOpts, spec.WithWorkspaceBaseConfigDir(r.options.WorkspaceBaseConfigDir))
 	}
-	if r.options.CalendarsDir != "" {
-		loadOpts = append(loadOpts, spec.WithCalendarsDir(r.options.CalendarsDir))
+	if r.options.Calendars != nil {
+		loadOpts = append(loadOpts, spec.WithCalendars(r.options.Calendars))
 	}
 	return append(loadOpts, opts...)
 }

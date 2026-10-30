@@ -785,7 +785,7 @@ func (s *dagBuildState) bindScheduleCalendars() {
 			}
 			continue
 		}
-		cal, err := resolveScheduleCalendar(s.ctx.opts.CalendarsDir, sched.Calendar)
+		cal, err := resolveScheduleCalendar(s.ctx.opts.Calendars, sched.Calendar)
 		if err != nil && !reported[sched.Calendar] {
 			reported[sched.Calendar] = true
 			s.errs = append(s.errs, ir.NewValidationError("schedule", nil, err))
@@ -806,25 +806,26 @@ func (s *dagBuildState) bindScheduleCalendars() {
 	}
 }
 
-// resolveScheduleCalendar loads a calendar a schedule names. With no
-// calendars directory it returns only built-in calendars, and nil otherwise.
-func resolveScheduleCalendar(dir, name string) (*ir.Calendar, error) {
-	if cal, ok := ir.BuiltinCalendar(name); ok || dir == "" {
+// resolveScheduleCalendar loads a calendar a schedule names. Without a
+// source with a directory it returns only built-in calendars, and nil
+// otherwise.
+func resolveScheduleCalendar(source *CalendarSource, name string) (*ir.Calendar, error) {
+	if cal, ok := ir.BuiltinCalendar(name); ok || source == nil || source.Dir() == "" {
 		return cal, nil
 	}
-	return LoadCalendar(dir, name)
+	return source.Calendar(name)
 }
 
 // BindScheduleCalendars binds the calendars that decoded start schedules
 // name, such as schedules rebuilt from an index entry. A calendar that does
 // not load leaves its schedule unbound, so it never fires.
-func BindScheduleCalendars(schedules []ir.Schedule, calendarsDir string) {
+func BindScheduleCalendars(schedules []ir.Schedule, source *CalendarSource) {
 	for i := range schedules {
 		sched := &schedules[i]
 		if !sched.HasCalendar() {
 			continue
 		}
-		if cal, err := resolveScheduleCalendar(calendarsDir, sched.Calendar); err == nil && cal != nil {
+		if cal, err := resolveScheduleCalendar(source, sched.Calendar); err == nil && cal != nil {
 			_ = sched.BindCalendar(cal)
 		}
 	}

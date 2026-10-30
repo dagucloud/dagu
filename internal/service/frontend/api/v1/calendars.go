@@ -16,7 +16,7 @@ import (
 // ListCalendars lists the built-in calendars and the calendar files that
 // start schedules can name.
 func (a *API) ListCalendars(_ context.Context, _ api.ListCalendarsRequestObject) (api.ListCalendarsResponseObject, error) {
-	summaries, err := spec.ListCalendars(a.config.Paths.CalendarsDir)
+	summaries, err := a.calendarSource().List()
 	if err != nil {
 		return nil, err
 	}
@@ -38,6 +38,16 @@ func (a *API) ListCalendars(_ context.Context, _ api.ListCalendarsRequestObject)
 		calendars = append(calendars, calendar)
 	}
 	return api.ListCalendars200JSONResponse{Calendars: calendars}, nil
+}
+
+// calendarSource returns the repository's calendar source, which caches
+// parsed calendars for every request, or a source for the configured
+// directory when the repository has none.
+func (a *API) calendarSource() *spec.CalendarSource {
+	if source := a.dagRepository.Calendars(); source != nil {
+		return source
+	}
+	return spec.NewCalendarSource(a.config.Paths.CalendarsDir)
 }
 
 func toAPIDate(date ir.CivilDate) openapitypes.Date {

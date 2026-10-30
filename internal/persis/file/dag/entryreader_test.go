@@ -11,6 +11,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"os"
 	"path/filepath"
@@ -568,7 +569,7 @@ func TestCalendarWatch(t *testing.T) {
 	calendarFile := filepath.Join(calendars, "jp.yaml")
 	require.NoError(t, os.WriteFile(calendarFile, []byte("holidays: [2027-01-01]\n"), 0600))
 
-	repo := newRepository(dir, WithSkipExamples(true), WithCalendarsDir(calendars),
+	repo := newRepository(dir, WithSkipExamples(true), WithCalendars(spec.NewCalendarSource(calendars)),
 		WithFileCache(fileutil.NewCache[*ir.DAG]("calendar-watch", 2, 0)))
 	reader := NewFileEntryReader(dir, repo, false, "", "", WatchCalendars(calendars))
 	require.NoError(t, reader.Init(t.Context()))
