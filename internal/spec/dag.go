@@ -765,7 +765,8 @@ func (s *dagBuildState) bindScheduleCalendars() {
 	if s.ctx.opts.Has(buildFlagBaseDefinition) {
 		return
 	}
-	today := ir.DateOf(time.Now())
+	now := time.Now()
+	today := ir.DateOf(now)
 	// reported holds the calendars already warned or failed about, so one
 	// calendar shared by several schedules is reported once.
 	reported := make(map[string]bool)
@@ -802,6 +803,13 @@ func (s *dagBuildState) bindScheduleCalendars() {
 		if warning := calendarExpiryWarning(cal, today); warning != "" && !reported[cal.Name] {
 			reported[cal.Name] = true
 			s.calendarWarnings = append(s.calendarWarnings, warning)
+		}
+		// The search covers the same years as cron's, so a zero next fire
+		// means the expression and the calendar never agree.
+		if sched.Next(now).IsZero() {
+			s.calendarWarnings = append(s.calendarWarnings, fmt.Sprintf(
+				"schedule %q never fires: no time it matches falls on a business day of calendar %q",
+				sched.Expression, sched.Calendar))
 		}
 	}
 }
