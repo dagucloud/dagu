@@ -1248,10 +1248,12 @@ func (u *sessionUse) retire(ctx context.Context, cause error) error {
 	return errors.Join(cause, err)
 }
 
+// release ends the command's hold on the session. A browser the command
+// attached and neither parked nor retired, as when it refused its input,
+// is left waiting for the next command.
 func (u *sessionUse) release() {
 	if u.eng != nil {
-		_ = u.eng.Detach(context.Background())
-		u.eng = nil
+		_ = u.park(context.Background(), u.state, u.sessions.now().Add(u.state.idleTimeout()))
 	}
 	u.stop()
 	_ = u.lock.Unlock()

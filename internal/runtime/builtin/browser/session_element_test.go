@@ -74,6 +74,10 @@ func TestSessionRefusesAnElementItCannotUse(t *testing.T) {
 		assert.ErrorContains(t, err, message, input)
 	}
 	assert.Empty(t, ts.engine.replays, "nothing reached the page")
+	summaries, err := ts.sessions.List(ts.context())
+	require.NoError(t, err)
+	require.Len(t, summaries, 1)
+	assert.Equal(t, SessionIdle, summaries[0].State, "a refused command leaves the session waiting for the next")
 }
 
 // An element operation may carry when and timeout, which its act keeps.
