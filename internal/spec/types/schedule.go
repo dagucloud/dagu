@@ -158,6 +158,28 @@ func parseScheduleEntry(v any, opts ir.ScheduleParseOptions) ([]ir.Schedule, err
 	}
 }
 
+// StartPath returns the YAML path of start schedule i in the document, such
+// as schedule[1] or schedule.start, and false when the document has none.
+func (s ScheduleValue) StartPath(i int) (string, bool) {
+	switch v := s.raw.(type) {
+	case string:
+		return "schedule", i == 0
+	case []any:
+		return fmt.Sprintf("schedule[%d]", i), i < len(v)
+	case map[string]any:
+		switch start := v["start"].(type) {
+		case nil:
+			return "", false
+		case []any:
+			return fmt.Sprintf("schedule.start[%d]", i), i < len(start)
+		default:
+			return "schedule.start", i == 0
+		}
+	default:
+		return "", false
+	}
+}
+
 // IsZero returns true if the schedule was not set in YAML.
 func (s ScheduleValue) IsZero() bool { return !s.isSet }
 

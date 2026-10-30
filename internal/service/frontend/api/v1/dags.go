@@ -105,9 +105,9 @@ func (a *API) ValidateDAGSpec(ctx context.Context, request api.ValidateDAGSpecRe
 }
 
 // ValidateDAGSpecData validates a DAG spec and returns its canonical form.
-func (a *API) ValidateDAGSpecData(ctx context.Context, name, spec string) (*api.ValidateDAGSpec200JSONResponse, *ir.DAG, error) {
+func (a *API) ValidateDAGSpecData(ctx context.Context, name, yamlSpec string) (*api.ValidateDAGSpec200JSONResponse, *ir.DAG, error) {
 	dag, err := a.dagRepository.LoadSpec(ctx,
-		[]byte(spec),
+		[]byte(yamlSpec),
 		name,
 		persis.DAGLoadOptions{AllowBuildErrors: true},
 	)
@@ -120,9 +120,7 @@ func (a *API) ValidateDAGSpecData(ctx context.Context, name, spec string) (*api.
 	}
 
 	if dag != nil && len(dag.BuildErrors) > 0 {
-		for _, e := range dag.BuildErrors {
-			errs = append(errs, e.Error())
-		}
+		errs = append(errs, spec.ErrorMessages([]byte(yamlSpec), dag.BuildErrors)...)
 	}
 
 	details := toDAGDetails(dag)
@@ -287,7 +285,7 @@ func (a *API) GetDAGSpec(ctx context.Context, request api.GetDAGSpecRequestObjec
 			errs = append(errs, err.Error())
 		}
 	} else {
-		errs = append(errs, extractBuildErrors(dag.BuildErrors)...)
+		errs = append(errs, spec.ErrorMessages([]byte(yamlSpec), dag.BuildErrors)...)
 	}
 	if err := a.requireWorkspaceVisible(ctx, dagWorkspaceName(dag)); err != nil {
 		return nil, err

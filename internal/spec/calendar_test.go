@@ -422,3 +422,32 @@ steps:
 		})
 	}
 }
+
+// Calendar errors name their field, so editors can mark the line: the
+// entry's calendar or business_days, or the DAG's calendar when an entry
+// took it.
+func TestCalendarErrorPositions(t *testing.T) {
+	t.Parallel()
+
+	dir := writeCalendars(t, map[string]string{"jp-banking": jpNationalCalendar})
+	data := []byte(`calendar: jp-bank
+schedule:
+  - "0 18 * * *"
+  - expression: "0 9 * * *"
+    calendar: opps
+  - expression: "0 3 * * *"
+    calendar: none
+    business_days: [1]
+steps:
+  - run: echo pay
+`)
+
+	dag, err := spec.LoadYAML(t.Context(), data, spec.WithCalendarsDir(dir), spec.WithAllowBuildErrors())
+	require.NoError(t, err)
+
+	assert.ElementsMatch(t, []string{
+		`[1:11] field 'calendar': unknown calendar "jp-bank"; available: jp-banking, weekdays`,
+		`[5:15] field 'schedule[1].calendar': unknown calendar "opps"; available: jp-banking, weekdays`,
+		`[8:20] field 'schedule[2].business_days': business_days needs a calendar: set calendar on the entry or the DAG`,
+	}, spec.ErrorMessages(data, dag.BuildErrors))
+}
