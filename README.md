@@ -165,6 +165,11 @@ dagu start hello.yaml
 
 ### Start the server
 
+#### One-click deploy
+
+<a href="https://repocloud.io/details/Dagu/"><img src="https://d16t0pc4846x52.cloudfront.net/deploylobe.svg" alt="Deploy on RepoCloud" height="42"></a>
+<a href="https://railway.com/deploy/dagu"><img src="https://railway.com/button.svg" alt="Deploy on Railway" height="42"></a>
+
 From that folder, run:
 
 ```sh
