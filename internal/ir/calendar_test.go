@@ -185,6 +185,40 @@ func TestCalendarSchedule(t *testing.T) {
 		assert.True(t, next.Equal(time.Date(2027, 1, 12, 1, 0, 0, 0, tokyo)), next)
 	})
 
+	// Sunday 5 September 2027 starts with a daylight saving jump in
+	// Santiago, so its midnight does not exist; the search must still move
+	// past the rejected Saturday.
+	t.Run("crosses a midnight daylight saving jump", func(t *testing.T) {
+		t.Parallel()
+
+		santiago, err := time.LoadLocation("America/Santiago")
+		require.NoError(t, err)
+		weekdays, _ := ir.BuiltinCalendar(ir.CalendarWeekdays)
+		schedule := boundSchedule(t, weekdays, map[string]any{"expression": "CRON_TZ=America/Santiago * * * * *"})
+
+		next := make(chan time.Time, 1)
+		go func() { next <- schedule.Next(time.Date(2027, 9, 3, 23, 59, 0, 0, santiago)) }()
+		select {
+		case got := <-next:
+			assert.True(t, got.Equal(time.Date(2027, 9, 6, 0, 0, 0, 0, santiago)), got)
+		case <-time.After(5 * time.Second):
+			t.Fatal("Next did not return")
+		}
+	})
+
+	// Catch-up deduplicates fire times by value, so a fire found after
+	// skipping days must keep the zone of the time it was searched from.
+	t.Run("returns fires in the zone of the search start", func(t *testing.T) {
+		t.Parallel()
+
+		weekdays, _ := ir.BuiltinCalendar(ir.CalendarWeekdays)
+		schedule := boundSchedule(t, weekdays, map[string]any{"expression": "CRON_TZ=Asia/Tokyo 0 18 * * *"})
+
+		next := schedule.Next(time.Date(2027, 1, 1, 12, 0, 0, 0, time.UTC))
+
+		assert.Equal(t, time.Date(2027, 1, 4, 9, 0, 0, 0, time.UTC), next)
+	})
+
 	t.Run("stops when no day qualifies", func(t *testing.T) {
 		t.Parallel()
 
