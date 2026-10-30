@@ -935,7 +935,7 @@ func buildBaseDAG(ctx buildContext, baseDef *dag) (*ir.DAG, error) {
 	buildOpts := ctx.opts
 	buildOpts.Parameters = ""
 	buildOpts.ParametersList = nil
-	buildOpts.Flags |= buildFlagDeferWorkerSelector
+	buildOpts.Flags |= buildFlagDeferWorkerSelector | buildFlagBaseDefinition
 
 	customStepTypes, err := buildCustomStepActionRegistry(stepTypesOf(baseDef), nil, actionsOf(baseDef), nil)
 	if err != nil {

@@ -759,8 +759,12 @@ func (s *dagBuildState) composeInheritedContext() {
 
 // bindScheduleCalendars gives each start schedule its effective calendar,
 // its own or the DAG's, and binds the calendar so the schedule fires on its
-// business days.
+// business days. A base config is left as written: its schedules take the
+// calendar of the DAG it merges into.
 func (s *dagBuildState) bindScheduleCalendars() {
+	if s.ctx.opts.Has(buildFlagBaseDefinition) {
+		return
+	}
 	today := ir.DateOf(time.Now())
 	// reported holds the calendars already warned or failed about, so one
 	// calendar shared by several schedules is reported once.

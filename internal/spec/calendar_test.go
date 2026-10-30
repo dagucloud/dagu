@@ -230,6 +230,36 @@ steps:
 		assert.Equal(t, time.Date(2027, 1, 4, 18, 0, 0, 0, time.UTC), dag.Schedule[0].Next(newYear))
 	})
 
+	// The base config is built on its own before it is merged, so a
+	// default applied then would erase an entry's opt-out and hide a DAG's
+	// own default.
+	t.Run("base schedules take the final DAG calendar", func(t *testing.T) {
+		t.Parallel()
+
+		base := filepath.Join(t.TempDir(), "base.yaml")
+		require.NoError(t, os.WriteFile(base, []byte(`
+calendar: jp-banking
+schedule:
+  - "0 18 * * *"
+  - expression: "0 3 * * *"
+    calendar: none
+`), 0o600))
+
+		dag, err := spec.LoadYAML(t.Context(), []byte(`
+calendar: weekdays
+steps:
+  - run: echo pay
+`), spec.WithCalendarsDir(dir), spec.WithBaseConfig(base))
+		require.NoError(t, err)
+
+		require.Len(t, dag.Schedule, 2)
+		assert.Equal(t, ir.CalendarWeekdays, dag.Schedule[0].Calendar)
+		assert.Equal(t, time.Date(2027, 1, 1, 18, 0, 0, 0, time.UTC), dag.Schedule[0].Next(newYear))
+		assert.Empty(t, dag.Schedule[1].Calendar)
+		saturday := time.Date(2027, 1, 2, 0, 0, 0, 0, time.UTC)
+		assert.Equal(t, time.Date(2027, 1, 2, 3, 0, 0, 0, time.UTC), dag.Schedule[1].Next(saturday))
+	})
+
 	t.Run("built-in calendars need no directory", func(t *testing.T) {
 		t.Parallel()
 
