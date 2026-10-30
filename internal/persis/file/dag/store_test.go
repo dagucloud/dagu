@@ -2719,3 +2719,33 @@ func TestCatalogBindsCalendars(t *testing.T) {
 	from := time.Date(2027, 1, 11, 0, 0, 0, 0, time.UTC)
 	assert.Equal(t, time.Date(2027, 1, 12, 18, 0, 0, 0, time.UTC), catalog.Items[0].NextRun(from))
 }
+
+// Cached metadata does not depend on calendar files as a whole, so plain
+// DAGs never reload for them; a DAG that names a calendar reloads when that
+// calendar changes.
+func TestMetadataFollowsCalendarEdits(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	dir := filepath.Join(root, "dags")
+	calendars := filepath.Join(root, "calendars")
+	require.NoError(t, os.MkdirAll(dir, 0750))
+	require.NoError(t, os.MkdirAll(calendars, 0750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "payroll.yaml"),
+		[]byte("calendar: jp\nschedule: \"0 18 * * *\"\nsteps:\n  - run: echo pay\n"), 0600))
+	calendarFile := filepath.Join(calendars, "jp.yaml")
+	require.NoError(t, os.WriteFile(calendarFile, []byte("holidays: [2027-01-01]\n"), 0600))
+
+	store := NewStore(dir, WithSkipExamples(true), WithIndexDir(filepath.Join(root, "index")),
+		WithCalendars(spec.NewCalendarSource(calendars)), WithFileCache(fileutil.NewCache[*ir.DAG]("calendars", 10, 0)))
+	from := time.Date(2027, 1, 11, 0, 0, 0, 0, time.UTC)
+
+	dag, err := store.GetMetadata(t.Context(), "payroll")
+	require.NoError(t, err)
+	require.Equal(t, time.Date(2027, 1, 11, 18, 0, 0, 0, time.UTC), dag.NextRun(from))
+
+	require.NoError(t, os.WriteFile(calendarFile, []byte("holidays: [2027-01-01, 2027-01-11]\n"), 0600))
+	dag, err = store.GetMetadata(t.Context(), "payroll")
+	require.NoError(t, err)
+	assert.Equal(t, time.Date(2027, 1, 12, 18, 0, 0, 0, time.UTC), dag.NextRun(from))
+}

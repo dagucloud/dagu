@@ -193,6 +193,7 @@ type Store struct {
 	workspaceBaseConfigDir string                   // Optional directory containing workspace base configs
 	calendars              *spec.CalendarSource     // Optional source of the calendar files schedules name
 	baseConfigState        string                   // Empty until first load so indexes from previous processes are invalidated
+	calendarsState         string                   // Calendar files as of the last index check
 	skipExamples           bool                     // Skip creating example DAGs
 	recursive              bool                     // Discover DAG definitions in subdirectories
 	symlinks               bool                     // Include recursive file symlinks and external targets
@@ -272,11 +273,10 @@ func (store *Store) refreshBaseConfigState() string {
 	store.baseConfigMu.Lock()
 	defer store.baseConfigMu.Unlock()
 
-	calendarsDir := store.calendarsDir()
-	if store.baseConfigPath == "" && store.workspaceBaseConfigDir == "" && calendarsDir == "" {
+	if store.baseConfigPath == "" && store.workspaceBaseConfigDir == "" {
 		return store.baseConfigState
 	}
-	state := describeDefinitionInputState(store.baseConfigPath, store.workspaceBaseConfigDir, calendarsDir)
+	state := describeBaseConfigStateSet(store.baseConfigPath, store.workspaceBaseConfigDir)
 	if state != store.baseConfigState {
 		if store.fileCache != nil {
 			store.fileCache.InvalidateAll()
@@ -285,6 +285,43 @@ func (store *Store) refreshBaseConfigState() string {
 		store.baseConfigState = state
 	}
 	return store.baseConfigState
+}
+
+// refreshCalendarsState rebuilds the index after the calendar files change,
+// so load errors naming a calendar follow its file. Metadata is not reset:
+// calendarsCurrent checks each cached DAG against its own calendars.
+func (store *Store) refreshCalendarsState() {
+	dir := store.calendarsDir()
+	if dir == "" {
+		return
+	}
+	state := describeCalendarsState(dir)
+	store.baseConfigMu.Lock()
+	defer store.baseConfigMu.Unlock()
+	if state != store.calendarsState {
+		store.invalidateIndex()
+		store.calendarsState = state
+	}
+}
+
+// calendarsCurrent reports whether the calendars bound to a cached DAG's
+// schedules are still current, so a calendar edit reloads only the DAGs
+// that name the calendar.
+func (store *Store) calendarsCurrent(dag *ir.DAG) bool {
+	if store.calendars == nil || dag == nil {
+		return true
+	}
+	for _, sched := range dag.Schedule {
+		if !sched.HasCalendar() {
+			continue
+		}
+		cal, err := store.calendars.Calendar(sched.Calendar)
+		bound, ok := sched.BoundCalendar()
+		if ok != (err == nil) || ok && bound.Digest != cal.Digest {
+			return false
+		}
+	}
+	return true
 }
 
 // calendarsDir returns the directory of the calendar files, or "" without a
@@ -421,9 +458,16 @@ func (store *Store) GetMetadata(ctx context.Context, name string) (*ir.DAG, erro
 	if store.fileCache == nil {
 		return spec.Load(ctx, resolved.ResolvedPath, loadOpts...)
 	}
-	return store.fileCache.LoadLatestByKey(store.metadataCacheKey(resolved, baseState), resolved.ResolvedPath, func() (*ir.DAG, error) {
+	key := store.metadataCacheKey(resolved, baseState)
+	load := func() (*ir.DAG, error) {
 		return spec.Load(ctx, resolved.ResolvedPath, loadOpts...)
-	})
+	}
+	dag, err := store.fileCache.LoadLatestByKey(key, resolved.ResolvedPath, load)
+	if err != nil || store.calendarsCurrent(dag) {
+		return dag, err
+	}
+	store.fileCache.Invalidate(key)
+	return store.fileCache.LoadLatestByKey(key, resolved.ResolvedPath, load)
 }
 
 // Cache keys include base state so an older in-flight load cannot replace current metadata.
@@ -575,6 +619,7 @@ func (store *Store) ensureDirExist() error {
 // loadIndex returns validated index entries, rebuilding the index when needed.
 func (store *Store) loadIndex(ctx context.Context, files []DiscoveredFile) ([]*indexv1.DAGIndexEntry, error) {
 	store.refreshBaseConfigState()
+	store.refreshCalendarsState()
 
 	store.indexMu.Lock()
 	defer store.indexMu.Unlock()
