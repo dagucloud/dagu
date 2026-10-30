@@ -515,6 +515,7 @@ steps:
       template: "Hello, {{ .name }}!"
       data:
         name: Alice
+      output: hello.txt
 `,
 		},
 		{
@@ -547,6 +548,18 @@ steps:
     with:
       template: "Hello"
       template_ref: ${env.TEMPLATE}
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectTemplateRenderUnknownField",
+			spec: `
+steps:
+  - action: template.render
+    with:
+      template: "Hello, {{ .name }}!"
+      datas:
+        name: Alice
 `,
 			wantErr: "did not validate",
 		},

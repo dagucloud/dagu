@@ -28,6 +28,7 @@ func TestTemplateErrors(t *testing.T) {
 		{"start", "missingkey.yaml", "map has no entry for key"},
 		{"validate", "parse_error.yaml", "template: parse error"},
 		{"validate", "missing_dot.yaml", `"report" is a with.data key and needs a leading dot`},
+		{"validate", "unknown_field.yaml", `unexpected additional properties ["datas"]; did you mean "data" instead of "datas"?`},
 	} {
 		t.Run(tc.file, func(t *testing.T) {
 			t.Parallel()

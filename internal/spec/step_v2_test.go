@@ -5,6 +5,7 @@ package spec
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -482,6 +483,11 @@ func TestStepSchemaV2_ActionJSRunErrors(t *testing.T) {
 		{name: "missing script", with: "input: 1", err: "with.script is required"},
 		{name: "blank script", with: "script: '  '", err: "with.script must be a non-empty string"},
 		{name: "both inputs", with: "script: return 1\n      input: 1\n      input_file: /tmp/x", err: "js.run does not allow both with.input and with.input_file"},
+		{
+			name: "unknown field",
+			with: "script: return 1\n      inputs: {n: '5'}",
+			err:  `invalid js config: validating root: unexpected additional properties ["inputs"]; did you mean "input" instead of "inputs"?`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -496,6 +502,25 @@ steps:
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.err)
 		})
+	}
+}
+
+func TestStepSchemaV2_ActionJSRunAcceptsEveryField(t *testing.T) {
+	t.Parallel()
+
+	for _, with := range []string{
+		"input: '5'\n      format: text\n      timeout: 5s",
+		"input_file: data.json\n      format: json\n      timeout: 30",
+	} {
+		_, err := LoadYAML(context.Background(), []byte(`
+steps:
+  - id: s
+    action: js.run
+    with:
+      script: return input
+      `+with+`
+`))
+		require.NoError(t, err, with)
 	}
 }
 
@@ -570,6 +595,25 @@ steps:
 			require.ErrorContains(t, err, tt.err)
 		})
 	}
+}
+
+func TestStepSchemaV2_ActionTemplateFields(t *testing.T) {
+	t.Parallel()
+
+	const yaml = `
+steps:
+  - id: render
+    action: template.render
+    with:
+      template: "Hello, {{ .name }}"
+      %s: {name: Alice}
+      output: hello.txt
+`
+	_, err := LoadYAML(context.Background(), fmt.Appendf(nil, yaml, "data"))
+	require.NoError(t, err)
+
+	_, err = LoadYAML(context.Background(), fmt.Appendf(nil, yaml, "datas"))
+	require.ErrorContains(t, err, `invalid template config: validating root: unexpected additional properties ["datas"]; did you mean "data" instead of "datas"?`)
 }
 
 func TestStepSchemaV2_ActionDataConvert(t *testing.T) {
