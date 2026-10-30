@@ -43,6 +43,9 @@ const (
 	// frame keeps its document, a form as it was filled in, and the browser
 	// does not count it among the requests allowed_domains blocked.
 	aborted = "Aborted"
+	// noReferrer is the referrer policy under which a page sends no
+	// Referer.
+	noReferrer = "no-referrer"
 )
 
 // Control paths, under the token.
@@ -453,6 +456,9 @@ type pausedRequest struct {
 		Headers      map[string]string `json:"headers"`
 		PostData     string            `json:"postData"`
 		PostDataSize int64             `json:"postDataSize"`
+		// ReferrerPolicy is the policy the request was sent under, which
+		// tells a page that withheld its address.
+		ReferrerPolicy string `json:"referrerPolicy"`
 	} `json:"request"`
 	ResponseHeaders []header `json:"responseHeaders"`
 }
@@ -490,13 +496,9 @@ func (g *gate) paused(sessionID string, params json.RawMessage) {
 		Method: p.Request.Method, URL: p.Request.URL, ResourceType: p.ResourceType,
 		Body: []byte(p.Request.PostData), BodyBytes: max(p.Request.PostDataSize, int64(len(p.Request.PostData))),
 	}
-	referred := false
 	for name, value := range p.Request.Headers {
-		switch {
-		case strings.EqualFold(name, "Content-Type"):
+		if strings.EqualFold(name, "Content-Type") {
 			req.ContentType = value
-		case strings.EqualFold(name, "Referer"):
-			referred = value != ""
 		}
 	}
 	class, write := g.rules.classify(req, g.person.Load())
@@ -529,10 +531,7 @@ func (g *gate) paused(sessionID string, params json.RawMessage) {
 	switch {
 	case req.ResourceType != resourceDocument:
 		g.send(sessionID, "Fetch.failRequest", map[string]any{"requestId": p.RequestID, "errorReason": accessDenied})
-	case req.Method != http.MethodGet || referred:
-		// A page started the load, as a form or a link does. The browser's
-		// own load of an address is a GET that names no page as its
-		// Referer.
+	case startedByPage(p):
 		g.send(sessionID, "Fetch.failRequest", map[string]any{"requestId": p.RequestID, "errorReason": aborted})
 	default:
 		g.send(sessionID, "Fetch.fulfillRequest", map[string]any{
@@ -541,6 +540,25 @@ func (g *gate) paused(sessionID string, params json.RawMessage) {
 			"body":            base64.StdEncoding.EncodeToString([]byte(notSentPage)),
 		})
 	}
+}
+
+// startedByPage reports whether a page started the load p asks for, as a
+// form or a link does, rather than the browser on its own, as a goto does.
+// Only a page loads a document with a method other than GET, and a page's
+// load names the page as its Referer unless the page or the link withholds
+// it with the no-referrer policy. A load whose Referer the policy drops for
+// another reason, such as going from HTTPS to HTTP, is taken for the
+// browser's own.
+func startedByPage(p pausedRequest) bool {
+	if p.Request.Method != http.MethodGet || p.Request.ReferrerPolicy == noReferrer {
+		return true
+	}
+	for name, value := range p.Request.Headers {
+		if strings.EqualFold(name, "Referer") && value != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // describe returns the event of a write.

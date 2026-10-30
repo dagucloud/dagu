@@ -53,8 +53,8 @@ const siteFrames = `<!doctype html><html><head><title>Frames</title></head>
 <frameset cols="30%,70%"><frame name="menu" src="/menu"><frame name="body" src="/"></frameset></html>`
 
 const siteMenu = `<!doctype html><html><head><title>Menu</title></head><body>
-<form id="form" method="post" action="/w/frame" target="body"><input name="page" value="next"></form>
-<form id="read" method="get" action="/w/menu" target="body"><input name="page" value="next"></form></body></html>`
+<form id="form" method="post" action="/w/frame" target="body"><input name="title" value="next"></form>
+<form id="read" method="get" action="/w/menu" target="body"><input name="title" value="next"></form></body></html>`
 
 const siteIframe = `<!doctype html><html><head><title>Outer</title></head><body><iframe name="inner" src="/"></iframe></body></html>`
 
@@ -494,12 +494,19 @@ func TestGateHoldsAFormOnItsPage(t *testing.T) {
 			controls, _, _ := guard(t, b, writegate.Policy{}, nil)
 			p := openPage(t, b)
 			p.goTo(s.URL + tc.path)
-			field := tc.shown + `.document.querySelector('[name=title]').value`
-			p.eval(field + ` = 'filled in'; 1`)
+			// The form and the frame it loads are both filled in, and both
+			// stay so.
+			frames := []string{tc.form, tc.shown}
+			field := func(frame string) string { return frame + `.document.querySelector('[name=title]').value` }
+			for _, frame := range frames {
+				p.eval(field(frame) + ` = 'filled in'; 1`)
+			}
 			p.submit(tc.form, "form")
 
 			assert.Equal(t, s.URL+"/", p.eval(tc.shown+`.location.href`))
-			assert.Equal(t, "filled in", p.eval(field))
+			for _, frame := range frames {
+				assert.Equal(t, "filled in", p.eval(field(frame)), frame)
+			}
 			assert.Empty(t, s.written())
 			held, ok := find(events(t, controls), tc.write)
 			require.True(t, ok)
@@ -520,7 +527,7 @@ func TestGateLoadsAFormThatReads(t *testing.T) {
 	p.goTo(s.URL + "/frames")
 	p.submit("frames.menu", "read")
 
-	assert.Equal(t, s.URL+"/w/menu?page=next", p.eval(`frames.body.location.href`))
+	assert.Equal(t, s.URL+"/w/menu?title=next", p.eval(`frames.body.location.href`))
 	_, ok := find(events(t, controls), "/w/menu")
 	assert.False(t, ok, "a read is not an event")
 }
@@ -540,6 +547,9 @@ func TestGateHoldsALoadByWhoStartedIt(t *testing.T) {
 
 	p.load(`location.href = '/w/delete'`)
 	assert.Equal(t, s.URL+"/", p.eval(`location.href`))
+	// A link that withholds the page's address names no Referer.
+	p.load(`const a = document.createElement('a'); a.href = '/w/delete'; a.rel = 'noreferrer'; document.body.append(a); a.click()`)
+	assert.Equal(t, s.URL+"/", p.eval(`location.href`))
 	p.goTo(s.URL + "/w/delete")
 	assert.Equal(t, "Not sent", p.eval(`document.title`))
 
@@ -547,7 +557,7 @@ func TestGateHoldsALoadByWhoStartedIt(t *testing.T) {
 	for _, e := range events(t, controls) {
 		outcomes = append(outcomes, strings.TrimPrefix(e.URL, s.URL)+" "+e.Outcome)
 	}
-	assert.Equal(t, []string{"/w/delete blocked", "/w/delete blocked"}, outcomes)
+	assert.Equal(t, []string{"/w/delete blocked", "/w/delete blocked", "/w/delete blocked"}, outcomes)
 }
 
 // A page loaded before the gate started is paused at its own target, so
