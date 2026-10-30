@@ -35,7 +35,7 @@ const ledgerPage = `<!doctype html><html><head><title>Ledger</title></head><body
 <p id="status">ready</p>
 <label>Password <input id="password" type="password"></label>
 <button onclick="post('/api/entries', JSON.stringify({amount: 1000, memo: 'taxi'}), 'application/json')">Save entry</button>
-<form method="post" action="/entries"><input name="amount" value="1000"><button type="submit">Submit form</button></form>
+<form method="post" action="/entries"><label>Amount <input name="amount" value="1000"></label><button type="submit">Submit form</button></form>
 <a href="/entries/1/delete">Delete entry</a>
 <button onclick="worker()">Start worker</button>
 <button onclick="navigator.sendBeacon('/beacon', 'x'); say('beacon sent')">Send beacon</button>
@@ -169,6 +169,7 @@ type gatedResult struct {
 	ID        string  `json:"id"`
 	CDPURL    string  `json:"cdp_url"`
 	Status    string  `json:"status"`
+	URL       string  `json:"url"`
 	Outline   string  `json:"outline"`
 	WriteGate string  `json:"write_gate"`
 	Writes    []write `json:"writes"`
@@ -450,4 +451,34 @@ func TestSessionRecordSendsAnAllowedWrite(t *testing.T) {
 	listed := g.dagu.RunWithEnv(g.env, "browser", "writes", "list", "books")
 	listed.ExpectExitCode(0)
 	assert.Contains(t, listed.Stdout(), signature)
+}
+
+// A form a recording session holds stays on the page as it was filled in,
+// so the same click, allowed its write, sends what was filled in.
+func TestSessionRecordSendsAHeldForm(t *testing.T) {
+	t.Parallel()
+
+	g := newGateEnv(t)
+	opened := g.open("--write-gate", "record")
+	typed := g.session(fmt.Sprintf(`{"type": {"into": %q, "text": "2500"}}`, g.find(opened.ID, "Amount")), "do", opened.ID)
+	typed.ExpectExitCode(0)
+	submit := fmt.Sprintf(`{"click": %q}`, g.find(opened.ID, "Submit form"))
+
+	held := g.session(submit, "do", opened.ID)
+	held.ExpectNonZeroExitCode()
+	refused := decode(t, held)
+	require.NotNil(t, refused.Error)
+	assert.Equal(t, "write_blocked", refused.Error.Code)
+	assert.Equal(t, g.ledger.url+"/", refused.URL, "the page stays")
+	require.Len(t, refused.Writes, 1)
+	sent, _ := g.ledger.written()
+	assert.Empty(t, sent)
+
+	allowed := g.session(submit, "do", opened.ID, "--allow-write", refused.Writes[0].Signature)
+	allowed.ExpectExitCode(0)
+	approved := byPath(decode(t, allowed).Writes)["/entries"]
+	assert.Equal(t, "approved sent", approved.Class+" "+approved.Outcome)
+	assert.Equal(t, "amount=2500", approved.Body)
+	sent, _ = g.ledger.written()
+	assert.Equal(t, map[string]int{"/entries": 1}, sent)
 }
