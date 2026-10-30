@@ -27,7 +27,9 @@ func TestFrameLoadWatcherTellsLoadingFrames(t *testing.T) {
 	t.Parallel()
 
 	fake := newScriptedBrowser(t, func(command cdpCommand) []cdpEvent {
-		if command.Method == "Target.setAutoAttach" {
+		// The browser's pages attach to the browser's own session; a page's
+		// session has no frames of its own here.
+		if command.Method == "Target.setAutoAttach" && command.SessionID == "" {
 			return []cdpEvent{pageAttached("page-1", "target-1"), pageAttached("page-2", "target-2")}
 		}
 		return nil
