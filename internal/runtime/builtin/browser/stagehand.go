@@ -593,6 +593,9 @@ type stagehandEngine struct {
 	loads     *browserhost.FrameLoadWatcher
 	// acted is when the last action or goto began; zero before the first.
 	acted time.Time
+	// held holds the windows heldWindows last found held, by target ID,
+	// with the target IDs of their openers.
+	held map[string]string
 	// blocked counts requests allowed_domains blocks; nil without
 	// allowed_domains.
 	blocked *browserhost.BlockedRequestWatcher
@@ -663,23 +666,24 @@ func (e *stagehandEngine) page(ctx context.Context) (*stagehand.Page, error) {
 // target ID of the page that opened it. A window is held when the last
 // action both opened it and made its opener load a document, as a search
 // does that opens a "searching" window and posts into a frame whose answer
-// closes the window. It stays held while the opener loads and for
-// settleQuiet after, which a window the answer closes takes to go; a window
-// still open then is a page in its own right, such as a form to fill in.
+// closes the window. It stays held, through later actions too, while the
+// opener loads and for settleQuiet after, which a window the answer closes
+// takes to go; a window still open then is a page in its own right, such
+// as a form to fill in.
 func (e *stagehandEngine) heldWindows() map[string]string {
 	held := map[string]string{}
-	if e.acted.IsZero() {
-		return held
-	}
 	for _, window := range e.loads.Windows() {
 		load := e.loads.PageLoad(window.Opener)
-		if window.Opened.Before(e.acted) || load.Began.Before(e.acted) {
+		_, wasHeld := e.held[window.TargetID]
+		opened := !e.acted.IsZero() && !window.Opened.Before(e.acted) && !load.Began.Before(e.acted)
+		if !wasHeld && !opened {
 			continue
 		}
 		if load.Loading || time.Since(load.Ended) < settleQuiet {
 			held[window.TargetID] = window.Opener
 		}
 	}
+	e.held = held
 	return held
 }
 

@@ -750,7 +750,7 @@ func TestStagehandWaitsForTheFrameAPressLoads(t *testing.T) {
 // window as it loads; Search for details opens a details window that stays
 // while it posts the same search. Choose region opens a window to tick
 // regions in, which stays until Register gives them to the menu and closes
-// it.
+// it. Mark marks the menu.
 func serveWindowedSearch(t *testing.T, delay time.Duration) string {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -771,6 +771,7 @@ function closeSearching() { if (top.searching) top.searching.close(); }
 <button onclick="top.openSearching(); document.getElementById('search').submit()">Search</button>
 <button onclick="window.open('/regions', 'regions', 'width=800,height=600')">Choose region</button>
 <button onclick="window.open('/details', 'details', 'width=800,height=600'); document.getElementById('search').submit()">Search for details</button>
+<button onclick="document.getElementById('region').textContent = 'Marked'">Mark</button>
 <script>function setRegion(name) { document.getElementById('region').textContent = name; }</script>`)
 		case "/regions":
 			_, _ = io.WriteString(w, `<title>Regions</title><label><input type="checkbox" value="Chiba">Chiba</label>
@@ -844,23 +845,31 @@ func TestStagehandWorksBehindASearchingWindow(t *testing.T) {
 }
 
 // A search whose answer outlasts its timeout returns when the timeout ends,
-// and the operations that follow work on the page that searched while the
-// "searching" window is still up, until the answer closes it.
+// and the operations that follow, a later press too, work on the page that
+// searched while the "searching" window is still up, until the answer
+// closes it.
 func TestStagehandSearchingWindowWaitEndsWithTimeout(t *testing.T) {
 	t.Parallel()
 
 	eng := launchBrowser(t, launchOptions{Generate: (&shopModel{}).generate})
-	answer := 8 * time.Second
+	timeout := time.Second
+	// An operation is abandoned callTimeoutSlack after its timeout at the
+	// latest; the answer comes well after that.
+	answer := timeout + callTimeoutSlack + 3*time.Second
 	require.NoError(t, eng.Goto(t.Context(), serveWindowedSearch(t, answer), time.Minute))
 	eng.(*stagehandEngine).settleWait = 200 * time.Millisecond
 
 	began := time.Now()
-	require.NoError(t, windowedSearchPress(t.Context(), eng, 1, time.Second))
-	assert.Less(t, time.Since(began), answer-2*time.Second, "the search waited past its timeout for the answer")
+	require.NoError(t, windowedSearchPress(t.Context(), eng, 1, timeout))
+	assert.Less(t, time.Since(began), timeout+callTimeoutSlack, "the search waited past its timeout")
 	snap, err := eng.Snapshot(t.Context())
 	require.NoError(t, err)
 	assert.Contains(t, snap.Tree, "Choose region", "the page that searched")
 	assert.NotContains(t, snap.Tree, "Searching")
+	require.NoError(t, windowedSearchPress(t.Context(), eng, 4, timeout), "a press on the page that searched")
+	text, err := eng.PageText(t.Context())
+	require.NoError(t, err)
+	assert.Contains(t, text, "Marked")
 	require.Eventually(t, func() bool {
 		text, err := eng.PageText(t.Context())
 		return err == nil && strings.Contains(text, "Road repair")
