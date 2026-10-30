@@ -116,6 +116,22 @@ func TestCalendarFires(t *testing.T) {
 	}
 }
 
+// --from moves the start of the listing, not the zone of schedules that
+// name none: they still run in core.tz.
+func TestCalendarFiresFromKeepsServerZone(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	env := append(calendarsEnv(dagu), "DAGU_TZ=Asia/Tokyo")
+	result := dagu.RunWithEnv(env, "calendar", "fires", "fires_server_zone.yaml",
+		"--from", "2027-01-03T23:30:00Z", "--count", "1")
+	result.ExpectExitCode(0)
+	want := []string{"TIME SCHEDULE NOTE", "Mon 2027-01-04 09:00 +09:00 0 9 * * *"}
+	if got := normalizedLines(result.Stdout()); !slices.Equal(got, want) {
+		t.Fatalf("calendar fires printed:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
 func TestCalendarCheck(t *testing.T) {
 	t.Parallel()
 

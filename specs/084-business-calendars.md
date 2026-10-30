@@ -101,7 +101,9 @@ Every surface that reports fire times uses this rule: the scheduler, catch-up,
 schedule whose calendar cannot be loaded never fires.
 
 `dagu calendar fires <DAG> [--from T] [--count N]` lists the next fires after
-`T` (an RFC 3339 time, default now), ten by default. Each row has the fire time
+`T` (an RFC 3339 time, default now), ten by default. `T` sets only the start
+of the listing; schedules without a time zone prefix are still evaluated in
+`core.tz`. Each row has the fire time
 with its offset, the schedule expression, and a note: the listed business day
 the fire matched (`3rd business day`, `last business day`), `extra business
 day`, and, for an entry without `business_days`, each holiday since the
@@ -110,8 +112,8 @@ previous fire on which the expression alone would have fired
 
 `dagu calendar check [files...]` validates calendar files, by default every
 file in `paths.calendars_dir`. A file given as a path resolves `include`
-against the files beside it. The command exits non-zero when any calendar is
-invalid.
+against the files beside it. A file named after a reserved name is reported
+as invalid. The command exits non-zero when any calendar is invalid.
 
 ## Errors
 
@@ -135,5 +137,6 @@ weekday, an include cycle, or an included calendar that does not exist.
 
 `conformance/spec084_calendars/` checks schedule validation with calendars, the
 rows `dagu calendar fires` prints for holidays, business days, extra business
-days, and the built-in calendar, `dagu calendar check` on valid and invalid
-files, and that `dagu ls -n` skips holidays.
+days, and the built-in calendar, that `--from` keeps `core.tz`,
+`dagu calendar check` on valid and invalid files, and that `dagu ls -n` skips
+holidays.
