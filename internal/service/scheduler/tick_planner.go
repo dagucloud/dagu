@@ -1317,6 +1317,8 @@ func (tp *TickPlanner) startFlusher(ctx context.Context) {
 }
 
 // drainEvents continuously processes DAG change events. Blocks until ctx is done.
+// Events already queued, such as those of one directory refresh, are saved
+// together; a lone event is saved at once.
 func (tp *TickPlanner) drainEvents(ctx context.Context) {
 	for {
 		select {
@@ -1326,21 +1328,47 @@ func (tp *TickPlanner) drainEvents(ctx context.Context) {
 			if !ok {
 				return
 			}
-			tp.entryMu.Lock()
-			tp.handleEvent(ctx, event)
-			tp.entryMu.Unlock()
+			if tp.applyQueuedEvents(ctx, event) {
+				tp.Flush(ctx)
+			}
 		}
 	}
 }
 
-// handleEvent processes a single DAG change event.
-func (tp *TickPlanner) handleEvent(ctx context.Context, event DAGChangeEvent) {
+// applyQueuedEvents applies event and the events queued behind it, and
+// reports whether watermark state changed. Each event takes entryMu on its
+// own, so Plan can run between them.
+func (tp *TickPlanner) applyQueuedEvents(ctx context.Context, event DAGChangeEvent) bool {
+	changed := false
+	for {
+		tp.entryMu.Lock()
+		changed = tp.applyEvent(ctx, event) || changed
+		tp.entryMu.Unlock()
+
+		if ctx.Err() != nil {
+			return changed
+		}
+		select {
+		case next, ok := <-tp.cfg.Events:
+			if !ok {
+				return changed
+			}
+			event = next
+		default:
+			return changed
+		}
+	}
+}
+
+// applyEvent processes a single DAG change event and reports whether
+// watermark state changed and needs saving.
+func (tp *TickPlanner) applyEvent(ctx context.Context, event DAGChangeEvent) bool {
 	flushNow := false
 
 	switch event.Type {
 	case DAGChangeAdded:
 		if event.DAG == nil {
-			return
+			return false
 		}
 		dagName := event.DAG.Name
 		active, activeOK := tp.activeDAGSchedules(ctx, event.DAGEntry)
@@ -1359,7 +1387,7 @@ func (tp *TickPlanner) handleEvent(ctx context.Context, event DAGChangeEvent) {
 
 	case DAGChangeUpdated:
 		if event.DAG == nil {
-			return
+			return false
 		}
 		dagName := event.DAG.Name
 		active, activeOK := tp.activeDAGSchedules(ctx, event.DAGEntry)
@@ -1381,7 +1409,7 @@ func (tp *TickPlanner) handleEvent(ctx context.Context, event DAGChangeEvent) {
 
 	case DAGChangeDeleted:
 		if event.DAG == nil {
-			return
+			return false
 		}
 		dagName := event.DAG.Name
 		delete(tp.entries, dagName)
@@ -1394,9 +1422,7 @@ func (tp *TickPlanner) handleEvent(ctx context.Context, event DAGChangeEvent) {
 		logger.Info(ctx, "Planner: DAG deleted", tag.DAG(dagName))
 	}
 
-	if flushNow {
-		tp.Flush(ctx)
-	}
+	return flushNow
 }
 
 func (tp *TickPlanner) reconcileOneOffSchedules(dag *ir.DAG, active activeDAGSchedules) bool {
@@ -1621,7 +1647,7 @@ func (tp *TickPlanner) recomputeBuffer(ctx context.Context, entry DAGEntry, acti
 	}
 
 	// Snapshot needed values under the lock to avoid reading the shared map
-	// after releasing it (Advance and handleEvent can modify DAGs concurrently).
+	// after releasing it (Advance and applyEvent can modify DAGs concurrently).
 	tp.mu.RLock()
 	lastTick := tp.watermarkState.LastTick
 	var lastScheduledTime time.Time
