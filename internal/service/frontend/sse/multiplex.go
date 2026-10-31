@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -265,6 +266,27 @@ func (m *Multiplexer) WakeTopicType(topicType TopicType) {
 	}
 	for _, topic := range topics {
 		topic.requestPoll(batch)
+	}
+}
+
+// wakeDAGFileTopics requests an immediate refetch for the active topics of the
+// given type that name the DAG file. fileName has no YAML extension, as
+// ir.DAG.FileName returns it; a client can name the file with or without one.
+func (m *Multiplexer) wakeDAGFileTopics(topicType TopicType, fileName string) {
+	if fileName == "" {
+		return
+	}
+	m.mu.RLock()
+	var topics []*multiplexTopic
+	for _, topic := range m.topics {
+		if topic != nil && topic.topicType == topicType &&
+			(topic.identifier == fileName || fileutil.TrimYAMLFileExtension(topic.identifier) == fileName) {
+			topics = append(topics, topic)
+		}
+	}
+	m.mu.RUnlock()
+	for _, topic := range topics {
+		topic.requestPoll(nil)
 	}
 }
 
