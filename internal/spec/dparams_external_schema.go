@@ -5,9 +5,15 @@ package spec
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"maps"
+	"reflect"
+	"slices"
 	"sort"
+	"strconv"
+	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/google/jsonschema-go/jsonschema"
@@ -135,7 +141,11 @@ func resolveExternalSchemaEntries(plan *dagParamPlan, rawParams string, paramsLi
 		return nil, err
 	}
 
-	return appendPassThroughEntries(entriesFromTypedMap(typedMap, plan.schemaOrder), passThroughPairs), nil
+	entries, err := keepUntypedValueText(entriesFromTypedMap(typedMap, plan.schemaOrder), typedMap, slices.Concat(basePairs, overridePairs), plan.schema, plan.schemaProperties)
+	if err != nil {
+		return nil, err
+	}
+	return appendPassThroughEntries(entries, passThroughPairs), nil
 }
 
 func validateSchemaMap(values map[string]any, schema *jsonschema.Resolved, metadataMode bool) (map[string]any, error) {
@@ -177,6 +187,39 @@ func schemaPairsToMap(pairs []paramPair, properties map[string]*jsonschema.Schem
 		result[pair.Name] = value
 	}
 	return result, nil
+}
+
+// keepUntypedValueText gives each value the schema does not type the text the
+// caller supplied. Such values are decoded only for validation, and encoding
+// the decoded form again would change them, such as 1.10 becoming 1.1. A value
+// that schema defaults filled is encoded again with its numbers as written.
+func keepUntypedValueText(entries []dagParamEntry, validated map[string]any, pairs []paramPair, schema *jsonschema.Resolved, properties map[string]*jsonschema.Schema) ([]dagParamEntry, error) {
+	supplied := make(map[string]string, len(pairs))
+	for _, pair := range pairs {
+		if pair.Name == "" {
+			continue
+		}
+		if _, typed := schemaScalarType(properties[pair.Name]); !typed {
+			supplied[pair.Name] = pair.Value
+		}
+	}
+	for i := range entries {
+		name := entries[i].Name
+		text, ok := supplied[name]
+		if !ok {
+			continue
+		}
+		if reflect.DeepEqual(parseJSONLikeValue(text), validated[name]) {
+			entries[i].Value = text
+			continue
+		}
+		filled := map[string]any{name: parseJSONNumberValue(text)}
+		if err := schema.ApplyDefaults(&filled); err != nil {
+			return nil, fmt.Errorf("failed to apply schema defaults: %w", err)
+		}
+		entries[i].Value = stringifyTypedValue(filled[name])
+	}
+	return entries, nil
 }
 
 func coerceSchemaPairValue(name, raw string, schema *jsonschema.Schema, allowSchemaFallbackJSON bool) (any, error) {
@@ -414,10 +457,76 @@ func stringifyUntypedValue(value any) string {
 	}
 }
 
+// parseJSONLikeValue decodes value as JSON for schema validation, or returns it
+// as is when it is not JSON. Integers that fit in 64 bits keep their exact
+// value, so bounds are checked against the number the run receives.
 func parseJSONLikeValue(value string) any {
-	var decoded any
-	if err := json.Unmarshal([]byte(value), &decoded); err == nil {
-		return decoded
+	decoded, ok := decodeJSONNumbers(value)
+	if !ok {
+		return value
 	}
-	return value
+	if decoded, ok = validationNumbers(decoded); !ok {
+		return value
+	}
+	return decoded
+}
+
+// parseJSONNumberValue decodes value like parseJSONLikeValue but keeps each
+// number as written.
+func parseJSONNumberValue(value string) any {
+	decoded, ok := decodeJSONNumbers(value)
+	if !ok {
+		return value
+	}
+	return decoded
+}
+
+func decodeJSONNumbers(value string) (any, bool) {
+	decoder := json.NewDecoder(strings.NewReader(value))
+	decoder.UseNumber()
+	var decoded any
+	if err := decoder.Decode(&decoded); err != nil {
+		return nil, false
+	}
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
+		return nil, false
+	}
+	return decoded, true
+}
+
+// validationNumbers replaces each json.Number in value with a Go number, which
+// the schema validator requires. It reports false for a number out of float64
+// range, as json.Unmarshal does.
+func validationNumbers(value any) (any, bool) {
+	switch v := value.(type) {
+	case json.Number:
+		if n, err := v.Int64(); err == nil {
+			return n, true
+		}
+		if n, err := strconv.ParseUint(v.String(), 10, 64); err == nil {
+			return n, true
+		}
+		f, err := v.Float64()
+		return f, err == nil
+	case map[string]any:
+		for key, item := range v {
+			converted, ok := validationNumbers(item)
+			if !ok {
+				return nil, false
+			}
+			v[key] = converted
+		}
+		return v, true
+	case []any:
+		for i, item := range v {
+			converted, ok := validationNumbers(item)
+			if !ok {
+				return nil, false
+			}
+			v[i] = converted
+		}
+		return v, true
+	default:
+		return v, true
+	}
 }
