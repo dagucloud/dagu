@@ -169,6 +169,30 @@ func TestAvailability(t *testing.T) {
 	require.EqualValues(t, len(fx.all), av.TotalCount)
 }
 
+// A changed aggregate file is read again, so a rewritten closed day counts at
+// once.
+func TestAvailabilityAfterAggregateChange(t *testing.T) {
+	fx := newFixture(t)
+	ctx := context.Background()
+	before, err := fx.reader().Availability(ctx, fx.now)
+	require.NoError(t, err)
+
+	threeDaysAgo := fx.now.Unix() - 3*86400
+	file := newStore(fx.dir).listRange(TierMinute, threeDaysAgo, threeDaysAgo+1)[0]
+	aggs, err := readAggFile(file.path)
+	require.NoError(t, err)
+	var buf []byte
+	for _, a := range aggs[1:] {
+		buf = a.appendJSON(buf)
+	}
+	require.NoError(t, writeFile(file.path, buf))
+
+	after, err := fx.reader().Availability(ctx, fx.now)
+	require.NoError(t, err)
+	require.Equal(t, Window7d, after.Windows[1].Window)
+	require.Equal(t, before.Windows[1].Count-aggs[0].N, after.Windows[1].Count)
+}
+
 // The 24 hours window starts 24 hours before now, to the second, and the
 // longer windows count a sample once.
 func TestAvailability24hCutoff(t *testing.T) {

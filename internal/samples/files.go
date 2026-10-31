@@ -17,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 )
 
 const (
@@ -287,10 +289,34 @@ func scanAggs(path string, lo, hi int64, fn func(a agg)) error {
 	})
 }
 
-func readAggFile(path string) ([]agg, error) {
-	var out []agg
-	err := scanAggs(path, -1<<62, 1<<62, func(a agg) { out = append(out, a) })
-	return out, err
+// aggCount is the part of an aggregate that the availability and the streak
+// read.
+type aggCount struct {
+	t    int64
+	n, f uint64
+}
+
+// aggCountCacheSize bounds the cached files; the counts of a minute file take
+// about 35 KB.
+const aggCountCacheSize = 128
+
+// aggCounts keeps the counts of aggregate files across queries, because the
+// availability reads a week of minute files that rarely change.
+var aggCounts = fileutil.NewCache[[]aggCount]("samples_agg_counts", aggCountCacheSize, 0)
+
+// readAggCounts returns the counts of the aggregates of a file, in order. A
+// file is read again when its size or modification time changes.
+func readAggCounts(path string) ([]aggCount, error) {
+	counts, err := aggCounts.LoadLatest(path, func() ([]aggCount, error) {
+		var out []aggCount
+		err := scanAggs(path, -1<<62, 1<<62, func(a agg) { out = append(out, aggCount{a.T, a.N, a.F}) })
+		return out, err
+	})
+	if errors.Is(err, fs.ErrNotExist) {
+		aggCounts.Invalidate(path)
+		return nil, nil
+	}
+	return counts, err
 }
 
 // writeFile replaces a file. The write goes to a temporary file that is
