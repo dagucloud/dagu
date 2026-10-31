@@ -432,33 +432,46 @@ func TestHarnessStopContinuesAfterManagedAbort(t *testing.T) {
 func TestOpenCodeInterruptAwaitsIdle(t *testing.T) {
 	t.Parallel()
 
-	t.Run("settles after interrupt", func(t *testing.T) {
-		t.Parallel()
-		host := newIdleTestHost(t, http.StatusOK, 2)
-		require.NoError(t, host.client.interruptAndAwaitIdle(t.Context(), "session-1"))
-		assert.Equal(t, 1, host.interrupts())
-		assert.Equal(t, 3, host.statusPolls())
-	})
-	t.Run("rejected interrupt of idle session", func(t *testing.T) {
-		t.Parallel()
-		host := newIdleTestHost(t, http.StatusInternalServerError, 0)
-		require.NoError(t, host.client.interruptAndAwaitIdle(t.Context(), "session-1"))
-	})
-	t.Run("missing session", func(t *testing.T) {
-		t.Parallel()
-		host := newIdleTestHost(t, http.StatusNotFound, -1)
-		require.NoError(t, host.client.interruptAndAwaitIdle(t.Context(), "session-1"))
-		assert.Zero(t, host.statusPolls())
-	})
-	t.Run("still busy at deadline", func(t *testing.T) {
-		t.Parallel()
-		host := newIdleTestHost(t, http.StatusOK, -1)
-		ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
-		defer cancel()
-		err := host.client.interruptAndAwaitIdle(ctx, "session-1")
-		require.ErrorIs(t, err, context.DeadlineExceeded)
-		assert.Contains(t, err.Error(), "still busy")
-	})
+	const statusPoll = "GET /session/status"
+	for _, tc := range []struct {
+		name            string
+		interruptStatus int
+		busy            bool
+		wantErr         error
+		wantPolls       int
+	}{
+		{name: "settles after interrupt", busy: true, wantPolls: 2},
+		{name: "rejected interrupt of idle session", interruptStatus: http.StatusInternalServerError, wantPolls: 1},
+		{name: "missing session", interruptStatus: http.StatusNotFound, busy: true},
+		{name: "still busy at deadline", interruptStatus: http.StatusInternalServerError, busy: true, wantErr: context.DeadlineExceeded},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			host := newManagedTestHost(t, func(h *managedTestHost) {
+				h.interruptStatus = tc.interruptStatus
+				h.busy["session-1"] = tc.busy
+			})
+			client := &openCodeClient{host: host.config, http: newOpenCodeHTTPClient(time.Second)}
+			ctx := t.Context()
+			if tc.wantErr != nil {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, 300*time.Millisecond)
+				defer cancel()
+			}
+
+			err := client.interruptAndAwaitIdle(ctx, "session-1")
+
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				assert.Contains(t, err.Error(), "still busy")
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, "POST /session/session-1/abort", host.requestLog()[0])
+			assert.Equal(t, tc.wantPolls, host.count(statusPoll))
+		})
+	}
+
 	t.Run("unreachable host", func(t *testing.T) {
 		t.Parallel()
 		server := httptest.NewServer(http.NotFoundHandler())
@@ -469,56 +482,6 @@ func TestOpenCodeInterruptAwaitsIdle(t *testing.T) {
 		require.ErrorIs(t, client.interruptAndAwaitIdle(ctx, "session-1"), errManagedHostUnavailable)
 		require.NoError(t, ctx.Err(), "an unreachable host must not consume the cleanup budget")
 	})
-}
-
-// idleTestHost is an OpenCode v1 host that reports a session busy for a
-// number of status polls; a negative count keeps it busy.
-type idleTestHost struct {
-	client     *openCodeClient
-	mu         sync.Mutex
-	busyPolls  int
-	interrupt  int
-	statusPoll int
-}
-
-func newIdleTestHost(t *testing.T, interruptStatus, busyPolls int) *idleTestHost {
-	t.Helper()
-	host := &idleTestHost{busyPolls: busyPolls}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		host.mu.Lock()
-		defer host.mu.Unlock()
-		switch {
-		case r.Method == http.MethodPost && r.URL.Path == "/session/session-1/abort":
-			host.interrupt++
-			w.WriteHeader(interruptStatus)
-		case r.Method == http.MethodGet && r.URL.Path == "/session/status":
-			host.statusPoll++
-			w.Header().Set("Content-Type", "application/json")
-			if host.busyPolls == 0 {
-				_, _ = io.WriteString(w, `{}`)
-				return
-			}
-			host.busyPolls--
-			_, _ = io.WriteString(w, `{"session-1":{"type":"busy"}}`)
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	t.Cleanup(server.Close)
-	host.client = &openCodeClient{host: opencodehost.Config{URL: server.URL}, http: server.Client()}
-	return host
-}
-
-func (h *idleTestHost) interrupts() int {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return h.interrupt
-}
-
-func (h *idleTestHost) statusPolls() int {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return h.statusPoll
 }
 
 // Closing the idle connections of http.DefaultTransport, as
@@ -806,10 +769,12 @@ func onManagedRunning(exec *harnessExecutor, fn func()) func() {
 
 // managedTestHost is an OpenCode v1 host that creates session-1. A session is
 // busy from prompt submission, or from setBusy, until an interrupt, and then
-// settles after one more status poll. With dropAfterInterrupt, status requests
-// lose their connection once any session is interrupted.
+// settles after one more status poll. A non-zero interruptStatus rejects
+// interrupts with that status. With dropAfterInterrupt, status requests lose
+// their connection once any session is interrupted.
 type managedTestHost struct {
 	config             opencodehost.Config
+	interruptStatus    int
 	dropAfterInterrupt bool
 	onPrompt           func(r *http.Request)
 
@@ -855,6 +820,10 @@ func (h *managedTestHost) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/abort"):
+		if h.interruptStatus != 0 {
+			w.WriteHeader(h.interruptStatus)
+			return
+		}
 		h.mu.Lock()
 		h.interrupted[strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/session/"), "/abort")] = true
 		h.mu.Unlock()
@@ -862,7 +831,10 @@ func (h *managedTestHost) serve(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && r.URL.Path == "/session/status":
 		h.mu.Lock()
 		statuses := make(map[string]map[string]string, len(h.busy))
-		for sessionID := range h.busy {
+		for sessionID, busy := range h.busy {
+			if !busy {
+				continue
+			}
 			statuses[sessionID] = map[string]string{"type": "busy"}
 			if h.interrupted[sessionID] {
 				delete(h.busy, sessionID)
@@ -885,11 +857,19 @@ func (h *managedTestHost) serve(w http.ResponseWriter, r *http.Request) {
 func (h *managedTestHost) setBusy(sessionID string, busy bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if busy {
-		h.busy[sessionID] = true
-	} else {
-		delete(h.busy, sessionID)
+	h.busy[sessionID] = busy
+}
+
+func (h *managedTestHost) count(request string) int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	n := 0
+	for _, r := range h.requests {
+		if r == request {
+			n++
+		}
 	}
+	return n
 }
 
 func (h *managedTestHost) requestLog() []string {
