@@ -96,6 +96,9 @@ func Navigate(ctx context.Context, cdpURL, targetID, url string) (Load, error) {
 	case started.ErrorText == loadAborted, started.LoaderID == "":
 		return Load{Download: started.IsDownload}, nil
 	}
+	if err := n.readState(ctx); err != nil {
+		return Load{}, err
+	}
 	for !n.committed[started.LoaderID] || !n.parsed[n.current] {
 		if err := n.next(ctx); err != nil {
 			return Load{}, err
@@ -124,6 +127,47 @@ type navigation struct {
 	replied bool
 	result  json.RawMessage
 	failure error
+}
+
+// readState reads from the page the document its main frame shows and
+// whether the page parsed it. While another load is in flight, the browser
+// holds the commands Navigate sends without waiting until the document of
+// the load that replaces it commits, and a small document can be shown and
+// parsed before the page takes them in, so its events never come. The
+// page answers this read only after it took them in, so the events that
+// follow are seen and its answer stands in for those it missed.
+func (n *navigation) readState(ctx context.Context) error {
+	var tree struct {
+		FrameTree struct {
+			Frame struct {
+				LoaderID string `json:"loaderId"`
+			} `json:"frame"`
+		} `json:"frameTree"`
+	}
+	if err := n.command(ctx, "Page.getFrameTree", nil, &tree); err != nil {
+		return err
+	}
+	loader := tree.FrameTree.Frame.LoaderID
+	if loader == "" {
+		return nil
+	}
+	if !n.committed[loader] {
+		n.committed[loader], n.current = true, loader
+	}
+	var state struct {
+		Result struct {
+			Value string `json:"value"`
+		} `json:"result"`
+	}
+	if err := n.command(ctx, "Runtime.evaluate", map[string]any{"expression": "document.readyState", "returnByValue": true}, &state); err != nil {
+		return err
+	}
+	// A document that replaced this one meanwhile is waited on as its
+	// events tell.
+	if n.current == loader && (state.Result.Value == "interactive" || state.Result.Value == "complete") {
+		n.parsed[loader] = true
+	}
+	return nil
 }
 
 // send sends method to the page, or to the browser before the page is
