@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/coder/websocket"
 )
@@ -20,6 +21,12 @@ const (
 	// lifecycleParsed is the lifecycle event of a document the browser has
 	// parsed.
 	lifecycleParsed = "DOMContentLoaded"
+	// documentReplaced is the browser's answer to an evaluation whose
+	// document a new one replaced while it ran, and noDocumentContext its
+	// answer to one sent while the page had no document to run it in, as
+	// between two documents.
+	documentReplaced  = "Execution context was destroyed"
+	noDocumentContext = "Cannot find default execution context"
 )
 
 var (
@@ -137,37 +144,49 @@ type navigation struct {
 // page answers this read only after it took them in, so the events that
 // follow are seen and its answer stands in for those it missed.
 func (n *navigation) readState(ctx context.Context) error {
-	var tree struct {
-		FrameTree struct {
-			Frame struct {
-				LoaderID string `json:"loaderId"`
-			} `json:"frame"`
-		} `json:"frameTree"`
-	}
-	if err := n.command(ctx, "Page.getFrameTree", nil, &tree); err != nil {
-		return err
-	}
-	loader := tree.FrameTree.Frame.LoaderID
-	if loader == "" {
+	for {
+		var tree struct {
+			FrameTree struct {
+				Frame struct {
+					LoaderID string `json:"loaderId"`
+				} `json:"frame"`
+			} `json:"frameTree"`
+		}
+		if err := n.command(ctx, "Page.getFrameTree", nil, &tree); err != nil {
+			return err
+		}
+		loader := tree.FrameTree.Frame.LoaderID
+		if loader == "" {
+			return nil
+		}
+		if !n.committed[loader] {
+			n.committed[loader], n.current = true, loader
+		}
+		var state struct {
+			Result struct {
+				Value string `json:"value"`
+			} `json:"result"`
+		}
+		err := n.command(ctx, "Runtime.evaluate", map[string]any{"expression": "document.readyState", "returnByValue": true}, &state)
+		switch {
+		case err != nil && strings.Contains(err.Error(), documentReplaced):
+			// The document that replaced the one read may have been parsed
+			// before its events were on, so it is read in turn.
+			continue
+		case err != nil && strings.Contains(err.Error(), noDocumentContext):
+			// The page answered, so it took in the commands before this
+			// read, and the next document's events are seen.
+			return nil
+		case err != nil:
+			return err
+		}
+		// A document that replaced this one meanwhile is waited on as its
+		// events tell.
+		if n.current == loader && (state.Result.Value == "interactive" || state.Result.Value == "complete") {
+			n.parsed[loader] = true
+		}
 		return nil
 	}
-	if !n.committed[loader] {
-		n.committed[loader], n.current = true, loader
-	}
-	var state struct {
-		Result struct {
-			Value string `json:"value"`
-		} `json:"result"`
-	}
-	if err := n.command(ctx, "Runtime.evaluate", map[string]any{"expression": "document.readyState", "returnByValue": true}, &state); err != nil {
-		return err
-	}
-	// A document that replaced this one meanwhile is waited on as its
-	// events tell.
-	if n.current == loader && (state.Result.Value == "interactive" || state.Result.Value == "complete") {
-		n.parsed[loader] = true
-	}
-	return nil
 }
 
 // send sends method to the page, or to the browser before the page is
