@@ -618,6 +618,7 @@ func TestManagedOpenCodeCancelInterruptsSession(t *testing.T) {
 		{name: "turn starts after acceptance", cancelAt: "running", startAfterPolls: 2, wantEvent: "aborted"},
 		{name: "prompt in flight", cancelAt: "submitting", wantEvent: "aborted"},
 		{name: "before submission", cancelAt: "before submit", wantEvent: "aborted"},
+		{name: "before the session", cancelAt: "before session", wantEvent: "aborted"},
 		{name: "unconfirmed", cancelAt: "running", drop: true, wantEvent: "abort-unverified"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -641,6 +642,8 @@ func TestManagedOpenCodeCancelInterruptsSession(t *testing.T) {
 						cancel()
 					}
 				})
+			case "before session":
+				exec.SetProgressCallback(cancel)
 			}
 
 			stdout, err := exec.runManagedOpenCode(ctx, providerConfig{flags: map[string]any{}}, host.config)
@@ -650,7 +653,10 @@ func TestManagedOpenCodeCancelInterruptsSession(t *testing.T) {
 			session := exec.GetAgentSession()
 			assert.Equal(t, ir.AgentSessionAborted, session.State)
 			assert.Equal(t, tc.wantEvent, session.Events[len(session.Events)-1].Status)
-			if tc.cancelAt == "before submit" {
+			if tc.cancelAt == "before session" {
+				assert.NotContains(t, host.requestLog(), "POST /session", "a cancelled run creates no session")
+			}
+			if tc.cancelAt == "before submit" || tc.cancelAt == "before session" {
 				assert.False(t, session.PromptSent)
 				assert.NotContains(t, host.requestLog(), prompt, "a cancelled run submits no prompt")
 				assert.NotContains(t, host.requestLog(), "POST /session/session-1/abort", "no turn of Dagu's to interrupt")
@@ -1885,6 +1891,33 @@ exec sleep 60
 	require.Error(t, exec.Run(context.Background()))
 	assert.NoFileExists(t, marker)
 	assert.NotContains(t, stderr.String(), "trying fallback")
+}
+
+// A stop that arrives before an attempt starts its backend keeps it from
+// starting, as one between a failed attempt and its fallback does.
+func TestHarnessExecutorRun_StopBeforeStart(t *testing.T) {
+	if goruntime.GOOS == "windows" {
+		t.Skip("Skipping shell-based test on Windows")
+	}
+
+	marker := filepath.Join(t.TempDir(), "agent-ran")
+	exec := &harnessExecutor{
+		stdout: &strings.Builder{},
+		stderr: &strings.Builder{},
+		configs: []providerConfig{{
+			name: "agent",
+			definition: &ir.HarnessDefinition{
+				Binary:     writeHarnessTestBinary(t, "agent", "#!/bin/sh\ntouch \""+marker+"\"\n"),
+				PromptMode: ir.HarnessPromptModeArg,
+				FlagStyle:  ir.HarnessFlagStyleGNULong,
+			},
+		}},
+		prompt: "hello",
+	}
+	require.NoError(t, exec.Stop(cmdutil.TerminationFromSignal(syscall.SIGTERM)))
+
+	require.ErrorIs(t, exec.Run(context.Background()), context.Canceled)
+	assert.NoFileExists(t, marker)
 }
 
 // callOnWrite runs call after each write, once the subprocess has started.

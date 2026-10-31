@@ -102,6 +102,10 @@ func (e *harnessExecutor) runManagedOpenCode(
 	}
 	sessionID, err := e.ensureManagedSession(ctx, client, cfg, cleanRestart)
 	if err != nil {
+		if ctx.Err() != nil {
+			// No session of this attempt exists, so there is no turn to stop.
+			return e.finishManagedAbort(ctx, nil)
+		}
 		if errors.Is(err, errManagedSessionUnavailable) || (cleanRestart && errors.Is(err, errManagedHostUnavailable)) {
 			return e.finishManagedError(err)
 		}

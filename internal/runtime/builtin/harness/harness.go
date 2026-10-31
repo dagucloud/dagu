@@ -404,6 +404,12 @@ func rootContainerConfigured(ctx context.Context) bool {
 // non-container path). Unchanged from the original runOnce behavior.
 func (e *harnessExecutor) runHostSubprocessOnce(ctx context.Context, cfg providerConfig) (*os.File, error) {
 	e.mu.Lock()
+	// Checked under the lock that registers the backend, so a stop either
+	// keeps it from starting or finds it to stop.
+	if e.stopRequested {
+		e.mu.Unlock()
+		return nil, context.Canceled
+	}
 
 	env := runtime.GetEnv(ctx)
 	tw := executor.NewTailWriterWithEncoding(e.stderrWriter(), 0, env.LogEncodingCharset)
@@ -573,6 +579,12 @@ func buildHarnessContainerRunConfig(
 // chosen by the DAGU_CONTAINER_RUNTIME service setting. No docker/podman CLI subprocess is used.
 func (e *harnessExecutor) runContainerOnce(ctx context.Context, cfg providerConfig) (*os.File, error) {
 	e.mu.Lock()
+	// Checked under the lock that registers the backend, so a stop either
+	// keeps it from starting or finds it to stop.
+	if e.stopRequested {
+		e.mu.Unlock()
+		return nil, context.Canceled
+	}
 
 	env := runtime.GetEnv(ctx)
 	tw := executor.NewTailWriterWithEncoding(e.stderrWriter(), 0, env.LogEncodingCharset)
@@ -747,6 +759,12 @@ func waitForCanceledContainerRun(ctx context.Context, runDone <-chan containerRu
 
 func (e *harnessExecutor) runSharedContainerOnce(ctx context.Context, cfg providerConfig) (*os.File, error) {
 	e.mu.Lock()
+	// Checked under the lock that registers the backend, so a stop either
+	// keeps it from starting or finds it to stop.
+	if e.stopRequested {
+		e.mu.Unlock()
+		return nil, context.Canceled
+	}
 
 	env := runtime.GetEnv(ctx)
 	tw := executor.NewTailWriterWithEncoding(e.stderrWriter(), 0, env.LogEncodingCharset)
