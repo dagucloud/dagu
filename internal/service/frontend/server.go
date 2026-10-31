@@ -414,6 +414,9 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 	if stores.BaseConfig != nil {
 		apiOpts = append(apiOpts, apiv1.WithBaseConfigStore(stores.BaseConfig))
 	}
+	if stores.Calendar != nil {
+		apiOpts = append(apiOpts, apiv1.WithCalendarStore(stores.Calendar))
+	}
 
 	// Initialize the workspace store before OIDC provisioning so login-time
 	// mapping can report dormant grants without making workspace existence a
