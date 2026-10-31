@@ -143,6 +143,9 @@ func (e *harnessExecutor) runManagedOpenCode(
 			e.mu.Unlock()
 			e.notifyProgress()
 		}
+		if ctx.Err() != nil {
+			return e.finishManagedCancelled(ctx, client, sessionID)
+		}
 		commandErrs, err = e.submitManagedPrompt(ctx, client, cfg, sessionID, promptMessageID, files)
 		if err != nil {
 			return e.finishManagedRunError(ctx, client, sessionID, err)
@@ -329,8 +332,11 @@ func (e *harnessExecutor) ensureManagedSession(ctx context.Context, client *open
 }
 
 func (e *harnessExecutor) submitManagedPrompt(ctx context.Context, client *openCodeClient, cfg providerConfig, sessionID, messageID string, files []map[string]any) (<-chan error, error) {
+	// A started submission outlives cancellation, so the run learns whether
+	// the host took the prompt. The client timeout still bounds it.
+	submitCtx := context.WithoutCancel(ctx)
 	if client.host.IsV2() {
-		return nil, e.submitManagedPromptV2(ctx, client, cfg, sessionID, messageID, files)
+		return nil, e.submitManagedPromptV2(submitCtx, client, cfg, sessionID, messageID, files)
 	}
 	parts := []map[string]any{{"type": "text", "text": e.effectivePrompt()}}
 	if strings.TrimSpace(e.script) != "" {
@@ -339,6 +345,7 @@ func (e *harnessExecutor) submitManagedPrompt(ctx context.Context, client *openC
 	parts = append(parts, files...)
 
 	if command := stringFlag(cfg.flags, "command"); command != "" {
+		// The command request lasts for its whole turn, so it stays cancellable.
 		return client.commandAsync(ctx, sessionID, messageID, command, e.effectivePrompt(), cfg, files), nil
 	}
 	body := map[string]any{"messageID": messageID, "parts": parts}
@@ -355,7 +362,7 @@ func (e *harnessExecutor) submitManagedPrompt(ctx context.Context, client *openC
 	if variant := stringFlag(cfg.flags, "variant"); variant != "" {
 		body["variant"] = variant
 	}
-	return nil, client.postNoContent(ctx, "/session/"+url.PathEscape(sessionID)+"/prompt_async", body)
+	return nil, client.postNoContent(submitCtx, "/session/"+url.PathEscape(sessionID)+"/prompt_async", body)
 }
 
 func managedFileParts(workDir string, value any) ([]map[string]any, error) {
@@ -655,15 +662,22 @@ func (e *harnessExecutor) finishManagedRunError(ctx context.Context, client *ope
 // whether the host confirmed that the session stopped.
 func (e *harnessExecutor) finishManagedCancelled(ctx context.Context, client *openCodeClient, sessionID string) (*os.File, error) {
 	e.mu.Lock()
-	// The host may have accepted a prompt cancelled in flight; a retry then
-	// replaces this session instead of submitting the prompt to it again.
-	if e.agentSession.PromptMessageID != "" {
-		e.agentSession.PromptSent = true
+	promptID := ""
+	if e.agentSession.PromptSent {
+		promptID = e.agentSession.PromptMessageID
 	}
 	e.mu.Unlock()
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), managedCleanupTimeout)
 	defer cancel()
-	if err := client.interruptAndAwaitIdle(cleanupCtx, sessionID); err != nil {
+	var err error
+	if promptID != "" {
+		// An interrupt does nothing before the host starts the prompt's turn.
+		err = client.awaitPromptStart(cleanupCtx, sessionID, promptID)
+	}
+	if err == nil {
+		err = client.interruptAndAwaitIdle(cleanupCtx, sessionID)
+	}
+	if err != nil {
 		cleanupErr := fmt.Errorf("OpenCode did not confirm the session stopped: %w", err)
 		e.mu.Lock()
 		e.agentSession.State = ir.AgentSessionAborted
@@ -778,15 +792,7 @@ func managedOpenCodeResult(messages []openCodeMessage, promptMessageID string) (
 	if promptMessageID == "" {
 		return "", false, nil
 	}
-	var response *openCodeMessage
-	var responseInfo openCodeMessageInfo
-	for i := range messages {
-		var info openCodeMessageInfo
-		if json.Unmarshal(messages[i].Info, &info) == nil && info.Role == "assistant" && info.ParentID == promptMessageID {
-			response = &messages[i]
-			responseInfo = info
-		}
-	}
+	response, responseInfo := openCodeReply(messages, promptMessageID)
 	if response == nil {
 		return "", false, nil
 	}
@@ -807,6 +813,20 @@ func managedOpenCodeResult(messages []openCodeMessage, promptMessageID string) (
 		}
 	}
 	return strings.Join(textParts, "\n"), true, nil
+}
+
+// openCodeReply returns the latest assistant reply to the prompt, or nil.
+func openCodeReply(messages []openCodeMessage, promptMessageID string) (*openCodeMessage, openCodeMessageInfo) {
+	var response *openCodeMessage
+	var responseInfo openCodeMessageInfo
+	for i := range messages {
+		var info openCodeMessageInfo
+		if json.Unmarshal(messages[i].Info, &info) == nil && info.Role == "assistant" && info.ParentID == promptMessageID {
+			response = &messages[i]
+			responseInfo = info
+		}
+	}
+	return response, responseInfo
 }
 
 func openCodeSessionError(properties json.RawMessage, sessionID string) (string, bool) {

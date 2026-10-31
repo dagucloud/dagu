@@ -357,6 +357,34 @@ func (c *openCodeClient) awaitIdle(ctx context.Context, sessionID string) error 
 	}
 }
 
+// awaitPromptStart waits until the host shows that it took up the prompt: the
+// session is active, the prompt has a reply, or the session no longer exists.
+func (c *openCodeClient) awaitPromptStart(ctx context.Context, sessionID, promptMessageID string) error {
+	ticker := time.NewTicker(managedIdlePollInterval)
+	defer ticker.Stop()
+	for {
+		status, err := c.sessionStatus(ctx, sessionID)
+		if err == nil && status != "idle" {
+			return nil
+		}
+		if errors.Is(err, errManagedHostUnavailable) {
+			return err
+		}
+		messages, err := c.messages(ctx, sessionID)
+		if errors.Is(err, errManagedSessionUnavailable) {
+			return nil
+		}
+		if reply, _ := openCodeReply(messages, promptMessageID); err == nil && reply != nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("the turn for prompt %s has not started: %w", promptMessageID, ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
 func abortManagedOpenCode(ctx context.Context, host opencodehost.Config, sessionID, directory string) error {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()

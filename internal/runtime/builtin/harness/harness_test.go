@@ -592,16 +592,19 @@ func TestManagedOpenCodeTransportLossWaitsForRestart(t *testing.T) {
 func TestManagedOpenCodeCancelInterruptsSession(t *testing.T) {
 	t.Parallel()
 
+	const prompt = "POST /session/session-1/prompt_async"
 	for _, tc := range []struct {
-		name           string
-		cancelOnPrompt bool
-		drop           bool
-		wantEvent      string
+		name            string
+		cancelAt        string
+		startAfterPolls int
+		drop            bool
+		wantEvent       string
 	}{
-		{name: "running", wantEvent: "aborted"},
-		{name: "prompt in flight", cancelOnPrompt: true, wantEvent: "aborted"},
-		{name: "unconfirmed", drop: true, wantEvent: "abort-unverified"},
-		{name: "prompt in flight unconfirmed", cancelOnPrompt: true, drop: true, wantEvent: "abort-unverified"},
+		{name: "running", cancelAt: "running", wantEvent: "aborted"},
+		{name: "turn starts after acceptance", cancelAt: "running", startAfterPolls: 2, wantEvent: "aborted"},
+		{name: "prompt in flight", cancelAt: "submitting", wantEvent: "aborted"},
+		{name: "before submission", cancelAt: "before submit", wantEvent: "aborted"},
+		{name: "unconfirmed", cancelAt: "running", drop: true, wantEvent: "abort-unverified"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -609,17 +612,21 @@ func TestManagedOpenCodeCancelInterruptsSession(t *testing.T) {
 			defer cancel()
 			host := newManagedTestHost(t, func(h *managedTestHost) {
 				h.dropAfterInterrupt = tc.drop
-				if tc.cancelOnPrompt {
-					// The host accepts the prompt but the caller never sees the response.
-					h.onPrompt = func(r *http.Request) {
-						cancel()
-						<-r.Context().Done()
-					}
+				h.startAfterPolls = tc.startAfterPolls
+				if tc.cancelAt == "submitting" {
+					h.onPrompt = func(*http.Request) { cancel() }
 				}
 			})
 			exec := &harnessExecutor{prompt: "Do the work", workDir: t.TempDir()}
-			if !tc.cancelOnPrompt {
+			switch tc.cancelAt {
+			case "running":
 				exec.SetProgressCallback(onManagedRunning(exec, cancel))
+			case "before submit":
+				exec.SetProgressCallback(func() {
+					if session := exec.GetAgentSession(); session.State == ir.AgentSessionStarting && session.PromptMessageID != "" {
+						cancel()
+					}
+				})
 			}
 
 			stdout, err := exec.runManagedOpenCode(ctx, providerConfig{flags: map[string]any{}}, host.config)
@@ -629,19 +636,21 @@ func TestManagedOpenCodeCancelInterruptsSession(t *testing.T) {
 			session := exec.GetAgentSession()
 			assert.Equal(t, ir.AgentSessionAborted, session.State)
 			assert.Equal(t, tc.wantEvent, session.Events[len(session.Events)-1].Status)
-			// The host may have accepted the prompt, so a retry starts a new generation.
+			if tc.cancelAt == "before submit" {
+				assert.False(t, session.PromptSent)
+				assert.NotContains(t, host.requestLog(), prompt, "a cancelled run submits no prompt")
+				return
+			}
+			// A submission completes despite cancellation, so the run knows the host took the prompt.
 			assert.True(t, session.PromptSent)
-			requests := host.requestLog()
-			interrupt := slices.Index(requests, "POST /session/session-1/abort")
-			require.GreaterOrEqual(t, interrupt, 0, "the session must be interrupted")
+			assert.True(t, host.wasInterrupted("session-1"), "the interrupt must reach the running turn")
 			if tc.drop {
 				require.ErrorIs(t, err, errManagedHostUnavailable)
 				assert.Contains(t, session.LastError, "did not confirm")
 				return
 			}
 			assert.Empty(t, session.LastError)
-			assert.Equal(t, "GET /session/status", requests[len(requests)-1])
-			assert.Greater(t, len(requests)-1, interrupt+1, "idle is confirmed only after the session settles")
+			assert.False(t, host.isBusy("session-1"), "the session settled before the run returned")
 		})
 	}
 }
@@ -772,19 +781,23 @@ func onManagedRunning(exec *harnessExecutor, fn func()) func() {
 
 // managedTestHost is an OpenCode v1 host that creates session-1. A session is
 // busy from prompt submission, or from setBusy, until an interrupt, and then
-// settles after one more status poll. A non-zero interruptStatus rejects
-// interrupts with that status. With dropAfterInterrupt, status requests lose
-// their connection once any session is interrupted.
+// settles after one more status poll; an interrupt of an idle session does
+// nothing. With startAfterPolls, an accepted prompt's turn starts only after
+// that many status polls. A non-zero interruptStatus rejects interrupts with
+// that status. With dropAfterInterrupt, status requests lose their connection
+// once any session is interrupted.
 type managedTestHost struct {
 	config             opencodehost.Config
 	interruptStatus    int
+	startAfterPolls    int
 	dropAfterInterrupt bool
 	onPrompt           func(r *http.Request)
 
-	mu          sync.Mutex
-	requests    []string
-	busy        map[string]bool
-	interrupted map[string]bool
+	mu           sync.Mutex
+	requests     []string
+	pendingPolls int
+	busy         map[string]bool
+	interrupted  map[string]bool
 }
 
 func newManagedTestHost(t *testing.T, configure func(*managedTestHost)) *managedTestHost {
@@ -817,7 +830,11 @@ func (h *managedTestHost) serve(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && r.URL.Path == "/session/session-1/prompt_async":
 		// The server notices a dropped client only after the body is consumed.
 		_, _ = io.Copy(io.Discard, r.Body)
-		h.setBusy("session-1", true)
+		h.mu.Lock()
+		if h.pendingPolls = h.startAfterPolls; h.pendingPolls == 0 {
+			h.busy["session-1"] = true
+		}
+		h.mu.Unlock()
 		if h.onPrompt != nil {
 			h.onPrompt(r)
 		}
@@ -827,12 +844,22 @@ func (h *managedTestHost) serve(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(h.interruptStatus)
 			return
 		}
+		sessionID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/session/"), "/abort")
 		h.mu.Lock()
-		h.interrupted[strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/session/"), "/abort")] = true
+		if h.busy[sessionID] {
+			h.interrupted[sessionID] = true
+		}
 		h.mu.Unlock()
 		_, _ = io.WriteString(w, `true`)
+	case r.Method == http.MethodGet && r.URL.Path == "/session/session-1/message":
+		_, _ = io.WriteString(w, `[]`)
 	case r.Method == http.MethodGet && r.URL.Path == "/session/status":
 		h.mu.Lock()
+		if h.pendingPolls > 0 {
+			if h.pendingPolls--; h.pendingPolls == 0 {
+				h.busy["session-1"] = true
+			}
+		}
 		statuses := make(map[string]map[string]string, len(h.busy))
 		for sessionID, busy := range h.busy {
 			if !busy {
@@ -861,6 +888,18 @@ func (h *managedTestHost) setBusy(sessionID string, busy bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.busy[sessionID] = busy
+}
+
+func (h *managedTestHost) isBusy(sessionID string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.busy[sessionID]
+}
+
+func (h *managedTestHost) wasInterrupted(sessionID string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.interrupted[sessionID]
 }
 
 func (h *managedTestHost) count(request string) int {
