@@ -880,10 +880,12 @@ func TestEntryReaderRefreshLoadsAllOnBaseConfigChange(t *testing.T) {
 
 			require.NoError(t, os.WriteFile(base, []byte("queue: after\n"), 0600))
 			require.NoError(t, er.refreshRegistry(ctx))
-			for range 2 {
+			for i := range 2 {
 				event := nextEvent(t, events)
 				assert.Equal(t, persis.DAGChangeUpdated, event.Type)
 				assert.Equal(t, "after", event.DAG.ProcGroup())
+				// The refresh is one change: only its last event ends it.
+				assert.Equal(t, i == 0, event.More)
 			}
 			assert.Equal(t, []string{"a", "b"}, store.takeLoads())
 

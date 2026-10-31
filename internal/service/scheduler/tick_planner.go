@@ -119,6 +119,8 @@ type TickPlannerConfig struct {
 //   - entries, buffers, and deletedGrace are protected by entryMu (accessed
 //     from drainEvents goroutine and cronLoop's Plan).
 //   - watermarkState is shared with the flusher goroutine and protected by mu.
+//   - flushMu spans a flush's snapshot and save, so a later snapshot is never
+//     overwritten by an earlier one. Lock order: entryMu, flushMu, mu.
 //   - Plan() holds entryMu during I/O calls (IsSuspended, IsRunning,
 //     GetLatestStatus, GenRunID). This is intentional: the lock prevents
 //     event processing during planning, ensuring a consistent snapshot of
@@ -133,6 +135,9 @@ type TickPlanner struct {
 	// watermark state (protected by mu)
 	mu             sync.RWMutex
 	watermarkState *schedulerstate.State
+	flushMu        sync.Mutex
+	// saved is the snapshot Flush last wrote. It is never modified.
+	saved atomic.Pointer[schedulerstate.State]
 
 	// per-DAG tracking (protected by entryMu)
 	entryMu      sync.Mutex
@@ -1239,8 +1244,11 @@ func (tp *TickPlanner) markOneOffConsumed(dagName, fingerprint string, scheduled
 }
 
 // Flush writes the current scheduler state snapshot to durable storage.
-// Safe for concurrent use.
+// Safe for concurrent use; concurrent flushes save in snapshot order.
 func (tp *TickPlanner) Flush(ctx context.Context) {
+	tp.flushMu.Lock()
+	defer tp.flushMu.Unlock()
+
 	// Snapshot under read lock to avoid holding the lock during I/O.
 	tp.mu.RLock()
 	if tp.watermarkState == nil {
@@ -1258,7 +1266,9 @@ func (tp *TickPlanner) Flush(ctx context.Context) {
 
 	if err := tp.cfg.StateStore.Save(ctx, snapshot); err != nil {
 		logger.Error(ctx, "Failed to flush watermark state", tag.Error(err))
+		return
 	}
+	tp.saved.Store(snapshot)
 }
 
 // Start launches the internal goroutines (event drainer + watermark flusher).
@@ -1311,6 +1321,10 @@ func (tp *TickPlanner) startFlusher(ctx context.Context) {
 }
 
 // drainEvents continuously processes DAG change events. Blocks until ctx is done.
+// A change sent as several events, such as one directory refresh, is saved
+// once after its last event, together with any events queued behind it; a
+// lone event is saved at once. State a restart cannot rebuild is saved
+// before the next event (see restartCannotRebuild).
 func (tp *TickPlanner) drainEvents(ctx context.Context) {
 	for {
 		select {
@@ -1320,22 +1334,87 @@ func (tp *TickPlanner) drainEvents(ctx context.Context) {
 			if !ok {
 				return
 			}
-			tp.entryMu.Lock()
-			tp.handleEvent(ctx, event)
-			tp.entryMu.Unlock()
+			if tp.applyQueuedEvents(ctx, event) {
+				tp.Flush(ctx)
+			}
 		}
 	}
 }
 
-// handleEvent processes a single DAG change event.
-func (tp *TickPlanner) handleEvent(ctx context.Context, event DAGChangeEvent) {
+// applyQueuedEvents applies event, the rest of its change, and the events
+// queued behind them, and reports whether watermark state changed. Each
+// event takes entryMu on its own, so Plan can run between them.
+func (tp *TickPlanner) applyQueuedEvents(ctx context.Context, event DAGChangeEvent) bool {
+	changed := false
+	for {
+		tp.entryMu.Lock()
+		save := tp.applyEvent(ctx, event)
+		tp.entryMu.Unlock()
+		switch save {
+		case eventSaveNow:
+			tp.Flush(ctx)
+			changed = false
+		case eventSaveWithChange:
+			changed = true
+		case eventSaveNone:
+		}
+
+		next, ok := tp.nextQueuedEvent(ctx, event.More)
+		if !ok {
+			return changed
+		}
+		event = next
+	}
+}
+
+// nextQueuedEvent returns the next event if one is queued. With wait, more
+// events of the current change follow, so it waits for the next one. Changes
+// left unsaved while it waits are still saved by the periodic flusher.
+func (tp *TickPlanner) nextQueuedEvent(ctx context.Context, wait bool) (DAGChangeEvent, bool) {
+	if ctx.Err() != nil {
+		return DAGChangeEvent{}, false
+	}
+	if wait {
+		select {
+		case <-ctx.Done():
+			return DAGChangeEvent{}, false
+		case event, ok := <-tp.cfg.Events:
+			return event, ok
+		}
+	}
+	select {
+	case event, ok := <-tp.cfg.Events:
+		return event, ok
+	default:
+		return DAGChangeEvent{}, false
+	}
+}
+
+// eventSave is when the watermark changes of a DAG change event must be
+// saved.
+type eventSave int
+
+const (
+	// eventSaveNone means the event changed no watermark.
+	eventSaveNone eventSave = iota
+	// eventSaveWithChange means a restart rebuilds the changes from the DAG
+	// files, so they can wait until the whole change is applied.
+	eventSaveWithChange
+	// eventSaveNow means a restart cannot rebuild the changes, so they are
+	// saved before the next event.
+	eventSaveNow
+)
+
+// applyEvent processes a single DAG change event and reports when its
+// watermark changes must be saved.
+func (tp *TickPlanner) applyEvent(ctx context.Context, event DAGChangeEvent) eventSave {
+	if event.DAG == nil {
+		return eventSaveNone
+	}
 	flushNow := false
 
 	switch event.Type {
 	case DAGChangeAdded:
-		if event.DAG == nil {
-			return
-		}
 		dagName := event.DAG.Name
 		active, activeOK := tp.activeDAGSchedules(ctx, event.DAGEntry)
 		delete(tp.deletedGrace, dagName)
@@ -1352,9 +1431,6 @@ func (tp *TickPlanner) handleEvent(ctx context.Context, event DAGChangeEvent) {
 		logger.Info(ctx, "Planner: DAG added", tag.DAG(dagName))
 
 	case DAGChangeUpdated:
-		if event.DAG == nil {
-			return
-		}
 		dagName := event.DAG.Name
 		active, activeOK := tp.activeDAGSchedules(ctx, event.DAGEntry)
 		delete(tp.deletedGrace, dagName)
@@ -1374,9 +1450,6 @@ func (tp *TickPlanner) handleEvent(ctx context.Context, event DAGChangeEvent) {
 		logger.Info(ctx, "Planner: DAG updated", tag.DAG(dagName))
 
 	case DAGChangeDeleted:
-		if event.DAG == nil {
-			return
-		}
 		dagName := event.DAG.Name
 		delete(tp.entries, dagName)
 		delete(tp.buffers, dagName)
@@ -1388,9 +1461,47 @@ func (tp *TickPlanner) handleEvent(ctx context.Context, event DAGChangeEvent) {
 		logger.Info(ctx, "Planner: DAG deleted", tag.DAG(dagName))
 	}
 
-	if flushNow {
-		tp.Flush(ctx)
+	// Checked even when this event changed nothing, since it can make
+	// earlier unsaved state matter, as when it enables catch-up.
+	if restartCannotRebuild(event.DAG, tp.savedWatermark(event.DAG.Name), tp.dagWatermark(event.DAG.Name)) {
+		return eventSaveNow
 	}
+	if flushNow {
+		return eventSaveWithChange
+	}
+	return eventSaveNone
+}
+
+// restartCannotRebuild reports whether a DAG's current watermark differs from
+// its saved one in state that depends on what the scheduler saw over time
+// rather than on the DAG files alone, so a restart from the saved state would
+// not rebuild it: one-off state, which depends on when each one-off was
+// registered and removed; where a new catch-up DAG starts catching up; and
+// when skip_if_successful stopped counting earlier runs.
+func restartCannotRebuild(dag *ir.DAG, saved, current schedulerstate.DAGWatermark) bool {
+	if dag.CatchupWindow > 0 && !current.LastScheduledTime.Equal(saved.LastScheduledTime) {
+		return true
+	}
+	if dag.SkipIfSuccessful && !current.SkipSuccessResetAt.Equal(saved.SkipSuccessResetAt) {
+		return true
+	}
+	return !maps.EqualFunc(saved.OneOffs, current.OneOffs, func(a, b schedulerstate.OneOffScheduleState) bool {
+		return a.Status == b.Status && a.ScheduledTime.Equal(b.ScheduledTime)
+	})
+}
+
+// savedWatermark returns a DAG's watermark as Flush last wrote it.
+func (tp *TickPlanner) savedWatermark(dagName string) schedulerstate.DAGWatermark {
+	if saved := tp.saved.Load(); saved != nil {
+		return saved.DAGs[dagName]
+	}
+	return schedulerstate.DAGWatermark{}
+}
+
+func (tp *TickPlanner) dagWatermark(dagName string) schedulerstate.DAGWatermark {
+	tp.mu.RLock()
+	defer tp.mu.RUnlock()
+	return schedulerstate.CloneDAGWatermark(tp.watermarkState.DAGs[dagName])
 }
 
 func (tp *TickPlanner) reconcileOneOffSchedules(dag *ir.DAG, active activeDAGSchedules) bool {
@@ -1615,7 +1726,7 @@ func (tp *TickPlanner) recomputeBuffer(ctx context.Context, entry DAGEntry, acti
 	}
 
 	// Snapshot needed values under the lock to avoid reading the shared map
-	// after releasing it (Advance and handleEvent can modify DAGs concurrently).
+	// after releasing it (Advance and applyEvent can modify DAGs concurrently).
 	tp.mu.RLock()
 	lastTick := tp.watermarkState.LastTick
 	var lastScheduledTime time.Time
