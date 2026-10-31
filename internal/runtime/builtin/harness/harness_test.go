@@ -769,6 +769,44 @@ func TestManagedOpenCodeRetrySettlesDiscardedSession(t *testing.T) {
 	})
 }
 
+// A prompt whose turn was never seen to start may still start in its session.
+// A retry then submits it to that session again rather than replacing it.
+func TestManagedOpenCodeRetryRedeliversUnstartedPrompt(t *testing.T) {
+	t.Parallel()
+
+	// The host takes the prompt, but its turn has not started when the
+	// cancelled run loses the host's status.
+	host := newManagedTestHost(t, func(h *managedTestHost) { h.startAfterPolls = 1000 })
+	exec := &harnessExecutor{prompt: "Do the work", workDir: t.TempDir()}
+	ctx, cancel := context.WithCancel(runtime.WithEnv(t.Context(), runtime.Env{}))
+	defer cancel()
+	exec.SetProgressCallback(onManagedRunning(exec, func() {
+		host.setStatusDown(true)
+		cancel()
+	}))
+	_, err := exec.runManagedOpenCode(ctx, providerConfig{flags: map[string]any{}}, host.config)
+	require.ErrorIs(t, err, errManagedHostUnavailable)
+	session := exec.GetAgentSession()
+	assert.Equal(t, "abort-unverified", session.Events[len(session.Events)-1].Status)
+	assert.False(t, session.PromptSent, "an unstarted prompt is delivered again")
+
+	host.setStatusDown(false)
+	host.setStartAfterPolls(0)
+	ctx, cancel = context.WithCancel(runtime.WithEnv(t.Context(), runtime.Env{}))
+	defer cancel()
+	exec.SetProgressCallback(onManagedRunning(exec, cancel))
+	_, err = exec.runManagedOpenCode(ctx, providerConfig{flags: map[string]any{}}, host.config)
+
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, 1, host.count("POST /session"), "the retry keeps the session")
+	prompts := host.promptMessageIDs()
+	require.Len(t, prompts, 2)
+	assert.Equal(t, prompts[0], prompts[1], "the retry submits the same prompt")
+	session = exec.GetAgentSession()
+	assert.Equal(t, 1, session.Generation)
+	assert.Equal(t, "aborted", session.Events[len(session.Events)-1].Status)
+}
+
 // onManagedRunning returns a progress callback that calls fn once the managed
 // session starts running.
 func onManagedRunning(exec *harnessExecutor, fn func()) func() {
@@ -786,7 +824,7 @@ func onManagedRunning(exec *harnessExecutor, fn func()) func() {
 // nothing. With startAfterPolls, an accepted prompt's turn starts only after
 // that many status polls. A non-zero interruptStatus rejects interrupts with
 // that status. With dropAfterInterrupt, status requests lose their connection
-// once any session is interrupted.
+// once any session is interrupted, and with setStatusDown until it is lifted.
 type managedTestHost struct {
 	config             opencodehost.Config
 	interruptStatus    int
@@ -796,6 +834,8 @@ type managedTestHost struct {
 
 	mu           sync.Mutex
 	requests     []string
+	promptIDs    []string
+	statusDown   bool
 	pendingPolls int
 	busy         map[string]bool
 	interrupted  map[string]bool
@@ -821,7 +861,8 @@ func (h *managedTestHost) serve(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == http.MethodGet && r.URL.Path == "/config":
 		_, _ = io.WriteString(w, `{"share":"disabled"}`)
-	case r.Method == http.MethodPost && r.URL.Path == "/session":
+	case r.Method == http.MethodPost && r.URL.Path == "/session",
+		r.Method == http.MethodGet && r.URL.Path == "/session/session-1":
 		_, _ = io.WriteString(w, `{"id":"session-1"}`)
 	case r.Method == http.MethodGet && r.URL.Path == "/event":
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -829,9 +870,14 @@ func (h *managedTestHost) serve(w http.ResponseWriter, r *http.Request) {
 		w.(http.Flusher).Flush()
 		<-r.Context().Done()
 	case r.Method == http.MethodPost && r.URL.Path == "/session/session-1/prompt_async":
-		// The server notices a dropped client only after the body is consumed.
+		// Reading the whole body also lets the server notice a dropped client.
+		var body struct {
+			MessageID string `json:"messageID"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
 		_, _ = io.Copy(io.Discard, r.Body)
 		h.mu.Lock()
+		h.promptIDs = append(h.promptIDs, body.MessageID)
 		if h.pendingPolls = h.startAfterPolls; h.pendingPolls == 0 {
 			h.busy["session-1"] = true
 		}
@@ -856,6 +902,13 @@ func (h *managedTestHost) serve(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `[]`)
 	case r.Method == http.MethodGet && r.URL.Path == "/session/status":
 		h.mu.Lock()
+		if h.statusDown {
+			h.mu.Unlock()
+			if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
+				_ = conn.Close()
+			}
+			return
+		}
 		if h.pendingPolls > 0 {
 			if h.pendingPolls--; h.pendingPolls == 0 {
 				h.busy["session-1"] = true
@@ -889,6 +942,24 @@ func (h *managedTestHost) setBusy(sessionID string, busy bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.busy[sessionID] = busy
+}
+
+func (h *managedTestHost) setStatusDown(down bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.statusDown = down
+}
+
+func (h *managedTestHost) setStartAfterPolls(polls int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.startAfterPolls = polls
+}
+
+func (h *managedTestHost) promptMessageIDs() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return slices.Clone(h.promptIDs)
 }
 
 func (h *managedTestHost) isBusy(sessionID string) bool {

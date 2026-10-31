@@ -57,6 +57,7 @@ func (e *harnessExecutor) runManagedOpenCode(
 		e.mu.Unlock()
 	}()
 	e.managedHost = host
+	e.promptSubmitted = false
 	e.hasDeterminedStatus = false
 	if e.agentSession == nil {
 		e.agentSession = &ir.AgentSession{Provider: "opencode", Generation: 1}
@@ -144,15 +145,15 @@ func (e *harnessExecutor) runManagedOpenCode(
 			e.notifyProgress()
 		}
 		if ctx.Err() != nil {
-			return e.finishManagedCancelled(ctx, client, sessionID, false)
+			return e.finishManagedCancelled(ctx, client, sessionID)
 		}
 		var submitted bool
 		commandErrs, submitted, err = e.submitManagedPrompt(ctx, client, cfg, sessionID, promptMessageID, files)
+		e.mu.Lock()
+		e.promptSubmitted = submitted
+		e.mu.Unlock()
 		if err != nil {
-			if ctx.Err() != nil {
-				return e.finishManagedCancelled(ctx, client, sessionID, submitted)
-			}
-			return e.finishManagedError(err)
+			return e.finishManagedRunError(ctx, client, sessionID, err)
 		}
 		e.mu.Lock()
 		e.agentSession.PromptSent = true
@@ -169,7 +170,7 @@ func (e *harnessExecutor) runManagedOpenCode(
 	for {
 		select {
 		case <-ctx.Done():
-			return e.finishManagedCancelled(ctx, client, sessionID, false)
+			return e.finishManagedCancelled(ctx, client, sessionID)
 		case err, ok := <-eventErrs:
 			if !ok {
 				eventErrs = nil
@@ -205,7 +206,7 @@ func (e *harnessExecutor) runManagedOpenCode(
 			waiting, err := e.reconcileManagedSession(ctx, client, sessionID)
 			if err != nil {
 				if ctx.Err() != nil {
-					return e.finishManagedCancelled(ctx, client, sessionID, false)
+					return e.finishManagedCancelled(ctx, client, sessionID)
 				}
 				if errors.Is(err, errManagedSessionUnavailable) {
 					return e.finishManagedUnavailable("The OpenCode session is no longer available")
@@ -226,7 +227,7 @@ func (e *harnessExecutor) runManagedOpenCode(
 			status, err := client.sessionStatus(ctx, sessionID)
 			if err != nil {
 				if ctx.Err() != nil {
-					return e.finishManagedCancelled(ctx, client, sessionID, false)
+					return e.finishManagedCancelled(ctx, client, sessionID)
 				}
 				if errors.Is(err, errManagedSessionUnavailable) {
 					return e.finishManagedUnavailable("The OpenCode session is no longer available")
@@ -659,17 +660,16 @@ func (e *harnessExecutor) finishManagedError(err error) (*os.File, error) {
 // failure caused by cancellation interrupts the session instead.
 func (e *harnessExecutor) finishManagedRunError(ctx context.Context, client *openCodeClient, sessionID string, err error) (*os.File, error) {
 	if ctx.Err() != nil {
-		return e.finishManagedCancelled(ctx, client, sessionID, false)
+		return e.finishManagedCancelled(ctx, client, sessionID)
 	}
 	return e.finishManagedError(err)
 }
 
 // finishManagedCancelled interrupts the turn of a cancelled run and records
-// whether the host confirmed that the session stopped. submitted reports a
-// prompt submission whose outcome the run did not learn.
-func (e *harnessExecutor) finishManagedCancelled(ctx context.Context, client *openCodeClient, sessionID string, submitted bool) (*os.File, error) {
+// whether the host confirmed that the session stopped.
+func (e *harnessExecutor) finishManagedCancelled(ctx context.Context, client *openCodeClient, sessionID string) (*os.File, error) {
 	e.mu.Lock()
-	promptSent := e.agentSession.PromptSent
+	promptSent, submitted := e.agentSession.PromptSent, e.promptSubmitted
 	promptID := e.agentSession.PromptMessageID
 	e.mu.Unlock()
 	if !promptSent && !submitted {
@@ -680,9 +680,11 @@ func (e *harnessExecutor) finishManagedCancelled(ctx context.Context, client *op
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), managedCleanupTimeout)
 	defer cancel()
 	var err error
-	if promptID != "" {
+	unstarted := false
+	if submitted {
 		// An interrupt does nothing before the host starts the prompt's turn.
 		err = client.awaitPromptStart(cleanupCtx, sessionID, promptID)
+		unstarted = err != nil
 	}
 	if err == nil {
 		err = client.interruptAndAwaitIdle(cleanupCtx, sessionID)
@@ -692,6 +694,11 @@ func (e *harnessExecutor) finishManagedCancelled(ctx context.Context, client *op
 		e.mu.Lock()
 		e.agentSession.State = ir.AgentSessionAborted
 		e.agentSession.LastError = cleanupErr.Error()
+		if unstarted {
+			// The turn may still start in this session, so a retry submits the
+			// prompt to it again instead of replacing it.
+			e.agentSession.PromptSent = false
+		}
 		e.appendAgentEventLocked("lifecycle", "abort-unverified", cleanupErr.Error())
 		e.mu.Unlock()
 		e.notifyProgress()

@@ -88,6 +88,7 @@ type harnessExecutor struct {
 	agentSession           *ir.AgentSession
 	progressCallback       func()
 	managedHost            opencodehost.Config
+	promptSubmitted        bool
 	determinedStatus       ir.NodeStatus
 	hasDeterminedStatus    bool
 
