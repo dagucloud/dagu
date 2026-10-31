@@ -980,6 +980,49 @@ func TestUpdatePreservesPending(t *testing.T) {
 	}
 }
 
+// A change sent as several events, such as one refresh, is saved once after
+// its last event, even when the queue empties between its events.
+func TestTickPlanner_DrainSavesAChangeAfterItsLastEvent(t *testing.T) {
+	t.Parallel()
+
+	store := &mockStateStore{}
+	tp, eventCh := newTestTickPlanner(store)
+	require.NoError(t, tp.Init(t.Context(), nil))
+	saves := func() int {
+		store.mu.Lock()
+		defer store.mu.Unlock()
+		return len(store.saved)
+	}
+	savesAfterInit := saves()
+	addEvent := func(name string, more bool) DAGChangeEvent {
+		return DAGChangeEvent{Type: DAGChangeAdded, More: more, DAGEntry: DAGEntry{DAG: &ir.DAG{
+			Name:     name,
+			Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")},
+		}}}
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	tp.Start(ctx)
+	eventCh <- addEvent("first", true)
+	require.Eventually(t, func() bool {
+		tp.entryMu.Lock()
+		defer tp.entryMu.Unlock()
+		_, ok := tp.entries["first"]
+		return ok
+	}, 2*time.Second, 5*time.Millisecond)
+	// Leave the drainer time to save early, which it must not do.
+	time.Sleep(50 * time.Millisecond)
+	assert.Equal(t, savesAfterInit, saves(), "a change must not be saved before its last event")
+
+	eventCh <- addEvent("last", false)
+	require.Eventually(t, func() bool {
+		saved := store.lastSaved()
+		return saved != nil && len(saved.DAGs) == 2
+	}, 2*time.Second, 5*time.Millisecond)
+	assert.Equal(t, savesAfterInit+1, saves())
+}
+
 func TestTickPlanner_UpdatedEventSavesWatermarkMutations(t *testing.T) {
 	t.Parallel()
 

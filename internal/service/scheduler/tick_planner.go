@@ -1317,8 +1317,9 @@ func (tp *TickPlanner) startFlusher(ctx context.Context) {
 }
 
 // drainEvents continuously processes DAG change events. Blocks until ctx is done.
-// Events already queued, such as those of one directory refresh, are saved
-// together; a lone event is saved at once.
+// A change sent as several events, such as one directory refresh, is saved
+// once after its last event, together with any events queued behind it; a
+// lone event is saved at once.
 func (tp *TickPlanner) drainEvents(ctx context.Context) {
 	for {
 		select {
@@ -1335,9 +1336,9 @@ func (tp *TickPlanner) drainEvents(ctx context.Context) {
 	}
 }
 
-// applyQueuedEvents applies event and the events queued behind it, and
-// reports whether watermark state changed. Each event takes entryMu on its
-// own, so Plan can run between them.
+// applyQueuedEvents applies event, the rest of its change, and the events
+// queued behind them, and reports whether watermark state changed. Each
+// event takes entryMu on its own, so Plan can run between them.
 func (tp *TickPlanner) applyQueuedEvents(ctx context.Context, event DAGChangeEvent) bool {
 	changed := false
 	for {
@@ -1345,18 +1346,34 @@ func (tp *TickPlanner) applyQueuedEvents(ctx context.Context, event DAGChangeEve
 		changed = tp.applyEvent(ctx, event) || changed
 		tp.entryMu.Unlock()
 
-		if ctx.Err() != nil {
+		next, ok := tp.nextQueuedEvent(ctx, event.More)
+		if !ok {
 			return changed
 		}
+		event = next
+	}
+}
+
+// nextQueuedEvent returns the next event if one is queued. With wait, more
+// events of the current change follow, so it waits for the next one. Changes
+// left unsaved while it waits are still saved by the periodic flusher.
+func (tp *TickPlanner) nextQueuedEvent(ctx context.Context, wait bool) (DAGChangeEvent, bool) {
+	if ctx.Err() != nil {
+		return DAGChangeEvent{}, false
+	}
+	if wait {
 		select {
-		case next, ok := <-tp.cfg.Events:
-			if !ok {
-				return changed
-			}
-			event = next
-		default:
-			return changed
+		case <-ctx.Done():
+			return DAGChangeEvent{}, false
+		case event, ok := <-tp.cfg.Events:
+			return event, ok
 		}
+	}
+	select {
+	case event, ok := <-tp.cfg.Events:
+		return event, ok
+	default:
+		return DAGChangeEvent{}, false
 	}
 }
 
