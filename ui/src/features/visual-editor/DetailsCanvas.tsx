@@ -28,6 +28,8 @@ export interface DetailsCanvasProps {
   workflowPanel?: ReactNode;
   /** A step was picked: the caller shows its details. Null clears it. */
   onSelectStep(stepName: string | null): void;
+  /** A step was opened with Enter or a double click, after its selection. */
+  onOpenStep?(stepName: string): void;
   /** Run state of each step, by step name. The nodes show it. */
   overlay?: RunOverlay;
   /** Controlled selection, by step name. Given, the canvas keeps no selection of its own. */
@@ -59,6 +61,7 @@ export function DetailsCanvas({
   toolbarTrail,
   workflowPanel,
   onSelectStep,
+  onOpenStep,
   overlay,
   selectedStepName,
   className,
@@ -128,7 +131,10 @@ export function DetailsCanvas({
         onSelect={select}
         onEdit={() => {}}
         onCommand={(command) => {
-          if (command.kind === 'openInspector') select(command.step);
+          if (command.kind !== 'openInspector') return;
+          select(command.step);
+          const node = graph.nodes.find((item) => item.key === command.step);
+          if (node) onOpenStep?.(node.label);
         }}
         onDirectionChange={setDirection}
         toolbarEnd={end}

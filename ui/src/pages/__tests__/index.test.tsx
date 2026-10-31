@@ -275,7 +275,8 @@ describe('DashboardPage', () => {
     ).toHaveAttribute('href', '/dags/approve?remoteNode=local&run=a-1');
   });
 
-  // The Overview mounts a peek host above the dashboard.
+  // The Overview mounts a peek host above the dashboard. Review opens the
+  // full page, where a waiting run can be acted on.
   it('shows the runs and workflows of the panels in the peek', () => {
     mockActivity({ activity: busyActivity });
     const peek = { open: vi.fn(), isOpen: false };
@@ -287,8 +288,13 @@ describe('DashboardPage', () => {
     });
 
     const attention = screen.getByRole('region', { name: /Needs attention/ });
+    fireEvent.click(within(attention).getByRole('link', { name: 'billing' }));
+    expect(peek.open).toHaveBeenCalledWith({
+      dag: 'billing',
+      run: 'billing-9',
+    });
     fireEvent.click(within(attention).getByRole('link', { name: /Review/ }));
-    expect(peek.open).toHaveBeenCalledWith({ dag: 'approve', run: 'a-1' });
+    expect(peek.open).not.toHaveBeenCalledWith({ dag: 'approve', run: 'a-1' });
     fireEvent.click(screen.getByRole('link', { name: 'nightly' }));
     expect(peek.open).toHaveBeenCalledWith({ dag: 'nightly' });
   });

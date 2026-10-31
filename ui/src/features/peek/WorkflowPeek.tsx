@@ -6,6 +6,7 @@ import {
   lazy,
   Suspense,
   useMemo,
+  useRef,
   type ReactElement,
   type ReactNode,
 } from 'react';
@@ -75,6 +76,10 @@ export function WorkflowPeek({
   const labels = [...(dag?.labels ?? []), ...(dag?.tags ?? [])];
   const canExecute = useCanExecuteForWorkspace(workspaceNameFromLabels(labels));
   const overlay = useMemo(() => buildRunOverlay(shown), [shown]);
+  // A click on a step opens it; arrow keys only move the selection.
+  const pointerPick = useRef(false);
+  const openStep = (step: string) =>
+    navigate(peekPageURL(target, remoteNode, step));
 
   let body: ReactNode;
   if (target.run && !shown) {
@@ -138,14 +143,25 @@ export function WorkflowPeek({
                 <div className={`${GRAPH_CLASS} rounded-md bg-muted/30`} />
               }
             >
-              <DetailsCanvas
-                dag={dag}
-                overlay={overlay}
-                className={GRAPH_CLASS}
-                onSelectStep={(step) => {
-                  if (step) navigate(peekPageURL(target, remoteNode, step));
+              <div
+                className="contents"
+                onPointerDownCapture={() => {
+                  pointerPick.current = true;
                 }}
-              />
+                onKeyDownCapture={() => {
+                  pointerPick.current = false;
+                }}
+              >
+                <DetailsCanvas
+                  dag={dag}
+                  overlay={overlay}
+                  className={GRAPH_CLASS}
+                  onSelectStep={(step) => {
+                    if (step && pointerPick.current) openStep(step);
+                  }}
+                  onOpenStep={openStep}
+                />
+              </div>
             </Suspense>
           ) : (
             // The workflow of a run can load after the run.
@@ -200,7 +216,7 @@ export function WorkflowPeek({
         <Button asChild variant="primary" size="sm">
           <Link to={peekPageURL(target, remoteNode)}>
             <Maximize2 aria-hidden="true" />
-            {ts('Open workflow')}
+            {ts(target.run ? 'Open run' : 'Open workflow')}
           </Link>
         </Button>
         {dag && canExecute && (

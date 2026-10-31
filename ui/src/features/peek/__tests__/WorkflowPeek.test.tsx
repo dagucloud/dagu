@@ -86,10 +86,12 @@ vi.mock('@/features/visual-editor/DetailsCanvas', () => ({
     dag,
     overlay,
     onSelectStep,
+    onOpenStep,
   }: {
     dag: { steps?: Array<{ name: string }> };
     overlay?: Record<string, { statusLabel?: string }>;
     onSelectStep(step: string | null): void;
+    onOpenStep?(step: string): void;
   }) => (
     <div data-testid="canvas">
       {dag.steps?.map((step) => (
@@ -97,6 +99,7 @@ vi.mock('@/features/visual-editor/DetailsCanvas', () => ({
           key={step.name}
           type="button"
           onClick={() => onSelectStep(step.name)}
+          onDoubleClick={() => onOpenStep?.(step.name)}
         >
           {`${step.name}: ${overlay?.[step.name]?.statusLabel ?? 'no run'}`}
         </button>
@@ -183,7 +186,7 @@ function renderPeek(target: PeekTarget, onSelectRun = vi.fn()) {
   return { onSelectRun };
 }
 
-const openLink = () => screen.getByRole('link', { name: 'Open workflow' });
+const openLink = (name = 'Open workflow') => screen.getByRole('link', { name });
 
 describe('WorkflowPeek', () => {
   beforeEach(() => {
@@ -242,7 +245,31 @@ describe('WorkflowPeek', () => {
   it('opens the full page at a step clicked on the graph', async () => {
     renderPeek({ dag: 'etl.yaml' });
 
-    fireEvent.click(
+    const step = await screen.findByRole('button', { name: 'load: failed' });
+    fireEvent.pointerDown(step);
+    fireEvent.click(step);
+
+    expect(screen.getByTestId('location')).toHaveTextContent(
+      '/dags/etl.yaml?remoteNode=local&step=load'
+    );
+  });
+
+  // Arrow keys move the selection of the graph without leaving the peek.
+  it('stays on the peek when a step is selected with the keyboard', async () => {
+    renderPeek({ dag: 'etl.yaml' });
+    const before = screen.getByTestId('location').textContent;
+
+    const step = await screen.findByRole('button', { name: 'load: failed' });
+    fireEvent.keyDown(step, { key: 'ArrowRight' });
+    fireEvent.click(step);
+
+    expect(screen.getByTestId('location')).toHaveTextContent(before ?? '');
+  });
+
+  it('opens the full page at a step opened on the graph', async () => {
+    renderPeek({ dag: 'etl.yaml' });
+
+    fireEvent.doubleClick(
       await screen.findByRole('button', { name: 'load: failed' })
     );
 
@@ -337,7 +364,7 @@ describe('WorkflowPeek', () => {
           },
         },
       });
-      expect(openLink()).toHaveAttribute(
+      expect(openLink('Open run')).toHaveAttribute(
         'href',
         '/dags/etl?remoteNode=local&run=run-0'
       );
@@ -379,7 +406,7 @@ describe('WorkflowPeek', () => {
 
       expect(screen.getByRole('heading', { name: 'Run' })).toBeVisible();
       expect(screen.queryByTestId('canvas')).not.toBeInTheDocument();
-      expect(openLink()).toHaveAttribute(
+      expect(openLink('Open run')).toHaveAttribute(
         'href',
         '/dags/etl?remoteNode=local&run=run-0'
       );

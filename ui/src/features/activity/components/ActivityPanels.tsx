@@ -16,6 +16,7 @@ import Ticker from '@/components/ui/ticker';
 import { useCanAccessSystemStatus } from '@/contexts/AuthContext';
 import { DAGRunActions } from '@/features/dag-runs/components/common';
 import { PeekLink } from '@/features/peek/PeekLink';
+import { peekPageURL } from '@/features/peek/peekParams';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
 import dayjs from '@/lib/dayjs';
@@ -110,19 +111,26 @@ function RunLink({
   remoteNode,
   children,
   className,
+  direct = false,
 }: {
   name: string;
   run: ActivityRun;
   remoteNode: string;
   children: React.ReactNode;
   className?: string;
+  /** Opens the full page, where a waiting run can be acted on. */
+  direct?: boolean;
 }): React.ReactElement {
+  const target = { dag: name, run: run.dagRunId };
+  if (direct) {
+    return (
+      <Link to={peekPageURL(target, remoteNode)} className={className}>
+        {children}
+      </Link>
+    );
+  }
   return (
-    <PeekLink
-      peek={{ dag: name, run: run.dagRunId }}
-      remoteNode={remoteNode}
-      className={className}
-    >
+    <PeekLink peek={target} remoteNode={remoteNode} className={className}>
       {children}
     </PeekLink>
   );
@@ -301,6 +309,7 @@ export function NeedsAttention({
                     name={item.name}
                     run={item.run}
                     remoteNode={remoteNode}
+                    direct={item.kind === 'waiting'}
                     className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
                   >
                     {item.kind === 'waiting' ? ts('Review') : ts('Open')}
