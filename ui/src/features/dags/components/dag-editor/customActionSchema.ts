@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import { applyCalendarNameExamples } from '@/lib/calendarNameExamples';
 import { dereferenceSchema, type JSONSchema } from '@/lib/schema-utils';
 import { parse as parseYaml } from 'yaml';
 import type { components } from '../../../../api/v1/schema';
@@ -649,14 +650,10 @@ export function buildAugmentedDAGSchema(
   const augmented = cloneJson(baseSchema);
   const definitions = augmented.definitions;
 
-  // Calendar names complete as examples rather than an enum, so a calendar
-  // added after the editor loaded is not flagged before the server sees it.
-  const calendarName = definitions?.calendarName;
-  if (definitions && calendarName && calendarNames.length > 0) {
-    definitions.calendarName = {
-      ...calendarName,
-      examples: [...new Set([...calendarNames, 'none'])],
-    };
+  if (calendarNames.length > 0) {
+    applyCalendarNameExamples(augmented, [
+      ...new Set([...calendarNames, 'none']),
+    ]);
   }
 
   if (legacyDefinitions.length === 0 && actions.length === 0) {
