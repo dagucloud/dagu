@@ -138,11 +138,13 @@ func (w *DialogWatcher) read(ctx context.Context, acknowledged chan<- error) {
 			if event.Type == dialogTypePrompt {
 				params["promptText"] = event.DefaultPrompt
 			}
+			// The answer and its record share the lock, so a Take made once
+			// the page has gone on reports the dialog.
+			w.mu.Lock()
 			if writeCommand(ctx, w.conn, w.lastID.Add(1), message.SessionID, "Page.handleJavaScriptDialog", params) == nil {
-				w.mu.Lock()
 				w.accepted = append(w.accepted, Dialog{Type: event.Type, Message: event.Message})
-				w.mu.Unlock()
 			}
+			w.mu.Unlock()
 		}
 	}
 }
