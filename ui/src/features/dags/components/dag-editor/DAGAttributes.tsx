@@ -6,6 +6,11 @@
 import dayjs from '@/lib/dayjs';
 import { Calendar, CheckSquare, Settings, Tag } from 'lucide-react';
 import React from 'react';
+import { Link } from 'react-router-dom';
+import {
+  calendarPath,
+  useScopedRemoteNode,
+} from '@/features/calendars/navigation';
 import { components, UpcomingRunsHold } from '../../../../api/v1/schema';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -32,6 +37,43 @@ type Props = {
   /** DAG details to display */
   dag: components['schemas']['DAGDetails'];
 };
+
+/** Links the calendars that the schedules fire on to their pages. */
+function CalendarLinks({ schedules }: { schedules: Schedule[] }) {
+  const names = [
+    ...new Set(
+      schedules.flatMap((schedule) =>
+        schedule.calendar ? [schedule.calendar] : []
+      )
+    ),
+  ];
+  if (names.length === 0) {
+    return null;
+  }
+  return <CalendarLinkList names={names} />;
+}
+
+function CalendarLinkList({ names }: { names: string[] }) {
+  const remoteNode = useScopedRemoteNode();
+  return (
+    <div className="text-sm text-muted-foreground">
+      <span className="font-medium text-foreground">
+        <I18nText text={'Calendar:'} />
+      </span>{' '}
+      {names.map((name, index) => (
+        <React.Fragment key={name}>
+          {index > 0 && ', '}
+          <Link
+            to={calendarPath(name, remoteNode)}
+            className="text-primary hover:underline"
+          >
+            {name}
+          </Link>
+        </React.Fragment>
+      ))}
+    </div>
+  );
+}
 
 /**
  * DAGAttributes displays the configuration of a DAG, such as its schedule,
@@ -75,6 +117,8 @@ function DAGAttributes({ dag }: Props) {
                   </Badge>
                 ))}
               </div>
+
+              <CalendarLinks schedules={dag.schedule ?? []} />
 
               {(nextRun || upcomingRuns.length === 0) && (
                 <div className="text-sm text-muted-foreground">

@@ -241,6 +241,18 @@ export function useCanWrite(): boolean {
   );
 }
 
+/**
+ * Whether the user can change calendar files. A calendar serves DAGs in
+ * every workspace, so the user's global role decides.
+ */
+export function useCanWriteCalendars(): boolean {
+  const { user } = useAuth();
+  const config = useConfig();
+  if (!config.permissions.writeDags) return false;
+  if (config.authMode !== 'builtin') return true;
+  return roleAtLeast(user?.role ?? null, UserRole.developer);
+}
+
 export function useCanWriteForWorkspace(workspace?: string | null): boolean {
   return useWorkspaceWriteCheck()(workspace);
 }

@@ -8,6 +8,7 @@ import {
   BookOpen,
   ClipboardList,
   FileCode2,
+  CalendarDays,
   FileCog,
   Gauge,
   GitBranch,
@@ -174,6 +175,11 @@ export function useNavigationSections(): {
           to: '/base-config',
           text: t('navigation.baseConfig'),
           icon: <FileCog size={16} />,
+        },
+        {
+          to: '/calendars',
+          text: t('navigation.calendars'),
+          icon: <CalendarDays size={16} />,
         },
         canManageWebhooks && {
           to: '/webhooks',
