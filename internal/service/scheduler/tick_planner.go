@@ -136,6 +136,8 @@ type TickPlanner struct {
 	mu             sync.RWMutex
 	watermarkState *schedulerstate.State
 	flushMu        sync.Mutex
+	// saved is the snapshot Flush last wrote. It is never modified.
+	saved atomic.Pointer[schedulerstate.State]
 
 	// per-DAG tracking (protected by entryMu)
 	entryMu      sync.Mutex
@@ -1264,7 +1266,9 @@ func (tp *TickPlanner) Flush(ctx context.Context) {
 
 	if err := tp.cfg.StateStore.Save(ctx, snapshot); err != nil {
 		logger.Error(ctx, "Failed to flush watermark state", tag.Error(err))
+		return
 	}
+	tp.saved.Store(snapshot)
 }
 
 // Start launches the internal goroutines (event drainer + watermark flusher).
@@ -1320,7 +1324,7 @@ func (tp *TickPlanner) startFlusher(ctx context.Context) {
 // A change sent as several events, such as one directory refresh, is saved
 // once after its last event, together with any events queued behind it; a
 // lone event is saved at once. State a restart cannot rebuild is saved
-// before the next event (see recordsFirstSeen).
+// before the next event (see restartCannotRebuild).
 func (tp *TickPlanner) drainEvents(ctx context.Context) {
 	for {
 		select {
@@ -1396,9 +1400,8 @@ const (
 	// eventSaveWithChange means a restart rebuilds the changes from the DAG
 	// files, so they can wait until the whole change is applied.
 	eventSaveWithChange
-	// eventSaveNow means the changes record when the scheduler first saw
-	// something, which a restart cannot rebuild, so they are saved before
-	// the next event.
+	// eventSaveNow means a restart cannot rebuild the changes, so they are
+	// saved before the next event.
 	eventSaveNow
 )
 
@@ -1408,7 +1411,6 @@ func (tp *TickPlanner) applyEvent(ctx context.Context, event DAGChangeEvent) eve
 	if event.DAG == nil {
 		return eventSaveNone
 	}
-	before := tp.dagWatermark(event.DAG.Name)
 	flushNow := false
 
 	switch event.Type {
@@ -1459,32 +1461,41 @@ func (tp *TickPlanner) applyEvent(ctx context.Context, event DAGChangeEvent) eve
 		logger.Info(ctx, "Planner: DAG deleted", tag.DAG(dagName))
 	}
 
-	if !flushNow {
-		return eventSaveNone
-	}
-	if recordsFirstSeen(event.DAG, before, tp.dagWatermark(event.DAG.Name)) {
+	// Checked even when this event changed nothing, since it can make
+	// earlier unsaved state matter, as when it enables catch-up.
+	if restartCannotRebuild(event.DAG, tp.savedWatermark(event.DAG.Name), tp.dagWatermark(event.DAG.Name)) {
 		return eventSaveNow
 	}
-	return eventSaveWithChange
+	if flushNow {
+		return eventSaveWithChange
+	}
+	return eventSaveNone
 }
 
-// recordsFirstSeen reports whether a DAG's watermark change records when the
-// scheduler first saw something, which a restart cannot rebuild from the DAG
-// files: where a new catch-up DAG starts catching up, a one-off registered
-// before its time, or when skip_if_successful stopped counting earlier runs.
-func recordsFirstSeen(dag *ir.DAG, before, after schedulerstate.DAGWatermark) bool {
-	if dag.CatchupWindow > 0 && !after.LastScheduledTime.Equal(before.LastScheduledTime) {
+// restartCannotRebuild reports whether a DAG's current watermark differs from
+// its saved one in state that depends on what the scheduler saw over time
+// rather than on the DAG files alone, so a restart from the saved state would
+// not rebuild it: one-off state, which depends on when each one-off was
+// registered and removed; where a new catch-up DAG starts catching up; and
+// when skip_if_successful stopped counting earlier runs.
+func restartCannotRebuild(dag *ir.DAG, saved, current schedulerstate.DAGWatermark) bool {
+	if dag.CatchupWindow > 0 && !current.LastScheduledTime.Equal(saved.LastScheduledTime) {
 		return true
 	}
-	if dag.SkipIfSuccessful && !after.SkipSuccessResetAt.Equal(before.SkipSuccessResetAt) {
+	if dag.SkipIfSuccessful && !current.SkipSuccessResetAt.Equal(saved.SkipSuccessResetAt) {
 		return true
 	}
-	for fingerprint, oneOff := range after.OneOffs {
-		if _, seen := before.OneOffs[fingerprint]; !seen && oneOff.Status == schedulerstate.OneOffStatusPending {
-			return true
-		}
+	return !maps.EqualFunc(saved.OneOffs, current.OneOffs, func(a, b schedulerstate.OneOffScheduleState) bool {
+		return a.Status == b.Status && a.ScheduledTime.Equal(b.ScheduledTime)
+	})
+}
+
+// savedWatermark returns a DAG's watermark as Flush last wrote it.
+func (tp *TickPlanner) savedWatermark(dagName string) schedulerstate.DAGWatermark {
+	if saved := tp.saved.Load(); saved != nil {
+		return saved.DAGs[dagName]
 	}
-	return false
+	return schedulerstate.DAGWatermark{}
 }
 
 func (tp *TickPlanner) dagWatermark(dagName string) schedulerstate.DAGWatermark {

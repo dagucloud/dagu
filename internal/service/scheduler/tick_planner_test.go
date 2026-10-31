@@ -1022,10 +1022,9 @@ func TestTickPlanner_DrainSavesAChangeAfterItsLastEvent(t *testing.T) {
 	assert.Equal(t, savesAfterInit+1, saves())
 }
 
-// State a restart cannot rebuild from the DAG files, because it records when
-// the scheduler first saw a change, is saved before the next event even
-// inside a change. Other state waits for the change to end.
-func TestTickPlanner_DrainSavesFirstSeenStateAtOnce(t *testing.T) {
+// State a restart cannot rebuild from the DAG files is saved before the next
+// event, even inside a change. Other state waits for the change to end.
+func TestTickPlanner_DrainSavesUnrebuildableStateAtOnce(t *testing.T) {
 	t.Parallel()
 
 	hourly := mustParseSchedule(t, "0 * * * *")
@@ -1033,6 +1032,8 @@ func TestTickPlanner_DrainSavesFirstSeenStateAtOnce(t *testing.T) {
 	tests := []struct {
 		name    string
 		initial *ir.DAG
+		// prior is applied first, in the same unsaved change.
+		prior   *DAGChangeEvent
 		event   DAGChangeEvent
 		saveNow bool
 	}{
@@ -1048,6 +1049,23 @@ func TestTickPlanner_DrainSavesFirstSeenStateAtOnce(t *testing.T) {
 		{
 			name:    "pending one-off",
 			event:   DAGChangeEvent{Type: DAGChangeAdded, DAGEntry: DAGEntry{DAG: &ir.DAG{Name: "d", Schedule: []ir.Schedule{mustOneOffSchedule(t, "2026-02-07T13:00:00Z")}}}},
+			saveNow: true,
+		},
+		{
+			name:    "removed one-off",
+			initial: &ir.DAG{Name: "d", Schedule: []ir.Schedule{mustOneOffSchedule(t, "2026-02-07T13:00:00Z")}},
+			event:   DAGChangeEvent{Type: DAGChangeUpdated, DAGEntry: DAGEntry{DAG: &ir.DAG{Name: "d"}}},
+			saveNow: true,
+		},
+		{
+			name:    "one-off registered after its time",
+			event:   DAGChangeEvent{Type: DAGChangeAdded, DAGEntry: DAGEntry{DAG: &ir.DAG{Name: "d", Schedule: []ir.Schedule{mustOneOffSchedule(t, "2026-02-07T11:00:00Z")}}}},
+			saveNow: true,
+		},
+		{
+			name:    "catch-up enabled on a DAG added in the same change",
+			prior:   &DAGChangeEvent{Type: DAGChangeAdded, DAGEntry: DAGEntry{DAG: &ir.DAG{Name: "d", Schedule: []ir.Schedule{hourly}}}},
+			event:   DAGChangeEvent{Type: DAGChangeUpdated, DAGEntry: DAGEntry{DAG: &ir.DAG{Name: "d", CatchupWindow: time.Hour, Schedule: []ir.Schedule{hourly}}}},
 			saveNow: true,
 		},
 		{
@@ -1083,20 +1101,29 @@ func TestTickPlanner_DrainSavesFirstSeenStateAtOnce(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			tp.Start(ctx)
+			applied := func(dag *ir.DAG) func() bool {
+				return func() bool {
+					tp.entryMu.Lock()
+					defer tp.entryMu.Unlock()
+					entry, ok := tp.entries["d"]
+					return ok && entry.DAG == dag
+				}
+			}
 			// More events of the change follow, so only state saved at once
 			// reaches the store.
+			if tc.prior != nil {
+				tc.prior.More = true
+				eventCh <- *tc.prior
+				require.Eventually(t, applied(tc.prior.DAG), 2*time.Second, 5*time.Millisecond)
+				require.Equal(t, savesAfterInit, saves())
+			}
 			tc.event.More = true
 			eventCh <- tc.event
 			if tc.saveNow {
 				require.Eventually(t, func() bool { return saves() > savesAfterInit }, 2*time.Second, 5*time.Millisecond)
 				return
 			}
-			require.Eventually(t, func() bool {
-				tp.entryMu.Lock()
-				defer tp.entryMu.Unlock()
-				entry, ok := tp.entries["d"]
-				return ok && entry.DAG == tc.event.DAG
-			}, 2*time.Second, 5*time.Millisecond)
+			require.Eventually(t, applied(tc.event.DAG), 2*time.Second, 5*time.Millisecond)
 			// Leave the drainer time to save early, which it must not do.
 			time.Sleep(50 * time.Millisecond)
 			assert.Equal(t, savesAfterInit, saves())

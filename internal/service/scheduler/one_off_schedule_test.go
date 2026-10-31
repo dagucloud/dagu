@@ -5,6 +5,7 @@ package scheduler
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -118,6 +119,57 @@ func TestTickPlanner_OneOffRegistrationSurvivesCrashMidChange(t *testing.T) {
 	runs := restarted.Plan(t.Context(), restartAt)
 	require.Len(t, runs, 1)
 	assert.Equal(t, schedule.Fingerprint(), runs[0].Fingerprint)
+}
+
+// A pending one-off removed, then restored after its time, is consumed. A
+// crash before that reaches disk would leave the old pending state there,
+// and the restart would run the one-off.
+func TestTickPlanner_RestoredOneOffStaysConsumedAfterCrash(t *testing.T) {
+	t.Parallel()
+
+	schedule := mustOneOffSchedule(t, "2026-02-07T12:00:00Z")
+	withOneOff := &ir.DAG{Name: "one-off-dag", Schedule: []ir.Schedule{schedule}}
+	without := &ir.DAG{Name: "one-off-dag"}
+	restored := &ir.DAG{Name: "one-off-dag", Schedule: []ir.Schedule{schedule}}
+
+	var clockMu sync.Mutex
+	now := time.Date(2026, 2, 7, 11, 59, 0, 0, time.UTC)
+	setNow := func(at time.Time) {
+		clockMu.Lock()
+		defer clockMu.Unlock()
+		now = at
+	}
+	store := &mockStateStore{}
+	tp, eventCh := newTestTickPlanner(store)
+	tp.cfg.Clock = func() time.Time {
+		clockMu.Lock()
+		defer clockMu.Unlock()
+		return now
+	}
+	require.NoError(t, tp.Init(t.Context(), testDAGEntries(withOneOff)))
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	tp.Start(ctx)
+	applied := func(dag *ir.DAG) func() bool {
+		return func() bool {
+			tp.entryMu.Lock()
+			defer tp.entryMu.Unlock()
+			return tp.entries[dag.Name].DAG == dag
+		}
+	}
+
+	// Both edits belong to changes still open when the scheduler crashes.
+	eventCh <- DAGChangeEvent{Type: DAGChangeUpdated, More: true, DAGEntry: DAGEntry{DAG: without}}
+	require.Eventually(t, applied(without), 2*time.Second, 5*time.Millisecond)
+	setNow(time.Date(2026, 2, 7, 12, 0, 30, 0, time.UTC))
+	eventCh <- DAGChangeEvent{Type: DAGChangeUpdated, More: true, DAGEntry: DAGEntry{DAG: restored}}
+	require.Eventually(t, applied(restored), 2*time.Second, 5*time.Millisecond)
+
+	restartAt := time.Date(2026, 2, 7, 12, 0, 40, 0, time.UTC)
+	restarted, _ := newTestTickPlanner(&mockStateStore{state: store.lastSaved()})
+	restarted.cfg.Clock = func() time.Time { return restartAt }
+	require.NoError(t, restarted.Init(t.Context(), testDAGEntries(restored)))
+	assert.Empty(t, restarted.Plan(t.Context(), restartAt), "a consumed one-off must not run after a restart")
 }
 
 func TestTickPlanner_PlanPendingOneOffRun(t *testing.T) {
