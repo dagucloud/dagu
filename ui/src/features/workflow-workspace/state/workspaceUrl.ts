@@ -28,6 +28,7 @@ export type OpenPanel = 'workflow' | 'cron' | 'webhook';
 /** The tabs of the Run panel. ?dock=steps and ?dock=spec are no tabs: they read as no tab. */
 export type DockTab =
   | 'timeline'
+  | 'history'
   | 'outputs'
   | 'artifacts'
   | 'actions'
@@ -78,6 +79,7 @@ export interface WorkspaceUrlState {
 
 export const DOCK_TABS: readonly DockTab[] = [
   'timeline',
+  'history',
   'outputs',
   'artifacts',
   'actions',

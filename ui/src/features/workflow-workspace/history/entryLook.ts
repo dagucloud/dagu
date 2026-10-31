@@ -9,8 +9,11 @@ import { HATCH_PATTERN } from '@/lib/hatchPattern';
 import { shortRunId } from '@/lib/shortRunId';
 import { nodeStatusText } from '@/lib/status-utils';
 import { statusTone, toneClasses } from '@/lib/statusPalette';
-import { CACHED_WASH } from '../dock/RunTimeline';
-import { elapsedMsText, type BarTone } from '../dock/runTimelineModel';
+import {
+  CACHED_WASH,
+  elapsedMsText,
+  type BarTone,
+} from '../dock/runTimelineModel';
 import { isFailedEntry, type StepRunEntry } from './stepHistoryModel';
 
 type Translate = ReturnType<typeof useI18n>['ts'];

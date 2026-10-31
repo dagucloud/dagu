@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NodeStatus, NodeStatusLabel, Status } from '@/api/v1/schema';
@@ -48,6 +48,7 @@ vi.mock('../../dock/tabs', async () => {
     dockTabBodies: {
       log: body('log'),
       timeline: body('timeline'),
+      history: body('history'),
       outputs: body('outputs'),
       actions: actual.ActionsTab,
       agent: actual.AgentTab,
@@ -148,7 +149,7 @@ describe('StepRunTabs with a run', () => {
     const details = run('r2', [node('merge')]);
     h.followed = { details, active: false, error: null };
     setup('r2');
-    expect(tabNames()).toEqual(['Log', 'Output']);
+    expect(tabNames()).toEqual(['Log', 'History', 'Output']);
   });
 
   it('opens on Output and gives the body the followed run and the step', () => {
@@ -212,7 +213,7 @@ describe('StepRunTabs with a run', () => {
   it('gives the body a run without details while the run loads', () => {
     h.followed = { details: null, active: true, error: null };
     setup('r4');
-    expect(tabNames()).toEqual(['Log', 'Output']);
+    expect(tabNames()).toEqual(['Log', 'History', 'Output']);
     const props = h.bodies[h.bodies.length - 1] as {
       run: { details: unknown; hasRun: boolean; isActive: boolean };
     };
@@ -262,6 +263,36 @@ describe('StepRunTabs with a run', () => {
 });
 
 describe('StepRunTabs with the selected run', () => {
+  // A pick in the History of the selected run selects a run that this view
+  // then shows, so the History may open the Log tab of this strip.
+  it('lets the History select a tab of the strip', () => {
+    setup('r2', selected(run('r2', [node('merge')])));
+    fireEvent.click(screen.getByRole('tab', { name: 'History' }));
+    const props = h.bodies[h.bodies.length - 1] as {
+      selectTab?: (tab: string) => void;
+    };
+    expect(props.selectTab).toBeTypeOf('function');
+    act(() => props.selectTab!('log'));
+    expect(screen.getByRole('tab', { name: 'Log' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+  });
+
+  // The run that 'Execute step' started does not follow ?run: a pick in its
+  // History shows no other run here, so no tab follows it.
+  it('gives the History of a followed run no tab to select', () => {
+    h.followed = {
+      details: run('r6', [node('merge')]),
+      active: false,
+      error: null,
+    };
+    setup('r6', selected(run('r2', [node('merge')])));
+    fireEvent.click(screen.getByRole('tab', { name: 'History' }));
+    const props = h.bodies[h.bodies.length - 1] as { selectTab?: unknown };
+    expect(props.selectTab).toBeUndefined();
+  });
+
   it('uses the workspace run and makes no read of its own', () => {
     const value = selected(run('r2', [node('merge')]));
     setup('r2', value);
@@ -368,7 +399,7 @@ describe('StepRunTabs with the selected run', () => {
       step: { approval: {} },
     });
     setup('r2', selected(run('r2', [node('merge'), other], Status.Waiting)));
-    expect(tabNames()).toEqual(['Log', 'Output']);
+    expect(tabNames()).toEqual(['Log', 'History', 'Output']);
   });
 
   it('shows the chat of an agent step in the Agent tab', () => {

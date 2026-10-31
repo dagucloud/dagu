@@ -103,6 +103,7 @@ describe('parseWorkspaceUrl', () => {
       [undefined, 'ndv=expanded', { ndv: 'expanded' }],
       [undefined, 'ndv=floating', {}],
       [undefined, 'dock=timeline', { dock: 'timeline' }],
+      [undefined, 'dock=history', { dock: 'history' }],
       [undefined, 'dock=nope', {}],
       [undefined, 'stream=stdout', { stream: 'stdout' }],
       [undefined, 'stream=other', {}],

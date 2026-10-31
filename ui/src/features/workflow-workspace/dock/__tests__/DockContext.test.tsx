@@ -36,12 +36,20 @@ import {
   type DockFrame,
 } from '../DockContext';
 
-function fakeRun(details: ApiDAGRunDetails | null): WorkspaceRunValue {
+/** A run without details is still loading when `loading`, else none. */
+function fakeRun(
+  details: ApiDAGRunDetails | null,
+  loading = false
+): WorkspaceRunValue {
   return {
     selection: 'latest',
-    ref: details ? { name: details.name, runId: details.dagRunId } : null,
+    ref: details
+      ? { name: details.name, runId: details.dagRunId }
+      : loading
+        ? { name: 'demo', runId: 'r-loading' }
+        : null,
     details,
-    hasRun: !!details,
+    hasRun: !!details || loading,
     isLatest: true,
     isActive: false,
     notFound: false,
@@ -73,6 +81,7 @@ interface Probe {
   navigation: string;
   navigate: NavigateFunction;
   setDetails(d: ApiDAGRunDetails | null): void;
+  setLoading(loading: boolean): void;
 }
 
 function renderDock(
@@ -85,7 +94,9 @@ function renderDock(
 
   function Data({ children }: { children: ReactNode }) {
     const [current, setCurrent] = useState(details);
+    const [loading, setLoading] = useState(false);
     probe.setDetails = setCurrent;
+    probe.setLoading = setLoading;
     return (
       <WorkspaceDataContext.Provider
         value={{
@@ -93,7 +104,7 @@ function renderDock(
           dagData: dagPage(current ?? run('')),
           workspaceName: null,
           remoteNode: 'local',
-          run: fakeRun(current),
+          run: fakeRun(current, loading),
           refresh: async () => {},
           registerHistory: () => () => {},
         }}
@@ -495,6 +506,20 @@ describe('DockProvider', () => {
 
     act(() => probe.setDetails(waitingAgent));
     expect(probe.dock.tab).toBe('agent');
+  });
+
+  // A pick in the History selects a run that must load: the tab stays, so
+  // its body is not mounted again.
+  it('keeps the History tab while the selected run loads', () => {
+    const probe = renderDock('/dags/demo?dock=history');
+    expect(probe.dock.tab).toBe('history');
+
+    act(() => {
+      probe.setDetails(null);
+      probe.setLoading(true);
+    });
+    expect(probe.frame.tabs).toEqual(['log', 'history']);
+    expect(probe.dock.tab).toBe('history');
   });
 
   it('has only the log tab for a workflow that never ran', () => {

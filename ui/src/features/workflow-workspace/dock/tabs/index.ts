@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { memo, type ComponentType } from 'react';
+import { HistoryBody } from '../../history/HistoryBody';
 import type { DockTab } from '../../state/workspaceUrl';
 import {
   ActionsTab,
@@ -32,6 +33,8 @@ export const dockTabBodies: Partial<
   agent: memo(AgentTab),
   actions: memo(ActionsTab),
   timeline: memo(TimelineTab),
+  // The runs of the timeline, not one run: no run frame, no mount per run.
+  history: memo(HistoryBody),
   outputs: memo(OutputsTab),
   artifacts: memo(ArtifactsDockTab),
   tasks: memo(TasksTab),

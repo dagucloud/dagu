@@ -70,6 +70,14 @@ export const EXTENT_LABEL_SHARE = 0.9;
  */
 export const TEST_RUN_HATCH = HATCH_PATTERN;
 
+/**
+ * The layers of the cached part of a bar or an extent: the page colour at
+ * half opacity over the status colour (the same colour, paler), and the hatch
+ * of the test runs over it.
+ */
+export const CACHED_WASH =
+  'color-mix(in srgb, var(--background) 55%, transparent)';
+
 /** True for a test run: the server lists it only when asked and drops it soon. */
 export function isTestRun(run: Pick<ApiDAGRunDetails, 'ephemeral'>): boolean {
   return run.ephemeral === true;
