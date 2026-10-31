@@ -390,16 +390,27 @@ func buildExternalSchemaParamPlan(input any, workingDir, dagLocation string) (*d
 	if err != nil {
 		return nil, err
 	}
+	entries, err := keepUntypedValueText(entriesFromTypedMap(typedDefaults, schemaOrder), typedDefaults, basePairs, resolvedSchema, schemaProperties)
+	if err != nil {
+		return nil, err
+	}
 
 	plan := &dagParamPlan{
 		kind:             dagParamKindExternalSchema,
 		schema:           resolvedSchema,
 		schemaOrder:      schemaOrder,
 		schemaProperties: schemaProperties,
-		entries:          entriesFromTypedMap(typedDefaults, schemaOrder),
+		entries:          entries,
 	}
 
-	paramDefs, ok := deriveExternalSchemaParamDefs(root, typedDefaults)
+	// The start form offers untyped values as the run would receive them.
+	formDefaults := maps.Clone(typedDefaults)
+	for _, entry := range entries {
+		if _, typed := schemaScalarType(schemaProperties[entry.Name]); !typed {
+			formDefaults[entry.Name] = entry.Value
+		}
+	}
+	paramDefs, ok := deriveExternalSchemaParamDefs(root, formDefaults)
 	if ok {
 		plan.paramDefs = paramDefs
 	}

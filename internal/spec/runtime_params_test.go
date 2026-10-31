@@ -586,6 +586,83 @@ params:
 	assert.JSONEq(t, `{"idea":"ship","WEBHOOK_PAYLOAD":"{\"event\":\"push\"}"}`, resolved.ParamsJSON)
 }
 
+// A value the schema does not type is decoded only to validate it, so the run,
+// a rebuild from its saved params, and the start form all keep the text the
+// caller supplied.
+func TestLoad_ExternalSchemaKeepsUntypedValueText(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "params.schema.json"), []byte(`{
+  "type": "object",
+  "properties": {"BLOCKLIST_FN": {"type": "string", "default": "et_block.netset"}},
+  "additionalProperties": true
+}`), 0o600))
+	dagPath := filepath.Join(dir, "untyped-text.yaml")
+	require.NoError(t, os.WriteFile(dagPath, []byte(`
+name: untyped-text
+params:
+  schema: params.schema.json
+  values:
+    VERSION: "1.10"
+    RATIOS: "[1.10, 2.50]"
+`), 0o600))
+
+	dag, err := Load(context.Background(), dagPath, WithParams("CUSTOMER_ID=12345678901234567"))
+	require.NoError(t, err)
+	want := []string{
+		"BLOCKLIST_FN=et_block.netset",
+		"CUSTOMER_ID=12345678901234567",
+		"RATIOS=[1.10, 2.50]",
+		"VERSION=1.10",
+	}
+	assert.Equal(t, want, dag.Params)
+
+	rebuilt, err := ResolveRuntimeParams(context.Background(), dag, dag.Params, ResolveRuntimeParamsOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, want, rebuilt.Params)
+
+	defaults := map[string]any{}
+	for _, def := range dag.ParamDefs {
+		defaults[def.Name] = def.Default
+	}
+	assert.Equal(t, "1.10", defaults["VERSION"])
+	assert.Equal(t, "[1.10, 2.50]", defaults["RATIOS"])
+}
+
+// Defaults the schema fills into an untyped object value reach the run without
+// changing the numbers the caller wrote.
+func TestLoad_ExternalSchemaFillsDefaultsIntoUntypedValue(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "params.schema.json"), []byte(`{
+  "type": "object",
+  "properties": {
+    "CONFIG": {
+      "type": "object",
+      "properties": {"retries": {"type": "integer", "default": 2}}
+    }
+  }
+}`), 0o600))
+	dagPath := filepath.Join(dir, "untyped-defaults.yaml")
+	require.NoError(t, os.WriteFile(dagPath, []byte(`
+name: untyped-defaults
+params:
+  schema: params.schema.json
+  values:
+    CONFIG: '{"ratio": 1.10, "id": 12345678901234567}'
+`), 0o600))
+
+	dag, err := Load(context.Background(), dagPath)
+	require.NoError(t, err)
+	assert.Equal(t, []string{`CONFIG={"id":12345678901234567,"ratio":1.10,"retries":2}`}, dag.Params)
+
+	resolved, err := ResolveRuntimeParams(context.Background(), dag, []string{`CONFIG={"ratio": 0.50}`}, ResolveRuntimeParamsOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, []string{`CONFIG={"ratio":0.50,"retries":2}`}, resolved.Params)
+}
+
 // Scheduled, queued, and retried runs rebuild a DAG from the params its run
 // saved, which include the ones the base config declares. The rebuild must
 // accept them whichever way the DAG declares its own params, keep the saved

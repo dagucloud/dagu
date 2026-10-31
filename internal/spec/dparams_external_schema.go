@@ -5,9 +5,14 @@ package spec
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"maps"
+	"reflect"
+	"slices"
 	"sort"
+	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/google/jsonschema-go/jsonschema"
@@ -135,7 +140,11 @@ func resolveExternalSchemaEntries(plan *dagParamPlan, rawParams string, paramsLi
 		return nil, err
 	}
 
-	return appendPassThroughEntries(entriesFromTypedMap(typedMap, plan.schemaOrder), passThroughPairs), nil
+	entries, err := keepUntypedValueText(entriesFromTypedMap(typedMap, plan.schemaOrder), typedMap, slices.Concat(basePairs, overridePairs), plan.schema, plan.schemaProperties)
+	if err != nil {
+		return nil, err
+	}
+	return appendPassThroughEntries(entries, passThroughPairs), nil
 }
 
 func validateSchemaMap(values map[string]any, schema *jsonschema.Resolved, metadataMode bool) (map[string]any, error) {
@@ -177,6 +186,39 @@ func schemaPairsToMap(pairs []paramPair, properties map[string]*jsonschema.Schem
 		result[pair.Name] = value
 	}
 	return result, nil
+}
+
+// keepUntypedValueText gives each value the schema does not type the text the
+// caller supplied. Such values are decoded only for validation, and encoding
+// the decoded form again would change them, such as 1.10 becoming 1.1. A value
+// that schema defaults filled is encoded again with its numbers as written.
+func keepUntypedValueText(entries []dagParamEntry, validated map[string]any, pairs []paramPair, schema *jsonschema.Resolved, properties map[string]*jsonschema.Schema) ([]dagParamEntry, error) {
+	supplied := make(map[string]string, len(pairs))
+	for _, pair := range pairs {
+		if pair.Name == "" {
+			continue
+		}
+		if _, typed := schemaScalarType(properties[pair.Name]); !typed {
+			supplied[pair.Name] = pair.Value
+		}
+	}
+	for i := range entries {
+		name := entries[i].Name
+		text, ok := supplied[name]
+		if !ok {
+			continue
+		}
+		if reflect.DeepEqual(parseJSONLikeValue(text), validated[name]) {
+			entries[i].Value = text
+			continue
+		}
+		filled := map[string]any{name: parseJSONNumberValue(text)}
+		if err := schema.ApplyDefaults(&filled); err != nil {
+			return nil, fmt.Errorf("failed to apply schema defaults: %w", err)
+		}
+		entries[i].Value = stringifyTypedValue(filled[name])
+	}
+	return entries, nil
 }
 
 func coerceSchemaPairValue(name, raw string, schema *jsonschema.Schema, allowSchemaFallbackJSON bool) (any, error) {
@@ -420,4 +462,19 @@ func parseJSONLikeValue(value string) any {
 		return decoded
 	}
 	return value
+}
+
+// parseJSONNumberValue decodes value like parseJSONLikeValue but keeps each
+// number as written.
+func parseJSONNumberValue(value string) any {
+	decoder := json.NewDecoder(strings.NewReader(value))
+	decoder.UseNumber()
+	var decoded any
+	if err := decoder.Decode(&decoded); err != nil {
+		return value
+	}
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
+		return value
+	}
+	return decoded
 }
