@@ -9,10 +9,13 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -793,6 +796,39 @@ steps:
 	dag.AssertOutputs(t, map[string]any{
 		"OUT1": "value is 123",
 	})
+}
+
+// TestChildRunUpdatesChildDAGLatestStatus covers dagucloud/dagu#2470: a child
+// run started by dag.run must appear in the child DAG's own latest status and
+// history, not only nested under the parent run.
+func TestChildRunUpdatesChildDAGLatestStatus(t *testing.T) {
+	t.Parallel()
+
+	th := test.Setup(t)
+
+	childFile := th.CreateDAGFile(t, th.Config.Paths.DAGsDir, "child_visibility_target", []byte(`steps:
+  - run: echo child
+`))
+	childDAG, err := spec.Load(th.Context, childFile)
+	require.NoError(t, err)
+
+	parent := th.DAG(t, `steps:
+  - action: dag.run
+    with:
+      dag: child_visibility_target
+`)
+	parent.Agent().RunSuccess(t)
+
+	require.Eventually(t, func() bool {
+		status, err := th.DAGRunMgr.GetLatestStatus(th.Context, childDAG)
+		return err == nil && status.Status == ir.Succeeded && !status.Parent.Zero()
+	}, 5*time.Second, 100*time.Millisecond, "child DAG latest status should show the finished child run")
+
+	recent, err := th.DAGRunRepository.RecentStatuses(th.Context, childDAG.Name, 10)
+	require.NoError(t, err)
+	require.Len(t, recent, 1)
+	assert.Equal(t, ir.Succeeded, recent[0].Status)
+	assert.Equal(t, parent.Name, recent[0].Root.Name)
 }
 
 // TestSkippedPreconditions verifies that steps with unmet preconditions are skipped.

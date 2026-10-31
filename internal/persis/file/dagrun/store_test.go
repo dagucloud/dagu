@@ -177,6 +177,156 @@ func TestStoreWritesCurrentDAGRunFileCompatibilityLayout(t *testing.T) {
 	assert.Equal(t, childStatus.AttemptID, foundChildStatus.AttemptID)
 }
 
+func TestStoreRecordsChildRunOnChildDAG(t *testing.T) {
+	ctx := context.Background()
+	baseDir := t.TempDir()
+	store := NewStore(baseDir, WithArtifactDir(filepath.Join(baseDir, "artifacts")))
+	repository := persis.NewDAGRunRepository(store, NewWorkDirStore(filepath.Join(baseDir, ".dag-run-work"), baseDir), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
+
+	// A root run of the parent DAG.
+	parentDAG := &ir.DAG{
+		Name:     "parent-dag",
+		Location: filepath.Join(baseDir, "parent-dag.yaml"),
+	}
+	parentAttempt, err := repository.CreateAttempt(ctx, parentDAG, time.Now(), "root-run", persis.DAGRunCreateAttemptOptions{})
+	require.NoError(t, err)
+	rootRef := ir.NewDAGRunRef(parentDAG.Name, "root-run")
+	require.NoError(t, parentAttempt.Open(ctx))
+	rootStatus := ir.InitialStatus(parentDAG)
+	rootStatus.DAGRunID = rootRef.ID
+	rootStatus.AttemptID = parentAttempt.ID()
+	rootStatus.Root = rootRef
+	rootStatus.Status = ir.Running
+	require.NoError(t, parentAttempt.Write(ctx, rootStatus))
+
+	// A child run nested under the parent, as a dag.run step creates it.
+	childDAG := &ir.DAG{
+		Name:     "child-dag",
+		Location: filepath.Join(baseDir, "child-dag.yaml"),
+	}
+	childAttempt, err := repository.CreateAttempt(ctx, childDAG, time.Now(), "child-run", persis.DAGRunCreateAttemptOptions{
+		RootDAGRun: rootRef,
+	})
+	require.NoError(t, err)
+	require.NoError(t, childAttempt.Open(ctx))
+	childStatus := ir.InitialStatus(childDAG)
+	childStatus.DAGRunID = "child-run"
+	childStatus.AttemptID = childAttempt.ID()
+	childStatus.Root = rootRef
+	childStatus.Parent = rootRef
+	childStatus.Status = ir.Succeeded
+	require.NoError(t, childAttempt.Write(ctx, childStatus))
+	require.NoError(t, childAttempt.Close(ctx))
+	require.NoError(t, parentAttempt.Close(ctx))
+
+	// The child DAG's own latest status and history reflect the child run.
+	latest, err := repository.LatestAttempt(ctx, childDAG.Name, persis.DAGRunLatestAttemptOptions{AllHistory: true})
+	require.NoError(t, err)
+	latestStatus, err := latest.ReadStatus(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "child-run", latestStatus.DAGRunID)
+	assert.Equal(t, ir.Succeeded, latestStatus.Status)
+	assert.Equal(t, rootRef, latestStatus.Root)
+
+	recent, err := repository.RecentStatuses(ctx, childDAG.Name, 10)
+	require.NoError(t, err)
+	require.Len(t, recent, 1)
+	assert.Equal(t, "child-run", recent[0].DAGRunID)
+
+	found, err := repository.FindAttempt(ctx, ir.NewDAGRunRef(childDAG.Name, "child-run"))
+	require.NoError(t, err)
+	foundStatus, err := found.ReadStatus(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "child-run", foundStatus.DAGRunID)
+
+	// The canonical nested record is still intact for parent-rooted lookups.
+	nested, err := repository.FindSubAttempt(ctx, rootRef, "child-run")
+	require.NoError(t, err)
+	nestedStatus, err := nested.ReadStatus(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "child-run", nestedStatus.DAGRunID)
+
+	// The mirror record lives in the child DAG's own dag-runs tree and is
+	// marked so removal does not delete files owned by the canonical record.
+	mirrorRuns, err := filepath.Glob(filepath.Join(baseDir, childDAG.Name, dagRunsDirName, "*", "*", "*", DAGRunDirPrefix+"*child-run"))
+	require.NoError(t, err)
+	require.Len(t, mirrorRuns, 1)
+	assert.FileExists(t, filepath.Join(mirrorRuns[0], childRecordMarkerFile))
+}
+
+func TestStoreMirrorsChildDataOnLoadedAttempt(t *testing.T) {
+	ctx := context.Background()
+	baseDir := t.TempDir()
+	store := NewStore(baseDir, WithArtifactDir(filepath.Join(baseDir, "artifacts")))
+	repository := persis.NewDAGRunRepository(store, NewWorkDirStore(filepath.Join(baseDir, ".dag-run-work"), baseDir), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
+
+	parentDAG := &ir.DAG{
+		Name:     "parent-dag",
+		Location: filepath.Join(baseDir, "parent-dag.yaml"),
+	}
+	parentAttempt, err := repository.CreateAttempt(ctx, parentDAG, time.Now(), "root-run", persis.DAGRunCreateAttemptOptions{})
+	require.NoError(t, err)
+	rootRef := ir.NewDAGRunRef(parentDAG.Name, "root-run")
+	require.NoError(t, parentAttempt.Open(ctx))
+	rootStatus := ir.InitialStatus(parentDAG)
+	rootStatus.DAGRunID = rootRef.ID
+	rootStatus.AttemptID = parentAttempt.ID()
+	rootStatus.Root = rootRef
+	rootStatus.Status = ir.Running
+	require.NoError(t, parentAttempt.Write(ctx, rootStatus))
+	require.NoError(t, parentAttempt.Close(ctx))
+
+	childDAG := &ir.DAG{
+		Name:     "child-dag",
+		Location: filepath.Join(baseDir, "child-dag.yaml"),
+	}
+	childAttempt, err := repository.CreateAttempt(ctx, childDAG, time.Now(), "child-run", persis.DAGRunCreateAttemptOptions{
+		RootDAGRun: rootRef,
+	})
+	require.NoError(t, err)
+	require.NoError(t, childAttempt.Open(ctx))
+	childStatus := ir.InitialStatus(childDAG)
+	childStatus.DAGRunID = "child-run"
+	childStatus.AttemptID = childAttempt.ID()
+	childStatus.Root = rootRef
+	childStatus.Parent = rootRef
+	childStatus.Status = ir.Running
+	require.NoError(t, childAttempt.Write(ctx, childStatus))
+	require.NoError(t, childAttempt.Close(ctx))
+
+	mirrorRuns, err := filepath.Glob(filepath.Join(baseDir, childDAG.Name, dagRunsDirName, "*", "*", "*", DAGRunDirPrefix+"*child-run"))
+	require.NoError(t, err)
+	require.Len(t, mirrorRuns, 1)
+	mirrorRunDir := mirrorRuns[0]
+
+	// A child attempt loaded back from disk has no resolved mirror; outputs
+	// and step messages written through it must still reach the child DAG's
+	// own run record.
+	loaded, err := repository.FindSubAttempt(ctx, rootRef, "child-run")
+	require.NoError(t, err)
+
+	require.NoError(t, loaded.WriteOutputs(ctx, &ir.DAGRunOutputs{
+		Outputs: map[string]string{"step-one": "ok"},
+	}))
+	mirrorOutputs, err := filepath.Glob(filepath.Join(mirrorRunDir, "a_*", OutputsFile))
+	require.NoError(t, err)
+	assert.Len(t, mirrorOutputs, 1)
+
+	require.NoError(t, loaded.WriteStepMessages(ctx, "step-one", []ir.LLMMessage{
+		{Role: ir.LLMRoleUser, Content: "hello"},
+	}))
+	assert.FileExists(t, filepath.Join(mirrorRunDir, MessagesDir, "step-one.json"))
+
+	// Hiding through a loaded attempt hides the mirror attempt too.
+	require.NoError(t, loaded.Hide(ctx))
+	hiddenAttempts, err := filepath.Glob(filepath.Join(mirrorRunDir, ".a_*"))
+	require.NoError(t, err)
+	assert.Len(t, hiddenAttempts, 1)
+	visibleAttempts, err := filepath.Glob(filepath.Join(mirrorRunDir, "a_*"))
+	require.NoError(t, err)
+	assert.Empty(t, visibleAttempts)
+}
+
 func TestWorkDirStoreUsesSeparateRoot(t *testing.T) {
 	ctx := context.Background()
 	workRoot := t.TempDir()
