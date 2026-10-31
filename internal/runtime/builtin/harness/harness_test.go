@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -1295,6 +1296,64 @@ exec sleep 60
 			assert.Equal(t, 124, exec.ExitCode())
 		})
 	}
+}
+
+// A graceful stop does not cancel the step context, so the fallback decision
+// relies on the stop request itself.
+func TestHarnessExecutorRun_StopSkipsFallback(t *testing.T) {
+	if goruntime.GOOS == "windows" {
+		t.Skip("Skipping shell-based test on Windows")
+	}
+
+	marker := filepath.Join(t.TempDir(), "fallback-ran")
+	primary := writeHarnessTestBinary(t, "primary", `#!/bin/sh
+echo "ready" >&2
+exec sleep 60
+`)
+	fallback := writeHarnessTestBinary(t, "fallback", "#!/bin/sh\ntouch \""+marker+"\"\nexit 0\n")
+	var stderr strings.Builder
+	exec := &harnessExecutor{
+		stdout: &strings.Builder{},
+		configs: []providerConfig{
+			{
+				name: "primary",
+				definition: &ir.HarnessDefinition{
+					Binary:     primary,
+					PromptMode: ir.HarnessPromptModeArg,
+					FlagStyle:  ir.HarnessFlagStyleGNULong,
+				},
+			},
+			{
+				name: "fallback",
+				definition: &ir.HarnessDefinition{
+					Binary:     fallback,
+					PromptMode: ir.HarnessPromptModeArg,
+					FlagStyle:  ir.HarnessFlagStyleGNULong,
+				},
+			},
+		},
+		prompt: "hello",
+	}
+	var stopOnce sync.Once
+	exec.stderr = &callOnWrite{Writer: &stderr, call: func() {
+		stopOnce.Do(func() { _ = exec.Stop(cmdutil.TerminationFromSignal(syscall.SIGTERM)) })
+	}}
+
+	require.Error(t, exec.Run(context.Background()))
+	assert.NoFileExists(t, marker)
+	assert.NotContains(t, stderr.String(), "trying fallback")
+}
+
+// callOnWrite runs call after each write, once the subprocess has started.
+type callOnWrite struct {
+	io.Writer
+	call func()
+}
+
+func (w *callOnWrite) Write(p []byte) (int, error) {
+	n, err := w.Writer.Write(p)
+	w.call()
+	return n, err
 }
 
 // cancelOnWrite cancels only after the subprocess signals that it has started.

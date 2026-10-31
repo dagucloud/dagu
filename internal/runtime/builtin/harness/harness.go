@@ -292,6 +292,13 @@ func (e *harnessExecutor) Run(ctx context.Context) error {
 			// Cancellation can race a real failure, such as a missing binary.
 			return errors.Join(ctx.Err(), err)
 		}
+		e.mu.Lock()
+		stopped := e.stopRequested
+		e.mu.Unlock()
+		if stopped {
+			// A graceful stop leaves ctx intact; a stopped step starts no fallback.
+			return err
+		}
 		if i+1 < len(e.configs) {
 			next := e.configs[i+1]
 			_, _ = fmt.Fprintf(
