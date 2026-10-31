@@ -36,6 +36,7 @@ function makeHandle(): WorkspaceEditorHandle {
   return {
     fitView: vi.fn(),
     revealStep: vi.fn(() => true),
+    highlightStep: vi.fn(),
     addStep: vi.fn(),
     openWorkflowPanel: vi.fn(),
     openLauncher: vi.fn(),

@@ -1385,6 +1385,7 @@ function DAGSpec({
       },
       fitView: () => visual()?.fitView(),
       revealStep: (name) => visual()?.revealStep(name) ?? false,
+      highlightStep: (name) => visual()?.highlightStep(name),
       addStep: (target) => visual()?.addStep(target),
       openWorkflowPanel: (open) => {
         const run = (v: VisualEditorHandle) => v.openWorkflowPanel(open);

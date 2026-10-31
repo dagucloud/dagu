@@ -1035,7 +1035,8 @@ const FlowNodeBox = memo(function FlowNodeBox({
     <div
       data-flow-node={node.id}
       className={cn(
-        'absolute left-0 top-0 hover:z-10 focus-within:z-10',
+        // A host lights the node with data-spotlit; the card reads it.
+        'group/node absolute left-0 top-0 hover:z-10 focus-within:z-10',
         node.selected && 'z-10'
       )}
       style={{

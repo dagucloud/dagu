@@ -873,15 +873,25 @@ function CanvasView({
     },
     [direction, realign, onDirectionChange]
   );
+  // The light of a host (the History tab) is an attribute on the node box,
+  // which its card reads by CSS: no node draws again.
+  const highlightStep = useCallback((key: StepKey | null) => {
+    const root = wrapperRef.current;
+    for (const lit of root?.querySelectorAll('[data-spotlit]') ?? []) {
+      lit.removeAttribute('data-spotlit');
+    }
+    if (key !== null) nodeElement(root, key)?.setAttribute('data-spotlit', '');
+  }, []);
   useImperativeHandle(
     viewRef,
     (): CanvasViewHandle => ({
       fitView: fitAll,
       revealStep: (key) => revealInZone(key),
+      highlightStep,
       zoomTo,
       getZoom: () => storeRef.current.getViewport().zoom,
     }),
-    [fitAll, revealInZone, zoomTo]
+    [fitAll, revealInZone, highlightStep, zoomTo]
   );
 
   // A filter that matches tools brings the first match into view, and Enter
