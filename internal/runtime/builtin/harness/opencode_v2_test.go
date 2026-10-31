@@ -303,6 +303,34 @@ func TestV2MissingInteraction(t *testing.T) {
 	require.ErrorIs(t, c.json(t.Context(), http.MethodGet, "/session/ses_test", nil, nil), errManagedSessionUnavailable)
 }
 
+// OpenCode v2 accepts an interrupt before cleanup settles; the session stays
+// active until its execution finishes.
+func TestV2InterruptAwaitsIdle(t *testing.T) {
+	var interrupted atomic.Bool
+	var activePolls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/session/ses_test/interrupt":
+			interrupted.Store(true)
+			_, _ = w.Write([]byte(`{"interrupted":true}`))
+		case "/api/session/active":
+			if activePolls.Add(1) <= 2 {
+				_, _ = w.Write([]byte(`{"data":{"ses_test":{"type":"running"}}}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"data":{}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	c := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "2.1.4"}, http: server.Client()}
+	require.NoError(t, c.interruptAndAwaitIdle(t.Context(), "ses_test"))
+	require.True(t, interrupted.Load())
+	require.Equal(t, int32(3), activePolls.Load())
+}
+
 func TestV2CommandCancellation(t *testing.T) {
 	var submitted, interrupted atomic.Bool
 	ctx, cancel := context.WithCancel(t.Context())

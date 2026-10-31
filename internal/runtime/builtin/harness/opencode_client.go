@@ -19,6 +19,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/opencodehost"
 )
 
+// managedIdlePollInterval paces status checks while an interrupted session settles.
+const managedIdlePollInterval = 100 * time.Millisecond
+
 type openCodeClient struct {
 	host      opencodehost.Config
 	directory string
@@ -312,6 +315,46 @@ func (c *openCodeClient) rejectQuestion(ctx context.Context, requestID string) e
 
 func (c *openCodeClient) abort(ctx context.Context, sessionID string) error {
 	return c.json(ctx, http.MethodPost, "/session/"+url.PathEscape(sessionID)+"/abort", nil, nil)
+}
+
+// interruptAndAwaitIdle interrupts the session's active execution. It returns
+// nil only once the host reports the session idle or no longer has it.
+func (c *openCodeClient) interruptAndAwaitIdle(ctx context.Context, sessionID string) error {
+	abortErr := c.abort(ctx, sessionID)
+	if errors.Is(abortErr, errManagedSessionUnavailable) {
+		return nil
+	}
+	if err := c.awaitIdle(ctx, sessionID); err != nil {
+		return errors.Join(abortErr, err)
+	}
+	// A failed interrupt request is moot once the session is idle.
+	return nil
+}
+
+// awaitIdle waits until the host reports no active execution for the session.
+// Settlement is scoped to this host's process.
+func (c *openCodeClient) awaitIdle(ctx context.Context, sessionID string) error {
+	ticker := time.NewTicker(managedIdlePollInterval)
+	defer ticker.Stop()
+	var lastErr error
+	for {
+		status, err := c.sessionStatus(ctx, sessionID)
+		switch {
+		case err == nil && status == "idle":
+			return nil
+		case errors.Is(err, errManagedHostUnavailable):
+			return err
+		case err == nil:
+			lastErr = fmt.Errorf("OpenCode session %s is still %s", sessionID, status)
+		case ctx.Err() == nil:
+			lastErr = err
+		}
+		select {
+		case <-ctx.Done():
+			return errors.Join(ctx.Err(), lastErr)
+		case <-ticker.C:
+		}
+	}
 }
 
 func abortManagedOpenCode(ctx context.Context, host opencodehost.Config, sessionID, directory string) error {

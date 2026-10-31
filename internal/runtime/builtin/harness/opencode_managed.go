@@ -31,15 +31,31 @@ import (
 const (
 	maxManagedAgentEvents        = 1000
 	maxManagedAttachmentRawBytes = 10 * 1024 * 1024
+	// managedCleanupTimeout bounds how long a stopped run waits for its
+	// interrupted session to settle.
+	managedCleanupTimeout = 10 * time.Second
 )
 
 func (e *harnessExecutor) runManagedOpenCode(
-	ctx context.Context,
+	parent context.Context,
 	cfg providerConfig,
 	host opencodehost.Config,
 ) (*os.File, error) {
+	ctx, cancel := context.WithCancel(parent)
+	defer cancel()
 	client := &openCodeClient{host: host, directory: e.workDir, http: newOpenCodeHTTPClient(30 * time.Second)}
 	e.mu.Lock()
+	// Register before setup so a Stop that arrives while the session starts is not lost.
+	if e.stopRequested {
+		e.mu.Unlock()
+		return nil, context.Canceled
+	}
+	e.managedCancel = cancel
+	defer func() {
+		e.mu.Lock()
+		e.managedCancel = nil
+		e.mu.Unlock()
+	}()
 	e.managedHost = host
 	e.hasDeterminedStatus = false
 	if e.agentSession == nil {
@@ -86,13 +102,13 @@ func (e *harnessExecutor) runManagedOpenCode(
 
 	events, eventErrs, closeEvents, err := client.subscribe(ctx)
 	if err != nil {
-		return e.finishManagedError(err)
+		return e.finishManagedRunError(ctx, client, sessionID, err)
 	}
 	defer closeEvents()
 
 	resumed, err := e.applyManagedInteractionResponses(ctx, client, sessionID)
 	if err != nil {
-		return e.finishManagedError(err)
+		return e.finishManagedRunError(ctx, client, sessionID, err)
 	}
 
 	e.mu.Lock()
@@ -102,7 +118,7 @@ func (e *harnessExecutor) runManagedOpenCode(
 	if promptSent && promptMessageID == "" {
 		messages, refreshErr := e.refreshManagedMessages(ctx, client, sessionID)
 		if refreshErr != nil {
-			return e.finishManagedError(refreshErr)
+			return e.finishManagedRunError(ctx, client, sessionID, refreshErr)
 		}
 		promptMessageID = latestOpenCodeUserMessageID(messages)
 		if promptMessageID != "" {
@@ -123,7 +139,7 @@ func (e *harnessExecutor) runManagedOpenCode(
 		}
 		commandErrs, err = e.submitManagedPrompt(ctx, client, cfg, sessionID, promptMessageID, files)
 		if err != nil {
-			return e.finishManagedError(err)
+			return e.finishManagedRunError(ctx, client, sessionID, err)
 		}
 		e.mu.Lock()
 		e.agentSession.PromptSent = true
@@ -140,11 +156,7 @@ func (e *harnessExecutor) runManagedOpenCode(
 	for {
 		select {
 		case <-ctx.Done():
-			abortCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			_ = client.abort(abortCtx, sessionID)
-			cancel()
-			e.setManagedState(ir.AgentSessionAborted, "aborted", "OpenCode session aborted")
-			return nil, ctx.Err()
+			return e.finishManagedCancelled(ctx, client, sessionID)
 		case err, ok := <-eventErrs:
 			if !ok {
 				eventErrs = nil
@@ -157,7 +169,7 @@ func (e *harnessExecutor) runManagedOpenCode(
 		case err, ok := <-commandErrs:
 			commandErrs = nil
 			if ok && err != nil {
-				return e.finishManagedError(err)
+				return e.finishManagedRunError(ctx, client, sessionID, err)
 			}
 			return e.finishManagedSuccess(ctx, client, sessionID)
 		case event, ok := <-events:
@@ -168,7 +180,7 @@ func (e *harnessExecutor) runManagedOpenCode(
 			matched, busy, eventErr := e.handleManagedEvent(ctx, client, sessionID, event)
 			seenBusy = seenBusy || busy
 			if eventErr != nil {
-				return e.finishManagedError(eventErr)
+				return e.finishManagedRunError(ctx, client, sessionID, eventErr)
 			}
 			if matched {
 				return e.finishManagedWaiting("OpenCode needs input")
@@ -179,6 +191,9 @@ func (e *harnessExecutor) runManagedOpenCode(
 		case <-ticker.C:
 			waiting, err := e.reconcileManagedSession(ctx, client, sessionID)
 			if err != nil {
+				if ctx.Err() != nil {
+					return e.finishManagedCancelled(ctx, client, sessionID)
+				}
 				if errors.Is(err, errManagedSessionUnavailable) {
 					return e.finishManagedUnavailable("The OpenCode session is no longer available")
 				}
@@ -197,6 +212,9 @@ func (e *harnessExecutor) runManagedOpenCode(
 			}
 			status, err := client.sessionStatus(ctx, sessionID)
 			if err != nil {
+				if ctx.Err() != nil {
+					return e.finishManagedCancelled(ctx, client, sessionID)
+				}
 				if errors.Is(err, errManagedSessionUnavailable) {
 					return e.finishManagedUnavailable("The OpenCode session is no longer available")
 				}
@@ -534,7 +552,7 @@ func (e *harnessExecutor) finishManagedUnavailable(message string) (*os.File, er
 func (e *harnessExecutor) finishManagedSuccess(ctx context.Context, client *openCodeClient, sessionID string) (*os.File, error) {
 	messages, err := e.refreshManagedMessages(ctx, client, sessionID)
 	if err != nil {
-		return e.finishManagedError(err)
+		return e.finishManagedRunError(ctx, client, sessionID, err)
 	}
 	e.mu.Lock()
 	promptMessageID := e.agentSession.PromptMessageID
@@ -600,6 +618,34 @@ func (e *harnessExecutor) finishManagedError(err error) (*os.File, error) {
 		e.failManagedSession(err)
 		return nil, err
 	}
+}
+
+// finishManagedRunError reports a failure of a run whose session exists. A
+// failure caused by cancellation interrupts the session instead.
+func (e *harnessExecutor) finishManagedRunError(ctx context.Context, client *openCodeClient, sessionID string, err error) (*os.File, error) {
+	if ctx.Err() != nil {
+		return e.finishManagedCancelled(ctx, client, sessionID)
+	}
+	return e.finishManagedError(err)
+}
+
+// finishManagedCancelled interrupts the session of a cancelled run and records
+// whether the host confirmed that the session stopped.
+func (e *harnessExecutor) finishManagedCancelled(ctx context.Context, client *openCodeClient, sessionID string) (*os.File, error) {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), managedCleanupTimeout)
+	defer cancel()
+	if err := client.interruptAndAwaitIdle(cleanupCtx, sessionID); err != nil {
+		cleanupErr := fmt.Errorf("OpenCode did not confirm the session stopped: %w", err)
+		e.mu.Lock()
+		e.agentSession.State = ir.AgentSessionAborted
+		e.agentSession.LastError = cleanupErr.Error()
+		e.appendAgentEventLocked("lifecycle", "abort-unverified", cleanupErr.Error())
+		e.mu.Unlock()
+		e.notifyProgress()
+		return nil, errors.Join(ctx.Err(), cleanupErr)
+	}
+	e.setManagedState(ir.AgentSessionAborted, "aborted", "OpenCode session aborted")
+	return nil, ctx.Err()
 }
 
 func (e *harnessExecutor) setManagedState(state ir.AgentSessionState, status, content string) {

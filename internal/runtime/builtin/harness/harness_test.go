@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	goruntime "runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -428,6 +429,98 @@ func TestHarnessStopContinuesAfterManagedAbort(t *testing.T) {
 	assert.True(t, fallbackStopped)
 }
 
+func TestOpenCodeInterruptAwaitsIdle(t *testing.T) {
+	t.Parallel()
+
+	t.Run("settles after interrupt", func(t *testing.T) {
+		t.Parallel()
+		host := newIdleTestHost(t, http.StatusOK, 2)
+		require.NoError(t, host.client.interruptAndAwaitIdle(t.Context(), "session-1"))
+		assert.Equal(t, 1, host.interrupts())
+		assert.Equal(t, 3, host.statusPolls())
+	})
+	t.Run("rejected interrupt of idle session", func(t *testing.T) {
+		t.Parallel()
+		host := newIdleTestHost(t, http.StatusInternalServerError, 0)
+		require.NoError(t, host.client.interruptAndAwaitIdle(t.Context(), "session-1"))
+	})
+	t.Run("missing session", func(t *testing.T) {
+		t.Parallel()
+		host := newIdleTestHost(t, http.StatusNotFound, -1)
+		require.NoError(t, host.client.interruptAndAwaitIdle(t.Context(), "session-1"))
+		assert.Zero(t, host.statusPolls())
+	})
+	t.Run("still busy at deadline", func(t *testing.T) {
+		t.Parallel()
+		host := newIdleTestHost(t, http.StatusOK, -1)
+		ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+		defer cancel()
+		err := host.client.interruptAndAwaitIdle(ctx, "session-1")
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		assert.Contains(t, err.Error(), "still busy")
+	})
+	t.Run("unreachable host", func(t *testing.T) {
+		t.Parallel()
+		server := httptest.NewServer(http.NotFoundHandler())
+		server.Close()
+		client := &openCodeClient{host: opencodehost.Config{URL: server.URL}, http: newOpenCodeHTTPClient(time.Second)}
+		ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+		defer cancel()
+		require.ErrorIs(t, client.interruptAndAwaitIdle(ctx, "session-1"), errManagedHostUnavailable)
+		require.NoError(t, ctx.Err(), "an unreachable host must not consume the cleanup budget")
+	})
+}
+
+// idleTestHost is an OpenCode v1 host that reports a session busy for a
+// number of status polls; a negative count keeps it busy.
+type idleTestHost struct {
+	client     *openCodeClient
+	mu         sync.Mutex
+	busyPolls  int
+	interrupt  int
+	statusPoll int
+}
+
+func newIdleTestHost(t *testing.T, interruptStatus, busyPolls int) *idleTestHost {
+	t.Helper()
+	host := &idleTestHost{busyPolls: busyPolls}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host.mu.Lock()
+		defer host.mu.Unlock()
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/session/session-1/abort":
+			host.interrupt++
+			w.WriteHeader(interruptStatus)
+		case r.Method == http.MethodGet && r.URL.Path == "/session/status":
+			host.statusPoll++
+			w.Header().Set("Content-Type", "application/json")
+			if host.busyPolls == 0 {
+				_, _ = io.WriteString(w, `{}`)
+				return
+			}
+			host.busyPolls--
+			_, _ = io.WriteString(w, `{"session-1":{"type":"busy"}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	host.client = &openCodeClient{host: opencodehost.Config{URL: server.URL}, http: server.Client()}
+	return host
+}
+
+func (h *idleTestHost) interrupts() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.interrupt
+}
+
+func (h *idleTestHost) statusPolls() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.statusPoll
+}
+
 // Closing the idle connections of http.DefaultTransport, as
 // httptest.Server.Close does, can fail a request that is in flight on it. The
 // OpenCode connection must survive such a reset. Not parallel: it resets the
@@ -529,6 +622,210 @@ func TestManagedOpenCodeTransportLossWaitsForRestart(t *testing.T) {
 	status, err := exec.DetermineNodeStatus()
 	require.NoError(t, err)
 	assert.Equal(t, ir.NodeWaiting, status)
+}
+
+// A cancelled run interrupts its session and records whether the host
+// confirmed that the session stopped.
+func TestManagedOpenCodeCancelInterruptsSession(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name           string
+		cancelOnPrompt bool
+		drop           bool
+		wantEvent      string
+	}{
+		{name: "running", wantEvent: "aborted"},
+		{name: "prompt in flight", cancelOnPrompt: true, wantEvent: "aborted"},
+		{name: "unconfirmed", drop: true, wantEvent: "abort-unverified"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx, cancel := context.WithCancel(runtime.WithEnv(t.Context(), runtime.Env{}))
+			defer cancel()
+			host := newManagedTestHost(t, func(h *managedTestHost) {
+				h.dropAfterInterrupt = tc.drop
+				if tc.cancelOnPrompt {
+					// The host accepts the prompt but the caller never sees the response.
+					h.onPrompt = func(r *http.Request) {
+						cancel()
+						<-r.Context().Done()
+					}
+				}
+			})
+			exec := &harnessExecutor{prompt: "Do the work", workDir: t.TempDir()}
+			if !tc.cancelOnPrompt {
+				exec.SetProgressCallback(onManagedRunning(exec, cancel))
+			}
+
+			stdout, err := exec.runManagedOpenCode(ctx, providerConfig{flags: map[string]any{}}, host.config)
+
+			require.Nil(t, stdout)
+			require.ErrorIs(t, err, context.Canceled)
+			session := exec.GetAgentSession()
+			assert.Equal(t, ir.AgentSessionAborted, session.State)
+			assert.Equal(t, tc.wantEvent, session.Events[len(session.Events)-1].Status)
+			requests := host.requestLog()
+			interrupt := slices.Index(requests, "POST /session/session-1/abort")
+			require.GreaterOrEqual(t, interrupt, 0, "the session must be interrupted")
+			if tc.drop {
+				require.ErrorIs(t, err, errManagedHostUnavailable)
+				assert.Contains(t, session.LastError, "did not confirm")
+				return
+			}
+			assert.Empty(t, session.LastError)
+			assert.Equal(t, "GET /session/status", requests[len(requests)-1])
+			assert.Greater(t, len(requests)-1, interrupt+1, "idle is confirmed only after the session settles")
+		})
+	}
+}
+
+// Stopping a managed attempt ends the step without starting the legacy CLI or
+// the next provider. Not parallel: the host is injected through the environment.
+func TestManagedOpenCodeStopEndsStep(t *testing.T) {
+	if goruntime.GOOS == "windows" {
+		t.Skip("Skipping shell-based test on Windows")
+	}
+
+	for _, stage := range []string{"before start", "running"} {
+		t.Run(stage, func(t *testing.T) {
+			host := newManagedTestHost(t, nil)
+			t.Setenv("_DAGU_INTERNAL_OPENCODE_URL", host.config.URL)
+			t.Setenv("_DAGU_INTERNAL_OPENCODE_USERNAME", host.config.Username)
+			t.Setenv("_DAGU_INTERNAL_OPENCODE_PASSWORD", host.config.Password)
+			t.Setenv("_DAGU_INTERNAL_OPENCODE_INSTANCE_ID", host.config.InstanceID)
+			marker := filepath.Join(t.TempDir(), "cli-ran")
+			definition := &ir.HarnessDefinition{
+				Binary:     writeHarnessTestBinary(t, "opencode", "#!/bin/sh\ntouch \""+marker+"\"\n"),
+				PromptMode: ir.HarnessPromptModeArg,
+				FlagStyle:  ir.HarnessFlagStyleGNULong,
+			}
+			exec := &harnessExecutor{
+				stdout:  &strings.Builder{},
+				stderr:  &strings.Builder{},
+				prompt:  "Do the work",
+				workDir: t.TempDir(),
+				configs: []providerConfig{
+					{name: "opencode", definition: definition, managed: true},
+					{name: "fallback", definition: definition},
+				},
+			}
+			stop := func() { _ = exec.Stop(cmdutil.TerminationFromSignal(syscall.SIGTERM)) }
+			if stage == "running" {
+				exec.SetProgressCallback(onManagedRunning(exec, stop))
+			} else {
+				stop()
+			}
+
+			err := exec.Run(runtime.WithEnv(t.Context(), runtime.Env{}))
+
+			require.ErrorIs(t, err, context.Canceled)
+			assert.NoFileExists(t, marker)
+			if stage == "running" {
+				assert.Equal(t, ir.AgentSessionAborted, exec.GetAgentSession().State)
+				assert.Contains(t, host.requestLog(), "POST /session/session-1/abort")
+				return
+			}
+			assert.Empty(t, host.requestLog())
+		})
+	}
+}
+
+// onManagedRunning returns a progress callback that calls fn once the managed
+// session starts running.
+func onManagedRunning(exec *harnessExecutor, fn func()) func() {
+	var once sync.Once
+	return func() {
+		if session := exec.GetAgentSession(); session != nil && session.State == ir.AgentSessionRunning {
+			once.Do(fn)
+		}
+	}
+}
+
+// managedTestHost is an OpenCode v1 host for one managed session. The session
+// is busy from prompt submission until an interrupt, and settles after one
+// more status poll. With dropAfterInterrupt, status requests lose their
+// connection once the session is interrupted.
+type managedTestHost struct {
+	config             opencodehost.Config
+	dropAfterInterrupt bool
+	onPrompt           func(r *http.Request)
+
+	mu          sync.Mutex
+	requests    []string
+	busy        bool
+	interrupted bool
+}
+
+func newManagedTestHost(t *testing.T, configure func(*managedTestHost)) *managedTestHost {
+	t.Helper()
+	host := &managedTestHost{}
+	if configure != nil {
+		configure(host)
+	}
+	server := httptest.NewServer(http.HandlerFunc(host.serve))
+	t.Cleanup(server.Close)
+	host.config = opencodehost.Config{URL: server.URL, Username: "opencode", Password: "test", InstanceID: "host-1"}
+	return host
+}
+
+func (h *managedTestHost) serve(w http.ResponseWriter, r *http.Request) {
+	h.mu.Lock()
+	h.requests = append(h.requests, r.Method+" "+r.URL.Path)
+	h.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	switch {
+	case r.Method == http.MethodGet && r.URL.Path == "/config":
+		_, _ = io.WriteString(w, `{"share":"disabled"}`)
+	case r.Method == http.MethodPost && r.URL.Path == "/session":
+		_, _ = io.WriteString(w, `{"id":"session-1"}`)
+	case r.Method == http.MethodGet && r.URL.Path == "/event":
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	case r.Method == http.MethodPost && r.URL.Path == "/session/session-1/prompt_async":
+		// The server notices a dropped client only after the body is consumed.
+		_, _ = io.Copy(io.Discard, r.Body)
+		h.mu.Lock()
+		h.busy = true
+		h.mu.Unlock()
+		if h.onPrompt != nil {
+			h.onPrompt(r)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	case r.Method == http.MethodPost && r.URL.Path == "/session/session-1/abort":
+		h.mu.Lock()
+		h.interrupted = true
+		h.mu.Unlock()
+		_, _ = io.WriteString(w, `true`)
+	case r.Method == http.MethodGet && r.URL.Path == "/session/status":
+		h.mu.Lock()
+		busy, interrupted := h.busy, h.interrupted
+		if interrupted {
+			h.busy = false
+		}
+		h.mu.Unlock()
+		if interrupted && h.dropAfterInterrupt {
+			if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
+				_ = conn.Close()
+			}
+			return
+		}
+		if busy {
+			_, _ = io.WriteString(w, `{"session-1":{"type":"busy"}}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{}`)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func (h *managedTestHost) requestLog() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return slices.Clone(h.requests)
 }
 
 func TestManagedOpenCodeRefreshUpdatesTimeline(t *testing.T) {

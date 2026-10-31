@@ -69,6 +69,7 @@ type harnessExecutor struct {
 	acpCancel              context.CancelFunc
 	acpClient              *acpHarnessClient
 	acpStopCode            int
+	managedCancel          context.CancelFunc
 	stopRequested          bool
 	stdout                 io.Writer
 	stderr                 io.Writer
@@ -180,6 +181,7 @@ func (e *harnessExecutor) stop(req cmdutil.StopRequest) error {
 		}
 	}
 	acpCancel, acpClient := e.acpCancel, e.acpClient
+	managedCancel := e.managedCancel
 	process := e.process
 	cli := e.containerClient
 	containerCancel := e.containerCancel
@@ -194,6 +196,11 @@ func (e *harnessExecutor) stop(req cmdutil.StopRequest) error {
 		if req.Intent.IsForce() || !acpClient.cancelTurn() {
 			acpCancel()
 		}
+		return nil
+	}
+	if managedCancel != nil && req.Intent.IsTermination() {
+		// The managed run interrupts its session and confirms that it stopped.
+		managedCancel()
 		return nil
 	}
 	var stopErr error
@@ -292,10 +299,7 @@ func (e *harnessExecutor) Run(ctx context.Context) error {
 			// Cancellation can race a real failure, such as a missing binary.
 			return errors.Join(ctx.Err(), err)
 		}
-		e.mu.Lock()
-		stopped := e.stopRequested
-		e.mu.Unlock()
-		if stopped {
+		if e.isStopRequested() {
 			// A graceful stop leaves ctx intact; a stopped step starts no fallback.
 			return err
 		}
@@ -320,6 +324,12 @@ func (e *harnessExecutor) Run(ctx context.Context) error {
 	return nil
 }
 
+func (e *harnessExecutor) isStopRequested() bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.stopRequested
+}
+
 // runOnce dispatches one provider attempt to its protocol and execution backend.
 func (e *harnessExecutor) runOnce(ctx context.Context, cfg providerConfig) (*os.File, error) {
 	if cfg.definition != nil && cfg.definition.Protocol == ir.HarnessProtocolACP {
@@ -336,7 +346,7 @@ func (e *harnessExecutor) runOnce(ctx context.Context, cfg providerConfig) (*os.
 		fallbackReported := false
 		if err == nil && available {
 			stdout, managedErr := e.runManagedOpenCode(ctx, cfg, host)
-			if managedErr == nil || cfg.required {
+			if managedErr == nil || cfg.required || ctx.Err() != nil || e.isStopRequested() {
 				return stdout, managedErr
 			}
 			e.mu.Lock()
