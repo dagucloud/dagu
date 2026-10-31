@@ -663,6 +663,33 @@ params:
 	assert.Equal(t, []string{`CONFIG={"ratio":0.50,"retries":2}`}, resolved.Params)
 }
 
+// Runtime overrides of an inline schema are validated the same way, so their
+// untyped values keep the supplied text too.
+func TestResolveRuntimeParams_InlineSchemaKeepsUntypedValueText(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+name: inline-untyped-text
+params:
+  type: object
+  additionalProperties: true
+  properties:
+    CONFIG:
+      type: object
+      properties:
+        retries:
+          type: integer
+          default: 2
+steps:
+  - run: echo ok
+`))
+	require.NoError(t, err)
+
+	resolved, err := ResolveRuntimeParams(context.Background(), dag, []string{"VERSION=1.10", `CONFIG={"ratio": 1.10}`}, ResolveRuntimeParamsOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, []string{`CONFIG={"ratio":1.10,"retries":2}`, "VERSION=1.10"}, resolved.Params)
+}
+
 // Scheduled, queued, and retried runs rebuild a DAG from the params its run
 // saved, which include the ones the base config declares. The rebuild must
 // accept them whichever way the DAG declares its own params, keep the saved
