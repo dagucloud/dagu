@@ -113,7 +113,7 @@ func (e *harnessExecutor) runManagedOpenCode(
 			// No session of this attempt exists, so there is no turn to stop.
 			return e.finishManagedAbort(ctx, nil)
 		}
-		if errors.Is(err, errManagedSessionUnavailable) || (cleanRestart && errors.Is(err, errManagedHostUnavailable)) {
+		if isManagedUnavailable(err) {
 			return e.finishManagedError(err)
 		}
 		e.failManagedSession(err)
@@ -309,7 +309,7 @@ func (e *harnessExecutor) ensureManagedSession(ctx context.Context, client *open
 	if persistedID != "" {
 		session, err = client.getSession(ctx, persistedID)
 		if err != nil {
-			if !errors.Is(err, errManagedSessionUnavailable) {
+			if !client.host.IsV2() && !errors.Is(err, errManagedSessionUnavailable) {
 				err = fmt.Errorf("%w: %v", errManagedSessionUnavailable, err)
 			}
 			return "", err
@@ -573,7 +573,7 @@ func (e *harnessExecutor) reconcileManagedSession(ctx context.Context, client *o
 			}
 		}
 	}
-	if _, err := e.refreshManagedMessages(ctx, client, sessionID); err != nil && isManagedUnavailable(err) {
+	if _, err := e.refreshManagedMessages(ctx, client, sessionID); err != nil && (client.host.IsV2() || isManagedUnavailable(err)) {
 		return false, err
 	}
 	return false, nil
