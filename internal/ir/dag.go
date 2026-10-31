@@ -575,6 +575,58 @@ func (d *DAG) NextRun(now time.Time) time.Time {
 	return next
 }
 
+// ScheduleFire is a time at which a start schedule fires.
+type ScheduleFire struct {
+	// Time is the fire time in the schedule's time zone, or in the zone of
+	// the evaluation time when the schedule names none.
+	Time time.Time
+	// ScheduleIndex is the position of the firing schedule in DAG.Schedule.
+	ScheduleIndex int
+}
+
+// UpcomingFires returns up to limit start-schedule fire times after from,
+// earliest first. Schedules that fire at the same instant yield one fire,
+// attributed to the first of them. The result ignores scheduler state such
+// as suspension, pauses, and consumed one-off schedules.
+func (d *DAG) UpcomingFires(from time.Time, limit int) []ScheduleFire {
+	if limit <= 0 || len(d.Schedule) == 0 {
+		return nil
+	}
+	next := make([]time.Time, len(d.Schedule))
+	for i, sched := range d.Schedule {
+		next[i] = sched.Next(from)
+	}
+
+	var fires []ScheduleFire
+	for len(fires) < limit {
+		earliest := -1
+		for i, t := range next {
+			if !t.IsZero() && (earliest < 0 || t.Before(next[earliest])) {
+				earliest = i
+			}
+		}
+		if earliest < 0 {
+			break
+		}
+		at := next[earliest]
+		loc := d.Schedule[earliest].Location()
+		if loc == nil {
+			loc = from.Location()
+		}
+		fireTime := at.In(loc)
+		fires = append(fires, ScheduleFire{Time: fireTime, ScheduleIndex: earliest})
+		// A one-off's time carries its own offset, in which an unzoned cron
+		// would be evaluated; advance from the evaluation zone instead.
+		after := at.In(from.Location())
+		for i, t := range next {
+			if !t.IsZero() && !t.After(at) {
+				next[i] = d.Schedule[i].Next(after)
+			}
+		}
+	}
+	return fires
+}
+
 // initializeDefaults sets the default values for the DAG.
 func (d *DAG) initializeDefaults() {
 	const (

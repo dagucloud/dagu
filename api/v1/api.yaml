@@ -14925,6 +14925,25 @@ components:
             - $ref: "#/components/schemas/RuntimeProfileName"
           description: "Runtime profile name that activates this schedule entry"
 
+    UpcomingRun:
+      type: object
+      description: "A time at which a start schedule fires"
+      properties:
+        time:
+          type: string
+          format: date-time
+          description: "Fire time, with the offset of the zone the schedule is evaluated in"
+        scheduleIndex:
+          type: integer
+          description: "Position of the firing entry in the DAG's schedule list"
+        timezone:
+          type: string
+          description: "Name of the zone the schedule is evaluated in"
+      required:
+        - time
+        - scheduleIndex
+        - timezone
+
     Status:
       type: integer
       enum: [0, 1, 2, 3, 4, 5, 6, 7, 8]
@@ -15176,6 +15195,11 @@ components:
           type: string
           format: date-time
           description: "Scheduler-aware next planned run time. Pending overdue one-offs remain visible until consumed."
+        upcomingRuns:
+          type: array
+          description: "Next fire times of the start schedules, earliest first. Derived from the definition alone: suspension, scheduler pauses, and runtime profiles do not filter it."
+          items:
+            $ref: "#/components/schemas/UpcomingRun"
         group:
           type: string
           description: "Logical grouping of related DAGs for organizational purposes"

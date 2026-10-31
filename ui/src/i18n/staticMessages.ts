@@ -3002,6 +3002,7 @@ const baseEnglish = {
     'A new Dagu binary is installed. Run {command} to restart and use it.',
   'A new Dagu binary is installed. Restart Dagu to use it.':
     'A new Dagu binary is installed. Restart Dagu to use it.',
+  "Upcoming runs": "Upcoming runs",
 } as const;
 
 type BaseStaticMessage = keyof typeof baseEnglish;
@@ -5929,6 +5930,7 @@ const baseChinese = {
     '已安装新的 Dagu 二进制文件。运行 {command} 重启后即可使用。',
   'A new Dagu binary is installed. Restart Dagu to use it.':
     '已安装新的 Dagu 二进制文件。重启 Dagu 后即可使用。',
+  "Upcoming runs": "即将进行的运行",
 } as const satisfies Record<BaseStaticMessage, string>;
 
 const baseJapanese = {
@@ -8962,6 +8964,7 @@ const baseJapanese = {
     '新しい Dagu バイナリがインストールされました。{command} を実行して再起動すると使用できます。',
   'A new Dagu binary is installed. Restart Dagu to use it.':
     '新しい Dagu バイナリがインストールされました。Dagu を再起動すると使用できます。',
+  "Upcoming runs": "今後の実行",
 } as const satisfies Record<BaseStaticMessage, string>;
 
 const chinese = {
