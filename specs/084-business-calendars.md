@@ -115,8 +115,8 @@ previous fire on which the expression alone would have fired
 (`skips Mon 2027-01-11 (Coming of Age Day)`).
 
 `dagu calendar check [files...]` validates calendar files, by default every
-file in `paths.calendars_dir`. A file given as a path resolves `include`
-against the files beside it. A file named after a reserved name is reported
+file in `paths.calendars_dir`. A file given as a path must be named
+`<name>.yaml`, and resolves `include` against the files beside it. A file named after a reserved name is reported
 as invalid. The command exits non-zero when any calendar is invalid.
 
 ## Errors

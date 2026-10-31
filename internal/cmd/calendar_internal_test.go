@@ -24,7 +24,7 @@ func TestRunCalendarCheck(t *testing.T) {
 
 	var out bytes.Buffer
 	require.NoError(t, runCalendarCheck(&out, dir, nil))
-	assert.Equal(t, "ok   jp-banking: 1 holidays, through 2027-12-31\n", out.String())
+	assert.Equal(t, "ok   jp-banking: 1 holiday, through 2027-12-31\n", out.String())
 
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "broken.yaml"), []byte("holidays: [2027-02-30]\n"), 0o600))
 	out.Reset()
@@ -36,6 +36,21 @@ func TestRunCalendarCheck(t *testing.T) {
 	out.Reset()
 	require.NoError(t, runCalendarCheck(&out, "", []string{filepath.Join(dir, "jp-banking.yaml")}))
 	assert.Contains(t, out.String(), "ok   jp-banking")
+}
+
+// Only <name>.yaml files are calendars, so another file is refused rather
+// than checked as the .yaml file beside it.
+func TestRunCalendarCheckRejectsOtherExtensions(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ops.yaml"), []byte("holidays: []\n"), 0o600))
+	other := filepath.Join(dir, "ops.yml")
+	require.NoError(t, os.WriteFile(other, []byte("holidays: nope\n"), 0o600))
+
+	var out bytes.Buffer
+	require.EqualError(t, runCalendarCheck(&out, "", []string{other}), "1 of 1 calendars are invalid")
+	assert.Contains(t, out.String(), "FAIL ops: "+other+": calendar files are named <name>.yaml")
 }
 
 // A file named after a built-in calendar never loads, so the check must not

@@ -21,8 +21,8 @@ import (
 )
 
 const (
-	// calendarFileExtension is the extension of calendar files.
-	calendarFileExtension = ".yaml"
+	// CalendarFileExtension is the extension of calendar files.
+	CalendarFileExtension = ".yaml"
 	// maxHolidayRangeDays bounds a holiday range, which is expanded day by
 	// day.
 	maxHolidayRangeDays = 366
@@ -133,7 +133,7 @@ func (s *CalendarSource) Calendar(name string) (*ir.Calendar, error) {
 // has that name.
 func (s *CalendarSource) CalendarFile(name string) (*ir.Calendar, error) {
 	if isReservedCalendarName(name) {
-		return nil, fmt.Errorf("calendar file %s%s: %q is reserved", name, calendarFileExtension, name)
+		return nil, fmt.Errorf("calendar file %s%s: %q is reserved", name, CalendarFileExtension, name)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -188,7 +188,7 @@ func calendarFileNames(dir string) ([]string, error) {
 	}
 	var names []string
 	for _, entry := range entries {
-		name, ok := strings.CutSuffix(entry.Name(), calendarFileExtension)
+		name, ok := strings.CutSuffix(entry.Name(), CalendarFileExtension)
 		if !ok || entry.IsDir() || ir.ValidateCalendarName(name) != nil {
 			continue
 		}
@@ -237,7 +237,7 @@ func (l *calendarLoader) load(name string) (*ir.Calendar, error) {
 	if l.dir == "" {
 		return nil, unknownCalendarError(l.dir, name)
 	}
-	path := filepath.Join(l.dir, name+calendarFileExtension)
+	path := filepath.Join(l.dir, name+CalendarFileExtension)
 	// Stamped before reading, so a write during the read shows as a change.
 	l.files = append(l.files, statFile(path))
 	data, err := os.ReadFile(path) //nolint:gosec // name matches the calendar name pattern, so the path stays in dir.

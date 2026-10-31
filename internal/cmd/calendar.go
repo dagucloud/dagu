@@ -68,7 +68,11 @@ To check that the DAGs naming a calendar find it, run dagu validate on them.`,
 }
 
 func runCalendarCheck(out io.Writer, calendarsDir string, files []string) error {
-	type target struct{ dir, name string }
+	type target struct {
+		dir, name string
+		// problem keeps a file from being checked.
+		problem string
+	}
 	var targets []target
 	if len(files) == 0 {
 		summaries, err := spec.ListCalendars(calendarsDir)
@@ -82,10 +86,14 @@ func runCalendarCheck(out io.Writer, calendarsDir string, files []string) error 
 		}
 	}
 	for _, file := range files {
-		targets = append(targets, target{
+		next := target{
 			dir:  filepath.Dir(file),
 			name: strings.TrimSuffix(filepath.Base(file), filepath.Ext(file)),
-		})
+		}
+		if filepath.Ext(file) != spec.CalendarFileExtension {
+			next.problem = fmt.Sprintf("%s: calendar files are named <name>%s", file, spec.CalendarFileExtension)
+		}
+		targets = append(targets, next)
 	}
 	if len(targets) == 0 {
 		_, err := fmt.Fprintf(out, "No calendar files in %s\n", calendarsDir)
@@ -94,6 +102,13 @@ func runCalendarCheck(out io.Writer, calendarsDir string, files []string) error 
 
 	failed := 0
 	for _, target := range targets {
+		if target.problem != "" {
+			failed++
+			if _, err := fmt.Fprintf(out, "FAIL %s: %s\n", target.name, target.problem); err != nil {
+				return err
+			}
+			continue
+		}
 		// A file is checked as a file even when its name is a built-in
 		// calendar's, which no schedule can reach.
 		cal, err := spec.NewCalendarSource(target.dir).CalendarFile(target.name)
@@ -108,7 +123,7 @@ func runCalendarCheck(out io.Writer, calendarsDir string, files []string) error 
 		if !cal.Through.IsZero() {
 			through = ", through " + cal.Through.String()
 		}
-		if _, err := fmt.Fprintf(out, "ok   %s: %d holidays%s\n", cal.Name, len(cal.Holidays), through); err != nil {
+		if _, err := fmt.Fprintf(out, "ok   %s: %s%s\n", cal.Name, holidayCount(len(cal.Holidays)), through); err != nil {
 			return err
 		}
 	}
@@ -116,6 +131,13 @@ func runCalendarCheck(out io.Writer, calendarsDir string, files []string) error 
 		return fmt.Errorf("%d of %d calendars are invalid", failed, len(targets))
 	}
 	return nil
+}
+
+func holidayCount(n int) string {
+	if n == 1 {
+		return "1 holiday"
+	}
+	return fmt.Sprintf("%d holidays", n)
 }
 
 func calendarFiresCommand() *cobra.Command {

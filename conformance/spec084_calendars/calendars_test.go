@@ -139,7 +139,7 @@ func TestCalendarCheck(t *testing.T) {
 	result := dagu.RunWithEnv(calendarsEnv(dagu), "calendar", "check")
 	result.ExpectExitCode(0)
 	got := normalizedLines(result.Stdout())
-	want := []string{"ok jp-banking: 3 holidays", "ok jp-national: 1 holidays"}
+	want := []string{"ok jp-banking: 3 holidays", "ok jp-national: 1 holiday"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("calendar check printed %q, want %q", got, want)
 	}
