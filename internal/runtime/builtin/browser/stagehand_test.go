@@ -919,11 +919,17 @@ func TestStagehandWorksInAWindowThatStays(t *testing.T) {
 		snap, err := eng.Snapshot(t.Context())
 		require.NoError(t, err)
 		assert.Contains(t, snap.Tree, "Register", "the window of regions")
-		for _, selector := range []string{"xpath=/html[1]/body[1]/label[2]/input[1]", "xpath=/html[1]/body[1]/button[1]"} {
-			replayed, err := eng.Replay(t.Context(), recordedAction{Selector: selector, Method: "click"}, nil, time.Minute)
-			require.NoError(t, err)
-			require.True(t, replayed, selector)
-		}
+		document, err := eng.DocumentID(t.Context())
+		require.NoError(t, err)
+		// Register closes the window, which can end its click before the
+		// click reports back; the operator judges that by the document.
+		op := &operator{eng: eng}
+		replayed, err := op.replay(t.Context(), []recordedAction{
+			{Selector: "xpath=/html[1]/body[1]/label[2]/input[1]", Method: "click"},
+			{Selector: "xpath=/html[1]/body[1]/button[1]", Method: "click"},
+		}, document, time.Minute)
+		require.NoError(t, err)
+		require.Equal(t, 2, replayed)
 		text, err := eng.PageText(t.Context())
 		require.NoError(t, err)
 		assert.Contains(t, text, "Funabashi", "the region the window registered")
