@@ -758,7 +758,7 @@ func TestTickPlanner_ApplyEvent_Added(t *testing.T) {
 	}
 
 	tp.entryMu.Lock()
-	changed := tp.applyEvent(context.Background(), DAGChangeEvent{
+	tp.applyEvent(context.Background(), DAGChangeEvent{
 		Type:     DAGChangeAdded,
 		DAGEntry: DAGEntry{DAG: newDAG},
 	})
@@ -773,7 +773,6 @@ func TestTickPlanner_ApplyEvent_Added(t *testing.T) {
 	_, hasWM := tp.watermarkState.DAGs["new-dag"]
 	tp.mu.RUnlock()
 	assert.True(t, hasWM, "watermark should be set for new DAG")
-	assert.True(t, changed, "new DAG watermark should need saving")
 }
 
 func TestTickPlanner_ApplyEvent_Deleted(t *testing.T) {
@@ -1021,6 +1020,88 @@ func TestTickPlanner_DrainSavesAChangeAfterItsLastEvent(t *testing.T) {
 		return saved != nil && len(saved.DAGs) == 2
 	}, 2*time.Second, 5*time.Millisecond)
 	assert.Equal(t, savesAfterInit+1, saves())
+}
+
+// State a restart cannot rebuild from the DAG files, because it records when
+// the scheduler first saw a change, is saved before the next event even
+// inside a change. Other state waits for the change to end.
+func TestTickPlanner_DrainSavesFirstSeenStateAtOnce(t *testing.T) {
+	t.Parallel()
+
+	hourly := mustParseSchedule(t, "0 * * * *")
+	halfHourly := mustParseSchedule(t, "*/30 * * * *")
+	tests := []struct {
+		name    string
+		initial *ir.DAG
+		event   DAGChangeEvent
+		saveNow bool
+	}{
+		{
+			name:    "new catch-up DAG",
+			event:   DAGChangeEvent{Type: DAGChangeAdded, DAGEntry: DAGEntry{DAG: &ir.DAG{Name: "d", CatchupWindow: time.Hour, Schedule: []ir.Schedule{hourly}}}},
+			saveNow: true,
+		},
+		{
+			name:  "new DAG without catch-up",
+			event: DAGChangeEvent{Type: DAGChangeAdded, DAGEntry: DAGEntry{DAG: &ir.DAG{Name: "d", Schedule: []ir.Schedule{hourly}}}},
+		},
+		{
+			name:    "pending one-off",
+			event:   DAGChangeEvent{Type: DAGChangeAdded, DAGEntry: DAGEntry{DAG: &ir.DAG{Name: "d", Schedule: []ir.Schedule{mustOneOffSchedule(t, "2026-02-07T13:00:00Z")}}}},
+			saveNow: true,
+		},
+		{
+			name:    "schedule edit with skip_if_successful",
+			initial: &ir.DAG{Name: "d", SkipIfSuccessful: true, Schedule: []ir.Schedule{hourly}},
+			event:   DAGChangeEvent{Type: DAGChangeUpdated, DAGEntry: DAGEntry{DAG: &ir.DAG{Name: "d", SkipIfSuccessful: true, Schedule: []ir.Schedule{halfHourly}}}},
+			saveNow: true,
+		},
+		{
+			name:    "schedule edit without skip_if_successful",
+			initial: &ir.DAG{Name: "d", Schedule: []ir.Schedule{hourly}},
+			event:   DAGChangeEvent{Type: DAGChangeUpdated, DAGEntry: DAGEntry{DAG: &ir.DAG{Name: "d", Schedule: []ir.Schedule{halfHourly}}}},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := &mockStateStore{}
+			tp, eventCh := newTestTickPlanner(store)
+			var initial []DAGEntry
+			if tc.initial != nil {
+				initial = testDAGEntries(tc.initial)
+			}
+			require.NoError(t, tp.Init(t.Context(), initial))
+			saves := func() int {
+				store.mu.Lock()
+				defer store.mu.Unlock()
+				return len(store.saved)
+			}
+			savesAfterInit := saves()
+
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			tp.Start(ctx)
+			// More events of the change follow, so only state saved at once
+			// reaches the store.
+			tc.event.More = true
+			eventCh <- tc.event
+			if tc.saveNow {
+				require.Eventually(t, func() bool { return saves() > savesAfterInit }, 2*time.Second, 5*time.Millisecond)
+				return
+			}
+			require.Eventually(t, func() bool {
+				tp.entryMu.Lock()
+				defer tp.entryMu.Unlock()
+				entry, ok := tp.entries["d"]
+				return ok && entry.DAG == tc.event.DAG
+			}, 2*time.Second, 5*time.Millisecond)
+			// Leave the drainer time to save early, which it must not do.
+			time.Sleep(50 * time.Millisecond)
+			assert.Equal(t, savesAfterInit, saves())
+		})
+	}
 }
 
 func TestTickPlanner_UpdatedEventSavesWatermarkMutations(t *testing.T) {

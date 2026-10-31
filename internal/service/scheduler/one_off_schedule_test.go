@@ -85,6 +85,41 @@ func TestReconcileOneOffState_ScheduledNowStaysPending(t *testing.T) {
 	assert.Equal(t, schedulerstate.OneOffStatusPending, next.OneOffs[schedule.Fingerprint()].Status)
 }
 
+// A one-off registered just before its time, then lost in a crash while the
+// rest of its change is applied, would be marked consumed by the restart, as
+// if it had been registered late. Its registration must reach disk first.
+func TestTickPlanner_OneOffRegistrationSurvivesCrashMidChange(t *testing.T) {
+	t.Parallel()
+
+	registeredAt := time.Date(2026, 2, 7, 11, 59, 59, 0, time.UTC)
+	restartAt := time.Date(2026, 2, 7, 12, 0, 1, 0, time.UTC)
+	schedule := mustOneOffSchedule(t, "2026-02-07T12:00:00Z")
+	dag := &ir.DAG{Name: "one-off-dag", Schedule: []ir.Schedule{schedule}}
+
+	store := &mockStateStore{}
+	tp, eventCh := newTestTickPlanner(store)
+	tp.cfg.Clock = func() time.Time { return registeredAt }
+	require.NoError(t, tp.Init(t.Context(), nil))
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	tp.Start(ctx)
+
+	// More events of the change follow, so the change is still open when the
+	// scheduler crashes and only what is on disk survives.
+	eventCh <- DAGChangeEvent{Type: DAGChangeAdded, More: true, DAGEntry: DAGEntry{DAG: dag}}
+	require.Eventually(t, func() bool {
+		_, ok := store.lastSaved().DAGs[dag.Name].OneOffs[schedule.Fingerprint()]
+		return ok
+	}, 2*time.Second, 5*time.Millisecond, "the registration must be saved before its change ends")
+
+	restarted, _ := newTestTickPlanner(&mockStateStore{state: store.lastSaved()})
+	restarted.cfg.Clock = func() time.Time { return restartAt }
+	require.NoError(t, restarted.Init(t.Context(), testDAGEntries(dag)))
+	runs := restarted.Plan(t.Context(), restartAt)
+	require.Len(t, runs, 1)
+	assert.Equal(t, schedule.Fingerprint(), runs[0].Fingerprint)
+}
+
 func TestTickPlanner_PlanPendingOneOffRun(t *testing.T) {
 	t.Parallel()
 
