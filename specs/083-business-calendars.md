@@ -51,6 +51,11 @@ through: 2027-12-31
 A date is a business day when it is an extra business day, or when it is not a
 holiday and its weekday is in `weekdays`.
 
+The JSON schema of calendar files is served at `/assets/calendar.schema.json`
+and shown by `dagu schema calendar`. It accepts every valid file. Only loading
+rejects dates that do not exist, ranges that end before they start or exceed
+366 days, and includes that are missing or form a cycle.
+
 The calendar `weekdays` is built in: Monday to Friday with no holidays. The
 names `weekdays` and `none` are reserved; a file with either name is reported
 as invalid.

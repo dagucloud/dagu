@@ -1,0 +1,106 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "description": "A Dagu business calendar: the file <name>.yaml in paths.calendars_dir. Start schedules name it with calendar to fire on its business days only.",
+  "additionalProperties": false,
+  "properties": {
+    "description": {
+      "type": "string",
+      "description": "Text shown in calendar listings."
+    },
+    "weekdays": {
+      "type": "array",
+      "description": "Days of the week that are business days unless they are holidays. Defaults to MON to FRI.",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/weekday"
+      },
+      "default": ["MON", "TUE", "WED", "THU", "FRI"]
+    },
+    "holidays": {
+      "type": "array",
+      "description": "Dates that are not business days: a date, {date, name}, or an inclusive range {from, to, name} of at most 366 days.",
+      "items": {
+        "$ref": "#/definitions/holiday"
+      }
+    },
+    "extra_business_days": {
+      "type": "array",
+      "description": "Dates that are business days whatever their weekday, even when they are also holidays.",
+      "items": {
+        "$ref": "#/definitions/date"
+      }
+    },
+    "include": {
+      "type": "array",
+      "description": "Calendars whose holidays this calendar adds. Only holidays are added.",
+      "items": {
+        "$ref": "#/definitions/calendarName"
+      }
+    },
+    "through": {
+      "$ref": "#/definitions/date",
+      "description": "The last date the holidays are maintained for. From 30 days before it, loading a DAG that uses the calendar warns that the holidays run out."
+    }
+  },
+  "definitions": {
+    "date": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+      "description": "A date in YYYY-MM-DD form."
+    },
+    "weekday": {
+      "type": "string",
+      "pattern": "^\\s*([Mm][Oo][Nn]|[Tt][Uu][Ee]|[Ww][Ee][Dd]|[Tt][Hh][Uu]|[Ff][Rr][Ii]|[Ss][Aa][Tt]|[Ss][Uu][Nn])\\s*$",
+      "description": "A day of the week, in any case.",
+      "examples": ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
+    },
+    "calendarName": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]+$",
+      "description": "The name of a calendar file in paths.calendars_dir."
+    },
+    "holidayName": {
+      "type": "string",
+      "description": "Name shown for the holiday."
+    },
+    "holiday": {
+      "oneOf": [
+        {
+          "$ref": "#/definitions/date"
+        },
+        {
+          "type": "object",
+          "description": "A named holiday.",
+          "additionalProperties": false,
+          "required": ["date"],
+          "properties": {
+            "date": {
+              "$ref": "#/definitions/date"
+            },
+            "name": {
+              "$ref": "#/definitions/holidayName"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "description": "An inclusive range of holidays of at most 366 days.",
+          "additionalProperties": false,
+          "required": ["from", "to"],
+          "properties": {
+            "from": {
+              "$ref": "#/definitions/date"
+            },
+            "to": {
+              "$ref": "#/definitions/date"
+            },
+            "name": {
+              "$ref": "#/definitions/holidayName"
+            }
+          }
+        }
+      ]
+    }
+  }
+}
