@@ -251,6 +251,17 @@ through: someday
 		assert.False(t, cal.IsBusinessDay(civil(2027, 5, 3)), "valid holiday kept")
 	})
 
+	// While a weekday is half typed, the calendar keeps its default
+	// weekdays rather than losing every business day.
+	t.Run("weekdays with no valid day keep the default", func(t *testing.T) {
+		t.Parallel()
+
+		cal, messages := check("draft", "weekdays: [FUN]\n")
+		require.Len(t, messages, 1)
+		assert.True(t, cal.IsBusinessDay(civil(2027, 1, 4)), "Monday")
+		assert.False(t, cal.IsBusinessDay(civil(2027, 1, 2)), "Saturday")
+	})
+
 	t.Run("syntax errors keep their position", func(t *testing.T) {
 		t.Parallel()
 

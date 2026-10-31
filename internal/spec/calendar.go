@@ -511,6 +511,7 @@ func (p *calendarParser) weekdays(value any) {
 		return
 	}
 	var weekdays [7]bool
+	valid := false
 	for i, item := range items {
 		text, _ := item.(string)
 		day, ok := weekdayNames[strings.ToUpper(strings.TrimSpace(text))]
@@ -519,8 +520,12 @@ func (p *calendarParser) weekdays(value any) {
 			continue
 		}
 		weekdays[day] = true
+		valid = true
 	}
-	p.file.cal.Weekdays = weekdays
+	// With no valid day, the calendar keeps its default weekdays.
+	if valid {
+		p.file.cal.Weekdays = weekdays
+	}
 }
 
 func (p *calendarParser) holidays(value any) {
