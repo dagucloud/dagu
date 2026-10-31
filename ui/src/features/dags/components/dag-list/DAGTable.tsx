@@ -80,7 +80,7 @@ import { Switch } from '@/components/ui/switch';
 import { AppBarContext } from '../../../../contexts/AppBarContext';
 import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import { buildDAGPageURL } from '../../../dag-runs/lib/dagRunUrls';
-import { useOpenPage } from '../../../dag-runs/lib/useOpenPage';
+import { usePeekOrOpen } from '@/features/peek/usePeekOrOpen';
 import type { WorkflowFilterView } from './workflowViews';
 import { useQuery } from '../../../../hooks/api';
 import { parseLabelParts } from '../../../../lib/utils';
@@ -120,7 +120,7 @@ function DAGNameLink({
 // Reusable DAG Card component for mobile and narrow panel views
 interface DAGCardProps {
   dag: components['schemas']['DAGFile'];
-  /** The workflow page: the name link and a click on the card open it. */
+  /** The workflow page that the name link opens. */
   href: string;
   onOpen: (event: React.MouseEvent) => void;
   onLabelClick: (label: string) => void;
@@ -1143,8 +1143,8 @@ function DAGTable({
 }: Props) {
   const { ts } = useI18n();
   const remoteNode = useRemoteNode();
-  const openPage = useOpenPage();
-  // A row opens the workflow page.
+  const peekOrOpen = usePeekOrOpen();
+  // The name links open the workflow page; a click on a row shows its peek.
   const dagURL = (fileName: string) =>
     buildDAGPageURL({ fileName, remoteNode });
   const columns = useMemo(
@@ -1885,10 +1885,10 @@ function DAGTable({
                       if ((row.original as Data)?.kind === ItemKind.Group) {
                         row.toggleExpanded();
                       }
-                      // Handle DAG row clicks - open the workflow page, or a new tab with Cmd/Ctrl
+                      // Handle DAG row clicks - show the peek, or a new tab with Cmd/Ctrl
                       else if (isDAGRow && 'dag' in row.original) {
                         const dagRow = row.original as DAGRow;
-                        openPage(dagURL(dagRow.dag.fileName), e);
+                        peekOrOpen({ dag: dagRow.dag.fileName }, e);
                       }
                     }}
                   >
@@ -1985,7 +1985,7 @@ function DAGTable({
                               dag={dagRow.dag}
                               href={dagURL(dagRow.dag.fileName)}
                               onOpen={(e) =>
-                                openPage(dagURL(dagRow.dag.fileName), e)
+                                peekOrOpen({ dag: dagRow.dag.fileName }, e)
                               }
                               onLabelClick={handleLabelClick}
                               refreshFn={refreshFn}
@@ -2030,7 +2030,7 @@ function DAGTable({
                   <DAGCard
                     dag={dagRow.dag}
                     href={dagURL(dagRow.dag.fileName)}
-                    onOpen={(e) => openPage(dagURL(dagRow.dag.fileName), e)}
+                    onOpen={(e) => peekOrOpen({ dag: dagRow.dag.fileName }, e)}
                     onLabelClick={handleLabelClick}
                     refreshFn={refreshFn}
                     canDeleteDAGs={canDeleteDAGs}
