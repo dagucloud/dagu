@@ -72,7 +72,10 @@ func (a *API) ListCalendars(ctx context.Context, request api.ListCalendarsReques
 		}
 		if summary.Err != nil {
 			calendar.Error = ptrOf(summary.Err.Error())
-		} else if usage != nil {
+		}
+		// A file named after a built-in calendar is never used; the name
+		// reaches the built-in one.
+		if _, shadowed := ir.BuiltinCalendar(summary.Name); usage != nil && (summary.Builtin || !shadowed) {
 			calendar.DagCount = new(len(usage.users(summary.Name)))
 		}
 		calendars = append(calendars, calendar)
@@ -357,8 +360,8 @@ type calendarUse struct {
 	dags []persis.DAGListItem
 }
 
-// calendarUsage reads the DAG catalog, limited by filter, and the include
-// lists of summaries. A calendar that does not load has no known includes.
+// calendarUsage reads the DAG catalog, with the DAGs of the extra search
+// directories and limited by filter, and the include lists of summaries.
 func (a *API) calendarUsage(ctx context.Context, summaries []spec.CalendarSummary, filter *workspace.WorkspaceFilter) (calendarUsage, error) {
 	usage := calendarUsage{}
 	use := func(name string) *calendarUse {
@@ -371,7 +374,7 @@ func (a *API) calendarUsage(ctx context.Context, summaries []spec.CalendarSummar
 		use(summary.Name).includes = summary.Includes
 	}
 	paginator := pagination.NewPaginator(1, math.MaxInt)
-	result, _, err := a.dagRepository.List(ctx, persis.DAGListOptions{Paginator: &paginator, WorkspaceFilter: filter})
+	result, _, err := a.dagRepository.ListIncludingSearchPaths(ctx, persis.DAGListOptions{Paginator: &paginator, WorkspaceFilter: filter})
 	if err != nil {
 		return nil, err
 	}
