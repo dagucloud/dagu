@@ -22,7 +22,7 @@ async function openNewestRunFromLane(page: Page, dagName: string) {
 }
 
 // A run of a run list or of the Activity lanes shows in a peek over the
-// list, and Open workflow opens the run on its workflow page.
+// list, and Open run opens the run on its workflow page.
 for (const view of ['list', 'grouped', 'activity'] as const) {
   test(`opens a run on its workflow page from the ${view} view`, async ({
     page,
@@ -82,7 +82,7 @@ steps:
     }
     await expect(peek).toBeVisible();
     expect(new URL(page.url()).searchParams.get('peekRun')).toBe(runId);
-    await peek.getByRole('link', { name: 'Open workflow' }).click();
+    await peek.getByRole('link', { name: 'Open run' }).click();
 
     await expect
       .poll(() => here())
