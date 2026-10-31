@@ -25,6 +25,7 @@ import (
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	fileaudit "github.com/dagucloud/dagu/v2/internal/persis/file/audit"
 	filebaseconfig "github.com/dagucloud/dagu/v2/internal/persis/file/baseconfig"
+	filecalendar "github.com/dagucloud/dagu/v2/internal/persis/file/calendar"
 	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
 	fileeventstore "github.com/dagucloud/dagu/v2/internal/persis/file/eventstore"
 	filemonitor "github.com/dagucloud/dagu/v2/internal/persis/file/monitor"
@@ -76,6 +77,14 @@ func initStores(ctx context.Context, cfg *config.Config, backend persis.Backend,
 			filebaseconfig.WithSkipDefault(true),
 			filebaseconfig.WithOnChange(changeMarker.Bump),
 		)
+	}
+	// Calendar edits change the business days of the DAGs that use them.
+	if cfg.Paths.CalendarsDir != "" {
+		calendarStore, err := filecalendar.New(cfg.Paths.CalendarsDir, filecalendar.WithOnChange(changeMarker.Bump))
+		if err != nil {
+			return fmt.Errorf("failed to create calendar store: %w", err)
+		}
+		stores.Calendar = calendarStore
 	}
 	if cfg.Paths.BaseConfig != "" {
 		baseConfigStore, err := filebaseconfig.New(cfg.Paths.BaseConfig, filebaseconfig.WithOnChange(changeMarker.Bump))
