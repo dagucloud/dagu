@@ -331,6 +331,33 @@ remove one. A replace rebuilds the sheet; to fill a formatted sheet or a
 form and keep its look, use `xlsx.write_cells`, `xlsx.update_rows`, or
 `xlsx.append`, which keep each cell's style.
 
+An actual cell change or newly merged range by `xlsx.write_cells`, a cell or
+header-column change by `xlsx.update_rows` or `xlsx.append`, creation of a
+sheet in an existing workbook, or replacement of an existing sheet by
+`xlsx.write`, clears
+**all formula caches in the saved workbook** and requests full recalculation
+on open. This includes formulas on other sheets and unrelated formulas.
+Names, tables, external references, and functions that compute references
+make a partial dependency check unsafe; Dagu does not attempt one. Formula
+text, shared/array/data-table attributes, styles, and other workbook
+metadata are retained. Existing calculation settings, including manual mode
+and iterative calculation options, are retained alongside the recalculation
+request.
+
+A subsequent `xlsx.read` follows the normal no-cache rule: supported formulas
+are evaluated, and formulas the calculation library cannot evaluate produce
+a warning and null. An unrelated unsupported formula that previously had a
+cached result can therefore become null after an edit. Formula-valued headers
+are evaluated before column matching by readers and writers. If evaluation
+fails or returns an empty header, the usual column-letter fallback applies,
+with evaluation and empty-header warnings. Cached follower cells
+inside a shared, array, or data-table formula's range are also cleared; a
+follower with no formula of its own reads as an empty cell until a spreadsheet
+application recalculates the workbook. This does not add support for those
+formula types to the calculation library. A dry run does not save or clear
+caches. A write that makes no changes preserves caches and calculation
+settings, including when it saves a requested `output` copy.
+
 Values are written by type: numbers as numbers, booleans as booleans,
 `2026-10-01` and `2026-10-01T14:30:00` strings as dates, other strings as
 text. `types` pins a column: `number` and `date` convert strings, `string`

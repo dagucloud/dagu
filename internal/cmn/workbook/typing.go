@@ -121,17 +121,8 @@ func (w *file) cellValue(sheet string, col, row int, raw string, opts ReadOption
 		if formula == "" {
 			return nil, nil
 		}
-		calculated, err := w.f.CalcCellValue(sheet, cell, rawValues)
-		if err != nil {
-			warn(fmt.Sprintf("%s!%s: formula %s could not be evaluated: %v", sheet, cell, formula, err))
-			return nil, nil
-		}
-		warn(fmt.Sprintf("%s!%s: formula had no cached value; evaluated", sheet, cell))
+		calculated := w.uncachedFormulaValue(sheet, cell, formula, warn)
 		if calculated == "" {
-			return nil, nil
-		}
-		if excelErrors[calculated] {
-			warn(fmt.Sprintf("%s!%s: formula evaluated to %s", sheet, cell, calculated))
 			return nil, nil
 		}
 		if f, err := strconv.ParseFloat(calculated, 64); err == nil {
@@ -175,6 +166,22 @@ func (w *file) cellValue(sheet string, col, row int, raw string, opts ReadOption
 	default:
 		return w.text(raw, opts), nil
 	}
+}
+
+// uncachedFormulaValue resolves a missing cache for both data and headers. Keep
+// the raw result here: header names do not apply a cell's numeric/date style.
+func (w *file) uncachedFormulaValue(sheet, cell, formula string, warn func(string)) string {
+	calculated, err := w.f.CalcCellValue(sheet, cell, rawValues)
+	if err != nil {
+		warn(fmt.Sprintf("%s!%s: formula %s could not be evaluated: %v", sheet, cell, formula, err))
+		return ""
+	}
+	warn(fmt.Sprintf("%s!%s: formula had no cached value; evaluated", sheet, cell))
+	if excelErrors[calculated] {
+		warn(fmt.Sprintf("%s!%s: formula evaluated to %s", sheet, cell, calculated))
+		return ""
+	}
+	return calculated
 }
 
 // numericValue applies the cell's number format: dates become ISO strings,

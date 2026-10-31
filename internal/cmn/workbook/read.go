@@ -111,7 +111,7 @@ func (w *file) read(ctx context.Context, opts ReadOptions) (*ReadResult, error) 
 			return nil, err
 		}
 	}
-	headers := headerNames(reg, layout, grid, merges, warn)
+	headers := w.headerNames(reg, layout, grid, merges, warn)
 	plan, err := w.planColumns(sheet, headers, opts)
 	if err != nil {
 		return nil, err

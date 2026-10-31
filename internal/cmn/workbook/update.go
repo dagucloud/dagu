@@ -296,6 +296,11 @@ func updateOnce(ctx context.Context, path string, opts UpdateOptions) (*WriteRes
 	if opts.DryRun {
 		return result, nil
 	}
+	if result.Changes.CellsChanged > 0 || result.Changes.ColumnsAdded > 0 {
+		if err := w.invalidateFormulaCaches(); err != nil {
+			return nil, err
+		}
+	}
 	if opts.Output != "" {
 		if err := ensureParentDir(opts.Output); err != nil {
 			return nil, err
@@ -330,7 +335,7 @@ func (w *file) planUpdate(opts UpdateOptions, warn func(string)) (*updatePlan, e
 	if err != nil {
 		return nil, err
 	}
-	headers := headerNames(reg, layout, grid, merges, warn)
+	headers := w.headerNames(reg, layout, grid, merges, warn)
 	plan := &updatePlan{
 		sheet: sheet, reg: reg, layout: layout, headers: headers, grid: grid, merges: merges,
 		headerRow: layout.rows[len(layout.rows)-1], mergedWrites: map[region]mergedWrite{},
