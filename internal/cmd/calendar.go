@@ -6,6 +6,7 @@ package cmd
 import (
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -68,7 +69,7 @@ To check that the DAGs naming a calendar find it, run dagu validate on them.`,
 }
 
 func runCalendarCheck(out io.Writer, calendarsDir string, files []string) error {
-	type target struct{ dir, name string }
+	type target struct{ name, path string }
 	var targets []target
 	if len(files) == 0 {
 		summaries, err := spec.ListCalendars(calendarsDir)
@@ -77,14 +78,17 @@ func runCalendarCheck(out io.Writer, calendarsDir string, files []string) error 
 		}
 		for _, summary := range summaries {
 			if !summary.Builtin {
-				targets = append(targets, target{dir: calendarsDir, name: summary.Name})
+				targets = append(targets, target{
+					name: summary.Name,
+					path: filepath.Join(calendarsDir, summary.Name+spec.CalendarFileExtension),
+				})
 			}
 		}
 	}
 	for _, file := range files {
 		targets = append(targets, target{
-			dir:  filepath.Dir(file),
 			name: strings.TrimSuffix(filepath.Base(file), filepath.Ext(file)),
+			path: file,
 		})
 	}
 	if len(targets) == 0 {
@@ -94,13 +98,13 @@ func runCalendarCheck(out io.Writer, calendarsDir string, files []string) error 
 
 	failed := 0
 	for _, target := range targets {
-		// A file is checked as a file even when its name is a built-in
-		// calendar's, which no schedule can reach.
-		cal, err := spec.NewCalendarSource(target.dir).CalendarFile(target.name)
-		if err != nil {
+		cal, problems := checkCalendarFile(target.name, target.path)
+		if len(problems) > 0 {
 			failed++
-			if _, werr := fmt.Fprintf(out, "FAIL %s: %v\n", target.name, err); werr != nil {
-				return werr
+			for _, problem := range problems {
+				if _, err := fmt.Fprintf(out, "FAIL %s: %s\n", target.name, problem); err != nil {
+					return err
+				}
 			}
 			continue
 		}
@@ -116,6 +120,18 @@ func runCalendarCheck(out io.Writer, calendarsDir string, files []string) error 
 		return fmt.Errorf("%d of %d calendars are invalid", failed, len(targets))
 	}
 	return nil
+}
+
+// checkCalendarFile validates calendar name, read from path, with the
+// calendars beside it, and lists its problems with their line and column.
+// A file named after a built-in calendar fails, as no schedule can reach it.
+func checkCalendarFile(name, path string) (*ir.Calendar, []string) {
+	data, err := os.ReadFile(path) //nolint:gosec // check reads the CLI-provided calendar file path.
+	if err != nil {
+		return nil, []string{err.Error()}
+	}
+	cal, errs := spec.NewCalendarSource(filepath.Dir(path)).Check(name, data)
+	return cal, spec.ErrorMessages(data, errs)
 }
 
 func calendarFiresCommand() *cobra.Command {

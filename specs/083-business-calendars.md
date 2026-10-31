@@ -117,7 +117,10 @@ previous fire on which the expression alone would have fired
 `dagu calendar check [files...]` validates calendar files, by default every
 file in `paths.calendars_dir`. A file given as a path resolves `include`
 against the files beside it. A file named after a reserved name is reported
-as invalid. The command exits non-zero when any calendar is invalid.
+as invalid. Each problem of an invalid file is printed on its own line,
+starting with its `[line:column]` in the file when it has one; a problem with
+an included calendar is placed on the `include` entry. The command exits
+non-zero when any calendar is invalid.
 
 ## Errors
 
@@ -142,5 +145,5 @@ weekday, an include cycle, or an included calendar that does not exist.
 `conformance/spec083_calendars/` checks schedule validation with calendars, the
 rows `dagu calendar fires` prints for holidays, business days, extra business
 days, and the built-in calendar, that `--from` keeps `core.tz`,
-`dagu calendar check` on valid and invalid files, and that `dagu ls -n` skips
-holidays.
+`dagu calendar check` on valid files and on a file with two problems, and
+that `dagu ls -n` skips holidays.

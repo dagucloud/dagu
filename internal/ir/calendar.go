@@ -101,6 +101,9 @@ type Calendar struct {
 	// Through is the last date the holidays are maintained for. It is zero
 	// when the calendar does not say.
 	Through CivilDate
+	// Includes names, in file order, the calendars whose holidays this
+	// calendar adds.
+	Includes []string
 	// Digest identifies the calendar's contents.
 	Digest string
 }
