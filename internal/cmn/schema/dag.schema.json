@@ -1463,9 +1463,9 @@
         },
         "type": {
           "type": "string",
-          "enum": ["standard", "github_content"],
+          "enum": ["standard", "github_content", "local"],
           "default": "standard",
-          "description": "Aqua registry type. Local registries are not supported for worker-local installation."
+          "description": "Aqua registry type. A local registry points to an absolute path on the worker filesystem."
         },
         "repo_owner": {
           "type": "string",
@@ -1482,7 +1482,7 @@
         },
         "path": {
           "type": "string",
-          "description": "Registry file path inside a github_content registry repository."
+          "description": "Repository-relative file for github_content, or worker-absolute file for local registries. POSIX, Windows drive, and UNC absolute paths are accepted."
         }
       },
       "allOf": [
@@ -1495,6 +1495,23 @@
           },
           "then": {
             "required": ["repo_owner", "repo_name", "ref", "path"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": { "const": "local" }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "required": ["path"],
+            "properties": {
+              "path": {
+                "minLength": 1,
+                "pattern": "^\\s*(/|[A-Za-z]:[/\\\\]|\\\\\\\\[^\\\\]+\\\\[^\\\\]+)"
+              }
+            }
           }
         }
       ]

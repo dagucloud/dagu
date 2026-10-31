@@ -2807,3 +2807,29 @@ steps:
 		})
 	}
 }
+
+func TestDAGSchemaLocalRegistry(t *testing.T) {
+	resolved := mustResolveDAGSchema(t)
+	for _, tc := range []struct {
+		name     string
+		registry map[string]any
+		valid    bool
+	}{
+		{"POSIX", map[string]any{"type": "local", "path": "/etc/registry.yaml"}, true},
+		{"Windows", map[string]any{"type": "local", "path": `C:\dagu\registry.yaml`}, true},
+		{"UNC", map[string]any{"type": "local", "path": `\\server\share\registry.yaml`}, true},
+		{"Missing", map[string]any{"type": "local"}, false},
+		{"Empty", map[string]any{"type": "local", "path": ""}, false},
+		{"Relative", map[string]any{"type": "local", "path": "registry.yaml"}, false},
+		{"DriveRelative", map[string]any{"type": "local", "path": `C:registry.yaml`}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := resolved.Validate(map[string]any{"tools": map[string]any{"registry": tc.registry, "packages": []any{"example/tool@v1.0.0"}}, "steps": []any{map[string]any{"run": "tool"}}})
+			if tc.valid {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+			}
+		})
+	}
+}
