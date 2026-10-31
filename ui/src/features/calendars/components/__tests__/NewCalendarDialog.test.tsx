@@ -1,7 +1,13 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NewCalendarDialog } from '../NewCalendarDialog';
 
@@ -58,6 +64,30 @@ describe('NewCalendarDialog', () => {
       target: { value: 'jp-banking' },
     });
     expect(screen.getByRole('button', { name: 'Create' })).toBeEnabled();
+  });
+
+  // Reopening the dialog must not allow a second request while the first
+  // runs, and a request that ends after the dialog closed changes nothing.
+  it('stays busy across reopening and ignores a request it no longer shows', async () => {
+    let answer: (value: unknown) => void = () => undefined;
+    post.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    const onCreated = vi.fn();
+    const props = {
+      remoteNode: 'local',
+      existingNames: [],
+      onClose: vi.fn(),
+      onCreated,
+    };
+    const { rerender } = render(<NewCalendarDialog open {...props} />);
+    submit('jp-banking');
+
+    rerender(<NewCalendarDialog open={false} {...props} />);
+    rerender(<NewCalendarDialog open {...props} />);
+    expect(screen.getByRole('button', { name: 'Creating...' })).toBeDisabled();
+
+    rerender(<NewCalendarDialog open={false} {...props} />);
+    await act(async () => answer({ data: { name: 'jp-banking' } }));
+    expect(onCreated).not.toHaveBeenCalled();
   });
 
   it('creates the calendar and hands over its name', async () => {

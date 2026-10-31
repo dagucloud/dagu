@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { AppBarContext } from '@/contexts/AppBarContext';
-import { useContext } from 'react';
+import { useContext, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 const LOCAL_NODE = 'local';
@@ -19,6 +19,27 @@ export function useScopedRemoteNode(): string {
     appBarContext.selectedRemoteNode?.trim() ||
     LOCAL_NODE
   );
+}
+
+/**
+ * Drops the remote node a link named once the user picks another node in
+ * the app bar, so the newer choice decides which node the page works on.
+ */
+export function useFollowAppBarRemoteNode(): void {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selected = useContext(AppBarContext).selectedRemoteNode;
+  const previous = useRef(selected);
+  useEffect(() => {
+    if (previous.current === selected) {
+      return;
+    }
+    previous.current = selected;
+    if (searchParams.has('remoteNode')) {
+      const next = new URLSearchParams(searchParams);
+      next.delete('remoteNode');
+      setSearchParams(next, { replace: true });
+    }
+  }, [selected, searchParams, setSearchParams]);
 }
 
 /** The page of a calendar on remoteNode. */

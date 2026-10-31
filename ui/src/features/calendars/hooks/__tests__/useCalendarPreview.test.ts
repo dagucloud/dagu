@@ -55,6 +55,31 @@ describe('useCalendarPreview', () => {
     await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
   });
 
+  // Opening another calendar clears the content until it loads; the answer
+  // for the previous content must not land under the new calendar.
+  it('drops an answer for content that is gone', async () => {
+    let answer: (value: unknown) => void = () => undefined;
+    post.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    const { result, rerender } = renderHook(
+      (props: { spec: string | null }) =>
+        useCalendarPreview({
+          name: 'ops',
+          remoteNode: 'local',
+          spec: props.spec,
+          baseline: null,
+          year: 2027,
+        }),
+      { initialProps: { spec: 'holidays: []\n' as string | null } }
+    );
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+
+    rerender({ spec: null });
+    await act(async () => answer({ data: preview }));
+
+    expect(result.current.preview).toBeNull();
+    expect(result.current.isPreviewing).toBe(false);
+  });
+
   it('reports a failed request and tries again on retry', async () => {
     post.mockRejectedValueOnce(new Error('offline'));
     const { result } = render('holidays: []\n');

@@ -20,6 +20,7 @@ import { useCalendarPreview } from '@/features/calendars/hooks/useCalendarPrevie
 import { useCalendarSchema } from '@/features/calendars/hooks/useCalendarSchema';
 import {
   calendarsPath,
+  useFollowAppBarRemoteNode,
   useScopedRemoteNode,
 } from '@/features/calendars/navigation';
 import { parseValidationMarkers } from '@/features/dags/components/dag-editor/validationMarkers';
@@ -60,6 +61,7 @@ const DAGEditor = React.lazy(
 function CalendarPage(): React.ReactNode {
   const { name = '' } = useParams();
   const appBarContext = useContext(AppBarContext);
+  useFollowAppBarRemoteNode();
   const remoteNode = useScopedRemoteNode();
   const client = useClient();
   const navigate = useNavigate();
@@ -124,16 +126,18 @@ function CalendarPage(): React.ReactNode {
       return;
     }
     editor.beginSave(value);
-    const { data: result, error: saveError } = await client.PUT(
-      '/calendars/{name}',
-      {
+    // A request that throws, as on a lost connection, fails like one that
+    // returns an error.
+    const response = await client
+      .PUT('/calendars/{name}', {
         params: { path: { name }, query: { remoteNode } },
         body: { spec: value },
-      }
-    );
-    if (saveError || !result) {
+      })
+      .catch(() => null);
+    const result = response?.data;
+    if (!result) {
       editor.cancelSave();
-      showError(saveError?.message || ts('Failed to save the calendar.'));
+      showError(response?.error?.message || ts('Failed to save the calendar.'));
       return;
     }
     if (result.errors.length > 0) {
@@ -180,12 +184,16 @@ function CalendarPage(): React.ReactNode {
   }, [editable]);
 
   async function handleDelete(): Promise<void> {
-    const { error: deleteError } = await client.DELETE('/calendars/{name}', {
-      params: { path: { name }, query: { remoteNode } },
-    });
+    const response = await client
+      .DELETE('/calendars/{name}', {
+        params: { path: { name }, query: { remoteNode } },
+      })
+      .catch(() => null);
     setIsDeleting(false);
-    if (deleteError) {
-      showError(deleteError.message || ts('Failed to delete the calendar.'));
+    if (!response || response.error) {
+      showError(
+        response?.error?.message || ts('Failed to delete the calendar.')
+      );
       void mutate();
       return;
     }

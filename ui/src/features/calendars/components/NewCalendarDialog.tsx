@@ -15,7 +15,7 @@ import { useClient } from '@/hooks/api';
 import { I18nProps } from '@/i18n/I18nProps';
 import { useI18n } from '@/i18n/I18nProvider';
 import { I18nText } from '@/i18n/I18nText';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 const CALENDAR_NAME_PATTERN = /^[A-Za-z0-9_-]+$/;
 const RESERVED_CALENDAR_NAMES = ['weekdays', 'none'];
@@ -44,13 +44,16 @@ export function NewCalendarDialog({
   const { ts } = useI18n();
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // A request in flight keeps the dialog from creating again, even after it
+  // is closed and opened.
   const [isSaving, setIsSaving] = useState(false);
+  const openRef = useRef(open);
 
   useEffect(() => {
+    openRef.current = open;
     if (open) {
       setName('');
       setError(null);
-      setIsSaving(false);
     }
   }, [open]);
 
@@ -82,13 +85,18 @@ export function NewCalendarDialog({
         params: { query: { remoteNode } },
         body: { name: trimmed },
       });
+      if (!openRef.current) {
+        return;
+      }
       if (apiError) {
         setError(apiError.message || ts('Failed to create the calendar.'));
         return;
       }
       onCreated(trimmed);
     } catch {
-      setError(ts('Failed to create the calendar.'));
+      if (openRef.current) {
+        setError(ts('Failed to create the calendar.'));
+      }
     } finally {
       setIsSaving(false);
     }
@@ -147,7 +155,7 @@ export function NewCalendarDialog({
               variant="primary"
               disabled={isSaving || !name.trim()}
             >
-              <I18nText text={'Create'} />
+              <I18nText text={isSaving ? 'Creating...' : 'Create'} />
             </Button>
           </DialogFooter>
         </form>

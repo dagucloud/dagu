@@ -13,7 +13,7 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { translate, type TranslationKey } from '@/i18n/messages';
 import { Home } from 'lucide-react';
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 
 type BreadcrumbItemData = {
   label: string;
@@ -97,7 +97,8 @@ const DAG_SECTION_KEYS: Record<string, TranslationKey> = {
 
 export function getBreadcrumbItems(
   pathname: string,
-  t: Translate = (key) => translate('en', key)
+  t: Translate = (key) => translate('en', key),
+  search = ''
 ): BreadcrumbItemData[] {
   const normalized = pathname.replace(/\/+$/, '') || '/';
   const segments = normalized.split('/').filter(Boolean);
@@ -132,11 +133,16 @@ export function getBreadcrumbItems(
   }
 
   if (segments[0] === 'calendars') {
-    items.push({ label: t('navigation.calendars'), to: '/calendars' });
+    // A calendar page on another node keeps that node in its crumbs.
+    const remoteNode = new URLSearchParams(search).get('remoteNode');
+    const query = remoteNode
+      ? `?remoteNode=${encodeURIComponent(remoteNode)}`
+      : '';
+    items.push({ label: t('navigation.calendars'), to: `/calendars${query}` });
     if (segments[1]) {
       items.push({
         label: decodePathSegment(segments[1]),
-        to: `/calendars/${segments[1]}`,
+        to: `/calendars/${segments[1]}${query}`,
       });
     }
     return items;
@@ -313,7 +319,8 @@ export function ContentNavigation({
   pathname: string;
 }): React.ReactElement {
   const { t } = useI18n();
-  const items = getBreadcrumbItems(pathname, t);
+  const { search } = useLocation();
+  const items = getBreadcrumbItems(pathname, t, search);
 
   return (
     <div className="hidden min-h-12 items-center gap-3 border-b border-border bg-background/95 px-4 md:flex">

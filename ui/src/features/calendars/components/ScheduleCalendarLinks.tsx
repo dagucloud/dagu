@@ -32,7 +32,7 @@ function CalendarLinkList({ names }: { names: string[] }): ReactElement {
   const { ts } = useI18n();
   const remoteNode = useScopedRemoteNode();
   return (
-    <p className="text-sm text-muted-foreground">
+    <p className="whitespace-normal break-words text-sm text-muted-foreground">
       <span className="font-medium text-foreground">{ts('Calendar:')}</span>{' '}
       {names.map((name, index) => (
         <React.Fragment key={name}>

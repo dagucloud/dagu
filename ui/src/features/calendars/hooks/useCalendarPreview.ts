@@ -48,11 +48,13 @@ export function useCalendarPreview({
 
   useEffect(() => {
     setPreview(null);
+    setFailed(false);
     previewedSpecRef.current = null;
   }, [name, remoteNode]);
 
   useEffect(() => {
     if (spec === null) {
+      setIsPreviewing(false);
       return;
     }
     const seq = ++requestSeqRef.current;
@@ -82,7 +84,11 @@ export function useCalendarPreview({
       },
       edited ? CALENDAR_PREVIEW_DEBOUNCE_MS : 0
     );
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      // A request still in flight answers for content that is gone.
+      requestSeqRef.current++;
+    };
   }, [client, name, remoteNode, spec, baseline, year, attempt]);
 
   const retry = useCallback(() => setAttempt((count) => count + 1), []);

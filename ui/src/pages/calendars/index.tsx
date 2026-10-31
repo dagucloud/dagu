@@ -18,6 +18,7 @@ import { useCanWriteCalendars } from '@/contexts/AuthContext';
 import { NewCalendarDialog } from '@/features/calendars/components/NewCalendarDialog';
 import {
   calendarPath,
+  useFollowAppBarRemoteNode,
   useScopedRemoteNode,
 } from '@/features/calendars/navigation';
 import { useQuery } from '@/hooks/api';
@@ -32,6 +33,7 @@ const COLUMN_COUNT = 5;
 /** Lists business calendars with what needs attention and who uses them. */
 function CalendarsPage(): React.ReactElement {
   const appBarContext = useContext(AppBarContext);
+  useFollowAppBarRemoteNode();
   const remoteNode = useScopedRemoteNode();
   const canWrite = useCanWriteCalendars();
   const navigate = useNavigate();

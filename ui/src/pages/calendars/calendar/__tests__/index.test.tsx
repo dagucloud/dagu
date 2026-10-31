@@ -1,7 +1,13 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { components } from '@/api/v1/schema';
@@ -77,10 +83,11 @@ function renderPage(details: CalendarDetails, search = '') {
       ? { data: details, error: undefined, mutate: vi.fn() }
       : { data: { calendars: [] } }
   );
-  render(
+  const setTitle = vi.fn();
+  const tree = (node: string) => (
     <MemoryRouter initialEntries={[`/calendars/${details.name}${search}`]}>
       <AppBarContext.Provider
-        value={{ setTitle: vi.fn(), selectedRemoteNode: 'local' } as never}
+        value={{ setTitle, selectedRemoteNode: node } as never}
       >
         <Routes>
           <Route path="/calendars/:name" element={<CalendarPage />} />
@@ -88,6 +95,15 @@ function renderPage(details: CalendarDetails, search = '') {
       </AppBarContext.Provider>
     </MemoryRouter>
   );
+  const view = render(tree('local'));
+  return { selectNode: (node: string) => view.rerender(tree(node)) };
+}
+
+function lastCalendarQueryNode(): unknown {
+  const calls = useQueryMock.mock.calls.filter(
+    (call: unknown[]) => call[0] === '/calendars/{name}'
+  );
+  return calls[calls.length - 1]?.[1]?.params?.query?.remoteNode;
 }
 
 describe('CalendarPage', () => {
@@ -172,6 +188,33 @@ describe('CalendarPage', () => {
     ]);
     expect(screen.getByText(/must be a mapping/)).toBeInTheDocument();
     expect(screen.getByText('2 problems')).toBeInTheDocument();
+  });
+
+  // Picking a node in the app bar is newer than the node the link named.
+  it('follows a node picked in the app bar after opening', () => {
+    const { selectNode } = renderPage(calendar(), '?remoteNode=production');
+    expect(lastCalendarQueryNode()).toBe('production');
+
+    act(() => selectNode('staging'));
+
+    expect(lastCalendarQueryNode()).toBe('staging');
+  });
+
+  it('reports a save that could not reach the server', async () => {
+    mocks.put.mockRejectedValue(new TypeError('Failed to fetch'));
+    renderPage(calendar());
+
+    fireEvent.change(await screen.findByLabelText('Calendar file'), {
+      target: { value: 'holidays: [2027-01-11]\n' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() =>
+      expect(mocks.showError).toHaveBeenCalledWith(
+        'Failed to save the calendar.'
+      )
+    );
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
   });
 
   it('reports a save the server refused', async () => {
