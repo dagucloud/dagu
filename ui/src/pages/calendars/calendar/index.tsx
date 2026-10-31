@@ -18,6 +18,10 @@ import { CalendarDependents } from '@/features/calendars/components/CalendarDepe
 import { CalendarYearView } from '@/features/calendars/components/CalendarYearView';
 import { useCalendarPreview } from '@/features/calendars/hooks/useCalendarPreview';
 import { useCalendarSchema } from '@/features/calendars/hooks/useCalendarSchema';
+import {
+  calendarsPath,
+  useScopedRemoteNode,
+} from '@/features/calendars/navigation';
 import { parseValidationMarkers } from '@/features/dags/components/dag-editor/validationMarkers';
 import { useClient, useQuery } from '@/hooks/api';
 import { useContentEditor } from '@/hooks/useContentEditor';
@@ -56,7 +60,7 @@ const DAGEditor = React.lazy(
 function CalendarPage(): React.ReactNode {
   const { name = '' } = useParams();
   const appBarContext = useContext(AppBarContext);
-  const remoteNode = appBarContext.selectedRemoteNode || 'local';
+  const remoteNode = useScopedRemoteNode();
   const client = useClient();
   const navigate = useNavigate();
   const { ts, locale } = useI18n();
@@ -88,7 +92,13 @@ function CalendarPage(): React.ReactNode {
     serverContent: data ? data.spec : null,
   });
   const content = editable ? editor.currentValue : (data?.spec ?? null);
-  const { preview, isPreviewing } = useCalendarPreview(name, content, year);
+  const { preview, isPreviewing, failed, retry } = useCalendarPreview({
+    name,
+    remoteNode,
+    spec: content,
+    baseline: data?.spec ?? null,
+    year,
+  });
   const problems = preview?.errors ?? data?.errors ?? [];
   const { markers, unpositioned } = useMemo(
     () => parseValidationMarkers(problems),
@@ -180,7 +190,7 @@ function CalendarPage(): React.ReactNode {
       return;
     }
     showToast(ts('Calendar {name} deleted', { name }));
-    navigate('/calendars');
+    navigate(calendarsPath(remoteNode));
   }
 
   if (error && !data) {
@@ -194,7 +204,7 @@ function CalendarPage(): React.ReactNode {
           />
         }
         action={{
-          to: '/calendars',
+          to: calendarsPath(remoteNode),
           label: <I18nText text={'Back to calendars'} />,
         }}
       />
@@ -213,18 +223,20 @@ function CalendarPage(): React.ReactNode {
   const inUse = data.usedBy.length > 0 || data.includedBy.length > 0;
   const status = isPreviewing
     ? ts('Checking...')
-    : problems.length > 0
-      ? ts(problems.length === 1 ? '{count} problem' : '{count} problems', {
-          count: problems.length,
-        })
-      : ts('Valid');
+    : failed
+      ? ts("Couldn't check")
+      : problems.length > 0
+        ? ts(problems.length === 1 ? '{count} problem' : '{count} problems', {
+            count: problems.length,
+          })
+        : ts('Valid');
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1 basis-64">
           <Button variant="ghost" size="xs" asChild className="-ml-2">
-            <Link to="/calendars">
+            <Link to={calendarsPath(remoteNode)}>
               <ArrowLeft className="h-3.5 w-3.5" />
               <I18nText text={'Calendars'} />
             </Link>
@@ -395,6 +407,8 @@ function CalendarPage(): React.ReactNode {
           <CalendarYearView
             preview={preview}
             year={year}
+            failed={failed}
+            onRetry={retry}
             onYearChange={setYear}
             locale={dayjsLocale}
           />
@@ -402,7 +416,7 @@ function CalendarPage(): React.ReactNode {
       </div>
 
       <section className="card-obsidian p-3">
-        <CalendarDependents calendar={data} />
+        <CalendarDependents calendar={data} remoteNode={remoteNode} />
       </section>
 
       <I18nProps>

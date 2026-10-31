@@ -5,6 +5,7 @@ import type { components } from '@/api/v1/schema';
 import { useI18n } from '@/i18n/I18nProvider';
 import React, { type ReactElement } from 'react';
 import { Link } from 'react-router-dom';
+import { calendarPath, useScopedRemoteNode } from '../navigation';
 
 type Schedule = components['schemas']['Schedule'];
 
@@ -14,7 +15,6 @@ export function ScheduleCalendarLinks({
 }: {
   schedules: Schedule[];
 }): ReactElement | null {
-  const { ts } = useI18n();
   const names = [
     ...new Set(
       schedules.flatMap((schedule) =>
@@ -25,6 +25,12 @@ export function ScheduleCalendarLinks({
   if (names.length === 0) {
     return null;
   }
+  return <CalendarLinkList names={names} />;
+}
+
+function CalendarLinkList({ names }: { names: string[] }): ReactElement {
+  const { ts } = useI18n();
+  const remoteNode = useScopedRemoteNode();
   return (
     <p className="text-sm text-muted-foreground">
       <span className="font-medium text-foreground">{ts('Calendar:')}</span>{' '}
@@ -32,7 +38,7 @@ export function ScheduleCalendarLinks({
         <React.Fragment key={name}>
           {index > 0 && ', '}
           <Link
-            to={`/calendars/${encodeURIComponent(name)}`}
+            to={calendarPath(name, remoteNode)}
             className="text-primary hover:underline"
           >
             {name}

@@ -2,31 +2,47 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import type { components } from '@/api/v1/schema';
-import { AppBarContext } from '@/contexts/AppBarContext';
 import { useClient } from '@/hooks/api';
-import { useContext, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 export type CalendarPreview = components['schemas']['CalendarPreview'];
 
 /** Wait after the last keystroke before previewing edited content. */
 export const CALENDAR_PREVIEW_DEBOUNCE_MS = 600;
 
+type Options = {
+  name: string;
+  remoteNode: string;
+  /** Content to preview; nothing is requested while it is null. */
+  spec: string | null;
+  /** The saved content that changes are marked against. */
+  baseline: string | null;
+  year: number;
+};
+
 /**
- * Checks calendar content and applies it to the dates of year. Edits are
- * previewed after a pause in typing; the first preview and a change of year
- * are requested at once. The last preview stays shown while the next one
- * loads or when a request fails.
+ * Checks calendar content and applies it to the dates of a year. Edits are
+ * previewed after a pause in typing; the first preview, a change of year,
+ * and a new saved baseline are requested at once. The last preview stays
+ * while the next one loads, and failed reports a request that failed.
  */
-export function useCalendarPreview(
-  name: string,
-  spec: string | null,
-  year: number
-): { preview: CalendarPreview | null; isPreviewing: boolean } {
+export function useCalendarPreview({
+  name,
+  remoteNode,
+  spec,
+  baseline,
+  year,
+}: Options): {
+  preview: CalendarPreview | null;
+  isPreviewing: boolean;
+  failed: boolean;
+  retry: () => void;
+} {
   const client = useClient();
-  const appBarContext = useContext(AppBarContext);
-  const remoteNode = appBarContext.selectedRemoteNode || 'local';
   const [preview, setPreview] = useState<CalendarPreview | null>(null);
   const [isPreviewing, setIsPreviewing] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const requestSeqRef = useRef(0);
   const previewedSpecRef = useRef<string | null>(null);
 
@@ -57,16 +73,18 @@ export function useCalendarPreview(
         if (seq !== requestSeqRef.current) {
           return;
         }
-        previewedSpecRef.current = spec;
         if (data) {
+          previewedSpecRef.current = spec;
           setPreview(data);
         }
+        setFailed(!data);
         setIsPreviewing(false);
       },
       edited ? CALENDAR_PREVIEW_DEBOUNCE_MS : 0
     );
     return () => window.clearTimeout(timer);
-  }, [client, name, remoteNode, spec, year]);
+  }, [client, name, remoteNode, spec, baseline, year, attempt]);
 
-  return { preview, isPreviewing };
+  const retry = useCallback(() => setAttempt((count) => count + 1), []);
+  return { preview, isPreviewing, failed, retry };
 }

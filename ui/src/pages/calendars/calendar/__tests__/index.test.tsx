@@ -38,6 +38,8 @@ vi.mock('@/features/calendars/hooks/useCalendarPreview', () => ({
   useCalendarPreview: () => ({
     preview: mocks.preview.current,
     isPreviewing: false,
+    failed: false,
+    retry: vi.fn(),
   }),
 }));
 vi.mock('@/features/dags/components/dag-editor/DAGEditor', () => ({
@@ -69,14 +71,14 @@ function calendar(overrides: Partial<CalendarDetails> = {}): CalendarDetails {
   };
 }
 
-function renderPage(details: CalendarDetails) {
+function renderPage(details: CalendarDetails, search = '') {
   useQueryMock.mockImplementation((path: string) =>
     path === '/calendars/{name}'
       ? { data: details, error: undefined, mutate: vi.fn() }
       : { data: { calendars: [] } }
   );
   render(
-    <MemoryRouter initialEntries={[`/calendars/${details.name}`]}>
+    <MemoryRouter initialEntries={[`/calendars/${details.name}${search}`]}>
       <AppBarContext.Provider
         value={{ setTitle: vi.fn(), selectedRemoteNode: 'local' } as never}
       >
@@ -118,6 +120,36 @@ describe('CalendarPage', () => {
       '/dags/payroll'
     );
     expect(screen.getByText('(via jp-all)')).toBeInTheDocument();
+  });
+
+  // A link from a DAG on another node opens that node's calendar, and the
+  // links onward stay on it.
+  it('works on the remote node its link names', () => {
+    renderPage(
+      calendar({
+        usedBy: [
+          { fileName: 'payroll', name: 'payroll', workspace: 'finance' },
+        ],
+        includes: ['jp-national'],
+      }),
+      '?remoteNode=production'
+    );
+
+    expect(useQueryMock).toHaveBeenCalledWith(
+      '/calendars/{name}',
+      {
+        params: { path: { name: 'ops' }, query: { remoteNode: 'production' } },
+      },
+      expect.anything()
+    );
+    expect(screen.getByRole('link', { name: 'payroll' })).toHaveAttribute(
+      'href',
+      '/dags/payroll?remoteNode=production&workspace=finance'
+    );
+    expect(screen.getByRole('link', { name: 'jp-national' })).toHaveAttribute(
+      'href',
+      '/calendars/jp-national?remoteNode=production'
+    );
   });
 
   it('marks each problem of the content on its line', async () => {

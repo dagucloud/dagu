@@ -16,6 +16,10 @@ import { InlineLoadError } from '@/components/PageStates';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { useCanWriteCalendars } from '@/contexts/AuthContext';
 import { NewCalendarDialog } from '@/features/calendars/components/NewCalendarDialog';
+import {
+  calendarPath,
+  useScopedRemoteNode,
+} from '@/features/calendars/navigation';
 import { useQuery } from '@/hooks/api';
 import { I18nTemplate } from '@/i18n/I18nTemplate';
 import { I18nText } from '@/i18n/I18nText';
@@ -28,7 +32,7 @@ const COLUMN_COUNT = 5;
 /** Lists business calendars with what needs attention and who uses them. */
 function CalendarsPage(): React.ReactElement {
   const appBarContext = useContext(AppBarContext);
-  const remoteNode = appBarContext.selectedRemoteNode || 'local';
+  const remoteNode = useScopedRemoteNode();
   const canWrite = useCanWriteCalendars();
   const navigate = useNavigate();
   const [isCreating, setIsCreating] = useState(false);
@@ -127,7 +131,7 @@ function CalendarsPage(): React.ReactElement {
                         </code>
                       ) : (
                         <Link
-                          to={`/calendars/${encodeURIComponent(calendar.name)}`}
+                          to={calendarPath(calendar.name, remoteNode)}
                           className="break-words font-medium text-primary hover:underline"
                         >
                           {calendar.name}
@@ -178,12 +182,13 @@ function CalendarsPage(): React.ReactElement {
 
       <NewCalendarDialog
         open={isCreating}
+        remoteNode={remoteNode}
         existingNames={fileNames}
         onClose={() => setIsCreating(false)}
         onCreated={(name) => {
           setIsCreating(false);
           void mutate();
-          navigate(`/calendars/${encodeURIComponent(name)}`);
+          navigate(calendarPath(name, remoteNode));
         }}
       />
     </div>

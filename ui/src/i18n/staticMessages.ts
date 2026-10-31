@@ -3076,6 +3076,9 @@ const baseEnglish = {
   "{count} problem": "{count} problem",
   "{count} problems": "{count} problems",
   "{name} is reserved.": "{name} is reserved.",
+  "Couldn't preview the calendar.": "Couldn't preview the calendar.",
+  "Loading {year}...": "Loading {year}...",
+  "Couldn't check": "Couldn't check",
 } as const;
 
 type BaseStaticMessage = keyof typeof baseEnglish;
@@ -6077,6 +6080,9 @@ const baseChinese = {
   "{count} problem": "{count} 个问题",
   "{count} problems": "{count} 个问题",
   "{name} is reserved.": "{name} 是保留名称。",
+  "Couldn't preview the calendar.": "无法预览日历。",
+  "Loading {year}...": "正在加载 {year}...",
+  "Couldn't check": "无法检查",
 } as const satisfies Record<BaseStaticMessage, string>;
 
 const baseJapanese = {
@@ -9184,6 +9190,9 @@ const baseJapanese = {
   "{count} problem": "{count} 件の問題",
   "{count} problems": "{count} 件の問題",
   "{name} is reserved.": "{name} は予約済みの名前です。",
+  "Couldn't preview the calendar.": "カレンダーをプレビューできませんでした。",
+  "Loading {year}...": "{year} 年を読み込み中...",
+  "Couldn't check": "確認できませんでした",
 } as const satisfies Record<BaseStaticMessage, string>;
 
 const chinese = {

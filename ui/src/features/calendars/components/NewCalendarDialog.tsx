@@ -11,18 +11,18 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { AppBarContext } from '@/contexts/AppBarContext';
 import { useClient } from '@/hooks/api';
 import { I18nProps } from '@/i18n/I18nProps';
 import { useI18n } from '@/i18n/I18nProvider';
 import { I18nText } from '@/i18n/I18nText';
-import React, { useContext, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 const CALENDAR_NAME_PATTERN = /^[A-Za-z0-9_-]+$/;
 const RESERVED_CALENDAR_NAMES = ['weekdays', 'none'];
 
 type Props = {
   open: boolean;
+  remoteNode: string;
   /** Names already taken, compared without case. */
   existingNames: string[];
   onClose: () => void;
@@ -35,13 +35,13 @@ type Props = {
  */
 export function NewCalendarDialog({
   open,
+  remoteNode,
   existingNames,
   onClose,
   onCreated,
 }: Props): React.ReactElement {
   const client = useClient();
   const { ts } = useI18n();
-  const remoteNode = useContext(AppBarContext).selectedRemoteNode || 'local';
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -50,6 +50,7 @@ export function NewCalendarDialog({
     if (open) {
       setName('');
       setError(null);
+      setIsSaving(false);
     }
   }, [open]);
 
@@ -76,16 +77,21 @@ export function NewCalendarDialog({
       return;
     }
     setIsSaving(true);
-    const { error: apiError } = await client.POST('/calendars', {
-      params: { query: { remoteNode } },
-      body: { name: trimmed },
-    });
-    setIsSaving(false);
-    if (apiError) {
-      setError(apiError.message || ts('Failed to create the calendar.'));
-      return;
+    try {
+      const { error: apiError } = await client.POST('/calendars', {
+        params: { query: { remoteNode } },
+        body: { name: trimmed },
+      });
+      if (apiError) {
+        setError(apiError.message || ts('Failed to create the calendar.'));
+        return;
+      }
+      onCreated(trimmed);
+    } catch {
+      setError(ts('Failed to create the calendar.'));
+    } finally {
+      setIsSaving(false);
     }
-    onCreated(trimmed);
   }
 
   return (
