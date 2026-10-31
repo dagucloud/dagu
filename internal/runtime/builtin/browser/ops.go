@@ -42,6 +42,7 @@ const (
 	shutdownTimeout       = 30 * time.Second
 	finalShotLabel        = "final"
 	failureShotLabel      = "failure"
+	openerShotLabel       = "failure-opener"
 	rehearsalShotLabel    = "rehearsal"
 	commitShotLabel       = "commit"
 )
@@ -972,9 +973,26 @@ func (r *run) fail(ctx context.Context, index int, kind string, cause error) err
 		refused = r.reportRefusal(ctx, index)
 	}
 	var files []string
-	if r.cfg.screenshotPolicy() != screenshotsNever && r.artifacts.Enabled() && r.eng != nil {
+	shots := r.cfg.screenshotPolicy() != screenshotsNever && r.artifacts.Enabled() && r.eng != nil
+	if shots {
 		if rel, err := r.capture(context.WithoutCancel(ctx), failureShotLabel); err == nil {
 			files = append(files, rel)
+		}
+	}
+	// A window a site leaves open, as a "searching" one whose answer was an
+	// error, hides the page behind it, which tells what went wrong.
+	behind := ""
+	if r.eng != nil && ctx.Err() == nil && !errors.Is(cause, errBrowserUnresponsive) {
+		if title, found, err := r.eng.Opener(ctx); err == nil && found {
+			behind = fmt.Sprintf("the page read is a window that the page %q opened and that is still open in front of it", title)
+			if shots {
+				if data, err := r.eng.OpenerScreenshot(ctx); err == nil {
+					if rel, err := r.artifacts.WriteScreenshot(openerShotLabel, data); err == nil {
+						files = append(files, rel)
+						behind += "; " + rel + " shows that page"
+					}
+				}
+			}
 		}
 	}
 	_ = r.shutdown(ctx)
@@ -987,6 +1005,9 @@ func (r *run) fail(ctx context.Context, index int, kind string, cause error) err
 		if note := r.masker.MaskString(refused.String()); !strings.Contains(message, note) {
 			message += "; " + note
 		}
+	}
+	if behind != "" {
+		message += "; " + r.masker.MaskString(behind)
 	}
 	// A blocked request often breaks the page long before an operation
 	// fails, so the failure summarizes every request blocked in the attempt.

@@ -67,7 +67,10 @@ operations work on: the operation waits, up to its timeout, until the window
 closes or stays open half a second past the load, and until then every
 operation works on the page that opened it. A window still open after that,
 such as one to fill in and close, is the page operations work on, as is a
-window opened without making its opener load.
+window opened without making its opener load. A step that fails on such a
+window, as on a "searching" window a site leaves open over an error, names
+the page that opened it and, when the step takes screenshots on failure,
+saves that page as `NN-failure-opener.png`.
 
 Any operation may set `when`, a condition checked once before the operation;
 the operation is skipped unless it holds. Any operation may set `timeout`, a

@@ -72,6 +72,12 @@ type engine interface {
 	// that hops into frames with >>, or an XPath, as written.
 	WaitForSelector(ctx context.Context, selector string, timeout time.Duration) error
 	Screenshot(ctx context.Context) ([]byte, error)
+	// Opener returns the title of the page that opened the window
+	// operations work on, while that page is still open. found is false
+	// when operations work on a page no open page opened.
+	Opener(ctx context.Context) (title string, found bool, err error)
+	// OpenerScreenshot captures the page Opener names.
+	OpenerScreenshot(ctx context.Context) ([]byte, error)
 	CurrentURL(ctx context.Context) (string, error)
 	// PageText returns the visible text of the page and the frames of its
 	// origin it shows.

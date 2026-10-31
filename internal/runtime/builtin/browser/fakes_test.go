@@ -121,6 +121,9 @@ type fakeEngine struct {
 	visible  []string
 	// snapshot is the page's accessibility tree; its URL is the page's.
 	snapshot pageSnapshot
+	// opener is the title of the page that opened the window operations
+	// work on; empty when no open page opened it.
+	opener string
 	// downloads and downloadErr script what the next download wait reports,
 	// and lateDownloads what only a wait that allows them to begin does.
 	downloads     []string
@@ -425,6 +428,14 @@ func (e *fakeEngine) WaitForSelector(context.Context, string, time.Duration) err
 
 func (e *fakeEngine) Screenshot(context.Context) ([]byte, error) {
 	return []byte("png"), nil
+}
+
+func (e *fakeEngine) Opener(context.Context) (string, bool, error) {
+	return e.opener, e.opener != "", nil
+}
+
+func (e *fakeEngine) OpenerScreenshot(context.Context) ([]byte, error) {
+	return []byte("opener png"), nil
 }
 
 func (e *fakeEngine) CurrentURL(context.Context) (string, error) {

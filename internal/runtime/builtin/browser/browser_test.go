@@ -221,6 +221,20 @@ func TestExpectFailureCapturesPage(t *testing.T) {
 	assert.FileExists(t, filepath.Join(run.artifacts, "browser", "shop", "01-failure.png"))
 }
 
+// A failure on a window another page opened and that stays open in front
+// of it names that page and captures it, since the window hides it.
+func TestFailureOnAWindowCapturesThePageBehindIt(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.engine.opener = "Bids"
+	execution := run.execute(`{"do": [{"expect": "The results are listed"}]}`, nil)
+
+	require.ErrorContains(t, execution.err, `the page read is a window that the page "Bids" opened and that is still open in front of it; browser/shop/02-failure-opener.png shows that page`)
+	assert.FileExists(t, filepath.Join(run.artifacts, "browser", "shop", "01-failure.png"))
+	assert.FileExists(t, filepath.Join(run.artifacts, "browser", "shop", "02-failure-opener.png"))
+}
+
 // A browser a previous attempt left open that does not close keeps its
 // record, so the reaper can retry, and the new attempt fails instead of
 // replacing that record with its own browser.

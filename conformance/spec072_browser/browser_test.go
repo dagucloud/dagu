@@ -101,8 +101,10 @@ const layoutBanner = `<button onclick="document.getElementById('status').textCon
 // bidsPage is a site built of frames, as older ones are. Its Search button
 // writes a "searching" window in place and posts into the results frame,
 // whose answer comes after bidsAnswerDelay and closes the window as it
-// loads. Choose region opens a window to tick regions in, which stays
-// until Register gives them to the search and closes it.
+// loads. A search with no region is answered at once with an error that
+// leaves the window open, as such sites do. Choose region opens a window
+// to tick regions in, which stays until Register gives them to the search
+// and closes it.
 const bidsPage = `<!doctype html><html><head><title>Bids</title><script>
 function openSearching() {
   top.searching = window.open("/bids/blank", "searching", "width=320,height=120");
@@ -126,6 +128,8 @@ const bidsRegionsPage = `<!doctype html><html><head><title>Regions</title></head
 <label><input type="checkbox" value="Funabashi">Funabashi</label>
 <button onclick="opener.setRegion([...document.querySelectorAll('input:checked')].map(box => box.value).join(', ')); window.close()">Register</button>
 </body></html>`
+
+const bidsErrorPage = `<!doctype html><html><body><p>Input error: choose a region</p></body></html>`
 
 const bidsResultsPage = `<!doctype html><html><body onload="top.closeSearching()">
 <h1>Road repair</h1>
@@ -392,8 +396,13 @@ func serveBids(w http.ResponseWriter, r *http.Request) {
 	case "/bids/home":
 		_, _ = io.WriteString(w, "<p>Choose a region and search</p>")
 	case "/bids/results":
+		region := r.PostFormValue("region")
+		if region == "" {
+			_, _ = io.WriteString(w, bidsErrorPage)
+			return
+		}
 		time.Sleep(bidsAnswerDelay)
-		_, _ = fmt.Fprintf(w, bidsResultsPage, html.EscapeString(r.PostFormValue("region")))
+		_, _ = fmt.Fprintf(w, bidsResultsPage, html.EscapeString(region))
 	}
 }
 
@@ -614,6 +623,17 @@ func TestBrowserSearchingWindow(t *testing.T) {
 	b := newBrowserEnv(t)
 	b.dagu.RunWithEnv(b.env, "start", "searching_window.yaml").ExpectExitCode(0)
 	b.dagu.ExpectTextFileContent("heading.out", "Road repair\n")
+}
+
+// A step that fails on a searching window the site left open over its
+// error names the page behind the window and captures it.
+func TestBrowserNamesThePageBehindAWindowLeftOpen(t *testing.T) {
+	t.Parallel()
+
+	b := newBrowserEnv(t)
+	result := b.dagu.RunWithEnv(b.env, "start", "searching_window_error.yaml")
+	result.ExpectNonZeroExitCode()
+	result.ExpectStderrContains(`the page read is a window that the page "Bids" opened and that is still open in front of it`, "failure-opener.png shows that page")
 }
 
 // The items of a foreach each drive a browser of their own: an item whose

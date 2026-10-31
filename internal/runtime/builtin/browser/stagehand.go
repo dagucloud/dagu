@@ -1162,6 +1162,59 @@ func (e *stagehandEngine) Screenshot(ctx context.Context) ([]byte, error) {
 	})
 }
 
+func (e *stagehandEngine) Opener(ctx context.Context) (string, bool, error) {
+	found := false
+	title, err := boundCall(ctx, e.pageCallTimeout, func(ctx context.Context) (string, error) {
+		opener, err := e.opener(ctx)
+		if err != nil || opener == nil {
+			return "", err
+		}
+		found = true
+		return opener.Title(ctx)
+	})
+	return title, found && err == nil, err
+}
+
+func (e *stagehandEngine) OpenerScreenshot(ctx context.Context) ([]byte, error) {
+	return boundCall(ctx, e.pageCallTimeout, func(ctx context.Context) ([]byte, error) {
+		opener, err := e.opener(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if opener == nil {
+			return nil, errors.New("no open page opened the window operations work on")
+		}
+		return opener.Screenshot(ctx, nil)
+	})
+}
+
+// opener returns the page that opened the window operations work on, while
+// it is open, or nil when operations work on a page no open page opened.
+func (e *stagehandEngine) opener(ctx context.Context) (*stagehand.Page, error) {
+	page, err := e.page(ctx)
+	if err != nil {
+		return nil, err
+	}
+	windows := e.loads.Windows()
+	i := slices.IndexFunc(windows, func(w browserhost.Window) bool { return w.TargetID == page.PageID() })
+	if i < 0 {
+		return nil, nil
+	}
+	openerID := windows[i].Opener
+	browserContext, err := e.browser.Context()
+	if err != nil {
+		return nil, err
+	}
+	pages, err := browserContext.Pages(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if j := slices.IndexFunc(pages, func(p *stagehand.Page) bool { return p.PageID() == openerID }); j >= 0 {
+		return pages[j], nil
+	}
+	return nil, nil
+}
+
 func (e *stagehandEngine) CurrentURL(ctx context.Context) (string, error) {
 	return boundCall(ctx, e.pageCallTimeout, func(ctx context.Context) (string, error) {
 		page, err := e.page(ctx)
