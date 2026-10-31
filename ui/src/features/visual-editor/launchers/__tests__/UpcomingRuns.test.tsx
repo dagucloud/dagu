@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { fireEvent, render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import { ScheduleKind, UpcomingRunsHold } from '@/api/v1/schema';
 import { UpcomingRuns } from '../UpcomingRuns';
@@ -71,46 +72,52 @@ describe('UpcomingRuns', () => {
 
   it('explains where a business calendar put each run', () => {
     render(
-      <UpcomingRuns
-        schedules={[
-          {
-            expression: '0 23 * * *',
-            kind: ScheduleKind.cron,
-            calendar: 'jp-banking',
-            businessDays: [3, -1],
-          },
-        ]}
-        runs={[
-          {
-            time: '2027-01-06T23:00:00Z',
-            scheduleIndex: 0,
-            timezone: 'UTC',
-            businessDay: 3,
-          },
-          {
-            time: '2027-01-29T23:00:00Z',
-            scheduleIndex: 0,
-            timezone: 'UTC',
-            businessDay: -1,
-          },
-          {
-            time: '2027-01-12T18:00:00Z',
-            scheduleIndex: 0,
-            timezone: 'UTC',
-            skippedHolidays: [
-              { date: '2027-01-11', name: 'Coming of Age Day' },
-            ],
-          },
-          {
-            time: '2027-10-09T18:00:00Z',
-            scheduleIndex: 0,
-            timezone: 'UTC',
-            extraBusinessDay: true,
-          },
-        ]}
-      />
+      <MemoryRouter>
+        <UpcomingRuns
+          schedules={[
+            {
+              expression: '0 23 * * *',
+              kind: ScheduleKind.cron,
+              calendar: 'jp-banking',
+              businessDays: [3, -1],
+            },
+          ]}
+          runs={[
+            {
+              time: '2027-01-06T23:00:00Z',
+              scheduleIndex: 0,
+              timezone: 'UTC',
+              businessDay: 3,
+            },
+            {
+              time: '2027-01-29T23:00:00Z',
+              scheduleIndex: 0,
+              timezone: 'UTC',
+              businessDay: -1,
+            },
+            {
+              time: '2027-01-12T18:00:00Z',
+              scheduleIndex: 0,
+              timezone: 'UTC',
+              skippedHolidays: [
+                { date: '2027-01-11', name: 'Coming of Age Day' },
+              ],
+            },
+            {
+              time: '2027-10-09T18:00:00Z',
+              scheduleIndex: 0,
+              timezone: 'UTC',
+              extraBusinessDay: true,
+            },
+          ]}
+        />
+      </MemoryRouter>
     );
 
+    expect(screen.getByRole('link', { name: 'jp-banking' })).toHaveAttribute(
+      'href',
+      '/calendars/jp-banking'
+    );
     expect(
       screen.getByText('· business day 3 of the month')
     ).toBeInTheDocument();
