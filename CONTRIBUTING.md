@@ -42,13 +42,13 @@ Prerequisites depend on your track:
 
 ### Nix
 
-If you use [Nix](https://nixos.org/download/), the flake gives you Go, Node.js, pnpm and make:
+If you use [Nix](https://nixos.org/download/), the flake gives you Go, Node.js, pnpm, make and the host tools the Makefile calls:
 
 ```bash
 nix develop
 ```
 
-Everything else the Makefile needs, it installs into `.local/bin` itself.
+The Makefile installs its Go tools and `protoc` into `.local` itself. Docker and Zig, used only by the image and keepalive targets, are not included.
 
 Building frontend assets:
 

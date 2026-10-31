@@ -25,6 +25,10 @@
             pkgs.nodejs_22
             pkgs.pnpm_10
             pkgs.gnumake
+            # Used by make proto and make certs.
+            pkgs.curl
+            pkgs.unzip
+            pkgs.openssl
             # Used by test steps.
             pkgs.git
             pkgs.perl
