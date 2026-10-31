@@ -3283,7 +3283,59 @@ export interface paths {
          */
         get: operations["listCalendars"];
         put?: never;
+        /**
+         * Create a business calendar
+         * @description Creates the calendar file <name>.yaml. Without spec, the file starts as Monday to Friday with no holidays. Requires the write_dags permission and the developer role or above.
+         */
+        post: operations["createCalendar"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/calendars/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a business calendar
+         * @description Returns a calendar's file content, its problems, and the calendars and DAGs that depend on it. DAGs in workspaces the caller cannot see are not listed.
+         */
+        get: operations["getCalendar"];
+        /**
+         * Update a business calendar
+         * @description Replaces a calendar file's content. Content with problems is not saved; the problems are returned instead. Requires the write_dags permission and the developer role or above.
+         */
+        put: operations["updateCalendar"];
         post?: never;
+        /**
+         * Delete a business calendar
+         * @description Deletes a calendar file. A calendar that a DAG's start schedule uses, directly or through includes, or that another calendar includes, is not deleted. Requires the write_dags permission and the developer role or above.
+         */
+        delete: operations["deleteCalendar"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/calendars/{name}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview a business calendar
+         * @description Checks unsaved calendar content and describes each date of a year under it, marking the dates that differ from the saved calendar. A built-in calendar is described as it is.
+         */
+        post: operations["previewCalendar"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5701,6 +5753,8 @@ export interface components {
             /** @description Business days of the month the schedule keeps; negative values count from the end */
             businessDays?: number[];
         };
+        /** @description Name of a business calendar: a built-in one, or the file <name>.yaml in paths.calendars_dir */
+        CalendarName: string;
         /** @description A business calendar that start schedules can name */
         CalendarSummary: {
             name: string;
@@ -5714,6 +5768,122 @@ export interface components {
             builtin: boolean;
             /** @description Why the calendar file does not load */
             error?: string;
+            /** @description Why the calendar needs attention, such as holidays that run out soon */
+            warning?: string;
+            /** @description Calendars whose holidays this calendar adds */
+            includes?: string[];
+            /** @description Number of DAGs whose start schedules use the calendar, directly or through calendars that include it. Set when usage is requested. */
+            dagCount?: number;
+        };
+        /** @description A business calendar with its file content and what depends on it */
+        CalendarDetails: {
+            name: components["schemas"]["CalendarName"];
+            /** @description Whether the calendar is built in rather than a file */
+            builtin: boolean;
+            description?: string;
+            /**
+             * Format: date
+             * @description Last date the calendar's holidays are maintained for
+             */
+            through?: string;
+            /** @description The calendar file's content; empty for a built-in calendar */
+            spec: string;
+            /** @description Problems of the saved file, each starting with its [line:column] in the file when it has one */
+            errors: string[];
+            warnings: string[];
+            /** @description Calendars whose holidays this calendar adds */
+            includes: string[];
+            /** @description Calendars that add this calendar's holidays, directly or through other calendars */
+            includedBy: string[];
+            /** @description DAGs whose start schedules use the calendar, directly or through calendars that include it */
+            usedBy: components["schemas"]["CalendarUser"][];
+        };
+        /** @description A DAG whose start schedules use a calendar */
+        CalendarUser: {
+            fileName: components["schemas"]["DAGFileName"];
+            /** @description Name of the DAG */
+            name: string;
+            /** @description Workspace the DAG belongs to, if any */
+            workspace?: string;
+            /** @description The calendar the DAG names, when it uses this calendar through includes */
+            via?: string;
+        };
+        CreateCalendarRequest: {
+            name: components["schemas"]["CalendarName"];
+            /** @description The calendar file's content; a template when omitted */
+            spec?: string;
+        };
+        UpdateCalendarRequest: {
+            /** @description The calendar file's content */
+            spec: string;
+        };
+        /** @description The outcome of saving a calendar. Nothing is saved when errors is not empty. */
+        CalendarSaveResult: {
+            /** @description Problems that kept the calendar from being saved, each starting with its [line:column] when it has one */
+            errors: string[];
+            warnings: string[];
+        };
+        CalendarPreviewRequest: {
+            /** @description Unsaved calendar file content; ignored for a built-in calendar */
+            spec: string;
+            /** @description Year whose dates are described */
+            year: number;
+        };
+        /** @description Unsaved calendar content checked and applied to the dates of a year */
+        CalendarPreview: {
+            /** @description Problems of the content, each starting with its [line:column] when it has one. The dates use the valid parts. */
+            errors: string[];
+            warnings: string[];
+            year: number;
+            /**
+             * Format: date
+             * @description Today in the server's time zone
+             */
+            today: string;
+            /**
+             * Format: date
+             * @description Last date the content's holidays are maintained for
+             */
+            through?: string;
+            /** @description Each date of the year, in order. Empty when the content is not a calendar document. */
+            days: components["schemas"]["CalendarDay"][];
+            changes: components["schemas"]["CalendarChanges"];
+        };
+        /**
+         * @description business: a business day by its weekday; nonBusiness: a weekday that is not a business day; holiday: a listed holiday; extraBusinessDay: a business day only because the calendar lists it
+         * @enum {string}
+         */
+        CalendarDayStatus: CalendarDayStatus;
+        /** @description One date of a calendar */
+        CalendarDay: {
+            /** Format: date */
+            date: string;
+            status: components["schemas"]["CalendarDayStatus"];
+            /** @description Name of the holiday listed on the date */
+            holidayName?: string;
+            /** @description Position among the month's business days, where 1 is the first. Set on business days only. */
+            ordinal?: number;
+            /** @description Position among the month's business days from the end, where -1 is the last. Set on business days only. */
+            ordinalFromEnd?: number;
+            /** @description Whether the saved calendar describes the date differently */
+            changed: boolean;
+        };
+        /** @description How unsaved content differs from the saved calendar */
+        CalendarChanges: {
+            weekdaysAdded: components["schemas"]["CalendarWeekday"][];
+            weekdaysRemoved: components["schemas"]["CalendarWeekday"][];
+            /** @description Listed dates, in order, whose status or holiday name changes */
+            dates: components["schemas"]["CalendarDateChange"][];
+        };
+        /** @enum {string} */
+        CalendarWeekday: CalendarWeekday;
+        CalendarDateChange: {
+            /** Format: date */
+            date: string;
+            before: components["schemas"]["CalendarDayStatus"];
+            after: components["schemas"]["CalendarDayStatus"];
+            beforeHolidayName?: string;
+            afterHolidayName?: string;
         };
         Holiday: {
             /** Format: date */
@@ -8127,6 +8297,8 @@ export interface components {
         SearchMatchLimit: number;
         /** @description the name of the DAG file */
         DAGFileName: components["schemas"]["DAGFileName"];
+        /** @description name of the calendar */
+        CalendarName: components["schemas"]["CalendarName"];
         /** @description name of the DAG */
         DAGName: components["schemas"]["DAGName"];
         /** @description name of the step */
@@ -18325,6 +18497,8 @@ export interface operations {
             query?: {
                 /** @description name of the remote node */
                 remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Count the DAGs whose start schedules use each calendar, directly or through calendars that include it. Counting reads the DAG catalog. */
+                includeUsage?: boolean;
             };
             header?: never;
             path?: never;
@@ -18341,6 +18515,289 @@ export interface operations {
                     "application/json": {
                         calendars: components["schemas"]["CalendarSummary"][];
                     };
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    createCalendar: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCalendarRequest"];
+            };
+        };
+        responses: {
+            /** @description Calendar created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        name: components["schemas"]["CalendarName"];
+                    };
+                };
+            };
+            /** @description Reserved name, or content that is not a valid calendar */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Calendar writes are not permitted */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description A calendar file has the name */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getCalendar: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description name of the calendar */
+                name: components["parameters"]["CalendarName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The calendar */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarDetails"];
+                };
+            };
+            /** @description No calendar has the name */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateCalendar: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description name of the calendar */
+                name: components["parameters"]["CalendarName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateCalendarRequest"];
+            };
+        };
+        responses: {
+            /** @description The calendar was saved when errors is empty */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarSaveResult"];
+                };
+            };
+            /** @description The calendar is built in */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Calendar writes are not permitted */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No calendar file has the name */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteCalendar: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description name of the calendar */
+                name: components["parameters"]["CalendarName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Calendar deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The calendar is built in */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Calendar writes are not permitted */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No calendar file has the name */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The calendar is in use */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    previewCalendar: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description name of the calendar */
+                name: components["parameters"]["CalendarName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CalendarPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description The preview */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarPreview"];
                 };
             };
             /** @description Unexpected error */
@@ -22647,6 +23104,21 @@ export enum HealthResponseStatus {
 export enum ScheduleKind {
     cron = "cron",
     at = "at"
+}
+export enum CalendarDayStatus {
+    business = "business",
+    nonBusiness = "nonBusiness",
+    holiday = "holiday",
+    extraBusinessDay = "extraBusinessDay"
+}
+export enum CalendarWeekday {
+    MON = "MON",
+    TUE = "TUE",
+    WED = "WED",
+    THU = "THU",
+    FRI = "FRI",
+    SAT = "SAT",
+    SUN = "SUN"
 }
 export enum UpcomingRunsHold {
     schedulerPaused = "schedulerPaused",

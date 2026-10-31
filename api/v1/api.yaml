@@ -8254,6 +8254,13 @@ paths:
         - "dags"
       parameters:
         - $ref: "#/components/parameters/RemoteNode"
+        - name: includeUsage
+          in: query
+          description: "Count the DAGs whose start schedules use each calendar, directly or through calendars that include it. Counting reads the DAG catalog."
+          required: false
+          schema:
+            type: boolean
+            default: false
       responses:
         "200":
           description: "Calendars, sorted by name"
@@ -8268,6 +8275,204 @@ paths:
                       $ref: "#/components/schemas/CalendarSummary"
                 required:
                   - calendars
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      summary: "Create a business calendar"
+      description: "Creates the calendar file <name>.yaml. Without spec, the file starts as Monday to Friday with no holidays. Requires the write_dags permission and the developer role or above."
+      operationId: "createCalendar"
+      tags:
+        - "dags"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCalendarRequest"
+      responses:
+        "201":
+          description: "Calendar created"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    $ref: "#/components/schemas/CalendarName"
+                required:
+                  - name
+        "400":
+          description: "Reserved name, or content that is not a valid calendar"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Calendar writes are not permitted"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "A calendar file has the name"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /calendars/{name}:
+    get:
+      summary: "Get a business calendar"
+      description: "Returns a calendar's file content, its problems, and the calendars and DAGs that depend on it. DAGs in workspaces the caller cannot see are not listed."
+      operationId: "getCalendar"
+      tags:
+        - "dags"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/CalendarName"
+      responses:
+        "200":
+          description: "The calendar"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendarDetails"
+        "404":
+          description: "No calendar has the name"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    put:
+      summary: "Update a business calendar"
+      description: "Replaces a calendar file's content. Content with problems is not saved; the problems are returned instead. Requires the write_dags permission and the developer role or above."
+      operationId: "updateCalendar"
+      tags:
+        - "dags"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/CalendarName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCalendarRequest"
+      responses:
+        "200":
+          description: "The calendar was saved when errors is empty"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendarSaveResult"
+        "400":
+          description: "The calendar is built in"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Calendar writes are not permitted"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "No calendar file has the name"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      summary: "Delete a business calendar"
+      description: "Deletes a calendar file. A calendar that a DAG's start schedule uses, directly or through includes, or that another calendar includes, is not deleted. Requires the write_dags permission and the developer role or above."
+      operationId: "deleteCalendar"
+      tags:
+        - "dags"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/CalendarName"
+      responses:
+        "204":
+          description: "Calendar deleted"
+        "400":
+          description: "The calendar is built in"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Calendar writes are not permitted"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "No calendar file has the name"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "The calendar is in use"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Unexpected error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /calendars/{name}/preview:
+    post:
+      summary: "Preview a business calendar"
+      description: "Checks unsaved calendar content and describes each date of a year under it, marking the dates that differ from the saved calendar. A built-in calendar is described as it is."
+      operationId: "previewCalendar"
+      tags:
+        - "dags"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/CalendarName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CalendarPreviewRequest"
+      responses:
+        "200":
+          description: "The preview"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendarPreview"
         default:
           description: "Unexpected error"
           content:
@@ -11705,6 +11910,14 @@ components:
       schema:
         $ref: "#/components/schemas/DAGFileName"
 
+    CalendarName:
+      name: name
+      in: path
+      description: name of the calendar
+      required: true
+      schema:
+        $ref: "#/components/schemas/CalendarName"
+
     DAGName:
       name: name
       in: path
@@ -14663,6 +14876,11 @@ components:
           items:
             type: integer
 
+    CalendarName:
+      type: string
+      pattern: "^[A-Za-z0-9_-]+$"
+      description: "Name of a business calendar: a built-in one, or the file <name>.yaml in paths.calendars_dir"
+
     CalendarSummary:
       type: object
       description: "A business calendar that start schedules can name"
@@ -14681,9 +14899,268 @@ components:
         error:
           type: string
           description: "Why the calendar file does not load"
+        warning:
+          type: string
+          description: "Why the calendar needs attention, such as holidays that run out soon"
+        includes:
+          type: array
+          description: "Calendars whose holidays this calendar adds"
+          items:
+            type: string
+        dagCount:
+          type: integer
+          description: "Number of DAGs whose start schedules use the calendar, directly or through calendars that include it. Set when usage is requested."
       required:
         - name
         - builtin
+
+    CalendarDetails:
+      type: object
+      description: "A business calendar with its file content and what depends on it"
+      properties:
+        name:
+          $ref: "#/components/schemas/CalendarName"
+        builtin:
+          type: boolean
+          description: "Whether the calendar is built in rather than a file"
+        description:
+          type: string
+        through:
+          type: string
+          format: date
+          description: "Last date the calendar's holidays are maintained for"
+        spec:
+          type: string
+          description: "The calendar file's content; empty for a built-in calendar"
+        errors:
+          type: array
+          description: "Problems of the saved file, each starting with its [line:column] in the file when it has one"
+          items:
+            type: string
+        warnings:
+          type: array
+          items:
+            type: string
+        includes:
+          type: array
+          description: "Calendars whose holidays this calendar adds"
+          items:
+            type: string
+        includedBy:
+          type: array
+          description: "Calendars that add this calendar's holidays, directly or through other calendars"
+          items:
+            type: string
+        usedBy:
+          type: array
+          description: "DAGs whose start schedules use the calendar, directly or through calendars that include it"
+          items:
+            $ref: "#/components/schemas/CalendarUser"
+      required:
+        - name
+        - builtin
+        - spec
+        - errors
+        - warnings
+        - includes
+        - includedBy
+        - usedBy
+
+    CalendarUser:
+      type: object
+      description: "A DAG whose start schedules use a calendar"
+      properties:
+        fileName:
+          $ref: "#/components/schemas/DAGFileName"
+        name:
+          type: string
+          description: "Name of the DAG"
+        workspace:
+          type: string
+          description: "Workspace the DAG belongs to, if any"
+        via:
+          type: string
+          description: "The calendar the DAG names, when it uses this calendar through includes"
+      required:
+        - fileName
+        - name
+
+    CreateCalendarRequest:
+      type: object
+      properties:
+        name:
+          $ref: "#/components/schemas/CalendarName"
+        spec:
+          type: string
+          description: "The calendar file's content; a template when omitted"
+      required:
+        - name
+
+    UpdateCalendarRequest:
+      type: object
+      properties:
+        spec:
+          type: string
+          description: "The calendar file's content"
+      required:
+        - spec
+
+    CalendarSaveResult:
+      type: object
+      description: "The outcome of saving a calendar. Nothing is saved when errors is not empty."
+      properties:
+        errors:
+          type: array
+          description: "Problems that kept the calendar from being saved, each starting with its [line:column] when it has one"
+          items:
+            type: string
+        warnings:
+          type: array
+          items:
+            type: string
+      required:
+        - errors
+        - warnings
+
+    CalendarPreviewRequest:
+      type: object
+      properties:
+        spec:
+          type: string
+          description: "Unsaved calendar file content; ignored for a built-in calendar"
+        year:
+          type: integer
+          minimum: 1
+          maximum: 9999
+          description: "Year whose dates are described"
+      required:
+        - spec
+        - year
+
+    CalendarPreview:
+      type: object
+      description: "Unsaved calendar content checked and applied to the dates of a year"
+      properties:
+        errors:
+          type: array
+          description: "Problems of the content, each starting with its [line:column] when it has one. The dates use the valid parts."
+          items:
+            type: string
+        warnings:
+          type: array
+          items:
+            type: string
+        year:
+          type: integer
+        today:
+          type: string
+          format: date
+          description: "Today in the server's time zone"
+        through:
+          type: string
+          format: date
+          description: "Last date the content's holidays are maintained for"
+        days:
+          type: array
+          description: "Each date of the year, in order. Empty when the content is not a calendar document."
+          items:
+            $ref: "#/components/schemas/CalendarDay"
+        changes:
+          $ref: "#/components/schemas/CalendarChanges"
+      required:
+        - errors
+        - warnings
+        - year
+        - today
+        - days
+        - changes
+
+    CalendarDayStatus:
+      type: string
+      description: "business: a business day by its weekday; nonBusiness: a weekday that is not a business day; holiday: a listed holiday; extraBusinessDay: a business day only because the calendar lists it"
+      enum:
+        - "business"
+        - "nonBusiness"
+        - "holiday"
+        - "extraBusinessDay"
+
+    CalendarDay:
+      type: object
+      description: "One date of a calendar"
+      properties:
+        date:
+          type: string
+          format: date
+        status:
+          $ref: "#/components/schemas/CalendarDayStatus"
+        holidayName:
+          type: string
+          description: "Name of the holiday listed on the date"
+        ordinal:
+          type: integer
+          description: "Position among the month's business days, where 1 is the first. Set on business days only."
+        ordinalFromEnd:
+          type: integer
+          description: "Position among the month's business days from the end, where -1 is the last. Set on business days only."
+        changed:
+          type: boolean
+          description: "Whether the saved calendar describes the date differently"
+      required:
+        - date
+        - status
+        - changed
+
+    CalendarChanges:
+      type: object
+      description: "How unsaved content differs from the saved calendar"
+      properties:
+        weekdaysAdded:
+          type: array
+          items:
+            $ref: "#/components/schemas/CalendarWeekday"
+        weekdaysRemoved:
+          type: array
+          items:
+            $ref: "#/components/schemas/CalendarWeekday"
+        dates:
+          type: array
+          description: "Listed dates, in order, whose status or holiday name changes"
+          items:
+            $ref: "#/components/schemas/CalendarDateChange"
+      required:
+        - weekdaysAdded
+        - weekdaysRemoved
+        - dates
+
+    CalendarWeekday:
+      type: string
+      enum:
+        - "MON"
+        - "TUE"
+        - "WED"
+        - "THU"
+        - "FRI"
+        - "SAT"
+        - "SUN"
+
+    CalendarDateChange:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        before:
+          $ref: "#/components/schemas/CalendarDayStatus"
+        after:
+          $ref: "#/components/schemas/CalendarDayStatus"
+        beforeHolidayName:
+          type: string
+        afterHolidayName:
+          type: string
+      required:
+        - date
+        - before
+        - after
 
     Holiday:
       type: object
