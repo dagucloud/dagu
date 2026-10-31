@@ -6,6 +6,7 @@ package spec_test
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -151,6 +152,29 @@ func TestCalendarSourceReusesCalendars(t *testing.T) {
 	require.NoError(t, err)
 	_, ok = restored.Holiday(civil(2027, 2, 11))
 	assert.True(t, ok, "recreated calendar")
+}
+
+// Fixing a file's permissions changes neither its size nor its modification
+// time, so a read failure must not be reused.
+func TestCalendarSourceRetriesUnreadableFiles(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("file modes do not block reads here")
+	}
+
+	dir := writeCalendars(t, map[string]string{"jp-national": jpNationalCalendar})
+	path := filepath.Join(dir, "jp-national.yaml")
+	source := spec.NewCalendarSource(dir)
+
+	require.NoError(t, os.Chmod(path, 0))
+	_, err := source.Calendar("jp-national")
+	require.ErrorIs(t, err, os.ErrPermission)
+
+	require.NoError(t, os.Chmod(path, 0o600))
+	cal, err := source.Calendar("jp-national")
+	require.NoError(t, err)
+	_, ok := cal.Holiday(civil(2027, 2, 11))
+	assert.True(t, ok)
 }
 
 func TestLoadCalendarErrors(t *testing.T) {

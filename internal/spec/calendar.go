@@ -66,8 +66,9 @@ func ListCalendars(dir string) ([]CalendarSummary, error) {
 
 // CalendarSource loads the calendar files of one directory. It keeps each
 // parsed calendar until its file, or a file it includes, changes size or
-// modification time, so DAGs that share a calendar parse it once. The
-// calendars it returns are shared and must not be modified.
+// modification time, so DAGs that share a calendar parse it once. A file
+// that cannot be read is retried on every call. The calendars it returns
+// are shared and must not be modified.
 type CalendarSource struct {
 	dir     string
 	mu      sync.Mutex
@@ -141,7 +142,11 @@ func (s *CalendarSource) CalendarFile(name string) (*ir.Calendar, error) {
 	}
 	loader := calendarLoader{dir: s.dir, loading: map[string]bool{}}
 	cal, err := loader.load(name)
-	s.entries[name] = calendarEntry{cal: cal, err: err, files: loader.files}
+	if loader.readFailed {
+		delete(s.entries, name)
+	} else {
+		s.entries[name] = calendarEntry{cal: cal, err: err, files: loader.files}
+	}
 	return cal, err
 }
 
@@ -214,6 +219,9 @@ type calendarLoader struct {
 	loading map[string]bool
 	// files records each file read, or found missing, while loading.
 	files []fileStamp
+	// readFailed reports a file that exists but could not be read. The
+	// failure can clear without the file changing, as with permissions.
+	readFailed bool
 }
 
 func (l *calendarLoader) load(name string) (*ir.Calendar, error) {
@@ -240,6 +248,7 @@ func (l *calendarLoader) load(name string) (*ir.Calendar, error) {
 		return nil, unknownCalendarError(l.dir, name)
 	}
 	if err != nil {
+		l.readFailed = true
 		return nil, fmt.Errorf("read calendar %q: %w", name, err)
 	}
 	cal, includes, err := parseCalendar(name, data)
