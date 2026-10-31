@@ -175,6 +175,33 @@ describe('useRunHistory with the test runs', () => {
     ]);
   });
 
+  // Every reader of the list gets the same event object from the feed: one
+  // request answers all of them.
+  it('reads the list once for an event, however many hooks read it', async () => {
+    withTest();
+    h.historySSE.mockReturnValue({ ...idleSSE, isConnected: true });
+    const view = renderWorkspace(() => [
+      useRunHistory({ enabled: true, includeEphemeral: true }),
+      useRunHistory({ enabled: true, includeEphemeral: true }),
+      useRunHistory({ enabled: true, includeEphemeral: true }),
+    ]);
+    await waitFor(() =>
+      expect(view.result.current?.value[0]?.runs).toHaveLength(3)
+    );
+    const before = historyCalls().length;
+    h.historySSE.mockReturnValue({
+      ...idleSSE,
+      isConnected: true,
+      data: { dagRuns: [run('run-2')], gridData: [] },
+    });
+    view.rerender();
+    await waitFor(() => expect(historyCalls().length).toBeGreaterThan(before));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(historyCalls()).toHaveLength(before + 1);
+  });
+
   describe('polling', () => {
     beforeEach(() => {
       vi.useFakeTimers({ shouldAdvanceTime: true });

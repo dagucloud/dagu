@@ -64,6 +64,13 @@ const START_GRACE_MS = 30_000;
  */
 export const TEST_RUN_REMOVAL_SLACK_MS = 70_000;
 
+/**
+ * The events of the feed that already read a history with test runs again.
+ * Every reader of a feed gets the same event object, so the first one reads
+ * the list for all.
+ */
+const revalidatedEvents = new WeakSet<object>();
+
 const isActiveTestRun = (run: ApiDAGRunDetails) =>
   !!run.ephemeral && isRunActive(run);
 
@@ -163,7 +170,11 @@ export function useRunHistory({
   const events = historySSE.data;
   useEffect(() => {
     // An event of the feed means that the history changed: read it again.
-    if (includeEphemeral && events != null) void mutate();
+    if (!includeEphemeral || events == null || revalidatedEvents.has(events)) {
+      return;
+    }
+    revalidatedEvents.add(events);
+    void mutate();
   }, [events, includeEphemeral, mutate]);
 
   useEffect(() => {
