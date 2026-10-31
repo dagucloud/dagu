@@ -7,7 +7,9 @@ import { useQuery } from '@/hooks/api';
 import { whenEnabled } from '@/hooks/queryUtils';
 import { useDAGHistorySSE } from '@/hooks/useDAGHistorySSE';
 import { sseFallbackOptions, useSSECacheSync } from '@/hooks/useSSECacheSync';
+import { isRunActive } from '@/features/visual-editor/run/stepRunInfo';
 import { useWorkspaceData } from './context';
+import { testRunExpiry } from './testRun';
 import type { ApiDAGRunDetails } from './types';
 
 type DAGGridItem = components['schemas']['DAGGridItem'];
@@ -50,11 +52,36 @@ export function useTestRunStartedAt(fileName: string): number | undefined {
   );
 }
 
-/** How often the history with test runs is read while a test run can change it. */
+/** How often the history with test runs is read while a test run is active. */
 export const TEST_RUN_POLL_MS = 5000;
 
 /** How long after a start the history is polled for a run it does not list yet. */
 const START_GRACE_MS = 30_000;
+
+/**
+ * How long after the TTL of an ended test run the history is read again. The
+ * server removes ended test runs once a minute; the rest covers clock skew.
+ */
+export const TEST_RUN_REMOVAL_SLACK_MS = 70_000;
+
+const isActiveTestRun = (run: ApiDAGRunDetails) =>
+  !!run.ephemeral && isRunActive(run);
+
+/**
+ * When the first ended test run of the list is gone from the server, in ms
+ * since the epoch, or null without one.
+ */
+function firstTestRunRemoval(
+  runs: ApiDAGRunDetails[] | undefined
+): number | null {
+  let first: number | null = null;
+  for (const run of runs ?? []) {
+    if (!run.ephemeral || isRunActive(run)) continue;
+    const expiry = testRunExpiry(run);
+    if (expiry !== null && (first === null || expiry < first)) first = expiry;
+  }
+  return first === null ? null : first + TEST_RUN_REMOVAL_SLACK_MS;
+}
 
 /**
  * The run history of the workflow. Without `includeEphemeral` it has the SWR
@@ -62,9 +89,10 @@ const START_GRACE_MS = 30_000;
  * server also lists the test runs (they leave no trace elsewhere): the query
  * has a key of its own and the SSE feed cannot fill it, so an event only
  * revalidates it. With `pollTestRuns`, the list is read again every
- * `TEST_RUN_POLL_MS` while it holds a test run or this tab started one a
- * moment ago, as the server drops a test run without any event. Disabled, it
- * makes no request.
+ * `TEST_RUN_POLL_MS` while a test run in it is active or this tab started one
+ * a moment ago. The server drops an ended test run without any event, so the
+ * list is read once more when the first one is gone. Disabled, it makes no
+ * request.
  */
 export function useRunHistory({
   enabled,
@@ -83,17 +111,18 @@ export function useRunHistory({
   const base = sseFallbackOptions(historySSE);
   const baseInterval = base.refreshInterval;
   // SWR restarts its poll timer when this function changes, so it changes
-  // only when the poll can: a list that gains a test run (holdsTestRun) must
-  // restart a poll that stopped. A new function at each render would hold
-  // the poll off while the caller renders more often than the poll.
-  const [holdsTestRun, setHoldsTestRun] = useState(false);
+  // only when the poll can: a list that gains an active test run
+  // (holdsActiveTestRun) must restart a poll that stopped. A new function at
+  // each render would hold the poll off while the caller renders more often
+  // than the poll.
+  const [holdsActiveTestRun, setHoldsActiveTestRun] = useState(false);
   const testRunInterval = useCallback(
     (latest?: { dagRuns?: ApiDAGRunDetails[] }) =>
       (startedAt !== undefined && Date.now() - startedAt < START_GRACE_MS) ||
-      latest?.dagRuns?.some((run) => run.ephemeral)
+      latest?.dagRuns?.some(isActiveTestRun)
         ? TEST_RUN_POLL_MS
         : baseInterval,
-    [startedAt, baseInterval, holdsTestRun]
+    [startedAt, baseInterval, holdsActiveTestRun]
   );
   const { data, isLoading, mutate } = useQuery(
     '/dags/{fileName}/dag-runs',
@@ -112,8 +141,20 @@ export function useRunHistory({
         : {}),
     }
   );
-  const holds = data?.dagRuns?.some((run) => run.ephemeral) ?? false;
-  if (holds !== holdsTestRun) setHoldsTestRun(holds);
+  const holds = data?.dagRuns?.some(isActiveTestRun) ?? false;
+  if (holds !== holdsActiveTestRun) setHoldsActiveTestRun(holds);
+  const removal =
+    includeEphemeral && pollTestRuns
+      ? firstTestRunRemoval(data?.dagRuns)
+      : null;
+  useEffect(() => {
+    if (removal === null) return;
+    const timer = setTimeout(
+      () => void mutate(),
+      Math.max(0, removal - Date.now())
+    );
+    return () => clearTimeout(timer);
+  }, [removal, mutate]);
   // The feed has no test run: it must not replace the list that has them.
   useSSECacheSync(
     historySSE,
