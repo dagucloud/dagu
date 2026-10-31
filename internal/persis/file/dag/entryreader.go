@@ -316,8 +316,9 @@ func (er *entryReaderImpl) watch(ctx context.Context) {
 		case <-resync:
 			scheduleRefresh()
 		case <-symlinkPoll:
-			if targets := er.observeSymlinkTargets(); !maps.Equal(targets, er.symlinkTargets) {
-				er.symlinkTargets = targets
+			// A pending refresh observes the links itself, and rescheduling it
+			// would postpone it.
+			if refresh == nil && !maps.Equal(er.observeSymlinkTargets(), er.symlinkTargets) {
 				scheduleRefresh()
 			}
 		case <-markerPoll:
@@ -574,6 +575,10 @@ func (er *entryReaderImpl) initRecursive(ctx context.Context) error {
 
 func (er *entryReaderImpl) refreshRegistry(ctx context.Context) error {
 	scannedAt := time.Now()
+	// Observed before the scan, so a link changed during the refresh no longer
+	// matches, and kept only once the refresh succeeds, so a failed one is
+	// retried by the next symlink poll.
+	symlinkTargets := er.observeSymlinkTargets()
 	scan, err := Discover(er.targetDir, DiscoveryOptions{Recursive: er.recursive})
 	if err != nil {
 		return err
@@ -587,6 +592,7 @@ func (er *entryReaderImpl) refreshRegistry(ctx context.Context) error {
 	er.reportIssues(ctx, state.issues)
 
 	events := er.replaceRegistry(state)
+	er.symlinkTargets = symlinkTargets
 	for i, event := range events {
 		// The events of one refresh form one change.
 		event.More = i < len(events)-1
