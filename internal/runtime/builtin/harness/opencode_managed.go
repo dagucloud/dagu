@@ -706,16 +706,38 @@ func (e *harnessExecutor) finishManagedCancelled(ctx context.Context, client *op
 			e.mu.Unlock()
 		}
 	}
-	if err == nil {
-		err = client.interruptAndAwaitIdle(cleanupCtx, sessionID)
-	} else if owned && cleanupCtx.Err() == nil {
-		// A lost status can hide a turn that started; the interrupt does
-		// nothing if it has not. Another session may run the user's own turn.
-		if abortErr := client.abort(cleanupCtx, sessionID); abortErr != nil {
-			err = errors.Join(err, abortErr)
+	switch {
+	case err != nil:
+		if owned && cleanupCtx.Err() == nil {
+			// A lost status can hide a turn that started; the interrupt does
+			// nothing if it has not. Another session may run the user's own turn.
+			if abortErr := client.abort(cleanupCtx, sessionID); abortErr != nil {
+				err = errors.Join(err, abortErr)
+			}
 		}
+	case owned:
+		err = client.interruptAndAwaitIdle(cleanupCtx, sessionID)
+	default:
+		err = settleUserSession(cleanupCtx, client, sessionID, promptID)
 	}
 	return e.finishManagedAbort(ctx, err)
+}
+
+// settleUserSession stops Dagu's turn in a session the user supplied. While
+// Dagu's prompt is the session's latest input the active turn is Dagu's and
+// is interrupted; newer input belongs to the user, whose turn is waited on.
+func settleUserSession(ctx context.Context, client *openCodeClient, sessionID, promptID string) error {
+	messages, err := client.messages(ctx, sessionID)
+	if errors.Is(err, errManagedSessionUnavailable) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if promptID != "" && latestOpenCodeUserMessageID(messages) == promptID {
+		return client.interruptAndAwaitIdle(ctx, sessionID)
+	}
+	return client.awaitIdle(ctx, sessionID)
 }
 
 // finishManagedAbort records a cancelled run, and whether cleanup confirmed

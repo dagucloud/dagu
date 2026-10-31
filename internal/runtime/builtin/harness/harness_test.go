@@ -677,27 +677,52 @@ func TestManagedOpenCodeCancelInterruptsSession(t *testing.T) {
 }
 
 // A resumed run that is stopped before it reattaches to its session still
-// stops the turn Dagu left running there.
+// stops the turn Dagu left running there. In a session the user supplied, it
+// interrupts only while Dagu's prompt is the latest input; newer input is the
+// user's own turn.
 func TestManagedOpenCodeCancelDuringResume(t *testing.T) {
 	t.Parallel()
 
-	host := newManagedTestHost(t, func(h *managedTestHost) { h.busy["session-1"] = true })
-	exec := &harnessExecutor{prompt: "Do the work", workDir: t.TempDir(), agentSession: &ir.AgentSession{
-		Provider: "opencode", Generation: 1, SessionID: "session-1", SessionOwned: true,
-		PromptSent: true, PromptMessageID: "msg-1", State: ir.AgentSessionUnavailable,
-	}}
-	ctx, cancel := context.WithCancel(runtime.WithEnv(t.Context(), runtime.Env{}))
-	defer cancel()
-	exec.SetProgressCallback(cancel)
+	const daguPrompt = `{"info":{"id":"msg-1","role":"user"},"parts":[]}`
+	for _, tc := range []struct {
+		name          string
+		owned         bool
+		history       string
+		busy          bool
+		wantInterrupt bool
+	}{
+		{name: "owned session", owned: true, history: "[" + daguPrompt + "]", busy: true, wantInterrupt: true},
+		{name: "Dagu's turn in a user session", history: "[" + daguPrompt + "]", busy: true, wantInterrupt: true},
+		{name: "user's turn in a user session", history: "[" + daguPrompt + `,{"info":{"id":"msg-user","role":"user"},"parts":[]}]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			host := newManagedTestHost(t, func(h *managedTestHost) {
+				h.history = tc.history
+				h.busy["session-1"] = tc.busy
+			})
+			exec := &harnessExecutor{prompt: "Do the work", workDir: t.TempDir(), agentSession: &ir.AgentSession{
+				Provider: "opencode", Generation: 1, SessionID: "session-1", SessionOwned: tc.owned,
+				PromptSent: true, PromptMessageID: "msg-1", State: ir.AgentSessionUnavailable,
+			}}
+			ctx, cancel := context.WithCancel(runtime.WithEnv(t.Context(), runtime.Env{}))
+			defer cancel()
+			exec.SetProgressCallback(cancel)
 
-	_, err := exec.runManagedOpenCode(ctx, providerConfig{flags: map[string]any{}}, host.config)
+			_, err := exec.runManagedOpenCode(ctx, providerConfig{flags: map[string]any{}}, host.config)
 
-	require.ErrorIs(t, err, context.Canceled)
-	assert.True(t, host.wasInterrupted("session-1"))
-	assert.False(t, host.isBusy("session-1"), "the session settled before the run returned")
-	session := exec.GetAgentSession()
-	assert.Equal(t, ir.AgentSessionAborted, session.State)
-	assert.Equal(t, "aborted", session.Events[len(session.Events)-1].Status)
+			require.ErrorIs(t, err, context.Canceled)
+			assert.False(t, host.isBusy("session-1"), "the session settled before the run returned")
+			session := exec.GetAgentSession()
+			assert.Equal(t, ir.AgentSessionAborted, session.State)
+			assert.Equal(t, "aborted", session.Events[len(session.Events)-1].Status)
+			if tc.wantInterrupt {
+				assert.True(t, host.wasInterrupted("session-1"))
+				return
+			}
+			assert.NotContains(t, host.requestLog(), "POST /session/session-1/abort", "the user's own turn is not interrupted")
+		})
+	}
 }
 
 // Stopping a managed attempt ends the step without starting the legacy CLI or
@@ -937,6 +962,9 @@ type managedTestHost struct {
 	dropAfterInterrupt bool
 	onPrompt           func(r *http.Request)
 
+	// history is session-1's message list; empty means no messages.
+	history string
+
 	mu           sync.Mutex
 	requests     []string
 	promptIDs    []string
@@ -1005,7 +1033,11 @@ func (h *managedTestHost) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		_, _ = io.WriteString(w, `true`)
 	case r.Method == http.MethodGet && r.URL.Path == "/session/session-1/message":
-		_, _ = io.WriteString(w, `[]`)
+		history := h.history
+		if history == "" {
+			history = `[]`
+		}
+		_, _ = io.WriteString(w, history)
 	case r.Method == http.MethodGet && r.URL.Path == "/session/status":
 		h.mu.Lock()
 		if h.statusDown {
