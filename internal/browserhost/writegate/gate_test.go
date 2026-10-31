@@ -173,12 +173,18 @@ func profileDir(t *testing.T) string {
 	return dir
 }
 
+// startupSlot lets one test browser start at a time: parallel Chrome
+// startups on a loaded CI host can together outlast the wait for DevTools.
+var startupSlot = make(chan struct{}, 1)
+
 // startBrowserOn starts the browser on the profile directory. The browser
 // chooses its DevTools port and writes it to the profile, so no other
 // process can take the port between choosing and listening.
 func startBrowserOn(t *testing.T, profile string) *browser {
 	t.Helper()
 	path := chrometest.Require(t)
+	startupSlot <- struct{}{}
+	defer func() { <-startupSlot }()
 	activePort := filepath.Join(profile, "DevToolsActivePort")
 	// A profile used before still names the port of the browser that used it.
 	if err := os.Remove(activePort); !errors.Is(err, os.ErrNotExist) {
