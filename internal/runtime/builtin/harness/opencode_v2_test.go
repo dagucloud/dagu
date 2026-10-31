@@ -415,10 +415,13 @@ func TestV2CommandCancellation(t *testing.T) {
 	}))
 	defer server.Close()
 	c := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "2.1.4"}, http: server.Client()}
-	e := &harnessExecutor{}
+	e := &harnessExecutor{agentSession: &ir.AgentSession{PromptMessageID: "msg_test"}}
 	began, err := e.submitManagedPromptV2(ctx, c, providerConfig{flags: map[string]any{"command": "slow"}}, "ses_test", "msg_test", nil)
 	require.Error(t, err)
 	require.True(t, began)
+	// A command carries no message ID, so a retry must not submit it again.
+	require.True(t, e.agentSession.PromptSent)
+	require.Empty(t, e.agentSession.PromptMessageID)
 	require.True(t, submitted.Load())
 	require.True(t, interrupted.Load(), "accepted command must be interrupted even after caller cancellation")
 }

@@ -83,6 +83,13 @@ func (e *harnessExecutor) submitManagedPromptV2(ctx context.Context, c *openCode
 		if err := ctx.Err(); err != nil {
 			return false, err
 		}
+		// A command carries no message ID, so submitting it again could run it
+		// twice. Once its request begins it counts as sent, and its message is
+		// known only when found below.
+		e.mu.Lock()
+		e.agentSession.PromptSent = true
+		e.agentSession.PromptMessageID = ""
+		e.mu.Unlock()
 		admitted := false
 		defer func() {
 			if !admitted {

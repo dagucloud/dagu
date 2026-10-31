@@ -90,7 +90,13 @@ func (e *harnessExecutor) runManagedOpenCode(
 	}
 
 	if cleanRestart && discardedID != "" {
-		if err := settleDiscardedSession(ctx, client, discardedID, discardedOwned); err != nil {
+		// Settlement outlives cancellation, so a stop cannot leave the
+		// previous attempt's work running unnoticed.
+		err := settleDiscardedSession(context.WithoutCancel(ctx), client, discardedID, discardedOwned)
+		if ctx.Err() != nil {
+			return e.finishManagedAbort(ctx, err)
+		}
+		if err != nil {
 			return e.finishManagedError(err)
 		}
 	}
@@ -674,38 +680,42 @@ func (e *harnessExecutor) finishManagedCancelled(ctx context.Context, client *op
 	e.mu.Unlock()
 	if !promptSent && !submitted {
 		// Dagu has no turn here; the session may run work that is not Dagu's.
-		e.setManagedState(ir.AgentSessionAborted, "aborted", "OpenCode session aborted")
-		return nil, ctx.Err()
+		return e.finishManagedAbort(ctx, nil)
 	}
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), managedCleanupTimeout)
 	defer cancel()
 	var err error
-	unstarted := false
-	if submitted {
+	if submitted && promptID != "" {
 		// An interrupt does nothing before the host starts the prompt's turn.
-		err = client.awaitPromptStart(cleanupCtx, sessionID, promptID)
-		unstarted = err != nil
+		if err = client.awaitPromptStart(cleanupCtx, sessionID, promptID); err != nil {
+			// The turn may still start in this session, so a retry submits the
+			// prompt to it again instead of replacing it.
+			e.mu.Lock()
+			e.agentSession.PromptSent = false
+			e.mu.Unlock()
+		}
 	}
 	if err == nil {
 		err = client.interruptAndAwaitIdle(cleanupCtx, sessionID)
 	}
-	if err != nil {
-		cleanupErr := fmt.Errorf("OpenCode did not confirm the session stopped: %w", err)
-		e.mu.Lock()
-		e.agentSession.State = ir.AgentSessionAborted
-		e.agentSession.LastError = cleanupErr.Error()
-		if unstarted {
-			// The turn may still start in this session, so a retry submits the
-			// prompt to it again instead of replacing it.
-			e.agentSession.PromptSent = false
-		}
-		e.appendAgentEventLocked("lifecycle", "abort-unverified", cleanupErr.Error())
-		e.mu.Unlock()
-		e.notifyProgress()
-		return nil, errors.Join(ctx.Err(), cleanupErr)
+	return e.finishManagedAbort(ctx, err)
+}
+
+// finishManagedAbort records a cancelled run, and whether cleanup confirmed
+// that Dagu's work in OpenCode stopped.
+func (e *harnessExecutor) finishManagedAbort(ctx context.Context, cleanupErr error) (*os.File, error) {
+	if cleanupErr == nil {
+		e.setManagedState(ir.AgentSessionAborted, "aborted", "OpenCode session aborted")
+		return nil, ctx.Err()
 	}
-	e.setManagedState(ir.AgentSessionAborted, "aborted", "OpenCode session aborted")
-	return nil, ctx.Err()
+	cleanupErr = fmt.Errorf("OpenCode did not confirm the session stopped: %w", cleanupErr)
+	e.mu.Lock()
+	e.agentSession.State = ir.AgentSessionAborted
+	e.agentSession.LastError = cleanupErr.Error()
+	e.appendAgentEventLocked("lifecycle", "abort-unverified", cleanupErr.Error())
+	e.mu.Unlock()
+	e.notifyProgress()
+	return nil, errors.Join(ctx.Err(), cleanupErr)
 }
 
 func (e *harnessExecutor) setManagedState(state ir.AgentSessionState, status, content string) {

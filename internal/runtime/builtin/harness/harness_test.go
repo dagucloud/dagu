@@ -737,30 +737,62 @@ func TestManagedOpenCodeRetrySettlesDiscardedSession(t *testing.T) {
 		assert.Equal(t, "session-old", session.DiscardedSessionID)
 	})
 
+	t.Run("keeps settling after stop", func(t *testing.T) {
+		t.Parallel()
+		host := newManagedTestHost(t, func(h *managedTestHost) { h.busy["session-old"] = true })
+		exec := &harnessExecutor{prompt: "Do the work", workDir: t.TempDir(), agentSession: &ir.AgentSession{
+			Provider: "opencode", Generation: 1, SessionID: "session-old", SessionOwned: true,
+			PromptSent: true, State: ir.AgentSessionAborted,
+		}}
+		ctx, cancel := context.WithCancel(runtime.WithEnv(t.Context(), runtime.Env{}))
+		defer cancel()
+		// The stop arrives as the new attempt starts, before the discarded session settles.
+		exec.SetProgressCallback(cancel)
+
+		_, err := exec.runManagedOpenCode(ctx, providerConfig{flags: map[string]any{}}, host.config)
+
+		require.ErrorIs(t, err, context.Canceled)
+		assert.True(t, host.wasInterrupted("session-old"))
+		assert.False(t, host.isBusy("session-old"), "the discarded session settled before the run returned")
+		assert.NotContains(t, host.requestLog(), "POST /session", "a stopped attempt creates no replacement")
+		session := exec.GetAgentSession()
+		assert.Equal(t, ir.AgentSessionAborted, session.State)
+		assert.Equal(t, "aborted", session.Events[len(session.Events)-1].Status)
+	})
+
 	t.Run("waits for session it does not own", func(t *testing.T) {
 		t.Parallel()
 		host := newManagedTestHost(t, func(h *managedTestHost) { h.busy["session-user"] = true })
+		client := &openCodeClient{host: host.config, http: newOpenCodeHTTPClient(time.Second)}
+		ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+		defer cancel()
+
+		err := settleDiscardedSession(ctx, client, "session-user", false)
+
+		require.ErrorContains(t, err, "session-user from the previous attempt may still be running")
+		assert.NotContains(t, host.requestLog(), "POST /session/session-user/abort", "never interrupt a session Dagu does not own")
+	})
+
+	t.Run("checks again on the next attempt", func(t *testing.T) {
+		t.Parallel()
+		host := newManagedTestHost(t, func(h *managedTestHost) { h.statusDown = true })
 		exec := &harnessExecutor{prompt: "Do the work", workDir: t.TempDir(), agentSession: &ir.AgentSession{
 			Provider: "opencode", Generation: 1, SessionID: "session-user",
 			PromptSent: true, State: ir.AgentSessionFailed,
 		}}
-		ctx, cancel := context.WithTimeout(runtime.WithEnv(t.Context(), runtime.Env{}), 300*time.Millisecond)
-		defer cancel()
+		ctx := runtime.WithEnv(t.Context(), runtime.Env{})
 
-		stdout, err := exec.runManagedOpenCode(ctx, providerConfig{flags: map[string]any{}}, host.config)
+		_, err := exec.runManagedOpenCode(ctx, providerConfig{flags: map[string]any{}}, host.config)
 
-		require.Nil(t, stdout)
-		require.ErrorContains(t, err, "session-user from the previous attempt may still be running")
-		assert.Equal(t, ir.AgentSessionFailed, exec.GetAgentSession().State)
-		assert.NotContains(t, host.requestLog(), "POST /session", "no replacement beside active work")
-		assert.NotContains(t, host.requestLog(), "POST /session/session-user/abort", "never interrupt a session Dagu does not own")
+		require.NoError(t, err)
+		assert.Equal(t, ir.AgentSessionUnavailable, exec.GetAgentSession().State)
+		assert.NotContains(t, host.requestLog(), "POST /session", "no replacement before the discarded session settles")
 
-		// The next retry checks the same discarded session again.
-		host.setBusy("session-user", false)
-		ctx, cancel = context.WithCancel(runtime.WithEnv(t.Context(), runtime.Env{}))
+		host.setStatusDown(false)
+		runCtx, cancel := context.WithCancel(ctx)
 		defer cancel()
 		exec.SetProgressCallback(onManagedRunning(exec, cancel))
-		_, err = exec.runManagedOpenCode(ctx, providerConfig{flags: map[string]any{}}, host.config)
+		_, err = exec.runManagedOpenCode(runCtx, providerConfig{flags: map[string]any{}}, host.config)
 		require.ErrorIs(t, err, context.Canceled)
 		assert.Contains(t, host.requestLog(), "POST /session")
 		session := exec.GetAgentSession()
