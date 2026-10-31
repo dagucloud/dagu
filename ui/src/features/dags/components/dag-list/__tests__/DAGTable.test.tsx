@@ -751,6 +751,50 @@ describe('DAGTable', () => {
       expect(peek.open).toHaveBeenCalledWith({ dag: 'alpha.yaml' });
     });
 
+    // Enter on a focused row or card shows its peek; Enter on a control
+    // inside it stays with that control.
+    it('shows the peek of a focused row on Enter', () => {
+      const peek = peekHost();
+      renderTable('', {
+        peek,
+        dags: [workflow({ name: 'alpha' }), workflow({ name: 'reports' })],
+      });
+      const link = within(screen.getByRole('table')).getByRole('link', {
+        name: 'reports',
+      });
+      const row = link.closest('tr')!;
+
+      row.focus();
+      expect(row).toHaveFocus();
+      fireEvent.keyDown(row, { key: 'Enter' });
+      fireEvent.keyDown(link, { key: 'Enter' });
+
+      expect(peek.open).toHaveBeenCalledTimes(1);
+      expect(peek.open).toHaveBeenCalledWith({ dag: 'reports.yaml' });
+    });
+
+    it('shows the peek of a focused card on Enter', () => {
+      const peek = peekHost();
+      renderTable('', {
+        peek,
+        panelWidth: 600,
+        dags: [workflow({ name: 'alpha' })],
+      });
+      const link = within(screen.getByTestId('workflow-card-view')).getByRole(
+        'link',
+        { name: 'alpha' }
+      );
+      const card = link.closest<HTMLElement>('.card-obsidian')!;
+
+      card.focus();
+      expect(card).toHaveFocus();
+      fireEvent.keyDown(card, { key: 'Enter' });
+      fireEvent.keyDown(link, { key: 'Enter' });
+
+      expect(peek.open).toHaveBeenCalledTimes(1);
+      expect(peek.open).toHaveBeenCalledWith({ dag: 'alpha.yaml' });
+    });
+
     it('keeps the name link on the workflow page', () => {
       const peek = peekHost();
       renderTable('', { peek, dags: [workflow({ name: 'alpha' })] });
