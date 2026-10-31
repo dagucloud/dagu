@@ -308,6 +308,17 @@ holidays:
 		assert.True(t, ok, "included holiday")
 	})
 
+	// A key repeated through a merge key takes its last value, as it does
+	// when the document is decoded into a map.
+	t.Run("merged keys take their last value", func(t *testing.T) {
+		t.Parallel()
+
+		cal, messages := check("draft", "<<: {holidays: [2027-01-01], include: [missing]}\nholidays: []\ninclude: []\n")
+		assert.Empty(t, messages)
+		assert.Empty(t, cal.Holidays)
+		assert.Empty(t, cal.Includes)
+	})
+
 	t.Run("names", func(t *testing.T) {
 		t.Parallel()
 
@@ -396,7 +407,7 @@ func TestListCalendars(t *testing.T) {
 	dir := writeCalendars(t, map[string]string{
 		"jp-banking":  jpBankingCalendar,
 		"jp-national": jpNationalCalendar,
-		"broken":      "holidays: nope\n",
+		"broken":      "holidays: nope\ninclude: [jp-national, missing]\n",
 		"weekdays":    jpNationalCalendar,
 	})
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("x"), 0o600))
@@ -413,6 +424,7 @@ func TestListCalendars(t *testing.T) {
 	assert.Equal(t, "Japanese bank business days", summaries[1].Description)
 	assert.Equal(t, civil(2099, 12, 31), summaries[1].Through)
 	assert.Equal(t, []string{"jp-national"}, summaries[1].Includes)
+	assert.Equal(t, []string{"jp-national", "missing"}, summaries[0].Includes, "kept when the calendar does not load")
 	builtinSeen := false
 	for _, summary := range summaries[3:] {
 		if summary.Builtin {
