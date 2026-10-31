@@ -3,9 +3,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { components, ViewColumn } from '@/api/v1/schema';
-import { useRemoteNode } from '@/contexts/RemoteNodeContext';
-import { buildDAGPageURL } from '@/features/dag-runs/lib/dagRunUrls';
-import { useOpenPage } from '@/features/dag-runs/lib/useOpenPage';
+import { usePeekOrOpen } from '@/features/peek/usePeekOrOpen';
 import type { KanbanFilters } from '../hooks/useDateKanbanData';
 import { useInfiniteBuckets } from '../hooks/useInfiniteBuckets';
 import { ArtifactListModal } from './ArtifactListModal';
@@ -37,27 +35,26 @@ export function BucketKanbanList({
     intervalDays,
     resetKey
   );
-  const remoteNode = useRemoteNode();
-  const openPage = useOpenPage();
+  const peekOrOpen = usePeekOrOpen();
   const [artifactRun, setArtifactRun] = useState<DAGRunSummary | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const awaitingSentinelExitRef = useRef(false);
 
-  // A card opens its run on the workflow page, on the Artifacts tab when the run has artifacts.
+  // A card shows its run in the peek, which opens the Artifacts tab of the
+  // workflow page when the run has artifacts.
   const handleCardClick = useCallback(
     (run: DAGRunSummary, event?: React.MouseEvent) => {
-      openPage(
-        buildDAGPageURL({
-          fileName: run.name,
-          remoteNode,
+      peekOrOpen(
+        {
+          dag: run.name,
           run: run.dagRunId,
           dock: run.artifactsAvailable ? 'artifacts' : undefined,
-        }),
+        },
         event
       );
     },
-    [openPage, remoteNode]
+    [peekOrOpen]
   );
 
   const handleArtifactsClick = useCallback((run: DAGRunSummary) => {

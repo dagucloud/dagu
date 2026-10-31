@@ -15,10 +15,7 @@ import StatusChip from '@/components/ui/status-chip';
 import Ticker from '@/components/ui/ticker';
 import { useCanAccessSystemStatus } from '@/contexts/AuthContext';
 import { DAGRunActions } from '@/features/dag-runs/components/common';
-import {
-  buildDAGPageURL,
-  buildDAGRunPageURL,
-} from '@/features/dag-runs/lib/dagRunUrls';
+import { PeekLink } from '@/features/peek/PeekLink';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
 import dayjs from '@/lib/dayjs';
@@ -121,16 +118,13 @@ function RunLink({
   className?: string;
 }): React.ReactElement {
   return (
-    <Link
-      to={buildDAGRunPageURL({
-        rootDAGRunName: name,
-        rootDAGRunId: run.dagRunId,
-        remoteNode,
-      })}
+    <PeekLink
+      peek={{ dag: name, run: run.dagRunId }}
+      remoteNode={remoteNode}
       className={className}
     >
       {children}
-    </Link>
+    </PeekLink>
   );
 }
 
@@ -479,12 +473,13 @@ export function UpNext({
         <ul className="flex flex-col gap-1">
           {upcoming.map((item) => (
             <li key={item.fileName} className="flex items-center gap-2 text-sm">
-              <Link
-                to={buildDAGPageURL({ fileName: item.fileName, remoteNode })}
+              <PeekLink
+                peek={{ dag: item.fileName }}
+                remoteNode={remoteNode}
                 className="min-w-0 flex-1 truncate text-foreground hover:underline"
               >
                 {item.name}
-              </Link>
+              </PeekLink>
               <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
                 {dayjs
                   .unix(item.nextRun)

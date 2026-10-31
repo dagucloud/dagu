@@ -4,6 +4,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
+import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import OverviewPage from '..';
 import { useViews } from '@/hooks/useViews';
@@ -37,7 +38,25 @@ vi.mock('@/contexts/AuthContext', () => ({
   useCanWriteForWorkspace: () => true,
 }));
 
+vi.mock('@/features/peek/WorkflowPeek', async () => {
+  const { DialogTitle } = await import('@/components/ui/dialog');
+  return {
+    WorkflowPeek: ({ target }: { target: { dag: string } }) => (
+      <DialogTitle>{target.dag}</DialogTitle>
+    ),
+  };
+});
+
 const useViewsMock = vi.mocked(useViews);
+
+// The page hosts a peek, which reads the URL.
+function renderPage(ui: React.ReactElement, entry = '/') {
+  return render(ui, {
+    wrapper: ({ children }) => (
+      <MemoryRouter initialEntries={[entry]}>{children}</MemoryRouter>
+    ),
+  });
+}
 
 function mockViews(views: Array<{ id: string; name: string }>) {
   useViewsMock.mockReturnValue({
@@ -57,8 +76,15 @@ describe('OverviewPage', () => {
     mockViews([]);
   });
 
+  it('shows the peek of a ?peek link over the panel', () => {
+    renderPage(<OverviewPage />, '/?peek=etl&peekRun=run-1');
+
+    expect(screen.getByRole('dialog', { name: 'etl' })).toBeInTheDocument();
+    expect(screen.getByText('Activity panel')).toBeInTheDocument();
+  });
+
   it('defaults to the Activity tab', () => {
-    render(<OverviewPage />);
+    renderPage(<OverviewPage />);
 
     expect(screen.getByRole('tab', { name: /activity/i })).toHaveAttribute(
       'aria-selected',
@@ -70,7 +96,7 @@ describe('OverviewPage', () => {
 
   it('persists the last selected tab', async () => {
     const user = userEvent.setup();
-    const { unmount } = render(<OverviewPage />);
+    const { unmount } = renderPage(<OverviewPage />);
 
     await user.click(screen.getByRole('tab', { name: /cockpit/i }));
 
@@ -81,7 +107,7 @@ describe('OverviewPage', () => {
     expect(localStorage.getItem('dagu_overview_active_tab')).toBe('cockpit');
 
     unmount();
-    render(<OverviewPage />);
+    renderPage(<OverviewPage />);
 
     expect(screen.getByRole('tab', { name: /cockpit/i })).toHaveAttribute(
       'aria-selected',
@@ -93,7 +119,7 @@ describe('OverviewPage', () => {
   it('honors an explicit route tab over stored state', () => {
     localStorage.setItem('dagu_overview_active_tab', 'cockpit');
 
-    render(<OverviewPage initialTab="timeline" />);
+    renderPage(<OverviewPage initialTab="timeline" />);
 
     expect(screen.getByRole('tab', { name: /activity/i })).toHaveAttribute(
       'aria-selected',
@@ -106,7 +132,7 @@ describe('OverviewPage', () => {
     const user = userEvent.setup();
     mockViews([{ id: 'v1', name: 'Prod board' }]);
 
-    render(<OverviewPage />);
+    renderPage(<OverviewPage />);
 
     const viewTab = screen.getByRole('tab', { name: /prod board/i });
     expect(viewTab).toBeInTheDocument();
