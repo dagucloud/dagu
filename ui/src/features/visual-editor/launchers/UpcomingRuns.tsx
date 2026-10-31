@@ -48,7 +48,7 @@ export function UpcomingRuns({
           {ts('No upcoming run')}
         </p>
       ) : (
-        <ol className="space-y-0.5 text-sm text-muted-foreground tabular-nums">
+        <ol className="space-y-0.5 whitespace-normal break-words text-sm text-muted-foreground tabular-nums">
           {visibleRuns.map((run) => {
             const schedule = schedules[run.scheduleIndex];
             return (
