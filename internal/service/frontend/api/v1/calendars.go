@@ -24,8 +24,14 @@ import (
 	openapitypes "github.com/oapi-codegen/runtime/types"
 )
 
-// calendarInUseListLimit bounds the DAGs a refused delete names.
-const calendarInUseListLimit = 5
+const (
+	// calendarInUseListLimit bounds the DAGs a refused delete names.
+	calendarInUseListLimit = 5
+	// minCalendarYear and maxCalendarYear bound a previewed year to dates
+	// written with four digits.
+	minCalendarYear = 1
+	maxCalendarYear = 9999
+)
 
 var (
 	errCalendarsNotAvailable = &Error{
@@ -223,6 +229,13 @@ func (a *API) DeleteCalendar(ctx context.Context, request api.DeleteCalendarRequ
 // PreviewCalendar checks unsaved calendar content and describes each date
 // of a year under it.
 func (a *API) PreviewCalendar(_ context.Context, request api.PreviewCalendarRequestObject) (api.PreviewCalendarResponseObject, error) {
+	if year := request.Body.Year; year < minCalendarYear || year > maxCalendarYear {
+		return nil, &Error{
+			HTTPStatus: http.StatusBadRequest,
+			Code:       api.ErrorCodeBadRequest,
+			Message:    fmt.Sprintf("year must be from %d to %d", minCalendarYear, maxCalendarYear),
+		}
+	}
 	today := a.calendarToday()
 	preview := api.PreviewCalendar200JSONResponse{
 		Year:     request.Body.Year,

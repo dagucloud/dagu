@@ -311,6 +311,15 @@ func TestPreviewCalendar(t *testing.T) {
 	assert.Equal(t, api.CalendarDayStatusNonBusiness, day(result, time.January, 2).Status)
 	assert.Empty(t, result.Changes.Dates)
 
+	// The request schema bounds the year, but the handler holds without
+	// strict validation too.
+	for _, year := range []int{0, 10000} {
+		_, err := apiImpl.PreviewCalendar(context.Background(), api.PreviewCalendarRequestObject{
+			Name: "ops", Body: &api.PreviewCalendarJSONRequestBody{Spec: "holidays: []\n", Year: year},
+		})
+		requireAPIErrorStatus(t, err, http.StatusBadRequest)
+	}
+
 	result = preview("ops", "- 2027-01-01\n", 2027)
 	assert.Len(t, result.Errors, 1)
 	assert.Empty(t, result.Days)
