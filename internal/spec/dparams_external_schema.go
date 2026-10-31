@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -456,25 +457,76 @@ func stringifyUntypedValue(value any) string {
 	}
 }
 
+// parseJSONLikeValue decodes value as JSON for schema validation, or returns it
+// as is when it is not JSON. Integers that fit in 64 bits keep their exact
+// value, so bounds are checked against the number the run receives.
 func parseJSONLikeValue(value string) any {
-	var decoded any
-	if err := json.Unmarshal([]byte(value), &decoded); err == nil {
-		return decoded
+	decoded, ok := decodeJSONNumbers(value)
+	if !ok {
+		return value
 	}
-	return value
+	if decoded, ok = validationNumbers(decoded); !ok {
+		return value
+	}
+	return decoded
 }
 
 // parseJSONNumberValue decodes value like parseJSONLikeValue but keeps each
 // number as written.
 func parseJSONNumberValue(value string) any {
+	decoded, ok := decodeJSONNumbers(value)
+	if !ok {
+		return value
+	}
+	return decoded
+}
+
+func decodeJSONNumbers(value string) (any, bool) {
 	decoder := json.NewDecoder(strings.NewReader(value))
 	decoder.UseNumber()
 	var decoded any
 	if err := decoder.Decode(&decoded); err != nil {
-		return value
+		return nil, false
 	}
 	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
-		return value
+		return nil, false
 	}
-	return decoded
+	return decoded, true
+}
+
+// validationNumbers replaces each json.Number in value with a Go number, which
+// the schema validator requires. It reports false for a number out of float64
+// range, as json.Unmarshal does.
+func validationNumbers(value any) (any, bool) {
+	switch v := value.(type) {
+	case json.Number:
+		if n, err := v.Int64(); err == nil {
+			return n, true
+		}
+		if n, err := strconv.ParseUint(v.String(), 10, 64); err == nil {
+			return n, true
+		}
+		f, err := v.Float64()
+		return f, err == nil
+	case map[string]any:
+		for key, item := range v {
+			converted, ok := validationNumbers(item)
+			if !ok {
+				return nil, false
+			}
+			v[key] = converted
+		}
+		return v, true
+	case []any:
+		for i, item := range v {
+			converted, ok := validationNumbers(item)
+			if !ok {
+				return nil, false
+			}
+			v[i] = converted
+		}
+		return v, true
+	default:
+		return v, true
+	}
 }

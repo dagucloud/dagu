@@ -663,6 +663,41 @@ params:
 	assert.Equal(t, []string{`CONFIG={"ratio":0.50,"retries":2}`}, resolved.Params)
 }
 
+// The run receives untyped numbers as written, so validation must compare them
+// at that exact value rather than at a rounded float.
+func TestResolveRuntimeParams_ExternalSchemaValidatesUntypedNumbersExactly(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "params.schema.json"), []byte(`{
+  "type": "object",
+  "properties": {
+    "LIMIT": {"maximum": 9007199254740992},
+    "CONFIG": {
+      "type": "object",
+      "properties": {"id": {"type": "integer", "maximum": 9007199254740992}}
+    }
+  }
+}`), 0o600))
+	dagPath := filepath.Join(dir, "untyped-bounds.yaml")
+	require.NoError(t, os.WriteFile(dagPath, []byte(`
+name: untyped-bounds
+params:
+  schema: params.schema.json
+`), 0o600))
+	dag, err := Load(context.Background(), dagPath, WithoutEval())
+	require.NoError(t, err)
+
+	for _, override := range []string{"LIMIT=9007199254740993", `CONFIG={"id": 9007199254740993}`} {
+		_, err := ResolveRuntimeParams(context.Background(), dag, []string{override}, ResolveRuntimeParamsOptions{})
+		require.ErrorContains(t, err, "maximum", override)
+	}
+
+	resolved, err := ResolveRuntimeParams(context.Background(), dag, []string{"LIMIT=9007199254740992", `CONFIG={"id": 9007199254740992}`}, ResolveRuntimeParamsOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, []string{`CONFIG={"id": 9007199254740992}`, "LIMIT=9007199254740992"}, resolved.Params)
+}
+
 // Runtime overrides of an inline schema are validated the same way, so their
 // untyped values keep the supplied text too.
 func TestResolveRuntimeParams_InlineSchemaKeepsUntypedValueText(t *testing.T) {
