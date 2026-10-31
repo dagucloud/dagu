@@ -164,6 +164,11 @@ func TestTickPlanner_RestoredOneOffStaysConsumedAfterCrash(t *testing.T) {
 	setNow(time.Date(2026, 2, 7, 12, 0, 30, 0, time.UTC))
 	eventCh <- DAGChangeEvent{Type: DAGChangeUpdated, More: true, DAGEntry: DAGEntry{DAG: restored}}
 	require.Eventually(t, applied(restored), 2*time.Second, 5*time.Millisecond)
+	// The save at once follows the event, after entryMu is released.
+	require.Eventually(t, func() bool {
+		oneOff, ok := store.lastSaved().DAGs[restored.Name].OneOffs[schedule.Fingerprint()]
+		return ok && oneOff.Status != schedulerstate.OneOffStatusPending
+	}, 2*time.Second, 5*time.Millisecond, "the consumed one-off must be saved before its change ends")
 
 	restartAt := time.Date(2026, 2, 7, 12, 0, 40, 0, time.UTC)
 	restarted, _ := newTestTickPlanner(&mockStateStore{state: store.lastSaved()})
