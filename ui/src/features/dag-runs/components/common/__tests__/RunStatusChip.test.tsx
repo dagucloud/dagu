@@ -86,7 +86,7 @@ describe('RunStatusChip', () => {
   });
 
   // A page of running runs must not read every run again and again: only a
-  // run that can turn Healthy reads its details again.
+  // run that can turn Healthy reads its details again, once a minute.
   it('reads the details again only for a run with a continuous step', () => {
     render(
       <RunStatusChip name="etl" dagRunId="r1" status={Status.Running}>
@@ -100,9 +100,9 @@ describe('RunStatusChip', () => {
 
     expect(refreshInterval(undefined)).toBe(0);
     expect(refreshInterval(details([node(NodeStatus.Running)]))).toBe(0);
-    expect(
-      refreshInterval(details([node(NodeStatus.Success, forever)]))
-    ).toBeGreaterThan(0);
+    expect(refreshInterval(details([node(NodeStatus.Success, forever)]))).toBe(
+      60_000
+    );
   });
 
   it('reads the details only for a running run', () => {
