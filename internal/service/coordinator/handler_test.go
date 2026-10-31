@@ -1742,6 +1742,10 @@ func (s *failingDispatchTaskStore) ListExpiredHeld(context.Context, time.Time) (
 	return nil, nil
 }
 
+func (s *failingDispatchTaskStore) ListStalePending(context.Context, time.Time) ([]*dispatch.DispatchTask, error) {
+	return nil, nil
+}
+
 func (s *failingDispatchTaskStore) DeletePending(context.Context, string) error {
 	return nil
 }

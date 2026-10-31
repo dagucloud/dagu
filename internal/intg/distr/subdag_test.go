@@ -5,6 +5,7 @@ package distr_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -13,6 +14,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/test"
+	"github.com/dagucloud/dagu/v2/internal/test/intgharness"
 	"github.com/stretchr/testify/require"
 )
 
@@ -278,6 +281,91 @@ steps:
 	value, ok := report.OutputVariables.Load("CHILD_EXIT_CODE")
 	require.True(t, ok)
 	require.Equal(t, "CHILD_EXIT_CODE=7", value)
+}
+
+// A child dispatched while every matching worker is busy waits past the
+// dispatch reservation TTL and runs once a worker frees up, so its parent
+// finishes instead of waiting on a child that never starts.
+func TestSubDAG_WaitsForBusyWorker(t *testing.T) {
+	dir := t.TempDir()
+	startedFile := filepath.Join(dir, "blocker.started")
+	releaseFile := filepath.Join(dir, "blocker.release")
+	t.Cleanup(func() {
+		_ = os.WriteFile(releaseFile, []byte("ok"), 0o600)
+	})
+	commands := intgharness.PortableCommands()
+
+	f := newTestFixture(t, fmt.Sprintf(`
+type: graph
+steps:
+  - id: blocker
+    action: dag.run
+    with:
+      dag: blocking-child
+  - id: blocker_started
+    run: |
+%s
+  - id: waiter
+    depends: [blocker_started]
+    action: dag.run
+    with:
+      dag: quick-child
+
+---
+name: blocking-child
+worker_selector:
+  test: "true"
+steps:
+  - run: |
+%s
+
+---
+name: quick-child
+worker_selector:
+  test: "true"
+steps:
+  - run: echo done
+`,
+		indentYAMLBlock(commands.WaitForFile(startedFile), 6),
+		indentYAMLBlock(test.JoinLines(commands.WriteFile(startedFile, "ok"), commands.WaitForFile(releaseFile)), 6),
+	),
+		withWorkerMaxActiveRuns(1),
+		withStaleThresholds(testStaleHeartbeatThreshold, testStaleLeaseThreshold),
+		withZombieDetectionInterval(testZombieDetectorInterval),
+	)
+
+	agent := f.dagWrapper.Agent()
+	ctx, cancel := context.WithTimeout(agent.Context, distrTestTimeout(time.Minute))
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- agent.Run(ctx) }()
+
+	waiterChildNotStarted := func() bool {
+		st, err := f.latestStatus()
+		if err != nil {
+			return false
+		}
+		waiter := requireNodeByID(t, st, "waiter")
+		if len(waiter.SubRuns) != 1 {
+			return false
+		}
+		attempt, err := f.coord.DAGRunRepository.FindSubAttempt(
+			f.coord.Context, ir.NewDAGRunRef(st.Name, st.DAGRunID), waiter.SubRuns[0].DAGRunID,
+		)
+		if err != nil {
+			return false
+		}
+		child, err := attempt.ReadStatus(f.coord.Context)
+		return err == nil && child.Status == ir.NotStarted
+	}
+	require.Eventually(t, waiterChildNotStarted, distrTestTimeout(15*time.Second), 100*time.Millisecond,
+		"the second child should wait for the busy worker")
+	require.Never(t, func() bool { return !waiterChildNotStarted() }, 3*testStaleLeaseThreshold, 200*time.Millisecond,
+		"the second child should keep waiting past the reservation TTL")
+
+	require.NoError(t, os.WriteFile(releaseFile, []byte("ok"), 0o600))
+	require.NoError(t, <-done)
+	f.dagWrapper.AssertLatestStatus(t, ir.Succeeded)
 }
 
 func TestSubDAG_UnmetChildPreconditionContinuesOnSkipped(t *testing.T) {

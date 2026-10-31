@@ -324,3 +324,86 @@ func TestRequestCancelAbortsHeldDispatch(t *testing.T) {
 	f.heartbeat(t, "worker-cpu", map[string]string{"type": "cpu"})
 	f.pollNone(t, "worker-cpu", map[string]string{"type": "cpu"})
 }
+
+// A task waiting for busy workers stays claimable however long it waits, so
+// its run starts once a worker frees up.
+func TestDropOrphanedDispatchesKeepsWaitingRun(t *testing.T) {
+	f := newHoldFixture(t, 0)
+	ctx := t.Context()
+
+	task := cpuTask("run-waiting")
+	task.WorkerSelector = map[string]string{"type": "gpu"}
+	_, err := f.h.Dispatch(ctx, &coordinatorv1.DispatchRequest{Task: task})
+	require.NoError(t, err)
+
+	DropOrphanedDispatchesForTest(f.h, time.Now().Add(time.Hour))
+
+	polled, err := f.h.Poll(ctx, &coordinatorv1.PollRequest{
+		WorkerId: "worker-gpu", PollerId: "p1", Labels: map[string]string{"type": "gpu"},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, polled.Task)
+	assert.Equal(t, "run-waiting", polled.Task.DagRunId)
+}
+
+// A long-pending task is dropped once its run no longer awaits it, such as a
+// run dequeued or deleted before any worker claimed it, so it neither starts
+// later nor holds a queue slot. A run that cannot be read keeps its task for
+// the next pass.
+func TestDropOrphanedDispatchesChecksRun(t *testing.T) {
+	tests := []struct {
+		name    string
+		moveOn  func(t *testing.T, f *holdFixture, runID string)
+		dropped bool
+	}{
+		{
+			name: "aborted",
+			moveOn: func(t *testing.T, f *holdFixture, runID string) {
+				attempt := f.runs.attempts[runID]
+				runStatus := f.status(t, runID)
+				runStatus.Status = ir.Aborted
+				require.NoError(t, attempt.Write(t.Context(), *runStatus))
+			},
+			dropped: true,
+		},
+		{
+			name: "missing",
+			moveOn: func(_ *testing.T, f *holdFixture, runID string) {
+				f.runs.mu.Lock()
+				delete(f.runs.attempts, runID)
+				f.runs.mu.Unlock()
+			},
+			dropped: true,
+		},
+		{
+			name: "unreadable",
+			moveOn: func(_ *testing.T, f *holdFixture, _ string) {
+				f.runs.mu.Lock()
+				f.runs.findAttemptErr = errors.New("storage unavailable")
+				f.runs.mu.Unlock()
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newHoldFixture(t, 0)
+			ctx := t.Context()
+
+			task := cpuTask("run-" + tt.name)
+			task.WorkerSelector = map[string]string{"type": "gpu"}
+			_, err := f.h.Dispatch(ctx, &coordinatorv1.DispatchRequest{Task: task})
+			require.NoError(t, err)
+			tt.moveOn(t, f, task.DagRunId)
+
+			DropOrphanedDispatchesForTest(f.h, time.Now().Add(time.Hour))
+
+			stale, err := f.dispatches.ListStalePending(ctx, time.Now().Add(time.Hour))
+			require.NoError(t, err)
+			if tt.dropped {
+				assert.Empty(t, stale)
+				return
+			}
+			require.Len(t, stale, 1)
+		})
+	}
+}

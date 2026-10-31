@@ -295,6 +295,10 @@ func (s *claimReleaseStore) ListExpiredHeld(context.Context, time.Time) ([]*disp
 	return nil, nil
 }
 
+func (s *claimReleaseStore) ListStalePending(context.Context, time.Time) ([]*dispatch.DispatchTask, error) {
+	return nil, nil
+}
+
 func (s *claimReleaseStore) DeletePending(context.Context, string) error {
 	return nil
 }
@@ -338,6 +342,10 @@ func (s *pollingDispatchStore) HasOutstandingAttempt(context.Context, string, ti
 }
 
 func (s *pollingDispatchStore) ListExpiredHeld(context.Context, time.Time) ([]*dispatch.DispatchTask, error) {
+	return nil, nil
+}
+
+func (s *pollingDispatchStore) ListStalePending(context.Context, time.Time) ([]*dispatch.DispatchTask, error) {
 	return nil, nil
 }
 
