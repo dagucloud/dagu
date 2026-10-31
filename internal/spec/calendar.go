@@ -49,7 +49,8 @@ type CalendarSummary struct {
 	// zero when the calendar does not say.
 	Through ir.CivilDate
 	Builtin bool
-	// Includes names the calendars whose holidays it adds.
+	// Includes names the calendars whose holidays it adds, also when the
+	// calendar does not load.
 	Includes []string
 	// Err is set when the calendar file does not load.
 	Err error
@@ -81,9 +82,12 @@ type CalendarSource struct {
 // calendarEntry is a loaded calendar, or why it did not load, with the
 // files it was read from.
 type calendarEntry struct {
-	cal   *ir.Calendar
-	err   error
-	files []fileStamp
+	cal *ir.Calendar
+	err error
+	// includes names the calendars the file includes, known even when
+	// the calendar does not load.
+	includes []string
+	files    []fileStamp
 }
 
 // fileStamp identifies the version of a file, or that it was missing.
@@ -135,22 +139,30 @@ func (s *CalendarSource) Calendar(name string) (*ir.Calendar, error) {
 // the calendars it includes. A reserved name is an error, even when a file
 // has that name.
 func (s *CalendarSource) CalendarFile(name string) (*ir.Calendar, error) {
+	entry := s.entry(name)
+	return entry.cal, entry.err
+}
+
+// entry loads calendar file name, or returns the cached result while the
+// files it was read from are unchanged.
+func (s *CalendarSource) entry(name string) calendarEntry {
 	if isReservedCalendarName(name) {
-		return nil, fmt.Errorf("calendar file %s%s: %q is reserved", name, CalendarFileExtension, name)
+		return calendarEntry{err: fmt.Errorf("calendar file %s%s: %q is reserved", name, CalendarFileExtension, name)}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if entry, ok := s.entries[name]; ok && entry.current() {
-		return entry.cal, entry.err
+		return entry
 	}
-	loader := calendarLoader{dir: s.dir, loading: map[string]bool{}}
+	loader := newCalendarLoader(s.dir)
 	cal, err := loader.load(name)
+	entry := calendarEntry{cal: cal, err: err, includes: loader.includes[name], files: loader.files}
 	if loader.readFailed {
 		delete(s.entries, name)
 	} else {
-		s.entries[name] = calendarEntry{cal: cal, err: err, files: loader.files}
+		s.entries[name] = entry
 	}
-	return cal, err
+	return entry
 }
 
 // Check parses data as the content of calendar file <name>.yaml, with the
@@ -165,7 +177,7 @@ func (s *CalendarSource) Check(name string, data []byte) (*ir.Calendar, []error)
 	if isReservedCalendarName(name) {
 		return nil, []error{fmt.Errorf("calendar file %s%s: %q is reserved", name, CalendarFileExtension, name)}
 	}
-	loader := calendarLoader{dir: s.dir, loading: map[string]bool{}}
+	loader := newCalendarLoader(s.dir)
 	return loader.parse(name, data)
 }
 
@@ -180,13 +192,11 @@ func (s *CalendarSource) List() ([]CalendarSummary, error) {
 		return nil, err
 	}
 	for _, name := range names {
-		summary := CalendarSummary{Name: name}
-		if cal, err := s.CalendarFile(name); err != nil {
-			summary.Err = err
-		} else {
-			summary.Description = cal.Description
-			summary.Through = cal.Through
-			summary.Includes = cal.Includes
+		entry := s.entry(name)
+		summary := CalendarSummary{Name: name, Includes: entry.includes, Err: entry.err}
+		if entry.cal != nil {
+			summary.Description = entry.cal.Description
+			summary.Through = entry.cal.Through
 		}
 		summaries = append(summaries, summary)
 	}
@@ -242,6 +252,13 @@ type calendarLoader struct {
 	// readFailed reports a file that exists but could not be read. The
 	// failure can clear without the file changing, as with permissions.
 	readFailed bool
+	// includes records the include list of each calendar parsed, also of
+	// calendars that fail to load.
+	includes map[string][]string
+}
+
+func newCalendarLoader(dir string) *calendarLoader {
+	return &calendarLoader{dir: dir, loading: map[string]bool{}, includes: map[string][]string{}}
 }
 
 func (l *calendarLoader) load(name string) (*ir.Calendar, error) {
@@ -286,6 +303,7 @@ func (l *calendarLoader) parse(name string, data []byte) (*ir.Calendar, []error)
 	if file.cal == nil {
 		return nil, errs
 	}
+	l.includes[name] = file.cal.Includes
 	cal := file.cal
 	digest := sha256.New()
 	digest.Write(data)
@@ -370,7 +388,7 @@ func parseCalendar(name string, data []byte) (calendarFile, []error) {
 		cal.Weekdays[day] = true
 	}
 	p := calendarParser{file: calendarFile{cal: cal}}
-	for _, item := range keys {
+	for _, item := range lastValues(keys) {
 		key := fmt.Sprint(item.Key)
 		switch key {
 		case "description":
@@ -458,7 +476,7 @@ func (p *calendarParser) holiday(path string, item any) {
 		hasDay, hasRange bool
 		failed           bool
 	)
-	for _, field := range entry {
+	for _, field := range lastValues(entry) {
 		key := fmt.Sprint(field.Key)
 		fieldPath := path + "." + yamlPathKey(key)
 		var err error
@@ -548,6 +566,23 @@ func (p *calendarParser) includes(value any) {
 		p.file.cal.Includes = append(p.file.cal.Includes, name)
 		p.file.includePaths = append(p.file.includePaths, path)
 	}
+}
+
+// lastValues keeps the last value of each key, in the order of those
+// values. A key that a merge key repeats takes the value it would take in a
+// map.
+func lastValues(items yaml.MapSlice) yaml.MapSlice {
+	last := make(map[string]int, len(items))
+	for i, item := range items {
+		last[fmt.Sprint(item.Key)] = i
+	}
+	kept := make(yaml.MapSlice, 0, len(last))
+	for i, item := range items {
+		if last[fmt.Sprint(item.Key)] == i {
+			kept = append(kept, item)
+		}
+	}
+	return kept
 }
 
 // yamlPathKey writes key as a step of a YAML path, quoting a key the path
