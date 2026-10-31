@@ -147,7 +147,8 @@ const (
 	ClassApproved = "approved"
 	// ClassSignIn is a write to a sign-in endpoint the policy lists.
 	ClassSignIn = "sign_in"
-	// ClassNoise is a beacon, a report, or a write to a noise host.
+	// ClassNoise is a beacon, a report, a write to a noise host, or one to
+	// an endpoint that only collects analytics or error reports.
 	ClassNoise = "noise"
 	// ClassPerson is a write sent while a person holds the browser.
 	ClassPerson = "person"
