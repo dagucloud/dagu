@@ -58,6 +58,8 @@ const APIDocsPage = React.lazy(() => import('./pages/api-docs'));
 const ArtifactsPage = React.lazy(() => import('./pages/artifacts'));
 const AuditLogsPage = React.lazy(() => import('./pages/audit-logs'));
 const BaseConfigPage = React.lazy(() => import('./pages/base-config'));
+const CalendarsPage = React.lazy(() => import('./pages/calendars'));
+const CalendarPage = React.lazy(() => import('./pages/calendars/calendar'));
 const DAGRuns = React.lazy(() => import('./pages/dag-runs'));
 const DAGRunDetails = React.lazy(() => import('./pages/dag-runs/dag-run'));
 const DAGs = React.lazy(() => import('./pages/dags'));
@@ -106,6 +108,7 @@ const STATIC_PAGE_TITLES = new Set([
   'Artifacts',
   'Audit Logs',
   'Base Config',
+  'Calendars',
   'Cockpit',
   'Events',
   'Executions',
@@ -780,6 +783,14 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                             <BaseConfigPage />
                                           </DeveloperElement>
                                         }
+                                      />
+                                      <Route
+                                        path="/calendars"
+                                        element={<CalendarsPage />}
+                                      />
+                                      <Route
+                                        path="/calendars/:name"
+                                        element={<CalendarPage />}
                                       />
                                       <Route
                                         path="/users"
