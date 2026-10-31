@@ -18,7 +18,6 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/datapath"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -131,7 +130,7 @@ func (e *executorImpl) Run(ctx context.Context) error {
 }
 
 func (e *executorImpl) runConvert(ctx context.Context) error {
-	value, err := e.readValue(ctx)
+	value, err := e.readValue()
 	if err != nil {
 		return err
 	}
@@ -145,7 +144,7 @@ func (e *executorImpl) runConvert(ctx context.Context) error {
 }
 
 func (e *executorImpl) runPick(ctx context.Context) error {
-	value, err := e.readValue(ctx)
+	value, err := e.readValue()
 	if err != nil {
 		return err
 	}
@@ -171,15 +170,12 @@ func (e *executorImpl) runPick(ctx context.Context) error {
 	return writeValue(e.stdout, outCfg, selected)
 }
 
-func (e *executorImpl) readValue(ctx context.Context) (any, error) {
+func (e *executorImpl) readValue() (any, error) {
 	if e.cfg.hasData {
 		return e.cfg.Data, nil
 	}
 
-	inputPath, err := runtime.ResolveString(ctx, e.cfg.Input, cmnvalue.WorkflowField("data.input"))
-	if err != nil {
-		return nil, fmt.Errorf("data: failed to evaluate input path: %w", err)
-	}
+	inputPath := e.cfg.Input
 	if !filepath.IsAbs(inputPath) {
 		inputPath = filepath.Join(e.workDir, inputPath)
 	}

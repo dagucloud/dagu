@@ -16,10 +16,8 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/itchyny/gojq"
@@ -57,11 +55,7 @@ func newJQ(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	case jqCfg.Input != "" && step.Script != "":
 		return nil, fmt.Errorf("jq: config.input and script are mutually exclusive; provide one, not both")
 	case jqCfg.Input != "":
-		// Evaluate the input path to resolve step references like ${step.stdout}
-		inputPath, err := runtime.ResolveString(ctx, jqCfg.Input, cmnvalue.WorkflowField("jq.input"))
-		if err != nil {
-			return nil, fmt.Errorf("jq: failed to evaluate config.input: %w", err)
-		}
+		inputPath := jqCfg.Input
 		data, err := fileutil.ReadFile(inputPath)
 		if err != nil {
 			return nil, fmt.Errorf("jq: reading input file %q: %w", inputPath, err)
