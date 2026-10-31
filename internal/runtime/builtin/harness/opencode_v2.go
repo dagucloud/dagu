@@ -31,11 +31,13 @@ func v2Path(path string) string {
 	return "/api" + path
 }
 
-func (e *harnessExecutor) submitManagedPromptV2(ctx context.Context, c *openCodeClient, cfg providerConfig, sessionID, messageID string, files []map[string]any) error {
+// submitManagedPromptV2 reports whether the prompt submission began, so a
+// cancelled caller knows whether the host may have taken the prompt.
+func (e *harnessExecutor) submitManagedPromptV2(ctx context.Context, c *openCodeClient, cfg providerConfig, sessionID, messageID string, files []map[string]any) (bool, error) {
 	base := "/session/" + url.PathEscape(sessionID)
 	if agent := stringFlag(cfg.flags, "agent"); agent != "" {
 		if err := c.postNoContent(ctx, base+"/agent", map[string]any{"agent": agent}); err != nil {
-			return err
+			return false, err
 		}
 	}
 	model := stringFlag(cfg.flags, "model")
@@ -43,7 +45,7 @@ func (e *harnessExecutor) submitManagedPromptV2(ctx context.Context, c *openCode
 	if model != "" {
 		provider, id, ok := strings.Cut(model, "/")
 		if !ok || provider == "" || id == "" {
-			return errors.New("managed OpenCode model must use provider/model format")
+			return false, errors.New("managed OpenCode model must use provider/model format")
 		}
 		id, inlineVariant, _ := strings.Cut(id, "#")
 		if variant == "" {
@@ -54,10 +56,10 @@ func (e *harnessExecutor) submitManagedPromptV2(ctx context.Context, c *openCode
 			ref["variant"] = variant
 		}
 		if err := c.postNoContent(ctx, base+"/model", map[string]any{"model": ref}); err != nil {
-			return err
+			return false, err
 		}
 	} else if variant != "" {
-		return errors.New("OpenCode v2 requires model when variant is specified")
+		return false, errors.New("OpenCode v2 requires model when variant is specified")
 	}
 	text := e.effectivePrompt()
 	if strings.TrimSpace(e.script) != "" {
@@ -76,7 +78,10 @@ func (e *harnessExecutor) submitManagedPromptV2(ctx context.Context, c *openCode
 		body["name"] = command
 		before, err := c.userMessageIDsV2(ctx, sessionID)
 		if err != nil {
-			return err
+			return false, err
+		}
+		if err := ctx.Err(); err != nil {
+			return false, err
 		}
 		admitted := false
 		defer func() {
@@ -87,8 +92,8 @@ func (e *harnessExecutor) submitManagedPromptV2(ctx context.Context, c *openCode
 				_ = c.abort(abortCtx, sessionID)
 			}
 		}()
-		if err := c.postNoContent(ctx, base+"/command", body); err != nil {
-			return err
+		if err := c.postNoContent(context.WithoutCancel(ctx), base+"/command", body); err != nil {
+			return true, err
 		}
 		// V2 commands return no content. Find the user input admitted by the
 		// callback in either the durable inbox or the projected history.
@@ -99,7 +104,7 @@ func (e *harnessExecutor) submitManagedPromptV2(ctx context.Context, c *openCode
 		for {
 			ids, err := c.userMessageIDsV2(waitCtx, sessionID)
 			if err != nil {
-				return err
+				return true, err
 			}
 			for _, id := range ids {
 				found := slices.Contains(before, id)
@@ -108,17 +113,20 @@ func (e *harnessExecutor) submitManagedPromptV2(ctx context.Context, c *openCode
 					e.agentSession.PromptMessageID = id
 					e.mu.Unlock()
 					admitted = true
-					return nil
+					return true, nil
 				}
 			}
 			select {
 			case <-waitCtx.Done():
-				return fmt.Errorf("OpenCode command did not submit a prompt: %w", waitCtx.Err())
+				return true, fmt.Errorf("OpenCode command did not submit a prompt: %w", waitCtx.Err())
 			case <-ticker.C:
 			}
 		}
 	}
-	return c.postNoContent(ctx, base+"/prompt", body)
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	return true, c.postNoContent(context.WithoutCancel(ctx), base+"/prompt", body)
 }
 
 type openCodeV2Message struct {

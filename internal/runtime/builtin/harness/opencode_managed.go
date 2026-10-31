@@ -144,11 +144,15 @@ func (e *harnessExecutor) runManagedOpenCode(
 			e.notifyProgress()
 		}
 		if ctx.Err() != nil {
-			return e.finishManagedCancelled(ctx, client, sessionID)
+			return e.finishManagedCancelled(ctx, client, sessionID, false)
 		}
-		commandErrs, err = e.submitManagedPrompt(ctx, client, cfg, sessionID, promptMessageID, files)
+		var submitted bool
+		commandErrs, submitted, err = e.submitManagedPrompt(ctx, client, cfg, sessionID, promptMessageID, files)
 		if err != nil {
-			return e.finishManagedRunError(ctx, client, sessionID, err)
+			if ctx.Err() != nil {
+				return e.finishManagedCancelled(ctx, client, sessionID, submitted)
+			}
+			return e.finishManagedError(err)
 		}
 		e.mu.Lock()
 		e.agentSession.PromptSent = true
@@ -165,7 +169,7 @@ func (e *harnessExecutor) runManagedOpenCode(
 	for {
 		select {
 		case <-ctx.Done():
-			return e.finishManagedCancelled(ctx, client, sessionID)
+			return e.finishManagedCancelled(ctx, client, sessionID, false)
 		case err, ok := <-eventErrs:
 			if !ok {
 				eventErrs = nil
@@ -201,7 +205,7 @@ func (e *harnessExecutor) runManagedOpenCode(
 			waiting, err := e.reconcileManagedSession(ctx, client, sessionID)
 			if err != nil {
 				if ctx.Err() != nil {
-					return e.finishManagedCancelled(ctx, client, sessionID)
+					return e.finishManagedCancelled(ctx, client, sessionID, false)
 				}
 				if errors.Is(err, errManagedSessionUnavailable) {
 					return e.finishManagedUnavailable("The OpenCode session is no longer available")
@@ -222,7 +226,7 @@ func (e *harnessExecutor) runManagedOpenCode(
 			status, err := client.sessionStatus(ctx, sessionID)
 			if err != nil {
 				if ctx.Err() != nil {
-					return e.finishManagedCancelled(ctx, client, sessionID)
+					return e.finishManagedCancelled(ctx, client, sessionID, false)
 				}
 				if errors.Is(err, errManagedSessionUnavailable) {
 					return e.finishManagedUnavailable("The OpenCode session is no longer available")
@@ -331,12 +335,12 @@ func (e *harnessExecutor) ensureManagedSession(ctx context.Context, client *open
 	return session.ID, nil
 }
 
-func (e *harnessExecutor) submitManagedPrompt(ctx context.Context, client *openCodeClient, cfg providerConfig, sessionID, messageID string, files []map[string]any) (<-chan error, error) {
-	// A started submission outlives cancellation, so the run learns whether
-	// the host took the prompt. The client timeout still bounds it.
-	submitCtx := context.WithoutCancel(ctx)
+// submitManagedPrompt reports whether the prompt submission began, so a
+// cancelled caller knows whether the host may have taken the prompt.
+func (e *harnessExecutor) submitManagedPrompt(ctx context.Context, client *openCodeClient, cfg providerConfig, sessionID, messageID string, files []map[string]any) (<-chan error, bool, error) {
 	if client.host.IsV2() {
-		return nil, e.submitManagedPromptV2(submitCtx, client, cfg, sessionID, messageID, files)
+		submitted, err := e.submitManagedPromptV2(ctx, client, cfg, sessionID, messageID, files)
+		return nil, submitted, err
 	}
 	parts := []map[string]any{{"type": "text", "text": e.effectivePrompt()}}
 	if strings.TrimSpace(e.script) != "" {
@@ -346,7 +350,7 @@ func (e *harnessExecutor) submitManagedPrompt(ctx context.Context, client *openC
 
 	if command := stringFlag(cfg.flags, "command"); command != "" {
 		// The command request lasts for its whole turn, so it stays cancellable.
-		return client.commandAsync(ctx, sessionID, messageID, command, e.effectivePrompt(), cfg, files), nil
+		return client.commandAsync(ctx, sessionID, messageID, command, e.effectivePrompt(), cfg, files), true, nil
 	}
 	body := map[string]any{"messageID": messageID, "parts": parts}
 	if agent := stringFlag(cfg.flags, "agent"); agent != "" {
@@ -355,14 +359,16 @@ func (e *harnessExecutor) submitManagedPrompt(ctx context.Context, client *openC
 	if model := stringFlag(cfg.flags, "model"); model != "" {
 		provider, modelID, ok := strings.Cut(model, "/")
 		if !ok || provider == "" || modelID == "" {
-			return nil, errors.New("managed OpenCode model must use provider/model format")
+			return nil, false, errors.New("managed OpenCode model must use provider/model format")
 		}
 		body["model"] = map[string]any{"providerID": provider, "modelID": modelID}
 	}
 	if variant := stringFlag(cfg.flags, "variant"); variant != "" {
 		body["variant"] = variant
 	}
-	return nil, client.postNoContent(submitCtx, "/session/"+url.PathEscape(sessionID)+"/prompt_async", body)
+	// A started submission outlives cancellation, so the run learns whether
+	// the host took the prompt. The client timeout still bounds it.
+	return nil, true, client.postNoContent(context.WithoutCancel(ctx), "/session/"+url.PathEscape(sessionID)+"/prompt_async", body)
 }
 
 func managedFileParts(workDir string, value any) ([]map[string]any, error) {
@@ -653,20 +659,24 @@ func (e *harnessExecutor) finishManagedError(err error) (*os.File, error) {
 // failure caused by cancellation interrupts the session instead.
 func (e *harnessExecutor) finishManagedRunError(ctx context.Context, client *openCodeClient, sessionID string, err error) (*os.File, error) {
 	if ctx.Err() != nil {
-		return e.finishManagedCancelled(ctx, client, sessionID)
+		return e.finishManagedCancelled(ctx, client, sessionID, false)
 	}
 	return e.finishManagedError(err)
 }
 
-// finishManagedCancelled interrupts the session of a cancelled run and records
-// whether the host confirmed that the session stopped.
-func (e *harnessExecutor) finishManagedCancelled(ctx context.Context, client *openCodeClient, sessionID string) (*os.File, error) {
+// finishManagedCancelled interrupts the turn of a cancelled run and records
+// whether the host confirmed that the session stopped. submitted reports a
+// prompt submission whose outcome the run did not learn.
+func (e *harnessExecutor) finishManagedCancelled(ctx context.Context, client *openCodeClient, sessionID string, submitted bool) (*os.File, error) {
 	e.mu.Lock()
-	promptID := ""
-	if e.agentSession.PromptSent {
-		promptID = e.agentSession.PromptMessageID
-	}
+	promptSent := e.agentSession.PromptSent
+	promptID := e.agentSession.PromptMessageID
 	e.mu.Unlock()
+	if !promptSent && !submitted {
+		// Dagu has no turn here; the session may run work that is not Dagu's.
+		e.setManagedState(ir.AgentSessionAborted, "aborted", "OpenCode session aborted")
+		return nil, ctx.Err()
+	}
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), managedCleanupTimeout)
 	defer cancel()
 	var err error

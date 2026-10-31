@@ -366,6 +366,34 @@ func TestV2InterruptAwaitsIdle(t *testing.T) {
 	require.Equal(t, int32(3), activePolls.Load())
 }
 
+// A stop during prompt setup keeps the prompt from being submitted.
+func TestV2SetupCancellation(t *testing.T) {
+	var prompted atomic.Bool
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/session/ses_test/agent":
+			cancel()
+			w.WriteHeader(http.StatusNoContent)
+		case "/api/session/ses_test/prompt":
+			prompted.Store(true)
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	c := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "2.1.4"}, http: server.Client()}
+	e := &harnessExecutor{}
+
+	_, submitted, err := e.submitManagedPrompt(ctx, c, providerConfig{flags: map[string]any{"agent": "build"}}, "ses_test", "msg_test", nil)
+
+	require.ErrorIs(t, err, context.Canceled)
+	require.False(t, submitted)
+	require.False(t, prompted.Load())
+}
+
 func TestV2CommandCancellation(t *testing.T) {
 	var submitted, interrupted atomic.Bool
 	ctx, cancel := context.WithCancel(t.Context())
@@ -388,8 +416,9 @@ func TestV2CommandCancellation(t *testing.T) {
 	defer server.Close()
 	c := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "2.1.4"}, http: server.Client()}
 	e := &harnessExecutor{}
-	err := e.submitManagedPromptV2(ctx, c, providerConfig{flags: map[string]any{"command": "slow"}}, "ses_test", "msg_test", nil)
+	began, err := e.submitManagedPromptV2(ctx, c, providerConfig{flags: map[string]any{"command": "slow"}}, "ses_test", "msg_test", nil)
 	require.Error(t, err)
+	require.True(t, began)
 	require.True(t, submitted.Load())
 	require.True(t, interrupted.Load(), "accepted command must be interrupted even after caller cancellation")
 }

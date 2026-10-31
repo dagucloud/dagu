@@ -639,6 +639,7 @@ func TestManagedOpenCodeCancelInterruptsSession(t *testing.T) {
 			if tc.cancelAt == "before submit" {
 				assert.False(t, session.PromptSent)
 				assert.NotContains(t, host.requestLog(), prompt, "a cancelled run submits no prompt")
+				assert.NotContains(t, host.requestLog(), "POST /session/session-1/abort", "no turn of Dagu's to interrupt")
 				return
 			}
 			// A submission completes despite cancellation, so the run knows the host took the prompt.
