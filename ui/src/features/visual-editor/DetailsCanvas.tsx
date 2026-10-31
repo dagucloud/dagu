@@ -36,6 +36,8 @@ export interface DetailsCanvasProps {
   selectedStepName?: string;
   /** Classes for the frame of the canvas. */
   className?: string;
+  /** Margin around the graph when it fits; the canvas default otherwise. */
+  fitPadding?: number;
 }
 
 function withOverlay(graph: CanvasGraph, overlay?: RunOverlay): CanvasGraph {
@@ -65,6 +67,7 @@ export function DetailsCanvas({
   overlay,
   selectedStepName,
   className,
+  fitPadding,
 }: DetailsCanvasProps): ReactElement {
   const { ts } = useI18n();
   const graph = useMemo(
@@ -137,6 +140,7 @@ export function DetailsCanvas({
           if (node) onOpenStep?.(node.label);
         }}
         onDirectionChange={setDirection}
+        fitPadding={fitPadding}
         toolbarEnd={end}
         exportName={dag.name}
       />

@@ -47,7 +47,10 @@ const DetailsCanvas = lazy(
 type DAGRunDetails = components['schemas']['DAGRunDetails'];
 type DAGFile = components['schemas']['DAGFile'];
 
-const GRAPH_CLASS = 'h-[60vh] min-h-[360px] flex-none';
+const GRAPH_CLASS = 'h-[50vh] min-h-[320px] flex-none';
+// A preview has no editing toolbar around the graph: a smaller margin lets a
+// wide graph fit at a readable zoom.
+const GRAPH_FIT_PADDING = 0.08;
 
 type Props = {
   target: PeekTarget;
@@ -127,51 +130,22 @@ export function WorkflowPeek({
     );
   } else {
     body = (
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
-        <div className="flex min-w-0 flex-col gap-4">
-          {shown ? (
-            <RunSummary
-              run={shown}
-              heading={ts(target.run ? 'Run' : 'Latest run')}
-            />
-          ) : (
-            <p className="text-sm text-muted-foreground">{ts('No runs yet')}</p>
-          )}
-          {dag ? (
-            <Suspense
-              fallback={
-                <div className={`${GRAPH_CLASS} rounded-md bg-muted/30`} />
-              }
-            >
-              <div
-                className="contents"
-                onPointerDownCapture={() => {
-                  pointerPick.current = true;
-                }}
-                onKeyDownCapture={() => {
-                  pointerPick.current = false;
-                }}
-              >
-                <DetailsCanvas
-                  dag={dag}
-                  overlay={overlay}
-                  className={GRAPH_CLASS}
-                  onSelectStep={(step) => {
-                    if (step && pointerPick.current) openStep(step);
-                  }}
-                  onOpenStep={openStep}
-                />
-              </div>
-            </Suspense>
-          ) : (
-            // The workflow of a run can load after the run.
-            !data &&
-            !workflow.error && (
-              <div className={`${GRAPH_CLASS} rounded-md bg-muted/30`} />
-            )
-          )}
-        </div>
-        <div className="flex min-w-0 flex-col gap-4">
+      // The graph takes the full width of the sheet: a wide graph fits at
+      // a readable zoom only there.
+      <div className="flex flex-col gap-4">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
+          <div className="min-w-0">
+            {shown ? (
+              <RunSummary
+                run={shown}
+                heading={ts(target.run ? 'Run' : 'Latest run')}
+              />
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                {ts('No runs yet')}
+              </p>
+            )}
+          </div>
           {data && dag && (
             <WorkflowFacts
               dagFile={{
@@ -186,14 +160,48 @@ export function WorkflowPeek({
               labels={withoutWorkspaceLabels(labels)}
             />
           )}
-          {recentRuns.length > 0 && (
-            <RecentRuns
-              runs={recentRuns}
-              currentId={shown?.dagRunId}
-              onSelect={onSelectRun}
-            />
-          )}
         </div>
+        {dag ? (
+          <Suspense
+            fallback={
+              <div className={`${GRAPH_CLASS} rounded-md bg-muted/30`} />
+            }
+          >
+            <div
+              className="contents"
+              onPointerDownCapture={() => {
+                pointerPick.current = true;
+              }}
+              onKeyDownCapture={() => {
+                pointerPick.current = false;
+              }}
+            >
+              <DetailsCanvas
+                dag={dag}
+                overlay={overlay}
+                className={GRAPH_CLASS}
+                fitPadding={GRAPH_FIT_PADDING}
+                onSelectStep={(step) => {
+                  if (step && pointerPick.current) openStep(step);
+                }}
+                onOpenStep={openStep}
+              />
+            </div>
+          </Suspense>
+        ) : (
+          // The workflow of a run can load after the run.
+          !data &&
+          !workflow.error && (
+            <div className={`${GRAPH_CLASS} rounded-md bg-muted/30`} />
+          )
+        )}
+        {recentRuns.length > 0 && (
+          <RecentRuns
+            runs={recentRuns}
+            currentId={shown?.dagRunId}
+            onSelect={onSelectRun}
+          />
+        )}
       </div>
     );
   }
