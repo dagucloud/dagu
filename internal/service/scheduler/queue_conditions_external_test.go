@@ -1445,6 +1445,10 @@ func (s *queueConditionDispatchTaskStore) ListExpiredHeld(context.Context, time.
 	return nil, nil
 }
 
+func (s *queueConditionDispatchTaskStore) ListStalePending(context.Context, time.Time) ([]*dispatch.DispatchTask, error) {
+	return nil, nil
+}
+
 func (s *queueConditionDispatchTaskStore) DeletePending(context.Context, string) error {
 	return nil
 }

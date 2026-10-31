@@ -226,9 +226,10 @@ func TestRunnerRunReportsUnmetRootPrecondition(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
-		status ir.DAGRunStatus
-		want   bool
+		name    string
+		status  ir.DAGRunStatus
+		want    bool
+		wantErr bool
 	}{
 		{
 			name: "aborted because precondition was not met",
@@ -257,6 +258,7 @@ func TestRunnerRunReportsUnmetRootPrecondition(t *testing.T) {
 					{Error: "failed to evaluate condition"},
 				},
 			},
+			wantErr: true,
 		},
 	}
 
@@ -277,9 +279,66 @@ func TestRunnerRunReportsUnmetRootPrecondition(t *testing.T) {
 				RootDAGRun: ir.NewDAGRunRef("parent", "root-1"),
 				RunID:      "child-1",
 			})
-			require.NoError(t, err)
+			assert.Equal(t, tt.wantErr, err != nil)
 			require.NotNil(t, result)
 			assert.Equal(t, tt.want, result.PreconditionNotMet)
+		})
+	}
+}
+
+// A failed child returns the error of the step that failed last, so the
+// parent step reads the same exit code as from a child run in its process.
+func TestRunnerRunReturnsFailedChildError(t *testing.T) {
+	t.Parallel()
+
+	failedNode := func(name, err, finishedAt string) *ir.Node {
+		return &ir.Node{Step: ir.Step{Name: name}, Status: ir.NodeFailed, Error: err, FinishedAt: finishedAt}
+	}
+	tests := []struct {
+		name    string
+		status  ir.DAGRunStatus
+		wantErr string
+	}{
+		{
+			name: "last failed step",
+			status: ir.DAGRunStatus{Status: ir.Failed, Nodes: []*ir.Node{
+				failedNode("late", "exit status 7", "2026-10-31T10:00:02.000Z"),
+				failedNode("early", "exit status 3", "2026-10-31T10:00:01.000Z"),
+				{Step: ir.Step{Name: "ok"}, Status: ir.NodeSucceeded},
+			}},
+			wantErr: "exit status 7",
+		},
+		{
+			name:    "no failed step",
+			status:  ir.DAGRunStatus{Status: ir.Failed},
+			wantErr: "sub DAG run child-1 failed with status: failed",
+		},
+		{
+			name:   "succeeded",
+			status: ir.DAGRunStatus{Status: ir.Succeeded},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dispatcher := &mockDispatcher{statuses: []*dispatch.DAGRunStatusResult{
+				{Found: false},
+				{Found: true, Status: &tt.status},
+			}}
+			result, err := newFastRunner(dispatcher).Run(context.Background(), runtimeexec.SubWorkflowRequest{
+				DAG:        &ir.DAG{Name: "child", YamlData: []byte("name: child")},
+				RootDAGRun: ir.NewDAGRunRef("parent", "root-1"),
+				RunID:      "child-1",
+			})
+			require.NotNil(t, result)
+			assert.Equal(t, tt.status.Status, result.Status)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.EqualError(t, err, tt.wantErr)
 		})
 	}
 }

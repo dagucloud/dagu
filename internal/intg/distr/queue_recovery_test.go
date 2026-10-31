@@ -4,6 +4,9 @@
 package distr_test
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"testing"
@@ -145,6 +148,59 @@ steps:
 	status := f.waitForStatus(ir.Succeeded, 20*time.Second)
 	require.Equal(t, "matching-worker", status.WorkerID)
 	requireQueueEventuallyEmpty(t, f)
+}
+
+// A queued run dispatched while its only worker is busy keeps waiting for that
+// worker past the dispatch reservation TTL. The scheduler has already dequeued
+// it, so dropping its pending task would leave it queued with nothing left to
+// run it.
+func TestExecution_QueuedDispatch_WaitsForBusyWorker(t *testing.T) {
+	const queueName = "busy-worker-q"
+	releaseFile := filepath.Join(t.TempDir(), "busy-worker.release")
+	t.Cleanup(func() {
+		_ = os.WriteFile(releaseFile, []byte("ok"), 0o600)
+	})
+
+	f := newTestFixture(t, fmt.Sprintf(`
+type: graph
+name: busy-worker-test
+queue: %s
+worker_selector:
+  test: "true"
+steps:
+  - name: wait
+    run: |
+%s
+`, queueName, indentYAMLBlock(waitForReleaseFileScript(releaseFile), 6)),
+		withWorkerMaxActiveRuns(1),
+		withStaleThresholds(testStaleHeartbeatThreshold, testStaleLeaseThreshold),
+		withZombieDetectionInterval(testZombieDetectorInterval),
+		withConfigMutator(func(c *config.Config) {
+			c.Queues.Config = []config.QueueConfig{{Name: queueName, MaxActiveRuns: 2}}
+		}),
+	)
+	defer f.cleanup()
+
+	require.NoError(t, f.enqueue())
+	require.NoError(t, f.enqueue())
+	requireQueuedItemCountEventually(t, f, 2, 5*time.Second)
+	f.startScheduler(30 * time.Second)
+
+	oneRunningOneQueued := func() bool {
+		counts, _, err := dagRunStatusCounts(f)
+		if err != nil {
+			return false
+		}
+		count, err := queuedItemCount(f)
+		return err == nil && count == 0 && counts[ir.Running] == 1 && counts[ir.Queued] == 1
+	}
+	require.Eventually(t, oneRunningOneQueued, distrTestTimeout(15*time.Second), 100*time.Millisecond,
+		"both runs should leave the queue, one running and one waiting for the worker")
+	require.Never(t, func() bool { return !oneRunningOneQueued() }, 3*testStaleLeaseThreshold, 200*time.Millisecond,
+		"the waiting run should stay queued past the reservation TTL")
+
+	require.NoError(t, os.WriteFile(releaseFile, []byte("ok"), 0o600))
+	requireAllQueuedRunsConsumed(t, f, 2, distrTestTimeout(30*time.Second))
 }
 
 func requireQueuedRunStillPending(t *testing.T, f *testFixture, duration time.Duration) {

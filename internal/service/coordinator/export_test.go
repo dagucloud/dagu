@@ -42,3 +42,9 @@ func NotifyDispatchAvailableForTest(h *Handler) {
 func ExpireHeldDispatchesForTest(h *Handler, now time.Time) {
 	h.expireHeldDispatches(context.Background(), now)
 }
+
+// DropOrphanedDispatchesForTest drops the pending dispatches, long pending at
+// now, whose runs no longer await them.
+func DropOrphanedDispatchesForTest(h *Handler, now time.Time) {
+	h.dropOrphanedDispatches(context.Background(), now)
+}

@@ -1384,6 +1384,54 @@ func (h *Handler) failHeldDispatch(ctx context.Context, task *dispatch.DispatchT
 	}
 }
 
+// dropOrphanedDispatches removes the pending tasks that have waited a lease
+// period for runs that no longer await them, such as a run dequeued before any
+// worker claimed it. A task whose run still waits keeps its place however long
+// the matching workers stay busy.
+func (h *Handler) dropOrphanedDispatches(ctx context.Context, now time.Time) {
+	if h.dispatchTaskStore == nil || h.dagRunRepository == nil {
+		return
+	}
+	tasks, err := h.dispatchTaskStore.ListStalePending(ctx, now.Add(-h.staleLeaseThreshold))
+	if err != nil {
+		logger.Warn(ctx, "Failed to list long-pending dispatches", tag.Error(err))
+		return
+	}
+	storeCtx := context.WithoutCancel(ctx)
+	for _, task := range tasks {
+		if !h.dispatchOrphaned(storeCtx, task) {
+			continue
+		}
+		if err := h.dispatchTaskStore.DeletePending(storeCtx, task.AttemptKey); err != nil {
+			logger.Warn(ctx, "Failed to drop a pending dispatch whose run moved on",
+				tag.RunID(task.DAGRunID), tag.AttemptKey(task.AttemptKey), tag.Error(err))
+			continue
+		}
+		logger.Info(ctx, "Dropped a pending dispatch whose run moved on",
+			tag.RunID(task.DAGRunID), tag.AttemptKey(task.AttemptKey))
+	}
+}
+
+// dispatchOrphaned reports whether the run of a pending task is gone or no
+// longer waits for the attempt the task starts. A run that cannot be read
+// keeps its task, so the next pass checks it again.
+func (h *Handler) dispatchOrphaned(ctx context.Context, task *dispatch.DispatchTask) bool {
+	rootRef := ir.DAGRunRef{Name: task.RootDAGRunName, ID: task.RootDAGRunID}
+	_, runStatus, err := h.resolveLatestAttempt(ctx, task.Target, task.DAGRunID, rootRef)
+	switch {
+	case errors.Is(err, dagrun.ErrDAGRunIDNotFound), errors.Is(err, dagrun.ErrNoStatusData):
+		return true
+	case err != nil:
+		logger.Warn(ctx, "Failed to read the run of a long-pending dispatch",
+			tag.RunID(task.DAGRunID), tag.Error(err))
+		return false
+	}
+	if task.AttemptID != "" && runStatus.AttemptID != task.AttemptID {
+		return true
+	}
+	return runStatus.Status != ir.Queued && runStatus.Status != ir.NotStarted
+}
+
 // writeHeldAttemptStatus writes through the attempt handle kept open since the
 // dispatch when there is one, so no two handles write the same run; otherwise
 // it opens the attempt for the one write.
@@ -2982,6 +3030,9 @@ func (h *Handler) detectAndCleanupZombies(ctx context.Context) {
 
 	// Pass 3: held dispatches whose wait for a matching worker has passed.
 	h.expireHeldDispatches(ctx, time.Now().UTC())
+
+	// Pass 4: pending dispatches left behind by runs that moved on.
+	h.dropOrphanedDispatches(ctx, time.Now().UTC())
 }
 
 func (h *Handler) cleanupWorkspaceBundles(ctx context.Context, now time.Time) {

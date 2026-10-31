@@ -1796,66 +1796,6 @@ func TestDispatchTaskStore_ClaimNextRefreshesStaleSelectorMismatch(t *testing.T)
 	assert.Equal(t, "run-selector-refresh", claimed.Task.DAGRunID)
 }
 
-func TestDispatchTaskStore_ClaimNextRemovesExternallyExpiredPendingPayload(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	col := testutil.NewMemoryBackend().Collection("dispatch_tasks")
-	s := store.NewDispatchTaskStore(col, store.WithDispatchReservationTTL(500*time.Millisecond))
-
-	require.NoError(t, s.Enqueue(ctx, &dispatch.DispatchTask{
-		DAGRunID:   "run-expired-pending-payload",
-		Target:     "dag-expired-pending-payload",
-		AttemptID:  "attempt-expired-pending-payload",
-		AttemptKey: "attempt-key-expired-pending-payload",
-	}))
-	rewritePendingDispatchRecords(t, col, func(payload *dispatchTaskRecord) {
-		payload.EnqueuedAt = time.Now().Add(-2 * time.Second).UTC().UnixMilli()
-	})
-
-	claimed, err := s.ClaimNext(ctx, dispatch.DispatchTaskClaim{
-		WorkerID: "worker-1",
-		Owner:    dispatch.CoordinatorEndpoint{ID: "coord-a"},
-	})
-	require.NoError(t, err)
-	assert.Nil(t, claimed)
-
-	pending, err := col.List(ctx, persis.ListQuery{Prefix: "pending/"})
-	require.NoError(t, err)
-	assert.Empty(t, pending.Records)
-}
-
-func TestDispatchTaskStore_ClaimNextRetriesWhenExpiredPendingDeleteConflicts(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	baseCol := testutil.NewMemoryBackend().Collection("dispatch_tasks")
-	col := &conflictingPendingDeleteCollection{Collection: baseCol}
-	s := store.NewDispatchTaskStore(col, store.WithDispatchReservationTTL(500*time.Millisecond))
-
-	require.NoError(t, s.Enqueue(ctx, &dispatch.DispatchTask{
-		DAGRunID:   "run-expired-pending-conflict",
-		Target:     "dag-expired-pending-conflict",
-		AttemptID:  "attempt-expired-pending-conflict",
-		AttemptKey: "attempt-key-expired-pending-conflict",
-	}))
-	rewritePendingDispatchRecords(t, baseCol, func(payload *dispatchTaskRecord) {
-		payload.EnqueuedAt = time.Now().Add(-2 * time.Second).UTC().UnixMilli()
-	})
-
-	claimed, err := s.ClaimNext(ctx, dispatch.DispatchTaskClaim{
-		WorkerID: "worker-1",
-		Owner:    dispatch.CoordinatorEndpoint{ID: "coord-a"},
-	})
-	require.NoError(t, err)
-	assert.Nil(t, claimed)
-	assert.True(t, col.conflicted.Load())
-
-	pending, err := baseCol.List(ctx, persis.ListQuery{Prefix: "pending/"})
-	require.NoError(t, err)
-	assert.Empty(t, pending.Records)
-}
-
 func TestDispatchTaskStore_CountOutstandingKeepsFreshenedClaimWhenIndexLooksExpired(t *testing.T) {
 	t.Parallel()
 
@@ -1885,80 +1825,6 @@ func TestDispatchTaskStore_CountOutstandingKeepsFreshenedClaimWhenIndexLooksExpi
 	count, err := s.CountOutstandingByQueue(ctx, "queue-a", time.Second)
 	require.NoError(t, err)
 	assert.Equal(t, 1, count)
-}
-
-func TestDispatchTaskStore_ClaimNextCleansIndexedExpiredPendingBeforeClaim(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	col := testutil.NewMemoryBackend().Collection("dispatch_tasks")
-	s := store.NewDispatchTaskStore(col, store.WithDispatchReservationTTL(100*time.Millisecond))
-
-	require.NoError(t, s.Enqueue(ctx, &dispatch.DispatchTask{
-		DAGRunID:   "run-index-expired-pending",
-		Target:     "dag-index-expired-pending",
-		AttemptID:  "attempt-index-expired-pending",
-		AttemptKey: "attempt-key-index-expired-pending",
-	}))
-	time.Sleep(150 * time.Millisecond)
-
-	claimed, err := s.ClaimNext(ctx, dispatch.DispatchTaskClaim{
-		WorkerID: "worker-1",
-		Owner:    dispatch.CoordinatorEndpoint{ID: "coord-a"},
-	})
-	require.NoError(t, err)
-	assert.Nil(t, claimed)
-
-	pending, err := col.List(ctx, persis.ListQuery{Prefix: "pending/"})
-	require.NoError(t, err)
-	assert.Empty(t, pending.Records)
-}
-
-func TestDispatchTaskStore_CountOutstandingKeepsFreshenedPendingWhenIndexLooksExpired(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	baseCol := testutil.NewMemoryBackend().Collection("dispatch_tasks")
-	s := store.NewDispatchTaskStore(&opaqueCollection{Collection: baseCol}, store.WithDispatchReservationTTL(100*time.Millisecond))
-
-	require.NoError(t, s.Enqueue(ctx, &dispatch.DispatchTask{
-		DAGRunID:   "run-freshened-pending",
-		Target:     "dag-freshened-pending",
-		QueueName:  "queue-a",
-		AttemptID:  "attempt-freshened-pending",
-		AttemptKey: "attempt-key-freshened-pending",
-	}))
-	time.Sleep(150 * time.Millisecond)
-	rewritePendingDispatchRecords(t, baseCol, func(payload *dispatchTaskRecord) {
-		payload.EnqueuedAt = time.Now().UTC().UnixMilli()
-	})
-
-	count, err := s.CountOutstandingByQueue(ctx, "queue-a", time.Second)
-	require.NoError(t, err)
-	assert.Equal(t, 1, count)
-}
-
-func TestDispatchTaskStore_CountOutstandingRemovesPendingMissingDuringCleanup(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	baseCol := testutil.NewMemoryBackend().Collection("dispatch_tasks")
-	col := &disappearingRecordGetCollection{Collection: baseCol, prefix: "pending/"}
-	s := store.NewDispatchTaskStore(col, store.WithDispatchReservationTTL(100*time.Millisecond))
-
-	require.NoError(t, s.Enqueue(ctx, &dispatch.DispatchTask{
-		DAGRunID:   "run-missing-pending-cleanup",
-		Target:     "dag-missing-pending-cleanup",
-		QueueName:  "queue-a",
-		AttemptID:  "attempt-missing-pending-cleanup",
-		AttemptKey: "attempt-key-missing-pending-cleanup",
-	}))
-	time.Sleep(150 * time.Millisecond)
-
-	count, err := s.CountOutstandingByQueue(ctx, "queue-a", time.Second)
-	require.NoError(t, err)
-	assert.Zero(t, count)
-	assert.True(t, col.removed.Load())
 }
 
 func TestDispatchTaskStore_CountOutstandingRemovesClaimMissingDuringCleanup(t *testing.T) {
@@ -2103,42 +1969,6 @@ func TestDispatchTaskStore_CountOutstandingByQueueAndAttempt(t *testing.T) {
 	hasOutstanding, err = s.HasOutstandingAttempt(ctx, "attempt-key-a", time.Second)
 	require.NoError(t, err)
 	assert.False(t, hasOutstanding)
-}
-
-func TestDispatchTaskStore_StalePendingReservationsExpire(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	col := testutil.NewMemoryBackend().Collection("dispatch_tasks")
-	s := store.NewDispatchTaskStore(col, store.WithDispatchReservationTTL(50*time.Millisecond))
-
-	require.NoError(t, s.Enqueue(ctx, &dispatch.DispatchTask{
-		DAGRunID:   "run-stale",
-		Target:     "dag-stale",
-		QueueName:  "queue-a",
-		AttemptID:  "attempt-stale",
-		AttemptKey: "attempt-key-stale",
-	}))
-	var count int
-	var countErr error
-	require.Eventually(t, func() bool {
-		count, countErr = s.CountOutstandingByQueue(ctx, "queue-a", time.Millisecond)
-		return countErr == nil && count == 0
-	}, 500*time.Millisecond, 10*time.Millisecond)
-	require.NoError(t, countErr)
-	assert.Zero(t, count)
-
-	hasOutstanding, err := s.HasOutstandingAttempt(ctx, "attempt-key-stale", time.Millisecond)
-	require.NoError(t, err)
-	assert.False(t, hasOutstanding)
-
-	claimed, err := s.ClaimNext(ctx, dispatch.DispatchTaskClaim{WorkerID: "worker-1"})
-	require.NoError(t, err)
-	assert.Nil(t, claimed)
-
-	page, err := col.List(ctx, persis.ListQuery{Prefix: "pending/"})
-	require.NoError(t, err)
-	assert.Empty(t, page.Records)
 }
 
 func TestDispatchTaskStore_UsesStoreReservationTTLForCleanup(t *testing.T) {
