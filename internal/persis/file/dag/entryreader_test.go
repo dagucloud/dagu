@@ -6,6 +6,7 @@ package dag
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"github.com/dagucloud/dagu/v2/internal/cmn/filenotify"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
@@ -18,6 +19,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1063,13 +1065,20 @@ func (w *silentWatcher) Remove(string) error           { return nil }
 func (w *silentWatcher) Close() error                  { return nil }
 
 // startSilentEntryReader starts a reader whose watcher never fires and returns
-// its event channel.
+// its event channel. DAG file symlinks may point outside dir.
 func startSilentEntryReader(t *testing.T, dir string, recursive bool, opts ...EntryReaderOption) (*entryReaderImpl, chan persis.DAGChangeEvent) {
 	t.Helper()
 
-	store := newRepository(dir, WithSkipExamples(true), WithRecursiveDiscovery(recursive))
+	repo := newRepository(dir, WithSkipExamples(true), WithRecursiveDiscovery(recursive), WithSymlinks(true))
+	return startSilentEntryReaderWith(t, dir, repo, recursive, opts...)
+}
+
+// startSilentEntryReaderWith is startSilentEntryReader loading through repo.
+func startSilentEntryReaderWith(t *testing.T, dir string, repo *persis.DAGRepository, recursive bool, opts ...EntryReaderOption) (*entryReaderImpl, chan persis.DAGChangeEvent) {
+	t.Helper()
+
 	opts = append([]EntryReaderOption{withWatcherFactory(newSilentWatcher)}, opts...)
-	er := NewFileEntryReader(dir, store, recursive, "", "", opts...)
+	er := NewFileEntryReader(dir, repo, recursive, "", "", opts...)
 	events := make(chan persis.DAGChangeEvent, 64)
 	er.events = events
 
@@ -1121,4 +1130,128 @@ func TestEntryReaderResyncDisabled(t *testing.T) {
 
 	writeDAGFile(t, dir, "remote.yaml", "remote")
 	expectNoEvent(t, events, 300*time.Millisecond)
+}
+
+// TestEntryReaderPollsSymlinkTargets covers DAG symlinks managed outside the
+// DAG directory, such as by nix home-manager. The watcher stays silent, as
+// kqueue does when a link is re-pointed under the same name and every watcher
+// does when a target outside the watched directories changes, and the resync
+// is off, so only the symlink poll can report the changes.
+func TestEntryReaderPollsSymlinkTargets(t *testing.T) {
+	for _, recursive := range []bool{false, true} {
+		name := "NonRecursive"
+		if recursive {
+			name = "Recursive"
+		}
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			targets := t.TempDir()
+			writeTarget := func(fileName, content string) string {
+				t.Helper()
+				path := filepath.Join(targets, fileName)
+				require.NoError(t, os.WriteFile(path, []byte(content), 0600))
+				return path
+			}
+			link := filepath.Join(dir, "a.yaml")
+			repoint := func(target string) { repointSymlink(t, link, target) }
+			if err := os.Symlink(writeTarget("v1.yaml", scheduledDAG("1 * * * *")), link); err != nil {
+				t.Skipf("symlink creation is unavailable: %v", err)
+			}
+			er, events := startSilentEntryReader(t, dir, recursive,
+				withResyncInterval(0), withSymlinkPollInterval(50*time.Millisecond))
+			expectSchedule := func(kind persis.DAGChangeType, schedule string) {
+				t.Helper()
+				event := nextEvent(t, events)
+				assert.Equal(t, kind, event.Type)
+				require.NotEmpty(t, event.DAG.Schedule)
+				assert.Equal(t, schedule, event.DAG.Schedule[0].Expression)
+				assert.Equal(t, schedule, entrySchedule(t, er, "a"))
+			}
+
+			v2 := writeTarget("v2.yaml", scheduledDAG("2 * * * *"))
+			repoint(v2)
+			expectSchedule(persis.DAGChangeUpdated, "2 * * * *")
+
+			writeTarget("v2.yaml", scheduledDAG("30 * * * *"))
+			expectSchedule(persis.DAGChangeUpdated, "30 * * * *")
+
+			// A target that fails to load must not stop the link being polled.
+			repoint(writeTarget("broken.yaml", "steps: [\n"))
+			expectEvent(t, events, persis.DAGChangeDeleted, "a")
+			repoint(v2)
+			expectSchedule(persis.DAGChangeAdded, "30 * * * *")
+
+			require.NoError(t, os.Remove(v2))
+			expectEvent(t, events, persis.DAGChangeDeleted, "a")
+		})
+	}
+}
+
+// TestEntryReaderRetriesFailedSymlinkRefresh keeps a re-pointed link pending
+// while the refresh it starts fails, so a later poll still reloads the DAG.
+func TestEntryReaderRetriesFailedSymlinkRefresh(t *testing.T) {
+	dir, targets := t.TempDir(), t.TempDir()
+	v1 := filepath.Join(targets, "v1.yaml")
+	v2 := filepath.Join(targets, "v2.yaml")
+	require.NoError(t, os.WriteFile(v1, []byte(scheduledDAG("1 * * * *")), 0600))
+	require.NoError(t, os.WriteFile(v2, []byte(scheduledDAG("2 * * * *")), 0600))
+	link := filepath.Join(dir, "a.yaml")
+	if err := os.Symlink(v1, link); err != nil {
+		t.Skipf("symlink creation is unavailable: %v", err)
+	}
+	store := &failingCatalogStore{
+		Store:  NewStore(dir, WithSkipExamples(true), WithSymlinks(true)),
+		failed: make(chan struct{}, 1),
+	}
+	repo := persis.NewDAGRepository(store, persis.DAGRepositoryOptions{})
+	er, events := startSilentEntryReaderWith(t, dir, repo, false,
+		withResyncInterval(0), withSymlinkPollInterval(50*time.Millisecond))
+
+	store.failing.Store(true)
+	repointSymlink(t, link, v2)
+	select {
+	case <-store.failed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the re-pointed link did not start a refresh")
+	}
+	store.failing.Store(false)
+
+	event := nextEvent(t, events)
+	assert.Equal(t, persis.DAGChangeUpdated, event.Type)
+	require.NotEmpty(t, event.DAG.Schedule)
+	assert.Equal(t, "2 * * * *", event.DAG.Schedule[0].Expression)
+	assert.Equal(t, "2 * * * *", entrySchedule(t, er, "a"))
+}
+
+// failingCatalogStore fails catalog reads while failing is set, as a store
+// does on a transient I/O error, and signals failed on each such read.
+type failingCatalogStore struct {
+	*Store
+	failing atomic.Bool
+	failed  chan struct{}
+}
+
+func (s *failingCatalogStore) Catalog(ctx context.Context) (persis.DAGCatalog, error) {
+	if s.failing.Load() {
+		select {
+		case s.failed <- struct{}{}:
+		default:
+		}
+		return persis.DAGCatalog{}, errors.New("catalog unavailable")
+	}
+	return s.Store.Catalog(ctx)
+}
+
+// scheduledDAG returns a DAG definition that runs on schedule.
+func scheduledDAG(schedule string) string {
+	return "schedule: \"" + schedule + "\"\nsteps:\n  - run: echo tick\n"
+}
+
+// repointSymlink replaces link with a symlink to target in a single rename,
+// as nix home-manager does on a switch.
+func repointSymlink(t *testing.T, link, target string) {
+	t.Helper()
+	staged := link + ".staged"
+	require.NoError(t, os.Symlink(target, staged))
+	require.NoError(t, os.Rename(staged, link))
 }
