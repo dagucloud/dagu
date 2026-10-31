@@ -14,8 +14,16 @@ export interface ContinuousTarget {
   step: string;
 }
 
-/** The polling period of a window that ends now, while the run is active. */
-export const POLL_MS = 10_000;
+/**
+ * The polling periods while the run is active. The server scans about a day
+ * of raw samples for the availability, so it polls the least often.
+ */
+export const AVAILABILITY_POLL_MS = 60_000;
+export const EVENTS_POLL_MS = 30_000;
+/** The samples of the 1h window, which 10 s moves visibly. */
+export const SHORT_WINDOW_POLL_MS = 10_000;
+/** The samples of a longer window, which barely moves in 10 s. */
+export const LONG_WINDOW_POLL_MS = 60_000;
 
 const iso = (ms: number) => new Date(ms).toISOString();
 
@@ -45,7 +53,7 @@ export function useStepAvailability(target: ContinuousTarget, poll: boolean) {
   return useQuery(
     '/dag-runs/{name}/{dagRunId}/steps/{stepName}/availability',
     { params: { path: pathOf(target), query: { remoteNode } } },
-    { refreshInterval: poll ? POLL_MS : 0 }
+    { refreshInterval: poll ? AVAILABILITY_POLL_MS : 0 }
   );
 }
 
@@ -54,12 +62,19 @@ export type SamplesWindow =
   | { from: number; to: number }
   | { preset: RangePresetId; startedAt?: number };
 
+function samplesPollMs(window: SamplesWindow): number {
+  return 'preset' in window && window.preset === '1h'
+    ? SHORT_WINDOW_POLL_MS
+    : LONG_WINDOW_POLL_MS;
+}
+
 /**
  * The buckets of a window. A preset has one key: each read asks for the
- * window that ends at the time of the read, so `poll` reads it again every
- * POLL_MS and the cache keeps one entry however long the page stays open. A
- * zoomed or panned window has its times in the key. The old buckets stay on
- * the screen until the new ones come.
+ * window that ends at the time of the read, so `poll` reads it again (each
+ * SHORT_WINDOW_POLL_MS for 1h, LONG_WINDOW_POLL_MS for a longer one) and the
+ * cache keeps one entry however long the page stays open. A zoomed or panned
+ * window has its times in the key. The old buckets stay on the screen until
+ * the new ones come.
  */
 export function useStepSamples(
   target: ContinuousTarget,
@@ -100,7 +115,10 @@ export function useStepSamples(
       if (error) throw error;
       return data;
     },
-    { keepPreviousData: true, refreshInterval: poll ? POLL_MS : 0 }
+    {
+      keepPreviousData: true,
+      refreshInterval: poll ? samplesPollMs(window) : 0,
+    }
   );
 }
 
@@ -136,7 +154,7 @@ export function useStepEventsPage(
     },
     {
       keepPreviousData: true,
-      refreshInterval: poll && !page.before ? POLL_MS : 0,
+      refreshInterval: poll && !page.before ? EVENTS_POLL_MS : 0,
     }
   );
 }
