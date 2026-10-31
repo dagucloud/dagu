@@ -27,6 +27,16 @@ describe('getBreadcrumbItems', () => {
     expect(last(items.map((item) => item.label))).toBe('History');
   });
 
+  // A calendar is named in schedules by its file name, so the crumb keeps
+  // it as written.
+  it('shows a calendar by its name', () => {
+    expect(getBreadcrumbItems('/calendars/jp-banking')).toEqual([
+      { label: 'Home', to: '/home' },
+      { label: 'Calendars', to: '/calendars' },
+      { label: 'jp-banking', to: '/calendars/jp-banking' },
+    ]);
+  });
+
   it('keeps an unknown segment as its path name', () => {
     const items = getBreadcrumbItems('/dags/etl/some-page');
     expect(last(items.map((item) => item.label))).toBe('Some Page');

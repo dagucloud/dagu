@@ -36,6 +36,7 @@ const STATIC_ROUTE_LABELS: Record<string, TranslationKey> = {
   '/dags': 'navigation.workflows',
   '/search': 'navigation.search',
   '/base-config': 'navigation.baseConfig',
+  '/calendars': 'navigation.calendars',
   '/wiki': 'navigation.wiki',
   '/queues': 'navigation.queues',
   '/dag-runs': 'navigation.executions',
@@ -125,6 +126,17 @@ export function getBreadcrumbItems(
       items.push({
         label: sectionKey ? t(sectionKey) : humanizePathSegment(segments[2]),
         to: `/dags/${segments[1]}/${segments[2]}`,
+      });
+    }
+    return items;
+  }
+
+  if (segments[0] === 'calendars') {
+    items.push({ label: t('navigation.calendars'), to: '/calendars' });
+    if (segments[1]) {
+      items.push({
+        label: decodePathSegment(segments[1]),
+        to: `/calendars/${segments[1]}`,
       });
     }
     return items;
