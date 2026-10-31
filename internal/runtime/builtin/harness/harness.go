@@ -69,6 +69,7 @@ type harnessExecutor struct {
 	acpCancel              context.CancelFunc
 	acpClient              *acpHarnessClient
 	acpStopCode            int
+	managedCancel          context.CancelFunc
 	stopRequested          bool
 	stdout                 io.Writer
 	stderr                 io.Writer
@@ -87,6 +88,7 @@ type harnessExecutor struct {
 	agentSession           *ir.AgentSession
 	progressCallback       func()
 	managedHost            opencodehost.Config
+	promptSubmitted        bool
 	determinedStatus       ir.NodeStatus
 	hasDeterminedStatus    bool
 
@@ -180,6 +182,7 @@ func (e *harnessExecutor) stop(req cmdutil.StopRequest) error {
 		}
 	}
 	acpCancel, acpClient := e.acpCancel, e.acpClient
+	managedCancel := e.managedCancel
 	process := e.process
 	cli := e.containerClient
 	containerCancel := e.containerCancel
@@ -194,6 +197,11 @@ func (e *harnessExecutor) stop(req cmdutil.StopRequest) error {
 		if req.Intent.IsForce() || !acpClient.cancelTurn() {
 			acpCancel()
 		}
+		return nil
+	}
+	if managedCancel != nil && req.Intent.IsTermination() {
+		// The managed run interrupts its session and confirms that it stopped.
+		managedCancel()
 		return nil
 	}
 	var stopErr error
@@ -292,6 +300,10 @@ func (e *harnessExecutor) Run(ctx context.Context) error {
 			// Cancellation can race a real failure, such as a missing binary.
 			return errors.Join(ctx.Err(), err)
 		}
+		if e.isStopRequested() {
+			// A graceful stop leaves ctx intact; a stopped step starts no fallback.
+			return err
+		}
 		if i+1 < len(e.configs) {
 			next := e.configs[i+1]
 			_, _ = fmt.Fprintf(
@@ -313,6 +325,12 @@ func (e *harnessExecutor) Run(ctx context.Context) error {
 	return nil
 }
 
+func (e *harnessExecutor) isStopRequested() bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.stopRequested
+}
+
 // runOnce dispatches one provider attempt to its protocol and execution backend.
 func (e *harnessExecutor) runOnce(ctx context.Context, cfg providerConfig) (*os.File, error) {
 	if cfg.definition != nil && cfg.definition.Protocol == ir.HarnessProtocolACP {
@@ -329,7 +347,7 @@ func (e *harnessExecutor) runOnce(ctx context.Context, cfg providerConfig) (*os.
 		fallbackReported := false
 		if err == nil && available {
 			stdout, managedErr := e.runManagedOpenCode(ctx, cfg, host)
-			if managedErr == nil || cfg.required {
+			if managedErr == nil || cfg.required || ctx.Err() != nil || e.isStopRequested() {
 				return stdout, managedErr
 			}
 			e.mu.Lock()
@@ -386,6 +404,12 @@ func rootContainerConfigured(ctx context.Context) bool {
 // non-container path). Unchanged from the original runOnce behavior.
 func (e *harnessExecutor) runHostSubprocessOnce(ctx context.Context, cfg providerConfig) (*os.File, error) {
 	e.mu.Lock()
+	// Checked under the lock that registers the backend, so a stop either
+	// keeps it from starting or finds it to stop.
+	if e.stopRequested {
+		e.mu.Unlock()
+		return nil, context.Canceled
+	}
 
 	env := runtime.GetEnv(ctx)
 	tw := executor.NewTailWriterWithEncoding(e.stderrWriter(), 0, env.LogEncodingCharset)
@@ -555,6 +579,12 @@ func buildHarnessContainerRunConfig(
 // chosen by the DAGU_CONTAINER_RUNTIME service setting. No docker/podman CLI subprocess is used.
 func (e *harnessExecutor) runContainerOnce(ctx context.Context, cfg providerConfig) (*os.File, error) {
 	e.mu.Lock()
+	// Checked under the lock that registers the backend, so a stop either
+	// keeps it from starting or finds it to stop.
+	if e.stopRequested {
+		e.mu.Unlock()
+		return nil, context.Canceled
+	}
 
 	env := runtime.GetEnv(ctx)
 	tw := executor.NewTailWriterWithEncoding(e.stderrWriter(), 0, env.LogEncodingCharset)
@@ -729,6 +759,12 @@ func waitForCanceledContainerRun(ctx context.Context, runDone <-chan containerRu
 
 func (e *harnessExecutor) runSharedContainerOnce(ctx context.Context, cfg providerConfig) (*os.File, error) {
 	e.mu.Lock()
+	// Checked under the lock that registers the backend, so a stop either
+	// keeps it from starting or finds it to stop.
+	if e.stopRequested {
+		e.mu.Unlock()
+		return nil, context.Canceled
+	}
 
 	env := runtime.GetEnv(ctx)
 	tw := executor.NewTailWriterWithEncoding(e.stderrWriter(), 0, env.LogEncodingCharset)
