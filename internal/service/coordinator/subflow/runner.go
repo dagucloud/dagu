@@ -18,6 +18,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -460,7 +461,7 @@ func (r *Runner) waitCompletion(ctx context.Context, req executor.SubWorkflowReq
 			return r.waitForCancellation(cancelCtx, req, start)
 
 		case <-ticker.C:
-			result, err := r.getStatus(ctx, req)
+			status, err := r.getFullStatus(ctx, req)
 			if err != nil {
 				consecutiveErrors++
 				logger.Warn(waitCtx, "Failed to get child workflow status",
@@ -473,6 +474,7 @@ func (r *Runner) waitCompletion(ctx context.Context, req executor.SubWorkflowReq
 				continue
 			}
 			consecutiveErrors = 0
+			result := statusToRunStatus(status, req.RunID)
 			// The parent step shows what the child has used so far.
 			modelusage.FromContext(ctx).SetReported(modelusage.SubRunSource(req.RunID), result.ModelUsage)
 
@@ -487,7 +489,7 @@ func (r *Runner) waitCompletion(ctx context.Context, req executor.SubWorkflowReq
 			}
 
 			logger.Info(waitCtx, "Distributed child workflow completed", tag.SubDAG(result.Name))
-			return result, nil
+			return result, childFailure(status, req.RunID)
 
 		case <-logTicker.C:
 			logger.Info(waitCtx, "Waiting for distributed child workflow run to complete",
@@ -594,6 +596,31 @@ func statusToRunStatus(status *ir.DAGRunStatus, runID string) *ir.RunStatus {
 		PendingStepRetries: ir.PendingStepRetriesFromStatus(status),
 		ModelUsage:         status.ModelUsageTotal(),
 	}
+}
+
+// childFailure returns the error of a failed child run: the error of the step
+// that failed last, which is what a child run in the parent's process returns,
+// so the parent step gets the same exit code either way.
+func childFailure(status *ir.DAGRunStatus, runID string) error {
+	if status.Status != ir.Failed {
+		return nil
+	}
+	var lastFailed *ir.Node
+	var lastFinishedAt time.Time
+	for _, node := range status.NodesInRunOrder() {
+		if node == nil || node.Status != ir.NodeFailed || node.Error == "" {
+			continue
+		}
+		// An unreadable time is zero, so that node only wins a tie.
+		finishedAt, _ := stringutil.ParseTime(node.FinishedAt)
+		if lastFailed == nil || !finishedAt.Before(lastFinishedAt) {
+			lastFailed, lastFinishedAt = node, finishedAt
+		}
+	}
+	if lastFailed == nil {
+		return fmt.Errorf("sub DAG run %s failed with status: %s", runID, status.Status)
+	}
+	return errors.New(lastFailed.Error)
 }
 
 func preconditionNotMet(status *ir.DAGRunStatus) bool {

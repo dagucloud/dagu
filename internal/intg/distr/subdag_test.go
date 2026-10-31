@@ -243,6 +243,43 @@ steps:
 	})
 }
 
+// A child that fails on a worker gives the parent step the exit code of its
+// failing step, as a child run in the parent's process does.
+func TestSubDAG_FailureExitCode(t *testing.T) {
+	f := newTestFixture(t, `
+steps:
+  - id: call_child
+    action: dag.run
+    with:
+      dag: failing-child
+    continue_on: failed
+  - id: report
+    depends: [call_child]
+    run: echo "${call_child.exit_code}"
+    output: CHILD_EXIT_CODE
+
+---
+name: failing-child
+worker_selector:
+  type: test-worker
+steps:
+  - run: exit 7
+`, withLabels(map[string]string{"type": "test-worker"}))
+
+	agent := f.dagWrapper.Agent()
+	_ = agent.Run(agent.Context)
+
+	st, err := f.latestStatus()
+	require.NoError(t, err)
+	require.Equal(t, ir.NodeFailed, requireNodeByID(t, st, "call_child").Status)
+
+	report := requireNodeByID(t, st, "report")
+	require.NotNil(t, report.OutputVariables)
+	value, ok := report.OutputVariables.Load("CHILD_EXIT_CODE")
+	require.True(t, ok)
+	require.Equal(t, "CHILD_EXIT_CODE=7", value)
+}
+
 func TestSubDAG_UnmetChildPreconditionContinuesOnSkipped(t *testing.T) {
 	f := newTestFixture(t, `
 steps:
