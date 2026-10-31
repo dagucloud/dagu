@@ -277,5 +277,8 @@ func decodeConfig(dat map[string]any, cfg any) error {
 }
 
 func init() {
-	executor.RegisterExecutor("mail", newMail, validateStep, registry.ExecutorCapabilities{Command: true})
+	executor.RegisterExecutor("mail", newMail, validateStep, registry.ExecutorCapabilities{
+		Command:    true,
+		PathInputs: []string{"attachments"},
+	})
 }

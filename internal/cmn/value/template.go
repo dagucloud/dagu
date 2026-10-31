@@ -100,7 +100,7 @@ func resolveBindings(
 	ctx context.Context,
 	input string,
 	scope RuntimeScope,
-	field string,
+	field Field,
 	notices ValueReferenceNoticeSink,
 ) (string, protectedReferences, error) {
 	var all, toCommand, fromCommand []string
@@ -128,7 +128,7 @@ func resolveBindings(
 		return itemPath(path) || supportedStrictBinding(segments) || reservedBuiltinContextReference(segments)
 	}
 	// A leading non-identifier rune keeps an adjacent $NAME from absorbing a placeholder.
-	resolved, err := walkBindings(input, owned, func(token string, path string, escaped bool) (string, error) {
+	resolved, err := walkBindings(input, field.escapesDollar(), owned, func(token string, path string, escaped bool) (string, error) {
 		item := itemPath(path)
 		switch {
 		case escaped && item:
@@ -151,7 +151,7 @@ func resolveBindings(
 			value, err = bindingValue(ctx, path, scope, true)
 		}
 		if err != nil {
-			addUnresolvedReferenceNotice(notices, field, token, err)
+			addUnresolvedReferenceNotice(notices, field.path, token, err)
 			return protectOriginal(token), nil
 		}
 		placeholder := uniqueToken(taken, "\uE000DAGU_RESOLVED_REF_")
@@ -387,9 +387,10 @@ func isEscapedSingleQuote(input string, idx int) bool {
 	return backslashes%2 == 1
 }
 
-// walkBindings replaces each owned reference with the result of visit. An
-// escaped owned reference loses its escape marker.
-func walkBindings(input string, owned func(path string) bool, visit func(token, path string, escaped bool) (string, error)) (string, error) {
+// walkBindings replaces each owned reference with the result of visit. When
+// escapes is set, an escaped owned reference loses its escape marker;
+// otherwise a backslash before it is ordinary text.
+func walkBindings(input string, escapes bool, owned func(path string) bool, visit func(token, path string, escaped bool) (string, error)) (string, error) {
 	var b strings.Builder
 	last := 0
 	for _, loc := range bindingRefPattern.FindAllStringSubmatchIndex(input, -1) {
@@ -398,7 +399,7 @@ func walkBindings(input string, owned func(path string) bool, visit func(token, 
 			continue
 		}
 		start := loc[0]
-		escaped := isEscapedDollar(input, start)
+		escaped := escapes && isEscapedDollar(input, start)
 		if escaped {
 			start--
 		}

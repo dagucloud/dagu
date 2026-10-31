@@ -190,6 +190,7 @@ func buildFuncMap() template.FuncMap {
 
 func init() {
 	executor.RegisterExecutor("template", newTemplate, validateTemplate, registry.ExecutorCapabilities{
-		Script: true,
+		Script:     true,
+		PathInputs: []string{"output"},
 	})
 }

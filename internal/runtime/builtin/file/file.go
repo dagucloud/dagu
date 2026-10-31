@@ -95,7 +95,11 @@ type opResult struct {
 }
 
 func init() {
-	executor.RegisterExecutor(executorType, newExecutor, validateStep, registry.ExecutorCapabilities{Command: true, DryRunCheck: dryRunCheck})
+	executor.RegisterExecutor(executorType, newExecutor, validateStep, registry.ExecutorCapabilities{
+		Command:     true,
+		DryRunCheck: dryRunCheck,
+		PathInputs:  []string{"path", "source", "destination"},
+	})
 }
 
 func newExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {

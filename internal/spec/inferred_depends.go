@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strings"
 
-	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -45,7 +44,7 @@ func inferStepOutputDependencies(dag *ir.DAG, errs *ir.ErrorList) {
 			continue
 		}
 		owner := &dag.Steps[field.topLevelStepIndex]
-		for _, ref := range cmnvalue.StepOutputReferences(field.Value) {
+		for _, ref := range field.Field.StepOutputReferences(field.Value) {
 			producerIndex, ok := idToIndex[ref.StepName]
 			if !ok || producerIndex == field.topLevelStepIndex {
 				continue

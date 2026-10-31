@@ -40,22 +40,23 @@ type StepOutputReference struct {
 	Path       []string
 }
 
-// scanReferences classifies strict references and eval refs.
-func scanReferences(raw string) []reference {
+// scanReferences classifies strict references and eval refs. When escapes is
+// set, a reference whose dollar carries a backslash escape is skipped.
+func scanReferences(raw string, escapes bool) []reference {
 	if raw == "" {
 		return nil
 	}
 
 	refs := make([]reference, 0)
 	for _, loc := range bindingRefPattern.FindAllStringSubmatchIndex(raw, -1) {
-		if isEscapedDollar(raw, loc[0]) {
+		if escapes && isEscapedDollar(raw, loc[0]) {
 			continue
 		}
 		expr := strings.TrimSpace(raw[loc[2]:loc[3]])
 		refs = append(refs, classifyBracedReference(raw[loc[0]:loc[1]], expr, loc[0], loc[1]))
 	}
 	for _, loc := range referencePattern.FindAllStringSubmatchIndex(raw, -1) {
-		if isEscapedDollar(raw, loc[0]) {
+		if escapes && isEscapedDollar(raw, loc[0]) {
 			continue
 		}
 		if loc[0]+1 < len(raw) && raw[loc[0]+1] == '{' {
@@ -84,7 +85,13 @@ func scanReferences(raw string) []reference {
 
 // HasValueReference reports whether raw contains a supported value-reference form.
 func HasValueReference(raw string) bool {
-	for _, ref := range scanReferences(raw) {
+	return Field{}.HasValueReference(raw)
+}
+
+// HasValueReference reports whether raw, read as a value of the field,
+// contains a supported value-reference form.
+func (f Field) HasValueReference(raw string) bool {
+	for _, ref := range scanReferences(raw, f.escapesDollar()) {
 		if ref.Kind == referenceStrict || ref.Kind == referenceEval {
 			return true
 		}
@@ -105,7 +112,7 @@ func HasAnyReference(raw string) bool {
 
 // HasReferenceToNamespace reports whether raw references one of the named scopes.
 func HasReferenceToNamespace(raw string, namespaces ...string) bool {
-	for _, ref := range scanReferences(raw) {
+	for _, ref := range scanReferences(raw, true) {
 		if ref.Kind != referenceStrict && ref.Kind != referenceEval {
 			continue
 		}
@@ -146,7 +153,7 @@ func IsExactRef(token string) bool {
 }
 
 func parseExactRef(token string) (reference, bool) {
-	refs := scanReferences(token)
+	refs := scanReferences(token, true)
 	if len(refs) != 1 {
 		return reference{}, false
 	}
@@ -225,7 +232,13 @@ func IsStepOutputReferenceToken(token string) bool {
 
 // HasStepRuntimeOutputReference reports whether raw reads an attempt result from stepID.
 func HasStepRuntimeOutputReference(raw, stepID string) bool {
-	for _, ref := range scanReferences(raw) {
+	return Field{}.HasStepRuntimeOutputReference(raw, stepID)
+}
+
+// HasStepRuntimeOutputReference reports whether raw, read as a value of the
+// field, reads an attempt result from stepID.
+func (f Field) HasStepRuntimeOutputReference(raw, stepID string) bool {
+	for _, ref := range scanReferences(raw, f.escapesDollar()) {
 		if ref.Kind != referenceEval {
 			continue
 		}
@@ -241,9 +254,9 @@ func HasStepRuntimeOutputReference(raw, stepID string) bool {
 // unqualifiedItemFieldReferences returns each unescaped ${alias.field} token in
 // raw: a foreach item field written without the foreach namespace. Only fields
 // that ${foreach.alias.field} accepts unquoted are reported.
-func unqualifiedItemFieldReferences(raw, alias string) []string {
+func unqualifiedItemFieldReferences(raw, alias string, escapes bool) []string {
 	var tokens []string
-	for _, ref := range scanReferences(raw) {
+	for _, ref := range scanReferences(raw, escapes) {
 		if ref.Kind != referenceEval || !ref.Braced || ref.Raw != "${"+ref.Expr+"}" {
 			continue
 		}

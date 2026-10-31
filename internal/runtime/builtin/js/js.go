@@ -26,10 +26,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dop251/goja"
 	"github.com/dop251/goja_nodejs/url"
@@ -126,7 +124,7 @@ func newJS(ctx context.Context, step ir.Step) (executor.Executor, error) {
 		return nil, err
 	}
 
-	input, err := loadInput(ctx, cfg, hasInput, format)
+	input, err := loadInput(cfg, hasInput, format)
 	if err != nil {
 		return nil, err
 	}
@@ -205,7 +203,7 @@ func validateStep(step ir.Step) error {
 	return nil
 }
 
-func loadInput(ctx context.Context, cfg jsConfig, hasInput bool, format string) (scriptInput, error) {
+func loadInput(cfg jsConfig, hasInput bool, format string) (scriptInput, error) {
 	switch {
 	case hasInput:
 		if text, ok := cfg.Input.(string); ok {
@@ -220,10 +218,7 @@ func loadInput(ctx context.Context, cfg jsConfig, hasInput bool, format string) 
 		}
 		return scriptInput{json: encoded}, nil
 	case cfg.InputFile != "":
-		path, err := runtime.ResolveString(ctx, cfg.InputFile, cmnvalue.WorkflowField("js.input_file"))
-		if err != nil {
-			return scriptInput{}, fmt.Errorf("js: failed to evaluate input_file: %w", err)
-		}
+		path := cfg.InputFile
 		data, err := fileutil.ReadFile(path)
 		if err != nil {
 			return scriptInput{}, fmt.Errorf("js: reading input_file %q: %w", path, err)
@@ -506,5 +501,8 @@ func installURL(vm *goja.Runtime) {
 }
 
 func init() {
-	executor.RegisterExecutor("js", newJS, validateStep, registry.ExecutorCapabilities{Script: true})
+	executor.RegisterExecutor("js", newJS, validateStep, registry.ExecutorCapabilities{
+		Script:     true,
+		PathInputs: []string{"input_file"},
+	})
 }

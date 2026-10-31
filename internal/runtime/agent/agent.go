@@ -2179,7 +2179,7 @@ func (a *Agent) buildEnvScopeForSecrets() *cmnvalue.EnvScope {
 
 // buildSecretBaseDirs returns base directories for file-based secret resolution.
 func (a *Agent) buildSecretBaseDirs(envScope *cmnvalue.EnvScope) []string {
-	baseDirs := []string{envScope.Expand(a.dag.WorkingDir)}
+	baseDirs := []string{envScope.ExpandPath(a.dag.WorkingDir)}
 	if a.dag.Location != "" {
 		baseDirs = append(baseDirs, filepath.Dir(a.dag.Location))
 	}
@@ -2309,7 +2309,7 @@ func (a *Agent) evaluateWorkingDir(ctx context.Context) error {
 	// Use runtime context's EnvScope for consistent variable expansion
 	rCtx := runtime.GetDAGContext(ctx)
 	if rCtx.EnvScope != nil {
-		a.evaluatedWorkingDir = rCtx.EnvScope.Expand(a.dag.WorkingDir)
+		a.evaluatedWorkingDir = rCtx.EnvScope.ExpandPath(a.dag.WorkingDir)
 	} else {
 		// Fallback to OS expansion if no scope available
 		a.evaluatedWorkingDir = os.ExpandEnv(a.dag.WorkingDir)

@@ -105,6 +105,14 @@ func (r Resolver) Int(ctx context.Context, raw string, field Field) (int, error)
 
 // Object resolves every string leaf in obj according to field.
 func (r Resolver) Object(ctx context.Context, obj any, field Field) (any, error) {
+	if len(field.pathKeys) > 0 {
+		switch entries := obj.(type) {
+		case map[string]any:
+			return resolveEntries(ctx, r, entries, field)
+		case map[string]string:
+			return resolveEntries(ctx, r, entries, field)
+		}
+	}
 	policy := policyForField(field)
 	ctx = r.withRuntimeEnv(ctx)
 	v := reflect.ValueOf(obj)
@@ -123,6 +131,28 @@ func (r Resolver) Object(ctx context.Context, obj any, field Field) (any, error)
 	return result.Interface(), nil
 }
 
+// resolveEntries resolves each entry of obj with the field for its key and
+// keeps the map's type.
+func resolveEntries[V any](ctx context.Context, r Resolver, obj map[string]V, field Field) (any, error) {
+	result := make(map[string]V, len(obj))
+	for key, entry := range obj {
+		if any(entry) == nil {
+			result[key] = entry
+			continue
+		}
+		resolved, err := r.Object(ctx, entry, field.Key(key))
+		if err != nil {
+			return obj, err
+		}
+		value, ok := resolved.(V)
+		if !ok {
+			return obj, fmt.Errorf("type assertion failed: expected %T, got %T", entry, resolved)
+		}
+		result[key] = value
+	}
+	return result, nil
+}
+
 func (r Resolver) resolveString(ctx context.Context, raw string, field Field) (string, error) {
 	if raw == "" {
 		return "", nil
@@ -130,7 +160,7 @@ func (r Resolver) resolveString(ctx context.Context, raw string, field Field) (s
 	policy := policyForField(field)
 	ctx = r.withRuntimeEnv(ctx)
 	if policy.strict && r.rejectUnqualifiedItemFields {
-		if err := r.unqualifiedItemFieldError(ctx, raw, policy); err != nil {
+		if err := r.unqualifiedItemFieldError(ctx, raw, field, policy); err != nil {
 			return "", fieldError(field, err)
 		}
 	}
@@ -138,7 +168,7 @@ func (r Resolver) resolveString(ctx context.Context, raw string, field Field) (s
 	var protected protectedReferences
 	if policy.strict {
 		var err error
-		resolved, protected, err = resolveBindings(ctx, raw, r.bindingScope(), field.path, r.notices)
+		resolved, protected, err = resolveBindings(ctx, raw, r.bindingScope(), field, r.notices)
 		if err != nil {
 			if field.path != "" {
 				return "", fmt.Errorf("%s: %w", field.path, err)
@@ -158,12 +188,12 @@ func (r Resolver) resolveString(ctx context.Context, raw string, field Field) (s
 
 // unqualifiedItemFieldError reports the first ${<as>.<field>} in raw that no
 // ${name.path} source resolves, where <as> is the current foreach item alias.
-func (r Resolver) unqualifiedItemFieldError(ctx context.Context, raw string, policy resolverPolicy) error {
+func (r Resolver) unqualifiedItemFieldError(ctx context.Context, raw string, field Field, policy resolverPolicy) error {
 	alias, ok := foreachItemAlias(r.runtime.Foreach)
 	if !ok {
 		return nil
 	}
-	tokens := unqualifiedItemFieldReferences(raw, alias)
+	tokens := unqualifiedItemFieldReferences(raw, alias, field.escapesDollar())
 	if len(tokens) == 0 {
 		return nil
 	}
@@ -255,6 +285,14 @@ type resolverPolicy struct {
 }
 
 func policyForField(field Field) resolverPolicy {
+	policy := policyForKind(field)
+	if field.isPath {
+		policy.options = append(policy.options, withoutDollarEscape(), withoutEscapedDollarRecognition())
+	}
+	return policy
+}
+
+func policyForKind(field Field) resolverPolicy {
 	switch field.kind {
 	case fieldWorkflow,
 		fieldStepDir,
@@ -265,7 +303,8 @@ func policyForField(field Field) resolverPolicy {
 		fieldSubDAGParams,
 		fieldParallelItem,
 		fieldParallelItemParam,
-		fieldParallelSubDAG:
+		fieldParallelSubDAG,
+		fieldStepArtifactOutput:
 		return workflowValuePolicy()
 	case fieldConstLoad:
 		return resolverPolicy{strict: true, options: []option{withoutSubstitute()}}
@@ -297,15 +336,6 @@ func policyForField(field Field) resolverPolicy {
 		return resolverPolicy{options: []option{withOSExpansion(), withoutSubstitute()}}
 	case fieldStructuredOutputPath, fieldStructuredOutputLiteral:
 		return resolverPolicy{strict: true, options: []option{withoutExpandShell(), withoutSubstitute()}}
-	case fieldStepArtifactOutput:
-		return resolverPolicy{
-			strict: true,
-			options: []option{
-				withoutSubstitute(),
-				withoutDollarEscape(),
-				withoutEscapedDollarRecognition(),
-			},
-		}
 	case fieldRetryInteger, fieldRepeatInteger:
 		return resolverPolicy{strict: true, options: []option{withOSExpansion(), withoutSubstitute()}}
 	case fieldDAGShell, fieldStepShell:
@@ -407,7 +437,13 @@ func localCommandPolicyOptions(command CommandContext) []option {
 
 // StepOutputReferences returns braced step output references found in raw.
 func StepOutputReferences(raw string) []StepOutputReference {
-	refs := scanReferences(raw)
+	return Field{}.StepOutputReferences(raw)
+}
+
+// StepOutputReferences returns the braced step output references the field
+// resolves in raw.
+func (f Field) StepOutputReferences(raw string) []StepOutputReference {
+	refs := scanReferences(raw, f.escapesDollar())
 	out := make([]StepOutputReference, 0, len(refs))
 	for _, ref := range refs {
 		if ref.StepOutput == nil {

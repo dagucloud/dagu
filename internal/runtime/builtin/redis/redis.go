@@ -280,6 +280,10 @@ func init() {
 		"redis",
 		newRedisExecutor,
 		nil,
-		registry.ExecutorCapabilities{Command: true, Script: true},
+		registry.ExecutorCapabilities{
+			Command:    true,
+			Script:     true,
+			PathInputs: []string{"script_file", "tls_cert", "tls_key", "tls_ca"},
+		},
 	)
 }

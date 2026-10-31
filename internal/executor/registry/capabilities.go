@@ -52,6 +52,9 @@ type ExecutorCapabilities struct {
 	// DAG shows each message as a warning. It also receives steps that fail
 	// validation and need not report what validation already does.
 	ConfigWarnings func(step ir.Step) []string
+	// PathInputs lists the with keys whose values name filesystem paths. A
+	// backslash in those values is path text, never a Dagu escape marker.
+	PathInputs []string
 }
 
 // executorCapabilitiesRegistry is a typed registry of executor capabilities.
@@ -137,6 +140,17 @@ func ScriptResolution(ctx context.Context, s ir.Step) cmnvalue.CommandContext {
 		return caps.CommandContext(ctx, s)
 	}
 	return cmnvalue.CommandContext{}
+}
+
+// ConfigField returns the field that resolves the step's with object at path.
+func ConfigField(s ir.Step, path string) cmnvalue.Field {
+	return cmnvalue.ExecutorConfigField(path).WithPathKeys(PathInputs(s)...)
+}
+
+// PathInputs returns the with keys of the step's executor whose values name
+// filesystem paths.
+func PathInputs(s ir.Step) []string {
+	return executorCapabilities.Get(s.ExecutorConfig.Type).PathInputs
 }
 
 // StepConfigWarnings returns the configuration warnings the step's executor

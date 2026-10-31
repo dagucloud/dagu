@@ -524,6 +524,97 @@ func TestResolverStepArtifactOutputExpandsVarAfterWindowsSeparator(t *testing.T)
 	assert.Equal(t, `C:\tmp\prepared-output.log`, got)
 }
 
+// A backslash in a path field is a Windows separator rather than an escape
+// marker, so every reference form after it resolves. Ordinary fields keep
+// the escape.
+func TestResolverPathFieldResolvesReferenceAfterBackslash(t *testing.T) {
+	ctx := context.Background()
+	scope := value.NewEnvScope(nil, false).
+		WithEntry("NAME", "order-1.txt", value.EnvSourceStepEnv)
+	resolver := value.NewResolver(
+		value.StaticScope{},
+		value.RuntimeScope{Params: value.Values{"name": "prod"}, Env: scope},
+	)
+
+	tests := []struct {
+		name  string
+		raw   string
+		field value.Field
+		want  string
+	}{
+		{name: "StdoutParam", raw: `C:\out\${params.name}.log`, field: value.StepArtifactOutputField("stdout"), want: `C:\out\prod.log`},
+		{name: "StepDirEnvReference", raw: `C:\work\${env.NAME}`, field: value.StepDirField("working_dir"), want: `C:\work\order-1.txt`},
+		{name: "DotenvUnqualifiedEnv", raw: `C:\cfg\${NAME}`, field: value.DotenvPathField("dotenv[0]"), want: `C:\cfg\order-1.txt`},
+		{name: "EvenRunKeptAsWritten", raw: `C:\out\\${params.name}`, field: value.StructuredOutputPathField("output.x.path"), want: `C:\out\\prod`},
+		{name: "OrdinaryFieldEscapes", raw: `C:\done\${NAME}`, field: value.WorkflowField("value"), want: `C:\done${NAME}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := resolver.String(ctx, tt.raw, tt.field)
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// Only the keys an object field names as paths read a backslash as path
+// text; the other keys keep the escape, and nested keys are named with dots.
+func TestResolverObjectPathKeys(t *testing.T) {
+	ctx := context.Background()
+	scope := value.NewEnvScope(nil, false).
+		WithEntry("NAME", "order-1.txt", value.EnvSourceStepEnv)
+	resolver := value.NewResolver(value.StaticScope{}, value.RuntimeScope{Env: scope})
+	field := value.ExecutorConfigField("with").WithPathKeys("destination", "import.input_file", "files.report")
+
+	got, err := resolver.Object(ctx, map[string]any{
+		"destination": `C:\done\${NAME}`,
+		"content":     `\${NAME}`,
+		"overwrite":   true,
+		"mode":        nil,
+		"import": map[string]any{
+			"input_file": `C:\in\${NAME}`,
+			"table":      `\${NAME}`,
+		},
+		"files": map[string]string{
+			"report": `C:\r\${NAME}`,
+			"note":   `\${NAME}`,
+		},
+	}, field)
+
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{
+		"destination": `C:\done\order-1.txt`,
+		"content":     "${NAME}",
+		"overwrite":   true,
+		"mode":        nil,
+		"import": map[string]any{
+			"input_file": `C:\in\order-1.txt`,
+			"table":      "${NAME}",
+		},
+		"files": map[string]string{
+			"report": `C:\r\order-1.txt`,
+			"note":   "${NAME}",
+		},
+	}, got)
+}
+
+func TestPathFieldReadsReferenceAfterBackslash(t *testing.T) {
+	raw := `C:\out\${steps.build.outputs.image}`
+	path := value.StepArtifactOutputField("stdout")
+	ordinary := value.WorkflowField("value")
+
+	refs := path.StepOutputReferences(raw)
+	require.Len(t, refs, 1)
+	assert.Equal(t, "build", refs[0].StepName)
+	assert.True(t, path.HasValueReference(raw))
+	assert.True(t, path.HasStepRuntimeOutputReference(`C:\out\${build.outputs.image}`, "build"))
+
+	assert.Empty(t, ordinary.StepOutputReferences(raw))
+	assert.False(t, ordinary.HasValueReference(raw))
+}
+
 func TestResolverPowerShellCommandFieldPreservesEnvMemberAccess(t *testing.T) {
 	ctx := context.Background()
 	scope := value.NewEnvScope(nil, false).

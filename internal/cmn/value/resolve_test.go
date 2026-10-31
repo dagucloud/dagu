@@ -276,12 +276,16 @@ func TestResolverForeachDollarEscapes(t *testing.T) {
 			for _, field := range []Field{
 				WorkflowField("foreach.collect"), StepEnvField("CAPTURE"),
 				ShellCommandField("run", command), CommandScriptField("script", command),
-				StepArtifactOutputField("output"),
 			} {
 				got, err := resolver.String(context.Background(), input, field)
 				require.NoError(t, err)
 				assert.Equal(t, want, got, "input: %s, field: %s", input, field.Path())
 			}
+
+			// A path field keeps every backslash as path text, so the item resolves.
+			got, err := resolver.String(context.Background(), input, StepArtifactOutputField("output"))
+			require.NoError(t, err)
+			assert.Equal(t, strings.Repeat(`\`, backslashes)+"INV-001", got, "input: %s, field: output", input)
 		}
 	}
 	assert.Empty(t, notices.Notices())

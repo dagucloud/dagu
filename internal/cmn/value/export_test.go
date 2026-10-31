@@ -80,5 +80,5 @@ const (
 )
 
 func ScanReferencesForTest(raw string) []ReferenceForTest {
-	return scanReferences(raw)
+	return scanReferences(raw, true)
 }

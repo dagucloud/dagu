@@ -227,6 +227,31 @@ handler_on:
 			wantInferred: map[string][]ir.InferredDependency{"show": nil},
 		},
 		{
+			// A backslash in a path input is a separator, not an escape.
+			name: "PathInputAfterBackslashCreatesEdge",
+			yaml: inferredDependsProducer + `
+  - id: copy
+    action: file.copy
+    with:
+      source: in.txt
+      destination: out\${steps.read.outputs.rows}
+`,
+			wantInferred: map[string][]ir.InferredDependency{
+				"copy": {{Step: "read", Field: "steps[1].with.destination"}},
+			},
+		},
+		{
+			name: "EscapedTextInNonPathInputCreatesNoEdge",
+			yaml: inferredDependsProducer + `
+  - id: write
+    action: file.write
+    with:
+      path: out.txt
+      content: \${steps.read.outputs.rows}
+`,
+			wantInferred: map[string][]ir.InferredDependency{"write": nil},
+		},
+		{
 			name: "UnsupportedBracedTextCreatesNoEdge",
 			yaml: inferredDependsProducer + `
   - id: show
