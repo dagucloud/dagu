@@ -30,6 +30,9 @@ const DOCK_PATTERN = /^[a-z]+$/;
 export function isPeekTarget(target: PeekTarget): boolean {
   return (
     DAG_NAME_PATTERN.test(target.dag) &&
+    // The pattern admits the directory names, which name no workflow.
+    target.dag !== '.' &&
+    target.dag !== '..' &&
     (target.run === undefined || RUN_ID_PATTERN.test(target.run)) &&
     (target.dock === undefined || DOCK_PATTERN.test(target.dock))
   );

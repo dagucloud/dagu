@@ -25,6 +25,8 @@ describe('readPeek', () => {
 
   it.each([
     ['a name with a path', 'peek=..%2Fsecrets'],
+    ['the current directory', 'peek=.'],
+    ['the parent directory', 'peek=..'],
     ['a name with a space', 'peek=my+dag'],
     ['a run ID with a colon', 'peek=etl&peekRun=run%3A1'],
     ['an unknown dock form', 'peek=etl&peekDock=Log%20tab'],
