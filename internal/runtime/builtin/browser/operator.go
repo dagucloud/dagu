@@ -528,12 +528,15 @@ func (o *operator) expect(ctx context.Context, index int, c condition, timeout t
 
 // await evaluates a condition. The model judges a statement once; a fixed
 // check is read repeatedly until it holds or window passes. A zero window
-// reads the page once.
+// reads the page once. A read that lost its script context found the page
+// between documents, which is not readable yet, so it fails the check only
+// once window passes.
 func (o *operator) await(ctx context.Context, c condition, window, timeout time.Duration) (bool, string, error) {
 	deadline := time.Now().Add(window)
 	for {
 		holds, reason, err := o.evaluate(ctx, c, timeout)
-		if err != nil || holds || c.judged() || !time.Now().Before(deadline) {
+		unreadable := errors.Is(err, errPageContextLost)
+		if (err != nil && !unreadable) || holds || c.judged() || !time.Now().Before(deadline) {
 			return holds, reason, err
 		}
 		select {

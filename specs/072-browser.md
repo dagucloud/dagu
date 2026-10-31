@@ -129,7 +129,11 @@ A fixed check may set `within`, a duration during which it keeps reading the
 page until it holds. A fixed `when` reads the page once unless `within` is set;
 a fixed `expect` keeps reading until `within`, or the operation timeout when
 `within` is unset. A model-judged condition is asked once. A `selector` check
-holds when any matching element is visible.
+holds when any matching element is visible. A fixed check that finds the page
+between documents, as just after a click that submits a form, waits for the
+new document to load and reads that; one that still finds it between
+documents reads it again while the window lasts and fails the step once the
+window passes.
 
 ### Model
 

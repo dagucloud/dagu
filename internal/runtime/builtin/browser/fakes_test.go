@@ -119,6 +119,9 @@ type fakeEngine struct {
 	// pageText and visible describe the page that fixed checks read.
 	pageText string
 	visible  []string
+	// textReadsLoseContext is how many of the next page text reads lose
+	// their script context to a new document.
+	textReadsLoseContext int
 	// snapshot is the page's accessibility tree; its URL is the page's.
 	snapshot pageSnapshot
 	// opener is the title of the page that opened the window operations
@@ -454,6 +457,10 @@ func (e *fakeEngine) setPageText(text string) {
 func (e *fakeEngine) PageText(context.Context) (string, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if e.textReadsLoseContext > 0 {
+		e.textReadsLoseContext--
+		return "", errFakeContextLost
+	}
 	return e.pageText, nil
 }
 

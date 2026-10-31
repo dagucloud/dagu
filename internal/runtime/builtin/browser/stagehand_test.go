@@ -1094,6 +1094,45 @@ func TestSessionLost(t *testing.T) {
 	}
 }
 
+// A read whose script context a new document replaced runs once more after
+// that document settles, and reports errPageContextLost only when the second
+// run loses its context too. Other failures return at once, as they are.
+func TestRereadOnNewDocument(t *testing.T) {
+	t.Parallel()
+
+	lost := fmt.Errorf("evaluate: %w", &stagehand.RPCError{Code: -32000, Message: "-32000 Cannot find context with specified id"})
+	detached := &stagehand.RPCError{Code: -32001, Message: "-32001 Session with given id not found."}
+	for name, tc := range map[string]struct {
+		// reads are what each run of the read returns; nil reads the page.
+		reads   []error
+		settled bool
+		err     error
+	}{
+		"lost once":            {reads: []error{lost, nil}, settled: true},
+		"lost twice":           {reads: []error{lost, lost}, settled: true, err: errPageContextLost},
+		"lost, then detached":  {reads: []error{lost, detached}, settled: true, err: detached},
+		"detached":             {reads: []error{detached}, err: detached},
+		"read at the first go": {reads: []error{nil}},
+	} {
+		runs, settled := 0, false
+		raw, err := rereadOnNewDocument(func() (json.RawMessage, error) {
+			runs++
+			if read := tc.reads[runs-1]; read != nil {
+				return nil, read
+			}
+			return json.RawMessage(`"Saved"`), nil
+		}, func() { settled = true })
+		assert.Equal(t, len(tc.reads), runs, name)
+		assert.Equal(t, tc.settled, settled, name)
+		if tc.err != nil {
+			assert.ErrorIs(t, err, tc.err, name)
+			continue
+		}
+		assert.NoError(t, err, name)
+		assert.JSONEq(t, `"Saved"`, string(raw), name)
+	}
+}
+
 // TestStagehandDetachHelper runs in a child process: it opens a page, leaves
 // the browser running, prints the handle, and exits.
 func TestStagehandDetachHelper(t *testing.T) {

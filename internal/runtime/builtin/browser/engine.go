@@ -80,11 +80,13 @@ type engine interface {
 	OpenerScreenshot(ctx context.Context) ([]byte, error)
 	CurrentURL(ctx context.Context) (string, error)
 	// PageText returns the visible text of the page and the frames of its
-	// origin it shows.
+	// origin it shows. Its error wraps errPageContextLost when new documents
+	// kept replacing the script context it read in.
 	PageText(ctx context.Context) (string, error)
 	// SelectorVisible reports whether a CSS selector matches a visible
 	// element of the page or the frames of its origin it shows, inside open
-	// shadow roots too.
+	// shadow roots too. Its error wraps errPageContextLost as PageText's
+	// does.
 	SelectorVisible(ctx context.Context, selector string) (bool, error)
 	// Snapshot returns the active page's accessibility tree, the one an act
 	// shows the model, without a model call.
