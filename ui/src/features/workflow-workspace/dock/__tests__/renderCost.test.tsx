@@ -4,6 +4,7 @@
 import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
+import useSWR, { SWRConfig } from 'swr';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NodeStatus, Status } from '@/api/v1/schema';
 import type { ApiDAGDetails, ApiDAGRunDetails } from '../../contracts';
@@ -328,6 +329,41 @@ describe('FreezeWhenHidden', () => {
     expect(seen).toBe('a');
     rerender(tree(false, dataB));
     expect(seen).toBe('b');
+  });
+
+  // A frozen body keeps the props of a run that was active: the polls of its
+  // hooks stop while it is hidden, whatever interval the hook asks for.
+  it('stops the SWR polls below it while hidden', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const fetcher = vi.fn(async () => 'ok');
+    function Poller() {
+      useSWR('poll', fetcher, { refreshInterval: 1000 });
+      return null;
+    }
+    const tree = (hidden: boolean) => (
+      <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+        <FreezeWhenHidden hidden={hidden}>
+          <Poller />
+        </FreezeWhenHidden>
+      </SWRConfig>
+    );
+    const advance = (ms: number) =>
+      act(async () => {
+        await vi.advanceTimersByTimeAsync(ms);
+      });
+
+    const { rerender } = render(tree(false));
+    await advance(1500);
+    expect(fetcher.mock.calls.length).toBeGreaterThan(1);
+
+    rerender(tree(true));
+    const hiddenCalls = fetcher.mock.calls.length;
+    await advance(5000);
+    expect(fetcher).toHaveBeenCalledTimes(hiddenCalls);
+
+    rerender(tree(false));
+    await advance(1500);
+    expect(fetcher.mock.calls.length).toBeGreaterThan(hiddenCalls);
   });
 });
 
