@@ -26,7 +26,7 @@ import {
   getDAGRunSelectionKey,
 } from '../../hooks/useBulkDAGRunSelection';
 import { buildDAGPageURL } from '../../lib/dagRunUrls';
-import { useOpenPage } from '../../lib/useOpenPage';
+import { usePeekIsOpen, usePeekOrOpen } from '@/features/peek/usePeekOrOpen';
 import { StepDetailsTooltip } from './StepDetailsTooltip';
 import { DAGRunArtifactsButton } from './DAGRunArtifactsButton';
 import { I18nText } from '@/i18n/I18nText';
@@ -63,8 +63,10 @@ function DAGRunTable({
 }: DAGRunTableProps) {
   const config = useConfig();
   const remoteNode = useRemoteNode();
-  const openPage = useOpenPage();
-  // A row opens the run on its workflow page; the artifacts button opens the Artifacts tab.
+  const peekOrOpen = usePeekOrOpen();
+  const peekOpen = usePeekIsOpen();
+  // The name link opens the run on its workflow page and the artifacts
+  // button its Artifacts tab; a click on a row shows the peek of the run.
   const runURL = (dagRun: DAGRunSelectionItem, dock?: string) =>
     buildDAGPageURL({
       fileName: dagRun.name,
@@ -72,6 +74,10 @@ function DAGRunTable({
       run: dagRun.dagRunId,
       dock,
     });
+  const openRun = (
+    dagRun: DAGRunSelectionItem,
+    event?: Pick<MouseEvent, 'ctrlKey' | 'metaKey'>
+  ) => peekOrOpen({ dag: dagRun.name, run: dagRun.dagRunId }, event);
   const [isSmallScreen, setIsSmallScreen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState<number>(-1);
   const tableRef = useRef<HTMLDivElement>(null);
@@ -108,8 +114,12 @@ function DAGRunTable({
   // Keyboard navigation: arrows move the highlighted row, Enter opens its run.
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      // A popup item or another control took the key.
-      if (event.defaultPrevented || isInteractiveEventTarget(event.target)) {
+      // A popup item or another control took the key, or the peek has it.
+      if (
+        peekOpen ||
+        event.defaultPrevented ||
+        isInteractiveEventTarget(event.target)
+      ) {
         return;
       }
       if (event.metaKey || event.ctrlKey || event.altKey) {
@@ -136,7 +146,7 @@ function DAGRunTable({
       } else if (event.key === 'Enter' && selectedIndex >= 0) {
         const selectedItem = dagRuns[selectedIndex];
         if (selectedItem) {
-          openPage(runURL(selectedItem));
+          openRun(selectedItem);
         }
       }
     };
@@ -145,7 +155,7 @@ function DAGRunTable({
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [dagRuns, selectedIndex, openPage, remoteNode]);
+  }, [dagRuns, selectedIndex, peekOpen, peekOrOpen]);
 
   // Initialize selection when dagRuns change
   useEffect(() => {
@@ -281,7 +291,7 @@ function DAGRunTable({
           <div
             key={dagRun.dagRunId}
             className={`p-3 rounded-lg border border-l-4 min-h-[80px] flex flex-col bg-card border-border ${selectedIndex === index ? 'border-l-border' : 'border-l-transparent'} ${isBulkSelected(dagRun) ? 'bg-muted/30' : ''} ${dagRun.status === Status.Running ? 'animate-running-row' : ''} cursor-pointer`}
-            onClick={(e) => openPage(runURL(dagRun), e)}
+            onClick={(e) => openRun(dagRun, e)}
           >
             {/* Header with name and status */}
             <div className="flex justify-between items-start gap-3 mb-2">
@@ -512,7 +522,7 @@ function DAGRunTable({
               style={{ fontSize: '0.8125rem' }}
               onClick={(e) => {
                 setSelectedIndex(index);
-                openPage(runURL(dagRun), e);
+                openRun(dagRun, e);
               }}
             >
               {onToggleBulkSelect && (

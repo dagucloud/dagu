@@ -44,6 +44,8 @@ import { useQuery } from '../../hooks/api';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import { legacyRunPageRedirectURL } from '../../features/dag-runs/lib/dagRunUrls';
 import { useBulkDAGRunSelection } from '../../features/dag-runs/hooks/useBulkDAGRunSelection';
+import { PeekHost } from '../../features/peek/PeekHost';
+import { withoutPeek } from '../../features/peek/peekParams';
 import {
   withoutWorkspaceLabels,
   workspaceSelectionKey,
@@ -487,6 +489,8 @@ function DAGRuns() {
   );
 
   const previousRunScopeRef = React.useRef(searchStateScope);
+  // A peek opens and closes without touching the filters, typed or not.
+  const filterSearch = withoutPeek(location.search);
 
   React.useEffect(() => {
     if (runViewsLoading) {
@@ -511,7 +515,7 @@ function DAGRuns() {
       return;
     }
 
-    const params = new URLSearchParams(location.search);
+    const params = new URLSearchParams(filterSearch);
     const stored = searchState.readState<DAGRunsFilters>(
       'dagRuns',
       searchStateScope
@@ -674,7 +678,7 @@ function DAGRuns() {
   }, [
     defaultFilters,
     defaultRunViewId,
-    location.search,
+    filterSearch,
     navigate,
     parseDateFromUrl,
     resolveRunViewFilters,
@@ -1598,4 +1602,12 @@ function DAGRuns() {
   );
 }
 
-export default DAGRuns;
+function DAGRunsPage() {
+  return (
+    <PeekHost>
+      <DAGRuns />
+    </PeekHost>
+  );
+}
+
+export default DAGRunsPage;

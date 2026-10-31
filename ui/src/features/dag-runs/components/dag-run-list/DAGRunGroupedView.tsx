@@ -20,7 +20,7 @@ import { StepDetailsTooltip } from './StepDetailsTooltip';
 import { DAGRunArtifactsButton } from './DAGRunArtifactsButton';
 import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import { buildDAGPageURL } from '../../lib/dagRunUrls';
-import { useOpenPage } from '../../lib/useOpenPage';
+import { usePeekOrOpen } from '@/features/peek/usePeekOrOpen';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
 
@@ -44,8 +44,9 @@ function DAGRunGroupedView({
 }: DAGRunGroupedViewProps) {
   const { ts } = useI18n();
   const remoteNode = useRemoteNode();
-  const openPage = useOpenPage();
-  // A row opens the run on its workflow page; the artifacts button opens the Artifacts tab.
+  const peekOrOpen = usePeekOrOpen();
+  // The name link opens the run on its workflow page and the artifacts
+  // button its Artifacts tab; a click on a row shows the peek of the run.
   const runURL = (dagRun: DAGRunSelectionItem, dock?: string) =>
     buildDAGPageURL({
       fileName: dagRun.name,
@@ -316,7 +317,12 @@ function DAGRunGroupedView({
                       <div
                         key={dagRun.dagRunId}
                         className={`px-3 py-2 pl-11 hover:bg-muted/20 cursor-pointer transition-colors text-xs ${isBulkSelected(dagRun) ? 'bg-muted/30' : ''}`}
-                        onClick={(e) => openPage(runURL(dagRun), e)}
+                        onClick={(e) =>
+                          peekOrOpen(
+                            { dag: dagRun.name, run: dagRun.dagRunId },
+                            e
+                          )
+                        }
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex flex-1 items-start gap-3 min-w-0">
