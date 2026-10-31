@@ -40,6 +40,16 @@ Prerequisites depend on your track:
 - Go is also needed for the UI development loop, since starting the backend builds it.
 - Docs-only changes do not require the Go toolchain.
 
+### Nix
+
+If you use [Nix](https://nixos.org/download/), the flake gives you Go, Node.js, pnpm and make:
+
+```bash
+nix develop
+```
+
+Everything else the Makefile needs, it installs into `.local/bin` itself.
+
 Building frontend assets:
 
 ```bash
