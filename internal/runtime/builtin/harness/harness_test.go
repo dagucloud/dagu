@@ -484,6 +484,20 @@ func TestOpenCodeInterruptAwaitsIdle(t *testing.T) {
 	})
 }
 
+// In a session Dagu does not own, an active turn may be the user's, so only a
+// reply shows that Dagu's prompt started.
+func TestOpenCodePromptStartEvidence(t *testing.T) {
+	t.Parallel()
+
+	host := newManagedTestHost(t, func(h *managedTestHost) { h.busy["session-1"] = true })
+	client := &openCodeClient{host: host.config, http: newOpenCodeHTTPClient(time.Second)}
+	require.NoError(t, client.awaitPromptStart(t.Context(), "session-1", "msg-1", true))
+
+	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer cancel()
+	require.ErrorIs(t, client.awaitPromptStart(ctx, "session-1", "msg-1", false), context.DeadlineExceeded)
+}
+
 // Closing the idle connections of http.DefaultTransport, as
 // httptest.Server.Close does, can fail a request that is in flight on it. The
 // OpenCode connection must survive such a reset. Not parallel: it resets the
@@ -808,7 +822,10 @@ func TestManagedOpenCodeRetryRedeliversUnstartedPrompt(t *testing.T) {
 
 	// The host takes the prompt, but its turn has not started when the
 	// cancelled run loses the host's status.
-	host := newManagedTestHost(t, func(h *managedTestHost) { h.startAfterPolls = 1000 })
+	host := newManagedTestHost(t, func(h *managedTestHost) {
+		h.startAfterPolls = 1000
+		h.interruptStatus = http.StatusInternalServerError
+	})
 	exec := &harnessExecutor{prompt: "Do the work", workDir: t.TempDir()}
 	ctx, cancel := context.WithCancel(runtime.WithEnv(t.Context(), runtime.Env{}))
 	defer cancel()
@@ -822,9 +839,11 @@ func TestManagedOpenCodeRetryRedeliversUnstartedPrompt(t *testing.T) {
 	assert.Equal(t, "abort-unverified", session.Events[len(session.Events)-1].Status)
 	assert.False(t, session.PromptSent, "an unstarted prompt is delivered again")
 	assert.Contains(t, host.requestLog(), "POST /session/session-1/abort", "a turn the lost status hid is still interrupted")
+	assert.Contains(t, session.LastError, "/abort returned 500", "the rejected interrupt is reported")
 
 	host.setStatusDown(false)
 	host.setStartAfterPolls(0)
+	host.setInterruptStatus(0)
 	ctx, cancel = context.WithCancel(runtime.WithEnv(t.Context(), runtime.Env{}))
 	defer cancel()
 	exec.SetProgressCallback(onManagedRunning(exec, cancel))
@@ -838,6 +857,29 @@ func TestManagedOpenCodeRetryRedeliversUnstartedPrompt(t *testing.T) {
 	session = exec.GetAgentSession()
 	assert.Equal(t, 1, session.Generation)
 	assert.Equal(t, "aborted", session.Events[len(session.Events)-1].Status)
+}
+
+// A session the user supplied may run the user's own turn. When Dagu cannot see
+// its prompt's turn start there, it does not interrupt the session.
+func TestManagedOpenCodeCancelLeavesUnownedSession(t *testing.T) {
+	t.Parallel()
+
+	host := newManagedTestHost(t, func(h *managedTestHost) { h.startAfterPolls = 1000 })
+	exec := &harnessExecutor{prompt: "Do the work", workDir: t.TempDir()}
+	ctx, cancel := context.WithCancel(runtime.WithEnv(t.Context(), runtime.Env{}))
+	defer cancel()
+	exec.SetProgressCallback(onManagedRunning(exec, func() {
+		host.setStatusDown(true)
+		cancel()
+	}))
+
+	_, err := exec.runManagedOpenCode(ctx, providerConfig{flags: map[string]any{"session": "session-1"}}, host.config)
+
+	require.ErrorIs(t, err, errManagedHostUnavailable)
+	session := exec.GetAgentSession()
+	assert.False(t, session.SessionOwned)
+	assert.Equal(t, "abort-unverified", session.Events[len(session.Events)-1].Status)
+	assert.NotContains(t, host.requestLog(), "POST /session/session-1/abort")
 }
 
 // onManagedRunning returns a progress callback that calls fn once the managed
@@ -920,16 +962,17 @@ func (h *managedTestHost) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/abort"):
-		if h.interruptStatus != 0 {
-			w.WriteHeader(h.interruptStatus)
-			return
-		}
 		sessionID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/session/"), "/abort")
 		h.mu.Lock()
-		if h.busy[sessionID] {
+		rejected := h.interruptStatus
+		if rejected == 0 && h.busy[sessionID] {
 			h.interrupted[sessionID] = true
 		}
 		h.mu.Unlock()
+		if rejected != 0 {
+			w.WriteHeader(rejected)
+			return
+		}
 		_, _ = io.WriteString(w, `true`)
 	case r.Method == http.MethodGet && r.URL.Path == "/session/session-1/message":
 		_, _ = io.WriteString(w, `[]`)
@@ -981,6 +1024,12 @@ func (h *managedTestHost) setStatusDown(down bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.statusDown = down
+}
+
+func (h *managedTestHost) setInterruptStatus(status int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.interruptStatus = status
 }
 
 func (h *managedTestHost) setStartAfterPolls(polls int) {

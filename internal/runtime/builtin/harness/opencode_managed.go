@@ -676,7 +676,7 @@ func (e *harnessExecutor) finishManagedRunError(ctx context.Context, client *ope
 func (e *harnessExecutor) finishManagedCancelled(ctx context.Context, client *openCodeClient, sessionID string) (*os.File, error) {
 	e.mu.Lock()
 	promptSent, submitted := e.agentSession.PromptSent, e.promptSubmitted
-	promptID := e.agentSession.PromptMessageID
+	promptID, owned := e.agentSession.PromptMessageID, e.agentSession.SessionOwned
 	e.mu.Unlock()
 	if !promptSent && !submitted {
 		// Dagu has no turn here; the session may run work that is not Dagu's.
@@ -687,7 +687,7 @@ func (e *harnessExecutor) finishManagedCancelled(ctx context.Context, client *op
 	var err error
 	if submitted && promptID != "" {
 		// An interrupt does nothing before the host starts the prompt's turn.
-		if err = client.awaitPromptStart(cleanupCtx, sessionID, promptID); err != nil {
+		if err = client.awaitPromptStart(cleanupCtx, sessionID, promptID, owned); err != nil {
 			// The turn may still start in this session, so a retry submits the
 			// prompt to it again instead of replacing it.
 			e.mu.Lock()
@@ -697,10 +697,12 @@ func (e *harnessExecutor) finishManagedCancelled(ctx context.Context, client *op
 	}
 	if err == nil {
 		err = client.interruptAndAwaitIdle(cleanupCtx, sessionID)
-	} else if cleanupCtx.Err() == nil {
+	} else if owned && cleanupCtx.Err() == nil {
 		// A lost status can hide a turn that started; the interrupt does
-		// nothing if it has not.
-		_ = client.abort(cleanupCtx, sessionID)
+		// nothing if it has not. Another session may run the user's own turn.
+		if abortErr := client.abort(cleanupCtx, sessionID); abortErr != nil {
+			err = errors.Join(err, abortErr)
+		}
 	}
 	return e.finishManagedAbort(ctx, err)
 }

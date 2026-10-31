@@ -358,13 +358,15 @@ func (c *openCodeClient) awaitIdle(ctx context.Context, sessionID string) error 
 }
 
 // awaitPromptStart waits until the host shows that it took up the prompt: the
-// session is active, the prompt has a reply, or the session no longer exists.
-func (c *openCodeClient) awaitPromptStart(ctx context.Context, sessionID, promptMessageID string) error {
+// prompt has a reply, or the session no longer exists. In a session Dagu owns,
+// an active session also counts; in another session the active turn may not
+// be Dagu's.
+func (c *openCodeClient) awaitPromptStart(ctx context.Context, sessionID, promptMessageID string, owned bool) error {
 	ticker := time.NewTicker(managedIdlePollInterval)
 	defer ticker.Stop()
 	for {
 		status, err := c.sessionStatus(ctx, sessionID)
-		if err == nil && status != "idle" {
+		if owned && err == nil && status != "idle" {
 			return nil
 		}
 		if errors.Is(err, errManagedHostUnavailable) {
