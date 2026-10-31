@@ -121,7 +121,10 @@ previous fire on which the expression alone would have fired
 `dagu calendar check [files...]` validates calendar files, by default every
 `<name>.yaml` file with a valid name in `paths.calendars_dir`. A file given as a path must be named
 `<name>.yaml`, and resolves `include` against the files beside it. A file named after a reserved name is reported
-as invalid. The command exits non-zero when any calendar is invalid.
+as invalid. Each problem of an invalid file is printed on its own line,
+starting with its `[line:column]` in the file when it has one; a problem with
+an included calendar is placed on the `include` entry. The command exits
+non-zero when any calendar is invalid.
 
 ## Errors
 

@@ -86,9 +86,6 @@ func TestCalendarExpiryWarningStartsOnItsFirstDay(t *testing.T) {
 	t.Parallel()
 
 	today := ir.DateOf(time.Date(2027, 3, 1, 0, 0, 0, 0, time.UTC))
-	cal := &ir.Calendar{Name: "jp", Through: today.AddDays(CalendarExpiryWarningDays)}
-	assert.NotEmpty(t, calendarExpiryWarning(cal, today))
-
-	cal.Through = today.AddDays(CalendarExpiryWarningDays + 1)
-	assert.Empty(t, calendarExpiryWarning(cal, today))
+	assert.NotEmpty(t, CalendarExpiryWarning("jp", today.AddDays(CalendarExpiryWarningDays), today))
+	assert.Empty(t, CalendarExpiryWarning("jp", today.AddDays(CalendarExpiryWarningDays+1), today))
 }

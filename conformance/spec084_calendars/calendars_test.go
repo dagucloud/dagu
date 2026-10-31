@@ -144,10 +144,16 @@ func TestCalendarCheck(t *testing.T) {
 		t.Fatalf("calendar check printed %q, want %q", got, want)
 	}
 
+	// Every problem is reported, each with its line and column.
 	result = dagu.RunWithEnv(calendarsEnv(dagu), "calendar", "check", "badcalendars/broken.yaml")
 	result.ExpectNonZeroExitCode()
-	if !strings.Contains(result.Stdout(), "FAIL broken:") || !strings.Contains(result.Stdout(), "range ends on 2027-01-03, before it starts on 2027-01-05") {
-		t.Fatalf("calendar check printed:\n%s", result.Stdout())
+	got = normalizedLines(result.Stdout())
+	want = []string{
+		"FAIL broken: [2:9] field 'holidays[0]': range ends on 2027-01-03, before it starts on 2027-01-05",
+		"FAIL broken: [4:12] field 'weekdays[0]': unknown day FUN; use MON, TUE, WED, THU, FRI, SAT, or SUN",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("calendar check printed %q, want %q", got, want)
 	}
 }
 
