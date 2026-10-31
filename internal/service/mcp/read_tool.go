@@ -1368,6 +1368,13 @@ func normalizeDAGDetails(raw any, fallbackName string) (map[string]any, error) {
 		if dag.NextRun != nil {
 			out["nextRun"] = dag.NextRun.Format(time.RFC3339)
 		}
+		if dag.UpcomingRuns != nil && len(*dag.UpcomingRuns) > 0 {
+			runs := make([]string, 0, len(*dag.UpcomingRuns))
+			for _, run := range *dag.UpcomingRuns {
+				runs = append(runs, run.Time.Format(time.RFC3339))
+			}
+			out["upcomingRuns"] = runs
+		}
 		if dag.Steps != nil && len(*dag.Steps) > 0 {
 			steps := make([]map[string]any, 0, len(*dag.Steps))
 			for _, step := range *dag.Steps {
