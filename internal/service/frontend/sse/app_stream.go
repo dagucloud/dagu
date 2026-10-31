@@ -186,11 +186,14 @@ type directoryWatcher struct {
 	skipDirName    string
 	newFileWatcher fileWatcherFactory
 	watcher        filenotify.FileWatcher
-	onEvent        func(root, relPath string, op fsnotify.Op)
-	onReset        func(reason string)
-	done           chan struct{}
-	stopOnce       sync.Once
-	wg             sync.WaitGroup
+	// awaitingRoot marks a watcher that watches the parent of its missing
+	// root until the root appears.
+	awaitingRoot bool
+	onEvent      func(root, relPath string, op fsnotify.Op)
+	onReset      func(reason string)
+	done         chan struct{}
+	stopOnce     sync.Once
+	wg           sync.WaitGroup
 }
 
 type appWatcher interface {
@@ -245,34 +248,35 @@ func defaultFileWatcherFactory() (filenotify.FileWatcher, error) {
 	return filenotify.New(time.Second), nil
 }
 
+// Start watches the root. A missing root whose parent exists is attached when
+// it appears, with the entries it already holds reported as created.
 func (w *directoryWatcher) Start(ctx context.Context) error {
 	ready, err := prepareWatchRoot(w.root, w.createRoot)
-	if err != nil || !ready {
+	if err != nil {
 		return err
+	}
+	if !ready {
+		if w.root == "" || !isDir(filepath.Dir(w.root)) {
+			return nil
+		}
+		w.awaitingRoot = true
 	}
 
 	w.watcher, err = w.newFileWatcher()
 	if err != nil {
 		return err
 	}
-	if err := w.addWatch(w.root); err != nil {
-		return err
-	}
-
-	if w.scope == watchScopeOneLevel || w.scope == watchScopeRecursive {
-		paths, err := watchPathsForScope(w.root, w.scope, w.skipDirName)
-		if err != nil {
+	if w.awaitingRoot {
+		if err := w.watchParent(); err != nil {
+			// A root that cannot be awaited stays unwatched, like a root
+			// without a parent.
 			_ = w.watcher.Close()
-			return err
+			w.watcher = nil
+			return nil
 		}
-		for _, path := range paths {
-			if path == w.root {
-				continue
-			}
-			if err := w.addWatch(path); err != nil {
-				return err
-			}
-		}
+	} else if err := w.addRootWatches(); err != nil {
+		_ = w.watcher.Close()
+		return err
 	}
 
 	w.wg.Go(func() {
@@ -281,12 +285,83 @@ func (w *directoryWatcher) Start(ctx context.Context) error {
 	return nil
 }
 
-func (w *directoryWatcher) addWatch(path string) error {
-	if err := w.watcher.Add(path); err != nil {
-		_ = w.watcher.Close()
-		return err
+// addRootWatches watches the root and the directories below it that the scope
+// covers.
+func (w *directoryWatcher) addRootWatches() error {
+	paths := []string{w.root}
+	if w.scope == watchScopeOneLevel || w.scope == watchScopeRecursive {
+		scoped, err := watchPathsForScope(w.root, w.scope, w.skipDirName)
+		if err != nil {
+			return err
+		}
+		paths = scoped
+	}
+	for _, path := range paths {
+		if err := w.watcher.Add(path); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// watchParent watches the parent of the missing root, and attaches the root
+// at once when it appeared before the watch.
+func (w *directoryWatcher) watchParent() error {
+	if err := w.watcher.Add(filepath.Dir(w.root)); err != nil {
+		return err
+	}
+	if isDir(w.root) {
+		return w.attachRoot()
+	}
+	return nil
+}
+
+// attachRoot moves the watch from the parent to the root that appeared.
+func (w *directoryWatcher) attachRoot() error {
+	if err := w.addRootWatches(); err != nil {
+		return err
+	}
+	w.awaitingRoot = false
+	_ = w.watcher.Remove(filepath.Dir(w.root))
+	w.reportEntries(w.root)
+	return nil
+}
+
+// reportEntries reports the entries below a newly watched directory that the
+// scope covers as created, since entries made before the watch raise no
+// event.
+func (w *directoryWatcher) reportEntries(dir string) {
+	var maxDepth int // the depth below the root that the scope covers; zero has no limit
+	switch w.scope {
+	case watchScopeRootOnly:
+		maxDepth = 1
+	case watchScopeOneLevel:
+		maxDepth = 2
+	case watchScopeRecursive:
+	}
+	_ = filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
+		if err != nil || path == dir {
+			return nil
+		}
+		if entry.IsDir() && w.skipDirName != "" && entry.Name() == w.skipDirName {
+			return filepath.SkipDir
+		}
+		relPath, err := filepath.Rel(w.root, path)
+		if err != nil {
+			return nil
+		}
+		relPath = filepath.ToSlash(relPath)
+		w.onEvent(w.root, relPath, fsnotify.Create)
+		if entry.IsDir() && maxDepth > 0 && strings.Count(relPath, "/")+1 >= maxDepth {
+			return filepath.SkipDir
+		}
+		return nil
+	})
+}
+
+func isDir(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 
 func (w *directoryWatcher) Stop() {
@@ -325,6 +400,15 @@ func (w *directoryWatcher) handleEvent(event fsnotify.Event) {
 		return
 	}
 
+	if w.awaitingRoot {
+		if event.Op&fsnotify.Create != 0 && filepath.Clean(event.Name) == filepath.Clean(w.root) {
+			if err := w.attachRoot(); err != nil {
+				w.onReset(fmt.Sprintf("failed to register watcher for %s: %v", w.root, err))
+			}
+		}
+		return
+	}
+
 	if event.Op&fsnotify.Create != 0 && (w.scope == watchScopeOneLevel || w.scope == watchScopeRecursive) {
 		if err := w.addCreatedDirWatches(event.Name); err != nil {
 			w.onReset(fmt.Sprintf("failed to register watcher for %s: %v", event.Name, err))
@@ -332,7 +416,8 @@ func (w *directoryWatcher) handleEvent(event fsnotify.Event) {
 	}
 
 	relPath, err := filepath.Rel(w.root, event.Name)
-	if err != nil || relPath == "." {
+	// Events of the parent can still arrive after the root was attached.
+	if err != nil || relPath == "." || !filepath.IsLocal(relPath) {
 		return
 	}
 	w.onEvent(w.root, filepath.ToSlash(relPath), event.Op)
@@ -350,6 +435,14 @@ func (w *directoryWatcher) addCreatedDirWatches(path string) error {
 	if w.scope == watchScopeOneLevel && parent != filepath.Clean(w.root) {
 		return nil
 	}
+	if err := w.addCreatedDirTree(path); err != nil {
+		return err
+	}
+	w.reportEntries(path)
+	return nil
+}
+
+func (w *directoryWatcher) addCreatedDirTree(path string) error {
 	if w.scope != watchScopeRecursive {
 		return w.watcher.Add(path)
 	}

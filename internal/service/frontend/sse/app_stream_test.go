@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
 func TestLegacySuspendFlagEvent(t *testing.T) {
@@ -63,21 +65,45 @@ func TestBaseConfigEvent(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(service.Shutdown)
 
-	for _, path := range []string{
-		filepath.Join(root, "base.yaml"),
-		filepath.Join(workspaceDir, "base.yaml"),
-	} {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		events, unsubscribe := service.Subscribe(ctx)
-		require.NoError(t, os.WriteFile(path, []byte("env:\n  - A: 1\n"), 0o600))
+	writeBaseConfig(t, service, filepath.Join(root, "base.yaml"))
+	writeBaseConfig(t, service, filepath.Join(workspaceDir, "base.yaml"))
+}
+
+// A workspace created after the service starts refreshes the DAGs with its
+// base config, also when the workspaces directory did not exist yet.
+func TestBaseConfigEventForNewWorkspace(t *testing.T) {
+	t.Parallel()
+	dagsDir := filepath.Join(t.TempDir(), "dags")
+	service, err := NewAppStreamService(AppStreamConfig{
+		Paths: config.PathsConfig{DAGsDir: dagsDir},
+	})
+	require.NoError(t, err)
+	t.Cleanup(service.Shutdown)
+
+	writeBaseConfig(t, service, workspace.BaseConfigPath(dagsDir, "ops"))
+	writeBaseConfig(t, service, workspace.BaseConfigPath(dagsDir, "dev"))
+}
+
+// writeBaseConfig writes a base config, with its missing directories, and
+// waits for the DAG refresh that the write raises.
+func writeBaseConfig(t *testing.T, service *AppStreamService, path string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	events, unsubscribe := service.Subscribe(ctx)
+	defer unsubscribe()
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+	require.NoError(t, os.WriteFile(path, []byte("env:\n  - A: 1\n"), 0o600))
+	for {
 		select {
-		case event := <-events:
-			assert.Equal(t, AppEventTypeDAGChanged, event.Type, path)
+		case event, ok := <-events:
+			require.True(t, ok, "the subscription closed")
+			if event.Type == AppEventTypeDAGChanged && strings.HasPrefix(event.Reason, "base_config_") {
+				return
+			}
 		case <-ctx.Done():
 			t.Fatalf("writing %s did not trigger a DAG refresh", path)
 		}
-		unsubscribe()
-		cancel()
 	}
 }
 
