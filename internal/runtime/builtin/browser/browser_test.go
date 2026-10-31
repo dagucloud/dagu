@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	goruntime "runtime"
@@ -219,6 +220,31 @@ func TestExpectFailureCapturesPage(t *testing.T) {
 	assert.Contains(t, session.LastError, "expectation not met")
 	assert.True(t, run.engine.closed)
 	assert.FileExists(t, filepath.Join(run.artifacts, "browser", "shop", "01-failure.png"))
+}
+
+// A fixed expect after an act whose click submits a form reads the page
+// again when the document the click loads replaced the script context a
+// read ran in, and fails on that only once its window passes.
+func TestExpectReadsAgainAPageBetweenDocuments(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"do": [
+		{"act": "Press the Save button"},
+		{"expect": {"text": "Saved", "within": "%s"}}
+	]}`
+	run := newTestRun(t, pageModel(nil))
+	run.engine.setPageText("Saved")
+	run.engine.textReadsLoseContext = 1
+	execution := run.execute(fmt.Sprintf(steps, "10s"), nil)
+	require.NoError(t, execution.err)
+	assert.Equal(t, []string{"act:completed", "expect:completed"}, eventNames(execution.exec.GetAgentSession()))
+
+	unreadable := newTestRun(t, pageModel(nil))
+	unreadable.engine.setPageText("Saved")
+	unreadable.engine.textReadsLoseContext = math.MaxInt
+	execution = unreadable.execute(fmt.Sprintf(steps, "300ms"), nil)
+	require.ErrorContains(t, execution.err,
+		"do[1] expect failed: the browser lost its connection to the page: a new document replaced its script context")
 }
 
 // A failure on a window another page opened and that stays open in front

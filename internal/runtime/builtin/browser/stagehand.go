@@ -1310,15 +1310,36 @@ func controlAttributes(ctx context.Context, page *stagehand.Page, snap pageSnaps
 	return attributes
 }
 
-// evaluate runs a JavaScript expression in the active page.
+// evaluate runs a JavaScript expression in the active page. A navigation an
+// action starts may replace the page's script context after the action
+// returned, so an expression that loses its context runs once more after the
+// new document settles. Its error wraps errPageContextLost when that run
+// loses its context too.
 func (e *stagehandEngine) evaluate(ctx context.Context, expression string) (json.RawMessage, error) {
-	return boundCall(ctx, e.pageCallTimeout, func(ctx context.Context) (json.RawMessage, error) {
+	run := func(ctx context.Context) (json.RawMessage, error) {
 		page, err := e.page(ctx)
 		if err != nil {
 			return nil, err
 		}
 		return page.Evaluate(ctx, expression)
-	})
+	}
+	raw, err := boundCall(ctx, e.pageCallTimeout, run)
+	if !contextLost(err) {
+		return raw, err
+	}
+	e.settleDocument(ctx, time.Now().Add(e.settleWait), time.Time{})
+	raw, err = boundCall(ctx, e.pageCallTimeout, run)
+	if contextLost(err) {
+		return nil, fmt.Errorf("%w: %w", errPageContextLost, err)
+	}
+	return raw, err
+}
+
+// contextLost reports whether a page call failed because a new document
+// replaced the script context it ran in.
+func contextLost(err error) bool {
+	var rpcErr *stagehand.RPCError
+	return errors.As(err, &rpcErr) && strings.Contains(rpcErr.Message, contextLostMarker)
 }
 
 func (e *stagehandEngine) TakeDialogs() []dialog {
